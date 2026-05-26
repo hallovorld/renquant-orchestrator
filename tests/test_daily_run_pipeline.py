@@ -8,6 +8,7 @@ import pytest
 
 from renquant_common import Task
 from renquant_execution import PaperBroker
+from renquant_model_gbdt import train_panel_ltr_artifact, validate_panel_ltr_artifact
 from renquant_orchestrator import DailyRunContext, DailyRunPipeline
 from renquant_pipeline import stamp_order_attribution
 
@@ -197,3 +198,100 @@ def test_daily_run_pipeline_rejects_unfingerprinted_strategy(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="strategy_manifest missing fingerprint"):
         DailyRunPipeline(_loader, _trainer, _validator).run(ctx)
+
+
+def test_daily_run_pipeline_real_gbdt_to_panel_scoring_to_paper_fill(tmp_path: Path) -> None:
+    from renquant_pipeline import PanelScoringJob
+
+    dataset = _real_panel_dataset()
+    strategy_config = {
+        "watchlist": ["AAPL", "MSFT"],
+        "sector_map": {"AAPL": "Technology", "MSFT": "Technology"},
+        "ranking": {"panel_scoring": {"enabled": True, "buy_floor": 0.0}},
+        "execution": {"default_quantity": 1},
+    }
+    broker = PaperBroker(initial_cash=100_000.0)
+    ctx = DailyRunContext(
+        run_id="daily-real-gbdt-fixture",
+        run_type="daily_full",
+        strategy_config=strategy_config,
+        strategy_manifest=_strategy_manifest(),
+        data_manifest=_data_manifest(),
+        model_config={
+            "strategy": "renquant_104",
+            "backend": "xgboost",
+            "objective": "rank:pairwise",
+            "config_fingerprint": _strategy_manifest()["fingerprint"],
+            "code_commit": "unit-real-gbdt",
+            "train_run_id": "daily-real-gbdt-fixture",
+            "artifact_id": "daily-real-gbdt-fixture",
+            "lookahead_days": 2,
+            "cv_embargo_days": 2,
+            "cv_n_splits": 3,
+            "num_boost_round": 12,
+            "cv_num_boost_round": 6,
+            "feature_cols": ["alpha_1", "alpha_2"],
+            "xgb_params": {"max_depth": 2, "eta": 0.2, "nthread": 1, "seed": 11},
+            "acceptance_min_oos_ic": -1.0,
+        },
+        market_snapshot={
+            "as_of": "2026-05-25",
+            "feature_frame": {
+                "AAPL": {"alpha_1": 1.0, "alpha_2": 0.1},
+                "MSFT": {"alpha_1": -1.0, "alpha_2": 0.0},
+            },
+            "order_quantity_by_ticker": {"AAPL": 1, "MSFT": 1},
+        },
+        output_dir=tmp_path / "run",
+        broker=broker,
+        runtime_stages=[PanelScoringJob(emit_orders=True)],
+        price_map={"AAPL": 100.0, "MSFT": 100.0},
+        dry_run=False,
+    )
+
+    result = DailyRunPipeline(
+        lambda manifest: dataset,
+        train_panel_ltr_artifact,
+        validate_panel_ltr_artifact,
+        backtest_runner=lambda bctx: {"ok": True, "n_orders": len(ctx.inference_context.order_intents)},
+    ).run(ctx)
+
+    assert result.ok is True
+    assert ctx.training_context is not None
+    assert ctx.training_context.artifact_manifest is not None
+    assert ctx.training_context.artifact_manifest["local_artifact_path"]
+    assert ctx.inference_context is not None
+    assert ctx.inference_context.scores["AAPL"] > ctx.inference_context.scores["MSFT"]
+    assert ctx.inference_context.order_intents
+    assert all("attribution" in order for order in ctx.inference_context.order_intents)
+    assert ctx.execution_context is not None
+    assert ctx.execution_context.submitted_orders
+    assert ctx.run_bundle["order_intents"][0]["attribution"]["source_job"] == "PanelScoringJob"
+
+
+def _real_panel_dataset() -> dict[str, Any]:
+    import numpy as np
+    import pandas as pd
+
+    rows: list[dict[str, Any]] = []
+    tickers = ["AAPL", "MSFT", "GOOG", "IBM"]
+    for day in range(18):
+        date = pd.Timestamp("2026-01-01") + pd.Timedelta(days=day)
+        for idx, ticker in enumerate(tickers):
+            alpha_1 = 1.5 - idx + 0.01 * day
+            alpha_2 = ((day % 3) - 1) * 0.1
+            rows.append({
+                "date": date,
+                "ticker": ticker,
+                "alpha_1": alpha_1,
+                "alpha_2": alpha_2,
+                "label": alpha_1 + 0.05 * alpha_2,
+                "weight": 1.0,
+            })
+    panel = pd.DataFrame(rows).sort_values(["date", "ticker"]).reset_index(drop=True)
+    group_sizes = panel.groupby("date", sort=False).size().to_numpy(dtype=np.int32)
+    return {
+        "panel": panel,
+        "group_sizes": group_sizes,
+        "feature_cols": ["alpha_1", "alpha_2"],
+    }
