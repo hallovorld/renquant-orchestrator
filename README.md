@@ -11,6 +11,10 @@ Local automation:
 ```bash
 make test
 make doctor
+python -m renquant_orchestrator daily-contract \
+  --strategy-config ../renquant-strategy-104/configs/strategy_config.json \
+  --output-dir /tmp/renquant-daily-contract \
+  --broker-type paper
 ```
 
 This repo owns the top-level daily flow:

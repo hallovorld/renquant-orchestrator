@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from renquant_common import Task
-from renquant_execution import PaperBroker
+from renquant_execution import get_broker
 from renquant_pipeline import InferenceContext
 from renquant_strategy_104 import load_strategy_config, strategy_manifest
 
@@ -51,7 +51,8 @@ def run_contract_fixture(
     run_id: str,
     as_of: str,
     code_commit: str = "uncommitted",
-    broker_name: str = "paper-smoke",
+    broker_type: str = "paper",
+    broker_name: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
     """Run the deterministic training-to-trading fixture and return summary."""
@@ -99,8 +100,14 @@ def run_contract_fixture(
         calls.append("validate")
         return {"accepted": False, "oos_mean_ic": 0.0, "smoke": True}
 
-    broker = PaperBroker(initial_cash=100000.0)
-    broker.broker_name = broker_name
+    broker = get_broker(broker_type, initial_cash=100000.0)
+    if broker_type == "paper":
+        broker.broker_name = broker_name or "paper-smoke"
+    elif broker_name is not None and broker.broker_name != broker_name:
+        raise ValueError(
+            f"broker_name={broker_name!r} does not match broker_type={broker_type!r} "
+            f"({broker.broker_name!r})"
+        )
     ctx = DailyRunContext(
         run_id=run_id,
         run_type="daily_full",
@@ -138,6 +145,9 @@ def run_contract_fixture(
         raise RuntimeError("fixture did not produce run_bundle")
     return {
         "ok": True,
+        "broker_type": broker_type,
+        "broker_name": ctx.execution_context.broker_name,
+        "dry_run": dry_run,
         "training_calls": calls,
         "artifact_id": ctx.training_context.artifact_manifest["artifact_id"],
         "order_intents": ctx.inference_context.order_intents,

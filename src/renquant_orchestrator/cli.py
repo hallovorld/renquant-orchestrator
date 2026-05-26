@@ -23,7 +23,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     fixture.add_argument("--run-id", default=None)
     fixture.add_argument("--as-of", default=None)
     fixture.add_argument("--code-commit", default="uncommitted")
-    fixture.add_argument("--broker-name", default="paper-smoke")
+    fixture.add_argument(
+        "--broker-type",
+        default="paper",
+        help="execution broker mode: paper, alpaca-paper, alpaca-shadow, readonly-alpaca, alpaca",
+    )
+    fixture.add_argument("--broker-name", default=None)
     fixture.add_argument(
         "--execute",
         action="store_true",
@@ -40,6 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_id=run_id,
             as_of=as_of,
             code_commit=args.code_commit,
+            broker_type=args.broker_type,
             broker_name=args.broker_name,
             dry_run=not args.execute,
         )

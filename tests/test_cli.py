@@ -51,8 +51,40 @@ def test_daily_contract_cli_writes_run_bundle(tmp_path: Path, capsys) -> None:
     assert rc == 0
     summary = json.loads(capsys.readouterr().out)
     assert summary["ok"] is True
+    assert summary["broker_type"] == "paper"
+    assert summary["broker_name"] == "paper-smoke"
     assert summary["training_calls"] == ["load", "train", "validate"]
     assert Path(summary["run_bundle_path"]).exists()
     bundle = json.loads(Path(summary["run_bundle_path"]).read_text())
     assert bundle["run_id"] == "cli-fixture"
     assert bundle["submitted_orders"][0]["status"] == "dry_run"
+
+
+def test_daily_contract_cli_execute_uses_paper_fill(tmp_path: Path, capsys) -> None:
+    cfg = tmp_path / "strategy_config.json"
+    out = tmp_path / "out"
+    _strategy_config(cfg)
+
+    rc = main([
+        "daily-contract",
+        "--strategy-config",
+        str(cfg),
+        "--output-dir",
+        str(out),
+        "--run-id",
+        "cli-execute-fixture",
+        "--as-of",
+        "2026-05-26",
+        "--broker-type",
+        "paper",
+        "--broker-name",
+        "paper-test",
+        "--execute",
+    ])
+
+    assert rc == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["dry_run"] is False
+    assert summary["broker_name"] == "paper-test"
+    assert summary["submitted_orders"][0]["status"] == "filled"
+    assert summary["submitted_orders"][0]["price"] == 100.0
