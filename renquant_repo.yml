@@ -1,0 +1,36 @@
+schema_version: 1
+name: renquant-orchestrator
+role: pinned-subrepo daily orchestration and run bundles
+operating_model: https://github.com/hallovorld/RenQuant/blob/main/doc/arch/subrepo-operating-model.md
+repo_map: RENQUANT_REPOS.md
+pipeline_required: true
+branch_policy:
+  main: stable interface for downstream repos and automation
+  feature_branches: experiments, optimizations, and large upgrades
+source_repo:
+  name: RenQuant
+  never_delete: true
+dependencies:
+  - renquant-common
+  - renquant-base-data
+  - renquant-artifacts
+  - renquant-strategy-104
+  - renquant-model-gbdt
+  - renquant-model-patchtst
+  - renquant-pipeline
+  - renquant-execution
+  - renquant-backtesting
+owns:
+  - daily/full orchestration
+  - pinned-subrepo run bundle creation
+  - integration sequence from training to order submission
+forbidden:
+  - model internals
+  - signal internals
+  - broker adapter internals
+  - raw data or heavy artifacts
+automation:
+  test: make test
+  doctor: make doctor
+outputs:
+  - python package renquant_orchestrator

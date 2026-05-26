@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renquant-orchestrator"
+version = "0.1.0"
+description = "Pinned-subrepo daily orchestration for RenQuant."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "renquant-common>=0.1.0",
+  "renquant-base-data>=0.1.0",
+  "renquant-artifacts>=0.1.0",
+  "renquant-strategy-104>=0.1.0",
+  "renquant-model-gbdt>=0.1.0",
+  "renquant-model-patchtst>=0.1.0",
+  "renquant-pipeline>=0.1.0",
+  "renquant-execution>=0.1.0",
+  "renquant-backtesting>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src",
+  "../renquant-common/src",
+  "../renquant-base-data/src",
+  "../renquant-artifacts/src",
+  "../renquant-strategy-104/src",
+  "../renquant-model-gbdt/src",
+  "../renquant-model-patchtst/src",
+  "../renquant-pipeline/src",
+  "../renquant-execution/src",
+  "../renquant-backtesting/src",
+]
+testpaths = ["tests"]
