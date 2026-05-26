@@ -231,12 +231,16 @@ def test_daily_run_pipeline_real_gbdt_to_panel_scoring_to_paper_fill(tmp_path: P
             "num_boost_round": 12,
             "cv_num_boost_round": 6,
             "feature_cols": ["alpha_1", "alpha_2"],
+            "feature_means": [0.0, 0.0],
+            "feature_stds": [1.0, 1.0],
+            "feature_norm_kind": ["legacy_full_z", "legacy_full_z"],
+            "feature_source_space": "raw",
             "xgb_params": {"max_depth": 2, "eta": 0.2, "nthread": 1, "seed": 11},
             "acceptance_min_oos_ic": -1.0,
         },
         market_snapshot={
             "as_of": "2026-05-25",
-            "feature_frame": {
+            "raw_feature_frame": {
                 "AAPL": {"alpha_1": 1.0, "alpha_2": 0.1},
                 "MSFT": {"alpha_1": -1.0, "alpha_2": 0.0},
             },
@@ -260,6 +264,7 @@ def test_daily_run_pipeline_real_gbdt_to_panel_scoring_to_paper_fill(tmp_path: P
     assert ctx.training_context is not None
     assert ctx.training_context.artifact_manifest is not None
     assert ctx.training_context.artifact_manifest["local_artifact_path"]
+    assert ctx.training_context.artifact_manifest["feature_source_space"] == "raw"
     assert ctx.inference_context is not None
     assert ctx.inference_context.scores["AAPL"] > ctx.inference_context.scores["MSFT"]
     assert ctx.inference_context.order_intents
