@@ -10,10 +10,18 @@ EXECUTION_SRC ?= ../renquant-execution/src
 BACKTESTING_SRC ?= ../renquant-backtesting/src
 export PYTHONPATH := $(COMMON_SRC):$(BASE_DATA_SRC):$(ARTIFACTS_SRC):$(STRATEGY_SRC):$(GBDT_SRC):$(PATCHTST_SRC):$(PIPELINE_SRC):$(EXECUTION_SRC):$(BACKTESTING_SRC):src:$(PYTHONPATH)
 
-.PHONY: test doctor
+.PHONY: test doctor daily-contract
 
 test:
 	$(PYTHON) -m pytest -q
 
 doctor:
 	$(PYTHON) -c "from renquant_orchestrator import DailyRunPipeline; from renquant_common import Pipeline; print('renquant-orchestrator ok')"
+
+daily-contract:
+	$(PYTHON) -m renquant_orchestrator daily-contract \
+		--strategy-config $(STRATEGY_CONFIG) \
+		--output-dir $(OUTPUT_DIR) \
+		--run-id $(RUN_ID) \
+		--as-of $(AS_OF) \
+		--code-commit $(CODE_COMMIT)
