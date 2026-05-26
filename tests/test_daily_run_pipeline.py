@@ -201,7 +201,7 @@ def test_daily_run_pipeline_rejects_unfingerprinted_strategy(tmp_path: Path) -> 
 
 
 def test_daily_run_pipeline_real_gbdt_to_panel_scoring_to_paper_fill(tmp_path: Path) -> None:
-    from renquant_pipeline import PanelScoringJob
+    from renquant_pipeline import PanelScoringJob, SelectionJob
 
     dataset = _real_panel_dataset()
     strategy_config = {
@@ -248,7 +248,7 @@ def test_daily_run_pipeline_real_gbdt_to_panel_scoring_to_paper_fill(tmp_path: P
         },
         output_dir=tmp_path / "run",
         broker=broker,
-        runtime_stages=[PanelScoringJob(emit_orders=True)],
+        runtime_stages=[PanelScoringJob(), SelectionJob(), PanelScoringJob(emit_orders=True)],
         price_map={"AAPL": 100.0, "MSFT": 100.0},
         dry_run=False,
     )

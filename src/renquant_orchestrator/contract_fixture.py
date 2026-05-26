@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from renquant_execution import get_broker
-from renquant_pipeline import PanelScoringJob
+from renquant_pipeline import PanelScoringJob, SelectionJob
 from renquant_strategy_104 import load_strategy_config, strategy_manifest
 
 from .daily import DailyRunContext, DailyRunPipeline
@@ -114,7 +114,7 @@ def run_contract_fixture(
         account_snapshot={"cash": 100000.0},
         output_dir=Path(output_dir),
         broker=broker,
-        runtime_stages=[PanelScoringJob(emit_orders=True)],
+        runtime_stages=[PanelScoringJob(), SelectionJob(), PanelScoringJob(emit_orders=True)],
         price_map={strategy_config["watchlist"][0]: 100.0},
         dry_run=dry_run,
     )
