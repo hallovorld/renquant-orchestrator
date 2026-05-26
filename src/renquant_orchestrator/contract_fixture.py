@@ -9,9 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from renquant_common import Task
 from renquant_execution import get_broker
-from renquant_pipeline import InferenceContext, stamp_order_attribution
+from renquant_pipeline import PanelScoringJob
 from renquant_strategy_104 import load_strategy_config, strategy_manifest
 
 from .daily import DailyRunContext, DailyRunPipeline
@@ -26,30 +25,6 @@ def fixture_data_manifest() -> dict[str, Any]:
         "asset_class": "equity",
         "retention_class": "fixture",
     }
-
-
-class FixtureScoreTask(Task):
-    def run(self, ctx: InferenceContext) -> bool | None:
-        ticker = ctx.strategy_config["watchlist"][0]
-        ctx.scores[ticker] = 0.42
-        ctx.decision_trace.append({"stage": "score", "ticker": ticker, "score": 0.42})
-        return True
-
-
-class FixtureSelectTask(Task):
-    def run(self, ctx: InferenceContext) -> bool | None:
-        ticker = max(ctx.scores, key=ctx.scores.get)
-        order = stamp_order_attribution(
-            {"ticker": ticker, "action": "buy", "quantity": 1},
-            ctx,
-            source_job="FixtureInferenceJob",
-            source_task=type(self).__name__,
-            acceptance_reason="fixture_top_score",
-            decision_inputs={"score": ctx.scores[ticker]},
-        )
-        ctx.order_intents.append(order)
-        ctx.decision_trace.append({"stage": "select", "ticker": ticker})
-        return True
 
 
 def run_contract_fixture(
@@ -106,7 +81,7 @@ def run_contract_fixture(
         config: dict[str, Any],
     ) -> dict[str, Any]:
         calls.append("validate")
-        return {"accepted": False, "oos_mean_ic": 0.0, "smoke": True}
+        return {"accepted": True, "oos_mean_ic": 0.0, "smoke": True}
 
     broker = get_broker(broker_type, initial_cash=100000.0)
     if broker_type == "paper":
@@ -128,11 +103,18 @@ def run_contract_fixture(
             "config_fingerprint": strategy_ref["fingerprint"],
             "code_commit": code_commit,
         },
-        market_snapshot={"as_of": as_of},
+        market_snapshot={
+            "as_of": as_of,
+            "feature_frame": {
+                strategy_config["watchlist"][0]: {"alpha_1": 1.0, "alpha_2": 0.2}
+            },
+            "panel_scores": {strategy_config["watchlist"][0]: 0.42},
+            "order_quantity_by_ticker": {strategy_config["watchlist"][0]: 1},
+        },
         account_snapshot={"cash": 100000.0},
         output_dir=Path(output_dir),
         broker=broker,
-        runtime_stages=[FixtureScoreTask(), FixtureSelectTask()],
+        runtime_stages=[PanelScoringJob(emit_orders=True)],
         price_map={strategy_config["watchlist"][0]: 100.0},
         dry_run=dry_run,
     )

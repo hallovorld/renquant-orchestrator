@@ -57,7 +57,11 @@ def test_daily_contract_cli_writes_run_bundle(tmp_path: Path, capsys) -> None:
     assert Path(summary["run_bundle_path"]).exists()
     bundle = json.loads(Path(summary["run_bundle_path"]).read_text())
     assert bundle["run_id"] == "cli-fixture"
-    assert bundle["order_intents"][0]["attribution"]["source_task"] == "FixtureSelectTask"
+    assert bundle["order_intents"][0]["attribution"]["source_job"] == "PanelScoringJob"
+    assert (
+        bundle["order_intents"][0]["attribution"]["source_task"]
+        == "EmitAttributedOrderIntentsTask"
+    )
     assert bundle["submitted_orders"][0]["status"] == "dry_run"
 
 
