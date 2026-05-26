@@ -9,6 +9,7 @@ import pytest
 from renquant_common import Task
 from renquant_execution import PaperBroker
 from renquant_orchestrator import DailyRunContext, DailyRunPipeline
+from renquant_pipeline import stamp_order_attribution
 
 
 class ScoreTask(Task):
@@ -20,8 +21,23 @@ class ScoreTask(Task):
 
 class SelectTask(Task):
     def run(self, ctx) -> bool | None:
-        ctx.order_intents.append({"ticker": "AAPL", "action": "buy", "quantity": 2})
+        ctx.order_intents.append(
+            stamp_order_attribution(
+                {"ticker": "AAPL", "action": "buy", "quantity": 2},
+                ctx,
+                source_job="FixtureSelectionJob",
+                source_task=type(self).__name__,
+                acceptance_reason="unit_test_selected",
+                decision_inputs={"score": ctx.scores["AAPL"]},
+            )
+        )
         ctx.decision_trace.append({"stage": "select", "ticker": "AAPL", "quantity": 2})
+        return True
+
+
+class BareSelectTask(Task):
+    def run(self, ctx) -> bool | None:
+        ctx.order_intents.append({"ticker": "AAPL", "action": "buy", "quantity": 2})
         return True
 
 
@@ -121,6 +137,7 @@ def test_daily_run_pipeline_flows_from_training_to_trading_and_bundle(tmp_path: 
     bundle = json.loads((tmp_path / "run" / "run_bundle.json").read_text())
     assert bundle["run_id"] == "daily-2026-05-25"
     assert bundle["decision_trace"][0]["stage"] == "score"
+    assert bundle["order_intents"][0]["attribution"]["source_job"] == "FixtureSelectionJob"
     assert bundle["backtest_report"] == {"ok": True, "n_orders": 1}
 
 
@@ -141,6 +158,26 @@ def test_daily_run_pipeline_requires_execution_prices_for_orders(tmp_path: Path)
     )
 
     with pytest.raises(ValueError, match="price_map missing execution price for AAPL"):
+        DailyRunPipeline(_loader, _trainer, _validator).run(ctx)
+
+
+def test_daily_run_pipeline_rejects_unattributed_order_intents(tmp_path: Path) -> None:
+    ctx = DailyRunContext(
+        run_id="daily-2026-05-25",
+        run_type="daily_full",
+        strategy_config=_strategy_config(),
+        strategy_manifest=_strategy_manifest(),
+        data_manifest=_data_manifest(),
+        model_config={"objective": "rank:pairwise"},
+        market_snapshot={"as_of": "2026-05-25"},
+        output_dir=tmp_path / "run",
+        broker=PaperBroker(),
+        runtime_stages=[ScoreTask(), BareSelectTask()],
+        price_map={"AAPL": 100.0},
+        dry_run=False,
+    )
+
+    with pytest.raises(ValueError, match="order missing attribution"):
         DailyRunPipeline(_loader, _trainer, _validator).run(ctx)
 
 

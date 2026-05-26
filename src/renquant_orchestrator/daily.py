@@ -13,7 +13,7 @@ from renquant_backtesting import BacktestContext, BacktestPipeline
 from renquant_common import Job, Pipeline, PipelineResult, Task
 from renquant_execution import BaseBroker, BrokerExecutionPipeline, ExecutionContext
 from renquant_model_gbdt import PanelGbdtTrainingPipeline, TrainingContext
-from renquant_pipeline import InferenceContext, RuntimeInferencePipeline
+from renquant_pipeline import InferenceContext, RuntimeInferencePipeline, validate_order_attribution
 
 
 DatasetLoader = Callable[[dict[str, Any]], Any]
@@ -136,6 +136,7 @@ class ExecuteOrderIntentsTask(Task):
         ctx.broker.connect()
         try:
             for intent in ctx.inference_context.order_intents:
+                validate_order_attribution(intent)
                 symbol = intent.get("symbol") or intent.get("ticker")
                 if symbol and hasattr(ctx.broker, "set_price"):
                     if symbol not in ctx.price_map:

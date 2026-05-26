@@ -11,7 +11,7 @@ from typing import Any
 
 from renquant_common import Task
 from renquant_execution import get_broker
-from renquant_pipeline import InferenceContext
+from renquant_pipeline import InferenceContext, stamp_order_attribution
 from renquant_strategy_104 import load_strategy_config, strategy_manifest
 
 from .daily import DailyRunContext, DailyRunPipeline
@@ -39,7 +39,15 @@ class FixtureScoreTask(Task):
 class FixtureSelectTask(Task):
     def run(self, ctx: InferenceContext) -> bool | None:
         ticker = max(ctx.scores, key=ctx.scores.get)
-        ctx.order_intents.append({"ticker": ticker, "action": "buy", "quantity": 1})
+        order = stamp_order_attribution(
+            {"ticker": ticker, "action": "buy", "quantity": 1},
+            ctx,
+            source_job="FixtureInferenceJob",
+            source_task=type(self).__name__,
+            acceptance_reason="fixture_top_score",
+            decision_inputs={"score": ctx.scores[ticker]},
+        )
+        ctx.order_intents.append(order)
         ctx.decision_trace.append({"stage": "select", "ticker": ticker})
         return True
 
