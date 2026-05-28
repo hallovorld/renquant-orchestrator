@@ -11,7 +11,13 @@ def _strategy_config(path: Path) -> None:
         json.dumps({
             "watchlist": ["AAPL", "MSFT"],
             "benchmark": "AAPL",
-            "regime_params": {"BULL_CALM": {"disable_new_buys": False}},
+            "regime_params": {
+                "BULL_CALM": {"disable_new_buys": False},
+                "BULL_VOLATILE": {"disable_new_buys": False},
+                "BULL_STRONG": {"disable_new_buys": False},
+                "BEAR": {"disable_new_buys": False},
+                "CHOPPY": {"disable_new_buys": False},
+            },
             "sector_map": {"AAPL": "Technology", "MSFT": "Technology"},
             "ranking": {
                 "panel_scoring": {
