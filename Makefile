@@ -7,8 +7,11 @@ COMMON_SRC ?= ../renquant-common/src
 BASE_DATA_SRC ?= ../renquant-base-data/src
 ARTIFACTS_SRC ?= ../renquant-artifacts/src
 STRATEGY_SRC ?= ../renquant-strategy-104/src
-GBDT_SRC ?= ../renquant-model-gbdt/src
-PATCHTST_SRC ?= ../renquant-model-patchtst/src
+# GBDT + PatchTST families merged into renquant-model (RFC P3); the standalone
+# renquant-model-gbdt / renquant-model-patchtst repos are archived. Point both at
+# the merged repo so we import the current engine, not the pre-merge package.
+GBDT_SRC ?= ../renquant-model/src
+PATCHTST_SRC ?= ../renquant-model/src
 PIPELINE_SRC ?= ../renquant-pipeline/src
 EXECUTION_SRC ?= ../renquant-execution/src
 BACKTESTING_SRC ?= ../renquant-backtesting/src
