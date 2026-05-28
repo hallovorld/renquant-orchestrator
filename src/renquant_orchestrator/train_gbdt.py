@@ -21,6 +21,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import json
 import logging
 import sys
 import uuid
@@ -30,9 +32,31 @@ import pandas as pd
 
 GITHUB = Path(__file__).resolve().parents[3]          # …/github
 DEFAULT_DATA_DIR = GITHUB / "RenQuant" / "data"        # data lives in the umbrella (gitignored)
+DEFAULT_STRATEGY_CONFIG = GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+_CONFIG_CONSISTENCY = (GITHUB / "renquant-pipeline" / "src" / "renquant_pipeline"
+                       / "kernel" / "config_consistency.py")
 _PIN_SRCS = ["renquant-common", "renquant-base-data", "renquant-artifacts", "renquant-model"]
 
 log = logging.getLogger("orchestrator.train_gbdt")
+
+
+def _production_fingerprint(strategy_config_path: Path) -> tuple[str | None, dict | None]:
+    """Compute the production config fingerprint from the strategy config, using the
+    pipeline pin's config_consistency (loaded by file path so we don't pull the whole
+    inference package). This is the SAME function + config the runtime scorer uses, so
+    the stamped fingerprint matches the scorer's live check → the artifact loads."""
+    if not (strategy_config_path.exists() and _CONFIG_CONSISTENCY.exists()):
+        log.warning("strategy config or config_consistency missing — falling back to content fp")
+        return None, None
+    spec = importlib.util.spec_from_file_location("_cc_fp", _CONFIG_CONSISTENCY)
+    cc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cc)
+    cfg = json.loads(strategy_config_path.read_text())
+    return cc.fingerprint_config(cfg), cc._model_relevant_fields(cfg)
+
+
+UMBRELLA = GITHUB / "RenQuant"
+STRATEGY_DIR = UMBRELLA / "backtesting" / "renquant_104"
 
 
 def _bootstrap() -> None:
@@ -40,14 +64,60 @@ def _bootstrap() -> None:
         src = GITHUB / name / "src"
         if src.is_dir() and str(src) not in sys.path:
             sys.path.insert(0, str(src))
+    # Umbrella on path for the not-yet-lifted sentiment training gate (needs the HMM
+    # regime detector). Data-load + normalization + model stay in renquant-model.
+    for p in (str(STRATEGY_DIR), str(UMBRELLA)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
 
 _bootstrap()
 
-from renquant_model_gbdt import GbdtTrainingContext, build_training_pipeline  # noqa: E402
+from renquant_common import Job, Pipeline, Task  # noqa: E402
+from renquant_model_gbdt import (  # noqa: E402
+    ArtifactContractJob, BuildNormalizationTask, GbdtTrainingContext,
+    LoadPanelTask, ModelTrainingJob, build_training_pipeline,
+)
 from renquant_model_gbdt.panel_trainer import (  # noqa: E402
     DEFAULT_LABEL, DEFAULT_N_ROUNDS, PANEL_LTR_PARAMS,
 )
+
+
+class _Seq(Job):
+    """A Job that runs a fixed list of Tasks in order."""
+
+    def __init__(self, tasks: list) -> None:
+        self._tasks = tasks
+
+    @property
+    def tasks(self) -> list:
+        return self._tasks
+
+
+class SentimentGateTask(Task):
+    """Per-regime sentiment training gate (PRIME DIRECTIVE) via the umbrella's proven
+    HMM-regime replay — bridged here until the regime detector is lifted to a pin.
+    Zeroes sentiment features in disabled-regime training rows + records the
+    sentiment_runtime_gate_contract the panel scorer requires."""
+
+    def run(self, ctx: GbdtTrainingContext) -> bool | None:
+        from scripts.train_production_model import (  # noqa: PLC0415
+            apply_sentiment_training_gate, build_fingerprint_config,
+            build_sentiment_training_regime_map,
+        )
+        fp_cfg = build_fingerprint_config(
+            fingerprint_config_path=None, watchlist_file=None,
+            label_used=ctx.label, feat_cols=ctx.feat_cols,
+        )
+        regime_map = build_sentiment_training_regime_map(ctx.train["date"].unique(), fp_cfg)
+        ctx.train, contract = apply_sentiment_training_gate(
+            ctx.train, ctx.feat_cols, fp_cfg, regime_map)
+        if contract:
+            ctx.extra_artifact_fields.update(contract)
+            log.info("Sentiment gate: zeroed %d rows in regimes %s",
+                     contract.get("sentiment_runtime_gate_zeroed_rows"),
+                     contract.get("sentiment_runtime_gate_disabled_regimes"))
+        return True
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -62,6 +132,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--cv-n-splits", type=int, default=3)
     p.add_argument("--cv-embargo-days", type=int, default=60)
     p.add_argument("--nthread", type=int, default=None)
+    p.add_argument("--strategy-config", type=str, default=None,
+                   help="Strategy config whose model-relevant fields set the production "
+                        "config_fingerprint (default: umbrella strategy_config.json). "
+                        "Pass 'none' to stamp a self-describing content hash instead.")
+    p.add_argument("--skip-sentiment-gate", action="store_true",
+                   help="Skip the per-regime sentiment training gate (self-contained "
+                        "research mode; the artifact then fails the production panel "
+                        "contract's sentiment requirement).")
     p.add_argument("--skip-cv", action="store_true")
     return p.parse_args(argv)
 
@@ -85,16 +163,35 @@ def main(argv: list[str] | None = None) -> int:
     if args.nthread:
         params["nthread"] = args.nthread
 
+    # Production config fingerprint so the runtime scorer can load the artifact.
+    fp, fp_fields = (None, None)
+    if args.strategy_config is None or args.strategy_config.lower() != "none":
+        sc_path = Path(args.strategy_config) if args.strategy_config else DEFAULT_STRATEGY_CONFIG
+        fp, fp_fields = _production_fingerprint(sc_path)
+
     sys.stderr.write(
-        f"[orchestrator.train_gbdt] self-contained pin training; data_dir={data_dir}\n")
+        f"[orchestrator.train_gbdt] self-contained pin training; data_dir={data_dir}; "
+        f"config_fp={fp or 'content-hash'}\n")
     ctx = GbdtTrainingContext(
         label=args.label or DEFAULT_LABEL, params=params, num_boost_round=args.num_boost_round,
         cv_n_splits=args.cv_n_splits, cv_embargo_days=args.cv_embargo_days, skip_cv=args.skip_cv,
         data_dir=str(data_dir), cutoff_date=cutoff_date, side_label=args.side_label,
         output_path=str(out_path), train_run_id=str(uuid.uuid4())[:8],
+        config_fingerprint=fp, config_fingerprint_fields=fp_fields,
         training_notes="alpha158 + SEC fund panel-LTR, self-contained subrepo training",
     )
-    result = build_training_pipeline().run(ctx)
+    # Assemble the pipeline: model's data + model + contract Jobs, with the
+    # production sentiment gate inserted between panel load and normalization
+    # (zeroing must precede normalization, matching the production trainer).
+    if args.skip_sentiment_gate:
+        pipeline = build_training_pipeline()
+    else:
+        pipeline = Pipeline([
+            _Seq([LoadPanelTask(), SentimentGateTask(), BuildNormalizationTask()]),
+            ModelTrainingJob(),
+            ArtifactContractJob(),
+        ], name="panel-gbdt-training")
+    result = pipeline.run(ctx)
     log.info("Pipeline %s ok=%s elapsed=%.1fs steps=%s", result.name, result.ok,
              result.elapsed_sec, [s.job_name for s in result.steps])
     if ctx.artifact and ctx.artifact.get("oos_per_fold_ic"):
