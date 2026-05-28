@@ -140,8 +140,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Skip the per-regime sentiment training gate (self-contained "
                         "research mode; the artifact then fails the production panel "
                         "contract's sentiment requirement).")
+    p.add_argument("--drop-sentiment", action="store_true",
+                   help="Exclude the 3 sentiment features (mean_sentiment / n_articles_log "
+                        "/ sentiment_pos_share). 2026-05-28 placebo-clean WF showed they "
+                        "DILUTE the signal (clean IC -0.005 → +0.010). Implies "
+                        "--skip-sentiment-gate (no sentiment features → no gate needed → "
+                        "fully self-contained, no umbrella bridge).")
+    p.add_argument("--exclude-features", type=str, default=None,
+                   help="Comma-separated extra feature columns to drop.")
     p.add_argument("--skip-cv", action="store_true")
     return p.parse_args(argv)
+
+
+_SENTIMENT_FEATURES = ["mean_sentiment", "n_articles_log", "sentiment_pos_share"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -169,21 +180,30 @@ def main(argv: list[str] | None = None) -> int:
         sc_path = Path(args.strategy_config) if args.strategy_config else DEFAULT_STRATEGY_CONFIG
         fp, fp_fields = _production_fingerprint(sc_path)
 
+    # Feature exclusion. --drop-sentiment removes the 3 sentiment features (found to
+    # dilute the signal) and implies skipping the sentiment gate (no sentiment feature
+    # → no gate → fully self-contained, no umbrella bridge).
+    exclude = list(_SENTIMENT_FEATURES) if args.drop_sentiment else []
+    if args.exclude_features:
+        exclude += [c.strip() for c in args.exclude_features.split(",") if c.strip()]
+    skip_gate = args.skip_sentiment_gate or args.drop_sentiment
+
     sys.stderr.write(
         f"[orchestrator.train_gbdt] self-contained pin training; data_dir={data_dir}; "
-        f"config_fp={fp or 'content-hash'}\n")
+        f"config_fp={fp or 'content-hash'}; drop_sentiment={args.drop_sentiment}\n")
     ctx = GbdtTrainingContext(
         label=args.label or DEFAULT_LABEL, params=params, num_boost_round=args.num_boost_round,
         cv_n_splits=args.cv_n_splits, cv_embargo_days=args.cv_embargo_days, skip_cv=args.skip_cv,
         data_dir=str(data_dir), cutoff_date=cutoff_date, side_label=args.side_label,
         output_path=str(out_path), train_run_id=str(uuid.uuid4())[:8],
         config_fingerprint=fp, config_fingerprint_fields=fp_fields,
+        exclude_features=exclude or None,
         training_notes="alpha158 + SEC fund panel-LTR, self-contained subrepo training",
     )
     # Assemble the pipeline: model's data + model + contract Jobs, with the
     # production sentiment gate inserted between panel load and normalization
     # (zeroing must precede normalization, matching the production trainer).
-    if args.skip_sentiment_gate:
+    if skip_gate:
         pipeline = build_training_pipeline()
     else:
         pipeline = Pipeline([
