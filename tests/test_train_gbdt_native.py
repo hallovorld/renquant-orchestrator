@@ -43,12 +43,14 @@ def _make_data_dir(tmp: Path, n_dates: int = 40, n_tickers: int = 10, seed: int 
 
 
 def test_native_driver_trains_complete_artifact(tmp_path: Path) -> None:
+    """Self-contained research mode: no umbrella, no sentiment gate, content fp."""
     data_dir = _make_data_dir(tmp_path / "data")
     out = tmp_path / "panel-ltr.json"
     r = subprocess.run(
         [sys.executable, str(DRIVER), "--data-dir", str(data_dir),
          "--output-path", str(out), "--num-boost-round", "20",
-         "--cv-n-splits", "3", "--cv-embargo-days", "2"],
+         "--cv-n-splits", "3", "--cv-embargo-days", "2",
+         "--skip-sentiment-gate", "--strategy-config", "none"],
         capture_output=True, text=True,
     )
     assert r.returncode == 0, f"driver failed:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}"
@@ -60,3 +62,32 @@ def test_native_driver_trains_complete_artifact(tmp_path: Path) -> None:
     assert art["feature_cols"] == ["a0", "a1", "a2"]
     assert art["oos_per_fold_ic"]
     assert art["metadata"]["inference_smoke_test"]["all_finite"] is True
+
+
+_UMBRELLA = Path(__file__).resolve().parents[2] / "RenQuant"
+_REAL_DATA = _UMBRELLA / "data" / "alpha158_291_fundamental_dataset.parquet"
+_SPY = _UMBRELLA / "data" / "ohlcv" / "SPY" / "1d.parquet"
+_STRATEGY = _UMBRELLA / "backtesting" / "renquant_104" / "strategy_config.json"
+
+
+@pytest.mark.skipif(not (_REAL_DATA.exists() and _SPY.exists() and _STRATEGY.exists()),
+                    reason="production data/SPY/strategy config absent (skipped outside workstation)")
+def test_production_path_artifact_passes_panel_contract(tmp_path: Path) -> None:
+    """Production mode: real fingerprint + sentiment gate → the artifact must pass
+    the renquant-artifacts panel contract (i.e. the runtime scorer can load it)."""
+    sys.path.insert(0, str(_UMBRELLA.parent / "renquant-artifacts" / "src"))
+    sys.path.insert(0, str(_UMBRELLA.parent / "renquant-common" / "src"))
+    from renquant_artifacts import validate_panel_artifact_contract
+
+    out = tmp_path / "walkforward_prod.json"
+    r = subprocess.run(
+        [sys.executable, str(DRIVER), "--train-cutoff", "2019-01-01",
+         "--side-label", "ci", "--output-path", str(out)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, f"driver failed:\n{r.stdout[-2000:]}\n{r.stderr[-3000:]}"
+    art = json.loads(out.read_text())
+    assert art["config_fingerprint"] == "sha256:14586756d4f67691", "fingerprint must match production"
+    assert art["sentiment_runtime_gate_contract"] == "trained_zeroing"
+    result = validate_panel_artifact_contract(art, strict=True)
+    assert result.ok, f"panel contract failed: {result.errors}"
