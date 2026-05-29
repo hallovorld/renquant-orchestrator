@@ -15,8 +15,7 @@ dependencies:
   - renquant-base-data
   - renquant-artifacts
   - renquant-strategy-104
-  - renquant-model-gbdt
-  - renquant-model-patchtst
+  - renquant-model
   - renquant-pipeline
   - renquant-execution
   - renquant-backtesting

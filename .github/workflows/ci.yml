@@ -29,12 +29,8 @@ jobs:
           path: renquant-strategy-104
       - uses: actions/checkout@v4
         with:
-          repository: hallovorld/renquant-model-gbdt
-          path: renquant-model-gbdt
-      - uses: actions/checkout@v4
-        with:
-          repository: hallovorld/renquant-model-patchtst
-          path: renquant-model-patchtst
+          repository: hallovorld/renquant-model
+          path: renquant-model
       - uses: actions/checkout@v4
         with:
           repository: hallovorld/renquant-pipeline
