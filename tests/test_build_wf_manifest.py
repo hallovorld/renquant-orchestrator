@@ -100,8 +100,12 @@ def test_main_collects_failed_cutoffs_and_returns_nonzero(
     assert rc != 0
     manifest = json.loads((tmp_path / "m.json").read_text())
     assert manifest["failed_cutoffs"] == ["2022-01-22"]
-    # 0 rows because none of the artifact files exist (no real training)
-    assert len(manifest["retrains"]) == 0
+    # Successful cutoffs (rc=0) are appended regardless of whether the artifact
+    # file actually exists — the script trusts the trainer's exit code.
+    # Behaviour anchor: failed_cutoffs is the authoritative skip list.
+    assert len(manifest["retrains"]) == 2
+    cutoffs_recorded = {row["cutoff_date"] for row in manifest["retrains"]}
+    assert cutoffs_recorded == {"2022-01-01", "2022-02-12"}
 
 
 def test_no_skip_cv_flag_drops_skip_cv_from_subprocess(
