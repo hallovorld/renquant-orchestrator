@@ -117,7 +117,17 @@ def main(argv: list[str] | None = None) -> int:
         # the env var points at the strategy dir under it.
         import os as _os
         strat = _os.environ.get("RENQUANT_STRATEGY_DIR")
-        cwd = str(Path(strat).resolve().parent.parent) if strat else None
+        if strat:
+            cwd = str(Path(strat).resolve().parent.parent)
+        else:
+            # Fallback: walk up from this module to find a sibling "data" dir
+            # (umbrella detection). Prevents the silent FileNotFoundError class.
+            here = Path(__file__).resolve()
+            for cand in here.parents:
+                if (cand / "data" / "transformer_v4_wl200_clean.parquet").exists():
+                    cwd = str(cand); break
+            else:
+                cwd = None  # caller's cwd will be used; relative paths likely fail
         rc = subprocess.run(cmd, cwd=cwd).returncode
         artifact = out_path / f"hf_patchtst_all_seed{args.seed}_model.pt"
         if rc != 0 or not artifact.exists():
