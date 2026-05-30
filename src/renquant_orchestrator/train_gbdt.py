@@ -149,6 +149,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--exclude-features", type=str, default=None,
                    help="Comma-separated extra feature columns to drop.")
     p.add_argument("--skip-cv", action="store_true")
+    p.add_argument("--training-window-years", type=float, default=None,
+                   help="Diagnostic: width of the training window in years. "
+                        "Stamped into training_runs.training_window_years for "
+                        "post-hoc analysis; does NOT change training behaviour.")
     return p.parse_args(argv)
 
 
@@ -252,6 +256,7 @@ def _record_and_refresh(ctx, args, *, elapsed_sec: float) -> None:
             device="cpu",
             deterministic=True,
             notes=f"side_label={args.side_label or '-'} train_cutoff={args.train_cutoff or '-'}",
+            training_window_years=getattr(args, "training_window_years", None),
             also_log_jsonl=False,
         )
         conn.commit(); conn.close()
