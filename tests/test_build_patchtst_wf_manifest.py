@@ -31,7 +31,7 @@ def source_manifest(tmp_path: Path) -> Path:
 
 
 def test_cadence_subsampling_picks_semi_annual_subset(source_manifest: Path) -> None:
-    out = bp._cutoffs_from_source(source_manifest, cadence_days=180)
+    out = bp.extract_cutoffs(source_manifest, cadence_days=180)
     # 21-day-cadence cuts over 4 years → semi-annual (~180d) keeps ~8-10 entries
     assert len(out) >= 6 and len(out) <= 12
     assert out[0] == "2022-01-01"
@@ -39,7 +39,7 @@ def test_cadence_subsampling_picks_semi_annual_subset(source_manifest: Path) -> 
 
 
 def test_cadence_None_keeps_all(source_manifest: Path) -> None:
-    cuts = bp._cutoffs_from_source(source_manifest, cadence_days=None)
+    cuts = bp.extract_cutoffs(source_manifest, cadence_days=None)
     assert len(cuts) == 18  # all of them
 
 

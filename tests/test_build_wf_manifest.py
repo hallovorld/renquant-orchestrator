@@ -31,7 +31,7 @@ def fake_source_manifest(tmp_path: Path) -> Path:
 
 
 def test_cutoffs_from_source_strips_time_and_filters_blanks(fake_source_manifest: Path) -> None:
-    cuts = build_wf_manifest._cutoffs_from_source(fake_source_manifest)
+    cuts = build_wf_manifest.extract_cutoffs(fake_source_manifest)
     assert cuts == ["2022-01-01", "2022-01-22", "2022-02-12"]
 
 
