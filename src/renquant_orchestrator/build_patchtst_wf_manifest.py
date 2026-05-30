@@ -21,8 +21,16 @@ Usage::
       --epochs 4 --device mps --seed 42 --cross-stock-attn \\
       --exclude-features mean_sentiment,n_articles_log,sentiment_pos_share
 
-D2 refactor (2026-05-30): split into single-responsibility helpers per §1c,
-each with a unit test in ``tests/test_build_patchtst_wf_manifest_refactor.py``.
+Architecture (R2 refactor 2026-05-30, per §1c Task/Job/Pipeline):
+  Pipeline ``BuildPatchtstWfManifestPipeline``
+    PrepareJob
+      LoadCutoffsTask           — parse source manifest + cadence subsample
+      ResolveUmbrellaCwdTask    — env-var or parent-walk fallback
+      EnsureOutputDirTask       — mkdir ``ctx.output_dir``
+    RetrainJob
+      RetrainAllCutoffsTask     — per-cutoff hf_trainer subprocess (with cwd)
+    EmitJob
+      AssembleManifestPayloadTask + WriteManifestTask
 """
 from __future__ import annotations
 
@@ -32,12 +40,21 @@ import json
 import os as _os
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
+
+from renquant_common import Job, Pipeline, Task
+
 
 # DOE-tuned baseline (matches A's deployable). See renquant-model/docs/training_pipelines.md.
 _TUNED = ["--lr", "1e-4", "--weight-decay", "0.3", "--seq-len", "24",
           "--early-stopping-patience", "2"]
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Pure helpers (preserved as Task building blocks).
+# ────────────────────────────────────────────────────────────────────────────────
 
 
 def extract_cutoffs(source_manifest_path: Path, cadence_days: int | None) -> list[str]:
@@ -103,14 +120,7 @@ def build_train_cmd(
 
 
 def resolve_umbrella_cwd() -> str | None:
-    """Find the umbrella directory so ``hf_trainer`` can read its dataset.
-
-    ``hf_trainer --dataset`` defaults to ``data/transformer_v4_wl200_clean.parquet``
-    relative to the caller's cwd; that path only resolves from the umbrella.
-    Pattern: prefer ``$RENQUANT_STRATEGY_DIR``; else walk parents of this module
-    for a sibling ``data/transformer_v4_wl200_clean.parquet``. Returns ``None``
-    when neither is available (caller's cwd is used).
-    """
+    """Find the umbrella directory so ``hf_trainer`` can read its dataset."""
     strat = _os.environ.get("RENQUANT_STRATEGY_DIR")
     if strat:
         return str(Path(strat).resolve().parent.parent)
@@ -151,78 +161,199 @@ def build_manifest_payload(
     }
 
 
+# ────────────────────────────────────────────────────────────────────────────────
+# T/J/P architecture (§1c).
+# ────────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class BuildPatchtstWfManifestContext:
+    """State threaded through ``BuildPatchtstWfManifestPipeline``."""
+    source_manifest_path: Path
+    output_dir: Path
+    output_manifest_path: Path
+    cadence_days: int
+    epochs: int
+    device: str
+    seed: int
+    cross_stock_attn: bool
+    film_regime_cond: bool
+    exclude_features: str | None
+    strategy_config: str | None
+    # populated through the pipeline
+    cutoffs: list[str] = field(default_factory=list)
+    cwd: str | None = None
+    new_rows: list[dict] = field(default_factory=list)
+    failed_cutoffs: list[str] = field(default_factory=list)
+    payload: dict | None = None
+
+
+class LoadCutoffsTask(Task):
+    """Parse + cadence-subsample the source manifest's cutoffs into ``ctx.cutoffs``."""
+
+    def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
+        ctx.cutoffs = extract_cutoffs(ctx.source_manifest_path, ctx.cadence_days)
+        print(
+            f"build_patchtst_wf_manifest: {len(ctx.cutoffs)} cutoffs "
+            f"(cadence={ctx.cadence_days}d, {ctx.cutoffs[0]} → {ctx.cutoffs[-1]})",
+            flush=True,
+        )
+        return True
+
+
+class ResolveUmbrellaCwdTask(Task):
+    """Resolve the umbrella cwd so ``hf_trainer`` can find its dataset."""
+
+    def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
+        ctx.cwd = resolve_umbrella_cwd()
+        return True
+
+
+class EnsureOutputDirTask(Task):
+    """Create the per-cutoff output directory (parents as needed)."""
+
+    def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
+        ctx.output_dir.mkdir(parents=True, exist_ok=True)
+        return True
+
+
+class PrepareJob(Job):
+    """Stage 1: cutoff schedule + umbrella-cwd + output-dir."""
+
+    @property
+    def tasks(self) -> list[Task]:
+        return [LoadCutoffsTask(), ResolveUmbrellaCwdTask(), EnsureOutputDirTask()]
+
+
+class RetrainAllCutoffsTask(Task):
+    """Invoke ``hf_trainer`` per cutoff with ``cwd=ctx.cwd``."""
+
+    def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
+        for i, cutoff in enumerate(ctx.cutoffs, 1):
+            out_path = ctx.output_dir / cutoff
+            out_path.mkdir(parents=True, exist_ok=True)
+            cmd = build_train_cmd(
+                cutoff=cutoff,
+                out_path=out_path,
+                epochs=ctx.epochs,
+                device=ctx.device,
+                seed=ctx.seed,
+                cross_stock_attn=ctx.cross_stock_attn,
+                film_regime_cond=ctx.film_regime_cond,
+                exclude_features=ctx.exclude_features,
+                strategy_config=ctx.strategy_config,
+            )
+            print(f"  [{i}/{len(ctx.cutoffs)}] training cutoff={cutoff} …", flush=True)
+            rc = subprocess.run(cmd, cwd=ctx.cwd).returncode
+            artifact = out_path / f"hf_patchtst_all_seed{ctx.seed}_model.pt"
+            if rc != 0 or not artifact.exists():
+                print(
+                    f"    FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} rc={rc} "
+                    f"artifact_exists={artifact.exists()}",
+                    flush=True,
+                )
+                ctx.failed_cutoffs.append(cutoff)
+                continue
+            ctx.new_rows.append(manifest_row(artifact=artifact, cutoff=cutoff))
+            print(f"    ok   [{i}/{len(ctx.cutoffs)}] {cutoff}", flush=True)
+        return True
+
+
+class RetrainJob(Job):
+    """Stage 2: retrain one PatchTST model per cutoff."""
+
+    @property
+    def tasks(self) -> list[Task]:
+        return [RetrainAllCutoffsTask()]
+
+
+class AssembleManifestPayloadTask(Task):
+    """Compose the v2 manifest payload dict into ``ctx.payload``."""
+
+    def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
+        ctx.payload = build_manifest_payload(
+            rows=ctx.new_rows,
+            source_manifest_path=ctx.source_manifest_path,
+            options={
+                "cadence_days": ctx.cadence_days,
+                "epochs": ctx.epochs,
+                "device": ctx.device,
+                "seed": ctx.seed,
+                "cross_stock_attn": bool(ctx.cross_stock_attn),
+                "film_regime_cond": bool(ctx.film_regime_cond),
+                "exclude_features": ctx.exclude_features,
+                "strategy_config": ctx.strategy_config,
+            },
+            failed_cutoffs=ctx.failed_cutoffs,
+        )
+        return True
+
+
+class WriteManifestTask(Task):
+    """Write the assembled payload to ``ctx.output_manifest_path``."""
+
+    def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
+        assert ctx.payload is not None, "AssembleManifestPayloadTask must run first"
+        ctx.output_manifest_path.write_text(json.dumps(ctx.payload, indent=2))
+        print(
+            f"manifest written: {ctx.output_manifest_path} "
+            f"({len(ctx.new_rows)} rows, {len(ctx.failed_cutoffs)} failed)"
+        )
+        return True
+
+
+class EmitJob(Job):
+    """Stage 3: build + write the manifest payload."""
+
+    @property
+    def tasks(self) -> list[Task]:
+        return [AssembleManifestPayloadTask(), WriteManifestTask()]
+
+
+def build_pipeline() -> Pipeline:
+    """Factory: the canonical ``BuildPatchtstWfManifestPipeline`` instance."""
+    return Pipeline(
+        [PrepareJob(), RetrainJob(), EmitJob()],
+        name="BuildPatchtstWfManifest",
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# CLI entrypoint.
+# ────────────────────────────────────────────────────────────────────────────────
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--source-manifest", required=True, type=Path,
                     help="GBDT manifest to inherit the cutoff schedule from.")
     ap.add_argument("--output-dir", required=True, type=Path)
     ap.add_argument("--output-manifest", required=True, type=Path)
-    ap.add_argument("--cadence-days", type=int, default=180,
-                    help="Subsample the source manifest's cutoffs to this minimum "
-                         "spacing (default 180 = semi-annual ~6 entries).")
+    ap.add_argument("--cadence-days", type=int, default=180)
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--device", default="mps")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--cross-stock-attn", action="store_true")
     ap.add_argument("--film-regime-cond", action="store_true")
-    ap.add_argument("--exclude-features", default=None,
-                    help="Comma list of feature columns to drop (mirror candidate).")
+    ap.add_argument("--exclude-features", default=None)
     ap.add_argument("--strategy-config", default=None)
     args = ap.parse_args(argv)
 
-    cutoffs = extract_cutoffs(args.source_manifest, args.cadence_days)
-    print(f"build_patchtst_wf_manifest: {len(cutoffs)} cutoffs "
-          f"(cadence={args.cadence_days}d, {cutoffs[0]} → {cutoffs[-1]})",
-          flush=True)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    cwd = resolve_umbrella_cwd()
-
-    new_rows: list[dict] = []
-    failed: list[str] = []
-    for i, cutoff in enumerate(cutoffs, 1):
-        out_path = args.output_dir / cutoff
-        out_path.mkdir(parents=True, exist_ok=True)
-        cmd = build_train_cmd(
-            cutoff=cutoff,
-            out_path=out_path,
-            epochs=args.epochs,
-            device=args.device,
-            seed=args.seed,
-            cross_stock_attn=args.cross_stock_attn,
-            film_regime_cond=args.film_regime_cond,
-            exclude_features=args.exclude_features,
-            strategy_config=args.strategy_config,
-        )
-        print(f"  [{i}/{len(cutoffs)}] training cutoff={cutoff} …", flush=True)
-        rc = subprocess.run(cmd, cwd=cwd).returncode
-        artifact = out_path / f"hf_patchtst_all_seed{args.seed}_model.pt"
-        if rc != 0 or not artifact.exists():
-            print(f"    FAIL [{i}/{len(cutoffs)}] {cutoff} rc={rc} "
-                  f"artifact_exists={artifact.exists()}", flush=True)
-            failed.append(cutoff)
-            continue
-        new_rows.append(manifest_row(artifact=artifact, cutoff=cutoff))
-        print(f"    ok   [{i}/{len(cutoffs)}] {cutoff}", flush=True)
-
-    payload = build_manifest_payload(
-        rows=new_rows,
+    ctx = BuildPatchtstWfManifestContext(
         source_manifest_path=args.source_manifest,
-        options={
-            "cadence_days": args.cadence_days,
-            "epochs": args.epochs,
-            "device": args.device,
-            "seed": args.seed,
-            "cross_stock_attn": bool(args.cross_stock_attn),
-            "film_regime_cond": bool(args.film_regime_cond),
-            "exclude_features": args.exclude_features,
-            "strategy_config": args.strategy_config,
-        },
-        failed_cutoffs=failed,
+        output_dir=args.output_dir,
+        output_manifest_path=args.output_manifest,
+        cadence_days=args.cadence_days,
+        epochs=args.epochs,
+        device=args.device,
+        seed=args.seed,
+        cross_stock_attn=args.cross_stock_attn,
+        film_regime_cond=args.film_regime_cond,
+        exclude_features=args.exclude_features,
+        strategy_config=args.strategy_config,
     )
-    args.output_manifest.write_text(json.dumps(payload, indent=2))
-    print(f"manifest written: {args.output_manifest} "
-          f"({len(new_rows)} rows, {len(failed)} failed)")
-    return 0 if not failed else 1
+    build_pipeline().run(ctx)
+    return 0 if not ctx.failed_cutoffs else 1
 
 
 if __name__ == "__main__":
