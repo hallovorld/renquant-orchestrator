@@ -218,7 +218,53 @@ def main(argv: list[str] | None = None) -> int:
         log.info("OOS IC: mean=%+.4f folds=%s", ctx.artifact.get("oos_mean_ic"),
                  [round(x, 4) for x in ctx.artifact["oos_per_fold_ic"]])
     log.info("Feature cols (n=%d)", len(ctx.feat_cols))
+
+    # Record the run to data/sim_runs.db::training_runs (best-effort, non-fatal).
+    # Then refresh renquant-model/README.md so the "Latest models" table is current.
+    _record_and_refresh(ctx, args, elapsed_sec=result.elapsed_sec)
     return 0
+
+
+def _record_and_refresh(ctx, args, *, elapsed_sec: float) -> None:
+    import os, sqlite3, subprocess, sys, datetime as _dt
+    from pathlib import Path as _Path
+    db = _Path(os.environ.get(
+        "RENQUANT_TRAINING_DB",
+        "/Users/renhao/git/github/RenQuant/data/sim_runs.db"))
+    if not db.exists():
+        return
+    try:
+        from renquant_pipeline.kernel.persistence import record_training_run  # noqa: PLC0415
+        conn = sqlite3.connect(str(db))
+        record_training_run(
+            conn,
+            run_date=_dt.datetime.utcnow(),
+            strategy=os.environ.get("RENQUANT_STRATEGY_NAME", "renquant_104"),
+            artifact_type="panel_ltr_xgboost",
+            oos_mean_ic=ctx.artifact.get("oos_mean_ic") if ctx.artifact else None,
+            n_features=len(ctx.feat_cols) if ctx.feat_cols else None,
+            artifact_path=str(args.output_path) if args.output_path else None,
+            elapsed_sec=elapsed_sec,
+            trigger=os.environ.get("RENQUANT_TRAIN_TRIGGER", "manual"),
+            device="cpu",
+            deterministic=True,
+            notes=f"side_label={args.side_label or '-'} train_cutoff={args.train_cutoff or '-'}",
+            also_log_jsonl=False,
+        )
+        conn.commit(); conn.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("record_training_run skipped: %s", exc)
+    # Refresh README — best-effort
+    readme_refresh = _Path(__file__).resolve().parents[3] / "renquant-model" / "scripts" / "refresh_readme_latest_models.py"
+    readme = _Path(__file__).resolve().parents[3] / "renquant-model" / "README.md"
+    if readme_refresh.exists() and readme.exists():
+        try:
+            subprocess.run(
+                [sys.executable, str(readme_refresh), "--db", str(db), "--readme", str(readme)],
+                check=False, timeout=30,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("README refresh skipped: %s", exc)
 
 
 if __name__ == "__main__":
