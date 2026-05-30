@@ -112,7 +112,13 @@ def main(argv: list[str] | None = None) -> int:
             cmd.extend(["--strategy-config", args.strategy_config])
 
         print(f"  [{i}/{len(cutoffs)}] training cutoff={cutoff} …", flush=True)
-        rc = subprocess.run(cmd).returncode
+        # hf_trainer's --dataset defaults to a path relative to the umbrella
+        # (data/transformer_v4_wl200_clean.parquet), so cd to the umbrella when
+        # the env var points at the strategy dir under it.
+        import os as _os
+        strat = _os.environ.get("RENQUANT_STRATEGY_DIR")
+        cwd = str(Path(strat).resolve().parent.parent) if strat else None
+        rc = subprocess.run(cmd, cwd=cwd).returncode
         artifact = out_path / f"hf_patchtst_all_seed{args.seed}_model.pt"
         if rc != 0 or not artifact.exists():
             print(f"    FAIL [{i}/{len(cutoffs)}] {cutoff} rc={rc} "
