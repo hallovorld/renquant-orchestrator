@@ -13,6 +13,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from renquant_orchestrator import build_patchtst_wf_manifest as bp  # noqa: E402
 
 
+def _write_model_sidecar(path: Path, *, effective_cutoff: str = "2024-01-01") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x00")
+    path.with_name(path.name + ".metadata.json").write_text(json.dumps({
+        "training_contract": {
+            "trained_date": "2026-06-01",
+            "effective_train_cutoff_date": effective_cutoff,
+            "lookahead_days": 60,
+        }
+    }))
+
+
 @pytest.fixture
 def src_manifest(tmp_path):
     p = tmp_path / "source.json"
@@ -79,6 +91,7 @@ def test_resolve_data_root_task_populates_explicit_trainer_inputs(ctx, monkeypat
     assert ctx.cwd == str(data_root.resolve())
     assert ctx.dataset_path == str(data_root.resolve() / bp.DEFAULT_DATASET_REL)
     assert ctx.spy_path == str(data_root.resolve() / bp.DEFAULT_SPY_REL)
+    assert ctx.raw_label_panel_path == str(data_root.resolve() / bp.DEFAULT_RAW_LABEL_PANEL_REL)
 
 
 def test_retrain_all_cutoffs_calls_hf_trainer_with_cwd(ctx, monkeypatch):
@@ -89,20 +102,34 @@ def test_retrain_all_cutoffs_calls_hf_trainer_with_cwd(ctx, monkeypatch):
 
     def fake_run(cmd, **kw):
         calls.append((cmd, kw.get("cwd")))
+        if "renquant_model_patchtst.fit_calibrator" in cmd:
+            Path(cmd[cmd.index("--out") + 1]).write_text("{}")
+            class R: returncode = 0
+            return R()
         # Pretend the artifact file gets written
         out_dir = Path(cmd[cmd.index("--output-dir") + 1])
-        (out_dir / f"hf_patchtst_all_seed{ctx.seed}_model.pt").touch()
+        _write_model_sidecar(
+            out_dir / f"hf_patchtst_all_seed{ctx.seed}_model.pt",
+            effective_cutoff=cmd[cmd.index("--train-cutoff") + 1],
+        )
         class R: returncode = 0
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     bp.RetrainAllCutoffsTask().run(ctx)
-    assert len(calls) == 3
-    for cmd, cwd in calls:
+    train_calls = [(cmd, cwd) for cmd, cwd in calls if "renquant_model_patchtst.hf_trainer" in cmd]
+    cal_calls = [(cmd, cwd) for cmd, cwd in calls if "renquant_model_patchtst.fit_calibrator" in cmd]
+    assert len(train_calls) == 3
+    assert len(cal_calls) == 3
+    for cmd, cwd in train_calls:
         assert "renquant_model_patchtst.hf_trainer" in cmd
         assert cwd == "/fake/umbrella"
         # tuned baseline applied
         assert "--lr" in cmd and "1e-4" in cmd
+    for cmd, cwd in cal_calls:
+        assert cwd == "/fake/umbrella"
+        assert "--scorer-artifact" in cmd
+        assert "--data-end" in cmd
 
 
 def test_retrain_records_missing_artifact_as_failure(ctx, monkeypatch):
@@ -134,8 +161,15 @@ def test_assemble_payload_records_options(ctx):
 
 def test_full_pipeline_end_to_end(ctx, monkeypatch):
     def fake_run(cmd, **kw):
+        if "renquant_model_patchtst.fit_calibrator" in cmd:
+            Path(cmd[cmd.index("--out") + 1]).write_text("{}")
+            class R: returncode = 0
+            return R()
         out_dir = Path(cmd[cmd.index("--output-dir") + 1])
-        (out_dir / f"hf_patchtst_all_seed{ctx.seed}_model.pt").touch()
+        _write_model_sidecar(
+            out_dir / f"hf_patchtst_all_seed{ctx.seed}_model.pt",
+            effective_cutoff=cmd[cmd.index("--train-cutoff") + 1],
+        )
         class R: returncode = 0
         return R()
 
@@ -145,3 +179,4 @@ def test_full_pipeline_end_to_end(ctx, monkeypatch):
     assert [s.job_name for s in result.steps] == ["PrepareJob", "RetrainJob", "EmitJob"]
     out = json.loads(ctx.output_manifest_path.read_text())
     assert len(out["retrains"]) == 3
+    assert all(row.get("calibrator_uri") for row in out["retrains"])

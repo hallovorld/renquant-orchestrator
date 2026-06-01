@@ -28,7 +28,7 @@ Architecture (R2 refactor 2026-05-30, per §1c Task/Job/Pipeline):
       ResolveDataRootTask       — explicit data/config paths for the trainer
       EnsureOutputDirTask       — mkdir ``ctx.output_dir``
     RetrainJob
-      RetrainAllCutoffsTask     — per-cutoff hf_trainer subprocess
+      RetrainAllCutoffsTask     — per-cutoff hf_trainer + calibrator subprocesses
     EmitJob
       AssembleManifestPayloadTask + WriteManifestTask
 """
@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+import pandas as pd
 from renquant_common import Job, Pipeline, Task
 
 
@@ -54,10 +55,12 @@ GITHUB = Path(__file__).resolve().parents[3]
 DEFAULT_DATA_ROOT = GITHUB / "RenQuant"
 DEFAULT_DATASET_REL = Path("data/transformer_v4_wl200_clean.parquet")
 DEFAULT_SPY_REL = Path("data/ohlcv/SPY/1d.parquet")
+DEFAULT_RAW_LABEL_PANEL_REL = Path("data/alpha158_291_fundamental_dataset_rawlabel.parquet")
 DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
 LEGACY_STRATEGY_CONFIG = (
     GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
 )
+DEFAULT_LABEL = "fwd_60d_excess"
 
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -103,6 +106,7 @@ def build_train_cmd(
     film_regime_cond: bool,
     exclude_features: str | None,
     strategy_config: str | None,
+    label: str = DEFAULT_LABEL,
     dataset_path: Path | str | None = None,
     spy_path: Path | str | None = None,
 ) -> list[str]:
@@ -114,6 +118,7 @@ def build_train_cmd(
         "--epochs", str(epochs),
         "--device", device,
         "--seed", str(seed),
+        "--label", label,
         *_TUNED,
         "--save-model",
         "--output-dir", str(out_path),
@@ -130,6 +135,71 @@ def build_train_cmd(
         cmd.extend(["--exclude-features", exclude_features])
     if strategy_config:
         cmd.extend(["--strategy-config", strategy_config])
+    return cmd
+
+
+def infer_label_lookahead_days(label: str | None) -> int:
+    import re
+
+    match = re.search(r"fwd_(\d+)d", str(label or DEFAULT_LABEL))
+    return int(match.group(1)) if match else 60
+
+
+def data_end_for_cutoff(cutoff: str, label: str | None) -> str:
+    lookahead = infer_label_lookahead_days(label)
+    return (pd.Timestamp(cutoff) - pd.offsets.BDay(lookahead)).date().isoformat()
+
+
+def model_path_for(out_path: Path, seed: int) -> Path:
+    return out_path / f"hf_patchtst_all_seed{seed}_model.pt"
+
+
+def calibrator_path_for(model_path: Path) -> Path:
+    return model_path.with_name("hf_patchtst-calibration.json")
+
+
+def sidecar_path_for(model_path: Path) -> Path:
+    return model_path.with_name(model_path.name + ".metadata.json")
+
+
+def read_training_contract(model_path: Path) -> dict:
+    sidecar = sidecar_path_for(model_path)
+    if not sidecar.exists():
+        raise FileNotFoundError(f"missing PatchTST metadata sidecar: {sidecar}")
+    payload = json.loads(sidecar.read_text())
+    contract = payload.get("training_contract") or {}
+    if not contract.get("trained_date") or not contract.get("effective_train_cutoff_date"):
+        raise ValueError(f"incomplete PatchTST sidecar training_contract: {sidecar}")
+    return contract
+
+
+def build_calibrator_cmd(
+    *,
+    scorer_artifact: Path,
+    out_path: Path,
+    panel_path: Path | str | None,
+    raw_label_panel_path: Path | str | None,
+    label: str,
+    data_end: str,
+    batch_size: int,
+    method: str,
+    min_rows: int,
+) -> list[str]:
+    """Construct the PatchTST calibrator subprocess argv for one cutoff."""
+    cmd: list[str] = [
+        sys.executable, "-m", "renquant_model_patchtst.fit_calibrator",
+        "--scorer-artifact", str(scorer_artifact),
+        "--out", str(out_path),
+        "--label-col", label,
+        "--data-end", data_end,
+        "--batch-size", str(batch_size),
+        "--method", method,
+        "--min-rows", str(min_rows),
+    ]
+    if panel_path:
+        cmd.extend(["--panel", str(panel_path)])
+    if raw_label_panel_path:
+        cmd.extend(["--raw-label-panel", str(raw_label_panel_path)])
     return cmd
 
 
@@ -177,14 +247,33 @@ def default_input_paths(data_root: Path | None) -> tuple[str | None, str | None]
     return str(data_root / DEFAULT_DATASET_REL), str(data_root / DEFAULT_SPY_REL)
 
 
-def manifest_row(*, artifact: Path, cutoff: str, lookahead_days: int = 60) -> dict:
+def default_raw_label_panel_path(data_root: Path | None) -> str | None:
+    """Resolve the raw-label panel used by the calibrator subprocess."""
+    if data_root is None:
+        return None
+    return str(data_root / DEFAULT_RAW_LABEL_PANEL_REL)
+
+
+def manifest_row(
+    *,
+    artifact: Path,
+    cutoff: str,
+    calibrator: Path | None = None,
+    label: str = DEFAULT_LABEL,
+) -> dict:
     """Assemble one PatchTST manifest row (pure)."""
-    return {
+    contract = read_training_contract(artifact)
+    row = {
         "artifact_uri": str(artifact.resolve()),
         "cutoff_date": cutoff,
-        "lookahead_days": int(lookahead_days),
-        "trained_date": _dt.date.today().isoformat(),
+        "lookahead_days": int(contract.get("lookahead_days") or infer_label_lookahead_days(label)),
+        "trained_date": str(contract["trained_date"]),
     }
+    if calibrator is not None:
+        row["calibrator_uri"] = str(calibrator.resolve())
+    if contract.get("effective_train_cutoff_date"):
+        row["effective_train_cutoff_date"] = str(contract["effective_train_cutoff_date"])
+    return row
 
 
 def build_manifest_payload(
@@ -229,6 +318,12 @@ class BuildPatchtstWfManifestContext:
     data_root: Path | None = None
     dataset_path: str | None = None
     spy_path: str | None = None
+    raw_label_panel_path: str | None = None
+    label: str = DEFAULT_LABEL
+    skip_calibrators: bool = False
+    calibrator_batch_size: int = 512
+    calibrator_method: str = "platt"
+    calibrator_min_rows: int = 1000
     # populated through the pipeline
     cutoffs: list[str] = field(default_factory=list)
     cwd: str | None = None
@@ -256,6 +351,7 @@ class ResolveDataRootTask(Task):
     def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
         ctx.data_root = resolve_data_root(str(ctx.data_root) if ctx.data_root else None)
         ctx.dataset_path, ctx.spy_path = default_input_paths(ctx.data_root)
+        ctx.raw_label_panel_path = default_raw_label_panel_path(ctx.data_root)
         if ctx.strategy_config is None:
             ctx.strategy_config = default_strategy_config()
         # Keep cwd at the data root for back-compat with any relative output paths,
@@ -297,12 +393,13 @@ class RetrainAllCutoffsTask(Task):
                 film_regime_cond=ctx.film_regime_cond,
                 exclude_features=ctx.exclude_features,
                 strategy_config=ctx.strategy_config,
+                label=ctx.label,
                 dataset_path=ctx.dataset_path,
                 spy_path=ctx.spy_path,
             )
             print(f"  [{i}/{len(ctx.cutoffs)}] training cutoff={cutoff} …", flush=True)
             rc = subprocess.run(cmd, cwd=ctx.cwd).returncode
-            artifact = out_path / f"hf_patchtst_all_seed{ctx.seed}_model.pt"
+            artifact = model_path_for(out_path, ctx.seed)
             if rc != 0 or not artifact.exists():
                 print(
                     f"    FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} rc={rc} "
@@ -311,7 +408,38 @@ class RetrainAllCutoffsTask(Task):
                 )
                 ctx.failed_cutoffs.append(cutoff)
                 continue
-            ctx.new_rows.append(manifest_row(artifact=artifact, cutoff=cutoff))
+            calibrator: Path | None = None
+            if not ctx.skip_calibrators:
+                calibrator = calibrator_path_for(artifact)
+                cal_cmd = build_calibrator_cmd(
+                    scorer_artifact=artifact,
+                    out_path=calibrator,
+                    panel_path=ctx.dataset_path,
+                    raw_label_panel_path=ctx.raw_label_panel_path,
+                    label=ctx.label,
+                    data_end=data_end_for_cutoff(cutoff, ctx.label),
+                    batch_size=ctx.calibrator_batch_size,
+                    method=ctx.calibrator_method,
+                    min_rows=ctx.calibrator_min_rows,
+                )
+                print(f"    calibrating cutoff={cutoff} …", flush=True)
+                cal_rc = subprocess.run(cal_cmd, cwd=ctx.cwd).returncode
+                if cal_rc != 0 or not calibrator.exists():
+                    print(
+                        f"    FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} calibrator_rc={cal_rc} "
+                        f"calibrator_exists={calibrator.exists()}",
+                        flush=True,
+                    )
+                    ctx.failed_cutoffs.append(cutoff)
+                    continue
+            ctx.new_rows.append(
+                manifest_row(
+                    artifact=artifact,
+                    cutoff=cutoff,
+                    calibrator=calibrator,
+                    label=ctx.label,
+                )
+            )
             print(f"    ok   [{i}/{len(ctx.cutoffs)}] {cutoff}", flush=True)
         return True
 
@@ -343,6 +471,13 @@ class AssembleManifestPayloadTask(Task):
                 "data_root": str(ctx.data_root) if ctx.data_root else None,
                 "dataset_path": ctx.dataset_path,
                 "spy_path": ctx.spy_path,
+                "raw_label_panel_path": ctx.raw_label_panel_path,
+                "label": ctx.label,
+                "skip_calibrators": bool(ctx.skip_calibrators),
+                "calibrator": None if ctx.skip_calibrators else "renquant_model_patchtst.fit_calibrator",
+                "calibrator_batch_size": int(ctx.calibrator_batch_size),
+                "calibrator_method": ctx.calibrator_method,
+                "calibrator_min_rows": int(ctx.calibrator_min_rows),
             },
             failed_cutoffs=ctx.failed_cutoffs,
         )
@@ -402,6 +537,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--exclude-features", default=None)
     ap.add_argument("--strategy-config", default=None)
     ap.add_argument("--data-root", type=Path, default=None)
+    ap.add_argument("--label", default=DEFAULT_LABEL)
+    ap.add_argument("--skip-calibrators", action="store_true")
+    ap.add_argument("--calibrator-batch-size", type=int, default=512)
+    ap.add_argument("--calibrator-method", default="platt", choices=["platt", "isotonic"])
+    ap.add_argument("--calibrator-min-rows", type=int, default=1000)
     args = ap.parse_args(argv)
 
     ctx = BuildPatchtstWfManifestContext(
@@ -417,6 +557,11 @@ def main(argv: list[str] | None = None) -> int:
         exclude_features=args.exclude_features,
         strategy_config=args.strategy_config,
         data_root=args.data_root,
+        label=args.label,
+        skip_calibrators=args.skip_calibrators,
+        calibrator_batch_size=args.calibrator_batch_size,
+        calibrator_method=args.calibrator_method,
+        calibrator_min_rows=args.calibrator_min_rows,
     )
     build_pipeline().run(ctx)
     return 0 if not ctx.failed_cutoffs else 1
