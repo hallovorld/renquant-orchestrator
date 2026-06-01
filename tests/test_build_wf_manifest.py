@@ -63,6 +63,8 @@ def test_main_writes_manifest_and_subprocesses_per_cutoff(
         "--source-manifest", str(fake_source_manifest),
         "--output-dir", str(out_dir),
         "--output-manifest", str(out_manifest),
+        "--data-dir", str(tmp_path / "RenQuant" / "data"),
+        "--strategy-config", str(tmp_path / "renquant-strategy-104" / "configs" / "strategy_config.json"),
         "--drop-sentiment",
     ])
     assert rc == 0
@@ -79,6 +81,9 @@ def test_main_writes_manifest_and_subprocesses_per_cutoff(
     assert "--drop-sentiment" in first
     assert "--skip-cv" in first   # default ON
     assert "--cv-embargo-days" in first
+    assert "--data-dir" in first
+    assert str(tmp_path / "RenQuant" / "data") in first
+    assert "--strategy-config" in first
 
 
 def test_main_collects_failed_cutoffs_and_returns_nonzero(

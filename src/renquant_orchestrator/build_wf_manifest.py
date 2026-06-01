@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -49,6 +50,14 @@ from pathlib import Path
 from typing import Sequence
 
 from renquant_common import Job, Pipeline, Task
+
+
+GITHUB = Path(__file__).resolve().parents[3]
+DEFAULT_DATA_DIR = GITHUB / "RenQuant" / "data"
+DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
+LEGACY_STRATEGY_CONFIG = (
+    GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+)
 
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -82,6 +91,8 @@ def build_train_cmd(
     cv_n_splits: int,
     drop_sentiment: bool,
     skip_cv: bool,
+    data_dir: Path | str | None = None,
+    strategy_config: Path | str | None = None,
 ) -> list[str]:
     """Construct the ``train_gbdt`` subprocess argv for one cutoff (pure)."""
     cmd: list[str] = [
@@ -92,11 +103,36 @@ def build_train_cmd(
         "--cv-n-splits", str(cv_n_splits),
         "--output-path", str(out_path),
     ]
+    if data_dir:
+        cmd.extend(["--data-dir", str(data_dir)])
+    if strategy_config:
+        cmd.extend(["--strategy-config", str(strategy_config)])
     if drop_sentiment:
         cmd.append("--drop-sentiment")
     if skip_cv:
         cmd.append("--skip-cv")
     return cmd
+
+
+def default_strategy_config() -> str | None:
+    """Resolve the strategy config stamped into per-cutoff GBDT artifacts."""
+    if DEFAULT_STRATEGY_CONFIG.exists():
+        return str(DEFAULT_STRATEGY_CONFIG.resolve())
+    if LEGACY_STRATEGY_CONFIG.exists():
+        return str(LEGACY_STRATEGY_CONFIG.resolve())
+    return None
+
+
+def training_env(data_dir: Path | None, strategy_config: str | None) -> dict[str, str]:
+    """Build subprocess env with explicit data/config roots for audit code."""
+    env = dict(os.environ)
+    if data_dir is not None:
+        data_root = data_dir.parent if data_dir.name == "data" else data_dir
+        env.setdefault("RENQUANT_DATA_ROOT", str(data_root))
+        env.setdefault("RENQUANT_STRATEGY_DIR", str(data_root / "backtesting" / "renquant_104"))
+    if strategy_config:
+        env.setdefault("RENQUANT_STRATEGY_CONFIG", str(strategy_config))
+    return env
 
 
 def manifest_row(*, artifact_uri: Path, cutoff: str, lookahead_days: int = 60) -> dict:
@@ -149,6 +185,8 @@ class BuildWfManifestContext:
     cv_n_splits: int
     drop_sentiment: bool
     skip_cv: bool
+    data_dir: Path | None = None
+    strategy_config: str | None = None
     # populated through the pipeline
     cutoffs: list[str] = field(default_factory=list)
     new_rows: list[dict] = field(default_factory=list)
@@ -177,12 +215,23 @@ class EnsureOutputDirTask(Task):
         return True
 
 
+class ResolveTrainingInputsTask(Task):
+    """Resolve explicit data/config paths for each per-cutoff train_gbdt run."""
+
+    def run(self, ctx: BuildWfManifestContext) -> bool | None:
+        if ctx.data_dir is None:
+            ctx.data_dir = DEFAULT_DATA_DIR
+        if ctx.strategy_config is None:
+            ctx.strategy_config = default_strategy_config()
+        return True
+
+
 class PrepareJob(Job):
-    """Stage 1: load cutoffs + ensure output dir."""
+    """Stage 1: load cutoffs + resolve training inputs + ensure output dir."""
 
     @property
     def tasks(self) -> list[Task]:
-        return [LoadCutoffsTask(), EnsureOutputDirTask()]
+        return [LoadCutoffsTask(), ResolveTrainingInputsTask(), EnsureOutputDirTask()]
 
 
 class RetrainAllCutoffsTask(Task):
@@ -200,8 +249,13 @@ class RetrainAllCutoffsTask(Task):
                 cv_n_splits=ctx.cv_n_splits,
                 drop_sentiment=ctx.drop_sentiment,
                 skip_cv=ctx.skip_cv,
+                data_dir=ctx.data_dir,
+                strategy_config=ctx.strategy_config,
             )
-            rc = subprocess.run(cmd).returncode
+            rc = subprocess.run(
+                cmd,
+                env=training_env(ctx.data_dir, ctx.strategy_config),
+            ).returncode
             if rc != 0:
                 print(f"  FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} rc={rc}", flush=True)
                 ctx.failed_cutoffs.append(cutoff)
@@ -231,6 +285,8 @@ class AssembleManifestPayloadTask(Task):
                 "cv_embargo_days": ctx.cv_embargo_days,
                 "cv_n_splits": ctx.cv_n_splits,
                 "skip_cv": ctx.skip_cv,
+                "data_dir": str(ctx.data_dir) if ctx.data_dir else None,
+                "strategy_config": ctx.strategy_config,
             },
             failed_cutoffs=ctx.failed_cutoffs,
         )
@@ -280,6 +336,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="Force CV inside each per-cutoff train (default skips CV).")
     ap.add_argument("--side-label", default="wf_dropsenti_v3",
                     help="Side-label per §5.13.13 (train_gbdt requires it with --train-cutoff).")
+    ap.add_argument("--data-dir", type=Path, default=None)
+    ap.add_argument("--strategy-config", default=None)
     args = ap.parse_args(argv)
 
     ctx = BuildWfManifestContext(
@@ -291,6 +349,8 @@ def main(argv: list[str] | None = None) -> int:
         cv_n_splits=args.cv_n_splits,
         drop_sentiment=args.drop_sentiment,
         skip_cv=not args.no_skip_cv,
+        data_dir=args.data_dir,
+        strategy_config=args.strategy_config,
     )
     build_pipeline().run(ctx)
     return 0 if not ctx.failed_cutoffs else 1

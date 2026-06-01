@@ -54,7 +54,7 @@ def test_pipeline_has_three_ordered_jobs():
 
 def test_prepare_job_tasks():
     assert [type(t).__name__ for t in bm.PrepareJob().tasks] == [
-        "LoadCutoffsTask", "EnsureOutputDirTask",
+        "LoadCutoffsTask", "ResolveTrainingInputsTask", "EnsureOutputDirTask",
     ]
 
 
@@ -79,6 +79,20 @@ def test_ensure_output_dir_task_creates_dir(ctx):
     assert ctx.output_dir.is_dir()
 
 
+def test_resolve_training_inputs_task_sets_explicit_defaults(ctx, monkeypatch, tmp_path):
+    data_dir = tmp_path / "RenQuant" / "data"
+    strategy = tmp_path / "renquant-strategy-104" / "configs" / "strategy_config.json"
+    strategy.parent.mkdir(parents=True)
+    strategy.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(bm, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(bm, "DEFAULT_STRATEGY_CONFIG", strategy)
+
+    bm.ResolveTrainingInputsTask().run(ctx)
+
+    assert ctx.data_dir == data_dir
+    assert ctx.strategy_config == str(strategy.resolve())
+
+
 def test_assemble_payload_task_builds_v2_schema(ctx):
     ctx.new_rows = [{"artifact_uri": "/x", "cutoff_date": "2024-01-02",
                      "lookahead_days": 60, "trained_date": "2026-05-30"}]
@@ -88,6 +102,8 @@ def test_assemble_payload_task_builds_v2_schema(ctx):
     assert ctx.payload["trainer"] == "renquant_orchestrator.train_gbdt"
     assert ctx.payload["options"]["drop_sentiment"] is True
     assert ctx.payload["options"]["skip_cv"] is True
+    assert "data_dir" in ctx.payload["options"]
+    assert "strategy_config" in ctx.payload["options"]
 
 
 def test_write_manifest_task_writes_file(ctx):
@@ -100,6 +116,8 @@ def test_write_manifest_task_writes_file(ctx):
 def test_retrain_all_cutoffs_uses_subprocess_run(ctx, monkeypatch):
     """RetrainAllCutoffsTask must subprocess.run for every cutoff and record results."""
     bm.LoadCutoffsTask().run(ctx)
+    ctx.data_dir = Path("/data/root")
+    ctx.strategy_config = "/cfg/strategy_config.json"
     bm.EnsureOutputDirTask().run(ctx)
     calls = []
 
@@ -107,7 +125,7 @@ def test_retrain_all_cutoffs_uses_subprocess_run(ctx, monkeypatch):
         returncode = 0
 
     def fake_run(cmd, **kw):
-        calls.append(cmd)
+        calls.append((cmd, kw.get("env")))
         return FakeCompleted()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -118,9 +136,13 @@ def test_retrain_all_cutoffs_uses_subprocess_run(ctx, monkeypatch):
     assert len(ctx.new_rows) == 3
     assert ctx.failed_cutoffs == []
     # commands look like train_gbdt CLI invocations
-    for c in calls:
+    for c, env in calls:
         assert "renquant_orchestrator.train_gbdt" in c
         assert "--train-cutoff" in c
+        assert "--data-dir" in c and "/data/root" in c
+        assert "--strategy-config" in c and "/cfg/strategy_config.json" in c
+        assert env["RENQUANT_DATA_ROOT"] == "/data/root"
+        assert env["RENQUANT_STRATEGY_CONFIG"] == "/cfg/strategy_config.json"
 
 
 def test_retrain_all_cutoffs_records_failures(ctx, monkeypatch):

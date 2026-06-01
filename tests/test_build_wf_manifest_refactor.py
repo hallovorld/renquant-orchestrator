@@ -78,6 +78,8 @@ def test_build_train_cmd_baseline():
     assert "--cv-n-splits" in cmd and "3" in cmd
     assert "--skip-cv" in cmd
     assert "--drop-sentiment" not in cmd
+    assert "--data-dir" not in cmd
+    assert "--strategy-config" not in cmd
 
 
 def test_build_train_cmd_drop_sentiment_and_no_skip_cv():
@@ -89,10 +91,37 @@ def test_build_train_cmd_drop_sentiment_and_no_skip_cv():
         cv_n_splits=5,
         drop_sentiment=True,
         skip_cv=False,
+        data_dir="/data/root",
+        strategy_config="/cfg/strategy_config.json",
     )
     assert "--drop-sentiment" in cmd
     assert "--skip-cv" not in cmd
     assert "--cv-embargo-days" in cmd and "10" in cmd
+    assert "--data-dir" in cmd and "/data/root" in cmd
+    assert "--strategy-config" in cmd and "/cfg/strategy_config.json" in cmd
+
+
+def test_default_strategy_config_prefers_strategy_subrepo(monkeypatch, tmp_path):
+    strategy = tmp_path / "renquant-strategy-104" / "configs" / "strategy_config.json"
+    legacy = tmp_path / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+    strategy.parent.mkdir(parents=True)
+    legacy.parent.mkdir(parents=True)
+    strategy.write_text("{}", encoding="utf-8")
+    legacy.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(bm, "DEFAULT_STRATEGY_CONFIG", strategy)
+    monkeypatch.setattr(bm, "LEGACY_STRATEGY_CONFIG", legacy)
+
+    assert bm.default_strategy_config() == str(strategy.resolve())
+
+
+def test_training_env_sets_data_and_strategy_roots(tmp_path):
+    env = bm.training_env(
+        tmp_path / "RenQuant" / "data",
+        "/cfg/strategy_config.json",
+    )
+
+    assert env["RENQUANT_DATA_ROOT"] == str(tmp_path / "RenQuant")
+    assert env["RENQUANT_STRATEGY_CONFIG"] == "/cfg/strategy_config.json"
 
 
 def test_manifest_row_shape():
@@ -118,7 +147,8 @@ def test_build_manifest_payload_includes_required_keys(tmp_path):
                "lookahead_days": 60, "trained_date": "2026-05-30"}],
         source_manifest_path=src,
         options={"drop_sentiment": True, "cv_embargo_days": 60,
-                 "cv_n_splits": 3, "skip_cv": True},
+                 "cv_n_splits": 3, "skip_cv": True,
+                 "data_dir": "/data", "strategy_config": "/cfg.json"},
         failed_cutoffs=[],
     )
     assert payload["schema_version"] == 2
