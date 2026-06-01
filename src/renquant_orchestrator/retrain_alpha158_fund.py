@@ -1,9 +1,8 @@
 """Weekly alpha158+fund retrain pipeline owned by renquant-orchestrator.
 
 This is a transitional multirepo workflow: alpha158 materialization and
-fund-panel merge run through ``renquant-base-data``. Calibrator refit still
-calls the existing umbrella script, while the GBDT scorer is trained through
-``renquant_orchestrator.train_gbdt`` plus the pinned ``renquant-model`` engine.
+fund-panel merge run through ``renquant-base-data``. The GBDT scorer and
+calibrator run through pinned ``renquant-model`` code.
 It preserves the weekly trust boundary: callers provide staging output paths,
 and this module never promotes production artifacts.
 """
@@ -24,9 +23,10 @@ from renquant_common import Job, Pipeline, Task
 GITHUB = Path(__file__).resolve().parents[3]
 DEFAULT_REPO_DIR = GITHUB / "RenQuant"
 _REQUIRED_REPO_PATHS = [
-    Path("scripts/fit_calibrator_alpha158_fund.py"),
-    Path("backtesting/renquant_104"),
+    Path("data"),
 ]
+DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
+LEGACY_STRATEGY_CONFIG = DEFAULT_REPO_DIR / "backtesting" / "renquant_104" / "strategy_config.json"
 
 
 @dataclass
@@ -36,6 +36,8 @@ class RetrainContext:
     calibrator_out: Path
     python: str = sys.executable
     truncate_to_sec_max: bool = True
+    drop_sentiment: bool = True
+    strategy_config_path: Path | None = None
     dry_run: bool = False
     commands: list[list[str]] = field(default_factory=list)
 
@@ -45,6 +47,10 @@ class RetrainContext:
 
     @property
     def strategy_config(self) -> Path:
+        if self.strategy_config_path is not None:
+            return self.strategy_config_path
+        if DEFAULT_STRATEGY_CONFIG.exists():
+            return DEFAULT_STRATEGY_CONFIG
         return self.repo_dir / "backtesting" / "renquant_104" / "strategy_config.json"
 
 
@@ -76,7 +82,10 @@ def _subrepo_pythonpath(repo_dir: Path, env: dict[str, str] | None = None) -> di
     existing = out.get("PYTHONPATH", "")
     out["PYTHONPATH"] = os.pathsep.join([*(str(src) for src in srcs), existing])
     out.setdefault("RENQUANT_REPO_ROOT", str(repo_dir))
+    out.setdefault("RENQUANT_DATA_ROOT", str(repo_dir))
     out.setdefault("RENQUANT_STRATEGY_DIR", str(repo_dir / "backtesting" / "renquant_104"))
+    strategy_config = DEFAULT_STRATEGY_CONFIG if DEFAULT_STRATEGY_CONFIG.exists() else LEGACY_STRATEGY_CONFIG
+    out.setdefault("RENQUANT_STRATEGY_CONFIG", str(strategy_config))
     return out
 
 
@@ -163,6 +172,8 @@ class TrainGbdtScorerTask(Task):
             "--output-path",
             str(ctx.xgb_artifact_out),
         ]
+        if ctx.drop_sentiment:
+            cmd.append("--drop-sentiment")
         _run(ctx, cmd, cwd=ctx.repo_dir)
         if ctx.dry_run:
             return True
@@ -174,7 +185,10 @@ class RefitCalibratorTask(Task):
     def run(self, ctx: RetrainContext) -> bool | None:
         cmd = [
             ctx.python,
-            str(ctx.repo_dir / "scripts" / "fit_calibrator_alpha158_fund.py"),
+            "-m",
+            "renquant_model_gbdt.fit_calibrator_alpha158_fund",
+            "--data-dir",
+            str(ctx.data_dir),
             "--scorer-artifact",
             str(ctx.xgb_artifact_out),
             "--out",
@@ -207,6 +221,18 @@ def _resolve(repo_dir: Path, raw: str) -> Path:
     return path if path.is_absolute() else repo_dir / path
 
 
+def _default_xgb_artifact(repo_dir: Path) -> Path:
+    return repo_dir / "backtesting" / "renquant_104" / "artifacts" / "prod" / "panel-ltr.alpha158_fund.json"
+
+
+def _default_calibrator_artifact(repo_dir: Path) -> Path:
+    return repo_dir / "backtesting" / "renquant_104" / "artifacts" / "prod" / "panel-rank-calibration.json"
+
+
+def _staging_path(path: Path) -> Path:
+    return path.with_suffix(".staging.json")
+
+
 def _validate_repo_dir(repo_dir: Path) -> None:
     missing = [rel for rel in _REQUIRED_REPO_PATHS if not (repo_dir / rel).exists()]
     if missing:
@@ -217,8 +243,15 @@ def _validate_repo_dir(repo_dir: Path) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-dir", type=Path, default=DEFAULT_REPO_DIR)
-    parser.add_argument("--xgb-artifact-out", required=True)
-    parser.add_argument("--calibrator-out", required=True)
+    parser.add_argument("--xgb-artifact-out", default=None)
+    parser.add_argument("--calibrator-out", default=None)
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="Use default *.staging.json candidate artifact paths when explicit outputs are omitted.",
+    )
+    parser.add_argument("--strategy-config", type=Path, default=None)
+    parser.add_argument("--drop-sentiment", default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument("--truncate-to-sec-max", default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
@@ -228,10 +261,27 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     repo_dir = args.repo_dir.expanduser().resolve()
     _validate_repo_dir(repo_dir)
+    xgb_artifact_out = (
+        _resolve(repo_dir, args.xgb_artifact_out)
+        if args.xgb_artifact_out
+        else _default_xgb_artifact(repo_dir)
+    )
+    calibrator_out = (
+        _resolve(repo_dir, args.calibrator_out)
+        if args.calibrator_out
+        else _default_calibrator_artifact(repo_dir)
+    )
+    if args.staged:
+        if not args.xgb_artifact_out:
+            xgb_artifact_out = _staging_path(xgb_artifact_out)
+        if not args.calibrator_out:
+            calibrator_out = _staging_path(calibrator_out)
     ctx = RetrainContext(
         repo_dir=repo_dir,
-        xgb_artifact_out=_resolve(repo_dir, args.xgb_artifact_out),
-        calibrator_out=_resolve(repo_dir, args.calibrator_out),
+        xgb_artifact_out=xgb_artifact_out,
+        calibrator_out=calibrator_out,
+        strategy_config_path=args.strategy_config.expanduser().resolve() if args.strategy_config else None,
+        drop_sentiment=args.drop_sentiment,
         truncate_to_sec_max=args.truncate_to_sec_max,
         dry_run=args.dry_run,
     )

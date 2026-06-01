@@ -64,6 +64,24 @@ def test_native_driver_trains_complete_artifact(tmp_path: Path) -> None:
     assert art["metadata"]["inference_smoke_test"]["all_finite"] is True
 
 
+def test_default_strategy_config_prefers_strategy_subrepo(monkeypatch, tmp_path: Path) -> None:
+    from renquant_orchestrator import train_gbdt
+
+    subrepo = tmp_path / "renquant-strategy-104" / "configs" / "strategy_config.json"
+    legacy = tmp_path / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+    subrepo.parent.mkdir(parents=True)
+    legacy.parent.mkdir(parents=True)
+    subrepo.write_text("{}")
+    legacy.write_text("{}")
+    monkeypatch.setattr(train_gbdt, "DEFAULT_STRATEGY_CONFIG", subrepo)
+    monkeypatch.setattr(train_gbdt, "LEGACY_STRATEGY_CONFIG", legacy)
+
+    assert train_gbdt._default_strategy_config() == subrepo
+
+    subrepo.unlink()
+    assert train_gbdt._default_strategy_config() == legacy
+
+
 _UMBRELLA = Path(__file__).resolve().parents[2] / "RenQuant"
 _REAL_DATA = _UMBRELLA / "data" / "alpha158_291_fundamental_dataset.parquet"
 _SPY = _UMBRELLA / "data" / "ohlcv" / "SPY" / "1d.parquet"

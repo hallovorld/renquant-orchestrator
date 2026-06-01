@@ -32,7 +32,8 @@ import pandas as pd
 
 GITHUB = Path(__file__).resolve().parents[3]          # …/github
 DEFAULT_DATA_DIR = GITHUB / "RenQuant" / "data"        # data lives in the umbrella (gitignored)
-DEFAULT_STRATEGY_CONFIG = GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
+LEGACY_STRATEGY_CONFIG = GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
 _CONFIG_CONSISTENCY = (GITHUB / "renquant-pipeline" / "src" / "renquant_pipeline"
                        / "kernel" / "config_consistency.py")
 _PIN_SRCS = ["renquant-common", "renquant-base-data", "renquant-artifacts", "renquant-model"]
@@ -53,6 +54,11 @@ def _production_fingerprint(strategy_config_path: Path) -> tuple[str | None, dic
     spec.loader.exec_module(cc)
     cfg = json.loads(strategy_config_path.read_text())
     return cc.fingerprint_config(cfg), cc._model_relevant_fields(cfg)
+
+
+def _default_strategy_config() -> Path:
+    """Prefer the strategy subrepo config, but keep umbrella fallback during migration."""
+    return DEFAULT_STRATEGY_CONFIG if DEFAULT_STRATEGY_CONFIG.exists() else LEGACY_STRATEGY_CONFIG
 
 
 UMBRELLA = GITHUB / "RenQuant"
@@ -134,7 +140,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--nthread", type=int, default=None)
     p.add_argument("--strategy-config", type=str, default=None,
                    help="Strategy config whose model-relevant fields set the production "
-                        "config_fingerprint (default: umbrella strategy_config.json). "
+                        "config_fingerprint (default: renquant-strategy-104 config, "
+                        "falling back to umbrella strategy_config.json). "
                         "Pass 'none' to stamp a self-describing content hash instead.")
     p.add_argument("--skip-sentiment-gate", action="store_true",
                    help="Skip the per-regime sentiment training gate (self-contained "
@@ -181,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     # Production config fingerprint so the runtime scorer can load the artifact.
     fp, fp_fields = (None, None)
     if args.strategy_config is None or args.strategy_config.lower() != "none":
-        sc_path = Path(args.strategy_config) if args.strategy_config else DEFAULT_STRATEGY_CONFIG
+        sc_path = Path(args.strategy_config) if args.strategy_config else _default_strategy_config()
         fp, fp_fields = _production_fingerprint(sc_path)
 
     # Feature exclusion. --drop-sentiment removes the 3 sentiment features (found to

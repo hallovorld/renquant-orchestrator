@@ -13,10 +13,7 @@ from renquant_orchestrator import retrain_alpha158_fund as mod
 
 def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "RenQuant"
-    (repo / "scripts").mkdir(parents=True)
-    (repo / "scripts" / "fit_calibrator_alpha158_fund.py").touch()
-    (repo / "data").mkdir()
-    (repo / "backtesting" / "renquant_104").mkdir(parents=True)
+    (repo / "data").mkdir(parents=True)
     return repo
 
 
@@ -46,13 +43,20 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
                 "config_fingerprint": "sha256:test",
                 "trained_date": dt.datetime.utcnow().strftime("%Y-%m-%d"),
             }))
-        if str(repo / "scripts" / "fit_calibrator_alpha158_fund.py") in cmd:
+        if "renquant_model_gbdt.fit_calibrator_alpha158_fund" in cmd:
             calibrator.parent.mkdir(parents=True, exist_ok=True)
             calibrator.write_text(json.dumps({"method": "isotonic"}))
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
-    ctx = mod.RetrainContext(repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator)
+    strategy_config = repo / "strategy_config.json"
+    strategy_config.write_text("{}")
+    ctx = mod.RetrainContext(
+        repo_dir=repo,
+        xgb_artifact_out=scorer,
+        calibrator_out=calibrator,
+        strategy_config_path=strategy_config,
+    )
 
     result = mod.build_pipeline().run(ctx)
 
@@ -64,8 +68,12 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
     assert ["--data-dir", str(repo / "data")] == seen[1][3:5]
     assert "--truncate-to-sec-max" in seen[1]
     assert "renquant_orchestrator.train_gbdt" in seen[2]
-    assert ["--output-path", str(scorer)] == seen[2][-2:]
-    assert str(repo / "scripts" / "fit_calibrator_alpha158_fund.py") in seen[3]
+    assert ["--strategy-config", str(strategy_config)] == seen[2][5:7]
+    out_idx = seen[2].index("--output-path")
+    assert seen[2][out_idx:out_idx + 2] == ["--output-path", str(scorer)]
+    assert "--drop-sentiment" in seen[2]
+    assert "renquant_model_gbdt.fit_calibrator_alpha158_fund" in seen[3]
+    assert ["--data-dir", str(repo / "data")] == seen[3][3:5]
     assert "--scorer-artifact" in seen[3]
     assert str(scorer) in seen[3]
     assert str(calibrator) in seen[3]
@@ -123,6 +131,28 @@ def test_dry_run_records_commands_without_artifacts(tmp_path) -> None:
     assert not calibrator.exists()
 
 
+def test_main_staged_defaults_to_candidate_artifact_paths(monkeypatch, tmp_path) -> None:
+    repo = _repo(tmp_path)
+    captured: list[mod.RetrainContext] = []
+
+    class FakePipeline:
+        def run(self, ctx):
+            captured.append(ctx)
+            return None
+
+    monkeypatch.setattr(mod, "build_pipeline", lambda: FakePipeline())
+
+    assert mod.main(["--repo-dir", str(repo), "--staged", "--dry-run"]) == 0
+
+    assert captured
+    assert captured[0].xgb_artifact_out == (
+        repo / "backtesting" / "renquant_104" / "artifacts" / "prod" / "panel-ltr.alpha158_fund.staging.json"
+    )
+    assert captured[0].calibrator_out == (
+        repo / "backtesting" / "renquant_104" / "artifacts" / "prod" / "panel-rank-calibration.staging.json"
+    )
+
+
 def test_pythonpath_includes_required_sibling_repos(tmp_path) -> None:
     repo = _repo(tmp_path)
     env = mod._subrepo_pythonpath(repo, env={})
@@ -139,6 +169,8 @@ def test_pythonpath_includes_required_sibling_repos(tmp_path) -> None:
         "renquant-backtesting/src",
     ):
         assert name in path
+    assert env["RENQUANT_DATA_ROOT"] == str(repo)
+    assert env["RENQUANT_STRATEGY_CONFIG"]
 
 
 def test_strict_subrepo_pythonpath_requires_existing_siblings(tmp_path) -> None:
@@ -152,5 +184,5 @@ def test_validate_repo_dir_fails_loudly_for_non_umbrella_checkout(tmp_path) -> N
     repo = tmp_path / "RenQuant"
     repo.mkdir()
 
-    with pytest.raises(FileNotFoundError, match="fit_calibrator_alpha158_fund.py"):
+    with pytest.raises(FileNotFoundError, match="data"):
         mod._validate_repo_dir(repo)
