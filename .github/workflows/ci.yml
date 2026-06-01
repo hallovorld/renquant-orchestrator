@@ -7,6 +7,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      RENQUANT_HAS_CI_TOKEN: ${{ secrets.AGENT_GIT_PUSH_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,39 +17,62 @@ jobs:
         with:
           repository: hallovorld/renquant-common
           path: renquant-common
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN || github.token }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-base-data
           path: renquant-base-data
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-artifacts
           path: renquant-artifacts
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-strategy-104
           path: renquant-strategy-104
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-model
           path: renquant-model
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-pipeline
           path: renquant-pipeline
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-execution
           path: renquant-execution
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         with:
           repository: hallovorld/renquant-backtesting
           path: renquant-backtesting
+          token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
       - name: Install test tools
-        run: python -m pip install pytest numpy pandas scipy xgboost
-      - name: Test
+        run: python -m pip install pytest numpy pandas scipy xgboost pyarrow pydantic cvxpy scikit-learn
+      - name: Full multirepo test
+        if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         working-directory: renquant-orchestrator
         run: make test
+      - name: Focused test without private sibling token
+        if: env.RENQUANT_HAS_CI_TOKEN != 'true'
+        working-directory: renquant-orchestrator
+        run: |
+          PYTHONPATH=src:../renquant-common/src python -m pytest -q \
+            tests/test_retrain_alpha158_fund.py \
+            tests/test_build_wf_manifest_tjp.py
