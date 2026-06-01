@@ -22,6 +22,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from renquant_orchestrator import build_patchtst_wf_manifest as bm  # noqa: E402
 
 
+def _write_model_sidecar(path: Path, *, effective_cutoff: str = "2024-01-01") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x00")
+    path.with_name(path.name + ".metadata.json").write_text(json.dumps({
+        "training_contract": {
+            "trained_date": "2026-06-01",
+            "effective_train_cutoff_date": effective_cutoff,
+            "lookahead_days": 60,
+        }
+    }))
+
+
 def test_extract_cutoffs_no_cadence(tmp_path):
     src = tmp_path / "m.json"
     src.write_text(json.dumps({"retrains": [
@@ -76,6 +88,7 @@ def test_build_train_cmd_baseline_includes_tuned():
     assert "--epochs" in cmd and "4" in cmd
     assert "--device" in cmd and "mps" in cmd
     assert "--seed" in cmd and "42" in cmd
+    assert "--label" in cmd and bm.DEFAULT_LABEL in cmd
     # tuned baseline applied
     assert "--lr" in cmd and "1e-4" in cmd
     assert "--weight-decay" in cmd and "0.3" in cmd
@@ -114,6 +127,29 @@ def test_build_train_cmd_with_flags():
     assert "--spy-path" in cmd and "/data/SPY.parquet" in cmd
 
 
+def test_build_calibrator_cmd_uses_model_repo_entrypoint():
+    cmd = bm.build_calibrator_cmd(
+        scorer_artifact=Path("/tmp/model.pt"),
+        out_path=Path("/tmp/calibration.json"),
+        panel_path="/data/panel.parquet",
+        raw_label_panel_path="/data/raw.parquet",
+        label="fwd_60d_excess",
+        data_end="2024-04-01",
+        batch_size=512,
+        method="platt",
+        min_rows=1000,
+    )
+    assert "renquant_model_patchtst.fit_calibrator" in cmd
+    assert "--scorer-artifact" in cmd and "/tmp/model.pt" in cmd
+    assert "--panel" in cmd and "/data/panel.parquet" in cmd
+    assert "--raw-label-panel" in cmd and "/data/raw.parquet" in cmd
+    assert "--data-end" in cmd and "2024-04-01" in cmd
+
+
+def test_data_end_for_cutoff_subtracts_label_lookahead_business_days():
+    assert bm.data_end_for_cutoff("2024-04-01", "fwd_60d_excess") == "2024-01-08"
+
+
 def test_resolve_data_root_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("RENQUANT_DATA_ROOT", str(tmp_path))
     out = bm.resolve_data_root()
@@ -144,9 +180,20 @@ def test_default_strategy_config_prefers_strategy_subrepo(monkeypatch, tmp_path)
     assert bm.default_strategy_config() == str(strategy.resolve())
 
 
-def test_manifest_row_shape():
-    row = bm.manifest_row(artifact=Path("/tmp/a.pt"), cutoff="2024-01-02")
-    assert set(row) == {"artifact_uri", "cutoff_date", "lookahead_days", "trained_date"}
+def test_manifest_row_shape(tmp_path):
+    artifact = tmp_path / "hf_patchtst_all_seed42_model.pt"
+    calibrator = tmp_path / "hf_patchtst-calibration.json"
+    calibrator.write_text("{}")
+    _write_model_sidecar(artifact, effective_cutoff="2024-01-02")
+    row = bm.manifest_row(artifact=artifact, cutoff="2024-01-02", calibrator=calibrator)
+    assert set(row) == {
+        "artifact_uri",
+        "calibrator_uri",
+        "cutoff_date",
+        "effective_train_cutoff_date",
+        "lookahead_days",
+        "trained_date",
+    }
     assert row["lookahead_days"] == 60
 
 

@@ -16,6 +16,17 @@ import pytest
 from renquant_orchestrator import build_patchtst_wf_manifest as bp
 
 
+def _write_model_sidecar(path: Path, *, effective_cutoff: str = "2024-01-01") -> None:
+    path.write_bytes(b"\x00")
+    path.with_name(path.name + ".metadata.json").write_text(json.dumps({
+        "training_contract": {
+            "trained_date": "2026-06-01",
+            "effective_train_cutoff_date": effective_cutoff,
+            "lookahead_days": 60,
+        }
+    }))
+
+
 @pytest.fixture
 def source_manifest(tmp_path: Path) -> Path:
     m = tmp_path / "source.json"
@@ -55,13 +66,19 @@ def test_main_assembles_doe_tuned_cli(
 
     def fake_run(cmd, *a, **k):
         captured.append(list(cmd))
-        # Pretend hf_trainer wrote the expected artifact
+        # Pretend hf_trainer / fit_calibrator wrote the expected artifacts.
+        if "renquant_model_patchtst.fit_calibrator" in cmd:
+            Path(cmd[cmd.index("--out") + 1]).write_text("{}")
+            return _RC(0)
         for i, tok in enumerate(cmd):
             if tok == "--output-dir":
                 d = Path(cmd[i + 1])
                 d.mkdir(parents=True, exist_ok=True)
                 # Default seed is 42
-                (d / "hf_patchtst_all_seed42_model.pt").write_bytes(b"\x00")
+                _write_model_sidecar(
+                    d / "hf_patchtst_all_seed42_model.pt",
+                    effective_cutoff=cmd[cmd.index("--train-cutoff") + 1],
+                )
                 break
         return _RC(0)
 
@@ -94,6 +111,10 @@ def test_main_assembles_doe_tuned_cli(
     assert str(tmp_path / "RenQuant" / bp.DEFAULT_DATASET_REL) in cmd
     assert "--spy-path" in cmd
     assert str(tmp_path / "RenQuant" / bp.DEFAULT_SPY_REL) in cmd
+    cal_cmd = next(c for c in captured if "renquant_model_patchtst.fit_calibrator" in c)
+    assert "--raw-label-panel" in cal_cmd
+    assert str(tmp_path / "RenQuant" / bp.DEFAULT_RAW_LABEL_PANEL_REL) in cal_cmd
+    assert "--data-end" in cal_cmd
 
 
 def test_main_records_failed_cutoffs(
@@ -128,10 +149,16 @@ def test_main_film_regime_cond_flag_passes_through(
         def __init__(self, rc: int) -> None: self.returncode = rc
     def fake_run(cmd, *a, **k):
         captured.append(list(cmd))
+        if "renquant_model_patchtst.fit_calibrator" in cmd:
+            Path(cmd[cmd.index("--out") + 1]).write_text("{}")
+            return _RC(0)
         for i, tok in enumerate(cmd):
             if tok == "--output-dir":
                 d = Path(cmd[i + 1]); d.mkdir(parents=True, exist_ok=True)
-                (d / "hf_patchtst_all_seed42_model.pt").write_bytes(b"\x00")
+                _write_model_sidecar(
+                    d / "hf_patchtst_all_seed42_model.pt",
+                    effective_cutoff=cmd[cmd.index("--train-cutoff") + 1],
+                )
         return _RC(0)
     monkeypatch.setattr(bp.subprocess, "run", fake_run)
     bp.main([
