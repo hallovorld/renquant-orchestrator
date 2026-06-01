@@ -51,7 +51,7 @@ def test_pipeline_has_three_ordered_jobs():
 
 def test_prepare_job_tasks_include_cwd_resolver():
     assert [type(t).__name__ for t in bp.PrepareJob().tasks] == [
-        "LoadCutoffsTask", "ResolveUmbrellaCwdTask", "EnsureOutputDirTask",
+        "LoadCutoffsTask", "ResolveDataRootTask", "EnsureOutputDirTask",
     ]
 
 
@@ -70,12 +70,15 @@ def test_load_cutoffs_task_subsamples_by_cadence(ctx):
     assert ctx.cutoffs[-1] == "2026-03-02"
 
 
-def test_resolve_cwd_task_populates_ctx_cwd(ctx, monkeypatch, tmp_path):
-    fake_strategy = tmp_path / "umbrella" / "backtesting" / "renquant_104"
-    fake_strategy.mkdir(parents=True)
-    monkeypatch.setenv("RENQUANT_STRATEGY_DIR", str(fake_strategy))
-    bp.ResolveUmbrellaCwdTask().run(ctx)
-    assert ctx.cwd == str((tmp_path / "umbrella").resolve())
+def test_resolve_data_root_task_populates_explicit_trainer_inputs(ctx, monkeypatch, tmp_path):
+    data_root = tmp_path / "RenQuant"
+    monkeypatch.setenv("RENQUANT_DATA_ROOT", str(data_root))
+
+    bp.ResolveDataRootTask().run(ctx)
+
+    assert ctx.cwd == str(data_root.resolve())
+    assert ctx.dataset_path == str(data_root.resolve() / bp.DEFAULT_DATASET_REL)
+    assert ctx.spy_path == str(data_root.resolve() / bp.DEFAULT_SPY_REL)
 
 
 def test_retrain_all_cutoffs_calls_hf_trainer_with_cwd(ctx, monkeypatch):

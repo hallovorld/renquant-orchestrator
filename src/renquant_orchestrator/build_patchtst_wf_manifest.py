@@ -25,10 +25,10 @@ Architecture (R2 refactor 2026-05-30, per §1c Task/Job/Pipeline):
   Pipeline ``BuildPatchtstWfManifestPipeline``
     PrepareJob
       LoadCutoffsTask           — parse source manifest + cadence subsample
-      ResolveUmbrellaCwdTask    — env-var or parent-walk fallback
+      ResolveDataRootTask       — explicit data/config paths for the trainer
       EnsureOutputDirTask       — mkdir ``ctx.output_dir``
     RetrainJob
-      RetrainAllCutoffsTask     — per-cutoff hf_trainer subprocess (with cwd)
+      RetrainAllCutoffsTask     — per-cutoff hf_trainer subprocess
     EmitJob
       AssembleManifestPayloadTask + WriteManifestTask
 """
@@ -50,6 +50,14 @@ from renquant_common import Job, Pipeline, Task
 # DOE-tuned baseline (matches A's deployable). See renquant-model/docs/training_pipelines.md.
 _TUNED = ["--lr", "1e-4", "--weight-decay", "0.3", "--seq-len", "24",
           "--early-stopping-patience", "2"]
+GITHUB = Path(__file__).resolve().parents[3]
+DEFAULT_DATA_ROOT = GITHUB / "RenQuant"
+DEFAULT_DATASET_REL = Path("data/transformer_v4_wl200_clean.parquet")
+DEFAULT_SPY_REL = Path("data/ohlcv/SPY/1d.parquet")
+DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
+LEGACY_STRATEGY_CONFIG = (
+    GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+)
 
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -95,6 +103,8 @@ def build_train_cmd(
     film_regime_cond: bool,
     exclude_features: str | None,
     strategy_config: str | None,
+    dataset_path: Path | str | None = None,
+    spy_path: Path | str | None = None,
 ) -> list[str]:
     """Construct the ``hf_trainer`` subprocess argv for one cutoff (pure)."""
     cmd: list[str] = [
@@ -108,6 +118,10 @@ def build_train_cmd(
         "--save-model",
         "--output-dir", str(out_path),
     ]
+    if dataset_path:
+        cmd.extend(["--dataset", str(dataset_path)])
+    if spy_path:
+        cmd.extend(["--spy-path", str(spy_path)])
     if cross_stock_attn:
         cmd.append("--cross-stock-attn")
     if film_regime_cond:
@@ -119,16 +133,48 @@ def build_train_cmd(
     return cmd
 
 
-def resolve_umbrella_cwd() -> str | None:
-    """Find the umbrella directory so ``hf_trainer`` can read its dataset."""
-    strat = _os.environ.get("RENQUANT_STRATEGY_DIR")
-    if strat:
-        return str(Path(strat).resolve().parent.parent)
+def resolve_data_root(data_root: str | None = None) -> Path | None:
+    """Find the runtime data root that contains the PatchTST dataset."""
+    raw = data_root or _os.environ.get("RENQUANT_DATA_ROOT")
+    if raw:
+        return Path(raw).expanduser().resolve()
+    legacy_strategy_dir = _os.environ.get("RENQUANT_STRATEGY_DIR")
+    if legacy_strategy_dir:
+        legacy_root = Path(legacy_strategy_dir).expanduser().resolve().parent.parent
+        if (legacy_root / DEFAULT_DATASET_REL).exists():
+            return legacy_root
+    if (DEFAULT_DATA_ROOT / DEFAULT_DATASET_REL).exists():
+        return DEFAULT_DATA_ROOT.resolve()
     here = Path(__file__).resolve()
     for cand in here.parents:
-        if (cand / "data" / "transformer_v4_wl200_clean.parquet").exists():
-            return str(cand)
+        if (cand / DEFAULT_DATASET_REL).exists():
+            return cand.resolve()
     return None
+
+
+def resolve_umbrella_cwd() -> str | None:
+    """Backward-compatible alias for older tests/callers."""
+    root = resolve_data_root()
+    return str(root) if root else None
+
+
+def default_strategy_config() -> str | None:
+    """Resolve the strategy config stamped into PatchTST artifacts."""
+    raw = _os.environ.get("RENQUANT_STRATEGY_CONFIG")
+    if raw:
+        return str(Path(raw).expanduser().resolve())
+    if DEFAULT_STRATEGY_CONFIG.exists():
+        return str(DEFAULT_STRATEGY_CONFIG.resolve())
+    if LEGACY_STRATEGY_CONFIG.exists():
+        return str(LEGACY_STRATEGY_CONFIG.resolve())
+    return None
+
+
+def default_input_paths(data_root: Path | None) -> tuple[str | None, str | None]:
+    """Resolve explicit dataset/SPY paths for the trainer subprocess."""
+    if data_root is None:
+        return None, None
+    return str(data_root / DEFAULT_DATASET_REL), str(data_root / DEFAULT_SPY_REL)
 
 
 def manifest_row(*, artifact: Path, cutoff: str, lookahead_days: int = 60) -> dict:
@@ -180,6 +226,9 @@ class BuildPatchtstWfManifestContext:
     film_regime_cond: bool
     exclude_features: str | None
     strategy_config: str | None
+    data_root: Path | None = None
+    dataset_path: str | None = None
+    spy_path: str | None = None
     # populated through the pipeline
     cutoffs: list[str] = field(default_factory=list)
     cwd: str | None = None
@@ -201,11 +250,17 @@ class LoadCutoffsTask(Task):
         return True
 
 
-class ResolveUmbrellaCwdTask(Task):
-    """Resolve the umbrella cwd so ``hf_trainer`` can find its dataset."""
+class ResolveDataRootTask(Task):
+    """Resolve explicit data/config paths so ``hf_trainer`` avoids umbrella cwd magic."""
 
     def run(self, ctx: BuildPatchtstWfManifestContext) -> bool | None:
-        ctx.cwd = resolve_umbrella_cwd()
+        ctx.data_root = resolve_data_root(str(ctx.data_root) if ctx.data_root else None)
+        ctx.dataset_path, ctx.spy_path = default_input_paths(ctx.data_root)
+        if ctx.strategy_config is None:
+            ctx.strategy_config = default_strategy_config()
+        # Keep cwd at the data root for back-compat with any relative output paths,
+        # but the trainer receives explicit input/config paths above.
+        ctx.cwd = str(ctx.data_root) if ctx.data_root else None
         return True
 
 
@@ -218,11 +273,11 @@ class EnsureOutputDirTask(Task):
 
 
 class PrepareJob(Job):
-    """Stage 1: cutoff schedule + umbrella-cwd + output-dir."""
+    """Stage 1: cutoff schedule + data/config path resolution + output-dir."""
 
     @property
     def tasks(self) -> list[Task]:
-        return [LoadCutoffsTask(), ResolveUmbrellaCwdTask(), EnsureOutputDirTask()]
+        return [LoadCutoffsTask(), ResolveDataRootTask(), EnsureOutputDirTask()]
 
 
 class RetrainAllCutoffsTask(Task):
@@ -242,6 +297,8 @@ class RetrainAllCutoffsTask(Task):
                 film_regime_cond=ctx.film_regime_cond,
                 exclude_features=ctx.exclude_features,
                 strategy_config=ctx.strategy_config,
+                dataset_path=ctx.dataset_path,
+                spy_path=ctx.spy_path,
             )
             print(f"  [{i}/{len(ctx.cutoffs)}] training cutoff={cutoff} …", flush=True)
             rc = subprocess.run(cmd, cwd=ctx.cwd).returncode
@@ -283,6 +340,9 @@ class AssembleManifestPayloadTask(Task):
                 "film_regime_cond": bool(ctx.film_regime_cond),
                 "exclude_features": ctx.exclude_features,
                 "strategy_config": ctx.strategy_config,
+                "data_root": str(ctx.data_root) if ctx.data_root else None,
+                "dataset_path": ctx.dataset_path,
+                "spy_path": ctx.spy_path,
             },
             failed_cutoffs=ctx.failed_cutoffs,
         )
@@ -318,6 +378,10 @@ def build_pipeline() -> Pipeline:
     )
 
 
+# Backward-compatible task name for existing callers.
+ResolveUmbrellaCwdTask = ResolveDataRootTask
+
+
 # ────────────────────────────────────────────────────────────────────────────────
 # CLI entrypoint.
 # ────────────────────────────────────────────────────────────────────────────────
@@ -337,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--film-regime-cond", action="store_true")
     ap.add_argument("--exclude-features", default=None)
     ap.add_argument("--strategy-config", default=None)
+    ap.add_argument("--data-root", type=Path, default=None)
     args = ap.parse_args(argv)
 
     ctx = BuildPatchtstWfManifestContext(
@@ -351,6 +416,7 @@ def main(argv: list[str] | None = None) -> int:
         film_regime_cond=args.film_regime_cond,
         exclude_features=args.exclude_features,
         strategy_config=args.strategy_config,
+        data_root=args.data_root,
     )
     build_pipeline().run(ctx)
     return 0 if not ctx.failed_cutoffs else 1

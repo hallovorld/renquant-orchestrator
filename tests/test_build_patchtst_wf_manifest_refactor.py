@@ -3,7 +3,7 @@
 Each helper has a dedicated test:
   * ``extract_cutoffs``       — manifest parsing + cadence subsampling + first/last preservation
   * ``build_train_cmd``       — hf_trainer argv assembly under all flag combos
-  * ``resolve_umbrella_cwd``  — env-var + parent-walk fallback path resolution
+  * ``resolve_data_root``     — env-var + parent-walk fallback path resolution
   * ``manifest_row``          — row schema
   * ``build_manifest_payload``— v2 payload composition
 """
@@ -88,6 +88,8 @@ def test_build_train_cmd_baseline_includes_tuned():
     assert "--film-regime-cond" not in cmd
     assert "--exclude-features" not in cmd
     assert "--strategy-config" not in cmd
+    assert "--dataset" not in cmd
+    assert "--spy-path" not in cmd
 
 
 def test_build_train_cmd_with_flags():
@@ -101,28 +103,45 @@ def test_build_train_cmd_with_flags():
         film_regime_cond=True,
         exclude_features="mean_sentiment,n_articles_log",
         strategy_config="strategy_config.shadow.json",
+        dataset_path="/data/transformer.parquet",
+        spy_path="/data/SPY.parquet",
     )
     assert "--cross-stock-attn" in cmd
     assert "--film-regime-cond" in cmd
     assert "--exclude-features" in cmd and "mean_sentiment,n_articles_log" in cmd
     assert "--strategy-config" in cmd and "strategy_config.shadow.json" in cmd
+    assert "--dataset" in cmd and "/data/transformer.parquet" in cmd
+    assert "--spy-path" in cmd and "/data/SPY.parquet" in cmd
 
 
-def test_resolve_umbrella_cwd_from_env(monkeypatch, tmp_path):
-    fake_strategy_dir = tmp_path / "backtesting" / "renquant_104"
-    fake_strategy_dir.mkdir(parents=True)
-    monkeypatch.setenv("RENQUANT_STRATEGY_DIR", str(fake_strategy_dir))
-    out = bm.resolve_umbrella_cwd()
-    # env-var path: returns parent.parent
-    assert out == str(tmp_path.resolve())
+def test_resolve_data_root_from_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("RENQUANT_DATA_ROOT", str(tmp_path))
+    out = bm.resolve_data_root()
+    assert out == tmp_path.resolve()
 
 
-def test_resolve_umbrella_cwd_no_env_no_data_returns_none(monkeypatch):
+def test_resolve_data_root_no_env_no_data_returns_none(monkeypatch):
     monkeypatch.delenv("RENQUANT_STRATEGY_DIR", raising=False)
+    monkeypatch.delenv("RENQUANT_DATA_ROOT", raising=False)
+    monkeypatch.setattr(bm, "DEFAULT_DATA_ROOT", Path("/definitely/missing"))
     # The walk-parents fallback finds nothing in any reasonable test env
-    out = bm.resolve_umbrella_cwd()
+    out = bm.resolve_data_root()
     # Either None or a real umbrella path (if test is run from inside umbrella)
-    assert out is None or Path(out, "data", "transformer_v4_wl200_clean.parquet").exists()
+    assert out is None or (out / bm.DEFAULT_DATASET_REL).exists()
+
+
+def test_default_strategy_config_prefers_strategy_subrepo(monkeypatch, tmp_path):
+    strategy = tmp_path / "renquant-strategy-104" / "configs" / "strategy_config.json"
+    legacy = tmp_path / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+    strategy.parent.mkdir(parents=True)
+    legacy.parent.mkdir(parents=True)
+    strategy.write_text("{}", encoding="utf-8")
+    legacy.write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("RENQUANT_STRATEGY_CONFIG", raising=False)
+    monkeypatch.setattr(bm, "DEFAULT_STRATEGY_CONFIG", strategy)
+    monkeypatch.setattr(bm, "LEGACY_STRATEGY_CONFIG", legacy)
+
+    assert bm.default_strategy_config() == str(strategy.resolve())
 
 
 def test_manifest_row_shape():

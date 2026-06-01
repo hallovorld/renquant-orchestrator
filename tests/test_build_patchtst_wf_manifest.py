@@ -72,6 +72,7 @@ def test_main_assembles_doe_tuned_cli(
         "--output-manifest", str(out_manifest),
         "--cadence-days", "180",
         "--epochs", "4", "--device", "cpu",
+        "--data-root", str(tmp_path / "RenQuant"),
         "--cross-stock-attn",
         "--exclude-features", "mean_sentiment,n_articles_log",
     ])
@@ -89,6 +90,10 @@ def test_main_assembles_doe_tuned_cli(
     assert "--epochs" in cmd and "4" in cmd
     assert "--device" in cmd and "cpu" in cmd
     assert "--save-model" in cmd  # always on (manifest needs artifacts)
+    assert "--dataset" in cmd
+    assert str(tmp_path / "RenQuant" / bp.DEFAULT_DATASET_REL) in cmd
+    assert "--spy-path" in cmd
+    assert str(tmp_path / "RenQuant" / bp.DEFAULT_SPY_REL) in cmd
 
 
 def test_main_records_failed_cutoffs(
