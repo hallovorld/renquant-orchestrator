@@ -15,7 +15,6 @@ def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "RenQuant"
     (repo / "scripts").mkdir(parents=True)
     (repo / "scripts" / "build_alpha158_qlib.py").touch()
-    (repo / "scripts" / "build_alpha158_fund_panel.py").touch()
     (repo / "scripts" / "fit_calibrator_alpha158_fund.py").touch()
     (repo / "data").mkdir()
     (repo / "backtesting" / "renquant_104").mkdir(parents=True)
@@ -61,7 +60,8 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
     assert result.ok is True
     assert len(seen) == 4
     assert str(repo / "scripts" / "build_alpha158_qlib.py") in seen[0]
-    assert str(repo / "scripts" / "build_alpha158_fund_panel.py") in seen[1]
+    assert "renquant_base_data.alpha158_fund_panel" in seen[1]
+    assert ["--data-dir", str(repo / "data")] == seen[1][3:5]
     assert "--truncate-to-sec-max" in seen[1]
     assert "renquant_orchestrator.train_gbdt" in seen[2]
     assert ["--output-path", str(scorer)] == seen[2][-2:]
