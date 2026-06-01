@@ -14,7 +14,6 @@ from renquant_orchestrator import retrain_alpha158_fund as mod
 def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "RenQuant"
     (repo / "scripts").mkdir(parents=True)
-    (repo / "scripts" / "build_alpha158_qlib.py").touch()
     (repo / "scripts" / "fit_calibrator_alpha158_fund.py").touch()
     (repo / "data").mkdir()
     (repo / "backtesting" / "renquant_104").mkdir(parents=True)
@@ -59,7 +58,8 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
 
     assert result.ok is True
     assert len(seen) == 4
-    assert str(repo / "scripts" / "build_alpha158_qlib.py") in seen[0]
+    assert "renquant_base_data.alpha158_qlib_panel" in seen[0]
+    assert ["--data-dir", str(repo / "data")] == seen[0][3:5]
     assert "renquant_base_data.alpha158_fund_panel" in seen[1]
     assert ["--data-dir", str(repo / "data")] == seen[1][3:5]
     assert "--truncate-to-sec-max" in seen[1]
@@ -152,5 +152,5 @@ def test_validate_repo_dir_fails_loudly_for_non_umbrella_checkout(tmp_path) -> N
     repo = tmp_path / "RenQuant"
     repo.mkdir()
 
-    with pytest.raises(FileNotFoundError, match="build_alpha158_qlib.py"):
+    with pytest.raises(FileNotFoundError, match="fit_calibrator_alpha158_fund.py"):
         mod._validate_repo_dir(repo)

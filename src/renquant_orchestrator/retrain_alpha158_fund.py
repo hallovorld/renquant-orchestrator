@@ -1,8 +1,8 @@
 """Weekly alpha158+fund retrain pipeline owned by renquant-orchestrator.
 
 This is a transitional multirepo workflow: alpha158 materialization and
-calibrator refit still call the existing umbrella scripts, while fund-panel
-merge runs through ``renquant-base-data`` and the GBDT scorer is trained through
+fund-panel merge run through ``renquant-base-data``. Calibrator refit still
+calls the existing umbrella script, while the GBDT scorer is trained through
 ``renquant_orchestrator.train_gbdt`` plus the pinned ``renquant-model`` engine.
 It preserves the weekly trust boundary: callers provide staging output paths,
 and this module never promotes production artifacts.
@@ -24,7 +24,6 @@ from renquant_common import Job, Pipeline, Task
 GITHUB = Path(__file__).resolve().parents[3]
 DEFAULT_REPO_DIR = GITHUB / "RenQuant"
 _REQUIRED_REPO_PATHS = [
-    Path("scripts/build_alpha158_qlib.py"),
     Path("scripts/fit_calibrator_alpha158_fund.py"),
     Path("backtesting/renquant_104"),
 ]
@@ -123,7 +122,16 @@ def _validate_calibrator_artifact(path: Path) -> None:
 
 class BuildAlpha158PanelTask(Task):
     def run(self, ctx: RetrainContext) -> bool | None:
-        _run(ctx, [ctx.python, str(ctx.repo_dir / "scripts" / "build_alpha158_qlib.py")])
+        _run(
+            ctx,
+            [
+                ctx.python,
+                "-m",
+                "renquant_base_data.alpha158_qlib_panel",
+                "--data-dir",
+                str(ctx.data_dir),
+            ],
+        )
         return True
 
 
