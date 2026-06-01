@@ -1,10 +1,11 @@
 """Weekly alpha158+fund retrain pipeline owned by renquant-orchestrator.
 
-This is a transitional multirepo workflow: data materialization and calibrator
-refit still call the existing umbrella scripts, while the GBDT scorer is trained
-through ``renquant_orchestrator.train_gbdt`` and the pinned ``renquant-model``
-engine. It preserves the weekly trust boundary: callers provide staging output
-paths, and this module never promotes production artifacts.
+This is a transitional multirepo workflow: alpha158 materialization and
+calibrator refit still call the existing umbrella scripts, while fund-panel
+merge runs through ``renquant-base-data`` and the GBDT scorer is trained through
+``renquant_orchestrator.train_gbdt`` plus the pinned ``renquant-model`` engine.
+It preserves the weekly trust boundary: callers provide staging output paths,
+and this module never promotes production artifacts.
 """
 from __future__ import annotations
 
@@ -24,7 +25,6 @@ GITHUB = Path(__file__).resolve().parents[3]
 DEFAULT_REPO_DIR = GITHUB / "RenQuant"
 _REQUIRED_REPO_PATHS = [
     Path("scripts/build_alpha158_qlib.py"),
-    Path("scripts/build_alpha158_fund_panel.py"),
     Path("scripts/fit_calibrator_alpha158_fund.py"),
     Path("backtesting/renquant_104"),
 ]
@@ -129,7 +129,13 @@ class BuildAlpha158PanelTask(Task):
 
 class MergeFundFeaturesTask(Task):
     def run(self, ctx: RetrainContext) -> bool | None:
-        cmd = [ctx.python, str(ctx.repo_dir / "scripts" / "build_alpha158_fund_panel.py")]
+        cmd = [
+            ctx.python,
+            "-m",
+            "renquant_base_data.alpha158_fund_panel",
+            "--data-dir",
+            str(ctx.data_dir),
+        ]
         if ctx.truncate_to_sec_max:
             cmd.append("--truncate-to-sec-max")
         _run(ctx, cmd)
