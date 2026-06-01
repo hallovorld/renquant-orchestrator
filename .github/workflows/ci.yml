@@ -74,5 +74,6 @@ jobs:
         working-directory: renquant-orchestrator
         run: |
           PYTHONPATH=src:../renquant-common/src python -m pytest -q \
+            tests/test_retrain_alpha158_linear.py \
             tests/test_retrain_alpha158_fund.py \
             tests/test_build_wf_manifest_tjp.py
