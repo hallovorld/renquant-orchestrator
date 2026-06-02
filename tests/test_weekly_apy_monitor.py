@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 
@@ -33,6 +34,22 @@ def test_compute_rolling_apy_uses_first_and_last_equity() -> None:
 
     assert n == 2
     assert apy == pytest.approx((1.1 ** (365.0 / 30)) - 1.0)
+
+
+def test_read_recent_rows_accepts_timezone_aware_dates(tmp_path: Path) -> None:
+    audit = tmp_path / "audit.jsonl"
+    _write_audit(audit, [
+        {"date": "2026-05-01T00:00:00+00:00", "equity": 100.0},
+        {"date": "2026-06-01T17:00:00+00:00", "equity": 110.0},
+    ])
+
+    rows = mod.read_recent_rows(
+        audit,
+        7,
+        now=datetime(2026, 6, 2, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert [row["equity"] for row in rows] == [110.0]
 
 
 def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:

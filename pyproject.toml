@@ -17,6 +17,10 @@ dependencies = [
   "renquant-pipeline>=0.1.0",
   "renquant-execution>=0.1.0",
   "renquant-backtesting>=0.1.0",
+]
+
+[project.optional-dependencies]
+market-data = [
   "yfinance>=0.2.40",
 ]
 

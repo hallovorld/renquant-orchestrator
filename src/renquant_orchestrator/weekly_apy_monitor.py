@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -40,10 +40,21 @@ class WeeklyApyContext:
     summary: str = ""
 
 
+def _parse_utc_datetime(value: object) -> datetime:
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def read_recent_rows(path: Path, window_days: int, *, now: datetime | None = None) -> list[dict]:
     if not path.exists():
         return []
-    current = now or datetime.utcnow()
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
     cutoff = current - timedelta(days=window_days + 1)
     out: list[dict] = []
     with path.open(encoding="utf-8") as fh:
@@ -53,7 +64,7 @@ def read_recent_rows(path: Path, window_days: int, *, now: datetime | None = Non
                 continue
             try:
                 row = json.loads(raw)
-                row_dt = datetime.fromisoformat(row["date"])
+                row_dt = _parse_utc_datetime(row["date"])
             except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                 continue
             if row_dt >= cutoff:
@@ -70,8 +81,8 @@ def compute_rolling_apy(rows: list[dict]) -> tuple[float | None, int]:
     try:
         first_eq = float(first["equity"])
         last_eq = float(last["equity"])
-        first_date = datetime.fromisoformat(first["date"])
-        last_date = datetime.fromisoformat(last["date"])
+        first_date = _parse_utc_datetime(first["date"])
+        last_date = _parse_utc_datetime(last["date"])
     except (ValueError, KeyError, TypeError):
         return None, len(valid)
     days = (last_date - first_date).days

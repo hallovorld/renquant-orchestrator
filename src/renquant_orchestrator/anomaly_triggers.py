@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 import json
 import logging
 import math
-import sys
 
 from renquant_common import Job, Pipeline, Task
 
@@ -84,9 +83,7 @@ class AnomalyTriggerContext:
 
 class FetchMarketMovesTask(Task):
     def run(self, ctx: AnomalyTriggerContext) -> bool | None:
-        spy_change = ctx.fetch_pct_change("^SPY")
-        if spy_change is None:
-            spy_change = ctx.fetch_pct_change("SPY")
+        spy_change = ctx.fetch_pct_change("SPY")
         vix_change = ctx.fetch_pct_change("^VIX")
         ctx.changes = {"SPY": spy_change, "VIX": vix_change}
         return True
