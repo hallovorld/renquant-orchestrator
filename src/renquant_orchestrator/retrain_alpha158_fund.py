@@ -36,7 +36,13 @@ class RetrainContext:
     calibrator_out: Path
     python: str = sys.executable
     truncate_to_sec_max: bool = True
-    drop_sentiment: bool = True
+    # Canonical prod recipe (umbrella's scripts/train_production_model.py) keeps
+    # the 3 sentiment features (mean_sentiment / n_articles_log /
+    # sentiment_pos_share) and uses the runtime-zeroing gate via the trainer.
+    # We mirror that here so the orchestrator path produces a 172-feature
+    # artifact matching the WF v2 manifest cuts (config_fingerprint parity).
+    # See CLAUDE.md §7.5 "single source of truth".
+    drop_sentiment: bool = False
     strategy_config_path: Path | None = None
     dry_run: bool = False
     commands: list[list[str]] = field(default_factory=list)
@@ -251,7 +257,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Use default *.staging.json candidate artifact paths when explicit outputs are omitted.",
     )
     parser.add_argument("--strategy-config", type=Path, default=None)
-    parser.add_argument("--drop-sentiment", default=True, action=argparse.BooleanOptionalAction)
+    parser.add_argument(
+        "--drop-sentiment",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Drop the 3 sentiment features (mean_sentiment / n_articles_log / "
+            "sentiment_pos_share) → 169-feature artifact. DEFAULT IS FALSE to "
+            "match the canonical prod recipe in umbrella's "
+            "scripts/train_production_model.py (172 features w/ runtime "
+            "sentiment gate). Override with --drop-sentiment only for research."
+        ),
+    )
     parser.add_argument("--truncate-to-sec-max", default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
