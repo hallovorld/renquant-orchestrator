@@ -71,7 +71,11 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
     assert ["--strategy-config", str(strategy_config)] == seen[2][5:7]
     out_idx = seen[2].index("--output-path")
     assert seen[2][out_idx:out_idx + 2] == ["--output-path", str(scorer)]
-    assert "--drop-sentiment" in seen[2]
+    # CLAUDE.md §7.5 parity: default recipe matches umbrella's canonical
+    # scripts/train_production_model.py (172-feature artifact with sentiment).
+    # The orchestrator MUST NOT inject --drop-sentiment by default; otherwise
+    # the resulting 169-feature artifact diverges from the WF manifest cuts.
+    assert "--drop-sentiment" not in seen[2]
     assert "renquant_model_gbdt.fit_calibrator_alpha158_fund" in seen[3]
     assert ["--data-dir", str(repo / "data")] == seen[3][3:5]
     assert "--scorer-artifact" in seen[3]
@@ -178,6 +182,80 @@ def test_strict_subrepo_pythonpath_requires_existing_siblings(tmp_path) -> None:
 
     with pytest.raises(FileNotFoundError, match="missing multirepo source paths"):
         mod._subrepo_pythonpath(repo, env={"RENQUANT_STRICT_SUBREPO_PATHS": "1"})
+
+
+def test_recipe_parity_with_prod_path_AUDIT_REGRESSION_GUARD() -> None:
+    """AUDIT REGRESSION GUARD (CLAUDE.md §7.5 "single source of truth").
+
+    The orchestrator's weekly retrain MUST mirror the canonical prod recipe
+    in umbrella's ``scripts/train_production_model.py`` so the resulting
+    GBDT artifact's ``config_fingerprint`` and feature_cols match the WF v2
+    manifest cuts (172 features WITH sentiment).
+
+    Bug: 2026-06-02 — ``RetrainContext.drop_sentiment`` defaulted to ``True``,
+    producing a 169-feature artifact (no sentiment) while the umbrella prod
+    path produced a 172-feature artifact. The WF gate's recipe-match check
+    rejected the candidate, costing ~2h of an aborted weekly run.
+
+    Pinned invariant: the dataclass default AND the CLI default for
+    ``drop_sentiment`` are both ``False`` — and the constructed train_gbdt
+    subprocess argv omits the ``--drop-sentiment`` flag unless the caller
+    explicitly opts in.
+    """
+    # 1. Dataclass default: must be False (canonical prod recipe).
+    default_ctx = mod.RetrainContext(
+        repo_dir=Path("/tmp/_test_repo"),
+        xgb_artifact_out=Path("/tmp/_x.json"),
+        calibrator_out=Path("/tmp/_c.json"),
+    )
+    assert default_ctx.drop_sentiment is False, (
+        "RetrainContext.drop_sentiment default drifted from canonical "
+        "prod-path recipe (umbrella scripts/train_production_model.py). "
+        "Default MUST be False to keep the 3 sentiment features."
+    )
+
+    # 2. CLI default: must be False (covers --staged / weekly wrapper).
+    parsed = mod.parse_args(["--repo-dir", "/tmp/_test_repo", "--dry-run"])
+    assert parsed.drop_sentiment is False, (
+        "--drop-sentiment CLI default drifted from canonical prod recipe; "
+        "weekly wrapper would silently pass --drop-sentiment to train_gbdt."
+    )
+
+    # 3. Opt-out path still exists for research (--drop-sentiment).
+    parsed_opt_in = mod.parse_args(
+        ["--repo-dir", "/tmp/_test_repo", "--drop-sentiment", "--dry-run"]
+    )
+    assert parsed_opt_in.drop_sentiment is True
+
+
+def test_dry_run_command_omits_drop_sentiment_by_default(tmp_path) -> None:
+    """The materialized train_gbdt argv must NOT carry --drop-sentiment by
+    default. This is the byte-level guard for the §7.5 parity invariant."""
+    repo = _repo(tmp_path)
+    ctx = mod.RetrainContext(
+        repo_dir=repo,
+        xgb_artifact_out=repo / "x.json",
+        calibrator_out=repo / "c.json",
+        dry_run=True,
+    )
+    mod.build_pipeline().run(ctx)
+    train_cmd = next(c for c in ctx.commands if "renquant_orchestrator.train_gbdt" in c)
+    assert "--drop-sentiment" not in train_cmd
+
+
+def test_dry_run_command_includes_drop_sentiment_when_opt_in(tmp_path) -> None:
+    """Research opt-in still works: ctx.drop_sentiment=True → argv carries it."""
+    repo = _repo(tmp_path)
+    ctx = mod.RetrainContext(
+        repo_dir=repo,
+        xgb_artifact_out=repo / "x.json",
+        calibrator_out=repo / "c.json",
+        dry_run=True,
+        drop_sentiment=True,
+    )
+    mod.build_pipeline().run(ctx)
+    train_cmd = next(c for c in ctx.commands if "renquant_orchestrator.train_gbdt" in c)
+    assert "--drop-sentiment" in train_cmd
 
 
 def test_validate_repo_dir_fails_loudly_for_non_umbrella_checkout(tmp_path) -> None:
