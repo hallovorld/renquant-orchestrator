@@ -105,6 +105,53 @@ def test_size_guard_fails_before_commit(tmp_path: Path, monkeypatch) -> None:
         mod.CheckFileSizeLimitsTask().run(ctx)
 
 
+def test_run_surfaces_stderr_and_alerts_on_hard_git_failure(tmp_path: Path, monkeypatch) -> None:
+    ctx = mod.StateBackupContext(repo_root=tmp_path, backup_repo=tmp_path, quiet=False)
+    alerts: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(mod, "post_ntfy", lambda title, body, topic: alerts.append((title, body, topic)))
+
+    def fail_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            128,
+            args[0],
+            output="stdout detail",
+            stderr="fatal: could not push",
+        )
+
+    monkeypatch.setattr(mod.subprocess, "run", fail_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        mod._run(ctx, ["git", "push", "origin", "main"], alert_on_failure=True)
+
+    assert "fatal: could not push" in ctx.warnings[0]
+    assert ctx.alerts[0]["title"] == "STATE_BACKUP_FAIL"
+    assert alerts[0][0] == "STATE_BACKUP_FAIL"
+    assert "fatal: could not push" in alerts[0][1]
+
+
+def test_push_warns_when_pull_failed_but_push_succeeds(tmp_path: Path, monkeypatch) -> None:
+    ctx = mod.StateBackupContext(
+        repo_root=tmp_path,
+        backup_repo=tmp_path,
+        committed=True,
+        pull_warning="git pull failed rc=1: stderr=diverged",
+    )
+    alerts: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(mod, "post_ntfy", lambda title, body, topic: alerts.append((title, body, topic)))
+    monkeypatch.setattr(
+        mod,
+        "_run",
+        lambda ctx, cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+
+    mod.PushBackupTask().run(ctx)
+
+    assert ctx.pushed is True
+    assert ctx.alerts[0]["title"] == "STATE_BACKUP_WARN"
+    assert "drift suspect" in ctx.alerts[0]["body"]
+    assert alerts[0][0] == "STATE_BACKUP_WARN"
+
+
 def test_main_prints_json_summary(monkeypatch, tmp_path: Path, capsys) -> None:
     repo = _make_repo(tmp_path)
     backup = tmp_path / "backup"
@@ -122,3 +169,25 @@ def test_main_prints_json_summary(monkeypatch, tmp_path: Path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["backup_repo"] == str(backup.resolve())
     assert payload["pushed"] is False
+
+
+def test_main_prints_json_summary_on_pipeline_failure(monkeypatch, tmp_path: Path, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    backup = tmp_path / "backup"
+    _init_git_repo(backup)
+
+    monkeypatch.setattr(mod, "build_pipeline", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    rc = mod.main([
+        "--repo-root",
+        str(repo),
+        "--backup-repo",
+        str(backup),
+        "--no-push",
+        "--quiet",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert payload["error"] == "boom"
+    assert "boom" in payload["warnings"]

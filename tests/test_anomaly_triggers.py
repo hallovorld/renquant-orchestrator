@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -24,21 +25,31 @@ def test_pct_change_from_closes_requires_valid_prior_close() -> None:
     assert mod.pct_change_from_closes([100.0]) is None
 
 
-def test_pipeline_fetches_spy_fallback_and_vix_trigger_tags() -> None:
+def test_pipeline_fetches_spy_and_vix_trigger_tags() -> None:
     seen: list[str] = []
 
     def fetch(symbol: str) -> float | None:
         seen.append(symbol)
-        return {"^SPY": None, "SPY": -0.031, "^VIX": 0.061}[symbol]
+        return {"SPY": -0.031, "^VIX": 0.061}[symbol]
 
     ctx = mod.AnomalyTriggerContext(fetch_pct_change=fetch)
 
     result = mod.build_pipeline().run(ctx)
 
     assert result.ok is True
-    assert seen == ["^SPY", "SPY", "^VIX"]
+    assert seen == ["SPY", "^VIX"]
     assert ctx.changes == {"SPY": -0.031, "VIX": 0.061}
     assert ctx.triggers == ["anomaly_spy_2pct", "anomaly_vix_5pct"]
+
+
+def test_yfinance_is_market_data_extra_not_base_dependency() -> None:
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    base_deps = pyproject.split("[project.optional-dependencies]", 1)[0]
+
+    assert '"yfinance>=0.2.40"' not in base_deps
+    assert "[project.optional-dependencies]" in pyproject
+    assert "market-data" in pyproject
+    assert '"yfinance>=0.2.40"' in pyproject
 
 
 def test_evaluate_triggers_respects_custom_threshold_tags() -> None:
@@ -51,7 +62,7 @@ def test_evaluate_triggers_respects_custom_threshold_tags() -> None:
 
 
 def test_main_dry_run_prints_triggers_but_returns_zero(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(mod, "fetch_yfinance_pct_change", lambda symbol: {"^SPY": 0.04, "^VIX": 0.0}[symbol])
+    monkeypatch.setattr(mod, "fetch_yfinance_pct_change", lambda symbol: {"SPY": 0.04, "^VIX": 0.0}[symbol])
 
     assert mod.main(["--dry-run"]) == 0
 
@@ -59,7 +70,7 @@ def test_main_dry_run_prints_triggers_but_returns_zero(monkeypatch, capsys) -> N
 
 
 def test_main_json_emits_changes_and_exit_one_on_trigger(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(mod, "fetch_yfinance_pct_change", lambda symbol: {"^SPY": 0.0, "^VIX": 0.06}[symbol])
+    monkeypatch.setattr(mod, "fetch_yfinance_pct_change", lambda symbol: {"SPY": 0.0, "^VIX": 0.06}[symbol])
 
     assert mod.main(["--json"]) == 1
 

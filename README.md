@@ -17,6 +17,9 @@ python -m renquant_orchestrator daily-contract \
   --broker-type paper
 ```
 
+The market-anomaly retrain trigger is the only path that uses yfinance; install
+`renquant-orchestrator[market-data]` for that scheduled job.
+
 This repo owns the top-level daily flow:
 
 1. validate strategy/data/config inputs,

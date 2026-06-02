@@ -11,6 +11,8 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 from renquant_common import Job, Pipeline, Task
 
@@ -34,6 +36,10 @@ class StateBackupContext:
     copied: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    alerts: list[dict[str, str]] = field(default_factory=list)
+    pull_warning: str | None = None
+    topic: str = "renquant"
+    quiet: bool = False
     committed: bool = False
     pushed: bool = False
 
@@ -46,11 +52,56 @@ class StateBackupContext:
         return self.repo_root / "backtesting" / "renquant_104"
 
 
-def _run(ctx: StateBackupContext, cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+def post_ntfy(title: str, body: str, topic: str) -> None:
+    url = f"https://ntfy.sh/{topic}"
+    try:
+        req = urllib.request.Request(
+            url,
+            data=body.encode("utf-8"),
+            headers={"Title": title, "Priority": "3", "Tags": "warning"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5).read()
+    except (urllib.error.URLError, OSError):
+        pass
+
+
+def _notify(ctx: StateBackupContext, title: str, body: str) -> None:
+    ctx.alerts.append({"title": title, "body": body})
+    if not ctx.quiet:
+        post_ntfy(title, body, ctx.topic)
+
+
+def _format_process_failure(label: str, returncode: int, stdout: str | None, stderr: str | None) -> str:
+    parts = [f"{label} failed rc={returncode}"]
+    err = (stderr or "").strip()
+    out = (stdout or "").strip()
+    if err:
+        parts.append(f"stderr={err}")
+    if out:
+        parts.append(f"stdout={out}")
+    return ": ".join(parts)
+
+
+def _run(
+    ctx: StateBackupContext,
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool = True,
+    alert_on_failure: bool = False,
+) -> subprocess.CompletedProcess:
     ctx.commands.append(cmd)
     if ctx.dry_run:
         return subprocess.CompletedProcess(cmd, 0, "", "")
-    return subprocess.run(cmd, cwd=str(cwd or ctx.backup_repo), text=True, capture_output=True, check=check)
+    try:
+        return subprocess.run(cmd, cwd=str(cwd or ctx.backup_repo), text=True, capture_output=True, check=check)
+    except subprocess.CalledProcessError as exc:
+        message = _format_process_failure(" ".join(cmd), exc.returncode, exc.stdout, exc.stderr)
+        ctx.warnings.append(message)
+        if alert_on_failure:
+            _notify(ctx, "STATE_BACKUP_FAIL", message)
+        raise
 
 
 def _copy_file(ctx: StateBackupContext, src: Path, dst: Path) -> None:
@@ -117,7 +168,9 @@ class PullBackupRepoTask(Task):
             return True
         result = _run(ctx, ["git", "pull", "--rebase", "--autostash"], check=False)
         if result.returncode != 0:
-            ctx.warnings.append(f"git pull skipped/failed rc={result.returncode}: {result.stderr.strip()}")
+            warning = _format_process_failure("git pull --rebase --autostash", result.returncode, result.stdout, result.stderr)
+            ctx.warnings.append(warning)
+            ctx.pull_warning = warning
         return True
 
 
@@ -197,7 +250,7 @@ class CommitBackupTask(Task):
         if diff.returncode == 0:
             return True
         stamp = ctx.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
-        _run(ctx, ["git", "commit", "-m", f"backup {stamp}"])
+        _run(ctx, ["git", "commit", "-m", f"backup {stamp}"], alert_on_failure=True)
         ctx.committed = True
         return True
 
@@ -206,8 +259,10 @@ class PushBackupTask(Task):
     def run(self, ctx: StateBackupContext) -> bool | None:
         if not ctx.push or not ctx.committed:
             return True
-        _run(ctx, ["git", "push", "origin", "main"])
+        _run(ctx, ["git", "push", "origin", "main"], alert_on_failure=True)
         ctx.pushed = True
+        if ctx.pull_warning:
+            _notify(ctx, "STATE_BACKUP_WARN", f"backup pushed after pull warning; drift suspect: {ctx.pull_warning}")
         return True
 
 
@@ -240,6 +295,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--backup-remote", default=os.environ.get("BACKUP_REMOTE"))
     parser.add_argument("--no-push", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--topic", default=os.environ.get("NTFY_TOPIC", "renquant"))
+    parser.add_argument("--quiet", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -251,17 +308,29 @@ def main(argv: list[str] | None = None) -> int:
         backup_remote=args.backup_remote,
         push=not args.no_push,
         dry_run=args.dry_run,
+        topic=args.topic,
+        quiet=args.quiet,
     )
-    build_pipeline().run(ctx)
+    error: str | None = None
+    rc = 0
+    try:
+        build_pipeline().run(ctx)
+    except Exception as exc:  # noqa: BLE001 - cron entrypoint should emit JSON before failing
+        error = str(exc)
+        if error and not any(error in warning for warning in ctx.warnings):
+            ctx.warnings.append(error)
+        rc = 1
     print(json.dumps({
+        "alerts": ctx.alerts,
         "backup_repo": str(ctx.backup_repo),
         "committed": ctx.committed,
+        "error": error,
         "pushed": ctx.pushed,
         "copied": ctx.copied,
         "skipped": ctx.skipped,
         "warnings": ctx.warnings,
     }, sort_keys=True))
-    return 0
+    return rc
 
 
 if __name__ == "__main__":
