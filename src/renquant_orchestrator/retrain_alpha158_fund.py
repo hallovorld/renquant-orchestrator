@@ -19,6 +19,8 @@ import sys
 
 from renquant_common import Job, Pipeline, Task
 
+from .runtime_paths import resolve_subrepo_root
+
 
 GITHUB = Path(__file__).resolve().parents[3]
 DEFAULT_REPO_DIR = GITHUB / "RenQuant"
@@ -74,8 +76,8 @@ _SUBREPO_NAMES = [
 
 
 def _subrepo_srcs(repo_dir: Path) -> list[Path]:
-    github = repo_dir.parent
-    return [github / name / "src" for name in _SUBREPO_NAMES]
+    subrepo_root = resolve_subrepo_root(repo_dir)
+    return [subrepo_root / name / "src" for name in _SUBREPO_NAMES]
 
 
 def _subrepo_pythonpath(repo_dir: Path, env: dict[str, str] | None = None) -> dict[str, str]:

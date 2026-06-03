@@ -99,3 +99,35 @@ def test_daily_contract_cli_execute_uses_paper_fill(tmp_path: Path, capsys) -> N
     assert summary["broker_name"] == "paper-test"
     assert summary["submitted_orders"][0]["status"] == "filled"
     assert summary["submitted_orders"][0]["price"] == 100.0
+
+
+def test_live_bridge_cli_forwards_runner_args(monkeypatch, tmp_path: Path) -> None:
+    import renquant_orchestrator.live_bridge as bridge
+
+    seen = {}
+
+    def fake_run_bridge(argv, *, mode, repo_root):
+        seen["argv"] = argv
+        seen["mode"] = mode
+        seen["repo_root"] = repo_root
+        return 17
+
+    monkeypatch.setattr(bridge, "run_bridge", fake_run_bridge)
+
+    rc = main([
+        "live-bridge",
+        "--repo-dir",
+        str(tmp_path),
+        "--strategy",
+        "renquant_104",
+        "--broker",
+        "alpaca",
+        "--once",
+    ])
+
+    assert rc == 17
+    assert seen == {
+        "argv": ["--strategy", "renquant_104", "--broker", "alpaca", "--once"],
+        "mode": "live",
+        "repo_root": tmp_path.resolve(),
+    }

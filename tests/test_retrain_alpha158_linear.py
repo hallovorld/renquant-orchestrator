@@ -3,12 +3,25 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 import subprocess
 
 import pytest
 
 from renquant_orchestrator import retrain_alpha158_linear as mod
+
+
+_RUNTIME_PATH_ENVS = (
+    "RENQUANT_SUBREPO_ROOT",
+    "RENQUANT_ASSEMBLY_DIR",
+    "RENQUANT_SUBREPO_ENV",
+)
+
+
+def _clear_runtime_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _RUNTIME_PATH_ENVS:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -109,6 +122,21 @@ def test_main_staged_defaults_to_candidate_artifact_paths(monkeypatch, tmp_path:
     assert captured[0].calibrator_out == (
         repo / "backtesting" / "renquant_104" / "artifacts" / "panel-rank-calibration.alpha158_linear.staging.json"
     )
+
+
+def test_pythonpath_uses_runtime_assembly_dir_env(monkeypatch, tmp_path: Path) -> None:
+    _clear_runtime_path_env(monkeypatch)
+    repo = _repo(tmp_path)
+    assembly = tmp_path / "runtime-assembly"
+    (assembly / "repos").mkdir(parents=True)
+    monkeypatch.setenv("RENQUANT_ASSEMBLY_DIR", str(assembly))
+
+    env = mod._subrepo_pythonpath(repo, env={})
+
+    entries = env["PYTHONPATH"].split(os.pathsep)
+    assert entries[0] == str(assembly / "repos" / "renquant-orchestrator" / "src")
+    assert entries[4] == str(assembly / "repos" / "renquant-model" / "src")
+    assert str(repo.parent / "renquant-model" / "src") not in entries
 
 
 def test_missing_scorer_fails_before_calibrator(monkeypatch, tmp_path: Path) -> None:

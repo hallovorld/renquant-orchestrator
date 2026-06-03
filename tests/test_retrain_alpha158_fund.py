@@ -3,12 +3,25 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 import subprocess
 
 import pytest
 
 from renquant_orchestrator import retrain_alpha158_fund as mod
+
+
+_RUNTIME_PATH_ENVS = (
+    "RENQUANT_SUBREPO_ROOT",
+    "RENQUANT_ASSEMBLY_DIR",
+    "RENQUANT_SUBREPO_ENV",
+)
+
+
+def _clear_runtime_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _RUNTIME_PATH_ENVS:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -157,7 +170,8 @@ def test_main_staged_defaults_to_candidate_artifact_paths(monkeypatch, tmp_path)
     )
 
 
-def test_pythonpath_includes_required_sibling_repos(tmp_path) -> None:
+def test_pythonpath_includes_required_sibling_repos(monkeypatch, tmp_path) -> None:
+    _clear_runtime_path_env(monkeypatch)
     repo = _repo(tmp_path)
     env = mod._subrepo_pythonpath(repo, env={})
     path = env["PYTHONPATH"]
@@ -177,7 +191,38 @@ def test_pythonpath_includes_required_sibling_repos(tmp_path) -> None:
     assert env["RENQUANT_STRATEGY_CONFIG"]
 
 
-def test_strict_subrepo_pythonpath_requires_existing_siblings(tmp_path) -> None:
+def test_pythonpath_uses_runtime_subrepo_root_env(monkeypatch, tmp_path) -> None:
+    _clear_runtime_path_env(monkeypatch)
+    repo = _repo(tmp_path)
+    subrepo_root = tmp_path / "runtime" / "repos"
+    monkeypatch.setenv("RENQUANT_SUBREPO_ROOT", str(subrepo_root))
+
+    env = mod._subrepo_pythonpath(repo, env={})
+
+    entries = env["PYTHONPATH"].split(os.pathsep)
+    assert entries[0] == str(subrepo_root / "renquant-orchestrator" / "src")
+    assert entries[2] == str(subrepo_root / "renquant-base-data" / "src")
+    assert str(repo.parent / "renquant-orchestrator" / "src") not in entries
+
+
+def test_pythonpath_uses_current_subrepo_assembly_env(monkeypatch, tmp_path) -> None:
+    _clear_runtime_path_env(monkeypatch)
+    repo = _repo(tmp_path)
+    assembly = tmp_path / "assembly-20260602"
+    (assembly / "repos").mkdir(parents=True)
+    current_env = repo / ".subrepo_assembly" / "current.env"
+    current_env.parent.mkdir(parents=True)
+    current_env.write_text(f"export RENQUANT_ASSEMBLY_DIR={assembly}\n", encoding="utf-8")
+
+    env = mod._subrepo_pythonpath(repo, env={})
+
+    entries = env["PYTHONPATH"].split(os.pathsep)
+    assert entries[0] == str(assembly / "repos" / "renquant-orchestrator" / "src")
+    assert entries[4] == str(assembly / "repos" / "renquant-model" / "src")
+
+
+def test_strict_subrepo_pythonpath_requires_existing_siblings(monkeypatch, tmp_path) -> None:
+    _clear_runtime_path_env(monkeypatch)
     repo = _repo(tmp_path)
 
     with pytest.raises(FileNotFoundError, match="missing multirepo source paths"):
