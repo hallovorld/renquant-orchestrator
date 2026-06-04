@@ -99,6 +99,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="for merge: allow PRs with no status checks; default fails closed",
     )
 
+    # The single cross-repo control-plane entrypoint (design PR #23).
+    repos_p = sub.add_parser(
+        "repos",
+        help="cross-repo control plane (list/status/sync/prs/exec/agent) "
+             "driven by subrepos.lock.json",
+    )
+    repos_p.add_argument("repos_action",
+                         choices=("list", "status", "sync", "prs", "exec", "agent"))
+    repos_p.add_argument("--repo", default="all",
+                         help="repo name or owner/repo; default 'all' (whole manifest)")
+    repos_p.add_argument("--manifest", type=Path, default=None,
+                         help="manifest path; default RenQuant/subrepos.lock.json")
+    repos_p.add_argument("--token", default=None)
+    repos_p.add_argument("--as", dest="agent", choices=("claude", "codex"),
+                         help="for action=agent: which agent")
+    repos_p.add_argument("--workflow", choices=("review", "fix", "merge"),
+                         help="for action=agent: which workflow")
+    repos_p.add_argument("--merge-strategy", default="merge",
+                         choices=("merge", "squash", "rebase"))
+    repos_p.add_argument("--execute", dest="repos_execute", action="store_true",
+                         help="for action=agent merge: actually merge")
+    repos_p.add_argument("--allow-no-checks", action="store_true",
+                         help="for action=agent merge: allow PRs with no checks")
+    repos_p.add_argument("--allow-all", action="store_true",
+                         help="for action=agent merge --repo all --execute: opt into "
+                              "cross-repo merge fan-out (bounded by --max-merges)")
+    repos_p.add_argument("--max-merges", type=int, default=0,
+                         help="cap on total merges in a cross-repo merge sweep")
+    repos_p.add_argument("exec_cmd", nargs=argparse.REMAINDER,
+                         help="for action=exec: command after --")
+
     args, unknown = parser.parse_known_args(raw_argv)
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -144,6 +175,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_no_checks=args.allow_no_checks,
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
+    if args.command == "repos":
+        from .repos import DEFAULT_MANIFEST, run_repos
+
+        exec_cmd = [a for a in (args.exec_cmd or []) if a != "--"]
+        try:
+            result = run_repos(
+                action=args.repos_action,
+                repo=args.repo,
+                manifest=args.manifest or DEFAULT_MANIFEST,
+                exec_cmd=exec_cmd or None,
+                agent=args.agent,
+                workflow=args.workflow,
+                execute=args.repos_execute,
+                merge_strategy=args.merge_strategy,
+                allow_no_checks=args.allow_no_checks,
+                allow_all=args.allow_all,
+                max_merges=args.max_merges,
+                token=args.token,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     raise AssertionError(f"unhandled command: {args.command}")
 
