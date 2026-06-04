@@ -11,9 +11,11 @@ from renquant_orchestrator.agent_workflows import (
     checks_green,
     has_stop_label,
     is_approved,
+    merge_audit_comment,
     other_agent,
     pr_authorship,
     resolve_token,
+    run_agent_workflow,
 )
 
 
@@ -133,8 +135,27 @@ def test_merge_queue_changes_requested_blocks_even_with_approval():
     assert build_queue("claude", "merge", [pr]) == []
 
 
-def test_checks_green_no_checks_is_green():
-    assert checks_green({"statusCheckRollup": []}) is True
+def test_checks_green_no_checks_is_not_green():
+    assert checks_green({"statusCheckRollup": []}) is False
+
+
+def test_checks_green_allows_no_checks_only_with_explicit_opt_in():
+    assert checks_green({"statusCheckRollup": []}, allow_no_checks=True) is True
+
+
+def test_merge_queue_requires_at_least_one_check():
+    pr = _pr(1, author="claude", reviews=[{"state": "APPROVED"}])
+    assert build_queue("claude", "merge", [pr]) == []
+
+
+def test_merge_queue_can_allow_no_checks_by_explicit_opt_in():
+    pr = _pr(1, author="claude", reviews=[{"state": "APPROVED"}])
+    assert [w.number for w in build_queue(
+        "claude",
+        "merge",
+        [pr],
+        allow_no_checks=True,
+    )] == [1]
 
 
 def test_is_approved_only_counts_head_reviews():
@@ -143,3 +164,145 @@ def test_is_approved_only_counts_head_reviews():
     pr["headRefOid"] = "NEW"
     # the only APPROVED review is against an old commit → not approved at head
     assert is_approved(pr) is False
+
+
+def test_review_and_fix_instructions_require_visible_agent_text(monkeypatch):
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [_pr(1, author="codex")],
+    )
+
+    review = run_agent_workflow(
+        agent="claude", workflow="review", repo="o/r", token=None,
+    )
+    assert "reviewed by claude" in review["instructions"]
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [
+            _pr(
+                2,
+                author="claude",
+                reviews=[{"state": "COMMENTED", "body": "**HIGH** bug"}],
+            )
+        ],
+    )
+    fix = run_agent_workflow(agent="claude", workflow="fix", repo="o/r", token=None)
+    assert "fixed by claude" in fix["instructions"]
+
+
+def test_merge_execute_comments_before_merge(monkeypatch):
+    calls = []
+    pr = _pr(
+        1,
+        author="claude",
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [pr],
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.comment_pr",
+        lambda repo, number, body, token: (
+            calls.append(("comment", repo, number, body)) or (0, "ok")
+        ),
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.merge_pr",
+        lambda repo, number, token, strategy="merge": (
+            calls.append(("merge", repo, number, strategy)) or (0, "merged")
+        ),
+    )
+
+    plan = run_agent_workflow(
+        agent="claude", workflow="merge", repo="o/r", token=None, execute=True,
+    )
+
+    assert plan["executed"] == [
+        {"number": 1, "merged": True, "commented": True, "output": "merged"}
+    ]
+    assert calls[0][0] == "comment"
+    assert "merged by `claude`" in calls[0][3]
+    assert calls[1] == ("merge", "o/r", 1, "merge")
+
+
+def test_run_agent_workflow_surfaces_allow_no_checks(monkeypatch):
+    pr = _pr(1, author="claude", reviews=[{"state": "APPROVED"}])
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [pr],
+    )
+
+    default = run_agent_workflow(
+        agent="claude", workflow="merge", repo="o/r", token=None,
+    )
+    allowed = run_agent_workflow(
+        agent="claude",
+        workflow="merge",
+        repo="o/r",
+        token=None,
+        allow_no_checks=True,
+    )
+
+    assert default["allow_no_checks"] is False
+    assert default["queue"] == []
+    assert allowed["allow_no_checks"] is True
+    assert [item["number"] for item in allowed["queue"]] == [1]
+
+
+def test_merge_execute_does_not_merge_when_audit_comment_fails(monkeypatch):
+    calls = []
+    pr = _pr(
+        1,
+        author="claude",
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [pr],
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.comment_pr",
+        lambda repo, number, body, token: (1, "comment failed"),
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.merge_pr",
+        lambda *args, **kwargs: calls.append(("merge", args, kwargs)) or (0, "merged"),
+    )
+
+    plan = run_agent_workflow(
+        agent="claude", workflow="merge", repo="o/r", token=None, execute=True,
+    )
+
+    assert plan["executed"] == [
+        {"number": 1, "merged": False, "commented": False, "output": "comment failed"}
+    ]
+    assert calls == []
+
+
+def test_merge_audit_comment_names_agent_author_and_head():
+    item = build_queue(
+        "claude",
+        "merge",
+        [
+            _pr(
+                7,
+                author="claude",
+                head="claude/audit",
+                reviews=[{"state": "APPROVED"}],
+                checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+            )
+        ],
+    )[0]
+
+    body = merge_audit_comment("claude", item)
+
+    assert "merged by `claude`" in body
+    assert "Pre-merge audit marker" in body
+    assert "PR author agent: `claude`" in body
+    assert "Head branch: `claude/audit`" in body
