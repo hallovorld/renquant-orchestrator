@@ -8,7 +8,11 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-from .contract_fixture import run_contract_fixture
+# NOTE: contract_fixture (and the bridges) pull in heavy multirepo deps
+# (renquant_execution, …). They are imported lazily inside their command
+# branches so the lightweight `agent-workflow` / `repos` control-plane
+# commands run in a bare environment (operator skills / CI) without the
+# full assembled subrepo runtime.
 
 
 def _split_bridge_args(argv: list[str]) -> tuple[Path | None, list[str]]:
@@ -134,6 +138,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if args.command == "daily-contract":
+        from .contract_fixture import run_contract_fixture
+
         as_of = args.as_of or dt.date.today().isoformat()
         run_id = args.run_id or f"daily-contract-{as_of}"
         summary = run_contract_fixture(
