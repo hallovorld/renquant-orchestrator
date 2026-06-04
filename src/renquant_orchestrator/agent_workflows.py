@@ -154,16 +154,17 @@ def is_approved(pr: dict) -> bool:
     return any(r.get("state") == "APPROVED" for r in revs)
 
 
-def checks_green(pr: dict) -> bool:
+def checks_green(pr: dict, *, allow_no_checks: bool = False) -> bool:
     """At least one check exists and every reported check is non-failing.
 
     The merge workflow is a local automation gate, not GitHub branch
-    protection. Treating an empty rollup as green would let repos with no CI
-    or missing check data auto-merge under /loop.
+    protection. Treating an empty rollup as green by default would let repos
+    with no CI or missing check data auto-merge under /loop. Repos that
+    intentionally have no checks must opt in with ``allow_no_checks``.
     """
     roll = pr.get("statusCheckRollup") or []
     if not roll:
-        return False
+        return bool(allow_no_checks)
     for c in roll:
         concl = (c.get("conclusion") or "").upper()
         status = (c.get("status") or "").upper()
@@ -213,7 +214,13 @@ class WorkItem:
         }
 
 
-def build_queue(agent: str, workflow: str, prs: list[dict]) -> list[WorkItem]:
+def build_queue(
+    agent: str,
+    workflow: str,
+    prs: list[dict],
+    *,
+    allow_no_checks: bool = False,
+) -> list[WorkItem]:
     """Pure queue resolution over a list of PR dicts (unit-testable)."""
     if workflow not in ("review", "fix", "merge"):
         raise ValueError(f"unknown workflow {workflow!r}")
@@ -262,7 +269,7 @@ def build_queue(agent: str, workflow: str, prs: list[dict]) -> list[WorkItem]:
                 continue
             if not is_approved(pr):
                 continue
-            if not checks_green(pr):
+            if not checks_green(pr, allow_no_checks=allow_no_checks):
                 continue
             item.note = "approved + green → mergeable"
             out.append(item)
@@ -302,6 +309,7 @@ def merge_audit_comment(agent: str, item: WorkItem) -> str:
     """Visible audit comment posted immediately before an automated merge."""
     return (
         f"merged by `{agent}` via `renquant-orchestrator agent-workflow merge --execute`\n\n"
+        "Pre-merge audit marker: the merge command starts after this comment is posted.\n\n"
         f"- PR author agent: `{item.author_agent or 'unknown'}`\n"
         f"- Head branch: `{item.head_ref}`\n"
         f"- Head SHA: `{item.head_oid}`"
@@ -316,6 +324,7 @@ def run_agent_workflow(
     token: Optional[str],
     execute: bool = False,
     merge_strategy: str = "merge",
+    allow_no_checks: bool = False,
 ) -> dict:
     """Resolve the queue and (for merge + --execute) act on it.
 
@@ -324,13 +333,19 @@ def run_agent_workflow(
     the merge results.
     """
     prs = fetch_open_prs(repo, token)
-    queue = build_queue(agent, workflow, prs)
+    queue = build_queue(
+        agent,
+        workflow,
+        prs,
+        allow_no_checks=allow_no_checks,
+    )
     plan: dict = {
         "agent": agent,
         "workflow": workflow,
         "repo": repo,
         "peer": other_agent(agent),
         "n_open_prs": len(prs),
+        "allow_no_checks": bool(allow_no_checks),
         "queue": [w.to_dict() for w in queue],
         "executed": [],
     }

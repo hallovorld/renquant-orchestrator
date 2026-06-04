@@ -60,10 +60,14 @@ must include visible text:
 - `merge` requires an `APPROVED` review **on the current head**, at least
   one completed check, all reported checks SUCCESS/SKIPPED/NEUTRAL, and **no** `agent:manual-hold` /
   `agent:cost-cap` / `agent:rebase-conflict` label;
+- repos with intentionally no PR checks must either add a cheap required
+  check or pass `--allow-no-checks`; the default is fail-closed so missing CI
+  is not silently treated as green;
 - a `CHANGES_REQUESTED` review on head blocks merge even if an approval
   also exists;
-- merge first posts the visible PR comment `merged by <agent>` and fails
-  closed if that audit comment cannot be written;
+- merge first posts a visible PR comment containing `merged by <agent>` as a
+  pre-merge audit marker and fails closed if that audit comment cannot be
+  written;
 - authorship is read from the canonical `agent:<name>` label, with a
   branch-prefix (`claude/…`, `codex/…`) fallback for older PRs.
 

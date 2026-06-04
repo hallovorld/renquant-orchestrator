@@ -93,6 +93,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                          choices=("merge", "squash", "rebase"))
     agentwf.add_argument("--execute", action="store_true",
                          help="for merge: actually merge the queued PRs")
+    agentwf.add_argument(
+        "--allow-no-checks",
+        action="store_true",
+        help="for merge: allow PRs with no status checks; default fails closed",
+    )
 
     args, unknown = parser.parse_known_args(raw_argv)
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
@@ -136,6 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             token=token,
             execute=args.execute,
             merge_strategy=args.merge_strategy,
+            allow_no_checks=args.allow_no_checks,
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0

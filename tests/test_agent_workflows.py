@@ -139,9 +139,23 @@ def test_checks_green_no_checks_is_not_green():
     assert checks_green({"statusCheckRollup": []}) is False
 
 
+def test_checks_green_allows_no_checks_only_with_explicit_opt_in():
+    assert checks_green({"statusCheckRollup": []}, allow_no_checks=True) is True
+
+
 def test_merge_queue_requires_at_least_one_check():
     pr = _pr(1, author="claude", reviews=[{"state": "APPROVED"}])
     assert build_queue("claude", "merge", [pr]) == []
+
+
+def test_merge_queue_can_allow_no_checks_by_explicit_opt_in():
+    pr = _pr(1, author="claude", reviews=[{"state": "APPROVED"}])
+    assert [w.number for w in build_queue(
+        "claude",
+        "merge",
+        [pr],
+        allow_no_checks=True,
+    )] == [1]
 
 
 def test_is_approved_only_counts_head_reviews():
@@ -215,6 +229,30 @@ def test_merge_execute_comments_before_merge(monkeypatch):
     assert calls[1] == ("merge", "o/r", 1, "merge")
 
 
+def test_run_agent_workflow_surfaces_allow_no_checks(monkeypatch):
+    pr = _pr(1, author="claude", reviews=[{"state": "APPROVED"}])
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [pr],
+    )
+
+    default = run_agent_workflow(
+        agent="claude", workflow="merge", repo="o/r", token=None,
+    )
+    allowed = run_agent_workflow(
+        agent="claude",
+        workflow="merge",
+        repo="o/r",
+        token=None,
+        allow_no_checks=True,
+    )
+
+    assert default["allow_no_checks"] is False
+    assert default["queue"] == []
+    assert allowed["allow_no_checks"] is True
+    assert [item["number"] for item in allowed["queue"]] == [1]
+
+
 def test_merge_execute_does_not_merge_when_audit_comment_fails(monkeypatch):
     calls = []
     pr = _pr(
@@ -265,5 +303,6 @@ def test_merge_audit_comment_names_agent_author_and_head():
     body = merge_audit_comment("claude", item)
 
     assert "merged by `claude`" in body
+    assert "Pre-merge audit marker" in body
     assert "PR author agent: `claude`" in body
     assert "Head branch: `claude/audit`" in body

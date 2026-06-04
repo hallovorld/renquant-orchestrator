@@ -60,6 +60,8 @@ Wraps `agent-workflow` (PR #22) over the manifest:
 ```
 renquant-orchestrator repos agent --as claude --workflow review        # review codex's PRs in EVERY repo
 renquant-orchestrator repos agent --as claude --workflow merge --repo RenQuant --execute
+# Repo has no PR checks? Prefer adding one; otherwise make the exception visible:
+renquant-orchestrator repos agent --as claude --workflow merge --repo RenQuant --execute --allow-no-checks
 # Cross-repo execute needs an explicit blast-radius opt-in:
 renquant-orchestrator repos agent --as claude --workflow merge --repo all --execute --allow-all --max-merges 3
 ```
@@ -97,7 +99,8 @@ cross-repo queue and performs the deterministic parts (sync, merge).
 - `agent merge` only acts on APPROVED-at-head + all-checks-green +
   no-stop-label PRs (policy lives in `build_queue`, PR #22).
 - `agent merge` requires at least one completed check; an empty check rollup
-  is not green for local automation.
+  is not green for local automation unless the operator explicitly passes
+  `--allow-no-checks` for repos that intentionally have no PR checks.
 - every agent-authored review/fix comment must include visible
   `reviewed by <agent>` / `fixed by <agent>` text; every orchestrator merge
   posts `merged by <agent>` before `gh pr merge`, and comment failure blocks
