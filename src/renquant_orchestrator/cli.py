@@ -75,6 +75,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     daily_bridge.add_argument("--repo-dir", type=Path, default=None)
     daily_bridge.add_argument("runner_args", nargs=argparse.REMAINDER)
 
+    agentwf = sub.add_parser(
+        "agent-workflow",
+        help="resolve a per-agent PR workflow queue (review/fix/merge); "
+             "merge executes, review/fix emit a worklist for the agent",
+    )
+    agentwf.add_argument("--as", dest="agent", required=True,
+                         choices=("claude", "codex"),
+                         help="which agent (selects its gh token + identity)")
+    agentwf.add_argument("--workflow", required=True,
+                         choices=("review", "fix", "merge"))
+    agentwf.add_argument("--repo", default="hallovorld/RenQuant",
+                         help="owner/repo to operate on")
+    agentwf.add_argument("--token", default=None,
+                         help="gh token override; else RENQUANT_<AGENT>_GH_TOKEN / GH_TOKEN")
+    agentwf.add_argument("--merge-strategy", default="merge",
+                         choices=("merge", "squash", "rebase"))
+    agentwf.add_argument("--execute", action="store_true",
+                         help="for merge: actually merge the queued PRs")
+
     args, unknown = parser.parse_known_args(raw_argv)
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -106,6 +125,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             mode="daily" if args.command == "daily-bridge" else "live",
             repo_root=repo_dir.expanduser().resolve(),
         )
+    if args.command == "agent-workflow":
+        from .agent_workflows import resolve_token, run_agent_workflow
+
+        token = resolve_token(args.agent, args.token)
+        plan = run_agent_workflow(
+            agent=args.agent,
+            workflow=args.workflow,
+            repo=args.repo,
+            token=token,
+            execute=args.execute,
+            merge_strategy=args.merge_strategy,
+        )
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
     raise AssertionError(f"unhandled command: {args.command}")
 
 

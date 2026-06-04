@@ -1,0 +1,145 @@
+"""Unit tests for the orchestrator-driven multi-agent PR workflows.
+
+Pure queue/policy logic only — no network (build_queue takes PR dicts).
+"""
+from __future__ import annotations
+
+import pytest
+
+from renquant_orchestrator.agent_workflows import (
+    build_queue,
+    checks_green,
+    has_stop_label,
+    is_approved,
+    other_agent,
+    pr_authorship,
+    resolve_token,
+)
+
+
+def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
+        labels=None, reviews=None, checks=None, comments=None):
+    lbls = [{"name": n} for n in (labels or [])]
+    if author and f"agent:{author}" not in (labels or []):
+        lbls.append({"name": f"agent:{author}"})
+    return {
+        "number": num, "title": f"PR {num}",
+        "headRefName": head or f"{author or 'x'}/branch-{num}",
+        "headRefOid": f"sha{num}", "state": state, "isDraft": draft,
+        "url": f"https://github.com/o/r/pull/{num}",
+        "labels": lbls,
+        "reviews": [dict(r, commit_id=r.get("commit_id", f"sha{num}")) for r in (reviews or [])],
+        "statusCheckRollup": checks or [],
+        "comments": comments or [],
+    }
+
+
+def test_other_agent():
+    assert other_agent("claude") == "codex"
+    assert other_agent("codex") == "claude"
+    with pytest.raises(ValueError):
+        other_agent("devin")
+
+
+def test_pr_authorship_label_then_branch():
+    assert pr_authorship(_pr(1, author="claude")) == "claude"
+    # branch-prefix fallback when no label
+    assert pr_authorship({"labels": [], "headRefName": "codex/foo"}) == "codex"
+    assert pr_authorship({"labels": [], "headRefName": "feat/foo"}) is None
+
+
+def test_resolve_token_env_precedence(monkeypatch):
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("RENQUANT_CLAUDE_GH_TOKEN", raising=False)
+    assert resolve_token("claude", "explicit") == "explicit"
+    monkeypatch.setenv("RENQUANT_CLAUDE_GH_TOKEN", "claude-tok")
+    monkeypatch.setenv("GH_TOKEN", "generic-tok")
+    assert resolve_token("claude") == "claude-tok"      # agent-specific wins
+    assert resolve_token("codex") == "generic-tok"      # falls back to GH_TOKEN
+
+
+# ── review queue: the OTHER agent's PRs, not yet approved ───────────────
+
+def test_review_queue_picks_peer_prs_only():
+    prs = [
+        _pr(1, author="codex"),                       # claude should review
+        _pr(2, author="claude"),                      # claude's own — skip
+        _pr(3, author="codex", reviews=[{"state": "APPROVED"}]),  # already approved — skip
+    ]
+    q = build_queue("claude", "review", prs)
+    assert [w.number for w in q] == [1]
+
+
+def test_review_queue_skips_stop_labelled_and_drafts():
+    prs = [
+        _pr(1, author="codex", labels=["agent:manual-hold"]),
+        _pr(2, author="codex", draft=True),
+        _pr(3, author="codex"),
+    ]
+    assert [w.number for w in build_queue("claude", "review", prs)] == [3]
+
+
+def test_an_agent_never_reviews_its_own_pr():
+    prs = [_pr(1, author="claude")]
+    assert build_queue("claude", "review", prs) == []
+
+
+# ── fix queue: your own PRs with unaddressed findings ───────────────────
+
+def test_fix_queue_changes_requested():
+    prs = [
+        _pr(1, author="claude", reviews=[{"state": "CHANGES_REQUESTED"}]),
+        _pr(2, author="claude", reviews=[{"state": "APPROVED"}]),   # clean — skip
+        _pr(3, author="codex", reviews=[{"state": "CHANGES_REQUESTED"}]),  # not mine — skip
+    ]
+    assert [w.number for w in build_queue("claude", "fix", prs)] == [1]
+
+
+def test_fix_queue_severity_comment_on_commented_review():
+    prs = [
+        _pr(1, author="claude",
+            reviews=[{"state": "COMMENTED", "body": "**BLOCKER** — bug here"}]),
+        _pr(2, author="claude",
+            reviews=[{"state": "COMMENTED", "body": "looks fine, minor nit"}]),
+    ]
+    assert [w.number for w in build_queue("claude", "fix", prs)] == [1]
+
+
+# ── merge queue: your own, approved + green + unblocked ─────────────────
+
+def test_merge_queue_requires_approved_and_green():
+    ok = _pr(1, author="claude",
+             reviews=[{"state": "APPROVED"}],
+             checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}])
+    not_approved = _pr(2, author="claude",
+                       checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}])
+    failing = _pr(3, author="claude",
+                  reviews=[{"state": "APPROVED"}],
+                  checks=[{"conclusion": "FAILURE", "status": "COMPLETED"}])
+    pending = _pr(4, author="claude",
+                  reviews=[{"state": "APPROVED"}],
+                  checks=[{"conclusion": "", "status": "IN_PROGRESS"}])
+    held = _pr(5, author="claude", labels=["agent:manual-hold"],
+               reviews=[{"state": "APPROVED"}],
+               checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}])
+    q = build_queue("claude", "merge", [ok, not_approved, failing, pending, held])
+    assert [w.number for w in q] == [1]
+
+
+def test_merge_queue_changes_requested_blocks_even_with_approval():
+    pr = _pr(1, author="claude",
+             reviews=[{"state": "APPROVED"}, {"state": "CHANGES_REQUESTED"}],
+             checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}])
+    assert build_queue("claude", "merge", [pr]) == []
+
+
+def test_checks_green_no_checks_is_green():
+    assert checks_green({"statusCheckRollup": []}) is True
+
+
+def test_is_approved_only_counts_head_reviews():
+    pr = _pr(1, author="claude",
+             reviews=[{"state": "APPROVED", "commit_id": "OLD"}])
+    pr["headRefOid"] = "NEW"
+    # the only APPROVED review is against an old commit → not approved at head
+    assert is_approved(pr) is False
