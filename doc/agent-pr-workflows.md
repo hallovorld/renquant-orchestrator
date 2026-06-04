@@ -27,7 +27,7 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
 |---|---|---|
 | `review` | open PRs authored by the **other** agent, not yet approved, no stop label | agent reads diff → posts ONE review with its own token |
 | `fix` | this agent's **own** open PRs with unaddressed findings (CHANGES_REQUESTED, or a BLOCKER/HIGH/MED tag at head) | agent reads findings → smallest fix → test → commit + push |
-| `merge` | this agent's **own** open PRs that are APPROVED + all checks green + no stop label | **orchestrator** runs `gh pr merge` directly (`--execute`) |
+| `merge` | this agent's **own** open PRs that are APPROVED + at least one completed check + all checks green + no stop label | **orchestrator** comments `merged by <agent>`, then runs `gh pr merge` directly (`--execute`) |
 
 `review` / `fix` print a JSON worklist for the calling agent to process.
 `merge` executes (deterministic — no model needed).
@@ -43,17 +43,27 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
   therefore always a genuine second opinion — the orchestrator's `merge`
   queue can trust it without extra checks.
 
+GitHub account attribution is not enough when both agents operate through an
+operator account or co-authored commits. Every agent-written review/fix comment
+must include visible text:
+
+- `reviewed by <agent>` in review bodies;
+- `fixed by <agent>` in fix comments;
+- `merged by <agent>` posted by the orchestrator immediately before merge.
+
 (If tokens are provided via MCP instead of env, the same precedence applies
 — `--token` is the injection point.)
 
 ## Policy (encoded in `build_queue`, not in CI)
 
 - an agent never reviews its own PR (review queue excludes self-authored);
-- `merge` requires an `APPROVED` review **on the current head**, all
-  required checks SUCCESS, and **no** `agent:manual-hold` /
+- `merge` requires an `APPROVED` review **on the current head**, at least
+  one completed check, all reported checks SUCCESS/SKIPPED/NEUTRAL, and **no** `agent:manual-hold` /
   `agent:cost-cap` / `agent:rebase-conflict` label;
 - a `CHANGES_REQUESTED` review on head blocks merge even if an approval
   also exists;
+- merge first posts the visible PR comment `merged by <agent>` and fails
+  closed if that audit comment cannot be written;
 - authorship is read from the canonical `agent:<name>` label, with a
   branch-prefix (`claude/…`, `codex/…`) fallback for older PRs.
 

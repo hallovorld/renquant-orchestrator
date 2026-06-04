@@ -24,6 +24,13 @@ each agent its OWN token means:
     enforces the review-separation invariant for free — an agent
     literally cannot self-approve, so an APPROVED review on a PR is
     always a genuine second opinion.
+  * Every agent-authored review/fix comment should also carry visible
+    ``reviewed by <agent>`` / ``fixed by <agent>`` text because GitHub
+    account attribution alone is not enough when agents share operator
+    accounts or co-authored commits.
+  * Before any orchestrator merge, the workflow posts a visible
+    ``merged by <agent>`` PR comment and only merges if that audit comment
+    succeeds.
 
 Trigger model
 -------------
@@ -37,8 +44,8 @@ Policy (encoded here, not in CI)
 --------------------------------
   * An agent never reviews its own PR (queue excludes self-authored).
   * An agent never appears in its own review queue.
-  * ``merge`` requires: an APPROVED review on the current head, all
-    required checks success, and NO stop label
+  * ``merge`` requires: an APPROVED review on the current head, at least
+    one completed check, all reported checks success, and NO stop label
     (``agent:manual-hold`` / ``agent:cost-cap`` / ``agent:rebase-conflict``).
   * Authorship is read from the canonical ``agent:<name>`` label
     (doc/ops/agent-automation.md §2.1); branch-prefix fallback for PRs
@@ -148,10 +155,15 @@ def is_approved(pr: dict) -> bool:
 
 
 def checks_green(pr: dict) -> bool:
-    """All status checks concluded SUCCESS/SKIPPED/NEUTRAL (none failing/pending)."""
+    """At least one check exists and every reported check is non-failing.
+
+    The merge workflow is a local automation gate, not GitHub branch
+    protection. Treating an empty rollup as green would let repos with no CI
+    or missing check data auto-merge under /loop.
+    """
     roll = pr.get("statusCheckRollup") or []
     if not roll:
-        return True  # no required checks configured
+        return False
     for c in roll:
         concl = (c.get("conclusion") or "").upper()
         status = (c.get("status") or "").upper()
@@ -281,6 +293,21 @@ def merge_pr(repo: str, number: int, token: Optional[str], strategy: str = "merg
     )
 
 
+def comment_pr(repo: str, number: int, body: str, token: Optional[str]) -> tuple[int, str]:
+    """Post a PR comment through gh."""
+    return _gh_run(["pr", "comment", str(number), "--repo", repo, "--body", body], token)
+
+
+def merge_audit_comment(agent: str, item: WorkItem) -> str:
+    """Visible audit comment posted immediately before an automated merge."""
+    return (
+        f"merged by `{agent}` via `renquant-orchestrator agent-workflow merge --execute`\n\n"
+        f"- PR author agent: `{item.author_agent or 'unknown'}`\n"
+        f"- Head branch: `{item.head_ref}`\n"
+        f"- Head SHA: `{item.head_oid}`"
+    )
+
+
 def run_agent_workflow(
     *,
     agent: str,
@@ -309,18 +336,34 @@ def run_agent_workflow(
     }
     if workflow == "merge" and execute:
         for w in queue:
+            comment_rc, comment_out = comment_pr(
+                repo,
+                w.number,
+                merge_audit_comment(agent, w),
+                token,
+            )
+            if comment_rc != 0:
+                plan["executed"].append({
+                    "number": w.number,
+                    "merged": False,
+                    "commented": False,
+                    "output": comment_out[:300],
+                })
+                continue
             rc, out = merge_pr(repo, w.number, token, strategy=merge_strategy)
             plan["executed"].append({
-                "number": w.number, "merged": rc == 0, "output": out[:300],
+                "number": w.number, "merged": rc == 0, "commented": True, "output": out[:300],
             })
     elif workflow in ("review", "fix"):
         plan["instructions"] = (
             f"Agent '{agent}' should process each queued PR: "
-            + ("read the diff and post ONE consolidated review with your token "
+            + ("read the diff and post ONE consolidated review with your token. "
+               f"The review body must include visible text `reviewed by {agent}` "
                "(gh pr review --approve|--request-changes|--comment) — "
                "request changes only for BLOCKER/HIGH/MED."
                if workflow == "review" else
                "read the review findings, make the smallest fix, run focused "
-               "tests, then commit (with your Co-Authored-By trailer) and push.")
+               f"tests, then comment `fixed by {agent}`, commit (with your "
+               "Co-Authored-By trailer), and push.")
         )
     return plan

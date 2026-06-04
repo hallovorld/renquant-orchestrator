@@ -40,8 +40,9 @@ iterator", none physically nest the repos.
 renquant-orchestrator repos <action> [--repo <name|all>] [options]
 ```
 
-`--repo` defaults to `all` (whole manifest); narrow to one repo by name or
-`owner/repo`. Every action emits JSON (scriptable, loop-friendly).
+`--repo` defaults to `all` for read-only/listing workflows; mutating
+workflows may narrow to one repo by name or `owner/repo`. Every action emits
+JSON (scriptable, loop-friendly).
 
 | action | what it does | reads/writes |
 |---|---|---|
@@ -58,7 +59,9 @@ Wraps `agent-workflow` (PR #22) over the manifest:
 
 ```
 renquant-orchestrator repos agent --as claude --workflow review        # review codex's PRs in EVERY repo
-renquant-orchestrator repos agent --as claude --workflow merge --execute # merge claude's approved+green PRs everywhere
+renquant-orchestrator repos agent --as claude --workflow merge --repo RenQuant --execute
+# Cross-repo execute needs an explicit blast-radius opt-in:
+renquant-orchestrator repos agent --as claude --workflow merge --repo all --execute --allow-all --max-merges 3
 ```
 
 Per-repo failures are isolated — one repo erroring does not abort the
@@ -93,6 +96,14 @@ cross-repo queue and performs the deterministic parts (sync, merge).
   clobbering in-flight work.
 - `agent merge` only acts on APPROVED-at-head + all-checks-green +
   no-stop-label PRs (policy lives in `build_queue`, PR #22).
+- `agent merge` requires at least one completed check; an empty check rollup
+  is not green for local automation.
+- every agent-authored review/fix comment must include visible
+  `reviewed by <agent>` / `fixed by <agent>` text; every orchestrator merge
+  posts `merged by <agent>` before `gh pr merge`, and comment failure blocks
+  the merge.
+- cross-repo merge execution is not the default v1 path: `--repo all
+  --execute` requires explicit `--allow-all` and a bounded `--max-merges`.
 - one repo's failure never aborts the cross-repo sweep.
 - manifest is read-only here; pin advancement stays with the existing
   lockfile tooling.
@@ -126,7 +137,7 @@ cross-repo queue, then do the judgment per item.*
     (`--request-changes` only for BLOCKER/HIGH/MED).
   - `/rq-fix`     → `repos agent --as claude --workflow fix`, then for each:
     read findings, smallest fix, run focused tests, commit + push.
-  - `/rq-merge`   → `repos agent --as claude --workflow merge --execute`
+  - `/rq-merge`   → `repos agent --as claude --workflow merge --repo <one> --execute`
     (deterministic — the skill just surfaces what got merged).
 - **Codex CLI** — the same three as `AGENTS.md` instructions / codex
   prompts (codex has no `.claude/skills`), pointing at
@@ -160,7 +171,7 @@ optional** for the agent's own GitHub writes if you prefer MCP tools over
 `/loop` turns any of the above into a recurring sweep, no webhooks:
 
 ```
-/loop 30m /rq-merge                       # Claude auto-merges its approved+green PRs every 30m
+/loop 30m /rq-merge --repo RenQuant       # Claude auto-merges approved+green PRs in one repo
 /loop 1h  renquant-orchestrator repos sync   # keep all clones fresh
 /loop 2h  /rq-review                      # Claude periodically reviews codex's open PRs
 ```
@@ -196,10 +207,9 @@ operator / /loop
 2. **`sync` aggressiveness**: fetch-only vs also `--ff-only` pull on clean
    main (draft: the latter). Should it ever rebase feature branches? (Draft:
    no — too dangerous for a sweep.)
-3. **`agent merge --repo all --execute`**: is a fully-autonomous cross-repo
-   merge sweep desired, or should merge always be `--repo <one>` /
-   require a per-run confirmation? (Risk: a bad approval auto-merges
-   everywhere.)
+3. **`agent merge --repo all --execute`**: v1 answer: not allowed by default.
+   Cross-repo execute must require explicit `--allow-all` plus `--max-merges`
+   so a bad approval cannot silently fan out everywhere.
 4. **`exec` blast radius**: keep it (powerful, operator-only) or omit from
    v1 as too sharp?
 5. **Output**: JSON only, or also a human table? (Draft: JSON; a `--format
