@@ -109,7 +109,86 @@ cross-repo queue and performs the deterministic parts (sync, merge).
 - A working draft of `repos.py` exists locally (stashed pending this design
   review) — intentionally NOT in this PR so the design is critiqued first.
 
-## 8 · Open questions for review
+## 8 · Operator layer — how you actually drive it (skill / MCP / loop)
+
+The CLI is the engine; this is the steering wheel. Three thin layers, one
+per concern, so the operator never types raw orchestrator commands.
+
+### 8.1 · Skills (the per-agent invocation surface)
+
+Each agent gets slash-command equivalents that wrap the entrypoint. The
+agent IS the model, so the skill body is: *call the orchestrator to get my
+cross-repo queue, then do the judgment per item.*
+
+- **Claude Code** — `.claude/skills/` skills committed in the umbrella:
+  - `/rq-review`  → `repos agent --as claude --workflow review`, then for
+    each queued PR: read diff, post ONE review with Claude's token
+    (`--request-changes` only for BLOCKER/HIGH/MED).
+  - `/rq-fix`     → `repos agent --as claude --workflow fix`, then for each:
+    read findings, smallest fix, run focused tests, commit + push.
+  - `/rq-merge`   → `repos agent --as claude --workflow merge --execute`
+    (deterministic — the skill just surfaces what got merged).
+- **Codex CLI** — the same three as `AGENTS.md` instructions / codex
+  prompts (codex has no `.claude/skills`), pointing at
+  `--as codex`. Codex reviews Claude's PRs; Claude reviews Codex's.
+
+Net: the operator types `/rq-review` in a session and the agent sweeps
+every repo. One word, not a command line.
+
+### 8.2 · MCP / tokens (point 3 — different token per agent)
+
+Two ways to give each agent its own GitHub identity; the orchestrator's
+`--token` is the single injection point either way:
+
+- **Env (simplest, default)**: set `RENQUANT_CLAUDE_GH_TOKEN` in Claude's
+  launch env and `RENQUANT_CODEX_GH_TOKEN` in Codex's. The orchestrator's
+  `--as <agent>` resolves the matching var. `gh` (used by the orchestrator
+  for queue + merge) inherits it via `GH_TOKEN`.
+- **MCP (if the agent acts on GitHub directly rather than via `gh`)**:
+  configure a GitHub MCP server per agent with that agent's token —
+  Claude's `.mcp.json` / settings gets the Claude token, Codex's MCP config
+  gets the Codex token. The agent then posts reviews / pushes via MCP
+  tools instead of `gh`. The orchestrator side is unchanged (it still uses
+  `--token` for its own queue/merge calls).
+
+Recommendation: **env for the orchestrator's deterministic calls; MCP
+optional** for the agent's own GitHub writes if you prefer MCP tools over
+`gh`. Both honor "one token per agent" → attribution + no-self-approve.
+
+### 8.3 · Loop (point 4 — manual or scheduled trigger)
+
+`/loop` turns any of the above into a recurring sweep, no webhooks:
+
+```
+/loop 30m /rq-merge                       # Claude auto-merges its approved+green PRs every 30m
+/loop 1h  renquant-orchestrator repos sync   # keep all clones fresh
+/loop 2h  /rq-review                      # Claude periodically reviews codex's open PRs
+```
+
+Codex runs its own `/loop`-equivalent for its three workflows. The two
+agents thus review each other and fix/merge their own on independent
+cadences, entirely operator-controlled — start/stop a loop to turn a
+workflow on/off. Manual one-shot is just running the skill without `/loop`.
+
+### 8.4 · How the pieces compose
+
+```
+operator / /loop
+      │  invokes
+      ▼
+ skill (/rq-review …)            ← per-agent, the invocation surface
+      │  shells
+      ▼
+ renquant-orchestrator repos …   ← control plane: manifest → queue + deterministic merge
+      │  uses --token (env or MCP-provided)
+      ▼
+ gh / agent GitHub writes        ← per-agent identity (attribution, no self-approve)
+      │  over
+      ▼
+ subrepos.lock.json manifest     ← SSOT: which repos, where
+```
+
+## 9 · Open questions for review
 
 1. **Manifest source**: hardcode `RenQuant/subrepos.lock.json` default, or
    take `--manifest` always / env `RENQUANT_MANIFEST`? (Draft: default +
@@ -131,8 +210,9 @@ cross-repo queue and performs the deterministic parts (sync, merge).
 ---
 
 **@codex** — please review this DESIGN (not an impl). Focus: the safety
-model in §6 (especially Q3 autonomous cross-repo merge), the manifest-as-
-SSOT choice vs submodules, and anything in §8 you'd decide differently.
+model in §6 (especially §9 Q3 autonomous cross-repo merge), the manifest-as-
+SSOT choice vs submodules, the operator layer in §8 (skill/MCP/loop), and
+anything in §9 you'd decide differently.
 The implementation follows once the design is agreed.
 
 Agent-Origin: Claude
