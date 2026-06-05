@@ -131,8 +131,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                               "cross-repo merge fan-out (bounded by --max-merges)")
     repos_p.add_argument("--max-merges", type=int, default=0,
                          help="cap on total merges in a cross-repo merge sweep")
-    repos_p.add_argument("exec_cmd", nargs=argparse.REMAINDER,
-                         help="for action=exec: command after --")
+
+    # `repos exec` takes its command after a literal `--`. Split it off
+    # BEFORE argparse so it can't swallow this command's own flags
+    # (REMAINDER is too greedy and ate --as/--workflow). Mirrors the
+    # bridge arg-splitting pattern.
+    repos_exec_cmd: list[str] = []
+    if raw_argv and raw_argv[0] == "repos" and "--" in raw_argv:
+        sep = raw_argv.index("--")
+        repos_exec_cmd = raw_argv[sep + 1:]
+        raw_argv = raw_argv[:sep]
 
     args, unknown = parser.parse_known_args(raw_argv)
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
@@ -185,13 +193,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "repos":
         from .repos import DEFAULT_MANIFEST, run_repos
 
-        exec_cmd = [a for a in (args.exec_cmd or []) if a != "--"]
         try:
             result = run_repos(
                 action=args.repos_action,
                 repo=args.repo,
                 manifest=args.manifest or DEFAULT_MANIFEST,
-                exec_cmd=exec_cmd or None,
+                exec_cmd=repos_exec_cmd or None,
                 agent=args.agent,
                 workflow=args.workflow,
                 execute=args.repos_execute,

@@ -126,3 +126,37 @@ def test_review_action_is_cross_repo_without_gate(tmp_path, monkeypatch):
                       agent="claude", workflow="review")
     assert out["n_repos"] == 3
     assert all("plan" in r for r in out["repos"])
+
+
+# ── CLI arg-parsing regression (the REMAINDER-swallow bug) ───────────────
+
+def test_cli_repos_agent_flags_not_swallowed(monkeypatch, capsys):
+    """`repos agent --as claude --workflow review` must parse the flags;
+    the earlier exec_cmd=REMAINDER greedily ate them."""
+    from renquant_orchestrator import cli
+    captured = {}
+
+    def _fake_run_repos(**kw):
+        captured.update(kw)
+        return {"ok": True}
+
+    monkeypatch.setattr("renquant_orchestrator.repos.run_repos", _fake_run_repos)
+    rc = cli.main(["repos", "agent", "--as", "claude", "--workflow", "review",
+                   "--repo", "all"])
+    assert rc == 0
+    assert captured["agent"] == "claude"
+    assert captured["workflow"] == "review"
+    assert captured["action"] == "agent"
+
+
+def test_cli_repos_exec_splits_on_double_dash(monkeypatch):
+    from renquant_orchestrator import cli
+    captured = {}
+    monkeypatch.setattr("renquant_orchestrator.repos.run_repos",
+                        lambda **kw: captured.update(kw) or {"ok": True})
+    rc = cli.main(["repos", "exec", "--repo", "renquant-common", "--",
+                   "git", "status", "--short"])
+    assert rc == 0
+    assert captured["action"] == "exec"
+    assert captured["repo"] == "renquant-common"
+    assert captured["exec_cmd"] == ["git", "status", "--short"]
