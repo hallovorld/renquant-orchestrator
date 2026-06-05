@@ -8,7 +8,11 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-from .contract_fixture import run_contract_fixture
+# NOTE: contract_fixture (and the bridges) pull in heavy multirepo deps
+# (renquant_execution, …). They are imported lazily inside their command
+# branches so the lightweight `agent-workflow` / `repos` control-plane
+# commands run in a bare environment (operator skills / CI) without the
+# full assembled subrepo runtime.
 
 
 def _split_bridge_args(argv: list[str]) -> tuple[Path | None, list[str]]:
@@ -99,10 +103,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="for merge: allow PRs with no status checks; default fails closed",
     )
 
+    # The single cross-repo control-plane entrypoint (design PR #23).
+    repos_p = sub.add_parser(
+        "repos",
+        help="cross-repo control plane (list/status/sync/prs/exec/agent) "
+             "driven by subrepos.lock.json",
+    )
+    repos_p.add_argument("repos_action",
+                         choices=("list", "status", "sync", "prs", "exec", "agent"))
+    repos_p.add_argument("--repo", default="all",
+                         help="repo name or owner/repo; default 'all' (whole manifest)")
+    repos_p.add_argument("--manifest", type=Path, default=None,
+                         help="manifest path; default RenQuant/subrepos.lock.json")
+    repos_p.add_argument("--token", default=None)
+    repos_p.add_argument("--as", dest="agent", choices=("claude", "codex"),
+                         help="for action=agent: which agent")
+    repos_p.add_argument("--workflow", choices=("review", "fix", "merge"),
+                         help="for action=agent: which workflow")
+    repos_p.add_argument("--merge-strategy", default="merge",
+                         choices=("merge", "squash", "rebase"))
+    repos_p.add_argument("--execute", dest="repos_execute", action="store_true",
+                         help="for action=agent merge: actually merge")
+    repos_p.add_argument("--allow-no-checks", action="store_true",
+                         help="for action=agent merge: allow PRs with no checks")
+    repos_p.add_argument("--allow-all", action="store_true",
+                         help="for action=agent merge --repo all --execute: opt into "
+                              "cross-repo merge fan-out (bounded by --max-merges)")
+    repos_p.add_argument("--max-merges", type=int, default=0,
+                         help="cap on total merges in a cross-repo merge sweep")
+
+    # `repos exec` takes its command after a literal `--`. Split it off
+    # BEFORE argparse so it can't swallow this command's own flags
+    # (REMAINDER is too greedy and ate --as/--workflow). Mirrors the
+    # bridge arg-splitting pattern.
+    repos_exec_cmd: list[str] = []
+    if raw_argv and raw_argv[0] == "repos" and "--" in raw_argv:
+        sep = raw_argv.index("--")
+        repos_exec_cmd = raw_argv[sep + 1:]
+        raw_argv = raw_argv[:sep]
+
     args, unknown = parser.parse_known_args(raw_argv)
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if args.command == "daily-contract":
+        from .contract_fixture import run_contract_fixture
+
         as_of = args.as_of or dt.date.today().isoformat()
         run_id = args.run_id or f"daily-contract-{as_of}"
         summary = run_contract_fixture(
@@ -144,6 +189,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_no_checks=args.allow_no_checks,
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
+    if args.command == "repos":
+        from .repos import DEFAULT_MANIFEST, run_repos
+
+        try:
+            result = run_repos(
+                action=args.repos_action,
+                repo=args.repo,
+                manifest=args.manifest or DEFAULT_MANIFEST,
+                exec_cmd=repos_exec_cmd or None,
+                agent=args.agent,
+                workflow=args.workflow,
+                execute=args.repos_execute,
+                merge_strategy=args.merge_strategy,
+                allow_no_checks=args.allow_no_checks,
+                allow_all=args.allow_all,
+                max_merges=args.max_merges,
+                token=args.token,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     raise AssertionError(f"unhandled command: {args.command}")
 
