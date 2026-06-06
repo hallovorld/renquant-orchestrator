@@ -15,6 +15,8 @@ python -m renquant_orchestrator daily-contract \
   --strategy-config ../renquant-strategy-104/configs/strategy_config.json \
   --output-dir /tmp/renquant-daily-contract \
   --broker-type paper
+python -m renquant_orchestrator scheduled-jobs
+python -m renquant_orchestrator scheduled-jobs --fail-on-umbrella-bridge
 ```
 
 The market-anomaly retrain trigger is the only path that uses yfinance; install
@@ -31,3 +33,7 @@ This repo owns the top-level daily flow:
 
 It does not own model logic, signal logic, broker implementations, or data
 materialization. Those stay in their respective subrepos.
+
+`scheduled-jobs` is the migration control surface for cron and operator loops:
+it emits the training/inference/trading/ops job inventory, marks jobs that still
+bridge to umbrella code, and can fail closed until those bridges are offboarded.

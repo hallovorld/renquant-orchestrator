@@ -79,6 +79,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     daily_bridge.add_argument("--repo-dir", type=Path, default=None)
     daily_bridge.add_argument("runner_args", nargs=argparse.REMAINDER)
 
+    scheduled_jobs = sub.add_parser(
+        "scheduled-jobs",
+        help="emit the scheduled-job migration inventory as JSON",
+    )
+    scheduled_jobs.add_argument(
+        "--fail-on-umbrella-bridge",
+        action="store_true",
+        help="return non-zero when any scheduled job still depends on umbrella code",
+    )
+
     agentwf = sub.add_parser(
         "agent-workflow",
         help="resolve a per-agent PR workflow queue (review/fix/merge); "
@@ -187,6 +197,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             mode="daily" if args.command == "daily-bridge" else "live",
             repo_root=repo_dir.expanduser().resolve(),
         )
+    if args.command == "scheduled-jobs":
+        from .scheduled_jobs import inventory_payload
+
+        payload = inventory_payload()
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
+            return 2
+        return 0
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 

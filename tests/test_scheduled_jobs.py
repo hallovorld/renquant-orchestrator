@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import json
+
+from renquant_orchestrator.cli import main
+from renquant_orchestrator.scheduled_jobs import inventory_payload, scheduled_jobs
+
+
+def test_inventory_covers_main_scheduled_job_kinds() -> None:
+    jobs = scheduled_jobs()
+    kinds = {job.kind for job in jobs}
+    assert {"training", "inference", "trading"}.issubset(kinds)
+    assert {job.job_id for job in jobs} >= {
+        "weekly_alpha158_fund_retrain",
+        "daily_alpha158_linear_retrain",
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    }
+
+
+def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
+    payload = inventory_payload()
+
+    assert payload["summary"]["umbrella_bridge"] == 2
+    assert payload["summary"]["umbrella_bridge_jobs"] == [
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    ]
+    bridge_jobs = [
+        job for job in payload["jobs"]
+        if job["migration_state"] == "umbrella_bridge"
+    ]
+    assert all(job["uses_umbrella_code"] for job in bridge_jobs)
+    assert all(job["umbrella_code_dependency"] for job in bridge_jobs)
+
+
+def test_scheduled_jobs_cli_emits_json(capsys) -> None:
+    rc = main(["scheduled-jobs"])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 1
+    assert payload["summary"]["total"] == len(payload["jobs"])
+
+
+def test_scheduled_jobs_cli_can_fail_on_umbrella_bridge(capsys) -> None:
+    rc = main(["scheduled-jobs", "--fail-on-umbrella-bridge"])
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["umbrella_bridge_jobs"] == [
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    ]
