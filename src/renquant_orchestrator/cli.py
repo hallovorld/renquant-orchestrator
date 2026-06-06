@@ -103,6 +103,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="for merge: allow PRs with no status checks; default fails closed",
     )
 
+    identity = sub.add_parser(
+        "agent-identity",
+        help="verify Claude/Codex gh tokens resolve to distinct GitHub actors",
+    )
+    identity.add_argument("--claude-token", default=None)
+    identity.add_argument("--codex-token", default=None)
+    identity.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero when either token is missing, invalid, or shared",
+    )
+
     # The single cross-repo control-plane entrypoint (design PR #23).
     repos_p = sub.add_parser(
         "repos",
@@ -190,6 +202,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
+    if args.command == "agent-identity":
+        from .agent_workflows import agent_identity_health
+
+        health = agent_identity_health(
+            claude_token=args.claude_token,
+            codex_token=args.codex_token,
+            require_actor_tokens=args.strict,
+        )
+        print(json.dumps(health, indent=2, sort_keys=True))
+        return 0 if health["ok"] or not args.strict else 1
     if args.command == "repos":
         from .repos import DEFAULT_MANIFEST, run_repos
 

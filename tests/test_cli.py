@@ -131,3 +131,45 @@ def test_live_bridge_cli_forwards_runner_args(monkeypatch, tmp_path: Path) -> No
         "mode": "live",
         "repo_root": tmp_path.resolve(),
     }
+
+
+def test_agent_identity_cli_strict_returns_nonzero_on_shared_actor(monkeypatch, capsys) -> None:
+    import renquant_orchestrator.agent_workflows as workflows
+
+    monkeypatch.setattr(
+        workflows,
+        "github_login",
+        lambda _token: "shared-operator",
+    )
+
+    rc = main([
+        "agent-identity",
+        "--claude-token",
+        "claude-token",
+        "--codex-token",
+        "codex-token",
+        "--strict",
+    ])
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["ok"] is False
+    assert "same GitHub login" in " ".join(out["warnings"])
+
+
+def test_agent_identity_cli_non_strict_is_report_only(monkeypatch, capsys) -> None:
+    import renquant_orchestrator.agent_workflows as workflows
+
+    monkeypatch.setattr(workflows, "github_login", lambda _token: "shared-operator")
+
+    rc = main([
+        "agent-identity",
+        "--claude-token",
+        "claude-token",
+        "--codex-token",
+        "codex-token",
+    ])
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["ok"] is False

@@ -74,8 +74,23 @@ def other_agent(agent: str) -> str:
 
 def resolve_token(agent: str, explicit: Optional[str] = None) -> Optional[str]:
     """Resolve the gh token for an agent (see module docstring order)."""
+    token, _source = resolve_token_with_source(agent, explicit)
+    return token
+
+
+def resolve_token_with_source(
+    agent: str,
+    explicit: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the gh token plus the source used.
+
+    The source is intentionally safe to print in diagnostics; the token value
+    is never exposed by healthcheck output.
+    """
+    if agent not in AGENTS:
+        raise ValueError(f"unknown agent {agent!r}; expected one of {AGENTS}")
     if explicit:
-        return explicit
+        return explicit, "--token"
     for var in (
         f"RENQUANT_{agent.upper()}_GH_TOKEN",
         "GH_TOKEN",
@@ -83,8 +98,8 @@ def resolve_token(agent: str, explicit: Optional[str] = None) -> Optional[str]:
     ):
         val = os.environ.get(var)
         if val:
-            return val
-    return None
+            return val, var
+    return None, None
 
 
 # ─────────────────────────── gh shell layer ────────────────────────────
@@ -116,6 +131,103 @@ def _gh_run(args: Sequence[str], token: Optional[str]) -> tuple[int, str]:
         capture_output=True, text=True, env=env, check=False,
     )
     return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def github_login(token: str) -> str:
+    """Return the GitHub login for a token using ``gh api user``."""
+    user = _gh_json(["api", "user"], token)
+    login = str((user or {}).get("login") or "")
+    if not login:
+        raise RuntimeError("gh api user returned no login")
+    return login
+
+
+def agent_identity_health(
+    *,
+    claude_token: Optional[str] = None,
+    codex_token: Optional[str] = None,
+    require_actor_tokens: bool = False,
+) -> dict:
+    """Verify agent tokens resolve to two distinct GitHub actors.
+
+    This is a preflight for the attribution architecture: shared tokens make
+    PR authors, review authors, and ``merged by`` audit comments ambiguous.
+    ``require_actor_tokens`` excludes the generic ``GH_TOKEN`` fallback so
+    strict preflight can fail before any shared ambient token is used.
+    """
+    overrides = {"claude": claude_token, "codex": codex_token}
+    actor_tokens = _actor_token_config(
+        claude_token=claude_token,
+        codex_token=codex_token,
+    ) if require_actor_tokens else {}
+    agents: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    for agent in AGENTS:
+        if require_actor_tokens:
+            token = actor_tokens[agent]["token"]
+            source = actor_tokens[agent]["source"]
+        else:
+            token, source = resolve_token_with_source(agent, overrides[agent])
+        row: dict[str, Any] = {
+            "token_source": source,
+            "token_present": bool(token),
+            "login": None,
+        }
+        if not token:
+            warnings.append(f"{agent} token is missing")
+        else:
+            try:
+                row["login"] = github_login(token)
+            except RuntimeError as exc:
+                row["error"] = str(exc)
+                warnings.append(f"{agent} token login lookup failed")
+        agents[agent] = row
+
+    logins = [
+        str(row["login"])
+        for row in agents.values()
+        if row.get("login")
+    ]
+    if len(logins) == len(AGENTS) and len(set(logins)) != len(logins):
+        warnings.append("claude and codex tokens resolve to the same GitHub login")
+
+    return {
+        "ok": not warnings,
+        "agents": agents,
+        "require_actor_tokens": bool(require_actor_tokens),
+        "warnings": warnings,
+    }
+
+
+def _actor_token_config(
+    *,
+    claude_token: Optional[str] = None,
+    codex_token: Optional[str] = None,
+) -> dict[str, dict[str, Optional[str]]]:
+    """Resolve actor-specific tokens for verification.
+
+    This intentionally excludes the generic ``GH_TOKEN`` fallback. The review
+    automation contract requires two separately configured actor tokens, not
+    one ambient token shared by both agents.
+    """
+    return {
+        "claude": {
+            "token": claude_token or os.environ.get("RENQUANT_CLAUDE_GH_TOKEN"),
+            "source": "--claude-token" if claude_token else (
+                "RENQUANT_CLAUDE_GH_TOKEN"
+                if os.environ.get("RENQUANT_CLAUDE_GH_TOKEN")
+                else None
+            ),
+        },
+        "codex": {
+            "token": codex_token or os.environ.get("RENQUANT_CODEX_GH_TOKEN"),
+            "source": "--codex-token" if codex_token else (
+                "RENQUANT_CODEX_GH_TOKEN"
+                if os.environ.get("RENQUANT_CODEX_GH_TOKEN")
+                else None
+            ),
+        },
+    }
 
 
 # ─────────────────────────── pure policy layer ──────────────────────────

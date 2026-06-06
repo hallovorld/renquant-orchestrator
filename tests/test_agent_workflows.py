@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from renquant_orchestrator.agent_workflows import (
+    agent_identity_health,
     build_queue,
     checks_green,
     has_stop_label,
@@ -15,6 +16,7 @@ from renquant_orchestrator.agent_workflows import (
     other_agent,
     pr_authorship,
     resolve_token,
+    resolve_token_with_source,
     run_agent_workflow,
 )
 
@@ -58,6 +60,103 @@ def test_resolve_token_env_precedence(monkeypatch):
     monkeypatch.setenv("GH_TOKEN", "generic-tok")
     assert resolve_token("claude") == "claude-tok"      # agent-specific wins
     assert resolve_token("codex") == "generic-tok"      # falls back to GH_TOKEN
+
+
+def test_resolve_token_with_source_is_diagnostic_safe(monkeypatch):
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("RENQUANT_CODEX_GH_TOKEN", raising=False)
+    monkeypatch.setenv("RENQUANT_CODEX_GH_TOKEN", "secret")
+
+    assert resolve_token_with_source("codex") == (
+        "secret",
+        "RENQUANT_CODEX_GH_TOKEN",
+    )
+    assert resolve_token_with_source("codex", "explicit") == (
+        "explicit",
+        "--token",
+    )
+
+
+def test_agent_identity_health_requires_distinct_logins(monkeypatch):
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.github_login",
+        lambda token: {"claude-token": "shared", "codex-token": "shared"}[token],
+    )
+
+    health = agent_identity_health(
+        claude_token="claude-token",
+        codex_token="codex-token",
+    )
+
+    assert health["ok"] is False
+    assert "same GitHub login" in " ".join(health["warnings"])
+
+
+def test_agent_identity_health_accepts_distinct_logins(monkeypatch):
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.github_login",
+        lambda token: {"claude-token": "claude-user", "codex-token": "codex-user"}[token],
+    )
+
+    health = agent_identity_health(
+        claude_token="claude-token",
+        codex_token="codex-token",
+    )
+
+    assert health == {
+        "ok": True,
+        "agents": {
+            "claude": {
+                "token_source": "--token",
+                "token_present": True,
+                "login": "claude-user",
+            },
+            "codex": {
+                "token_source": "--token",
+                "token_present": True,
+                "login": "codex-user",
+            },
+        },
+        "require_actor_tokens": False,
+        "warnings": [],
+    }
+
+
+def test_agent_identity_health_strict_requires_actor_specific_tokens(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "shared-token")
+    monkeypatch.delenv("RENQUANT_CLAUDE_GH_TOKEN", raising=False)
+    monkeypatch.delenv("RENQUANT_CODEX_GH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.github_login",
+        lambda _token: "shared-operator",
+    )
+
+    health = agent_identity_health(require_actor_tokens=True)
+
+    assert health["ok"] is False
+    assert health["require_actor_tokens"] is True
+    assert health["agents"]["claude"]["token_present"] is False
+    assert health["agents"]["codex"]["token_present"] is False
+    assert "claude token is missing" in health["warnings"]
+    assert "codex token is missing" in health["warnings"]
+
+
+def test_agent_identity_health_strict_accepts_actor_specific_tokens(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "shared-token")
+    monkeypatch.setenv("RENQUANT_CLAUDE_GH_TOKEN", "claude-token")
+    monkeypatch.setenv("RENQUANT_CODEX_GH_TOKEN", "codex-token")
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.github_login",
+        lambda token: {"claude-token": "claude-user", "codex-token": "codex-user"}[token],
+    )
+
+    health = agent_identity_health(require_actor_tokens=True)
+
+    assert health["ok"] is True
+    assert health["agents"]["claude"]["token_source"] == "RENQUANT_CLAUDE_GH_TOKEN"
+    assert health["agents"]["codex"]["token_source"] == "RENQUANT_CODEX_GH_TOKEN"
+    assert health["agents"]["claude"]["login"] == "claude-user"
+    assert health["agents"]["codex"]["login"] == "codex-user"
 
 
 # ── review queue: the OTHER agent's PRs, not yet approved ───────────────
