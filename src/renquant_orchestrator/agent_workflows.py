@@ -146,17 +146,28 @@ def agent_identity_health(
     *,
     claude_token: Optional[str] = None,
     codex_token: Optional[str] = None,
+    require_actor_tokens: bool = False,
 ) -> dict:
     """Verify agent tokens resolve to two distinct GitHub actors.
 
     This is a preflight for the attribution architecture: shared tokens make
     PR authors, review authors, and ``merged by`` audit comments ambiguous.
+    ``require_actor_tokens`` excludes the generic ``GH_TOKEN`` fallback so
+    strict preflight can fail before any shared ambient token is used.
     """
     overrides = {"claude": claude_token, "codex": codex_token}
+    actor_tokens = _actor_token_config(
+        claude_token=claude_token,
+        codex_token=codex_token,
+    ) if require_actor_tokens else {}
     agents: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
     for agent in AGENTS:
-        token, source = resolve_token_with_source(agent, overrides[agent])
+        if require_actor_tokens:
+            token = actor_tokens[agent]["token"]
+            source = actor_tokens[agent]["source"]
+        else:
+            token, source = resolve_token_with_source(agent, overrides[agent])
         row: dict[str, Any] = {
             "token_source": source,
             "token_present": bool(token),
@@ -183,6 +194,7 @@ def agent_identity_health(
     return {
         "ok": not warnings,
         "agents": agents,
+        "require_actor_tokens": bool(require_actor_tokens),
         "warnings": warnings,
     }
 

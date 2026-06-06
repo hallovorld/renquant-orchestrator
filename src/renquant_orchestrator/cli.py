@@ -208,6 +208,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         health = agent_identity_health(
             claude_token=args.claude_token,
             codex_token=args.codex_token,
+            require_actor_tokens=args.strict,
         )
         print(json.dumps(health, indent=2, sort_keys=True))
         return 0 if health["ok"] or not args.strict else 1

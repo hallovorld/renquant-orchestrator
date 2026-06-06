@@ -117,8 +117,46 @@ def test_agent_identity_health_accepts_distinct_logins(monkeypatch):
                 "login": "codex-user",
             },
         },
+        "require_actor_tokens": False,
         "warnings": [],
     }
+
+
+def test_agent_identity_health_strict_requires_actor_specific_tokens(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "shared-token")
+    monkeypatch.delenv("RENQUANT_CLAUDE_GH_TOKEN", raising=False)
+    monkeypatch.delenv("RENQUANT_CODEX_GH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.github_login",
+        lambda _token: "shared-operator",
+    )
+
+    health = agent_identity_health(require_actor_tokens=True)
+
+    assert health["ok"] is False
+    assert health["require_actor_tokens"] is True
+    assert health["agents"]["claude"]["token_present"] is False
+    assert health["agents"]["codex"]["token_present"] is False
+    assert "claude token is missing" in health["warnings"]
+    assert "codex token is missing" in health["warnings"]
+
+
+def test_agent_identity_health_strict_accepts_actor_specific_tokens(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "shared-token")
+    monkeypatch.setenv("RENQUANT_CLAUDE_GH_TOKEN", "claude-token")
+    monkeypatch.setenv("RENQUANT_CODEX_GH_TOKEN", "codex-token")
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.github_login",
+        lambda token: {"claude-token": "claude-user", "codex-token": "codex-user"}[token],
+    )
+
+    health = agent_identity_health(require_actor_tokens=True)
+
+    assert health["ok"] is True
+    assert health["agents"]["claude"]["token_source"] == "RENQUANT_CLAUDE_GH_TOKEN"
+    assert health["agents"]["codex"]["token_source"] == "RENQUANT_CODEX_GH_TOKEN"
+    assert health["agents"]["claude"]["login"] == "claude-user"
+    assert health["agents"]["codex"]["login"] == "codex-user"
 
 
 # ── review queue: the OTHER agent's PRs, not yet approved ───────────────
