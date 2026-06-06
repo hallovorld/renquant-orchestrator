@@ -133,6 +133,36 @@ def test_live_bridge_cli_forwards_runner_args(monkeypatch, tmp_path: Path) -> No
     }
 
 
+def test_run_job_forwards_live_bridge_args(monkeypatch, tmp_path: Path) -> None:
+    import renquant_orchestrator.live_bridge as bridge
+
+    seen = {}
+
+    def fake_run_bridge(argv, *, mode, repo_root):
+        seen["argv"] = argv
+        seen["mode"] = mode
+        seen["repo_root"] = repo_root
+        return 23
+
+    monkeypatch.setattr(bridge, "run_bridge", fake_run_bridge)
+
+    rc = main([
+        "run-job",
+        "live_runner_bridge",
+        "--",
+        "--repo-dir",
+        str(tmp_path),
+        "--once",
+    ])
+
+    assert rc == 23
+    assert seen == {
+        "argv": ["--once"],
+        "mode": "live",
+        "repo_root": tmp_path.resolve(),
+    }
+
+
 def test_agent_identity_cli_strict_returns_nonzero_on_shared_actor(monkeypatch, capsys) -> None:
     import renquant_orchestrator.agent_workflows as workflows
 

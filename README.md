@@ -11,12 +11,13 @@ Local automation:
 ```bash
 make test
 make doctor
-python -m renquant_orchestrator daily-contract \
+renquant-orchestrator daily-contract \
   --strategy-config ../renquant-strategy-104/configs/strategy_config.json \
   --output-dir /tmp/renquant-daily-contract \
   --broker-type paper
-python -m renquant_orchestrator scheduled-jobs
-python -m renquant_orchestrator scheduled-jobs --fail-on-umbrella-bridge
+renquant-orchestrator scheduled-jobs
+renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
+renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
 ```
 
 The market-anomaly retrain trigger is the only path that uses yfinance; install
@@ -37,3 +38,6 @@ materialization. Those stay in their respective subrepos.
 `scheduled-jobs` is the migration control surface for cron and operator loops:
 it emits the training/inference/trading/ops job inventory, marks jobs that still
 bridge to umbrella code, and can fail closed until those bridges are offboarded.
+Schedulers should call `renquant-orchestrator run-job <job_id>` from that
+inventory so launchd/cron configs stay pinned to stable job ids instead of
+internal Python module paths.

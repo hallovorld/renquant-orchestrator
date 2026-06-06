@@ -89,6 +89,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job still depends on umbrella code",
     )
 
+    run_job = sub.add_parser(
+        "run-job",
+        help="run one scheduled job by stable inventory id",
+    )
+    from .scheduled_jobs import scheduled_jobs as _scheduled_jobs
+
+    run_job.add_argument(
+        "job_id",
+        choices=[job.job_id for job in _scheduled_jobs()],
+        help="scheduled job id from `scheduled-jobs` inventory",
+    )
+    run_job.add_argument("job_args", nargs=argparse.REMAINDER)
+
     agentwf = sub.add_parser(
         "agent-workflow",
         help="resolve a per-agent PR workflow queue (review/fix/merge); "
@@ -205,6 +218,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
         return 0
+    if args.command == "run-job":
+        from .job_runner import run_scheduled_job
+
+        try:
+            return run_scheduled_job(args.job_id, args.job_args)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 

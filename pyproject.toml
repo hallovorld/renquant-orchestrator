@@ -19,6 +19,9 @@ dependencies = [
   "renquant-backtesting>=0.1.0",
 ]
 
+[project.scripts]
+renquant-orchestrator = "renquant_orchestrator.cli:main"
+
 [project.optional-dependencies]
 market-data = [
   "yfinance>=0.2.40",
