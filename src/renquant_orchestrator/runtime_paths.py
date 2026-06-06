@@ -20,6 +20,8 @@ STRICT_PIN_ENVS = (
     "RENQUANT_OPS_FAIL_CLOSED",
 )
 STRICT_CLEAN_ENV = "RENQUANT_STRICT_SUBREPO_CLEAN"
+GITHUB_ROOT_ENV = "RENQUANT_GITHUB_ROOT"
+REPO_ROOT_ENV = "RENQUANT_REPO_ROOT"
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,49 @@ class PinIssue:
 
     def format(self) -> str:
         return f"{self.repo} ({self.path}): {self.reason}"
+
+
+def default_github_root() -> Path:
+    """Return the checkout parent for sibling RenQuant repos."""
+    if raw := os.environ.get(GITHUB_ROOT_ENV):
+        return Path(raw).expanduser().resolve()
+    return Path(__file__).resolve().parents[3]
+
+
+def default_repo_root() -> Path:
+    """Return the umbrella runtime root used for data/state during migration."""
+    if raw := os.environ.get(REPO_ROOT_ENV):
+        return Path(raw).expanduser().resolve()
+    return default_github_root() / "RenQuant"
+
+
+def default_strategy_config_candidates(
+    *,
+    repo_root: Path | None = None,
+    github_root: Path | None = None,
+) -> tuple[Path, Path]:
+    github = github_root or default_github_root()
+    repo = repo_root or default_repo_root()
+    return (
+        github / "renquant-strategy-104" / "configs" / "strategy_config.json",
+        repo / "backtesting" / "renquant_104" / "strategy_config.json",
+    )
+
+
+def default_strategy_config_path(
+    *,
+    repo_root: Path | None = None,
+    github_root: Path | None = None,
+) -> Path:
+    """Prefer strategy subrepo config, with umbrella fallback while migrating."""
+    candidates = default_strategy_config_candidates(
+        repo_root=repo_root,
+        github_root=github_root,
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def resolve_subrepo_root(repo_root: Path) -> Path:

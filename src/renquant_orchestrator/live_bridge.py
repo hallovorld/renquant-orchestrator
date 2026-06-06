@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 from .runtime_paths import (
+    default_github_root,
+    default_repo_root,
     enforce_or_warn,
     resolve_subrepo_root,
     resolve_subrepo_src_roots,
@@ -13,8 +15,8 @@ from .runtime_paths import (
 )
 
 
-GITHUB = Path(__file__).resolve().parents[3]
-DEFAULT_REPO_ROOT = GITHUB / "RenQuant"
+GITHUB = default_github_root()
+DEFAULT_REPO_ROOT = default_repo_root()
 DEFAULT_PIN_SRCS = [
     "renquant-common",
     "renquant-base-data",

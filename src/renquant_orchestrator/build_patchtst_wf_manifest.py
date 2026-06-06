@@ -47,18 +47,23 @@ from typing import Sequence
 import pandas as pd
 from renquant_common import Job, Pipeline, Task
 
+from .runtime_paths import (
+    default_github_root,
+    default_repo_root,
+    default_strategy_config_candidates,
+)
 
 # DOE-tuned baseline (matches A's deployable). See renquant-model/docs/training_pipelines.md.
 _TUNED = ["--lr", "1e-4", "--weight-decay", "0.3", "--seq-len", "24",
           "--early-stopping-patience", "2"]
-GITHUB = Path(__file__).resolve().parents[3]
-DEFAULT_DATA_ROOT = GITHUB / "RenQuant"
+GITHUB = default_github_root()
+DEFAULT_DATA_ROOT = default_repo_root()
 DEFAULT_DATASET_REL = Path("data/transformer_v4_wl200_clean.parquet")
 DEFAULT_SPY_REL = Path("data/ohlcv/SPY/1d.parquet")
 DEFAULT_RAW_LABEL_PANEL_REL = Path("data/alpha158_291_fundamental_dataset_rawlabel.parquet")
-DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
-LEGACY_STRATEGY_CONFIG = (
-    GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = default_strategy_config_candidates(
+    repo_root=DEFAULT_DATA_ROOT,
+    github_root=GITHUB,
 )
 DEFAULT_LABEL = "fwd_60d_excess"
 

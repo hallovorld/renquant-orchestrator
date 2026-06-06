@@ -51,12 +51,18 @@ from typing import Sequence
 
 from renquant_common import Job, Pipeline, Task
 
+from .runtime_paths import (
+    default_github_root,
+    default_repo_root,
+    default_strategy_config_candidates,
+)
 
-GITHUB = Path(__file__).resolve().parents[3]
-DEFAULT_DATA_DIR = GITHUB / "RenQuant" / "data"
-DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
-LEGACY_STRATEGY_CONFIG = (
-    GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
+GITHUB = default_github_root()
+DEFAULT_REPO_ROOT = default_repo_root()
+DEFAULT_DATA_DIR = DEFAULT_REPO_ROOT / "data"
+DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = default_strategy_config_candidates(
+    repo_root=DEFAULT_REPO_ROOT,
+    github_root=GITHUB,
 )
 
 

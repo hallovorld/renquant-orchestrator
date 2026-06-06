@@ -19,16 +19,23 @@ import sys
 
 from renquant_common import Job, Pipeline, Task
 
-from .runtime_paths import resolve_subrepo_root
+from .runtime_paths import (
+    default_github_root,
+    default_repo_root,
+    default_strategy_config_candidates,
+    resolve_subrepo_root,
+)
 
 
-GITHUB = Path(__file__).resolve().parents[3]
-DEFAULT_REPO_DIR = GITHUB / "RenQuant"
+GITHUB = default_github_root()
+DEFAULT_REPO_DIR = default_repo_root()
 _REQUIRED_REPO_PATHS = [
     Path("data"),
 ]
-DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
-LEGACY_STRATEGY_CONFIG = DEFAULT_REPO_DIR / "backtesting" / "renquant_104" / "strategy_config.json"
+DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = default_strategy_config_candidates(
+    repo_root=DEFAULT_REPO_DIR,
+    github_root=GITHUB,
+)
 
 
 @dataclass
