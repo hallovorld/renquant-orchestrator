@@ -35,7 +35,15 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
 ## Identity & tokens
 
 `--as <agent>` selects the gh token: `--token` → `RENQUANT_<AGENT>_GH_TOKEN`
-→ `GH_TOKEN`/`GITHUB_TOKEN`. Give each agent its **own** token so:
+→ `GH_TOKEN`/`GITHUB_TOKEN`. The safe operating procedure is:
+
+1. store the Claude and Codex PATs in the local OS Keychain;
+2. expose them to the orchestrator only through `RENQUANT_<AGENT>_GH_TOKEN`;
+3. never paste token values into chat, PR bodies, comments, commits, config, or
+   `.env` files; and
+4. rotate any token that was exposed outside the secret store.
+
+Give each agent its **own** token so:
 
 - commits / reviews / merges are correctly attributed, and
 - GitHub's native **"you cannot approve your own PR"** rule enforces the
@@ -53,6 +61,46 @@ must include visible text:
 
 (If tokens are provided via MCP instead of env, the same precedence applies
 — `--token` is the injection point.)
+
+### Token SOP
+
+Use distinct GitHub accounts or bot users:
+
+| identity | purpose | required repo role |
+|---|---|---|
+| Claude token | Claude-authored PRs, Claude reviews, Claude comments | collaborator on all renquant repos |
+| Codex token | Codex-authored PRs, Codex reviews, Codex comments | collaborator on all renquant repos |
+| Owner/admin token | emergency owner override only | owner/admin; never used for normal review |
+
+Canonical storage/loading procedure lives in
+[`RenQuant/doc/ops/agent-token-storage.md`](https://github.com/hallovorld/RenQuant/blob/main/doc/ops/agent-token-storage.md).
+That SOP stores PATs with the Keychain hidden prompt and loads them without
+printing or writing token values.
+
+Before running the orchestrator:
+
+```bash
+source ../RenQuant/scripts/agent_gh_env.sh --orchestrator
+renquant-orchestrator repos agent --as claude --workflow review
+renquant-orchestrator repos agent --as codex --workflow review
+```
+
+Before any review or merge loop, verify that the accounts are different:
+
+```bash
+source ../RenQuant/scripts/agent_gh_env.sh claude
+gh api user --jq .login
+
+source ../RenQuant/scripts/agent_gh_env.sh codex
+gh api user --jq .login
+```
+
+If both commands print the same login, stop. A single GitHub identity cannot
+produce independent approvals, even if the token strings differ.
+
+If a token is pasted into chat or appears in logs, immediately revoke it in
+GitHub, create a replacement, update Keychain, and post a PR comment noting only
+that the exposed token was rotated. Never quote the token value in the comment.
 
 ## Policy (encoded in `build_queue`, not in CI)
 
