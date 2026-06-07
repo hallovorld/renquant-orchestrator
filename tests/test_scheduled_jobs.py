@@ -15,7 +15,10 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
         "daily_alpha158_linear_retrain",
         "daily_live_runner_bridge",
         "live_runner_bridge",
+        "build_wf_manifest",
+        "build_patchtst_wf_manifest",
     }
+    assert all(job.command[:2] == ["renquant-orchestrator", "run-job"] for job in jobs)
 
 
 def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
@@ -41,6 +44,34 @@ def test_scheduled_jobs_cli_emits_json(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == 1
     assert payload["summary"]["total"] == len(payload["jobs"])
+
+
+def test_run_job_dispatches_by_inventory_id(monkeypatch) -> None:
+    import renquant_orchestrator.job_runner as runner
+
+    seen = {}
+
+    def fake_run_module_main(module_name, argv):
+        seen["module_name"] = module_name
+        seen["argv"] = argv
+        return 19
+
+    monkeypatch.setattr(runner, "_run_module_main", fake_run_module_main)
+
+    rc = main([
+        "run-job",
+        "weekly_alpha158_fund_retrain",
+        "--",
+        "--staged",
+        "--repo-dir",
+        "/tmp/repo",
+    ])
+
+    assert rc == 19
+    assert seen == {
+        "module_name": "renquant_orchestrator.retrain_alpha158_fund",
+        "argv": ["--staged", "--repo-dir", "/tmp/repo"],
+    }
 
 
 def test_scheduled_jobs_cli_can_fail_on_umbrella_bridge(capsys) -> None:
