@@ -56,8 +56,8 @@ must include visible text:
 
 ### Where those tokens come from (storage SOP)
 
-The two PATs are **stored in the OS Keychain**, never in `.env`, a dotfile, or
-chat. Canonical procedure:
+The two PATs must belong to **different GitHub accounts** and are **stored in
+the OS Keychain**, never in `.env`, a dotfile, or chat. Canonical procedure:
 [`RenQuant/doc/ops/agent-token-storage.md`](https://github.com/hallovorld/RenQuant/blob/main/doc/ops/agent-token-storage.md).
 
 Before running the orchestrator, load both agent tokens into the env vars the
@@ -72,8 +72,8 @@ python -m renquant_orchestrator ...   # picks up RENQUANT_<AGENT>_GH_TOKEN per -
 
 Tokens are inserted by the **operator** (interactive Keychain prompt, see the
 SOP) — never pasted into an agent session. A token exposed anywhere (including a
-transcript) is rotated immediately; each agent's token is independently
-revocable.
+transcript) is rotated immediately. If both tokens resolve to the same GitHub
+login, stop: GitHub will still treat agent approvals as self-approval.
 
 ## Policy (encoded in `build_queue`, not in CI)
 
