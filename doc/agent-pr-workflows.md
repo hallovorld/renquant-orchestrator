@@ -35,7 +35,15 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
 ## Identity & tokens
 
 `--as <agent>` selects the gh token: `--token` → `RENQUANT_<AGENT>_GH_TOKEN`
-→ `GH_TOKEN`/`GITHUB_TOKEN`. Give each agent its **own** token so:
+→ `GH_TOKEN`/`GITHUB_TOKEN`. The safe operating procedure is:
+
+1. store the Claude and Codex PATs in the local OS secret store;
+2. expose them to the orchestrator only through short-lived wrapper commands;
+3. never paste token values into chat, PR bodies, comments, commits, config, or
+   `.env` files; and
+4. rotate any token that was exposed outside the secret store.
+
+Give each agent its **own** token so:
 
 - commits / reviews / merges are correctly attributed, and
 - GitHub's native **"you cannot approve your own PR"** rule enforces the
@@ -53,6 +61,75 @@ must include visible text:
 
 (If tokens are provided via MCP instead of env, the same precedence applies
 — `--token` is the injection point.)
+
+### Token SOP
+
+Use distinct GitHub accounts or bot users:
+
+| identity | purpose | required repo role |
+|---|---|---|
+| Claude token | Claude-authored PRs, Claude reviews, Claude comments | collaborator on all renquant repos |
+| Codex token | Codex-authored PRs, Codex reviews, Codex comments | collaborator on all renquant repos |
+| Owner/admin token | emergency owner override only | owner/admin; never used for normal review |
+
+Use fine-grained PATs scoped only to the renquant repos. Normal agent tokens
+need `Contents: read/write`, `Pull requests: read/write`, `Issues: read/write`,
+`Metadata: read`, and `Actions: read`. Do not grant admin permissions to agent
+tokens. Keep owner/admin override credentials separate.
+
+On macOS, store the two agent tokens in Keychain:
+
+```bash
+security add-generic-password -U -s renquant-gh-token -a claude -w '<CLAUDE_PAT>'
+security add-generic-password -U -s renquant-gh-token -a codex  -w '<CODEX_PAT>'
+```
+
+Create local wrappers outside every repo, for example `~/.local/bin/rq-gh-claude`
+and `~/.local/bin/rq-gh-codex`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+export GH_TOKEN="$(security find-generic-password -s renquant-gh-token -a claude -w)"
+exec gh "$@"
+```
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+export GH_TOKEN="$(security find-generic-password -s renquant-gh-token -a codex -w)"
+exec gh "$@"
+```
+
+Make them private and executable:
+
+```bash
+chmod 700 ~/.local/bin/rq-gh-claude ~/.local/bin/rq-gh-codex
+```
+
+For orchestrator calls, inject a token for the current process only:
+
+```bash
+CLAUDE_TOKEN="$(security find-generic-password -s renquant-gh-token -a claude -w)" \
+  renquant-orchestrator repos agent --as claude --workflow review --token "$CLAUDE_TOKEN"
+
+CODEX_TOKEN="$(security find-generic-password -s renquant-gh-token -a codex -w)" \
+  renquant-orchestrator repos agent --as codex --workflow review --token "$CODEX_TOKEN"
+```
+
+Before any review or merge loop, verify that the accounts are different:
+
+```bash
+rq-gh-claude api user --jq .login
+rq-gh-codex api user --jq .login
+```
+
+If both commands print the same login, stop. A single GitHub identity cannot
+produce independent approvals, even if the token strings differ.
+
+If a token is pasted into chat or appears in logs, immediately revoke it in
+GitHub, create a replacement, update Keychain, and post a PR comment noting only
+that the exposed token was rotated. Never quote the token value in the comment.
 
 ## Policy (encoded in `build_queue`, not in CI)
 
