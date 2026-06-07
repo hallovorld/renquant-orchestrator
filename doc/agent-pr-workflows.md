@@ -37,8 +37,8 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
 `--as <agent>` selects the gh token: `--token` → `RENQUANT_<AGENT>_GH_TOKEN`
 → `GH_TOKEN`/`GITHUB_TOKEN`. The safe operating procedure is:
 
-1. store the Claude and Codex PATs in the local OS secret store;
-2. expose them to the orchestrator only through short-lived wrapper commands;
+1. store the Claude and Codex PATs in the local OS Keychain;
+2. expose them to the orchestrator only through `RENQUANT_<AGENT>_GH_TOKEN`;
 3. never paste token values into chat, PR bodies, comments, commits, config, or
    `.env` files; and
 4. rotate any token that was exposed outside the secret store.
@@ -72,56 +72,27 @@ Use distinct GitHub accounts or bot users:
 | Codex token | Codex-authored PRs, Codex reviews, Codex comments | collaborator on all renquant repos |
 | Owner/admin token | emergency owner override only | owner/admin; never used for normal review |
 
-Use fine-grained PATs scoped only to the renquant repos. Normal agent tokens
-need `Contents: read/write`, `Pull requests: read/write`, `Issues: read/write`,
-`Metadata: read`, and `Actions: read`. Do not grant admin permissions to agent
-tokens. Keep owner/admin override credentials separate.
+Canonical storage/loading procedure lives in
+[`RenQuant/doc/ops/agent-token-storage.md`](https://github.com/hallovorld/RenQuant/blob/main/doc/ops/agent-token-storage.md).
+That SOP stores PATs with the Keychain hidden prompt and loads them without
+printing or writing token values.
 
-On macOS, store the two agent tokens in Keychain:
-
-```bash
-security add-generic-password -U -s renquant-gh-token -a claude -w '<CLAUDE_PAT>'
-security add-generic-password -U -s renquant-gh-token -a codex  -w '<CODEX_PAT>'
-```
-
-Create local wrappers outside every repo, for example `~/.local/bin/rq-gh-claude`
-and `~/.local/bin/rq-gh-codex`:
+Before running the orchestrator:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-export GH_TOKEN="$(security find-generic-password -s renquant-gh-token -a claude -w)"
-exec gh "$@"
-```
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-export GH_TOKEN="$(security find-generic-password -s renquant-gh-token -a codex -w)"
-exec gh "$@"
-```
-
-Make them private and executable:
-
-```bash
-chmod 700 ~/.local/bin/rq-gh-claude ~/.local/bin/rq-gh-codex
-```
-
-For orchestrator calls, inject a token for the current process only:
-
-```bash
-CLAUDE_TOKEN="$(security find-generic-password -s renquant-gh-token -a claude -w)" \
-  renquant-orchestrator repos agent --as claude --workflow review --token "$CLAUDE_TOKEN"
-
-CODEX_TOKEN="$(security find-generic-password -s renquant-gh-token -a codex -w)" \
-  renquant-orchestrator repos agent --as codex --workflow review --token "$CODEX_TOKEN"
+source ../RenQuant/scripts/agent_gh_env.sh --orchestrator
+renquant-orchestrator repos agent --as claude --workflow review
+renquant-orchestrator repos agent --as codex --workflow review
 ```
 
 Before any review or merge loop, verify that the accounts are different:
 
 ```bash
-rq-gh-claude api user --jq .login
-rq-gh-codex api user --jq .login
+source ../RenQuant/scripts/agent_gh_env.sh claude
+gh api user --jq .login
+
+source ../RenQuant/scripts/agent_gh_env.sh codex
+gh api user --jq .login
 ```
 
 If both commands print the same login, stop. A single GitHub identity cannot
