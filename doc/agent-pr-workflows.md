@@ -54,6 +54,27 @@ must include visible text:
 (If tokens are provided via MCP instead of env, the same precedence applies
 — `--token` is the injection point.)
 
+### Where those tokens come from (storage SOP)
+
+The two PATs are **stored in the OS Keychain**, never in `.env`, a dotfile, or
+chat. Canonical procedure:
+[`RenQuant/doc/ops/agent-token-storage.md`](https://github.com/hallovorld/RenQuant/blob/main/doc/ops/agent-token-storage.md).
+
+Before running the orchestrator, load both agent tokens into the env vars the
+precedence above reads (`RENQUANT_CLAUDE_GH_TOKEN`, `RENQUANT_CODEX_GH_TOKEN`) —
+the loader reads the Keychain and never prints the token:
+
+```bash
+# RenQuant sits beside this repo; the loader is canonical there.
+source ../RenQuant/scripts/agent_gh_env.sh --orchestrator
+python -m renquant_orchestrator ...   # picks up RENQUANT_<AGENT>_GH_TOKEN per --as
+```
+
+Tokens are inserted by the **operator** (interactive Keychain prompt, see the
+SOP) — never pasted into an agent session. A token exposed anywhere (including a
+transcript) is rotated immediately; each agent's token is independently
+revocable.
+
 ## Policy (encoded in `build_queue`, not in CI)
 
 - an agent never reviews its own PR (review queue excludes self-authored);
