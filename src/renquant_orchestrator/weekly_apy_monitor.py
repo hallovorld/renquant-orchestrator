@@ -13,9 +13,11 @@ import urllib.request
 
 from renquant_common import Job, Pipeline, Task
 
+from .runtime_paths import default_github_root, default_repo_root
 
-GITHUB = Path(__file__).resolve().parents[3]
-DEFAULT_REPO_ROOT = GITHUB / "RenQuant"
+
+GITHUB = default_github_root()
+DEFAULT_REPO_ROOT = default_repo_root()
 
 
 @dataclass

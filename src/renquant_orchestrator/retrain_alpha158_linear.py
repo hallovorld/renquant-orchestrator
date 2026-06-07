@@ -18,11 +18,11 @@ import sys
 
 from renquant_common import Job, Pipeline, Task
 
-from .runtime_paths import resolve_subrepo_root
+from .runtime_paths import default_github_root, default_repo_root, resolve_subrepo_root
 
 
-GITHUB = Path(__file__).resolve().parents[3]
-DEFAULT_REPO_DIR = GITHUB / "RenQuant"
+GITHUB = default_github_root()
+DEFAULT_REPO_DIR = default_repo_root()
 DEFAULT_DATASET = "alpha158_qlib_dataset.parquet"
 DEFAULT_LABEL = "fwd_5d_excess"
 DEFAULT_LOOKAHEAD_DAYS = 5
