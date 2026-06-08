@@ -35,6 +35,26 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
     ]
     assert all(job["uses_umbrella_code"] for job in bridge_jobs)
     assert all(job["umbrella_code_dependency"] for job in bridge_jobs)
+    assert all(job["native_offboard_blockers"] for job in bridge_jobs)
+    assert all(job["native_exit_criteria"] for job in bridge_jobs)
+    assert {
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    } == {job["job_id"] for job in bridge_jobs}
+
+
+def test_native_scheduled_jobs_have_no_umbrella_code_dependency() -> None:
+    payload = inventory_payload()
+
+    native_jobs = [
+        job for job in payload["jobs"]
+        if job["migration_state"] == "native_multirepo"
+    ]
+
+    assert native_jobs
+    assert all(not job["uses_umbrella_code"] for job in native_jobs)
+    assert all(job["umbrella_code_dependency"] is None for job in native_jobs)
+    assert all(job["native_offboard_blockers"] == [] for job in native_jobs)
 
 
 def test_scheduled_jobs_cli_emits_json(capsys) -> None:
@@ -83,3 +103,8 @@ def test_scheduled_jobs_cli_can_fail_on_umbrella_bridge(capsys) -> None:
         "daily_live_runner_bridge",
         "live_runner_bridge",
     ]
+    assert all(
+        job["native_exit_criteria"]
+        for job in payload["jobs"]
+        if job["migration_state"] == "umbrella_bridge"
+    )
