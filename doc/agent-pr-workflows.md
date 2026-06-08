@@ -27,7 +27,7 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
 |---|---|---|
 | `review` | open PRs authored by the **other** agent, not yet approved, no stop label | agent reads diff → posts ONE review with its own token |
 | `fix` | this agent's **own** open PRs with unaddressed findings (CHANGES_REQUESTED, or a BLOCKER/HIGH/MED tag at head) | agent reads findings → smallest fix → test → commit + push |
-| `merge` | this agent's **own** open PRs that are APPROVED + at least one completed check + all checks green + no stop label | **orchestrator** comments `merged by <agent>`, then runs `gh pr merge` directly (`--execute`) |
+| `merge` | this agent's **own** open PRs that are APPROVED + at least one completed check + all checks green + no stop label | **orchestrator** first verifies distinct Claude/Codex actors, then comments `merged by <agent>` and runs `gh pr merge` directly (`--execute`) |
 
 `review` / `fix` print a JSON worklist for the calling agent to process.
 `merge` executes (deterministic — no model needed).
@@ -97,6 +97,13 @@ gh api user --jq .login
 
 If both commands print the same login, stop. A single GitHub identity cannot
 produce independent approvals, even if the token strings differ.
+
+Automated merges enforce this fail-closed: `agent-workflow --workflow merge
+--execute` and `repos agent --workflow merge --execute` require both
+`RENQUANT_CLAUDE_GH_TOKEN` and `RENQUANT_CODEX_GH_TOKEN` to be configured and
+resolvable to different GitHub logins before posting the `merged by <agent>`
+audit comment. A one-off `--token` can select the gh token used for the action,
+but it cannot bypass the two-actor preflight.
 
 If a token is pasted into chat or appears in logs, immediately revoke it in
 GitHub, create a replacement, update Keychain, and post a PR comment noting only

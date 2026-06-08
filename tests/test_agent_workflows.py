@@ -10,7 +10,6 @@ from renquant_orchestrator.agent_workflows import (
     agent_identity_health,
     build_queue,
     checks_green,
-    has_stop_label,
     is_approved,
     merge_audit_comment,
     other_agent,
@@ -326,6 +325,103 @@ def test_merge_execute_comments_before_merge(monkeypatch):
     assert calls[0][0] == "comment"
     assert "merged by `claude`" in calls[0][3]
     assert calls[1] == ("merge", "o/r", 1, "merge")
+
+
+def test_merge_execute_blocks_when_actor_identity_preflight_fails(monkeypatch):
+    calls = []
+    pr = _pr(
+        1,
+        author="claude",
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [pr],
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.agent_identity_health",
+        lambda require_actor_tokens=False: {
+            "ok": False,
+            "warnings": ["claude and codex tokens resolve to the same GitHub login"],
+            "require_actor_tokens": require_actor_tokens,
+            "agents": {},
+        },
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.comment_pr",
+        lambda *args, **kwargs: calls.append(("comment", args, kwargs)) or (0, "ok"),
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.merge_pr",
+        lambda *args, **kwargs: calls.append(("merge", args, kwargs)) or (0, "merged"),
+    )
+
+    plan = run_agent_workflow(
+        agent="claude",
+        workflow="merge",
+        repo="o/r",
+        token=None,
+        execute=True,
+        require_distinct_actor_tokens=True,
+    )
+
+    assert plan["merge_blocked"] is True
+    assert plan["executed"] == []
+    assert "same GitHub login" in plan["block_reason"]
+    assert calls == []
+
+
+def test_merge_execute_actor_identity_preflight_allows_merge(monkeypatch):
+    calls = []
+    pr = _pr(
+        1,
+        author="claude",
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_open_prs",
+        lambda _repo, _token: [pr],
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.agent_identity_health",
+        lambda require_actor_tokens=False: {
+            "ok": True,
+            "warnings": [],
+            "require_actor_tokens": require_actor_tokens,
+            "agents": {},
+        },
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.comment_pr",
+        lambda repo, number, body, token: (
+            calls.append(("comment", repo, number, body)) or (0, "ok")
+        ),
+    )
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.merge_pr",
+        lambda repo, number, token, strategy="merge": (
+            calls.append(("merge", repo, number, strategy)) or (0, "merged")
+        ),
+    )
+
+    plan = run_agent_workflow(
+        agent="claude",
+        workflow="merge",
+        repo="o/r",
+        token=None,
+        execute=True,
+        require_distinct_actor_tokens=True,
+    )
+
+    assert plan["identity_preflight"]["ok"] is True
+    assert plan["executed"] == [
+        {"number": 1, "merged": True, "commented": True, "output": "merged"}
+    ]
+    assert [call[0] for call in calls] == ["comment", "merge"]
 
 
 def test_run_agent_workflow_surfaces_allow_no_checks(monkeypatch):

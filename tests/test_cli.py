@@ -203,3 +203,54 @@ def test_agent_identity_cli_non_strict_is_report_only(monkeypatch, capsys) -> No
     out = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert out["ok"] is False
+
+
+def test_agent_workflow_merge_execute_returns_nonzero_on_identity_block(
+    monkeypatch,
+    capsys,
+) -> None:
+    import renquant_orchestrator.agent_workflows as workflows
+
+    monkeypatch.setattr(
+        workflows,
+        "fetch_open_prs",
+        lambda _repo, _token: [{
+            "number": 1,
+            "title": "ready",
+            "headRefName": "claude/ready",
+            "headRefOid": "sha1",
+            "state": "OPEN",
+            "isDraft": False,
+            "url": "https://github.com/o/r/pull/1",
+            "labels": [{"name": "agent:claude"}],
+            "reviews": [{"state": "APPROVED", "commit_id": "sha1"}],
+            "statusCheckRollup": [{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+            "comments": [],
+        }],
+    )
+    monkeypatch.setattr(
+        workflows,
+        "agent_identity_health",
+        lambda require_actor_tokens=False: {
+            "ok": False,
+            "agents": {},
+            "require_actor_tokens": require_actor_tokens,
+            "warnings": ["claude token is missing"],
+        },
+    )
+
+    rc = main([
+        "agent-workflow",
+        "--as",
+        "claude",
+        "--workflow",
+        "merge",
+        "--repo",
+        "o/r",
+        "--execute",
+    ])
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["merge_blocked"] is True
+    assert out["executed"] == []

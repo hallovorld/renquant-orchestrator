@@ -56,7 +56,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 #: Canonical agents. The "other" agent is who you review.
@@ -437,6 +437,7 @@ def run_agent_workflow(
     execute: bool = False,
     merge_strategy: str = "merge",
     allow_no_checks: bool = False,
+    require_distinct_actor_tokens: bool = False,
 ) -> dict:
     """Resolve the queue and (for merge + --execute) act on it.
 
@@ -458,10 +459,18 @@ def run_agent_workflow(
         "peer": other_agent(agent),
         "n_open_prs": len(prs),
         "allow_no_checks": bool(allow_no_checks),
+        "require_distinct_actor_tokens": bool(require_distinct_actor_tokens),
         "queue": [w.to_dict() for w in queue],
         "executed": [],
     }
     if workflow == "merge" and execute:
+        if require_distinct_actor_tokens and queue:
+            identity = agent_identity_health(require_actor_tokens=True)
+            plan["identity_preflight"] = identity
+            if not identity["ok"]:
+                plan["merge_blocked"] = True
+                plan["block_reason"] = "; ".join(identity["warnings"])[:300]
+                return plan
         for w in queue:
             comment_rc, comment_out = comment_pr(
                 repo,
