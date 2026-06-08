@@ -86,6 +86,18 @@ _JOBS: tuple[ScheduledJob, ...] = (
         production_safe=True,
     ),
     ScheduledJob(
+        job_id="native_live_parity_fixture",
+        kind="control",
+        cadence="manual_or_scheduled",
+        command=["renquant-orchestrator", "run-job", "native_live_parity_fixture"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency=(
+            "Readonly bridge/native run bundles until live state is fully offboarded"
+        ),
+    ),
+    ScheduledJob(
         job_id="daily_live_runner_bridge",
         kind="trading",
         cadence="daily",
@@ -101,6 +113,7 @@ _JOBS: tuple[ScheduledJob, ...] = (
             "Prove buy/sell/sell-only parity against the current live.runner path on readonly-alpaca.",
         ),
         native_exit_criteria=(
+            "native_live_parity_fixture passes on a readonly daily fixture comparing decision_trace, order_intents, and state mutations.",
             "daily_live_runner_bridge migration_state can change only after native live job emits the same order intents, ntfy decision reasons, and state mutations as live.runner on a readonly fixture.",
             "Production launchd daily104 command points at renquant-orchestrator run-job with no RenQuant live.runner import.",
         ),
@@ -121,6 +134,7 @@ _JOBS: tuple[ScheduledJob, ...] = (
             "Add a native shadow fixture that compares decision_trace and order_intents against live.runner.",
         ),
         native_exit_criteria=(
+            "native_live_parity_fixture passes on prod and readonly-shadow fixtures comparing decision_trace, order_intents, and state mutations.",
             "live_runner_bridge migration_state can change only after the native inference path passes parity on prod and readonly shadow configs.",
             "No scheduled inference job imports RenQuant live.runner or kernel aliases from the umbrella checkout.",
         ),

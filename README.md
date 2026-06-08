@@ -18,6 +18,14 @@ renquant-orchestrator daily-contract \
 renquant-orchestrator scheduled-jobs
 renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
 renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
+renquant-orchestrator live-parity-fixture \
+  --bridge-bundle /tmp/bridge-live-bundle.json \
+  --native-bundle /tmp/native-live-bundle.json \
+  --fail-on-diff
+renquant-orchestrator run-job native_live_parity_fixture -- \
+  --bridge-bundle /tmp/bridge-live-bundle.json \
+  --native-bundle /tmp/native-live-bundle.json \
+  --fail-on-diff
 ```
 
 The market-anomaly retrain trigger is the only path that uses yfinance; install
@@ -41,3 +49,8 @@ bridge to umbrella code, and can fail closed until those bridges are offboarded.
 Schedulers should call `renquant-orchestrator run-job <job_id>` from that
 inventory so launchd/cron configs stay pinned to stable job ids instead of
 internal Python module paths.
+
+`native_live_parity_fixture` is the exit gate before flipping
+`daily_live_runner_bridge` or `live_runner_bridge` out of umbrella bridge mode.
+It compares readonly bridge and native run bundles for decision traces, order
+intents, and state mutations while ignoring volatile runtime fields.

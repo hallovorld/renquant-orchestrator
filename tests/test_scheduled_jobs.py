@@ -15,6 +15,7 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
         "daily_alpha158_linear_retrain",
         "daily_live_runner_bridge",
         "live_runner_bridge",
+        "native_live_parity_fixture",
         "build_wf_manifest",
         "build_patchtst_wf_manifest",
     }
@@ -41,6 +42,11 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
         "daily_live_runner_bridge",
         "live_runner_bridge",
     } == {job["job_id"] for job in bridge_jobs}
+    assert any(
+        "native_live_parity_fixture passes" in criterion
+        for job in bridge_jobs
+        for criterion in job["native_exit_criteria"]
+    )
 
 
 def test_native_scheduled_jobs_have_no_umbrella_code_dependency() -> None:
@@ -91,6 +97,42 @@ def test_run_job_dispatches_by_inventory_id(monkeypatch) -> None:
     assert seen == {
         "module_name": "renquant_orchestrator.retrain_alpha158_fund",
         "argv": ["--staged", "--repo-dir", "/tmp/repo"],
+    }
+
+
+def test_run_job_dispatches_native_live_parity_fixture(monkeypatch) -> None:
+    import renquant_orchestrator.job_runner as runner
+
+    seen = {}
+
+    def fake_run_module_main(module_name, argv):
+        seen["module_name"] = module_name
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(runner, "_run_module_main", fake_run_module_main)
+
+    rc = main([
+        "run-job",
+        "native_live_parity_fixture",
+        "--",
+        "--bridge-bundle",
+        "/tmp/bridge.json",
+        "--native-bundle",
+        "/tmp/native.json",
+        "--fail-on-diff",
+    ])
+
+    assert rc == 0
+    assert seen == {
+        "module_name": "renquant_orchestrator.live_parity",
+        "argv": [
+            "--bridge-bundle",
+            "/tmp/bridge.json",
+            "--native-bundle",
+            "/tmp/native.json",
+            "--fail-on-diff",
+        ],
     }
 
 
