@@ -58,6 +58,41 @@ def test_list_action(tmp_path):
     assert {r["name"] for r in out["repos"]} == {"RenQuant", "renquant-common", "renquant-pipeline"}
 
 
+def test_prs_action_surfaces_agent_author_from_visible_traceability(tmp_path, monkeypatch):
+    def _fake_gh_json(args, token=None):
+        assert "labels,body" in args[args.index("--json") + 1]
+        return [
+            {
+                "number": 9,
+                "title": "traceable change",
+                "headRefName": "feature/no-agent-prefix",
+                "author": {"login": "shared-operator"},
+                "isDraft": False,
+                "labels": [],
+                "body": "## Traceability\n- author: Codex\n",
+            }
+        ]
+
+    monkeypatch.setattr(R, "_gh_json", _fake_gh_json)
+
+    out = R.run_repos(
+        action="prs",
+        repo="renquant-pipeline",
+        manifest=_manifest(tmp_path),
+    )
+
+    assert out["repos"][0]["open_prs"] == [
+        {
+            "number": 9,
+            "title": "traceable change",
+            "branch": "feature/no-agent-prefix",
+            "author": "shared-operator",
+            "agent_author": "codex",
+            "draft": False,
+        }
+    ]
+
+
 def test_exec_requires_command(tmp_path):
     with pytest.raises(ValueError):
         R.run_repos(action="exec", repo="all", manifest=_manifest(tmp_path), exec_cmd=None)
