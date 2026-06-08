@@ -105,7 +105,15 @@ def test_production_path_artifact_passes_panel_contract(tmp_path: Path) -> None:
     )
     assert r.returncode == 0, f"driver failed:\n{r.stdout[-2000:]}\n{r.stderr[-3000:]}"
     art = json.loads(out.read_text())
-    assert art["config_fingerprint"] == "sha256:14586756d4f67691", "fingerprint must match production"
+    from renquant_orchestrator import train_gbdt
+
+    expected_fp, _ = train_gbdt._production_fingerprint(
+        train_gbdt._default_strategy_config(),
+    )
+    assert expected_fp is not None
+    assert art["config_fingerprint"] == expected_fp, (
+        "artifact fingerprint must match the current production strategy config"
+    )
     assert art["sentiment_runtime_gate_contract"] == "trained_zeroing"
     result = validate_panel_artifact_contract(art, strict=True)
     assert result.ok, f"panel contract failed: {result.errors}"
