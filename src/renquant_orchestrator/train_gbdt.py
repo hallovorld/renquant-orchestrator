@@ -34,8 +34,8 @@ GITHUB = Path(__file__).resolve().parents[3]          # …/github
 DEFAULT_DATA_DIR = GITHUB / "RenQuant" / "data"        # data lives in the umbrella (gitignored)
 DEFAULT_STRATEGY_CONFIG = GITHUB / "renquant-strategy-104" / "configs" / "strategy_config.json"
 LEGACY_STRATEGY_CONFIG = GITHUB / "RenQuant" / "backtesting" / "renquant_104" / "strategy_config.json"
-_CONFIG_CONSISTENCY = (GITHUB / "renquant-pipeline" / "src" / "renquant_pipeline"
-                       / "kernel" / "config_consistency.py")
+_LEGACY_CONFIG_CONSISTENCY = (GITHUB / "renquant-pipeline" / "src" / "renquant_pipeline"
+                              / "kernel" / "config_consistency.py")
 _PIN_SRCS = ["renquant-common", "renquant-base-data", "renquant-artifacts", "renquant-model"]
 
 log = logging.getLogger("orchestrator.train_gbdt")
@@ -43,17 +43,33 @@ log = logging.getLogger("orchestrator.train_gbdt")
 
 def _production_fingerprint(strategy_config_path: Path) -> tuple[str | None, dict | None]:
     """Compute the production config fingerprint from the strategy config, using the
-    pipeline pin's config_consistency (loaded by file path so we don't pull the whole
-    inference package). This is the SAME function + config the runtime scorer uses, so
-    the stamped fingerprint matches the scorer's live check → the artifact loads."""
-    if not (strategy_config_path.exists() and _CONFIG_CONSISTENCY.exists()):
+    shared config_consistency implementation. This is the same function + config
+    the runtime scorer uses, so the stamped fingerprint matches the scorer's live
+    check and the artifact loads."""
+    if not strategy_config_path.exists():
         log.warning("strategy config or config_consistency missing — falling back to content fp")
         return None, None
-    spec = importlib.util.spec_from_file_location("_cc_fp", _CONFIG_CONSISTENCY)
-    cc = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(cc)
+    try:
+        from renquant_common.config_consistency import (  # noqa: PLC0415
+            _model_relevant_fields,
+            fingerprint_config,
+        )
+    except ImportError:
+        if not _LEGACY_CONFIG_CONSISTENCY.exists():
+            log.warning(
+                "config_consistency unavailable — falling back to content fp",
+            )
+            return None, None
+        spec = importlib.util.spec_from_file_location(
+            "_cc_fp",
+            _LEGACY_CONFIG_CONSISTENCY,
+        )
+        cc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cc)
+        fingerprint_config = cc.fingerprint_config
+        _model_relevant_fields = cc._model_relevant_fields
     cfg = json.loads(strategy_config_path.read_text())
-    return cc.fingerprint_config(cfg), cc._model_relevant_fields(cfg)
+    return fingerprint_config(cfg), _model_relevant_fields(cfg)
 
 
 def _default_strategy_config() -> Path:
@@ -237,7 +253,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _record_and_refresh(ctx, args, *, elapsed_sec: float) -> None:
-    import os, sqlite3, subprocess, sys, datetime as _dt
+    import datetime as _dt
+    import os
+    import sqlite3
+    import subprocess
+    import sys
     from pathlib import Path as _Path
     # Derive DB path from RENQUANT_STRATEGY_DIR when set (preferred over a
     # machine-specific hardcode); env var still wins.
@@ -266,7 +286,8 @@ def _record_and_refresh(ctx, args, *, elapsed_sec: float) -> None:
             training_window_years=getattr(args, "training_window_years", None),
             also_log_jsonl=False,
         )
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
     except Exception as exc:  # noqa: BLE001
         log.warning("record_training_run skipped: %s", exc)
     # Refresh README — best-effort
