@@ -89,6 +89,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job still depends on umbrella code",
     )
 
+    parity = sub.add_parser(
+        "live-parity-fixture",
+        help="compare umbrella-bridge and native live run bundles for offboard parity",
+    )
+    parity.add_argument("--bridge-bundle", required=True)
+    parity.add_argument("--native-bundle", required=True)
+    parity.add_argument("--output-json", default=None)
+    parity.add_argument("--fail-on-diff", action="store_true")
+
     run_job = sub.add_parser(
         "run-job",
         help="run one scheduled job by stable inventory id",
@@ -218,6 +227,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
         return 0
+    if args.command == "live-parity-fixture":
+        from .live_parity import main as parity_main
+
+        parity_argv = [
+            "--bridge-bundle",
+            args.bridge_bundle,
+            "--native-bundle",
+            args.native_bundle,
+        ]
+        if args.output_json:
+            parity_argv.extend(["--output-json", args.output_json])
+        if args.fail_on_diff:
+            parity_argv.append("--fail-on-diff")
+        return parity_main(parity_argv)
     if args.command == "run-job":
         from .job_runner import run_scheduled_job
 
