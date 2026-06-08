@@ -239,6 +239,7 @@ def run_repos(
                     agent=agent, workflow=workflow, repo=e.owner_repo, token=tok,
                     execute=do_execute, merge_strategy=merge_strategy,
                     allow_no_checks=allow_no_checks,
+                    require_distinct_actor_tokens=workflow == "merge" and do_execute,
                 )
                 if cap is not None:
                     merged_so_far += sum(

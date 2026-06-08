@@ -237,9 +237,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             execute=args.execute,
             merge_strategy=args.merge_strategy,
             allow_no_checks=args.allow_no_checks,
+            require_distinct_actor_tokens=args.workflow == "merge" and args.execute,
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
-        return 0
+        return 1 if plan.get("merge_blocked") else 0
     if args.command == "agent-identity":
         from .agent_workflows import agent_identity_health
 
@@ -271,7 +272,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
+        blocked = any(
+            (repo.get("plan") or {}).get("merge_blocked")
+            for repo in result.get("repos", [])
+        )
+        return 1 if blocked else 0
     raise AssertionError(f"unhandled command: {args.command}")
 
 

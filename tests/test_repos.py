@@ -102,6 +102,15 @@ def test_cross_repo_merge_cap_stops_after_max(tmp_path, monkeypatch):
         }]
     merges = []
     monkeypatch.setattr("renquant_orchestrator.agent_workflows.fetch_open_prs", _prs)
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.agent_identity_health",
+        lambda require_actor_tokens=False: {
+            "ok": True,
+            "warnings": [],
+            "require_actor_tokens": require_actor_tokens,
+            "agents": {},
+        },
+    )
     monkeypatch.setattr("renquant_orchestrator.agent_workflows.comment_pr",
                         lambda *a, **k: (0, "ok"))
     monkeypatch.setattr("renquant_orchestrator.agent_workflows.merge_pr",
