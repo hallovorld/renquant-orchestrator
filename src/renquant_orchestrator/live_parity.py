@@ -77,11 +77,30 @@ def normalize_live_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _bundle_input_errors(label: str, bundle: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for field in ("decision_trace", "order_intents"):
+        if field not in bundle:
+            errors.append(f"{label}:missing_{field}")
+        elif not isinstance(bundle.get(field), list):
+            errors.append(f"{label}:invalid_{field}")
+    if not any(
+        field in bundle
+        for field in ("state_mutations", "execution_audit", "submitted_orders")
+    ):
+        errors.append(f"{label}:missing_state_mutation_source")
+    return errors
+
+
 def compare_live_bundles(
     bridge_bundle: dict[str, Any],
     native_bundle: dict[str, Any],
 ) -> dict[str, Any]:
     """Return a machine-readable parity verdict for two live bundles."""
+    input_errors = (
+        _bundle_input_errors("bridge", bridge_bundle)
+        + _bundle_input_errors("native", native_bundle)
+    )
     bridge = normalize_live_bundle(bridge_bundle)
     native = normalize_live_bundle(native_bundle)
     mismatches: dict[str, dict[str, Any]] = {}
@@ -93,8 +112,9 @@ def compare_live_bundles(
             }
     return {
         "schema_version": 1,
-        "ok": not mismatches,
+        "ok": not input_errors and not mismatches,
         "checked_fields": ["decision_trace", "order_intents", "state_mutations"],
+        "input_errors": input_errors,
         "mismatches": mismatches,
         "summary": {
             "decision_trace_rows": len(bridge["decision_trace"]),

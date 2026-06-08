@@ -58,6 +58,32 @@ def test_compare_live_bundles_passes_for_equivalent_outputs() -> None:
         "order_intents": 1,
         "state_mutations": 1,
     }
+    assert verdict["input_errors"] == []
+
+
+def test_compare_live_bundles_fails_closed_on_missing_inputs() -> None:
+    verdict = compare_live_bundles({}, {})
+
+    assert verdict["ok"] is False
+    assert verdict["mismatches"] == {}
+    assert verdict["input_errors"] == [
+        "bridge:missing_decision_trace",
+        "bridge:missing_order_intents",
+        "bridge:missing_state_mutation_source",
+        "native:missing_decision_trace",
+        "native:missing_order_intents",
+        "native:missing_state_mutation_source",
+    ]
+
+
+def test_compare_live_bundles_requires_state_source_key() -> None:
+    bundle = _bundle()
+    bundle.pop("state_mutations")
+
+    verdict = compare_live_bundles(bundle, _bundle())
+
+    assert verdict["ok"] is False
+    assert verdict["input_errors"] == ["bridge:missing_state_mutation_source"]
 
 
 def test_compare_live_bundles_reports_order_and_state_diffs() -> None:
