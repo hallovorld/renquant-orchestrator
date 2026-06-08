@@ -21,7 +21,7 @@ from renquant_orchestrator.agent_workflows import (
 
 
 def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
-        labels=None, reviews=None, checks=None, comments=None):
+        labels=None, reviews=None, checks=None, comments=None, body=""):
     lbls = [{"name": n} for n in (labels or [])]
     if author and f"agent:{author}" not in (labels or []):
         lbls.append({"name": f"agent:{author}"})
@@ -31,6 +31,7 @@ def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
         "headRefOid": f"sha{num}", "state": state, "isDraft": draft,
         "url": f"https://github.com/o/r/pull/{num}",
         "labels": lbls,
+        "body": body,
         "reviews": [dict(r, commit_id=r.get("commit_id", f"sha{num}")) for r in (reviews or [])],
         "statusCheckRollup": checks or [],
         "comments": comments or [],
@@ -49,6 +50,14 @@ def test_pr_authorship_label_then_branch():
     # branch-prefix fallback when no label
     assert pr_authorship({"labels": [], "headRefName": "codex/foo"}) == "codex"
     assert pr_authorship({"labels": [], "headRefName": "feat/foo"}) is None
+
+
+def test_pr_authorship_uses_visible_body_author_before_branch():
+    assert pr_authorship({
+        "labels": [],
+        "body": "## Traceability\n- author: Codex\n",
+        "headRefName": "feature/no-agent-prefix",
+    }) == "codex"
 
 
 def test_resolve_token_env_precedence(monkeypatch):
@@ -168,6 +177,22 @@ def test_review_queue_picks_peer_prs_only():
     ]
     q = build_queue("claude", "review", prs)
     assert [w.number for w in q] == [1]
+
+
+def test_review_queue_accepts_body_authorship_for_traceability():
+    prs = [
+        _pr(
+            1,
+            head="feature/no-agent-prefix",
+            labels=[],
+            body="## Traceability\n- author agent: Codex\n",
+        ),
+    ]
+
+    q = build_queue("claude", "review", prs)
+
+    assert [w.number for w in q] == [1]
+    assert q[0].author_agent == "codex"
 
 
 def test_review_queue_skips_stop_labelled_and_drafts():

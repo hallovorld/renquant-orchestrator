@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
@@ -233,10 +234,17 @@ def _actor_token_config(
 # ─────────────────────────── pure policy layer ──────────────────────────
 
 def pr_authorship(pr: dict) -> Optional[str]:
-    """Return the authoring agent from labels, else branch-prefix fallback."""
+    """Return the authoring agent from labels, visible PR body, or branch."""
     labels = {lbl.get("name") for lbl in (pr.get("labels") or [])}
     for a in AGENTS:
         if f"agent:{a}" in labels:
+            return a
+    body = str(pr.get("body") or "")
+    for a in AGENTS:
+        if re.search(
+            rf"(?im)^\s*(?:[-*]\s*)?(?:author|author agent)\s*:\s*`?{a}`?\s*$",
+            body,
+        ):
             return a
     head = str(pr.get("headRefName") or "")
     for a in AGENTS:
@@ -304,7 +312,6 @@ def has_unaddressed_findings(pr: dict, agent: str) -> bool:
     ) + " " + " ".join(
         str(c.get("body") or "") for c in (pr.get("comments") or [])
     )
-    import re
     return bool(re.search(r"\b(BLOCKER|HIGH|MED)\b", blob))
 
 
@@ -391,7 +398,7 @@ def build_queue(
 # ─────────────────────────── gh fetch + actions ─────────────────────────
 
 _PR_FIELDS = (
-    "number,title,headRefName,headRefOid,state,isDraft,url,labels,"
+    "number,title,headRefName,headRefOid,state,isDraft,url,labels,body,"
     "reviews,statusCheckRollup,comments,author"
 )
 
