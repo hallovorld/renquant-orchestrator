@@ -145,15 +145,19 @@ def repo_sync(e: RepoEntry) -> dict:
 
 
 def repo_open_prs(e: RepoEntry, token: Optional[str] = None) -> dict:
+    from .agent_workflows import pr_authorship
+
     try:
         prs = _gh_json(["pr", "list", "--repo", e.owner_repo, "--state", "open",
-                        "--json", "number,title,headRefName,author,isDraft",
+                        "--json", "number,title,headRefName,author,isDraft,labels,body",
                         "--limit", "100"], token) or []
     except RuntimeError as exc:
         return {"repo": e.name, "error": str(exc)}
     return {"repo": e.name, "open_prs": [
         {"number": p["number"], "title": p["title"], "branch": p["headRefName"],
-         "author": (p.get("author") or {}).get("login"), "draft": p.get("isDraft", False)}
+         "author": (p.get("author") or {}).get("login"),
+         "agent_author": pr_authorship(p),
+         "draft": p.get("isDraft", False)}
         for p in prs
     ]}
 
