@@ -16,6 +16,7 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
         "daily_live_runner_bridge",
         "live_runner_bridge",
         "native_live_parity_fixture",
+        "native_live_bundle_fixture",
         "build_wf_manifest",
         "build_patchtst_wf_manifest",
     }
@@ -25,6 +26,8 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
 def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
     payload = inventory_payload()
 
+    assert payload["summary"]["total"] == 12
+    assert payload["summary"]["native_multirepo"] == 10
     assert payload["summary"]["umbrella_bridge"] == 2
     assert payload["summary"]["umbrella_bridge_jobs"] == [
         "daily_live_runner_bridge",
@@ -132,6 +135,40 @@ def test_run_job_dispatches_native_live_parity_fixture(monkeypatch) -> None:
             "--native-bundle",
             "/tmp/native.json",
             "--fail-on-diff",
+        ],
+    }
+
+
+def test_run_job_dispatches_native_live_bundle_fixture(monkeypatch) -> None:
+    import renquant_orchestrator.job_runner as runner
+
+    seen = {}
+
+    def fake_run_module_main(module_name, argv):
+        seen["module_name"] = module_name
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(runner, "_run_module_main", fake_run_module_main)
+
+    rc = main([
+        "run-job",
+        "native_live_bundle_fixture",
+        "--",
+        "--inference-json",
+        "/tmp/inference.json",
+        "--output-json",
+        "/tmp/native.json",
+    ])
+
+    assert rc == 0
+    assert seen == {
+        "module_name": "renquant_orchestrator.native_live_bundle",
+        "argv": [
+            "--inference-json",
+            "/tmp/inference.json",
+            "--output-json",
+            "/tmp/native.json",
         ],
     }
 
