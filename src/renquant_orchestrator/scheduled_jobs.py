@@ -21,6 +21,8 @@ class ScheduledJob:
     production_safe: bool
     umbrella_code_dependency: str | None = None
     umbrella_state_dependency: str | None = None
+    native_offboard_blockers: tuple[str, ...] = ()
+    native_exit_criteria: tuple[str, ...] = ()
 
     @property
     def uses_umbrella_code(self) -> bool:
@@ -28,6 +30,8 @@ class ScheduledJob:
 
     def to_jsonable(self) -> dict[str, object]:
         payload = asdict(self)
+        payload["native_offboard_blockers"] = list(self.native_offboard_blockers)
+        payload["native_exit_criteria"] = list(self.native_exit_criteria)
         payload["uses_umbrella_code"] = self.uses_umbrella_code
         return payload
 
@@ -91,6 +95,15 @@ _JOBS: tuple[ScheduledJob, ...] = (
         production_safe=True,
         umbrella_code_dependency="RenQuant live.runner execution handoff",
         umbrella_state_dependency="RenQuant checkout for data, live_state, and runtime artifacts",
+        native_offboard_blockers=(
+            "Lift the live.runner state machine into a native orchestrator live job.",
+            "Replace umbrella live_state/runs.alpaca.db adapters with execution/pipeline contracts.",
+            "Prove buy/sell/sell-only parity against the current live.runner path on readonly-alpaca.",
+        ),
+        native_exit_criteria=(
+            "daily_live_runner_bridge migration_state can change only after native live job emits the same order intents, ntfy decision reasons, and state mutations as live.runner on a readonly fixture.",
+            "Production launchd daily104 command points at renquant-orchestrator run-job with no RenQuant live.runner import.",
+        ),
     ),
     ScheduledJob(
         job_id="live_runner_bridge",
@@ -102,6 +115,15 @@ _JOBS: tuple[ScheduledJob, ...] = (
         production_safe=True,
         umbrella_code_dependency="RenQuant live.runner execution handoff",
         umbrella_state_dependency="RenQuant checkout for data, live_state, and runtime artifacts",
+        native_offboard_blockers=(
+            "Lift live.runner inference, risk-exit, and order-intent assembly into renquant-pipeline/orchestrator contracts.",
+            "Replace umbrella module aliases with direct subrepo imports for all production inference stages.",
+            "Add a native shadow fixture that compares decision_trace and order_intents against live.runner.",
+        ),
+        native_exit_criteria=(
+            "live_runner_bridge migration_state can change only after the native inference path passes parity on prod and readonly shadow configs.",
+            "No scheduled inference job imports RenQuant live.runner or kernel aliases from the umbrella checkout.",
+        ),
     ),
     ScheduledJob(
         job_id="weekly_apy_monitor",
