@@ -98,6 +98,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parity.add_argument("--output-json", default=None)
     parity.add_argument("--fail-on-diff", action="store_true")
 
+    native_bundle = sub.add_parser(
+        "native-live-bundle",
+        help="build a native live run bundle for live.runner offboard parity",
+    )
+    native_bundle.add_argument("--inference-json", required=True)
+    native_bundle.add_argument("--execution-json", default=None)
+    native_bundle.add_argument("--metadata-json", default=None)
+    native_bundle.add_argument("--output-json", required=True)
+
     run_job = sub.add_parser(
         "run-job",
         help="run one scheduled job by stable inventory id",
@@ -241,6 +250,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_diff:
             parity_argv.append("--fail-on-diff")
         return parity_main(parity_argv)
+    if args.command == "native-live-bundle":
+        from .native_live_bundle import main as native_bundle_main
+
+        native_bundle_argv = [
+            "--inference-json",
+            args.inference_json,
+            "--output-json",
+            args.output_json,
+        ]
+        if args.execution_json:
+            native_bundle_argv.extend(["--execution-json", args.execution_json])
+        if args.metadata_json:
+            native_bundle_argv.extend(["--metadata-json", args.metadata_json])
+        return native_bundle_main(native_bundle_argv)
     if args.command == "run-job":
         from .job_runner import run_scheduled_job
 

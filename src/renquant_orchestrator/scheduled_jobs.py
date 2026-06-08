@@ -98,6 +98,18 @@ _JOBS: tuple[ScheduledJob, ...] = (
         ),
     ),
     ScheduledJob(
+        job_id="native_live_bundle_fixture",
+        kind="control",
+        cadence="manual_or_scheduled",
+        command=["renquant-orchestrator", "run-job", "native_live_bundle_fixture"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency=(
+            "Readonly native inference/execution payloads until live state is fully offboarded"
+        ),
+    ),
+    ScheduledJob(
         job_id="daily_live_runner_bridge",
         kind="trading",
         cadence="daily",

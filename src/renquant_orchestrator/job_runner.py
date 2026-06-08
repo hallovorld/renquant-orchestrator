@@ -13,6 +13,7 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "weekly_apy_monitor": "renquant_orchestrator.weekly_apy_monitor",
     "state_backup": "renquant_orchestrator.state_backup",
     "native_live_parity_fixture": "renquant_orchestrator.live_parity",
+    "native_live_bundle_fixture": "renquant_orchestrator.native_live_bundle",
     "build_wf_manifest": "renquant_orchestrator.build_wf_manifest",
     "build_patchtst_wf_manifest": "renquant_orchestrator.build_patchtst_wf_manifest",
 }
