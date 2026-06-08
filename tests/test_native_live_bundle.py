@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from renquant_orchestrator.cli import main
 from renquant_orchestrator.live_parity import compare_live_bundles
-from renquant_orchestrator.native_live_bundle import build_native_live_bundle
+from renquant_orchestrator.native_live_bundle import build_native_live_bundle, write_native_live_bundle
 
 
 def _inference_payload() -> dict:
@@ -67,6 +69,23 @@ def test_build_native_live_bundle_adds_no_execution_audit_source() -> None:
         }
     ]
     assert compare_live_bundles(bundle, bundle)["ok"] is True
+
+
+def test_build_native_live_bundle_requires_inference_trace_and_intents() -> None:
+    with pytest.raises(ValueError, match="decision_trace"):
+        build_native_live_bundle(inference_payload={"order_intents": []})
+
+    with pytest.raises(ValueError, match="order_intents"):
+        build_native_live_bundle(inference_payload={"decision_trace": []})
+
+
+def test_native_live_bundle_rejects_non_object_json(tmp_path: Path) -> None:
+    inference = tmp_path / "inference.json"
+    output = tmp_path / "native-bundle.json"
+    inference.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="payload must be a JSON object"):
+        write_native_live_bundle(inference_json=inference, output_json=output)
 
 
 def test_native_live_bundle_cli_writes_json(tmp_path: Path, capsys) -> None:
