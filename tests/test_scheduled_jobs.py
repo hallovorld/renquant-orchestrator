@@ -113,6 +113,7 @@ def test_live_bridge_jobs_expose_readonly_bundle_capture_rehearsal() -> None:
         assert job["job_id"] in command
         assert "--broker" in command
         assert "readonly-alpaca" in command
+        assert "--native-inference-payload-output" in command
         assert "--bridge-bundle-output" in command
 
 

@@ -107,7 +107,7 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
 
     status = build_live_offboard_status(output_dir=tmp_path)
 
-    assert status["stage_status"]["current_stage"] == "scheduled_job_cutover"
+    assert status["stage_status"]["current_stage"] == "native_live_job_cutover"
     assert status["stage_status"]["next_blocker"] == "remaining_umbrella_bridge_jobs"
     assert status["stage_status"]["checks"]["parity_ok"] is True
     assert status["ready_for_live_offboard"] is False

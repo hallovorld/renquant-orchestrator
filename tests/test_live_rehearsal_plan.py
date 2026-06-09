@@ -22,6 +22,8 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--broker",
         "readonly-alpaca",
         "--once",
+        "--native-inference-payload-output",
+        "/tmp/rehearsal/live-native-inference.json",
         "--bridge-bundle-output",
         "/tmp/rehearsal/live-bridge-bundle.json",
     ]
