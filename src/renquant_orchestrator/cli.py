@@ -127,6 +127,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     rehearsal.add_argument("--broker", default="readonly-alpaca")
     rehearsal.add_argument("--output-dir", default="/tmp/renquant-live-rehearsal")
     rehearsal.add_argument(
+        "--env-file",
+        default=None,
+        help="optional .env file used only to check required credential presence",
+    )
+    rehearsal.add_argument(
         "--no-execution-payload",
         action="store_true",
         help="omit the execution payload input from the native parity command",
@@ -144,6 +149,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     offboard_status.add_argument("--mode", choices=("live", "daily"), default="live")
     offboard_status.add_argument("--broker", default="readonly-alpaca")
     offboard_status.add_argument("--output-dir", default="/tmp/renquant-live-rehearsal")
+    offboard_status.add_argument(
+        "--env-file",
+        default=None,
+        help="optional .env file used only to check required credential presence",
+    )
     offboard_status.add_argument(
         "--no-execution-payload",
         action="store_true",
@@ -361,6 +371,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             broker=args.broker,
             include_execution_payload=not args.no_execution_payload,
+            env_file=args.env_file,
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0 if plan["ready"] or not args.strict else 2
@@ -372,6 +383,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             broker=args.broker,
             include_execution_payload=not args.no_execution_payload,
+            env_file=args.env_file,
         )
         print(json.dumps(status, indent=2, sort_keys=True))
         return 0 if status["ready_for_live_offboard"] or not args.strict else 2

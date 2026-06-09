@@ -36,6 +36,7 @@ def build_live_offboard_status(
     output_dir: str | Path = "/tmp/renquant-live-rehearsal",
     broker: str = "readonly-alpaca",
     include_execution_payload: bool = True,
+    env_file: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a single JSON-ready view of live bridge offboard readiness."""
     inventory = inventory_payload()
@@ -49,6 +50,7 @@ def build_live_offboard_status(
         output_dir=output_dir,
         broker=broker,
         include_execution_payload=include_execution_payload,
+        env_file=env_file,
     )
     blocking_reasons = list(rehearsal["missing_env"])
     if summary["remaining_umbrella_bridge_job_count"]:

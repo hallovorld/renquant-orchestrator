@@ -58,6 +58,21 @@ def test_daily_live_offboard_status_uses_daily_rehearsal(monkeypatch) -> None:
     assert status["rehearsal"]["commands"]["bridge_capture"][2] == "daily_live_runner_bridge"
 
 
+def test_live_offboard_status_env_file_clears_credential_blockers(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ALPACA_API_KEY=key\nALPACA_SECRET_KEY=secret\n", encoding="utf-8")
+
+    status = build_live_offboard_status(output_dir=tmp_path, env_file=env_file)
+
+    assert status["ready_for_live_offboard"] is False
+    assert status["blocking_reasons"] == ["remaining_umbrella_bridge_jobs"]
+    assert status["rehearsal"]["ready"] is True
+    assert status["rehearsal"]["missing_env"] == []
+    assert "secret" not in json.dumps(status)
+
+
 def test_live_offboard_status_cli_strict_returns_nonzero(monkeypatch, capsys) -> None:
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
