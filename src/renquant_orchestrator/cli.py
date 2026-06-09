@@ -156,6 +156,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when either token is missing, invalid, or shared",
     )
 
+    merge_audit = sub.add_parser(
+        "merge-audit",
+        help="audit recent merged PRs for pre-merge `merged by` comments",
+    )
+    merge_audit.add_argument("--repo", default="hallovorld/RenQuant")
+    merge_audit.add_argument("--limit", type=int, default=50)
+    merge_audit.add_argument("--token", default=None)
+    merge_audit.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero when any audited PR lacks a pre-merge audit comment",
+    )
+
     # The single cross-repo control-plane entrypoint (design PR #23).
     repos_p = sub.add_parser(
         "repos",
@@ -297,6 +310,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(health, indent=2, sort_keys=True))
         return 0 if health["ok"] or not args.strict else 1
+    if args.command == "merge-audit":
+        from .agent_workflows import audit_merged_prs
+
+        audit = audit_merged_prs(args.repo, args.token, limit=args.limit)
+        print(json.dumps(audit, indent=2, sort_keys=True))
+        return 0 if audit["ok"] or not args.strict else 1
     if args.command == "repos":
         from .repos import DEFAULT_MANIFEST, run_repos
 
