@@ -27,6 +27,7 @@ DEFAULT_PIN_SRCS = [
     "renquant-execution",
     "renquant-backtesting",
 ]
+BRIDGE_BUNDLE_OUTPUT_FLAG = "--bridge-bundle-output"
 
 
 def _arg_value(argv: list[str], flag: str, default: str | None = None) -> str | None:
@@ -88,6 +89,29 @@ def _with_pinned_strategy_config(
         "--strategy-config-path",
         str(cfg_path),
     ]
+
+
+def _install_bridge_bundle_capture(
+    output_path: str | Path,
+    *,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    """Capture committed legacy live.runner contexts as bridge bundles."""
+    from .bridge_live_bundle import write_bridge_live_bundle
+
+    adapters_runner = importlib.import_module("adapters.runner")
+    adapter_cls = getattr(adapters_runner, "RunnerAdapter")
+    original = getattr(adapter_cls, "_renquant_original_commit", None)
+    if original is None:
+        original = adapter_cls.commit
+        setattr(adapter_cls, "_renquant_original_commit", original)
+
+    def commit_with_bundle_capture(self, ctx):  # noqa: ANN001, ANN202
+        result = original(self, ctx)
+        write_bridge_live_bundle(ctx, output_path, metadata=metadata)
+        return result
+
+    adapter_cls.commit = commit_with_bundle_capture
 
 
 def _force_alias(alias: str, target: str, aliased: list[str]) -> None:
@@ -186,6 +210,9 @@ def run_bridge(
 ) -> int:
     """Bootstrap multirepo runtime, then hand off to umbrella live.runner."""
     runner_argv = list(sys.argv[1:] if argv is None else argv)
+    bridge_bundle_output = _arg_value(runner_argv, BRIDGE_BUNDLE_OUTPUT_FLAG)
+    if bridge_bundle_output:
+        runner_argv = _without_arg(runner_argv, BRIDGE_BUNDLE_OUTPUT_FLAG)
     aliased = bootstrap_multirepo(repo_root=repo_root)
     if mode == "daily":
         sys.stderr.write(
@@ -202,6 +229,15 @@ def run_bridge(
     if _arg_value(runner_argv, "--strategy") is None:
         runner_argv = ["--strategy", "renquant_104"] + runner_argv
     runner_argv = _with_pinned_strategy_config(runner_argv, repo_root=repo_root)
+    if bridge_bundle_output:
+        _install_bridge_bundle_capture(
+            bridge_bundle_output,
+            metadata={
+                "bridge_mode": mode,
+                "repo_root": str(repo_root),
+                "runner_args": list(runner_argv),
+            },
+        )
     sys.argv = [sys.argv[0]] + runner_argv
     runner = importlib.import_module("live.runner")
     return int(runner.main() or 0)
