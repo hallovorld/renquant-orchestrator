@@ -27,6 +27,10 @@ renquant-orchestrator run-job live_runner_bridge -- \
   --broker readonly-alpaca \
   --once \
   --bridge-bundle-output /tmp/bridge-live-bundle.json
+renquant-orchestrator run-job native_live_execution_payload_fixture -- \
+  --inference-json /tmp/renquant-live-rehearsal/live-native-inference.json \
+  --output-json /tmp/renquant-live-rehearsal/live-native-execution.json \
+  --broker-name readonly-alpaca
 renquant-orchestrator live-parity-fixture \
   --bridge-bundle /tmp/bridge-live-bundle.json \
   --native-bundle /tmp/native-live-bundle.json \
