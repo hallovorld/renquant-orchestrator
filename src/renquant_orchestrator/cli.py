@@ -98,6 +98,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parity.add_argument("--output-json", default=None)
     parity.add_argument("--fail-on-diff", action="store_true")
 
+    parity_payloads = sub.add_parser(
+        "live-parity-from-payloads",
+        help="build a native live bundle from payloads and compare it to a bridge bundle",
+    )
+    parity_payloads.add_argument("--bridge-bundle", required=True)
+    parity_payloads.add_argument("--inference-json", required=True)
+    parity_payloads.add_argument("--execution-json", default=None)
+    parity_payloads.add_argument("--metadata-json", default=None)
+    parity_payloads.add_argument("--native-bundle-output", required=True)
+    parity_payloads.add_argument("--output-json", default=None)
+    parity_payloads.add_argument("--fail-on-diff", action="store_true")
+
     native_bundle = sub.add_parser(
         "native-live-bundle",
         help="build a native live run bundle for live.runner offboard parity",
@@ -263,6 +275,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_diff:
             parity_argv.append("--fail-on-diff")
         return parity_main(parity_argv)
+    if args.command == "live-parity-from-payloads":
+        from .live_parity_payloads import main as parity_payloads_main
+
+        parity_payloads_argv = [
+            "--bridge-bundle",
+            args.bridge_bundle,
+            "--inference-json",
+            args.inference_json,
+            "--native-bundle-output",
+            args.native_bundle_output,
+        ]
+        if args.execution_json:
+            parity_payloads_argv.extend(["--execution-json", args.execution_json])
+        if args.metadata_json:
+            parity_payloads_argv.extend(["--metadata-json", args.metadata_json])
+        if args.output_json:
+            parity_payloads_argv.extend(["--output-json", args.output_json])
+        if args.fail_on_diff:
+            parity_payloads_argv.append("--fail-on-diff")
+        return parity_payloads_main(parity_payloads_argv)
     if args.command == "native-live-bundle":
         from .native_live_bundle import main as native_bundle_main
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,3 +78,54 @@ def test_force_alias_fails_closed_on_critical_import(monkeypatch) -> None:
     monkeypatch.setattr(mod.importlib, "import_module", fake_import)
     with pytest.raises(RuntimeError, match="critical multirepo module unavailable"):
         mod._force_alias("kernel.preflight", "renquant_pipeline.kernel.preflight", [])
+
+
+def test_run_bridge_captures_bridge_bundle_after_commit(monkeypatch, tmp_path: Path) -> None:
+    output = tmp_path / "bridge.json"
+    seen = {}
+
+    class FakeRunnerAdapter:
+        def commit(self, ctx):
+            ctx.orders_placed = [{"ticker": "AAPL", "status": "filled"}]
+            return None
+
+    adapters_runner = SimpleNamespace(RunnerAdapter=FakeRunnerAdapter)
+
+    def fake_import(name: str):
+        if name == "adapters.runner":
+            return adapters_runner
+        if name == "live.runner":
+            return SimpleNamespace(main=fake_live_main)
+        raise AssertionError(f"unexpected import: {name}")
+
+    def fake_live_main():
+        seen["argv"] = list(sys.argv)
+        ctx = SimpleNamespace(
+            decision_trace=[{"ticker": "AAPL", "stage": "score"}],
+            orders=[{"ticker": "AAPL", "action": "buy", "quantity": 1}],
+        )
+        FakeRunnerAdapter().commit(ctx)
+        return 0
+
+    monkeypatch.setattr(mod, "bootstrap_multirepo", lambda repo_root: ["kernel.preflight"])
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+
+    rc = mod.run_bridge(
+        [
+            "--broker",
+            "readonly-alpaca",
+            "--once",
+            "--bridge-bundle-output",
+            str(output),
+        ],
+        mode="live",
+        repo_root=tmp_path / "RenQuant",
+    )
+
+    assert rc == 0
+    assert "--bridge-bundle-output" not in seen["argv"]
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["source"] == "live_runner_bridge"
+    assert payload["metadata"]["bridge_mode"] == "live"
+    assert payload["order_intents"][0]["ticker"] == "AAPL"
+    assert payload["execution_audit"][0]["kind"] == "order_placed"
