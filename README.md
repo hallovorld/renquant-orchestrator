@@ -18,9 +18,11 @@ renquant-orchestrator daily-contract \
 renquant-orchestrator scheduled-jobs
 renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
 renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
-renquant-orchestrator live-offboard-status --strict
+renquant-orchestrator live-offboard-status --strict \
+  --env-file ../RenQuant/.env
 renquant-orchestrator live-rehearsal-plan --strict \
-  --output-dir /tmp/renquant-live-rehearsal
+  --output-dir /tmp/renquant-live-rehearsal \
+  --env-file ../RenQuant/.env
 renquant-orchestrator run-job live_runner_bridge -- \
   --broker readonly-alpaca \
   --once \

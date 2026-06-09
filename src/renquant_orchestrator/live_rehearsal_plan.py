@@ -9,8 +9,30 @@ from typing import Any
 REQUIRED_ALPACA_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
 
 
-def _missing_env(names: tuple[str, ...]) -> list[str]:
-    return [name for name in names if not os.environ.get(name)]
+def _read_env_file(path: str | Path | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    env_path = Path(path)
+    values: dict[str, str] = {}
+    if not env_path.exists():
+        return values
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key:
+            values[key] = value
+    return values
+
+
+def _missing_env(names: tuple[str, ...], env_file: str | Path | None = None) -> list[str]:
+    file_values = _read_env_file(env_file)
+    return [name for name in names if not os.environ.get(name) and not file_values.get(name)]
 
 
 def build_live_rehearsal_plan(
@@ -19,6 +41,7 @@ def build_live_rehearsal_plan(
     output_dir: str | Path = "/tmp/renquant-live-rehearsal",
     broker: str = "readonly-alpaca",
     include_execution_payload: bool = True,
+    env_file: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build the operator command plan for live-runner offboard rehearsal."""
     if mode not in {"live", "daily"}:
@@ -51,13 +74,33 @@ def build_live_rehearsal_plan(
         "--fail-on-diff",
     ])
 
-    missing = _missing_env(REQUIRED_ALPACA_ENV) if broker != "paper" else []
+    env_file_path = Path(env_file) if env_file is not None else None
+    missing = _missing_env(REQUIRED_ALPACA_ENV, env_file_path) if broker != "paper" else []
+    credential_source = (
+        "not_required" if broker == "paper"
+        else "process_env" if not missing and all(os.environ.get(name) for name in REQUIRED_ALPACA_ENV)
+        else "env_file" if not missing and env_file_path is not None
+        else "missing"
+    )
+    notes = [
+        "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
+        "Produce native inference/execution payloads at the planned paths before native_payload_parity.",
+        "Do not change production launchd commands until parity_verdict ok=true.",
+    ]
+    if credential_source == "env_file":
+        notes.insert(
+            0,
+            "The env_file proves required credential keys exist; source it before running bridge_capture.",
+        )
     return {
         "schema_version": 1,
         "mode": mode,
         "broker": broker,
         "ready": not missing,
         "missing_env": missing,
+        "credential_source": credential_source,
+        "env_file": str(env_file_path) if env_file_path is not None else None,
+        "env_file_exists": env_file_path.exists() if env_file_path is not None else None,
         "output_dir": str(out),
         "artifacts": {
             "bridge_bundle": str(bridge_bundle),
@@ -80,11 +123,7 @@ def build_live_rehearsal_plan(
             ],
             "native_payload_parity": parity_command,
         },
-        "notes": [
-            "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
-            "Produce native inference/execution payloads at the planned paths before native_payload_parity.",
-            "Do not change production launchd commands until parity_verdict ok=true.",
-        ],
+        "notes": notes,
     }
 
 
