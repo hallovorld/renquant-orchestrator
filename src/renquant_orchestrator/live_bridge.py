@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ DEFAULT_PIN_SRCS = [
     "renquant-backtesting",
 ]
 BRIDGE_BUNDLE_OUTPUT_FLAG = "--bridge-bundle-output"
+ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
 
 
 def _arg_value(argv: list[str], flag: str, default: str | None = None) -> str | None:
@@ -66,6 +68,14 @@ def _strategy_config_name(argv: list[str]) -> str:
     if strategy == "renquant_104" and broker == "readonly-alpaca":
         return "strategy_config.shadow.json"
     return "strategy_config.json"
+
+
+def _missing_alpaca_credentials(argv: list[str]) -> list[str]:
+    broker = _arg_value(argv, "--broker", "paper")
+    if broker not in ALPACA_BROKERS:
+        return []
+    required = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
+    return [name for name in required if not os.environ.get(name)]
 
 
 def _with_pinned_strategy_config(
@@ -210,6 +220,13 @@ def run_bridge(
 ) -> int:
     """Bootstrap multirepo runtime, then hand off to umbrella live.runner."""
     runner_argv = list(sys.argv[1:] if argv is None else argv)
+    missing_creds = _missing_alpaca_credentials(runner_argv)
+    if missing_creds:
+        sys.stderr.write(
+            "live bridge preflight failed: broker requires Alpaca credentials; "
+            f"missing {', '.join(missing_creds)}.\n"
+        )
+        return 2
     bridge_bundle_output = _arg_value(runner_argv, BRIDGE_BUNDLE_OUTPUT_FLAG)
     if bridge_bundle_output:
         runner_argv = _without_arg(runner_argv, BRIDGE_BUNDLE_OUTPUT_FLAG)

@@ -80,9 +80,30 @@ def test_force_alias_fails_closed_on_critical_import(monkeypatch) -> None:
         mod._force_alias("kernel.preflight", "renquant_pipeline.kernel.preflight", [])
 
 
+def test_run_bridge_preflights_alpaca_credentials(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+
+    def fail_bootstrap(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("bootstrap should not run without Alpaca credentials")
+
+    monkeypatch.setattr(mod, "bootstrap_multirepo", fail_bootstrap)
+
+    rc = mod.run_bridge(
+        ["--broker=readonly-alpaca", "--once"],
+        mode="live",
+        repo_root=tmp_path / "RenQuant",
+    )
+
+    assert rc == 2
+    assert "missing ALPACA_API_KEY, ALPACA_SECRET_KEY" in capsys.readouterr().err
+
+
 def test_run_bridge_captures_bridge_bundle_after_commit(monkeypatch, tmp_path: Path) -> None:
     output = tmp_path / "bridge.json"
     seen = {}
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
 
     class FakeRunnerAdapter:
         def commit(self, ctx):
@@ -90,13 +111,14 @@ def test_run_bridge_captures_bridge_bundle_after_commit(monkeypatch, tmp_path: P
             return None
 
     adapters_runner = SimpleNamespace(RunnerAdapter=FakeRunnerAdapter)
+    original_import = mod.importlib.import_module
 
-    def fake_import(name: str):
+    def fake_import(name: str, *args, **kwargs):
         if name == "adapters.runner":
             return adapters_runner
         if name == "live.runner":
             return SimpleNamespace(main=fake_live_main)
-        raise AssertionError(f"unexpected import: {name}")
+        return original_import(name, *args, **kwargs)
 
     def fake_live_main():
         seen["argv"] = list(sys.argv)
