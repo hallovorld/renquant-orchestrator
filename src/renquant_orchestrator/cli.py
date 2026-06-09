@@ -119,6 +119,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_bundle.add_argument("--metadata-json", default=None)
     native_bundle.add_argument("--output-json", required=True)
 
+    rehearsal = sub.add_parser(
+        "live-rehearsal-plan",
+        help="emit the readonly live offboard rehearsal command plan as JSON",
+    )
+    rehearsal.add_argument("--mode", choices=("live", "daily"), default="live")
+    rehearsal.add_argument("--broker", default="readonly-alpaca")
+    rehearsal.add_argument("--output-dir", default="/tmp/renquant-live-rehearsal")
+    rehearsal.add_argument(
+        "--no-execution-payload",
+        action="store_true",
+        help="omit the execution payload input from the native parity command",
+    )
+    rehearsal.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero when the rehearsal preflight is not ready",
+    )
+
     run_job = sub.add_parser(
         "run-job",
         help="run one scheduled job by stable inventory id",
@@ -309,6 +327,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.metadata_json:
             native_bundle_argv.extend(["--metadata-json", args.metadata_json])
         return native_bundle_main(native_bundle_argv)
+    if args.command == "live-rehearsal-plan":
+        from .live_rehearsal_plan import build_live_rehearsal_plan
+
+        plan = build_live_rehearsal_plan(
+            mode=args.mode,
+            output_dir=args.output_dir,
+            broker=args.broker,
+            include_execution_payload=not args.no_execution_payload,
+        )
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0 if plan["ready"] or not args.strict else 2
     if args.command == "run-job":
         from .job_runner import run_scheduled_job
 
