@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from renquant_common import validate_live_run_bundle
+
 
 def _load_json(path: str | Path) -> dict[str, Any]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -95,6 +97,7 @@ def build_native_live_bundle(
                 reason="no_execution_payload",
             )
         ]
+    validate_live_run_bundle(bundle)
     return bundle
 
 

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from renquant_common import validate_live_run_bundle
 
 from renquant_orchestrator.cli import main
 from renquant_orchestrator.live_parity import compare_live_bundles
@@ -52,6 +53,8 @@ def test_build_native_live_bundle_is_parity_ready() -> None:
     assert bundle["submitted_orders"][0]["status"] == "dry_run"
     assert bundle["execution_audit"][0]["broker"] == "readonly-alpaca"
 
+    contract = validate_live_run_bundle(bundle)
+    assert contract.source == "native_live_bundle"
     verdict = compare_live_bundles(bundle, bundle)
     assert verdict["ok"] is True
 
