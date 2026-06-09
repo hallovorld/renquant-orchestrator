@@ -151,3 +151,43 @@ def test_run_bridge_captures_bridge_bundle_after_commit(monkeypatch, tmp_path: P
     assert payload["metadata"]["bridge_mode"] == "live"
     assert payload["order_intents"][0]["ticker"] == "AAPL"
     assert payload["execution_audit"][0]["kind"] == "order_placed"
+
+
+def test_runner_commit_hooks_preserve_before_commit_after_order(monkeypatch) -> None:
+    events = []
+
+    class FakeRunnerAdapter:
+        def commit(self, ctx):
+            events.append(("commit", list(ctx.orders)))
+            ctx.orders_placed = [{"ticker": "AAPL", "status": "filled"}]
+            return "ok"
+
+    adapters_runner = SimpleNamespace(RunnerAdapter=FakeRunnerAdapter)
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "adapters.runner":
+            return adapters_runner
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    mod._reset_runner_commit_hooks()
+
+    def before_hook(_adapter, ctx):
+        events.append(("before", list(ctx.orders)))
+
+    def after_hook(_adapter, ctx):
+        events.append(("after", list(ctx.orders_placed)))
+
+    mod._install_runner_commit_hook(before_hook, timing="before")
+    mod._install_runner_commit_hook(after_hook, timing="after")
+
+    ctx = SimpleNamespace(orders=[{"ticker": "AAPL"}])
+    result = FakeRunnerAdapter().commit(ctx)
+
+    assert result == "ok"
+    assert events == [
+        ("before", [{"ticker": "AAPL"}]),
+        ("commit", [{"ticker": "AAPL"}]),
+        ("after", [{"ticker": "AAPL", "status": "filled"}]),
+    ]

@@ -4,7 +4,9 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from .runtime_paths import (
     default_github_root,
@@ -30,6 +32,7 @@ DEFAULT_PIN_SRCS = [
 ]
 BRIDGE_BUNDLE_OUTPUT_FLAG = "--bridge-bundle-output"
 ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
+CommitHook = Callable[[Any, Any], None]
 
 
 def _arg_value(argv: list[str], flag: str, default: str | None = None) -> str | None:
@@ -109,19 +112,57 @@ def _install_bridge_bundle_capture(
     """Capture committed legacy live.runner contexts as bridge bundles."""
     from .bridge_live_bundle import write_bridge_live_bundle
 
+    def write_bundle(_adapter: Any, ctx: Any) -> None:
+        write_bridge_live_bundle(ctx, output_path, metadata=metadata)
+
+    _install_runner_commit_hook(write_bundle, timing="after")
+
+
+def _runner_adapter_cls() -> type:
     adapters_runner = importlib.import_module("adapters.runner")
-    adapter_cls = getattr(adapters_runner, "RunnerAdapter")
+    return getattr(adapters_runner, "RunnerAdapter")
+
+
+def _reset_runner_commit_hooks() -> None:
+    adapter_cls = _runner_adapter_cls()
+    original = getattr(adapter_cls, "_renquant_original_commit", None)
+    if original is not None:
+        adapter_cls.commit = original
+    setattr(adapter_cls, "_renquant_commit_hooks", {"before": [], "after": []})
+    setattr(adapter_cls, "_renquant_commit_hook_wrapper_installed", False)
+
+
+def _install_runner_commit_hook(
+    hook: CommitHook,
+    *,
+    timing: str,
+) -> None:
+    if timing not in {"before", "after"}:
+        raise ValueError("timing must be 'before' or 'after'")
+    adapter_cls = _runner_adapter_cls()
+    hooks = getattr(adapter_cls, "_renquant_commit_hooks", None)
+    if hooks is None:
+        hooks = {"before": [], "after": []}
+        setattr(adapter_cls, "_renquant_commit_hooks", hooks)
+
     original = getattr(adapter_cls, "_renquant_original_commit", None)
     if original is None:
         original = adapter_cls.commit
         setattr(adapter_cls, "_renquant_original_commit", original)
 
-    def commit_with_bundle_capture(self, ctx):  # noqa: ANN001, ANN202
-        result = original(self, ctx)
-        write_bridge_live_bundle(ctx, output_path, metadata=metadata)
-        return result
+    if not getattr(adapter_cls, "_renquant_commit_hook_wrapper_installed", False):
 
-    adapter_cls.commit = commit_with_bundle_capture
+        def commit_with_hooks(self, ctx):  # noqa: ANN001, ANN202
+            for before_hook in hooks["before"]:
+                before_hook(self, ctx)
+            result = original(self, ctx)
+            for after_hook in hooks["after"]:
+                after_hook(self, ctx)
+            return result
+
+        adapter_cls.commit = commit_with_hooks
+        setattr(adapter_cls, "_renquant_commit_hook_wrapper_installed", True)
+    hooks[timing].append(hook)
 
 
 def _force_alias(alias: str, target: str, aliased: list[str]) -> None:
@@ -242,6 +283,7 @@ def run_bridge(
             f"[multirepo] routed {len(aliased)} lifted modules through sibling subrepos; "
             "live.runner remains the execution handoff.\n"
         )
+    _reset_runner_commit_hooks()
 
     if _arg_value(runner_argv, "--strategy") is None:
         runner_argv = ["--strategy", "renquant_104"] + runner_argv
