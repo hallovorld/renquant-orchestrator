@@ -169,7 +169,8 @@ def build_live_offboard_status(
         "next_actions": [
             "Provide readonly Alpaca credentials when missing.",
             "Run rehearsal.commands.bridge_capture to capture the current bridge bundle.",
-            "Produce native inference/execution payloads at the planned artifact paths.",
+            "Produce the native inference payload at the planned artifact path.",
+            "Run rehearsal.commands.native_execution_payload to build the readonly execution payload.",
             "Run rehearsal.commands.native_payload_parity and require ok=true before changing launchd.",
         ],
     }

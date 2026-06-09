@@ -35,6 +35,18 @@ def build_live_rehearsal_plan(
     native_bundle = out / f"{mode}-native-bundle.json"
     verdict = out / f"{mode}-parity-verdict.json"
 
+    execution_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_execution_payload_fixture",
+        "--",
+        "--inference-json",
+        str(inference_payload),
+        "--output-json",
+        str(execution_payload),
+        "--broker-name",
+        broker,
+    ]
     parity_command = [
         "renquant-orchestrator",
         "run-job",
@@ -65,7 +77,7 @@ def build_live_rehearsal_plan(
     )
     notes = [
         "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
-        "Produce native inference/execution payloads at the planned paths before native_payload_parity.",
+        "Produce the native inference payload, then run native_execution_payload before native_payload_parity.",
         "Do not change production launchd commands until parity_verdict ok=true.",
     ]
     if credential_source == "env_file":
@@ -107,6 +119,7 @@ def build_live_rehearsal_plan(
         },
         "commands": {
             "bridge_capture": bridge_command,
+            "native_execution_payload": execution_command,
             "native_payload_parity": parity_command,
         },
         "notes": notes,
