@@ -97,6 +97,8 @@ def build_live_rehearsal_plan(
         "--broker",
         broker,
         "--once",
+        "--native-inference-payload-output",
+        str(inference_payload),
         "--bridge-bundle-output",
         str(bridge_bundle),
     ])

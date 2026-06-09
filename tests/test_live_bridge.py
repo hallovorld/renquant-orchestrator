@@ -153,6 +153,73 @@ def test_run_bridge_captures_bridge_bundle_after_commit(monkeypatch, tmp_path: P
     assert payload["execution_audit"][0]["kind"] == "order_placed"
 
 
+def test_run_bridge_captures_native_inference_before_commit(monkeypatch, tmp_path: Path) -> None:
+    inference_output = tmp_path / "native-inference.json"
+    bridge_output = tmp_path / "bridge.json"
+    seen = {}
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+
+    class FakeRunnerAdapter:
+        def commit(self, ctx):
+            ctx.decision_trace.append({"stage": "commit_should_not_appear"})
+            ctx.orders_placed = [{"ticker": "AAPL", "status": "filled"}]
+            return None
+
+    adapters_runner = SimpleNamespace(RunnerAdapter=FakeRunnerAdapter)
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "adapters.runner":
+            return adapters_runner
+        if name == "live.runner":
+            return SimpleNamespace(main=fake_live_main)
+        return original_import(name, *args, **kwargs)
+
+    def fake_live_main():
+        seen["argv"] = list(sys.argv)
+        ctx = SimpleNamespace(
+            config={"watchlist": ["AAPL"]},
+            market_snapshot={"as_of": "2026-06-09"},
+            decision_trace=[{"ticker": "AAPL", "stage": "score"}],
+            orders=[{"ticker": "AAPL", "action": "buy", "quantity": 1}],
+            _ticker_score_snapshot={"AAPL": {"rank_score": 0.8}},
+        )
+        FakeRunnerAdapter().commit(ctx)
+        return 0
+
+    monkeypatch.setattr(mod, "bootstrap_multirepo", lambda repo_root: ["kernel.preflight"])
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+
+    rc = mod.run_bridge(
+        [
+            "--broker",
+            "readonly-alpaca",
+            "--once",
+            "--native-inference-payload-output",
+            str(inference_output),
+            "--bridge-bundle-output",
+            str(bridge_output),
+        ],
+        mode="live",
+        repo_root=tmp_path / "RenQuant",
+    )
+
+    assert rc == 0
+    assert "--native-inference-payload-output" not in seen["argv"]
+    inference_payload = json.loads(inference_output.read_text(encoding="utf-8"))
+    assert inference_payload["source"] == "renquant_pipeline.live_context_inference"
+    assert inference_payload["market_as_of"] == "2026-06-09"
+    assert inference_payload["decision_trace"] == [{"ticker": "AAPL", "stage": "score"}]
+    assert inference_payload["order_intents"] == [
+        {"ticker": "AAPL", "action": "buy", "quantity": 1}
+    ]
+    assert inference_payload["scores"] == {"AAPL": 0.8}
+    bridge_payload = json.loads(bridge_output.read_text(encoding="utf-8"))
+    assert bridge_payload["decision_trace"][-1]["stage"] == "commit_should_not_appear"
+    assert bridge_payload["execution_audit"][0]["kind"] == "order_placed"
+
+
 def test_runner_commit_hooks_preserve_before_commit_after_order(monkeypatch) -> None:
     events = []
 

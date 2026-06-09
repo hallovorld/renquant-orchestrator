@@ -94,7 +94,7 @@ def _stage_status(
         current_stage = "parity_review"
         next_blocker = "parity_verdict_not_ok"
     elif not scheduled_bridge_jobs_clear:
-        current_stage = "scheduled_job_cutover"
+        current_stage = "native_live_job_cutover"
         next_blocker = "remaining_umbrella_bridge_jobs"
     else:
         current_stage = "ready"
@@ -172,6 +172,7 @@ def build_live_offboard_status(
             "Produce the native inference payload at the planned artifact path.",
             "Run rehearsal.commands.native_execution_payload to build the readonly execution payload.",
             "Run rehearsal.commands.native_payload_parity and require ok=true before changing launchd.",
+            "Lift production schedulers to a native live job with no RenQuant live.runner import before clearing bridge jobs.",
         ],
     }
 

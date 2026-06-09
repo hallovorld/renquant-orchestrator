@@ -38,12 +38,16 @@ def test_build_bridge_live_bundle_from_committed_runner_context() -> None:
 
 def test_bridge_live_bundle_falls_back_when_execution_rows_absent() -> None:
     ctx = SimpleNamespace(
-        decision_trace=[],
+        config={"watchlist": ["AAPL"]},
+        market_snapshot={"as_of": "2026-06-09"},
         order_intents=[{"ticker": "AAPL", "action": "buy", "quantity": 1}],
+        scores={"AAPL": 0.7},
     )
 
     bundle = build_bridge_live_bundle(ctx)
 
+    assert bundle["decision_trace"][0]["ticker"] == "AAPL"
+    assert bundle["decision_trace"][0]["score"] == 0.7
     assert bundle["execution_audit"] == [
         {
             "kind": "bridge_context",

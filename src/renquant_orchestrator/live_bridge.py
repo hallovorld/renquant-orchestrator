@@ -31,6 +31,7 @@ DEFAULT_PIN_SRCS = [
     "renquant-backtesting",
 ]
 BRIDGE_BUNDLE_OUTPUT_FLAG = "--bridge-bundle-output"
+NATIVE_INFERENCE_PAYLOAD_OUTPUT_FLAG = "--native-inference-payload-output"
 ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
 CommitHook = Callable[[Any, Any], None]
 
@@ -116,6 +117,16 @@ def _install_bridge_bundle_capture(
         write_bridge_live_bundle(ctx, output_path, metadata=metadata)
 
     _install_runner_commit_hook(write_bundle, timing="after")
+
+
+def _install_native_inference_payload_capture(output_path: str | Path) -> None:
+    """Capture the live context after inference and before execution commit."""
+    from renquant_pipeline import write_runtime_inference_payload_from_live_context
+
+    def write_payload(_adapter: Any, ctx: Any) -> None:
+        write_runtime_inference_payload_from_live_context(ctx, output_path)
+
+    _install_runner_commit_hook(write_payload, timing="before")
 
 
 def _runner_adapter_cls() -> type:
@@ -271,6 +282,9 @@ def run_bridge(
     bridge_bundle_output = _arg_value(runner_argv, BRIDGE_BUNDLE_OUTPUT_FLAG)
     if bridge_bundle_output:
         runner_argv = _without_arg(runner_argv, BRIDGE_BUNDLE_OUTPUT_FLAG)
+    native_inference_output = _arg_value(runner_argv, NATIVE_INFERENCE_PAYLOAD_OUTPUT_FLAG)
+    if native_inference_output:
+        runner_argv = _without_arg(runner_argv, NATIVE_INFERENCE_PAYLOAD_OUTPUT_FLAG)
     aliased = bootstrap_multirepo(repo_root=repo_root)
     if mode == "daily":
         sys.stderr.write(
@@ -288,6 +302,8 @@ def run_bridge(
     if _arg_value(runner_argv, "--strategy") is None:
         runner_argv = ["--strategy", "renquant_104"] + runner_argv
     runner_argv = _with_pinned_strategy_config(runner_argv, repo_root=repo_root)
+    if native_inference_output:
+        _install_native_inference_payload_capture(native_inference_output)
     if bridge_bundle_output:
         _install_bridge_bundle_capture(
             bridge_bundle_output,
