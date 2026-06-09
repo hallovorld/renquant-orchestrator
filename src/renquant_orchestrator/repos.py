@@ -11,6 +11,7 @@ Actions:
   status  : per-repo git status — branch, dirty?, ahead/behind origin/main
   sync    : fetch all; fast-forward `main` on clean repos (§3.2-safe)
   prs     : open PRs across every repo, in one view
+  merge-audit : audit recent merged PRs for missing pre-merge markers
   exec    : run an arbitrary command in each repo's local clone
   agent   : run a per-agent PR workflow (review/fix/merge) across repos —
             the cross-repo form of `agent-workflow`
@@ -186,6 +187,7 @@ def run_repos(
     allow_all: bool = False,
     max_merges: int = 0,
     token: Optional[str] = None,
+    merge_audit_limit: int = 50,
 ) -> dict:
     entries = select_repos(load_manifest(manifest), repo)
     result: dict = {"action": action, "repo_selector": repo or "all",
@@ -207,6 +209,29 @@ def run_repos(
     if action == "prs":
         result["repos"] = [repo_open_prs(e, token) for e in entries]
         result["total_open"] = sum(len(r.get("open_prs", [])) for r in result["repos"])
+        return result
+    if action == "merge-audit":
+        from .agent_workflows import audit_merged_prs
+
+        total_missing = 0
+        for e in entries:
+            try:
+                audit = audit_merged_prs(e.owner_repo, token, limit=merge_audit_limit)
+            except Exception as exc:  # noqa: BLE001 — isolate per-repo failure
+                audit = {
+                    "repo": e.owner_repo,
+                    "ok": False,
+                    "error": str(exc),
+                    "n_missing_pre_merge_audit": 0,
+                }
+            total_missing += int(audit.get("n_missing_pre_merge_audit") or 0)
+            result["repos"].append({"repo": e.name, "audit": audit})
+        result["limit"] = int(merge_audit_limit)
+        result["n_missing_pre_merge_audit"] = total_missing
+        result["ok"] = total_missing == 0 and not any(
+            (repo.get("audit") or {}).get("error")
+            for repo in result["repos"]
+        )
         return result
     if action == "exec":
         if not exec_cmd:

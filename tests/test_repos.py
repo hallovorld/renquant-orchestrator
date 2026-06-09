@@ -93,6 +93,57 @@ def test_prs_action_surfaces_agent_author_from_visible_traceability(tmp_path, mo
     ]
 
 
+def test_merge_audit_action_summarizes_across_repos(tmp_path, monkeypatch):
+    audits = {
+        "hallovorld/RenQuant": {"ok": False, "n_missing_pre_merge_audit": 2},
+        "hallovorld/renquant-common": {"ok": True, "n_missing_pre_merge_audit": 0},
+        "hallovorld/renquant-pipeline": {"ok": False, "n_missing_pre_merge_audit": 1},
+    }
+    seen = []
+
+    def fake_audit(repo, token, limit=50):
+        seen.append((repo, token, limit))
+        return {"repo": repo, **audits[repo]}
+
+    monkeypatch.setattr("renquant_orchestrator.agent_workflows.audit_merged_prs", fake_audit)
+
+    out = R.run_repos(
+        action="merge-audit",
+        repo="all",
+        manifest=_manifest(tmp_path),
+        token="tok",
+        merge_audit_limit=7,
+    )
+
+    assert out["ok"] is False
+    assert out["limit"] == 7
+    assert out["n_missing_pre_merge_audit"] == 3
+    assert seen == [
+        ("hallovorld/RenQuant", "tok", 7),
+        ("hallovorld/renquant-common", "tok", 7),
+        ("hallovorld/renquant-pipeline", "tok", 7),
+    ]
+
+
+def test_merge_audit_action_isolates_repo_errors(tmp_path, monkeypatch):
+    def fake_audit(repo, token, limit=50):
+        if repo == "hallovorld/renquant-common":
+            raise RuntimeError("gh failed")
+        return {"repo": repo, "ok": True, "n_missing_pre_merge_audit": 0}
+
+    monkeypatch.setattr("renquant_orchestrator.agent_workflows.audit_merged_prs", fake_audit)
+
+    out = R.run_repos(
+        action="merge-audit",
+        repo="all",
+        manifest=_manifest(tmp_path),
+    )
+
+    assert out["ok"] is False
+    assert out["n_missing_pre_merge_audit"] == 0
+    assert out["repos"][1]["audit"]["error"] == "gh failed"
+
+
 def test_exec_requires_command(tmp_path):
     with pytest.raises(ValueError):
         R.run_repos(action="exec", repo="all", manifest=_manifest(tmp_path), exec_cmd=None)
@@ -204,3 +255,23 @@ def test_cli_repos_exec_splits_on_double_dash(monkeypatch):
     assert captured["action"] == "exec"
     assert captured["repo"] == "renquant-common"
     assert captured["exec_cmd"] == ["git", "status", "--short"]
+
+
+def test_cli_repos_merge_audit_strict_returns_nonzero(monkeypatch, capsys):
+    from renquant_orchestrator import cli
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.repos.run_repos",
+        lambda **kw: {
+            "action": "merge-audit",
+            "ok": False,
+            "n_missing_pre_merge_audit": 1,
+            "repos": [],
+        },
+    )
+
+    rc = cli.main(["repos", "merge-audit", "--strict", "--limit", "3"])
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["n_missing_pre_merge_audit"] == 1
