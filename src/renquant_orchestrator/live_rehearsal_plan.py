@@ -5,33 +5,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .env_files import read_env_file
+
 
 REQUIRED_ALPACA_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
 
 
-def _read_env_file(path: str | Path | None) -> dict[str, str]:
-    if path is None:
-        return {}
-    env_path = Path(path)
-    values: dict[str, str] = {}
-    if not env_path.exists():
-        return values
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[len("export "):].strip()
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip("'\"")
-        if key:
-            values[key] = value
-    return values
-
-
 def _missing_env(names: tuple[str, ...], env_file: str | Path | None = None) -> list[str]:
-    file_values = _read_env_file(env_file)
+    file_values = read_env_file(env_file)
     return [name for name in names if not os.environ.get(name) and not file_values.get(name)]
 
 
@@ -90,8 +71,23 @@ def build_live_rehearsal_plan(
     if credential_source == "env_file":
         notes.insert(
             0,
-            "The env_file proves required credential keys exist; source it before running bridge_capture.",
+            "The bridge_capture command loads env_file before delegating to live.runner.",
         )
+    bridge_command = [
+        "renquant-orchestrator",
+        "run-job",
+        job_id,
+        "--",
+    ]
+    if env_file_path is not None:
+        bridge_command.extend(["--env-file", str(env_file_path)])
+    bridge_command.extend([
+        "--broker",
+        broker,
+        "--once",
+        "--bridge-bundle-output",
+        str(bridge_bundle),
+    ])
     return {
         "schema_version": 1,
         "mode": mode,
@@ -110,17 +106,7 @@ def build_live_rehearsal_plan(
             "parity_verdict": str(verdict),
         },
         "commands": {
-            "bridge_capture": [
-                "renquant-orchestrator",
-                "run-job",
-                job_id,
-                "--",
-                "--broker",
-                broker,
-                "--once",
-                "--bridge-bundle-output",
-                str(bridge_bundle),
-            ],
+            "bridge_capture": bridge_command,
             "native_payload_parity": parity_command,
         },
         "notes": notes,

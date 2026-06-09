@@ -56,7 +56,8 @@ def test_live_rehearsal_plan_can_read_required_env_from_file(monkeypatch, tmp_pa
     assert plan["credential_source"] == "env_file"
     assert plan["env_file"] == str(env_file)
     assert plan["env_file_exists"] is True
-    assert "source it before running bridge_capture" in plan["notes"][0]
+    assert "loads env_file" in plan["notes"][0]
+    assert plan["commands"]["bridge_capture"][4:6] == ["--env-file", str(env_file)]
     assert "file-secret" not in json.dumps(plan)
 
 
