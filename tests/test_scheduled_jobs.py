@@ -66,6 +66,23 @@ def test_native_scheduled_jobs_have_no_umbrella_code_dependency() -> None:
     assert all(job["native_offboard_blockers"] == [] for job in native_jobs)
 
 
+def test_live_bridge_jobs_expose_readonly_bundle_capture_rehearsal() -> None:
+    payload = inventory_payload()
+    bridge_jobs = [
+        job for job in payload["jobs"]
+        if job["job_id"] in {"daily_live_runner_bridge", "live_runner_bridge"}
+    ]
+
+    assert len(bridge_jobs) == 2
+    for job in bridge_jobs:
+        command = job["rehearsal_command"]
+        assert command[:2] == ["renquant-orchestrator", "run-job"]
+        assert job["job_id"] in command
+        assert "--broker" in command
+        assert "readonly-alpaca" in command
+        assert "--bridge-bundle-output" in command
+
+
 def test_scheduled_jobs_cli_emits_json(capsys) -> None:
     rc = main(["scheduled-jobs"])
 

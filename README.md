@@ -18,6 +18,10 @@ renquant-orchestrator daily-contract \
 renquant-orchestrator scheduled-jobs
 renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
 renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
+renquant-orchestrator run-job live_runner_bridge -- \
+  --broker readonly-alpaca \
+  --once \
+  --bridge-bundle-output /tmp/bridge-live-bundle.json
 renquant-orchestrator live-parity-fixture \
   --bridge-bundle /tmp/bridge-live-bundle.json \
   --native-bundle /tmp/native-live-bundle.json \
@@ -49,6 +53,9 @@ bridge to umbrella code, and can fail closed until those bridges are offboarded.
 Schedulers should call `renquant-orchestrator run-job <job_id>` from that
 inventory so launchd/cron configs stay pinned to stable job ids instead of
 internal Python module paths.
+Remaining live bridge jobs also expose a `rehearsal_command` that captures a
+readonly bridge bundle with `--bridge-bundle-output`; use that bundle as the
+bridge side of live parity before changing production launchd commands.
 
 `native_live_parity_fixture` is the exit gate before flipping
 `daily_live_runner_bridge` or `live_runner_bridge` out of umbrella bridge mode.
