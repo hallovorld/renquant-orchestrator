@@ -123,6 +123,9 @@ that the exposed token was rotated. Never quote the token value in the comment.
 - merge first posts a visible PR comment containing `merged by <agent>` as a
   pre-merge audit marker and fails closed if that audit comment cannot be
   written;
+- `merge-audit --strict` audits recent merged PRs and treats post-merge
+  `merged by` comments as non-compliant; the marker must exist before or at
+  `mergedAt`;
 - authorship is read from the canonical `agent:<name>` label, with a
   branch-prefix (`claude/…`, `codex/…`) fallback for older PRs.
 
@@ -141,6 +144,9 @@ renquant-orchestrator agent-workflow --as codex --workflow fix
 
 # Either agent merges its own approved+green PRs (deterministic):
 renquant-orchestrator agent-workflow --as claude --workflow merge --execute
+
+# Audit manual merges for missing pre-merge `merged by` markers:
+renquant-orchestrator merge-audit --repo hallovorld/renquant-orchestrator --strict
 ```
 
 A hands-off loop is just the user (or `/loop`) periodically invoking these
