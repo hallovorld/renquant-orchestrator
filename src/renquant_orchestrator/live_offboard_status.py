@@ -16,7 +16,10 @@ def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, An
             status[name] = {"path": None, "exists": False}
             continue
         path = Path(raw_path)
-        status[name] = {"path": str(path), "exists": path.exists()}
+        exists = path.exists()
+        status[name] = {"path": str(path), "exists": exists}
+        if exists:
+            status[name]["size_bytes"] = path.stat().st_size
     verdict_path = artifacts.get("parity_verdict")
     verdict = status.get("parity_verdict")
     if verdict_path and verdict is not None and verdict["exists"]:
@@ -28,6 +31,79 @@ def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, An
         else:
             verdict["ok"] = bool(payload.get("ok"))
     return status
+
+
+def _artifact_blockers(
+    artifact_status: dict[str, dict[str, Any]],
+    *,
+    include_execution_payload: bool,
+) -> list[str]:
+    blockers: list[str] = []
+    if not artifact_status["bridge_bundle"]["exists"]:
+        blockers.append("missing_bridge_bundle")
+    if not artifact_status["native_inference_payload"]["exists"]:
+        blockers.append("missing_native_inference_payload")
+    if include_execution_payload and not artifact_status["native_execution_payload"]["exists"]:
+        blockers.append("missing_native_execution_payload")
+    verdict = artifact_status["parity_verdict"]
+    if not verdict["exists"]:
+        blockers.append("missing_parity_verdict")
+    elif verdict.get("error"):
+        blockers.append("invalid_parity_verdict")
+    elif not verdict.get("ok"):
+        blockers.append("parity_verdict_not_ok")
+    return blockers
+
+
+def _stage_status(
+    *,
+    credential_ready: bool,
+    artifact_status: dict[str, dict[str, Any]],
+    include_execution_payload: bool,
+    remaining_bridge_job_count: int,
+) -> dict[str, Any]:
+    native_payloads_ready = artifact_status["native_inference_payload"]["exists"] and (
+        not include_execution_payload or artifact_status["native_execution_payload"]["exists"]
+    )
+    parity_verdict = artifact_status["parity_verdict"]
+    parity_verdict_ready = parity_verdict["exists"] and not parity_verdict.get("error")
+    parity_ok = parity_verdict_ready and bool(parity_verdict.get("ok"))
+    scheduled_bridge_jobs_clear = remaining_bridge_job_count == 0
+
+    checks = {
+        "credential_preflight_ready": credential_ready,
+        "bridge_capture_ready": artifact_status["bridge_bundle"]["exists"],
+        "native_payloads_ready": native_payloads_ready,
+        "parity_verdict_ready": parity_verdict_ready,
+        "parity_ok": parity_ok,
+        "scheduled_bridge_jobs_clear": scheduled_bridge_jobs_clear,
+    }
+    if not credential_ready:
+        current_stage = "credential_preflight"
+        next_blocker = "missing_required_credentials"
+    elif not checks["bridge_capture_ready"]:
+        current_stage = "bridge_capture"
+        next_blocker = "missing_bridge_bundle"
+    elif not native_payloads_ready:
+        current_stage = "native_payload_generation"
+        next_blocker = "missing_native_payloads"
+    elif not parity_verdict_ready:
+        current_stage = "native_payload_parity"
+        next_blocker = "missing_or_invalid_parity_verdict"
+    elif not parity_ok:
+        current_stage = "parity_review"
+        next_blocker = "parity_verdict_not_ok"
+    elif not scheduled_bridge_jobs_clear:
+        current_stage = "scheduled_job_cutover"
+        next_blocker = "remaining_umbrella_bridge_jobs"
+    else:
+        current_stage = "ready"
+        next_blocker = None
+    return {
+        "current_stage": current_stage,
+        "next_blocker": next_blocker,
+        "checks": checks,
+    }
 
 
 def build_live_offboard_status(
@@ -53,8 +129,21 @@ def build_live_offboard_status(
         env_file=env_file,
     )
     blocking_reasons = list(rehearsal["missing_env"])
+    artifact_status = _artifact_status(rehearsal["artifacts"])
+    blocking_reasons.extend(
+        _artifact_blockers(
+            artifact_status,
+            include_execution_payload=include_execution_payload,
+        )
+    )
     if summary["remaining_umbrella_bridge_job_count"]:
         blocking_reasons.append("remaining_umbrella_bridge_jobs")
+    stage_status = _stage_status(
+        credential_ready=rehearsal["ready"],
+        artifact_status=artifact_status,
+        include_execution_payload=include_execution_payload,
+        remaining_bridge_job_count=summary["remaining_umbrella_bridge_job_count"],
+    )
 
     return {
         "schema_version": 1,
@@ -63,7 +152,8 @@ def build_live_offboard_status(
         "broker": broker,
         "blocking_reasons": blocking_reasons,
         "scheduled_jobs_summary": summary,
-        "artifact_status": _artifact_status(rehearsal["artifacts"]),
+        "stage_status": stage_status,
+        "artifact_status": artifact_status,
         "remaining_bridge_jobs": [
             {
                 "job_id": job["job_id"],
