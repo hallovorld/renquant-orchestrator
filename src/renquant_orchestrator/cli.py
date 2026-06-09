@@ -15,8 +15,9 @@ from typing import Sequence
 # full assembled subrepo runtime.
 
 
-def _split_bridge_args(argv: list[str]) -> tuple[Path | None, list[str]]:
+def _split_bridge_args(argv: list[str]) -> tuple[Path | None, Path | None, list[str]]:
     repo_dir: Path | None = None
+    env_file: Path | None = None
     runner_args: list[str] = []
     idx = 1
     while idx < len(argv):
@@ -34,9 +35,19 @@ def _split_bridge_args(argv: list[str]) -> tuple[Path | None, list[str]]:
             repo_dir = Path(arg.split("=", 1)[1])
             idx += 1
             continue
+        if arg == "--env-file":
+            if idx + 1 >= len(argv):
+                raise ValueError("--env-file requires a value")
+            env_file = Path(argv[idx + 1])
+            idx += 2
+            continue
+        if arg.startswith("--env-file="):
+            env_file = Path(arg.split("=", 1)[1])
+            idx += 1
+            continue
         runner_args.append(arg)
         idx += 1
-    return repo_dir, runner_args
+    return repo_dir, env_file, runner_args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -70,6 +81,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="bootstrap pinned subrepos, then delegate to RenQuant live.runner",
     )
     live_bridge.add_argument("--repo-dir", type=Path, default=None)
+    live_bridge.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="optional .env file loaded before delegating to live.runner",
+    )
     live_bridge.add_argument("runner_args", nargs=argparse.REMAINDER)
 
     daily_bridge = sub.add_parser(
@@ -77,6 +94,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="daily-flavored pinned subrepo bridge for scheduled full runs",
     )
     daily_bridge.add_argument("--repo-dir", type=Path, default=None)
+    daily_bridge.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="optional .env file loaded before delegating to live.runner",
+    )
     daily_bridge.add_argument("runner_args", nargs=argparse.REMAINDER)
 
     scheduled_jobs = sub.add_parser(
@@ -298,9 +321,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .live_bridge import DEFAULT_REPO_ROOT, run_bridge
 
         try:
-            repo_dir_arg, runner_args = _split_bridge_args(raw_argv)
+            repo_dir_arg, env_file_arg, runner_args = _split_bridge_args(raw_argv)
+        except FileNotFoundError as exc:
+            parser.error(str(exc))
         except ValueError as exc:
             parser.error(str(exc))
+        if env_file_arg is not None:
+            from .env_files import load_env_file
+
+            try:
+                load_env_file(env_file_arg)
+            except FileNotFoundError as exc:
+                parser.error(str(exc))
         repo_dir = repo_dir_arg or DEFAULT_REPO_ROOT
         return run_bridge(
             runner_args,

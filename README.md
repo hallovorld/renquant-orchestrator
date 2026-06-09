@@ -24,6 +24,7 @@ renquant-orchestrator live-rehearsal-plan --strict \
   --output-dir /tmp/renquant-live-rehearsal \
   --env-file ../RenQuant/.env
 renquant-orchestrator run-job live_runner_bridge -- \
+  --env-file ../RenQuant/.env \
   --broker readonly-alpaca \
   --once \
   --bridge-bundle-output /tmp/bridge-live-bundle.json
@@ -63,6 +64,9 @@ internal Python module paths.
 Remaining live bridge jobs also expose a `rehearsal_command` that captures a
 readonly bridge bundle with `--bridge-bundle-output`; use that bundle as the
 bridge side of live parity before changing production launchd commands.
+Pass `--env-file` before the runner arguments on `live-bridge`, `daily-bridge`,
+or `run-job <bridge_job_id>` when credentials should be loaded by the
+orchestrator process instead of by a shell wrapper.
 
 `native_live_parity_fixture` is the exit gate before flipping
 `daily_live_runner_bridge` or `live_runner_bridge` out of umbrella bridge mode.

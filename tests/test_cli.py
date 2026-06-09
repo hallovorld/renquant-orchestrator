@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from renquant_orchestrator.cli import main
@@ -133,6 +134,49 @@ def test_live_bridge_cli_forwards_runner_args(monkeypatch, tmp_path: Path) -> No
     }
 
 
+def test_live_bridge_cli_loads_env_file_before_delegating(monkeypatch, tmp_path: Path) -> None:
+    import renquant_orchestrator.live_bridge as bridge
+
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ALPACA_API_KEY=file-key\nexport ALPACA_SECRET_KEY='file-secret'\n",
+        encoding="utf-8",
+    )
+    seen = {}
+
+    def fake_run_bridge(argv, *, mode, repo_root):
+        seen["argv"] = argv
+        seen["mode"] = mode
+        seen["repo_root"] = repo_root
+        seen["key"] = os.environ.get("ALPACA_API_KEY")
+        seen["secret"] = os.environ.get("ALPACA_SECRET_KEY")
+        return 19
+
+    monkeypatch.setattr(bridge, "run_bridge", fake_run_bridge)
+
+    rc = main([
+        "live-bridge",
+        "--repo-dir",
+        str(tmp_path),
+        "--env-file",
+        str(env_file),
+        "--broker",
+        "readonly-alpaca",
+        "--once",
+    ])
+
+    assert rc == 19
+    assert seen == {
+        "argv": ["--broker", "readonly-alpaca", "--once"],
+        "mode": "live",
+        "repo_root": tmp_path.resolve(),
+        "key": "file-key",
+        "secret": "file-secret",
+    }
+
+
 def test_run_job_forwards_live_bridge_args(monkeypatch, tmp_path: Path) -> None:
     import renquant_orchestrator.live_bridge as bridge
 
@@ -160,6 +204,37 @@ def test_run_job_forwards_live_bridge_args(monkeypatch, tmp_path: Path) -> None:
         "argv": ["--once"],
         "mode": "live",
         "repo_root": tmp_path.resolve(),
+    }
+
+
+def test_run_job_live_bridge_loads_env_file(monkeypatch, tmp_path: Path) -> None:
+    import renquant_orchestrator.live_bridge as bridge
+
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ALPACA_API_KEY=file-key\n", encoding="utf-8")
+    seen = {}
+
+    def fake_run_bridge(argv, *, mode, repo_root):
+        seen["argv"] = argv
+        seen["key"] = os.environ.get("ALPACA_API_KEY")
+        return 29
+
+    monkeypatch.setattr(bridge, "run_bridge", fake_run_bridge)
+
+    rc = main([
+        "run-job",
+        "live_runner_bridge",
+        "--",
+        "--env-file",
+        str(env_file),
+        "--once",
+    ])
+
+    assert rc == 29
+    assert seen == {
+        "argv": ["--once"],
+        "key": "file-key",
     }
 
 
