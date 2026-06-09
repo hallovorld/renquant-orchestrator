@@ -137,6 +137,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when the rehearsal preflight is not ready",
     )
 
+    offboard_status = sub.add_parser(
+        "live-offboard-status",
+        help="emit live bridge offboard readiness as JSON",
+    )
+    offboard_status.add_argument("--mode", choices=("live", "daily"), default="live")
+    offboard_status.add_argument("--broker", default="readonly-alpaca")
+    offboard_status.add_argument("--output-dir", default="/tmp/renquant-live-rehearsal")
+    offboard_status.add_argument(
+        "--no-execution-payload",
+        action="store_true",
+        help="omit the execution payload input from the native parity command",
+    )
+    offboard_status.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero until the live bridge offboard status is ready",
+    )
+
     run_job = sub.add_parser(
         "run-job",
         help="run one scheduled job by stable inventory id",
@@ -346,6 +364,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0 if plan["ready"] or not args.strict else 2
+    if args.command == "live-offboard-status":
+        from .live_offboard_status import build_live_offboard_status
+
+        status = build_live_offboard_status(
+            mode=args.mode,
+            output_dir=args.output_dir,
+            broker=args.broker,
+            include_execution_payload=not args.no_execution_payload,
+        )
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return 0 if status["ready_for_live_offboard"] or not args.strict else 2
     if args.command == "run-job":
         from .job_runner import run_scheduled_job
 

@@ -18,6 +18,7 @@ renquant-orchestrator daily-contract \
 renquant-orchestrator scheduled-jobs
 renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
 renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
+renquant-orchestrator live-offboard-status --strict
 renquant-orchestrator live-rehearsal-plan --strict \
   --output-dir /tmp/renquant-live-rehearsal
 renquant-orchestrator run-job live_runner_bridge -- \
@@ -65,3 +66,6 @@ bridge side of live parity before changing production launchd commands.
 `daily_live_runner_bridge` or `live_runner_bridge` out of umbrella bridge mode.
 It compares readonly bridge and native run bundles for decision traces, order
 intents, and state mutations while ignoring volatile runtime fields.
+`live-offboard-status --strict` combines that inventory with the readonly
+rehearsal preflight so operators can see the remaining bridge blockers and
+missing Alpaca environment before attempting a production launchd switch.
