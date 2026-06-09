@@ -19,6 +19,7 @@ class ScheduledJob:
     owner_repo: str
     migration_state: MigrationState
     production_safe: bool
+    rehearsal_command: list[str] | None = None
     umbrella_code_dependency: str | None = None
     umbrella_state_dependency: str | None = None
     native_offboard_blockers: tuple[str, ...] = ()
@@ -117,6 +118,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         owner_repo="renquant-orchestrator",
         migration_state="umbrella_bridge",
         production_safe=True,
+        rehearsal_command=[
+            "renquant-orchestrator",
+            "run-job",
+            "daily_live_runner_bridge",
+            "--",
+            "--broker",
+            "readonly-alpaca",
+            "--once",
+            "--bridge-bundle-output",
+            "/tmp/renquant-daily-bridge-bundle.json",
+        ],
         umbrella_code_dependency="RenQuant live.runner execution handoff",
         umbrella_state_dependency="RenQuant checkout for data, live_state, and runtime artifacts",
         native_offboard_blockers=(
@@ -138,6 +150,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         owner_repo="renquant-orchestrator",
         migration_state="umbrella_bridge",
         production_safe=True,
+        rehearsal_command=[
+            "renquant-orchestrator",
+            "run-job",
+            "live_runner_bridge",
+            "--",
+            "--broker",
+            "readonly-alpaca",
+            "--once",
+            "--bridge-bundle-output",
+            "/tmp/renquant-live-bridge-bundle.json",
+        ],
         umbrella_code_dependency="RenQuant live.runner execution handoff",
         umbrella_state_dependency="RenQuant checkout for data, live_state, and runtime artifacts",
         native_offboard_blockers=(
