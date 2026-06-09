@@ -8,10 +8,12 @@ import pytest
 
 from renquant_orchestrator.agent_workflows import (
     agent_identity_health,
+    audit_merged_prs,
     build_queue,
     checks_green,
     is_approved,
     merge_audit_comment,
+    merge_audit_status,
     other_agent,
     pr_authorship,
     resolve_token,
@@ -526,3 +528,64 @@ def test_merge_audit_comment_names_agent_author_and_head():
     assert "Pre-merge audit marker" in body
     assert "PR author agent: `claude`" in body
     assert "Head branch: `claude/audit`" in body
+
+
+def test_merge_audit_status_accepts_pre_merge_marker():
+    pr = _pr(1, author="codex", state="MERGED")
+    pr["mergedAt"] = "2026-06-09T00:10:00Z"
+    pr["mergedBy"] = {"login": "codex-user"}
+    pr["comments"] = [{
+        "body": "merged by `codex` via `renquant-orchestrator agent-workflow merge --execute`",
+        "createdAt": "2026-06-09T00:09:59Z",
+        "author": {"login": "codex-user"},
+    }]
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "ok"
+    assert status["has_pre_merge_audit"] is True
+    assert status["pre_merge_audit_comment_author"] == "codex-user"
+    assert status["post_merge_audit_count"] == 0
+
+
+def test_merge_audit_status_rejects_post_merge_marker_as_pre_merge():
+    pr = _pr(2, author="claude", state="MERGED")
+    pr["mergedAt"] = "2026-06-09T00:10:00Z"
+    pr["mergedBy"] = {"login": "owner"}
+    pr["comments"] = [{
+        "body": "merged by `claude` post-merge audit marker",
+        "createdAt": "2026-06-09T00:10:01Z",
+        "author": {"login": "owner"},
+    }]
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "missing_pre_merge_audit"
+    assert status["has_pre_merge_audit"] is False
+    assert status["pre_merge_audit_comment_at"] is None
+    assert status["post_merge_audit_count"] == 1
+
+
+def test_audit_merged_prs_summarizes_missing_pre_merge_markers(monkeypatch):
+    ok_pr = _pr(1, author="codex", state="MERGED")
+    ok_pr["mergedAt"] = "2026-06-09T00:10:00Z"
+    ok_pr["comments"] = [{
+        "body": "merged by `codex`",
+        "createdAt": "2026-06-09T00:09:59Z",
+        "author": {"login": "codex-user"},
+    }]
+    missing_pr = _pr(2, author="claude", state="MERGED")
+    missing_pr["mergedAt"] = "2026-06-09T00:11:00Z"
+    missing_pr["comments"] = []
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_merged_prs",
+        lambda _repo, _token, limit=50: [ok_pr, missing_pr],
+    )
+
+    audit = audit_merged_prs("o/r", token=None, limit=25)
+
+    assert audit["repo"] == "o/r"
+    assert audit["limit"] == 25
+    assert audit["n_merged_prs"] == 2
+    assert audit["n_missing_pre_merge_audit"] == 1
+    assert audit["ok"] is False

@@ -254,3 +254,45 @@ def test_agent_workflow_merge_execute_returns_nonzero_on_identity_block(
     assert rc == 1
     assert out["merge_blocked"] is True
     assert out["executed"] == []
+
+
+def test_merge_audit_cli_strict_returns_nonzero_on_missing_pre_merge_marker(
+    monkeypatch,
+    capsys,
+) -> None:
+    import renquant_orchestrator.agent_workflows as workflows
+
+    monkeypatch.setattr(
+        workflows,
+        "fetch_merged_prs",
+        lambda _repo, _token, limit=50: [{
+            "number": 9,
+            "title": "manual merge",
+            "url": "https://github.com/o/r/pull/9",
+            "headRefName": "codex/manual",
+            "labels": [{"name": "agent:codex"}],
+            "body": "",
+            "mergedAt": "2026-06-09T00:10:00Z",
+            "mergedBy": {"login": "owner"},
+            "comments": [{
+                "body": "merged by `codex` post-merge audit marker",
+                "createdAt": "2026-06-09T00:10:01Z",
+                "author": {"login": "owner"},
+            }],
+        }],
+    )
+
+    rc = main([
+        "merge-audit",
+        "--repo",
+        "o/r",
+        "--limit",
+        "10",
+        "--strict",
+    ])
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["ok"] is False
+    assert out["n_missing_pre_merge_audit"] == 1
+    assert out["prs"][0]["status"] == "missing_pre_merge_audit"

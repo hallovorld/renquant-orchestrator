@@ -57,6 +57,7 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
@@ -433,6 +434,96 @@ def merge_audit_comment(agent: str, item: WorkItem) -> str:
         f"- Head branch: `{item.head_ref}`\n"
         f"- Head SHA: `{item.head_oid}`"
     )
+
+
+_MERGE_AUDIT_FIELDS = (
+    "number,title,url,author,headRefName,headRefOid,labels,body,mergedAt,mergedBy,comments"
+)
+
+
+def fetch_merged_prs(repo: str, token: Optional[str], limit: int = 50) -> list[dict]:
+    """Fetch recent merged PRs with fields needed for merge audit."""
+    return _gh_json(
+        [
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "merged",
+            "--limit",
+            str(limit),
+            "--json",
+            _MERGE_AUDIT_FIELDS,
+        ],
+        token,
+    ) or []
+
+
+def _parse_github_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def is_merge_audit_comment(body: str) -> bool:
+    """Return True for visible merge audit comments."""
+    return bool(re.search(r"(?im)^\s*merged\s+by\b", body or ""))
+
+
+def merge_audit_status(pr: dict) -> dict:
+    """Audit whether a merged PR had a visible pre-merge ``merged by`` comment."""
+    merged_at = _parse_github_datetime(pr.get("mergedAt"))
+    pre_merge: list[dict] = []
+    post_merge: list[dict] = []
+    for comment in pr.get("comments") or []:
+        body = str(comment.get("body") or "")
+        if not is_merge_audit_comment(body):
+            continue
+        created_at = _parse_github_datetime(comment.get("createdAt"))
+        row = {
+            "created_at": comment.get("createdAt"),
+            "author": (comment.get("author") or {}).get("login"),
+        }
+        if merged_at is not None and created_at is not None and created_at <= merged_at:
+            pre_merge.append(row)
+        else:
+            post_merge.append(row)
+
+    first_pre = pre_merge[0] if pre_merge else {}
+    status = "ok" if pre_merge else "missing_pre_merge_audit"
+    return {
+        "number": pr.get("number"),
+        "title": pr.get("title"),
+        "url": pr.get("url"),
+        "agent_author": pr_authorship(pr),
+        "merged_at": pr.get("mergedAt"),
+        "merged_by": (pr.get("mergedBy") or {}).get("login"),
+        "status": status,
+        "has_pre_merge_audit": bool(pre_merge),
+        "pre_merge_audit_comment_at": first_pre.get("created_at"),
+        "pre_merge_audit_comment_author": first_pre.get("author"),
+        "post_merge_audit_count": len(post_merge),
+    }
+
+
+def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50) -> dict:
+    """Return a JSON-ready audit of recent merged PR traceability."""
+    prs = fetch_merged_prs(repo, token, limit=limit)
+    rows = [merge_audit_status(pr) for pr in prs]
+    missing = [row for row in rows if not row["has_pre_merge_audit"]]
+    return {
+        "repo": repo,
+        "limit": limit,
+        "n_merged_prs": len(rows),
+        "n_missing_pre_merge_audit": len(missing),
+        "ok": not missing,
+        "prs": rows,
+    }
 
 
 def run_agent_workflow(
