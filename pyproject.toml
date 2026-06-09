@@ -9,7 +9,7 @@ description = "Pinned-subrepo daily orchestration for RenQuant."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "renquant-common>=0.1.0",
+  "renquant-common>=0.8.0",
   "renquant-base-data>=0.1.0",
   "renquant-artifacts>=0.1.0",
   "renquant-strategy-104>=0.1.0",
