@@ -206,7 +206,7 @@ def main(argv: Sequence[str] | None = None) -> int:
              "driven by subrepos.lock.json",
     )
     repos_p.add_argument("repos_action",
-                         choices=("list", "status", "sync", "prs", "exec", "agent"))
+                         choices=("list", "status", "sync", "prs", "merge-audit", "exec", "agent"))
     repos_p.add_argument("--repo", default="all",
                          help="repo name or owner/repo; default 'all' (whole manifest)")
     repos_p.add_argument("--manifest", type=Path, default=None,
@@ -227,6 +227,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                               "cross-repo merge fan-out (bounded by --max-merges)")
     repos_p.add_argument("--max-merges", type=int, default=0,
                          help="cap on total merges in a cross-repo merge sweep")
+    repos_p.add_argument("--limit", type=int, default=50,
+                         help="for action=merge-audit: merged PRs to audit per repo")
+    repos_p.add_argument(
+        "--strict",
+        dest="repos_strict",
+        action="store_true",
+        help="for action=merge-audit: return non-zero on missing pre-merge markers",
+    )
 
     # `repos exec` takes its command after a literal `--`. Split it off
     # BEFORE argparse so it can't swallow this command's own flags
@@ -394,6 +402,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 allow_all=args.allow_all,
                 max_merges=args.max_merges,
                 token=args.token,
+                merge_audit_limit=args.limit,
             )
         except ValueError as exc:
             parser.error(str(exc))
@@ -402,6 +411,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             (repo.get("plan") or {}).get("merge_blocked")
             for repo in result.get("repos", [])
         )
+        if args.repos_action == "merge-audit" and args.repos_strict and not result.get("ok"):
+            return 1
         return 1 if blocked else 0
     raise AssertionError(f"unhandled command: {args.command}")
 
