@@ -238,9 +238,13 @@ def scheduled_jobs() -> tuple[ScheduledJob, ...]:
 
 
 def inventory_payload() -> dict[str, object]:
-    jobs = [job.to_jsonable() for job in scheduled_jobs()]
+    scheduled = scheduled_jobs()
+    jobs = [job.to_jsonable() for job in scheduled]
     umbrella_bridge_jobs = [
-        job.job_id for job in scheduled_jobs() if job.migration_state == "umbrella_bridge"
+        job.job_id for job in scheduled if job.migration_state == "umbrella_bridge"
+    ]
+    umbrella_state_dependency_jobs = [
+        job.job_id for job in scheduled if job.umbrella_state_dependency is not None
     ]
     return {
         "schema_version": 1,
@@ -248,9 +252,23 @@ def inventory_payload() -> dict[str, object]:
         "jobs": jobs,
         "summary": {
             "total": len(jobs),
-            "native_multirepo": sum(job.migration_state == "native_multirepo" for job in scheduled_jobs()),
+            "native_multirepo": sum(job.migration_state == "native_multirepo" for job in scheduled),
             "umbrella_bridge": len(umbrella_bridge_jobs),
             "umbrella_bridge_jobs": umbrella_bridge_jobs,
+            "remaining_umbrella_bridge_jobs": umbrella_bridge_jobs,
+            "remaining_umbrella_bridge_job_count": len(umbrella_bridge_jobs),
+            "native_offboard_blocker_count": sum(
+                len(job.native_offboard_blockers) for job in scheduled
+            ),
+            "native_exit_criteria_count": sum(
+                len(job.native_exit_criteria) for job in scheduled
+            ),
+            "umbrella_state_dependency_job_count": len(umbrella_state_dependency_jobs),
+            "umbrella_state_dependency_jobs": umbrella_state_dependency_jobs,
+            "production_safe_umbrella_bridge_jobs": [
+                job.job_id for job in scheduled
+                if job.migration_state == "umbrella_bridge" and job.production_safe
+            ],
         },
     }
 

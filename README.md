@@ -52,6 +52,8 @@ materialization. Those stay in their respective subrepos.
 `scheduled-jobs` is the migration control surface for cron and operator loops:
 it emits the training/inference/trading/ops job inventory, marks jobs that still
 bridge to umbrella code, and can fail closed until those bridges are offboarded.
+Its `summary` also reports remaining bridge job ids, native offboard blocker
+counts, exit-gate counts, and jobs that still consume umbrella state paths.
 Schedulers should call `renquant-orchestrator run-job <job_id>` from that
 inventory so launchd/cron configs stay pinned to stable job ids instead of
 internal Python module paths.

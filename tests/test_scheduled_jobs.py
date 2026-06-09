@@ -34,6 +34,17 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
         "daily_live_runner_bridge",
         "live_runner_bridge",
     ]
+    assert payload["summary"]["remaining_umbrella_bridge_job_count"] == 2
+    assert payload["summary"]["remaining_umbrella_bridge_jobs"] == [
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    ]
+    assert payload["summary"]["native_offboard_blocker_count"] == 6
+    assert payload["summary"]["native_exit_criteria_count"] == 6
+    assert payload["summary"]["production_safe_umbrella_bridge_jobs"] == [
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    ]
     bridge_jobs = [
         job for job in payload["jobs"]
         if job["migration_state"] == "umbrella_bridge"
@@ -51,6 +62,25 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
         for job in bridge_jobs
         for criterion in job["native_exit_criteria"]
     )
+
+
+def test_inventory_summarizes_remaining_umbrella_state_dependencies() -> None:
+    payload = inventory_payload()
+
+    assert payload["summary"]["umbrella_state_dependency_job_count"] == 11
+    assert payload["summary"]["umbrella_state_dependency_jobs"] == [
+        "weekly_alpha158_fund_retrain",
+        "daily_alpha158_linear_retrain",
+        "native_live_parity_fixture",
+        "native_live_bundle_fixture",
+        "native_live_payload_parity_fixture",
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+        "weekly_apy_monitor",
+        "state_backup",
+        "build_wf_manifest",
+        "build_patchtst_wf_manifest",
+    ]
 
 
 def test_native_scheduled_jobs_have_no_umbrella_code_dependency() -> None:
