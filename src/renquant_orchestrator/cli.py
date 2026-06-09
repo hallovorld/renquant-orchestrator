@@ -142,6 +142,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_bundle.add_argument("--metadata-json", default=None)
     native_bundle.add_argument("--output-json", required=True)
 
+    native_execution = sub.add_parser(
+        "native-execution-payload",
+        help="build a readonly native execution payload from a native inference payload",
+    )
+    native_execution.add_argument("--inference-json", required=True)
+    native_execution.add_argument("--output-json", required=True)
+    native_execution.add_argument("--broker-name", default="readonly-native")
+
     rehearsal = sub.add_parser(
         "live-rehearsal-plan",
         help="emit the readonly live offboard rehearsal command plan as JSON",
@@ -395,6 +403,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.metadata_json:
             native_bundle_argv.extend(["--metadata-json", args.metadata_json])
         return native_bundle_main(native_bundle_argv)
+    if args.command == "native-execution-payload":
+        from .native_execution_payload import main as native_execution_main
+
+        return native_execution_main([
+            "--inference-json",
+            args.inference_json,
+            "--output-json",
+            args.output_json,
+            "--broker-name",
+            args.broker_name,
+        ])
     if args.command == "live-rehearsal-plan":
         from .live_rehearsal_plan import build_live_rehearsal_plan
 
