@@ -47,6 +47,11 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
         "daily_live_runner_bridge",
         "live_runner_bridge",
     ]
+    assert payload["summary"]["native_cutover_candidate_count"] == 2
+    assert sorted(payload["summary"]["native_cutover_candidates"]) == [
+        "daily_live_runner_bridge",
+        "live_runner_bridge",
+    ]
     bridge_jobs = [
         job for job in payload["jobs"]
         if job["migration_state"] == "umbrella_bridge"
@@ -116,6 +121,36 @@ def test_live_bridge_jobs_expose_readonly_bundle_capture_rehearsal() -> None:
         assert "--broker" in command
         assert "readonly-alpaca" in command
         assert "--bridge-bundle-output" in command
+
+
+def test_live_bridge_jobs_expose_native_cutover_candidate_commands() -> None:
+    payload = inventory_payload()
+    jobs = {
+        job["job_id"]: job
+        for job in payload["jobs"]
+        if job["job_id"] in {"daily_live_runner_bridge", "live_runner_bridge"}
+    }
+
+    assert set(jobs) == {"daily_live_runner_bridge", "live_runner_bridge"}
+    for job in jobs.values():
+        command = job["native_cutover_command"]
+        assert job["native_replacement_job_id"] == "native_live_run_candidate"
+        assert command[:3] == [
+            "renquant-orchestrator",
+            "run-job",
+            "native_live_run_candidate",
+        ]
+        assert "--inference-json" in command
+        assert "--execution-output-json" in command
+        assert "--commit-plan-output-json" in command
+        assert "--output-json" in command
+        assert "--broker-name" in command
+        assert "readonly-alpaca" in command
+
+    daily_command = jobs["daily_live_runner_bridge"]["native_cutover_command"]
+    live_command = jobs["live_runner_bridge"]["native_cutover_command"]
+    assert "/tmp/renquant-live-rehearsal/daily-native-inference.json" in daily_command
+    assert "/tmp/renquant-live-rehearsal/live-native-inference.json" in live_command
 
 
 def test_scheduled_jobs_cli_emits_json(capsys) -> None:

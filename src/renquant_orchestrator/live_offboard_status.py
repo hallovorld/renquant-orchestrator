@@ -166,6 +166,8 @@ def build_live_offboard_status(
                 "kind": job["kind"],
                 "command": job["command"],
                 "rehearsal_command": job["rehearsal_command"],
+                "native_replacement_job_id": job["native_replacement_job_id"],
+                "native_cutover_command": job["native_cutover_command"],
                 "native_offboard_blockers": job["native_offboard_blockers"],
                 "native_exit_criteria": job["native_exit_criteria"],
             }
@@ -178,6 +180,7 @@ def build_live_offboard_status(
             "Produce the native inference payload at the planned artifact path.",
             "Run rehearsal.commands.native_live_run_candidate to build the readonly native bundle.",
             "Run rehearsal.commands.native_live_parity and require ok=true before changing launchd.",
+            "Replace each remaining bridge job with its native_cutover_command only after parity is ok.",
             "Lift production schedulers to a native live job with no RenQuant live.runner import before clearing bridge jobs.",
         ],
     }

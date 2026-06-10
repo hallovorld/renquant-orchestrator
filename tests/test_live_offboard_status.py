@@ -34,6 +34,12 @@ def test_live_offboard_status_reports_env_and_bridge_blockers(monkeypatch) -> No
         "exists": False,
     }
     assert "native_live_run_candidate" in " ".join(status["next_actions"])
+    assert status["remaining_bridge_jobs"][0]["native_replacement_job_id"] == (
+        "native_live_run_candidate"
+    )
+    assert "--commit-plan-output-json" in status["remaining_bridge_jobs"][0][
+        "native_cutover_command"
+    ]
 
 
 def test_live_offboard_status_reports_existing_parity_verdict(monkeypatch, tmp_path) -> None:
