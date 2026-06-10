@@ -1,0 +1,50 @@
+{
+  "experiment": "E1",
+  "run_id": "20260610T204539Z",
+  "command": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel/portfolio_qp/patchtst_replay_loader.py --experiment e2 --predictions /Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T193556Z/predictions.parquet --clean-oos-manifest /Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json --sim-db data/sim_runs.db --horizons 1 5 20 40 60 --out-dir backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/E2_clean_fixed --repo-pin renquant-pipeline=/Users/renhao/git/github/renquant-pipeline",
+  "python": "3.10.20",
+  "params": {
+    "experiment": "e2",
+    "signal": "pt07_clean_oos_ic",
+    "fwd_horizon_days": 1,
+    "cap": 0.2,
+    "cost_bps": 5.0,
+    "floor_quantile": 0.55,
+    "horizons": [
+      1,
+      5,
+      20,
+      40,
+      60
+    ],
+    "snapshot": "minimal long-only (not a production decision-trace reproduction)",
+    "promotion_grade": true,
+    "allow_overlap_horizon": false
+  },
+  "input": {
+    "predictions": "/Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T193556Z/predictions.parquet",
+    "sim_db": "data/sim_runs.db",
+    "n_bars": 190,
+    "window": "patchtst_clean_2025-05-08..2026-02-10",
+    "clean_oos_manifest": "/Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json",
+    "clean_oos_manifest_sha256": "sha256:47a398f28bdad41d8fd907997865f9ede7701459b8b253449b1bfba395739632",
+    "predictions_sha256": "sha256:d74fc52d1bf91101edcfd09ecc362300b31448c43bd9045366e0145024813109",
+    "clean_oos_run_id": "20260610T193556Z",
+    "clean_oos_mean_ic": 0.07241519473824265,
+    "clean_oos_sanity_passed": true,
+    "clean_oos_contract_passed": true
+  },
+  "repo_pins": {
+    "renquant-pipeline": "aeee1659724c7be1510a07bbee09e594bcda812d"
+  },
+  "outputs": {
+    "e1_results.csv": "sha256:0684d71f03eccb98537ee4279fc75b6ebf7dbb0975329b3db16666ddeb61a430",
+    "step1_measurement_A0_decile_ls_hold1.trace.json": "sha256:ed8030bfff057a50042aee8347bf2a961e8b3e76f149c01ee465b4399a948a44",
+    "step20_measurement_A0_decile_ls_hold20.trace.json": "sha256:f76b85bed058e6d418ea45e6aab5e8b45f2c946f4cab6a1f4b33b1e278e426b7",
+    "step40_measurement_A0_decile_ls_hold40.trace.json": "sha256:a00a32749a7eaf4c67323c2c6c53c00050ca7bb7a34153816fb0debefebb848d",
+    "step5_measurement_A0_decile_ls_hold5.trace.json": "sha256:ecc0f632eee64ee49c7fa755a167b4414dcb3b261296288581953e1238e28b61",
+    "step60_measurement_A0_decile_ls_hold60.trace.json": "sha256:b888ab9b6ff6d247a8e34c56946d0cb4c32ef7c1f7c9a6ddbd9bdc3984256f92"
+  },
+  "basis": "replay_net_of_cost",
+  "rfc": "renquant-orchestrator doc/research/2026-06-10-ic-to-pnl-architecture.md"
+}
