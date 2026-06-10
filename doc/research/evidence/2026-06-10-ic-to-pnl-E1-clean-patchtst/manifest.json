@@ -27,8 +27,8 @@
     "clean_oos_contract_passed": true
   },
   "repo_pins": {
-    "renquant-pipeline": "d7e01a1a1dbcffd71648691676b29c1a925bd9ed",
-    "renquant-model": "39b2bc2e6db41e351147ca05b52fef214ee5671c"
+    "renquant-pipeline": "aeee1659724c7be1510a07bbee09e594bcda812d",
+    "renquant-model": "19919ec9350fdcb6931dfb2de4a10c3c90d1393a"
   },
   "outputs": {
     "e1_results.csv": "sha256:0bcc51b0743dfdec3d9d32cbc4f2bf1053be501c1632feecb033bde837cfeec5",
