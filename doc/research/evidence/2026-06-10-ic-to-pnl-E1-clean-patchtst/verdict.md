@@ -1,15 +1,19 @@
 # E1 on the clean PatchTST signal — verdict
 
 **Date:** 2026-06-10 · **Experiment:** E1 transfer-coefficient decomposition on the placebo-clean PatchTST OOS signal (IC→Sharpe RFC §5/E1; RFC §7.1 prerequisite #1 now met).
-**Status:** DECISION-GRADE on the question "does the decision tree waste the IC", with the three scope caveats in §Caveats. Run dir `RenQuant/.../ic_to_pnl/E1_clean/20260610T170952Z/` (manifest + tidy CSV committed alongside this doc).
+**Status:** Strong directional evidence on the question "does the decision tree waste the IC", but not a production-decision-grade result because of the three scope caveats in §Caveats. Run dir `RenQuant/.../ic_to_pnl/E1_clean/20260610T170952Z/` (manifest + tidy CSV committed alongside this doc).
 
 ## Inputs (all verified, not assumed)
 
 - **Signal:** `pt07 strict_trainfit_embargo60 seed_44` predictions from the P0 export (renquant-model #37). **Placebo-clean OOS IC +0.0724** (median +0.094), sanity battery PASS (shuffled +0.0014, timeshift placebo @120d −0.0192 ≪ +0.0927 threshold; leak-free monotone decay). The operator's "IC ≈ 0.1" premise is **corrected to +0.072** — E1 runs on the real number.
 - **PnL driver:** raw `fwd_1d` from `sim_runs.db::ticker_forward_returns` (real return units, no 60d overlap).
-- **190 bars**, 2025-03-13 → 2026-02-10, ≥20 names/bar, 5 bp cost, `basis=replay_net_of_cost` (gross of tax).
+- **190 bars**, 2025-05-08 → 2026-02-10, ≥20 names/bar, 5 bp cost, `basis=replay_net_of_cost` (gross of tax).
 
 ## Result — the TC-decomposition ladder
+
+Step 0 is a measurement ceiling, not a deployable book. The committed CSV records
+`cap_violations=1` on both A0 rows, so treat the 1.07 Sharpe as an upper-bound
+measurement benchmark rather than a feasible production target.
 
 | step | book | Sharpe | TC | Δ Sharpe |
 |---|---|---|---|---|
@@ -23,10 +27,10 @@
 
 ## What this says about the operator's question
 
-**"The decision tree wastes the IC" is confirmed — and it is worse than waste.** The clean signal's deployable ceiling (A2 long-only) is a respectable **Sharpe 1.85**, but the production decision path drives it to **−4.19**. The ladder localises where the value dies:
+**"The decision tree wastes the IC" is strongly supported — and under this measurement setup it is worse than waste.** The clean signal's deployable ceiling (A2 long-only) is a respectable **Sharpe 1.85**, but the measured step-5/step-6 path drives it to **−4.19**. The ladder localises where the value dies:
 
 1. **The single-day-loss stop is the largest single-step destroyer in the additive ladder (1.46 → 0.26, −1.20 Sharpe; TC 0.67 → 0.54).** This is the quantitative form of the live +3.6pp post-exit-regret finding and the RFC §2.2 hypothesis: a daily path-dependent stop on a 60-day-horizon thesis is pure whipsaw in a calm-bull window (Han-Zhou-Zhu: stops help in momentum-crash states, not this one).
-2. **The current QP turns the signal negative (−4.19).** Even granting the §Caveat that this is the minimal-snapshot QP (not a production reproduction), QP on a clean +0.072-IC signal producing a deeply negative Sharpe is the strongest possible evidence that the optimizer's complexity is not paying for itself on this signal — it is actively destroying alpha. This is exactly the §A/§8 "does QP beat the simplest rule" question, answered: here, no.
+2. **The current QP turns the signal negative (−4.19).** Under the minimal-snapshot measurement setup, this is strong directional evidence that the optimizer's complexity is not paying for itself on this signal. It is not, by itself, enough to claim the live PatchTST production path would realize the same magnitude because §Caveat 1 explicitly says this is not a production decision-trace reproduction.
 3. **A2 long-only α-tilt (1.85) beats every more-complex rung.** The RFC's central thesis — a direct monotone map from rank to weight, held, with only a scalar risk overlay — is the best deployable book in this experiment. Stage A is not just cleaner; it is higher-Sharpe.
 4. **The admission floor costs 0.41 Sharpe and 0.25 TC** — the second-largest destroyer, consistent with E3's independent finding that it collapses effective breadth 2.44 → 1.58 bets.
 5. **H-B holds (step 2→3): the scalar overlay is TC-neutral (0.92 → 0.92) and slightly Sharpe-positive.** Risk control done as a scalar does not tax the signal — vindicating the Stage-A/Stage-B separation.
@@ -41,9 +45,9 @@
 
 ## Pre-registered next actions (RFC §5.6)
 
-- A0 ceiling is materially > SPY-equivalent (Sharpe 1.07 zero-cost / 1.85 deployable A2) ⇒ **the §5.6 "A0 strong" branch: proceed** — replace the gates the ladder fingerprinted (stop layer first, then QP complexity) with the Stage-A path.
+- Treat this run as the directional input to the §5.6 "A0 strong" branch, not the final trigger by itself: replace the gates only after the horizon-held rerun and WF gate confirm the same ranking.
 - Re-run E1 + E2 horizon-held on the clean signal to settle the A0-cost question.
-- The stop layer and the QP allocator are the two ranked redesign targets. Recommended first production experiment: A2 long-only + scalar overlay, stops demoted to safety-only, through the WF gate + step-4g replay for a DSR/PBO-clean promotion decision.
+- The stop layer and the QP allocator are the two ranked redesign targets. Recommended next experiment: A2 long-only + scalar overlay, stops demoted to safety-only, through the WF gate + step-4g replay for a DSR/PBO-clean promotion decision before any production-path retirement claim.
 
 Reproduction:
 ```bash
