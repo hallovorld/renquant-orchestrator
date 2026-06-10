@@ -20,12 +20,14 @@ def _inference_payload() -> dict:
 def test_native_live_candidate_writes_readonly_execution_and_bundle(tmp_path: Path) -> None:
     inference = tmp_path / "inference.json"
     execution = tmp_path / "execution.json"
+    commit_plan = tmp_path / "commit-plan.json"
     bundle = tmp_path / "native-bundle.json"
     inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
 
     payload = run_native_live_candidate(
         inference_json=inference,
         execution_output_json=execution,
+        commit_plan_output_json=commit_plan,
         output_json=bundle,
         broker_name="readonly-alpaca",
     )
@@ -50,6 +52,11 @@ def test_native_live_candidate_writes_readonly_execution_and_bundle(tmp_path: Pa
     execution_payload = json.loads(execution.read_text(encoding="utf-8"))
     assert execution_payload["readonly"] is True
     assert execution_payload["broker_name"] == "readonly-alpaca"
+    commit_payload = json.loads(commit_plan.read_text(encoding="utf-8"))
+    assert commit_payload["source"] == "renquant_execution.live_commit_plan"
+    assert commit_payload["readonly"] is True
+    assert commit_payload["broker_name"] == "readonly-alpaca"
+    assert commit_payload["state_mutations"][0]["mutation_type"] == "order_submission"
     assert validate_live_run_bundle(payload).source == "native_live_bundle"
 
 

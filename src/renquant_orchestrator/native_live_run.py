@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from renquant_execution import build_live_commit_plan
+
 from .native_execution_payload import build_readonly_execution_payload
 from .native_live_bundle import build_native_live_bundle
 
@@ -42,6 +44,7 @@ def run_native_live_candidate(
     output_json: str | Path,
     execution_json: str | Path | None = None,
     execution_output_json: str | Path | None = None,
+    commit_plan_output_json: str | Path | None = None,
     metadata_json: str | Path | None = None,
     broker_name: str = "readonly-native",
 ) -> dict[str, Any]:
@@ -57,6 +60,9 @@ def run_native_live_candidate(
     )
     if execution_output_json:
         _write_json(execution_output_json, execution_payload)
+    if commit_plan_output_json:
+        commit_plan = build_live_commit_plan(execution_payload)
+        _write_json(commit_plan_output_json, commit_plan.to_payload())
 
     metadata_payload = _load_json(metadata_json) if metadata_json else None
     bundle = build_native_live_bundle(
@@ -76,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--inference-json", required=True)
     parser.add_argument("--execution-json", default=None)
     parser.add_argument("--execution-output-json", default=None)
+    parser.add_argument("--commit-plan-output-json", default=None)
     parser.add_argument("--metadata-json", default=None)
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--broker-name", default="readonly-native")
@@ -85,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         inference_json=args.inference_json,
         execution_json=args.execution_json,
         execution_output_json=args.execution_output_json,
+        commit_plan_output_json=args.commit_plan_output_json,
         metadata_json=args.metadata_json,
         output_json=args.output_json,
         broker_name=args.broker_name,

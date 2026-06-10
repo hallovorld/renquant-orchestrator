@@ -52,7 +52,10 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "readonly-alpaca",
         "--execution-output-json",
         "/tmp/rehearsal/live-native-execution.json",
+        "--commit-plan-output-json",
+        "/tmp/rehearsal/live-native-commit-plan.json",
     ]
+    assert plan["artifacts"]["native_commit_plan"] == "/tmp/rehearsal/live-native-commit-plan.json"
     assert plan["commands"]["native_live_parity"] == [
         "renquant-orchestrator",
         "run-job",

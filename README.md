@@ -35,6 +35,7 @@ renquant-orchestrator run-job native_live_execution_payload_fixture -- \
 renquant-orchestrator run-job native_live_run_candidate -- \
   --inference-json /tmp/renquant-live-rehearsal/live-native-inference.json \
   --execution-output-json /tmp/renquant-live-rehearsal/live-native-execution.json \
+  --commit-plan-output-json /tmp/renquant-live-rehearsal/live-native-commit-plan.json \
   --output-json /tmp/renquant-live-rehearsal/live-native-bundle.json \
   --broker-name readonly-alpaca
 renquant-orchestrator live-parity-fixture \
@@ -84,7 +85,8 @@ It compares readonly bridge and native run bundles for decision traces, order
 intents, and state mutations while ignoring volatile runtime fields.
 `native_live_run_candidate` is the first scheduled native live job candidate:
 it consumes native inference payloads, builds readonly execution payloads, and
-emits a parity-ready native live bundle without importing `RenQuant live.runner`.
+emits readonly commit-plan and parity-ready native live bundle artifacts without
+importing `RenQuant live.runner`.
 It remains readonly until live state and broker commit semantics are ported into
 `renquant-execution`.
 `live-offboard-status --strict` combines that inventory with the readonly
