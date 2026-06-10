@@ -17,6 +17,7 @@ renquant-orchestrator daily-contract \
   --broker-type paper
 renquant-orchestrator scheduled-jobs
 renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
+renquant-orchestrator scheduled-health --status-json /tmp/renquant-scheduled-health.json --strict
 renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
 renquant-orchestrator live-offboard-status --strict \
   --env-file ../RenQuant/.env
@@ -76,6 +77,12 @@ readonly bridge bundle with `--bridge-bundle-output`; use that bundle as the
 bridge side of live parity before changing production launchd commands.
 They also expose `native_replacement_job_id` and `native_cutover_command` so the
 final scheduler switch has a machine-readable target once parity is green.
+`scheduled-health` is the last-exit control surface. Feed it a JSON object keyed
+by scheduled `job_id` with `last_exit`, optional timestamps, `reason`, and
+`last_log_path`; it emits `ok`, `reject`, `crash`, or `unknown` per job and a
+red-job summary. `live-offboard-status` can fold in the same status source with
+`--scheduled-health-json` so the operator panel shows bridge blockers and red
+scheduled jobs together.
 `live-offboard-status` reports `stage_status.current_stage` and
 `stage_status.next_blocker` so operators can distinguish credential preflight,
 bridge capture, native payload generation, parity, and final scheduled-job

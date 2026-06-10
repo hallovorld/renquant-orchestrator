@@ -162,6 +162,58 @@ def test_scheduled_jobs_cli_emits_json(capsys) -> None:
     assert payload["summary"]["total"] == len(payload["jobs"])
 
 
+def test_scheduled_job_inventory_carries_launchd_hints() -> None:
+    payload = inventory_payload()
+    jobs = {job["job_id"]: job for job in payload["jobs"]}
+
+    assert jobs["daily_live_runner_bridge"]["launchd_label"] == "com.renquant.daily104"
+    assert jobs["weekly_alpha158_fund_retrain"]["launchd_label"] == (
+        "com.renquant.retrain-panel104"
+    )
+    assert jobs["daily_alpha158_linear_retrain"]["launchd_label"] == (
+        "com.renquant.retrain-alpha158-linear"
+    )
+
+
+def test_scheduled_health_classifies_crash_vs_reject(tmp_path, capsys) -> None:
+    from renquant_orchestrator.scheduled_health import build_scheduled_health
+
+    reject_log = tmp_path / "weekly.log"
+    reject_log.write_text("WF gate failed: model rejected by P-WF-GATE\n", encoding="utf-8")
+    status = tmp_path / "health.json"
+    status.write_text(
+        json.dumps({
+            "jobs": {
+                "weekly_alpha158_fund_retrain": {
+                    "last_exit": 1,
+                    "last_log_path": str(reject_log),
+                },
+                "daily_live_runner_bridge": {
+                    "last_exit": 2,
+                    "reason": "python traceback",
+                },
+                "daily_alpha158_linear_retrain": {"last_exit": 0},
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    payload = build_scheduled_health(status_json=status)
+    jobs = {job["job_id"]: job for job in payload["jobs"]}
+    assert jobs["weekly_alpha158_fund_retrain"]["health_verdict"] == "reject"
+    assert jobs["daily_live_runner_bridge"]["health_verdict"] == "crash"
+    assert jobs["daily_alpha158_linear_retrain"]["health_verdict"] == "ok"
+    assert payload["summary"]["red_jobs"] == [
+        "weekly_alpha158_fund_retrain",
+        "daily_live_runner_bridge",
+    ]
+
+    rc = main(["scheduled-health", "--status-json", str(status), "--strict"])
+    assert rc == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["summary"]["red_job_count"] == 2
+
+
 def test_run_job_dispatches_by_inventory_id(monkeypatch) -> None:
     import renquant_orchestrator.job_runner as runner
 

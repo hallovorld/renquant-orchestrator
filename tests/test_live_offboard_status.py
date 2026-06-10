@@ -136,3 +136,27 @@ def test_live_offboard_status_cli_strict_returns_nonzero(monkeypatch, capsys) ->
     assert rc == 2
     assert out["ready_for_live_offboard"] is False
     assert "remaining_umbrella_bridge_jobs" in out["blocking_reasons"]
+
+
+def test_live_offboard_status_folds_in_scheduled_health(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    status = tmp_path / "health.json"
+    status.write_text(
+        json.dumps({"jobs": {"daily_live_runner_bridge": {"last_exit": 2}}}),
+        encoding="utf-8",
+    )
+
+    rc = main([
+        "live-offboard-status",
+        "--output-dir",
+        str(tmp_path),
+        "--scheduled-health-json",
+        str(status),
+    ])
+
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["scheduled_health"]["summary"]["red_jobs"] == [
+        "daily_live_runner_bridge",
+    ]

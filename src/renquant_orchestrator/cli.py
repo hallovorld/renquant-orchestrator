@@ -111,6 +111,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="return non-zero when any scheduled job still depends on umbrella code",
     )
+    scheduled_health = sub.add_parser(
+        "scheduled-health",
+        help="emit scheduled-job last-exit health as JSON",
+    )
+    scheduled_health.add_argument(
+        "--status-json",
+        default=None,
+        help="optional JSON file with per-job last_exit/last_log_path facts",
+    )
+    scheduled_health.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero when any scheduled job is classified crash/reject",
+    )
 
     parity = sub.add_parser(
         "live-parity-fixture",
@@ -194,6 +208,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--strict",
         action="store_true",
         help="return non-zero until the live bridge offboard status is ready",
+    )
+    offboard_status.add_argument(
+        "--scheduled-health-json",
+        default=None,
+        help="optional scheduled-health status source folded into the offboard JSON",
     )
 
     run_job = sub.add_parser(
@@ -355,6 +374,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
         return 0
+    if args.command == "scheduled-health":
+        from .scheduled_health import build_scheduled_health
+
+        health = build_scheduled_health(status_json=args.status_json)
+        print(json.dumps(health, indent=2, sort_keys=True))
+        if args.strict and health["summary"]["red_job_count"]:
+            return 2
+        return 0
     if args.command == "live-parity-fixture":
         from .live_parity import main as parity_main
 
@@ -435,6 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             broker=args.broker,
             include_execution_payload=not args.no_execution_payload,
             env_file=args.env_file,
+            scheduled_health_json=args.scheduled_health_json,
         )
         print(json.dumps(status, indent=2, sort_keys=True))
         return 0 if status["ready_for_live_offboard"] or not args.strict else 2
