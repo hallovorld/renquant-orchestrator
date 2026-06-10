@@ -26,6 +26,7 @@ renquant-orchestrator live-rehearsal-plan --strict \
 renquant-orchestrator run-job live_runner_bridge -- \
   --broker readonly-alpaca \
   --once \
+  --native-inference-payload-output /tmp/renquant-live-rehearsal/live-native-inference.json \
   --bridge-bundle-output /tmp/bridge-live-bundle.json
 renquant-orchestrator run-job native_live_execution_payload_fixture -- \
   --inference-json /tmp/renquant-live-rehearsal/live-native-inference.json \

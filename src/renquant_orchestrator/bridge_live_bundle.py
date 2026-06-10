@@ -55,6 +55,15 @@ def _order_intents(ctx: Any) -> list[dict[str, Any]]:
     return _rows(ctx, "orders")
 
 
+def _decision_trace(ctx: Any) -> list[dict[str, Any]]:
+    explicit = _rows(ctx, "decision_trace")
+    if explicit:
+        return explicit
+    from renquant_pipeline import runtime_inference_payload_from_live_context
+
+    return list(runtime_inference_payload_from_live_context(ctx)["decision_trace"])
+
+
 def _execution_audit(ctx: Any) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for attr, kind in (
@@ -85,7 +94,7 @@ def build_bridge_live_bundle(
     bundle: dict[str, Any] = {
         "schema_version": 1,
         "source": "live_runner_bridge",
-        "decision_trace": _rows(ctx, "decision_trace"),
+        "decision_trace": _decision_trace(ctx),
         "order_intents": _order_intents(ctx),
         "execution_audit": _execution_audit(ctx),
     }
