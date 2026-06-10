@@ -1,0 +1,142 @@
+{
+  "experiment": "stage_a_significance",
+  "promotion_decision_grade": false,
+  "promotion_block_reason": "diagnostic clean-signal replay only: minimal long-only snapshot, single fixed OOS holdout, gross of tax",
+  "incumbent": "current_qp",
+  "a2_hold_bars": 3,
+  "pbo_n_slices": 16,
+  "n_bars": 190,
+  "per_allocator": {
+    "A2_long_only_hold3": {
+      "sharpe_annual": 2.5852496238636564,
+      "cumulative_return": 0.550267478978058,
+      "max_drawdown": -0.12036660756498037,
+      "mean_turnover": 0.28545793910544015,
+      "cap_violations": 0,
+      "bars": 190
+    },
+    "current_qp": {
+      "sharpe_annual": 0.21126176179289877,
+      "cumulative_return": 0.0018849454239078245,
+      "max_drawdown": -0.005857596019768086,
+      "mean_turnover": 0.0013170213473887773,
+      "cap_violations": 0,
+      "bars": 190
+    },
+    "equal_weight_top_k": {
+      "sharpe_annual": -0.18322111734865415,
+      "cumulative_return": -0.003947494576961086,
+      "max_drawdown": -0.012489122280114007,
+      "mean_turnover": 0.0031578947368421056,
+      "cap_violations": 0,
+      "bars": 190
+    },
+    "inverse_vol_top_k": {
+      "sharpe_annual": -0.18322111734865415,
+      "cumulative_return": -0.003947494576961086,
+      "max_drawdown": -0.012489122280114007,
+      "mean_turnover": 0.0031578947368421056,
+      "cap_violations": 0,
+      "bars": 190
+    }
+  },
+  "paired_vs_incumbent": {
+    "current_qp_vs_A2_long_only_hold3": {
+      "n_bars": 190,
+      "mean_delta_daily_return": -0.0024094440169407966,
+      "delta_sharpe_annual": -2.5899752196001966,
+      "win_rate_a_beats_b": 0.4,
+      "win_rate_a_beats_b_z_score": -2.7568097504180438,
+      "max_delta_daily_return": 0.04049177890421088,
+      "min_delta_daily_return": -0.06450763923158766,
+      "hac_t_stat": -2.2956027790517886,
+      "hac_p_value": null
+    },
+    "current_qp_vs_equal_weight_top_k": {
+      "n_bars": 190,
+      "mean_delta_daily_return": 2.96175551781015e-05,
+      "delta_sharpe_annual": 0.43818772995392613,
+      "win_rate_a_beats_b": 0.42105263157894735,
+      "win_rate_a_beats_b_z_score": -2.176428750330036,
+      "max_delta_daily_return": 0.011570097109089563,
+      "min_delta_daily_return": -0.00872603168996289,
+      "hac_t_stat": 0.39093592127216564,
+      "hac_p_value": null
+    },
+    "current_qp_vs_inverse_vol_top_k": {
+      "n_bars": 190,
+      "mean_delta_daily_return": 2.96175551781015e-05,
+      "delta_sharpe_annual": 0.43818772995392613,
+      "win_rate_a_beats_b": 0.42105263157894735,
+      "win_rate_a_beats_b_z_score": -2.176428750330036,
+      "max_delta_daily_return": 0.011570097109089563,
+      "min_delta_daily_return": -0.00872603168996289,
+      "hac_t_stat": 0.39093592127216564,
+      "hac_p_value": null
+    }
+  },
+  "significance_dsr_pbo": {
+    "A2_long_only_hold3": {
+      "name": "A2_long_only_hold3",
+      "sharpe_raw_annual": 2.5852496238636564,
+      "dsr": 1.0,
+      "pbo": 0.0,
+      "pbo_se": null,
+      "n_returns": 190,
+      "n_trials": 4,
+      "live_promotable_per_section_8": false,
+      "live_promotable_per_clause_7_4": false,
+      "diagnostic_only": true,
+      "promotion_block_reason": "stage_a_significance is not decision-grade promotion evidence"
+    },
+    "current_qp": {
+      "name": "current_qp",
+      "sharpe_raw_annual": 0.21126176179289877,
+      "dsr": 0.9634195045653945,
+      "pbo": 0.0,
+      "pbo_se": null,
+      "n_returns": 190,
+      "n_trials": 4,
+      "live_promotable_per_section_8": false,
+      "live_promotable_per_clause_7_4": false,
+      "diagnostic_only": true,
+      "promotion_block_reason": "stage_a_significance is not decision-grade promotion evidence"
+    },
+    "equal_weight_top_k": {
+      "name": "equal_weight_top_k",
+      "sharpe_raw_annual": -0.18322111734865415,
+      "dsr": 0.0031029292463489494,
+      "pbo": 0.0,
+      "pbo_se": null,
+      "n_returns": 190,
+      "n_trials": 4,
+      "live_promotable_per_section_8": false,
+      "live_promotable_per_clause_7_4": false,
+      "diagnostic_only": true,
+      "promotion_block_reason": "stage_a_significance is not decision-grade promotion evidence"
+    },
+    "inverse_vol_top_k": {
+      "name": "inverse_vol_top_k",
+      "sharpe_raw_annual": -0.18322111734865415,
+      "dsr": 0.0031029292463489494,
+      "pbo": 0.0,
+      "pbo_se": null,
+      "n_returns": 190,
+      "n_trials": 4,
+      "live_promotable_per_section_8": false,
+      "live_promotable_per_clause_7_4": false,
+      "diagnostic_only": true,
+      "promotion_block_reason": "stage_a_significance is not decision-grade promotion evidence"
+    }
+  },
+  "per_regime": {},
+  "per_regime_available": false,
+  "per_regime_unavailable_reason": "clean PatchTST replay bars do not carry regime labels",
+  "basis": "replay_net_of_cost",
+  "caveats": [
+    "minimal long-only snapshot \u2014 not a production decision-trace reproduction",
+    "single fixed OOS holdout \u2014 not walk-forward; promotion gates on WF + DSR/PBO",
+    "1-day PnL, gross of tax \u2014 absolute Sharpes are benchmarks, orderings are the result"
+  ],
+  "rfc": "renquant-orchestrator doc/research/2026-06-10-ic-to-pnl-architecture.md"
+}
