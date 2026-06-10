@@ -137,6 +137,36 @@ The largest single-step drop is the ranked answer to "what wastes the IC." If th
 **E3 — Breadth restoration:** A2 with/without rank floor; report effective breadth via eigenvalue count on the position-correlation matrix, not naive name-count (BR-overlap caveat, §2.1).
 **E4 — Short-sleeve value:** A2 vs A1 vs 130/30 at realistic borrow/costs; measured decision, likely NO at current NAV.
 
+### 5.5 Prerequisites and time budget (per experiment)
+
+Measured baseline: one 12-month sim cut ≈ **1.5–4 min wall** on this machine (warm OHLCV/feature caches; 2026-06-10 runs). Engineering estimates assume the PR-review cadence, one engineer-agent.
+
+| Item | Prerequisites | Compute (wall) | Engineering |
+|---|---|---|---|
+| **P0: clean-IC artifact** (§7.1) | renquant-model leakage investigation closed; placebo-clean OOS per-date IC series exported per model | — (consumes existing eval outputs) | owned by renquant-model; **blocking everything below** |
+| **A0/A1/A2 allocator impl** | ConstraintSnapshot seam (exists); step-4g replay harness (exists) | — | 1–2 days incl. tests |
+| **TC metric + per-date logging** | §3.2 definition; equity/weights trace already emitted | — | 0.5 day |
+| **E1** (7 stack steps × 3 windows = 21 sims) | A0–A2 + TC logging + §A.6 storage | ~1–2 h | 1 day driver + verdict doc |
+| **E2** (4 horizons × 3 windows = 12 sims) | E1 infra; per-horizon labels exist in panel | ~45 min | 0.5 day |
+| **E3** (2 variants × 3 windows) | E1 infra | ~20 min | 0.25 day |
+| **E4** (3 variants × 3 windows + borrow-cost model) | E1 infra; borrow-cost assumptions doc'd | ~30 min | 0.5 day (cost model) |
+
+**Critical path:** P0 (external, days–weeks) ∥ allocator impl (1–2 d) → E1 (1 d) → E2–E4 (1–2 d combined). **Total post-P0: roughly one working week.** If P0 stalls, E1 can run early on the GBDT signal (its placebo status is the known M6 issue — results would carry that caveat) purely to validate the E1 machinery; no promotion decision may cite those numbers.
+
+### 5.6 Falsification outcomes — what we do when the data refuses the hypothesis
+
+Pre-registered, so failure cannot be reinterpreted after the fact (Bailey-LdP selection-bias discipline). No outcome authorizes a gate bypass.
+
+| Observation | Verdict | Next action |
+|---|---|---|
+| **A0 ceiling weak** (DSR ≤ 0 vs SPY on clean IC) | the IC is not tradeable at this universe/horizon — H1 dead, architecture irrelevant | stop all Stage-A/B work; route to signal research (M6 leakage closure, alternative models/universes/horizons via E2) |
+| **A0 strong, A2 ≈ A0** | long-only tax small; current gates are the loss | proceed: replace gates per E1 ranking, keep long-only |
+| **A0 strong, A2 weak** | long-only constraint is the dominant tax | operator decision with quantified menu: accept A2's lower ceiling / E4 short-sleeve / change mandate |
+| **E1 stack reproduces gate Sharpe but no single step dominates** | loss is distributed (death by a thousand cuts) | redesign is holistic: fewer, softer constraints (CDST §soft-constraints); re-run E1 on the redesign |
+| **E1 stack does NOT reproduce gate Sharpe** | decomposition incomplete — an unmodeled mechanism exists | finding in itself; bisect the unexplained gap before any architecture claim |
+| **H-B fails** (overlay measurably cuts TC) | "scalar overlay" is wrong as built | fix or drop the offending component; re-test; Stage B ships only TC-neutral-as-measured pieces |
+| **Results don't survive DSR/PBO or placebo** | overfit or leakage | discard, log in `failed-experiments-log.md`, do NOT iterate toward the test set |
+
 ---
 
 ## 6 · Relationship to the existing codebase
@@ -230,6 +260,28 @@ v2 of this doc reported the gate's cut C as "+7.34%/Sharpe +0.691, irreproducibl
 **Determinism/reproducibility confirmed:** gate run, direct `sim_driver` re-run, and umbrella-native `run_sim_104.py` with the pre-2026-06-10 pipeline (`02bb077`) produce **bit-identical 55-trade ledgers** for cut C (entry sets identical; totals gross **+$2,474** / net-after-tax **−$3,978** in all three). Ledgers: gate `…/20260610T150039Z/2025-04-01_to_2026-03-28.round_trips.csv`, `/tmp/gatepath_cutC_rt.csv`, `/tmp/xcheck_cutC_rt.csv`.
 
 **Residual finding worth keeping:** the annual-net vs event-level bases diverge by up to **~1.0 Sharpe** on these windows (cut B: +0.394 vs −0.080) because gross P&L is small relative to tax-cash timing. Every future report must name its basis explicitly; E1 will report both.
+
+### A.5 Credibility ledger — how much to trust each number in this doc
+
+| Claim | Trust | Basis |
+|---|---|---|
+| Per-cut WF Sharpe/APY, both tax bases (§A.1/A.4) | **HIGH** | three independent execution paths, bit-identical 55-trade ledgers; machine-readable traces on disk |
+| Per-trade stats: win%, holds, 29 names (§A.2) | **HIGH** | direct recomputation from committed ledgers; command + output in §A.2 |
+| Ledger `entry_model_type` labels | **NOT TRUSTED** | known stale-attribution bug (2026-06-07 audit follow-up); v1 was misled by it (§6.3) |
+| Live post-exit regret +3.6pp (§A.3) | **LOW / suggestive** | n=13, overlapping windows, sector-correlated, partial recording gaps in `trades` table |
+| "PatchTST IC ≈ 0.1" (operator premise) | **UNVERIFIED** | nearest artifacts: calibrator fit-window `pool_ic=0.13` is **in-sample**; 2026-06-02 audit found B_tuned OOS IC leak-contaminated; override-note recent-window numbers unaudited. This is exactly the §7.1 gate |
+| BR ≈ 148, implied TC ≈ 0.30 (§2.1) | **SKETCH ONLY** | naive independence assumptions; superseded by E1's direct per-date TC measurement |
+| CDST TC range 0.3–0.6, long-only ≈ 0.5 cap | **LITERATURE** | external result; applies to symmetric signals under their assumptions, not yet measured on ours |
+
+### A.6 Experiment data storage (so every future number is one command from its evidence)
+
+Follows the repo's existing conventions (`doc/research/evidence/<date>-<slug>/` in the umbrella; manifests-not-blobs per `RENQUANT_REPOS.md`):
+
+1. **Raw traces** (equity JSON, trades/round-trips CSV, per-date TC series CSV) → `RenQuant/backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/<EXP>/<RUN_ID>/` — RUN_ID = UTC timestamp; **append-only, never overwritten**; not committed to git (large), referenced by fingerprint.
+2. **Run manifest** (small JSON, committed): one per run — command line, repo pins (all subrepo SHAs), config path + sha256, manifest path + recipe fingerprint, tax basis, wall time, output-file sha256s. Schema mirrors §A.1's provenance block so the appendix is generated, not hand-written.
+3. **Results table** (committed): one tidy CSV per experiment — one row per (variant, window, tax_basis, regime) with sharpe/apy/TC mean±std/DSR/PBO + the RUN_ID it came from. This is the only file analysis notebooks read; raw traces are for audits.
+4. **Verdict doc** (committed): `doc/research/evidence/<date>-ic-to-pnl-E<k>/verdict.md` — pass/fail vs §5.6 pre-registered outcomes, with the results-table rows inlined. Same style as the 2026-06-02 validity audit.
+5. **DB:** summary rows additionally appended to `sim_runs.db::experiment_results` (keyed by RUN_ID) so the control panel can query progress without parsing docs. The DB is a cache; **the committed manifest+CSV is the source of truth** (DBs are not source code, per repo rules).
 
 ---
 
