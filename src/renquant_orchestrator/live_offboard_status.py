@@ -168,12 +168,12 @@ def build_live_offboard_status(
         "rehearsal": rehearsal,
         "next_actions": [
             "Provide readonly Alpaca credentials when missing.",
-        "Run rehearsal.commands.bridge_capture to capture the current bridge bundle.",
-        "Produce the native inference payload at the planned artifact path.",
-        "Run rehearsal.commands.native_live_run_candidate to build the readonly native bundle.",
-        "Run rehearsal.commands.native_live_parity and require ok=true before changing launchd.",
-        "Lift production schedulers to a native live job with no RenQuant live.runner import before clearing bridge jobs.",
-    ],
+            "Run rehearsal.commands.bridge_capture to capture the current bridge bundle.",
+            "Produce the native inference payload at the planned artifact path.",
+            "Run rehearsal.commands.native_live_run_candidate to build the readonly native bundle.",
+            "Run rehearsal.commands.native_live_parity and require ok=true before changing launchd.",
+            "Lift production schedulers to a native live job with no RenQuant live.runner import before clearing bridge jobs.",
+        ],
     }
 
 
