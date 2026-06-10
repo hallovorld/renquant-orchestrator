@@ -1,7 +1,7 @@
 {
   "experiment": "E1",
-  "run_id": "20260610T172113Z",
-  "command": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel/portfolio_qp/patchtst_replay_loader.py --predictions /Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T165959Z/predictions.parquet --clean-oos-manifest /Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json --sim-db /Users/renhao/git/github/RenQuant/data/sim_runs.db --fwd-horizon-days 1 --out-dir /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/E1_clean_longonly_v3 --repo-pin renquant-pipeline=/Users/renhao/git/github/renquant-pipeline --repo-pin renquant-model=/Users/renhao/git/github/renquant-model",
+  "run_id": "20260610T173802Z",
+  "command": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel/portfolio_qp/patchtst_replay_loader.py --predictions /Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T165959Z/predictions.parquet --clean-oos-manifest /Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json --sim-db /Users/renhao/git/github/RenQuant/data/sim_runs.db --fwd-horizon-days 1 --out-dir /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/E1_clean_longonly_v4 --repo-pin renquant-pipeline=/Users/renhao/git/github/renquant-pipeline --repo-pin renquant-model=/Users/renhao/git/github/renquant-model",
   "python": "3.10.20",
   "params": {
     "signal": "pt07_clean_oos_ic",
@@ -27,7 +27,7 @@
     "clean_oos_contract_passed": true
   },
   "repo_pins": {
-    "renquant-pipeline": "02318c0b214bf3262119cbc285a6861e688ec5da",
+    "renquant-pipeline": "d7e01a1a1dbcffd71648691676b29c1a925bd9ed",
     "renquant-model": "39b2bc2e6db41e351147ca05b52fef214ee5671c"
   },
   "outputs": {

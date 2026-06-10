@@ -1,7 +1,7 @@
 # E1 on the clean PatchTST signal — corrected verdict
 
 **Date:** 2026-06-10 · **Experiment:** E1 transfer-coefficient decomposition on the placebo-clean PatchTST OOS signal (IC→Sharpe RFC §5/E1; RFC §7.1 prerequisite #1 now met).
-**Status:** Strong diagnostic evidence that the current decision stack under-captures the clean IC, but not a production-decision-grade result because of the scope caveats below. Run dir `RenQuant/.../ic_to_pnl/E1_clean_longonly_v3/20260610T172113Z/` (manifest + tidy CSV committed alongside this doc).
+**Status:** Strong diagnostic evidence that the current decision stack under-captures the clean IC, but not a production-decision-grade result because of the scope caveats below. Run dir `RenQuant/.../ic_to_pnl/E1_clean_longonly_v4/20260610T173802Z/` (manifest + tidy CSV committed alongside this doc).
 
 This is a Codex follow-up to the original #67 evidence. The prior verdict overstated step 6: the replay loader's minimal snapshot allowed short exposure, so `current_qp` was measuring an invalid near-unconstrained QP path and reported Sharpe −4.19. The corrected loader is long-only (`w_lower=0`) and validates the clean-OOS manifest before it will emit E1 evidence.
 
@@ -46,7 +46,7 @@ One honest negative for the measurement ceiling remains: A0 decile L/S at daily 
 
 - Do not retire QP from this E1 alone. Use this result to prioritize fixes: stop demotion/safety-only handling, admission-floor redesign, and a production snapshot replay.
 - Promote the next experiment as **A2 long-only + scalar overlay** through E2 horizon-held and WF/step-4g with DSR/PBO before any production-path change.
-- Re-run the corrected E1 after renquant-pipeline #73 lands on `main`, so the manifest can pin the merged commit rather than the review branch commit.
+- If renquant-pipeline #73 is squash-merged or otherwise rewrites commit identity, re-run only the provenance refresh so the manifest pins the merged commit. The current numbers already pin #73's rebased review-branch head.
 
 Reproduction:
 ```bash
@@ -56,7 +56,7 @@ RENQUANT_REPO_ROOT=$PWD PYTHONPATH=/Users/renhao/git/github/renquant-pipeline/sr
   --predictions <renquant-model>/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T165959Z/predictions.parquet \
   --clean-oos-manifest <renquant-model>/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json \
   --sim-db data/sim_runs.db --fwd-horizon-days 1 \
-  --out-dir backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/E1_clean_longonly_v3
+  --out-dir backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/E1_clean_longonly_v4
 ```
 
 Agent-Origin: Codex
