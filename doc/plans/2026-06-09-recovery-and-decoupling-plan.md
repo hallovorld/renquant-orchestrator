@@ -31,8 +31,8 @@ The three priorities share one causal chain:
 3. **Decoupling**: two production jobs remain `umbrella_bridge`
    (`daily_live_runner_bridge`, `live_runner_bridge`); launchd points at
    umbrella shell scripts; ~9 native jobs still carry
-   `umbrella_state_dependency`. PR #59 (readonly native live run candidate) is
-   the open next step; offboard blockers/exit criteria are encoded in
+   `umbrella_state_dependency`. PR #59 (readonly native live run candidate)
+   merged 2026-06-09; offboard blockers/exit criteria are encoded in
    `scheduled_jobs.py` and `live-offboard-status`.
 
 ## Phase 0 — restore full daily run (ETA 2–4 days)
@@ -62,7 +62,7 @@ Sequence follows the offboard blockers in `scheduled_jobs.py`:
 
 | # | PR (repo) | Content | Depends | Est |
 |---|---|---|---|---|
-| M8 | renquant-orchestrator | Review + merge PR #59 (readonly `native_live_run_candidate`). | — | 0.5d |
+| M8 | renquant-orchestrator | ✅ DONE 2026-06-09 — PR #59 (readonly `native_live_run_candidate`) reviewed + merged. | — | 0.5d |
 | M9 | renquant-pipeline | Port live context/state adapters (`live_state.alpaca.json`, `runs.alpaca.db`) behind pipeline contracts. | M8 | 2–3d |
 | M10 | renquant-execution | Port broker commit semantics (order submission + audit) out of umbrella `live.runner`. | M8 | 2–3d |
 | M11 | renquant-orchestrator | Writeable native live job; buy/sell/sell-only parity vs bridge on readonly fixtures (`native_live_parity_fixture` green on prod + shadow configs). | M9, M10 | 2d |
