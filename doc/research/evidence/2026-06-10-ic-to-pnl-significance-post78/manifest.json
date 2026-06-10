@@ -1,0 +1,31 @@
+{
+  "experiment": "stage_a_significance",
+  "run_id": "20260610T222700Z",
+  "command": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel/portfolio_qp/stage_a_significance.py --predictions /Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T193556Z/predictions.parquet --clean-oos-manifest /Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json --sim-db /Users/renhao/git/github/RenQuant/data/sim_runs.db --a2-hold-bars 3 --pbo-n-slices 16 --out-dir /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/significance_post78 --repo-pin renquant-pipeline=/Users/renhao/git/github/renquant-pipeline --repo-pin renquant-model=/Users/renhao/git/github/renquant-model",
+  "python": "3.10.20",
+  "params": {
+    "a2_hold_bars": 3,
+    "pbo_n_slices": 16,
+    "fwd_horizon_days": 1,
+    "basis": "replay_net_of_cost",
+    "promotion_decision_grade": false
+  },
+  "input": {
+    "predictions": "/Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T193556Z/predictions.parquet",
+    "clean_oos_manifest": "/Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json",
+    "clean_oos_manifest_sha256": "sha256:47a398f28bdad41d8fd907997865f9ede7701459b8b253449b1bfba395739632",
+    "predictions_sha256": "sha256:d74fc52d1bf91101edcfd09ecc362300b31448c43bd9045366e0145024813109",
+    "clean_oos_run_id": "20260610T193556Z",
+    "clean_oos_mean_ic": 0.07241519473824265,
+    "clean_oos_sanity_passed": true,
+    "clean_oos_contract_passed": true,
+    "n_bars": 190
+  },
+  "repo_pins": {
+    "renquant-pipeline": "6e0eedd0f609cfc8c3e4c4f39999a16d7f445d91",
+    "renquant-model": "19919ec9350fdcb6931dfb2de4a10c3c90d1393a"
+  },
+  "outputs": {
+    "significance.json": "sha256:54c1762c83e35ec68da0d348ae83526766005e47c93689fd1fd941d1d48fff61"
+  }
+}
