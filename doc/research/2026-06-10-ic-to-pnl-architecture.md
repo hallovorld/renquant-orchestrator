@@ -1,192 +1,231 @@
 # From IC to Sharpe: a ground-up redesign of the signal→portfolio path
 
-**Date:** 2026-06-10 · **Author:** Claude (research proposal) · **Status:** RFC — DESIGN, not a verdict. Requires independent review + the experiments below before any production change.
+**Date:** 2026-06-10 · **Author:** Claude (research proposal) · **Status:** RFC v2 — DESIGN, not a verdict. Revised per codex review (PR #65 comment, 2026-06-10): evidence appendix added (§A), prod/shadow framing corrected (§1), TC/BR downgraded to falsifiable hypotheses (§2, §3.2), Han-Zhou-Zhu rescoped (§2.2), bibliography linked (§8).
 **Mandate:** Operator: "PatchTST IC ≈ 0.1 but realized APY/Sharpe are terrible — the decision tree wastes the IC. Forget the current architecture; propose something more scientific."
 
-> **Scope discipline.** This document answers a *conditional* question: **IF** the panel model has a real, placebo-clean cross-sectional IC of ~0.10, what is the smallest, most theoretically grounded portfolio-construction path that converts that IC into Sharpe? It does **not** assert the IC is real. The 2026-06-02 validity audit found the PatchTST `B_tuned` IC leak-contaminated (timeshift placebo +0.067 > real +0.044). **IC reality is a hard prerequisite gate (§7), measured independently. A clean architecture on a fake signal is worth zero.** The two questions are orthogonal and must not be conflated again (the 2026-06-09 operator-override incident conflated them).
+> **Scope discipline.** This document answers a *conditional* question: **IF** a panel model has a real, placebo-clean cross-sectional IC of ~0.10, what is the smallest, most theoretically grounded portfolio-construction path that converts that IC into Sharpe? It does **not** assert the IC is real. The 2026-06-02 validity audit found the PatchTST `B_tuned` IC leak-contaminated (timeshift placebo +0.067 > real +0.044). **IC reality is a hard prerequisite gate (§7), measured independently. A clean architecture on a fake signal is worth zero.**
 
 ---
 
 ## 1 · The symptom, stated precisely
 
-The complaint "IC is 0.1 but Sharpe is terrible" is the single most common failure mode in quant equity, and it has a precise name: a **low transfer coefficient**. The forensics on the 2026-06-10 WF gate run (GBDT prod recipe, the only path that currently trades) show the fingerprint cleanly:
+> **Which lane these forensics describe (corrected per the 2026-06-07 prod/shadow audit).** Per `RenQuant/doc/research/2026-06-07-patchtst-prod-shadow-status-audit.md`, the current production primary is **hf_patchtst** and XGB/GBDT is the **shadow** lane. The forensics below are from the **GBDT (shadow-lane) walk-forward gate run** — the only lane with WF trade forensics, because `weekly_wf_promote` gates the GBDT incumbent via `strategy_config.shadow.json`. Live trading is currently **sell-only** for both lanes (P-WF-GATE unstamped), so neither lane "currently trades" buys in production. Where the ledger's `entry_model_type` column says `Manual/XGBoost/QLearning`, that is the **known stale per-ticker attribution** the 2026-06-07 audit lists as a follow-up bug ("rows … silently inherit stale per-ticker XGB labels") — it is *not* evidence about which model selected the trade (see §6.3).
 
-| Layer | Observation (cut C, 2025-04→2026-03) | Source |
+The complaint "IC is high but Sharpe is terrible" has a precise name in the literature: a **low transfer coefficient**. The 2026-06-10 WF forensics (full provenance + reproduction commands in **§A**; reproduction status **partially open**, see §A.4) show the fingerprint:
+
+| Layer | Observation (cut C, 2025-04→2026-03) | Source (§A) |
 |---|---|---|
-| Per-trade economics | win rate 49%, **mean P&L +2.38%** over ~49-day holds | round-trip ledger |
-| Holding period | median 35–62d across cuts — **matched to the 60d label** | round-trip ledger |
-| Breadth realized | **29 distinct names** traded in a year, of a 142 watchlist | round-trip ledger |
-| Portfolio result | **Sharpe +0.39 / +0.04 / +0.69**, 0/3 beat SPY | WF gate |
+| Per-trade economics | win rate 49%, mean P&L +2.38%/trade, ~49-day mean holds | A.2 |
+| Holding period | median 35–62d across cuts — matched to the 60d label | A.2 |
+| Breadth realized | 29 distinct names traded in a year, of a 142 watchlist | A.2 |
+| Portfolio result | Sharpe +0.394 / +0.037 / +0.691 per cut, 0/3 beat SPY | A.1 (⚠ A.4) |
 
-The individual bets are fine — positive expectancy, horizon-matched. **The portfolio is where the signal dies.** That is definitionally a transfer-coefficient problem, not an alpha problem. (Note: cut C's trades are attributed to per-ticker `Manual/XGBoost/QLearning/Classification` trees, *not* the panel model — see §6.3; the panel IC never even reaches the optimizer in the current decision tree. That is the most direct waste of all.)
+**Hypothesis H1 (the headline claim, to be tested by E1):** the individual bets carry positive expectancy at the label horizon, and the portfolio layer — not the forecast — is where the information is lost. If H1 survives E1, this is definitionally a transfer-coefficient problem, not an alpha problem.
 
 ---
 
-## 2 · The theory that the current architecture violates
+## 2 · The theory the current architecture is hypothesized to violate
 
 ### 2.1 The Fundamental Law, with the term everyone forgets
 
-Grinold & Kahn (2000) give the headline:
-
-> IR = IC · √BR
-
-But the operational form is Clarke, de Silva & Thorley (2002, *FAJ*, "Portfolio Constraints and the Fundamental Law of Active Management"), which inserts the **Transfer Coefficient** TC:
+Grinold & Kahn (2000) give the headline IR = IC·√BR. The operational form is Clarke, de Silva & Thorley (2002), which inserts the **Transfer Coefficient**:
 
 > **IR = TC · IC · √BR**
 
-TC ∈ [0, 1] is the cross-sectional correlation between the *signal-implied* active weights and the *actually-held* active weights. It is the fraction of the alpha that survives the journey from forecast to position. CDST's central empirical result: realistic long-only + turnover + position-cap constraints drive TC to **0.3–0.6**. Every additional nonlinear gate lowers it further.
+TC ∈ [0,1] is the cross-sectional correlation between signal-implied active weights and actually-held active weights. CDST's empirical result: realistic long-only + turnover + cap constraints drive TC to **0.3–0.6**.
 
-Plugging in the (hypothetical) numbers:
+**Back-of-envelope (explicitly an upper-bound sketch, NOT a verdict):**
 
-- IC = 0.10, BR ≈ 29 names × (252/49) ≈ 29 × 5.1 ≈ **148 independent bets/yr** → √BR ≈ 12.2
-- Ideal IR = 0.10 × 12.2 ≈ **1.22** (gross, before TC and costs)
-- Observed IR ≈ 0.37 → implied **TC ≈ 0.37 / 1.22 ≈ 0.30**
+- Naive bet count: 29 names × 252/49 ≈ 148/yr → √BR ≈ 12.2. **This overstates BR**: 60d labels overlap, rankings are serially persistent, and names are cross-correlated — the 2026-06-08 overlapping-label RFC (`RenQuant/doc/research/2026-06-08-overlapping-label-and-gate-architecture/`) documents material autocorrelation at the gate shift. True effective BR is lower; the honest statement is "TC·√BR_eff jointly explain the gap," and E1 measures TC directly instead of inferring it.
+- IF IC = 0.10 and BR were as naive as stated: ideal IR ≈ 1.22 (gross). Observed IR ≈ 0.37 → implied TC ≈ 0.30. **Status: hypothesis-generating sketch only.** The per-date TC distribution from E1 is the deliverable.
 
-**~70% of the theoretical information ratio is being destroyed between the forecast and the fill.** That is the number to attack. (And breadth itself is being thrown away: 29 of 142 names → if the signal is real across the universe, √BR could be 1.7× higher just by holding more of it — Grinold-Kahn breadth.)
+### 2.2 Where TC plausibly leaks — the gates between rank and weight
 
-### 2.2 Where TC leaks — the seven gates between rank and weight
+The current `JointPortfolioQPJob` interposes: admission rank-floor (0.55) → ER-horizon/floor gates → QP μ-contract → exposure/conviction caps → no-trade bands → sector/correlation caps → emission-side stops + soft-sell horizon guards + calibrator-saturation abstain. Each is individually defensible; composed, they are hypothesized to act as a low-pass filter on the alpha. Three candidates, each tied to a measurable E1 step:
 
-The current `JointPortfolioQPJob` interposes (in order): admission rank-floor (0.55) → ER-horizon/floor gates → QP μ-contract → exposure/conviction caps → Davis-Norman no-trade bands → sector/correlation caps → emission-side single-day-loss stops + soft-sell horizon guards + calibrator-saturation abstain. Each is individually defensible; **composed, they are a low-pass filter on the alpha.** Three are especially lossy for a *ranking* signal:
+1. **Long-only.** IC measures the full cross-section; long-only discards the short leg. CDST show this alone caps TC near ~0.5 for a symmetric signal. PatchTST's *claimed* edge is strongest in tails (BEAR +0.22, operator-override note 2026-06-09 — itself unverified, §7).
+2. **Hard admission floors (rank ≥ 0.55).** A monotone signal's value is the full ordering; a hard floor coarsens it and collapses breadth (142→29 observed). Qian-Hua-Sorensen (2007): IC is a continuous quantity.
+3. **Daily path-dependent stops on a 60-day thesis.** Han, Zhou & Zhu ("Taming Momentum Crashes: A Simple Stop-Loss Strategy", SSRN 2407199) show stop-loss value concentrates in **momentum-crash / downside states**; extrapolating to "stops are a TC tax in calm-bull" is *our hypothesis*, supported so far only by this repo's small-sample live post-exit regret measurement (+3.6pp mean over 13 exits, §A.3) — small n, overlapping windows, suggestive only.
 
-1. **Long-only.** IC measures the full cross-section — top *and* bottom decile. Long-only discards the entire short leg. For a symmetric signal CDST show this alone caps TC near **0.5** (you keep ~half the information). PatchTST's measured edge is in fact *stronger in the tails* (BEAR +0.22) — exactly the part long-only cannot harvest.
-2. **Hard admission floors (rank ≥ 0.55).** A monotone signal's value is in the *full ordering*; a hard floor turns a continuous forecast into a coarse step function and collapses breadth (142 → 29). This is the Qian-Hua-Sorensen (2007) "IC is a continuous quantity; don't threshold it" point.
-3. **Daily path-dependent stops on a 60-day thesis.** A single-day-loss stop on a signal whose information horizon is 60 days is pure variance — it sells the bottom of noise (we measured +3.6pp/trade post-exit regret in the live ledger, dominated by momentum names). Han-Zhou-Zhu (2016, *JFE*) show stop-loss rules add value only in high-vol/down regimes; in calm-bull they are a TC tax.
+### 2.3 The structural critique
 
-### 2.3 The deeper error: one pipeline doing two incompatible jobs
-
-The current design fuses **alpha capture** (which wants to track the cross-sectional forecast as faithfully as possible) and **risk control** (which wants to cut exposure, stop losses, respect caps) into one optimizer + one emission stage. These objectives fight: every risk gate lowers TC, and the optimizer cannot tell "I'm trimming for risk" from "I'm trimming because the signal weakened." The result is an unattributable blend where you cannot measure how much IC you kept.
+The current design fuses **alpha capture** (track the forecast faithfully) and **risk control** (cut exposure, stop losses) in one optimizer + emission stage. The objectives fight, and the blend makes TC unmeasurable — you cannot attribute "trim for risk" vs "signal weakened." Whatever E1 finds, *measurability* of TC is itself an architectural requirement the current design fails.
 
 ---
 
-## 3 · The proposal: a two-stage architecture that *measures* its own transfer coefficient
-
-Forget the monolithic decision tree. Replace it with two **separable, individually-testable** stages, in the spirit of Grinold (1994, *JPM*, "Alpha is Volatility times IC times Score") and the Gu-Kelly-Xiu (2020, *RFS*) ML-asset-pricing evaluation standard.
+## 3 · The proposal: a two-stage architecture that measures its own transfer coefficient
 
 ```
  panel forecast (z-scored cross-sectional rank, per day)
         │
         ▼
  ┌─────────────────────────────┐   STAGE A — ALPHA PORTFOLIO
- │  α_i = IC · σ_i · z_i        │   (Grinold 1994: the ONLY honest map
+ │  α_i = IC · σ_i · z_i        │   (Grinold 1994: the honest map
  │  target_w ∝ α / (γ·Σ)        │    from a rank to an active weight)
  │  long-short, horizon-held    │
  └─────────────────────────────┘
         │  w_alpha (the signal's own opinion, nothing else)
         ▼
  ┌─────────────────────────────┐   STAGE B — RISK OVERLAY
- │  vol-target scale, drawdown  │   (scales the WHOLE book up/down;
- │  halt, gross/net caps, costs │    never re-picks names → TC-preserving)
+ │  vol-target scale, drawdown  │   (intended to scale the book, not
+ │  halt, gross/net caps, costs │    re-pick names — see H-B below)
  │  GP-2013 cost-aware glide    │
  └─────────────────────────────┘
         │  w_final
         ▼  orders
 ```
 
-**The discipline that makes this scientific:** Stage A is a *deterministic monotone function of the forecast*. Its TC versus the raw rank is measurable and near 1.0 by construction. Stage B scales the entire portfolio — it changes leverage, not selection — so it **cannot lower the cross-sectional TC** (it multiplies all active weights by a scalar). Every place TC is lost is now explicit and attributable, instead of smeared across seven gates.
+Stage A is a deterministic monotone function of the forecast; its TC versus the raw rank is measurable and near 1.0 by construction.
 
-### 3.1 Stage A — the alpha portfolio (three variants, ranked by ambition)
+### 3.1 Stage A — three variants, ranked by ambition
 
 | Variant | Construction | Harvests | Reference |
 |---|---|---|---|
 | **A0 — rank-decile L/S (the ceiling)** | long top decile, short bottom decile, equal-weight, rebalance at horizon | full IC, both tails, max breadth | Fama-French sorts; Gu-Kelly-Xiu 2020 |
-| **A1 — α-proportional L/S** | w_i ∝ IC·σ_i·z_i, dollar-neutral, vol-scaled | continuous ordering, not just deciles | Grinold 1994 |
-| **A2 — long-only α-tilt** | A1 projected onto w ≥ 0, Σw = 1 (the current real-money constraint) | top half of IC; the production-feasible point | CDST 2002 §long-only |
+| **A1 — α-proportional L/S** | w_i ∝ IC·σ_i·z_i, dollar-neutral, vol-scaled | continuous ordering | Grinold 1994 |
+| **A2 — long-only α-tilt** | A1 projected onto w ≥ 0, Σw = 1 | the production-feasible point | CDST 2002 §long-only |
 
-A0 is **not a deployable strategy** — it is the **measurement instrument**: the Sharpe of A0 is the empirical ceiling the IC implies, the honest answer to "what is this IC worth?" If A0's Sharpe is also terrible, the IC is not real (or not tradeable at this horizon/universe) and no architecture saves it — fail fast, route to §7. If A0 is strong and A2 is weak, the long-only constraint is the tax and we quantify it exactly (and can revisit whether a small short sleeve is worth it).
+A0 is **not a deployable strategy** — it is the **measurement instrument**: its Sharpe is the empirical ceiling the IC implies. If A0 is weak, the IC is not tradeable at this horizon/universe and no architecture saves it (→ §7). If A0 is strong and A2 weak, the long-only constraint is the quantified tax.
 
-### 3.2 Stage B — risk overlay (scalar, TC-neutral)
+### 3.2 Stage B — risk overlay, stated as a testable hypothesis (revised per review)
 
-- **Volatility targeting** (Moskowitz-Ooi-Pedersen 2012): scale gross exposure to a target realized vol. Multiplies all weights equally → TC-invariant.
-- **Drawdown throttle** (Grossman-Zhou 1993): reduce gross as drawdown deepens. Scalar.
-- **Cost-aware glide** (Gârleanu-Pedersen 2013): trade *toward* the new target a fraction per day (the "aim portfolio"), so turnover is smooth and costs are paid only for persistent signal — *this* is the principled replacement for daily stops and no-trade bands.
-- **No stock-level second-guessing.** Hard risk exits (a genuine blow-up stop, wash-sale law, liquidity) remain as a thin safety layer, but they are the exception path, logged as TC leakage, not the main loop.
+**Hypothesis H-B:** a *uniform positive per-date scalar* on all active weights leaves the same-date cross-sectional TC unchanged.
 
----
+This holds by construction **only** under narrow conditions: the scalar is strictly positive and uniform across names on each date, TC is measured cross-sectionally on dates with nonzero gross exposure, and no stock-level clipping/partial-trade effects intervene. Two Stage-B components **do not satisfy this automatically** and must be measured, not asserted:
 
-## 4 · Why this directly fixes the operator's complaint
+- **Vol targeting / drawdown throttle** (Moskowitz-Ooi-Pedersen 2012; Grossman-Zhou 1993): per-date uniform scalars → same-date TC preserved, but they change the *time aggregation* of active risk; realized multi-period IR can shift. Measure: per-date TC distribution + IR before/after.
+- **GP-2013 cost-aware glide:** trading a fraction toward the aim portfolio is **not** a scalar when per-name costs/turnover bind name-by-name. Measure: per-date TC of (held vs aim) during glide.
 
-| Current waste (TC leak) | Fix |
-|---|---|
-| Panel IC never reaches the optimizer (per-ticker trees trade instead, §6.3) | Stage A consumes the panel forecast directly as the *only* selection input |
-| Long-only discards the short leg + tail edge | A0/A1 measure and (optionally) harvest both legs; A2 quantifies the long-only tax |
-| Rank-floor 0.55 collapses 142→29 names | continuous α-weighting restores breadth → √BR up ~1.7× |
-| Daily stops shred a 60d thesis (+3.6pp regret) | GP-2013 glide + horizon-held; stops demoted to safety-only |
-| Risk trims indistinguishable from alpha trims | Stage B is scalar; selection and risk are separable and attributable |
+**TC measurement definition (fixed for all experiments):** per-date Spearman correlation between the actually-held active-weight vector and the Stage-A signal-implied active-weight vector, over the union universe, reported as a distribution across dates with gross exposure > 0; pooled mean ± std and per-regime breakdown (Pearson-on-weights as robustness column).
+
+Hard risk exits (true blow-up stop, wash-sale law, liquidity) remain as a thin safety layer — exception path, logged as TC-leakage events.
 
 ---
 
-## 5 · Experiment design (falsifiable, placebo-clean, uses the existing WF harness)
+## 4 · Mapping the operator's complaint to measurable fixes
 
-All runs on the existing walk-forward manifold (`walkforward_v2_*`, point-in-time models, the harness fixed on 2026-06-10), per-regime PRIMARY then pooled, DSR/PBO on every number (Bailey-López de Prado 2014), shuffled-label + timeshift placebo on every claim (§5.2 battery).
+| Suspected waste (hypothesis) | Fix | Verified by |
+|---|---|---|
+| Long-only discards short leg + tail edge | A0/A1 vs A2 spread | E1 step +2, E4 |
+| Rank-floor 0.55 collapses 142→29 names | continuous α-weighting | E1 step +4, E3 |
+| Daily stops shred a 60d thesis | GP-2013 glide; stops → safety-only | E1 step +5 |
+| Risk trims indistinguishable from alpha trims | Stage B scalar + TC metric | H-B measurement |
+| Stale attribution hides who selects (§6.3) | scorer-identity stamping (already a 2026-06-07 audit follow-up) | pipeline telemetry PR |
+
+---
+
+## 5 · Experiment design (falsifiable, placebo-clean, existing WF harness)
+
+All runs on the existing walk-forward manifold (point-in-time models), per-regime PRIMARY then pooled, DSR/PBO on every number (Bailey-López de Prado 2014), shuffled-label + timeshift placebo on every claim (§5.2 battery). **Precondition: the cut-C reproduction discrepancy (§A.4) must be resolved first — experiment infrastructure that cannot reproduce its own numbers cannot adjudicate architectures.**
 
 **E1 — Transfer-coefficient decomposition (the headline experiment).**
-Start from A0 (the ceiling) and add one production constraint at a time, measuring Sharpe and TC at each step:
+Start from A0 and add one production constraint at a time, measuring Sharpe and per-date TC (§3.2 definition) at each step:
 
 ```
 A0  rank-decile L/S, horizon-held, no costs        → IC ceiling Sharpe
-+1  add realistic costs (κ, impact)                → cost drag
++1  realistic costs (κ, impact)                    → cost drag
 +2  long-only projection (A2)                      → long-only tax
-+3  add vol-target + drawdown overlay (Stage B)    → risk-overlay effect (expect ≈ neutral TC)
-+4  add admission floors                            → floor tax
-+5  add daily stops                                → stop tax
-=   current architecture                           → should reproduce ~Sharpe 0.37
++3  vol-target + drawdown overlay (Stage B)        → H-B test
++4  admission floors                                → floor tax
++5  daily stops                                     → stop tax
+=   current architecture                            → should reproduce gate Sharpe
 ```
 
-The step that drops Sharpe most **is** the thing wasting the IC. This converts the operator's qualitative complaint into a ranked, quantitative target list. This is the deliverable that decides everything downstream.
+The largest single-step drop is the ranked answer to "what wastes the IC." If the full stack does NOT reproduce the gate's Sharpe, the decomposition is incomplete — that is also a finding.
 
-**E2 — Horizon sweep.** Rebalance at {20, 40, 60, 90}d; confirm the 60d label is the right holding horizon and measure IC decay (Qian-Hua-Sorensen IC-decay curve). Cheap, high-information.
-
-**E3 — Breadth restoration.** A2 with rank-floor removed vs kept; measure the √BR lift the continuous weighting buys.
-
-**E4 — Short-sleeve value.** A2 (long-only) vs A1 (dollar-neutral) vs a capped long-biased (e.g. 130/30); is the short leg worth the operational cost at this account size? (Likely NO at $10k — but now it's a measured decision, not an assumption.)
+**E2 — Horizon sweep** {20, 40, 60, 90}d: IC-decay curve (Qian-Hua-Sorensen), confirms the holding horizon.
+**E3 — Breadth restoration:** A2 with/without rank floor; report effective breadth via eigenvalue count on the position-correlation matrix, not naive name-count (BR-overlap caveat, §2.1).
+**E4 — Short-sleeve value:** A2 vs A1 vs 130/30 at realistic borrow/costs; measured decision, likely NO at current NAV.
 
 ---
 
-## 6 · What this means for the existing code (no rewrite-from-scratch)
-
-This is an **architecture for the alpha→weight map**, implemented as a new allocator behind the *existing* `ConstraintSnapshot` contract (the §8 measurement plan already built the seam). It is exactly the kind of candidate the **step-4g 5-baseline A/B replay** was built to adjudicate — A0/A1/A2 become three more baselines in that harness. Nothing about this proposal requires bypassing the gate; it *feeds* the gate cleaner candidates.
+## 6 · Relationship to the existing codebase
 
 ### 6.1 Build order
-1. Implement A0/A1/A2 as `AlphaPortfolioAllocator` variants (renquant-pipeline, behind ConstraintSnapshot).
-2. Stage B as a post-allocator scalar overlay (vol-target already exists in `ApplyExposureScalingTask` — reuse, don't rebuild).
-3. Run E1–E4 through the WF + replay harness.
-4. Verdict doc; promote only on DSR>0 + placebo-clean + per-regime evidence (§7).
+1. A0/A1/A2 as `AlphaPortfolioAllocator` variants behind the existing `ConstraintSnapshot` seam (renquant-pipeline) — additional baselines in the **step-4g replay harness**, which exists precisely to adjudicate allocators.
+2. Stage B as post-allocator scalar overlay (vol-target already exists in `ApplyExposureScalingTask` — reuse).
+3. E1–E4 through WF + replay; verdict doc; promotion per §7 only.
 
-### 6.2 What survives from today
-ConstraintSnapshot, the WF gate, the sanity battery, vol-target, cost model, regime detector. This is a **re-wiring of the selection→sizing core**, not a teardown of the platform.
+### 6.2 What survives
+ConstraintSnapshot, WF gate, sanity battery, vol-target, cost model, regime detector. Re-wiring of selection→sizing, not a teardown.
 
-### 6.3 The most damning current finding
-In cut C, the trades are attributed to per-ticker `Manual/XGBoost/QLearning/Classification` trees — **the panel IC is not the thing selecting names.** Whatever the panel's IC is, the current decision tree barely uses it for selection. Stage A makes the panel forecast the *sole* selection input, which is the only way an IC of 0.1 can become Sharpe at all.
+### 6.3 Correction of v1's "most damning finding" (review finding #2)
 
----
-
-## 7 · Hard prerequisite gate (do not skip — this is the 2026-06-09 lesson)
-
-Before *any* of this is worth running on PatchTST specifically:
-
-1. **IC reality.** Close the leakage investigation (renquant-model PatchTST B_tuned, 2026-06-02 audit). The IC used in Stage A must be the *placebo-clean OOS* IC, not the calibrator fit-window `pool_ic=0.13` (which is in-sample and not what "0.1" should mean). If the clean OOS IC is ~0.03–0.04, Stage A's ceiling is computed on *that*, honestly.
-2. **A0 sanity.** If the rank-decile ceiling portfolio (A0) on the clean signal is not materially > SPY on a DSR basis, stop — the IC is not tradeable at this universe/horizon and the architecture cannot manufacture alpha that isn't there.
-3. **Only then** does the long-only/overlay engineering (A2 + Stage B) earn its keep.
-
-The architecture is signal-agnostic: it will harvest whatever real IC exists (GBDT or PatchTST) and waste none of it — but it manufactures nothing. **Clean signal first, clean architecture second.**
+v1 claimed "the panel IC never reaches the optimizer — per-ticker trees select instead," based on `entry_model_type ∈ {Manual, XGBoost, QLearning, Classification}` in the round-trip ledger. **That inference was wrong.** The same ledger rows show `entry_source_job=JointPortfolioQPJob`, `entry_order_type=QP_BUY`, with populated `entry_rank_score`/`entry_panel_score` — selection/sizing in the WF sim **is** panel-score-driven through the QP; `model_type` is the stale per-ticker attribution label the 2026-06-07 audit already flags as a telemetry bug. What remains true and material: (a) the **live** sell path is driven by per-ticker models (live logs, sell-only era), and (b) attribution staleness makes IC-usage *unauditable* — itself a §2.3 measurability failure. The "waste" claim therefore rests on the gates (§2.2), not on "the panel is unused."
 
 ---
 
-## 8 · References (read before implementing — CLAUDE.md §5.12)
+## 7 · Hard prerequisite gate (the 2026-06-09 lesson — do not skip)
 
-- Grinold & Kahn 2000, *Active Portfolio Management* — Fundamental Law (IR = IC·√BR).
-- **Clarke, de Silva, Thorley 2002, *FAJ* — Transfer Coefficient (IR = TC·IC·√BR); long-only TC≈0.5.** ← the central reference.
-- Grinold 1994, *JPM*, "Alpha is Volatility times IC times Score" — the α = IC·σ·z map (Stage A).
-- Qian, Hua, Sorensen 2007, *Quantitative Equity Portfolio Management* — IC as a continuous quantity, IC decay, don't-threshold.
-- Gârleanu & Pedersen 2013, *JF*, "Dynamic Trading with Predictable Returns and Transaction Costs" — aim portfolio / cost-aware glide (Stage B).
-- Gu, Kelly, Xiu 2020, *RFS*, "Empirical Asset Pricing via Machine Learning" — decile L/S as the canonical ML-alpha evaluation (A0).
-- Moskowitz, Ooi, Pedersen 2012, *JFE* — time-series momentum / volatility targeting (Stage B).
-- Grossman & Zhou 1993 — drawdown-conditioned exposure (Stage B).
-- Han, Zhou, Zhu 2016, *JFE* — when stop-loss rules add value (regime-conditional; calm-bull they don't).
-- Bailey & López de Prado 2014, *JPM* — Deflated Sharpe Ratio (every verdict).
+1. **IC reality.** Close the PatchTST leakage investigation (2026-06-02 audit). Stage A consumes the *placebo-clean OOS* IC — not the calibrator fit-window `pool_ic=0.13` (in-sample), not the override note's recent-window numbers (unverified). If clean OOS IC is 0.03–0.04, the ceiling is computed on that, honestly.
+2. **Reproduction first.** §A.4's open discrepancy must be closed before E1 is trusted.
+3. **A0 sanity.** If the decile ceiling on the clean signal is not materially > SPY on a DSR basis — stop; the architecture cannot manufacture alpha.
 
 ---
 
-**Next action (requires review approval — not self-merged):** implement A0 as the measurement instrument and run E1 on the clean signal. E1's transfer-coefficient decomposition is the single highest-information experiment in the entire recovery program — it converts "the decision tree wastes the IC" from an assertion into a ranked, quantified target list.
+## 8 · References (with stable links)
+
+- Grinold & Kahn 2000, *Active Portfolio Management*, 2nd ed., McGraw-Hill. ISBN 978-0070248823.
+- Clarke, de Silva, Thorley 2002, "Portfolio Constraints and the Fundamental Law of Active Management," *FAJ* 58(5):48–66. doi:10.2469/faj.v58.n5.2468 ← central reference.
+- Grinold 1994, "Alpha is Volatility times IC times Score," *JPM* 20(4):9–16. doi:10.3905/jpm.1994.409482.
+- Qian, Hua, Sorensen 2007, *Quantitative Equity Portfolio Management*, Chapman & Hall/CRC. ISBN 978-1584885580.
+- Gârleanu & Pedersen 2013, "Dynamic Trading with Predictable Returns and Transaction Costs," *JF* 68(6):2309–2340. doi:10.1111/jofi.12080.
+- Gu, Kelly, Xiu 2020, "Empirical Asset Pricing via Machine Learning," *RFS* 33(5):2223–2273. doi:10.1093/rfs/hhaa009.
+- Moskowitz, Ooi, Pedersen 2012, "Time Series Momentum," *JFE* 104(2):228–250. doi:10.1016/j.jfineco.2011.11.003.
+- Grossman & Zhou 1993, "Optimal Investment Strategies for Controlling Drawdowns," *Mathematical Finance* 3(3):241–276. doi:10.1111/j.1467-9965.1993.tb00044.x.
+- Han, Zhou, Zhu, "Taming Momentum Crashes: A Simple Stop-Loss Strategy," SSRN 2407199. doi:10.2139/ssrn.2407199. (Scope: momentum-crash/downside protection — §2.2 caveat.)
+- Bailey & López de Prado 2014, "The Deflated Sharpe Ratio," *JPM* 40(5):94–107. doi:10.3905/jpm.2014.40.5.094.
+
+---
+
+## §A · Evidence appendix (added per review finding #1)
+
+### A.1 WF gate run — provenance
+
+- **Run:** weekly_wf_promote, staging `20260610T144100Z`, verdict logged 2026-06-10 08:10:18–08:11:26 PT; trade traces under `20260610T150039Z`.
+- **Log:** `RenQuant/logs/weekly_wf_promote/2026-06-10.log` — verdict block: `WF result: FAIL: … mean Sharpe +0.374, 3/3 cuts > 0; SPY mean Sharpe +1.081 … beat SPY Sharpe 0/3`. Per-cut lines: `Sharpe=+0.394 APY=+3.24%` / `+0.037 −0.13%` / `+0.691 +7.34%`.
+- **Code/config state:** renquant-backtesting `eac1c71`; renquant-pipeline runtime `2ccc7fd`; renquant-strategy-104 `97c1cd6` (shadow `rotation.target_horizon_days=60`); WF manifest `backtesting/renquant_104/artifacts/sim/walkforward_manifest_v2_20260602.json`; derived eval config `backtesting/renquant_104/artifacts/diagnostics/wf_eval_configs/strategy_config.sim_wl200_gbdt_prod_recipe_calibrated.prod_semantic.json` (recipe fingerprint `sha256:cfdd6cb8e950da0f`, 172 features).
+
+### A.2 Per-trade statistics — exact reproduction
+
+Ledgers: `RenQuant/backtesting/renquant_104/artifacts/diagnostics/wf_trade_traces/20260610T150039Z/{2024-01-02_to_2024-12-31,2024-07-01_to_2025-06-30,2025-04-01_to_2026-03-28}.round_trips.csv`
+
+```bash
+cd /Users/renhao/git/github/RenQuant
+python3 - <<'EOF'
+import csv, statistics as st, collections
+T='20260610T150039Z'
+for w in ('2024-01-02_to_2024-12-31','2024-07-01_to_2025-06-30','2025-04-01_to_2026-03-28'):
+    f=f'backtesting/renquant_104/artifacts/diagnostics/wf_trade_traces/{T}/{w}.round_trips.csv'
+    rows=[r for r in csv.DictReader(open(f))]
+    hd=[float(r['hold_days']) for r in rows]; pnl=[float(r['pnl_pct']) for r in rows]
+    print(w, 'n=',len(rows), 'hold med/mean=',st.median(hd),round(st.mean(hd)),
+          'win%=',round(100*sum(p>0 for p in pnl)/len(pnl)),
+          'mean_pnl%=',round(100*st.mean(pnl),2),
+          'names=',len(collections.Counter(r['ticker'] for r in rows)))
+EOF
+```
+
+Output (2026-06-10): cut A n=49, hold med 62d, win 59%, mean +12.79%; cut B n=40, hold med 52d, win 48%, mean +9.97%; cut C n=55, hold med 35d, win 49%, mean +2.38%, 29 names.
+
+### A.3 Live post-exit regret (+3.6pp) — source
+
+13 live exits 2026-05-15→06-03 from `RenQuant/data/runs.alpaca.db` (`trades` table; the 05-26/27 and 06-04 sells are absent from the table — recording gap documented in the 2026-06-09 decision-trace analysis — and were taken from `live_state.alpaca.json::last_sell_dates`), post-exit prices from `ticker_forward_returns` + LEAN daily zips, SPY-adjusted per matching windows. Result: mean +3.6pp/exit, 9/13 positive, dominated by GE +15.8pp and FTNT +10.0pp. **Small n, overlapping windows, sector-correlated — suggestive only.** To be re-emitted as a standalone reproducible script in the E1 PR.
+
+### A.4 ⚠ OPEN: cut C is not currently reproducible — disclosed, blocks E1
+
+Three runs of cut C (2025-04-01→2026-03-28), same derived config, same manifest:
+
+| Path | Result |
+|---|---|
+| Gate run (via `runner.run_walk_forward`, 2026-06-10 08:10 PT) | **+7.34% APY, Sharpe +0.691** |
+| Direct `renquant_backtesting.wf_gate.sim_driver` re-run (same code) | **−4.0% APY, Sharpe −0.35** |
+| Umbrella-native `scripts/run_sim_104.py` + pre-2026-06-10 pipeline (`02bb077`) | **−4.0% APY, Sharpe −0.35** (bit-identical to the row above) |
+
+The two direct re-runs agree exactly with each other and disagree with the gate run — the delta is in **how the gate runner invokes the cut** (per-cut config/calibrator/warmup handling inside `run_walk_forward`), not code drift or nondeterminism. Both re-runs and the gate's own ledger start trading on the same first date (2025-06-02; Apr–May abstained on calibrator saturation). Ledgers for the trade-level diff: gate `…/20260610T150039Z/2025-04-01_to_2026-03-28.round_trips.csv` (55 round trips) vs `/tmp/xcheck_cutC_rt.csv` and `/tmp/gatepath_cutC_rt.csv`. **Until the first divergent decision is identified and explained, every Sharpe in §A.1 is quarantined as un-reproduced, and the §2.1 TC sketch inherits that caveat.**
+
+---
+
+**Next action (requires review approval — not self-merged):** (1) close §A.4 (trade-level diff of gate-vs-direct cut C); (2) implement A0; (3) run E1 on the clean signal.
 
 Agent-Origin: Claude
