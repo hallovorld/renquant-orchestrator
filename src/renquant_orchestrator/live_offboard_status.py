@@ -119,6 +119,7 @@ def build_live_offboard_status(
     broker: str = "readonly-alpaca",
     include_execution_payload: bool = True,
     env_file: str | Path | None = None,
+    scheduled_health_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a single JSON-ready view of live bridge offboard readiness."""
     inventory = inventory_payload()
@@ -150,6 +151,9 @@ def build_live_offboard_status(
         include_execution_payload=include_execution_payload,
         remaining_bridge_job_count=summary["remaining_umbrella_bridge_job_count"],
     )
+    from .scheduled_health import build_scheduled_health
+
+    scheduled_health = build_scheduled_health(status_json=scheduled_health_json)
 
     return {
         "schema_version": 1,
@@ -158,6 +162,7 @@ def build_live_offboard_status(
         "broker": broker,
         "blocking_reasons": blocking_reasons,
         "scheduled_jobs_summary": summary,
+        "scheduled_health": scheduled_health,
         "stage_status": stage_status,
         "artifact_status": artifact_status,
         "remaining_bridge_jobs": [

@@ -24,6 +24,9 @@ class ScheduledJob:
     native_cutover_command: list[str] | None = None
     umbrella_code_dependency: str | None = None
     umbrella_state_dependency: str | None = None
+    launchd_label: str | None = None
+    launchd_stdout_path: str | None = None
+    launchd_stderr_path: str | None = None
     native_offboard_blockers: tuple[str, ...] = ()
     native_exit_criteria: tuple[str, ...] = ()
 
@@ -54,6 +57,9 @@ _JOBS: tuple[ScheduledJob, ...] = (
         migration_state="native_multirepo",
         production_safe=False,
         umbrella_state_dependency="RenQuant/data and RenQuant/backtesting/renquant_104/artifacts/prod staging paths",
+        launchd_label="com.renquant.retrain-panel104",
+        launchd_stdout_path="/Users/renhao/git/github/RenQuant/logs/retrain_panel/launchd_stdout.log",
+        launchd_stderr_path="/Users/renhao/git/github/RenQuant/logs/retrain_panel/launchd_stderr.log",
     ),
     ScheduledJob(
         job_id="daily_alpha158_linear_retrain",
@@ -69,6 +75,9 @@ _JOBS: tuple[ScheduledJob, ...] = (
         migration_state="native_multirepo",
         production_safe=False,
         umbrella_state_dependency="RenQuant/data and RenQuant/backtesting/renquant_104/artifacts staging paths",
+        launchd_label="com.renquant.retrain-alpha158-linear",
+        launchd_stdout_path="/Users/renhao/git/github/RenQuant/logs/retrain_alpha158_linear/launchd_stdout.log",
+        launchd_stderr_path="/Users/renhao/git/github/RenQuant/logs/retrain_alpha158_linear/launchd_stderr.log",
     ),
     ScheduledJob(
         job_id="market_anomaly_retrain_trigger",
@@ -202,6 +211,9 @@ _JOBS: tuple[ScheduledJob, ...] = (
         ],
         umbrella_code_dependency="RenQuant live.runner execution handoff",
         umbrella_state_dependency="RenQuant checkout for data, live_state, and runtime artifacts",
+        launchd_label="com.renquant.daily104",
+        launchd_stdout_path="/Users/renhao/git/github/RenQuant/logs/daily_104/launchd_stdout.log",
+        launchd_stderr_path="/Users/renhao/git/github/RenQuant/logs/daily_104/launchd_stderr.log",
         native_offboard_blockers=(
             "Lift the live.runner state machine into a native orchestrator live job.",
             "Replace umbrella live_state/runs.alpaca.db adapters with execution/pipeline contracts.",
