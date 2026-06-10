@@ -1,0 +1,17 @@
+{
+  "experiment": "stage_a_significance",
+  "run_id": "20260610T220332Z",
+  "command": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel/portfolio_qp/stage_a_significance.py --predictions /Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T193556Z/predictions.parquet --clean-oos-manifest /Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json --sim-db data/sim_runs.db --a2-hold-bars 3 --out-dir backtesting/renquant_104/artifacts/diagnostics/ic_to_pnl/significance --repo-pin renquant-pipeline=/Users/renhao/git/github/renquant-pipeline",
+  "input": {
+    "predictions": "/Users/renhao/git/github/renquant-model/artifacts/diagnostics/oos_ic/hf_patchtst_all_seed44_model_20260610T193556Z/predictions.parquet",
+    "clean_oos_manifest": "/Users/renhao/git/github/renquant-model/doc/evidence/2026-06-10-pt07-clean-oos-ic/manifest.json",
+    "predictions_sha256": "sha256:d74fc52d1bf91101edcfd09ecc362300b31448c43bd9045366e0145024813109",
+    "n_bars": 190
+  },
+  "repo_pins": {
+    "renquant-pipeline": "26e6537309cb2c8c66279a4a18b74f6fc5c70c5a"
+  },
+  "outputs": {
+    "significance.json": "sha256:19e5aa5615106bbd7ed90dbff3c13b926a6cffcc41e516bedd00de35f1a7c6cd"
+  }
+}
