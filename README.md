@@ -32,6 +32,11 @@ renquant-orchestrator run-job native_live_execution_payload_fixture -- \
   --inference-json /tmp/renquant-live-rehearsal/live-native-inference.json \
   --output-json /tmp/renquant-live-rehearsal/live-native-execution.json \
   --broker-name readonly-alpaca
+renquant-orchestrator run-job native_live_run_candidate -- \
+  --inference-json /tmp/renquant-live-rehearsal/live-native-inference.json \
+  --execution-output-json /tmp/renquant-live-rehearsal/live-native-execution.json \
+  --output-json /tmp/renquant-live-rehearsal/live-native-bundle.json \
+  --broker-name readonly-alpaca
 renquant-orchestrator live-parity-fixture \
   --bridge-bundle /tmp/bridge-live-bundle.json \
   --native-bundle /tmp/native-live-bundle.json \
@@ -77,6 +82,11 @@ cutover blockers.
 `daily_live_runner_bridge` or `live_runner_bridge` out of umbrella bridge mode.
 It compares readonly bridge and native run bundles for decision traces, order
 intents, and state mutations while ignoring volatile runtime fields.
+`native_live_run_candidate` is the first scheduled native live job candidate:
+it consumes native inference payloads, builds readonly execution payloads, and
+emits a parity-ready native live bundle without importing `RenQuant live.runner`.
+It remains readonly until live state and broker commit semantics are ported into
+`renquant-execution`.
 `live-offboard-status --strict` combines that inventory with the readonly
 rehearsal preflight so operators can see the remaining bridge blockers and
 missing Alpaca environment before attempting a production launchd switch.
