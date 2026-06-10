@@ -1,6 +1,6 @@
 # From IC to Sharpe: a ground-up redesign of the signal→portfolio path
 
-**Date:** 2026-06-10 · **Author:** Claude (research proposal) · **Status:** RFC v2 — DESIGN, not a verdict. Revised per codex review (PR #65 comment, 2026-06-10): evidence appendix added (§A), prod/shadow framing corrected (§1), TC/BR downgraded to falsifiable hypotheses (§2, §3.2), Han-Zhou-Zhu rescoped (§2.2), bibliography linked (§8).
+**Date:** 2026-06-10 · **Author:** Claude (research proposal) · **Status:** RFC v3 — DESIGN, not a verdict. v2: revised per codex review (evidence appendix §A, prod/shadow correction, hypothesis downgrades, bibliography). v3: §A.4 reproduction discrepancy **RESOLVED** (it was a log-line-ordering + tax-basis misread by the author, not an infrastructure fault; three independent paths produce bit-identical ledgers) — per-cut numbers corrected throughout.
 **Mandate:** Operator: "PatchTST IC ≈ 0.1 but realized APY/Sharpe are terrible — the decision tree wastes the IC. Forget the current architecture; propose something more scientific."
 
 > **Scope discipline.** This document answers a *conditional* question: **IF** a panel model has a real, placebo-clean cross-sectional IC of ~0.10, what is the smallest, most theoretically grounded portfolio-construction path that converts that IC into Sharpe? It does **not** assert the IC is real. The 2026-06-02 validity audit found the PatchTST `B_tuned` IC leak-contaminated (timeshift placebo +0.067 > real +0.044). **IC reality is a hard prerequisite gate (§7), measured independently. A clean architecture on a fake signal is worth zero.**
@@ -11,14 +11,14 @@
 
 > **Which lane these forensics describe (corrected per the 2026-06-07 prod/shadow audit).** Per `RenQuant/doc/research/2026-06-07-patchtst-prod-shadow-status-audit.md`, the current production primary is **hf_patchtst** and XGB/GBDT is the **shadow** lane. The forensics below are from the **GBDT (shadow-lane) walk-forward gate run** — the only lane with WF trade forensics, because `weekly_wf_promote` gates the GBDT incumbent via `strategy_config.shadow.json`. Live trading is currently **sell-only** for both lanes (P-WF-GATE unstamped), so neither lane "currently trades" buys in production. Where the ledger's `entry_model_type` column says `Manual/XGBoost/QLearning`, that is the **known stale per-ticker attribution** the 2026-06-07 audit lists as a follow-up bug ("rows … silently inherit stale per-ticker XGB labels") — it is *not* evidence about which model selected the trade (see §6.3).
 
-The complaint "IC is high but Sharpe is terrible" has a precise name in the literature: a **low transfer coefficient**. The 2026-06-10 WF forensics (full provenance + reproduction commands in **§A**; reproduction status **partially open**, see §A.4) show the fingerprint:
+The complaint "IC is high but Sharpe is terrible" has a precise name in the literature: a **low transfer coefficient**. The 2026-06-10 WF forensics (full provenance + reproduction commands in **§A**; reproducibility **confirmed across three independent paths**, §A.4) show the fingerprint:
 
 | Layer | Observation (cut C, 2025-04→2026-03) | Source (§A) |
 |---|---|---|
 | Per-trade economics | win rate 49%, mean P&L +2.38%/trade, ~49-day mean holds | A.2 |
 | Holding period | median 35–62d across cuts — matched to the 60d label | A.2 |
 | Breadth realized | 29 distinct names traded in a year, of a 142 watchlist | A.2 |
-| Portfolio result | Sharpe +0.394 / +0.037 / +0.691 per cut, 0/3 beat SPY | A.1 (⚠ A.4) |
+| Portfolio result (annual-net basis) | cut A(2024) +0.691, cut B +0.394, cut C +0.037; mean +0.374, 0/3 beat SPY | A.1, A.4 |
 
 **Hypothesis H1 (the headline claim, to be tested by E1):** the individual bets carry positive expectancy at the label horizon, and the portfolio layer — not the forecast — is where the information is lost. If H1 survives E1, this is definitionally a transfer-coefficient problem, not an alpha problem.
 
@@ -116,7 +116,7 @@ Hard risk exits (true blow-up stop, wash-sale law, liquidity) remain as a thin s
 
 ## 5 · Experiment design (falsifiable, placebo-clean, existing WF harness)
 
-All runs on the existing walk-forward manifold (point-in-time models), per-regime PRIMARY then pooled, DSR/PBO on every number (Bailey-López de Prado 2014), shuffled-label + timeshift placebo on every claim (§5.2 battery). **Precondition: the cut-C reproduction discrepancy (§A.4) must be resolved first — experiment infrastructure that cannot reproduce its own numbers cannot adjudicate architectures.**
+All runs on the existing walk-forward manifold (point-in-time models), per-regime PRIMARY then pooled, DSR/PBO on every number (Bailey-López de Prado 2014), shuffled-label + timeshift placebo on every claim (§5.2 battery). Reproducibility precondition: **met** — §A.4 confirms three independent execution paths produce bit-identical trade ledgers; all experiment reports must state which tax basis (annual-net vs event-level) every Sharpe uses, since the two diverge by up to 1.0 Sharpe on these windows (§A.4).
 
 **E1 — Transfer-coefficient decomposition (the headline experiment).**
 Start from A0 and add one production constraint at a time, measuring Sharpe and per-date TC (§3.2 definition) at each step:
@@ -158,7 +158,7 @@ v1 claimed "the panel IC never reaches the optimizer — per-ticker trees select
 ## 7 · Hard prerequisite gate (the 2026-06-09 lesson — do not skip)
 
 1. **IC reality.** Close the PatchTST leakage investigation (2026-06-02 audit). Stage A consumes the *placebo-clean OOS* IC — not the calibrator fit-window `pool_ic=0.13` (in-sample), not the override note's recent-window numbers (unverified). If clean OOS IC is 0.03–0.04, the ceiling is computed on that, honestly.
-2. **Reproduction first.** §A.4's open discrepancy must be closed before E1 is trusted.
+2. **Reproduction.** Met — §A.4 resolved; E1 reports must declare the tax basis of every metric.
 3. **A0 sanity.** If the decile ceiling on the clean signal is not materially > SPY on a DSR basis — stop; the architecture cannot manufacture alpha.
 
 ---
@@ -183,7 +183,7 @@ v1 claimed "the panel IC never reaches the optimizer — per-ticker trees select
 ### A.1 WF gate run — provenance
 
 - **Run:** weekly_wf_promote, staging `20260610T144100Z`, verdict logged 2026-06-10 08:10:18–08:11:26 PT; trade traces under `20260610T150039Z`.
-- **Log:** `RenQuant/logs/weekly_wf_promote/2026-06-10.log` — verdict block: `WF result: FAIL: … mean Sharpe +0.374, 3/3 cuts > 0; SPY mean Sharpe +1.081 … beat SPY Sharpe 0/3`. Per-cut lines: `Sharpe=+0.394 APY=+3.24%` / `+0.037 −0.13%` / `+0.691 +7.34%`.
+- **Log:** `RenQuant/logs/weekly_wf_promote/2026-06-10.log` — verdict block: `WF result: FAIL: … mean Sharpe +0.374, 3/3 cuts > 0; SPY mean Sharpe +1.081 … beat SPY Sharpe 0/3`. ⚠ **Log lines print in cut-completion order (cuts run in parallel), not window order** — the SPY-Sharpe column keys each line to its window. Correct per-window mapping (annual-net basis, from the equity JSON traces): **cut A (2024) Sharpe +0.691 / APY +7.34%; cut B (2024-07→2025-06) +0.394 / +3.24%; cut C (2025-04→2026-03) +0.037 / −0.13%**.
 - **Code/config state:** renquant-backtesting `eac1c71`; renquant-pipeline runtime `2ccc7fd`; renquant-strategy-104 `97c1cd6` (shadow `rotation.target_horizon_days=60`); WF manifest `backtesting/renquant_104/artifacts/sim/walkforward_manifest_v2_20260602.json`; derived eval config `backtesting/renquant_104/artifacts/diagnostics/wf_eval_configs/strategy_config.sim_wl200_gbdt_prod_recipe_calibrated.prod_semantic.json` (recipe fingerprint `sha256:cfdd6cb8e950da0f`, 172 features).
 
 ### A.2 Per-trade statistics — exact reproduction
@@ -212,20 +212,27 @@ Output (2026-06-10): cut A n=49, hold med 62d, win 59%, mean +12.79%; cut B n=40
 
 13 live exits 2026-05-15→06-03 from `RenQuant/data/runs.alpaca.db` (`trades` table; the 05-26/27 and 06-04 sells are absent from the table — recording gap documented in the 2026-06-09 decision-trace analysis — and were taken from `live_state.alpaca.json::last_sell_dates`), post-exit prices from `ticker_forward_returns` + LEAN daily zips, SPY-adjusted per matching windows. Result: mean +3.6pp/exit, 9/13 positive, dominated by GE +15.8pp and FTNT +10.0pp. **Small n, overlapping windows, sector-correlated — suggestive only.** To be re-emitted as a standalone reproducible script in the E1 PR.
 
-### A.4 ⚠ OPEN: cut C is not currently reproducible — disclosed, blocks E1
+### A.4 ✅ RESOLVED: the apparent cut-C irreproducibility was an author misread — reproducibility is in fact confirmed across three independent paths
 
-Three runs of cut C (2025-04-01→2026-03-28), same derived config, same manifest:
+v2 of this doc reported the gate's cut C as "+7.34%/Sharpe +0.691, irreproducible" against two re-runs at "−4.0%/Sharpe −0.35". The trade-level diff resolved it completely; **there was no infrastructure fault**:
 
-| Path | Result |
-|---|---|
-| Gate run (via `runner.run_walk_forward`, 2026-06-10 08:10 PT) | **+7.34% APY, Sharpe +0.691** |
-| Direct `renquant_backtesting.wf_gate.sim_driver` re-run (same code) | **−4.0% APY, Sharpe −0.35** |
-| Umbrella-native `scripts/run_sim_104.py` + pre-2026-06-10 pipeline (`02bb077`) | **−4.0% APY, Sharpe −0.35** (bit-identical to the row above) |
+1. **Log-line ordering.** The gate runs cuts in parallel and logs `→ Sharpe=…` lines in *completion* order. The "+0.691/+7.34%" line belongs to **cut A (2024)** — identified by its SPY-Sharpe column (+1.778 = the 2024 window) — not cut C. Cut C's true gate metric is **+0.037/−0.13%**.
+2. **Tax basis.** The gate (by design — `_sim_metrics_from_trace`, runner.py:806) consumes the equity-JSON **annual-net** metrics; the sim console footer prints **event-level** (tax cash debited at event time). For cut C: annual-net **+0.037/−0.13%** vs event-level **−0.355/−4.05%**. My re-runs' console numbers match the gate's own event-level JSON to the third decimal.
 
-The two direct re-runs agree exactly with each other and disagree with the gate run — the delta is in **how the gate runner invokes the cut** (per-cut config/calibrator/warmup handling inside `run_walk_forward`), not code drift or nondeterminism. Both re-runs and the gate's own ledger start trading on the same first date (2025-06-02; Apr–May abstained on calibrator saturation). Ledgers for the trade-level diff: gate `…/20260610T150039Z/2025-04-01_to_2026-03-28.round_trips.csv` (55 round trips) vs `/tmp/xcheck_cutC_rt.csv` and `/tmp/gatepath_cutC_rt.csv`. **Until the first divergent decision is identified and explained, every Sharpe in §A.1 is quarantined as un-reproduced, and the §2.1 TC sketch inherits that caveat.**
+**Verification (all three windows, both bases, from `…/20260610T150039Z/<window>.equity.json`):**
+
+| Window | annual-net Sharpe / APY | event-level Sharpe / APY |
+|---|---|---|
+| 2024-01-02→2024-12-31 (A) | +0.691 / +7.34% | +0.412 / +3.91% |
+| 2024-07-01→2025-06-30 (B) | +0.394 / +3.24% | −0.080 / −1.24% |
+| 2025-04-01→2026-03-28 (C) | +0.037 / −0.13% | −0.355 / −4.05% |
+
+**Determinism/reproducibility confirmed:** gate run, direct `sim_driver` re-run, and umbrella-native `run_sim_104.py` with the pre-2026-06-10 pipeline (`02bb077`) produce **bit-identical 55-trade ledgers** for cut C (entry sets identical; totals gross **+$2,474** / net-after-tax **−$3,978** in all three). Ledgers: gate `…/20260610T150039Z/2025-04-01_to_2026-03-28.round_trips.csv`, `/tmp/gatepath_cutC_rt.csv`, `/tmp/xcheck_cutC_rt.csv`.
+
+**Residual finding worth keeping:** the annual-net vs event-level bases diverge by up to **~1.0 Sharpe** on these windows (cut B: +0.394 vs −0.080) because gross P&L is small relative to tax-cash timing. Every future report must name its basis explicitly; E1 will report both.
 
 ---
 
-**Next action (requires review approval — not self-merged):** (1) close §A.4 (trade-level diff of gate-vs-direct cut C); (2) implement A0; (3) run E1 on the clean signal.
+**Next action (requires review approval — not self-merged):** (1) ~~close §A.4~~ done (v3); (2) implement A0; (3) run E1 on the clean signal, reporting both tax bases.
 
 Agent-Origin: Claude
