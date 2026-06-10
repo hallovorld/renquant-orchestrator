@@ -46,7 +46,7 @@ One honest negative for the measurement ceiling remains: A0 decile L/S at daily 
 
 - Do not retire QP from this E1 alone. Use this result to prioritize fixes: stop demotion/safety-only handling, admission-floor redesign, and a production snapshot replay.
 - Promote the next experiment as **A2 long-only + scalar overlay** through E2 horizon-held and WF/step-4g with DSR/PBO before any production-path change.
-- If renquant-pipeline #73 is squash-merged or otherwise rewrites commit identity, re-run only the provenance refresh so the manifest pins the merged commit. The current numbers already pin #73's rebased review-branch head.
+- The committed provenance pins the merged renquant-pipeline #73 and renquant-model #38 commits. The replay numbers are unchanged from the v4 run; only the post-merge code identity was refreshed.
 
 Reproduction:
 ```bash
