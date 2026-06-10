@@ -32,7 +32,7 @@ def test_live_offboard_status_reports_env_and_bridge_blockers(monkeypatch) -> No
         "path": "/tmp/rehearsal/live-bridge-bundle.json",
         "exists": False,
     }
-    assert "native_execution_payload" in " ".join(status["next_actions"])
+    assert "native_live_run_candidate" in " ".join(status["next_actions"])
 
 
 def test_live_offboard_status_reports_existing_parity_verdict(monkeypatch, tmp_path) -> None:

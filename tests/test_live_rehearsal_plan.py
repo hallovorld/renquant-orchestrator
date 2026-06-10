@@ -39,6 +39,33 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--broker-name",
         "readonly-alpaca",
     ]
+    assert plan["commands"]["native_live_run_candidate"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_run_candidate",
+        "--",
+        "--inference-json",
+        "/tmp/rehearsal/live-native-inference.json",
+        "--output-json",
+        "/tmp/rehearsal/live-native-bundle.json",
+        "--broker-name",
+        "readonly-alpaca",
+        "--execution-output-json",
+        "/tmp/rehearsal/live-native-execution.json",
+    ]
+    assert plan["commands"]["native_live_parity"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_parity_fixture",
+        "--",
+        "--bridge-bundle",
+        "/tmp/rehearsal/live-bridge-bundle.json",
+        "--native-bundle",
+        "/tmp/rehearsal/live-native-bundle.json",
+        "--output-json",
+        "/tmp/rehearsal/live-parity-verdict.json",
+        "--fail-on-diff",
+    ]
     assert "--fail-on-diff" in plan["commands"]["native_payload_parity"]
 
 

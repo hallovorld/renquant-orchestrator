@@ -143,6 +143,26 @@ _JOBS: tuple[ScheduledJob, ...] = (
         ),
     ),
     ScheduledJob(
+        job_id="native_live_run_candidate",
+        kind="trading",
+        cadence="manual_or_scheduled",
+        command=[
+            "renquant-orchestrator",
+            "run-job",
+            "native_live_run_candidate",
+        ],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency=(
+            "Readonly native inference payload until live context/state adapters are fully offboarded"
+        ),
+        native_exit_criteria=(
+            "Candidate consumes native inference payloads and emits parity-ready native live bundles without importing RenQuant live.runner.",
+            "Candidate remains readonly until live execution commit semantics are ported into renquant-execution.",
+        ),
+    ),
+    ScheduledJob(
         job_id="daily_live_runner_bridge",
         kind="trading",
         cadence="daily",

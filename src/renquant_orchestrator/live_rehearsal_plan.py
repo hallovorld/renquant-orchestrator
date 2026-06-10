@@ -35,6 +35,20 @@ def build_live_rehearsal_plan(
     native_bundle = out / f"{mode}-native-bundle.json"
     verdict = out / f"{mode}-parity-verdict.json"
 
+    native_run_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_run_candidate",
+        "--",
+        "--inference-json",
+        str(inference_payload),
+        "--output-json",
+        str(native_bundle),
+        "--broker-name",
+        broker,
+    ]
+    if include_execution_payload:
+        native_run_command.extend(["--execution-output-json", str(execution_payload)])
     execution_command = [
         "renquant-orchestrator",
         "run-job",
@@ -46,6 +60,19 @@ def build_live_rehearsal_plan(
         str(execution_payload),
         "--broker-name",
         broker,
+    ]
+    live_parity_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_parity_fixture",
+        "--",
+        "--bridge-bundle",
+        str(bridge_bundle),
+        "--native-bundle",
+        str(native_bundle),
+        "--output-json",
+        str(verdict),
+        "--fail-on-diff",
     ]
     parity_command = [
         "renquant-orchestrator",
@@ -77,7 +104,7 @@ def build_live_rehearsal_plan(
     )
     notes = [
         "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
-        "Produce the native inference payload, then run native_execution_payload before native_payload_parity.",
+        "Produce the native inference payload, then run native_live_run_candidate before native_live_parity.",
         "Do not change production launchd commands until parity_verdict ok=true.",
     ]
     if credential_source == "env_file":
@@ -122,6 +149,8 @@ def build_live_rehearsal_plan(
         "commands": {
             "bridge_capture": bridge_command,
             "native_execution_payload": execution_command,
+            "native_live_run_candidate": native_run_command,
+            "native_live_parity": live_parity_command,
             "native_payload_parity": parity_command,
         },
         "notes": notes,
