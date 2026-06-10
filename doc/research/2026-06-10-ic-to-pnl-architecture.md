@@ -1,6 +1,6 @@
 # From IC to Sharpe: a ground-up redesign of the signal→portfolio path
 
-**Date:** 2026-06-10 · **Author:** Claude (research proposal) · **Status:** RFC v4 — DESIGN, not a verdict. v4: experiment prerequisites/time (§5.5), pre-registered falsification outcomes (§5.6), credibility ledger (§A.5), storage design (§A.6). v2: revised per codex review (evidence appendix §A, prod/shadow correction, hypothesis downgrades, bibliography). v3: §A.4 reproduction discrepancy **RESOLVED** (it was a log-line-ordering + tax-basis misread by the author, not an infrastructure fault; three independent paths produce bit-identical ledgers) — per-cut numbers corrected throughout.
+**Date:** 2026-06-10 · **Author:** Claude (research proposal) · **Status:** RFC v5 — DESIGN, not a verdict. v5: §A.2 command made strictly copy-paste reproducible (closed-only filter; corrected outputs) per codex re-review. v4: experiment prerequisites/time (§5.5), pre-registered falsification outcomes (§5.6), credibility ledger (§A.5), storage design (§A.6). v2: revised per codex review (evidence appendix §A, prod/shadow correction, hypothesis downgrades, bibliography). v3: §A.4 reproduction discrepancy **RESOLVED** (it was a log-line-ordering + tax-basis misread by the author, not an infrastructure fault; three independent paths produce bit-identical ledgers) — per-cut numbers corrected throughout.
 **Mandate:** Operator: "PatchTST IC ≈ 0.1 but realized APY/Sharpe are terrible — the decision tree wastes the IC. Forget the current architecture; propose something more scientific."
 
 > **Scope discipline.** This document answers a *conditional* question: **IF** a panel model has a real, placebo-clean cross-sectional IC of ~0.10, what is the smallest, most theoretically grounded portfolio-construction path that converts that IC into Sharpe? It does **not** assert the IC is real. The 2026-06-02 validity audit found the PatchTST `B_tuned` IC leak-contaminated (timeshift placebo +0.067 > real +0.044). **IC reality is a hard prerequisite gate (§7), measured independently. A clean architecture on a fake signal is worth zero.**
@@ -227,7 +227,7 @@ import csv, statistics as st, collections
 T='20260610T150039Z'
 for w in ('2024-01-02_to_2024-12-31','2024-07-01_to_2025-06-30','2025-04-01_to_2026-03-28'):
     f=f'backtesting/renquant_104/artifacts/diagnostics/wf_trade_traces/{T}/{w}.round_trips.csv'
-    rows=[r for r in csv.DictReader(open(f))]
+    rows=[r for r in csv.DictReader(open(f)) if r.get('status')=='closed']
     hd=[float(r['hold_days']) for r in rows]; pnl=[float(r['pnl_pct']) for r in rows]
     print(w, 'n=',len(rows), 'hold med/mean=',st.median(hd),round(st.mean(hd)),
           'win%=',round(100*sum(p>0 for p in pnl)/len(pnl)),
@@ -236,7 +236,7 @@ for w in ('2024-01-02_to_2024-12-31','2024-07-01_to_2025-06-30','2025-04-01_to_2
 EOF
 ```
 
-Output (2026-06-10): cut A n=49, hold med 62d, win 59%, mean +12.79%; cut B n=40, hold med 52d, win 48%, mean +9.97%; cut C n=55, hold med 35d, win 49%, mean +2.38%, 29 names.
+Output (2026-06-10, **closed round-trips only** — cut A has 5 open rows and cut B has 1, with blank `hold_days`/`pnl_pct`; open positions are excluded rather than imputed): cut A n=44, hold med 62d, win 61%, mean +10.96%, 24 names; cut B n=39, hold med 52d, win 46%, mean +10.06%, 17 names; cut C n=55, hold med 35d, win 49%, mean +2.38%, 29 names. (v4 and earlier printed mixed open/closed counts from an inconsistently filtered version of this command — corrected in v5 per codex re-review.)
 
 ### A.3 Live post-exit regret (+3.6pp) — source
 
