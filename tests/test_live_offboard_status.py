@@ -18,6 +18,7 @@ def test_live_offboard_status_reports_env_and_bridge_blockers(monkeypatch) -> No
     assert "missing_bridge_bundle" in status["blocking_reasons"]
     assert "missing_native_inference_payload" in status["blocking_reasons"]
     assert "missing_native_execution_payload" in status["blocking_reasons"]
+    assert "missing_native_commit_plan" in status["blocking_reasons"]
     assert "missing_parity_verdict" in status["blocking_reasons"]
     assert "remaining_umbrella_bridge_jobs" in status["blocking_reasons"]
     assert status["stage_status"]["current_stage"] == "credential_preflight"
@@ -100,6 +101,7 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
         "live-bridge-bundle.json",
         "live-native-inference.json",
         "live-native-execution.json",
+        "live-native-commit-plan.json",
         "live-native-bundle.json",
     ):
         (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")

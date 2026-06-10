@@ -32,6 +32,7 @@ def build_live_rehearsal_plan(
     bridge_bundle = out / f"{mode}-bridge-bundle.json"
     inference_payload = out / f"{mode}-native-inference.json"
     execution_payload = out / f"{mode}-native-execution.json"
+    commit_plan = out / f"{mode}-native-commit-plan.json"
     native_bundle = out / f"{mode}-native-bundle.json"
     verdict = out / f"{mode}-parity-verdict.json"
 
@@ -48,7 +49,12 @@ def build_live_rehearsal_plan(
         broker,
     ]
     if include_execution_payload:
-        native_run_command.extend(["--execution-output-json", str(execution_payload)])
+        native_run_command.extend([
+            "--execution-output-json",
+            str(execution_payload),
+            "--commit-plan-output-json",
+            str(commit_plan),
+        ])
     execution_command = [
         "renquant-orchestrator",
         "run-job",
@@ -143,6 +149,7 @@ def build_live_rehearsal_plan(
             "bridge_bundle": str(bridge_bundle),
             "native_inference_payload": str(inference_payload),
             "native_execution_payload": str(execution_payload) if include_execution_payload else None,
+            "native_commit_plan": str(commit_plan) if include_execution_payload else None,
             "native_bundle": str(native_bundle),
             "parity_verdict": str(verdict),
         },

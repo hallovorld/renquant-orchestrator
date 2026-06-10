@@ -45,6 +45,8 @@ def _artifact_blockers(
         blockers.append("missing_native_inference_payload")
     if include_execution_payload and not artifact_status["native_execution_payload"]["exists"]:
         blockers.append("missing_native_execution_payload")
+    if include_execution_payload and not artifact_status["native_commit_plan"]["exists"]:
+        blockers.append("missing_native_commit_plan")
     verdict = artifact_status["parity_verdict"]
     if not verdict["exists"]:
         blockers.append("missing_parity_verdict")
@@ -63,7 +65,11 @@ def _stage_status(
     remaining_bridge_job_count: int,
 ) -> dict[str, Any]:
     native_payloads_ready = artifact_status["native_inference_payload"]["exists"] and (
-        not include_execution_payload or artifact_status["native_execution_payload"]["exists"]
+        not include_execution_payload
+        or (
+            artifact_status["native_execution_payload"]["exists"]
+            and artifact_status["native_commit_plan"]["exists"]
+        )
     )
     parity_verdict = artifact_status["parity_verdict"]
     parity_verdict_ready = parity_verdict["exists"] and not parity_verdict.get("error")
