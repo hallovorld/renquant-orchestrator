@@ -27,7 +27,7 @@ renquant-orchestrator run-job live_runner_bridge -- \
   --broker readonly-alpaca \
   --once \
   --native-inference-payload-output /tmp/renquant-live-rehearsal/live-native-inference.json \
-  --bridge-bundle-output /tmp/bridge-live-bundle.json
+  --bridge-bundle-output /tmp/renquant-live-rehearsal/live-bridge-bundle.json
 renquant-orchestrator run-job native_live_execution_payload_fixture -- \
   --inference-json /tmp/renquant-live-rehearsal/live-native-inference.json \
   --output-json /tmp/renquant-live-rehearsal/live-native-execution.json \
@@ -39,12 +39,12 @@ renquant-orchestrator run-job native_live_run_candidate -- \
   --output-json /tmp/renquant-live-rehearsal/live-native-bundle.json \
   --broker-name readonly-alpaca
 renquant-orchestrator live-parity-fixture \
-  --bridge-bundle /tmp/bridge-live-bundle.json \
-  --native-bundle /tmp/native-live-bundle.json \
+  --bridge-bundle /tmp/renquant-live-rehearsal/live-bridge-bundle.json \
+  --native-bundle /tmp/renquant-live-rehearsal/live-native-bundle.json \
   --fail-on-diff
 renquant-orchestrator run-job native_live_parity_fixture -- \
-  --bridge-bundle /tmp/bridge-live-bundle.json \
-  --native-bundle /tmp/native-live-bundle.json \
+  --bridge-bundle /tmp/renquant-live-rehearsal/live-bridge-bundle.json \
+  --native-bundle /tmp/renquant-live-rehearsal/live-native-bundle.json \
   --fail-on-diff
 ```
 
@@ -74,6 +74,8 @@ internal Python module paths.
 Remaining live bridge jobs also expose a `rehearsal_command` that captures a
 readonly bridge bundle with `--bridge-bundle-output`; use that bundle as the
 bridge side of live parity before changing production launchd commands.
+They also expose `native_replacement_job_id` and `native_cutover_command` so the
+final scheduler switch has a machine-readable target once parity is green.
 `live-offboard-status` reports `stage_status.current_stage` and
 `stage_status.next_blocker` so operators can distinguish credential preflight,
 bridge capture, native payload generation, parity, and final scheduled-job
