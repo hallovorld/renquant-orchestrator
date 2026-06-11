@@ -16,11 +16,14 @@ import urllib.request
 
 from renquant_common import Job, Pipeline, Task
 
-from .runtime_paths import default_github_root, default_repo_root
+from .runtime_paths import default_data_root, default_github_root
 
 
 GITHUB = default_github_root()
-DEFAULT_REPO_ROOT = default_repo_root()
+# Decoupling: the backup source root resolves via RENQUANT_DATA_ROOT first, so
+# operator state can be backed up from a native/subrepo-owned location without
+# an umbrella checkout. Falls back to the umbrella runtime root while migrating.
+DEFAULT_REPO_ROOT = default_data_root()
 DEFAULT_BACKUP_REPO = Path.home() / ".renquant-state-backup"
 HARD_LIMIT_BYTES = 99 * 1024 * 1024
 WARN_LIMIT_BYTES = 90 * 1024 * 1024

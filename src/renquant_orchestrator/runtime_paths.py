@@ -22,6 +22,7 @@ STRICT_PIN_ENVS = (
 STRICT_CLEAN_ENV = "RENQUANT_STRICT_SUBREPO_CLEAN"
 GITHUB_ROOT_ENV = "RENQUANT_GITHUB_ROOT"
 REPO_ROOT_ENV = "RENQUANT_REPO_ROOT"
+DATA_ROOT_ENV = "RENQUANT_DATA_ROOT"
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,27 @@ def default_repo_root() -> Path:
     if raw := os.environ.get(REPO_ROOT_ENV):
         return Path(raw).expanduser().resolve()
     return default_github_root() / "RenQuant"
+
+
+def default_data_root(repo_root: Path | None = None) -> Path:
+    """Return the operator data/state root, decoupled from the umbrella checkout.
+
+    Resolution order (first wins):
+
+    1. ``RENQUANT_DATA_ROOT`` — a dedicated, subrepo-/native-owned data root.
+       Setting this lets jobs (state backup, retrain staging, manifest output)
+       read and write operator state without an umbrella checkout on disk.
+    2. ``repo_root`` (or, when omitted, :func:`default_repo_root`) — the
+       umbrella runtime root, kept as a migration fallback so existing
+       deployments that still stage under ``RenQuant/`` keep working.
+
+    Unlike ``RENQUANT_DATA_ROOT`` resolved downstream (which today is only ever
+    *derived from* the umbrella ``repo_root``), this resolver treats the data
+    root as a first-class location that can point off the umbrella entirely.
+    """
+    if raw := os.environ.get(DATA_ROOT_ENV):
+        return Path(raw).expanduser().resolve()
+    return (repo_root or default_repo_root()).expanduser().resolve()
 
 
 def default_strategy_config_candidates(
