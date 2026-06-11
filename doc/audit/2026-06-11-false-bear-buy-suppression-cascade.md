@@ -143,9 +143,12 @@ task's own docstring concedes the thresholds are "exploratory … will tune via
 A/B," and notes SVB / DeepSeek / Aug-2024 distress peaked at 18–22% — i.e. real
 stress barely exceeds the very level we trip on routine chop.
 **Proposed (combine):**
-- **(a) Trend confirmation gate:** suppress `hard_bear` when SPY is above its
-  long trend filter (e.g. > 200-day SMA, or > 50-day SMA). A market above its
-  200-day MA should never be hard BEAR. *Theory:* Faber (2007), "A Quantitative
+- **(a) Trend confirmation gate for the volatility-only 5-day route:** suppress
+  `hard_bear` from `5d_vol > threshold` alone when SPY is above its long trend
+  filter (e.g. > 200-day SMA, or > 50-day SMA). The acute return-loss routes
+  and the 20-day stress routes should remain fail-safe. A market above its
+  200-day MA should not be forced to hard BEAR by short-window volatility alone.
+  *Theory:* Faber (2007), "A Quantitative
   Approach to Tactical Asset Allocation" (200-DMA timing); Moskowitz, Ooi &
   Pedersen (2012), "Time Series Momentum," *JFE* — trend sign is the dominant
   regime axis.
@@ -157,9 +160,10 @@ stress barely exceeds the very level we trip on routine chop.
   Page 1954 / Wald 1945).
 - **(c)** Optionally raise `bear_vol_threshold_5d` toward the 20-day GFC level so
   the short route catches genuine spikes, not 1.64%/day chop.
-**Validation:** replay the trailing ~60 trading days; assert `hard_bear` only
-fires when SPY < 200-DMA *or* the 20-day GFC route trips; confirm 2026-06-11 is
-labeled non-BEAR.
+**Validation:** replay the trailing ~60 trading days; assert the volatility-only
+5-day route no longer fires above the trend filter while the 20-day stress and
+acute 5-day return-loss routes still fire; confirm 2026-06-11 is labeled
+non-BEAR.
 
 ### P1 — Drawdown circuit breaker tightened 7× and latched by the false regime
 **Site:** `kernel/pipeline/task_gates.py::DrawdownGateTask`; `regime_params.BEAR.drawdown_halt_pct`.
@@ -206,10 +210,9 @@ parallel.
 
 **Risk of P0/P1 (loosening bear detection):** could delay protection in a genuine
 crash. **Mitigations:** keep both 20-day routes (35% vol / −8% ret) and the
-return-based 5-day route intact; only fix the **single-condition 5-day-vol** path;
-add **trend confirmation** so a true bear (price < 200-DMA *and* elevated vol)
-still fires immediately. Net effect: genuine bears still trip; bull-market vol
-blips no longer do.
+return-based 5-day route intact; only fix the **single-condition 5-day-vol** path
+by adding **trend confirmation**. Net effect: genuine stress still trips through
+the retained fail-safe routes; bull-market volatility blips no longer do.
 
 **Validation harness:** trailing-window replay (existing diag/replay tooling)
 toggling each fix, measuring (i) regime-label agreement with the trend filter,
