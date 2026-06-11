@@ -25,6 +25,81 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _live_state_contract_payload(
+    *,
+    strategy_dir: str | Path,
+    broker_name: str,
+    runs_db: str | Path | None,
+    strategy: str,
+    max_age_days: int | None,
+) -> dict[str, Any]:
+    try:
+        from renquant_pipeline import load_live_state_contract
+    except ImportError as exc:
+        raise RuntimeError(
+            "native live-state contract requires renquant-pipeline with "
+            "load_live_state_contract; merge/pin the pipeline contract first"
+        ) from exc
+
+    contract = load_live_state_contract(
+        strategy_dir,
+        broker_name,
+        runs_db=runs_db,
+        strategy=strategy,
+        max_age_days=max_age_days,
+    )
+    return contract.to_payload()
+
+
+def _live_state_metadata(contract_payload: dict[str, Any]) -> dict[str, Any]:
+    account_snapshot = contract_payload.get("account_snapshot")
+    positions = account_snapshot.get("positions") if isinstance(account_snapshot, dict) else None
+    return {
+        "schema_version": contract_payload.get("schema_version"),
+        "source": contract_payload.get("source"),
+        "path": contract_payload.get("path"),
+        "used_legacy": bool(contract_payload.get("used_legacy")),
+        "warnings": list(contract_payload.get("warnings") or []),
+        "account_snapshot_position_count": len(positions) if isinstance(positions, dict) else 0,
+    }
+
+
+def _attach_live_state_contract(
+    inference_payload: dict[str, Any],
+    metadata_payload: dict[str, Any] | None,
+    *,
+    strategy_dir: str | Path | None,
+    broker_name: str,
+    live_state_broker_name: str | None,
+    runs_db: str | Path | None,
+    strategy: str,
+    max_age_days: int | None,
+    output_json: str | Path | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if strategy_dir is None:
+        return inference_payload, metadata_payload
+
+    contract_payload = _live_state_contract_payload(
+        strategy_dir=strategy_dir,
+        broker_name=live_state_broker_name or broker_name,
+        runs_db=runs_db,
+        strategy=strategy,
+        max_age_days=max_age_days,
+    )
+    if output_json:
+        _write_json(output_json, contract_payload)
+
+    enriched_inference = dict(inference_payload)
+    if "account_snapshot" not in enriched_inference and contract_payload.get("account_snapshot"):
+        enriched_inference["account_snapshot"] = dict(contract_payload["account_snapshot"])
+
+    metadata = dict(metadata_payload or {})
+    metadata["live_state_contract"] = _live_state_metadata(contract_payload)
+    if output_json:
+        metadata["live_state_contract"]["artifact_path"] = str(output_json)
+    return enriched_inference, metadata
+
+
 def _candidate_metadata(
     *,
     broker_name: str,
@@ -46,10 +121,28 @@ def run_native_live_candidate(
     execution_output_json: str | Path | None = None,
     commit_plan_output_json: str | Path | None = None,
     metadata_json: str | Path | None = None,
+    strategy_dir: str | Path | None = None,
+    runs_db: str | Path | None = None,
+    live_state_broker_name: str | None = None,
+    live_state_strategy: str = "renquant_104",
+    max_live_state_age_days: int | None = None,
+    live_state_contract_output_json: str | Path | None = None,
     broker_name: str = "readonly-native",
 ) -> dict[str, Any]:
     """Build a readonly native live bundle without importing umbrella live.runner."""
     inference_payload = _load_json(inference_json)
+    metadata_payload = _load_json(metadata_json) if metadata_json else None
+    inference_payload, metadata_payload = _attach_live_state_contract(
+        inference_payload,
+        metadata_payload,
+        strategy_dir=strategy_dir,
+        broker_name=broker_name,
+        live_state_broker_name=live_state_broker_name,
+        runs_db=runs_db,
+        strategy=live_state_strategy,
+        max_age_days=max_live_state_age_days,
+        output_json=live_state_contract_output_json,
+    )
     execution_payload = (
         _load_json(execution_json)
         if execution_json
@@ -64,7 +157,6 @@ def run_native_live_candidate(
         commit_plan = build_live_commit_plan(execution_payload)
         _write_json(commit_plan_output_json, commit_plan.to_payload())
 
-    metadata_payload = _load_json(metadata_json) if metadata_json else None
     bundle = build_native_live_bundle(
         inference_payload=inference_payload,
         execution_payload=execution_payload,
@@ -86,6 +178,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--metadata-json", default=None)
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--broker-name", default="readonly-native")
+    parser.add_argument("--strategy-dir", default=None)
+    parser.add_argument("--runs-db", default=None)
+    parser.add_argument("--live-state-broker-name", default=None)
+    parser.add_argument("--live-state-strategy", default="renquant_104")
+    parser.add_argument("--max-live-state-age-days", type=int, default=None)
+    parser.add_argument("--live-state-contract-output-json", default=None)
     args = parser.parse_args(argv)
 
     bundle = run_native_live_candidate(
@@ -96,6 +194,12 @@ def main(argv: list[str] | None = None) -> int:
         metadata_json=args.metadata_json,
         output_json=args.output_json,
         broker_name=args.broker_name,
+        strategy_dir=args.strategy_dir,
+        runs_db=args.runs_db,
+        live_state_broker_name=args.live_state_broker_name,
+        live_state_strategy=args.live_state_strategy,
+        max_live_state_age_days=args.max_live_state_age_days,
+        live_state_contract_output_json=args.live_state_contract_output_json,
     )
     print(json.dumps(bundle, indent=2, sort_keys=True))
     return 0

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .env_files import read_env_file
+from .runtime_paths import default_repo_root
 
 
 REQUIRED_ALPACA_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
@@ -34,7 +35,12 @@ def build_live_rehearsal_plan(
     execution_payload = out / f"{mode}-native-execution.json"
     commit_plan = out / f"{mode}-native-commit-plan.json"
     native_bundle = out / f"{mode}-native-bundle.json"
+    live_state_contract = out / f"{mode}-live-state-contract.json"
     verdict = out / f"{mode}-parity-verdict.json"
+    repo_root = default_repo_root()
+    strategy_dir = repo_root / "backtesting" / "renquant_104"
+    live_state_broker = "alpaca" if broker == "readonly-alpaca" else broker
+    runs_db = repo_root / "data" / f"runs.{live_state_broker.replace('-', '_')}.db"
 
     native_run_command = [
         "renquant-orchestrator",
@@ -47,6 +53,14 @@ def build_live_rehearsal_plan(
         str(native_bundle),
         "--broker-name",
         broker,
+        "--strategy-dir",
+        str(strategy_dir),
+        "--runs-db",
+        str(runs_db),
+        "--live-state-broker-name",
+        live_state_broker,
+        "--live-state-contract-output-json",
+        str(live_state_contract),
     ]
     if include_execution_payload:
         native_run_command.extend([
@@ -151,6 +165,7 @@ def build_live_rehearsal_plan(
             "native_execution_payload": str(execution_payload) if include_execution_payload else None,
             "native_commit_plan": str(commit_plan) if include_execution_payload else None,
             "native_bundle": str(native_bundle),
+            "live_state_contract": str(live_state_contract),
             "parity_verdict": str(verdict),
         },
         "commands": {

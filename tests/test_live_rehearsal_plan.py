@@ -9,6 +9,7 @@ from renquant_orchestrator.live_rehearsal_plan import build_live_rehearsal_plan
 def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    monkeypatch.setenv("RENQUANT_REPO_ROOT", "/private/tmp/RenQuant")
 
     plan = build_live_rehearsal_plan(output_dir="/tmp/rehearsal")
 
@@ -50,12 +51,21 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "/tmp/rehearsal/live-native-bundle.json",
         "--broker-name",
         "readonly-alpaca",
+        "--strategy-dir",
+        "/private/tmp/RenQuant/backtesting/renquant_104",
+        "--runs-db",
+        "/private/tmp/RenQuant/data/runs.alpaca.db",
+        "--live-state-broker-name",
+        "alpaca",
+        "--live-state-contract-output-json",
+        "/tmp/rehearsal/live-live-state-contract.json",
         "--execution-output-json",
         "/tmp/rehearsal/live-native-execution.json",
         "--commit-plan-output-json",
         "/tmp/rehearsal/live-native-commit-plan.json",
     ]
     assert plan["artifacts"]["native_commit_plan"] == "/tmp/rehearsal/live-native-commit-plan.json"
+    assert plan["artifacts"]["live_state_contract"] == "/tmp/rehearsal/live-live-state-contract.json"
     assert plan["commands"]["native_live_parity"] == [
         "renquant-orchestrator",
         "run-job",
