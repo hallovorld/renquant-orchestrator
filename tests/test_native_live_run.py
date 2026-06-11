@@ -3,10 +3,12 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from typing import Any
 
 from renquant_common import validate_live_run_bundle
+import renquant_pipeline
 
-from renquant_orchestrator.native_live_run import run_native_live_candidate
+from renquant_orchestrator.native_live_run import main, run_native_live_candidate
 
 
 def _inference_payload() -> dict:
@@ -15,6 +17,26 @@ def _inference_payload() -> dict:
         "decision_trace": [{"ticker": "AAPL", "stage": "score"}],
         "order_intents": [{"ticker": "AAPL", "action": "buy", "quantity": 2}],
     }
+
+
+class _Contract:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def to_payload(self) -> dict[str, Any]:
+        return dict(self._payload)
+
+
+def _install_live_state_contract_stub(monkeypatch, payload: dict[str, Any]) -> None:
+    def _load_live_state_contract(*_args, **_kwargs) -> _Contract:
+        return _Contract(payload)
+
+    monkeypatch.setattr(
+        renquant_pipeline,
+        "load_live_state_contract",
+        _load_live_state_contract,
+        raising=False,
+    )
 
 
 def test_native_live_candidate_writes_readonly_execution_and_bundle(tmp_path: Path) -> None:
@@ -86,6 +108,93 @@ def test_native_live_candidate_accepts_existing_execution_and_metadata(tmp_path:
     assert payload["metadata"]["mode"] == "shadow"
     assert payload["metadata"]["stage"] == "native_live_run_candidate"
     assert payload["execution_audit"] == [{"broker": "fixture", "dry_run": True}]
+
+
+def test_native_live_candidate_attaches_pipeline_live_state_contract(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    inference = tmp_path / "inference.json"
+    bundle = tmp_path / "native-bundle.json"
+    contract = tmp_path / "live-state-contract.json"
+    strategy_dir = tmp_path / "strategy"
+    strategy_dir.mkdir()
+    _install_live_state_contract_stub(
+        monkeypatch,
+        {
+            "schema_version": 1,
+            "source": "live_state_file",
+            "path": str(strategy_dir / "live_state.alpaca.json"),
+            "used_legacy": False,
+            "warnings": [],
+            "state": {"cash": 1000.0},
+            "account_snapshot": {
+                "positions": {"AAPL": {"quantity": 3, "ticker": "AAPL"}}
+            },
+        },
+    )
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+
+    payload = run_native_live_candidate(
+        inference_json=inference,
+        output_json=bundle,
+        broker_name="alpaca",
+        strategy_dir=strategy_dir,
+        live_state_contract_output_json=contract,
+    )
+
+    assert payload["metadata"]["live_state_contract"] == {
+        "account_snapshot_position_count": 1,
+        "artifact_path": str(contract),
+        "path": str(strategy_dir / "live_state.alpaca.json"),
+        "schema_version": 1,
+        "source": "live_state_file",
+        "used_legacy": False,
+        "warnings": [],
+    }
+    contract_payload = json.loads(contract.read_text(encoding="utf-8"))
+    assert contract_payload["account_snapshot"]["positions"] == {
+        "AAPL": {"quantity": 3, "ticker": "AAPL"}
+    }
+
+
+def test_native_live_run_cli_accepts_live_state_contract_args(monkeypatch, tmp_path: Path, capsys) -> None:
+    inference = tmp_path / "inference.json"
+    bundle = tmp_path / "native-bundle.json"
+    contract = tmp_path / "live-state-contract.json"
+    strategy_dir = tmp_path / "strategy"
+    strategy_dir.mkdir()
+    _install_live_state_contract_stub(
+        monkeypatch,
+        {
+            "schema_version": 1,
+            "source": "live_state_file",
+            "path": str(strategy_dir / "live_state.alpaca.json"),
+            "used_legacy": False,
+            "warnings": [],
+            "state": {},
+            "account_snapshot": {"positions": {"IBM": {"quantity": 1}}},
+        },
+    )
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+
+    rc = main([
+        "--inference-json",
+        str(inference),
+        "--output-json",
+        str(bundle),
+        "--broker-name",
+        "alpaca",
+        "--strategy-dir",
+        str(strategy_dir),
+        "--live-state-contract-output-json",
+        str(contract),
+    ])
+
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["metadata"]["live_state_contract"]["source"] == "live_state_file"
+    assert json.loads(contract.read_text(encoding="utf-8"))["source"] == "live_state_file"
 
 
 def test_native_live_candidate_source_does_not_import_umbrella_live_runner() -> None:
