@@ -25,18 +25,27 @@ Cross-tabulating producer × consumer:
 | NGBoost | ~5d | **wrong** (treats 5d as annual → variance off ~50×, over-sizes) | correct |
 | realized-vol | 252d (annual) | correct | **wrong** (treats annual as 5d → daily σ ≈ ×√(252/5)=×7.1 too large) |
 
-## What is latent vs what may be active
+## What is latent vs what is ACTIVE
 
 - **NGB → Kelly (latent):** NGB is OFF in prod, so the 4–50× Kelly mis-scale is dormant — a landmine the moment `ngboost.enabled=true`. (The config-level guard for this class shipped in pipeline #101; this is the code-level twin.)
-- **realized-vol → exits (possibly ACTIVE, timing-dependent):** in prod (NGB off) the realized-vol fallback writes an **annualized** σ that `_resolve_daily_sigma` would treat as 5-day, inflating the daily σ ~7×, which would make the **active** `sdl_n_sigma=3` single-day-loss stop in BULL_CALM fire only at ~7× the intended move (effectively neutered). **BUT** the sell pass (`_make_sell_tctx` → exits) runs in **Phase 2a**, *before* `PanelScoringJob` (Phase 3) writes the realized-vol σ — so at exit time `state.sigma` may still be unset and the exits may correctly fall through to `state.realized_sigma_daily` (a true daily σ, priority 2). **Whether the annualized σ ever reaches `_resolve_daily_sigma` depends on cross-bar state persistence and task ordering and must be traced before any claim or fix.**
+- **realized-vol → exits (CONFIRMED ACTIVE — traced 2026-06-11):** the prod σ-aware single-day-loss stop in BULL_CALM uses a daily σ that is **≈7.1× too large**, effectively neutering it. Trace:
+  1. `ApplyRealizedVolFallbackTask` (`job_panel_scoring.py:3159`, gated by `ranking.kelly_sizing.use_realized_vol_fallback` which is **true** in prod) writes `hs.sigma` = **annualized** realized vol, and **skips when `hs.sigma` is already finite** (`:3155`) — so once set it stays annualized.
+  2. `hs.sigma` is **persisted to and reloaded from `live_state`** (`persistence.py:1150` serialize, `:1283/:1747` deserialize) — it carries across bars. `task_sell.py:227` documents `hs.sigma` as "set by PanelScoringJob in the previous bar."
+  3. `PrepareHoldingTask` (`task_sell.py:81–97`) sets the *daily* `realized_sigma_daily` each bar but **does NOT reset `state.sigma`** — and its own comment still assumes "(state.sigma is None)", which is stale.
+  4. Therefore at the next bar's sell pass (Phase 2a) `state.sigma` ≠ None (it holds the persisted annualized value), so `_resolve_daily_sigma` takes **priority 1** and returns `annualized / √5` instead of falling through to the correct `realized_sigma_daily` (priority 2). Daily σ is overstated by `√(252/5) ≈ 7.1×`.
+  5. **Impact:** in BULL_CALM (the trading regime) `max_single_day_loss_pct = 0` and `sdl_n_sigma = 3`, so the SDL threshold is `3 · daily_σ` and now fires only near a **3·7.1 ≈ 21×** true-daily-σ move (~40% gap-down for a 2%-σ name) instead of the intended ~6%. The configured σ-aware single-day-loss protection is **effectively OFF in prod.** `_resolve_daily_sigma`'s docstring claim that "state.sigma is always None in prod" is **false** and is the source of the error.
 
-## Why this is filed, not fixed
+## A targeted, low-risk fix for the confirmed-active half
 
-Any "fix" touches a live risk path:
-- Making σ **canonically annualized** (annualize the NGB output) fixes Kelly but, if `state.sigma` reaches exits, breaks the exits' `/√5` assumption — i.e. changes the **active** σ-aware SDL stop behaviour.
-- Making the **Kelly rescaler source-aware** (stamp `sigma_horizon_days` per source) fixes Kelly safely without touching exits — but only addresses half the contract.
+The exits already have an **unambiguously-daily** field, `realized_sigma_daily` (set every bar by `PrepareHoldingTask`). The bug is only that the **ambiguous** `state.sigma` (annualized in prod) shadows it at priority 1. The minimal correct fix:
 
-A blind change risks mis-scaling an active stop on real money. The decision-tree audit's own discipline (e.g. the M6 placebo: diagnose, don't force) applies.
+> In `_resolve_daily_sigma`, **prefer `realized_sigma_daily` (already daily) over `state.sigma`** — i.e. swap the priority, or only use `state.sigma/√5` when `realized_sigma_daily` is absent.
+
+In prod (NGB off, `realized_sigma_daily` always populated) this yields the **correct daily σ** and the σ-aware SDL fires as configured. It changes no NGB-on behaviour materially (a clean realized daily vol is a fine σ source).
+
+**Caveat that makes this an operator decision, not a silent ship:** the fix **re-activates a currently-dormant live stop** — the BULL_CALM σ-aware SDL goes from "fires near ~40%" to "fires near ~6%", a real behaviour change on real money. It should ship **behind a flag (default = current behaviour)** and be validated (does it cull winners? — note it interacts with the shipped H-2 "SDL defers to trailing on winners" and H-1 anchor), with a sim/WF check of SDL fire-rate and net Sharpe before activation. A blind flip is exactly the kind of stop-mis-scaling change the decision-tree audit's discipline (M6: diagnose, don't force) warns against.
+
+## Why the broader contract still needs reconciliation
 
 ## Recommended reconciliation (a dedicated, validated change)
 
