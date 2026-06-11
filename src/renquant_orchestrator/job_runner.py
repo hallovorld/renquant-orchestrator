@@ -8,6 +8,7 @@ from typing import Final
 
 _MODULE_JOBS: Final[dict[str, str]] = {
     "weekly_alpha158_fund_retrain": "renquant_orchestrator.retrain_alpha158_fund",
+    "weekly_patchtst_retrain": "renquant_orchestrator.retrain_patchtst",
     "daily_alpha158_linear_retrain": "renquant_orchestrator.retrain_alpha158_linear",
     "market_anomaly_retrain_trigger": "renquant_orchestrator.anomaly_triggers",
     "weekly_apy_monitor": "renquant_orchestrator.weekly_apy_monitor",

@@ -62,6 +62,26 @@ _JOBS: tuple[ScheduledJob, ...] = (
         launchd_stderr_path="/Users/renhao/git/github/RenQuant/logs/retrain_panel/launchd_stderr.log",
     ),
     ScheduledJob(
+        job_id="weekly_patchtst_retrain",
+        kind="training",
+        cadence="weekly",
+        command=[
+            "renquant-orchestrator",
+            "run-job",
+            "weekly_patchtst_retrain",
+            "--staged",
+        ],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=False,
+        umbrella_state_dependency=(
+            "RenQuant/data and RenQuant/backtesting/renquant_104/artifacts/patchtst_staging staging paths"
+        ),
+        launchd_label="com.renquant.retrain-patchtst",
+        launchd_stdout_path="/Users/renhao/git/github/RenQuant/logs/retrain_patchtst/launchd_stdout.log",
+        launchd_stderr_path="/Users/renhao/git/github/RenQuant/logs/retrain_patchtst/launchd_stderr.log",
+    ),
+    ScheduledJob(
         job_id="daily_alpha158_linear_retrain",
         kind="training",
         cadence="daily",

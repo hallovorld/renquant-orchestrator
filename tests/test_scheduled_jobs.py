@@ -12,6 +12,7 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
     assert {"training", "inference", "trading"}.issubset(kinds)
     assert {job.job_id for job in jobs} >= {
         "weekly_alpha158_fund_retrain",
+        "weekly_patchtst_retrain",
         "daily_alpha158_linear_retrain",
         "daily_live_runner_bridge",
         "live_runner_bridge",
@@ -29,8 +30,8 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
 def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
     payload = inventory_payload()
 
-    assert payload["summary"]["total"] == 15
-    assert payload["summary"]["native_multirepo"] == 13
+    assert payload["summary"]["total"] == 16
+    assert payload["summary"]["native_multirepo"] == 14
     assert payload["summary"]["umbrella_bridge"] == 2
     assert payload["summary"]["umbrella_bridge_jobs"] == [
         "daily_live_runner_bridge",
@@ -74,9 +75,10 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
 def test_inventory_summarizes_remaining_umbrella_state_dependencies() -> None:
     payload = inventory_payload()
 
-    assert payload["summary"]["umbrella_state_dependency_job_count"] == 13
+    assert payload["summary"]["umbrella_state_dependency_job_count"] == 14
     assert payload["summary"]["umbrella_state_dependency_jobs"] == [
         "weekly_alpha158_fund_retrain",
+        "weekly_patchtst_retrain",
         "daily_alpha158_linear_retrain",
         "native_live_parity_fixture",
         "native_live_bundle_fixture",
@@ -170,6 +172,9 @@ def test_scheduled_job_inventory_carries_launchd_hints() -> None:
     assert jobs["weekly_alpha158_fund_retrain"]["launchd_label"] == (
         "com.renquant.retrain-panel104"
     )
+    assert jobs["weekly_patchtst_retrain"]["launchd_label"] == (
+        "com.renquant.retrain-patchtst"
+    )
     assert jobs["daily_alpha158_linear_retrain"]["launchd_label"] == (
         "com.renquant.retrain-alpha158-linear"
     )
@@ -238,6 +243,34 @@ def test_run_job_dispatches_by_inventory_id(monkeypatch) -> None:
     assert rc == 19
     assert seen == {
         "module_name": "renquant_orchestrator.retrain_alpha158_fund",
+        "argv": ["--staged", "--repo-dir", "/tmp/repo"],
+    }
+
+
+def test_run_job_dispatches_weekly_patchtst_retrain(monkeypatch) -> None:
+    import renquant_orchestrator.job_runner as runner
+
+    seen = {}
+
+    def fake_run_module_main(module_name, argv):
+        seen["module_name"] = module_name
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(runner, "_run_module_main", fake_run_module_main)
+
+    rc = main([
+        "run-job",
+        "weekly_patchtst_retrain",
+        "--",
+        "--staged",
+        "--repo-dir",
+        "/tmp/repo",
+    ])
+
+    assert rc == 0
+    assert seen == {
+        "module_name": "renquant_orchestrator.retrain_patchtst",
         "argv": ["--staged", "--repo-dir", "/tmp/repo"],
     }
 
