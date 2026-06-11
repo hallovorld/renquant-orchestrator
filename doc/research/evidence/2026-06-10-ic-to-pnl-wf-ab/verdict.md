@@ -1,11 +1,12 @@
 # Stage-A A2 on the real WF manifold — reality check (NOT a promotion; gate correctly blocked)
 
-**Date:** 2026-06-10 · **Purpose:** the operator-approved step from the synthesis — take Stage-A A2 through the *real* step-4g A/B (true WF ConstraintSnapshots, DSR/PBO), dropping the diagnostic minimal-snapshot.
-**Status:** **Honest negative.** The promotion gate **correctly blocked** the whole comparison as not decision-grade. The earlier "A2 ≫ QP" finding does **not** transfer to production as-is. Two real gaps are now exposed. Live unchanged.
+**Date:** 2026-06-10 · **Purpose:** the operator-approved step from the synthesis — take Stage-A A2 through the step-4g A/B on the WF replay manifold (DSR/PBO), dropping the diagnostic minimal-snapshot.
+**Status:** **Honest negative, and NOT decision-grade.** The promotion gate **correctly blocked** the whole comparison: the replay manifold is itself incomplete (sector-blind), so no allocator can earn a verdict on it. The earlier "A2 ≫ QP" finding does **not** transfer to production as-is. Two real gaps are now exposed. Live unchanged.
+**Provenance:** regenerated on merged pipeline main `221a328` (after PR #79 registered `stage_a_a2_long_only`); `manifest.json` alongside pins pipeline/model/umbrella commits, the `sim_runs.db` SHA256, and the `verdict.json` SHA256.
 
-## What the real gate returned
+## What the gate returned
 
-Run: `run_ab_replay --wf-artifact-root data/sim_runs.db --start-cut 2024-01-02 --end-cut 2026-03-27 --fwd-horizon-days 1`, 497 bars, full production ConstraintSnapshots.
+Run: `run_ab_replay --wf-artifact-root data/sim_runs.db --start-cut 2024-01-02 --end-cut 2026-03-27 --fwd-horizon-days 1`, 497 bars. ⚠ **The WF replay snapshots are NOT full production ConstraintSnapshots** — `verdict.json` records `sector_snapshot_source: none_sector_blind` and `constraint_fidelity.decision_grade: false`, with `sector_cap` **missing on all 497 bars**. So this is a *sector-blind* replay manifold, not the full production constraint set. (Note: the per-allocator `significance.live_promotable_*` flags in `verdict.json` are raw `run_ab_replay` output and are NOT authoritative here — read `verdict.promotion_candidate` (null) and the top-level `significance_diagnostic_only: true` instead.)
 
 | allocator | Sharpe | hard-constraint violations | promotable? |
 |---|---|---|---|

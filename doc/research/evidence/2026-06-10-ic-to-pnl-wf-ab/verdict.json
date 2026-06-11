@@ -348,58 +348,68 @@
   "sector_snapshot_source": "none_sector_blind",
   "significance": {
     "current_qp": {
+      "diagnostic_only": true,
       "dsr": 1.0,
-      "live_promotable_per_clause_7_4": true,
-      "live_promotable_per_section_8": true,
+      "live_promotable_per_clause_7_4": false,
+      "live_promotable_per_section_8": false,
       "n_returns": 497,
       "n_trials": 5,
       "name": "current_qp",
       "pbo": 0.23014763014763015,
       "pbo_se": null,
+      "promotion_block_reason": "replay constraints are not decision-grade; allocator has hard-constraint violations",
       "sharpe_raw_annual": 2.274478368476155
     },
     "equal_weight_top_k": {
+      "diagnostic_only": true,
       "dsr": 0.9999999321631694,
-      "live_promotable_per_clause_7_4": true,
-      "live_promotable_per_section_8": true,
+      "live_promotable_per_clause_7_4": false,
+      "live_promotable_per_section_8": false,
       "n_returns": 497,
       "n_trials": 5,
       "name": "equal_weight_top_k",
       "pbo": 0.23014763014763015,
       "pbo_se": null,
+      "promotion_block_reason": "replay constraints are not decision-grade",
       "sharpe_raw_annual": 1.9123349169252881
     },
     "hybrid_option_f_allocator": {
+      "diagnostic_only": true,
       "dsr": 1.0,
-      "live_promotable_per_clause_7_4": true,
-      "live_promotable_per_section_8": true,
+      "live_promotable_per_clause_7_4": false,
+      "live_promotable_per_section_8": false,
       "n_returns": 497,
       "n_trials": 5,
       "name": "hybrid_option_f_allocator",
       "pbo": 0.23014763014763015,
       "pbo_se": null,
+      "promotion_block_reason": "replay constraints are not decision-grade",
       "sharpe_raw_annual": 2.295828455227501
     },
     "inverse_vol_top_k": {
+      "diagnostic_only": true,
       "dsr": 1.0,
-      "live_promotable_per_clause_7_4": true,
-      "live_promotable_per_section_8": true,
+      "live_promotable_per_clause_7_4": false,
+      "live_promotable_per_section_8": false,
       "n_returns": 497,
       "n_trials": 5,
       "name": "inverse_vol_top_k",
       "pbo": 0.23014763014763015,
       "pbo_se": null,
+      "promotion_block_reason": "replay constraints are not decision-grade",
       "sharpe_raw_annual": 1.9726243671858692
     },
     "stage_a_a2_long_only": {
+      "diagnostic_only": true,
       "dsr": 0.998940678216258,
-      "live_promotable_per_clause_7_4": true,
-      "live_promotable_per_section_8": true,
+      "live_promotable_per_clause_7_4": false,
+      "live_promotable_per_section_8": false,
       "n_returns": 497,
       "n_trials": 5,
       "name": "stage_a_a2_long_only",
       "pbo": 0.23014763014763015,
       "pbo_se": null,
+      "promotion_block_reason": "replay constraints are not decision-grade; allocator has hard-constraint violations",
       "sharpe_raw_annual": 1.66820981249045
     }
   },
@@ -452,5 +462,7 @@
       }
     }
   },
-  "wf_artifact_root": "data/sim_runs.db"
+  "wf_artifact_root": "data/sim_runs.db",
+  "significance_diagnostic_only": true,
+  "not_decision_grade_reason": "replay manifold is sector-blind (sector_snapshot_source=none_sector_blind, constraint_fidelity.decision_grade=false, sector_cap missing on all bars); the per-allocator significance.live_promotable_* flags are RAW run_ab_replay output and are NOT authoritative \u2014 read verdict.promotion_candidate (null) and verdict.non_negotiable_gate_passed instead."
 }
