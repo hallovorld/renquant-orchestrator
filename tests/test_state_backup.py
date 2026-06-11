@@ -152,6 +152,37 @@ def test_push_warns_when_pull_failed_but_push_succeeds(tmp_path: Path, monkeypat
     assert alerts[0][0] == "STATE_BACKUP_WARN"
 
 
+def test_default_repo_root_resolves_via_data_root_env() -> None:
+    # The backup source default is wired through the decoupled data-root
+    # resolver, not straight to the umbrella runtime root.
+    from renquant_orchestrator import runtime_paths
+
+    assert mod.DEFAULT_REPO_ROOT == runtime_paths.default_data_root()
+
+
+def test_pipeline_backs_up_from_native_data_root_without_umbrella(tmp_path: Path) -> None:
+    # A subrepo-/native-owned data root (no umbrella checkout) is a valid
+    # backup source: RENQUANT_DATA_ROOT points the job off RenQuant/.
+    data_root = tmp_path / "native-state"
+    (data_root / "data").mkdir(parents=True)
+    (data_root / "backtesting" / "renquant_104").mkdir(parents=True)
+    backup = tmp_path / "backup"
+    _init_git_repo(backup)
+    _write_sqlite(data_root / "data" / "runs.alpaca.db")
+    (data_root / "backtesting" / "renquant_104" / "live_state.alpaca.json").write_text(
+        json.dumps({"cash": 42}),
+        encoding="utf-8",
+    )
+
+    ctx = mod.StateBackupContext(repo_root=data_root, backup_repo=backup, push=False)
+    result = mod.build_pipeline().run(ctx)
+
+    assert result.ok is True
+    assert (backup / "data" / "runs.alpaca.db").exists()
+    assert json.loads((backup / "live_state.alpaca.json").read_text()) == {"cash": 42}
+    assert ctx.committed is True
+
+
 def test_main_prints_json_summary(monkeypatch, tmp_path: Path, capsys) -> None:
     repo = _make_repo(tmp_path)
     backup = tmp_path / "backup"
