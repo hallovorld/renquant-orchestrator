@@ -19,6 +19,8 @@ def test_live_offboard_status_reports_env_and_bridge_blockers(monkeypatch) -> No
     assert "missing_native_inference_payload" in status["blocking_reasons"]
     assert "missing_native_execution_payload" in status["blocking_reasons"]
     assert "missing_native_commit_plan" in status["blocking_reasons"]
+    assert "missing_native_bundle" in status["blocking_reasons"]
+    assert "missing_live_state_contract" in status["blocking_reasons"]
     assert "missing_parity_verdict" in status["blocking_reasons"]
     assert "remaining_umbrella_bridge_jobs" in status["blocking_reasons"]
     assert status["stage_status"]["current_stage"] == "credential_preflight"
@@ -100,6 +102,30 @@ def test_live_offboard_status_reports_bridge_capture_stage(monkeypatch, tmp_path
     assert status["stage_status"]["checks"]["native_payloads_ready"] is False
 
 
+def test_live_offboard_status_requires_valid_live_state_contract_before_parity(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    for name in (
+        "live-bridge-bundle.json",
+        "live-native-inference.json",
+        "live-native-execution.json",
+        "live-native-commit-plan.json",
+        "live-native-bundle.json",
+    ):
+        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    status = build_live_offboard_status(output_dir=tmp_path)
+
+    assert status["stage_status"]["current_stage"] == "native_live_state_contract"
+    assert status["stage_status"]["next_blocker"] == "missing_or_invalid_live_state_contract"
+    assert status["stage_status"]["checks"]["native_live_bundle_ready"] is True
+    assert status["stage_status"]["checks"]["live_state_contract_ready"] is False
+    assert "missing_live_state_contract" in status["blocking_reasons"]
+
+
 def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ALPACA_API_KEY", "key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
@@ -111,13 +137,25 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
         "live-native-bundle.json",
     ):
         (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (tmp_path / "live-live-state-contract.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "source": "live_state_file",
+            "account_snapshot": {"positions": {"AAPL": {"quantity": 1}}},
+            "used_legacy": False,
+            "warnings": [],
+        }),
+        encoding="utf-8",
+    )
     (tmp_path / "live-parity-verdict.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
 
     status = build_live_offboard_status(output_dir=tmp_path)
 
     assert status["stage_status"]["current_stage"] == "native_live_job_cutover"
     assert status["stage_status"]["next_blocker"] == "remaining_umbrella_bridge_jobs"
+    assert status["stage_status"]["checks"]["live_state_contract_ready"] is True
     assert status["stage_status"]["checks"]["parity_ok"] is True
+    assert status["artifact_status"]["live_state_contract"]["account_snapshot_position_count"] == 1
     assert status["ready_for_live_offboard"] is False
 
 
