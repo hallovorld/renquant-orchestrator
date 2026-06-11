@@ -1,0 +1,32 @@
+{
+  "experiment": "stage_a_wf_ab_reality_check",
+  "kind": "qp_ab_replay_verdict",
+  "generated_at_utc": "2026-06-11T04:41:35Z",
+  "decision_grade": false,
+  "decision_grade_reason": "sector-blind WF manifold (sim_runs.db candidate snapshots lack sector_cap on all 497 bars)",
+  "command": "python -m renquant_pipeline.kernel.portfolio_qp.run_ab_replay --wf-artifact-root data/sim_runs.db --start-cut 2024-01-02 --end-cut 2026-03-27 --fwd-horizon-days 1 --allocators stage_a_a2_long_only,current_qp,equal_weight_top_k,inverse_vol_top_k,hybrid_option_f_allocator --incumbent current_qp --out <out>/verdict.json",
+  "repo_pins": {
+    "renquant-pipeline": "221a328dc3ddeea2f42581a369b88956aa6c0b90",
+    "renquant-model": "19919ec9350fdcb6931dfb2de4a10c3c90d1393a",
+    "RenQuant": "43c322ef4b4fc64daf067ccbcece6044289c22bb"
+  },
+  "regenerated_on_merged_pipeline": "stage_a_a2_long_only is registered on pipeline main (PR #79 merged); this run uses merged main 221a328, not the pre-merge PR head",
+  "inputs": {
+    "wf_artifact_root": "RenQuant/data/sim_runs.db",
+    "sim_runs_db_sha256": "sha256:e67269cfc9666dc6b157559c275da14ff2cd37e106d1cd747f12152d2060d00e",
+    "start_cut": "2024-01-02",
+    "end_cut": "2026-03-27",
+    "fwd_horizon_days": 1,
+    "allocators": [
+      "stage_a_a2_long_only",
+      "current_qp",
+      "equal_weight_top_k",
+      "inverse_vol_top_k",
+      "hybrid_option_f_allocator"
+    ],
+    "incumbent": "current_qp"
+  },
+  "outputs": {
+    "verdict.json": "sha256:7aa458bec953237e9f8dec46d7f4d2c2e3e9011bbc8f4361ccae1e3a73ab7b83"
+  }
+}
