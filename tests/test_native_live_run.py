@@ -8,6 +8,7 @@ from typing import Any
 from renquant_common import validate_live_run_bundle
 import renquant_pipeline
 
+from renquant_orchestrator import native_live_run
 from renquant_orchestrator.native_live_run import main, run_native_live_candidate
 
 
@@ -108,6 +109,95 @@ def test_native_live_candidate_accepts_existing_execution_and_metadata(tmp_path:
     assert payload["metadata"]["mode"] == "shadow"
     assert payload["metadata"]["stage"] == "native_live_run_candidate"
     assert payload["execution_audit"] == [{"broker": "fixture", "dry_run": True}]
+
+
+def test_native_live_candidate_can_emit_executed_live_commit_bundle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    inference = tmp_path / "inference.json"
+    execution = tmp_path / "execution.json"
+    commit_plan = tmp_path / "commit-plan.json"
+    bundle = tmp_path / "native-bundle.json"
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+
+    def fake_live_commit_execution_payload(**kwargs) -> dict[str, Any]:
+        assert kwargs == {
+            "broker_name": "paper",
+            "order_intents": _inference_payload()["order_intents"],
+            "dry_run": False,
+        }
+        return {
+            "schema_version": 1,
+            "source": "renquant_execution.execution",
+            "broker_name": "paper",
+            "readonly": False,
+            "dry_run": False,
+            "order_intents": [
+                {"symbol": "AAPL", "action": "BUY", "quantity": 2.0}
+            ],
+            "submitted_orders": [
+                {
+                    "order_id": "ord-1",
+                    "status": "filled",
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "quantity": 2.0,
+                }
+            ],
+            "state_mutations": [
+                {
+                    "mutation_id": "planned-order-1",
+                    "mutation_type": "order_submission",
+                    "readonly": False,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                }
+            ],
+            "execution_audit": [
+                {"broker": "paper", "dry_run": False, "n_intents": 1, "n_submitted": 1}
+            ],
+        }
+
+    monkeypatch.setattr(
+        native_live_run,
+        "_live_commit_execution_payload",
+        fake_live_commit_execution_payload,
+    )
+
+    payload = run_native_live_candidate(
+        inference_json=inference,
+        execution_output_json=execution,
+        commit_plan_output_json=commit_plan,
+        output_json=bundle,
+        broker_name="paper",
+        execute_live=True,
+    )
+
+    assert payload["metadata"]["readonly"] is False
+    assert payload["state_mutations"][0]["readonly"] is False
+    execution_payload = json.loads(execution.read_text(encoding="utf-8"))
+    assert execution_payload["readonly"] is False
+    commit_payload = json.loads(commit_plan.read_text(encoding="utf-8"))
+    assert commit_payload["readonly"] is False
+    assert commit_payload["state_mutations"][0]["readonly"] is False
+
+
+def test_native_live_candidate_rejects_readonly_execute_live(tmp_path: Path) -> None:
+    inference = tmp_path / "inference.json"
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+
+    try:
+        run_native_live_candidate(
+            inference_json=inference,
+            output_json=tmp_path / "native-bundle.json",
+            broker_name="readonly-alpaca",
+            execute_live=True,
+        )
+    except ValueError as exc:
+        assert "broker-name that can commit orders" in str(exc)
+    else:
+        raise AssertionError("expected readonly execute-live rejection")
 
 
 def test_native_live_candidate_attaches_pipeline_live_state_contract(
