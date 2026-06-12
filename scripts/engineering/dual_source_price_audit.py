@@ -35,7 +35,7 @@ def lean_closes(ticker: str) -> pd.Series:
 
 
 def audit(ticker: str, days: int = 30) -> dict:
-    yf = pd.read_parquet(R / f"data/ohlcv/{ticker}/1d.parquet")["close"].tail(days)
+    yf = pd.read_parquet(R / f"data/ohlcv/{ticker}/1d.parquet")["close"]
     ln = lean_closes(ticker)
     j = pd.concat([yf.rename("a"), ln.rename("b")], axis=1).dropna().tail(days)
     if j.empty:
