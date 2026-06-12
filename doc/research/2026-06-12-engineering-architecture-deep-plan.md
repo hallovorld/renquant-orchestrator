@@ -547,3 +547,76 @@ domain glue. PR review enforces: any hand-rolled component needs a one-line
 Net effect on the ten-PR plan (§9): PR1 gains pandera/deal; PR3 gains
 pytest-regressions/pytest-socket; fstore PR A starts with the ArcticDB
 spike day; estimated hand-rolled LOC drops ~35% from the v2.1 estimates.
+
+## 14. Multi-repo version control (measured pain → mature tooling)
+
+This week's incidents: merged≠deployed ×2; lock pins lagging subrepo mains
+by 99 commits; cross-repo coupled changes (pipeline #112 + strategy #25 +
+umbrella pin) requiring hand-ordered PRs with crash hazards if mis-paired
+(`adaptive_quantile` on an old pipeline = ValueError); three actors
+(operator, claude, codex) racing on shared branches.
+
+**Diagnosis:** `subrepos.lock.json` is a hand-rolled re-implementation of
+**git submodules** — without the native tooling (diffable SHA bumps, atomic
+umbrella commits, `git submodule status`, IDE/CI support).
+
+**Adopt (per §13 policy):**
+1. **Renovate bot** to automate pin advancement: it natively supports git
+   submodule (and can regex-manage our lock file as-is) — opens a pin-bump
+   PR automatically when a subrepo main goes green. Kills the merged≠pinned
+   lag class without ceremony changes.
+2. **Compatibility contracts as code:** coupled changes declare
+   `requires: {renquant-pipeline: ">=5b65f2a"}` in the consuming repo's
+   config/manifest; an umbrella CI matrix test loads each pinned pair and
+   fails on mismatch — replacing the hand-written "do not pin X with
+   pre-Y" PR warnings.
+3. **Decide submodules-vs-lock in a 1-day spike** (S3): if submodules, the
+   preflight/doctor collapse into `git submodule status --recursive`; if
+   lock stays, Renovate manages it. Either way the policy (pins = audited
+   production set; humans merge) is unchanged.
+4. **Honest monorepo note:** for one box + three agents, a monorepo with
+   path-scoped CI would erase the entire class (atomic cross-repo changes,
+   one SHA = whole-system version). Migration cost is real; revisit only if
+   the Renovate+contracts setup still bleeds after a quarter.
+
+## 15. "There are ~100 more bugs" — finding them systematically, then keeping them out
+
+Agreed, and we can even locate where they live: this week's 8 bugs ALL came
+from four code patterns, and the census says those patterns are everywhere:
+**205 broad `except Exception` sites** (pipeline kernel + adapters) and
+**2,310 dict `.get()` sites** in the kernel alone (each a potential silent
+fallback like the max_hold anchor bug).
+
+### 15.1 The hunt (ordered by expected bugs-per-hour, all mature tooling)
+1. **Historical differential replay** — THE engine: run DRPH over the last
+   60 trading days and diff recomputed decisions vs what production actually
+   did. Every mismatch is a deploy-drift artifact or a live bug. (Proof the
+   method works: today's hand-pipeline vs native-pipeline scoring diff,
+   −0.0054 vs −0.0915 on identical inputs, is exactly such an unexplained
+   discrepancy — bug #1 of the 100, already queued.)
+2. **Property campaign on money math** (hypothesis + pandera): exits never
+   widen stops, Kelly ∈ [0,cap], veto only removes, wash-sale only blocks
+   losses, calibrator monotone. The NaN fail-open family (Issues 23/24) is
+   exactly what this catches; expect double digits from 205+2310 sites.
+3. **Static sweep baseline**: ruff (full rule set), mypy --strict on
+   kernel/ (gradual), vulture (dead code), bandit. One day, repeatable in CI.
+4. **Mutation testing (mutmut) on the kernel's top-10 money modules** —
+   measures whether the 589 test files actually bite; surviving mutants mark
+   where bugs hide untested.
+5. **Targeted incident-class greps** (each past bug becomes a query): every
+   `.get(..., default)` on config/state in decision paths; every broad
+   except that swallows; every `Path(` artifact join outside the resolver;
+   every NaN comparison. Output: a ranked review queue, not a 2,310-item
+   slog — decision-path hits first.
+
+### 15.2 Keeping them out (prevention = §11–§13 plus)
+- **Bug-class lints:** every incident class becomes a custom ruff/AST rule
+  or lint test (ban naked broad-except in kernel, ban dict-fallbacks outside
+  parsers, ban artifact Path joins) — the linter remembers so reviewers
+  don't have to.
+- **Incident → golden case, mandatory:** DRPH corpus grows with every bug
+  found in 15.1; the regression suite becomes the bug history (§11.4).
+- **Coverage ratchet:** mutation score and mypy-strict coverage only ratchet
+  up per PR (no new untyped/unkilled-mutant code in kernel paths).
+- **Weekly differential replay** on the rail: yesterday's decisions re-run
+  and diffed — drift alarms within a day, not after an operator loss.
