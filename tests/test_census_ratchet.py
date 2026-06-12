@@ -43,4 +43,4 @@ def test_gate_writer_ratchet():
 def test_ratchet_file_well_formed():
     ratchet = json.loads(RATCHET.read_text())
     assert isinstance(ratchet["max_buy_blocked_writers"], int)
-    assert ratchet["floor"] == 2
+    assert ratchet["floor"] == 3  # the three designated choke points
