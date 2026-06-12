@@ -102,6 +102,7 @@ def _install_live_commit_and_persistence_stubs(
         assert kwargs == {
             "live_state_path": live_state,
             "trade_journal_path": trade_journal,
+            "run_id": "native-live-20260612",
             "runs_db_path": runs_db,
             "strategy": "renquant_104_live",
             "lifecycle_journal_path": lifecycle_journal,
@@ -120,8 +121,12 @@ def _install_live_commit_and_persistence_stubs(
         ]
         out["persistence_audit"] = {
             "committed_mutation_count": 2,
+            "lifecycle_journal_row_count": 1,
+            "live_state_snapshot_row_count": 1,
             "live_state_path": str(live_state),
             "trade_journal_path": str(trade_journal),
+            "runs_db_path": str(runs_db),
+            "run_id": "native-live-20260612",
         }
         return out
 
@@ -309,6 +314,7 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
         broker_name="paper",
         execute_live=True,
         commit_persistence=True,
+        run_id="native-live-20260612",
         live_state_output_json=live_state,
         trade_journal_output_json=trade_journal,
         lifecycle_journal_output_json=lifecycle_journal,
@@ -317,9 +323,12 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
     )
 
     assert payload["metadata"]["readonly"] is False
+    assert payload["metadata"]["run_id"] == "native-live-20260612"
     assert payload["metadata"]["persistence_audit"]["committed_mutation_count"] == 2
+    assert payload["metadata"]["persistence_audit"]["live_state_snapshot_row_count"] == 1
     assert all(row["committed"] is True for row in payload["state_mutations"])
     execution_payload = json.loads(execution.read_text(encoding="utf-8"))
+    assert execution_payload["persistence_audit"]["run_id"] == "native-live-20260612"
     assert execution_payload["persistence_audit"]["live_state_path"] == str(live_state)
     commit_payload = json.loads(commit_plan.read_text(encoding="utf-8"))
     assert all(row["committed"] is True for row in commit_payload["state_mutations"])
@@ -367,6 +376,7 @@ def test_native_live_candidate_posts_persistence_alert_after_commit(
         lifecycle_journal_output_json=lifecycle_journal,
         runs_db=runs_db,
         live_state_strategy="renquant_104_live",
+        run_id="native-live-20260612",
         persistence_ntfy_url="https://ntfy.example/native-live",
     )
 
@@ -415,6 +425,7 @@ def test_native_live_candidate_records_persistence_alert_failure_without_rollbac
         lifecycle_journal_output_json=lifecycle_journal,
         runs_db=runs_db,
         live_state_strategy="renquant_104_live",
+        run_id="native-live-20260612",
         persistence_ntfy_url="https://ntfy.example/native-live",
     )
 
@@ -443,7 +454,6 @@ def test_native_live_candidate_rejects_commit_persistence_without_paths(tmp_path
     else:
         raise AssertionError("expected missing persistence path rejection")
 
-
 def test_native_live_candidate_rejects_persistence_alert_without_commit(tmp_path: Path) -> None:
     inference = tmp_path / "inference.json"
     inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
@@ -460,6 +470,30 @@ def test_native_live_candidate_rejects_persistence_alert_without_commit(tmp_path
         assert "--persistence-ntfy-url requires --commit-persistence" in str(exc)
     else:
         raise AssertionError("expected persistence alert without commit rejection")
+
+
+def test_native_live_candidate_rejects_commit_persistence_without_audit_evidence(
+    tmp_path: Path,
+) -> None:
+    inference = tmp_path / "inference.json"
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+
+    try:
+        run_native_live_candidate(
+            inference_json=inference,
+            output_json=tmp_path / "native-bundle.json",
+            broker_name="paper",
+            execute_live=True,
+            commit_persistence=True,
+            live_state_output_json=tmp_path / "live_state.alpaca.json",
+            trade_journal_output_json=tmp_path / "trades.jsonl",
+        )
+    except ValueError as exc:
+        assert "--run-id" in str(exc)
+        assert "--runs-db" in str(exc)
+        assert "--lifecycle-journal-output-json" in str(exc)
+    else:
+        raise AssertionError("expected missing persistence audit evidence rejection")
 
 
 def test_native_live_candidate_rejects_readonly_execute_live(tmp_path: Path) -> None:

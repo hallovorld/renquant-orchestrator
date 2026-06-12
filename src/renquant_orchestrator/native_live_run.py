@@ -85,11 +85,13 @@ def _commit_persistence_payload(
     runs_db_path: str | Path | None,
     lifecycle_journal_output_json: str | Path | None,
     live_state_strategy: str,
+    run_id: str,
 ) -> dict[str, Any]:
     return _commit_live_persistence(
         _commit_plan_payload(execution_payload),
         live_state_path=live_state_output_json,
         trade_journal_path=trade_journal_output_json,
+        run_id=run_id,
         runs_db_path=runs_db_path,
         strategy=live_state_strategy,
         lifecycle_journal_path=lifecycle_journal_output_json,
@@ -204,12 +206,15 @@ def _candidate_metadata(
     broker_name: str,
     metadata_payload: dict[str, Any] | None,
     readonly: bool,
+    run_id: str | None,
 ) -> dict[str, Any]:
     metadata = dict(metadata_payload or {})
     metadata.setdefault("stage", "native_live_run_candidate")
     metadata.setdefault("readonly", readonly)
     metadata.setdefault("broker_name", broker_name)
     metadata.setdefault("runner", "renquant_orchestrator.native_live_run")
+    if run_id:
+        metadata.setdefault("run_id", run_id)
     return metadata
 
 
@@ -227,6 +232,7 @@ def run_native_live_candidate(
     live_state_strategy: str = "renquant_104",
     max_live_state_age_days: int | None = None,
     live_state_contract_output_json: str | Path | None = None,
+    run_id: str | None = None,
     broker_name: str = "readonly-native",
     execute_live: bool = False,
     dry_run: bool = False,
@@ -249,6 +255,13 @@ def run_native_live_candidate(
         raise ValueError(
             "--commit-persistence requires --live-state-output-json and "
             "--trade-journal-output-json"
+        )
+    if commit_persistence and (
+        not run_id or not runs_db or not lifecycle_journal_output_json
+    ):
+        raise ValueError(
+            "--commit-persistence requires --run-id, --runs-db, and "
+            "--lifecycle-journal-output-json for persistence audit evidence"
         )
     inference_payload = _load_json(inference_json)
     metadata_payload = _load_json(metadata_json) if metadata_json else None
@@ -284,6 +297,7 @@ def run_native_live_candidate(
             runs_db_path=runs_db,
             lifecycle_journal_output_json=lifecycle_journal_output_json,
             live_state_strategy=live_state_strategy,
+            run_id=run_id,
         )
     persistence_alert: dict[str, Any] | None = None
     if persistence_ntfy_url:
@@ -309,6 +323,7 @@ def run_native_live_candidate(
             broker_name=broker_name,
             metadata_payload=metadata_payload,
             readonly=bool(execution_payload.get("readonly", not execute_live)),
+            run_id=run_id,
         ),
     )
     _write_json(output_json, bundle)
@@ -323,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commit-plan-output-json", default=None)
     parser.add_argument("--metadata-json", default=None)
     parser.add_argument("--output-json", required=True)
+    parser.add_argument("--run-id", default=None)
     parser.add_argument("--broker-name", default="readonly-native")
     parser.add_argument(
         "--execute-live",
@@ -362,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         commit_plan_output_json=args.commit_plan_output_json,
         metadata_json=args.metadata_json,
         output_json=args.output_json,
+        run_id=args.run_id,
         broker_name=args.broker_name,
         execute_live=args.execute_live,
         dry_run=args.dry_run,
