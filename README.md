@@ -18,6 +18,8 @@ renquant-orchestrator daily-contract \
 renquant-orchestrator scheduled-jobs
 renquant-orchestrator scheduled-jobs --fail-on-umbrella-bridge
 renquant-orchestrator scheduled-health --status-json /tmp/renquant-scheduled-health.json --strict
+renquant-orchestrator engineering-census --strict
+python scripts/engineering/census_ci.py
 renquant-orchestrator run-job weekly_alpha158_fund_retrain -- --staged
 renquant-orchestrator live-offboard-status --strict \
   --env-file ../RenQuant/.env
@@ -87,6 +89,12 @@ scheduled jobs together.
 `stage_status.next_blocker` so operators can distinguish credential preflight,
 bridge capture, native payload generation, parity, and final scheduled-job
 cutover blockers.
+
+`engineering-census` is the reproducibility surface for architecture and
+research docs. It emits repo SHAs, key file line counts, strategy-config key
+counts, and AST-counted `buy_blocked=True` writers with file/line evidence.
+Use `--expect-buy-blocked-writers N --strict` in CI or review branches when a
+GateRegistry migration intentionally changes the direct writer count.
 
 `native_live_parity_fixture` is the exit gate before flipping
 `daily_live_runner_bridge` or `live_runner_bridge` out of umbrella bridge mode.
