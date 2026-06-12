@@ -29,9 +29,7 @@ gated by the standard WF gate; nothing promotes on val-IC alone.
 ### 1.1 Turn on the cross-stock attention we already built ⭐ (strongest internal evidence)
 `HFPatchTSTRanker` already implements `--cross-stock-attn`. In the May DOE
 (`logs/hf_cross_stock_5cut_5seed_pt07`), the cross-stock variant reached
-**best_val_ic 0.203** vs the plain trainer's 0.157–0.188 on the same cut —
-the best architecture result this repo has ever produced — and it was never
-promoted (prod runs `cross_stock=False`). External literature agrees this is
+a winner-picked max of best_val_ic 0.2035; the FULL 25-point run averages **+0.0507 (std 0.0878, 12/25 negative, two regimes negative)** — a high-variance candidate, not a proven winner. It was never promoted (prod runs `cross_stock=False`), and any adoption requires the paired, DSR/PBO-controlled A/B defined in the errata. External literature agrees this is
 where the juice is: **MASTER (AAAI 2024)** — the current reference stock
 transformer — attributes its gains exactly to modeling *momentary and
 cross-time stock correlation* ([paper](https://arxiv.org/pdf/2312.15235),
@@ -92,8 +90,7 @@ label quality, and regime deployment — not the encoder.
 | DLinear (already tried) | linear baseline | Our DOE: 0.128–0.153 val_ic — useful sanity floor, not a successor |
 | GBDT (XGB) | tabular | Shadow-only per decision record; the shadow monitor produces the ongoing comparison |
 
-**Recommendation:** spend Q2 budget on 1.1 (which IS the MASTER mechanism in
-our own codebase) before importing any new architecture. One genuinely new
+**Recommendation:** spend Q2 budget on 1.1 (the cheapest test of the cross-sectional-mixing hypothesis) before importing any new architecture. One genuinely new
 external test worth 1 day: MASTER's official Qlib implementation on our
 panel as a *challenger*, same strict split, same gate.
 
@@ -151,7 +148,7 @@ Ranked engineering program (largely already approved, consolidated here):
 - [PatchTST overview & benchmark standing](https://www.emergentmind.com/topics/patchtst)
 - [TSFMs for multivariate financial forecasting (2025)](https://arxiv.org/html/2507.07296v1) · [Re(Visiting) TSFMs in Finance](https://arxiv.org/html/2511.18578v1) · [TimesFM vs Chronos vs Moirai for finance](https://paperswithbacktest.com/course/timesfm-vs-chronos-vs-moirai)
 - [Market-guided Mamba for stock prediction](https://www.sciencedirect.com/science/article/pii/S1110016824012821)
-- Internal: capability-boundary doc (2026-06-12), May DOE logs (cross-stock 0.203 / FiLM 0.165 / DLinear 0.153 / base 0.188), decision record (PatchTST primary), Grinold & Kahn (1999).
+- Internal: capability-boundary doc (2026-06-12), May DOE logs (cross-stock full-run mean +0.0507 with winner-picked max 0.2035 / FiLM 0.165 / DLinear 0.153 / base 0.188 — per-cut details in errata), decision record (PatchTST primary), Grinold & Kahn (1999).
 
 
 ---

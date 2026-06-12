@@ -38,7 +38,7 @@ risk per stage.
 | False-BEAR cascade → zero buys (#92) | 12 independent `buy_blocked` writers, OR-of-thresholds, no attribution requirement | **S2: GateRegistry + decision ledger** |
 | MU force-sold by `max_hold` (#94/#27) | implicit fallback to *current*-regime value; entry anchor never stamped | **S1: fail-safe defaults in typed state** |
 | "Merged ≠ deployed" + runtime-root drift (twice) | dual code-resolution (PYTHONPATH siblings ‖ pinned runtime) | **S3: single pinned runtime** |
-| PatchTST had no WF-gate stamp at promotion | artifact metadata fragmented across mergeable sidecars; promotion contract not enforced at train time | **S3: MLflow registry stages** |
+| PatchTST had no WF-gate stamp at promotion | artifact metadata fragmented across mergeable sidecars; promotion contract not enforced at train time | **S3: MLflow registry aliases (champion/candidate/shadow; stages deprecated, RFC mlflow#10336)** |
 | Live-state accidentally reverted during a git sync | operational state lives in the code repo's working tree | **S3: state out of the repo** (DB-canonical exists; `live_state_snapshots` infra present but the local DB is empty) |
 
 This table is the answer to "缺乏对当前情况的具体认知": every proposal below
@@ -71,7 +71,7 @@ traces to a production incident from the last seven days.
    one box).
 6. **MLflow Model Registry** (already installed) — replaces the
    `staging-filename zoo` with explicit stages
-   (**aliases** (champion / candidate / shadow) + immutable version tags + WF-verdict metadata (MLflow stages are deprecated per RFC mlflow#10336)) and stamped lineage; the WF gate
+   (**aliases** (champion / candidate / shadow) + immutable version tags + WF-verdict metadata (MLflow aliases are deprecated per RFC mlflow#10336)) and stamped lineage; the WF gate
    becomes the only transition authority.
 7. **Hypothesis (property-based testing)** — replaces a tranche of
    string-scan tests with executable invariants (examples in §5.3).
@@ -100,7 +100,7 @@ cloud services added).
                        │ strategy_dir-first, content-hash stamped)  │
                        └────────────────────────────────────────────┘
                        ┌─ S2: ONE DECISION CHOKE POINT ─────────────┐
- 12 × buy_blocked ──►  │ GateRegistry: gates REGISTER verdicts      │
+ 16 × buy_blocked ──►  │ GateRegistry: gates REGISTER verdicts      │
                        │ {gate, verdict, reason, inputs}; the       │
                        │ pipeline reads ONE aggregate; ledger row   │
                        │ per decision (extends ticker_daily_state)  │
@@ -113,7 +113,7 @@ cloud services added).
  PYTHONPATH siblings─► │ pinned .subrepo_runtime is the ONLY        │
                        │ execution path (preflight enforces today;  │
                        │ delete the fallback)                       │
- staging filenames ──► │ MLflow registry stages; WF gate = the only │
+ staging filenames ──► │ MLflow registry aliases (champion/candidate/shadow; stages deprecated, RFC mlflow#10336); WF gate = the only │
                        │ stage-transition caller                    │
  state in repo ──────► │ DB-canonical live state (infra exists);    │
                        │ JSON demoted to cache outside the repo     │
