@@ -66,6 +66,30 @@ def _commit_plan_payload(execution_payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _commit_live_persistence(plan: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    try:
+        from renquant_execution import commit_live_persistence
+    except ImportError as exc:
+        raise RuntimeError(
+            "--commit-persistence requires renquant-execution with "
+            "commit_live_persistence"
+        ) from exc
+    return commit_live_persistence(plan, **kwargs)
+
+
+def _commit_persistence_payload(
+    execution_payload: dict[str, Any],
+    *,
+    live_state_output_json: str | Path,
+    trade_journal_output_json: str | Path,
+) -> dict[str, Any]:
+    return _commit_live_persistence(
+        _commit_plan_payload(execution_payload),
+        live_state_path=live_state_output_json,
+        trade_journal_path=trade_journal_output_json,
+    )
+
+
 def _live_state_contract_payload(
     *,
     strategy_dir: str | Path,
@@ -172,10 +196,22 @@ def run_native_live_candidate(
     broker_name: str = "readonly-native",
     execute_live: bool = False,
     dry_run: bool = False,
+    commit_persistence: bool = False,
+    live_state_output_json: str | Path | None = None,
+    trade_journal_output_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build a native live bundle without importing umbrella live.runner."""
     if execute_live and execution_json:
         raise ValueError("--execute-live cannot be combined with --execution-json")
+    if commit_persistence and not execute_live:
+        raise ValueError("--commit-persistence requires --execute-live")
+    if commit_persistence and dry_run:
+        raise ValueError("--commit-persistence cannot be combined with --dry-run")
+    if commit_persistence and (not live_state_output_json or not trade_journal_output_json):
+        raise ValueError(
+            "--commit-persistence requires --live-state-output-json and "
+            "--trade-journal-output-json"
+        )
     inference_payload = _load_json(inference_json)
     metadata_payload = _load_json(metadata_json) if metadata_json else None
     inference_payload, metadata_payload = _attach_live_state_contract(
@@ -202,10 +238,19 @@ def run_native_live_candidate(
             inference_payload=inference_payload,
             broker_name=broker_name,
         )
+    if commit_persistence:
+        execution_payload = _commit_persistence_payload(
+            execution_payload,
+            live_state_output_json=live_state_output_json,
+            trade_journal_output_json=trade_journal_output_json,
+        )
     if execution_output_json:
         _write_json(execution_output_json, execution_payload)
     if commit_plan_output_json:
         _write_json(commit_plan_output_json, _commit_plan_payload(execution_payload))
+    if execution_payload.get("persistence_audit"):
+        metadata_payload = dict(metadata_payload or {})
+        metadata_payload["persistence_audit"] = dict(execution_payload["persistence_audit"])
 
     bundle = build_native_live_bundle(
         inference_payload=inference_payload,
@@ -239,6 +284,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="with --execute-live, validate execution without placing orders",
     )
+    parser.add_argument(
+        "--commit-persistence",
+        action="store_true",
+        help="with --execute-live, commit filled order persistence artifacts",
+    )
+    parser.add_argument("--live-state-output-json", default=None)
+    parser.add_argument("--trade-journal-output-json", default=None)
     parser.add_argument("--strategy-dir", default=None)
     parser.add_argument("--runs-db", default=None)
     parser.add_argument("--live-state-broker-name", default=None)
@@ -257,6 +309,9 @@ def main(argv: list[str] | None = None) -> int:
         broker_name=args.broker_name,
         execute_live=args.execute_live,
         dry_run=args.dry_run,
+        commit_persistence=args.commit_persistence,
+        live_state_output_json=args.live_state_output_json,
+        trade_journal_output_json=args.trade_journal_output_json,
         strategy_dir=args.strategy_dir,
         runs_db=args.runs_db,
         live_state_broker_name=args.live_state_broker_name,
