@@ -17,13 +17,16 @@ EXECUTION_SRC ?= ../renquant-execution/src
 BACKTESTING_SRC ?= ../renquant-backtesting/src
 export PYTHONPATH := $(COMMON_SRC):$(BASE_DATA_SRC):$(ARTIFACTS_SRC):$(STRATEGY_SRC):$(GBDT_SRC):$(PATCHTST_SRC):$(PIPELINE_SRC):$(EXECUTION_SRC):$(BACKTESTING_SRC):src:$(PYTHONPATH)
 
-.PHONY: test doctor daily-contract
+.PHONY: test doctor daily-contract engineering-census
 
 test:
 	$(PYTHON) -m pytest -q
 
 doctor:
 	$(PYTHON) -c "from renquant_orchestrator import DailyRunPipeline; from renquant_common import Pipeline; print('renquant-orchestrator ok')"
+
+engineering-census:
+	$(PYTHON) -m renquant_orchestrator engineering-census --strict
 
 daily-contract:
 	$(PYTHON) -m renquant_orchestrator daily-contract \

@@ -238,6 +238,60 @@ def test_run_job_live_bridge_loads_env_file(monkeypatch, tmp_path: Path) -> None
     }
 
 
+def test_engineering_census_cli_strict_expectation(tmp_path: Path, capsys) -> None:
+    pipeline_src = tmp_path / "renquant-pipeline" / "src"
+    gate_file = pipeline_src / "pkg" / "gates.py"
+    gate_file.parent.mkdir(parents=True)
+    gate_file.write_text("def gate(ctx):\n    ctx.buy_blocked = True\n", encoding="utf-8")
+    cfg = tmp_path / "strategy_config.json"
+    cfg.write_text("{}", encoding="utf-8")
+
+    rc = main([
+        "engineering-census",
+        "--github-root",
+        str(tmp_path),
+        "--pipeline-src",
+        str(pipeline_src),
+        "--strategy-config",
+        str(cfg),
+        "--expect-buy-blocked-writers",
+        "1",
+        "--strict",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["gate_writers"]["count"] == 1
+    assert payload["ok"] is True
+
+
+def test_engineering_census_cli_strict_returns_two_on_expectation_failure(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    pipeline_src = tmp_path / "renquant-pipeline" / "src"
+    pipeline_src.mkdir(parents=True)
+    cfg = tmp_path / "strategy_config.json"
+    cfg.write_text("{}", encoding="utf-8")
+
+    rc = main([
+        "engineering-census",
+        "--github-root",
+        str(tmp_path),
+        "--pipeline-src",
+        str(pipeline_src),
+        "--strategy-config",
+        str(cfg),
+        "--expect-buy-blocked-writers",
+        "1",
+        "--strict",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 2
+    assert payload["expectation_failures"][0]["actual"] == 0
+
+
 def test_agent_identity_cli_strict_returns_nonzero_on_shared_actor(monkeypatch, capsys) -> None:
     import renquant_orchestrator.agent_workflows as workflows
 

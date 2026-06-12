@@ -126,6 +126,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    engineering_census = sub.add_parser(
+        "engineering-census",
+        help="emit reproducible engineering census metrics for docs/CI",
+    )
+    engineering_census.add_argument(
+        "--github-root",
+        type=Path,
+        default=None,
+        help="checkout parent containing renquant-* repos; default RENQUANT_GITHUB_ROOT or sibling root",
+    )
+    engineering_census.add_argument(
+        "--pipeline-src",
+        type=Path,
+        default=None,
+        help="override renquant-pipeline/src for isolated tests or branch audits",
+    )
+    engineering_census.add_argument(
+        "--strategy-config",
+        action="append",
+        type=Path,
+        default=None,
+        help="strategy_config.json path to census; may be passed more than once",
+    )
+    engineering_census.add_argument(
+        "--expect-buy-blocked-writers",
+        type=int,
+        default=None,
+        help="optional fail-closed expectation for AST-counted buy_blocked=True writers",
+    )
+    engineering_census.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero when required paths are missing or expectations fail",
+    )
+
     parity = sub.add_parser(
         "live-parity-fixture",
         help="compare umbrella-bridge and native live run bundles for offboard parity",
@@ -382,6 +417,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.strict and health["summary"]["red_job_count"]:
             return 2
         return 0
+    if args.command == "engineering-census":
+        from .engineering_census import build_engineering_census
+
+        payload = build_engineering_census(
+            github_root=args.github_root,
+            pipeline_src=args.pipeline_src,
+            strategy_configs=args.strategy_config,
+            expect_buy_blocked_writers=args.expect_buy_blocked_writers,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["ok"] or not args.strict else 2
     if args.command == "live-parity-fixture":
         from .live_parity import main as parity_main
 
