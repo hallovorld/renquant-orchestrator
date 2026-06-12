@@ -3,6 +3,7 @@
 | Doc | Status | One-line hook |
 |---|---|---|
 | `research/2026-06-12-engineering-architecture-deep-plan.md` | **AUTHORITY (with errata)** | five-plane engineering program; DRPH; contracts; disaster guards; execution PR backlog |
+- `doc/research/2026-06-12-intraday-trading-roadmap.md` — after-close → intraday roadmap (4 layers; P0 risk-reaction NOW, P1 execution, P2 gated experiment, P3 SHELVED w/ triggers); consumes #108 infra, never reorders #110.
 | `research/2026-06-12-model-capability-roadmap.md` | blocked by decision below | PatchTST improvement candidates (read errata first: cross-stock is high-variance, breadth claim retracted) |
 | `decisions/2026-06-12-engineering-before-model-research.md` | ACTIVE decision | #108 before #106; four unblocking milestones |
 | `decisions/2026-06-12-scorer-lineup-decision.md` | ACTIVE decision | PatchTST primary, XGB shadow, ensemble SHELVED + reopening triggers |
