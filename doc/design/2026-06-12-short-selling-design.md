@@ -67,8 +67,10 @@ ships:
 4. Negative-position persistence: live_state round-trips signed positions
    (mirroring the sell_streaks/protection_breaches pattern).
 5. Intraday-margin preflight + broker pre-trade rejection handling (§5).
-SPY-hedge-only scope makes 3 trivial (SPY is permanently ETB) but the
-contract work (1/2/4/5) is unavoidable and is Phase A's real cost.
+SPY is expected to be highly liquid/ETB, but item 3 still runs at order
+time and fails closed if Alpaca reports otherwise — broker availability and
+account restrictions are operational facts, not constants. The contract
+work (1/2/4/5) is unavoidable and is Phase A's real cost.
 
 ## 3. Phase B — Efficiency extension (110/10). Four mechanisms.
 Unchanged from v4: QP owns the sleeve (borrow cost in objective; short leg
@@ -91,8 +93,8 @@ margin excess/deficit with broker pre-trade rejections. Consequences:
   broker would reject, (b) poll intraday margin excess while any short is
   open (ride the existing ~12-min rail), (c) treat a broker rejection as a
   hard signal to de-risk, never retry-loop.
-- Account breaker (§2.4) keys off intraday margin excess, not maintenance-
-  margin end-of-day numbers.
+- The account breaker (§2 mechanism 4) keys off intraday margin excess, not
+  end-of-day maintenance-margin numbers.
 
 ## 6. Operator questions (carried)
 1. Phase-A instrument: short SPY (recommended) vs long SH?
