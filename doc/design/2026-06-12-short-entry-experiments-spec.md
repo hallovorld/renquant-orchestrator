@@ -28,7 +28,16 @@
   mean P&L > 0 (90% CI excluding 0 preferred) AND stop-simulated worst event
   ≥ −25%.
 
-## E2 — Inverted protection (sustained bearish μ)
+## E8 — Efficiency-extension replay (NEW in v3; runs after long-side WF gate is green)
+
+- **Setup:** identical inputs, QP with vs without a bounded short sleeve
+  (gross ≤120%, short leg ≤10% NAV, per-name 3%, borrow 1%/yr priced in the
+  objective). Short candidates = lowest-rank liquid single names (ETB).
+- **PASS:** net IR improvement (costs priced) AND MaxDD not worsened AND
+  turnover increase ≤ 1.5×.
+- **Primary cell:** 110/10. Sensitivity: 120/20.
+
+## E2 — Inverted protection (sustained bearish μ) — DEPRIORITIZED (v3)
 
 - **Event:** calibrated μ < −τ_strong on **N consecutive** trading days;
   event date = Nth day.
@@ -37,7 +46,7 @@
 - **Output:** events table (date, ticker, μ-path), metrics per cell, primary
   verdict. Also run on PIT-#1 year (different regime mix) as out-of-period check.
 
-## E3 — Broken momentum (fresh rank breakdown)
+## E3 — Broken momentum (fresh rank breakdown) — DEPRIORITIZED (v3)
 
 - **Event:** ticker's cross-sectional pred-rank was in the **top 50%** at
   t−k and is in the **bottom decile** at t.
@@ -46,7 +55,7 @@
 - **Rationale check built in:** report what fraction of events are
   defensive/mega-cap (the E1 failure mode) vs genuinely broken names.
 
-## E4 — Trend veto overlay (only if E2 or E3 base-passes or near-passes)
+## E4 — Trend veto overlay — DEPRIORITIZED (v3)
 
 - **Filter:** price < 200-DMA at event date (real OHLCV).
 - **Test:** paired comparison of E2/E3 cells with vs without the filter —
@@ -85,6 +94,6 @@
 
 ## Sequencing & effort
 
-E6 ‖ (E2 → E3) now; E4 after; E5 after backfill; E7 last. Each experiment is
+v3 order: E6 now; E8 after long-side gate green; FINRA backfill → E5; E2/E3/E4 optional sensitivity only; E4 after; E5 after backfill; E7 last. Each experiment is
 a CPU-only script over existing artifacts (minutes), except the FINRA
 backfill (network + parsing, ~half day). Verdicts append to this spec.
