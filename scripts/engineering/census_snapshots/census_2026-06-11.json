@@ -1,0 +1,28 @@
+{
+  "as_of": "2026-06-11T23:28:42",
+  "shas": {
+    "RenQuant": "0d04c9b",
+    "renquant-pipeline": "1e3fb81",
+    "renquant-strategy-104": "7d82599",
+    "renquant-orchestrator": "d947f40"
+  },
+  "god_files_loc": {
+    "job_panel_scoring.py": 3476,
+    "runner.py": 2958,
+    "run_wf_gate.py": 2658
+  },
+  "config": {
+    "lines": 1275,
+    "keys_recursive": 875,
+    "reason_keys": 55
+  },
+  "buy_blocked_writers": 17,
+  "broad_except_sites": 205,
+  "kernel_dict_get_sites": 2310,
+  "scripts": {
+    "py": 253,
+    "sh": 66,
+    "launchd_plists": 14
+  },
+  "string_scan_test_files": 177
+}
