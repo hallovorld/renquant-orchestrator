@@ -61,3 +61,16 @@ print(f"vs prod (cutoff 2024-11, 11-15mo stale) same window:    -0.0915")
 #   to zero, not to positive. Quarterly retrains: necessary, NOT sufficient.
 # caveat: hand pipeline != native (native scored prod at -0.0915 in the same
 # window); within-pipeline A/B is fair, cross-pipeline levels are not.
+
+# ── THIRD POINT (2026-06-12, model #2 cutoff 2024-04 done 23:23) ──
+# Same hand-rolled pipeline, same 42 sampled dead-window days:
+#   prod  (cutoff 2024-11, 11-15mo stale): -0.0054
+#   PIT#2 (cutoff 2024-04, 18-21mo stale): -0.0584
+#   PIT#1 (cutoff 2023-10, 24-27mo stale): -0.0701
+# → decay curve is MONOTONE across three cutoffs in the same calendar
+#   window: staleness effect confirmed with three points (~6.5 IC pts per
+#   ~year of cutoff distance in this window). Regime effect still present:
+#   even the freshest model is ~0, not positive, in calm tape.
+# CAVEAT: hand pipeline levels != native pipeline levels; within-pipeline
+# comparisons only. Next: per-cutoff calibrators -> manifest extension ->
+# WF gate retake (the 3-cut exam).
