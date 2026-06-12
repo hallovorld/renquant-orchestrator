@@ -462,3 +462,58 @@ References: Meyer, *Design by Contract* (preconditions/postconditions/
 invariants); King, *Parse Don't Validate* (validate at edges, types inside);
 Google SRE (canarying, error budgets); Hypothesis (property-based contracts);
 internal: quality-floor NaN fail-open Issues 23/24 (2026-05-04 audit).
+
+## 12. Concurrent audit sidecar (operator proposal — adopted as containment layer L6)
+
+**Proposal:** self-auditing tasks judge upstream outputs while downstream
+tasks run concurrently — early anomaly detection, early alarm.
+
+**Adopted, with two design decisions that make it safe and effective:**
+
+### 12.1 Concurrency with a money barrier
+Audits run on a background executor (they are small-frame numpy — threads
+fine) in parallel with downstream compute, BUT the pipeline **joins all
+audits before order emission** (the one irreversible step). Post-§0 redesign
+the whole run is <90 s, so a bounded audit budget (≤5 s at the barrier) is
+free latency-wise. Verdicts: `INFO/WARN` never block; `CRITICAL` blocks
+order emission for the affected scope (book or ticker) with a ledger row —
+same fail-closed semantics as risk tasks (§11.3).
+
+### 12.2 Audit catalog v1 (each mapped to a real incident it would catch)
+
+| Audit (async, after stage) | Method | Would have caught |
+|---|---|---|
+| Input-recheck: regime feeds | independently recompute 5d/20d vol+ret from raw OHLCV; compare to detector inputs | feed corruption class; false-BEAR forensics instantly |
+| Staleness sweep | max-date lag per source vs publication-lag budget | fundamentals 121d (it WARNED daily — see 12.3 for why it still failed) |
+| Score-distribution drift | PSI/KS vs trailing 20-day baseline from score_db (already recorded) | calibrator saturation, silent model regressions |
+| Shadow-liveness | shadow scores present & corr(primary,shadow) in band | shadow dead-for-a-week (#114) |
+| Cross-field consistency | holdings ⨝ broker positions counts; state field ranges | live-state revert class |
+| Gate-profile anomaly | today's gate verdict vector vs trailing distribution | funnel regressions (12 blocks where median is 2) |
+
+Baselines come from tables we already write (`score_db`,
+`ticker_daily_state`, ledger) — no new storage.
+
+### 12.3 The lesson the existing warnings teach: escalation lifecycle
+The system ALREADY had ad-hoc versions (CALIBRATOR-SATURATED,
+`fundamentals feed STALE` — fired daily for ~4 months, ignored). Detection
+without lifecycle = noise. Each audit alert carries state:
+`new → ntfy WARN → unacknowledged N days → escalate to CRITICAL
+(blocks orders for affected scope) → resolved`. Dedup by (audit, scope,
+cause-hash) so a 121-day-old condition is ONE escalating incident, not 121
+identical warnings. Acknowledgement = an operator command writing to the
+ledger; thresholds and N per audit class live in config (schema-validated).
+
+### 12.4 Interface
+
+```python
+class AuditTask(Protocol):
+    stage: str                 # runs after this stage's output snapshot
+    severity_policy: dict      # condition → INFO/WARN/CRITICAL
+    def run(self, snapshot: StageSnapshot, baseline: Baseline) -> AuditVerdict
+# Scheduler: submit on stage completion; join-all at order barrier;
+# verdicts → decision_ledger (audit=True) + alert lifecycle table.
+```
+
+This is containment layer **L6** in the §11.1 stack: L1–L5 bound change
+risk; L6 bounds **data/runtime risk on unchanged code** — the two failure
+families this week actually exhibited.
