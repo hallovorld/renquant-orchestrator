@@ -26,8 +26,13 @@
 1. **Very high bar:** no short is opened unless the evidence is *especially
    compelling* — quantified as ALL of: bottom-5% of the cross-sectional rank
    (not bottom decile), μ < −τ_strong on N consecutive evaluations (the
-   protection state machine inverted, N≥3), regime confirmed BEAR, and every
-   §3 Phase-1 veto passing. Default answer is NO SHORT.
+   protection state machine inverted, N≥3), and every §3 Phase-1 veto
+   passing. Default answer is NO SHORT. **No regime precondition** (operator
+   amendment 2026-06-12): a sufficiently strong name-level signal may short
+   in any regime — the evidence bar itself is the gate, not the market label.
+   (Note: this makes the squeeze/borrow vetoes and hard stops MORE important
+   in bull tape; the WF-gate evidence for Phase 1 must therefore include
+   bull-window short performance, not just bear windows.)
 2. **Max 2 concurrent single-name shorts** (`risk.short.max_positions = 2`),
    regardless of margin headroom. Index hedge (Phase 0) is exempt from the
    2-name cap but still bounded by the 20%-NAV budget.
@@ -41,7 +46,7 @@ Short **SPY** (or buy SH as a long-only fallback) as a *portfolio-level* hedge w
 
 ### Phase 1 — Conditioned single-name shorts (bottom-of-rank, BEAR/CHOPPY only)
 Short candidates = bottom **5%** of the cross-sectional rank (operator bar), **max 2 names**, **only when**:
-1. regime ∈ {BEAR, CHOPPY-confirmed} (short alpha must not fight a bull tape);
+1. ~~regime precondition~~ — removed by operator amendment; signal strength is the gate;
 2. name ∈ Alpaca **ETB** at order time;
 3. **squeeze guard**: days-to-cover < τ_dtc AND short %float < τ_si (from our PIT collector);
 4. no earnings within ±3d (event gap risk — reuse the existing earnings blackout);
@@ -70,7 +75,7 @@ A small long-short extension (e.g. 110/10 → 120/20) targeting rank spread capt
 3. **Margin spiral** — 20% book cap + preflight margin headroom + breaker that covers all shorts if maintenance margin utilization > 70%.
 4. **Dividend liability** — ex-div calendar veto (cover before ex-date unless spread justifies).
 5. **PDT breach** — shorts are multi-day by design; runner must never same-day cover except stop events; count day-trades.
-6. **Bull-tape bleed** — regime conditioning is the primary control; Phase-1 inactive in BULL_*.
+6. **Bull-tape bleed** — with no regime precondition (operator amendment), the controls are the bottom-5% bar, N-of-N μ confirmation, hard stops, and the 2-name cap; WF evidence must price this explicitly in bull windows.
 
 ## 6. Rollout & gating
 
