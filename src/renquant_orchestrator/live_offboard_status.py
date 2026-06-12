@@ -161,6 +161,89 @@ def _stage_status(
     }
 
 
+def _cutover_execution_packet(
+    *,
+    bridge_jobs: list[dict[str, Any]],
+    stage_status: dict[str, Any],
+    blocking_reasons: list[str],
+    rehearsal: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the machine-readable scheduler cutover packet.
+
+    This does not mutate scheduler state. It only declares whether the final
+    bridge-job replacement step is ready to execute.
+    """
+    checks = stage_status.get("checks", {})
+    only_bridge_blocker = set(blocking_reasons) <= {"remaining_umbrella_bridge_jobs"}
+    ready = (
+        bool(bridge_jobs)
+        and only_bridge_blocker
+        and bool(checks.get("credential_preflight_ready"))
+        and bool(checks.get("bridge_capture_ready"))
+        and bool(checks.get("native_payloads_ready"))
+        and bool(checks.get("native_live_bundle_ready"))
+        and bool(checks.get("live_state_contract_ready"))
+        and bool(checks.get("parity_ok"))
+    )
+    readonly_native_commands = any(
+        "readonly-alpaca" in [str(part) for part in job["native_cutover_command"]]
+        for job in bridge_jobs
+    )
+    jobs = [
+        {
+            "bridge_job_id": job["job_id"],
+            "kind": job["kind"],
+            "current_command": job["command"],
+            "native_replacement_job_id": job["native_replacement_job_id"],
+            "native_cutover_command": job["native_cutover_command"],
+            "launchd_label": job.get("launchd_label"),
+        }
+        for job in bridge_jobs
+    ]
+    status_command = [
+        "renquant-orchestrator",
+        "live-offboard-status",
+        "--mode",
+        rehearsal["mode"],
+        "--output-dir",
+        rehearsal["output_dir"],
+        "--broker",
+        rehearsal["broker"],
+        "--strict",
+    ]
+    if rehearsal.get("env_file"):
+        status_command.extend(["--env-file", rehearsal["env_file"]])
+    return {
+        "schema_version": 1,
+        "ready_for_readonly_validation": ready,
+        "ready_to_execute": ready and not readonly_native_commands,
+        "reason": (
+            "parity_green_but_native_cutover_is_readonly"
+            if ready and readonly_native_commands
+            else "parity_green_scheduler_cutover_only"
+            if ready else "preconditions_not_satisfied"
+        ),
+        "jobs": jobs,
+        "preconditions": [
+            "readonly bridge bundle captured from the current umbrella path",
+            "native inference/execution payloads and native live bundle generated",
+            "live-state contract is valid and uses the native contract schema",
+            "native parity verdict is ok for decision_trace, order_intents, and state_mutations",
+            "operator has approved the readonly native scheduler validation",
+            "live execution commit semantics are ported before replacing production trading",
+        ],
+        "verification_commands": [
+            rehearsal["commands"]["native_live_parity"],
+            status_command,
+        ],
+        "rollback_note": (
+            "Keep the previous bridge job command until the first native run and "
+            "scheduled-health check pass; rollback is restoring the prior "
+            "renquant-orchestrator run-job <bridge> command."
+        ),
+    }
+
+
 def build_live_offboard_status(
     *,
     mode: str = "live",
@@ -203,6 +286,20 @@ def build_live_offboard_status(
     from .scheduled_health import build_scheduled_health
 
     scheduled_health = build_scheduled_health(status_json=scheduled_health_json)
+    remaining_bridge_jobs = [
+        {
+            "job_id": job["job_id"],
+            "kind": job["kind"],
+            "command": job["command"],
+            "rehearsal_command": job["rehearsal_command"],
+            "native_replacement_job_id": job["native_replacement_job_id"],
+            "native_cutover_command": job["native_cutover_command"],
+            "native_offboard_blockers": job["native_offboard_blockers"],
+            "native_exit_criteria": job["native_exit_criteria"],
+            "launchd_label": job.get("launchd_label"),
+        }
+        for job in bridge_jobs
+    ]
 
     return {
         "schema_version": 1,
@@ -214,19 +311,13 @@ def build_live_offboard_status(
         "scheduled_health": scheduled_health,
         "stage_status": stage_status,
         "artifact_status": artifact_status,
-        "remaining_bridge_jobs": [
-            {
-                "job_id": job["job_id"],
-                "kind": job["kind"],
-                "command": job["command"],
-                "rehearsal_command": job["rehearsal_command"],
-                "native_replacement_job_id": job["native_replacement_job_id"],
-                "native_cutover_command": job["native_cutover_command"],
-                "native_offboard_blockers": job["native_offboard_blockers"],
-                "native_exit_criteria": job["native_exit_criteria"],
-            }
-            for job in bridge_jobs
-        ],
+        "remaining_bridge_jobs": remaining_bridge_jobs,
+        "cutover_execution_packet": _cutover_execution_packet(
+            bridge_jobs=remaining_bridge_jobs,
+            stage_status=stage_status,
+            blocking_reasons=blocking_reasons,
+            rehearsal=rehearsal,
+        ),
         "rehearsal": rehearsal,
         "next_actions": [
             "Provide readonly Alpaca credentials when missing.",
