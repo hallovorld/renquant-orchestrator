@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 
-import numpy as np
 import pandas as pd
 
 R = "/Users/renhao/git/github/RenQuant"
@@ -19,15 +18,15 @@ MAXW = max(WINDOWS)
 
 
 def features(df: pd.DataFrame) -> pd.DataFrame:
-    c, h, l = df["close"], df["high"], df["low"]
+    c, h, low = df["close"], df["high"], df["low"]
     out = {}
     for w in WINDOWS:
         out[f"MA{w}"] = c.rolling(w).mean() / c
         out[f"STD{w}"] = c.rolling(w).std() / c
         out[f"ROC{w}"] = c.shift(w) / c
         out[f"MAX{w}"] = h.rolling(w).max() / c
-        out[f"MIN{w}"] = l.rolling(w).min() / c
-        out[f"RSV{w}"] = (c - l.rolling(w).min()) / (h.rolling(w).max() - l.rolling(w).min() + 1e-12)
+        out[f"MIN{w}"] = low.rolling(w).min() / c
+        out[f"RSV{w}"] = (c - low.rolling(w).min()) / (h.rolling(w).max() - low.rolling(w).min() + 1e-12)
     return pd.DataFrame(out, index=df.index)
 
 
@@ -51,6 +50,6 @@ if __name__ == "__main__":
     print(f"{n} real tickers, {len(WINDOWS)*6} features each")
     print(f"full-history rebuild: {full_t*1000:.1f} ms   incremental append: {inc_t*1000:.1f} ms")
     print(f"speedup ×{full_t/inc_t:.0f} with BIT-EQUIVALENT output (rtol=1e-12 asserted)")
-    print(f"extrapolation: 142 tickers × the production 172-feature chain — the same "
-          f"trailing-window law holds for every rolling feature in alpha158; "
-          f"non-window features (fundamentals joins) are O(1) appends by construction.")
+    print("extrapolation: 142 tickers × the production 172-feature chain — the same "
+          "trailing-window law holds for every rolling feature in alpha158; "
+          "non-window features (fundamentals joins) are O(1) appends by construction.")
