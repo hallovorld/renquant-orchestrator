@@ -192,6 +192,8 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
     commit_plan = tmp_path / "commit-plan.json"
     live_state = tmp_path / "live_state.alpaca.json"
     trade_journal = tmp_path / "trades.jsonl"
+    lifecycle_journal = tmp_path / "lifecycle.jsonl"
+    runs_db = tmp_path / "runs.alpaca.db"
     bundle = tmp_path / "native-bundle.json"
     inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
 
@@ -249,6 +251,9 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
         assert kwargs == {
             "live_state_path": live_state,
             "trade_journal_path": trade_journal,
+            "runs_db_path": runs_db,
+            "strategy": "renquant_104_live",
+            "lifecycle_journal_path": lifecycle_journal,
         }
         out = dict(plan)
         out["state_mutations"] = [
@@ -290,6 +295,9 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
         commit_persistence=True,
         live_state_output_json=live_state,
         trade_journal_output_json=trade_journal,
+        lifecycle_journal_output_json=lifecycle_journal,
+        runs_db=runs_db,
+        live_state_strategy="renquant_104_live",
     )
 
     assert payload["metadata"]["readonly"] is False
