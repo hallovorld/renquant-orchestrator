@@ -26,7 +26,7 @@ gated by the standard WF gate; nothing promotes on val-IC alone.
 
 ## 1. Q1 — Improving PatchTST itself (ranked by evidence × cost)
 
-### 1.1 Turn on the cross-stock attention we already built ⭐ (strongest internal evidence)
+### 1.1 Cross-stock attention — highest-variance structural lead (already implemented)
 `HFPatchTSTRanker` already implements `--cross-stock-attn`. In the May DOE
 (`logs/hf_cross_stock_5cut_5seed_pt07`), the cross-stock variant reached
 a winner-picked max of best_val_ic 0.2035; the FULL 25-point run averages **+0.0507 (std 0.0878, 12/25 negative, two regimes negative)** — a high-variance candidate, not a proven winner. It was never promoted (prod runs `cross_stock=False`), and any adoption requires the paired, DSR/PBO-controlled A/B defined in the errata. External literature agrees this is
@@ -84,8 +84,8 @@ label quality, and regime deployment — not the encoder.
 
 | Candidate | What it is | Verdict for us |
 |---|---|---|
-| **MASTER** (AAAI'24, SJTU, Qlib-native) | market-guided stock transformer; cross-stock + cross-time attention; beats Qlib baselines incl. strong XGB on CSI300/800 | **The serious candidate.** But its mechanism (cross-stock attention + market gating) is ~what our own `cross_stock_attn` flag + FiLM approximate. Cheapest path: 1.1 first; if cross-stock confirms, a MASTER-style port is the follow-up, evaluated as a challenger through the gate |
-| **Time-series foundation models** (TimesFM, Chronos, Moirai, Time-MoE) | 50M–200M-param pretrained forecasters | **Low prior as ranker.** Univariate, point-forecast oriented; recent finance evaluations find specialist models match or beat them in most tasks ([survey](https://arxiv.org/html/2507.07296v1), [revisit](https://arxiv.org/html/2511.18578v1)); they cannot model cross-stock dependence, which is our edge axis. Optional cheap test: TimesFM embeddings as *features* (not as the ranker) |
+| **MASTER** (AAAI'24, SJTU, Qlib-native) | market-guided stock transformer; cross-stock + cross-time attention; beats Qlib baselines incl. strong XGB on CSI300/800 | **The serious candidate.** MASTER supports the cross-sectional-mixing HYPOTHESIS; our `cross_stock_attn` flag is a smaller ablation, NOT an approximation of MASTER's market-guided gating + cross-time architecture. Cheapest path: test our ablation first (1.1); only if it confirms does a faithful MASTER port run as a challenger, with DLinear+GBDT baselines under the same purged WF protocol |
+| **Time-series foundation models** (TimesFM, Chronos, Moirai, Time-MoE) | 50M–200M-param pretrained forecasters | **Low prior as ranker.** Univariate, point-forecast oriented; recent finance evaluations find specialist models match or beat them in most tasks ([survey](https://arxiv.org/html/2507.07296v1), [revisit](https://arxiv.org/html/2511.18578v1)); low prior as DIRECT rankers for this use case; evaluate only as frozen feature/embedding baselines under the same purged WF protocol (no claim that the class cannot encode cross-sectional information) |
 | Mamba/SSM hybrids (e.g. market-guided Mamba) | linear-time sequence models | Emerging; no finance-benchmark dominance yet; revisit in 6 months |
 | DLinear (already tried) | linear baseline | Our DOE: 0.128–0.153 val_ic — useful sanity floor, not a successor |
 | GBDT (XGB) | tabular | Shadow-only per decision record; the shadow monitor produces the ongoing comparison |

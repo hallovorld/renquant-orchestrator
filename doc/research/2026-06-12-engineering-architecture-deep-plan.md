@@ -223,9 +223,11 @@ primary sources of this plan.
 its command + commit SHA. Corrected current values (codex recount,
 2026-06-12): config = 1,230 lines / 841 recursive keys / 39 reason-keys
 (earlier 1,275/875/76 was measured pre-cleanup with a broader `_`-prefix
-count); `buy_blocked` assignment sites = **16** in canonical pipeline via
-`rg 'ctx\.buy_blocked\s*=\s*True|setattr\(ctx, "buy_blocked", True\)'`
-(12 was a narrower grep). Action: Part-I table gets a "command + SHA" column
+count); `buy_blocked` count: the CI census script is authoritative —
+`scripts/engineering/census_ci.py` (epic branch, commit 6444503), regex
+`ctx\.buy_blocked\s*=\s*True|setattr\(ctx, .buy_blocked., True\)` over
+renquant-pipeline/src@1e3fb81 → **17**. (Hand counts of 12 and 16 used
+narrower patterns; both superseded. Errata and body now agree: 17.) Action: Part-I table gets a "command + SHA" column
 in the next revision; metrics tracked by a CI census script, not by hand.
 
 **B. MLflow lifecycle.** Stages wording replaced throughout with
