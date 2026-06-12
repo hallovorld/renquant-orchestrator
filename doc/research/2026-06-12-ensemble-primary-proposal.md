@@ -80,8 +80,10 @@ flip only after the gate passes. No new training infrastructure needed for v1.
    over 2025-02→2026-02 without any new training. Pre-registered metrics:
    full-year IC, dead-window IC, top-8 selection edge, per-regime IC.
 3. **WF gate run** on the ensemble candidate (3 cuts + sanity battery): the
-   ensemble can use the GBDT PIT manifests for cuts 1–2 plus PatchTST where
-   available — coverage to be confirmed with the gate's recipe validator.
+   recipe validator must require point-in-time inputs for every enabled
+   component on every cut. If PatchTST is missing cuts 1–2, either complete
+   WS-2 first or register a separately named GBDT+quality ablation; do not call
+   a partial-component replay the full ensemble.
 4. **Shadow period** (1–2 weeks daily shadow decisions via the #114 rail),
    then promotion decision by the operator.
 
@@ -90,6 +92,8 @@ flip only after the gate passes. No new training infrastructure needed for v1.
 - Calm-window IC > 0 (the failure mode this is designed to fix).
 - Top-8 selection edge positive in BOTH the full year and the calm window.
 - No degradation of σ quality (σ stays PatchTST's; verify pass-through).
+- Component coverage provenance is complete: every score stream used by the
+  ensemble is point-in-time for the evaluated cut.
 
 ## 4. What this does NOT change
 - The WF gate stays the sole promotion authority (no aesthetic promotions —
