@@ -96,6 +96,34 @@ def _commit_persistence_payload(
     )
 
 
+def _post_live_persistence_alert(ntfy_url: str, execution_payload: dict[str, Any]) -> bool:
+    try:
+        from renquant_execution import post_live_persistence_alert
+    except ImportError as exc:
+        raise RuntimeError(
+            "--persistence-ntfy-url requires renquant-execution with "
+            "post_live_persistence_alert"
+        ) from exc
+    return bool(post_live_persistence_alert(ntfy_url, execution_payload))
+
+
+def _persistence_alert_status(
+    ntfy_url: str,
+    execution_payload: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return {
+            "attempted": True,
+            "ok": _post_live_persistence_alert(ntfy_url, execution_payload),
+        }
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def _live_state_contract_payload(
     *,
     strategy_dir: str | Path,
@@ -206,10 +234,13 @@ def run_native_live_candidate(
     live_state_output_json: str | Path | None = None,
     trade_journal_output_json: str | Path | None = None,
     lifecycle_journal_output_json: str | Path | None = None,
+    persistence_ntfy_url: str | None = None,
 ) -> dict[str, Any]:
     """Build a native live bundle without importing umbrella live.runner."""
     if execute_live and execution_json:
         raise ValueError("--execute-live cannot be combined with --execution-json")
+    if persistence_ntfy_url and not commit_persistence:
+        raise ValueError("--persistence-ntfy-url requires --commit-persistence")
     if commit_persistence and not execute_live:
         raise ValueError("--commit-persistence requires --execute-live")
     if commit_persistence and dry_run:
@@ -254,6 +285,12 @@ def run_native_live_candidate(
             lifecycle_journal_output_json=lifecycle_journal_output_json,
             live_state_strategy=live_state_strategy,
         )
+    persistence_alert: dict[str, Any] | None = None
+    if persistence_ntfy_url:
+        persistence_alert = _persistence_alert_status(
+            persistence_ntfy_url,
+            execution_payload,
+        )
     if execution_output_json:
         _write_json(execution_output_json, execution_payload)
     if commit_plan_output_json:
@@ -261,6 +298,9 @@ def run_native_live_candidate(
     if execution_payload.get("persistence_audit"):
         metadata_payload = dict(metadata_payload or {})
         metadata_payload["persistence_audit"] = dict(execution_payload["persistence_audit"])
+    if persistence_alert:
+        metadata_payload = dict(metadata_payload or {})
+        metadata_payload["persistence_alert"] = persistence_alert
 
     bundle = build_native_live_bundle(
         inference_payload=inference_payload,
@@ -302,6 +342,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--live-state-output-json", default=None)
     parser.add_argument("--trade-journal-output-json", default=None)
     parser.add_argument("--lifecycle-journal-output-json", default=None)
+    parser.add_argument(
+        "--persistence-ntfy-url",
+        default=None,
+        help="with --commit-persistence, post a best-effort native persistence alert",
+    )
     parser.add_argument("--strategy-dir", default=None)
     parser.add_argument("--runs-db", default=None)
     parser.add_argument("--live-state-broker-name", default=None)
@@ -324,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
         live_state_output_json=args.live_state_output_json,
         trade_journal_output_json=args.trade_journal_output_json,
         lifecycle_journal_output_json=args.lifecycle_journal_output_json,
+        persistence_ntfy_url=args.persistence_ntfy_url,
         strategy_dir=args.strategy_dir,
         runs_db=args.runs_db,
         live_state_broker_name=args.live_state_broker_name,

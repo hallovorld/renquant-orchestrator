@@ -40,6 +40,103 @@ def _install_live_state_contract_stub(monkeypatch, payload: dict[str, Any]) -> N
     )
 
 
+def _install_live_commit_and_persistence_stubs(
+    monkeypatch,
+    *,
+    live_state: Path,
+    trade_journal: Path,
+    lifecycle_journal: Path,
+    runs_db: Path,
+) -> None:
+    def fake_live_commit_execution_payload(**_kwargs) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "source": "renquant_execution.execution",
+            "broker_name": "paper",
+            "readonly": False,
+            "dry_run": False,
+            "order_intents": [
+                {"symbol": "AAPL", "action": "BUY", "quantity": 2.0}
+            ],
+            "submitted_orders": [
+                {
+                    "order_id": "ord-1",
+                    "status": "filled",
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "quantity": 2.0,
+                }
+            ],
+            "state_mutations": [
+                {
+                    "mutation_id": "planned-order-1-live-state",
+                    "mutation_type": "planned_live_state_update",
+                    "readonly": True,
+                    "committed": False,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                    "filled_qty": 2.0,
+                    "filled_avg_price": 10.0,
+                },
+                {
+                    "mutation_id": "planned-order-1-trade-log",
+                    "mutation_type": "planned_trade_log_append",
+                    "readonly": True,
+                    "committed": False,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                    "filled_qty": 2.0,
+                    "filled_avg_price": 10.0,
+                },
+            ],
+            "execution_audit": [
+                {"broker": "paper", "dry_run": False, "n_intents": 1, "n_submitted": 1}
+            ],
+        }
+
+    def fake_commit_live_persistence(plan: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        assert kwargs == {
+            "live_state_path": live_state,
+            "trade_journal_path": trade_journal,
+            "runs_db_path": runs_db,
+            "strategy": "renquant_104_live",
+            "lifecycle_journal_path": lifecycle_journal,
+        }
+        out = dict(plan)
+        out["state_mutations"] = [
+            {
+                **row,
+                "readonly": False,
+                "committed": True,
+                "path": str(live_state)
+                if row["mutation_type"] == "planned_live_state_update"
+                else str(trade_journal),
+            }
+            for row in plan["state_mutations"]
+        ]
+        out["persistence_audit"] = {
+            "committed_mutation_count": 2,
+            "live_state_path": str(live_state),
+            "trade_journal_path": str(trade_journal),
+        }
+        return out
+
+    monkeypatch.setattr(
+        native_live_run,
+        "_live_commit_execution_payload",
+        fake_live_commit_execution_payload,
+    )
+    monkeypatch.setattr(
+        native_live_run,
+        "_commit_live_persistence",
+        fake_commit_live_persistence,
+    )
+
+
 def test_native_live_candidate_writes_readonly_execution_and_bundle(tmp_path: Path) -> None:
     inference = tmp_path / "inference.json"
     execution = tmp_path / "execution.json"
@@ -196,93 +293,12 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
     runs_db = tmp_path / "runs.alpaca.db"
     bundle = tmp_path / "native-bundle.json"
     inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
-
-    def fake_live_commit_execution_payload(**_kwargs) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "source": "renquant_execution.execution",
-            "broker_name": "paper",
-            "readonly": False,
-            "dry_run": False,
-            "order_intents": [
-                {"symbol": "AAPL", "action": "BUY", "quantity": 2.0}
-            ],
-            "submitted_orders": [
-                {
-                    "order_id": "ord-1",
-                    "status": "filled",
-                    "symbol": "AAPL",
-                    "action": "BUY",
-                    "quantity": 2.0,
-                }
-            ],
-            "state_mutations": [
-                {
-                    "mutation_id": "planned-order-1-live-state",
-                    "mutation_type": "planned_live_state_update",
-                    "readonly": True,
-                    "committed": False,
-                    "symbol": "AAPL",
-                    "action": "BUY",
-                    "source_order_id": "ord-1",
-                    "status": "filled",
-                    "filled_qty": 2.0,
-                    "filled_avg_price": 10.0,
-                },
-                {
-                    "mutation_id": "planned-order-1-trade-log",
-                    "mutation_type": "planned_trade_log_append",
-                    "readonly": True,
-                    "committed": False,
-                    "symbol": "AAPL",
-                    "action": "BUY",
-                    "source_order_id": "ord-1",
-                    "status": "filled",
-                    "filled_qty": 2.0,
-                    "filled_avg_price": 10.0,
-                },
-            ],
-            "execution_audit": [
-                {"broker": "paper", "dry_run": False, "n_intents": 1, "n_submitted": 1}
-            ],
-        }
-
-    def fake_commit_live_persistence(plan: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        assert kwargs == {
-            "live_state_path": live_state,
-            "trade_journal_path": trade_journal,
-            "runs_db_path": runs_db,
-            "strategy": "renquant_104_live",
-            "lifecycle_journal_path": lifecycle_journal,
-        }
-        out = dict(plan)
-        out["state_mutations"] = [
-            {
-                **row,
-                "readonly": False,
-                "committed": True,
-                "path": str(live_state)
-                if row["mutation_type"] == "planned_live_state_update"
-                else str(trade_journal),
-            }
-            for row in plan["state_mutations"]
-        ]
-        out["persistence_audit"] = {
-            "committed_mutation_count": 2,
-            "live_state_path": str(live_state),
-            "trade_journal_path": str(trade_journal),
-        }
-        return out
-
-    monkeypatch.setattr(
-        native_live_run,
-        "_live_commit_execution_payload",
-        fake_live_commit_execution_payload,
-    )
-    monkeypatch.setattr(
-        native_live_run,
-        "_commit_live_persistence",
-        fake_commit_live_persistence,
+    _install_live_commit_and_persistence_stubs(
+        monkeypatch,
+        live_state=live_state,
+        trade_journal=trade_journal,
+        lifecycle_journal=lifecycle_journal,
+        runs_db=runs_db,
     )
 
     payload = run_native_live_candidate(
@@ -309,6 +325,107 @@ def test_native_live_candidate_can_commit_persistence_after_live_execution(
     assert all(row["committed"] is True for row in commit_payload["state_mutations"])
 
 
+def test_native_live_candidate_posts_persistence_alert_after_commit(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    inference = tmp_path / "inference.json"
+    live_state = tmp_path / "live_state.alpaca.json"
+    trade_journal = tmp_path / "trades.jsonl"
+    lifecycle_journal = tmp_path / "lifecycle.jsonl"
+    runs_db = tmp_path / "runs.alpaca.db"
+    bundle = tmp_path / "native-bundle.json"
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+    _install_live_commit_and_persistence_stubs(
+        monkeypatch,
+        live_state=live_state,
+        trade_journal=trade_journal,
+        lifecycle_journal=lifecycle_journal,
+        runs_db=runs_db,
+    )
+
+    def fake_post_live_persistence_alert(ntfy_url: str, payload: dict[str, Any]) -> bool:
+        assert ntfy_url == "https://ntfy.example/native-live"
+        assert payload["persistence_audit"]["committed_mutation_count"] == 2
+        assert all(row["committed"] is True for row in payload["state_mutations"])
+        return True
+
+    monkeypatch.setattr(
+        native_live_run,
+        "_post_live_persistence_alert",
+        fake_post_live_persistence_alert,
+    )
+
+    payload = run_native_live_candidate(
+        inference_json=inference,
+        output_json=bundle,
+        broker_name="paper",
+        execute_live=True,
+        commit_persistence=True,
+        live_state_output_json=live_state,
+        trade_journal_output_json=trade_journal,
+        lifecycle_journal_output_json=lifecycle_journal,
+        runs_db=runs_db,
+        live_state_strategy="renquant_104_live",
+        persistence_ntfy_url="https://ntfy.example/native-live",
+    )
+
+    assert payload["metadata"]["persistence_alert"] == {
+        "attempted": True,
+        "ok": True,
+    }
+
+
+def test_native_live_candidate_records_persistence_alert_failure_without_rollback(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    inference = tmp_path / "inference.json"
+    live_state = tmp_path / "live_state.alpaca.json"
+    trade_journal = tmp_path / "trades.jsonl"
+    lifecycle_journal = tmp_path / "lifecycle.jsonl"
+    runs_db = tmp_path / "runs.alpaca.db"
+    bundle = tmp_path / "native-bundle.json"
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+    _install_live_commit_and_persistence_stubs(
+        monkeypatch,
+        live_state=live_state,
+        trade_journal=trade_journal,
+        lifecycle_journal=lifecycle_journal,
+        runs_db=runs_db,
+    )
+
+    def fake_post_live_persistence_alert(_url: str, _payload: dict[str, Any]) -> bool:
+        raise RuntimeError("ntfy down")
+
+    monkeypatch.setattr(
+        native_live_run,
+        "_post_live_persistence_alert",
+        fake_post_live_persistence_alert,
+    )
+
+    payload = run_native_live_candidate(
+        inference_json=inference,
+        output_json=bundle,
+        broker_name="paper",
+        execute_live=True,
+        commit_persistence=True,
+        live_state_output_json=live_state,
+        trade_journal_output_json=trade_journal,
+        lifecycle_journal_output_json=lifecycle_journal,
+        runs_db=runs_db,
+        live_state_strategy="renquant_104_live",
+        persistence_ntfy_url="https://ntfy.example/native-live",
+    )
+
+    assert all(row["committed"] is True for row in payload["state_mutations"])
+    assert payload["metadata"]["persistence_alert"] == {
+        "attempted": True,
+        "ok": False,
+        "error": "RuntimeError: ntfy down",
+    }
+
+
 def test_native_live_candidate_rejects_commit_persistence_without_paths(tmp_path: Path) -> None:
     inference = tmp_path / "inference.json"
     inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
@@ -325,6 +442,24 @@ def test_native_live_candidate_rejects_commit_persistence_without_paths(tmp_path
         assert "--live-state-output-json" in str(exc)
     else:
         raise AssertionError("expected missing persistence path rejection")
+
+
+def test_native_live_candidate_rejects_persistence_alert_without_commit(tmp_path: Path) -> None:
+    inference = tmp_path / "inference.json"
+    inference.write_text(json.dumps(_inference_payload()), encoding="utf-8")
+
+    try:
+        run_native_live_candidate(
+            inference_json=inference,
+            output_json=tmp_path / "native-bundle.json",
+            broker_name="paper",
+            execute_live=True,
+            persistence_ntfy_url="https://ntfy.example/native-live",
+        )
+    except ValueError as exc:
+        assert "--persistence-ntfy-url requires --commit-persistence" in str(exc)
+    else:
+        raise AssertionError("expected persistence alert without commit rejection")
 
 
 def test_native_live_candidate_rejects_readonly_execute_live(tmp_path: Path) -> None:
