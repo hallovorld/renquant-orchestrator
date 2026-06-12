@@ -1,167 +1,203 @@
-# Research — PatchTST 能力边界(实测)+ 训练成本/产出最优点 + 实验溯源
+# Research — PatchTST Capability Boundary (measured) + Training Cost/Value Optimum + Experiment Provenance
 
 **Status:** proposal / awaiting review (no code change here)
-**Data:** 全部数字来自真实数据 — `hf_patchtst_all_seed44_val_preds.parquet`
-(36,068 行, 254 个交易日, 2025-02→2026-02, 142 票/日), 真实 SPY OHLCV,
-训练日志 `pt07_strict_trainfit_embargo60_seed44_20260522.log`, WF gate
-metadata (2026-06-11 FAIL 盖章)。
-**Companions:** `2026-06-12-model-edge-recovery-plan.md` (WS-1/2/3 已获批开做)。
+**Data:** every number below comes from real data — `hf_patchtst_all_seed44_val_preds.parquet`
+(36,068 rows, 254 trading days, 2025-02→2026-02, ~142 names/day), real SPY OHLCV,
+the actual training log (`pt07_strict_trainfit_embargo60_seed44_20260522.log`),
+the WF-gate metadata (stamped FAIL 2026-06-11), and the training panel
+`data/transformer_v4_wl200_clean.parquet` (346k rows, 2016-01→2026-02).
+**Companions:** `2026-06-12-model-edge-recovery-plan.md` (WS-1/2/3 approved and started).
 
 ---
 
-## 1. 能力边界 — 模型到底会什么、不会什么(实测)
+## 1. Capability boundary — what the model can and cannot do (measured)
 
-### 1.1 它有真技能(全年汇总)
-| 量 | 值 | 读法 |
+### 1.1 It has genuine skill (full validation year)
+
+| Quantity | Value | Reading |
 |---|---|---|
-| 日度横截面 Spearman IC | **+0.071, t=+7.1, 68% 天>0** | 统计上毫无疑问的真信号 |
-| 按预测十分位的已实现 60d 超额 | 单调递增, **顶−底 = +37.5%** | 排序能力优秀(年均) |
-| σ vs 实现误差 | spearman **+0.27** | σ 真的会排风险(Kelly 输入可信) |
-| μ 校准 | 水平整体偏负(已知 −0.198 offset),**秩序完美单调** | 用 rank/μ-gate 正确,用原始水平错误 |
-| 多头侧 vs 空头侧(各自半区内) | +0.032 / +0.023(都显著) | 两侧技能对称,不是只会挑垃圾 |
+| Daily cross-sectional Spearman IC | **+0.071, t=+7.1, 68% of days > 0** | statistically unambiguous real signal |
+| Realized 60d excess by prediction decile | strictly monotone; **top−bottom = +37.5%** | excellent ranking (year-averaged) |
+| σ vs realized error | Spearman **+0.27** | σ genuinely ranks risk (Kelly input is usable) |
+| μ calibration | level biased negative (known −0.198 offset); **rank-order perfectly monotone** | use ranks / μ-gate, never raw levels |
+| Long side vs short side (within-half IC) | +0.032 / +0.023 (both significant) | symmetric skill; not just a junk-detector |
 
-### 1.2 边界 #1(主导):**新鲜度 — 边际寿命 ≈ 9 个月**
-按"距训练截止日(2024-11-13)的月数"分桶:
+### 1.2 Boundary #1: performance decays with distance from the training cutoff — with a major caveat
 
-| 距截止 | 日均 IC |
+IC bucketed by months past the training cutoff (2024-11-13):
+
+| Months past cutoff | Mean daily IC |
 |---|---|
-| 3–6 个月 | **+0.187** |
-| 6–9 个月 | **+0.158** |
-| 9–12 个月 | +0.036 |
-| 12–16 个月 | **−0.086(负!)** |
+| 3–6 | **+0.187** |
+| 6–9 | **+0.158** |
+| 9–12 | +0.036 |
+| 12–16 | **−0.086 (negative)** |
 
-spearman(距离, 日IC) = **−0.56**。
+Spearman(distance, daily IC) = **−0.56**.
 
-**重要更正(operator review 后):** 截止日停在 2024-11-13 **不是疏忽** — 这是
-`strict_trainfit` 的刻意设计:90/10 尾部验证 + 60d embargo,本文用的 36k 条
-验证预测**正因为**截止日被往回放才存在。此外,单一模型上"距截止日的距离"与
-"日历时间/行情"**完全共线** — 上表的衰减既可能是"边际随距离衰减",也可能是
-"2025Q4~2026Q1 那段 calm 行情本身难做"。**单模型证据无法区分;WS-2 的两个
-不同截止日的 PIT 重训在同一日历窗上对比,才是判别实验。**
-仍然成立的操作事实:生产模型没有学过 2024-11 之后的任何数据,且其最近期
-(也是当下行情最像的时期)的 OOS IC 为负 — 无论归因为何,这都支持"新截止日
-重训 + 跑 gate"作为第一优先实验(便宜、快、可证伪)。
+**Important correction (after operator review):** the 2024-11-13 cutoff is **not
+neglect** — it is the deliberate `strict_trainfit` design (90/10 tail validation
++ 60d embargo). The 36k validation predictions used in this study exist
+*precisely because* the cutoff was held back. Furthermore, on a single model,
+"months past cutoff" is **perfectly collinear with calendar time/regime** — the
+table above is equally consistent with "edge decays with distance" and with
+"late-2025/early-2026 was simply a hard period for this signal." **Single-model
+evidence cannot distinguish the two; the discriminating experiment is WS-2's
+point-in-time retrains (different cutoffs evaluated over the same calendar
+window).**
 
-### 1.3 边界 #2(被混淆的"BULL_CALM 失效")
-死亡月(2025-10→2026-01, IC −0.09):SPY 20d vol 11.5%、100% 在 200 日线上 —
-**既是** calm 牛市,**也是** 距截止 11–15 个月。强势月(2025-03→08, IC +0.19):
-vol 20.4%、67% 在线上、距截止仅 4–9 个月。**两个因素完全纠缠** — 在拿到 WS-2 的判别证据之前,
-不应断言哪个是主因(此前版本写"很可能是陈旧度"属于过度推断,已更正)。
-横截面分散度分桶的 IC(D1..D5: +0.02/+0.12/+0.13/−0.00/+0.08)没有清晰的
-"低分散=没技能"模式 — **分散度饥饿假设(WS-4a)被降级**。
-> 判别实验(零额外成本):WS-2 的两个历史时点重训,各自在不同 regime ×
-> 不同新鲜度组合上自然形成 2×2 证据,可把两个因素拆开。
+What survives regardless of attribution: the production model has learned
+nothing after 2024-11, and its OOS IC in the most recent period (the one most
+like today's tape) is negative — which supports "fresh-cutoff retrain + run the
+gate" as the first experiment (cheap, fast, falsifiable either way).
 
-### 1.4 边界小结
-模型 = 一台**有真技能的横截面排序机**(排序强、风险估计可用、水平校准需锚定、
-不限多空侧),其 OOS 表现随"距截止日距离 × 日历行情"联合恶化 — 两因素的
-拆分是当前最重要的开放问题,WS-2 是判别实验。
+### 1.3 Boundary #2: the "BULL_CALM failure" is confounded
+
+Dead months (2025-10→2026-01, IC −0.09): SPY 20d vol 11.5%, 100% of days above
+the 200-DMA — a calm bull, **and** 11–15 months past cutoff. Strong months
+(2025-03→08, IC +0.19): vol 20.4%, 67% above the 200-DMA, only 4–9 months past
+cutoff. **The two factors are fully entangled** — no attribution should be
+asserted until WS-2's discriminating evidence lands (an earlier version of this
+doc over-claimed staleness as dominant; corrected).
+
+Dispersion-quintile ICs (D1..D5: +0.02 / +0.12 / +0.13 / −0.00 / +0.08) show no
+clean "low dispersion ⇒ no skill" pattern — the dispersion-starvation
+hypothesis (WS-4a) is **demoted**.
+
+### 1.4 Boundary summary
+
+The model is a **genuinely skilled cross-sectional ranker** (strong ordering,
+usable risk estimates, level calibration needs anchoring, symmetric across
+sides) whose OOS performance deteriorates jointly with *distance-from-cutoff ×
+calendar regime*. Separating those two factors is the most important open
+question; WS-2 is the discriminating experiment.
 
 ---
 
-## 2. 成本/产出最优点(你问的那个点)
+## 2. Training cost/value optimum (the operator's question)
 
-### 2.1 真实成本(本机实测,非估算)
-| 项 | 成本 |
+### 2.1 Real costs (measured on this machine, not estimated)
+
+| Item | Cost |
 |---|---|
-| 一次完整训练 (`train_runtime`) | **1,575 s ≈ 26 分钟** |
-| 校准器拟合 | 分钟级 |
-| WF gate 全套评测 | ~30 分钟 |
-| **一次"重训→评测→可促可弃"全流程** | **< 1.5 小时, $0 云费**(若需先把 panel 数据延展到当前,另加小时级数据准备) |
+| One full training run (`train_runtime`) | **1,575 s ≈ 26 minutes** |
+| Calibrator fit | minutes |
+| Full WF-gate evaluation | ~30 minutes |
+| **One retrain → evaluate → promote-or-discard cycle** | **< 1.5 h wall-clock, $0 cloud** (plus hours of panel rebuild when the dataset must be extended — see ① below) |
 
-### 2.2 各杠杆的边际产出/成本比
+### 2.2 Marginal value / marginal cost per lever
 
-| 杠杆 | 边际产出 | 边际成本 | 性价比 |
+| Lever | Marginal value | Marginal cost | Value/cost |
 |---|---|---|---|
-| **① 新鲜截止日重训** | 若衰减假设成立,IC 从 −0.09 回 +0.19 带(**Δ≈0.28,待验证的假设**);若不成立,也直接证伪衰减假设 — 两种结果都值钱 | 训练 26 分钟 + **panel 重建**(数据集现止于 2026-02-10,需先延到当前;这是真正的成本项,小时级) | ★★★★★ |
-| **② 季度重训制度**(cutoff=T−90d) | 永久把模型钉在 3–9 个月高 IC 带 | 每季 1.5h | ★★★★★ |
-| ③ **信息扩展**(§2.5:分析师评级/盈利修正/IV/空头利率/扩基本面)+ universe 142→200 | calm 死亡区里质量/注意度因子实测仍有 IC(asset_growth −0.23)— 直击模型最弱处;宽度机械 +19% IR | 单因子 IC 预筛 + 搭车重训;IV 数据已在采集 | ★★★★★(升级) |
-| ④ 拉长训练史(现 2.5 年;补 2022 熊市) | regime 覆盖度,稳健性 | 线性 | ★★★ |
-| ⑤ 多 seed ensemble (3-seed) | IC 方差↓(幅度待 WF 证据) | +2×26 分钟 | ★★★ 顺手做 |
-| ⑥ 架构/标签研究(WS-4/5) | 未知 | 周级人力 | ★★ 等①②③出结果再说 |
+| **① Fresh-cutoff retrain** | If the decay hypothesis holds, IC returns from −0.09 to the +0.19 band (**Δ≈0.28 — a falsifiable hypothesis, not a measurement**); if it fails, the decay hypothesis is cleanly falsified — both outcomes are valuable | 26 min training + **panel rebuild** (the training parquet ends 2026-02-10 and must be extended to the present; this is the real cost item, hours) | ★★★★★ |
+| **② Quarterly retrain cadence** (cutoff = T−90d) | keeps the model permanently inside its 3–9-month high-IC band | ~1.5 h per quarter | ★★★★★ |
+| ③ **Information expansion** (§2.5: analyst ratings / estimate revisions / options IV / short interest / broader fundamentals) + universe 142→200 | quality/attention factors measurably retain IC in the dead window (asset_growth −0.23) — aimed exactly at the model's weakest spot; breadth mechanically +19% IR | per-group IC screens + ride the next retrain; IV data already being collected daily | ★★★★★ (upgraded) |
+| ④ Longer training history (currently 2.5y; add the 2022 bear) | regime coverage, robustness | linear; training still minutes | ★★★ |
+| ⑤ Multi-seed ensemble (3 seeds) | IC-variance reduction (magnitude TBD by WF evidence) | +2 × 26 min | ★★★ (ride-along) |
+| ⑥ Architecture / label research (WS-4/5) | unknown | weeks of effort | ★★ — wait for ①②③ results first |
 
-**最优点非常明确:① + ②。** 一次 26 分钟的重训,期望产出超过所有架构研究的
-总和;季度制度化后,"过期服役"这一类问题永久消失。③④⑤搭车进下一次重训。
+**The optimum is unambiguous: ① + ②.** A 26-minute retrain has higher expected
+information value than any architecture research, and institutionalizing a
+quarterly cadence permanently removes the staleness failure class. ③④⑤ ride
+along on the next retrain.
 
-### 2.3 发现的一个守卫漏洞
-配置里 `model_staleness_days: 60` 检查的是 **trained_date**(2026-05-22,
-"几周前训练的,很新鲜"),而真正决定技能的是 **effective_train_cutoff_date**
-(2024-11-13)。5 月的训练是刻意的 strict-OOS 设计,但 staleness 守卫看不出
-"新训练、老截止"的组合 — 它要回答的问题应该是"模型见过的最新数据离今天多远"。
-**提案:staleness 预检改读 cutoff 距离,>9 个月 warn、>12 个月 fail buys。**
+### 2.3 A guard hole found on the way
+
+`model_staleness_days: 60` checks **trained_date** (2026-05-22 — "fresh"), but
+skill is governed by **effective_train_cutoff_date** (2024-11-13). The May
+training was a deliberate strict-OOS design, yet the staleness guard cannot see
+the "new training, old cutoff" combination — the question it should answer is
+*"how old is the newest data the model has ever seen?"*
+**Proposal:** the staleness preflight reads the cutoff distance instead —
+warn > 9 months, fail buys > 12 months.
 
 ---
 
-## 2.5 信息扩展 — operator 指示的方向,实测后**升级为一等工作流**
+## 2.5 Information expansion — operator-directed, now measured, upgraded to first-class
 
-> 初版把"扩 ticker/加数据"写成一行表格、完全漏掉新信息源 — 这是错误的轻视。
-> 用面板真实数据补测后,证据反而支持 operator 的直觉:
+> The first draft of this doc reduced "expand tickers / add data" to one table
+> row and omitted new information sources entirely — that was wrong. Measured
+> on the real panel, the evidence supports the operator's instinct:
 
-**关键实测(死亡区间 2025-10→2026-01,模型 IC=−0.09 的同一时段):**
+**Key measurement (the dead window 2025-10→2026-01 — the same period where the
+model's IC is −0.09):**
 
-| 信息 | 死亡区单因子 IC | 读法 |
+| Information | Single-feature IC in the dead window | Reading |
 |---|---|---|
-| `asset_growth`(质量/投资因子) | **−0.234** | calm 里**最强**的横截面信号 |
-| `roe` | +0.064 | 基本面在 calm 里仍然工作 |
-| `n_articles_log`(新闻热度) | −0.065 | 注意度信号仍有效 |
-| 技术因子组 mean abs IC | 0.065(强势区 0.054) | **原始信息没死 — 死的是模型的组合方式** |
+| `asset_growth` (quality/investment factor) | **−0.234** | the **strongest** cross-sectional signal in the calm window |
+| `roe` | +0.064 | fundamentals keep working in calm tape |
+| `n_articles_log` (news volume) | −0.065 | attention signal stays alive |
+| Technical-group mean abs IC | 0.065 (vs 0.054 in the strong window) | **the raw information is not dead — the model's combination of it is** |
 
-**结论:calm 失效是"组合失效"而非"信息真空"。** 模型的表征偏动量;calm 里
-横截面收益由质量/基本面/注意度类慢变量驱动,而这些信号在现有 172 特征里只占
-6 个、且基本面 feed 还冻结了 121 天(WS-1 修复中)。
+**Conclusion: the calm failure is a combination failure, not an information
+vacuum.** The model's representation is momentum-heavy; in calm tape the
+cross-section is driven by slow-moving quality/fundamental/attention variables —
+and those occupy only ~6 of the 172 features, with the fundamentals feed frozen
+for 121 days on top (WS-1 fix in progress).
 
-**信息扩展提案(按可得性排序,全部免费源):**
-1. **分析师评级与目标价修正**(yfinance recommendations/price targets,日频)
-   — 文献最支持的 calm 期横截面信号之一(估值修正漂移)。
-2. **盈利预估修正**(EPS estimate revisions)— 与 surprise 互补的慢信号。
-3. **期权隐含信息**(put/call、IV skew)— `logs/iv_snapshot` 显示**日度 IV
-   采集任务已在跑**,数据在手却未入特征,接入成本极低。
-4. **空头利率**(FINRA,双周)。
-5. **扩基本面广度**:现仅 roe/asset_growth 等 5-6 列;扩到利润率/现金流/
-   应计项等标准质量族。
-6. **Ticker 扩容 142→200**(训练集本就是 wl200;交易 watchlist 同步扩)
-   — 机械 +19% IR(Grinold 宽度),且 calm 期更厚的横截面直接提升可排序性。
+**Information-expansion proposal (ranked by availability; all free sources):**
+1. **Analyst ratings & price-target revisions** (yfinance recommendations /
+   targets, daily) — among the best-documented calm-period cross-sectional
+   signals (revision drift).
+2. **EPS estimate revisions** — the slow complement to earnings surprise.
+3. **Options-implied information** (put/call, IV skew) — `logs/iv_snapshot`
+   shows a **daily IV collection job already running**; the data is in hand but
+   never entered the feature set. Near-zero integration cost.
+4. **Short interest** (FINRA, bi-monthly).
+5. **Broader fundamentals**: only roe/asset_growth-class columns exist today;
+   extend to margins / cash-flow / accruals (standard quality family).
+6. **Universe 142→200** (the training set is already wl200; expand the trading
+   watchlist to match) — mechanically +19% IR (Grinold breadth), and a thicker
+   calm-period cross-section is directly more rankable.
 
-**验证方式:** 每个新信息组先过"单因子组 IC(分 regime)"门槛(同 §2.5 表),
-及格者进下一次重训的特征集,用 WF gate 做最终裁决 — 不靠拍脑袋。
+**Validation protocol:** each new information group must first pass the
+per-group, regime-conditional IC screen (as in the table above); survivors enter
+the next retrain's feature set; the WF gate renders the final verdict. No
+gut-feel admissions.
 
 ---
 
-## 3. 实验溯源现状(你问的 code/data SHA)
+## 3. Experiment provenance status (the operator's code/data-SHA question)
 
-**有,但不完整:**
+**Recorded, but with gaps:**
 
-| 记录项 | 现状 |
+| Item | Status |
 |---|---|
-| 代码 commit SHA | ✅ sidecar `training_contract.git_head`(完整 SHA);MLflow 自动 `mlflow.source.git.commit`(6,239 个 run 都有) |
-| 超参/seed/切分/预处理 | ✅ training_contract 完整 |
-| 配置指纹 | ✅ `config_fingerprint` (sha256) |
-| **数据版本** | ❌ 只记了**路径**(`data/transformer_v4_wl200_clean.parquet`)— 文件可被悄悄重建,血统即断 |
-| **多仓库 pin 集合** | ❌ 只有单个 git_head,没记当时的 subrepos.lock(9 个库哪个版本) |
-| 评测数据版本 | ❌ wf_gate_metadata 不含被评数据的指纹 |
+| Code commit SHA | ✅ sidecar `training_contract.git_head` (full SHA); MLflow auto-tags `mlflow.source.git.commit` (present on all 6,239 runs) |
+| Hyperparams / seed / splits / preprocessing | ✅ complete in `training_contract` |
+| Config fingerprint | ✅ `config_fingerprint` (sha256) |
+| **Data version** | ❌ recorded as a **path only** (`data/transformer_v4_wl200_clean.parquet`) — the file can be silently rebuilt and the lineage breaks |
+| **Multi-repo pin set** | ❌ a single `git_head` is recorded, not the `subrepos.lock.json` pin set (which of the 9 repos at which commit) |
+| Eval-data version | ❌ `wf_gate_metadata` carries no fingerprint of the evaluated data |
 
-**提案(小改动,大价值):** 训练与评测时统一加 stamp —
-(a) `dataset_sha256` + 行数 + 日期范围;(b) 当次 `subrepos.lock.json` 的
-pins 摘要;(c) 同样内容进 `wf_gate_metadata`。此后任何两次实验可严格对比,
-能力边界类研究才有可信地基。
+**Proposal (small change, large value):** stamp at train *and* eval time —
+(a) `dataset_sha256` + row count + date range; (b) a digest of the active
+`subrepos.lock.json` pins; (c) the same into `wf_gate_metadata`. Only then are
+any two experiments strictly comparable — capability-boundary research needs
+this foundation.
 
 ---
 
-## 4. 提议的执行顺序(等你批)
+## 4. Proposed execution order (pending review)
 
-1. **立即:新鲜截止日重训**(cutoff≈2026-03, 60d embargo, 同 recipe, wl142)
-   → 跑 WF gate → 大概率直接改写及格证书。成本 1.5h。
-2. WS-2 两个历史时点重训(各 26 分钟)→ 3-cut 完整证据 + §1.3 的
-   regime×新鲜度判别实验。
-3. **staleness 预检修正**(读 cutoff 而非 trained_date)+ **季度重训制度化**
-   (挂 weekly_wf_promote 的现成轨道)。
-4. 下一轮重训搭车:universe→wl200、训练史拉长、3-seed。
-5. 溯源 stamp(§3 提案)随 #3 一起落地。
-6. WS-3(regime-conditional 配置)保留为保险 — 若新鲜模型在 calm 里 IC 仍不
-   及格,再启用"calm 持 SPY"。
+1. **Now:** fresh-cutoff retrain (panel rebuild to present → cutoff ≈ T−90d,
+   60d embargo, same recipe, wl142) → run the WF gate. Either it rewrites the
+   verdict or it falsifies the decay hypothesis — both outcomes advance us.
+2. WS-2: two point-in-time retrains (26 min each) → full 3-cut evidence **and**
+   the §1.2/§1.3 staleness-vs-regime discriminating experiment.
+3. **Staleness preflight fix** (read cutoff distance, not trained_date) +
+   institutionalize the quarterly retrain on the existing weekly_wf_promote rail.
+4. Next retrain rides along: §2.5 information groups that pass the IC screen,
+   universe→wl200, longer history, 3 seeds.
+5. Provenance stamps (§3) land together with #3.
+6. WS-3 (regime-conditional allocation) kept as insurance — if a *fresh* model
+   still fails calm-window IC, enable "hold SPY in calm" with measured evidence.
 
-## 参考
-- Grinold & Kahn (1999), IR = IC·√BR(宽度论证)。
-- López de Prado (2018) AFML(embargo / 评测纪律)。
-- 模型衰减实证:Qian & Hua (2004) IC horizon decay;业界共识 cross-sectional
-  alpha 模型需季度~半年重训(e.g. Qlib 默认 rolling retrain)。
+## References
+- Grinold & Kahn (1999), *Active Portfolio Management* — IR = IC·√BR (breadth argument).
+- López de Prado (2018), *AFML* — embargo / evaluation discipline.
+- Qian & Hua (2004) — IC horizon decay; industry practice of quarterly–semiannual
+  rolling retrains for cross-sectional alpha models (e.g. Qlib's rolling-retrain default).
+- Jegadeesh & Titman (1993); Moskowitz–Ooi–Pedersen (2012) — momentum payoff structure.
+- Cooper, Gulen & Schill (2008) — the asset-growth effect (the factor that dominates our dead window).
+- Womack (1996); Jegadeesh et al. (2004) — analyst recommendation/revision drift.
