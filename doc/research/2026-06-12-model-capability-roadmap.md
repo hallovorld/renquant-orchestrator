@@ -152,3 +152,41 @@ Ranked engineering program (largely already approved, consolidated here):
 - [TSFMs for multivariate financial forecasting (2025)](https://arxiv.org/html/2507.07296v1) · [Re(Visiting) TSFMs in Finance](https://arxiv.org/html/2511.18578v1) · [TimesFM vs Chronos vs Moirai for finance](https://paperswithbacktest.com/course/timesfm-vs-chronos-vs-moirai)
 - [Market-guided Mamba for stock prediction](https://www.sciencedirect.com/science/article/pii/S1110016824012821)
 - Internal: capability-boundary doc (2026-06-12), May DOE logs (cross-stock 0.203 / FiLM 0.165 / DLinear 0.153 / base 0.188), decision record (PatchTST primary), Grinold & Kahn (1999).
+
+
+---
+
+# ERRATA & CORRECTIONS (post-merge strict review, 2026-06-12 — codex)
+
+The four HIGH findings are accepted. Corrected claims supersede the body text:
+
+1. **Cross-stock attention is a HIGH-VARIANCE candidate, not "the strongest
+   lead."** The 0.203 was winner-picked from 25 cut/seed points. Full DOE
+   summary (`logs/hf_cross_stock_5cut_5seed_pt07/driver.log`): mean
+   best_val_ic **+0.0507**, std 0.0878, min −0.0594, max +0.2035,
+   **12/25 points negative**; per-cut means: covid +0.113, fed −0.042,
+   inflpk +0.012, svb +0.187, unwind −0.015. Required before any
+   implementation: paired A/B vs plain PatchTST on identical cuts/seeds with
+   mean/std, min-regime IC, **DSR/PBO** (Bailey–López de Prado), shuffle and
+   time-shift controls — per the repo's own pre-registered protocol
+   (2026-05-19 improvement plan §600-618).
+2. **"Mechanism ≈ MASTER" overstated.** Our flag is a single cross-stock
+   attention layer (`use_cross_stock_attn`), not MASTER's market-guided
+   gating + cross-time interaction architecture, and MASTER's CSI300/800
+   benchmark does not transfer to our 142-name US long-only gated path.
+   Corrected: MASTER supports the *hypothesis* that cross-sectional mixing
+   matters; our flag is a smaller ablation and is evaluated as such.
+3. **The mechanical "+19% IR from 142→200" claim is RETRACTED.** Our own
+   logs falsify the independence/stable-IC assumptions: E5 103→227 names
+   IC −44%; E17 expansion negative; E34 "NO-GO for Grinold breadth at this
+   scope"; E45 291→1640 implied IR ratio 0.64× baseline. Universe expansion
+   is a gated experiment measuring marginal IC, sector heterogeneity,
+   fillability and TC — with a negative prior from four internal attempts.
+4. **Provenance of "+0.071 (t=7.1)":** computed in-session from
+   `pt07_strict_trainfit_embargo60_20260522/seed_44/hf_patchtst_all_seed44_val_preds.parquet`
+   (strict trainfit split, 254 d, daily cross-sectional Spearman; t = mean/std·√n).
+   It is **background evidence**, not a gate-admitted baseline: the
+   2026-06-05 promotion was operator-directed; the artifact's WF-gate
+   verdict is currently FAILED (2026-06-11), and the selection-metric
+   best_val_ic of the same training run is +0.0307. All roadmap claims
+   should cite this appendix, not the body's framing.

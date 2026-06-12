@@ -71,7 +71,7 @@ traces to a production incident from the last seven days.
    one box).
 6. **MLflow Model Registry** (already installed) — replaces the
    `staging-filename zoo` with explicit stages
-   (None→Staging→Production→Archived) and stamped lineage; the WF gate
+   (**aliases** (champion / candidate / shadow) + immutable version tags + WF-verdict metadata (MLflow stages are deprecated per RFC mlflow#10336)) and stamped lineage; the WF gate
    becomes the only transition authority.
 7. **Hypothesis (property-based testing)** — replaces a tranche of
    string-scan tests with executable invariants (examples in §5.3).
@@ -211,3 +211,46 @@ Registry** docs · **Hypothesis** property-based testing · Boyd et al.,
 **cvxportfolio** · de Prado (2018) AFML (evaluation discipline) · plus the
 eight internal incident reports of 2026-06 (cited in §2), which are the
 primary sources of this plan.
+
+
+---
+
+# ERRATA, REPRODUCIBILITY & HARDENING APPENDIX (post-merge review — codex)
+
+**A. Reproducibility of Part I.** Accepted: every census number must carry
+its command + commit SHA. Corrected current values (codex recount,
+2026-06-12): config = 1,230 lines / 841 recursive keys / 39 reason-keys
+(earlier 1,275/875/76 was measured pre-cleanup with a broader `_`-prefix
+count); `buy_blocked` assignment sites = **16** in canonical pipeline via
+`rg 'ctx\.buy_blocked\s*=\s*True|setattr\(ctx, "buy_blocked", True\)'`
+(12 was a narrower grep). Action: Part-I table gets a "command + SHA" column
+in the next revision; metrics tracked by a CI census script, not by hand.
+
+**B. MLflow lifecycle.** Stages wording replaced throughout with
+alias/tag/version lifecycle (champion/candidate/shadow aliases; the WF gate
+is the only alias-mover). Refs: MLflow registry docs; RFC mlflow#10336.
+
+**C. GateRegistry verdict algebra (formal spec, required before extraction).**
+- Verdict lattice: `allow < halve < block` (totally ordered).
+- Aggregate per scope = **max** (join) over submitted verdicts ⇒ gates are
+  **risk-monotone**: adding a gate can never increase permissiveness.
+- `halve` composes multiplicatively with sizing (0.5^k for k halvers),
+  applied BEFORE caps; `block` zeroes; risk-class exits are outside the
+  lattice (they act on positions, not admissions).
+- Determinism: aggregation order-independent (max + product are commutative).
+- DDL: as §IV ledger. Property tests (hypothesis): (i) permissiveness
+  monotone non-increasing in gate set; (ii) aggregate invariant under
+  submission order; (iii) lint: zero direct `buy_blocked` writers
+  (the 16 sites enumerated and migrated).
+
+**D. LiveStateV2 acceptance matrix (replaces "1 line = done").** Adding a
+field requires green on: v1→v2 migration tests (golden v1 fixtures),
+unknown-field policy test (forbid + quarantine file, never silent drop),
+rollback-read test (old code reading new state must not corrupt),
+atomic write test (tmp+rename, crash-injection), DB-snapshot parity test
+(JSON ⇄ `live_state_snapshots` round-trip), hypothesis round-trip.
+
+**E. DB-canonical migration gate (blocker, not footnote).** Before JSON is
+demoted: (1) full broker-isolated backfill of `live_state_snapshots`;
+(2) restore-from-DB rehearsal on a copy; (3) JSON-vs-DB parity over ≥5 real
+runs (diff = 0); (4) written rollback (JSON re-promotion) procedure.
