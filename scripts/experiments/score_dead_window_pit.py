@@ -1,8 +1,17 @@
 """Score the dead window (2025-10..2026-01) with PIT model #1 (cutoff 2023-10)."""
-import sys, json, torch, numpy as np, pandas as pd
-sys.path.insert(0, "scripts")
+import glob
+import json
+import sys
+
+import numpy as np
+import pandas as pd
+import torch
+from safetensors.torch import load_file
 from scipy import stats as st
-import patchtst_hf as P
+from transformers import PatchTSTConfig
+
+sys.path.insert(0, "scripts")
+import patchtst_hf as P  # noqa: E402
 
 ART="artifacts/patchtst_shadow/pit_cutoff_2023-10-01_seed44"
 panel=pd.read_parquet("data/transformer_v4_wl200_clean.parquet")
@@ -13,11 +22,8 @@ drop={"ticker","date","split_label","fwd_5d_excess","fwd_20d_excess","fwd_60d_ex
 feat=[c for c in panel.columns if c not in drop]
 win=panel[(panel["date"]>="2025-08-15")&(panel["date"]<="2026-01-31")].copy()  # extra lead for seq_len=24
 win=P.csrank_norm_per_day(win, feat)
-from safetensors.torch import load_file
-import glob
 ckpt=sorted(glob.glob(f"{ART}/_hf_trainer/checkpoint-*/model.safetensors"))[-1]
 sd=load_file(ckpt)
-from transformers import PatchTSTConfig
 cfg=PatchTSTConfig(num_input_channels=len(feat), context_length=24, patch_length=4,
                    patch_stride=4, d_model=64, num_attention_heads=4,
                    num_hidden_layers=2, ffn_dim=128)
@@ -32,14 +38,16 @@ with torch.no_grad():
     for dt in [d for d in dates if d>=pd.Timestamp("2025-10-01")][::2]:   # every 2nd day
         rows=[]
         idx=dates.index(dt)
-        if idx<23: continue
+        if idx<23:
+            continue
         seq_dates=dates[idx-23:idx+1]
         sub=win[win["date"].isin(seq_dates)]
         piv={}
         for t,g in sub.groupby("ticker"):
             if len(g)==24:
                 piv[t]=g.sort_values("date")[feat].values
-        if len(piv)<30: continue
+        if len(piv)<30:
+            continue
         X=torch.tensor(np.stack(list(piv.values())),dtype=torch.float32)
         out=model(X)
         sc=out["score"] if isinstance(out,dict) else (out[0] if isinstance(out,tuple) else out)
@@ -47,9 +55,10 @@ with torch.no_grad():
         s=pd.Series(sc.numpy().ravel()[:len(piv)], index=list(piv.keys()))
         lab=win[win["date"]==dt].set_index("ticker")["fwd_60d_excess"]
         j=pd.concat([s.rename("p"),lab.rename("y")],axis=1).dropna()
-        if len(j)>=10: ics.append(st.spearmanr(j["p"],j["y"]).statistic)
+        if len(j)>=10:
+            ics.append(st.spearmanr(j["p"],j["y"]).statistic)
 print(f"model#1 (cutoff 2023-10, 24-27mo stale) DEAD-WINDOW IC: mean={np.mean(ics):+.4f} over {len(ics)} sampled days")
-print(f"vs prod (cutoff 2024-11, 11-15mo stale) same window:    -0.0915")
+print("vs prod (cutoff 2024-11, 11-15mo stale) same window:    -0.0915")
 
 # ── RESULTS (2026-06-11/12, same hand-rolled pipeline, 42 sampled days) ──
 # dead window 2025-10-01..2026-01-31, IC vs fwd_60d_excess:

@@ -6,7 +6,8 @@ Metrics (pre-registered): full-year IC, dead-window IC, top-8 selection edge
 in both windows. Ticker recovery via within-date rank pairing (label is a
 per-date monotone transform of fwd_60d_excess).
 """
-import pandas as pd, numpy as np
+import numpy as np
+import pandas as pd
 from scipy import stats as st
 
 R = "/Users/renhao/git/github/RenQuant"
