@@ -44,7 +44,7 @@ Short **SPY** (or buy SH as a long-only fallback) as a *portfolio-level* hedge w
 - Size: hedge ratio h·β_portfolio, h ∈ [0, 0.5] by regime confidence; notional ≤ 20% NAV.
 - This replaces "sit in cash and wait" with "monetize confirmed bears" — and it is the only phase that needs almost no new alpha evidence.
 
-### Phase 1 — Conditioned single-name shorts (bottom-of-rank, BEAR/CHOPPY only)
+### Phase 1 — Conditioned single-name shorts (bottom-5%, signal-gated)
 Short candidates = bottom **5%** of the cross-sectional rank (operator bar), **max 2 names**, **only when**:
 1. ~~regime precondition~~ — removed by operator amendment; signal strength is the gate;
 2. name ∈ Alpaca **ETB** at order time;
