@@ -188,6 +188,21 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
         "readonly-alpaca",
         "--strict",
     ]
+    assert packet["native_live_commit_template"][0:3] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_run_candidate",
+    ]
+    assert "--execute-live" in packet["native_live_commit_template"]
+    assert "--commit-persistence" in packet["native_live_commit_template"]
+    assert "<RUN_ID>" in packet["native_live_commit_template"]
+    assert packet["required_operator_inputs"][0]["placeholder"] == "<RUN_ID>"
+    assert packet["persistence_targets"]["live_state"].endswith(
+        "backtesting/renquant_104/live_state.alpaca.json"
+    )
+    assert packet["persistence_targets"]["lifecycle_journal"].endswith(
+        "live/logs/renquant-104/native-order-lifecycle.alpaca.jsonl"
+    )
 
 
 def test_live_offboard_status_blocks_uncommitted_commit_plan_persistence(
