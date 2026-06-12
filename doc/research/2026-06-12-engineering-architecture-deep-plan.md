@@ -620,3 +620,91 @@ fallback like the max_hold anchor bug).
   up per PR (no new untyped/unkilled-mutant code in kernel paths).
 - **Weekly differential replay** on the rail: yesterday's decisions re-run
   and diffed — drift alarms within a day, not after an operator loss.
+
+## 16. CAPSTONE — Unified Platform Architecture ("everything is a pipeline")
+
+**Census (2026-06-12):** the umbrella carries **253 Python scripts + 66 shell
+scripts + 14 launchd plists**; the daily entrypoint is **595 lines of bash**.
+Top script families: run(26) train(24) build(19) fetch(15) analyze(12) wf(11).
+Each is an unmanaged pipeline: no contracts, no lineage, no retries, no
+provenance, invisible to scheduling. The operator is right that this is the
+general disease — §0–§15 were treating its organs.
+
+**The unifying design: software-defined assets.** Every computation in the
+system — data pull, feature build, training, calibration, WF gate, daily
+decision run, audit, experiment, report — is a **typed node in one DAG**:
+declared inputs (upstream assets + versions), declared outputs
+(content-addressed), contracts (§11), provenance stamps, and a freshness
+policy. The Dagster asset model is the reference; a 2-day spike decides
+Dagster-itself vs a thin local equivalent (launchd stays as the timer either
+way). Scripts migrate by category: fetch/build → data assets (PIT store);
+train/wf → model assets (MLflow stages); run/daily → decision jobs (DRPH-
+replayable); analyze/diag → audit assets (L6); shell glue (595-line bash) →
+job graph definitions. Migration is incremental: new work MUST be an asset;
+existing scripts convert when touched (strangler rule), census tracked in CI.
+
+**Five planes (where every §0–§15 component lives):**
+- **Data plane:** PIT store (ArcticDB/parquet+manifest), collectors,
+  dataset content-addressing. (§0.3, §8)
+- **Compute plane:** feature DAG (Hamilton), training, scoring tensors,
+  joblib bulk. (§0.3, §13)
+- **Decision plane:** GateRegistry, QP/Kelly, order emission, broker
+  reconciliation state machine. (§4, §5)
+- **Control plane:** pins/Renovate (§14), MLflow registry (§7), config
+  schema (§4.1 #6), flags, **secrets** (below).
+- **Observability plane:** decision ledger, audit sidecar L6, DRPH, alert
+  lifecycle, lineage. (§3, §12)
+
+### 16.1 Database design
+Today: one sqlite per broker context (runs.alpaca.db) + score/state tables,
+schema-less JSON columns, no migrations. Design: **stay sqlite** (one box;
+mature, transactional) with (a) **schema migrations via Alembic** (mature,
+works with sqlite) — every DDL change versioned; (b) table taxonomy split by
+write pattern: append-only EVENT tables (decision_ledger, audit_events,
+order_events — never UPDATE), snapshot STATE tables (live_state_snapshots —
+keyed by run_id, already designed), derived ANALYTICS tables (rebuildable,
+excluded from backup SLO); (c) JSON columns get pandera/pydantic check
+constraints at the writer; (d) WAL mode + busy_timeout (three agents + cron
+contend today).
+
+### 16.2 Rollback mechanisms (per layer, mostly already designed — unified here)
+| Layer | Mechanism |
+|---|---|
+| Code | pins; revert-PR (proven: #102); Renovate re-pin |
+| Model | MLflow stages — demote Production→Archived, previous Production reactivates (one API call); artifacts immutable |
+| Config | git revert + schema validation on load; golden semantic-diff |
+| Data | content-addressed PIT appends are immutable — "rollback" = pin reads to a manifest version (as_of read); bad append = tombstone row, never delete |
+| State | live_state_snapshots per run_id → restore-from-DB already exists (#144 path); plus daily file backup (16.3) |
+| DB schema | Alembic downgrade scripts mandatory per migration |
+
+### 16.3 Backup
+Today: ad-hoc (data/state_backups exists, stale since April). Design:
+**restic** (mature, encrypted, deduplicating) on the nightly rail —
+tier 1 (every run): live state + sqlite DBs + lock/pins (tiny, minutes RPO);
+tier 2 (nightly): artifacts/prod + MLflow registry + PIT manifests;
+tier 3 (weekly): full data/ (parquets are rebuildable; weekly is enough).
+Targets: second local disk + one off-box (restic→S3/B2, cheap). **Restore
+drill is a scheduled asset** (monthly: restore to temp dir + checksum
+verify) — a backup that is never restored is a hypothesis, not a backup.
+
+### 16.4 Secrets management
+Today: `.env` file sourced by bash (plaintext, in repo dir — excluded from
+git but one `git add -f` away from disaster; also readable by every script).
+Design: (a) move secrets to **macOS Keychain** (`security` CLI — native,
+encrypted at rest, per-item ACL) with a 20-line accessor in renquant-common;
+`.env` dies; (b) **detect-secrets** (Yelp) or **gitleaks** pre-commit + CI
+scan on all 10 repos including history audit (one-time `gitleaks detect` on
+full history — if any key ever leaked into a commit, rotate it NOW);
+(c) Alpaca keys: separate paper/live keys, live key marked "trading-only"
+scope where the broker supports it; rotation runbook (quarterly + on any
+suspicion) documented as an asset job; (d) secrets never in config/ledger/
+logs — a pandera-style log scrubber assertion in CI greps run logs for key
+patterns.
+
+### 16.5 What "done" looks like (the professional bar)
+One graph, five planes; every computation an asset with contracts, lineage,
+freshness, and provenance; scripts count trending 319→<50 domain glue;
+every layer independently rollback-able; backups restore-drilled monthly;
+secrets in Keychain with leak scanning in CI; the daily run <90 s; bugs
+located by differential replay instead of operator anger. Each piece is a
+small PR on the §9/§0.5 rails — no big bang, no new servers.
