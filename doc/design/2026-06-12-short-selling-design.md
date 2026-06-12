@@ -62,7 +62,25 @@ from the v2 spec are **deprioritized to optional sensitivity studies** — the
 literature says their prior is near-zero in our universe; we do not spend
 compute on them before E6/E8/E5.
 
-## 5. Exit chain (applies to ANY short position, unchanged from v2 §4.5)
+## 5. Exit chain — per-phase applicability (v3.1 fix)
+
+The v2 chain was designed for conviction shorts; applied wholesale it is
+WRONG for a hedge (stopping out insurance while it is doing its job) and
+redundant for a QP sleeve (fights the daily re-optimization). Applicability:
+
+| Trigger | A hedge | B sleeve | C conviction |
+|---|---|---|---|
+| 1 hard stop | **off** (hedge loss = book gain) | on | on |
+| 2 borrow/buy-in | n/a (SPY) | on | on |
+| 3 event vetoes + 3b rebound veto (entries) | n/a / rebound n/a | on | on |
+| 4 trailing profit lock | **off** (insurance ≠ trade) | off (QP owns) | on |
+| 5 signal exit (hysteresis) | n/a | off (QP owns) | on |
+| 6 rank exit | n/a | off (QP owns) | on |
+| 7 time barrier 20d | **off** (trigger-state governed) | off (QP owns) | on |
+| 8 account margin breaker | on | on | on |
+| A-only: trigger-state clear ≥2 sessions → unwind | **on** | — | — |
+
+## 5.1 Chain detail (Phase C reference, unchanged from v2 §4.5)
 
 Hard stop (EOD + intraday rail, gap-through next-open) → borrow/buy-in risk →
 event vetoes (earnings, ex-div) + **rebound veto on entries** (Daniel–Moskowitz:
