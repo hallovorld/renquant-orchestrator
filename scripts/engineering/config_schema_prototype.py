@@ -49,9 +49,12 @@ if __name__ == "__main__":
               f"untyped-extra-top-keys={cfg.extra_key_count()} (telemetry for gradual typing)")
     # P2: classic typo classes are caught at load, not mid-trade
     raw = json.load(open(f"{R}/strategy_config.json"))
-    bad1 = json.loads(json.dumps(raw)); bad1["wash_sale_days"] = 3000
-    bad2 = json.loads(json.dumps(raw)); bad2["regime"]["bear_return_threshold_5d"] = 0.04   # sign flip!
-    bad3 = json.loads(json.dumps(raw)); bad3["max_concurrent_positions"] = 0
+    bad1 = json.loads(json.dumps(raw))
+    bad1["wash_sale_days"] = 3000
+    bad2 = json.loads(json.dumps(raw))
+    bad2["regime"]["bear_return_threshold_5d"] = 0.04   # sign flip!
+    bad3 = json.loads(json.dumps(raw))
+    bad3["max_concurrent_positions"] = 0
     caught = 0
     for i, bad in enumerate((bad1, bad2, bad3), 1):
         try:

@@ -8,8 +8,9 @@ Proof obligations executed at bottom:
   P4 adding a field is one schema line (protection_breaches is the example)
 """
 from __future__ import annotations
-import json, datetime as dt
-from pathlib import Path
+
+import json
+
 from pydantic import BaseModel, ConfigDict
 
 class HoldingV2(BaseModel):
