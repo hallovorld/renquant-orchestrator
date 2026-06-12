@@ -21,6 +21,17 @@
 - **In the validation bull year, every prediction decile had positive mean fwd-60d z-label** — naked single-name shorts fight beta almost all the time. Short alpha must therefore be harvested **relative** (hedge/overlay), or **conditioned on regime**.
 - We now collect point-in-time short interest (days-to-cover, % float) — the natural **squeeze-guard input**, usable as a *risk veto* before it ever becomes an alpha feature.
 
+## 2.5 Operator mandate (2026-06-12 — binding constraints)
+
+1. **Very high bar:** no short is opened unless the evidence is *especially
+   compelling* — quantified as ALL of: bottom-5% of the cross-sectional rank
+   (not bottom decile), μ < −τ_strong on N consecutive evaluations (the
+   protection state machine inverted, N≥3), regime confirmed BEAR, and every
+   §3 Phase-1 veto passing. Default answer is NO SHORT.
+2. **Max 2 concurrent single-name shorts** (`risk.short.max_positions = 2`),
+   regardless of margin headroom. Index hedge (Phase 0) is exempt from the
+   2-name cap but still bounded by the 20%-NAV budget.
+
 ## 3. Phased design (each phase independently gated)
 
 ### Phase 0 — Portfolio hedge via index short (cheapest, safest, fastest)
@@ -29,7 +40,7 @@ Short **SPY** (or buy SH as a long-only fallback) as a *portfolio-level* hedge w
 - This replaces "sit in cash and wait" with "monetize confirmed bears" — and it is the only phase that needs almost no new alpha evidence.
 
 ### Phase 1 — Conditioned single-name shorts (bottom-of-rank, BEAR/CHOPPY only)
-Short candidates = bottom decile of the cross-sectional rank, **only when**:
+Short candidates = bottom **5%** of the cross-sectional rank (operator bar), **max 2 names**, **only when**:
 1. regime ∈ {BEAR, CHOPPY-confirmed} (short alpha must not fight a bull tape);
 2. name ∈ Alpaca **ETB** at order time;
 3. **squeeze guard**: days-to-cover < τ_dtc AND short %float < τ_si (from our PIT collector);
