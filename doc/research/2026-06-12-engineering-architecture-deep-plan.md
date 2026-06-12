@@ -384,3 +384,81 @@ recorder) · **MLflow Model Registry** · **Hypothesis** property-based
 testing · Alpaca client-order-id idempotency · internal primary sources:
 the 8 incident reports of 2026-06 (§2), the sim/run-bundle infra, the
 `live_state_snapshots` schema.
+
+## 11. Change-safety doctrine: containing problems at the task level
+
+> Operator questions: how do we guarantee the migration introduces no new
+> problems; how is blast radius contained at task level; does every task need
+> input/output validation? Answers below are binding for every PR in §0.5/§9.
+
+### 11.1 You don't "guarantee" — you bound. Five independent layers
+
+| Layer | Mechanism | Catches |
+|---|---|---|
+| L1 task contract | declared IO + tiered validation (§11.2) | a task corrupting state outside its declared scope — **by construction** |
+| L2 behavior identity | DRPH byte-diff on the golden corpus, required per PR | any decision change, even 1 ulp |
+| L3 shadow period | new path runs alongside old, diff logged daily (fstore week, GateRegistry legacy-compare week) | drift the corpus didn't cover |
+| L4 flagged rollout | every swap behind a config flag, default off; one-release rollback kept | production surprises — bounded to one flag flip |
+| L5 runtime invariant monitors | ledger-derived anomaly checks (gate counts/day, score-distribution drift, state-field ranges) on the existing ntfy rail | slow-burn regressions after rollout |
+
+A defect must pass ALL five to reach money. That is the honest engineering
+answer to "如何确定" — probability × blast-radius engineering, not certainty.
+
+### 11.2 Task-level containment: declared IO + tiered validation
+
+Current reality: every task mutates a god-context (`Task.run(ctx)` may read/
+write anything) — blast radius is unbounded, which is WHY this week's bugs
+were pipeline-wide. The fix is a contract decorator, mechanical to adopt
+task-by-task during the §6 decomposition:
+
+```python
+@task_contract(
+    reads={"candidates", "config.ranking.panel_scoring"},
+    writes={"candidates", "counters.panel_vetoed", "_blocked_by_ticker"},
+    pre=[nonempty("candidates"), finite_or_none("candidates[].rank_score")],
+    post=[subset("candidates", "pre.candidates"),       # a veto may only REMOVE
+          ledger_reason_for_every_removed()],
+)
+class VetoWeakBuysTask(Task): ...
+```
+
+- **`reads`/`writes` enforcement**: in CI/replay mode the ctx is wrapped in a
+  guard proxy — touching an undeclared field raises. In prod the proxy is a
+  no-op (zero overhead). Blast radius is now a reviewable property of the
+  diff: a PR that widens `writes` is visibly a bigger change.
+- **Input validation — YES, every task, tiered:**
+  - **T1 (always on, prod):** cheap structural preconditions — presence,
+    dtype/shape, finiteness, date monotonicity. Microseconds. Failure ⇒
+    structured `ContractViolation` ledger row + the task-class policy below.
+  - **T2 (CI/replay/shadow only):** full pydantic deep-parse + hypothesis
+    properties. Free where it runs; never in the intraday hot path.
+- **Output validation — yes, but defined ONCE:** a task's postcondition IS
+  the next task's precondition, so contracts live on the **data interface**
+  (e.g. `Candidates`, `GateVerdicts`, `LiveStateV2`), not duplicated per
+  task pair. The framework checks outputs in T2 mode and **samples** in prod
+  (1-in-N runs full check) to catch drift without paying full cost daily.
+- **NaN policy is part of the contract**, not ad-hoc: this repo has already
+  shipped two fail-OPEN NaN bugs (quality-floor Issues 23/24: `NaN <= 0` is
+  False ⇒ candidate passes). Contracts default **fail-closed**: a field
+  declared `finite` that arrives NaN blocks that scope, with a ledger row.
+
+### 11.3 Failure semantics by task class (what "contained" means)
+
+| Task class | On contract violation |
+|---|---|
+| Risk/safety (stops, gates, reconciliation) | **abort the run** (no-trade beats wrong-trade) |
+| Signal/enrichment (features, sentiment, shadow) | degrade: skip the enrichment, mark affected tickers `blocked_by=contract:<field>`, continue |
+| Persistence (state write) | abort before write — never persist a state that failed its own schema |
+
+### 11.4 Why this doesn't rot
+
+- Contracts are executable (decorator), not prose — they fail CI when stale.
+- DRPH corpus grows by rule: every production incident adds its day as a
+  golden case (2026-06-11 is case #1) — the regression suite is the incident
+  history.
+- The ledger makes L5 monitors queries, not new infra.
+
+References: Meyer, *Design by Contract* (preconditions/postconditions/
+invariants); King, *Parse Don't Validate* (validate at edges, types inside);
+Google SRE (canarying, error budgets); Hypothesis (property-based contracts);
+internal: quality-floor NaN fail-open Issues 23/24 (2026-05-04 audit).
