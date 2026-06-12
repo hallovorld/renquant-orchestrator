@@ -19,11 +19,11 @@ risk per stage.
 | `job_panel_scoring.py` | **3,476 LOC** | god-module: scoring + calibration + veto + telemetry + shadow in one file |
 | umbrella `adapters/runner.py` | **2,958 LOC** | god-adapter: state load/save + broker sync + order emit + GC + wash-sale + reporting |
 | `run_wf_gate.py` | 2,658 LOC | the promotion authority is a single script |
-| `strategy_config.json` | 1,275 lines, **875 keys, 76 `_reason` prose keys** | configuration debt: schema-less; documentation lives inside production config; golden-file lockstep enforced by tests |
+| `strategy_config.json` | 1,230 lines, **841 keys, 39 reason-keys** (CI census 2026-06-12) | configuration debt: schema-less; documentation lives inside production config; golden-file lockstep enforced by tests |
 | renquant-pipeline | 188 files / 53k LOC | mid-migration: "functional-lift slice N" comments show an unfinished umbrella→kernel extraction |
 | Tests | 498 (umbrella) + 91 (pipeline) files; **177 contain source-string-scan / read_text contract checks** | tests that grep the source pin wiring but can't catch behavior bugs; brittle to refactors — they actively tax the decomposition this plan needs |
 | Adding ONE live_state field | **9 manual touch points** (measured: `protection_breaches`, PR #294) | schema-less dict state with hand-written round-trips |
-| `buy_blocked = True` writers | **12 sites** across the kernel | the funnel pathology has no architectural owner |
+| `buy_blocked = True` writers | **17 sites** (CI census wide-regex, 2026-06-12; codex counted 16 with a narrower pattern — the census script is now authoritative) | the funnel pathology has no architectural owner |
 | Typing | `HoldingState` = plain dataclass ("no imports by design"); **pydantic v2 already a dependency** in renquant-common but unused for state/config | the cure is already installed |
 | Artifact lifecycle | 12+ `*.staging.json` / `weekly_*` / `rollback_*` filename conventions in `artifacts/prod/`; MLflow installed (6,239 runs) but **not** used as a registry | stage-by-filename instead of stage-by-registry |
 | Operational state | `live_state.alpaca.json` is a **git-tracked file in the code repo working tree** | state/code commingling — directly caused an incident this week |
@@ -35,7 +35,7 @@ risk per stage.
 | `protection_breaches` cross-day persistence needed a 9-site mirror (#294) | schema-less dict state, hand round-trips | **S1: typed state schema** |
 | Shadow scorer silently dead for a week (#114) | two artifact-path resolution authorities (primary vs shadow) | **S1: single ArtifactResolver** |
 | Fundamentals 121 days stale (base-data #22) | dataset identity = file path; stale file shadowed fresh one | **S1: content-hash provenance** (already approved) |
-| False-BEAR cascade → zero buys (#92) | 12 independent `buy_blocked` writers, OR-of-thresholds, no attribution requirement | **S2: GateRegistry + decision ledger** |
+| False-BEAR cascade → zero buys (#92) | 16+ independent `buy_blocked` writers, OR-of-thresholds, no attribution requirement | **S2: GateRegistry + decision ledger** |
 | MU force-sold by `max_hold` (#94/#27) | implicit fallback to *current*-regime value; entry anchor never stamped | **S1: fail-safe defaults in typed state** |
 | "Merged ≠ deployed" + runtime-root drift (twice) | dual code-resolution (PYTHONPATH siblings ‖ pinned runtime) | **S3: single pinned runtime** |
 | PatchTST had no WF-gate stamp at promotion | artifact metadata fragmented across mergeable sidecars; promotion contract not enforced at train time | **S3: MLflow registry aliases (champion/candidate/shadow; stages deprecated, RFC mlflow#10336)** |
@@ -48,7 +48,7 @@ traces to a production incident from the last seven days.
 
 1. **Sculley et al. 2015, "Hidden Technical Debt in Machine Learning
    Systems" (NeurIPS)** — names our exact diseases: *pipeline jungles* (the
-   task chains + 12 gate writers), *configuration debt* (875 keys, prose in
+   task chains + 16+ gate writers), *configuration debt* (841 keys, prose in
    config), *glue code* (runner.py), *undeclared consumers* (sidecar
    metadata read by preflight, gate, promotion). The uplift plan is
    structured as debt paydown, not a rewrite.
@@ -70,8 +70,10 @@ traces to a production incident from the last seven days.
    equivalent (content-hash manifest instead of a PIT DB — right-sized for
    one box).
 6. **MLflow Model Registry** (already installed) — replaces the
-   `staging-filename zoo` with explicit stages
-   (**aliases** (champion / candidate / shadow) + immutable version tags + WF-verdict metadata (MLflow aliases are deprecated per RFC mlflow#10336)) and stamped lineage; the WF gate
+   `staging-filename zoo` with **aliases** (champion / candidate / shadow),
+   immutable version tags, and WF-verdict metadata — MLflow **stages** are
+   deprecated per RFC mlflow#10336; aliases/tags are the replacement — with
+   stamped lineage; the WF gate
    becomes the only transition authority.
 7. **Hypothesis (property-based testing)** — replaces a tranche of
    string-scan tests with executable invariants (examples in §5.3).
@@ -125,7 +127,7 @@ cloud services added).
 ### S1 — Typed edges (1–2 weeks, highest value/risk ratio)
 1. **LiveStateV2**: pydantic model + `schema_version` + ONE
    serialize/deserialize pair in the pipeline (umbrella adapter consumes it).
-   Acceptance: adding a field = **1 line**, proven by porting
+   Acceptance: adding a field = one schema line PLUS the migration/unknown-field/rollback-read/atomicity/DB-parity test matrix (errata D), proven by porting
    `protection_breaches`; old JSON auto-migrates (missing → defaults);
    round-trip property test (hypothesis: `parse(serialize(s)) == s`).
 2. **ArtifactResolver**: one function, strategy-dir-first, returns
@@ -162,7 +164,7 @@ cloud services added).
    pure drift risk). Acceptance: "merged ≠ deployed" class closed.
 8. **MLflow Model Registry**: artifacts registered with lineage
    (dataset_sha256, config_fingerprint, pin digest, WF verdict); the WF gate
-   is the only code path that transitions stages; the staging-filename zoo
+   is the only code path that moves aliases; the staging-filename zoo
    becomes append-only history. (MLflow already installed; zero new infra.)
 9. **State out of the repo**: `live_state_snapshots` DB becomes canonical
    (the table exists; today's local DB is empty — wire the writes), JSON

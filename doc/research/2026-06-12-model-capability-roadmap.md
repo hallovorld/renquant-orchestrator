@@ -120,8 +120,11 @@ Ranked engineering program (largely already approved, consolidated here):
    (#114). Remaining approved item: **HMM/Markov-switching regime engine**
    (RFC #93) — better regime posteriors deploy the same IC into more
    tradeable days; shadow-first.
-4. **Breadth**: universe 142→200 (training set is already wl200) ≈ +19%
-   IR mechanically; thicker calm-window cross-sections.
+4. **Breadth — gated experiment, NEGATIVE internal prior.** Universe
+   expansion (142→200) may proceed only as a pre-registered experiment
+   measuring marginal IC of the added names, per-sector heterogeneity,
+   fillability, and transfer coefficient — E5/E17/E34/E45 all measured IC
+   degradation on expansion, so no uplift is assumed.
 5. **TC later**: the shorts Phase-B 110/10 efficiency sleeve (design under
    review) raises the transfer coefficient without any new alpha — the
    literature-preferred use of shorting for this account.
@@ -187,3 +190,16 @@ The four HIGH findings are accepted. Corrected claims supersede the body text:
    verdict is currently FAILED (2026-06-11), and the selection-metric
    best_val_ic of the same training run is +0.0307. All roadmap claims
    should cite this appendix, not the body's framing.
+
+
+## Acceptance contracts for the remaining candidates (codex MED findings)
+
+- **Multi-horizon / triple-barrier work (1.3/1.4):** horizon-specific
+  embargoes (5d/20d heads embargo at their own horizons, not 60d);
+  label-overlap uniqueness/dependence statistics reported (de Prado sample
+  uniqueness); loss weights FIXED before training (no post-hoc tuning);
+  judged against the single-horizon baseline on the same purged WF split.
+- **Any alternative model (TSFM, MASTER port, Mamba):** must run with
+  DLinear and GBDT as REQUIRED baselines under the identical purged
+  walk-forward protocol — same cuts, seeds, costs, controls. Baseline
+  parity is a merge gate, not optional commentary.
