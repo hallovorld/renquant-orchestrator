@@ -1,710 +1,341 @@
-# Deep Plan v2 — Engineering & Architecture Uplift (concrete contracts edition)
+# RenQuant Engineering Uplift — System Design & Migration Program (v4)
 
-**Status:** design — awaiting review (no code change)
-**v2 vs v1:** v1 was correctly diagnosed by the operator as refactoring
-hygiene, not system design. v2 keeps the measured diagnosis (§1–§2) and
-replaces the prescription with **concrete artifacts**: a deterministic
-replay/parity harness (the centerpiece), exact data contracts (pydantic
-models, table DDL, function signatures), a broker-reconciliation state
-machine, the PIT data-layer format, and a numbered first-ten-PRs plan with
-rollback per stage.
+**Status:** design program — awaiting review · **Supersedes:** the accreted
+v1–v3 of this document (content preserved, reorganized) · **Scope:** the
+operator's mandate — engineering that extracts the model's maximum; code
+quality; architecture; pipeline soundness/concurrency; multi-repo version
+control; bug discovery/prevention; DB/rollback/backup/secrets; full
+umbrella retirement.
 
----
+## Table of contents
 
-## 1. Current state, measured (unchanged from v1)
-
-| Metric | Value |
-|---|---|
-| `job_panel_scoring.py` / `runner.py` / `run_wf_gate.py` | 3,476 / 2,958 / 2,658 LOC |
-| `strategy_config.json` | 1,275 lines; 875 keys; 76 `_reason` prose keys |
-| Tests with source-string scans | 177 files |
-| Touch points to add ONE live-state field | **9** (measured, PR #294) |
-| `buy_blocked = True` writers | **12 sites** |
-| State | `live_state.alpaca.json` git-tracked in the code repo |
-| Already installed, unused for the purpose | pydantic v2 (state/config), MLflow (registry), sqlite (`live_state_snapshots` table exists, local DB empty) |
-
-## 2. Incident → root cause (8 production incidents, 7 days — unchanged from v1)
-
-protection_breaches 9-site mirror → schema-less state · shadow dead a week →
-two artifact resolvers · fundamentals 121d stale → identity-by-path data ·
-false-BEAR zero-buys → 12 uncoordinated gate writers · MU max_hold →
-implicit current-regime fallback · merged≠deployed ×2 → dual runtime ·
-PatchTST unstamped at promotion → metadata-by-sidecar · live-state git revert
-→ state/code commingling.
-
+- **Part I — Diagnosis (measured)**
+  - I.1 System census · I.2 Daily-run performance profile
+  - I.3 Incident → root-cause register (8 incidents, 7 days)
+  - I.4 Maturity self-score (ML Test Score)
+- **Part II — Principles & theory**
+  - II.1 First principles: agent-native engineering, evidence velocity
+  - II.2 Containment theory: six layers · II.3 Literature anchors
+- **Part III — Target architecture (five planes)**
+  - III.1 Overview · III.2 Data plane (PIT store, DB, backup)
+  - III.3 Compute plane (feature store — the 88% fix)
+  - III.4 Decision plane (GateRegistry, reconciliation, disaster guards)
+  - III.5 Control plane (pins/Renovate, registry, config, secrets, umbrella retirement)
+  - III.6 Observability plane (DRPH, ledger, audit sidecar)
+- **Part IV — Quality doctrine**
+  - IV.1 Task contracts & tiered validation · IV.2 DRPH specification
+  - IV.3 Systematic bug hunt · IV.4 Build-vs-adopt policy
+- **Part V — Execution program**
+  - V.1 Sequencing (disaster guards first) · V.2 PR backlog with merge gates
+  - V.3 Rollback matrix · V.4 Success metrics
 
 ---
 
-## 0. THE bottleneck, profiled — and the redesign that maximizes model effectiveness
+# Part I — Diagnosis (measured, 2026-06-12)
 
-> Operator directive: solve ONE thing deeply — engineering that extracts the
-> model's maximum. This section is that thing. Everything below is measured
-> from the 2026-06-11 live run and read from the code, with file:line cites.
+## I.1 System census
 
-### 0.1 Measured profile of the daily full (2026-06-11, 14:05:11→14:18:03)
-
-| Stage | Time | Share |
+| Metric | Value | Implication |
 |---|---|---|
-| **`prepare_inference_panel_frames` (feature build, 142 tickers)** | **680 s** | **88%** |
-| PatchTST scoring incl. per-day sequence-panel assembly (3,408×24×172) | 56 s | 7% |
-| Everything else (regime, sell job 0.11s, candidates 1.2s, QP, persist) | 36 s | 5% |
+| Scripts in umbrella | **253 .py + 66 .sh**, 14 launchd plists, 595-line bash daily entrypoint | 300+ unmanaged pipelines: no contracts, lineage, retries, provenance |
+| God modules | scoring 3,476 LOC · runner 2,958 · wf_gate 2,658 | change risk concentrated, untestable units |
+| Config | 1,275 lines · 875 keys · 76 prose `_reason` keys | schema-less; docs inside prod config |
+| Tests | 589 files; **177 grep-the-source style** | wiring pinned, behavior not |
+| State | live_state git-tracked; 1 new field = **9 touch points** (measured, #294) | schema-less dict state |
+| Gates | **12** independent `buy_blocked` writers | funnel pathology has no owner |
+| Failure-prone patterns | **205** broad `except Exception` · **2,310** kernel dict `.get()` | the four patterns behind 8/8 incidents, at scale |
+| Installed-but-unused cures | pydantic v2, MLflow (6,239 runs, no registry), sqlite snapshot table (empty) | adoption, not procurement |
+| Env/secrets | shared mutable .venv; plaintext `.env` | irreproducible runs; one `git add -f` from disaster |
 
-Same machine, same day, the **retrain** path built features for **292
-tickers in 139 s** (0.48 s/ticker) — the inference path runs **~10× slower
-per ticker** (4.8 s/t) for a superset chain.
+## I.2 Daily-run performance profile (live run 2026-06-11, 772 s total)
 
-### 0.2 Root causes (file:line, all verified today)
+| Stage | Time | Share | Cause (file:line) |
+|---|---|---|---|
+| Feature build (`prepare_inference_panel_frames`, 142 names) | **680 s** | **88%** | GIL-bound pandas chain in ThreadPoolExecutor (`training_panel/pipeline.py:270,362`); process-wide `OMP_NUM_THREADS=1` set at import (`shadow_scoring.py:56`); cache key hashes `max_date`+`rows` ⇒ guaranteed daily MISS (`pipeline.py:132–155`); full-history recompute to append ONE bar |
+| Scoring incl. Python sequence assembly | 56 s | 7% | per-day panel assembly in Python (3,408×24×172) |
+| All else (regime, sell 0.11s, candidates 1.2s, QP, persist) | 36 s | 5% | healthy |
 
-1. **Fake parallelism.** The per-ticker chain (13 task invocations: alpha158
-   + hourly + minute + macro/FRED β + embeddings + neutralization) runs in a
-   `ThreadPoolExecutor` (`training_panel/pipeline.py:270,362`) — GIL-bound
-   pandas in threads ≈ serial execution with lock overhead.
-2. **Process-wide BLAS lockdown.** `shadow_scoring.py:56` sets
-   `OMP_NUM_THREADS=1` **at import time for the whole daily process**
-   (imported unconditionally by `job_panel_scoring`) — every numpy matmul in
-   the entire run is single-threaded because one shadow task once needed it.
-3. **A cache that can never hit day-over-day.** `_inference_frame_cache_key`
-   hashes per-ticker `rows` + `max_date` (`training_panel/pipeline.py:132-155`)
-   → any new trading day guarantees a MISS (verified: today was `cache WRITE`,
-   no HIT). The cache only accelerates same-day re-runs.
-4. **Recompute-the-decade-to-add-one-bar.** Features are deterministic
-   functions of OHLCV history, yet each day rebuilds every rolling window
-   over the full history for all 142 names to append **one** new row.
-5. **The hottest path is unlifted umbrella glue.** This 541-line module lives
-   in `backtesting/renquant_104/training_panel/`, hand-mirroring the training
-   chain with "symmetry guard" tests (`pipeline.py:300-326` comments document
-   four past parity bugs) — the exact Sculley training/serving-skew pattern.
+Control: the retrain path builds **292 names in 139 s** (0.48 s/name) on the
+same box — the inference path is ~10× slower per name for a superset chain,
+and the hot path is **unlifted umbrella glue** hand-mirroring the training
+chain (4 documented historical parity bugs = Sculley training/serving skew).
 
-### 0.3 The redesign: an incremental, content-addressed feature store
+## I.3 Incident → root-cause register (all June 2026, all production)
 
-```
-nightly (event-driven, after OHLCV/news/fundamentals land):
-  for each ticker:
-    fstore append: compute features for NEW bars only
-      (max rolling window = 60d ⇒ recompute needs only the trailing window)
-    key: (ticker, feature_version, last_bar_date, input_sha)
-  build sequence tensors for the scorer (24-bar windows, float32, memmap)
-  → artifacts: data/fstore/<ticker>.parquet + tensors/<date>.pt + manifest
+| # | Incident | Root cause | Fixed by |
+|---|---|---|---|
+| 1 | new state field needed 9-site hand mirror (#294) | schema-less dict state | III.4 LiveStateV2 |
+| 2 | shadow scorer silently dead 7 days (#114) | two artifact-resolution authorities | III.5 ArtifactResolver |
+| 3 | fundamentals 121 d stale (base-data #22) | dataset identity = file path; stale file shadowed fresh | III.2 PIT store |
+| 4 | false-BEAR → zero buys (#92) | 12 uncoordinated gate writers; OR thresholds; no attribution | III.4 GateRegistry |
+| 5 | MU force-sold by max_hold (#94/#27) | implicit current-regime fallback; anchor never stamped | IV.1 fail-safe contracts |
+| 6 | merged ≠ deployed (×2) | dual code resolution (siblings ‖ pinned runtime) | III.5 single runtime |
+| 7 | PatchTST promoted without WF stamp | metadata-by-sidecar; contract unenforced at train time | III.5 MLflow stages |
+| 8 | live-state reverted by a git sync | operational state in the code repo working tree | III.2 state out of git |
 
-daily run (and any intraday re-score):
-  load tensors → torch forward on MPS → gates/QP → orders
-```
+## I.4 Maturity self-score (Breck et al., ML Test Score)
 
-- **Train/inference unification:** the SAME store feeds the training-panel
-  builder and live inference — the hand-mirrored chain and its symmetry-guard
-  test class are deleted, killing the skew pattern at the root (this also
-  collapses the "panel rebuild = hours" cost item from the capability
-  roadmap to zero — retrains read the store).
-- **Parallelism:** bulk rebuilds (version bumps) use `ProcessPoolExecutor`;
-  the nightly append is so small it needs none. Scope `OMP_NUM_THREADS=1`
-  to the torch scoring context only (a context manager, not a process env).
-- **Cache key fixed by design:** content-addressing per (ticker, version,
-  inputs_sha) means a new day APPENDS instead of invalidating.
-- **Scoring path:** pre-assembled sequence tensors remove the 56-s Python
-  panel assembly; the forward pass itself is ~seconds on MPS.
-
-### 0.4 Expected effect (and why this maximizes MODEL effectiveness)
-
-| Metric | Today | After |
-|---|---|---|
-| Daily full wall-clock | ~13 min | **< 90 s** |
-| Intraday full re-score | infeasible (13 min) | **< 30 s** → the operator's 12-minute model-protection cadence and short-side μ confirmation become REAL options |
-| Decision-to-order latency before close | signal computed 13 min after trigger | ~1 min (less slippage vs the prices the model scored) |
-| Retrain data prep ("hours" in the capability roadmap) | panel rebuild | **0** (reads the store) |
-| Experiments per day (capability roadmap §1.1/1.2 sweeps) | bottlenecked by panel prep | bottlenecked only by 26-min training |
-
-Grinold framing: this is pure **transfer-coefficient and breadth-of-
-experiments** work — same IC, more of it reaching orders, and a 10×
-faster research loop on the same box.
-
-### 0.5 Implementation slice (replaces "PR 11-15 someday"; can start now)
-
-| PR | Change | Gate |
-|---|---|---|
-| A | `fstore` module in renquant-pipeline (append/compute/read, content-addressed manifest, ProcessPool bulk builder) | unit + golden parity: store output ≡ today's `prepare_inference_panel_frames` output for 2026-06-11 (DRPH case) |
-| B | nightly builder job on the existing launchd rail + staleness preflight integration | shadow week: store vs live chain diff = 0 daily |
-| C | live path reads the store behind `inference_frame_cache.mode: "fstore"` (flag, default off) | replay diff = 0; then flip after clean week |
-| D | sequence-tensor pre-assembly + scoped OMP context manager | scoring stage < 10 s measured |
-| E | delete the umbrella chain + symmetry-guard tests (strangler completion) | corpus green |
-
-Risk: feature drift between store and legacy chain → controlled by PR A's
-golden parity requirement and PR B's shadow week, both mechanical via DRPH.
+Data **2/7** · Model 4/7 · Infra **3/7** · Monitoring 4/7 → target ≥5/7 each
+(deltas: PIT reader → Data; registry lineage → Infra; ledger → Monitoring).
 
 ---
 
-## 3. Centerpiece: the Deterministic Replay & Parity Harness (DRPH)
+# Part II — Principles & theory
 
-**Why this first:** every other change (god-file decomposition, gate
-consolidation, typed state) is only safe if we can prove behavior identity.
-And the same harness is the quant-specific capability the system lacks:
-**bit-reproducible decision replay** = backtest/live parity measurement,
-regression CI, and one-command incident forensics. This is the difference
-between refactoring hygiene and a system you can change at speed.
+## II.1 First principles
+1. **Agent-native engineering.** This system is developed by AI agents
+   (claude, codex) under one human operator. Optimal-architecture criteria
+   shift: contracts must be machine-checkable (reviewers are AIs); debugging
+   must be query-driven (ledger/replay — agents have no intuition); docs must
+   be executable (prose drifts); every incident must auto-become a regression
+   case (agents don't accumulate scar tissue — the system must).
+2. **Evidence velocity is the north-star KPI.** The system exists to run
+   validated experiments per week. Every investment below is justified by its
+   effect on that number (e.g. the 88% fix turns one experiment/day into ten).
+3. **Bound, don't promise.** No change is "safe"; it is contained (II.2).
+4. **Fail closed at money; degrade gracefully at signal.**
+5. **Mature libraries first** — hand-rolling restricted to domain glue with a
+   written justification (IV.4).
 
-### 3.1 Design
-
-```
-ReplayCase (frozen on disk, content-addressed):
-  inputs/
-    panel_slice.parquet      # features for D-seq_len..D
-    ohlcv_slice.parquet      # prices incl. SPY
-    live_state.json          # state snapshot at open of D
-    strategy_config.json     # exact config
-    artifacts.lock           # {name: sha256} for model/calibrator/gmm
-  expected/
-    decisions.json           # canonical output (below)
-
-Canonical decision output (sorted keys, fixed float precision):
-  {
-    "run_fingerprint": {config_sha, panel_sha, state_sha, artifact_shas,
-                        code_pin_digest},
-    "regime": {...},
-    "gates": [ {gate, scope, verdict, reason, inputs} ... ],   # §4.2
-    "scores": {ticker: {raw, rank, mu, sigma}},
-    "orders": [ {ticker, intent, qty, attribution} ... ],
-    "state_after": "sha256 of canonical serialized LiveStateV2"
-  }
-```
-
-- `replay run <case>` executes the full InferencePipeline against frozen
-  inputs with the broker mocked (fills at frozen prices) and network banned
-  (socket guard), then byte-compares `decisions.json`.
-- **Determinism contract:** fixed seeds; torch deterministic mode; sorted
-  iteration orders; wall-clock reads injected through one Clock object
-  (`ctx.today` already exists — finish the job).
-- **Golden-day corpus v1 (5 cases, all from real history):**
-  1. 2026-06-11 false-BEAR day (cascade regression),
-  2. a normal buy day (post-fix behavior),
-  3. the MU `max_hold` day (exit-chain regression),
-  4. an earnings-blackout veto day,
-  5. a protection-exit firing day (validated μ path from the diag script).
-- **CI rule:** every pipeline/umbrella PR runs the corpus. A diff fails CI
-  unless the PR title carries `behavior-change:` AND regenerates goldens —
-  behavior changes become *explicit review objects*, never side effects.
-- **Effort:** the sim adapter already executes a day from frozen parquets
-  and the run bundle already snapshots config/state; DRPH is ~600–900 LOC of
-  glue + canonicalizer, not a new engine.
-
-### 3.2 What it buys, concretely
-- God-file decomposition (§6) becomes mechanical: extract → replay → diff 0.
-- Live/backtest skew becomes measurable: feed yesterday's live inputs to the
-  sim path and diff the decisions — the skew IS the diff (Sculley's
-  training/serving skew, made visible).
-- Forensics: this week's false-BEAR autopsy took ~3 hours of log
-  archaeology; with DRPH + ledger it is `replay run 2026-06-11` + one SQL.
-
-## 4. Exact contracts (the "parse, don't validate" edge)
-
-### 4.1 `LiveStateV2` (renquant-pipeline `kernel/state.py`)
-
-```python
-class HoldingStateV2(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    entry_price: float
-    entry_date: date
-    shares: float
-    high_watermark: float | None = None
-    sell_streak: int = 0
-    protection_breaches: int = 0
-    entry_regime: str | None = None     # max_hold anchor — stamped at entry
-    entry_rank_score: float | None = None
-    lots: list[TaxLot] = []
-
-class LiveStateV2(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[2] = 2
-    as_of: date
-    regime: str
-    regime_confidence: float
-    holdings: dict[str, HoldingStateV2] = {}
-    book: BookState                     # hwm, last_sell_dates, stop orders…
-    regime_state: RegimeStateV2
-
-    @classmethod
-    def parse(cls, raw: dict) -> "LiveStateV2": ...  # v1→v2 migration, ONE place
-    def canonical_json(self) -> str: ...             # sorted keys, fixed precision
-```
-
-**The 9-site mirror dies:** the adapter does
-`state = LiveStateV2.parse(json)` / `file.write(state.canonical_json())`.
-A new field = one line in the model; round-trip guaranteed by the hypothesis
-property `parse(canonical(s)) == s`. **Worked example:**
-`protection_breaches` migrates first — its 9 hand-written sites in
-`runner.py` are deleted in the same PR; the replay corpus proves identity.
-
-### 4.2 `GateRegistry` (kills the 12 writers)
-
-```python
-class GateVerdict(NamedTuple):
-    gate: str                  # "drawdown_breaker"
-    scope: str                 # "book" | ticker
-    verdict: Literal["allow", "block", "halve"]   # graded, not binary
-    reason: str                # "dd=5.94% > halt=5%"
-    inputs: dict[str, float]   # the numbers that decided
-
-class GateRegistry:
-    def submit(self, v: GateVerdict) -> None: ...
-    def book_blocked(self) -> tuple[bool, list[GateVerdict]]: ...
-    def ticker_blocked(self, t: str) -> tuple[bool, list[GateVerdict]]: ...
-```
-
-Pipeline rule, enforced by a lint test: **no task assigns
-`ctx.buy_blocked`** — tasks submit verdicts; only the pipeline aggregates.
-Graded verdicts ("halve") replace binary funnels — the architectural fix for
-the funnel pathology, not merely its observation.
-
-### 4.3 Decision ledger (forensics → SQL)
-
-```sql
-CREATE TABLE decision_ledger (
-  run_id  TEXT, as_of DATE, scope TEXT,      -- 'book' or ticker
-  gate    TEXT, verdict TEXT, reason TEXT,
-  inputs_json TEXT,
-  PRIMARY KEY (run_id, scope, gate)
-);
--- The false-BEAR autopsy, afterwards:
--- SELECT gate, verdict, reason FROM decision_ledger
---  WHERE as_of='2026-06-11' AND scope='book';
-```
-
-Written by the GateRegistry aggregation step; lives in the existing sqlite
-next to `ticker_daily_state` (same retention).
-
-### 4.4 `ArtifactResolver` (kills resolver divergence)
-
-```python
-def resolve_artifact(ref: str, *, strategy_dir: Path, repo_root: Path,
-                     expect_kind: str | None = None) -> ResolvedArtifact:
-    """strategy_dir-first, repo_root fallback. Returns
-    ResolvedArtifact(path, sha256, source, kind). Fail-closed if missing.
-    EVERY artifact load (primary/shadow/calibrator/gmm/gate) calls this."""
-```
-
-A lint test bans `Path(...)` artifact construction outside this module. The
-`sha256` flows into the run fingerprint (§3.1) and the registry (§7).
-
-## 5. Broker reconciliation as a state machine (today: improvised warnings)
-
-The runner currently improvises (`STATE-EXT-SELL: GE disappeared from
-broker…`). Specify it:
-
-```
-expected(LiveStateV2) ⨝ broker.positions →
-  MATCH           → ok
-  EXT_SELL        → position gone: stamp wash-sale clock, GC state, ledger row
-  EXT_BUY/UNKNOWN → position appeared: QUARANTINE ticker (no orders), alert
-  QTY_DRIFT       → partial external fill: adopt broker qty, ledger row
-  BUY_IN (short)  → forced cover: hard-risk exit semantics, ledger row
-
-Invariants: broker is the source of truth for POSITIONS;
-LiveStateV2 is the source of truth for INTENT/derived state
-(streaks, anchors, clocks).
-
-Idempotent orders: client_order_id = sha1(run_id, ticker, intent, qty)
-  → a crash between submit and persist cannot double-submit
-    (Alpaca deduplicates on client order id).
-```
-
-~300 LOC module + table-driven tests; replaces improvised runner code and
-makes crash-recovery semantics explicit.
-
-## 6. God-file decomposition — now mechanical
-
-With DRPH (§3) + contracts (§4): extract `state_store` / `broker_sync` (§5)
-/ `order_emit` / `reporting` from `runner.py`; move `job_panel_scoring.py`
-tasks into `scoring/`, `calibration/`, `admission/`, `telemetry/` modules.
-Every extraction PR: **zero replay diff required.** String-scan tests retire
-only as their subject gains a typed contract (net test count never drops).
-
-## 7. Artifact lifecycle: MLflow registry (installed, unused)
-
-- Register every trained artifact with lineage params:
-  `dataset_sha256, config_fingerprint, subrepos_pin_digest, wf_verdict`.
-- Stages `None → Staging → Production → Archived`; **the WF gate is the only
-  code path calling the transition API**; the daily run loads the
-  Production stage through the resolver — the `*.staging.json` /
-  `weekly_*` / `rollback_*` filename zoo becomes append-only history.
-- The "PatchTST reached production without a WF stamp" class dies: an
-  artifact cannot reach the Production stage without the gate writing its
-  verdict into the registry.
-
-## 8. PIT data layer (right-sized; no new infra)
-
-```
-data/pit/<source>/manifest.jsonl     # one row per append:
-  {"date": "...", "rows": N, "sha256": "...", "collected_at": "...",
-   "source_version": "...", "publication_lag_days": K}
-
-Reader API:  pit_read(source, as_of) -> frame visible at as_of
-             (enforces publication-lag joins — the FINRA/E5 rule generalized)
-```
-
-Nightly append per source (ohlcv / fundamentals / sentiment / IV /
-short-interest / analyst). The panel builder consumes **only** `pit_read`,
-making look-ahead a type error instead of a review-checklist item. (Qlib's
-PIT idea reduced to one box and JSONL.)
-
-## 9. First ten PRs (concrete, ordered; S1 ≈ PR1–6, S2 ≈ PR7–10)
-
-| # | Repo | Change | ~LOC | Merge gate |
-|---|---|---|---|---|
-| 1 | pipeline | `kernel/state.py`: LiveStateV2 + parse/canonical + hypothesis round-trip | +400 | unit + property |
-| 2 | umbrella | runner consumes LiveStateV2; **delete the 9 `protection_breaches` sites** (worked example) | −250/+60 | replay diff = 0 |
-| 3 | pipeline | DRPH runner + canonicalizer + case format | +700 | self-test |
-| 4 | umbrella | golden corpus v1 (5 cases incl. 2026-06-11) + CI wiring | +300 | corpus green |
-| 5 | pipeline | ArtifactResolver + migrate primary/shadow/calibrator/gate loads + lint ban | +350 | replay diff = 0 |
-| 6 | strategy | config pydantic schema (warn-only week 1 → fail-closed) + generated reference doc replacing `_reason` prose | +500 | schema CI |
-| 7 | pipeline | GateRegistry + migrate 12 writers + lint ban + ledger DDL/writes | +600 | replay: aggregate unchanged, ledger new |
-| 8 | umbrella | broker-reconciliation state machine + idempotent client_order_id | +300 | table-driven tests |
-| 9 | umbrella | runner decomposition step 1: state_store + broker_sync | −800/+850 | replay diff = 0 |
-| 10 | pipeline | job_panel_scoring decomposition step 1: scoring/ + admission/ | −1200/+1250 | replay diff = 0 |
-
-S3 (registry stages, runtime-fallback deletion, state out of the repo)
-follows as PRs 11–15 after two clean weeks.
-
-**Rollback per stage:** S1 contracts are additive (legacy dict path kept one
-release behind a flag); DRPH is dev/CI-only; GateRegistry runs a
-`legacy_buy_blocked` shadow-compare for one week (log-only divergence
-alarm); decomposition PRs are pure moves gated by replay-zero.
-
-## 10. Non-goals & ML Test Score target
-
-No microservices / cloud / k8s; no kernel rewrite; no new config language;
-no mass test deletion. Breck self-score today: Data 2/7 · Model 4/7 ·
-Infra 3/7 · Monitoring 4/7 → after S3: **≥5/7 each**, the deltas coming
-specifically from the PIT reader (Data), registry lineage (Infra), and the
-decision ledger (Monitoring).
-
-## References
-Sculley et al. 2015, *Hidden Technical Debt in ML Systems* (pipeline
-jungles; configuration debt; training/serving skew) · Breck et al. 2017,
-*The ML Test Score* · Fowler, *Strangler Fig* & *Branch by Abstraction* ·
-King 2019, *Parse, Don't Validate* · Microsoft **Qlib** (PIT data,
-recorder) · **MLflow Model Registry** · **Hypothesis** property-based
-testing · Alpaca client-order-id idempotency · internal primary sources:
-the 8 incident reports of 2026-06 (§2), the sim/run-bundle infra, the
-`live_state_snapshots` schema.
-
-## 11. Change-safety doctrine: containing problems at the task level
-
-> Operator questions: how do we guarantee the migration introduces no new
-> problems; how is blast radius contained at task level; does every task need
-> input/output validation? Answers below are binding for every PR in §0.5/§9.
-
-### 11.1 You don't "guarantee" — you bound. Five independent layers
-
-| Layer | Mechanism | Catches |
+## II.2 Containment theory: six independent layers
+| Layer | Mechanism | Bounds |
 |---|---|---|
-| L1 task contract | declared IO + tiered validation (§11.2) | a task corrupting state outside its declared scope — **by construction** |
-| L2 behavior identity | DRPH byte-diff on the golden corpus, required per PR | any decision change, even 1 ulp |
-| L3 shadow period | new path runs alongside old, diff logged daily (fstore week, GateRegistry legacy-compare week) | drift the corpus didn't cover |
-| L4 flagged rollout | every swap behind a config flag, default off; one-release rollback kept | production surprises — bounded to one flag flip |
-| L5 runtime invariant monitors | ledger-derived anomaly checks (gate counts/day, score-distribution drift, state-field ranges) on the existing ntfy rail | slow-burn regressions after rollout |
+| L1 | task contracts: declared reads/writes + tiered validation (IV.1) | blast radius of a change, by construction |
+| L2 | DRPH byte-identity on golden corpus per PR (IV.2) | any behavior change, to 1 ulp |
+| L3 | shadow periods (new path beside old, daily diff) | drift the corpus missed |
+| L4 | flag-gated rollout + one-release rollback | production surprise → one flag flip |
+| L5 | runtime invariant monitors from the ledger | slow-burn regressions |
+| L6 | concurrent audit sidecar w/ order-barrier join (III.6) | data/runtime anomalies on UNCHANGED code |
+A defect reaches money only by passing all six.
 
-A defect must pass ALL five to reach money. That is the honest engineering
-answer to "如何确定" — probability × blast-radius engineering, not certainty.
+## II.3 Literature anchors (each load-bearing)
+Sculley 2015 *Hidden Technical Debt* (names our diseases: pipeline jungles,
+configuration debt, glue code, training/serving skew) · Breck 2017 *ML Test
+Score* (the maturity rubric) · Fowler *Strangler Fig / Branch by Abstraction*
+(the only migration style for a live-money system) · King 2019 *Parse, Don't
+Validate* · Meyer *Design by Contract* · Qlib PIT design · MLflow registry ·
+Hypothesis · Google SRE (canarying, error budgets) · Daniel–Moskowitz/
+Drechsler etc. for the domain decisions referenced herein.
 
-### 11.2 Task-level containment: declared IO + tiered validation
+---
 
-Current reality: every task mutates a god-context (`Task.run(ctx)` may read/
-write anything) — blast radius is unbounded, which is WHY this week's bugs
-were pipeline-wide. The fix is a contract decorator, mechanical to adopt
-task-by-task during the §6 decomposition:
+# Part III — Target architecture (five planes)
 
+## III.1 Overview
+```
+DATA          COMPUTE          DECISION            CONTROL           OBSERVABILITY
+PIT store --> feature DAG  --> gates/QP/orders --> pins+registry --> ledger/DRPH/audits
+(ArcticDB/    (Hamilton,       (GateRegistry,      (Renovate,        (decision_ledger,
+ manifests,    fstore,          reconciliation,     MLflow stages,    golden corpus,
+ collectors)   tensors)         disaster guards)    config schema,    audit sidecar,
+                                                    Keychain)         alert lifecycle)
+Everything is a typed asset/job in ONE DAG (software-defined assets; Dagster
+model; 2-day spike decides Dagster vs thin-local). Scripts (319) migrate by
+strangler rule: new work MUST be an asset; old converts when touched.
+```
+
+## III.2 Data plane
+- **PIT store:** per-source `manifest.jsonl` {date, rows, sha256,
+  collected_at, publication_lag_days}; reader `pit_read(source, as_of)`
+  enforces publication-lag joins — look-ahead becomes a type error. Storage:
+  ArcticDB (native `as_of`) or parquet+manifest (1-day spike decides).
+- **DB design:** sqlite kept (one box) + Alembic migrations (downgrade
+  mandatory); table taxonomy: append-only EVENT tables (ledger, orders,
+  audits — never UPDATE) / STATE snapshots (by run_id) / rebuildable
+  ANALYTICS; WAL + busy_timeout (3 agents contend).
+- **Backup:** restic, 3 tiers (per-run: state+DBs+pins; nightly:
+  artifacts+registry+manifests; weekly: full data) to second disk + off-box;
+  **monthly restore drill as a scheduled asset** — an unrestored backup is a
+  hypothesis.
+- **State out of git:** DB-canonical live state (snapshot table exists,
+  unwired); JSON demoted to cache under `~/renquant-data/` (incident #8 class
+  dies).
+
+## III.3 Compute plane — the 88% fix
+**Incremental content-addressed feature store** keyed
+(ticker, feature_version, last_bar_date, inputs_sha): nightly event-driven
+append computes ONLY new bars (max window 60 d ⇒ trailing-window recompute);
+pre-assembles 24-bar scoring tensors; the SAME store feeds training and
+inference (the mirrored umbrella chain and its symmetry-guard tests are
+deleted — skew dies at the root). Bulk rebuilds: joblib/loky processes;
+`OMP_NUM_THREADS=1` scoped to a torch context manager, not the process.
+**Effect:** daily 13 min → **<90 s**; intraday full re-score **<30 s** (the
+operator's 12-minute protection cadence becomes real); retrain data prep → 0.
+
+## III.4 Decision plane
+- **LiveStateV2 / HoldingStateV2** (pydantic, `extra="forbid"`,
+  schema_version, ONE parse/serialize pair, hypothesis round-trip): a new
+  field = 1 line; worked example = porting `protection_breaches` and deleting
+  its 9 sites in the same PR.
+- **GateRegistry:** tasks submit `GateVerdict(gate, scope,
+  verdict∈{allow,block,halve}, reason, inputs)`; only the pipeline
+  aggregates; lint bans direct `buy_blocked` writes. **Graded verdicts are
+  the structural fix for binary funnels.** Every verdict → `decision_ledger`
+  row (DDL in IV) — the false-BEAR autopsy becomes one SQL.
+- **Broker reconciliation state machine:** MATCH / EXT_SELL (stamp wash-sale,
+  GC) / EXT_BUY (quarantine) / QTY_DRIFT (adopt broker) / BUY_IN (hard-risk
+  cover); broker = truth for positions, state = truth for intent; idempotent
+  `client_order_id = sha1(run_id,ticker,intent,qty)` (Alpaca dedups) ⇒ crash
+  cannot double-submit.
+- **Disaster guards (self-discovered; FIRST in sequencing):**
+  G1 broker-resident GTC catastrophe stops (−20%) per position, synced on
+  rebalance — positions are protected even if this box is dead;
+  G2 adapter-level agent breaker: hard daily order-count + notional caps +
+  a manual `TRADING_OFF` file checked below ALL pipeline logic.
+- Clock/calendar: one injected Clock + `exchange_calendars`; box runs PT,
+  market is ET — DST weeks are a standing hazard today.
+
+## III.5 Control plane
+- **Multi-repo:** the lock file is hand-rolled git-submodules; adopt
+  **Renovate** auto pin-bump PRs (native submodule/regex support);
+  compatibility contracts as code (`requires: pipeline>=5b65f2a`) verified by
+  an umbrella CI matrix (kills mis-paired-pin crashes); 1-day
+  submodules-vs-lock spike; honest monorepo note if friction persists a
+  quarter.
+- **Umbrella retirement (operator directive):** umbrella content splits
+  three ways — CODE migrates into subrepos riding the SAME refactors (runner
+  → execution/pipeline via LiveStateV2+reconciliation; training_panel →
+  pipeline via the feature store; wf_gate → pipeline; scripts → assets);
+  DATA/STATE/LOGS leave git entirely (III.2); CONTROL PLANE (pins,
+  preflight, scheduling) moves to renquant-orchestrator as the new root.
+  Cutover gate: doctor green + golden corpus green on the new layout + one
+  parallel shadow week with daily diff = 0 → operator decision. The umbrella
+  is then frozen read-only as the rollback archive (`never_delete` honored),
+  not deleted.
+- **Artifact lifecycle:** MLflow registry stages None→Staging→Production→
+  Archived with lineage (dataset_sha256, config_fingerprint, pin digest, WF
+  verdict); **the WF gate is the only stage-transition caller**; the
+  staging-filename zoo becomes history. Incident #7 class dies.
+- **Config:** pydantic schema; `_reason` prose → field descriptions rendered
+  to a generated reference doc; warn-only week then fail-closed.
+- **Secrets:** macOS Keychain accessor replaces `.env`; gitleaks full-history
+  audit on all 10 repos (rotate anything ever committed) + pre-commit/CI
+  scans; paper/live key separation; quarterly rotation runbook; log-scrubber
+  assertion in CI.
+- **Environment:** uv + per-repo lockfiles; env hash joins the run
+  fingerprint (today's fingerprint is incomplete without it).
+
+## III.6 Observability plane
+- **DRPH** (spec in IV.2) — replay, parity, forensics.
+- **decision_ledger** (append-only):
+  `(run_id, as_of, scope, gate, verdict, reason, inputs_json)`.
+- **Audit sidecar (L6):** async audits run concurrently with downstream
+  compute, **join-barrier before order emission**; INFO/WARN never block,
+  CRITICAL blocks affected scope. Catalog v1 (each mapped to a real
+  incident): independent regime-feed recheck (false-BEAR); staleness sweep
+  (121-day class); PSI/KS score drift vs trailing 20-day baseline
+  (calibrator saturation); shadow-liveness (#114); state⨝broker consistency
+  (#8); gate-profile anomaly (funnels). **Alert lifecycle** (the missing
+  discipline — the stale warning fired daily for 4 months, ignored):
+  new → WARN → unacked N days → CRITICAL (blocks scope) → resolved; dedup by
+  cause-hash; acknowledgement = operator command writing to the ledger.
+- **P&L attribution (self-discovered gap):** every order carries
+  decision_id; realized P&L written back on close ⇒ "what did rule X earn/
+  lose historically" is a query, not an audit project.
+- Dual-source data check: yfinance vs Alpaca market data divergence audit
+  (production currently depends on an unofficial scraper API).
+
+---
+
+# Part IV — Quality doctrine
+
+## IV.1 Task contracts & tiered validation
+Every task declares IO and is validated — tiered so the hot path stays hot:
 ```python
 @task_contract(
-    reads={"candidates", "config.ranking.panel_scoring"},
-    writes={"candidates", "counters.panel_vetoed", "_blocked_by_ticker"},
-    pre=[nonempty("candidates"), finite_or_none("candidates[].rank_score")],
-    post=[subset("candidates", "pre.candidates"),       # a veto may only REMOVE
-          ledger_reason_for_every_removed()],
-)
+  reads={"candidates","config.ranking.panel_scoring"},
+  writes={"candidates","counters.panel_vetoed"},          # guard-proxy enforced (CI/replay); no-op in prod
+  pre=[finite_or_none("candidates[].rank_score")],         # T1: always-on, structural, µs
+  post=[subset("candidates","pre.candidates")])            # contract lives on the data interface, defined once
 class VetoWeakBuysTask(Task): ...
 ```
+T1 always-on structural checks (presence/dtype/finite/monotone dates) —
+fail ⇒ ContractViolation ledger row; T2 deep pydantic/pandera + hypothesis in
+CI/replay/shadow only; prod samples outputs 1-in-N. **NaN policy fail-closed
+by default** (the repo shipped two fail-OPEN NaN bugs: quality-floor Issues
+23/24). Failure semantics by task class: risk → abort run (no-trade beats
+wrong-trade); enrichment → degrade + `blocked_by=contract:<field>`;
+persistence → never write a schema-failing state.
 
-- **`reads`/`writes` enforcement**: in CI/replay mode the ctx is wrapped in a
-  guard proxy — touching an undeclared field raises. In prod the proxy is a
-  no-op (zero overhead). Blast radius is now a reviewable property of the
-  diff: a PR that widens `writes` is visibly a bigger change.
-- **Input validation — YES, every task, tiered:**
-  - **T1 (always on, prod):** cheap structural preconditions — presence,
-    dtype/shape, finiteness, date monotonicity. Microseconds. Failure ⇒
-    structured `ContractViolation` ledger row + the task-class policy below.
-  - **T2 (CI/replay/shadow only):** full pydantic deep-parse + hypothesis
-    properties. Free where it runs; never in the intraday hot path.
-- **Output validation — yes, but defined ONCE:** a task's postcondition IS
-  the next task's precondition, so contracts live on the **data interface**
-  (e.g. `Candidates`, `GateVerdicts`, `LiveStateV2`), not duplicated per
-  task pair. The framework checks outputs in T2 mode and **samples** in prod
-  (1-in-N runs full check) to catch drift without paying full cost daily.
-- **NaN policy is part of the contract**, not ad-hoc: this repo has already
-  shipped two fail-OPEN NaN bugs (quality-floor Issues 23/24: `NaN <= 0` is
-  False ⇒ candidate passes). Contracts default **fail-closed**: a field
-  declared `finite` that arrives NaN blocks that scope, with a ledger row.
+## IV.2 DRPH — Deterministic Replay & Parity Harness
+Content-addressed `ReplayCase` = frozen inputs (panel slice, OHLCV, state,
+config, artifact SHAs) + canonical `decisions.json` (run fingerprint incl.
+env hash, gate verdicts, scores, orders, state-after hash). Broker mocked,
+network banned (pytest-socket), Clock injected, torch deterministic, sorted
+iterations. **Golden corpus v1:** 2026-06-11 false-BEAR day; a buy day; the
+MU max_hold day; an earnings-veto day; a protection-exit day. CI: corpus
+must pass; diffs require `behavior-change:` title + regenerated goldens.
+~600–900 LOC of glue over existing sim/run-bundle infra (pytest-regressions/
+syrupy for snapshots). Corpus growth rule: **every incident and every bug
+found adds its day** — the regression suite is the incident history.
 
-### 11.3 Failure semantics by task class (what "contained" means)
+## IV.3 Systematic bug hunt ("the next 100 bugs")
+Ordered by expected bugs/hour: (1) **historical differential replay** — DRPH
+over the last 60 trading days vs what production actually did; every
+mismatch is drift or a bug (method already proven: the unexplained
+hand-vs-native scoring gap −0.0054 vs −0.0915 on identical inputs is bug #1,
+queued); (2) hypothesis+pandera property campaign on money math (stops never
+widen; Kelly∈[0,cap]; veto only removes; wash-sale blocks losses only;
+calibrator monotone) across the 205 broad-except and 2,310 `.get()` sites;
+(3) static baseline: ruff full set, mypy --strict (kernel, gradual),
+vulture, bandit; (4) mutmut on the top-10 money modules — surviving mutants
+mark where tests don't bite; (5) incident-class greps as ranked review
+queues (decision paths first). **Prevention:** each incident class becomes a
+custom lint (ban naked broad-except in kernel, dict-fallbacks outside
+parsers, Path joins outside the resolver); mutation/typing coverage
+ratchets; weekly differential replay on the rail.
 
-| Task class | On contract violation |
-|---|---|
-| Risk/safety (stops, gates, reconciliation) | **abort the run** (no-trade beats wrong-trade) |
-| Signal/enrichment (features, sentiment, shadow) | degrade: skip the enrichment, mark affected tickers `blocked_by=contract:<field>`, continue |
-| Persistence (state write) | abort before write — never persist a state that failed its own schema |
+## IV.4 Build-vs-adopt policy (binding)
+pydantic/pydantic-settings (typing+config) · pandera (frame contracts) ·
+deal/icontract (DbC) · hypothesis (properties) · pytest-regressions+syrupy+
+pytest-socket (DRPH) · ArcticDB or parquet+manifest (PIT; 1-day spike) ·
+Hamilton (feature DAG, column lineage) · joblib/loky (processes) ·
+scipy KS+PSI now, evidently later (drift) · MLflow (registry) · Alembic
+(migrations) · restic (backup) · macOS Keychain + gitleaks (secrets) ·
+Renovate (pins) · exchange_calendars (clock) · uv (env) · Dagster spike
+(orchestration). Hand-rolled = domain glue only, with a written
+"no mature lib because…" in the PR.
 
-### 11.4 Why this doesn't rot
+---
 
-- Contracts are executable (decorator), not prose — they fail CI when stale.
-- DRPH corpus grows by rule: every production incident adds its day as a
-  golden case (2026-06-11 is case #1) — the regression suite is the incident
-  history.
-- The ledger makes L5 monitors queries, not new infra.
+# Part V — Execution program
 
-References: Meyer, *Design by Contract* (preconditions/postconditions/
-invariants); King, *Parse Don't Validate* (validate at edges, types inside);
-Google SRE (canarying, error budgets); Hypothesis (property-based contracts);
-internal: quality-floor NaN fail-open Issues 23/24 (2026-05-04 audit).
-
-## 12. Concurrent audit sidecar (operator proposal — adopted as containment layer L6)
-
-**Proposal:** self-auditing tasks judge upstream outputs while downstream
-tasks run concurrently — early anomaly detection, early alarm.
-
-**Adopted, with two design decisions that make it safe and effective:**
-
-### 12.1 Concurrency with a money barrier
-Audits run on a background executor (they are small-frame numpy — threads
-fine) in parallel with downstream compute, BUT the pipeline **joins all
-audits before order emission** (the one irreversible step). Post-§0 redesign
-the whole run is <90 s, so a bounded audit budget (≤5 s at the barrier) is
-free latency-wise. Verdicts: `INFO/WARN` never block; `CRITICAL` blocks
-order emission for the affected scope (book or ticker) with a ledger row —
-same fail-closed semantics as risk tasks (§11.3).
-
-### 12.2 Audit catalog v1 (each mapped to a real incident it would catch)
-
-| Audit (async, after stage) | Method | Would have caught |
-|---|---|---|
-| Input-recheck: regime feeds | independently recompute 5d/20d vol+ret from raw OHLCV; compare to detector inputs | feed corruption class; false-BEAR forensics instantly |
-| Staleness sweep | max-date lag per source vs publication-lag budget | fundamentals 121d (it WARNED daily — see 12.3 for why it still failed) |
-| Score-distribution drift | PSI/KS vs trailing 20-day baseline from score_db (already recorded) | calibrator saturation, silent model regressions |
-| Shadow-liveness | shadow scores present & corr(primary,shadow) in band | shadow dead-for-a-week (#114) |
-| Cross-field consistency | holdings ⨝ broker positions counts; state field ranges | live-state revert class |
-| Gate-profile anomaly | today's gate verdict vector vs trailing distribution | funnel regressions (12 blocks where median is 2) |
-
-Baselines come from tables we already write (`score_db`,
-`ticker_daily_state`, ledger) — no new storage.
-
-### 12.3 The lesson the existing warnings teach: escalation lifecycle
-The system ALREADY had ad-hoc versions (CALIBRATOR-SATURATED,
-`fundamentals feed STALE` — fired daily for ~4 months, ignored). Detection
-without lifecycle = noise. Each audit alert carries state:
-`new → ntfy WARN → unacknowledged N days → escalate to CRITICAL
-(blocks orders for affected scope) → resolved`. Dedup by (audit, scope,
-cause-hash) so a 121-day-old condition is ONE escalating incident, not 121
-identical warnings. Acknowledgement = an operator command writing to the
-ledger; thresholds and N per audit class live in config (schema-validated).
-
-### 12.4 Interface
-
-```python
-class AuditTask(Protocol):
-    stage: str                 # runs after this stage's output snapshot
-    severity_policy: dict      # condition → INFO/WARN/CRITICAL
-    def run(self, snapshot: StageSnapshot, baseline: Baseline) -> AuditVerdict
-# Scheduler: submit on stage completion; join-all at order barrier;
-# verdicts → decision_ledger (audit=True) + alert lifecycle table.
+## V.1 Sequencing
+```
+Week 0   G1 broker GTC catastrophe stops + G2 adapter breaker   (disaster class first)
+Weeks 1-2  S1: LiveStateV2 → runner consumes it → DRPH + corpus → ArtifactResolver → config schema
+Weeks 3-6  S2: GateRegistry+ledger → reconciliation SM → runner & scoring decomposition → fstore A–E
+Weeks 7-12 S3: MLflow stages → Renovate/pins → state out of git → secrets/backup/env → umbrella cutover shadow week → retirement decision
+Continuous: bug hunt (IV.3), audit sidecar build-out, script→asset strangler
 ```
 
-This is containment layer **L6** in the §11.1 stack: L1–L5 bound change
-risk; L6 bounds **data/runtime risk on unchanged code** — the two failure
-families this week actually exhibited.
+## V.2 PR backlog (each small, flagged, replay-gated)
+G1 broker GTC sync (~120 LOC) · G2 adapter caps + TRADING_OFF (~100) ·
+PR1 LiveStateV2 (+400, property tests) · PR2 runner consumes it, deletes 9
+sites (−250/+60, replay=0) · PR3 DRPH (+700) · PR4 golden corpus + CI
+(+300) · PR5 ArtifactResolver (+350, replay=0) · PR6 config schema (+500,
+warn→fail) · PR7 GateRegistry+ledger (+600, aggregate-identical) · PR8
+reconciliation SM (+300) · PR9 runner split step 1 (replay=0) · PR10 scoring
+split step 1 (replay=0) · fstore A–E (golden parity, shadow week, flag flip,
+tensor pre-assembly, delete umbrella chain) · PR11–15 S3 items.
 
-## 13. Build-vs-adopt policy (operator directive: mature libs first, binding)
+## V.3 Rollback matrix
+Code=pins+revert-PR (proven #102) · Model=MLflow stage demotion (1 call) ·
+Config=git revert+schema · Data=manifest-pinned reads, tombstones never
+deletes · State=run_id snapshot restore (#144 path) · Schema=Alembic
+downgrade (mandatory) · Every behavior swap=flag flip.
 
-**Rule:** every component in this plan MUST adopt a maintained library/OSS
-solution unless none fits three criteria: (a) actively maintained,
-(b) battle-tested (major-org or wide adoption), (c) local-first (no server
-to operate — one box, one operator). Hand-rolled code is restricted to thin
-domain glue. PR review enforces: any hand-rolled component needs a one-line
-"no mature lib because…" justification.
+## V.4 Success metrics (reviewed bi-weekly)
+1. **Evidence velocity: validated experiments/week** (north star).
+2. Daily run wall-clock: 772 s → <90 s; intraday re-score <30 s.
+3. Census trend: 319 scripts → <50 domain glue; buy_blocked writers 12 → 1.
+4. State-field touch points: 9 → 1. 5. ML Test Score ≥5/7 per pillar.
+6. Bugs: found-by-system vs found-by-operator-anger ratio (target: 100% system).
+7. Backup restore drill: monthly, green. 8. Secrets: gitleaks clean, .env deleted.
 
-| Plan component | Adopt (mature) | Hand-roll remainder |
-|---|---|---|
-| State/config/typing (§4.1) | **pydantic v2** (already a dep) + **pydantic-settings** | field definitions only |
-| DataFrame contracts T1/T2 (§11.2) | **pandera** (pydantic-style schemas for pandas, pytest integration) | our field lists |
-| Property tests (§11.2) | **hypothesis** | invariant lambdas |
-| Design-by-contract decorator (§11.2) | **deal** or **icontract** (pre/post/invariant decorators, maintained) | the reads/writes ctx-guard proxy (~100 LOC, no lib does god-ctx scoping) |
-| Golden/snapshot diffing in DRPH (§3) | **pytest-regressions** / **syrupy** for canonical-JSON snapshots; **pytest-socket** for the network ban | the ReplayCase loader + canonicalizer (~200 LOC domain glue) |
-| Feature store storage + PIT reads (§0.3, §8) | **ArcticDB** (Man Group, columnar versioned store with native `as_of` snapshots — PIT reads become a library call) — fallback plain parquet+manifest if its MPS/py3.10 fit disappoints in a 1-day spike | feature compute functions |
-| Feature DAG / incremental pipeline (§0.3) | **Hamilton** (DAGWorks) — declarative pandas feature dataflow, per-column lineage, fits the alpha158 chain | column functions |
-| Bulk parallelism (§0.3) | **joblib** (loky backend — solves the pickling pain that pushed the repo to threads) | none |
-| Drift/distribution audits (§12) | **scipy.stats** KS + PSI (10 lines) now; **evidently** if reports wanted later | thresholds in config |
-| Audit/alert lifecycle (§12.3) | **ntfy** (already) + sqlite state; consider **healthchecks.io**-style dead-man for the nightly jobs | the escalation state machine (~150 LOC; no local-first OSS does exactly this) |
-| Artifact registry & lineage (§7) | **MLflow** registry (already installed) | the WF-gate transition caller |
-| Decision ledger (§4.3) | **sqlite** (already); no ORM needed | DDL + writer |
-| Idempotent orders (§5) | **Alpaca native client_order_id** dedup | the sha1 key derivation |
-| Job orchestration (nightly rail) | keep **launchd** for S1–S2; evaluate **Dagster** in S3 (its asset freshness-policies + sensors natively solve the staleness-escalation problem) — explicit go/no-go after a 1-day spike, not a default adoption | cron plists |
+---
 
-Net effect on the ten-PR plan (§9): PR1 gains pandera/deal; PR3 gains
-pytest-regressions/pytest-socket; fstore PR A starts with the ArcticDB
-spike day; estimated hand-rolled LOC drops ~35% from the v2.1 estimates.
-
-## 14. Multi-repo version control (measured pain → mature tooling)
-
-This week's incidents: merged≠deployed ×2; lock pins lagging subrepo mains
-by 99 commits; cross-repo coupled changes (pipeline #112 + strategy #25 +
-umbrella pin) requiring hand-ordered PRs with crash hazards if mis-paired
-(`adaptive_quantile` on an old pipeline = ValueError); three actors
-(operator, claude, codex) racing on shared branches.
-
-**Diagnosis:** `subrepos.lock.json` is a hand-rolled re-implementation of
-**git submodules** — without the native tooling (diffable SHA bumps, atomic
-umbrella commits, `git submodule status`, IDE/CI support).
-
-**Adopt (per §13 policy):**
-1. **Renovate bot** to automate pin advancement: it natively supports git
-   submodule (and can regex-manage our lock file as-is) — opens a pin-bump
-   PR automatically when a subrepo main goes green. Kills the merged≠pinned
-   lag class without ceremony changes.
-2. **Compatibility contracts as code:** coupled changes declare
-   `requires: {renquant-pipeline: ">=5b65f2a"}` in the consuming repo's
-   config/manifest; an umbrella CI matrix test loads each pinned pair and
-   fails on mismatch — replacing the hand-written "do not pin X with
-   pre-Y" PR warnings.
-3. **Decide submodules-vs-lock in a 1-day spike** (S3): if submodules, the
-   preflight/doctor collapse into `git submodule status --recursive`; if
-   lock stays, Renovate manages it. Either way the policy (pins = audited
-   production set; humans merge) is unchanged.
-4. **Honest monorepo note:** for one box + three agents, a monorepo with
-   path-scoped CI would erase the entire class (atomic cross-repo changes,
-   one SHA = whole-system version). Migration cost is real; revisit only if
-   the Renovate+contracts setup still bleeds after a quarter.
-
-## 15. "There are ~100 more bugs" — finding them systematically, then keeping them out
-
-Agreed, and we can even locate where they live: this week's 8 bugs ALL came
-from four code patterns, and the census says those patterns are everywhere:
-**205 broad `except Exception` sites** (pipeline kernel + adapters) and
-**2,310 dict `.get()` sites** in the kernel alone (each a potential silent
-fallback like the max_hold anchor bug).
-
-### 15.1 The hunt (ordered by expected bugs-per-hour, all mature tooling)
-1. **Historical differential replay** — THE engine: run DRPH over the last
-   60 trading days and diff recomputed decisions vs what production actually
-   did. Every mismatch is a deploy-drift artifact or a live bug. (Proof the
-   method works: today's hand-pipeline vs native-pipeline scoring diff,
-   −0.0054 vs −0.0915 on identical inputs, is exactly such an unexplained
-   discrepancy — bug #1 of the 100, already queued.)
-2. **Property campaign on money math** (hypothesis + pandera): exits never
-   widen stops, Kelly ∈ [0,cap], veto only removes, wash-sale only blocks
-   losses, calibrator monotone. The NaN fail-open family (Issues 23/24) is
-   exactly what this catches; expect double digits from 205+2310 sites.
-3. **Static sweep baseline**: ruff (full rule set), mypy --strict on
-   kernel/ (gradual), vulture (dead code), bandit. One day, repeatable in CI.
-4. **Mutation testing (mutmut) on the kernel's top-10 money modules** —
-   measures whether the 589 test files actually bite; surviving mutants mark
-   where bugs hide untested.
-5. **Targeted incident-class greps** (each past bug becomes a query): every
-   `.get(..., default)` on config/state in decision paths; every broad
-   except that swallows; every `Path(` artifact join outside the resolver;
-   every NaN comparison. Output: a ranked review queue, not a 2,310-item
-   slog — decision-path hits first.
-
-### 15.2 Keeping them out (prevention = §11–§13 plus)
-- **Bug-class lints:** every incident class becomes a custom ruff/AST rule
-  or lint test (ban naked broad-except in kernel, ban dict-fallbacks outside
-  parsers, ban artifact Path joins) — the linter remembers so reviewers
-  don't have to.
-- **Incident → golden case, mandatory:** DRPH corpus grows with every bug
-  found in 15.1; the regression suite becomes the bug history (§11.4).
-- **Coverage ratchet:** mutation score and mypy-strict coverage only ratchet
-  up per PR (no new untyped/unkilled-mutant code in kernel paths).
-- **Weekly differential replay** on the rail: yesterday's decisions re-run
-  and diffed — drift alarms within a day, not after an operator loss.
-
-## 16. CAPSTONE — Unified Platform Architecture ("everything is a pipeline")
-
-**Census (2026-06-12):** the umbrella carries **253 Python scripts + 66 shell
-scripts + 14 launchd plists**; the daily entrypoint is **595 lines of bash**.
-Top script families: run(26) train(24) build(19) fetch(15) analyze(12) wf(11).
-Each is an unmanaged pipeline: no contracts, no lineage, no retries, no
-provenance, invisible to scheduling. The operator is right that this is the
-general disease — §0–§15 were treating its organs.
-
-**The unifying design: software-defined assets.** Every computation in the
-system — data pull, feature build, training, calibration, WF gate, daily
-decision run, audit, experiment, report — is a **typed node in one DAG**:
-declared inputs (upstream assets + versions), declared outputs
-(content-addressed), contracts (§11), provenance stamps, and a freshness
-policy. The Dagster asset model is the reference; a 2-day spike decides
-Dagster-itself vs a thin local equivalent (launchd stays as the timer either
-way). Scripts migrate by category: fetch/build → data assets (PIT store);
-train/wf → model assets (MLflow stages); run/daily → decision jobs (DRPH-
-replayable); analyze/diag → audit assets (L6); shell glue (595-line bash) →
-job graph definitions. Migration is incremental: new work MUST be an asset;
-existing scripts convert when touched (strangler rule), census tracked in CI.
-
-**Five planes (where every §0–§15 component lives):**
-- **Data plane:** PIT store (ArcticDB/parquet+manifest), collectors,
-  dataset content-addressing. (§0.3, §8)
-- **Compute plane:** feature DAG (Hamilton), training, scoring tensors,
-  joblib bulk. (§0.3, §13)
-- **Decision plane:** GateRegistry, QP/Kelly, order emission, broker
-  reconciliation state machine. (§4, §5)
-- **Control plane:** pins/Renovate (§14), MLflow registry (§7), config
-  schema (§4.1 #6), flags, **secrets** (below).
-- **Observability plane:** decision ledger, audit sidecar L6, DRPH, alert
-  lifecycle, lineage. (§3, §12)
-
-### 16.1 Database design
-Today: one sqlite per broker context (runs.alpaca.db) + score/state tables,
-schema-less JSON columns, no migrations. Design: **stay sqlite** (one box;
-mature, transactional) with (a) **schema migrations via Alembic** (mature,
-works with sqlite) — every DDL change versioned; (b) table taxonomy split by
-write pattern: append-only EVENT tables (decision_ledger, audit_events,
-order_events — never UPDATE), snapshot STATE tables (live_state_snapshots —
-keyed by run_id, already designed), derived ANALYTICS tables (rebuildable,
-excluded from backup SLO); (c) JSON columns get pandera/pydantic check
-constraints at the writer; (d) WAL mode + busy_timeout (three agents + cron
-contend today).
-
-### 16.2 Rollback mechanisms (per layer, mostly already designed — unified here)
-| Layer | Mechanism |
-|---|---|
-| Code | pins; revert-PR (proven: #102); Renovate re-pin |
-| Model | MLflow stages — demote Production→Archived, previous Production reactivates (one API call); artifacts immutable |
-| Config | git revert + schema validation on load; golden semantic-diff |
-| Data | content-addressed PIT appends are immutable — "rollback" = pin reads to a manifest version (as_of read); bad append = tombstone row, never delete |
-| State | live_state_snapshots per run_id → restore-from-DB already exists (#144 path); plus daily file backup (16.3) |
-| DB schema | Alembic downgrade scripts mandatory per migration |
-
-### 16.3 Backup
-Today: ad-hoc (data/state_backups exists, stale since April). Design:
-**restic** (mature, encrypted, deduplicating) on the nightly rail —
-tier 1 (every run): live state + sqlite DBs + lock/pins (tiny, minutes RPO);
-tier 2 (nightly): artifacts/prod + MLflow registry + PIT manifests;
-tier 3 (weekly): full data/ (parquets are rebuildable; weekly is enough).
-Targets: second local disk + one off-box (restic→S3/B2, cheap). **Restore
-drill is a scheduled asset** (monthly: restore to temp dir + checksum
-verify) — a backup that is never restored is a hypothesis, not a backup.
-
-### 16.4 Secrets management
-Today: `.env` file sourced by bash (plaintext, in repo dir — excluded from
-git but one `git add -f` away from disaster; also readable by every script).
-Design: (a) move secrets to **macOS Keychain** (`security` CLI — native,
-encrypted at rest, per-item ACL) with a 20-line accessor in renquant-common;
-`.env` dies; (b) **detect-secrets** (Yelp) or **gitleaks** pre-commit + CI
-scan on all 10 repos including history audit (one-time `gitleaks detect` on
-full history — if any key ever leaked into a commit, rotate it NOW);
-(c) Alpaca keys: separate paper/live keys, live key marked "trading-only"
-scope where the broker supports it; rotation runbook (quarterly + on any
-suspicion) documented as an asset job; (d) secrets never in config/ledger/
-logs — a pandera-style log scrubber assertion in CI greps run logs for key
-patterns.
-
-### 16.5 What "done" looks like (the professional bar)
-One graph, five planes; every computation an asset with contracts, lineage,
-freshness, and provenance; scripts count trending 319→<50 domain glue;
-every layer independently rollback-able; backups restore-drilled monthly;
-secrets in Keychain with leak scanning in CI; the daily run <90 s; bugs
-located by differential replay instead of operator anger. Each piece is a
-small PR on the §9/§0.5 rails — no big bang, no new servers.
+# Appendix — Incident register & census provenance
+All Part-I numbers were measured on 2026-06-12 against the live tree (commands
+preserved in session logs); incidents #1–#8 cite their PRs/audits inline. The
+v1–v3 accreted sections this document supersedes remain in git history.
