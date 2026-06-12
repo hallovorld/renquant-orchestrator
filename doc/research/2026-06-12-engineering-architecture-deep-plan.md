@@ -32,6 +32,104 @@ implicit current-regime fallback · merged≠deployed ×2 → dual runtime ·
 PatchTST unstamped at promotion → metadata-by-sidecar · live-state git revert
 → state/code commingling.
 
+
+---
+
+## 0. THE bottleneck, profiled — and the redesign that maximizes model effectiveness
+
+> Operator directive: solve ONE thing deeply — engineering that extracts the
+> model's maximum. This section is that thing. Everything below is measured
+> from the 2026-06-11 live run and read from the code, with file:line cites.
+
+### 0.1 Measured profile of the daily full (2026-06-11, 14:05:11→14:18:03)
+
+| Stage | Time | Share |
+|---|---|---|
+| **`prepare_inference_panel_frames` (feature build, 142 tickers)** | **680 s** | **88%** |
+| PatchTST scoring incl. per-day sequence-panel assembly (3,408×24×172) | 56 s | 7% |
+| Everything else (regime, sell job 0.11s, candidates 1.2s, QP, persist) | 36 s | 5% |
+
+Same machine, same day, the **retrain** path built features for **292
+tickers in 139 s** (0.48 s/ticker) — the inference path runs **~10× slower
+per ticker** (4.8 s/t) for a superset chain.
+
+### 0.2 Root causes (file:line, all verified today)
+
+1. **Fake parallelism.** The per-ticker chain (13 task invocations: alpha158
+   + hourly + minute + macro/FRED β + embeddings + neutralization) runs in a
+   `ThreadPoolExecutor` (`training_panel/pipeline.py:270,362`) — GIL-bound
+   pandas in threads ≈ serial execution with lock overhead.
+2. **Process-wide BLAS lockdown.** `shadow_scoring.py:56` sets
+   `OMP_NUM_THREADS=1` **at import time for the whole daily process**
+   (imported unconditionally by `job_panel_scoring`) — every numpy matmul in
+   the entire run is single-threaded because one shadow task once needed it.
+3. **A cache that can never hit day-over-day.** `_inference_frame_cache_key`
+   hashes per-ticker `rows` + `max_date` (`training_panel/pipeline.py:132-155`)
+   → any new trading day guarantees a MISS (verified: today was `cache WRITE`,
+   no HIT). The cache only accelerates same-day re-runs.
+4. **Recompute-the-decade-to-add-one-bar.** Features are deterministic
+   functions of OHLCV history, yet each day rebuilds every rolling window
+   over the full history for all 142 names to append **one** new row.
+5. **The hottest path is unlifted umbrella glue.** This 541-line module lives
+   in `backtesting/renquant_104/training_panel/`, hand-mirroring the training
+   chain with "symmetry guard" tests (`pipeline.py:300-326` comments document
+   four past parity bugs) — the exact Sculley training/serving-skew pattern.
+
+### 0.3 The redesign: an incremental, content-addressed feature store
+
+```
+nightly (event-driven, after OHLCV/news/fundamentals land):
+  for each ticker:
+    fstore append: compute features for NEW bars only
+      (max rolling window = 60d ⇒ recompute needs only the trailing window)
+    key: (ticker, feature_version, last_bar_date, input_sha)
+  build sequence tensors for the scorer (24-bar windows, float32, memmap)
+  → artifacts: data/fstore/<ticker>.parquet + tensors/<date>.pt + manifest
+
+daily run (and any intraday re-score):
+  load tensors → torch forward on MPS → gates/QP → orders
+```
+
+- **Train/inference unification:** the SAME store feeds the training-panel
+  builder and live inference — the hand-mirrored chain and its symmetry-guard
+  test class are deleted, killing the skew pattern at the root (this also
+  collapses the "panel rebuild = hours" cost item from the capability
+  roadmap to zero — retrains read the store).
+- **Parallelism:** bulk rebuilds (version bumps) use `ProcessPoolExecutor`;
+  the nightly append is so small it needs none. Scope `OMP_NUM_THREADS=1`
+  to the torch scoring context only (a context manager, not a process env).
+- **Cache key fixed by design:** content-addressing per (ticker, version,
+  inputs_sha) means a new day APPENDS instead of invalidating.
+- **Scoring path:** pre-assembled sequence tensors remove the 56-s Python
+  panel assembly; the forward pass itself is ~seconds on MPS.
+
+### 0.4 Expected effect (and why this maximizes MODEL effectiveness)
+
+| Metric | Today | After |
+|---|---|---|
+| Daily full wall-clock | ~13 min | **< 90 s** |
+| Intraday full re-score | infeasible (13 min) | **< 30 s** → the operator's 12-minute model-protection cadence and short-side μ confirmation become REAL options |
+| Decision-to-order latency before close | signal computed 13 min after trigger | ~1 min (less slippage vs the prices the model scored) |
+| Retrain data prep ("hours" in the capability roadmap) | panel rebuild | **0** (reads the store) |
+| Experiments per day (capability roadmap §1.1/1.2 sweeps) | bottlenecked by panel prep | bottlenecked only by 26-min training |
+
+Grinold framing: this is pure **transfer-coefficient and breadth-of-
+experiments** work — same IC, more of it reaching orders, and a 10×
+faster research loop on the same box.
+
+### 0.5 Implementation slice (replaces "PR 11-15 someday"; can start now)
+
+| PR | Change | Gate |
+|---|---|---|
+| A | `fstore` module in renquant-pipeline (append/compute/read, content-addressed manifest, ProcessPool bulk builder) | unit + golden parity: store output ≡ today's `prepare_inference_panel_frames` output for 2026-06-11 (DRPH case) |
+| B | nightly builder job on the existing launchd rail + staleness preflight integration | shadow week: store vs live chain diff = 0 daily |
+| C | live path reads the store behind `inference_frame_cache.mode: "fstore"` (flag, default off) | replay diff = 0; then flip after clean week |
+| D | sequence-tensor pre-assembly + scoped OMP context manager | scoring stage < 10 s measured |
+| E | delete the umbrella chain + symmetry-guard tests (strangler completion) | corpus green |
+
+Risk: feature drift between store and legacy chain → controlled by PR A's
+golden parity requirement and PR B's shadow week, both mechanical via DRPH.
+
 ---
 
 ## 3. Centerpiece: the Deterministic Replay & Parity Harness (DRPH)
