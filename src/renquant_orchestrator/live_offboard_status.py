@@ -38,6 +38,45 @@ def _commit_plan_pending_persistence(payload: dict[str, Any]) -> list[dict[str, 
     return pending
 
 
+def _commit_plan_committed_persistence_count(payload: dict[str, Any]) -> int:
+    raw_mutations = payload.get("state_mutations") or []
+    if not isinstance(raw_mutations, list):
+        raise ValueError("native_commit_plan.state_mutations must be a list")
+    count = 0
+    for idx, raw in enumerate(raw_mutations):
+        if not isinstance(raw, dict):
+            raise ValueError(f"native_commit_plan.state_mutations[{idx}] must be an object")
+        if (
+            raw.get("mutation_type") in _PENDING_PERSISTENCE_MUTATIONS
+            and raw.get("committed") is True
+        ):
+            count += 1
+    return count
+
+
+def _native_persistence_audit_status(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata")
+    audit = metadata.get("persistence_audit") if isinstance(metadata, dict) else None
+    if audit is None:
+        return {"exists": False, "ok": False}
+    if not isinstance(audit, dict):
+        raise ValueError("native_bundle.metadata.persistence_audit must be a JSON object")
+    lifecycle_rows = int(audit.get("lifecycle_journal_row_count") or 0)
+    snapshot_rows = int(audit.get("live_state_snapshot_row_count") or 0)
+    return {
+        "exists": True,
+        "ok": lifecycle_rows > 0 and snapshot_rows > 0,
+        "committed_mutation_count": int(audit.get("committed_mutation_count") or 0),
+        "trade_journal_row_count": int(audit.get("trade_journal_row_count") or 0),
+        "lifecycle_journal_row_count": lifecycle_rows,
+        "live_state_snapshot_row_count": snapshot_rows,
+        "live_state_path": audit.get("live_state_path"),
+        "trade_journal_path": audit.get("trade_journal_path"),
+        "lifecycle_journal_path": audit.get("lifecycle_journal_path"),
+        "runs_db_path": audit.get("runs_db_path"),
+    }
+
+
 def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, Any]]:
     status: dict[str, dict[str, Any]] = {}
     for name, raw_path in artifacts.items():
@@ -98,9 +137,31 @@ def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, An
             commit_plan["broker_name"] = payload.get("broker_name")
             commit_plan["dry_run"] = bool(payload.get("dry_run", False))
             commit_plan["persistence_committed"] = len(pending) == 0
+            commit_plan["committed_persistence_mutation_count"] = (
+                _commit_plan_committed_persistence_count(payload)
+            )
             commit_plan["pending_persistence_mutation_count"] = len(pending)
             commit_plan["pending_persistence_mutations"] = pending[:20]
+    native_bundle_path = artifacts.get("native_bundle")
+    native_bundle = status.get("native_bundle")
+    if native_bundle_path and native_bundle is not None and native_bundle["exists"]:
+        try:
+            payload = json.loads(Path(native_bundle_path).read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("native_bundle must be a JSON object")
+            native_bundle["persistence_audit"] = _native_persistence_audit_status(payload)
+        except Exception as exc:  # noqa: BLE001 - surface corrupt bundle artifacts
+            native_bundle["error"] = str(exc)
     return status
+
+
+def _needs_native_persistence_audit(artifact_status: dict[str, dict[str, Any]]) -> bool:
+    commit_plan = artifact_status["native_commit_plan"]
+    return (
+        commit_plan.get("exists") is True
+        and commit_plan.get("readonly") is False
+        and int(commit_plan.get("committed_persistence_mutation_count") or 0) > 0
+    )
 
 
 def _artifact_blockers(
@@ -125,6 +186,14 @@ def _artifact_blockers(
             blockers.append("native_commit_plan_has_uncommitted_persistence")
     if not artifact_status["native_bundle"]["exists"]:
         blockers.append("missing_native_bundle")
+    elif artifact_status["native_bundle"].get("error"):
+        blockers.append("invalid_native_bundle")
+    elif include_execution_payload and _needs_native_persistence_audit(artifact_status):
+        audit = artifact_status["native_bundle"].get("persistence_audit") or {}
+        if not audit.get("exists"):
+            blockers.append("missing_native_persistence_audit")
+        elif not audit.get("ok"):
+            blockers.append("native_persistence_audit_incomplete")
     live_state = artifact_status.get("live_state_contract")
     if live_state is not None:
         if not live_state["exists"]:
@@ -167,6 +236,15 @@ def _stage_status(
         )
     )
     native_live_bundle_ready = artifact_status["native_bundle"]["exists"]
+    persistence_audit = artifact_status["native_bundle"].get("persistence_audit") or {}
+    native_persistence_audit_ready = (
+        not include_execution_payload
+        or not _needs_native_persistence_audit(artifact_status)
+        or (
+            persistence_audit.get("exists") is True
+            and persistence_audit.get("ok") is True
+        )
+    )
     live_state = artifact_status.get("live_state_contract", {})
     live_state_contract_ready = (
         live_state.get("exists") is True
@@ -183,6 +261,7 @@ def _stage_status(
         "bridge_capture_ready": artifact_status["bridge_bundle"]["exists"],
         "native_payloads_ready": native_payloads_ready,
         "native_commit_persistence_ready": native_commit_persistence_ready,
+        "native_persistence_audit_ready": native_persistence_audit_ready,
         "native_live_bundle_ready": native_live_bundle_ready,
         "live_state_contract_ready": live_state_contract_ready,
         "parity_verdict_ready": parity_verdict_ready,
@@ -204,6 +283,9 @@ def _stage_status(
     elif not native_live_bundle_ready:
         current_stage = "native_live_bundle_generation"
         next_blocker = "missing_native_bundle"
+    elif not native_persistence_audit_ready:
+        current_stage = "native_persistence_audit"
+        next_blocker = "missing_or_incomplete_native_persistence_audit"
     elif not live_state_contract_ready:
         current_stage = "native_live_state_contract"
         next_blocker = "missing_or_invalid_live_state_contract"
@@ -247,6 +329,7 @@ def _cutover_execution_packet(
         and bool(checks.get("bridge_capture_ready"))
         and bool(checks.get("native_payloads_ready"))
         and bool(checks.get("native_commit_persistence_ready"))
+        and bool(checks.get("native_persistence_audit_ready"))
         and bool(checks.get("native_live_bundle_ready"))
         and bool(checks.get("live_state_contract_ready"))
         and bool(checks.get("parity_ok"))
@@ -294,6 +377,7 @@ def _cutover_execution_packet(
             "readonly bridge bundle captured from the current umbrella path",
             "native inference/execution payloads and native live bundle generated",
             "native commit plan has no uncommitted live-state or trade-log persistence mutations",
+            "native persistence audit has live-state snapshot and order lifecycle rows when live commits are present",
             "live-state contract is valid and uses the native contract schema",
             "native parity verdict is ok for decision_trace, order_intents, and state_mutations",
             "operator has approved the readonly native scheduler validation",
