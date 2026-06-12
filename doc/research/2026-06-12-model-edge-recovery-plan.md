@@ -37,6 +37,9 @@ sentiment join coverage (109 NaN-dropped rows at the tail edge); re-verify the
 171-day-fresh OHLCV path post the data-verification task (#102).
 **Why:** 5 of 172 features are frozen; garbage-in degrades live IC *relative to
 training*, i.e. some of the BULL_CALM live-IC gap may be data, not model.
+**Current fix status:** base-data #22 fixes the alpha-panel candidate resolver
+that picked the stale `alpha158_816_dataset.parquet`; WS-1 still needs the
+post-fix refresh run and drift report before treating the data issue as closed.
 **Evidence test:** re-run the regime-IC sanity on refreshed data; live-vs-train
 feature-distribution drift report (PSI per feature).
 **Cost:** small; no GPU, no retrain.
@@ -63,9 +66,10 @@ selection only in regimes where it demonstrates IC. (Structurally similar to the
 existing `bear_defensive_slots` mechanism — this generalizes it.)
 **Why it answers the actual failure:** "model loses to SPY" is dominated by
 BULL_CALM periods (most of the calendar). SPY-in-CALM + model-elsewhere
-mechanically converts the comparison from "model vs SPY" to "SPY + active alpha
-in dispersive regimes vs SPY" — ≥ benchmark by construction, plus the regimes
-where IC is real.
+converts the comparison from "model vs SPY everywhere" to "benchmark exposure
+where IC≈0, active risk only where the gate has evidence." This is a hypothesis
+to test, not an algebraic guarantee: non-CALM model sleeves can still lose to
+SPY after costs or timing. The cut-3 replay is the arbiter.
 **Theory:** regime-switching allocation (Ang–Bekaert 2002); cross-sectional
 momentum needs dispersion — calm low-vol uptrends have the least
 (rank-signal-to-noise scales with cross-sectional spread); Grinold–Kahn: don't
@@ -106,8 +110,9 @@ three families.
 
 ## 2. Recommended sequencing
 
-**Phase A (this week, parallel):** WS-1 (data refresh) + WS-2 (two point-in-time
-retrains) + WS-3 (regime-conditional allocation replay on cut-3).
+**Phase A (this week, parallel):** WS-1 (post-#22 data refresh + drift report),
+WS-2 (two point-in-time retrains), and WS-3 (regime-conditional allocation
+replay on cut-3).
 Phase A alone can plausibly produce a **passing artifact**: refreshed data fixes
 live-IC drag, complete cuts fix coverage, and the CALM→SPY policy directly
 attacks the benchmark-relative criterion *where the model has no IC*.
