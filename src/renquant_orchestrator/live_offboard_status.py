@@ -9,6 +9,35 @@ from .live_rehearsal_plan import build_live_rehearsal_plan
 from .scheduled_jobs import inventory_payload
 
 
+_PENDING_PERSISTENCE_MUTATIONS = {
+    "planned_live_state_update",
+    "planned_trade_log_append",
+}
+
+
+def _commit_plan_pending_persistence(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_mutations = payload.get("state_mutations") or []
+    if not isinstance(raw_mutations, list):
+        raise ValueError("native_commit_plan.state_mutations must be a list")
+    pending: list[dict[str, Any]] = []
+    for idx, raw in enumerate(raw_mutations):
+        if not isinstance(raw, dict):
+            raise ValueError(f"native_commit_plan.state_mutations[{idx}] must be an object")
+        if raw.get("mutation_type") not in _PENDING_PERSISTENCE_MUTATIONS:
+            continue
+        if raw.get("committed") is True:
+            continue
+        pending.append({
+            "mutation_id": raw.get("mutation_id"),
+            "mutation_type": raw.get("mutation_type"),
+            "symbol": raw.get("symbol"),
+            "action": raw.get("action"),
+            "source_order_id": raw.get("source_order_id"),
+            "status": raw.get("status"),
+        })
+    return pending
+
+
 def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, Any]]:
     status: dict[str, dict[str, Any]] = {}
     for name, raw_path in artifacts.items():
@@ -54,6 +83,23 @@ def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, An
             live_state["account_snapshot_position_count"] = (
                 len(positions) if isinstance(positions, dict) else 0
             )
+    commit_plan_path = artifacts.get("native_commit_plan")
+    commit_plan = status.get("native_commit_plan")
+    if commit_plan_path and commit_plan is not None and commit_plan["exists"]:
+        try:
+            payload = json.loads(Path(commit_plan_path).read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("native_commit_plan must be a JSON object")
+            pending = _commit_plan_pending_persistence(payload)
+        except Exception as exc:  # noqa: BLE001 - surface corrupt commit-plan artifacts
+            commit_plan["error"] = str(exc)
+        else:
+            commit_plan["readonly"] = bool(payload.get("readonly", True))
+            commit_plan["broker_name"] = payload.get("broker_name")
+            commit_plan["dry_run"] = bool(payload.get("dry_run", False))
+            commit_plan["persistence_committed"] = len(pending) == 0
+            commit_plan["pending_persistence_mutation_count"] = len(pending)
+            commit_plan["pending_persistence_mutations"] = pending[:20]
     return status
 
 
@@ -71,6 +117,12 @@ def _artifact_blockers(
         blockers.append("missing_native_execution_payload")
     if include_execution_payload and not artifact_status["native_commit_plan"]["exists"]:
         blockers.append("missing_native_commit_plan")
+    elif include_execution_payload:
+        commit_plan = artifact_status["native_commit_plan"]
+        if commit_plan.get("error"):
+            blockers.append("invalid_native_commit_plan")
+        elif commit_plan.get("pending_persistence_mutation_count", 0):
+            blockers.append("native_commit_plan_has_uncommitted_persistence")
     if not artifact_status["native_bundle"]["exists"]:
         blockers.append("missing_native_bundle")
     live_state = artifact_status.get("live_state_contract")
@@ -105,6 +157,15 @@ def _stage_status(
             and artifact_status["native_commit_plan"]["exists"]
         )
     )
+    commit_plan = artifact_status["native_commit_plan"]
+    native_commit_persistence_ready = (
+        not include_execution_payload
+        or (
+            commit_plan["exists"]
+            and not commit_plan.get("error")
+            and commit_plan.get("persistence_committed") is True
+        )
+    )
     native_live_bundle_ready = artifact_status["native_bundle"]["exists"]
     live_state = artifact_status.get("live_state_contract", {})
     live_state_contract_ready = (
@@ -121,6 +182,7 @@ def _stage_status(
         "credential_preflight_ready": credential_ready,
         "bridge_capture_ready": artifact_status["bridge_bundle"]["exists"],
         "native_payloads_ready": native_payloads_ready,
+        "native_commit_persistence_ready": native_commit_persistence_ready,
         "native_live_bundle_ready": native_live_bundle_ready,
         "live_state_contract_ready": live_state_contract_ready,
         "parity_verdict_ready": parity_verdict_ready,
@@ -136,6 +198,9 @@ def _stage_status(
     elif not native_payloads_ready:
         current_stage = "native_payload_generation"
         next_blocker = "missing_native_payloads"
+    elif not native_commit_persistence_ready:
+        current_stage = "native_commit_persistence"
+        next_blocker = "uncommitted_native_persistence_mutations"
     elif not native_live_bundle_ready:
         current_stage = "native_live_bundle_generation"
         next_blocker = "missing_native_bundle"
@@ -181,6 +246,7 @@ def _cutover_execution_packet(
         and bool(checks.get("credential_preflight_ready"))
         and bool(checks.get("bridge_capture_ready"))
         and bool(checks.get("native_payloads_ready"))
+        and bool(checks.get("native_commit_persistence_ready"))
         and bool(checks.get("native_live_bundle_ready"))
         and bool(checks.get("live_state_contract_ready"))
         and bool(checks.get("parity_ok"))
@@ -227,6 +293,7 @@ def _cutover_execution_packet(
         "preconditions": [
             "readonly bridge bundle captured from the current umbrella path",
             "native inference/execution payloads and native live bundle generated",
+            "native commit plan has no uncommitted live-state or trade-log persistence mutations",
             "live-state contract is valid and uses the native contract schema",
             "native parity verdict is ok for decision_trace, order_intents, and state_mutations",
             "operator has approved the readonly native scheduler validation",

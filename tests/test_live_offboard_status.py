@@ -156,6 +156,7 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
     assert status["stage_status"]["current_stage"] == "native_live_job_cutover"
     assert status["stage_status"]["next_blocker"] == "remaining_umbrella_bridge_jobs"
     assert status["stage_status"]["checks"]["live_state_contract_ready"] is True
+    assert status["stage_status"]["checks"]["native_commit_persistence_ready"] is True
     assert status["stage_status"]["checks"]["parity_ok"] is True
     assert status["artifact_status"]["live_state_contract"]["account_snapshot_position_count"] == 1
     assert status["ready_for_live_offboard"] is False
@@ -187,6 +188,96 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
         "readonly-alpaca",
         "--strict",
     ]
+
+
+def test_live_offboard_status_blocks_uncommitted_commit_plan_persistence(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    for name in (
+        "live-bridge-bundle.json",
+        "live-native-inference.json",
+        "live-native-execution.json",
+        "live-native-bundle.json",
+    ):
+        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (tmp_path / "live-native-commit-plan.json").write_text(
+        json.dumps({
+            "readonly": False,
+            "broker_name": "alpaca",
+            "state_mutations": [
+                {
+                    "mutation_type": "order_submission",
+                    "committed": True,
+                    "source_order_id": "ord-1",
+                },
+                {
+                    "mutation_id": "planned-order-1-live-state",
+                    "mutation_type": "planned_live_state_update",
+                    "committed": False,
+                    "symbol": "MSFT",
+                    "action": "SELL",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                },
+                {
+                    "mutation_id": "planned-order-1-trade-log",
+                    "mutation_type": "planned_trade_log_append",
+                    "committed": False,
+                    "symbol": "MSFT",
+                    "action": "SELL",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-live-state-contract.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "source": "live_state_file",
+            "account_snapshot": {"positions": {"MSFT": {"quantity": 1}}},
+            "used_legacy": False,
+            "warnings": [],
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-parity-verdict.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    status = build_live_offboard_status(output_dir=tmp_path)
+
+    assert "native_commit_plan_has_uncommitted_persistence" in status["blocking_reasons"]
+    assert status["stage_status"]["current_stage"] == "native_commit_persistence"
+    assert status["stage_status"]["next_blocker"] == "uncommitted_native_persistence_mutations"
+    assert status["stage_status"]["checks"]["native_commit_persistence_ready"] is False
+    commit_status = status["artifact_status"]["native_commit_plan"]
+    assert commit_status["readonly"] is False
+    assert commit_status["broker_name"] == "alpaca"
+    assert commit_status["persistence_committed"] is False
+    assert commit_status["pending_persistence_mutation_count"] == 2
+    assert commit_status["pending_persistence_mutations"] == [
+        {
+            "mutation_id": "planned-order-1-live-state",
+            "mutation_type": "planned_live_state_update",
+            "symbol": "MSFT",
+            "action": "SELL",
+            "source_order_id": "ord-1",
+            "status": "filled",
+        },
+        {
+            "mutation_id": "planned-order-1-trade-log",
+            "mutation_type": "planned_trade_log_append",
+            "symbol": "MSFT",
+            "action": "SELL",
+            "source_order_id": "ord-1",
+            "status": "filled",
+        },
+    ]
+    assert status["cutover_execution_packet"]["ready_for_readonly_validation"] is False
+    assert status["cutover_execution_packet"]["ready_to_execute"] is False
 
 
 def test_live_offboard_status_cli_strict_returns_nonzero(monkeypatch, capsys) -> None:
