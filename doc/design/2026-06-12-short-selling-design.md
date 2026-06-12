@@ -48,6 +48,9 @@ trade**.
   Independent of §1's veto (no single-name signal needed). Gate: replay
   evidence of drawdown reduction net of cost (§4 E6).
 - **Phase 1 — single-name shorts**: BLOCKED until a §4 trigger passes.
+  **Literature prior (see literature review doc): likely fails in an ETB-only
+  universe** (Drechsler & Drechsler; Muravyev et al. 2025) — burden of proof
+  fully on the experiments.
 - **Phase 2 — dollar-neutral sleeve**: only on Phase-1 evidence.
 
 ## 4. Experiment suite (each pre-registered; promote only on pass)
@@ -93,6 +96,7 @@ Priority chain (first match covers; mirrors the long exit-chain architecture):
 | 1 | **Hard stop** | adverse move ≥ min(+12%, 2.5σ_daily·√h) from entry; evaluated EOD AND on the existing ~12-min intraday rail (cover-only orders). Gap-up beyond stop → cover at next open, no anchoring | hard risk |
 | 2 | **Broker/borrow risk** | leaves ETB, borrow fee > cap, DTC blows out, or buy-in notice → immediate cover | hard risk |
 | 3 | **Event veto** | earnings within 3d → cover ahead; ex-dividend where dividend > borrow-adjusted edge → cover before ex-date | hard risk |
+| 3b | **Rebound veto (entry-side)** | no NEW shorts while SPY 60d ret < −10% AND 5d ret > +3% (momentum-crash window, Daniel–Moskowitz 2016) | hard risk |
 | 4 | **Profit lock (trailing)** | after favorable move ≥ 15%, trail: cover if price retraces 1/3 of max favorable move. Bounded-profit asset ⇒ lock, don't ride forever | profit |
 | 5 | **Signal exit (inverted protection w/ hysteresis)** | entry was μ < −τ_strong for ≥3 consecutive days; cover when μ > −τ_weak (τ_weak < τ_strong, hysteresis band) for ≥2 consecutive days — debounced both directions | signal |
 | 6 | **Rank exit** | name climbs out of the bottom quintile of the cross-section → thesis gone → cover | signal |
