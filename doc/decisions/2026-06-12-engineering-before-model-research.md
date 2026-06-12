@@ -8,11 +8,10 @@ therefore the #108 program executes FIRST; #106 model-capability work is
 BLOCKED until the evidence substrate is green.
 
 ## Supporting evidence (this week)
-Same-input scoring differed 17 IC pts between pipelines (−0.0054 vs −0.0915,
+Same-input scoring differed **8.6 IC points** between pipelines (−0.0054 vs −0.0915,
 unresolved = bug #1); DOE headline was winner-picked (0.203 vs full-run mean
 +0.0507); artifacts lacked provenance (no dataset hash, no env hash); panel
-drifted untracked; breadth claims falsified by unreproducible past
-experiments (E5/E17/E34/E45).
+drifted untracked; breadth claims contradicted by the internal experiment logs E5/E17/E34/E45 (each measured IC degradation on expansion); those experiments additionally lack full provenance, which is itself part of this decision's rationale.
 
 ## Unblocking milestones for #106 (each makes model evidence trustworthy)
 1. Week-0 disaster guards (G1 broker GTC stops, G2 adapter breaker).
