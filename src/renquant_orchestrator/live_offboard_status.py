@@ -185,6 +185,10 @@ def _cutover_execution_packet(
         and bool(checks.get("live_state_contract_ready"))
         and bool(checks.get("parity_ok"))
     )
+    readonly_native_commands = any(
+        "readonly-alpaca" in [str(part) for part in job["native_cutover_command"]]
+        for job in bridge_jobs
+    )
     jobs = [
         {
             "bridge_job_id": job["job_id"],
@@ -211,9 +215,12 @@ def _cutover_execution_packet(
         status_command.extend(["--env-file", rehearsal["env_file"]])
     return {
         "schema_version": 1,
-        "ready_to_execute": ready,
+        "ready_for_readonly_validation": ready,
+        "ready_to_execute": ready and not readonly_native_commands,
         "reason": (
-            "parity_green_scheduler_cutover_only"
+            "parity_green_but_native_cutover_is_readonly"
+            if ready and readonly_native_commands
+            else "parity_green_scheduler_cutover_only"
             if ready else "preconditions_not_satisfied"
         ),
         "jobs": jobs,
@@ -222,7 +229,8 @@ def _cutover_execution_packet(
             "native inference/execution payloads and native live bundle generated",
             "live-state contract is valid and uses the native contract schema",
             "native parity verdict is ok for decision_trace, order_intents, and state_mutations",
-            "operator has approved replacing scheduler commands",
+            "operator has approved the readonly native scheduler validation",
+            "live execution commit semantics are ported before replacing production trading",
         ],
         "verification_commands": [
             rehearsal["commands"]["native_live_parity"],

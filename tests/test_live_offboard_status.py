@@ -43,6 +43,7 @@ def test_live_offboard_status_reports_env_and_bridge_blockers(monkeypatch) -> No
         "native_cutover_command"
     ]
     assert status["cutover_execution_packet"]["ready_to_execute"] is False
+    assert status["cutover_execution_packet"]["ready_for_readonly_validation"] is False
 
 
 def test_live_offboard_status_reports_existing_parity_verdict(monkeypatch, tmp_path) -> None:
@@ -159,8 +160,9 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
     assert status["artifact_status"]["live_state_contract"]["account_snapshot_position_count"] == 1
     assert status["ready_for_live_offboard"] is False
     packet = status["cutover_execution_packet"]
-    assert packet["ready_to_execute"] is True
-    assert packet["reason"] == "parity_green_scheduler_cutover_only"
+    assert packet["ready_for_readonly_validation"] is True
+    assert packet["ready_to_execute"] is False
+    assert packet["reason"] == "parity_green_but_native_cutover_is_readonly"
     assert [job["bridge_job_id"] for job in packet["jobs"]] == [
         "daily_live_runner_bridge",
         "live_runner_bridge",
