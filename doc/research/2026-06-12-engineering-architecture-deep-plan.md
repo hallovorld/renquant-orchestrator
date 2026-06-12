@@ -517,3 +517,33 @@ class AuditTask(Protocol):
 This is containment layer **L6** in the §11.1 stack: L1–L5 bound change
 risk; L6 bounds **data/runtime risk on unchanged code** — the two failure
 families this week actually exhibited.
+
+## 13. Build-vs-adopt policy (operator directive: mature libs first, binding)
+
+**Rule:** every component in this plan MUST adopt a maintained library/OSS
+solution unless none fits three criteria: (a) actively maintained,
+(b) battle-tested (major-org or wide adoption), (c) local-first (no server
+to operate — one box, one operator). Hand-rolled code is restricted to thin
+domain glue. PR review enforces: any hand-rolled component needs a one-line
+"no mature lib because…" justification.
+
+| Plan component | Adopt (mature) | Hand-roll remainder |
+|---|---|---|
+| State/config/typing (§4.1) | **pydantic v2** (already a dep) + **pydantic-settings** | field definitions only |
+| DataFrame contracts T1/T2 (§11.2) | **pandera** (pydantic-style schemas for pandas, pytest integration) | our field lists |
+| Property tests (§11.2) | **hypothesis** | invariant lambdas |
+| Design-by-contract decorator (§11.2) | **deal** or **icontract** (pre/post/invariant decorators, maintained) | the reads/writes ctx-guard proxy (~100 LOC, no lib does god-ctx scoping) |
+| Golden/snapshot diffing in DRPH (§3) | **pytest-regressions** / **syrupy** for canonical-JSON snapshots; **pytest-socket** for the network ban | the ReplayCase loader + canonicalizer (~200 LOC domain glue) |
+| Feature store storage + PIT reads (§0.3, §8) | **ArcticDB** (Man Group, columnar versioned store with native `as_of` snapshots — PIT reads become a library call) — fallback plain parquet+manifest if its MPS/py3.10 fit disappoints in a 1-day spike | feature compute functions |
+| Feature DAG / incremental pipeline (§0.3) | **Hamilton** (DAGWorks) — declarative pandas feature dataflow, per-column lineage, fits the alpha158 chain | column functions |
+| Bulk parallelism (§0.3) | **joblib** (loky backend — solves the pickling pain that pushed the repo to threads) | none |
+| Drift/distribution audits (§12) | **scipy.stats** KS + PSI (10 lines) now; **evidently** if reports wanted later | thresholds in config |
+| Audit/alert lifecycle (§12.3) | **ntfy** (already) + sqlite state; consider **healthchecks.io**-style dead-man for the nightly jobs | the escalation state machine (~150 LOC; no local-first OSS does exactly this) |
+| Artifact registry & lineage (§7) | **MLflow** registry (already installed) | the WF-gate transition caller |
+| Decision ledger (§4.3) | **sqlite** (already); no ORM needed | DDL + writer |
+| Idempotent orders (§5) | **Alpaca native client_order_id** dedup | the sha1 key derivation |
+| Job orchestration (nightly rail) | keep **launchd** for S1–S2; evaluate **Dagster** in S3 (its asset freshness-policies + sensors natively solve the staleness-escalation problem) — explicit go/no-go after a 1-day spike, not a default adoption | cron plists |
+
+Net effect on the ten-PR plan (§9): PR1 gains pandera/deal; PR3 gains
+pytest-regressions/pytest-socket; fstore PR A starts with the ArcticDB
+spike day; estimated hand-rolled LOC drops ~35% from the v2.1 estimates.
