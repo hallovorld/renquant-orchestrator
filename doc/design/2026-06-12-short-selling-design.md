@@ -75,6 +75,42 @@ All experiment code/results live on `epic/model-edge-experiments`; nothing
 merges to main; any passing trigger then goes through the standard WF-gate +
 shadow + operator-review pipeline before real orders.
 
+
+## 4.5 Short exit design (cover triggers, priority-ordered)
+
+Shorts are NOT mirrored longs. Three asymmetries drive the design:
+(a) **loss is unbounded and a losing short GROWS its own exposure weight**
+(a rising name takes up more NAV — the opposite of a losing long, which
+shrinks itself); (b) **profit is bounded at 100%** and decays — time costs
+borrow fees + dividend liability; (c) **gap risk is asymmetric** (buyout/
+short-squeeze headlines gap UP). Hence: tighter stops than longs, intraday
+monitoring, shorter time barrier, hard event vetoes.
+
+Priority chain (first match covers; mirrors the long exit-chain architecture):
+
+| # | Trigger | Rule | Class |
+|---|---|---|---|
+| 1 | **Hard stop** | adverse move ≥ min(+12%, 2.5σ_daily·√h) from entry; evaluated EOD AND on the existing ~12-min intraday rail (cover-only orders). Gap-up beyond stop → cover at next open, no anchoring | hard risk |
+| 2 | **Broker/borrow risk** | leaves ETB, borrow fee > cap, DTC blows out, or buy-in notice → immediate cover | hard risk |
+| 3 | **Event veto** | earnings within 3d → cover ahead; ex-dividend where dividend > borrow-adjusted edge → cover before ex-date | hard risk |
+| 4 | **Profit lock (trailing)** | after favorable move ≥ 15%, trail: cover if price retraces 1/3 of max favorable move. Bounded-profit asset ⇒ lock, don't ride forever | profit |
+| 5 | **Signal exit (inverted protection w/ hysteresis)** | entry was μ < −τ_strong for ≥3 consecutive days; cover when μ > −τ_weak (τ_weak < τ_strong, hysteresis band) for ≥2 consecutive days — debounced both directions | signal |
+| 6 | **Rank exit** | name climbs out of the bottom quintile of the cross-section → thesis gone → cover | signal |
+| 7 | **Time barrier** | maximum hold for shorts is SHORTER than longs — default 20 trading days, tuned by E7 (borrow + drift make time the short's enemy; the 60d long barrier does not transfer) | time |
+| 8 | **Account breaker** | maintenance-margin utilization > 70% or margin budget breach → cover ALL shorts, largest adverse first | portfolio |
+
+PDT interaction: same-day cover is permitted ONLY for triggers 1–3 (hard risk);
+signal/profit/time exits always wait for the next session. The runner counts
+day-trades and refuses a 4th in any rolling 5-day window even for stops
+(falls back to next-open cover with an alert).
+
+Sizing note (anti-martingale): because adverse moves grow the position weight,
+the runner re-checks per-name cap (4% NAV) daily and trims back excess on
+breach — trimming counts as a partial cover through the same chain.
+
+All thresholds (+12%, 15%/⅓, τ_weak, 20d) are E7 experiment outputs, not
+hand-picked constants — the table records the priors the experiments start from.
+
 ## 5. Plumbing inventory & risk register
 
 Unchanged from v1 (signed positions, CoverJob, margin preflight, buy-in
