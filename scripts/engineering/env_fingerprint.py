@@ -13,7 +13,6 @@ import datetime as dt
 import hashlib
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 VENV_PY = "/Users/renhao/git/github/RenQuant/.venv/bin/python"
