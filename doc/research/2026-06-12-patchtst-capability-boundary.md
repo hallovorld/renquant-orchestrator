@@ -201,3 +201,75 @@ this foundation.
 - Jegadeesh & Titman (1993); Moskowitz–Ooi–Pedersen (2012) — momentum payoff structure.
 - Cooper, Gulen & Schill (2008) — the asset-growth effect (the factor that dominates our dead window).
 - Womack (1996); Jegadeesh et al. (2004) — analyst recommendation/revision drift.
+
+---
+
+## 5. Self-directed findings (questions nobody asked)
+
+### 5.1 The retired XGB baseline beats PatchTST on the exact same validation set ⚠️
+`artifacts/patchtst_shadow/xgb_baseline_same_val.json` — same window (2025-02-06
+→2026-02-10), same 254 days, same 36,068 rows:
+
+| Model | Daily IC mean |
+|---|---|
+| **XGB (alpha158_fund, the pre-promotion primary)** | **+0.0909** |
+| PatchTST pt07 seed44 (current primary) | +0.0706 |
+
+If this comparison is methodologically fair, the 2026-06-05 promotion was a
+**downgrade**. **Mandatory check before acting:** the XGB artifact's training
+cutoff must be verified against this window — if XGB trained on data overlapping
+2025-02→2026-02, its number is inflated and the comparison is unfair. Action:
+re-evaluate both models under identical strict-OOS cutoffs (folds into WS-2).
+Either way, the revived shadow monitor (pipeline #114) now produces this
+comparison daily going forward.
+
+### 5.2 The combination-failure hypothesis is CONFIRMED — with a free patch
+Zero-training blend test in the dead window (2025-10→2026-01), per-date z-ranks:
+
+| Signal | Dead-window IC |
+|---|---|
+| Model alone | −0.092 |
+| asset_growth alone | +0.235 |
+| 50/50 model + asset_growth | **+0.114** |
+| 1/3 each model + asset_growth + roe | **+0.137** |
+
+A blend that costs **nothing to train** flips the dead window from −0.09 to
++0.14. This (a) confirms the §2.5 thesis (information alive, combination dead),
+(b) offers an immediately testable candidate: a calm-regime score blend, gated
+through the standard WF gate like any other candidate.
+
+### 5.3 The IC failure is economically real at our actual position count
+Top-8 basket (our `max_concurrent_positions`) vs universe mean, z-label units:
+
+| Window | Top-8 selection edge |
+|---|---|
+| Full validation year | **+0.264** (real, large) |
+| Dead window | **−0.124** (top picks did WORSE than the universe average) |
+
+In calm tape the model's favorite names underperformed random selection — the
+buy-block during this period protected real money.
+
+---
+
+## 6. Daily data pipeline (operator direction — adopted, and it is more than a speed-up)
+
+The operator proposes a daily data-collection pipeline so training panels are
+always fresh. Adopted, with one upgrade to the rationale: for several §2.5
+sources a daily collector is **the only way the dataset can ever exist** —
+analyst-rating snapshots, price targets, and options IV are **point-in-time
+data that cannot be backfilled** (vendors expose limited history; IV must be
+captured live — our `iv_snapshot` job already proves the pattern).
+
+Proposed shape (mostly existing rails):
+1. **Daily incremental panel append** — extend `transformer_v4_wl200_clean`
+   maintenance from ad-hoc rebuild (hours, the real cost item in §2.2 ①) to a
+   nightly append of yesterday's bar after the OHLCV/news/fundamentals jobs
+   complete; labels mature in place (fwd_5d/20d/60d fill as dates age).
+2. **Point-in-time collectors** for analyst ratings/targets + estimate
+   revisions (new, yfinance) and IV/put-call (wire the existing `iv_snapshot`
+   output into the panel schema), each row stamped with collection date.
+3. **Provenance stamps** (§3) on every append: dataset_sha256 + row count +
+   date range, so any training run can pin its exact data version.
+4. Effect on §2.2: the panel-rebuild cost term drops from hours to zero —
+   a fresh-cutoff retrain becomes a true 26-minute operation, making the
+   quarterly (or even monthly) cadence frictionless.
