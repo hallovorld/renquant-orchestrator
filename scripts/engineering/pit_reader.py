@@ -48,7 +48,8 @@ if __name__ == "__main__":
     import tempfile
     # P1: publication-lag enforcement (the FINRA/E5 rule)
     src = "selftest_" + dt.datetime.now().strftime("%H%M%S")
-    p = Path(tempfile.mktemp()); p.write_text("x")
+    p = Path(tempfile.mktemp())
+    p.write_text("x")
     pit_append(src, date="2026-05-30", payload_file=p,
                collected_at="2026-06-01", publication_lag_days=9)
     assert pit_visible(src, "2026-06-05") == []          # settled but NOT published
