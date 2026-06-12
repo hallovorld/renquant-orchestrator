@@ -280,6 +280,160 @@ def test_live_offboard_status_blocks_uncommitted_commit_plan_persistence(
     assert status["cutover_execution_packet"]["ready_to_execute"] is False
 
 
+def test_live_offboard_status_blocks_committed_persistence_without_audit(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    for name in (
+        "live-bridge-bundle.json",
+        "live-native-inference.json",
+        "live-native-execution.json",
+    ):
+        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (tmp_path / "live-native-commit-plan.json").write_text(
+        json.dumps({
+            "readonly": False,
+            "broker_name": "alpaca",
+            "state_mutations": [
+                {
+                    "mutation_id": "planned-order-1-live-state",
+                    "mutation_type": "planned_live_state_update",
+                    "committed": True,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                },
+                {
+                    "mutation_id": "planned-order-1-trade-log",
+                    "mutation_type": "planned_trade_log_append",
+                    "committed": True,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-native-bundle.json").write_text(
+        json.dumps({"metadata": {"readonly": False}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-live-state-contract.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "source": "live_state_file",
+            "account_snapshot": {"positions": {"AAPL": {"quantity": 1}}},
+            "used_legacy": False,
+            "warnings": [],
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-parity-verdict.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    status = build_live_offboard_status(output_dir=tmp_path)
+
+    assert "missing_native_persistence_audit" in status["blocking_reasons"]
+    assert status["stage_status"]["current_stage"] == "native_persistence_audit"
+    assert status["stage_status"]["next_blocker"] == (
+        "missing_or_incomplete_native_persistence_audit"
+    )
+    assert status["stage_status"]["checks"]["native_commit_persistence_ready"] is True
+    assert status["stage_status"]["checks"]["native_persistence_audit_ready"] is False
+    assert status["artifact_status"]["native_commit_plan"][
+        "committed_persistence_mutation_count"
+    ] == 2
+    assert status["artifact_status"]["native_bundle"]["persistence_audit"] == {
+        "exists": False,
+        "ok": False,
+    }
+
+
+def test_live_offboard_status_accepts_committed_persistence_audit(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    for name in (
+        "live-bridge-bundle.json",
+        "live-native-inference.json",
+        "live-native-execution.json",
+    ):
+        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (tmp_path / "live-native-commit-plan.json").write_text(
+        json.dumps({
+            "readonly": False,
+            "broker_name": "alpaca",
+            "state_mutations": [
+                {
+                    "mutation_id": "planned-order-1-live-state",
+                    "mutation_type": "planned_live_state_update",
+                    "committed": True,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                },
+                {
+                    "mutation_id": "planned-order-1-trade-log",
+                    "mutation_type": "planned_trade_log_append",
+                    "committed": True,
+                    "symbol": "AAPL",
+                    "action": "BUY",
+                    "source_order_id": "ord-1",
+                    "status": "filled",
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-native-bundle.json").write_text(
+        json.dumps({
+            "metadata": {
+                "readonly": False,
+                "persistence_audit": {
+                    "committed_mutation_count": 2,
+                    "trade_journal_row_count": 1,
+                    "lifecycle_journal_row_count": 1,
+                    "live_state_snapshot_row_count": 1,
+                    "live_state_path": str(tmp_path / "live_state.alpaca.json"),
+                    "trade_journal_path": str(tmp_path / "trades.jsonl"),
+                    "lifecycle_journal_path": str(tmp_path / "lifecycle.jsonl"),
+                    "runs_db_path": str(tmp_path / "runs.alpaca.db"),
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-live-state-contract.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "source": "live_state_file",
+            "account_snapshot": {"positions": {"AAPL": {"quantity": 1}}},
+            "used_legacy": False,
+            "warnings": [],
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / "live-parity-verdict.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    status = build_live_offboard_status(output_dir=tmp_path)
+
+    assert "missing_native_persistence_audit" not in status["blocking_reasons"]
+    assert "native_persistence_audit_incomplete" not in status["blocking_reasons"]
+    assert status["stage_status"]["checks"]["native_persistence_audit_ready"] is True
+    assert status["stage_status"]["current_stage"] == "native_live_job_cutover"
+    audit = status["artifact_status"]["native_bundle"]["persistence_audit"]
+    assert audit["ok"] is True
+    assert audit["lifecycle_journal_row_count"] == 1
+    assert audit["live_state_snapshot_row_count"] == 1
+
+
 def test_live_offboard_status_cli_strict_returns_nonzero(monkeypatch, capsys) -> None:
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
