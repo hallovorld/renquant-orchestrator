@@ -82,11 +82,17 @@ def _commit_persistence_payload(
     *,
     live_state_output_json: str | Path,
     trade_journal_output_json: str | Path,
+    runs_db_path: str | Path | None,
+    lifecycle_journal_output_json: str | Path | None,
+    live_state_strategy: str,
 ) -> dict[str, Any]:
     return _commit_live_persistence(
         _commit_plan_payload(execution_payload),
         live_state_path=live_state_output_json,
         trade_journal_path=trade_journal_output_json,
+        runs_db_path=runs_db_path,
+        strategy=live_state_strategy,
+        lifecycle_journal_path=lifecycle_journal_output_json,
     )
 
 
@@ -199,6 +205,7 @@ def run_native_live_candidate(
     commit_persistence: bool = False,
     live_state_output_json: str | Path | None = None,
     trade_journal_output_json: str | Path | None = None,
+    lifecycle_journal_output_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build a native live bundle without importing umbrella live.runner."""
     if execute_live and execution_json:
@@ -243,6 +250,9 @@ def run_native_live_candidate(
             execution_payload,
             live_state_output_json=live_state_output_json,
             trade_journal_output_json=trade_journal_output_json,
+            runs_db_path=runs_db,
+            lifecycle_journal_output_json=lifecycle_journal_output_json,
+            live_state_strategy=live_state_strategy,
         )
     if execution_output_json:
         _write_json(execution_output_json, execution_payload)
@@ -291,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--live-state-output-json", default=None)
     parser.add_argument("--trade-journal-output-json", default=None)
+    parser.add_argument("--lifecycle-journal-output-json", default=None)
     parser.add_argument("--strategy-dir", default=None)
     parser.add_argument("--runs-db", default=None)
     parser.add_argument("--live-state-broker-name", default=None)
@@ -312,6 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         commit_persistence=args.commit_persistence,
         live_state_output_json=args.live_state_output_json,
         trade_journal_output_json=args.trade_journal_output_json,
+        lifecycle_journal_output_json=args.lifecycle_journal_output_json,
         strategy_dir=args.strategy_dir,
         runs_db=args.runs_db,
         live_state_broker_name=args.live_state_broker_name,
