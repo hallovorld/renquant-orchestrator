@@ -1,0 +1,11 @@
+{
+  "_doc": "Gate-writer census ratchet (eng plan S2-PR4 / errata C(iii)). CI fails if the AST census over renquant-pipeline/src exceeds max_buy_blocked_writers. Retirement PRs TIGHTEN this number; it never grows. Authority: renquant_orchestrator.engineering_census.",
+  "max_buy_blocked_writers": 5,
+  "breakdown_at_last_update": {
+    "kernel/panel_pipeline/job_panel_scoring.py": "3 fail-closed helpers (dual-write in flight; retire after aggregate point)",
+    "kernel/pipeline/job_gates.py": "1 designated choke point (BuyGatesJob.run, #123)",
+    "panel_scoring.py": "1 designated choke point (PanelScoringJob.run, #125)"
+  },
+  "floor": 2,
+  "_floor_doc": "2 = the designated choke points; reaching the floor completes errata C(iii) for the pipeline repo."
+}

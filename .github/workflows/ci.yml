@@ -68,6 +68,8 @@ jobs:
       - name: Full multirepo test
         if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         working-directory: renquant-orchestrator
+        env:
+          CENSUS_ENFORCE: "1"   # gate-writer ratchet (siblings @ main here)
         run: make test
       - name: Focused test without private sibling token
         if: env.RENQUANT_HAS_CI_TOKEN != 'true'
