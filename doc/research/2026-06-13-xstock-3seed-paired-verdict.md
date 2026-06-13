@@ -40,8 +40,10 @@ double-training race (killed; single clean process finished each run).
 
 Paired statistics (n=3): mean Δ = +0.0160, sd(Δ) = 0.0129,
 paired t = 2.14 (df 2), one-sided p ≈ 0.083; sign test 3/3 positive,
-p = 0.125. Per-regime: cross-stock improves the binding CHOPPY IC in
-all three seeds and never degrades BEAR/BULL_VOLATILE.
+p = 0.125. Per-regime: cross-stock improves the binding CHOPPY IC and
+BULL_VOLATILE IC in all three seeds. BEAR improves in seeds 45/46 but
+degrades in seed 44 (0.1916 -> 0.1758), so the non-degradation claim is
+limited to the production-selection/binding metric, not every regime.
 
 ## Honest reading
 
