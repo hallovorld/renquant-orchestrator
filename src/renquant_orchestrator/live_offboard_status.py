@@ -387,6 +387,9 @@ def _cutover_execution_packet(
             rehearsal["commands"]["native_live_parity"],
             status_command,
         ],
+        "native_live_commit_template": rehearsal["commands"]["native_live_commit_template"],
+        "required_operator_inputs": rehearsal.get("required_operator_inputs", []),
+        "persistence_targets": rehearsal.get("persistence_targets", {}),
         "rollback_note": (
             "Keep the previous bridge job command until the first native run and "
             "scheduled-health check pass; rollback is restoring the prior "

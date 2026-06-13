@@ -66,6 +66,72 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
     ]
     assert plan["artifacts"]["native_commit_plan"] == "/tmp/rehearsal/live-native-commit-plan.json"
     assert plan["artifacts"]["live_state_contract"] == "/tmp/rehearsal/live-live-state-contract.json"
+    assert plan["artifacts"]["native_live_commit_plan"] == (
+        "/tmp/rehearsal/live-native-live-commit-plan.json"
+    )
+    assert plan["persistence_targets"] == {
+        "live_state": "/private/tmp/RenQuant/backtesting/renquant_104/live_state.alpaca.json",
+        "trade_journal": (
+            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            "native-trade-journal.alpaca.jsonl"
+        ),
+        "lifecycle_journal": (
+            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            "native-order-lifecycle.alpaca.jsonl"
+        ),
+        "runs_db": "/private/tmp/RenQuant/data/runs.alpaca.db",
+    }
+    assert plan["required_operator_inputs"] == [
+        {
+            "placeholder": "<RUN_ID>",
+            "description": (
+                "unique native live run id used for persistence audit and "
+                "live_state_snapshots"
+            ),
+        }
+    ]
+    assert plan["commands"]["native_live_commit_template"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_run_candidate",
+        "--",
+        "--inference-json",
+        "/tmp/rehearsal/live-native-inference.json",
+        "--execution-output-json",
+        "/tmp/rehearsal/live-native-live-commit-execution.json",
+        "--commit-plan-output-json",
+        "/tmp/rehearsal/live-native-live-commit-plan.json",
+        "--output-json",
+        "/tmp/rehearsal/live-native-live-commit-bundle.json",
+        "--run-id",
+        "<RUN_ID>",
+        "--broker-name",
+        "alpaca",
+        "--execute-live",
+        "--commit-persistence",
+        "--live-state-output-json",
+        "/private/tmp/RenQuant/backtesting/renquant_104/live_state.alpaca.json",
+        "--trade-journal-output-json",
+        (
+            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            "native-trade-journal.alpaca.jsonl"
+        ),
+        "--lifecycle-journal-output-json",
+        (
+            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            "native-order-lifecycle.alpaca.jsonl"
+        ),
+        "--strategy-dir",
+        "/private/tmp/RenQuant/backtesting/renquant_104",
+        "--runs-db",
+        "/private/tmp/RenQuant/data/runs.alpaca.db",
+        "--live-state-broker-name",
+        "alpaca",
+        "--live-state-strategy",
+        "renquant_104",
+        "--live-state-contract-output-json",
+        "/tmp/rehearsal/live-native-live-commit-state-contract.json",
+    ]
     assert plan["commands"]["native_live_parity"] == [
         "renquant-orchestrator",
         "run-job",
@@ -92,6 +158,10 @@ def test_daily_rehearsal_plan_uses_daily_bridge_job(monkeypatch) -> None:
     assert plan["credential_source"] == "process_env"
     assert plan["commands"]["bridge_capture"][2] == "daily_live_runner_bridge"
     assert plan["artifacts"]["bridge_bundle"] == "/tmp/rehearsal/daily-bridge-bundle.json"
+    assert plan["commands"]["native_live_commit_template"][4:6] == [
+        "--inference-json",
+        "/tmp/rehearsal/daily-native-inference.json",
+    ]
 
 
 def test_live_rehearsal_plan_can_read_required_env_from_file(monkeypatch, tmp_path) -> None:

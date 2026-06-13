@@ -10,11 +10,16 @@ from .runtime_paths import default_repo_root
 
 
 REQUIRED_ALPACA_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
+RUN_ID_PLACEHOLDER = "<RUN_ID>"
 
 
 def _missing_env(names: tuple[str, ...], env_file: str | Path | None = None) -> list[str]:
     file_values = read_env_file(env_file)
     return [name for name in names if not os.environ.get(name) and not file_values.get(name)]
+
+
+def _broker_key(broker_name: str) -> str:
+    return broker_name.replace("-", "_")
 
 
 def build_live_rehearsal_plan(
@@ -33,14 +38,34 @@ def build_live_rehearsal_plan(
     bridge_bundle = out / f"{mode}-bridge-bundle.json"
     inference_payload = out / f"{mode}-native-inference.json"
     execution_payload = out / f"{mode}-native-execution.json"
-    commit_plan = out / f"{mode}-native-commit-plan.json"
+    readonly_commit_plan = out / f"{mode}-native-commit-plan.json"
     native_bundle = out / f"{mode}-native-bundle.json"
     live_state_contract = out / f"{mode}-live-state-contract.json"
+    commit_execution_payload = out / f"{mode}-native-live-commit-execution.json"
+    live_commit_plan = out / f"{mode}-native-live-commit-plan.json"
+    commit_native_bundle = out / f"{mode}-native-live-commit-bundle.json"
+    commit_live_state_contract = out / f"{mode}-native-live-commit-state-contract.json"
     verdict = out / f"{mode}-parity-verdict.json"
     repo_root = default_repo_root()
     strategy_dir = repo_root / "backtesting" / "renquant_104"
     live_state_broker = "alpaca" if broker == "readonly-alpaca" else broker
-    runs_db = repo_root / "data" / f"runs.{live_state_broker.replace('-', '_')}.db"
+    broker_key = _broker_key(live_state_broker)
+    runs_db = repo_root / "data" / f"runs.{broker_key}.db"
+    persistence_live_state = strategy_dir / f"live_state.{broker_key}.json"
+    persistence_trade_journal = (
+        repo_root
+        / "live"
+        / "logs"
+        / "renquant-104"
+        / f"native-trade-journal.{broker_key}.jsonl"
+    )
+    persistence_lifecycle_journal = (
+        repo_root
+        / "live"
+        / "logs"
+        / "renquant-104"
+        / f"native-order-lifecycle.{broker_key}.jsonl"
+    )
 
     native_run_command = [
         "renquant-orchestrator",
@@ -67,8 +92,44 @@ def build_live_rehearsal_plan(
             "--execution-output-json",
             str(execution_payload),
             "--commit-plan-output-json",
-            str(commit_plan),
+            str(readonly_commit_plan),
         ])
+    native_live_commit_template = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_run_candidate",
+        "--",
+        "--inference-json",
+        str(inference_payload),
+        "--execution-output-json",
+        str(commit_execution_payload),
+        "--commit-plan-output-json",
+        str(live_commit_plan),
+        "--output-json",
+        str(commit_native_bundle),
+        "--run-id",
+        RUN_ID_PLACEHOLDER,
+        "--broker-name",
+        live_state_broker,
+        "--execute-live",
+        "--commit-persistence",
+        "--live-state-output-json",
+        str(persistence_live_state),
+        "--trade-journal-output-json",
+        str(persistence_trade_journal),
+        "--lifecycle-journal-output-json",
+        str(persistence_lifecycle_journal),
+        "--strategy-dir",
+        str(strategy_dir),
+        "--runs-db",
+        str(runs_db),
+        "--live-state-broker-name",
+        live_state_broker,
+        "--live-state-strategy",
+        "renquant_104",
+        "--live-state-contract-output-json",
+        str(commit_live_state_contract),
+    ]
     execution_command = [
         "renquant-orchestrator",
         "run-job",
@@ -126,6 +187,7 @@ def build_live_rehearsal_plan(
         "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
         "Produce the native inference payload, then run native_live_run_candidate before native_live_parity.",
         "Do not change production launchd commands until parity_verdict ok=true.",
+        "Do not run native_live_commit_template until <RUN_ID> is replaced and the offboard cutover packet is ready.",
     ]
     if credential_source == "env_file":
         notes.insert(
@@ -163,15 +225,37 @@ def build_live_rehearsal_plan(
             "bridge_bundle": str(bridge_bundle),
             "native_inference_payload": str(inference_payload),
             "native_execution_payload": str(execution_payload) if include_execution_payload else None,
-            "native_commit_plan": str(commit_plan) if include_execution_payload else None,
+            "native_commit_plan": (
+                str(readonly_commit_plan) if include_execution_payload else None
+            ),
             "native_bundle": str(native_bundle),
             "live_state_contract": str(live_state_contract),
+            "native_live_commit_execution_payload": str(commit_execution_payload),
+            "native_live_commit_plan": str(live_commit_plan),
+            "native_live_commit_bundle": str(commit_native_bundle),
+            "native_live_commit_state_contract": str(commit_live_state_contract),
             "parity_verdict": str(verdict),
         },
+        "persistence_targets": {
+            "live_state": str(persistence_live_state),
+            "trade_journal": str(persistence_trade_journal),
+            "lifecycle_journal": str(persistence_lifecycle_journal),
+            "runs_db": str(runs_db),
+        },
+        "required_operator_inputs": [
+            {
+                "placeholder": RUN_ID_PLACEHOLDER,
+                "description": (
+                    "unique native live run id used for persistence audit "
+                    "and live_state_snapshots"
+                ),
+            }
+        ],
         "commands": {
             "bridge_capture": bridge_command,
             "native_execution_payload": execution_command,
             "native_live_run_candidate": native_run_command,
+            "native_live_commit_template": native_live_commit_template,
             "native_live_parity": live_parity_command,
             "native_payload_parity": parity_command,
         },
