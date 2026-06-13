@@ -16,8 +16,16 @@ dataset `transformer_v4_wl200_clean.parquet`, same machine/env.
 Metric = `eval_min_regime_ic` (the production selection metric; CHOPPY
 is the binding regime in all six runs).
 
-Artifacts: `artifacts/patchtst_shadow/{prod_recipe,xstock_strict_trainfit}_seed{44,45,46}/`
-(summaries carry full training contracts). One operational note: the
+Artifacts:
+
+- baseline seed 44: `artifacts/patchtst_shadow/pt07_strict_trainfit_embargo60_20260522/seed_44/`
+- baseline seeds 45/46: `artifacts/patchtst_shadow/prod_recipe_seed{45,46}/`
+- cross-stock seeds 44/45/46: `artifacts/patchtst_shadow/xstock_strict_trainfit_seed{44,45,46}/`
+
+The table below is read from each `hf_patchtst_all_seed*_summary.json`
+`best_val_ic` / `per_regime_ic.CHOPPY` value. The seed-44 baseline was
+the already-deployed strict pt07 run, so its directory name differs from
+the later `prod_recipe_seed45/46` reruns. One operational note: the
 seed-45/46 cross-stock runs survived a chain crash + a brief
 double-training race (killed; single clean process finished each run).
 
