@@ -249,6 +249,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="optional scheduled-health status source folded into the offboard JSON",
     )
+    offboard_rehearsal = sub.add_parser(
+        "live-offboard-rehearsal",
+        help="run the readonly live offboard bridge/native/parity evidence chain",
+    )
+    offboard_rehearsal.add_argument("--mode", choices=("live", "daily"), default="live")
+    offboard_rehearsal.add_argument("--broker", default="readonly-alpaca")
+    offboard_rehearsal.add_argument("--output-dir", default="/tmp/renquant-live-rehearsal")
+    offboard_rehearsal.add_argument("--env-file", default=None)
+    offboard_rehearsal.add_argument("--no-execution-payload", action="store_true")
+    offboard_rehearsal.add_argument("--continue-on-failure", action="store_true")
+    offboard_rehearsal.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero until readonly bridge/native/parity rehearsal is green",
+    )
 
     run_job = sub.add_parser(
         "run-job",
@@ -512,6 +527,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(status, indent=2, sort_keys=True))
         return 0 if status["ready_for_live_offboard"] or not args.strict else 2
+    if args.command == "live-offboard-rehearsal":
+        from .live_offboard_rehearsal import run_live_offboard_rehearsal
+
+        payload = run_live_offboard_rehearsal(
+            mode=args.mode,
+            output_dir=args.output_dir,
+            broker=args.broker,
+            env_file=args.env_file,
+            include_execution_payload=not args.no_execution_payload,
+            continue_on_failure=args.continue_on_failure,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["ok"] or not args.strict else 2
     if args.command == "run-job":
         from .job_runner import run_scheduled_job
 
