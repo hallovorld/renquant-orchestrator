@@ -26,6 +26,9 @@ renquant-orchestrator live-offboard-status --strict \
 renquant-orchestrator live-rehearsal-plan --strict \
   --output-dir /tmp/renquant-live-rehearsal \
   --env-file ../RenQuant/.env
+renquant-orchestrator live-offboard-rehearsal --strict \
+  --output-dir /tmp/renquant-live-rehearsal \
+  --env-file ../RenQuant/.env
 renquant-orchestrator run-job live_runner_bridge -- \
   --broker readonly-alpaca \
   --once \
@@ -109,3 +112,9 @@ It remains readonly until live state and broker commit semantics are ported into
 `live-offboard-status --strict` combines that inventory with the readonly
 rehearsal preflight so operators can see the remaining bridge blockers and
 missing Alpaca environment before attempting a production launchd switch.
+`live-offboard-rehearsal --strict` executes the readonly evidence chain
+(`bridge_capture`, `native_live_run_candidate`, `native_live_parity`) and writes
+`<mode>-offboard-rehearsal-manifest.json`, `<mode>-rehearsal-plan.json`, and
+`<mode>-offboard-status.json` under the chosen output directory. It never runs
+the `native_live_commit_template`; live execution and persistence commit remain
+separate operator-gated cutover steps.
