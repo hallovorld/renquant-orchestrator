@@ -5,9 +5,22 @@ from dataclasses import asdict, dataclass
 import json
 from typing import Literal
 
+from .runtime_paths import default_repo_root
+
 
 JobKind = Literal["training", "inference", "trading", "ops", "control"]
 MigrationState = Literal["native_multirepo", "umbrella_bridge"]
+CANONICAL_REPO_ROOT = "/Users/renhao/git/github/RenQuant"
+
+
+def _localize_repo_root(value: object, *, repo_root: str | None = None) -> object:
+    """Rewrite canonical umbrella paths to the active runtime repo root."""
+    root = repo_root or str(default_repo_root())
+    if isinstance(value, str) and value.startswith(CANONICAL_REPO_ROOT):
+        return root + value[len(CANONICAL_REPO_ROOT):]
+    if isinstance(value, list):
+        return [_localize_repo_root(item, repo_root=root) for item in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -39,7 +52,11 @@ class ScheduledJob:
         payload["native_offboard_blockers"] = list(self.native_offboard_blockers)
         payload["native_exit_criteria"] = list(self.native_exit_criteria)
         payload["uses_umbrella_code"] = self.uses_umbrella_code
-        return payload
+        repo_root = str(default_repo_root())
+        return {
+            key: _localize_repo_root(value, repo_root=repo_root)
+            for key, value in payload.items()
+        }
 
 
 _JOBS: tuple[ScheduledJob, ...] = (
@@ -367,14 +384,14 @@ def inventory_payload() -> dict[str, object]:
         job.job_id for job in scheduled if job.umbrella_state_dependency is not None
     ]
     native_cutover_candidates = {
-        job.job_id: {
-            "native_replacement_job_id": job.native_replacement_job_id,
-            "native_cutover_command": job.native_cutover_command,
+        str(job["job_id"]): {
+            "native_replacement_job_id": job["native_replacement_job_id"],
+            "native_cutover_command": job["native_cutover_command"],
         }
-        for job in scheduled
-        if job.migration_state == "umbrella_bridge"
-        and job.native_replacement_job_id
-        and job.native_cutover_command
+        for job in jobs
+        if job["migration_state"] == "umbrella_bridge"
+        and job["native_replacement_job_id"]
+        and job["native_cutover_command"]
     }
     return {
         "schema_version": 1,

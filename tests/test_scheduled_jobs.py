@@ -155,6 +155,26 @@ def test_live_bridge_jobs_expose_native_cutover_candidate_commands() -> None:
     assert "/tmp/renquant-live-rehearsal/live-native-inference.json" in live_command
 
 
+def test_inventory_localizes_repo_root_paths(monkeypatch) -> None:
+    repo_root = "/private/tmp/RenQuant"
+    monkeypatch.setenv("RENQUANT_REPO_ROOT", repo_root)
+
+    payload = inventory_payload()
+    rendered = json.dumps(payload, sort_keys=True)
+    jobs = {job["job_id"]: job for job in payload["jobs"]}
+
+    assert "/Users/renhao/git/github/RenQuant" not in rendered
+    assert jobs["daily_live_runner_bridge"]["launchd_stdout_path"] == (
+        f"{repo_root}/logs/daily_104/launchd_stdout.log"
+    )
+    assert f"{repo_root}/backtesting/renquant_104" in (
+        jobs["live_runner_bridge"]["native_cutover_command"]
+    )
+    assert f"{repo_root}/data/runs.alpaca.db" in (
+        jobs["live_runner_bridge"]["native_cutover_command"]
+    )
+
+
 def test_scheduled_jobs_cli_emits_json(capsys) -> None:
     rc = main(["scheduled-jobs"])
 
