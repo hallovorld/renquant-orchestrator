@@ -33,6 +33,7 @@ DEFAULT_PIN_SRCS = [
 BRIDGE_BUNDLE_OUTPUT_FLAG = "--bridge-bundle-output"
 NATIVE_INFERENCE_PAYLOAD_OUTPUT_FLAG = "--native-inference-payload-output"
 ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
+BRIDGE_NATIVE_INFERENCE_PRODUCER = "live_runner_bridge_hook"
 CommitHook = Callable[[Any, Any], None]
 
 
@@ -119,12 +120,39 @@ def _install_bridge_bundle_capture(
     _install_runner_commit_hook(write_bundle, timing="after")
 
 
-def _install_native_inference_payload_capture(output_path: str | Path) -> None:
+def _write_bridge_native_inference_payload(
+    ctx: Any,
+    output_path: str | Path,
+    *,
+    metadata: dict[str, Any],
+) -> None:
     """Capture the live context after inference and before execution commit."""
-    from renquant_pipeline import write_runtime_inference_payload_from_live_context
+    import json
+
+    from renquant_pipeline import runtime_inference_payload_from_live_context
+
+    payload = runtime_inference_payload_from_live_context(ctx)
+    payload_metadata = dict(payload.get("metadata") or {})
+    payload_metadata["native_inference_producer"] = {
+        "source": BRIDGE_NATIVE_INFERENCE_PRODUCER,
+        **metadata,
+    }
+    payload["metadata"] = payload_metadata
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _install_native_inference_payload_capture(
+    output_path: str | Path,
+    *,
+    metadata: dict[str, Any],
+) -> None:
+    """Capture the live context after inference and before execution commit."""
 
     def write_payload(_adapter: Any, ctx: Any) -> None:
-        write_runtime_inference_payload_from_live_context(ctx, output_path)
+        _write_bridge_native_inference_payload(ctx, output_path, metadata=metadata)
 
     _install_runner_commit_hook(write_payload, timing="before")
 
@@ -303,7 +331,14 @@ def run_bridge(
         runner_argv = ["--strategy", "renquant_104"] + runner_argv
     runner_argv = _with_pinned_strategy_config(runner_argv, repo_root=repo_root)
     if native_inference_output:
-        _install_native_inference_payload_capture(native_inference_output)
+        _install_native_inference_payload_capture(
+            native_inference_output,
+            metadata={
+                "bridge_mode": mode,
+                "repo_root": str(repo_root),
+                "runner_args": list(runner_argv),
+            },
+        )
     if bridge_bundle_output:
         _install_bridge_bundle_capture(
             bridge_bundle_output,
