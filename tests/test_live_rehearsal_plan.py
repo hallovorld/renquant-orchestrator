@@ -40,6 +40,16 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--broker-name",
         "readonly-alpaca",
     ]
+    assert plan["commands"]["native_live_inference"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_inference_fixture",
+        "--",
+        "--context-json",
+        "/tmp/rehearsal/live-native-context.json",
+        "--output-json",
+        "/tmp/rehearsal/live-native-inference.json",
+    ]
     assert plan["commands"]["native_live_run_candidate"] == [
         "renquant-orchestrator",
         "run-job",
@@ -65,6 +75,7 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "/tmp/rehearsal/live-native-commit-plan.json",
     ]
     assert plan["artifacts"]["native_commit_plan"] == "/tmp/rehearsal/live-native-commit-plan.json"
+    assert plan["artifacts"]["native_context"] == "/tmp/rehearsal/live-native-context.json"
     assert plan["artifacts"]["live_state_contract"] == "/tmp/rehearsal/live-live-state-contract.json"
     assert plan["artifacts"]["native_live_commit_plan"] == (
         "/tmp/rehearsal/live-native-live-commit-plan.json"

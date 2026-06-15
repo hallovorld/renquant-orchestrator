@@ -20,6 +20,7 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
         "native_live_payload_parity_fixture",
         "native_live_execution_payload_fixture",
         "native_live_bundle_fixture",
+        "native_live_inference_fixture",
         "native_live_run_candidate",
         "build_wf_manifest",
         "build_patchtst_wf_manifest",
@@ -30,8 +31,8 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
 def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
     payload = inventory_payload()
 
-    assert payload["summary"]["total"] == 16
-    assert payload["summary"]["native_multirepo"] == 14
+    assert payload["summary"]["total"] == 17
+    assert payload["summary"]["native_multirepo"] == 15
     assert payload["summary"]["umbrella_bridge"] == 2
     assert payload["summary"]["umbrella_bridge_jobs"] == [
         "daily_live_runner_bridge",
@@ -43,7 +44,7 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
         "live_runner_bridge",
     ]
     assert payload["summary"]["native_offboard_blocker_count"] == 6
-    assert payload["summary"]["native_exit_criteria_count"] == 8
+    assert payload["summary"]["native_exit_criteria_count"] == 10
     assert payload["summary"]["production_safe_umbrella_bridge_jobs"] == [
         "daily_live_runner_bridge",
         "live_runner_bridge",

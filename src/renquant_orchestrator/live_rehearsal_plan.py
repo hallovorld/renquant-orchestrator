@@ -36,6 +36,7 @@ def build_live_rehearsal_plan(
     out = Path(output_dir)
     job_id = "daily_live_runner_bridge" if mode == "daily" else "live_runner_bridge"
     bridge_bundle = out / f"{mode}-bridge-bundle.json"
+    native_context = out / f"{mode}-native-context.json"
     inference_payload = out / f"{mode}-native-inference.json"
     execution_payload = out / f"{mode}-native-execution.json"
     readonly_commit_plan = out / f"{mode}-native-commit-plan.json"
@@ -94,6 +95,16 @@ def build_live_rehearsal_plan(
             "--commit-plan-output-json",
             str(readonly_commit_plan),
         ])
+    native_inference_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_inference_fixture",
+        "--",
+        "--context-json",
+        str(native_context),
+        "--output-json",
+        str(inference_payload),
+    ]
     native_live_commit_template = [
         "renquant-orchestrator",
         "run-job",
@@ -186,6 +197,7 @@ def build_live_rehearsal_plan(
     notes = [
         "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
         "Produce the native inference payload, then run native_live_run_candidate before native_live_parity.",
+        "Use native_live_inference only with a native hydrated context; bridge-captured inference is rehearsal evidence, not production cutover evidence.",
         "Do not change production launchd commands until parity_verdict ok=true.",
         "Do not run native_live_commit_template until <RUN_ID> is replaced and the offboard cutover packet is ready.",
     ]
@@ -223,6 +235,7 @@ def build_live_rehearsal_plan(
         "output_dir": str(out),
         "artifacts": {
             "bridge_bundle": str(bridge_bundle),
+            "native_context": str(native_context),
             "native_inference_payload": str(inference_payload),
             "native_execution_payload": str(execution_payload) if include_execution_payload else None,
             "native_commit_plan": (
@@ -253,6 +266,7 @@ def build_live_rehearsal_plan(
         ],
         "commands": {
             "bridge_capture": bridge_command,
+            "native_live_inference": native_inference_command,
             "native_execution_payload": execution_command,
             "native_live_run_candidate": native_run_command,
             "native_live_commit_template": native_live_commit_template,

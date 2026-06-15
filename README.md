@@ -107,8 +107,14 @@ intents, and state mutations while ignoring volatile runtime fields.
 it consumes native inference payloads, builds readonly execution payloads, and
 emits readonly commit-plan and parity-ready native live bundle artifacts without
 importing `RenQuant live.runner`.
-It remains readonly until live state and broker commit semantics are ported into
-`renquant-execution`.
+`native_live_inference_fixture` is the preceding native producer for already
+hydrated native contexts; its payloads carry
+`metadata.native_inference_producer.source=renquant_orchestrator.native_live_inference`.
+`live-offboard-status` treats bridge-captured or unknown inference producers as
+cutover blockers, so a green parity run cannot accidentally clear the remaining
+bridge jobs while inference is still sourced from `live.runner`.
+The native live run candidate remains readonly until live state and broker
+commit semantics are ported into `renquant-execution`.
 `live-offboard-status --strict` combines that inventory with the readonly
 rehearsal preflight so operators can see the remaining bridge blockers and
 missing Alpaca environment before attempting a production launchd switch.
