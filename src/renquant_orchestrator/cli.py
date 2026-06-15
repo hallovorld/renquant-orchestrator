@@ -199,6 +199,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_execution.add_argument("--output-json", required=True)
     native_execution.add_argument("--broker-name", default="readonly-native")
 
+    native_inference = sub.add_parser(
+        "native-live-inference",
+        help="build a native live inference payload from an already-hydrated context",
+    )
+    native_inference.add_argument("--context-json", required=True)
+    native_inference.add_argument("--output-json", required=True)
+    native_inference.add_argument("--metadata-json", default=None)
+    native_inference.add_argument("--sell-only", action="store_true")
+
+    native_context = sub.add_parser(
+        "native-live-context",
+        help="build a native live context fixture from config/market/account snapshots",
+    )
+    native_context.add_argument("--strategy-config-json", required=True)
+    native_context.add_argument("--market-snapshot-json", required=True)
+    native_context.add_argument("--account-snapshot-json", required=True)
+    native_context.add_argument("--metadata-json", default=None)
+    native_context.add_argument("--output-json", required=True)
+
     rehearsal = sub.add_parser(
         "live-rehearsal-plan",
         help="emit the readonly live offboard rehearsal command plan as JSON",
@@ -502,6 +521,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             "--broker-name",
             args.broker_name,
         ])
+    if args.command == "native-live-inference":
+        from .native_live_inference import main as native_inference_main
+
+        native_inference_argv = [
+            "--context-json",
+            args.context_json,
+            "--output-json",
+            args.output_json,
+        ]
+        if args.metadata_json:
+            native_inference_argv.extend(["--metadata-json", args.metadata_json])
+        if args.sell_only:
+            native_inference_argv.append("--sell-only")
+        return native_inference_main(native_inference_argv)
+    if args.command == "native-live-context":
+        from .native_live_context import main as native_context_main
+
+        native_context_argv = [
+            "--strategy-config-json",
+            args.strategy_config_json,
+            "--market-snapshot-json",
+            args.market_snapshot_json,
+            "--account-snapshot-json",
+            args.account_snapshot_json,
+            "--output-json",
+            args.output_json,
+        ]
+        if args.metadata_json:
+            native_context_argv.extend(["--metadata-json", args.metadata_json])
+        return native_context_main(native_context_argv)
     if args.command == "live-rehearsal-plan":
         from .live_rehearsal_plan import build_live_rehearsal_plan
 
