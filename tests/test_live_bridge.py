@@ -168,6 +168,20 @@ def test_run_bridge_captures_native_inference_before_commit(monkeypatch, tmp_pat
 
     adapters_runner = SimpleNamespace(RunnerAdapter=FakeRunnerAdapter)
     original_import = mod.importlib.import_module
+    monkeypatch.setitem(
+        sys.modules,
+        "renquant_pipeline",
+        SimpleNamespace(
+            runtime_inference_payload_from_live_context=lambda ctx: {
+                "schema_version": 1,
+                "source": "renquant_pipeline.live_context_inference",
+                "market_as_of": ctx.market_snapshot["as_of"],
+                "decision_trace": list(ctx.decision_trace),
+                "order_intents": list(ctx.orders),
+                "scores": {"AAPL": 0.8},
+            },
+        ),
+    )
 
     def fake_import(name: str, *args, **kwargs):
         if name == "adapters.runner":
@@ -209,6 +223,10 @@ def test_run_bridge_captures_native_inference_before_commit(monkeypatch, tmp_pat
     assert "--native-inference-payload-output" not in seen["argv"]
     inference_payload = json.loads(inference_output.read_text(encoding="utf-8"))
     assert inference_payload["source"] == "renquant_pipeline.live_context_inference"
+    assert inference_payload["metadata"]["native_inference_producer"]["source"] == (
+        "live_runner_bridge_hook"
+    )
+    assert inference_payload["metadata"]["native_inference_producer"]["bridge_mode"] == "live"
     assert inference_payload["market_as_of"] == "2026-06-09"
     assert inference_payload["decision_trace"] == [{"ticker": "AAPL", "stage": "score"}]
     assert inference_payload["order_intents"] == [

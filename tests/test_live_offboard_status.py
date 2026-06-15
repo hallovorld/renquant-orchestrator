@@ -6,6 +6,21 @@ from renquant_orchestrator.cli import main
 from renquant_orchestrator.live_offboard_status import build_live_offboard_status
 
 
+def _native_inference_payload(
+    *,
+    producer_source: str = "renquant_orchestrator.native_inference",
+) -> dict:
+    return {
+        "schema_version": 1,
+        "source": "renquant_pipeline.live_context_inference",
+        "metadata": {
+            "native_inference_producer": {
+                "source": producer_source,
+            }
+        },
+    }
+
+
 def test_live_offboard_status_reports_env_and_bridge_blockers(monkeypatch) -> None:
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
@@ -104,6 +119,45 @@ def test_live_offboard_status_reports_bridge_capture_stage(monkeypatch, tmp_path
     assert status["stage_status"]["checks"]["native_payloads_ready"] is False
 
 
+def test_live_offboard_status_blocks_bridge_produced_native_inference(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    (tmp_path / "live-bridge-bundle.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (tmp_path / "live-native-inference.json").write_text(
+        json.dumps(_native_inference_payload(producer_source="live_runner_bridge_hook")),
+        encoding="utf-8",
+    )
+
+    status = build_live_offboard_status(output_dir=tmp_path)
+
+    assert "native_inference_producer_is_bridge" in status["blocking_reasons"]
+    assert status["stage_status"]["current_stage"] == "native_inference_producer"
+    assert status["stage_status"]["next_blocker"] == "native_inference_producer_is_bridge"
+    assert status["stage_status"]["checks"]["native_inference_producer_ready"] is False
+    inference_status = status["artifact_status"]["native_inference_payload"]
+    assert inference_status["producer_source"] == "live_runner_bridge_hook"
+    assert inference_status["bridge_produced"] is True
+
+
+def test_live_offboard_status_blocks_unknown_native_inference_producer(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    (tmp_path / "live-bridge-bundle.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (tmp_path / "live-native-inference.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    status = build_live_offboard_status(output_dir=tmp_path)
+
+    assert "native_inference_producer_unknown" in status["blocking_reasons"]
+    assert status["stage_status"]["current_stage"] == "native_inference_producer"
+    assert status["stage_status"]["next_blocker"] == "native_inference_producer_unknown"
+
+
 def test_live_offboard_status_requires_valid_live_state_contract_before_parity(
     monkeypatch,
     tmp_path,
@@ -117,7 +171,11 @@ def test_live_offboard_status_requires_valid_live_state_contract_before_parity(
         "live-native-commit-plan.json",
         "live-native-bundle.json",
     ):
-        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+        payload = (
+            _native_inference_payload()
+            if name == "live-native-inference.json" else {"ok": True}
+        )
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
 
     status = build_live_offboard_status(output_dir=tmp_path)
 
@@ -138,7 +196,11 @@ def test_live_offboard_status_reports_cutover_stage_after_parity_ok(monkeypatch,
         "live-native-commit-plan.json",
         "live-native-bundle.json",
     ):
-        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+        payload = (
+            _native_inference_payload()
+            if name == "live-native-inference.json" else {"ok": True}
+        )
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
     (tmp_path / "live-live-state-contract.json").write_text(
         json.dumps({
             "schema_version": 1,
@@ -217,7 +279,11 @@ def test_live_offboard_status_blocks_uncommitted_commit_plan_persistence(
         "live-native-execution.json",
         "live-native-bundle.json",
     ):
-        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+        payload = (
+            _native_inference_payload()
+            if name == "live-native-inference.json" else {"ok": True}
+        )
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
     (tmp_path / "live-native-commit-plan.json").write_text(
         json.dumps({
             "readonly": False,
@@ -306,7 +372,11 @@ def test_live_offboard_status_blocks_committed_persistence_without_audit(
         "live-native-inference.json",
         "live-native-execution.json",
     ):
-        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+        payload = (
+            _native_inference_payload()
+            if name == "live-native-inference.json" else {"ok": True}
+        )
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
     (tmp_path / "live-native-commit-plan.json").write_text(
         json.dumps({
             "readonly": False,
@@ -379,7 +449,11 @@ def test_live_offboard_status_accepts_committed_persistence_audit(
         "live-native-inference.json",
         "live-native-execution.json",
     ):
-        (tmp_path / name).write_text(json.dumps({"ok": True}), encoding="utf-8")
+        payload = (
+            _native_inference_payload()
+            if name == "live-native-inference.json" else {"ok": True}
+        )
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
     (tmp_path / "live-native-commit-plan.json").write_text(
         json.dumps({
             "readonly": False,

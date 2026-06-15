@@ -13,6 +13,7 @@ _PENDING_PERSISTENCE_MUTATIONS = {
     "planned_live_state_update",
     "planned_trade_log_append",
 }
+_BRIDGE_NATIVE_INFERENCE_PRODUCER = "live_runner_bridge_hook"
 
 
 def _commit_plan_pending_persistence(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -122,6 +123,32 @@ def _artifact_status(artifacts: dict[str, str | None]) -> dict[str, dict[str, An
             live_state["account_snapshot_position_count"] = (
                 len(positions) if isinstance(positions, dict) else 0
             )
+    native_inference_path = artifacts.get("native_inference_payload")
+    native_inference = status.get("native_inference_payload")
+    if native_inference_path and native_inference is not None and native_inference["exists"]:
+        try:
+            payload = json.loads(Path(native_inference_path).read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("native_inference_payload must be a JSON object")
+        except Exception as exc:  # noqa: BLE001 - surface corrupt inference artifacts
+            native_inference["error"] = str(exc)
+        else:
+            metadata = payload.get("metadata")
+            producer = (
+                metadata.get("native_inference_producer")
+                if isinstance(metadata, dict) else None
+            )
+            producer_source = producer.get("source") if isinstance(producer, dict) else None
+            native_inference["source"] = payload.get("source")
+            native_inference["producer"] = dict(producer) if isinstance(producer, dict) else None
+            native_inference["producer_source"] = producer_source
+            native_inference["bridge_produced"] = (
+                producer_source == _BRIDGE_NATIVE_INFERENCE_PRODUCER
+            )
+            native_inference["native_producer_ready"] = (
+                bool(producer_source)
+                and producer_source != _BRIDGE_NATIVE_INFERENCE_PRODUCER
+            )
     commit_plan_path = artifacts.get("native_commit_plan")
     commit_plan = status.get("native_commit_plan")
     if commit_plan_path and commit_plan is not None and commit_plan["exists"]:
@@ -174,6 +201,12 @@ def _artifact_blockers(
         blockers.append("missing_bridge_bundle")
     if not artifact_status["native_inference_payload"]["exists"]:
         blockers.append("missing_native_inference_payload")
+    elif artifact_status["native_inference_payload"].get("error"):
+        blockers.append("invalid_native_inference_payload")
+    elif artifact_status["native_inference_payload"].get("bridge_produced"):
+        blockers.append("native_inference_producer_is_bridge")
+    elif not artifact_status["native_inference_payload"].get("native_producer_ready"):
+        blockers.append("native_inference_producer_unknown")
     if include_execution_payload and not artifact_status["native_execution_payload"]["exists"]:
         blockers.append("missing_native_execution_payload")
     if include_execution_payload and not artifact_status["native_commit_plan"]["exists"]:
@@ -219,7 +252,9 @@ def _stage_status(
     include_execution_payload: bool,
     remaining_bridge_job_count: int,
 ) -> dict[str, Any]:
-    native_payloads_ready = artifact_status["native_inference_payload"]["exists"] and (
+    native_inference = artifact_status["native_inference_payload"]
+    native_inference_producer_ready = native_inference.get("native_producer_ready") is True
+    native_payloads_ready = native_inference["exists"] and native_inference_producer_ready and (
         not include_execution_payload
         or (
             artifact_status["native_execution_payload"]["exists"]
@@ -259,6 +294,7 @@ def _stage_status(
     checks = {
         "credential_preflight_ready": credential_ready,
         "bridge_capture_ready": artifact_status["bridge_bundle"]["exists"],
+        "native_inference_producer_ready": native_inference_producer_ready,
         "native_payloads_ready": native_payloads_ready,
         "native_commit_persistence_ready": native_commit_persistence_ready,
         "native_persistence_audit_ready": native_persistence_audit_ready,
@@ -274,6 +310,16 @@ def _stage_status(
     elif not checks["bridge_capture_ready"]:
         current_stage = "bridge_capture"
         next_blocker = "missing_bridge_bundle"
+    elif not native_inference["exists"]:
+        current_stage = "native_payload_generation"
+        next_blocker = "missing_native_payloads"
+    elif not native_inference_producer_ready:
+        current_stage = "native_inference_producer"
+        next_blocker = (
+            "native_inference_producer_is_bridge"
+            if native_inference.get("bridge_produced")
+            else "native_inference_producer_unknown"
+        )
     elif not native_payloads_ready:
         current_stage = "native_payload_generation"
         next_blocker = "missing_native_payloads"
@@ -327,6 +373,7 @@ def _cutover_execution_packet(
         and only_bridge_blocker
         and bool(checks.get("credential_preflight_ready"))
         and bool(checks.get("bridge_capture_ready"))
+        and bool(checks.get("native_inference_producer_ready"))
         and bool(checks.get("native_payloads_ready"))
         and bool(checks.get("native_commit_persistence_ready"))
         and bool(checks.get("native_persistence_audit_ready"))
@@ -376,6 +423,7 @@ def _cutover_execution_packet(
         "preconditions": [
             "readonly bridge bundle captured from the current umbrella path",
             "native inference/execution payloads and native live bundle generated",
+            "native inference payload is produced by a native producer, not the live.runner bridge hook",
             "native commit plan has no uncommitted live-state or trade-log persistence mutations",
             "native persistence audit has live-state snapshot and order lifecycle rows when live commits are present",
             "live-state contract is valid and uses the native contract schema",
@@ -479,6 +527,7 @@ def build_live_offboard_status(
             "Produce the native inference payload at the planned artifact path.",
             "Run rehearsal.commands.native_live_run_candidate to build the readonly native bundle and live-state contract artifact.",
             "Run rehearsal.commands.native_live_parity and require ok=true before changing launchd.",
+            "Replace bridge-captured native inference with a native inference producer before clearing bridge jobs.",
             "Replace each remaining bridge job with its native_cutover_command only after parity is ok.",
             "Lift production schedulers to a native live job with no RenQuant live.runner import before clearing bridge jobs.",
         ],
