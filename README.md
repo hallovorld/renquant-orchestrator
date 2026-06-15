@@ -107,8 +107,9 @@ intents, and state mutations while ignoring volatile runtime fields.
 it consumes native inference payloads, builds readonly execution payloads, and
 emits readonly commit-plan and parity-ready native live bundle artifacts without
 importing `RenQuant live.runner`.
-`native_live_inference_fixture` is the preceding native producer for already
-hydrated native contexts; its payloads carry
+`native_live_context_fixture` builds the explicit config/market/account context
+fixture consumed by native inference. `native_live_inference_fixture` is the
+preceding native producer for already hydrated native contexts; its payloads carry
 `metadata.native_inference_producer.source=renquant_orchestrator.native_live_inference`.
 `live-offboard-status` treats bridge-captured or unknown inference producers as
 cutover blockers, so a green parity run cannot accidentally clear the remaining

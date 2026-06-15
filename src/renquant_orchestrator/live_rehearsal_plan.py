@@ -36,6 +36,8 @@ def build_live_rehearsal_plan(
     out = Path(output_dir)
     job_id = "daily_live_runner_bridge" if mode == "daily" else "live_runner_bridge"
     bridge_bundle = out / f"{mode}-bridge-bundle.json"
+    market_snapshot = out / f"{mode}-market-snapshot.json"
+    account_snapshot = out / f"{mode}-account-snapshot.json"
     native_context = out / f"{mode}-native-context.json"
     inference_payload = out / f"{mode}-native-inference.json"
     execution_payload = out / f"{mode}-native-execution.json"
@@ -49,6 +51,7 @@ def build_live_rehearsal_plan(
     verdict = out / f"{mode}-parity-verdict.json"
     repo_root = default_repo_root()
     strategy_dir = repo_root / "backtesting" / "renquant_104"
+    strategy_config = strategy_dir / "strategy_config.json"
     live_state_broker = "alpaca" if broker == "readonly-alpaca" else broker
     broker_key = _broker_key(live_state_broker)
     runs_db = repo_root / "data" / f"runs.{broker_key}.db"
@@ -68,6 +71,20 @@ def build_live_rehearsal_plan(
         / f"native-order-lifecycle.{broker_key}.jsonl"
     )
 
+    native_context_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_context_fixture",
+        "--",
+        "--strategy-config-json",
+        str(strategy_config),
+        "--market-snapshot-json",
+        str(market_snapshot),
+        "--account-snapshot-json",
+        str(account_snapshot),
+        "--output-json",
+        str(native_context),
+    ]
     native_run_command = [
         "renquant-orchestrator",
         "run-job",
@@ -196,6 +213,7 @@ def build_live_rehearsal_plan(
     )
     notes = [
         "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
+        "Build native context from explicit strategy_config, market snapshot, and account snapshot inputs.",
         "Produce the native inference payload, then run native_live_run_candidate before native_live_parity.",
         "Use native_live_inference only with a native hydrated context; bridge-captured inference is rehearsal evidence, not production cutover evidence.",
         "Do not change production launchd commands until parity_verdict ok=true.",
@@ -235,6 +253,8 @@ def build_live_rehearsal_plan(
         "output_dir": str(out),
         "artifacts": {
             "bridge_bundle": str(bridge_bundle),
+            "market_snapshot": str(market_snapshot),
+            "account_snapshot": str(account_snapshot),
             "native_context": str(native_context),
             "native_inference_payload": str(inference_payload),
             "native_execution_payload": str(execution_payload) if include_execution_payload else None,
@@ -266,6 +286,7 @@ def build_live_rehearsal_plan(
         ],
         "commands": {
             "bridge_capture": bridge_command,
+            "native_live_context": native_context_command,
             "native_live_inference": native_inference_command,
             "native_execution_payload": execution_command,
             "native_live_run_candidate": native_run_command,

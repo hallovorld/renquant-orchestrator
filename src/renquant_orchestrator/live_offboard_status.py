@@ -524,7 +524,8 @@ def build_live_offboard_status(
         "next_actions": [
             "Provide readonly Alpaca credentials when missing.",
             "Run rehearsal.commands.bridge_capture to capture the current bridge bundle.",
-            "Produce the native inference payload with rehearsal.commands.native_live_inference from a native hydrated context.",
+            "Build the native hydrated context with rehearsal.commands.native_live_context.",
+            "Produce the native inference payload with rehearsal.commands.native_live_inference from that native context.",
             "Run rehearsal.commands.native_live_run_candidate to build the readonly native bundle and live-state contract artifact.",
             "Run rehearsal.commands.native_live_parity and require ok=true before changing launchd.",
             "Replace bridge-captured native inference with a native inference producer before clearing bridge jobs.",

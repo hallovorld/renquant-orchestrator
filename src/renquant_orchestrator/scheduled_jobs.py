@@ -204,6 +204,19 @@ _JOBS: tuple[ScheduledJob, ...] = (
         ),
     ),
     ScheduledJob(
+        job_id="native_live_context_fixture",
+        kind="inference",
+        cadence="manual_or_scheduled",
+        command=["renquant-orchestrator", "run-job", "native_live_context_fixture"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        native_exit_criteria=(
+            "Builds hydrated native context JSON from explicit config, market snapshot, and account snapshot inputs.",
+            "Does not import RenQuant live.runner or submit broker orders.",
+        ),
+    ),
+    ScheduledJob(
         job_id="native_live_run_candidate",
         kind="trading",
         cadence="manual_or_scheduled",

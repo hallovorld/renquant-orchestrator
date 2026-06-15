@@ -50,6 +50,20 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--output-json",
         "/tmp/rehearsal/live-native-inference.json",
     ]
+    assert plan["commands"]["native_live_context"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_context_fixture",
+        "--",
+        "--strategy-config-json",
+        "/private/tmp/RenQuant/backtesting/renquant_104/strategy_config.json",
+        "--market-snapshot-json",
+        "/tmp/rehearsal/live-market-snapshot.json",
+        "--account-snapshot-json",
+        "/tmp/rehearsal/live-account-snapshot.json",
+        "--output-json",
+        "/tmp/rehearsal/live-native-context.json",
+    ]
     assert plan["commands"]["native_live_run_candidate"] == [
         "renquant-orchestrator",
         "run-job",
@@ -75,6 +89,8 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "/tmp/rehearsal/live-native-commit-plan.json",
     ]
     assert plan["artifacts"]["native_commit_plan"] == "/tmp/rehearsal/live-native-commit-plan.json"
+    assert plan["artifacts"]["market_snapshot"] == "/tmp/rehearsal/live-market-snapshot.json"
+    assert plan["artifacts"]["account_snapshot"] == "/tmp/rehearsal/live-account-snapshot.json"
     assert plan["artifacts"]["native_context"] == "/tmp/rehearsal/live-native-context.json"
     assert plan["artifacts"]["live_state_contract"] == "/tmp/rehearsal/live-live-state-contract.json"
     assert plan["artifacts"]["native_live_commit_plan"] == (
