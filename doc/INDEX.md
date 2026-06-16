@@ -1,19 +1,27 @@
-# Agent Index — design/decision/research docs (grep me first)
+# Agent Index — docs (grep me first)
+
+**Start here:** [`renquant-system-feature-map.md`](renquant-system-feature-map.md)
+— the canonical living inventory of the whole system (features by category +
+status, roadmap, pending discussion). It supersedes the old per-topic roadmap /
+plan / audit docs (now in git history).
+
+## Active docs
 
 | Doc | Status | One-line hook |
 |---|---|---|
-| `research/2026-06-12-engineering-architecture-deep-plan.md` | **AUTHORITY (with errata)** | five-plane engineering program; DRPH; contracts; disaster guards; execution PR backlog |
-- `doc/research/2026-06-12-intraday-trading-roadmap.md` — after-close → intraday roadmap (4 layers; P0 risk-reaction NOW, P1 execution, P2 gated experiment, P3 SHELVED w/ triggers); consumes #108 infra, never reorders #110.
-| `research/2026-06-12-model-capability-roadmap.md` | blocked by decision below | PatchTST improvement candidates (read errata first: cross-stock is high-variance, breadth claim retracted) |
-| `decisions/2026-06-12-engineering-before-model-research.md` | ACTIVE decision | #108 before #106; four unblocking milestones |
+| `renquant-system-feature-map.md` | **AUTHORITY** | all features by category + status; roadmap; pending discussion |
+| `decisions/2026-06-12-engineering-before-model-research.md` | ACTIVE decision | #108 before #106; model evidence untrustworthy until rails green |
 | `decisions/2026-06-12-scorer-lineup-decision.md` | ACTIVE decision | PatchTST primary, XGB shadow, ensemble SHELVED + reopening triggers |
-| `design/2026-06-12-short-selling-design.md` (+spec, +lit review) | merged design; impl gated | shorts: P0 hedge > P2 efficiency > P1 shelved; G-E6/G-EXEC gates; max 2; no regime precondition |
-| `audit/2026-06-11-false-bear-buy-suppression-cascade.md` | resolved (fixes shipped) | the false-BEAR cascade; P0–P4 fix map |
-| `research/2026-06-12-patchtst-capability-boundary.md` | merged research | measured IC, freshness-vs-regime confound, info-expansion evidence |
-| `research/2026-06-12-model-edge-recovery-plan.md` | WS-1/2/3 approved | data hygiene / PIT retrains / regime-conditional allocation |
-| `research/2026-06-11-regime-detection-hmm-markov-switching-rfc.md` | approved RFC | HMM regime engine, shadow-first |
-| `research/2026-06-11-max-hold-time-exit-rfc.md` | implemented (#27) | max_hold = far backstop only; never sub-horizon per-regime |
+| `research/2026-06-11-regime-detection-hmm-markov-switching-rfc.md` | approved RFC, not built | HMM regime engine upgrade, shadow-first (feature-map §3) |
+| `research/2026-06-12-ensemble-primary-proposal.md` | SHELVED (code-referenced) | ensemble backfill rationale; kept for `scripts/experiments/ensemble_backfill_v0.py` |
+| `research/2026-06-10-ic-to-pnl-architecture.md` (+ `research/evidence/*`) | reference data | IC→PnL experiment verdicts (referenced by evidence manifests) |
+| `cross-repo-control-plane-design.md` | reference (code-referenced) | control-plane design for `src/renquant_orchestrator/repos.py` |
+| `agent-pr-workflows.md` | operational | the autonomous review→fix→merge loop |
 
-**Rules for agents:** errata > body where they conflict · decisions block
-roadmaps · experiments live on `epic/model-edge-experiments`, never main ·
-PRs under operator review are FROZEN · all merges by humans.
+## Rules for agents
+
+- The **feature map** is the source of truth for *what exists / what's next*;
+  **decisions** block roadmaps where they conflict.
+- Experiments live on `epic/model-edge-experiments`, never `main`.
+- PRs under operator review are FROZEN — revisions = new branch + new PR.
+- All merges are by humans (or the authorized agent-pr-loop), never self-merge.
