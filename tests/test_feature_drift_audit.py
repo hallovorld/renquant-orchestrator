@@ -61,6 +61,25 @@ def test_suggest_prune_picks_drift_not_signal():
     assert "SIGNAL" not in picks   # high aligned IC -> kept
 
 
+def test_suggest_prune_uses_non_cancelling_aligned_signal_guard():
+    audit = pd.DataFrame([
+        {"feature": "FAM1", "aligned_ic": 0.50, "placebo_ic": 0.80,
+         "drift_excess": 0.30, "family": "FAM"},
+        {"feature": "FAM2", "aligned_ic": -0.50, "placebo_ic": -0.80,
+         "drift_excess": 0.30, "family": "FAM"},
+    ])
+
+    fam = family_drift(audit)
+    row = fam[fam.family == "FAM"].iloc[0]
+    assert row.mean_aligned == 0.0
+    assert row.mean_abs_aligned == 0.5
+    assert suggest_prune_families(
+        audit,
+        min_drift_excess=0.2,
+        max_abs_aligned=0.2,
+    ) == []
+
+
 def test_collision_guard_drops_prefix_of_keep_family():
     # 'MA' is a prefix of 'MAX'; if MAX is a keep-family, MA must be excluded
     # from the suggestions even if it drifts.

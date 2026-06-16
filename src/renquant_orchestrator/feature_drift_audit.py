@@ -75,10 +75,13 @@ def drift_audit(
 
 def family_drift(audit: pd.DataFrame) -> pd.DataFrame:
     """Mean drift_excess per feature family, descending."""
+    audit = audit.copy()
+    audit["abs_aligned_ic"] = audit["aligned_ic"].abs()
     g = (audit.groupby("family")
          .agg(mean_drift_excess=("drift_excess", "mean"),
               n=("feature", "size"),
-              mean_aligned=("aligned_ic", "mean"))
+              mean_aligned=("aligned_ic", "mean"),
+              mean_abs_aligned=("abs_aligned_ic", "mean"))
          .sort_values("mean_drift_excess", ascending=False)
          .reset_index())
     return g
@@ -101,7 +104,7 @@ def suggest_prune_families(
     for _, r in fam.iterrows():
         f = r["family"]
         if (r["mean_drift_excess"] >= min_drift_excess
-                and abs(r["mean_aligned"]) <= max_abs_aligned
+                and r["mean_abs_aligned"] <= max_abs_aligned
                 and not any(other != f and other.startswith(f) for other in keep)):
             picks.append(f)
     return picks
