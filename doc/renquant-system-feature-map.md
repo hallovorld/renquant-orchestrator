@@ -1,9 +1,7 @@
 # RenQuant System — Feature Map, Roadmap & Pending Discussion
 
 > **Canonical living inventory of the whole system.** Supersedes the two
-> single-topic research docs:
-> - `doc/research/2026-06-12-model-capability-roadmap.md` (PR #106)
-> - `doc/research/2026-06-12-engineering-architecture-deep-plan.md` (PR #108)
+> single-topic research docs from PR #106 and PR #108.
 >
 > Those remain in git history as the original rationale; this is the rolling
 > source of truth for *what exists, what's next, and what's deferred* across all
@@ -116,7 +114,7 @@ The live strategy is **renquant_104**; primary scorer **PatchTST**
 | run_wf_gate (3-cut sim + §5.2 sanity battery: shuffle + time-shift placebo + monotonicity) | ✅ | |
 | weekly_wf_promote trust-boundary chain | ✅ | |
 | Recipe-fingerprint validation + manifest auto-discovery | ✅ | |
-| **WF corpus regen + per-window calibrators** (R4) | 🟢 | new (#383); fixed lost-artifact gate crash |
+| **WF corpus regen + per-window calibrators** (R4) | 🟢 | #383 repointed the manifest; #384 committed the missing corpus and fixed the lost-artifact gate crash |
 
 ### 1.11 Audit & Reliability
 | Feature | Status | Notes |
@@ -160,7 +158,7 @@ The live strategy is **renquant_104**; primary scorer **PatchTST**
    family is the dominant lever (B2 placebo ratio 25.5→2.84; gate needs <2.0).
    **B5** (targeted prune of BETA/ROC/CORR/CORD/QTLD/SUMN/SUMD/SUMP, guided by
    feature_drift_audit) is the current shot. If it clears <2.0 → live candidate.
-2. **Deploy R4** (#383 merged) → green `weekly_wf_promote` + the two retrain jobs.
+2. **Deploy R4** (#383 + #384 merged) → green `weekly_wf_promote` + the two retrain jobs.
 3. **PatchTST WF regen** for the Sharpe stamp once a model passes sanity → stamp
    `wf_gate_metadata` → pre-flight unblocks buys.
 4. **Promote + deploy** the passing model to the live pins.
@@ -220,5 +218,5 @@ Per `doc/decisions/2026-06-12-engineering-before-model-research.md`: model
 evidence is only trustworthy once the rails are green. The recent campaign
 honored this — the WF gate that produces all model evidence was itself broken
 (lost WF artifacts, recipe mismatch, a scorer that silently dropped cross-stock
-weights); those were fixed (R4 #383, scorer #380/#382) *before* the model
+weights); those were fixed (R4 #383/#384, scorer #380/#382) *before* the model
 conclusions (pruning > freshness > architecture) were trusted.

@@ -8,8 +8,9 @@ architecture; GBDT remains SOTA-competitive on tabular data (Grinsztajn et al.
 2022); and **no single model should be primary at all** — our own measurements
 say the combination beats every component. Operator verdict: *"我现在对于
 ensemble 模型非常期待了"* → this proposal.
-**Companions:** `2026-06-12-patchtst-capability-boundary.md` (§5 findings),
-`2026-06-12-model-edge-recovery-plan.md` (WS-1/2/3).
+**Companions:** `2026-06-12-patchtst-capability-boundary.md` (§5 findings) and
+the model-edge recovery workstreams now folded into the system feature map /
+git history.
 
 ---
 

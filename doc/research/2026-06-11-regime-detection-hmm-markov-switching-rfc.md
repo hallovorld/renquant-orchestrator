@@ -4,8 +4,8 @@
 **Motivation:** operator question after the 2026-06-11 false-BEAR — *"is the regime
 rule too specific / narrow / not generic enough? Is there an industry standard?
 Any lib / package / open source?"*
-**Companion:** `doc/audit/2026-06-11-false-bear-buy-suppression-cascade.md` (the
-incident); pipeline PR #112 (the **stopgap** patch).
+**Companion:** the 2026-06-11 false-BEAR incident audit, now folded into the
+system feature map / git history; pipeline PR #112 (the **stopgap** patch).
 
 ---
 
