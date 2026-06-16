@@ -64,6 +64,28 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--output-json",
         "/tmp/rehearsal/live-native-context.json",
     ]
+    assert plan["commands"]["native_live_account_snapshot"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_account_snapshot_fixture",
+        "--",
+        "--broker-name",
+        "readonly-alpaca",
+        "--output-json",
+        "/tmp/rehearsal/live-account-snapshot.json",
+    ]
+    assert plan["commands"]["native_live_market_snapshot"] == [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_market_snapshot_fixture",
+        "--",
+        "--as-of",
+        "<MARKET_AS_OF>",
+        "--prices-json",
+        "/tmp/rehearsal/live-prices.json",
+        "--output-json",
+        "/tmp/rehearsal/live-market-snapshot.json",
+    ]
     assert plan["commands"]["native_live_run_candidate"] == [
         "renquant-orchestrator",
         "run-job",
@@ -89,6 +111,7 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "/tmp/rehearsal/live-native-commit-plan.json",
     ]
     assert plan["artifacts"]["native_commit_plan"] == "/tmp/rehearsal/live-native-commit-plan.json"
+    assert plan["artifacts"]["price_snapshot"] == "/tmp/rehearsal/live-prices.json"
     assert plan["artifacts"]["market_snapshot"] == "/tmp/rehearsal/live-market-snapshot.json"
     assert plan["artifacts"]["account_snapshot"] == "/tmp/rehearsal/live-account-snapshot.json"
     assert plan["artifacts"]["native_context"] == "/tmp/rehearsal/live-native-context.json"
@@ -115,7 +138,14 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
                 "unique native live run id used for persistence audit and "
                 "live_state_snapshots"
             ),
-        }
+        },
+        {
+            "placeholder": "<MARKET_AS_OF>",
+            "description": (
+                "replace the native_live_market_snapshot --as-of placeholder "
+                "with the market snapshot timestamp"
+            ),
+        },
     ]
     assert plan["commands"]["native_live_commit_template"] == [
         "renquant-orchestrator",
