@@ -27,7 +27,7 @@ class SanityRow(NamedTuple):
 
     @property
     def placebo_ratio(self) -> float | None:
-        """|placebo_60| / |aligned_real_60| — the gate fails this above ~2.0
+        """|placebo_60| / |aligned_real_60| — the gate fails this above ~0.5
         (gate threshold is |placebo| > 0.5*|aligned_real|)."""
         a = self.aligned_real_60_ic
         p = self.placebo_60_ic
@@ -66,6 +66,11 @@ def compare(paths: Iterable[str | Path],
             names: Iterable[str] | None = None) -> list[SanityRow]:
     paths = list(paths)
     name_list = list(names) if names is not None else [None] * len(paths)
+    if len(name_list) != len(paths):
+        raise ValueError(
+            "names must have the same length as paths "
+            f"({len(name_list)} != {len(paths)})"
+        )
     return [load_sanity(p, name=n) for p, n in zip(paths, name_list)]
 
 

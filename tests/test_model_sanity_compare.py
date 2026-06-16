@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from renquant_orchestrator.model_sanity_compare import (
     SanityRow,
     best_candidate,
@@ -80,6 +82,16 @@ def test_explicit_names_override(tmp_path):
                real=-0.01, nfeat=157)
     rows = compare([p], names=["custom"])
     assert rows[0].name == "custom"
+
+
+def test_explicit_names_must_match_path_count(tmp_path):
+    a = _write(tmp_path, "A", aligned=0.01, placebo=-0.02, promotion=False,
+               real=-0.01, nfeat=157)
+    b = _write(tmp_path, "B", aligned=0.02, placebo=-0.01, promotion=True,
+               real=0.02, nfeat=157)
+
+    with pytest.raises(ValueError, match="same length"):
+        compare([a, b], names=["only-a"])
 
 
 def test_empty_best_candidate():
