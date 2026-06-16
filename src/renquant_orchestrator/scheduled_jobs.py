@@ -217,6 +217,40 @@ _JOBS: tuple[ScheduledJob, ...] = (
         ),
     ),
     ScheduledJob(
+        job_id="native_live_account_snapshot_fixture",
+        kind="inference",
+        cadence="manual_or_scheduled",
+        command=[
+            "renquant-orchestrator",
+            "run-job",
+            "native_live_account_snapshot_fixture",
+        ],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        native_exit_criteria=(
+            "Reads account value, cash, positions, and open orders through the renquant-execution broker read API only.",
+            "Does not submit or cancel broker orders.",
+        ),
+    ),
+    ScheduledJob(
+        job_id="native_live_market_snapshot_fixture",
+        kind="inference",
+        cadence="manual_or_scheduled",
+        command=[
+            "renquant-orchestrator",
+            "run-job",
+            "native_live_market_snapshot_fixture",
+        ],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        native_exit_criteria=(
+            "Builds market snapshot JSON from explicit price inputs with no broker/order side effects.",
+            "Provides a stable provider boundary for later quote-feed hydration.",
+        ),
+    ),
+    ScheduledJob(
         job_id="native_live_run_candidate",
         kind="trading",
         cadence="manual_or_scheduled",

@@ -218,6 +218,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_context.add_argument("--metadata-json", default=None)
     native_context.add_argument("--output-json", required=True)
 
+    account_snapshot = sub.add_parser(
+        "native-live-account-snapshot",
+        help="build a readonly native account snapshot from broker read APIs",
+    )
+    account_snapshot.add_argument("--broker-name", default="readonly-alpaca")
+    account_snapshot.add_argument("--metadata-json", default=None)
+    account_snapshot.add_argument("--output-json", required=True)
+
+    market_snapshot = sub.add_parser(
+        "native-live-market-snapshot",
+        help="build a native market snapshot from explicit price inputs",
+    )
+    market_snapshot.add_argument("--as-of", required=True)
+    market_snapshot.add_argument("--prices-json", required=True)
+    market_snapshot.add_argument("--metadata-json", default=None)
+    market_snapshot.add_argument("--output-json", required=True)
+
     rehearsal = sub.add_parser(
         "live-rehearsal-plan",
         help="emit the readonly live offboard rehearsal command plan as JSON",
@@ -551,6 +568,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.metadata_json:
             native_context_argv.extend(["--metadata-json", args.metadata_json])
         return native_context_main(native_context_argv)
+    if args.command == "native-live-account-snapshot":
+        from .native_live_snapshots import account_main
+
+        account_argv = ["--broker-name", args.broker_name, "--output-json", args.output_json]
+        if args.metadata_json:
+            account_argv.extend(["--metadata-json", args.metadata_json])
+        return account_main(account_argv)
+    if args.command == "native-live-market-snapshot":
+        from .native_live_snapshots import market_main
+
+        market_argv = [
+            "--as-of",
+            args.as_of,
+            "--prices-json",
+            args.prices_json,
+            "--output-json",
+            args.output_json,
+        ]
+        if args.metadata_json:
+            market_argv.extend(["--metadata-json", args.metadata_json])
+        return market_main(market_argv)
     if args.command == "live-rehearsal-plan":
         from .live_rehearsal_plan import build_live_rehearsal_plan
 

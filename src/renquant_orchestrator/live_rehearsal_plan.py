@@ -11,6 +11,7 @@ from .runtime_paths import default_repo_root
 
 REQUIRED_ALPACA_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
 RUN_ID_PLACEHOLDER = "<RUN_ID>"
+MARKET_AS_OF_PLACEHOLDER = "<MARKET_AS_OF>"
 
 
 def _missing_env(names: tuple[str, ...], env_file: str | Path | None = None) -> list[str]:
@@ -36,6 +37,7 @@ def build_live_rehearsal_plan(
     out = Path(output_dir)
     job_id = "daily_live_runner_bridge" if mode == "daily" else "live_runner_bridge"
     bridge_bundle = out / f"{mode}-bridge-bundle.json"
+    price_snapshot = out / f"{mode}-prices.json"
     market_snapshot = out / f"{mode}-market-snapshot.json"
     account_snapshot = out / f"{mode}-account-snapshot.json"
     native_context = out / f"{mode}-native-context.json"
@@ -71,6 +73,28 @@ def build_live_rehearsal_plan(
         / f"native-order-lifecycle.{broker_key}.jsonl"
     )
 
+    native_account_snapshot_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_account_snapshot_fixture",
+        "--",
+        "--broker-name",
+        broker,
+        "--output-json",
+        str(account_snapshot),
+    ]
+    native_market_snapshot_command = [
+        "renquant-orchestrator",
+        "run-job",
+        "native_live_market_snapshot_fixture",
+        "--",
+        "--as-of",
+        MARKET_AS_OF_PLACEHOLDER,
+        "--prices-json",
+        str(price_snapshot),
+        "--output-json",
+        str(market_snapshot),
+    ]
     native_context_command = [
         "renquant-orchestrator",
         "run-job",
@@ -213,6 +237,7 @@ def build_live_rehearsal_plan(
     )
     notes = [
         "Run bridge_capture first to capture the readonly umbrella bridge bundle.",
+        "Write the explicit native price snapshot, then build native market/account snapshots.",
         "Build native context from explicit strategy_config, market snapshot, and account snapshot inputs.",
         "Produce the native inference payload, then run native_live_run_candidate before native_live_parity.",
         "Use native_live_inference only with a native hydrated context; bridge-captured inference is rehearsal evidence, not production cutover evidence.",
@@ -253,6 +278,7 @@ def build_live_rehearsal_plan(
         "output_dir": str(out),
         "artifacts": {
             "bridge_bundle": str(bridge_bundle),
+            "price_snapshot": str(price_snapshot),
             "market_snapshot": str(market_snapshot),
             "account_snapshot": str(account_snapshot),
             "native_context": str(native_context),
@@ -282,10 +308,19 @@ def build_live_rehearsal_plan(
                     "unique native live run id used for persistence audit "
                     "and live_state_snapshots"
                 ),
+            },
+            {
+                "placeholder": MARKET_AS_OF_PLACEHOLDER,
+                "description": (
+                    "replace the native_live_market_snapshot --as-of placeholder "
+                    "with the market snapshot timestamp"
+                ),
             }
         ],
         "commands": {
             "bridge_capture": bridge_command,
+            "native_live_account_snapshot": native_account_snapshot_command,
+            "native_live_market_snapshot": native_market_snapshot_command,
             "native_live_context": native_context_command,
             "native_live_inference": native_inference_command,
             "native_execution_payload": execution_command,
