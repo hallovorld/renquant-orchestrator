@@ -1,0 +1,85 @@
+{
+  "_note": "Structured backlog for roadmap_driver. Seeded from doc/renquant-system-feature-map.md §2. The driver auto-picks the first pending, unblocked, non-consequential item. Consequential items (GPU/deploy/strategy/live) are operator-only. Update statuses as items ship.",
+  "items": [
+    {
+      "id": "s1-wire-artifact-resolver",
+      "title": "Route orchestrator artifact lookups through ArtifactResolver",
+      "category": "#108 S1 wiring",
+      "repo": "renquant-orchestrator",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "ArtifactResolver (src/renquant_orchestrator/artifact_resolver.py, merged #131) is the single fail-closed resolution authority but is not yet wired. Route the ad-hoc Path(ref).resolve()/.exists() artifact lookups in build_wf_manifest.py, build_patchtst_wf_manifest.py and retrain_*.py through resolve_artifact() so they fail closed and can carry sha256 provenance. Do NOT change the manifest-row JSON schema (cross-repo contract); only the resolution path. Add tests."
+    },
+    {
+      "id": "s2-god-file-decomp-next",
+      "title": "Extract the next cohesive unit out of the sim/runner god-file",
+      "category": "#108 S2 decomposition",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "Continue the strangler-fig decomposition of the 2958-LOC runner / 3476-LOC scorer (after sim_nav/sim_price/sim_cash, #376/#375/#366). Extract one more cohesive unit (pure function or module) with invariant tests, gated by replay-parity (behaviour must be byte-identical). Keep it small and reviewable."
+    },
+    {
+      "id": "s1-wire-live-state-v2",
+      "title": "Adopt LiveStateV2 in the runner behind a flag",
+      "category": "#108 S1 wiring",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "LiveStateV2 (src/renquant_orchestrator/live_state_v2.py, merged #132) round-trips live_state.alpaca.json losslessly. Wire the runner's live-state read/write through it behind a flag (default off), so adding a per-holding field becomes a 1-line change. The lossless to_v1_dict() inverse must be used on write so the on-disk v1 file is byte-identical when the flag is off. Add tests; do not change live behaviour when the flag is off."
+    },
+    {
+      "id": "s2-wire-gate-ledger",
+      "title": "Persist live gate verdicts to the decision ledger",
+      "category": "#108 S2 wiring",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": ["s2-god-file-decomp-next"],
+      "consequential": false,
+      "prompt": "GateRegistry + decision_ledger (merged #133 in the orchestrator) make 'why was this run sell-only?' one SQL query. Submit the live pre-flight / WF / buy-block gate verdicts to a per-run GateRegistry and persist them to the decision ledger at the aggregation step, so live runs become queryable. Mirror the verdict algebra into the umbrella kernel if a cross-import is not allowed. Add tests."
+    },
+    {
+      "id": "intraday-cadence-governors",
+      "title": "Intraday cadence + governors + validation (#26)",
+      "category": "mid-term execution",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "Implement the intraday risk-reaction cadence with governors and validation per the protection epic (task #26). Build the cadence + governor logic with tests; keep live-affecting behaviour behind a flag (default off) until the operator enables it."
+    },
+    {
+      "id": "model-scale-sweep",
+      "title": "Pre-registered PatchTST scale sweep",
+      "category": "#106 model",
+      "repo": "renquant-orchestrator",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": true,
+      "prompt": "OPERATOR-ONLY (burns GPU). The prod model is 0.07M params / fast trains, so a pre-registered scale sweep (d_model / n_layers / seq_len grid) is nearly free. Run WF-gate-judged. Needs operator go for the GPU budget."
+    },
+    {
+      "id": "r4-patchtst-wf-regen",
+      "title": "Regenerate the PatchTST WF corpus for the Sharpe stamp",
+      "category": "live unblock",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": true,
+      "prompt": "OPERATOR-ONLY (GPU + writes live tree). Once a model passes the sanity gate, regenerate the PatchTST walkforward_v2 panel-ltr snapshots so the WF gate can produce a real Sharpe and stamp wf_gate_metadata (pre-flight then unblocks buys). Mirror of the GBDT R4 regen."
+    },
+    {
+      "id": "model-horizon-decision",
+      "title": "Decide the model label horizon (20d vs 60d)",
+      "category": "live unblock / strategy",
+      "repo": "renquant-orchestrator",
+      "status": "blocked",
+      "blocked_by": [],
+      "consequential": true,
+      "prompt": "OPERATOR DECISION. Evidence: 60d models all fail the placebo (slow 60d-label persistence IS the placebo); the 20d model passes it at the 2x-horizon shift. Switching to 20d re-architects the live horizon contract (QP mu horizon, calibrators). Decide: switch horizon, ensemble across horizons, or keep 60d. Collecting multi-seed 20d evidence in the meantime."
+    }
+  ]
+}
