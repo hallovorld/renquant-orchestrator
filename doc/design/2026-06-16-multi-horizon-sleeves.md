@@ -1,19 +1,68 @@
-# Multi-Horizon **Sleeves** — Design Proposal v2 (supersedes the rejected score-blend)
+# Multi-Horizon Sleeves — **CHEAP FALSIFICATION FIRST; runtime architecture PARKED**
 
-**Status:** proposal · evidence-gated · shadow-first · **no live sleeve activated today**
-**Date:** 2026-06-16
-**v2 (revised under a second structured critique):** four professional objections —
-(1) internal netting lacked **internal transfer pricing** → attribution is fiction;
-(2) wash-sale "suppress the open" **breaks sleeve independence**; (3) the covariance
-risk model is **naive / ill-conditioned + tail-blind**; (4) "shadow over N weeks" is
-**statistically meaningless** for low-frequency strategies. Each is conceded and
-fixed structurally below (§5.1, §5.3, §5.5–5.6, §7), not patched. v2 also adds a
-**per-deliverable difficulty/effort estimate (§11)** with cost-to-information
-sequencing.
-**Supersedes:** the multi-horizon *ensemble* doc (reverted in #148) — that design
-fused horizon scores and traded them at a single 60d cadence, which is
-structurally incapable of capturing multi-horizon alpha. This document replaces
-the *scoring* frame with a *portfolio-construction* frame.
+> ## ★ VERDICT (2026-06-17): do NOT build the sleeve runtime. ★
+>
+> **Central takeaway: cheap falsification before system design.** The expected
+> number of surviving sleeves is **0 or 1**, so the 8–12-week allocator / netting /
+> ITP / stressed-covariance / tax machinery (§3–§9) is **over-engineering and is
+> NOT to be built.** Everything below the line is **PARKED** as a contingent record,
+> not a roadmap.
+>
+> **The only sanctioned work** is two cheap falsification steps (§11 #1, #2), and
+> they are *single-model* questions that need **none** of this machinery:
+> 1. **Robustness-prove 20d** through the existing WF gate (≥3 seeds × ≥2 disjoint
+>    OOS windows). Pass → it's an ordinary *model-swap* decision. Fail (likely) →
+>    the multi-horizon line is **closed.**
+> 2. **5d is dropped outright** — PatchTST (a daily-feature model) structurally
+>    cannot produce a 5d microstructure signal (critique §0★-3). No 5d modelling,
+>    no 5d PDT analysis needed.
+>
+> **Reopening trigger (narrow, explicit):** revisit the architecture *only if*
+> (a) ≥2 horizons independently clear the WF robustness gate, **and** (b) a model
+> substrate capable of genuine short-horizon (≤5d) microstructure alpha exists —
+> neither holds today. Absent both, this stays parked. See
+> `doc/decisions/2026-06-12-scorer-lineup-decision.md` (ensemble SHELVED).
+
+## 0★. Why the runtime architecture was rejected (the decisive critique, 2026-06-17)
+
+A second structured critique killed the *build* (not the hypothesis direction).
+Each point conceded, none patched:
+
+1. **ITP is pseudo-science at $10.5k retail scale (kills §5.1).** Modeled slippage
+   on fractional / small-lot orders through a zero-commission retail router is
+   *dominated by bid-ask + routing noise*; without tick data + institutional
+   routing the "standalone-cost" fill is not audit-grade truth → per-sleeve IR is
+   effectively unmeasurable at this size. The whole attribution layer assumed a
+   measurement we cannot make.
+2. **Wash-sale "pricing" is mathematically intractable (kills §5.3).** The
+   disallowance is *path-dependent, discontinuous, tax-calendar-sensitive* — there
+   is no continuous differentiable penalty for a mean-variance allocator; the
+   honest implementation degenerates into allocator-jamming if-else.
+3. **5d × PatchTST is an architectural mismatch (the kill shot).** 5d alpha that
+   survives ~12× friction must come from microstructure / intraday flow. PatchTST
+   consumes *daily* price-volume / macro features — it structurally **cannot**
+   produce a 5-day liquidity-anomaly signal. **This removes multi-horizon's reason
+   to exist:** with no 5d, "multi-horizon" is {20d marginal, 60d dead} → no
+   ensemble, only a single-model "swap to 20d?" question needing none of §3–§9.
+4. **Joint-drawdown breaker is reactive damage-control, not risk control (weakens
+   §5.5).** By the time several sleeves jointly breach, the loss is realized; you
+   sell the bottom and miss the rebound. Real multi-strat risk control needs
+   *forward-looking exogenous* signals (VIX, credit spreads, cross-asset vol) — and
+   partial regime gating already exists (RegimeModelAdmission / regime resolver),
+   making the bespoke allocator redundant.
+5. **The paradox = the conclusion.** §11's own roll-up admits the likely surviving
+   sleeve count is **0–1** for an **8–12 wk + 6–12 mo** build. Building this machinery
+   for ≤1 strategy is classic over-engineering. **§11 is this design's own death
+   certificate** — so the central principle is *cheap falsification before system
+   design.*
+
+---
+
+**Status:** ~~proposal~~ → **PARKED / post-mortem** (verdict 2026-06-17)
+**Date:** 2026-06-16 (rejected 2026-06-17)
+**Note:** §0–§11 below are **preserved verbatim** as the record of what was
+considered. They are PARKED, not endorsed — read the verdict box first.
+**Supersedes:** the multi-horizon *ensemble* doc (reverted in #148).
 **Relates to:** `renquant-system-feature-map.md` §2.4; the scorer-lineup decision.
 
 ---
