@@ -314,6 +314,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     run_job.add_argument("job_args", nargs=argparse.REMAINDER)
 
+    roadmap = sub.add_parser(
+        "roadmap",
+        help="roadmap implementation driver: emit the next backlog item as an "
+             "agent task (the 'implement' half the agent-pr-loop was missing)",
+    )
+    roadmap.add_argument("roadmap_action", choices=["status", "next", "mark"])
+    roadmap.add_argument("item_id", nargs="?")
+    roadmap.add_argument("new_status", nargs="?")
+    roadmap.add_argument("--backlog", default=None,
+                         help="backlog json (default: doc/roadmap-backlog.json)")
+    roadmap.add_argument("--allow-consequential", action="store_true",
+                         help="let 'next' pick operator-only (GPU/deploy/live) items")
+
     agentwf = sub.add_parser(
         "agent-workflow",
         help="resolve a per-agent PR workflow queue (review/fix/merge); "
@@ -695,6 +708,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.repos_action == "merge-audit" and args.repos_strict and not result.get("ok"):
             return 1
         return 1 if blocked else 0
+    if args.command == "roadmap":
+        from pathlib import Path as _P
+
+        from .roadmap_driver import (
+            build_implementation_prompt,
+            load_backlog,
+            mark,
+            next_item,
+            save_backlog,
+            status_table,
+        )
+
+        backlog_path = (_P(args.backlog) if args.backlog
+                        else _P(__file__).resolve().parents[2] / "doc" / "roadmap-backlog.json")
+        items = load_backlog(backlog_path)
+        if args.roadmap_action == "status":
+            print(status_table(items))
+            return 0
+        if args.roadmap_action == "next":
+            nxt = next_item(items, allow_consequential=args.allow_consequential)
+            if nxt is None:
+                print("no actionable roadmap item")
+                return 1
+            print(build_implementation_prompt(nxt))
+            return 0
+        if args.roadmap_action == "mark":
+            if not args.item_id or not args.new_status:
+                parser.error("roadmap mark requires <id> <status>")
+            mark(items, args.item_id, args.new_status)
+            save_backlog(backlog_path, items)
+            print(f"marked {args.item_id} -> {args.new_status}")
+            return 0
     raise AssertionError(f"unhandled command: {args.command}")
 
 
