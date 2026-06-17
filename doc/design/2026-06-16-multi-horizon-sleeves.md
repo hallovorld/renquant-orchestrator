@@ -1,7 +1,15 @@
-# Multi-Horizon **Sleeves** — Design Proposal (supersedes the rejected score-blend)
+# Multi-Horizon **Sleeves** — Design Proposal v2 (supersedes the rejected score-blend)
 
 **Status:** proposal · evidence-gated · shadow-first · **no live sleeve activated today**
 **Date:** 2026-06-16
+**v2 (revised under a second structured critique):** four professional objections —
+(1) internal netting lacked **internal transfer pricing** → attribution is fiction;
+(2) wash-sale "suppress the open" **breaks sleeve independence**; (3) the covariance
+risk model is **naive / ill-conditioned + tail-blind**; (4) "shadow over N weeks" is
+**statistically meaningless** for low-frequency strategies. Each is conceded and
+fixed structurally below (§5.1, §5.3, §5.5–5.6, §7), not patched. v2 also adds a
+**per-deliverable difficulty/effort estimate (§11)** with cost-to-information
+sequencing.
 **Supersedes:** the multi-horizon *ensemble* doc (reverted in #148) — that design
 fused horizon scores and traded them at a single 60d cadence, which is
 structurally incapable of capturing multi-horizon alpha. This document replaces
@@ -100,16 +108,32 @@ out of a 0.49 marginal 20d.
 
 ## 5. Every hard problem, spelled out (no "open questions")
 
-### 5.1 Position netting & cross-sleeve conflict
+### 5.1 Position netting, internal crossing & **internal transfer pricing (ITP)**
 Same symbol targeted by multiple sleeves → **one net broker position**; each
-sleeve owns a **tranche** with its own cost basis and exit clock. Conflict (60d
-sleeve wants to hold AAPL, 5d sleeve wants to flip it):
-- Sleeves are **independent sub-books**; the broker shows the algebraic sum.
-- An exit reduces **only the owning sleeve's tranche**, never another sleeve's.
-- A 5d sell of its own tranche can reduce the *net* position while the 60d tranche
-  is untouched (net long shrinks, 60d thesis intact).
-- Net target = Σ sleeve tranches; the executor diffs net-target vs broker and
-  emits the minimal order set (avoids round-tripping the overlap).
+sleeve owns a **tranche** with its own cost basis and exit clock. Internal
+crossing (60d buys 100 AAPL, 5d sells 100 → 0 sent to broker) is an execution
+optimization — **but it must never touch attribution.** The v1 draft omitted the
+transfer-pricing rule; that omission would let a high-turnover sleeve free-ride a
+low-turnover sleeve's liquidity and report a fictional IR. Fix: **separate
+attribution from execution.**
+
+- **Attribution (per-sleeve P&L/IR):** every sleeve is marked **as if it executed
+  standalone in the market** — filled at the executor's benchmark (arrival / VWAP,
+  the *same* one the live executor uses) **plus its own modeled market-impact &
+  slippage for its own notional and urgency.** A sleeve is *always* charged the
+  full cost it would have paid alone, and **never** gets a better price merely
+  because another sleeve took the other side.
+- **Execution (real orders):** the netting engine crosses offsetting legs and
+  sends only the residual to the broker. The **real spread/impact saved by the
+  cross is booked to a portfolio-level "crossing-benefit" account — to neither
+  sleeve.**
+- **The fixed ITP rule (ex-ante, auditable):** internal crosses are priced at the
+  same arrival/VWAP benchmark used for standalone attribution; the saved cost is a
+  portfolio overlay, never a per-sleeve credit. → no sleeve eats another's
+  liquidity; per-sleeve IR (§5.8) reflects standalone economics and survives audit.
+- **Conflict mechanics:** sleeves are independent sub-books; broker shows the
+  algebraic sum; an exit reduces **only the owning sleeve's tranche**; a 5d sell of
+  its own tranche shrinks the net while the 60d tranche (and thesis) is untouched.
 
 ### 5.2 PDT / sub-$25k constraint (can veto the 5d sleeve outright)
 The live account is ~$10.5k → **Pattern Day Trader** rule: ≤3 day-trades / 5
@@ -119,11 +143,24 @@ Mitigations: enforce ≥1-overnight holds (no same-day round trips), cap 5d-slee
 day-trade count against a shared PDT budget, or **shelve the 5d sleeve until the
 account clears $25k**. This constraint is a first-class gate, not an afterthought.
 
-### 5.3 Wash sales
-5d and 60d sleeves trading the same name in opposite directions within 30 days →
-wash-sale disallowance, distorting realized-loss accounting. Track wash-sale
-windows per symbol **across sleeves**; either suppress the conflicting open or tag
-the basis adjustment. (Tax-lot correctness, not alpha — but real money.)
+### 5.3 Wash sales — **priced, never vetoed** (independence is sacrosanct)
+The v1 draft's "suppress the conflicting open" was **wrong** and self-contradicting:
+vetoing a sleeve's signal because *another* sleeve traded the same name within the
+30d window makes the suppressed sleeve's live behaviour diverge from its
+backtest/shadow — the high-frequency (5d) sleeve eats the low-frequency (60d)
+sleeve's tax situation, its alpha decays, and the whole portfolio misses its
+target Sharpe. **Hard principle: wash-sale handling must NOT alter any sleeve's
+open/close decision.** Instead:
+- The disallowed-loss effect is a **cost term**, charged to the *triggering* sleeve
+  (or a shared tax account) and priced into that sleeve's **net-of-cost** gate
+  (§6). The signal still fires; the cost is *priced*, not *blocked*.
+- Where it materially recurs, prefer **tax-aware sizing** — a *continuous*
+  tax-penalty term in the allocator (§5.6) — never a binary veto; and/or
+  **account/entity separation** for execution.
+- **IRS reality (stated, not glossed):** wash-sale matching applies **across all
+  accounts of the same taxpayer** (incl. IRAs). So account separation reduces
+  operational entanglement but does **not** by itself avoid the matching — the
+  robust fix is pricing the cost, not hiding the trade.
 
 ### 5.4 Turnover-cost hurdle (per sleeve)
 5d sleeve turns over ~12× the 60d sleeve. Its **gross** alpha must clear ~12× the
@@ -131,20 +168,35 @@ per-period cost (spread + fees + slippage + borrow) before it contributes net.
 Each sleeve's gate (§6) is evaluated **net of its own turnover cost**, so a
 high-churn sleeve with thin gross alpha is rejected automatically.
 
-### 5.5 Shared risk budget
-Sleeves do **not** each get a full Kelly/σ budget — they **share** the existing
-portfolio vol target. Allocation: total target risk `σ*` split across sleeves
-(`σ*² = wᵀΣw`); per-sleeve sizing scaled so the *combined* book respects the
-incumbent vol/Kelly caps. No sleeve can push aggregate exposure past today's
-limits. Correlated sleeve drawdowns (a risk-off day hits all horizons) are
-budgeted via `Σ` using **realized sleeve-return correlation**, not assumed-zero.
+### 5.5 Shared risk budget — **diversification is an IR bonus, never a leverage license**
+Sleeves **share** the existing portfolio vol target (no sleeve gets a full
+Kelly/σ budget). But the covariance `Σ` is explicitly **NOT trusted to lever**:
+- **Estimation is ill-conditioned.** 2–3 sleeves (60d currently dead, 5d unrun),
+  short history, and — critically — **overlapping returns**: a 60d holding produces
+  60d-overlapping observations, so the effective sample ≈ calendar_days ÷ horizon
+  (tiny). A naive `Σ` from recent calm data is statistically unstable.
+- **Tail-correlation breakdown.** Normal-times `ρ≈0` collapses to `ρ→1` in a
+  liquidity/macro crisis — all horizons draw down together. Sizing up on
+  realized-calm `ρ` invites a **fatal joint drawdown**.
+- **Therefore sizing is conservative / sub-additive.** Aggregate exposure is capped
+  **assuming `ρ=1` (zero diversification credit) for leverage purposes**, using a
+  shrinkage (Ledoit–Wolf) / stressed-`Σ` with a crisis correlation floor; the
+  combined book respects the incumbent vol/Kelly caps **under stress**. Measured
+  low correlation (§5.8) is allowed to **improve reported IR**, **never** to
+  **increase position size**.
+- **Joint-drawdown circuit breaker.** A portfolio-level guard de-risks *all*
+  sleeves when multi-sleeve drawdown breaches a threshold — it does not wait for
+  `Σ` to "notice" the regime change.
 
 ### 5.6 Capital allocation across sleeves
 Options, in increasing sophistication: (a) fixed weights; (b) IR-proportional
 (`w_k ∝ IR_k`); (c) risk-parity; (d) mean-variance on sleeve P&L. Start **(b)
 with a hard floor**: a sleeve below a min validated IR (or failing its gate) gets
-**0**. Re-estimate weights on a slow cadence (e.g. quarterly) to avoid fitting to
-noise. 60d → 0 today.
+**0**. Re-estimate weights on a **slow cadence (quarterly)** to avoid fitting to
+noise; any covariance input uses the **shrinkage / stressed `Σ` of §5.5** — and
+per §5.5 the diversification credit adjusts *weights*, never total *leverage*. The
+optional **tax-penalty term** (§5.3) lives here as a continuous cost, not a veto.
+60d → 0 today.
 
 ### 5.7 Per-sleeve gate independence + portfolio gate
 Each sleeve passes the **WF gate at its own horizon** (placebo at 2×-horizon
@@ -173,31 +225,101 @@ A horizon does **not** earn a sleeve until:
 3. Net-of-turnover sleeve backtest IR positive at its own cadence.
 4. (5d only) passes the §5.2 PDT-feasibility check on the live account size.
 
-## 7. Deployment — shadow-first, falsifiable
+## 7. Deployment — shadow-first, **measured in independent cycles, not weeks**
 
-1. Build the allocator + netting + attribution as **offline/shadow** components.
-2. Run every gate-passing sleeve in the **daily shadow** path (no live orders):
-   log per-sleeve would-be books, accumulate live OOS per-sleeve IR + realized
-   cross-sleeve correlation.
-3. Promote a second sleeve to live **only** when: its horizon clears §6 **and** the
-   combined shadow book beats the best single sleeve net of all added turnover/cost
-   over N weeks **and** a full WF-gate pass. High bar by design.
-4. If shadow never beats the single best sleeve → **correct outcome is one sleeve.**
+The v1 draft's "over N weeks" was statistically naive: a 20d sleeve rotates ~1×/
+month and a 60d sleeve <0.5 cycle/month, so "a few weeks" is ≈1 sample —
+indistinguishable from beta/luck. The unit of evidence is **independent
+(non-overlapping) holding cycles**, not calendar weeks.
+
+1. Build allocator + netting + attribution as **offline/shadow** components.
+2. Run every gate-passing sleeve in the **daily shadow** path (no live orders): log
+   per-sleeve would-be books; accumulate **risk-/factor-adjusted, market-neutral**
+   OOS performance (cross-sectional IC/IR, alpha net of factor beta — *not* raw
+   return over a lucky window) + realized cross-sleeve correlation.
+3. **Incubation requirement.** Promotion needs a minimum number of **non-overlapping**
+   OOS cycles for significance → for a 60d sleeve that is **quarters-to-years
+   (≈6–12+ months live)**, consistent with industry low-frequency incubation; for
+   20d, multiple months. The implied calendar is stated honestly per horizon and
+   **not** shortcut.
+4. **Where the statistical weight actually sits.** Live time yields too few
+   independent low-freq cycles to establish significance on its own, so the
+   **cross-sectional WF gate over disjoint historical OOS windows** (many more
+   independent cross-sections than live time can offer) carries the burden of proof;
+   live shadow is **long-horizon confirmation + regime-change guard**, not the
+   significance test itself.
+5. **Power-aware default.** Until the sample clears the per-horizon power bar (it
+   will be underpowered for months), the verdict is **"insufficient evidence → do
+   not promote."** Promotion requires the historical WF evidence to *already* clear
+   the bar **and** the combined shadow book to beat the best single sleeve net of
+   all added turnover/cost **and** a full WF-gate pass.
+6. If shadow never beats the single best sleeve → **correct outcome is one sleeve.**
 
 ## 8. Honest limitations (carried, not buried)
 
 - The whole thesis rests on sleeves' *realized P&L* being low-correlation. That is
-  a bet to be **measured in shadow (§5.8)**, not assumed. If correlations are high,
-  there is no IR gain and the complexity is unjustified.
+  a bet to be **measured in shadow (§5.8)**, not assumed — and per §5.5 even a
+  measured low correlation buys **no extra leverage**, only better weights, because
+  tail correlation goes to 1.
 - On a sub-$25k PDT account the 5d sleeve may be permanently infeasible (§5.2),
   reducing "multi-horizon" to 20d+60d — and 60d currently fails (§4).
+- Per-sleeve IR is only meaningful **if** the ITP discipline (§5.1) holds; a sloppy
+  internal-crossing mark silently inflates the high-turnover sleeve.
+- Low-frequency significance is **months-to-years** of independent cycles (§7); any
+  promotion claim made on a few weeks of live data is noise, by construction.
 - Today the design activates **nothing** live. That is the point: it makes "should
   we add a sleeve?" a cheap, safe, evidence-gated decision instead of a leap.
 
 ## 9. Next steps
 
-1. Robustness-prove 20d to the §6 bar (≥3 seeds × ≥2 windows) — or fail it cleanly.
-2. Build allocator + netting + attribution as offline/shadow primitives (flag-off,
-   unwired) — same safety pattern as the intraday-governor primitive (#26/#390).
-3. 5d PDT-feasibility analysis (§5.2) before any 5d modelling effort is justified.
-4. Only if ≥2 horizons clear §6: run the §7 shadow comparison and report net IR.
+1. Robustness-prove 20d to the §6 bar (≥3 seeds × ≥2 disjoint windows) — or fail it
+   cleanly. This is the only step actionable today and gates everything else.
+2. Build the offline/shadow primitives (flag-off, unwired — same safety pattern as
+   the intraday-governor #26/#390): **(a)** attribution engine with the §5.1 ITP
+   rule (standalone-cost fills + portfolio crossing-benefit account); **(b)** netting
+   engine; **(c)** stressed-`Σ` / shrinkage risk allocator (§5.5) with the
+   diversification-≠-leverage cap + joint-drawdown breaker; **(d)** tax-cost term
+   (§5.3) — priced, never a veto.
+3. 5d PDT-feasibility analysis (§5.2) **before** any 5d modelling effort is justified.
+4. Only if ≥2 horizons clear §6: run the §7 shadow comparison — judged on
+   risk-/factor-adjusted performance over **independent cycles** (months-to-years,
+   not weeks) — and report net IR vs the best single sleeve.
+
+## 10. Critique → resolution map (this v2 must close all four)
+
+| objection (2026-06-16) | resolved in | one-line resolution |
+|---|---|---|
+| ① netting lacks transfer pricing → attribution fiction | §5.1 | standalone-cost fills; crossing benefit booked to portfolio, never a sleeve |
+| ② wash-sale "suppress open" breaks independence | §5.3 | price the tax cost into the gate; **never** veto a sleeve's signal |
+| ③ covariance model naive + tail-blind | §5.5–5.6 | stressed/shrunk `Σ`; diversification = IR bonus, **not** leverage; joint-DD breaker |
+| ④ "shadow N weeks" statistically meaningless | §7 | unit = independent non-overlapping cycles (60d → 6–12+ mo); WF cross-sections carry significance |
+
+## 11. Difficulty / effort estimation per deliverable
+
+T-shirt size (S≈≤2d, M≈3–5d, L≈1–2wk, XL≈3wk+, all single-builder); effort is
+*build + test*, not the (much longer) §7 incubation calendar. "Gated-on" =
+nothing downstream is worth building until that gate is green.
+
+| # | deliverable | size | effort | genuinely hard part / primary risk | gated-on |
+|---|---|---|---|---|---|
+| 1 | **Robustness-prove 20d** (§6: ≥3 seeds × ≥2 disjoint OOS windows) | **M** | 3–5d (mostly compute) | none technically — harness exists (R4-repaired WF gate). Risk: **likely FAILS** (0.49 is fragile) — but that is a *cheap, high-information* no | — (actionable now) |
+| 2 | 5d **PDT-feasibility** analysis (§5.2) | **S** | 1–2d | pure simulation of 5d turnover vs PDT 3-trades/5-day on $10.5k. Risk: a hard NO that kills the 5d sleeve outright (also cheap, valuable) | — (actionable now) |
+| 3 | **Attribution engine + ITP** (§5.1) | **L** | 1–2wk | **the subtle one** — per-sleeve standalone market-impact/slippage model + crossing-benefit account. A wrong impact model *silently* inflates the high-turnover sleeve → corrupts every IR/decision downstream | #1 |
+| 4 | **Netting engine** (§5.1 exec) | **M** | ~1wk | tranche bookkeeping + net-target diff + minimal-order-set under partial fills / rejects / cross-sleeve exit ordering. Mechanical but edge-case heavy | #3 |
+| 5 | **Stressed-`Σ` risk allocator + joint-DD breaker** (§5.5–5.6) | **L** | 1–1.5wk | math is standard (shrinkage/stressed-corr); the risk is **integration with live Kelly/σ sizing** without loosening existing caps + the no-leverage-from-diversification invariant | #1 |
+| 6 | **Tax-cost term** (§5.3, priced not vetoed) | **M** | 3–5d | wash-sale window tracking across sleeves + continuous penalty in the allocator; tax-lot accounting is fiddly/easy to get subtly wrong | #5 |
+| 7 | **Sleeve runner / shadow harness** (§7) | **L–XL** | 1.5–2.5wk | run K independent sleeves daily in shadow (each its own inference+rotation+sizing), isolated, logging per-sleeve books + attribution. Reuses the per-sleeve pipeline; the **orchestration + isolation** is new | #3,#4,#5 |
+| 8 | **5d/20d model training to gate** (per horizon) | **M** each | 3–5d compute each | compute-bound; only justified *after* #1/#2. 5d is unproven + regime-dependent | #1,#2 |
+| 9 | **Live wiring + promotion** | **XL** | 2wk+ build, **6–12+ mo** incubation | touches the **live trading path** — highest risk; flag-gated, operator-signed-off only, after §7 power bar clears | all above + operator |
+
+**Roll-up.** Full build ≈ **8–12 single-builder weeks** *plus* a 6–12+ month
+low-freq incubation (#9) — for a payoff that is, on today's evidence, **unproven**
+(60d dead, 20d marginal, 5d weak/possibly PDT-infeasible).
+
+**What the estimate itself tells us:** the cost curve is steeply back-loaded —
+items **#1 and #2 are ≈S/M and cheap (≤1 week combined) yet gate the entire ≈10-week
+L/XL build.** So the correct sequencing is *cost-to-information*: spend the cheap
+week on #1+#2 first. If 20d fails its robustness gate (the likely outcome) and/or 5d
+is PDT-infeasible, **the expensive 90% is correctly never built.** This design's
+main value right now is making that a cheap, evidence-gated decision rather than a
+multi-week leap.
