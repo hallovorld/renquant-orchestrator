@@ -1,12 +1,12 @@
 {
-  "_note": "Structured backlog for roadmap_driver. Seeded from doc/renquant-system-feature-map.md §2. The driver auto-picks the first pending, unblocked, non-consequential item. Consequential items (GPU/deploy/strategy/live) are operator-only. Update statuses as items ship.",
+  "_note": "Structured backlog for roadmap_driver. Seeded from doc/renquant-system-feature-map.md \u00a72. The driver auto-picks the first pending, unblocked, non-consequential item. Consequential items (GPU/deploy/strategy/live) are operator-only. Update statuses as items ship.",
   "items": [
     {
       "id": "s1-wire-artifact-resolver",
       "title": "Route orchestrator artifact lookups through ArtifactResolver",
       "category": "#108 S1 wiring",
       "repo": "renquant-orchestrator",
-      "status": "pending",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "ArtifactResolver (src/renquant_orchestrator/artifact_resolver.py, merged #131) is the single fail-closed resolution authority but is not yet wired. Route the ad-hoc Path(ref).resolve()/.exists() artifact lookups in build_wf_manifest.py, build_patchtst_wf_manifest.py and retrain_*.py through resolve_artifact() so they fail closed and can carry sha256 provenance. Do NOT change the manifest-row JSON schema (cross-repo contract); only the resolution path. Add tests."
@@ -16,7 +16,7 @@
       "title": "Extract the next cohesive unit out of the sim/runner god-file",
       "category": "#108 S2 decomposition",
       "repo": "RenQuant",
-      "status": "pending",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "Continue the strangler-fig decomposition of the 2958-LOC runner / 3476-LOC scorer (after sim_nav/sim_price/sim_cash, #376/#375/#366). Extract one more cohesive unit (pure function or module) with invariant tests, gated by replay-parity (behaviour must be byte-identical). Keep it small and reviewable."
@@ -26,7 +26,7 @@
       "title": "Adopt LiveStateV2 in the runner behind a flag",
       "category": "#108 S1 wiring",
       "repo": "RenQuant",
-      "status": "pending",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "LiveStateV2 (src/renquant_orchestrator/live_state_v2.py, merged #132) round-trips live_state.alpaca.json losslessly. Wire the runner's live-state read/write through it behind a flag (default off), so adding a per-holding field becomes a 1-line change. The lossless to_v1_dict() inverse must be used on write so the on-disk v1 file is byte-identical when the flag is off. Add tests; do not change live behaviour when the flag is off."
@@ -37,7 +37,9 @@
       "category": "#108 S2 wiring",
       "repo": "RenQuant",
       "status": "pending",
-      "blocked_by": ["s2-god-file-decomp-next"],
+      "blocked_by": [
+        "s2-god-file-decomp-next"
+      ],
       "consequential": false,
       "prompt": "GateRegistry + decision_ledger (merged #133 in the orchestrator) make 'why was this run sell-only?' one SQL query. Submit the live pre-flight / WF / buy-block gate verdicts to a per-run GateRegistry and persist them to the decision ledger at the aggregation step, so live runs become queryable. Mirror the verdict algebra into the umbrella kernel if a cross-import is not allowed. Add tests."
     },
