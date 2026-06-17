@@ -51,6 +51,7 @@ from typing import Sequence
 
 from renquant_common import Job, Pipeline, Task
 
+from .artifact_resolver import resolve_artifact
 from .runtime_paths import (
     default_github_root,
     default_repo_root,
@@ -141,10 +142,36 @@ def training_env(data_dir: Path | None, strategy_config: str | None) -> dict[str
     return env
 
 
-def manifest_row(*, artifact_uri: Path, cutoff: str, lookahead_days: int = 60) -> dict:
-    """Assemble one manifest row (pure)."""
+def manifest_row(
+    *,
+    artifact_uri: Path,
+    cutoff: str,
+    lookahead_days: int = 60,
+    repo_root: Path | str | None = None,
+) -> dict:
+    """Assemble one manifest row, resolving ``artifact_uri`` fail-closed.
+
+    The artifact path is resolved through the single ``resolve_artifact``
+    authority instead of a bare ``Path(...).resolve()`` so a per-cutoff
+    ``train_gbdt`` run that exited 0 but produced no artifact raises
+    ``FileNotFoundError`` (listing the tried paths) rather than stamping a
+    silent missing path into the manifest. ``artifact_uri`` is the trainer's
+    absolute ``--output-path``; ``repo_root`` only seeds the resolver's
+    relative-ref fallback and defaults to the artifact's parent.
+
+    The emitted row schema (``artifact_uri`` / ``cutoff_date`` /
+    ``lookahead_days`` / ``trained_date``) is unchanged — it is a cross-repo
+    contract consumed by the umbrella WF gate.
+    """
+    root = Path(repo_root) if repo_root is not None else Path(artifact_uri).parent
+    resolved = resolve_artifact(
+        artifact_uri,
+        strategy_dir=root,
+        repo_root=root,
+        verify_sha=False,
+    )
     return {
-        "artifact_uri": str(artifact_uri.resolve()),
+        "artifact_uri": str(resolved.path),
         "cutoff_date": cutoff,
         "lookahead_days": int(lookahead_days),
         "trained_date": _dt.date.today().isoformat(),
@@ -266,7 +293,21 @@ class RetrainAllCutoffsTask(Task):
                 print(f"  FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} rc={rc}", flush=True)
                 ctx.failed_cutoffs.append(cutoff)
                 continue
-            ctx.new_rows.append(manifest_row(artifact_uri=out_path, cutoff=cutoff))
+            try:
+                row = manifest_row(
+                    artifact_uri=out_path, cutoff=cutoff, repo_root=ctx.output_dir,
+                )
+            except FileNotFoundError as exc:
+                # train_gbdt exited 0 but produced no artifact: fail closed for
+                # this cutoff instead of stamping a silent missing path.
+                print(
+                    f"  FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} rc={rc} "
+                    f"but artifact unresolvable: {exc}",
+                    flush=True,
+                )
+                ctx.failed_cutoffs.append(cutoff)
+                continue
+            ctx.new_rows.append(row)
             print(f"  ok   [{i}/{len(ctx.cutoffs)}] {cutoff}", flush=True)
         return True
 

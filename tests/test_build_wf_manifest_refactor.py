@@ -124,18 +124,25 @@ def test_training_env_sets_data_and_strategy_roots(tmp_path):
     assert env["RENQUANT_STRATEGY_CONFIG"] == "/cfg/strategy_config.json"
 
 
-def test_manifest_row_shape():
-    row = bm.manifest_row(artifact_uri=Path("/tmp/a/b/c.json"), cutoff="2024-01-02")
+def test_manifest_row_shape(tmp_path):
+    art = tmp_path / "a" / "b" / "c.json"
+    art.parent.mkdir(parents=True)
+    art.write_text("{}")
+    row = bm.manifest_row(artifact_uri=art, cutoff="2024-01-02")
     assert set(row) == {"artifact_uri", "cutoff_date", "lookahead_days", "trained_date"}
     assert row["cutoff_date"] == "2024-01-02"
     assert row["lookahead_days"] == 60
+    # artifact_uri is resolved fail-closed through resolve_artifact
+    assert row["artifact_uri"] == str(art.resolve())
     # trained_date is today's date in ISO form — at minimum, parseable
     import datetime
     datetime.date.fromisoformat(row["trained_date"])
 
 
-def test_manifest_row_custom_lookahead():
-    row = bm.manifest_row(artifact_uri=Path("/x.json"), cutoff="2024-01-02",
+def test_manifest_row_custom_lookahead(tmp_path):
+    art = tmp_path / "x.json"
+    art.write_text("{}")
+    row = bm.manifest_row(artifact_uri=art, cutoff="2024-01-02",
                           lookahead_days=30)
     assert row["lookahead_days"] == 30
 

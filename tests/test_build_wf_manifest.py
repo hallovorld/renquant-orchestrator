@@ -95,7 +95,17 @@ def test_main_collects_failed_cutoffs_and_returns_nonzero(
     call_n = {"i": 0}
     def fake_run(cmd, *a, **k):
         call_n["i"] += 1
-        return _RC(1 if call_n["i"] == 2 else 0)
+        rc = 1 if call_n["i"] == 2 else 0
+        if rc == 0:
+            # A successful train_gbdt run writes its --output-path artifact; the
+            # manifest builder now resolves that path fail-closed before stamping
+            # a row, so the success-path fake must produce the file.
+            for i, tok in enumerate(cmd):
+                if tok == "--output-path":
+                    Path(cmd[i + 1]).parent.mkdir(parents=True, exist_ok=True)
+                    Path(cmd[i + 1]).write_text("{}")
+                    break
+        return _RC(rc)
     monkeypatch.setattr(build_wf_manifest.subprocess, "run", fake_run)
     rc = build_wf_manifest.main([
         "--source-manifest", str(fake_source_manifest),
@@ -105,9 +115,10 @@ def test_main_collects_failed_cutoffs_and_returns_nonzero(
     assert rc != 0
     manifest = json.loads((tmp_path / "m.json").read_text())
     assert manifest["failed_cutoffs"] == ["2022-01-22"]
-    # Successful cutoffs (rc=0) are appended regardless of whether the artifact
-    # file actually exists — the script trusts the trainer's exit code.
-    # Behaviour anchor: failed_cutoffs is the authoritative skip list.
+    # rc=0 cutoffs that produced their artifact are appended; failed_cutoffs is
+    # the authoritative skip list. (Post #108 S1: a rc=0 cutoff whose artifact is
+    # missing now fails closed via resolve_artifact rather than stamping a
+    # silent missing path — see test_build_wf_manifest_resolver.py.)
     assert len(manifest["retrains"]) == 2
     cutoffs_recorded = {row["cutoff_date"] for row in manifest["retrains"]}
     assert cutoffs_recorded == {"2022-01-01", "2022-02-12"}

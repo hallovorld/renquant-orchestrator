@@ -126,6 +126,11 @@ def test_retrain_all_cutoffs_uses_subprocess_run(ctx, monkeypatch):
 
     def fake_run(cmd, **kw):
         calls.append((cmd, kw.get("env")))
+        # A successful train_gbdt writes its --output-path artifact; the builder
+        # now resolves it fail-closed before stamping a manifest row.
+        out_path = Path(cmd[cmd.index("--output-path") + 1])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("{}")
         return FakeCompleted()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -153,6 +158,12 @@ def test_retrain_all_cutoffs_records_failures(ctx, monkeypatch):
         class R: pass
         r = R()
         r.returncode = 1 if "2024-07-01" in cmd else 0
+        if r.returncode == 0:
+            # Successful runs write their --output-path artifact, which the
+            # builder now resolves fail-closed before stamping a manifest row.
+            out_path = Path(cmd[cmd.index("--output-path") + 1])
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text("{}")
         return r
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -165,6 +176,11 @@ def test_full_pipeline_end_to_end(ctx, monkeypatch):
     """Pipeline.run() drives all 3 Jobs in order; output manifest is the result."""
 
     def fake_run(cmd, **kw):
+        # A successful train_gbdt writes its --output-path artifact; the builder
+        # now resolves it fail-closed before stamping a manifest row.
+        out_path = Path(cmd[cmd.index("--output-path") + 1])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("{}")
         class R: returncode = 0
         return R()
 

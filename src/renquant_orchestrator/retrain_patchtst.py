@@ -29,6 +29,7 @@ import sys
 
 from renquant_common import Job, Pipeline, Task
 
+from .artifact_resolver import resolve_artifact
 from .build_patchtst_wf_manifest import (
     DEFAULT_LABEL,
     build_calibrator_cmd,
@@ -163,9 +164,25 @@ def _run(ctx: PatchtstRetrainContext, cmd: list[str], *, cwd: Path | None = None
         raise RuntimeError(f"command failed rc={result.returncode}: {' '.join(cmd)}")
 
 
+def _resolve_present(path: Path) -> Path:
+    """Existence-check ``path`` through the single ``resolve_artifact`` authority.
+
+    Replaces the ad-hoc ``Path.exists()`` guards on the produced staging
+    artifacts so a missing file fails closed with the resolver's message (which
+    lists every tried path) instead of a bespoke string. ``path`` is the
+    absolute staging output, so the resolver uses it as-is; the parent only
+    seeds the (unused for absolute refs) relative-ref fallback.
+    """
+    return resolve_artifact(
+        path, strategy_dir=path.parent, repo_root=path.parent, verify_sha=False
+    ).path
+
+
 def _read_json_object(path: Path, label: str) -> dict:
-    if not path.exists():
-        raise FileNotFoundError(f"{label} did not produce {path}")
+    try:
+        _resolve_present(path)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"{label} did not produce {path}: {exc}") from exc
     if path.stat().st_size <= 2:
         raise ValueError(f"{label} artifact is too small: {path}")
     try:
@@ -185,8 +202,12 @@ def _validate_scorer_artifact(model_path: Path) -> None:
     / fingerprint). We assert the checkpoint is non-empty and the sidecar's
     contract was stamped today, mirroring the GBDT ``trained_date`` guard.
     """
-    if not model_path.exists():
-        raise FileNotFoundError(f"PatchTST training did not produce {model_path}")
+    try:
+        _resolve_present(model_path)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"PatchTST training did not produce {model_path}: {exc}"
+        ) from exc
     if model_path.stat().st_size <= 2:
         raise ValueError(f"PatchTST checkpoint is too small: {model_path}")
     sidecar = model_path.with_name(model_path.name + ".metadata.json")
