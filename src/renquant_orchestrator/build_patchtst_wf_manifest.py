@@ -47,6 +47,7 @@ from typing import Sequence
 import pandas as pd
 from renquant_common import Job, Pipeline, Task
 
+from .artifact_resolver import resolve_artifact
 from .runtime_paths import (
     default_github_root,
     default_repo_root,
@@ -165,6 +166,24 @@ def calibrator_path_for(model_path: Path) -> Path:
 
 def sidecar_path_for(model_path: Path) -> Path:
     return model_path.with_name(model_path.name + ".metadata.json")
+
+
+def artifact_present(ref: Path, *, repo_root: Path | str | None = None) -> bool:
+    """Return whether ``ref`` resolves to an existing artifact (fail-closed).
+
+    Routes the bare ``Path.exists()`` existence check through the single
+    ``resolve_artifact`` authority so the per-cutoff success gate uses the same
+    resolution order as every other artifact lookup. ``ref`` is the trainer's
+    absolute output path; ``repo_root`` only seeds the relative-ref fallback and
+    defaults to the artifact's parent. Returns ``False`` (so the caller records
+    the cutoff as failed) when nothing resolves, rather than raising.
+    """
+    root = Path(repo_root) if repo_root is not None else Path(ref).parent
+    try:
+        resolve_artifact(ref, strategy_dir=root, repo_root=root, verify_sha=False)
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def read_training_contract(model_path: Path) -> dict:
@@ -405,10 +424,11 @@ class RetrainAllCutoffsTask(Task):
             print(f"  [{i}/{len(ctx.cutoffs)}] training cutoff={cutoff} …", flush=True)
             rc = subprocess.run(cmd, cwd=ctx.cwd).returncode
             artifact = model_path_for(out_path, ctx.seed)
-            if rc != 0 or not artifact.exists():
+            artifact_ok = artifact_present(artifact, repo_root=ctx.output_dir)
+            if rc != 0 or not artifact_ok:
                 print(
                     f"    FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} rc={rc} "
-                    f"artifact_exists={artifact.exists()}",
+                    f"artifact_exists={artifact_ok}",
                     flush=True,
                 )
                 ctx.failed_cutoffs.append(cutoff)
@@ -429,10 +449,11 @@ class RetrainAllCutoffsTask(Task):
                 )
                 print(f"    calibrating cutoff={cutoff} …", flush=True)
                 cal_rc = subprocess.run(cal_cmd, cwd=ctx.cwd).returncode
-                if cal_rc != 0 or not calibrator.exists():
+                calibrator_ok = artifact_present(calibrator, repo_root=ctx.output_dir)
+                if cal_rc != 0 or not calibrator_ok:
                     print(
                         f"    FAIL [{i}/{len(ctx.cutoffs)}] {cutoff} calibrator_rc={cal_rc} "
-                        f"calibrator_exists={calibrator.exists()}",
+                        f"calibrator_exists={calibrator_ok}",
                         flush=True,
                     )
                     ctx.failed_cutoffs.append(cutoff)
