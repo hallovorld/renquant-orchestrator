@@ -1,10 +1,16 @@
-# Multi-Horizon Ensemble — Design Proposal
+# Multi-Horizon Ensemble — Parked Research Note
 
-**Status:** proposal · shadow-first · WF-gate-judged
+**Status:** parked research note · no implementation authority
 **Date:** 2026-06-16
 **Relates to:** `renquant-system-feature-map.md` §2.4 (model-capability), the
-scorer-lineup decision (PatchTST primary; ensemble shelved *as primary* — this
-proposes a **shadow** ensemble, which that decision permits).
+scorer-lineup decision (PatchTST primary; ensemble not adopted; no further
+ensemble implementation work unless a defined reopening trigger occurs).
+
+This note preserves a possible future ensemble hypothesis. It does **not**
+reopen the active scorer-lineup decision, authorize a shadow scorer, or create
+implementation work on `main`. Any implementation must first cite the specific
+reopening trigger that has been satisfied and the evidence window that satisfies
+it.
 
 ## 1. Motivation — the horizon/placebo discovery
 
@@ -27,12 +33,13 @@ at its proper 2×-horizon (40-day) shift — **reproducibly across two seeds**:
 
 **Read:** shorter label horizons carry genuine horizon-specific signal; longer
 horizons mix in slow cross-sectional drift that the gate (correctly) rejects.
-The 20d edge is *real but small* (marginal pass). This is exactly the regime
-where an **ensemble across horizons** should help: each horizon contributes a
-weak-but-genuine signal, and averaging cross-sectional ranks both diversifies
-and damps the per-horizon drift.
+The 20d edge is *real but small* (marginal pass). This is a plausible regime
+where an **ensemble across horizons** might help: each horizon may contribute a
+weak-but-genuine signal, and averaging cross-sectional ranks could diversify
+and damp per-horizon drift. That remains a hypothesis until it is tested under
+the active reopening rules.
 
-## 2. Design
+## 2. Candidate design if reopened
 
 ### 2.1 Components
 PatchTST models, identical recipe (pruned 157 features, `--val-days 126`, seq 24,
@@ -42,7 +49,7 @@ distributional head), differing only in label horizon:
 - **60d** (`fwd_60d_excess`) — the production horizon; included for the medium-term
   component (its drift is damped, not relied on, by rank-averaging).
 
-Multi-seed per horizon (≥2) to average training noise.
+Multi-seed per horizon (>=2) to average training noise.
 
 ### 2.2 Combiner — per-day cross-sectional percentile-rank average
 For each trading day, rank each component's scores **cross-sectionally** to
@@ -57,14 +64,29 @@ percentiles in `[0,1]`, then average across components (and seeds). Rationale:
 Optionally weight by each component's validated genuine-IC (the placebo-passing
 aligned IC), down-weighting horizons whose signal is mostly drift.
 
-### 2.3 Scorer architecture
-`HorizonEnsembleScorer`: loads N PatchTST checkpoints (via the fixed
-cross-stock-aware loader), exposes `score_with_history(panel_history, tickers)`
-that scores each component, percentile-ranks per day, and returns the weighted
-average. Drop-in for the existing scorer interface, so it can run in the
-**shadow** scoring path with zero changes to the live decision path.
+### 2.3 Candidate scorer architecture
+If the scorer-lineup decision is reopened, a `HorizonEnsembleScorer` could load
+N PatchTST checkpoints (via the fixed cross-stock-aware loader), expose
+`score_with_history(panel_history, tickers)`, score each component,
+percentile-rank per day, and return the weighted average. It should not be built
+or wired while the current decision record remains active.
 
-## 3. Evaluation plan (WF-gate-judged)
+## 3. Evidence required before reopening
+Before any implementation, shadow wiring, or promotion discussion, the proposal
+must satisfy at least one reopening trigger from
+`doc/decisions/2026-06-12-scorer-lineup-decision.md`:
+
+- The WF gate fails a fresh-cutoff PatchTST retrain while an ensemble or
+  alternative candidate passes the same gate on the same evidence windows.
+- The shadow rail shows the shadow scorer dominating the primary on rolling
+  60-day live IC for a sustained period (>=1 quarter), measured fairly
+  (same-cutoff, strict OOS).
+- A regime of sustained calm-tape losses attributable to the primary's measured
+  calm-window weakness occurs with real PnL impact.
+
+Only after one of those conditions is documented should an ensemble evaluation
+be run as an adoption candidate:
+
 1. Train the component set (5d×≥2, 20d×≥2, 60d×≥2 seeds).
 2. Offline: score all components over the OOS sanity panel; build the ensemble;
    compute the placebo diagnostic vs **each** horizon label (shift = 2×horizon).
@@ -73,13 +95,13 @@ average. Drop-in for the existing scorer interface, so it can run in the
    best single component.
 3. Compare to each component and to equal-weight vs IC-weighted blends.
 
-## 4. Deployment — shadow first
-- Run `HorizonEnsembleScorer` in the **daily shadow** path (no live orders): it
-  logs rankings / would-be selections daily, accumulating live out-of-sample
-  evidence next to the live 60d model.
-- After N weeks of shadow evidence (positive IC, placebo-clean, stable), bring an
-  A/B/C promotion decision — same bar as any model: pass the full WF gate
-  (3-cut + sanity), then promote with the horizon contract switched to match.
+## 4. Deployment constraints
+No deployment is approved by this note. If a reopening trigger is satisfied and
+an implementation PR is later authorized, the deployment path must still be
+shadow-first, with no live orders, and must accumulate live out-of-sample
+evidence before any A/B/C promotion decision. Promotion still requires the full
+WF gate (3-cut + sanity) and an explicit horizon contract for sizing and
+rotation.
 
 ## 5. Risks & open questions
 - **Marginal 20d (0.49 ≈ 0.5):** the single-horizon edge is thin; the ensemble's
@@ -93,8 +115,14 @@ average. Drop-in for the existing scorer interface, so it can run in the
 - **Component count / cost:** ≥6 checkpoints to load per score; fine offline and
   in shadow, watch latency if ever promoted.
 
-## 6. Immediate next steps
-1. Train the 5d component (in progress) to complete the 5d/20d/60d set.
-2. Offline ensemble placebo eval (in progress) → fill in the §3 acceptance table.
-3. Build `HorizonEnsembleScorer` + tests.
-4. Wire it into the shadow path; accumulate live evidence.
+## 6. Non-goals while parked
+- Do not build `HorizonEnsembleScorer`.
+- Do not wire an ensemble into the daily shadow path.
+- Do not train additional components on `main` for ensemble adoption.
+- Do not treat this note as changing the PatchTST-primary / XGB-shadow lineup.
+
+## 7. Permitted next step
+If new evidence appears, add a decision-update PR that cites the exact reopening
+trigger, links the evidence window, and explains why the active scorer-lineup
+decision should be reopened. Implementation should come only after that
+decision-update PR lands.
