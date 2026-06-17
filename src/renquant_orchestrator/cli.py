@@ -314,6 +314,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     run_job.add_argument("job_args", nargs=argparse.REMAINDER)
 
+    wf_triage = sub.add_parser(
+        "wf-promote-triage",
+        help="classify weekly WF promote log failures as JSON",
+    )
+    wf_triage.add_argument("--log-dir", required=True)
+    wf_triage.add_argument(
+        "--since",
+        default=None,
+        help="only include logs whose filename date is >= YYYY-MM-DD",
+    )
+    wf_triage.add_argument(
+        "--strict",
+        action="store_true",
+        help="return non-zero when any included log failed or could not be classified",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -647,6 +663,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_scheduled_job(args.job_id, args.job_args)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "wf-promote-triage":
+        from .wf_promote_triage import triage_log_dir
+
+        try:
+            payload = triage_log_dir(Path(args.log_dir), since=args.since)
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["summary"]["ok"] or not args.strict else 1
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
