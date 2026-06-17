@@ -6,7 +6,7 @@
       "title": "Route orchestrator artifact lookups through ArtifactResolver",
       "category": "#108 S1 wiring",
       "repo": "renquant-orchestrator",
-      "status": "in_progress",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "ArtifactResolver (src/renquant_orchestrator/artifact_resolver.py, merged #131) is the single fail-closed resolution authority but is not yet wired. Route the ad-hoc Path(ref).resolve()/.exists() artifact lookups in build_wf_manifest.py, build_patchtst_wf_manifest.py and retrain_*.py through resolve_artifact() so they fail closed and can carry sha256 provenance. Do NOT change the manifest-row JSON schema (cross-repo contract); only the resolution path. Add tests."
@@ -16,7 +16,7 @@
       "title": "Extract the next cohesive unit out of the sim/runner god-file",
       "category": "#108 S2 decomposition",
       "repo": "RenQuant",
-      "status": "in_progress",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "Continue the strangler-fig decomposition of the 2958-LOC runner / 3476-LOC scorer (after sim_nav/sim_price/sim_cash, #376/#375/#366). Extract one more cohesive unit (pure function or module) with invariant tests, gated by replay-parity (behaviour must be byte-identical). Keep it small and reviewable."
@@ -26,7 +26,7 @@
       "title": "Adopt LiveStateV2 in the runner behind a flag",
       "category": "#108 S1 wiring",
       "repo": "RenQuant",
-      "status": "in_progress",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "LiveStateV2 (src/renquant_orchestrator/live_state_v2.py, merged #132) round-trips live_state.alpaca.json losslessly. Wire the runner's live-state read/write through it behind a flag (default off), so adding a per-holding field becomes a 1-line change. The lossless to_v1_dict() inverse must be used on write so the on-disk v1 file is byte-identical when the flag is off. Add tests; do not change live behaviour when the flag is off."

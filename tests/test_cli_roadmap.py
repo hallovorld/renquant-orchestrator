@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -10,11 +11,14 @@ from renquant_orchestrator import cli
 
 def _backlog(tmp_path):
     p = tmp_path / "backlog.json"
-    p.write_text(json.dumps({"items": [
-        {"id": "a", "title": "A", "category": "c", "repo": "r", "prompt": "do A"},
-        {"id": "c", "title": "C", "category": "c", "repo": "r", "prompt": "do C",
-         "consequential": True},
-    ]}))
+    p.write_text(json.dumps({
+        "_note": "keep me",
+        "items": [
+            {"id": "a", "title": "A", "category": "c", "repo": "r", "prompt": "do A"},
+            {"id": "c", "title": "C", "category": "c", "repo": "r", "prompt": "do C",
+             "consequential": True},
+        ],
+    }))
     return str(p)
 
 
@@ -48,6 +52,8 @@ def test_roadmap_mark_persists(tmp_path, capsys):
     bp = _backlog(tmp_path)
     rc = cli.main(["roadmap", "mark", "a", "done", "--backlog", bp])
     assert rc == 0
-    assert json.load(open(bp))["items"][0]["status"] == "done"
+    saved = json.loads(Path(bp).read_text())
+    assert saved["_note"] == "keep me"
+    assert saved["items"][0]["status"] == "done"
     # next now skips 'a' (done) and 'c' (consequential) -> none actionable
     assert cli.main(["roadmap", "next", "--backlog", bp]) == 1

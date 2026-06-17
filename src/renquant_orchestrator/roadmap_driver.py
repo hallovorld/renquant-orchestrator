@@ -58,8 +58,10 @@ def load_backlog(path: str | Path) -> list[RoadmapItem]:
 
 
 def save_backlog(path: str | Path, items: list[RoadmapItem]) -> None:
-    Path(path).write_text(json.dumps(
-        {"items": [asdict(i) for i in items]}, indent=2) + "\n")
+    path = Path(path)
+    data = json.loads(path.read_text()) if path.exists() else {}
+    data["items"] = [asdict(i) for i in items]
+    path.write_text(json.dumps(data, indent=2) + "\n")
 
 
 def _done_ids(items: list[RoadmapItem]) -> set[str]:
