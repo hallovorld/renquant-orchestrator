@@ -15,6 +15,10 @@ from renquant_execution import BaseBroker, BrokerExecutionPipeline, ExecutionCon
 from renquant_model_gbdt import PanelGbdtTrainingPipeline, TrainingContext
 from renquant_pipeline import InferenceContext, RuntimeInferencePipeline, validate_order_attribution
 
+from pydantic import ValidationError
+
+from renquant_orchestrator.config_schema import validate_strategy_config
+
 
 DatasetLoader = Callable[[dict[str, Any]], Any]
 Trainer = Callable[[Any, dict[str, Any], Path], tuple[dict[str, Any], dict[str, Any]]]
@@ -58,6 +62,31 @@ class ValidateDailyInputsTask(Task):
             raise ValueError(f"unsupported run_type: {ctx.run_type!r}")
         if not ctx.strategy_config.get("watchlist"):
             raise ValueError("strategy_config missing watchlist")
+        # Fail fast on a dangerous typed-key typo (regime-threshold sign flip,
+        # out-of-range risk cap/hold limit) BEFORE any training or broker work —
+        # a positive bear_return_threshold silently disables the BEAR route.
+        # Tolerate a merely-incomplete config (partial/shadow configs that omit a
+        # typed key); only a PRESENT-but-invalid value blocks the run. The 800+
+        # untyped keys pass through (extra="allow").
+        try:
+            typed_cfg = validate_strategy_config(ctx.strategy_config)
+            ctx.stage_trace.append({
+                "stage": "validate_strategy_config", "ok": True,
+                "untyped_extra_keys": typed_cfg.extra_key_count(),
+            })
+        except ValidationError as exc:
+            invalid = [e for e in exc.errors() if e.get("type") != "missing"]
+            if invalid:
+                raise ValueError(
+                    "strategy_config has invalid typed value(s): "
+                    + "; ".join(f"{'.'.join(map(str, e['loc']))}={e['type']}"
+                                for e in invalid)
+                ) from exc
+            ctx.stage_trace.append({
+                "stage": "validate_strategy_config", "ok": True,
+                "partial_config_missing": [".".join(map(str, e["loc"]))
+                                           for e in exc.errors()],
+            })
         for name, manifest in (
             ("strategy_manifest", ctx.strategy_manifest),
             ("data_manifest", ctx.data_manifest),

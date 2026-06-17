@@ -307,3 +307,49 @@ def _real_panel_dataset() -> dict[str, Any]:
         "group_sizes": group_sizes,
         "feature_cols": ["alpha_1", "alpha_2"],
     }
+
+
+def _strategy_config_full(**regime_overrides: Any) -> dict[str, Any]:
+    """Partial fixture + the full typed top level (for config_schema)."""
+    c = _strategy_config()
+    regime = {
+        "bear_vol_threshold": 0.25, "bear_return_threshold": -0.02,
+        "bear_vol_threshold_5d": 0.25, "bear_return_threshold_5d": -0.025,
+        "transition_uncertainty_bars": 3, "bear_short_route_require_both": True,
+    }
+    regime.update(regime_overrides)
+    c.update({
+        "model_name": "renquant_104", "benchmark": "SPY",
+        "wash_sale_days": 31, "min_hold_days": 1, "max_hold_days": 500,
+        "max_concurrent_positions": 8, "regime": regime,
+    })
+    return c
+
+
+def _ctx_with_config(cfg: dict[str, Any], tmp_path: Path) -> Any:
+    return DailyRunContext(
+        run_id="daily-2026-05-25", run_type="daily_full",
+        strategy_config=cfg, strategy_manifest=_strategy_manifest(),
+        data_manifest=_data_manifest(), model_config={"objective": "rank:pairwise"},
+        market_snapshot={"as_of": "2026-05-25"}, output_dir=tmp_path / "run",
+        broker=PaperBroker(initial_cash=100_000.0),
+        runtime_stages=[ScoreTask(), SelectTask()],
+        price_map={"AAPL": 100.0}, dry_run=False,
+    )
+
+
+def test_validate_blocks_signflipped_regime_threshold(tmp_path: Path) -> None:
+    # a POSITIVE bear_return_threshold_5d silently disables the acute-loss BEAR route
+    ctx = _ctx_with_config(_strategy_config_full(bear_return_threshold_5d=0.04), tmp_path)
+    with pytest.raises(ValueError, match="invalid typed value"):
+        DailyRunPipeline(_loader, _trainer, _validator,
+                         backtest_runner=lambda b: {"ok": True}).run(ctx)
+
+
+def test_validate_tolerates_partial_config(tmp_path: Path) -> None:
+    # the minimal fixture omits typed keys -> tolerated (partial), not blocked
+    ctx = _ctx_with_config(_strategy_config(), tmp_path)
+    DailyRunPipeline(_loader, _trainer, _validator,
+                     backtest_runner=lambda b: {"ok": True, "n_orders": 1}).run(ctx)
+    stages = [s for s in ctx.stage_trace if s.get("stage") == "validate_strategy_config"]
+    assert stages and "partial_config_missing" in stages[0]
