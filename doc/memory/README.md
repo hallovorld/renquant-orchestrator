@@ -1,49 +1,77 @@
-# Agent externalised memory — three tiers (read every session)
+# Agent externalised memory — SPEC (机制 · SOP · 文档)
 
-The agent has **no persistent executive across turns** (`../AGENT-RETROSPECTIVE.md` §1).
-This directory **is** that executive, split by *how long each item lives* and *who may
-change it*, so volatile short-term state can never silently overwrite a binding agreement.
+Three-layer definition of the memory structure. At session start, read **this spec once**
+(the rules), then the live tiers **LONG → MID → SHORT** (the state), before acting.
 
-## Structure (file vs folder is chosen per tier's nature)
+---
 
-| tier | path | shape | why this shape |
-|---|---|---|---|
-| **LONG** | [`long-term-agreements.md`](long-term-agreements.md) | **single file** | a short binding list Codex loads **whole** to check violations; single file = easiest to enforce + read at once |
-| **MID** | [`mid-term/`](mid-term/) | **folder, one file per workstream** + [`_north-star.md`](mid-term/_north-star.md) | parallel workstreams open/close/redirect independently; Codex checks alignment per-workstream |
-| **SHORT** | [`short-term-state.md`](short-term-state.md) | **single file (snapshot)** | a current snapshot, overwritten each session; a folder would wrongly turn it into a log |
+## 1. 机制 / DESIGN — why it is built this way
 
-## Update rules (who · when · how · enforcement)
+**Problem:** the agent has no persistent executive across turns; in-context promises do
+not bind (`../AGENT-RETROSPECTIVE.md` §1). **Solution:** externalise the executive into
+files, split by two axes — *how long an item lives* × *who may change it*:
 
-### LONG — `long-term-agreements.md`
-- **Who:** the agent may only **transcribe an explicit operator decision** (cite where the
-  operator said it). The agent may **not** add/change/remove an agreement on its own judgment.
-- **When:** the operator makes a standing decision, veto, or reversal.
-- **How:** **append-only** — add a row; never silently edit an existing agreement's meaning;
-  a reversal is a new line marking the old one *superseded* + the new state (kept, not deleted).
-- **Codex enforcement:** rejects a PR that (a) **violates** any agreement, or (b) **adds/edits**
-  an agreement without a **cited operator decision**.
+| tier | lifespan | change authority | shape | rationale for the shape |
+|---|---|---|---|---|
+| **LONG** | indefinite, binding | **operator only** (agent transcribes) | single file | a short list Codex loads **whole** to check violations |
+| **MID** | weeks–months | agent **proposes**, operator **confirms** | folder, 1 file/workstream | parallel streams open/close/redirect independently |
+| **SHORT** | this session | agent, **freely** | single snapshot file | disposable; a folder would become a forbidden log |
 
-### MID — `mid-term/` (one file per workstream + `_north-star.md`)
-- **Who:** the agent **proposes** (in a PR); the operator **confirms** by review/merge.
-- **When:** a workstream opens, closes, or changes direction; the north star changes.
-- **How:** each workstream file = `STATUS · GOAL · NEXT · EVIDENCE` (truth-tagged). Closing a
-  workstream sets `STATUS: done`; do not delete it.
-- **Codex enforcement:** checks each PR **aligns** with MID, or the PR **updates MID with a
-  justification** for the change.
+**Design invariants (the guarantees):**
+- **Precedence LONG > MID > SHORT** — volatile state can never overwrite a binding agreement.
+- **Enforcement is external** (Codex review per PR), never agent self-discipline.
+- **Truth tags** `[VERIFIED <how>]` / `[GUESS]` on every factual line in MID/SHORT.
+- **Shape follows tier nature** (binding→file, parallel→folder, snapshot→file).
 
-### SHORT — `short-term-state.md`
-- **Who:** the agent, **freely**.
-- **When:** every session start, and after any task that changes state or yields a finding.
-- **How:** **OVERWRITE** the snapshot (do not append → never a log). Every factual line carries
-  `[VERIFIED <how>]` or `[GUESS]`. Keep it short.
-- **Codex enforcement:** non-binding; Codex only checks it **does not contradict LONG** and that
-  claims are **tagged**.
+---
 
-## Cross-tier rules
-1. **Precedence:** on any conflict, **LONG > MID > SHORT**. If SHORT contradicts LONG, SHORT is wrong.
-2. **Read order each session:** LONG → MID → SHORT, before acting.
-3. **Promotion:** a SHORT item that becomes a standing rule → propose adding to LONG (needs an
-   operator decision); a SHORT item that becomes direction → open a MID workstream; a finished MID
-   workstream's durable outcome → a LONG agreement and/or a `renquant-system-feature-map.md` entry.
+## 2. SOP / IMPLEMENTATION — operating procedures
+
+Each: **TRIGGER → STEPS → OUTPUT → ENFORCED BY.**
+
+- **SOP-R (session start, READ).** *Trigger:* new session/task. *Steps:* read LONG→MID→SHORT;
+  restate the binding constraints relevant to the task before acting. *Output:* none.
+  *Enforced by:* Codex catches resulting violations downstream.
+- **SOP-S (state change, WRITE SHORT).** *Trigger:* any finding/state change. *Steps:*
+  **overwrite** `short-term-state.md` (never append); tag each line; keep it short.
+  *Output:* refreshed snapshot. *Enforced by:* Codex checks no-contradiction-with-LONG + tags.
+- **SOP-M (direction change, WRITE MID).** *Trigger:* a workstream opens/closes/redirects, or
+  the north star changes. *Steps:* in a PR, edit/add the `mid-term/<workstream>.md`
+  (STATUS·GOAL·NEXT·EVIDENCE); set `done` to close (don't delete). *Output:* updated MID file.
+  *Enforced by:* Codex checks PR alignment, or the PR justifies the change.
+- **SOP-L (operator decision, WRITE LONG).** *Trigger:* operator states a standing
+  decision/veto/reversal. *Steps:* **append** a row to `long-term-agreements.md` citing where
+  the operator said it; never edit an old agreement's meaning; a reversal is a new
+  "superseded" row. The agent may **not** author a LONG item on its own judgment.
+  *Output:* appended agreement. *Enforced by:* Codex rejects a LONG change with no cited operator decision.
+- **SOP-P (promotion).** SHORT item → standing rule ⇒ propose to LONG (operator decision, then
+  SOP-L). SHORT item → direction ⇒ open a MID workstream (SOP-M).
+- **SOP-C (conflict).** SHORT contradicts LONG ⇒ SHORT is wrong; correct it immediately.
+- **SOP-PR (every PR).** *Steps:* include `doc/progress/<date>-<slug>.md` (C5); update the
+  touched tier per the SOPs above; PR description mirrors the progress doc. *Enforced by:*
+  Codex review against `../AGENT-RETROSPECTIVE.md` §7.1 — approval is the merge gate.
+
+---
+
+## 3. 文档 / OP — artifacts & templates
+
+**File map:**
+```
+doc/memory/
+├── README.md                  ← this SPEC (机制 · SOP · 文档)
+├── long-term-agreements.md    LONG — binding ledger (SOP-L)
+├── mid-term/                   MID  — folder
+│   ├── _north-star.md
+│   └── <workstream>.md         (SOP-M)
+└── short-term-state.md         SHORT — snapshot (SOP-S)
+doc/progress/<date>-<slug>.md   per-PR record (SOP-PR / C5)
+```
+
+**Templates (op):**
+- **LONG row:** `| # | agreement | since |` (append-only).
+- **MID workstream:** `STATUS · GOAL · NEXT · EVIDENCE [· CONSTRAINT]`, lines truth-tagged.
+- **SHORT snapshot:** short sections of tagged facts + a "next bounded action".
+- **Progress doc:** `../AGENT-RETROSPECTIVE.md` §4(c).
+- **Status / evidence block:** `../AGENT-RETROSPECTIVE.md` §4(a)/(b).
 
 `../AGENT-STATE.md` is the front-door pointer to this directory.

@@ -34,3 +34,8 @@ UPDATE2:   Refined shape per tier + wrote explicit update rules (who/when/how/en
            one file per workstream: model-edge, win-rate-payoff, intraday-governor,
            agent-control). LONG stays a single binding-ledger file (Codex loads it whole);
            SHORT stays a single snapshot file (a folder would make it a log).
+
+UPDATE3:   Formalised the memory structure into a 3-layer SPEC in memory/README.md:
+           §1 机制/DESIGN (why: lifespan x change-authority, invariants),
+           §2 SOP/IMPLEMENTATION (SOP-R/S/M/L/P/C/PR: trigger->steps->output->enforced-by),
+           §3 文档/OP (file map + templates).
