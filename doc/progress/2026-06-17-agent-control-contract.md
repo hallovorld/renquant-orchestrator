@@ -19,6 +19,12 @@ WHY/DIR:   The recurring ~100x failure is systemic; agent promises don't bind. D
 
 EVIDENCE:  n/a (process/docs change — no model or data claim).
 
+UPDATE:    Implemented the memory as a real **three-tier structure** under `doc/memory/`
+           (`long-term-agreements.md` binding ledger · `mid-term-plan.md` direction ·
+           `short-term-state.md` disposable state) + `memory/README.md` (protocol,
+           precedence LONG>MID>SHORT, per-tier cadence & enforcement). `AGENT-STATE.md`
+           is now the thin front-door pointer.
+
 NEXT:      Codex review of this PR; operator decision on whether the agent builds the
            C1 prod-path write-guard hook (the one control that blocks a violation
            mechanically rather than at review time).
