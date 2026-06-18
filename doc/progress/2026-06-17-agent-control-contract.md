@@ -39,3 +39,9 @@ UPDATE3:   Formalised the memory structure into a 3-layer SPEC in memory/README.
            §1 机制/DESIGN (why: lifespan x change-authority, invariants),
            §2 SOP/IMPLEMENTATION (SOP-R/S/M/L/P/C/PR: trigger->steps->output->enforced-by),
            §3 文档/OP (file map + templates).
+
+UPDATE4:   CLAUDE.md reframed as a compliance-raising PROMPT (not enforcement): embeds the
+           stable non-negotiable behaviours + read-order, points to doc/memory/ SPEC and the
+           LONG ledger as single source of truth, and states plainly that enforcement is
+           Codex review + hooks. (Umbrella CLAUDE.md = cross-repo canon; proposed to reference
+           this contract from its §3 in a separate umbrella PR — not edited here.)
