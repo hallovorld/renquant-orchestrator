@@ -1,5 +1,10 @@
 # Agent Index — docs (grep me first)
 
+> ⚠️ **READ FIRST: [`AGENT-RETROSPECTIVE.md`](AGENT-RETROSPECTIVE.md)** — mandatory
+> pre-work reading. The recurring failure mode (optimizing how a turn *looks* over
+> ground truth + the operator's standing intent) and the binding gates that stop
+> it. If you are about to report, conclude, or execute — the gates there apply.
+
 **Start here:** [`renquant-system-feature-map.md`](renquant-system-feature-map.md)
 — the canonical living inventory of the whole system (features by category +
 status, roadmap, pending discussion). It supersedes the old per-topic roadmap /
