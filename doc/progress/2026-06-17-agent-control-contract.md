@@ -9,7 +9,8 @@ WHAT:      Rewrites `doc/AGENT-RETROSPECTIVE.md` into an **agent control contrac
            Enforcement model set to **Codex review = the merge gate** (operator does
            NOT read every PR); §7.1 is the checklist Codex applies per PR. Adds
            `doc/AGENT-STATE.md` (long-term agreements · mid-term plan · short-term
-           state). Wired into `doc/INDEX.md` + `CLAUDE.md`.
+           state). Wired into `doc/INDEX.md` (banner + Active-docs table) and
+           `CLAUDE.md`; `agent-pr-workflows.md` now names §7.1 as the review standard.
 
 WHY/DIR:   The recurring ~100x failure is systemic; agent promises don't bind. Direction:
            move all reliance onto EXTERNAL enforcement — Codex review per PR against a

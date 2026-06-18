@@ -32,6 +32,15 @@ renquant-orchestrator agent-workflow --as <claude|codex> --workflow <review|fix|
 `review` / `fix` print a JSON worklist for the calling agent to process.
 `merge` executes (deterministic — no model needed).
 
+**The `review` standard is [`AGENT-RETROSPECTIVE.md`](AGENT-RETROSPECTIVE.md) §7.1.**
+A reviewer (Codex reviewing Claude's PRs, or vice-versa) withholds approval if the PR
+violates the control contract: missing `doc/progress/<date>-<slug>.md` (C5); a
+conclusion without its §4(b) evidence block; a write to a production path; a violation
+of `AGENT-STATE.md` §A (binding ledger); or a claim over-stated as global from one
+artifact. **Codex approval is the merge gate** — the operator does not review every PR.
+Because both reviewer and author are LLMs, high-stakes/irreversible changes additionally
+pass a non-LLM mechanical gate (WF gate, branch protection, prod read-only).
+
 ## Identity & tokens
 
 `--as <agent>` selects the gh token: `--token` → `RENQUANT_<AGENT>_GH_TOKEN`

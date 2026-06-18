@@ -20,6 +20,9 @@ plan / audit docs (now in git history).
 
 | Doc | Status | One-line hook |
 |---|---|---|
+| `AGENT-RETROSPECTIVE.md` | **READ FIRST — contract** | systemic failure + external controls C1–C5; §7.1 = the per-PR Codex review checklist |
+| `AGENT-STATE.md` | **READ FIRST — exec memory** | §A long-term agreements (binding ledger) · §B mid-term plan · §C short-term state |
+| `progress/` | per-PR records (C5) | every PR commits `progress/<date>-<slug>.md` (intent · direction · evidence · next) |
 | `renquant-system-feature-map.md` | **AUTHORITY** | all features by category + status; roadmap; pending discussion |
 | `decisions/2026-06-12-engineering-before-model-research.md` | ACTIVE decision | #108 before #106; model evidence untrustworthy until rails green |
 | `decisions/2026-06-12-scorer-lineup-decision.md` | ACTIVE decision | PatchTST primary, XGB shadow, ensemble SHELVED + reopening triggers |
