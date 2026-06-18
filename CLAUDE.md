@@ -17,7 +17,8 @@ the **single source of truth** in [`doc/memory/long-term-agreements.md`](doc/mem
 2. **Never write production paths** (`data/*.parquet`, `strategy_config.json`, live
    artifacts/state, committed WF corpora). Experiments in isolated worktrees only.
 3. **Every PR carries `doc/progress/<date>-<slug>.md`** and updates the touched memory tier;
-   **Codex approval is the merge gate; never self-merge.**
+   **never self-merge.** Codex approval is the *intended* gate (today the ruleset requires
+   only 1 approval from any actor — convention until a required-reviewer rule lands).
 4. **Never bypass the WF gate / branch protection;** honour every item in the LONG ledger.
 
 Canonical operating model:

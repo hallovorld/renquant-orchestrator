@@ -37,9 +37,12 @@ A reviewer (Codex reviewing Claude's PRs, or vice-versa) withholds approval if t
 violates the control contract: missing `doc/progress/<date>-<slug>.md` (C5); a
 conclusion without its §4(b) evidence block; a write to a production path; a violation
 of `AGENT-STATE.md` §A (binding ledger); or a claim over-stated as global from one
-artifact. **Codex approval is the merge gate** — the operator does not review every PR.
-Because both reviewer and author are LLMs, high-stakes/irreversible changes additionally
-pass a non-LLM mechanical gate (WF gate, branch protection, prod read-only).
+artifact. **Codex approval is the *intended* merge gate** — the operator does not review
+every PR. (Caveat: the live ruleset currently requires only 1 approval from any actor, so
+this is operating convention until a required-reviewer / CODEOWNERS rule for the Codex actor
+lands — see `AGENT-RETROSPECTIVE.md` §7/§8.) Because both reviewer and author are LLMs,
+high-stakes/irreversible changes additionally pass a non-LLM mechanical gate (WF gate,
+branch protection, prod read-only).
 
 ## Identity & tokens
 

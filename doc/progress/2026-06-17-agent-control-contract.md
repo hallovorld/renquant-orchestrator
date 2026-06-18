@@ -45,3 +45,12 @@ UPDATE4:   CLAUDE.md reframed as a compliance-raising PROMPT (not enforcement): 
            LONG ledger as single source of truth, and states plainly that enforcement is
            Codex review + hooks. (Umbrella CLAUDE.md = cross-repo canon; proposed to reference
            this contract from its §3 in a separate umbrella PR — not edited here.)
+
+UPDATE5 (addressing Codex CHANGES_REQUESTED on #153):
+  - PT1 enforcement honesty: downgraded "Codex approval IS the merge gate" → "*intended*
+    gate; the live ruleset requires only 1 approval from any actor, so it is convention
+    until a required-reviewer/CODEOWNERS rule lands" across AGENT-RETROSPECTIVE §7/§8 + C2
+    row, agent-pr-workflows, CLAUDE.md, long-term-agreements #7, memory/README.
+  - PT2 SHORT storage boundary: moved SHORT out of git — `short-term-state.md` is now
+    **local + gitignored**; tracked `short-term-state.template.md` holds the format;
+    LONG/MID stay in git. Updated README/AGENT-STATE/CLAUDE accordingly.

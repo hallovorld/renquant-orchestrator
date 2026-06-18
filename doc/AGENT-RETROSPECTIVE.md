@@ -51,7 +51,7 @@ it hold*; none rely on the agent's good intentions.
 | failure mode | control class | mechanism (enforced externally) |
 |---|---|---|
 | writes to / contaminates the live production tree | **C1 mechanical** | agent works only in an isolated clone/worktree; production data mounted **read-only**; a pre-commit / filesystem guard **rejects writes to production paths**. The failure becomes *impossible*, not *discouraged*. |
-| burying the lede; false-confidence assertion | **C2 detectable** | every status/PR MUST match the §4 templates; **Codex review withholds approval** on non-conforming output (and/or a linter bounces it). "Looking thorough" stops paying because verbose/unstructured output is rejected, not rewarded. |
+| burying the lede; false-confidence assertion | **C2 detectable** | every status/PR MUST match the §4 templates; **Codex review is meant to withhold approval** on non-conforming output (intended gate — see §7 caveat; and/or a linter bounces it). "Looking thorough" stops paying because verbose/unstructured output is rejected, not rewarded. |
 | "X works/fails" from the wrong/unchecked artifact | **C2 detectable** | no conclusion is approved without the §4(b) evidence block. **Codex flags a missing block as unverified**; it is never a basis for a decision or a merge. |
 | 3-hour wrong-direction thrash; lost thread | **C3 scoped + checkpoint** | the agent is **not assigned** open-ended, multi-hour, autonomous, unfalsifiable work. Tasks are decomposed to bounded units with an explicit **done-condition**; any run > ~20 min or any consequential step needs an external **checkpoint** first. |
 | re-pitching vetoed options; dropping global intent | **C4 external state** | standing vetoes/decisions live in the **constraint ledger** [`AGENT-STATE.md`](AGENT-STATE.md) §A (binding) — the agent must load it each session; violating proposals are rejected. State lives outside per-turn memory; `AGENT-STATE.md` also holds the mid-term plan (§B) and short-term memory (§C). |
@@ -110,15 +110,23 @@ keep them, never let the agent argue around them.
 
 ## 7. Division of responsibility (who makes each control hold)
 
-**The enforcer is the Codex reviewer, not the operator's manual eyeballing.** The
-operator does not review every PR; Codex reviews every PR + its progress doc against
-this contract, and **Codex approval is the merge gate.** This is the load-bearing
-enforcement — consistent, high-bandwidth, applied to every change.
+> **Enforcement-status caveat (honest):** the *intended* enforcer is the Codex reviewer.
+> But as of 2026-06-17 the live `renquant-orchestrator` `main-protection` ruleset requires
+> only **one approval from any actor** — no required reviewer, no CODEOWNERS. So "**Codex**
+> approval specifically is the gate" is **current operating convention, not yet mechanical
+> policy.** To make it mechanical (and only then state it as present fact): add a
+> required-reviewer rule / `CODEOWNERS` that requires the Codex actor's approval. Until
+> then, treat the lines below as the *intended* control, subject to that ruleset limit.
 
-- **Codex review (load-bearing):** reviews every PR against §7.1; **withholds approval**
-  if the progress doc (C5), the §4 templates, or the §A ledger are violated, or if a
-  conclusion lacks its evidence block. No approval ⇒ no merge. This is what makes the
-  contract real; nothing downstream depends on the agent self-policing.
+**The intended enforcer is the Codex reviewer, not the operator's manual eyeballing.** The
+operator does not review every PR; Codex is meant to review every PR + its progress doc
+against this contract, and its approval is the intended merge gate — consistent,
+high-bandwidth, applied to every change (subject to the caveat above).
+
+- **Codex review (intended load-bearing control):** reviews every PR against §7.1; should
+  **withhold approval** if the progress doc (C5), the §4 templates, or the §A ledger are
+  violated, or if a conclusion lacks its evidence block. Today this rides on a generic
+  "1 approval" ruleset, so it is convention until a required-reviewer rule lands.
 - **Operator:** spot-checks high-stakes / irreversible changes; owns/updates the §A
   ledger in `AGENT-STATE.md`; sets the Codex review mandate. Does **not** read every PR.
 - **Automation / repo setup:** C1 sandbox + prod-path write-guard; CI keeps the WF gate
@@ -144,6 +152,10 @@ enforcement — consistent, high-bandwidth, applied to every change.
 
 ## 8. Implementation status
 
+- **Convention, NOT yet mechanically enforced:** "Codex approval specifically is the merge
+  gate." The live `main-protection` ruleset requires only 1 approval from any actor (no
+  required reviewer / CODEOWNERS). Making it mechanical = add a required-reviewer rule /
+  CODEOWNERS for the Codex actor. Until then it is operating convention (§7 caveat).
 - **Proposed, not yet built:** C1 prod-path write-guard hook + read-only data mount;
   C2 status/evidence linter. The agent can build the mechanical guards on request —
   but they must then be enforced by the hook/CI, not by the agent remembering to run them.

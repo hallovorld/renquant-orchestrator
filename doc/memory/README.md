@@ -15,7 +15,7 @@ files, split by two axes — *how long an item lives* × *who may change it*:
 |---|---|---|---|---|
 | **LONG** | indefinite, binding | **operator only** (agent transcribes) | single file | a short list Codex loads **whole** to check violations |
 | **MID** | weeks–months | agent **proposes**, operator **confirms** | folder, 1 file/workstream | parallel streams open/close/redirect independently |
-| **SHORT** | this session | agent, **freely** | single snapshot file | disposable; a folder would become a forbidden log |
+| **SHORT** | this session | agent, **freely** | single **local, gitignored** snapshot file (`short-term-state.md`; template `short-term-state.template.md`) | kept OUT of git: in-repo it is either constant PR churn or a stale-but-canonical artifact (Codex review #153 pt 2). LONG/MID stay in git; SHORT does not. |
 
 **Design invariants (the guarantees):**
 - **Precedence LONG > MID > SHORT** — volatile state can never overwrite a binding agreement.
@@ -33,7 +33,8 @@ Each: **TRIGGER → STEPS → OUTPUT → ENFORCED BY.**
   restate the binding constraints relevant to the task before acting. *Output:* none.
   *Enforced by:* Codex catches resulting violations downstream.
 - **SOP-S (state change, WRITE SHORT).** *Trigger:* any finding/state change. *Steps:*
-  **overwrite** `short-term-state.md` (never append); tag each line; keep it short.
+  **overwrite** the **local (gitignored)** `short-term-state.md` (never append; never commit
+  it); tag each line; keep it short.
   *Output:* refreshed snapshot. *Enforced by:* Codex checks no-contradiction-with-LONG + tags.
 - **SOP-M (direction change, WRITE MID).** *Trigger:* a workstream opens/closes/redirects, or
   the north star changes. *Steps:* in a PR, edit/add the `mid-term/<workstream>.md`
@@ -49,7 +50,8 @@ Each: **TRIGGER → STEPS → OUTPUT → ENFORCED BY.**
 - **SOP-C (conflict).** SHORT contradicts LONG ⇒ SHORT is wrong; correct it immediately.
 - **SOP-PR (every PR).** *Steps:* include `doc/progress/<date>-<slug>.md` (C5); update the
   touched tier per the SOPs above; PR description mirrors the progress doc. *Enforced by:*
-  Codex review against `../AGENT-RETROSPECTIVE.md` §7.1 — approval is the merge gate.
+  Codex review against `../AGENT-RETROSPECTIVE.md` §7.1 — approval is the *intended* gate
+  (convention until a required-reviewer ruleset lands; see AGENT-RETROSPECTIVE §7/§8).
 
 ---
 
@@ -63,7 +65,8 @@ doc/memory/
 ├── mid-term/                   MID  — folder
 │   ├── _north-star.md
 │   └── <workstream>.md         (SOP-M)
-└── short-term-state.md         SHORT — snapshot (SOP-S)
+├── short-term-state.template.md  SHORT — tracked TEMPLATE
+└── short-term-state.md           SHORT — **local, gitignored** snapshot (SOP-S; never committed)
 doc/progress/<date>-<slug>.md   per-PR record (SOP-PR / C5)
 ```
 

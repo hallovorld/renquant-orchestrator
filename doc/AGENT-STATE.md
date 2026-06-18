@@ -9,7 +9,7 @@
 |---|---|---|---|
 | **LONG** | [`memory/long-term-agreements.md`](memory/long-term-agreements.md) (file) | binding constraints / vetoes / decisions | Codex **rejects** PRs that violate it |
 | **MID** | [`memory/mid-term/`](memory/mid-term/) (folder, one file per workstream) | north star + open workstreams | Codex checks PRs **align** or justify a change |
-| **SHORT** | [`memory/short-term-state.md`](memory/short-term-state.md) (file, snapshot) | current state, findings, next bounded action | non-binding; tagged `[VERIFIED]`/`[GUESS]` |
+| **SHORT** | `memory/short-term-state.md` — **local, gitignored** (template [`memory/short-term-state.template.md`](memory/short-term-state.template.md)) | current state, findings, next bounded action | non-binding; tagged `[VERIFIED]`/`[GUESS]`; never committed |
 
 Protocol, precedence (LONG > MID > SHORT), and update cadence per tier:
 [`memory/README.md`](memory/README.md).

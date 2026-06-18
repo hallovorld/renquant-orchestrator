@@ -4,3 +4,6 @@ __pycache__/
 dist/
 build/
 run_outputs/
+
+# SHORT-tier memory: local per-machine scratch, never committed (see doc/memory/README.md)
+doc/memory/short-term-state.md

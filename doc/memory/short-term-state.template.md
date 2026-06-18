@@ -1,8 +1,14 @@
 # SHORT-TERM STATE — current working memory (disposable; rewrite freely)
 
+> **THIS IS A TEMPLATE.** The live SHORT file is `short-term-state.md` — **local,
+> gitignored, never committed** (it is per-machine scratch). On a fresh clone:
+> `cp short-term-state.template.md short-term-state.md`, then edit the local copy.
+> Keeping SHORT out of git is deliberate: in-repo it would be either constant PR
+> churn or a stale-but-canonical artifact (Codex review of #153, point 2).
+>
 > Tier: **SHORT.** Non-binding. Rewrite each session; do not let it become a log.
 > Truth tags required. If a line conflicts with `long-term-agreements.md`, this file
-> is wrong. Last updated: 2026-06-17.
+> is wrong.
 
 ## Live tree integrity
 Restored. The rawlabel overwrite + 82 gutted R4 calibrators were reverted to committed
