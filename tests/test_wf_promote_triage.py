@@ -30,8 +30,11 @@ def test_classify_sim_zero_trade_and_benchmark_failures() -> None:
     result = classify_log_text(
         "\n".join([
             "sim cuts failed execution for 2026-06-01..2026-06-05",
+            "PanelScorer.load: artifact not found: artifacts/sim/artifacts/walkforward_v2_20260602/2024-01-01/panel-ltr.json",
+            "Trade contract result: missing round-trip ledger(s): cut.round_trips.csv",
             "zero trades across all WF cuts",
             "gate details absolute_ok=False benchmark_ok=False regime_ok=False",
+            "Sanity result: FAIL: placebo_ic=+0.0365 (must be available and < threshold)",
             "WF result: FAIL",
         ]),
         name="2026-06-15-weekly.log",
@@ -40,8 +43,11 @@ def test_classify_sim_zero_trade_and_benchmark_failures() -> None:
     assert result["verdict"] == "fail"
     assert result["failure_modes"] == [
         "sim_cuts_failed",
+        "wf_artifact_path_missing",
+        "trade_ledgers_missing",
         "zero_trades",
         "benchmark_regime_failed",
+        "sanity_placebo_failed",
     ]
 
 

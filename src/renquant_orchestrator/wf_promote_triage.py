@@ -24,6 +24,13 @@ FAILURE_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
         re.compile(r"all sim cuts failed parse", re.IGNORECASE),
         re.compile(r"sim cuts? failed parse", re.IGNORECASE),
     ),
+    "wf_artifact_path_missing": (
+        re.compile(r"PanelScorer\.load: artifact not found", re.IGNORECASE),
+        re.compile(r"artifacts/sim/artifacts/walkforward", re.IGNORECASE),
+    ),
+    "trade_ledgers_missing": (
+        re.compile(r"missing round-trip ledger", re.IGNORECASE),
+    ),
     "zero_trades": (
         re.compile(r"zero trades across all WF cuts", re.IGNORECASE),
         re.compile(r"\b0 trades\b", re.IGNORECASE),
@@ -32,6 +39,10 @@ FAILURE_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
         re.compile(r"\babsolute_ok=False\b"),
         re.compile(r"\bbenchmark_ok=False\b"),
         re.compile(r"\bregime_ok=False\b"),
+    ),
+    "sanity_placebo_failed": (
+        re.compile(r"Sanity result:\s*FAIL", re.IGNORECASE),
+        re.compile(r"placebo_ic=.*must be available", re.IGNORECASE),
     ),
 }
 
