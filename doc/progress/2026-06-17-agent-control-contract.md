@@ -28,3 +28,9 @@ UPDATE:    Implemented the memory as a real **three-tier structure** under `doc/
 NEXT:      Codex review of this PR; operator decision on whether the agent builds the
            C1 prod-path write-guard hook (the one control that blocks a violation
            mechanically rather than at review time).
+
+UPDATE2:   Refined shape per tier + wrote explicit update rules (who/when/how/enforcement)
+           in memory/README.md. MID is now a **folder** (`memory/mid-term/`: _north-star +
+           one file per workstream: model-edge, win-rate-payoff, intraday-governor,
+           agent-control). LONG stays a single binding-ledger file (Codex loads it whole);
+           SHORT stays a single snapshot file (a folder would make it a log).

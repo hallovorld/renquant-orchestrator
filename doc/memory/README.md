@@ -1,26 +1,49 @@
 # Agent externalised memory — three tiers (read every session)
 
 The agent has **no persistent executive across turns** (`../AGENT-RETROSPECTIVE.md` §1).
-This directory **is** that executive, split by *how long it lives* and *who may change
-it*, so the volatile short-term state can never silently overwrite a binding agreement.
+This directory **is** that executive, split by *how long each item lives* and *who may
+change it*, so volatile short-term state can never silently overwrite a binding agreement.
 
-| tier | file | holds | who may change it | update cadence | enforcement |
-|---|---|---|---|---|---|
-| **LONG** | [`long-term-agreements.md`](long-term-agreements.md) | binding constraints / vetoes / decisions | **operator only** (explicit decision) | rarely | Codex **rejects** any PR that violates it (C4) |
-| **MID** | [`mid-term-plan.md`](mid-term-plan.md) | north star, direction, open workstreams | agent proposes, operator confirms | per roadmap change | Codex checks PRs **align** with it, or the PR justifies a change |
-| **SHORT** | [`short-term-state.md`](short-term-state.md) | current state, latest findings, next bounded action | agent, freely | every session | non-binding; tagged `[VERIFIED]`/`[GUESS]` |
+## Structure (file vs folder is chosen per tier's nature)
 
-## Rules
+| tier | path | shape | why this shape |
+|---|---|---|---|
+| **LONG** | [`long-term-agreements.md`](long-term-agreements.md) | **single file** | a short binding list Codex loads **whole** to check violations; single file = easiest to enforce + read at once |
+| **MID** | [`mid-term/`](mid-term/) | **folder, one file per workstream** + [`_north-star.md`](mid-term/_north-star.md) | parallel workstreams open/close/redirect independently; Codex checks alignment per-workstream |
+| **SHORT** | [`short-term-state.md`](short-term-state.md) | **single file (snapshot)** | a current snapshot, overwritten each session; a folder would wrongly turn it into a log |
 
-1. **Precedence:** on any conflict, **LONG > MID > SHORT**. If short-term state
-   contradicts a long-term agreement, the short-term state is *wrong* and is corrected.
+## Update rules (who · when · how · enforcement)
+
+### LONG — `long-term-agreements.md`
+- **Who:** the agent may only **transcribe an explicit operator decision** (cite where the
+  operator said it). The agent may **not** add/change/remove an agreement on its own judgment.
+- **When:** the operator makes a standing decision, veto, or reversal.
+- **How:** **append-only** — add a row; never silently edit an existing agreement's meaning;
+  a reversal is a new line marking the old one *superseded* + the new state (kept, not deleted).
+- **Codex enforcement:** rejects a PR that (a) **violates** any agreement, or (b) **adds/edits**
+  an agreement without a **cited operator decision**.
+
+### MID — `mid-term/` (one file per workstream + `_north-star.md`)
+- **Who:** the agent **proposes** (in a PR); the operator **confirms** by review/merge.
+- **When:** a workstream opens, closes, or changes direction; the north star changes.
+- **How:** each workstream file = `STATUS · GOAL · NEXT · EVIDENCE` (truth-tagged). Closing a
+  workstream sets `STATUS: done`; do not delete it.
+- **Codex enforcement:** checks each PR **aligns** with MID, or the PR **updates MID with a
+  justification** for the change.
+
+### SHORT — `short-term-state.md`
+- **Who:** the agent, **freely**.
+- **When:** every session start, and after any task that changes state or yields a finding.
+- **How:** **OVERWRITE** the snapshot (do not append → never a log). Every factual line carries
+  `[VERIFIED <how>]` or `[GUESS]`. Keep it short.
+- **Codex enforcement:** non-binding; Codex only checks it **does not contradict LONG** and that
+  claims are **tagged**.
+
+## Cross-tier rules
+1. **Precedence:** on any conflict, **LONG > MID > SHORT**. If SHORT contradicts LONG, SHORT is wrong.
 2. **Read order each session:** LONG → MID → SHORT, before acting.
-3. **Truth tags:** every factual line in MID/SHORT carries `[VERIFIED <how>]` or
-   `[GUESS]`. An unverified line may not be the basis of a decision (`AGENT-RETROSPECTIVE.md` §4b).
-4. **Append-only spirit for LONG:** agreements are added; a *reversal* requires an
-   explicit operator decision recorded in the same file — never silently dropped.
-5. **SHORT is disposable:** rewrite it freely; do not let it accrete into a log. If a
-   short-term item becomes a standing rule, promote it to LONG (with operator sign-off);
-   if it becomes direction, promote it to MID.
+3. **Promotion:** a SHORT item that becomes a standing rule → propose adding to LONG (needs an
+   operator decision); a SHORT item that becomes direction → open a MID workstream; a finished MID
+   workstream's durable outcome → a LONG agreement and/or a `renquant-system-feature-map.md` entry.
 
-`AGENT-STATE.md` (one level up) is the front-door pointer to this directory.
+`../AGENT-STATE.md` is the front-door pointer to this directory.
