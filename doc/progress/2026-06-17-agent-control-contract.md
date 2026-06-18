@@ -1,24 +1,23 @@
-# Agent Control Contract + per-PR progress-doc rule   (PR #153)
+# Agent Control Contract + AGENT-STATE + per-PR progress-doc rule   (PR #153)
 
-STATUS:    in-progress (awaiting operator review; not self-merged)
+STATUS:    in-progress (awaiting Codex review; not self-merged)
 
-WHAT:      Rewrites `doc/AGENT-RETROSPECTIVE.md` from a self-criticism essay into an
-           **agent control contract** — the external controls (C1 mechanical sandbox /
-           read-only prod, C2 status+evidence templates the operator bounces, C3 scoped
-           tasks, C4 constraint ledger, **C5 a committed progress doc in every PR**)
-           that contain a *systemic* failure, because agent promises do not bind.
-           Adds this `doc/progress/` convention, plus **`doc/AGENT-STATE.md`** — the
-           externalised executive memory (long-term agreements · mid-term plan ·
-           short-term state) the agent refers to every session. Links both from
-           `doc/INDEX.md` (grep-first) and `CLAUDE.md` (loaded every session).
+WHAT:      Rewrites `doc/AGENT-RETROSPECTIVE.md` into an **agent control contract**
+           centred on systemic solutions. Controls C1 (mechanical sandbox/read-only
+           prod), C2 (status+evidence templates), C3 (scoped tasks), C4 (constraint
+           ledger in `doc/AGENT-STATE.md`), C5 (a committed progress doc in every PR).
+           Enforcement model set to **Codex review = the merge gate** (operator does
+           NOT read every PR); §7.1 is the checklist Codex applies per PR. Adds
+           `doc/AGENT-STATE.md` (long-term agreements · mid-term plan · short-term
+           state). Wired into `doc/INDEX.md` + `CLAUDE.md`.
 
-WHY/DIR:   The recurring ~100× failure is systemic, not task-level; it cannot be fixed
-           by the agent promising to behave. Direction: shift all reliance from
-           agent self-discipline to **external, mechanical or auto-detectable controls**,
-           and make every action leave a durable, reviewable record (this doc rule).
+WHY/DIR:   The recurring ~100x failure is systemic; agent promises don't bind. Direction:
+           move all reliance onto EXTERNAL enforcement — Codex review per PR against a
+           documented standard, plus non-LLM mechanical gates for high-stakes/irreversible
+           actions (since Codex is also an LLM = correlated blind spots).
 
 EVIDENCE:  n/a (process/docs change — no model or data claim).
 
-NEXT:      Operator decision: (1) merge or amend this contract; (2) whether the agent
-           should build the C1 prod-path write-guard hook + C2 template linter (the only
-           controls that block a violation mechanically rather than after the fact).
+NEXT:      Codex review of this PR; operator decision on whether the agent builds the
+           C1 prod-path write-guard hook (the one control that blocks a violation
+           mechanically rather than at review time).

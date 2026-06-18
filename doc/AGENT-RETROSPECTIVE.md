@@ -51,8 +51,8 @@ it hold*; none rely on the agent's good intentions.
 | failure mode | control class | mechanism (enforced externally) |
 |---|---|---|
 | writes to / contaminates the live production tree | **C1 mechanical** | agent works only in an isolated clone/worktree; production data mounted **read-only**; a pre-commit / filesystem guard **rejects writes to production paths**. The failure becomes *impossible*, not *discouraged*. |
-| burying the lede; false-confidence assertion | **C2 detectable** | every status MUST match a fixed template (§4); non-conforming output is **bounced before being acted on** (linter and/or operator). "Looking thorough" stops paying because verbose/unstructured output is rejected, not rewarded. |
-| "X works/fails" from the wrong/unchecked artifact | **C2 detectable** | no conclusion accepted without the 5-line evidence block (§4). Missing block ⇒ **auto-treated as a guess**, never a basis for a decision. |
+| burying the lede; false-confidence assertion | **C2 detectable** | every status/PR MUST match the §4 templates; **Codex review withholds approval** on non-conforming output (and/or a linter bounces it). "Looking thorough" stops paying because verbose/unstructured output is rejected, not rewarded. |
+| "X works/fails" from the wrong/unchecked artifact | **C2 detectable** | no conclusion is approved without the §4(b) evidence block. **Codex flags a missing block as unverified**; it is never a basis for a decision or a merge. |
 | 3-hour wrong-direction thrash; lost thread | **C3 scoped + checkpoint** | the agent is **not assigned** open-ended, multi-hour, autonomous, unfalsifiable work. Tasks are decomposed to bounded units with an explicit **done-condition**; any run > ~20 min or any consequential step needs an external **checkpoint** first. |
 | re-pitching vetoed options; dropping global intent | **C4 external state** | standing vetoes/decisions live in the **constraint ledger** [`AGENT-STATE.md`](AGENT-STATE.md) §A (binding) — the agent must load it each session; violating proposals are rejected. State lives outside per-turn memory; `AGENT-STATE.md` also holds the mid-term plan (§B) and short-term memory (§C). |
 | undocumented action; progress/direction lost in ephemeral PR descriptions | **C5 durable record** | **every PR carries a committed progress/direction doc** (`doc/progress/<YYYY-MM-DD>-<slug>.md`) — the PR's intent, what changed, where it fits, evidence, and next step, written *into the repo*, not only the (ephemeral, unversioned) PR description. **A PR without its progress doc is rejected.** Every action is thus backed by a reviewable, greppable record. |
@@ -110,15 +110,37 @@ keep them, never let the agent argue around them.
 
 ## 7. Division of responsibility (who makes each control hold)
 
-- **Automation / repo setup:** C1 sandbox + prod-path write-guard; C2 linter on the
-  §4 templates; CI keeps the WF gate + branch protection un-bypassable.
-- **Operator (load-bearing):** assigns C3-shaped tasks; holds the C4 constraint ledger;
-  **rejects any agent output missing the §4 artifacts.** If non-conforming output is
-  accepted even once, the system reverts to relying on agent self-discipline — which
-  fails. This rejection is the enforcement that makes the whole contract real.
-- **Agent:** emits §4 artifacts; consults the ledger; stops at checkpoints. The agent's
-  compliance is **expected to be unreliable** — which is why every control is also
-  enforced by something that is not the agent.
+**The enforcer is the Codex reviewer, not the operator's manual eyeballing.** The
+operator does not review every PR; Codex reviews every PR + its progress doc against
+this contract, and **Codex approval is the merge gate.** This is the load-bearing
+enforcement — consistent, high-bandwidth, applied to every change.
+
+- **Codex review (load-bearing):** reviews every PR against §7.1; **withholds approval**
+  if the progress doc (C5), the §4 templates, or the §A ledger are violated, or if a
+  conclusion lacks its evidence block. No approval ⇒ no merge. This is what makes the
+  contract real; nothing downstream depends on the agent self-policing.
+- **Operator:** spot-checks high-stakes / irreversible changes; owns/updates the §A
+  ledger in `AGENT-STATE.md`; sets the Codex review mandate. Does **not** read every PR.
+- **Automation / repo setup:** C1 sandbox + prod-path write-guard; CI keeps the WF gate
+  + branch protection un-bypassable (the layer that doesn't depend on *any* LLM's judgment).
+- **Agent:** emits §4 artifacts so Codex *can* review; consults `AGENT-STATE.md`; stops at
+  checkpoints. Agent compliance is **expected to be unreliable** — Codex is the check.
+
+### 7.1 What Codex verifies on every PR (the review checklist)
+1. **Progress doc present** at `doc/progress/<date>-<slug>.md` with all C5 fields (else reject).
+2. **No conclusion without its §4(b) evidence block**; any "X works/fails" lacking
+   artifact-path / prod-vs-exp / existing-data / best-known / scope ⇒ flag as unverified.
+3. **No write to a production path** (`data/*.parquet`, `strategy_config.json`, live
+   artifacts, committed WF corpora, live_state) ⇒ reject. (C1/§A-2)
+4. **No violation of `AGENT-STATE.md` §A** (e.g. proposing XGB, bypassing the gate,
+   self-merge) ⇒ reject. (C4)
+5. **Direction matches `AGENT-STATE.md` §B**, or the PR explicitly justifies a change.
+6. **Claims are scoped, not over-stated** as global from a single/wrong artifact.
+
+> Residual (also §6): Codex is itself an LLM, so a *subtly plausible-but-wrong* claim
+> can pass both agent and reviewer (correlated blind spots). Therefore high-stakes /
+> irreversible actions keep a **non-LLM mechanical gate** (WF gate, branch protection,
+> prod read-only) as the third layer — never rely on two LLMs agreeing.
 
 ## 8. Implementation status
 
