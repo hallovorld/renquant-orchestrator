@@ -1,10 +1,13 @@
 # CLAUDE.md
 
-> ⚠️ **BEFORE WORKING, READ [`doc/AGENT-RETROSPECTIVE.md`](doc/AGENT-RETROSPECTIVE.md).**
-> It defines the binding gates (A–F) that exist because the same class of error
-> was made ~100×: report bottom-line-first; never state "X works/fails" without
-> the 5-line scope check; check existing evidence before long executions; never
-> write production paths; urgency never moves the safety line.
+> ⚠️ **BEFORE WORKING, READ TWO DOCS:**
+> 1. [`doc/AGENT-RETROSPECTIVE.md`](doc/AGENT-RETROSPECTIVE.md) — the control
+>    contract: the systemic failure mode and the external controls (C1–C5) that
+>    contain it. Report bottom-line-first; no "X works/fails" without the evidence
+>    block; never write production paths; every PR carries a progress doc.
+> 2. [`doc/AGENT-STATE.md`](doc/AGENT-STATE.md) — the externalised executive memory:
+>    **long-term agreements (binding) · mid-term plan · short-term state.** Refer
+>    every session; never violate §A; update §C as work proceeds.
 
 Canonical operating model:
 https://github.com/hallovorld/RenQuant/blob/main/doc/arch/subrepo-operating-model.md

@@ -1,9 +1,15 @@
 # Agent Index — docs (grep me first)
 
-> ⚠️ **READ FIRST: [`AGENT-RETROSPECTIVE.md`](AGENT-RETROSPECTIVE.md)** — mandatory
-> pre-work reading. The recurring failure mode (optimizing how a turn *looks* over
-> ground truth + the operator's standing intent) and the binding gates that stop
-> it. If you are about to report, conclude, or execute — the gates there apply.
+> ⚠️ **READ FIRST: [`AGENT-RETROSPECTIVE.md`](AGENT-RETROSPECTIVE.md)** — the agent
+> **control contract**. The failure mode is *systemic*, so it is contained by
+> EXTERNAL controls (sandbox/read-only prod, a status+evidence template the operator
+> bounces if missing, scoped tasks, a constraint ledger), NOT by agent promises.
+> Every status must lead with the §4 template; no "X works/fails" without the §4
+> evidence block.
+>
+> ⚠️ **THEN: [`AGENT-STATE.md`](AGENT-STATE.md)** — the externalised executive memory:
+> **§A long-term agreements (binding) · §B mid-term plan · §C short-term state.**
+> Refer every session; §A is the constraint ledger you may not violate.
 
 **Start here:** [`renquant-system-feature-map.md`](renquant-system-feature-map.md)
 — the canonical living inventory of the whole system (features by category +
