@@ -50,8 +50,8 @@ Each: **TRIGGER → STEPS → OUTPUT → ENFORCED BY.**
 - **SOP-C (conflict).** SHORT contradicts LONG ⇒ SHORT is wrong; correct it immediately.
 - **SOP-PR (every PR).** *Steps:* include `doc/progress/<date>-<slug>.md` (C5); update the
   touched tier per the SOPs above; PR description mirrors the progress doc. *Enforced by:*
-  Codex review against `../AGENT-RETROSPECTIVE.md` §7.1 — approval is the *intended* gate
-  (convention until a required-reviewer ruleset lands; see AGENT-RETROSPECTIVE §7/§8).
+  Codex review against `../AGENT-RETROSPECTIVE.md` §7.1 — code-owner approval is the
+  **mechanical** gate (CODEOWNERS + `require_code_owner_reviews`, 2026-06-19; see §7/§8).
 
 ---
 

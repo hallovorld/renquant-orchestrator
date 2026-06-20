@@ -12,7 +12,7 @@
 | 4 | **PatchTST is the chosen model to make work.** The path is feature/architecture work (pruning the slow-drift family), NOT switching models. | 2026-06-17 |
 | 5 | **Report bottom-line-first** (`AGENT-RETROSPECTIVE.md` §4a); **no "X works/fails" without the §4b evidence block.** | 2026-06-17 |
 | 6 | **Every PR carries `doc/progress/<date>-<slug>.md`** (C5). No progress doc ⇒ Codex rejects. | 2026-06-17 |
-| 7 | **Never self-merge.** Agent PRs need an APPROVED review; Codex approval is the *intended* gate (live ruleset currently requires only 1 approval from any actor — convention until a required-reviewer / CODEOWNERS rule lands). Design docs are not merged while under discussion. | standing |
+| 7 | **Never self-merge.** Codex approval is the **mechanical** merge gate for Claude PRs — `.github/CODEOWNERS` + `require_code_owner_reviews=true` + `enforce_admins=true` (2026-06-19, #155) require the *other* agent's approval; admins can't override. Design docs are not merged while under discussion. | standing |
 | 8 | **Docs/PRs/commits in English; chat in Chinese.** | standing |
 | 9 | **Never delete/empty the umbrella** at `/Users/renhao/git/github/RenQuant`. | standing |
 
