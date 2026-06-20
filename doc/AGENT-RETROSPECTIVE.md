@@ -110,12 +110,14 @@ keep them, never let the agent argue around them.
 
 ## 7. Division of responsibility (who makes each control hold)
 
-> **Enforcement status: MECHANICAL as of 2026-06-19.** `.github/CODEOWNERS` makes both
-> agents code owners and `main-protection` has `require_code_owner_reviews=true` +
-> `enforce_admins=true`, so **every PR requires the *other* agent's approval and admins
-> cannot override** (`#155` landed the CODEOWNERS; the ruleset toggle was enabled after).
-> "Codex approval is the merge gate (for Claude-authored PRs)" is therefore present fact,
-> not convention. Reversal (if it ever locks merges): set `require_code_owner_reviews=false`.
+> **Enforcement status: MECHANICAL as of 2026-06-19.** `.github/CODEOWNERS` makes both agents
+> code owners and the active **ruleset `17346602` (main-protection)** has
+> `require_code_owner_review=true` + `enforce_admins=true`, so **every PR requires the *other*
+> agent's approval and admins cannot override** (`#155` landed CODEOWNERS; the ruleset field
+> was enabled + re-verified after — an earlier attempt set only classic branch protection, which
+> Codex correctly flagged as not the governing surface). "Codex approval is the merge gate (for
+> Claude-authored PRs)" is therefore present fact. Reversal (if it ever locks merges): set the
+> ruleset's `require_code_owner_review=false`.
 
 **The enforcer is the Codex reviewer, not the operator's manual eyeballing.** The operator
 does not review every PR; Codex reviews every PR + its progress doc against this contract,
@@ -152,8 +154,9 @@ high-bandwidth, applied to every change.
 ## 8. Implementation status
 
 - **MECHANICALLY ENFORCED (2026-06-19):** "Codex approval is the merge gate for Claude PRs."
-  `.github/CODEOWNERS` (`* @hallovorld @haorensjtu-dev`, #155) + `require_code_owner_reviews=true`
-  + `enforce_admins=true` ⇒ each agent's PR needs the *other's* approval; admins can't override.
+  `.github/CODEOWNERS` (`* @hallovorld @haorensjtu-dev`, #155) + ruleset `17346602`
+  `require_code_owner_review=true` + `enforce_admins=true` ⇒ each agent's PR needs the *other's*
+  approval; admins can't override. `[VERIFIED — ruleset read-back]`
 - **Proposed, not yet built:** C1 prod-path write-guard hook + read-only data mount;
   C2 status/evidence linter. The agent can build the mechanical guards on request —
   but they must then be enforced by the hook/CI, not by the agent remembering to run them.
