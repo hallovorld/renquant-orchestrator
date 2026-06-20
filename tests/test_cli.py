@@ -352,9 +352,13 @@ def test_agent_workflow_merge_execute_returns_nonzero_on_identity_block(
             "isDraft": False,
             "url": "https://github.com/o/r/pull/1",
             "labels": [{"name": "agent:claude"}],
-            "reviews": [{"state": "APPROVED", "commit_id": "sha1"}],
+            "reviews": [{"state": "APPROVED", "commit_id": "sha1", "body": "reviewed by codex"}],
             "statusCheckRollup": [{"conclusion": "SUCCESS", "status": "COMPLETED"}],
             "comments": [],
+            "files": [{"path": "doc/progress/2026-06-17-ready.md"}],
+            "progressDocContent": (
+                "# Progress\nSTATUS: delivered\nWHAT: ready\nWHY/DIR: ready\nEVIDENCE: n/a\nNEXT: none\n"
+            ),
         }],
     )
     monkeypatch.setattr(

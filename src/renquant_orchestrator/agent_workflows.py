@@ -53,6 +53,7 @@ Policy (encoded here, not in CI)
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -66,6 +67,29 @@ AGENTS = ("claude", "codex")
 
 #: Labels that block any merge regardless of approval/checks.
 STOP_LABELS = ("agent:manual-hold", "agent:cost-cap", "agent:rebase-conflict")
+
+PROGRESS_DOC_RE = re.compile(r"^doc/progress/\d{4}-\d{2}-\d{2}-[^/]+\.md$")
+PROGRESS_DOC_REQUIRED_FIELDS = ("STATUS:", "WHAT:", "WHY/DIR:", "EVIDENCE:", "NEXT:")
+PROGRESS_EVIDENCE_FIELDS = (
+    "artifact:",
+    "prod or exp:",
+    "existing data:",
+    "best-known?:",
+    "scope:",
+)
+PROD_PATH_RULES = (
+    ("production parquet data", re.compile(r"(^|/)data/.*\.parquet$", re.IGNORECASE)),
+    ("production strategy config", re.compile(r"(^|/)strategy_config\.json$", re.IGNORECASE)),
+    ("live state", re.compile(r"(^|/)live_state(?:\.[^/]+)?\.json$", re.IGNORECASE)),
+    ("production artifacts", re.compile(r"(^|/)artifacts/prod/", re.IGNORECASE)),
+    (
+        "committed walk-forward corpora",
+        re.compile(
+            r"(^|/)(?:artifacts/)?(?:walkforward[^/]*|wf[^/]*)/.*\.(?:parquet|csv|db|jsonl)$",
+            re.IGNORECASE,
+        ),
+    ),
+)
 
 
 def other_agent(agent: str) -> str:
@@ -133,6 +157,20 @@ def _gh_run(args: Sequence[str], token: Optional[str]) -> tuple[int, str]:
         capture_output=True, text=True, env=env, check=False,
     )
     return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def _gh_file_text(repo: str, path: str, ref: str, token: Optional[str]) -> str:
+    """Return decoded file contents for a PR head ref via the contents API."""
+    payload = _gh_json(
+        ["api", f"repos/{repo}/contents/{path}?ref={ref}"],
+        token,
+    ) or {}
+    if payload.get("encoding") != "base64":
+        raise RuntimeError(
+            f"unsupported content encoding for {repo}:{path}@{ref}: {payload.get('encoding')!r}"
+        )
+    content = str(payload.get("content") or "")
+    return base64.b64decode(content).decode("utf-8", errors="replace")
 
 
 def github_login(token: str) -> str:
@@ -241,6 +279,8 @@ def pr_authorship(pr: dict) -> Optional[str]:
         if f"agent:{a}" in labels:
             return a
     body = str(pr.get("body") or "")
+    if re.search(r"Generated with \[Claude Code\]", body, flags=re.IGNORECASE):
+        return "claude"
     for a in AGENTS:
         if re.search(
             rf"(?im)^\s*(?:[-*]\s*)?(?:author|author agent)\s*:\s*`?{a}`?\s*$",
@@ -262,9 +302,79 @@ def has_stop_label(pr: dict) -> Optional[str]:
     return None
 
 
+def _marker_present(body: str | None, *, action: str, agent: str) -> bool:
+    return f"{action} by {agent}".lower() in str(body or "").lower()
+
+
+def _changed_paths(pr: dict) -> list[str]:
+    return [
+        str(row.get("path") or "")
+        for row in (pr.get("files") or [])
+        if str(row.get("path") or "")
+    ]
+
+
+def _progress_doc_paths(pr: dict) -> list[str]:
+    return [path for path in _changed_paths(pr) if PROGRESS_DOC_RE.match(path)]
+
+
+def progress_doc_findings(pr: dict) -> list[str]:
+    paths = _progress_doc_paths(pr)
+    findings: list[str] = []
+    if not paths:
+        return ["missing progress doc `doc/progress/<date>-<slug>.md`"]
+    if len(paths) > 1:
+        return [f"multiple progress docs present: {', '.join(paths)}"]
+
+    content = pr.get("progressDocContent")
+    if not isinstance(content, str) or not content.strip():
+        return [f"progress doc content unavailable for `{paths[0]}`"]
+
+    missing_fields = [field for field in PROGRESS_DOC_REQUIRED_FIELDS if field not in content]
+    if missing_fields:
+        findings.append(
+            "progress doc missing required fields: " + ", ".join(missing_fields)
+        )
+
+    evidence_line = re.search(r"(?im)^EVIDENCE:\s*(.+)$", content)
+    if evidence_line and evidence_line.group(1).strip().lower() != "n/a":
+        lowered = content.lower()
+        missing = [field for field in PROGRESS_EVIDENCE_FIELDS if field not in lowered]
+        if missing:
+            findings.append(
+                "progress doc evidence block missing fields: " + ", ".join(missing)
+            )
+    return findings
+
+
+def production_path_findings(pr: dict) -> list[str]:
+    findings: list[str] = []
+    for path in _changed_paths(pr):
+        for label, pattern in PROD_PATH_RULES:
+            if pattern.search(path):
+                findings.append(f"writes protected production path `{path}` ({label})")
+                break
+    return findings
+
+
+def contract_findings(pr: dict) -> list[str]:
+    return progress_doc_findings(pr) + production_path_findings(pr)
+
+
 def _reviews_at_head(pr: dict) -> list[dict]:
     head = pr.get("headRefOid")
     return [r for r in (pr.get("reviews") or []) if r.get("commit_id") == head or head is None]
+
+
+def has_head_approval_from_agent(pr: dict, agent: str) -> bool:
+    revs = _reviews_at_head(pr)
+    if any(r.get("state") == "CHANGES_REQUESTED" for r in revs):
+        return False
+    return any(
+        r.get("state") == "APPROVED"
+        and _marker_present(r.get("body"), action="reviewed", agent=agent)
+        for r in revs
+    )
 
 
 def is_approved(pr: dict) -> bool:
@@ -316,6 +426,23 @@ def has_unaddressed_findings(pr: dict, agent: str) -> bool:
     return bool(re.search(r"\b(BLOCKER|HIGH|MED)\b", blob))
 
 
+def has_review_findings_history(pr: dict) -> bool:
+    blob = " ".join(
+        str(r.get("state") or "") + " " + str(r.get("body") or "")
+        for r in (pr.get("reviews") or [])
+    ) + " " + " ".join(
+        str(c.get("body") or "") for c in (pr.get("comments") or [])
+    )
+    return bool(re.search(r"\b(CHANGES_REQUESTED|BLOCKER|HIGH|MED)\b", blob))
+
+
+def has_fix_marker(pr: dict, agent: str) -> bool:
+    return any(
+        _marker_present(c.get("body"), action="fixed", agent=agent)
+        for c in (pr.get("comments") or [])
+    )
+
+
 @dataclass
 class WorkItem:
     number: int
@@ -340,7 +467,7 @@ def build_queue(
     prs: list[dict],
     *,
     allow_no_checks: bool = False,
-) -> list[WorkItem]:
+    ) -> list[WorkItem]:
     """Pure queue resolution over a list of PR dicts (unit-testable)."""
     if workflow not in ("review", "fix", "merge"):
         raise ValueError(f"unknown workflow {workflow!r}")
@@ -352,6 +479,9 @@ def build_queue(
         if pr.get("isDraft"):
             continue
         author = pr_authorship(pr)
+        peer_approved = has_head_approval_from_agent(pr, agent)
+        findings = contract_findings(pr)
+        author_needs_fix_marker = has_review_findings_history(pr) and not has_fix_marker(pr, author or "")
         stop = has_stop_label(pr)
         item = WorkItem(
             number=pr.get("number"),
@@ -367,8 +497,13 @@ def build_queue(
                 continue
             if stop:
                 continue
-            if is_approved(pr):
+            if peer_approved and not findings:
                 continue  # already has a clean approval — nothing to add
+            notes = list(findings)
+            if is_approved(pr) and not peer_approved:
+                notes.append(f"missing `reviewed by {agent}` approval marker on head review")
+            if notes:
+                item.note = "; ".join(notes)
             out.append(item)
         elif workflow == "fix":
             # Fix YOUR OWN PRs that carry unaddressed findings.
@@ -376,9 +511,18 @@ def build_queue(
                 continue
             if stop:
                 continue
-            if not has_unaddressed_findings(pr, agent):
+            needs_findings_fix = has_unaddressed_findings(pr, agent)
+            needs_contract_fix = bool(findings)
+            needs_fix_marker = bool(author) and author_needs_fix_marker
+            if not (needs_findings_fix or needs_contract_fix or needs_fix_marker):
                 continue
-            item.note = "has unaddressed review findings"
+            notes: list[str] = []
+            if needs_findings_fix:
+                notes.append("has unaddressed review findings")
+            notes.extend(findings)
+            if needs_fix_marker:
+                notes.append(f"missing `fixed by {agent}` audit comment")
+            item.note = "; ".join(notes)
             out.append(item)
         elif workflow == "merge":
             # Merge YOUR OWN PRs that are approved + green + unblocked.
@@ -387,11 +531,17 @@ def build_queue(
             if stop:
                 item.note = f"blocked by {stop}"
                 continue
-            if not is_approved(pr):
+            if findings:
+                item.note = "; ".join(findings)
+                continue
+            if author_needs_fix_marker:
+                item.note = f"missing `fixed by {agent}` audit comment"
+                continue
+            if not has_head_approval_from_agent(pr, peer):
                 continue
             if not checks_green(pr, allow_no_checks=allow_no_checks):
                 continue
-            item.note = "approved + green → mergeable"
+            item.note = f"approved by `{peer}` + green + contract-clean → mergeable"
             out.append(item)
     return out
 
@@ -406,11 +556,29 @@ _PR_FIELDS = (
 
 def fetch_open_prs(repo: str, token: Optional[str]) -> list[dict]:
     """Fetch open PRs with the fields build_queue needs."""
-    return _gh_json(
+    prs = _gh_json(
         ["pr", "list", "--repo", repo, "--state", "open",
          "--limit", "100", "--json", _PR_FIELDS],
         token,
     ) or []
+    for pr in prs:
+        number = pr.get("number")
+        if number is None:
+            continue
+        detail = _gh_json(
+            ["pr", "view", str(number), "--repo", repo, "--json", "files"],
+            token,
+        ) or {}
+        pr["files"] = detail.get("files") or []
+        progress_paths = _progress_doc_paths(pr)
+        if len(progress_paths) == 1:
+            pr["progressDocContent"] = _gh_file_text(
+                repo,
+                progress_paths[0],
+                str(pr.get("headRefName") or ""),
+                token,
+            )
+    return prs
 
 
 def merge_pr(repo: str, number: int, token: Optional[str], strategy: str = "merge") -> tuple[int, str]:
@@ -591,13 +759,17 @@ def run_agent_workflow(
     elif workflow in ("review", "fix"):
         plan["instructions"] = (
             f"Agent '{agent}' should process each queued PR: "
-            + ("read the diff and post ONE consolidated review with your token. "
+            + ("read the diff plus the PR progress doc, enforce the agent control contract, and post "
+               "ONE consolidated review with your token. Check for the committed "
+               "`doc/progress/<date>-<slug>.md`, protect production paths, and reject unsupported "
+               "model/data conclusions that lack the documented evidence block. "
                f"The review body must include visible text `reviewed by {agent}` "
                "(gh pr review --approve|--request-changes|--comment) — "
                "request changes only for BLOCKER/HIGH/MED."
                if workflow == "review" else
-               "read the review findings, make the smallest fix, run focused "
-               f"tests, then comment `fixed by {agent}`, commit (with your "
+               "read the review findings, make the smallest fix, add or repair the committed "
+               "`doc/progress/<date>-<slug>.md` when required, avoid protected production paths, run "
+               f"focused tests, then comment `fixed by {agent}`, commit (with your "
                "Co-Authored-By trailer), and push.")
         )
     return plan
