@@ -11,6 +11,8 @@ from renquant_orchestrator.agent_workflows import (
     audit_merged_prs,
     build_queue,
     checks_green,
+    contract_findings,
+    has_head_approval_from_agent,
     is_approved,
     merge_audit_comment,
     merge_audit_status,
@@ -23,10 +25,33 @@ from renquant_orchestrator.agent_workflows import (
 
 
 def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
-        labels=None, reviews=None, checks=None, comments=None, body=""):
+        labels=None, reviews=None, checks=None, comments=None, body="", files=None,
+        progress_doc_content=None):
     lbls = [{"name": n} for n in (labels or [])]
     if author and f"agent:{author}" not in (labels or []):
         lbls.append({"name": f"agent:{author}"})
+    norm_reviews = []
+    for r in (reviews or []):
+        row = dict(r, commit_id=r.get("commit_id", f"sha{num}"))
+        if (
+            row.get("state") == "APPROVED"
+            and "body" not in row
+            and author in {"claude", "codex"}
+        ):
+            reviewer = "codex" if author == "claude" else "claude"
+            row["body"] = f"reviewed by {reviewer}"
+        norm_reviews.append(row)
+    if files is None:
+        files = [{"path": f"doc/progress/2026-06-17-pr-{num}.md"}]
+    if progress_doc_content is None:
+        progress_doc_content = (
+            "# Progress\n"
+            "STATUS: delivered\n"
+            "WHAT: test fixture\n"
+            "WHY/DIR: test fixture\n"
+            "EVIDENCE: n/a\n"
+            "NEXT: none\n"
+        )
     return {
         "number": num, "title": f"PR {num}",
         "headRefName": head or f"{author or 'x'}/branch-{num}",
@@ -34,9 +59,11 @@ def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
         "url": f"https://github.com/o/r/pull/{num}",
         "labels": lbls,
         "body": body,
-        "reviews": [dict(r, commit_id=r.get("commit_id", f"sha{num}")) for r in (reviews or [])],
+        "reviews": norm_reviews,
         "statusCheckRollup": checks or [],
         "comments": comments or [],
+        "files": files,
+        "progressDocContent": progress_doc_content,
     }
 
 
@@ -60,6 +87,14 @@ def test_pr_authorship_uses_visible_body_author_before_branch():
         "body": "## Traceability\n- author: Codex\n",
         "headRefName": "feature/no-agent-prefix",
     }) == "codex"
+
+
+def test_pr_authorship_detects_claude_generated_body_signature():
+    assert pr_authorship({
+        "labels": [],
+        "body": "Frozen for operator review.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+        "headRefName": "feature/no-agent-prefix",
+    }) == "claude"
 
 
 def test_resolve_token_env_precedence(monkeypatch):
@@ -232,6 +267,17 @@ def test_fix_queue_severity_comment_on_commented_review():
     assert [w.number for w in build_queue("claude", "fix", prs)] == [1]
 
 
+def test_fix_queue_includes_missing_progress_doc_contract_violation():
+    prs = [
+        _pr(1, author="claude", files=[]),
+    ]
+
+    q = build_queue("claude", "fix", prs)
+
+    assert [w.number for w in q] == [1]
+    assert "missing progress doc" in q[0].note
+
+
 # ── merge queue: your own, approved + green + unblocked ─────────────────
 
 def test_merge_queue_requires_approved_and_green():
@@ -283,12 +329,87 @@ def test_merge_queue_can_allow_no_checks_by_explicit_opt_in():
     )] == [1]
 
 
+def test_merge_queue_requires_peer_review_marker():
+    pr = _pr(
+        1,
+        author="claude",
+        reviews=[{"state": "APPROVED", "body": "looks good"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    assert build_queue("claude", "merge", [pr]) == []
+
+
+def test_merge_queue_blocks_missing_fix_marker_after_findings():
+    pr = _pr(
+        1,
+        author="claude",
+        reviews=[
+            {"state": "CHANGES_REQUESTED", "commit_id": "OLD", "body": "**HIGH** bug"},
+            {"state": "APPROVED"},
+        ],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+    pr["headRefOid"] = "sha1"
+
+    assert build_queue("claude", "merge", [pr]) == []
+
+
+def test_merge_queue_blocks_progress_doc_or_production_path_contract_violations():
+    missing_progress = _pr(
+        1,
+        author="claude",
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+        files=[],
+    )
+    prod_path = _pr(
+        2,
+        author="claude",
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+        files=[
+            {"path": "doc/progress/2026-06-17-pr-2.md"},
+            {"path": "backtesting/renquant_104/live_state.alpaca.json"},
+        ],
+    )
+
+    assert build_queue("claude", "merge", [missing_progress, prod_path]) == []
+
+
 def test_is_approved_only_counts_head_reviews():
     pr = _pr(1, author="claude",
              reviews=[{"state": "APPROVED", "commit_id": "OLD"}])
     pr["headRefOid"] = "NEW"
     # the only APPROVED review is against an old commit → not approved at head
     assert is_approved(pr) is False
+
+
+def test_has_head_approval_from_agent_requires_marker():
+    pr = _pr(1, author="codex", reviews=[{"state": "APPROVED", "body": "reviewed by claude"}])
+
+    assert has_head_approval_from_agent(pr, "claude") is True
+    assert has_head_approval_from_agent(pr, "codex") is False
+
+
+def test_contract_findings_require_progress_doc_structure_and_block_production_paths():
+    pr = _pr(
+        1,
+        author="claude",
+        files=[
+            {"path": "doc/progress/2026-06-17-pr-1.md"},
+            {"path": "data/foo/bar.parquet"},
+            {"path": "backtesting/renquant_104/strategy_config.json"},
+        ],
+        progress_doc_content="# Progress\nSTATUS: delivered\nWHAT: test only\nEVIDENCE: artifact pending\nNEXT: none\n",
+    )
+
+    findings = contract_findings(pr)
+
+    assert any("WHY/DIR:" in finding for finding in findings)
+    assert any("evidence block missing fields" in finding for finding in findings)
+    assert any("data/foo/bar.parquet" in finding for finding in findings)
+    assert any("strategy_config.json" in finding for finding in findings)
 
 
 def test_review_and_fix_instructions_require_visible_agent_text(monkeypatch):
@@ -301,6 +422,8 @@ def test_review_and_fix_instructions_require_visible_agent_text(monkeypatch):
         agent="claude", workflow="review", repo="o/r", token=None,
     )
     assert "reviewed by claude" in review["instructions"]
+    assert "doc/progress/<date>-<slug>.md" in review["instructions"]
+    assert "evidence block" in review["instructions"]
 
     monkeypatch.setattr(
         "renquant_orchestrator.agent_workflows.fetch_open_prs",
@@ -314,6 +437,7 @@ def test_review_and_fix_instructions_require_visible_agent_text(monkeypatch):
     )
     fix = run_agent_workflow(agent="claude", workflow="fix", repo="o/r", token=None)
     assert "fixed by claude" in fix["instructions"]
+    assert "doc/progress/<date>-<slug>.md" in fix["instructions"]
 
 
 def test_merge_execute_comments_before_merge(monkeypatch):

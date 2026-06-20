@@ -182,9 +182,13 @@ def test_cross_repo_merge_cap_stops_after_max(tmp_path, monkeypatch):
             "number": 1, "title": "t", "headRefName": "claude/x",
             "headRefOid": "s1", "state": "OPEN", "isDraft": False, "url": "u",
             "labels": [{"name": "agent:claude"}],
-            "reviews": [{"state": "APPROVED", "commit_id": "s1"}],
+            "reviews": [{"state": "APPROVED", "commit_id": "s1", "body": "reviewed by codex"}],
             "statusCheckRollup": [{"conclusion": "SUCCESS", "status": "COMPLETED"}],
             "comments": [],
+            "files": [{"path": "doc/progress/2026-06-17-t.md"}],
+            "progressDocContent": (
+                "# Progress\nSTATUS: delivered\nWHAT: ready\nWHY/DIR: ready\nEVIDENCE: n/a\nNEXT: none\n"
+            ),
         }]
     merges = []
     monkeypatch.setattr("renquant_orchestrator.agent_workflows.fetch_open_prs", _prs)
