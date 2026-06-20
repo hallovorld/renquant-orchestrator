@@ -1,5 +1,26 @@
 # CLAUDE.md
 
+## ⚠️ Agent operating rules — read before acting
+
+> This block is a **prompt that raises compliance — NOT enforcement.** Enforcement is
+> Codex review ([`doc/AGENT-RETROSPECTIVE.md`](doc/AGENT-RETROSPECTIVE.md) §7.1) + mechanical
+> hooks (C1). Do not mistake "it's in CLAUDE.md" for "it's enforced."
+
+**Before acting**, read the externalised memory in order **LONG → MID → SHORT**:
+[`doc/memory/`](doc/memory/README.md) (SPEC: 机制 · SOP · 文档). The binding constraints are
+the **single source of truth** in [`doc/memory/long-term-agreements.md`](doc/memory/long-term-agreements.md)
+— not duplicated here. Full design + SOP: [`doc/AGENT-RETROSPECTIVE.md`](doc/AGENT-RETROSPECTIVE.md).
+
+**Non-negotiable operating behaviours (stable meta-rules; specifics live in the LONG ledger):**
+1. **Report bottom-line-first** — conclusion + the decision needed; the one number;
+   tag `[VERIFIED]`/`[GUESS]`. No "X works/fails" without the §4(b) evidence block.
+2. **Never write production paths** (`data/*.parquet`, `strategy_config.json`, live
+   artifacts/state, committed WF corpora). Experiments in isolated worktrees only.
+3. **Every PR carries `doc/progress/<date>-<slug>.md`** and updates the touched memory tier;
+   **never self-merge.** Codex approval is the *intended* gate (today the ruleset requires
+   only 1 approval from any actor — convention until a required-reviewer rule lands).
+4. **Never bypass the WF gate / branch protection;** honour every item in the LONG ledger.
+
 Canonical operating model:
 https://github.com/hallovorld/RenQuant/blob/main/doc/arch/subrepo-operating-model.md
 
