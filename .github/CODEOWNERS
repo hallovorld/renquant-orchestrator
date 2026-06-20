@@ -1,0 +1,11 @@
+# Code owners — mutual agent review (makes the Codex-review gate MECHANICAL).
+#
+# Both agents own everything. An author cannot approve their own PR, so each
+# agent's PR requires the OTHER agent's approval → mutual review, no deadlock:
+#   - Claude PRs (author @hallovorld)      need @haorensjtu-dev (Codex) approval
+#   - Codex  PRs (author @haorensjtu-dev)  need @hallovorld approval
+#
+# Pairs with branch-protection require_code_owner_reviews=true, which is enabled
+# AFTER this file lands on main (see doc/progress/2026-06-19-codeowners-review-gate.md).
+# Enabling the setting before this is on main would lock ALL merges.
+* @hallovorld @haorensjtu-dev
