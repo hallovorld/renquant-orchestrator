@@ -14,12 +14,16 @@ promotable. But the prune direction is validated and is a near-miss on the core 
 
 Path-pinned: `/tmp/exp_A_gate.log`, `/tmp/exp_B_gate.log` (session-local). `[VERIFIED — gate logs]`
 
-## What this shows (the validated finding)
-- **Pruning the pure-placebo features works as hypothesized:** placebo_ic fell **+0.0317 → +0.0059
-  (−81%)** from Exp A → Exp B, while the **aligned real IC stayed positive and rose**
-  (+0.0046 → +0.0079). B2's signal is real; the pure-placebo families (IMXD/CORR/RANK/RSV/IMAX)
-  were the placebo drivers.
-- **Exp B is a near-miss:** placebo only **0.0009 over** threshold (1.18×) vs Exp A's 6.3×.
+## What this shows (bounded observation — NOT established causation)
+- **On these two single-seed (seed44) runs:** adding the pure-placebo families to the prune was
+  *associated with* a large drop in placebo_ic (**+0.0317 → +0.0059, −81%**, Exp A → Exp B),
+  while aligned_real_ic stayed positive (+0.0046 → +0.0079).
+- **This does NOT yet establish** that those families are *the* placebo drivers in a stable
+  sense, nor that B2's signal is "real" in a decision-grade sense — because **both runs still
+  FAIL the gate, the result is single-seed, the WF trading-sim degraded in Exp B, and the
+  BULL_CALM monotonicity failure persists.** The causal attribution is **provisional**, pending
+  more seeds and a gate PASS.
+- **Exp B is a near-miss on placebo:** only **0.0009 over** threshold (1.18×) vs Exp A's 6.3×.
 
 ## Why it still FAILS (honest, two separate problems)
 1. **Placebo just over threshold** (0.0059 > 0.0050) — close but not clean.
