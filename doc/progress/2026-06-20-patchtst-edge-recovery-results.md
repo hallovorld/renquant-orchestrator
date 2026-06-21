@@ -1,6 +1,6 @@
 # PatchTST edge-recovery — RESULTS (Exp A/B gate verdicts)
 
-STATUS:   in-progress (results record; both experiments FAIL; seed45 follow-up running)
+STATUS:   in-progress — INTERIM update (seed44 arms done & FAIL; seed45 = prereg's 2nd seed still running; NOT a final verdict)
 WHAT:     records the production WF gate VERDICTs for Exp A (reproduce B2) and Exp B (B2 +
           pure-placebo prune). Both FAIL; no promotable model. Documents the validated finding
           (pruning pure-placebo cut placebo_ic -81% while aligned IC stayed positive) and the

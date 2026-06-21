@@ -1,8 +1,15 @@
-# PatchTST edge-recovery — RESULTS (Exp A / Exp B gate verdicts)
+# PatchTST edge-recovery — INTERIM execution update (seed44; seed45 pending)
 
-Results for the pre-registered experiment (`2026-06-19-patchtst-edge-recovery-experiment.md`).
-**Authoritative evidence = the production WF gate VERDICTs below.** Both FAIL; no model is
-promotable. But the prune direction is validated and is a near-miss on the core failure.
+> **This is an INTERIM update, NOT a final results verdict.** The pre-registration
+> (`2026-06-19-...-experiment.md`) commits to **≥2 seeds per arm**; this records the
+> **seed44** runs only — **seed45 (the prereg's 2nd seed) is still running.** The final
+> verdict PR lands when the full seed set is in. Treat everything below as single-seed,
+> bounded-observational evidence, not an established conclusion.
+
+Interim record for the pre-registered experiment (`2026-06-19-patchtst-edge-recovery-experiment.md`).
+**Authoritative evidence = the production WF gate VERDICTs below (seed44).** Both seed44 arms
+FAIL; no model is promotable. Exp B is a near-miss on the placebo — a direction to be confirmed
+or falsified once seed45 (and any further seeds) complete.
 
 ## Verdicts (production WF gate, 60d, seed44, /tmp-isolated)
 
