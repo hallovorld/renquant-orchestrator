@@ -1,4 +1,9 @@
-# WF-gate calibration audit — pre-registration (is the gate, not the model, the binding constraint?)
+# WF-gate calibration audit — pre-registration RECORD (executed against in #163)
+
+> **HISTORICAL prereg record, NOT a pending pre-execution discussion.** This is the design the
+> audit actually used; **execution has already started** — T2/T3 ran and their interim results are
+> in **#163**. Kept as the locked pre-registration the results are judged against. T1 (the decisive
+> test) is still pending; see #163 for live status. This is **not** awaiting "approve-before-execution".
 
 **Question (operator-raised):** "a few weeks ago PatchTST made meaningful live trades; now the
 gate has completely blocked it — is the gate the problem?"
