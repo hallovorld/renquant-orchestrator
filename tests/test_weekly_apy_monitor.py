@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -13,6 +13,14 @@ from renquant_orchestrator import weekly_apy_monitor as mod
 def _write_audit(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+
+def _recent_date(days_ago: int) -> str:
+    """A date `days_ago` before *now*, so audit fixtures stay inside the
+    rolling window regardless of when the test runs. Using hard-coded calendar
+    dates made `read_recent_rows`' wall-clock cutoff drop boundary rows once the
+    fixtures aged past `window_days`, so the test rotted over time."""
+    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
 
 def test_pipeline_shape() -> None:
@@ -76,8 +84,10 @@ def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:
 
 def test_pipeline_alerts_on_persistent_drawdown(tmp_path: Path) -> None:
     audit = tmp_path / "audit.jsonl"
+    # dates relative to now (5 consecutive recent days) so all stay inside the
+    # default rolling window — fixes the previous wall-clock-dependent failure.
     _write_audit(audit, [
-        {"date": f"2026-05-2{i + 1}", "equity": 100.0 + i, "drawdown_pct": 0.25}
+        {"date": _recent_date(5 - i), "equity": 100.0 + i, "drawdown_pct": 0.25}
         for i in range(5)
     ])
     ctx = mod.WeeklyApyContext(
