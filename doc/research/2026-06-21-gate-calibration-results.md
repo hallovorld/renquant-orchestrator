@@ -1,10 +1,11 @@
-# WF-gate calibration audit — interim results (T2/T3 done; T1-exact pending)
+# WF-gate calibration audit — interim LEAN (T2/T3 done; decisive T1 still pending)
 
-Results for the pre-registered audit (`2026-06-21-gate-calibration-audit.md`, PR #162).
-**The evidence so far does NOT support the hopeful "gate over-blocks a good model" reading —
-it leans toward "the model genuinely lacked cross-sectional edge; the gate correctly enforces a
-standard the old path didn't check."** I raised the gate-doubt myself, so I am flagging that the
-data is going against my own hypothesis, on purpose, to avoid motivated reasoning.
+Interim results for the pre-registered audit (`2026-06-21-gate-calibration-audit.md`, PR #162).
+**This is an interim lean, NOT a verdict — the prereg's own decisive test (T1: exact live weights
+through today's full gate) has not run.** What the completed parts show: the early evidence (T2/T3
++ the live model's recorded IC) **leans against** the hopeful "gate over-blocks a good model"
+reading. I raised the gate-doubt myself, so I flag that the data is leaning against my own
+hypothesis — but it is a lean, not a confirmed vindication.
 
 ## The honest reconciliation of the operator's observation
 The operator is **right that the gate is the proximate cause**: the bar moved. PatchTST made 78
@@ -43,12 +44,19 @@ is failing models that have nothing to distinguish from placebo. *(Possible refi
 power the gate could explicitly "abstain / insufficient evidence" rather than "fail" — a labelling
 nicety, not a model-admitting change.)*
 
-## Verdict so far (honest, against the hopeful reading)
-- **The gate looks vindicated, not broken.** The live model recorded negative IC itself; the new
-  checks enforce cross-sectional skill it never had; the monotonicity inversion is real (n=93).
-- **NOT yet done — T1-exact:** running the **exact live weights** (`panel-transformer.pt`, kind
-  `panel_transformer`) through today's *full* gate needs a recipe-matched WF corpus (a build).
-  Launching it for confirmation. Its own recorded IC already indicates the result.
+## Interim LEAN (NOT a verdict — the prereg's decisive test T1 is still pending)
+T1 was pre-registered (#162) as the **decisive** test; it has **not** run yet, so this is an
+interim lean, not a vindication. What the completed tests (T2/T3) + the live model's recorded
+metric can support, narrowly:
+- T2/T3 **lean against** the hopeful "gate killed a good model" story.
+- The live model's **own recorded** negative IC (−0.0246) and the real n=93 monotonicity inversion
+  are both concerning for that model.
+- **But the decisive T1 confirmation (exact live weights through today's full gate) is OUTSTANDING.**
+  Running it needs a recipe-matched WF corpus build; the model's own recorded IC indicates a likely
+  result but does not substitute for the gate run.
+
+**Do not read this as "gate vindicated."** Read it as: the early evidence leans against gate-fault,
+and the audit is not yet complete.
 
 ## Implication for the real lever
 This points the binding problem **upstream to signal/features/label**, not to a mis-calibrated gate

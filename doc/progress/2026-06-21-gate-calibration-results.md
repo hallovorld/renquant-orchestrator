@@ -1,6 +1,6 @@
 # WF-gate calibration audit — interim results
 
-STATUS:   in-progress (T2/T3 done; T1-exact pending a build; gate looks VINDICATED so far)
+STATUS:   in-progress (T2/T3 done; decisive T1 still PENDING; interim LEAN against gate-fault, NOT a verdict)
 WHAT:     interim results for the gate-calibration audit (#162). The evidence leans AGAINST the
           hopeful "gate over-blocks a good model" reading: the 05-22 live model recorded negative
           IC itself (-0.0246); the new checks enforce cross-sectional skill it never had; the
