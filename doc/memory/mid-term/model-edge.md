@@ -2,12 +2,14 @@
 
 STATUS:   active — this is the one thing between us and live buys.
 GOAL:     a PatchTST model with **positive real cross-sectional IC** that passes the WF gate.
-NEXT:     PRUNING LINE CLOSED (2-seed set falsifies a stable edge). Escalate to the next lever —
-          feature engineering / architecture / regime handling — AND separately diagnose the
-          BULL_CALM monotonicity wall (a 2nd independent blocker). Pending operator priority
-          (parallel-work discussion PR #160). Promotion needs operator sign-off; never bypass.
-EVIDENCE: 2-seed set complete (final doc 2026-06-21): all runs FAIL the gate. Exp B aligned_real_ic
-          FLIPS SIGN between seeds — seed44 +0.0079, seed45 −0.0085 — so the seed44 near-miss
-          (placebo +0.0059) was seed noise, not a stable edge. BULL_CALM monotonicity fails in ALL
-          runs independent of placebo. `[VERIFIED — /tmp/exp_{A,B,B45}_gate.log, ephemeral]`
+NEXT:     pruning NOT closed (prereg ≥2-seeds/arm NOT fully run — Exp A single-seed). Defensible:
+          Exp B recipe shows no stable edge across 2 seeds; no promotable model. Before closing or
+          switching architecture → run a PROPERLY-POWERED signal-existence diagnostic (≥5 seeds,
+          dense corpus, audit placebo matched to gate's 120d shift) + diagnose BULL_CALM
+          monotonicity (real vs low-n artifact). Promotion needs operator sign-off; never bypass.
+EVIDENCE: partial (final doc 2026-06-21): all completed runs FAIL. Exp B aligned_real_ic sign-
+          unstable across seeds (+0.0079 / −0.0085); all ICs in noise band (<0.01) so the gate's
+          floored placebo threshold is ill-conditioned here; corpus was sparse (4-cutoff, speed);
+          audit placebo (shift-60-rows) mismatched the gate's 120d shift; BULL_CALM monotonicity
+          undiagnosed. `[VERIFIED — /tmp/exp_{A,B,B45}_gate.log + self-audit, ephemeral]`
 CONSTRAINT: PatchTST is the chosen model (LONG #4); XGB is vetoed as a pitch (LONG #3).

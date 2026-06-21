@@ -1,6 +1,6 @@
 # PatchTST edge-recovery — FINAL verdict (2-seed set)
 
-STATUS:   in-progress (final verdict PR; pruning line CLOSED; no promotable model)
+STATUS:   in-progress (PARTIAL verdict — Exp B 2-seed only; pruning line NOT closed; no promotable model)
 WHAT:     completes the prereg ≥2-seed set; records all gate verdicts; supersedes the interim
           seed44 doc; updates the MID model-edge workstream (pruning CLOSED → escalate).
 WHY/DIR:  decisive negative result — Exp B aligned_real_ic flips sign across seeds (seed44

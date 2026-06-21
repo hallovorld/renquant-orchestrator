@@ -1,8 +1,10 @@
 # PatchTST edge-recovery — INTERIM execution update (seed44; seed45 pending)
 
-> **SUPERSEDED by `2026-06-21-patchtst-edge-recovery-final.md`** (2-seed set complete).
-> seed45 flipped the aligned IC sign (+0.0079 → −0.0085), so the seed44 near-miss recorded
-> below was seed noise, not a stable edge. Kept for history; read the final doc.
+> **SUPERSEDED by `2026-06-21-patchtst-edge-recovery-final.md`** (Exp B 2-seed partial verdict).
+> seed45 flipped the aligned IC sign (+0.0079 → −0.0085), so the seed44 near-miss recorded below
+> was within seed noise, not a stable edge. NOTE: the prereg (≥2 seeds/arm) is NOT fully executed
+> (Exp A is single-seed); the final doc is a narrow Exp-B verdict, not a closure of the pruning
+> line. Kept for history; read the final doc.
 
 > **This is an INTERIM update, NOT a final results verdict.** The pre-registration
 > (`2026-06-19-...-experiment.md`) commits to **≥2 seeds per arm**; this records the
