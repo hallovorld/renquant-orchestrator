@@ -169,3 +169,36 @@ def test_main_film_regime_cond_flag_passes_through(
         "--film-regime-cond",
     ])
     assert "--film-regime-cond" in captured[0]
+
+
+def test_main_default_cadence_is_quarterlyish(
+    source_manifest: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _RC:
+        def __init__(self, rc: int) -> None:
+            self.returncode = rc
+
+    def fake_run(cmd, *a, **k):
+        if "renquant_model_patchtst.fit_calibrator" in cmd:
+            Path(cmd[cmd.index("--out") + 1]).write_text("{}")
+            return _RC(0)
+        for i, tok in enumerate(cmd):
+            if tok == "--output-dir":
+                d = Path(cmd[i + 1])
+                d.mkdir(parents=True, exist_ok=True)
+                _write_model_sidecar(
+                    d / "hf_patchtst_all_seed42_model.pt",
+                    effective_cutoff=cmd[cmd.index("--train-cutoff") + 1],
+                )
+                break
+        return _RC(0)
+
+    monkeypatch.setattr(bp.subprocess, "run", fake_run)
+    out_manifest = tmp_path / "manifest.json"
+    bp.main([
+        "--source-manifest", str(source_manifest),
+        "--output-dir", str(tmp_path / "r"),
+        "--output-manifest", str(out_manifest),
+    ])
+    manifest = json.loads(out_manifest.read_text())
+    assert manifest["options"]["cadence_days"] == 90

@@ -8,8 +8,9 @@ The candidate artifact's recipe is verified BEFORE running expensive training. I
 training run completes but produces a recipe-fingerprint mismatch (e.g. accidental
 hyperparameter drift), the entry is treated as failed and excluded from the manifest.
 
-Per-cutoff cost (rough): ~15 min on MPS at 4 epochs. Default 6 cutoffs (semi-annual
-over the WF window). Override with ``--cadence-days`` for a denser manifest.
+Per-cutoff cost (rough): ~15 min on MPS at 4 epochs. Default cadence is quarterly-ish
+(``--cadence-days 90``) so the WF gate has more than a handful of retrains to judge.
+Override with ``--cadence-days`` for even denser manifests.
 
 Usage::
 
@@ -17,7 +18,7 @@ Usage::
       --source-manifest /.../sim/walkforward_manifest_dropsenti_v3.json \\
       --output-dir /.../sim/walkforward_retrains_patchtst_v1 \\
       --output-manifest /.../sim/walkforward_manifest_patchtst_v1.json \\
-      --cadence-days 180 \\
+      --cadence-days 90 \\
       --epochs 4 --device mps --seed 42 --cross-stock-attn \\
       --exclude-features mean_sentiment,n_articles_log,sentiment_pos_share
 
@@ -554,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="GBDT manifest to inherit the cutoff schedule from.")
     ap.add_argument("--output-dir", required=True, type=Path)
     ap.add_argument("--output-manifest", required=True, type=Path)
-    ap.add_argument("--cadence-days", type=int, default=180)
+    ap.add_argument("--cadence-days", type=int, default=90)
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--device", default="mps")
     ap.add_argument("--seed", type=int, default=42)
