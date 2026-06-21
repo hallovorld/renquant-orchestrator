@@ -2,13 +2,12 @@
 
 STATUS:   active — this is the one thing between us and live buys.
 GOAL:     a PatchTST model with **positive real cross-sectional IC** that passes the WF gate.
-NEXT:     seed45 of the Exp B recipe is running (build→gate, isolated /tmp); if it also misses,
-          the marginal-edge finding stands → escalate to feature engineering / architecture, not
-          a forced promotion. Promotion needs operator sign-off; never bypass the gate.
-EVIDENCE: Exp A/B ran through the production WF gate (#158): both FAIL. Exp A (prune STD/MIN/IMIN)
-          placebo_ic +0.0317; Exp B (+pure-placebo IMXD/CORR/RANK/RSV/IMAX) placebo_ic +0.0059 —
-          a near-miss (thr +0.0050), aligned_real_ic positive (+0.0046→+0.0079). On these
-          single-seed runs, pruning the pure-placebo families was ASSOCIATED with a −81% placebo
-          drop; causal attribution PROVISIONAL (both FAIL, single-seed, WF-sim degraded in B,
-          BULL_CALM monotonicity persists). `[VERIFIED — /tmp/exp_{A,B}_gate.log, ephemeral]`
+NEXT:     PRUNING LINE CLOSED (2-seed set falsifies a stable edge). Escalate to the next lever —
+          feature engineering / architecture / regime handling — AND separately diagnose the
+          BULL_CALM monotonicity wall (a 2nd independent blocker). Pending operator priority
+          (parallel-work discussion PR #160). Promotion needs operator sign-off; never bypass.
+EVIDENCE: 2-seed set complete (final doc 2026-06-21): all runs FAIL the gate. Exp B aligned_real_ic
+          FLIPS SIGN between seeds — seed44 +0.0079, seed45 −0.0085 — so the seed44 near-miss
+          (placebo +0.0059) was seed noise, not a stable edge. BULL_CALM monotonicity fails in ALL
+          runs independent of placebo. `[VERIFIED — /tmp/exp_{A,B,B45}_gate.log, ephemeral]`
 CONSTRAINT: PatchTST is the chosen model (LONG #4); XGB is vetoed as a pitch (LONG #3).
