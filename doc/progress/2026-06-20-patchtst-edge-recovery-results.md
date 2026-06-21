@@ -16,3 +16,8 @@ EVIDENCE: (authoritative = the gate verdicts)
     [VERIFIED — /tmp/exp_B_gate.log, ephemeral]
 NEXT:     seed45 of the Exp B recipe (running, isolated /tmp) → gate → append verdict.
           Promotion only on a clean gate PASS + operator sign-off; never bypass the gate.
+
+UPDATE: per SOP-PR (every PR updates the touched memory tier), refreshed the MID workstream
+        doc/memory/mid-term/model-edge.md with the Exp A/B verdicts (bounded-observational) and
+        the new NEXT (seed45 running; else escalate). The prior NEXT ("evaluate B2 through the
+        gate") is now done, so the stale tier is corrected.
