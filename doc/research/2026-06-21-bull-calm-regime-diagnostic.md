@@ -73,3 +73,32 @@ it should not be over-interpreted in either direction. **No promotion, no bypass
 **Honest status:** I did NOT find one definitive bug; the operator's instinct correctly flagged the
 regime result as untrustworthy, and chasing it prevented me standing behind a shaky conclusion. The
 real, reliable signal is the aggregate +0.054 + overall-placebo pass — that is what to build on.
+
+---
+
+## THIRD measurement (power test) — the clarifying, reliable finding
+
+Re-measured per-regime over a larger OOS window (recent 50%, 534 dates) to add statistical power:
+
+| regime | n_dates | real_ic | placebo | reliability |
+|---|---|---|---|---|
+| BEAR | 50 | +0.347 | +0.098 | RARE — can't validate (implausible magnitude) |
+| **BULL_CALM** | **425** | **+0.0149** | +0.0229 | **RELIABLE (most data) — WEAK, below 0.02 floor, placebo > real** |
+| BULL_VOLATILE | 19 | +0.023 | +0.019 | rare |
+| CHOPPY | 40 | +0.026 | +0.029 | rare |
+
+**Key:** BEAR/CHOPPY are intrinsically RARE (50/40 dates even over ~2 years) — more window doesn't
+add power there. But **BULL_CALM (the dominant regime, 425 dates) is reliable, and XGB is genuinely
+WEAK there**: real IC +0.0149 (below the 0.02 floor), placebo (+0.0229) exceeds real.
+
+### Corrected synthesis (this supersedes "decomposition unreliable")
+- The per-regime read is reliable *for the dominant regime* (BULL_CALM, 425 dates): XGB is weak there.
+- XGB's aggregate **+0.054 is BEAR-inflated** — carried by a rare (50-date), implausibly-high
+  (+0.347), unvalidatable regime; the common regime where it would mostly trade (BULL_CALM) is weak.
+- **So the aggregate +0.054, while real arithmetic, is a misleading deployment signal.**
+- **The gate's regime-sanity FAIL is correct** — it catches that XGB's edge is not robust in the
+  regime it would actually operate in. Gate vindicated; no bypass, no loosening.
+
+### Path to deploy XGB (both research, neither a bypass)
+1. Strengthen the BULL_CALM (calm-market) cross-sectional signal — feature/label work (the hard fix).
+2. Regime-aware deployment — trade only where validated (high-vol), accept rare trading.
