@@ -1,16 +1,23 @@
 # BULL_CALM/CHOPPY regime wall diagnostic (XGB)
 
-STATUS:   in-progress (diagnostic; no promotion, no gate change)
-WHAT:     diagnoses why XGB FAILed regime-sanity in BULL_CALM/CHOPPY (#166). CORRECTED finding (direct placebo measurement): XGB has positive
-          real IC everywhere, BUT in BULL_CALM/CHOPPY the placebo IC EXCEEDS the real IC (0.0266>0.0234;
-          0.0268>0.0256) — signal is drift-entangled there → gate fails them CORRECTLY (not a
-          calibration artifact). My first-draft 'gate over-strict' was an overclaim; corrected.
-WHY/DIR:  XGB is otherwise gate-worthy (positive IC, passes overall placebo + WF floor). The regime
-          wall is largely a gate-calibration sensitivity, not a clear model defect → direct evidence
-          for the operator's gate-doubt. Lever = the regime-placebo-ratio calibration at small IC.
-EVIDENCE: gate's own regime_diagnostics: per-regime mean_ic all positive, BULL_CALM/CHOPPY clear the
-          0.02 floor yet FAIL → placebo sub-check is the only possible cause (deductive; placebo
-          number not directly measured this run). `[VERIFIED — regime_diagnostics on fresh XGB]`
-NEXT:     NO gate change (measurement shows the gate is correct here). Research options: clean the
-          calm/choppy signal (feature/label work) OR regime-aware deployment trusting XGB where
-          placebo-clean (BEAR). No promotion/bypass.
+STATUS:   complete (diagnostic; no promotion, no bypass, no gate change)
+FINDING:  XGB's regime-sanity gate FAIL is correct. Measured with statistical
+          power on the dominant regime: in BULL_CALM (425 dates, the only
+          per-regime read with enough data to be reliable) XGB is WEAK — real IC
+          +0.0149 (below the 0.02 floor), and the placebo IC (+0.0229) exceeds
+          the real IC. BEAR/CHOPPY are intrinsically rare (50/40 dates) and
+          cannot be validated either way.
+CAVEAT:   XGB's aggregate real IC +0.054 is correct arithmetic but BEAR-inflated
+          — carried by a rare (50-date), implausibly high (+0.347), unvalidatable
+          regime. It is therefore a MISLEADING deployment signal for the regime
+          XGB would mostly trade in (BULL_CALM), where it is weak.
+GATE:     vindicated, not over-strict. It correctly catches that XGB's edge is
+          not robust in its operating regime. No bypass, no loosening.
+PATH:     research only — (1) strengthen the BULL_CALM cross-sectional signal
+          (feature/label work), or (2) regime-aware deployment that trades only
+          where the signal is validated. Both are research, not a gate change.
+NOTE:     Two earlier framings drafted while iterating on this — "gate is
+          over-strict / calibration-sensitive" and "XGB's edge is cleanly
+          BEAR-specific" — were superseded by the power test above and are NOT
+          current claims. See the research note for the measurement that retired
+          each.

@@ -1,104 +1,58 @@
-# BULL_CALM/CHOPPY regime wall — diagnostic for XGB (CORRECTED: the gate is right here)
+# BULL_CALM/CHOPPY regime wall — diagnostic for XGB
 
-XGB passed the WF Sharpe floor + the overall placebo + has positive real IC (+0.054) but FAILed the
-gate on regime-sanity IC (BULL_CALM, CHOPPY) + BULL_CALM monotonicity (#166). This diagnoses it.
+XGB passed the WF Sharpe floor + the overall placebo + has positive aggregate real
+IC (+0.054), but FAILed the gate on regime-sanity IC (BULL_CALM, CHOPPY) +
+BULL_CALM monotonicity (#166). This note diagnoses why, and lands on a single
+bounded stance.
 
-> **CORRECTION (this PR's own first draft was wrong).** I first framed the failure as "largely a
-> gate-calibration sensitivity, not a model defect." Then I **directly measured the per-regime
-> placebo** — and it refutes that. In BULL_CALM/CHOPPY the placebo IC **exceeds** the real IC, so
-> the gate fails them **correctly**: the model's calm/choppy signal is genuinely drift-/placebo-
-> entangled. Corrected finding below; trail kept because the measurement is what stopped a
-> "loosen-the-gate" overclaim.
+## Bounded conclusion (current, reliable)
+- **BULL_CALM is the only per-regime read with enough data to trust** (425 dates).
+  There, XGB is **weak**: real IC **+0.0149** (below the 0.02 floor) and the
+  shift-60 placebo (+0.0229) **exceeds** the real IC. This is reliable because
+  BULL_CALM is the dominant regime by sample size.
+- **BEAR/CHOPPY cannot be validated**: intrinsically rare (50/40 dates over ~2
+  years, with 60d-overlapping labels → a handful of independent observations).
+  The BEAR real IC of +0.347 is implausibly high for cross-sectional equity and
+  is not a claim this analysis can stand behind in either direction.
+- **The aggregate +0.054 is correct arithmetic but BEAR-inflated**, i.e. carried
+  by that rare, unvalidatable regime. So it is a **misleading deployment signal**
+  for the regime XGB would mostly operate in.
+- **The gate's regime-sanity FAIL is therefore correct** — it catches that XGB's
+  edge is not robust where it would trade. **No promotion, no bypass, no gate change.**
 
-## XGB per-regime IC + placebo (gate's own regime_diagnostics + regime_shift_diagnostics)
-Thresholds: n_dates>=30, mean_ic>=0.02, placebo |placebo60| <= max(0.005, 0.5*|aligned_real|).
+## Evidence — per-regime IC + placebo, with power
+Gate's own `regime_diagnostics` + `regime_shift_diagnostics` (shift 60). Thresholds:
+n_dates>=30, mean_ic>=0.02, placebo |placebo60| <= max(0.005, 0.5*|aligned_real|).
+Power read = recent-50% OOS window (534 dates):
 
-| regime | n | mean_ic | placebo60 | bar (0.5*aligned) | verdict |
-|---|---|---|---|---|---|
-| BEAR | 50 | +0.335 | +0.0993 | +0.173 | PASS (placebo << real) |
-| BULL_CALM | 399 | +0.0234 | +0.0266 | +0.0218 | FAIL (placebo > real IC) |
-| BULL_VOLATILE | 19 | +0.0254 | +0.0170 | +0.0160 | skipped (n<30) |
-| CHOPPY | 40 | +0.0256 | +0.0268 | +0.0146 | FAIL (placebo > real IC) |
-
-`[VERIFIED -- direct measurement, gate's regime_shift_diagnostics on the fresh XGB]`
-
-## The corrected finding
-- XGB has positive real IC in every regime -- but in BULL_CALM and CHOPPY the placebo IC is LARGER
-  than the real IC (0.0266 > 0.0234; 0.0268 > 0.0256). The model's ranking in calm/choppy markets
-  correlates with the drift-shifted label MORE than with the real forward label.
-- So the gate fails BULL_CALM/CHOPPY CORRECTLY -- the signal there is substantially slow-drift /
-  placebo, not clean cross-sectional alpha. This is a MODEL property, not a calibration artifact.
-- It is NOT just the 0.5x factor: even a much looser bar (placebo < 1.0*real) would still fail both.
-  The placebo exceeds the real IC outright.
-- Where XGB is genuinely clean: BEAR (real +0.335, placebo +0.099). Its overall +0.054 IC is real
-  but carried by BEAR; calm/choppy regimes are drift-entangled.
-
-## Honest correction of the first draft
-The "gate-calibration sensitivity / loosen the regime-placebo test" reading was an OVERCLAIM -- a
-hopeful story the direct placebo measurement does not support. There is NO calibration change to
-make here; proposing one would have been a bypass-via-calibration. Discarded.
-
-## What this means for the path
-- No promotion, no bypass, no gate loosening. The gate is doing its job for XGB in calm/choppy.
-- XGB's real, clean edge is regime-specific (BEAR). The lever is making the calm/choppy signal clean
-  (feature/label work for those regimes) OR a regime-aware deployment that trusts XGB only where its
-  signal is placebo-clean. Both are research, not a gate change.
-- The operator's gate-doubt, for XGB specifically: the regime gate is VINDICATED, not over-strict --
-  confirmed by measuring the placebo, not assuming.
-
----
-
-## SECOND CORRECTION (operator: "clean only in BEAR violates common sense → bug")
-
-Investigated the suspicious BEAR +0.335. Three checks:
-1. **Overall vs regime placebo shift:** both use shift 60 — no inconsistency bug.
-2. **Label-autocorrelation confound (my hypothesis):** REFUTED. Per-regime label self-autocorr
-   `corr(label_t, label_{t+60})`: BEAR **+0.183**, BULL_CALM **−0.049**, CHOPPY **+0.008**. It is
-   HIGHER in BEAR, the opposite of what would explain a calm/choppy placebo inflation.
-3. **BEAR = single episode?** ~5 contiguous episodes over 2024-08..2025-10, not 1.
-
-**Conclusion: the per-regime decomposition is UNRELIABLE, so no regime-specific claim holds.**
-- BEAR real_ic **+0.347** is implausibly high for cross-sectional equity, on a **small effective
-  sample** (50 dates × 60d-overlapping labels across ~5 episodes ≈ a handful of independent obs).
-  Likely a small-sample + beta-driven-bounce effect; cannot be cleanly validated here.
-- BULL_CALM/CHOPPY ICs (+0.023/+0.026) sit at the **per-date noise floor** (std ~0.13–0.16).
-- So **neither** "XGB's edge is BEAR-specific" **nor** "XGB is drift-entangled in calm/choppy" is a
-  reliable claim. **Both my earlier framings (this PR's draft 1 AND draft 2) overreached.**
-
-**Defensible result (aggregate, not regime split):** XGB overall real IC **+0.054**, PASSES the
-overall placebo, passes the WF Sharpe floor — genuinely positive (PatchTST was −0.02). The
-regime-sanity gate failure rides on a per-regime test whose instability (implausible BEAR IC) means
-it should not be over-interpreted in either direction. **No promotion, no bypass, no gate change.**
-
-**Honest status:** I did NOT find one definitive bug; the operator's instinct correctly flagged the
-regime result as untrustworthy, and chasing it prevented me standing behind a shaky conclusion. The
-real, reliable signal is the aggregate +0.054 + overall-placebo pass — that is what to build on.
-
----
-
-## THIRD measurement (power test) — the clarifying, reliable finding
-
-Re-measured per-regime over a larger OOS window (recent 50%, 534 dates) to add statistical power:
-
-| regime | n_dates | real_ic | placebo | reliability |
+| regime | n_dates | real_ic | placebo60 | reliability |
 |---|---|---|---|---|
-| BEAR | 50 | +0.347 | +0.098 | RARE — can't validate (implausible magnitude) |
-| **BULL_CALM** | **425** | **+0.0149** | +0.0229 | **RELIABLE (most data) — WEAK, below 0.02 floor, placebo > real** |
-| BULL_VOLATILE | 19 | +0.023 | +0.019 | rare |
-| CHOPPY | 40 | +0.026 | +0.029 | rare |
+| BEAR | 50 | +0.347 | +0.098 | RARE — implausible magnitude, cannot validate |
+| **BULL_CALM** | **425** | **+0.0149** | +0.0229 | **RELIABLE — weak, below floor, placebo > real** |
+| BULL_VOLATILE | 19 | +0.023 | +0.019 | rare (n<30, skipped) |
+| CHOPPY | 40 | +0.026 | +0.029 | rare — cannot validate |
 
-**Key:** BEAR/CHOPPY are intrinsically RARE (50/40 dates even over ~2 years) — more window doesn't
-add power there. But **BULL_CALM (the dominant regime, 425 dates) is reliable, and XGB is genuinely
-WEAK there**: real IC +0.0149 (below the 0.02 floor), placebo (+0.0229) exceeds real.
+`[VERIFIED — gate's regime diagnostics on the fresh XGB; power read over 534 OOS dates]`
 
-### Corrected synthesis (this supersedes "decomposition unreliable")
-- The per-regime read is reliable *for the dominant regime* (BULL_CALM, 425 dates): XGB is weak there.
-- XGB's aggregate **+0.054 is BEAR-inflated** — carried by a rare (50-date), implausibly-high
-  (+0.347), unvalidatable regime; the common regime where it would mostly trade (BULL_CALM) is weak.
-- **So the aggregate +0.054, while real arithmetic, is a misleading deployment signal.**
-- **The gate's regime-sanity FAIL is correct** — it catches that XGB's edge is not robust in the
-  regime it would actually operate in. Gate vindicated; no bypass, no loosening.
+Supporting check (operator flagged "clean only in BEAR violates common sense"):
+per-regime label self-autocorr `corr(label_t, label_{t+60})` is HIGHER in BEAR
+(+0.183) than BULL_CALM (−0.049)/CHOPPY (+0.008) — the opposite of what would
+explain a calm/choppy placebo inflation, which is part of why the BEAR number is
+treated as unvalidatable rather than as a clean edge.
 
-### Path to deploy XGB (both research, neither a bypass)
-1. Strengthen the BULL_CALM (calm-market) cross-sectional signal — feature/label work (the hard fix).
-2. Regime-aware deployment — trade only where validated (high-vol), accept rare trading.
+## Path to deploy XGB (both research, neither a bypass)
+1. **Strengthen the BULL_CALM cross-sectional signal** (feature/label work) — the
+   hard fix, and the one that matters because BULL_CALM is where it would trade.
+2. **Regime-aware deployment** — trade only where the signal is validated, accept
+   rarer trading.
+
+## Process trail (superseded — not current claims)
+While iterating I drafted two framings that the measurement above retired; recorded
+so the reasoning is auditable, but they are **not** the conclusion:
+- *"The gate is over-strict / this is calibration sensitivity at small IC."*
+  Retired: directly measuring the per-regime placebo showed it exceeds the real IC
+  in BULL_CALM/CHOPPY, so a calibration loosen would have been a bypass.
+- *"XGB's clean edge is BEAR-specific."* Retired: the BEAR IC is on too small/rare
+  a sample to validate; the only reliable per-regime statement is that BULL_CALM
+  is weak. The defensible result is the aggregate +0.054 **with** the caveat that
+  it is BEAR-inflated and not a robust calm-market edge.
