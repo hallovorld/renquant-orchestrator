@@ -153,6 +153,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="compute and emit the health record but do not post an ntfy alert",
     )
 
+    trading_health = sub.add_parser(
+        "daily-trading-health",
+        help="emit + persist a read-only daily trading-health record (account "
+        "trading / model health / cash deployment) and alert on a bad day",
+    )
+    trading_health.add_argument("--run-id", default=None)
+    trading_health.add_argument(
+        "--as-of", default=None, help="YYYY-MM-DD; defaults to today (UTC)"
+    )
+    trading_health.add_argument("--broker-name", default="readonly-alpaca")
+    trading_health.add_argument(
+        "--run-bundle", default=None, help="path to a daily run_bundle.json"
+    )
+    trading_health.add_argument(
+        "--account-snapshot", default=None, help="path to an account snapshot JSON"
+    )
+    trading_health.add_argument(
+        "--artifact-path", default=None, help="path to the live scorer artifact"
+    )
+    trading_health.add_argument("--ledger-db", default=None)
+    trading_health.add_argument(
+        "--no-persist", action="store_true", help="skip writing to the decision ledger"
+    )
+    trading_health.add_argument(
+        "--quiet", action="store_true", help="never send the ntfy alert"
+    )
+
     engineering_census = sub.add_parser(
         "engineering-census",
         help="emit reproducible engineering census metrics for docs/CI",
@@ -542,6 +569,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         emit_alert(health, topic=args.topic or DEFAULT_NTFY_TOPIC, quiet=args.quiet)
         print(json.dumps(health, indent=2, sort_keys=True))
         return 2 if health["alert"] else 0
+
+    if args.command == "daily-trading-health":
+        from .daily_trading_health import main as trading_health_main
+
+        trading_health_argv = ["--broker-name", args.broker_name]
+        if args.run_id:
+            trading_health_argv.extend(["--run-id", args.run_id])
+        if args.as_of:
+            trading_health_argv.extend(["--as-of", args.as_of])
+        if args.run_bundle:
+            trading_health_argv.extend(["--run-bundle", args.run_bundle])
+        if args.account_snapshot:
+            trading_health_argv.extend(["--account-snapshot", args.account_snapshot])
+        if args.artifact_path:
+            trading_health_argv.extend(["--artifact-path", args.artifact_path])
+        if args.ledger_db:
+            trading_health_argv.extend(["--ledger-db", args.ledger_db])
+        if args.no_persist:
+            trading_health_argv.append("--no-persist")
+        if args.quiet:
+            trading_health_argv.append("--quiet")
+        return trading_health_main(trading_health_argv)
     if args.command == "engineering-census":
         from .engineering_census import build_engineering_census
 
