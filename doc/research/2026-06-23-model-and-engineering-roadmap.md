@@ -68,14 +68,16 @@ cheapest-highest-evidence new-alpha bets.**
 
 ### Mid-term (2–6wk) — labels + signal diversity
 
-- **[NEW, HYPOTHESIS] Label engineering: trend-scanning + meta-labeling.** The 60d label's
-  drift IS the placebo. Trend-scanning labels are *cited* (secondary literature: Sharpe
-  +37% / Sortino ~2× in one comparison) — a hypothesis shortlist item, needing an in-repo
-  validation path before it earns priority, not a proven lever. Pair with **meta-labeling
-  as a conviction filter** on a *better* base signal (the prior meta-label "AUC 0.55" was on
-  a weak base). Attacks the drift-entangled-label root cause the docs flag (which only
-  proposed 20d, marginal). Run only after the residual audit says the label/neutralization
-  axis is where the edge hides.
+- **[TRIAL RUN — PROMISING, thin] Label engineering: trend-scanning (+ meta-labeling).** The
+  60d label's drift IS the placebo. A trend-scanning label (signed max-|t| forward-trend
+  t-stat) was run through the per-regime + placebo gate and is the **first in-repo label to
+  beat raw `fwd_60d_excess` on BULL_CALM placebo-clean IC (+0.0224 vs +0.0188)** — because its
+  placebo is much lower (less regime-persistence contamination), not because the raw signal is
+  stronger (it is weaker overall). Margin is thin and it costs overall IC, so this is a
+  **promote-to-validation**, not a deploy: next is the full production WF sanity + a sim
+  (portfolio P&L, not just IC). Full record: `doc/research/2026-06-23-trendscan-label-evidence.md`.
+  Pair with **meta-labeling as a conviction filter** on this better base signal (the prior
+  meta-label "AUC 0.55" was on a weak base) once it clears the full gate.
 - **[CONDITIONAL — behind the scorer-lineup reopen trigger] Diverse-signal ensemble.**
   `doc/decisions/2026-06-12-scorer-lineup-decision.md` shelved the ensemble and bars further
   ensemble work unless a reopen trigger fires (WF passes ensemble while failing the primary
@@ -156,9 +158,11 @@ momentum continuation, so neutralizing the label destroys the regime signal. Tha
 **orthogonal signals (analyst-revision fundamental-momentum)** as the remaining model bets;
 relabeling the same panel is spent. In parallel, **make the build emit a self-consistent
 bundle and the deploy atomic+reversible**, so model iteration stops paying the fragility tax
-we paid by hand all of 2026-06-23. Cheapest *remaining* first move on each track: a
-**drift-free-label trial** (model — in-repo, not yet run) and the **self-consistent bundle
-build** (engineering).
+we paid by hand all of 2026-06-23. Cheapest *remaining* first move on each track: the
+**drift-free-label trial** (model — now RUN: trend-scanning is the first label to beat raw on
+BULL_CALM placebo-clean, thin margin → promote to full gate + sim; see
+`doc/research/2026-06-23-trendscan-label-evidence.md`) and the **self-consistent bundle build**
+(engineering — now in PR as `model_bundle`).
 
 ## Sources (new directions)
 - Analyst-revision / fundamental-momentum alpha: [AlphaArchitect](https://alphaarchitect.com/economic-momentum/),
