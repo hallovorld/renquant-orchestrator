@@ -39,14 +39,19 @@ cheapest-highest-evidence new-alpha bets.**
 
 ### Short-term (days–2wk) — cheapest decisive moves on EXISTING data
 
-- **[NEW] Idiosyncratic-residual audit — the actual cheapest first move (no new data).**
-  The BULL_CALM symptom (placebo IC > real IC) is the textbook signature of *factor/drift
-  contamination*, not stock-selection alpha. Per-date OLS-residualize the label against
-  industry + log-mktcap (+ beta) and re-measure on the panel we already have: is the
-  *residual* predictable in BULL_CALM? This is a ~1-day measurement on in-repo data that
-  *decides the rest of the track*: if the residual is predictable → better neutralization
-  recovers the regime edge (cheap, local); if not → the technical set really is the ceiling
-  and only then is new data justified. Existing config neutralizes features but not the label.
+- **[DONE — REJECTED] Idiosyncratic-residual neutralization (was the cheapest first move).**
+  The BULL_CALM symptom (placebo IC ≈ real IC) is the textbook signature of *factor/drift
+  contamination*, so the cheap first test was: residualize the *label* against industry +
+  beta (+ trailing-momentum drift) and re-measure per regime on the panel we already have.
+  **Now run end-to-end and rejected by the per-regime WF gate.** A cheap *aggregate* audit
+  looked positive (resid OOS IC +0.0342 ≥ raw +0.0321), but the decisive *per-regime +
+  placebo* test reversed it: the momentum/drift-neutralized label **destroys** the BULL_CALM
+  signal (placebo-clean BULL_CALM IC raw **+0.0240** vs neutralized **−0.0291**) — in
+  BULL_CALM the edge *is* momentum continuation, so neutralizing it removes exactly what
+  works. The gate caught a cheap false positive. Full record (spec/data/folds/raw outputs):
+  `doc/research/2026-06-23-residual-neutralization-evidence.md`. **Consequence:** the cheap
+  in-repo neutralization lever is spent; new alpha now needs drift-free *labels* or acquired
+  data, not relabeling the same panel.
 
 #### Conditional bets (NOT cheap — gated on a data-acquisition prerequisite)
 
@@ -142,14 +147,17 @@ asset embeddings, Boyd rotation, hard-routed regime gate, raw 292-universe.
 ## 3. The one-paragraph thesis
 
 The current alpha158+fund × 60d-label stack has not yielded a robust placebo-clean
-BULL_CALM edge, so the *hypotheses* worth testing are **rigorous neutralization (predict
-the idiosyncratic residual)**, **drift-free labels**, and — *conditional on acquiring the
-data* — **orthogonal signals (analyst-revision fundamental-momentum)**. The residual audit
-decides which of these is real before we spend on data or architecture. In parallel,
-**make the build emit a self-consistent bundle and the deploy atomic+reversible**, so model
-iteration stops paying the fragility tax we paid by hand all of 2026-06-23. Cheapest first
-move on each track: the **idiosyncratic-residual audit** (model — in-repo data, no
-acquisition) and the **self-consistent bundle build** (engineering).
+BULL_CALM edge. The cheapest in-repo hypothesis — **rigorous neutralization (predict the
+idiosyncratic residual)** — has now been **tested and rejected** by the per-regime WF gate
+(`doc/research/2026-06-23-residual-neutralization-evidence.md`): in BULL_CALM the edge *is*
+momentum continuation, so neutralizing the label destroys the regime signal. That leaves
+**drift-free labels** (in-repo, untested) and — *conditional on acquiring the data* —
+**orthogonal signals (analyst-revision fundamental-momentum)** as the remaining model bets;
+relabeling the same panel is spent. In parallel, **make the build emit a self-consistent
+bundle and the deploy atomic+reversible**, so model iteration stops paying the fragility tax
+we paid by hand all of 2026-06-23. Cheapest *remaining* first move on each track: a
+**drift-free-label trial** (model — in-repo, not yet run) and the **self-consistent bundle
+build** (engineering).
 
 ## Sources (new directions)
 - Analyst-revision / fundamental-momentum alpha: [AlphaArchitect](https://alphaarchitect.com/economic-momentum/),
