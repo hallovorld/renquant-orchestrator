@@ -398,6 +398,19 @@ _JOBS: tuple[ScheduledJob, ...] = (
         umbrella_state_dependency="RenQuant live_state and trade logs",
     ),
     ScheduledJob(
+        job_id="weekly_promote_monitor",
+        kind="ops",
+        cadence="weekly",
+        command=["renquant-orchestrator", "run-job", "weekly_promote_monitor"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency=(
+            "RenQuant backtesting/renquant_104/artifacts/prod staging artifacts "
+            "and logs/weekly_wf_promote logs (read-only)"
+        ),
+    ),
+    ScheduledJob(
         job_id="state_backup",
         kind="ops",
         cadence="scheduled",

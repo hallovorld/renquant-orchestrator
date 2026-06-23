@@ -126,6 +126,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    weekly_promote = sub.add_parser(
+        "weekly-promote-health",
+        help="emit weekly model-promote chain liveness/health as JSON and alert on stale/errored runs",
+    )
+    weekly_promote.add_argument(
+        "--prod-artifacts-dir",
+        default=None,
+        help="override artifacts/prod dir; default <repo-root>/backtesting/renquant_104/artifacts/prod",
+    )
+    weekly_promote.add_argument(
+        "--promote-log-dir",
+        default=None,
+        help="override promote-log dir; default <repo-root>/logs/weekly_wf_promote",
+    )
+    weekly_promote.add_argument(
+        "--stale-after-days",
+        type=int,
+        default=None,
+        help="staleness tolerance in days; default STALE_AFTER_DAYS",
+    )
+    weekly_promote.add_argument("--topic", default=None, help="ntfy topic for alerts")
+    weekly_promote.add_argument(
+        "--quiet",
+        action="store_true",
+        help="compute and emit the health record but do not post an ntfy alert",
+    )
+
     trading_health = sub.add_parser(
         "daily-trading-health",
         help="emit + persist a read-only daily trading-health record (account "
@@ -524,6 +551,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.strict and health["summary"]["red_job_count"]:
             return 2
         return 0
+    if args.command == "weekly-promote-health":
+        from .weekly_promote_monitor import (
+            DEFAULT_NTFY_TOPIC,
+            STALE_AFTER_DAYS,
+            build_weekly_promote_health,
+            emit_alert,
+        )
+
+        health = build_weekly_promote_health(
+            prod_artifacts_dir=args.prod_artifacts_dir,
+            promote_log_dir=args.promote_log_dir,
+            stale_after_days=(
+                args.stale_after_days if args.stale_after_days is not None else STALE_AFTER_DAYS
+            ),
+        )
+        emit_alert(health, topic=args.topic or DEFAULT_NTFY_TOPIC, quiet=args.quiet)
+        print(json.dumps(health, indent=2, sort_keys=True))
+        return 2 if health["alert"] else 0
+
     if args.command == "daily-trading-health":
         from .daily_trading_health import main as trading_health_main
 
