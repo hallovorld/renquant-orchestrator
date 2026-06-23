@@ -68,20 +68,24 @@ cheapest-highest-evidence new-alpha bets.**
 
 ### Mid-term (2–6wk) — labels + signal diversity
 
-- **[TRIAL RUN — REJECTED on P&L] Label engineering: trend-scanning.** A trend-scanning label
-  *beat* raw on BULL_CALM placebo-clean IC (3/3 seeds), but that metric proved untrustworthy here
-  (wide shuffled null +0.036±0.046; the embargo-gap hypothesis was tested and refuted). The
-  decisive **portfolio-P&L** test reversed it: top-quintile names selected by the trend-scan model
-  realize **lower** forward returns than raw **in every regime, incl BULL_CALM** (raw +0.134/Sh1.22
-  vs trend-scan +0.099/Sh0.94). Full record: `doc/research/2026-06-23-trendscan-label-evidence.md`.
-- **[TRACK CONCLUSION] The cheap in-repo relabel/reweight axis is EXHAUSTED.** All three cheap
-  levers — neutralization, fundamental-momentum, trend-scanning — were triaged and **all three fail
-  the decisive P&L test** vs the incumbent raw-label model. Stop spending on cheap relabeling. The
-  remaining model-edge gains need the **expensive** moves (new alpha data / new architecture); but
-  the cheaper, higher-expected-value reallocation is **construction** (next bullet + §1 long-term):
-  the 2026-06-23 book was 78% cash and sized backwards vs upside — a *construction* failure, not a
-  signal failure, and the larger live loss. Meta-labeling, if used, attaches as a conviction/sizing
-  filter on the **raw** model (the P&L winner), not as a new base label.
+- **[TRIAL RUN — INCONCLUSIVE; harness underpowered] Label engineering: trend-scanning.** Every
+  metric disagreed: placebo-clean IC → trend-scan better (but the IC null is leaky, +0.036±0.046, and
+  the embargo-gap explanation was tested and refuted); naive portfolio-P&L → raw better; **hardened
+  P&L (90d embargo + non-overlapping 60d rebal + 10bps cost) → a WASH** (BULL_CALM raw +0.162/Sh1.80
+  vs trend-scan +0.114/Sh2.21, n=10; ALL tied). With n≈10 non-overlapping windows + the leakage floor,
+  trend-scan and raw are **statistically indistinguishable** — no demonstrable edge in either direction.
+  Full record: `doc/research/2026-06-23-trendscan-label-evidence.md`.
+- **[TRACK CONCLUSION] No demonstrable cheap in-repo model edge — and this harness can't decide.** The
+  three cheap levers (neutralization, fundamental-momentum, trend-scanning) yielded **no measurable
+  improvement** over the incumbent raw-label model (first two clearly negative; trend-scanning a wash).
+  Two takeaways: (1) the cheap "relabel/reweight the same panel" axis has **no demonstrable payoff** —
+  stop spending on it; (2) this in-repo harness is **underpowered** (a +0.036 shuffled-IC leakage floor,
+  n≈10 non-overlapping windows, a simplified recipe ≠ the production pipeline), so it is the wrong
+  instrument to adjudicate marginal model changes — deciding one needs the real pipeline + a powered,
+  costed backtest. Either way the cheaper, **unambiguous** live-P&L lever is **construction** (next bullet
+  + §1 long-term): the 2026-06-23 book was 78% cash and sized backwards vs upside — a *construction*
+  failure, not a signal failure, and the larger live loss. Meta-labeling, if used, attaches as a
+  conviction/sizing filter on the **raw** model, not as a new base label.
 - **[CONDITIONAL — behind the scorer-lineup reopen trigger] Diverse-signal ensemble.**
   `doc/decisions/2026-06-12-scorer-lineup-decision.md` shelved the ensemble and bars further
   ensemble work unless a reopen trigger fires (WF passes ensemble while failing the primary
@@ -163,11 +167,12 @@ momentum continuation, so neutralizing the label destroys the regime signal. Tha
 relabeling the same panel is spent. In parallel, **make the build emit a self-consistent
 bundle and the deploy atomic+reversible**, so model iteration stops paying the fragility tax
 we paid by hand all of 2026-06-23. Model-track update: the **drift-free-label trial is RUN and
-REJECTED on P&L** — trend-scanning beat raw on placebo-clean IC but loses on realized portfolio
-returns in every regime (see `doc/research/2026-06-23-trendscan-label-evidence.md`), completing the
-exhaustion of the cheap-relabeling axis (all 3 levers fail). The remaining cheap, high-value move
-is therefore **construction** (QP sizing by conviction), and on the engineering track the
-**self-consistent bundle build**
+INCONCLUSIVE** — trend-scanning beat raw on placebo-clean IC but the verdict flipped with every
+metric and dissolved into noise under a hardened (embargo + non-overlap + cost) P&L test (n≈10;
+see `doc/research/2026-06-23-trendscan-label-evidence.md`). Net: no demonstrable cheap in-repo edge
+from any of the 3 levers, AND the in-repo harness is underpowered to decide marginal model changes.
+The cheaper, **unambiguous** live-P&L move is therefore **construction** (QP sizing by conviction),
+and on the engineering track the **self-consistent bundle build**
 (engineering — now in PR as `model_bundle`).
 
 ## Sources (new directions)

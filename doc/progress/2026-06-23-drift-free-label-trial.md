@@ -1,16 +1,16 @@
-# Drift-free (trend-scanning) label trial — REJECTED
+# Drift-free (trend-scanning) label trial — INCONCLUSIVE (harness underpowered)
 
-STATUS:   merge-pending (PR #176). Research result; trend-scanning REJECTED on the decisive (P&L) test.
-WHAT:     a trend-scanning label through the per-regime + placebo WF gate, + 3-seed robustness, a
-          label-shuffle/embargo control, and a portfolio-P&L backtest. Full numbers:
+STATUS:   merge-pending (PR #176). Research result: no demonstrable cheap in-repo edge; harness can't decide.
+WHAT:     a trend-scanning label through the per-regime gate + 3-seed robustness + label-shuffle/embargo
+          controls + naive AND hardened (embargo+non-overlap+cost) portfolio-P&L. Full record:
           doc/research/2026-06-23-trendscan-label-evidence.md.
-WHY-DIR:  neutralization (rejected) left drift-free labels as the next cheap in-repo model lever; triage it.
-EVIDENCE: trend-scan beat raw on BULL_CALM placebo-clean IC (3/3 seeds) — BUT that metric is
-          untrustworthy (wide shuffled null +0.036±0.046; embargo-gap hypothesis tested & REFUTED).
-          The leakage-robust portfolio-P&L test REVERSES it: top-20% selected by trend-scan realizes
-          LOWER fwd_60d_excess than raw in EVERY regime incl BULL_CALM (raw +0.134/Sh1.22 vs
-          trend-scan +0.099/Sh0.94). `[VERIFIED — gate+seed+shuffle+embargo+portfolio sim]`
-NEXT:     drop the cheap-relabeling axis (all 3 levers — neutralization, fundamental-momentum,
-          trend-scanning — now fail on P&L). Reallocate model effort to cost/capacity-aware
-          CONSTRUCTION (QP sizing by conviction; the 06-23 book was 78% cash, sized backwards), then
-          expensive new-data/architecture. NOT a deploy.
+WHY-DIR:  neutralization (rejected) left drift-free labels as the next cheap in-repo lever; triage it.
+EVIDENCE: every metric disagrees — placebo-IC → trend-scan better (but null is leaky +0.036±0.046,
+          embargo hypothesis REFUTED); naive P&L → raw better; HARDENED P&L (90d embargo + non-overlap
+          60d rebal + 10bps cost) → a WASH (BULL_CALM raw +0.162/Sh1.80 vs trend-scan +0.114/Sh2.21,
+          n=10; ALL tied). With n≈10 + the leakage floor the two are statistically indistinguishable.
+          `[VERIFIED — gate+seed+shuffle+embargo+naive&hardened P&L]`
+NEXT:     stop adjudicating marginal model levers with this underpowered harness (need the real
+          production pipeline + a powered costed backtest). The 3 cheap relabel levers show no
+          measurable payoff -> reallocate to CONSTRUCTION (QP sizing by conviction; 06-23 book 78% cash,
+          sized backwards = the unambiguous, larger live loss). NOT a deploy.

@@ -2,15 +2,16 @@
 
 STATUS:   evidence artifact for the model-capability roadmap. Self-contained, path-pinned,
           reproducible. Companion to `2026-06-23-residual-neutralization-evidence.md`.
-RESULT:   **REJECTED on the decisive test.** Trend-scanning looked better than raw on
-          BULL_CALM placebo-clean IC (3/3 seeds), but that metric is untrustworthy here (wide
-          shuffled null). The leakage-robust **portfolio-P&L test** (below) reverses it: selecting
-          the top quintile by the trend-scan model realizes **LOWER** forward excess return than
-          selecting by the raw model **in every regime, including BULL_CALM** (BULL_CALM top-20%
-          alpha raw **+0.134** / Sharpe 1.22 vs trend-scan **+0.099** / 0.94; ALL +0.130 vs
-          +0.098). The "edge" was an IC-metric artifact; on realized P&L trend-scan is worse. So
-          all three cheap in-repo label/feature levers (neutralization, fundamental-momentum,
-          trend-scanning) are now rejected on the metric that pays.
+RESULT:   **INCONCLUSIVE — the harness is underpowered to decide.** Every metric gives a
+          different verdict: placebo-clean IC → trend-scan better (but the IC null is leaky/wide);
+          naive portfolio-P&L (overlapping, no cost) → raw better; **HARDENED P&L (90d embargo +
+          non-overlapping 60d rebalance + 10bps cost) → a WASH** (BULL_CALM raw +0.162/Sh1.80 vs
+          trend-scan +0.114/Sh**2.21**, n=10; ALL tied; trend-scan better in BULL_VOL). With only
+          n≈10 non-overlapping windows and a +0.036 shuffled-IC leakage floor, trend-scan and raw
+          are **statistically indistinguishable**. There is **no demonstrable cheap in-repo edge in
+          either direction** — not proof the levers are bad, but proof this harness cannot measure a
+          marginal label change. (Earlier drafts of this doc over-claimed first "promising" then
+          "rejected"; the baseline-credibility stress test corrected both.)
 
 After the momentum/drift-neutralization retrain was rejected
 (`2026-06-23-residual-neutralization-evidence.md`), the roadmap's next untested in-repo model
@@ -116,7 +117,7 @@ placebo` **cancels a shared floor** present equally in both terms. The stability
 survives. The absolute "~+0.019" must be re-measured against a proper empirical multi-shuffle null
 before any weight is put on it.
 
-## Decisive test — portfolio P&L (since absolute IC is untrustworthy)
+## Portfolio P&L — naive vs hardened (since absolute IC is untrustworthy)
 
 The IC null is wide and untrustworthy, so the deciding question is economic: **does selecting
 names by the trend-scan model realize better forward returns than selecting by the raw model?**
@@ -131,34 +132,47 @@ selected names — no IC null, no shuffle issue. Script:
 | **raw** label model       | +0.130 / 0.90 | **+0.134 / 1.22** | +0.456 / 4.31 | +0.094 / 0.59 |
 | **trend-scan** label model | +0.098 / 0.88 | **+0.099 / 0.94** | +0.318 / 3.67 | +0.074 / 0.66 |
 
-**Raw beats trend-scan on realized selection P&L in EVERY regime, including BULL_CALM.** The
-trend-scan label sacrifices direct forward-return targeting for "drift-free-ness", which flattered
-the placebo-clean IC but **picks lower-realized-return names**. (Caveats: 60d holding periods
-overlap so the annualized Sharpe is indicative; no costs / whole-share / 5-name-book constraints —
-but the comparison is apples-to-apples, and the gap is consistent across all regimes, so the
-*relative* verdict is robust.)
+This **naive** sim (above) suggested raw beats trend-scan everywhere — but it OVERLAPS holding
+periods, charges no cost, and uses no embargo, so it inflates both the magnitude and the apparent
+separation. **Baseline-credibility stress test** (`scripts/experiments/2026-06-23-trendscan-hardened-pnl.py`):
+re-run with a **90-day embargo + NON-overlapping 60d rebalances + 10bps cost**:
 
-## Conclusion (honest) — REJECTED
+| HARDENED top-20% alpha (mean / ann-Sharpe, n) | ALL | BULL_CALM | BULL_VOL |
+|---|---|---|---|
+| **raw**        | +0.066 / 0.50 (n24) | +0.162 / 1.80 (n10) | −0.062 / −0.44 (n12) |
+| **trend-scan** | +0.067 / 0.62 (n24) | +0.114 / **2.21** (n10) | −0.009 / −0.07 (n12) |
 
-The trend-scan "edge" was an artifact of the untrustworthy placebo-clean IC metric. On the metric
-that pays — realized portfolio P&L — **trend-scanning is worse than the raw label in every regime**.
-It joins neutralization and fundamental-momentum as a **rejected** cheap in-repo lever.
+The clean separation **evaporates**: tied on ALL, raw higher *mean* in BULL_CALM but trend-scan
+higher *Sharpe*, trend-scan *better* in BULL_VOL — all on **n≈10** non-overlapping windows. The
+two are **statistically indistinguishable**, and the +16% magnitudes on n=10 are noise, not a
+credible baseline.
 
-**Track-level conclusion:** all three cheap in-repo label/feature levers have now been triaged and
-**all three fail the decisive (P&L) test**. The cheap "relabel/reweight the same panel" axis for
-beating the incumbent raw-label model is **exhausted**. Genuine model gains now require the
-expensive moves (new alpha data / new architecture), OR — per the roadmap — the leverage shifts to
-**engineering + construction** (the 2026-06-23 book was 78% cash and sized backwards vs upside: a
-*construction* failure, not a signal failure), which is cheaper and was the larger live loss.
+## Conclusion (honest) — INCONCLUSIVE; the harness is underpowered
+
+The three metrics disagree (placebo-IC → trend-scan; naive P&L → raw; hardened P&L → wash), and
+under proper rigor the sample (n≈10 non-overlapping windows) plus the +0.036 shuffled-IC leakage
+floor leave trend-scan and raw **indistinguishable**. **There is no demonstrable cheap in-repo edge
+in either direction** — this is *not* proof the levers are bad, it is proof this in-repo harness
+**cannot reliably measure a marginal label change**.
+
+**Track-level conclusion:** the three cheap in-repo levers (neutralization, fundamental-momentum,
+trend-scanning) yielded **no measurable improvement** over the incumbent raw-label model — neutralization
+and fundamental-momentum looked clearly negative, trend-scanning is a wash. So the cheap "relabel/
+reweight the same panel" axis has **no demonstrable payoff**, and — separately — this harness is the
+wrong instrument to adjudicate marginal model changes (need the real production pipeline + a properly
+powered, costed backtest). Either way: stop spending here. The cheaper, **unambiguous** live-P&L
+lever is **construction** (the 2026-06-23 book was 78% cash and sized backwards vs upside — a
+construction failure, not a signal failure, and the larger live loss).
 
 ## Decision
 
-- **Drop trend-scanning** (and the cheap-relabeling axis) as a model-edge lever.
-- Reallocate the model-track effort to: (a) cost/capacity-aware **construction** (QP sizing by
-  conviction, not share price) — cheapest expected live P&L gain; (b) only then the expensive
-  new-data / new-architecture bets. Do NOT spend more on cheap in-repo relabeling.
-- Meta-labeling as a *conviction/sizing* filter on the **raw** model (the P&L winner) may still
-  help precision — but that is a construction/filter question, not a new base label.
+- **Stop adjudicating marginal model levers with this in-repo harness** — it is underpowered (leakage
+  floor + n≈10 + simplified recipe ≠ production). To decide a model change, reproduce the real
+  production pipeline + a properly-powered costed backtest.
+- **Reallocate to construction** (QP sizing by conviction, not share price) — cheapest *unambiguous*
+  live-P&L gain — before any expensive new-data / new-architecture bet.
+- Meta-labeling, if used, attaches as a conviction/sizing filter on the **raw** model, not as a new
+  base label.
 
 ## Reproducibility
 
@@ -168,6 +182,7 @@ RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-seed-robustne
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-label-shuffle.py        # shuffle control
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-shuffle-control.py       # raw-vs-ts shuffle
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-embargo-test.py          # embargo refutation
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-hardened-pnl.py          # baseline stress test (embargo+non-overlap+cost)
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-portfolio-sim.py         # DECISIVE P&L test
 ```
 Run from the `RenQuant` umbrella root. Read-only on data; writes no canonical/production path.
