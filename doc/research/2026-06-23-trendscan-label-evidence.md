@@ -5,12 +5,12 @@ STATUS:   evidence artifact for the model-capability roadmap. Self-contained, pa
 RESULT:   trend-scanning's *relative* edge is robust — it beats raw `fwd_60d_excess` on BULL_CALM
           placebo-clean in **3/3 seeds** (mean +0.0149) and is **far more stable** (raw's
           placebo-clean is seed-noise around zero). BUT a label-shuffle control (added below)
-          exposes a **wide, leaky null** in this quick harness (~+0.04 shuffled IC, almost
-          certainly a train/test embargo gap on the 60d label) → **absolute IC magnitudes from
-          this harness are NOT trustworthy**; only the relative/stability result and the
-          placebo-clean *difference* (which cancels the shared floor) survive. This is a
-          **promote-to-the-PROPER-gate** result (full production WF sanity with correct embargo
-          + a multi-shuffle null + a sim), NOT a validated edge and NOT a deploy.
+          exposes a **wide, mildly-positive null** in this quick harness (shuffled ALL-IC
+          +0.036 ± 0.046; the embargo-gap hypothesis was tested and REFUTED, cause undetermined)
+          → **absolute IC magnitudes from this harness are NOT trustworthy**; only the relative/
+          stability result and the placebo-clean *difference* (which cancels the shared floor)
+          survive. This is a **promote-to-the-PROPER-gate** result (full production WF sanity
+          + a multi-shuffle empirical null + a sim), NOT a validated edge and NOT a deploy.
 
 After the momentum/drift-neutralization retrain was rejected
 (`2026-06-23-residual-neutralization-evidence.md`), the roadmap's next untested in-repo model
@@ -95,22 +95,26 @@ raw returns — it must collapse to ~0. It does **not**. Scripts:
 | trend-scan (run 2) | +0.0371 | +0.0478 |
 | raw (control)      | +0.0479 | +0.0437 |
 
-Two findings:
-- **Shared, not trend-scan-specific:** the RAW label shuffles to the same ~+0.04 floor, so it is
-  a property of the FEATURES/cuts (it inflates the raw label and the production model too), not a
+Findings:
+- **Shared, not trend-scan-specific:** the RAW label shuffles to the same floor, so it is a
+  property of the FEATURES/cuts (it inflates the raw label and the production model too), not a
   defect of the trend-scan label.
-- **The single-shuffle null is very wide** (trend-scan BULL_CALM −0.002 vs +0.048 across two
-  shuffles): a single shuffle is too noisy to be a clean pass/fail, and the ~+0.04 floor is almost
-  certainly a **train/test embargo gap** — the cuts use a ~1-month gap for a **60-day-forward**
-  label, so ~30 days of training labels overlap the test window. **This gap exists in the
-  production `scripts/walk_forward_sanity.py` cuts too** — an engineering finding worth fixing
-  (embargo ≥ label horizon; estimate the shuffled null over many shuffles, not one).
+- **The shuffled null is WIDE and mildly positive.** A 5-shuffle multi-seed null (script
+  `scripts/experiments/2026-06-23-trendscan-embargo-test.py`): raw shuffled ALL-IC = **+0.0360
+  ± 0.0457**, trend-scan **+0.0409 ± 0.0462**. The std (~0.046) is as large as the mean — a single
+  shuffle is useless as a pass/fail, and absolute IC must be judged against this ~+0.036 null, not 0.
+- **The embargo-gap hypothesis was TESTED and REFUTED.** I suspected the floor was a train/test
+  embargo gap (the cuts use a ~1-month gap for a 60-day-forward label). Re-running the 5-shuffle
+  null **with a 90-day embargo** barely moved it (raw +0.0360 → **+0.0367**; trend-scan +0.0409 →
+  +0.0286, within noise). So the floor is **NOT** the embargo gap; its cause is **undetermined**
+  (a feature/measurement bias, not boundary label leakage). I have no confirmed fix, so I claim none.
 
-**Consequence:** the **absolute** IC magnitudes from this quick harness are NOT trustworthy.
-What survives is (a) the **relative** result — trend-scan beats raw across seeds — and (b) the
-**placebo-clean difference**, because `real − placebo` **cancels a shared leakage floor** that
-appears equally in both terms. The stability result also survives. The absolute "~+0.019" should
-be re-measured under a proper-embargo, multi-shuffle gate before any weight is put on it.
+**Consequence (direction unchanged):** the **absolute** IC magnitudes from this quick harness are
+NOT trustworthy — they sit on a wide ~+0.036 null. What survives is (a) the **relative** result
+(trend-scan beats raw across seeds) and (b) the **placebo-clean difference**, because `real −
+placebo` **cancels a shared floor** present equally in both terms. The stability result also
+survives. The absolute "~+0.019" must be re-measured against a proper empirical multi-shuffle null
+before any weight is put on it.
 
 ## Conclusion (honest)
 
@@ -134,12 +138,12 @@ seeds, +0.0149 mean).
 - **Graduate trend-scanning to the PROPER gate** — not a deploy. The quick harness has done its
   job (cheap triage: neutralization rejected, fundamental-momentum rejected, trend-scan is the one
   survivor on the contamination-robust metric). Before any further weight:
-  1. **Fix the gate embargo** (≥ label horizon) and estimate the label-shuffle null over *many*
-     shuffles, then re-measure trend-scan vs raw placebo-clean under the corrected gate;
-  2. run the **full production WF sanity** (`scripts/walk_forward_sanity.py`, with the embargo fix)
-     on the trend-scan label;
-  3. then a **sim** (portfolio P&L / Sharpe, not IC) to see whether the cleaner-but-smaller signal
-     is a net win net of the overall-IC cost.
+  1. **Establish the empirical multi-shuffle null** (the floor is ~+0.036 ± 0.046, cause
+     undetermined — the embargo-gap hypothesis was refuted) and re-measure trend-scan vs raw
+     placebo-clean *against that null*, not against 0;
+  2. run the **full production WF sanity** (`scripts/walk_forward_sanity.py`) on the trend-scan label;
+  3. then a **sim** (portfolio P&L / Sharpe, not IC) — the decisive test, since absolute IC is
+     untrustworthy here; P&L does not depend on the IC null.
 - This is a **promote-to-validation** decision, NOT a deploy decision.
 - Pairs naturally with **meta-labeling** as a conviction filter once the base label clears the
   corrected gate.
