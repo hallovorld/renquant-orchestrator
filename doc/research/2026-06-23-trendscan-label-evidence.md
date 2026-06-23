@@ -2,12 +2,15 @@
 
 STATUS:   evidence artifact for the model-capability roadmap. Self-contained, path-pinned,
           reproducible. Companion to `2026-06-23-residual-neutralization-evidence.md`.
-RESULT:   trend-scanning BEATS the raw `fwd_60d_excess` label on BULL_CALM placebo-clean IC
-          **in all 3 seeds** (mean +0.0149 advantage) and is **far more stable** — raw's
-          placebo-clean is seed-noise around zero (mean +0.0038), trend-scan is reliably
-          ~+0.019. Its absolute placebo-clean averages +0.0187 (hits the +0.02 bar in 2/3
-          seeds). Promote to the full gate + a sim, NOT to deploy. (The single-seed headline
-          "+0.0224 vs +0.0188" below overstated the raw baseline — see Seed robustness.)
+RESULT:   trend-scanning's *relative* edge is robust — it beats raw `fwd_60d_excess` on BULL_CALM
+          placebo-clean in **3/3 seeds** (mean +0.0149) and is **far more stable** (raw's
+          placebo-clean is seed-noise around zero). BUT a label-shuffle control (added below)
+          exposes a **wide, leaky null** in this quick harness (~+0.04 shuffled IC, almost
+          certainly a train/test embargo gap on the 60d label) → **absolute IC magnitudes from
+          this harness are NOT trustworthy**; only the relative/stability result and the
+          placebo-clean *difference* (which cancels the shared floor) survive. This is a
+          **promote-to-the-PROPER-gate** result (full production WF sanity with correct embargo
+          + a multi-shuffle null + a sim), NOT a validated edge and NOT a deploy.
 
 After the momentum/drift-neutralization retrain was rejected
 (`2026-06-23-residual-neutralization-evidence.md`), the roadmap's next untested in-repo model
@@ -79,6 +82,36 @@ This **changes the framing** (and corrects the seed-42 headline):
   / +0.0115 / +0.0223, mean +0.0187).
 - Absolute bar: trend-scan clears +0.02 in **2/3** seeds; mean +0.0187 is just under +0.02.
 
+## Label-shuffle control — exposes a wide, leaky null (important caveat)
+
+The third production-sanity control (after A/A=seed-stability and time-shift=the gate's placebo)
+is **label-shuffle**: shuffle the training label within each date, retrain, measure OOS IC vs
+raw returns — it must collapse to ~0. It does **not**. Scripts:
+`scripts/experiments/2026-06-23-trendscan-label-shuffle.py` and `...-shuffle-control.py`.
+
+| shuffled label | ALL IC | BULL_CALM IC |
+|----------------|--------|--------------|
+| trend-scan (run 1) | +0.0201 | −0.0024 |
+| trend-scan (run 2) | +0.0371 | +0.0478 |
+| raw (control)      | +0.0479 | +0.0437 |
+
+Two findings:
+- **Shared, not trend-scan-specific:** the RAW label shuffles to the same ~+0.04 floor, so it is
+  a property of the FEATURES/cuts (it inflates the raw label and the production model too), not a
+  defect of the trend-scan label.
+- **The single-shuffle null is very wide** (trend-scan BULL_CALM −0.002 vs +0.048 across two
+  shuffles): a single shuffle is too noisy to be a clean pass/fail, and the ~+0.04 floor is almost
+  certainly a **train/test embargo gap** — the cuts use a ~1-month gap for a **60-day-forward**
+  label, so ~30 days of training labels overlap the test window. **This gap exists in the
+  production `scripts/walk_forward_sanity.py` cuts too** — an engineering finding worth fixing
+  (embargo ≥ label horizon; estimate the shuffled null over many shuffles, not one).
+
+**Consequence:** the **absolute** IC magnitudes from this quick harness are NOT trustworthy.
+What survives is (a) the **relative** result — trend-scan beats raw across seeds — and (b) the
+**placebo-clean difference**, because `real − placebo` **cancels a shared leakage floor** that
+appears equally in both terms. The stability result also survives. The absolute "~+0.019" should
+be re-measured under a proper-embargo, multi-shuffle gate before any weight is put on it.
+
 ## Conclusion (honest)
 
 Trend-scanning's real value is **stability and low contamination**, not a big absolute IC. The
@@ -89,26 +122,34 @@ is exactly the drift-free property we wanted, and the **relative** edge over raw
 seeds, +0.0149 mean).
 
 **But do not overclaim:**
-- The **absolute** placebo-clean (mean +0.0187) is **just under the +0.02 bar** (clears it 2/3 seeds).
+- **Absolute IC magnitudes from this harness are not trustworthy** (the label-shuffle null is wide
+  and sits at a ~+0.04 leakage floor; see above). Only the *relative* result and the placebo-clean
+  *difference* (which cancels the shared floor) are safe to lean on.
 - It **trades overall IC** for cleaner/stabler regime signal — at the portfolio level that may or
   may not be a net win; only a **sim** decides.
 - One label spec (signed max-|t| over two forward windows), one dataset/period.
-- It has **not** been through the full production WF sanity (A/A + label-shuffle) nor a backtest/sim.
 
 ## Decision
 
-- **Graduate trend-scanning to the next validation stage** (the cheapest in-repo lever that has
-  NOT failed): run the full production WF sanity suite on the trend-scan label, then a sim that
-  measures portfolio P&L / Sharpe (not just IC) to see whether the cleaner-but-smaller signal is
-  a net win net of the overall-IC cost. Only then consider a gated retrain/deploy.
+- **Graduate trend-scanning to the PROPER gate** — not a deploy. The quick harness has done its
+  job (cheap triage: neutralization rejected, fundamental-momentum rejected, trend-scan is the one
+  survivor on the contamination-robust metric). Before any further weight:
+  1. **Fix the gate embargo** (≥ label horizon) and estimate the label-shuffle null over *many*
+     shuffles, then re-measure trend-scan vs raw placebo-clean under the corrected gate;
+  2. run the **full production WF sanity** (`scripts/walk_forward_sanity.py`, with the embargo fix)
+     on the trend-scan label;
+  3. then a **sim** (portfolio P&L / Sharpe, not IC) to see whether the cleaner-but-smaller signal
+     is a net win net of the overall-IC cost.
 - This is a **promote-to-validation** decision, NOT a deploy decision.
-- Pairs naturally with **meta-labeling** as a conviction filter (a stronger base signal than the
-  prior AUC-0.55 meta-label) — a follow-up once the base trend-scan label clears the full gate.
+- Pairs naturally with **meta-labeling** as a conviction filter once the base label clears the
+  corrected gate.
 
 ## Reproducibility
 
 ```
-RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-wf-gate.py          # gate
-RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-seed-robustness.py   # 3-seed check
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-wf-gate.py            # gate
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-seed-robustness.py     # 3-seed A/A
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-label-shuffle.py        # shuffle control
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-shuffle-control.py       # raw-vs-ts shuffle
 ```
 Run from the `RenQuant` umbrella root. Read-only on data; writes no canonical/production path.
