@@ -1,8 +1,10 @@
 # Workstream: model edge (the binding problem)
 
-STATUS:   active. 2026-06-21: XGB gated — POSITIVE real IC +0.054, PASSES placebo + WF-floor,
-          beats SPY 1/3; FAILs only BULL_CALM/CHOPPY regime-sanity + monotonicity. Strongest model
-          of the session; NOT promoted (gate FAIL, never bypass). Lever = the BULL_CALM regime wall.
+STATUS:   active. 2026-06-21: XGB gated — POSITIVE aggregate real IC +0.054, PASSES the overall
+          placebo + WF-floor, beats SPY 1/3; FAILs regime-sanity (BULL_CALM/CHOPPY) + BULL_CALM
+          monotonicity. NOT promoted (gate FAIL, never bypass). The regime failure is substantive,
+          not a formality: the dominant regime (BULL_CALM) is reliably weak and the aggregate is
+          BEAR-inflated (see #167); not characterised as "the only wall left".
 GOAL:     a PatchTST model with **positive real cross-sectional IC** that passes the WF gate.
 NEXT:     pruning NOT closed (prereg ≥2-seeds/arm NOT fully run — Exp A single-seed). Defensible:
           Exp B recipe shows no stable edge across 2 seeds; no promotable model. Before closing or
