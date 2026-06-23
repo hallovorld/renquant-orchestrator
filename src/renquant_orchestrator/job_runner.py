@@ -12,6 +12,7 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "daily_alpha158_linear_retrain": "renquant_orchestrator.retrain_alpha158_linear",
     "market_anomaly_retrain_trigger": "renquant_orchestrator.anomaly_triggers",
     "weekly_apy_monitor": "renquant_orchestrator.weekly_apy_monitor",
+    "weekly_promote_monitor": "renquant_orchestrator.weekly_promote_monitor",
     "state_backup": "renquant_orchestrator.state_backup",
     "native_live_parity_fixture": "renquant_orchestrator.live_parity",
     "native_live_payload_parity_fixture": "renquant_orchestrator.live_parity_payloads",
