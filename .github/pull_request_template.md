@@ -1,0 +1,12 @@
+<!-- Keep this body SHORT. The durable detail lives in doc/progress/<date>-<slug>.md. -->
+
+## What
+<one paragraph — what changed and why, in brief>
+
+## Checklist (repo contract)
+- [ ] **Added `doc/progress/<date>-<slug>.md`** — STATUS / WHAT / WHY-DIR / EVIDENCE / NEXT (~12 lines; end EVIDENCE with a `` `[VERIFIED — ...]` `` tag). **Required — CI (`require-progress-doc`) enforces it.**
+- [ ] The progress doc is the **single durable record** — this PR body and any `doc/research/` artifact are **not** duplicated into it.
+- [ ] Tests pass (`make test`), or this is docs-only (say so).
+- [ ] English throughout; no live production inputs touched; not self-merged (Codex reviews).
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
