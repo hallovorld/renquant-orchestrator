@@ -1,9 +1,12 @@
 # XGB (panel-LTR alpha158_fund) pipeline rigor audit — for XGB-to-prod (operator P0)
 
-Operator directed (2026-06-21): XGB → prod primary, PatchTST → shadow, retrain XGB on latest
+Operator directed (2026-06-21): pursue XGB → prod primary, PatchTST → shadow, retrain XGB on latest
 data, **self-audit the pipeline's scientific rigor**, and if it passes, run daily-full once to
-validate E2E. This is the self-audit. **Verdict: the pipeline is rigorous; the +0.04 OOS IC is
-honest.** (Reverses the XGB veto — LONG ledger #3, by operator decision.)
+validate E2E. This is the self-audit. **Verdict: the training pipeline's METHOD is rigorous; the
++0.04 OOS IC is honest.** This validates the method, **not** production-readiness: the fresh XGB
+subsequently **FAILED the WF promotion gate** (#166 regime-sanity + monotonicity; #167 BULL_CALM
+weak, aggregate BEAR-inflated). The operator lifted the XGB pitch-veto (LONG #3); that is a decision
+to reconsider XGB, not a verdict that it cleared the bar.
 
 ## What was audited (the scientific-validity questions)
 
@@ -39,7 +42,12 @@ while PatchTST (the weaker extractor here) moves to shadow for continued develop
 3. **The prod swap touches live money** (config `panel_scoring.kind` hf_patchtst → xgb). Done
    deliberately, backed up, after this audit, with the E2E daily-full validation the operator asked for.
 
-## Next (the P0 sequence)
-1. Retrain XGB on latest data (back up current artifact first).
-2. Swap prod `panel_scoring.kind` → xgb; PatchTST → shadow.
-3. Run daily-full once → validate E2E (does it now produce buys?).
+## Outcome (the P0 sequence was run)
+1. Retrained XGB on latest data (artifact backed up). ✅
+2. Gated it through the production WF gate → **FAILED** (regime-sanity + monotonicity); **NOT
+   promoted** — see #166. The config swap was applied then reverted to git-known-good; live config clean.
+3. Regime failure diagnosed (bounded) in #167: BULL_CALM weak, aggregate BEAR-inflated, gate correct.
+
+So the rigor audit stands (method is sound), but it does **not** clear XGB for production. Any
+production use is operator real-money discretion behind the `mu_floor` conviction gate (pipeline
+#140), not a gate pass. Durable goal: strengthen the calm-market signal (Path 1).

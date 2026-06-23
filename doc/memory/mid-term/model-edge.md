@@ -12,5 +12,7 @@ EVIDENCE: partial (final doc 2026-06-21): all completed runs FAIL. Exp B aligned
           floored placebo threshold is ill-conditioned here; corpus was sparse (4-cutoff, speed);
           audit placebo (shift-60-rows) mismatched the gate's 120d shift; BULL_CALM monotonicity
           undiagnosed. `[VERIFIED — /tmp/exp_{A,B,B45}_gate.log + self-audit, ephemeral]`
-CONSTRAINT: 2026-06-21 operator PIVOT — XGB → prod primary (rigor-audited: purged-WF-CV +60d
-          embargo, honest +0.04 OOS IC); PatchTST → shadow (still under development). LONG #3/#4 reversed.
+CONSTRAINT: 2026-06-21 operator lifted the XGB pitch-veto (LONG #3) and directed PatchTST → shadow.
+          The XGB training method is rigor-audited (purged-WF-CV +60d embargo, honest +0.04 OOS IC),
+          but the fresh XGB FAILED the WF gate (#166/#167) — so "XGB → prod" is operator-discretion
+          behind the mu_floor conviction gate (#140), NOT a gate pass. Neither model passes the gate yet.
