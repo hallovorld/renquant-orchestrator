@@ -1,0 +1,24 @@
+name: require-progress-doc
+
+# Hard repo contract: every PR must carry a durable doc/progress/<date>-<slug>.md
+# record. This fails the PR in CI if it is missing, so the convention does not depend
+# on anyone remembering it.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  progress-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a doc/progress record
+        run: |
+          git diff --name-only \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            | tee /dev/stderr \
+            | python3 scripts/require_progress_doc.py
