@@ -11,15 +11,16 @@ limited to them — new directions are flagged **[NEW]** with the evidence.
 
 Two facts from the historical record + the 2026-06-23 live deploy:
 
-1. **The technical-feature × 60d-label combo is exhausted.** alpha158 + light
-   fundamentals on `fwd_60d_excess` has been pushed hard — feature pruning, σ-wire,
-   macro overlay, asset embeddings, multi-horizon, PatchTST DOE (70/81 trials hit a
-   structural ceiling), 4 architectures — and there is **no robust placebo-clean edge
-   in BULL_CALM**, the regime the market sits in ~78% of the time. The docs already
-   note "60d slow persistence IS the placebo" and "alpha158+fund is the constraint;
-   would require an alternate data source." → **Incremental model/feature tweaks on the
-   same data+label are a dead end. The frontier is new ALPHA SOURCES, better LABELS, and
-   rigorous NEUTRALIZATION.**
+1. **One specific stack has been exhausted — not "incremental tweaks" in general.**
+   The narrow, repo-supported claim: **the current alpha158+light-fundamentals feature
+   set on the current `fwd_60d_excess` label family has not produced a robust
+   placebo-clean BULL_CALM edge**, despite extensive work on that stack (feature pruning,
+   σ-wire, macro overlay, asset embeddings, multi-horizon, PatchTST DOE 70/81 trials,
+   4 architectures). The docs note "60d slow persistence IS the placebo" and "alpha158+fund
+   is the constraint; would require an alternate data source." This is evidence that *this
+   stack* is tapped, which motivates exploring **new alpha sources, better labels, and
+   rigorous neutralization** — as hypotheses to validate in-repo, NOT a proven verdict that
+   all incremental work is dead.
 
 2. **Engineering fragility taxes every model iteration.** The 2026-06-23 XGB deploy hit
    *four* consistency guards in PROD — WF-metadata absent, calibrator/scorer fingerprint
@@ -36,39 +37,47 @@ cheapest-highest-evidence new-alpha bets.**
 
 ## 1. MODEL CAPABILITY
 
-### Short-term (days–2wk) — cheap, high-evidence, new orthogonal signal
+### Short-term (days–2wk) — cheapest decisive moves on EXISTING data
 
-- **[NEW] Analyst-revision / fundamental-momentum factor.** Estimate-revision momentum is
-  one of the best-documented cross-sectional signals: a standardized analyst-sentiment
-  framework shows a **+13.6% annualized alpha after the Fama-French 6 factors**, and AQR
-  runs it as "fundamental momentum" alongside price momentum; revisions are *more
-  persistent than returns*. We *empirically* saw it bite on 2026-06-23 — analyst
-  target-implied upside diverged sharply from the model's sizing. Insider-trade and raw
-  sentiment were tried and rejected, but **revision momentum specifically has not been**.
-  Build it as a feature (estimate Δ, rating-change, target-price drift, margin trend) and
-  measure per-regime placebo-clean IC. *Success: BULL_CALM placebo-clean IC ≥ +0.02
-  standalone or as an additive lift.*
-- **[NEW] Idiosyncratic-residual audit.** The BULL_CALM symptom (placebo IC > real IC) is
-  the textbook signature of *factor/drift contamination*, not stock-selection alpha. Do a
-  per-date OLS residualization of the label against industry + log-mktcap (+ beta) and
-  re-measure: is the *residual* predictable in BULL_CALM? This is a 1-day measurement that
-  tells us whether the regime weakness is "no idiosyncratic alpha" (then we need new data)
-  or "alpha buried under drift/factor" (then better neutralization recovers it). Existing
-  config has `neutralize_features` but the label is not residualized.
+- **[NEW] Idiosyncratic-residual audit — the actual cheapest first move (no new data).**
+  The BULL_CALM symptom (placebo IC > real IC) is the textbook signature of *factor/drift
+  contamination*, not stock-selection alpha. Per-date OLS-residualize the label against
+  industry + log-mktcap (+ beta) and re-measure on the panel we already have: is the
+  *residual* predictable in BULL_CALM? This is a ~1-day measurement on in-repo data that
+  *decides the rest of the track*: if the residual is predictable → better neutralization
+  recovers the regime edge (cheap, local); if not → the technical set really is the ceiling
+  and only then is new data justified. Existing config neutralizes features but not the label.
+
+#### Conditional bets (NOT cheap — gated on a data-acquisition prerequisite)
+
+- **[NEW, CONDITIONAL] Analyst-revision / fundamental-momentum factor.** *This is an
+  external-data acquisition project, not a local feature experiment* — the repo has no
+  committed estimate-revision data source, ingestion contract, or licensing path. **Prereq:
+  decide + commit a source (e.g. the financial-analysis MCP / a vendor feed) with a
+  repeatable build path.** The *hypothesis* is strong (estimate-revision momentum shows
+  ~+13.6% FF6-adjusted alpha in the literature; AQR's "fundamental momentum"; revisions are
+  more persistent than returns; it diverged from the model's sizing live on 06-23), but it
+  is a hypothesis to validate after acquisition, not a cheap first move. *Success (post-build):
+  BULL_CALM placebo-clean IC ≥ +0.02 standalone or as an additive lift.*
 
 ### Mid-term (2–6wk) — labels + signal diversity
 
-- **[NEW] Label engineering: trend-scanning + meta-labeling.** The 60d label's drift IS
-  the placebo. Trend-scanning labels (look-forward best-fit trend t-stat) gave the
-  strongest uplift in the literature comparison (**Sharpe +37%, Sortino ~2×**) vs modest
-  triple-barrier. Pair with **meta-labeling as a conviction filter** on a *better* base
-  signal (the prior meta-label "AUC 0.55" was on a weak base). This directly attacks the
-  drift-entangled-label root cause the docs flag but only proposed 20d (marginal) for.
-- **[NEW] Diverse-signal ensemble (not diverse-architecture).** The shelved ensemble was
-  two models on the *same* features. The win is orthogonality of *signal*: combine
-  (a) technical XGB, (b) the analyst-revision factor, (c) the residual-reversal signal —
-  consensus-gated (ties into the merged conviction gate + the trade-review skill). Diverse
-  signals beat diverse models.
+- **[NEW, HYPOTHESIS] Label engineering: trend-scanning + meta-labeling.** The 60d label's
+  drift IS the placebo. Trend-scanning labels are *cited* (secondary literature: Sharpe
+  +37% / Sortino ~2× in one comparison) — a hypothesis shortlist item, needing an in-repo
+  validation path before it earns priority, not a proven lever. Pair with **meta-labeling
+  as a conviction filter** on a *better* base signal (the prior meta-label "AUC 0.55" was on
+  a weak base). Attacks the drift-entangled-label root cause the docs flag (which only
+  proposed 20d, marginal). Run only after the residual audit says the label/neutralization
+  axis is where the edge hides.
+- **[CONDITIONAL — behind the scorer-lineup reopen trigger] Diverse-signal ensemble.**
+  `doc/decisions/2026-06-12-scorer-lineup-decision.md` shelved the ensemble and bars further
+  ensemble work unless a reopen trigger fires (WF passes ensemble while failing the primary
+  retrain; shadow dominates primary ≥1 quarter; sustained BULL_CALM losses). So this is NOT
+  a normal mid-term track — it is a *future conditional branch*: IF a reopen trigger fires,
+  the right form is orthogonality of *signal* (technical XGB + the analyst-revision factor +
+  a residual-reversal signal, consensus-gated via the merged conviction gate / trade-review
+  skill), not the same-features fusion that was shelved.
 - **BULL_CALM specialist** (existing Track C, kept) — but trained to predict the
   *neutralized residual* with the new features, not raw 60d excess.
 
@@ -132,14 +141,15 @@ asset embeddings, Boyd rotation, hard-routed regime gate, raw 292-universe.
 
 ## 3. The one-paragraph thesis
 
-The model has squeezed what the technical-feature × 60d-label combo holds; the next real
-edge is **orthogonal data (analyst-revision fundamental-momentum)**, a **drift-free label
-(trend-scanning + meta-labeling)**, and **rigorous neutralization to predict the
-idiosyncratic residual** — that, not another architecture, is how BULL_CALM gets an edge.
-In parallel, **make the build emit a self-consistent bundle and the deploy atomic+
-reversible**, so model iteration stops paying the fragility tax we paid by hand all of
-2026-06-23. Cheapest first move on each track: the **analyst-revision factor** (model) and
-the **self-consistent bundle build** (engineering).
+The current alpha158+fund × 60d-label stack has not yielded a robust placebo-clean
+BULL_CALM edge, so the *hypotheses* worth testing are **rigorous neutralization (predict
+the idiosyncratic residual)**, **drift-free labels**, and — *conditional on acquiring the
+data* — **orthogonal signals (analyst-revision fundamental-momentum)**. The residual audit
+decides which of these is real before we spend on data or architecture. In parallel,
+**make the build emit a self-consistent bundle and the deploy atomic+reversible**, so model
+iteration stops paying the fragility tax we paid by hand all of 2026-06-23. Cheapest first
+move on each track: the **idiosyncratic-residual audit** (model — in-repo data, no
+acquisition) and the **self-consistent bundle build** (engineering).
 
 ## Sources (new directions)
 - Analyst-revision / fundamental-momentum alpha: [AlphaArchitect](https://alphaarchitect.com/economic-momentum/),
