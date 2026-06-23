@@ -78,12 +78,13 @@ match the live "+0.0149, placebo > real" claim. That gap is a measurement/period
 
 ## Decision for the roadmap
 
-- **Drop neutralization-retrain as a model lever.** The sector+beta+momentum residual axis is
-  tested and rejected for the regime it was meant to fix.
-- The remaining model frontier is unchanged in *shape* but re-ordered: drift-free **labels**
-  (trend-scanning + meta-labeling) and — *conditional on data acquisition* — the
-  **analyst-revision** factor. Neither is a "cheap in-repo first move" any more; the cheap
-  in-repo lever has now been spent on this axis.
+- **Drop THIS neutralization-retrain spec.** The specific sector+beta+momentum(ROC60) label
+  residualization is tested and rejected for the regime it was meant to fix. This is strong
+  evidence against this class of momentum/drift-neutralized labels in BULL_CALM — it is **not**
+  proof that every in-repo relabeling is dead (other neutralizers / drift-free labels untested).
+- The remaining model frontier: drift-free **labels** (trend-scanning + meta-labeling — still
+  in-repo, untested) and — *conditional on data acquisition* — the **analyst-revision**
+  factor. The cheapest test on the neutralization axis specifically has been spent.
 - Engineering track (self-consistent bundle + atomic deploy) is unaffected and remains the
   parallel force-multiplier.
 

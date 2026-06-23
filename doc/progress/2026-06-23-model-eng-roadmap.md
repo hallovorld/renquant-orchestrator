@@ -25,7 +25,8 @@ EVIDENCE: existing-plan survey (Explore agent over RenQuant/orchestrator/model d
           are in the path-pinned record `doc/research/2026-06-23-residual-neutralization-
           evidence.md` (scripts under `scripts/experiments/2026-06-23-*`).
           `[VERIFIED — survey + sources + experiment record]`
-NEXT:     cheapest-first MODEL move (residual neutralization) is SPENT — tested, rejected.
-          Remaining model frontier: drift-free labels (in-repo) and, conditional on a
-          committed data source, the analyst-revision factor; ensemble stays behind the
+NEXT:     this residual-neutralization PATH is rejected (tested) — strong evidence against
+          momentum/drift-neutralized labels in BULL_CALM, NOT a verdict that all in-repo
+          relabeling is closed. Remaining model frontier: drift-free labels (in-repo, untested)
+          and, conditional on a committed data source, the analyst-revision factor; behind the
           reopen trigger. cheapest-first ENG move = self-consistent bundle build (unaffected).

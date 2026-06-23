@@ -49,9 +49,10 @@ cheapest-highest-evidence new-alpha bets.**
   signal (placebo-clean BULL_CALM IC raw **+0.0240** vs neutralized **−0.0291**) — in
   BULL_CALM the edge *is* momentum continuation, so neutralizing it removes exactly what
   works. The gate caught a cheap false positive. Full record (spec/data/folds/raw outputs):
-  `doc/research/2026-06-23-residual-neutralization-evidence.md`. **Consequence:** the cheap
-  in-repo neutralization lever is spent; new alpha now needs drift-free *labels* or acquired
-  data, not relabeling the same panel.
+  `doc/research/2026-06-23-residual-neutralization-evidence.md`. **Consequence:** this tested
+  residual-neutralization path is rejected (strong evidence against momentum/drift-neutralized
+  labels in BULL_CALM) — not a verdict that *all* in-repo relabeling is closed; the next cheap
+  in-repo bet is drift-free *labels* (untested), with acquired data still the conditional path.
 
 #### Conditional bets (NOT cheap — gated on a data-acquisition prerequisite)
 
