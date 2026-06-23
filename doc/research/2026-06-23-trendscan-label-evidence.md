@@ -2,10 +2,12 @@
 
 STATUS:   evidence artifact for the model-capability roadmap. Self-contained, path-pinned,
           reproducible. Companion to `2026-06-23-residual-neutralization-evidence.md`.
-RESULT:   trend-scanning is the **first in-repo label to BEAT the raw `fwd_60d_excess` label on
-          the metric that matters** — BULL_CALM placebo-clean IC **+0.0224 vs raw +0.0188** —
-          but the margin is **thin** and it **costs overall IC**. Promote to the full gate +
-          a sim, NOT to deploy.
+RESULT:   trend-scanning BEATS the raw `fwd_60d_excess` label on BULL_CALM placebo-clean IC
+          **in all 3 seeds** (mean +0.0149 advantage) and is **far more stable** — raw's
+          placebo-clean is seed-noise around zero (mean +0.0038), trend-scan is reliably
+          ~+0.019. Its absolute placebo-clean averages +0.0187 (hits the +0.02 bar in 2/3
+          seeds). Promote to the full gate + a sim, NOT to deploy. (The single-seed headline
+          "+0.0224 vs +0.0188" below overstated the raw baseline — see Seed robustness.)
 
 After the momentum/drift-neutralization retrain was rejected
 (`2026-06-23-residual-neutralization-evidence.md`), the roadmap's next untested in-repo model
@@ -53,24 +55,45 @@ this harness, raw vs trend-scan is apples-to-apples (same data, same gate).
 - raw label:        +0.0323 − 0.0135 = **+0.0188**
 - trend-scan label: +0.0182 − (−0.0042) = **+0.0224**  (≥ the +0.02 bar AND ≥ raw)
 
-Per-cut detail: `doc/research/2026-06-23-trendscan-wf-gate.csv`.
+Per-cut detail: `doc/research/2026-06-23-trendscan-wf-gate.csv`. **The single-seed numbers above
+are seed-42; read them with the seed-robustness check below — the raw baseline is seed-lucky.**
+
+## Seed robustness (the thin margin demanded this)
+
+The +0.0036 single-seed margin is small, so the gate was re-run across seeds {42,43,44}
+(BULL_CALM placebo-clean, raw vs trend-scan). Script:
+`scripts/experiments/2026-06-23-trendscan-seed-robustness.py`.
+
+| seed | raw placebo-clean | trend-scan placebo-clean | trend-scan − raw |
+|------|-------------------|--------------------------|------------------|
+| 42   | +0.0188           | +0.0224                  | +0.0036          |
+| 43   | **−0.0105**       | +0.0115                  | +0.0220          |
+| 44   | +0.0032           | +0.0223                  | +0.0191          |
+| mean | **+0.0038**       | **+0.0187**              | **+0.0149**      |
+
+This **changes the framing** (and corrects the seed-42 headline):
+- Trend-scan beats raw on BULL_CALM placebo-clean in **3/3 seeds**, and the mean advantage
+  (+0.0149) is much larger than the seed-42 margin (+0.0036).
+- The seed-42 **raw** baseline (+0.0188) was lucky-high: raw's placebo-clean is essentially
+  **seed-noise around zero** (mean +0.0038, one seed negative). Trend-scan is **stable** (+0.0224
+  / +0.0115 / +0.0223, mean +0.0187).
+- Absolute bar: trend-scan clears +0.02 in **2/3** seeds; mean +0.0187 is just under +0.02.
 
 ## Conclusion (honest)
 
-Trend-scanning is the **first in-repo lever to beat the raw label on BULL_CALM placebo-clean
-IC** (+0.0224 vs +0.0188). The win is **not** from a stronger raw signal — the trend-scan
-*real* IC is lower everywhere (ALL +0.047 vs +0.067; BULL_CALM +0.018 vs +0.032). It wins
-because its **placebo is much lower** (BULL_CALM placebo −0.004 vs +0.014): the label carries
-**less regime-persistence contamination**, so a larger *fraction* of its (smaller) signal is
-real. That is exactly the drift-free property we wanted.
+Trend-scanning's real value is **stability and low contamination**, not a big absolute IC. The
+raw label's BULL_CALM placebo-clean is seed-noise (mean +0.0038, sign-flips by seed); the
+trend-scan label is reliably ~+0.019 across seeds — because its **placebo is much lower** (less
+regime-persistence contamination), so a larger *fraction* of its (smaller) signal is real. That
+is exactly the drift-free property we wanted, and the **relative** edge over raw is robust (3/3
+seeds, +0.0149 mean).
 
 **But do not overclaim:**
-- The margin over raw is **thin** (+0.0036 placebo-clean).
-- It **trades overall IC** for cleaner regime signal — at the portfolio level that may or may
-  not be a net win; only a sim decides.
+- The **absolute** placebo-clean (mean +0.0187) is **just under the +0.02 bar** (clears it 2/3 seeds).
+- It **trades overall IC** for cleaner/stabler regime signal — at the portfolio level that may or
+  may not be a net win; only a **sim** decides.
 - One label spec (signed max-|t| over two forward windows), one dataset/period.
-- It has **not** been through the full production WF sanity (A/A + label-shuffle + time-shift)
-  nor a backtest/sim.
+- It has **not** been through the full production WF sanity (A/A + label-shuffle) nor a backtest/sim.
 
 ## Decision
 
@@ -85,6 +108,7 @@ real. That is exactly the drift-free property we wanted.
 ## Reproducibility
 
 ```
-RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-wf-gate.py
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-wf-gate.py          # gate
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-seed-robustness.py   # 3-seed check
 ```
 Run from the `RenQuant` umbrella root. Read-only on data; writes no canonical/production path.

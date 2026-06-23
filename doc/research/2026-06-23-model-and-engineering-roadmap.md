@@ -68,16 +68,18 @@ cheapest-highest-evidence new-alpha bets.**
 
 ### Mid-term (2–6wk) — labels + signal diversity
 
-- **[TRIAL RUN — PROMISING, thin] Label engineering: trend-scanning (+ meta-labeling).** The
-  60d label's drift IS the placebo. A trend-scanning label (signed max-|t| forward-trend
-  t-stat) was run through the per-regime + placebo gate and is the **first in-repo label to
-  beat raw `fwd_60d_excess` on BULL_CALM placebo-clean IC (+0.0224 vs +0.0188)** — because its
-  placebo is much lower (less regime-persistence contamination), not because the raw signal is
-  stronger (it is weaker overall). Margin is thin and it costs overall IC, so this is a
-  **promote-to-validation**, not a deploy: next is the full production WF sanity + a sim
-  (portfolio P&L, not just IC). Full record: `doc/research/2026-06-23-trendscan-label-evidence.md`.
-  Pair with **meta-labeling as a conviction filter** on this better base signal (the prior
-  meta-label "AUC 0.55" was on a weak base) once it clears the full gate.
+- **[TRIAL RUN — PROMISING (stable, not large)] Label engineering: trend-scanning (+ meta-labeling).**
+  The 60d label's drift IS the placebo. A trend-scanning label (signed max-|t| forward-trend
+  t-stat) run through the per-regime + placebo gate **beats raw `fwd_60d_excess` on BULL_CALM
+  placebo-clean in 3/3 seeds** (mean advantage +0.0149). Its value is **stability + low
+  contamination**, not a big absolute IC: raw's placebo-clean is seed-noise around zero (mean
+  +0.0038, sign-flips by seed) while trend-scan is reliably ~+0.019 (clears the +0.02 bar 2/3
+  seeds) — because its placebo is much lower, not because the raw signal is stronger (it is
+  weaker overall, so it costs overall IC). Promote-to-validation, NOT deploy: next is the full
+  production WF sanity + a **sim** (portfolio P&L, not just IC), which decides whether the
+  stabler-but-smaller signal is a net win. Full record (incl. 3-seed robustness):
+  `doc/research/2026-06-23-trendscan-label-evidence.md`. Pair with **meta-labeling as a
+  conviction filter** on this better base signal once it clears the full gate.
 - **[CONDITIONAL — behind the scorer-lineup reopen trigger] Diverse-signal ensemble.**
   `doc/decisions/2026-06-12-scorer-lineup-decision.md` shelved the ensemble and bars further
   ensemble work unless a reopen trigger fires (WF passes ensemble while failing the primary
