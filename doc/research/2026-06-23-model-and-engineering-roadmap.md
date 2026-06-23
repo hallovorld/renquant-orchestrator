@@ -68,18 +68,20 @@ cheapest-highest-evidence new-alpha bets.**
 
 ### Mid-term (2–6wk) — labels + signal diversity
 
-- **[TRIAL RUN — PROMISING (stable, not large)] Label engineering: trend-scanning (+ meta-labeling).**
-  The 60d label's drift IS the placebo. A trend-scanning label (signed max-|t| forward-trend
-  t-stat) run through the per-regime + placebo gate **beats raw `fwd_60d_excess` on BULL_CALM
-  placebo-clean in 3/3 seeds** (mean advantage +0.0149). Its value is **stability + low
-  contamination**, not a big absolute IC: raw's placebo-clean is seed-noise around zero (mean
-  +0.0038, sign-flips by seed) while trend-scan is reliably ~+0.019 (clears the +0.02 bar 2/3
-  seeds) — because its placebo is much lower, not because the raw signal is stronger (it is
-  weaker overall, so it costs overall IC). Promote-to-validation, NOT deploy: next is the full
-  production WF sanity + a **sim** (portfolio P&L, not just IC), which decides whether the
-  stabler-but-smaller signal is a net win. Full record (incl. 3-seed robustness):
-  `doc/research/2026-06-23-trendscan-label-evidence.md`. Pair with **meta-labeling as a
-  conviction filter** on this better base signal once it clears the full gate.
+- **[TRIAL RUN — REJECTED on P&L] Label engineering: trend-scanning.** A trend-scanning label
+  *beat* raw on BULL_CALM placebo-clean IC (3/3 seeds), but that metric proved untrustworthy here
+  (wide shuffled null +0.036±0.046; the embargo-gap hypothesis was tested and refuted). The
+  decisive **portfolio-P&L** test reversed it: top-quintile names selected by the trend-scan model
+  realize **lower** forward returns than raw **in every regime, incl BULL_CALM** (raw +0.134/Sh1.22
+  vs trend-scan +0.099/Sh0.94). Full record: `doc/research/2026-06-23-trendscan-label-evidence.md`.
+- **[TRACK CONCLUSION] The cheap in-repo relabel/reweight axis is EXHAUSTED.** All three cheap
+  levers — neutralization, fundamental-momentum, trend-scanning — were triaged and **all three fail
+  the decisive P&L test** vs the incumbent raw-label model. Stop spending on cheap relabeling. The
+  remaining model-edge gains need the **expensive** moves (new alpha data / new architecture); but
+  the cheaper, higher-expected-value reallocation is **construction** (next bullet + §1 long-term):
+  the 2026-06-23 book was 78% cash and sized backwards vs upside — a *construction* failure, not a
+  signal failure, and the larger live loss. Meta-labeling, if used, attaches as a conviction/sizing
+  filter on the **raw** model (the P&L winner), not as a new base label.
 - **[CONDITIONAL — behind the scorer-lineup reopen trigger] Diverse-signal ensemble.**
   `doc/decisions/2026-06-12-scorer-lineup-decision.md` shelved the ensemble and bars further
   ensemble work unless a reopen trigger fires (WF passes ensemble while failing the primary
@@ -160,10 +162,12 @@ momentum continuation, so neutralizing the label destroys the regime signal. Tha
 **orthogonal signals (analyst-revision fundamental-momentum)** as the remaining model bets;
 relabeling the same panel is spent. In parallel, **make the build emit a self-consistent
 bundle and the deploy atomic+reversible**, so model iteration stops paying the fragility tax
-we paid by hand all of 2026-06-23. Cheapest *remaining* first move on each track: the
-**drift-free-label trial** (model — now RUN: trend-scanning is the first label to beat raw on
-BULL_CALM placebo-clean, thin margin → promote to full gate + sim; see
-`doc/research/2026-06-23-trendscan-label-evidence.md`) and the **self-consistent bundle build**
+we paid by hand all of 2026-06-23. Model-track update: the **drift-free-label trial is RUN and
+REJECTED on P&L** — trend-scanning beat raw on placebo-clean IC but loses on realized portfolio
+returns in every regime (see `doc/research/2026-06-23-trendscan-label-evidence.md`), completing the
+exhaustion of the cheap-relabeling axis (all 3 levers fail). The remaining cheap, high-value move
+is therefore **construction** (QP sizing by conviction), and on the engineering track the
+**self-consistent bundle build**
 (engineering — now in PR as `model_bundle`).
 
 ## Sources (new directions)

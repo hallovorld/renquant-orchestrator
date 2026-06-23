@@ -2,15 +2,15 @@
 
 STATUS:   evidence artifact for the model-capability roadmap. Self-contained, path-pinned,
           reproducible. Companion to `2026-06-23-residual-neutralization-evidence.md`.
-RESULT:   trend-scanning's *relative* edge is robust — it beats raw `fwd_60d_excess` on BULL_CALM
-          placebo-clean in **3/3 seeds** (mean +0.0149) and is **far more stable** (raw's
-          placebo-clean is seed-noise around zero). BUT a label-shuffle control (added below)
-          exposes a **wide, mildly-positive null** in this quick harness (shuffled ALL-IC
-          +0.036 ± 0.046; the embargo-gap hypothesis was tested and REFUTED, cause undetermined)
-          → **absolute IC magnitudes from this harness are NOT trustworthy**; only the relative/
-          stability result and the placebo-clean *difference* (which cancels the shared floor)
-          survive. This is a **promote-to-the-PROPER-gate** result (full production WF sanity
-          + a multi-shuffle empirical null + a sim), NOT a validated edge and NOT a deploy.
+RESULT:   **REJECTED on the decisive test.** Trend-scanning looked better than raw on
+          BULL_CALM placebo-clean IC (3/3 seeds), but that metric is untrustworthy here (wide
+          shuffled null). The leakage-robust **portfolio-P&L test** (below) reverses it: selecting
+          the top quintile by the trend-scan model realizes **LOWER** forward excess return than
+          selecting by the raw model **in every regime, including BULL_CALM** (BULL_CALM top-20%
+          alpha raw **+0.134** / Sharpe 1.22 vs trend-scan **+0.099** / 0.94; ALL +0.130 vs
+          +0.098). The "edge" was an IC-metric artifact; on realized P&L trend-scan is worse. So
+          all three cheap in-repo label/feature levers (neutralization, fundamental-momentum,
+          trend-scanning) are now rejected on the metric that pays.
 
 After the momentum/drift-neutralization retrain was rejected
 (`2026-06-23-residual-neutralization-evidence.md`), the roadmap's next untested in-repo model
@@ -116,37 +116,49 @@ placebo` **cancels a shared floor** present equally in both terms. The stability
 survives. The absolute "~+0.019" must be re-measured against a proper empirical multi-shuffle null
 before any weight is put on it.
 
-## Conclusion (honest)
+## Decisive test — portfolio P&L (since absolute IC is untrustworthy)
 
-Trend-scanning's real value is **stability and low contamination**, not a big absolute IC. The
-raw label's BULL_CALM placebo-clean is seed-noise (mean +0.0038, sign-flips by seed); the
-trend-scan label is reliably ~+0.019 across seeds — because its **placebo is much lower** (less
-regime-persistence contamination), so a larger *fraction* of its (smaller) signal is real. That
-is exactly the drift-free property we wanted, and the **relative** edge over raw is robust (3/3
-seeds, +0.0149 mean).
+The IC null is wide and untrustworthy, so the deciding question is economic: **does selecting
+names by the trend-scan model realize better forward returns than selecting by the raw model?**
+Per WF cut and model, each test date take the **top quintile (20%) by predicted score**,
+equal-weight; the portfolio's **alpha** = mean realized `fwd_60d_excess` of the held names minus
+the universe mean that date (market-neutral selection skill). This uses REALIZED returns of the
+selected names — no IC null, no shuffle issue. Script:
+`scripts/experiments/2026-06-23-trendscan-portfolio-sim.py`; per-date CSV alongside.
 
-**But do not overclaim:**
-- **Absolute IC magnitudes from this harness are not trustworthy** (the label-shuffle null is wide
-  and sits at a ~+0.04 leakage floor; see above). Only the *relative* result and the placebo-clean
-  *difference* (which cancels the shared floor) are safe to lean on.
-- It **trades overall IC** for cleaner/stabler regime signal — at the portfolio level that may or
-  may not be a net win; only a **sim** decides.
-- One label spec (signed max-|t| over two forward windows), one dataset/period.
+| top-20% alpha (mean / annualized-Sharpe) | ALL | BULL_CALM | BEAR | BULL_VOL |
+|---|---|---|---|---|
+| **raw** label model       | +0.130 / 0.90 | **+0.134 / 1.22** | +0.456 / 4.31 | +0.094 / 0.59 |
+| **trend-scan** label model | +0.098 / 0.88 | **+0.099 / 0.94** | +0.318 / 3.67 | +0.074 / 0.66 |
+
+**Raw beats trend-scan on realized selection P&L in EVERY regime, including BULL_CALM.** The
+trend-scan label sacrifices direct forward-return targeting for "drift-free-ness", which flattered
+the placebo-clean IC but **picks lower-realized-return names**. (Caveats: 60d holding periods
+overlap so the annualized Sharpe is indicative; no costs / whole-share / 5-name-book constraints —
+but the comparison is apples-to-apples, and the gap is consistent across all regimes, so the
+*relative* verdict is robust.)
+
+## Conclusion (honest) — REJECTED
+
+The trend-scan "edge" was an artifact of the untrustworthy placebo-clean IC metric. On the metric
+that pays — realized portfolio P&L — **trend-scanning is worse than the raw label in every regime**.
+It joins neutralization and fundamental-momentum as a **rejected** cheap in-repo lever.
+
+**Track-level conclusion:** all three cheap in-repo label/feature levers have now been triaged and
+**all three fail the decisive (P&L) test**. The cheap "relabel/reweight the same panel" axis for
+beating the incumbent raw-label model is **exhausted**. Genuine model gains now require the
+expensive moves (new alpha data / new architecture), OR — per the roadmap — the leverage shifts to
+**engineering + construction** (the 2026-06-23 book was 78% cash and sized backwards vs upside: a
+*construction* failure, not a signal failure), which is cheaper and was the larger live loss.
 
 ## Decision
 
-- **Graduate trend-scanning to the PROPER gate** — not a deploy. The quick harness has done its
-  job (cheap triage: neutralization rejected, fundamental-momentum rejected, trend-scan is the one
-  survivor on the contamination-robust metric). Before any further weight:
-  1. **Establish the empirical multi-shuffle null** (the floor is ~+0.036 ± 0.046, cause
-     undetermined — the embargo-gap hypothesis was refuted) and re-measure trend-scan vs raw
-     placebo-clean *against that null*, not against 0;
-  2. run the **full production WF sanity** (`scripts/walk_forward_sanity.py`) on the trend-scan label;
-  3. then a **sim** (portfolio P&L / Sharpe, not IC) — the decisive test, since absolute IC is
-     untrustworthy here; P&L does not depend on the IC null.
-- This is a **promote-to-validation** decision, NOT a deploy decision.
-- Pairs naturally with **meta-labeling** as a conviction filter once the base label clears the
-  corrected gate.
+- **Drop trend-scanning** (and the cheap-relabeling axis) as a model-edge lever.
+- Reallocate the model-track effort to: (a) cost/capacity-aware **construction** (QP sizing by
+  conviction, not share price) — cheapest expected live P&L gain; (b) only then the expensive
+  new-data / new-architecture bets. Do NOT spend more on cheap in-repo relabeling.
+- Meta-labeling as a *conviction/sizing* filter on the **raw** model (the P&L winner) may still
+  help precision — but that is a construction/filter question, not a new base label.
 
 ## Reproducibility
 
@@ -155,5 +167,7 @@ RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-wf-gate.py   
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-seed-robustness.py     # 3-seed A/A
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-label-shuffle.py        # shuffle control
 RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-shuffle-control.py       # raw-vs-ts shuffle
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-embargo-test.py          # embargo refutation
+RenQuant/.venv/bin/python scripts/experiments/2026-06-23-trendscan-portfolio-sim.py         # DECISIVE P&L test
 ```
 Run from the `RenQuant` umbrella root. Read-only on data; writes no canonical/production path.
