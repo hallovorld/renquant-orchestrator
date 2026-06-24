@@ -110,6 +110,17 @@ gh api user --jq .login
 If both commands print the same login, stop. A single GitHub identity cannot
 produce independent approvals, even if the token strings differ.
 
+For one-agent manual work, verify the actor before any `gh pr review` or
+`gh pr merge` command:
+
+```bash
+source ../RenQuant/scripts/agent_gh_env.sh codex
+make agent-identity-codex
+```
+
+This must print `codex GitHub actor OK: haorensjtu-dev`. If it prints
+`hallovorld` or any other login, stop and fix token loading before touching PRs.
+
 Automated merges enforce this fail-closed: `agent-workflow --workflow merge
 --execute` and `repos agent --workflow merge --execute` require both
 `RENQUANT_CLAUDE_GH_TOKEN` and `RENQUANT_CODEX_GH_TOKEN` to be configured and
