@@ -20,13 +20,20 @@ placebo-clean = real − placebo.
 
 | regime | momentum placebo-clean IC | n_days | read |
 |---|---|---|---|
-| **BULL_CALM** | **+0.0166** | 1214 | weak-positive (below the ~0.036±0.046 leakage floor) |
-| BEAR | −0.32 | 77 | momentum *crashes* (rare regime, small n) |
-| BULL_VOLATILE | −0.047 | 1037 | negative |
+| **BULL_CALM** | **−0.006** | 1214 | ~zero (real +0.037 IC is *entirely* leakage: placebo +0.043) |
+| BEAR | +0.026 | 77 | noisy, tiny n (77 days) — not usable |
+| BULL_VOLATILE | −0.062 | 1037 | negative |
 
-Momentum only helps in BULL_CALM, and only weakly by daily cross-sectional IC. **But for an
-admission VETO the relevant question is "are the names we'd admit at the bottom bad?", and
-the BULL_CALM momentum-decile table answers yes:**
+> Verified 2026-06-24 by independent reproduction (`/tmp` script, same regime-argmax +
+> placebo-shift harness). An earlier draft of this table reported BULL_CALM +0.0166 / BEAR
+> −0.32; those IC figures did NOT reproduce and are corrected here. The decile table below
+> DID reproduce to the digit.
+
+So momentum has **~zero clean cross-sectional IC** in BULL_CALM (−0.006, well inside the
+~0.036±0.046 leakage floor) and is negative in BULL_VOLATILE — its daily *ranking* power is
+nil. **Ranking IC is therefore NOT the case for the guard.** The case is the admission-VETO
+question — "are the names we'd admit at the bottom systematically bad?" — and the BULL_CALM
+momentum-decile table answers yes (this is the load-bearing evidence, and it reproduces):
 
 | mom60 decile | mean fwd_60d_excess | **median** | count |
 |---|---|---|---|
@@ -45,8 +52,9 @@ The **median** forward excess return rises monotonically with momentum; the bott
 median is **−0.107**. Low-momentum names reliably underperform in BULL_CALM — the exact
 bucket the vol-tilt parks its picks in.
 
-**Honest caveats:** (1) the cross-sectional IC (+0.0166) is *below* the leakage floor — the
-ranking power is weak. (2) The decile **mean** spread (+0.21) is outlier-driven (decile-9
+**Honest caveats:** (1) the cross-sectional placebo-clean IC (−0.006) is essentially **zero**
+— the ranking power is nil, so the guard rests ENTIRELY on the bottom-decile median
+underperformance, not on any ranking signal. (2) The decile **mean** spread (+0.21) is outlier-driven (decile-9
 mean +0.175 vs median +0.021); the robust signal is the **bottom-decile underperformance by
 median**, not a smooth mean gradient. (3) Prior art: fundamental-momentum was REJECTED
 (#177); price trend-scan was "relatively promising but harness-caveated" (#176) — this is
