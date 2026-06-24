@@ -120,6 +120,47 @@ def test_per_ticker_source_uses_oldest_latest_date_not_newest(tmp_path):
     assert results["ohlcv"].detail["newest_latest"] == "2026-06-23"
 
 
+def _write_sentiment(repo: Path, ticker: str, last: date):
+    d = repo / "data" / "news_sentiment_alpaca"
+    d.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame({"date": pd.to_datetime([last]), "sentiment": [0.1]})
+    df.to_parquet(d / f"{ticker}.parquet", index=False)
+
+
+def test_sentiment_freshness_uses_feed_ingestion_newest_not_quiet_ticker(tmp_path):
+    # A quiet-but-valid ticker (old news) must NOT false-RED the feed when the
+    # feed is demonstrably alive (another ticker has fresh news).
+    today = date(2026, 6, 23)
+    _write_sentiment(tmp_path, "AAPL", today)            # feed alive today
+    _write_sentiment(tmp_path, "MSFT", date(2026, 5, 1))  # simply quiet
+    results = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}
+    assert results["sentiment"].status == dfa.FRESH
+    assert results["sentiment"].lag_days == 0
+    assert results["sentiment"].detail["freshness_basis"] == "newest"
+    # the quiet ticker is still visible in the detail, just not failing
+    assert results["sentiment"].detail["oldest_latest"] == "2026-05-01"
+
+
+def test_sentiment_stale_feed_is_flagged_when_even_newest_is_old(tmp_path):
+    # If even the freshest ticker is old, the feed itself is stale → flagged.
+    today = date(2026, 6, 23)
+    _write_sentiment(tmp_path, "AAPL", date(2026, 5, 1))
+    _write_sentiment(tmp_path, "MSFT", date(2026, 4, 1))
+    results = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}
+    assert results["sentiment"].status == dfa.CRITICAL  # 53d > 10d critical
+    assert results["sentiment"].last_date == "2026-05-01"
+
+
+def test_sentiment_missing_coverage_downgrades_from_fresh(tmp_path):
+    # Feed is fresh for present tickers, but an active name has no file at all →
+    # coverage gap downgrades FRESH → STALE (not a silent green).
+    today = date(2026, 6, 23)
+    _write_sentiment(tmp_path, "AAPL", today)
+    results = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}
+    assert results["sentiment"].status == dfa.STALE
+    assert results["sentiment"].detail["missing_count"] == 1
+
+
 def test_per_ticker_source_surfaces_partial_missing_coverage(tmp_path):
     today = date(2026, 6, 23)
     _write_ohlcv(tmp_path, "AAPL", today)

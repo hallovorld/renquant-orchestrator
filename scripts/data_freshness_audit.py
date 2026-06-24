@@ -59,8 +59,10 @@ def lag_in_days(last: date | None, today: date) -> int | None:
 class SourceSpec:
     """One data source to audit.
 
-    ``loader`` returns the oldest per-ticker latest ``date`` across the active
-    watchlist for per-ticker stores, or the source latest date for panel files.
+    ``loader`` returns the per-ticker latest ``date`` that drives status for
+    per-ticker stores (oldest for must-be-current stores like ohlcv; newest /
+    feed-ingestion recency for sentiment), or the source latest date for panel
+    files.
     """
 
     key: str
@@ -118,12 +120,21 @@ def _latest_dates_per_ticker(
     dir_path: Path,
     tickers: Sequence[str],
     fname: str,
+    basis: str = "oldest",
 ) -> LoaderResult:
-    """Oldest latest-date across tickers, with coverage details.
+    """Per-ticker latest-date across tickers, with coverage details.
 
-    Reporting the newest ticker date would turn one healthy symbol into a false
-    green for the whole source. Use the oldest latest date and surface missing
-    coverage instead.
+    ``basis`` selects which per-ticker date drives the freshness status:
+      - ``"oldest"`` (default): every ticker must be current, so the worst
+        (oldest) latest-date drives status. Correct for ohlcv — one healthy
+        symbol must not false-green a stale universe.
+      - ``"newest"``: feed-ingestion recency — did the pipeline ingest ANY
+        current data? Correct for sentiment, where a valid-but-quiet ticker
+        with no recent news must NOT be read as a stale feed. Per-ticker news
+        presence is surfaced as coverage (missing/oldest), not as a hard fail.
+
+    Either way the oldest/newest pair and missing coverage are reported in the
+    detail so the operator sees the full picture.
     """
     dated: dict[str, date] = {}
     missing: list[str] = []
@@ -146,18 +157,21 @@ def _latest_dates_per_ticker(
                 "present_tickers": 0,
                 "missing_count": len(missing),
                 "missing_tickers": missing[:20],
+                "freshness_basis": basis,
             },
         )
     oldest = min(dated.values())
     newest = max(dated.values())
+    chosen = newest if basis == "newest" else oldest
+    basis_label = "newest(feed-ingest)" if basis == "newest" else "oldest(min-cover)"
     note = (
-        f"{len(dated)}/{len(tickers)} tickers present; "
+        f"{len(dated)}/{len(tickers)} tickers present; basis={basis_label}; "
         f"oldest_latest={oldest.isoformat()} newest_latest={newest.isoformat()}"
     )
     if missing:
         note += f"; missing={len(missing)}"
     return LoaderResult(
-        oldest,
+        chosen,
         note=note,
         detail={
             "checked_tickers": len(tickers),
@@ -166,6 +180,7 @@ def _latest_dates_per_ticker(
             "missing_tickers": missing[:20],
             "oldest_latest": oldest.isoformat(),
             "newest_latest": newest.isoformat(),
+            "freshness_basis": basis,
         },
     )
 
@@ -178,7 +193,13 @@ def _ohlcv_loader(repo: Path, tickers: Sequence[str]) -> LoaderResult:
 
 
 def _sentiment_loader(repo: Path, tickers: Sequence[str]) -> LoaderResult:
-    return _latest_dates_per_ticker(repo / "data" / "news_sentiment_alpaca", tickers, "")
+    # Sentiment freshness = feed-ingestion recency (newest ticker-level news),
+    # not the oldest quiet ticker. A valid ticker with no recent news is a
+    # coverage/notable signal, NOT a stale feed — so classifying on the oldest
+    # would false-RED the source whenever any single name is simply quiet.
+    # Per-candidate news-presence gating is a separate DataIntegrityJob concern.
+    return _latest_dates_per_ticker(
+        repo / "data" / "news_sentiment_alpaca", tickers, "", basis="newest")
 
 
 def _fundamentals_loader(repo: Path, _tickers: Sequence[str]) -> LoaderResult:
