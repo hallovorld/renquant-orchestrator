@@ -108,6 +108,57 @@ def test_audit_fundamentals_completeness_note(tmp_path):
     assert "0/1" in results["fundamentals"].note
 
 
+def _write_fundamentals_multi(repo: Path, last: date, complete, incomplete):
+    d = repo / "data"
+    d.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for t in complete:
+        rows.append({"ticker": t, "date": pd.Timestamp(last),
+                     "earnings_yield": 0.05, "book_to_price": 0.1,
+                     "gross_profitability": 0.3, "roe": 0.2, "asset_growth": 0.1})
+    for t in incomplete:
+        rows.append({"ticker": t, "date": pd.Timestamp(last),
+                     "earnings_yield": 0.05, "book_to_price": 0.1,
+                     "gross_profitability": 0.3, "roe": 0.2, "asset_growth": None})
+    pd.DataFrame(rows).to_parquet(d / "sec_fundamentals_daily.parquet", index=False)
+
+
+def test_fundamentals_completeness_turns_status_critical_even_when_date_fresh(tmp_path):
+    # Current-dated panel but only 1/4 active names complete (25% < 50%) → the
+    # completeness half of the 2026-06-23 incident must NOT show green.
+    today = date(2026, 6, 23)
+    _write_fundamentals_multi(tmp_path, today, complete=["AAPL"],
+                              incomplete=["MSFT", "NVDA", "AMZN"])
+    f = {r.key: r for r in dfa.audit(tmp_path, today,
+                                     tickers=["AAPL", "MSFT", "NVDA", "AMZN"])}["fundamentals"]
+    assert f.lag_days == 0                 # date is fresh
+    assert f.status == dfa.CRITICAL        # completeness drags it to CRITICAL
+    assert f.detail["active_complete"] == 1 and f.detail["active_total"] == 4
+
+
+def test_fundamentals_active_complete_not_false_red_by_sparse_panel(tmp_path):
+    # Panel mostly empty (sparse universe) but every ACTIVE name complete → the
+    # active operator view is FRESH, with panel sparsity still reported.
+    today = date(2026, 6, 23)
+    _write_fundamentals_multi(
+        tmp_path, today, complete=["AAPL", "MSFT"],
+        incomplete=["ZZA", "ZZB", "ZZC", "ZZD", "ZZE", "ZZF"])
+    f = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}["fundamentals"]
+    assert f.status == dfa.FRESH
+    assert f.detail["active_complete"] == 2 and f.detail["active_total"] == 2
+    assert f.detail["panel_complete"] == 2 and f.detail["panel_total"] == 8
+
+
+def test_fundamentals_missing_active_name_counts_as_incomplete(tmp_path):
+    # AAPL present+complete, MSFT (active) absent → 1/2 = 50%, which is < 90%
+    # warn but not < 50% crit → STALE, never a silent green.
+    today = date(2026, 6, 23)
+    _write_fundamentals_multi(tmp_path, today, complete=["AAPL"], incomplete=[])
+    f = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}["fundamentals"]
+    assert f.detail["active_complete"] == 1 and f.detail["active_total"] == 2
+    assert f.status == dfa.STALE
+
+
 def test_per_ticker_source_uses_oldest_latest_date_not_newest(tmp_path):
     today = date(2026, 6, 23)
     _write_ohlcv(tmp_path, "AAPL", today)

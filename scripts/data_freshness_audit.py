@@ -32,6 +32,20 @@ from typing import Callable, Sequence
 
 FRESH, STALE, CRITICAL, UNKNOWN = "FRESH", "STALE", "CRITICAL", "UNKNOWN"
 _ICON = {FRESH: "✅", STALE: "⚠️", CRITICAL: "🔴", UNKNOWN: "❓"}
+_STATUS_ORDER = {FRESH: 0, STALE: 1, UNKNOWN: 2, CRITICAL: 3}
+
+# Fundamentals completeness thresholds: fraction of the ACTIVE watchlist whose
+# latest fundamental row is fully populated. A current-date panel that is mostly
+# empty is NOT operationally healthy — the 2026-06-23 incident was stale AND
+# ~7% complete — so completeness must be able to turn the line warn/critical on
+# its own, independent of date freshness.
+FUND_COMPLETE_WARN = 0.90  # < 90% active complete → at least STALE
+FUND_COMPLETE_CRIT = 0.50  # < 50% active complete → CRITICAL
+
+
+def _worst(*statuses: "str | None") -> str:
+    present = [s for s in statuses if s]
+    return max(present, key=lambda s: _STATUS_ORDER[s]) if present else FRESH
 
 
 def classify(lag_days: int | None, warn_days: int, critical_days: int) -> str:
@@ -202,28 +216,61 @@ def _sentiment_loader(repo: Path, tickers: Sequence[str]) -> LoaderResult:
         repo / "data" / "news_sentiment_alpaca", tickers, "", basis="newest")
 
 
-def _fundamentals_loader(repo: Path, _tickers: Sequence[str]) -> LoaderResult:
-    return LoaderResult(_max_date_in_parquet(repo / "data" / "sec_fundamentals_daily.parquet"))
+_FUND_COLS = ("earnings_yield", "book_to_price", "gross_profitability",
+              "roe", "asset_growth")
 
 
-def _fundamentals_completeness(repo: Path) -> str:
-    """Report % of the watchlist with a complete (no-NaN) latest fundamental row."""
+def _fundamentals_loader(repo: Path, tickers: Sequence[str]) -> LoaderResult:
+    """Panel date + completeness for SEC fundamentals.
+
+    Status must reflect BOTH that the panel date is current AND that the active
+    watchlist is actually populated: a fresh-dated but mostly-empty panel is the
+    completeness half of the 2026-06-23 incident (stale AND ~7% complete).
+    Completeness is measured on the **active watchlist** — what the daily-full
+    actually scores — with panel-wide completeness reported alongside so the
+    operator can tell a sparse universe from incomplete active names.
+    """
     path = repo / "data" / "sec_fundamentals_daily.parquet"
+    last = _max_date_in_parquet(path)
     if not path.exists():
-        return ""
+        return LoaderResult(last)
     import pandas as pd  # noqa: PLC0415
 
     df = pd.read_parquet(path)
-    fcols = [c for c in df.columns if c.lower() in (
-        "earnings_yield", "book_to_price", "gross_profitability", "roe", "asset_growth")]
+    fcols = [c for c in df.columns if c.lower() in _FUND_COLS]
     if not fcols or "ticker" not in df.columns or "date" not in df.columns:
-        return ""
+        return LoaderResult(last)
     latest = df.sort_values("date").groupby("ticker").tail(1)
-    n = len(latest)
-    if not n:
-        return ""
-    complete = int((latest[fcols].notna().all(axis=1)).sum())
-    return f"{complete}/{n} tickers complete ({len(fcols)} fund cols)"
+    panel_total = len(latest)
+    panel_complete = int(latest[fcols].notna().all(axis=1).sum())
+    by_ticker = latest.assign(_t=latest["ticker"].astype(str).str.upper()).set_index("_t")
+    active = [str(t).upper() for t in tickers]
+    present = [t for t in active if t in by_ticker.index]
+    active_total = len(active)
+    active_complete = int(
+        by_ticker.loc[present, fcols].notna().all(axis=1).sum()) if present else 0
+    active_pct = (active_complete / active_total) if active_total else 0.0
+    comp_status = (
+        CRITICAL if active_pct < FUND_COMPLETE_CRIT
+        else STALE if active_pct < FUND_COMPLETE_WARN
+        else FRESH)
+    note = (
+        f"active {active_complete}/{active_total} complete ({active_pct:.0%}); "
+        f"panel {panel_complete}/{panel_total}")
+    return LoaderResult(
+        last,
+        note=note,
+        detail={
+            "active_complete": active_complete,
+            "active_total": active_total,
+            "active_complete_pct": round(active_pct, 4),
+            "panel_complete": panel_complete,
+            "panel_total": panel_total,
+            "completeness_status": comp_status,
+            "complete_warn_pct": FUND_COMPLETE_WARN,
+            "complete_critical_pct": FUND_COMPLETE_CRIT,
+        },
+    )
 
 
 SOURCES: list[SourceSpec] = [
@@ -232,8 +279,7 @@ SOURCES: list[SourceSpec] = [
     SourceSpec("sentiment", "news sentiment (data/news_sentiment_alpaca)",
                warn_days=4, critical_days=10, loader=_sentiment_loader),
     SourceSpec("fundamentals", "SEC fundamentals (sec_fundamentals_daily)",
-               warn_days=45, critical_days=90, loader=_fundamentals_loader,
-               extra=_fundamentals_completeness),
+               warn_days=45, critical_days=90, loader=_fundamentals_loader),
 ]
 
 
@@ -278,6 +324,10 @@ def audit(
         status = classify(lag, spec.warn_days, spec.critical_days)
         if loaded.detail.get("missing_count") and status == FRESH:
             status = STALE
+        # A source can be date-fresh yet operationally degraded (e.g.
+        # fundamentals current-dated but mostly empty): escalate to the worst of
+        # the date status and any completeness-derived status.
+        status = _worst(status, loaded.detail.get("completeness_status"))
         notes = [loaded.note] if loaded.note else []
         if spec.extra is not None:
             try:
