@@ -12,7 +12,8 @@ the daily run and on the operator's phone.
 It is intentionally read-only and defensive: every source is wrapped so a
 missing/corrupt file degrades to ``status=unknown`` rather than throwing.
 Exit code is 0 by default (non-fatal); pass ``--fail-on-critical`` to make the
-process exit non-zero when any source is CRITICAL.
+process exit non-zero when any source is CRITICAL. Pass ``--fail-on-unknown``
+when the audit itself must fail closed on missing/corrupt inputs.
 
 Usage:
     python scripts/data_freshness_audit.py --repo-dir /path/to/RenQuant
@@ -27,7 +28,7 @@ import os
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 FRESH, STALE, CRITICAL, UNKNOWN = "FRESH", "STALE", "CRITICAL", "UNKNOWN"
 _ICON = {FRESH: "✅", STALE: "⚠️", CRITICAL: "🔴", UNKNOWN: "❓"}
@@ -58,15 +59,15 @@ def lag_in_days(last: date | None, today: date) -> int | None:
 class SourceSpec:
     """One data source to audit.
 
-    ``loader`` returns the latest ``date`` available in the source (or None).
-    For per-ticker stores, ``loader`` samples ``tickers`` and returns the max.
+    ``loader`` returns the oldest per-ticker latest ``date`` across the active
+    watchlist for per-ticker stores, or the source latest date for panel files.
     """
 
     key: str
     description: str
     warn_days: int
     critical_days: int
-    loader: Callable[[Path], date | None]
+    loader: Callable[[Path, Sequence[str]], "LoaderResult"]
     extra: Callable[[Path], str] | None = None  # optional completeness note
 
 
@@ -76,6 +77,13 @@ class FreshnessResult:
     status: str
     lag_days: int | None
     last_date: str | None
+    note: str = ""
+    detail: dict = field(default_factory=dict)
+
+
+@dataclass
+class LoaderResult:
+    last_date: date | None
     note: str = ""
     detail: dict = field(default_factory=dict)
 
@@ -106,29 +114,75 @@ def _max_date_in_parquet(path: Path, date_cols=("date", "datetime", "asof",
     return None
 
 
-def _max_date_per_ticker(dir_path: Path, tickers: list[str], fname: str) -> date | None:
-    """Max latest-date across a sample of per-ticker parquet files."""
-    best: date | None = None
+def _latest_dates_per_ticker(
+    dir_path: Path,
+    tickers: Sequence[str],
+    fname: str,
+) -> LoaderResult:
+    """Oldest latest-date across tickers, with coverage details.
+
+    Reporting the newest ticker date would turn one healthy symbol into a false
+    green for the whole source. Use the oldest latest date and surface missing
+    coverage instead.
+    """
+    dated: dict[str, date] = {}
+    missing: list[str] = []
     for t in tickers:
-        d = _max_date_in_parquet(dir_path / t / fname) if fname else _max_date_in_parquet(dir_path / f"{t}.parquet")
-        if d and (best is None or d > best):
-            best = d
-    return best
+        d = (
+            _max_date_in_parquet(dir_path / t / fname)
+            if fname
+            else _max_date_in_parquet(dir_path / f"{t}.parquet")
+        )
+        if d is None:
+            missing.append(t)
+        else:
+            dated[t] = d
+    if not dated:
+        return LoaderResult(
+            None,
+            note=f"0/{len(tickers)} tickers present",
+            detail={
+                "checked_tickers": len(tickers),
+                "present_tickers": 0,
+                "missing_count": len(missing),
+                "missing_tickers": missing[:20],
+            },
+        )
+    oldest = min(dated.values())
+    newest = max(dated.values())
+    note = (
+        f"{len(dated)}/{len(tickers)} tickers present; "
+        f"oldest_latest={oldest.isoformat()} newest_latest={newest.isoformat()}"
+    )
+    if missing:
+        note += f"; missing={len(missing)}"
+    return LoaderResult(
+        oldest,
+        note=note,
+        detail={
+            "checked_tickers": len(tickers),
+            "present_tickers": len(dated),
+            "missing_count": len(missing),
+            "missing_tickers": missing[:20],
+            "oldest_latest": oldest.isoformat(),
+            "newest_latest": newest.isoformat(),
+        },
+    )
 
 
 _SAMPLE = ["AAPL", "MSFT", "NVDA", "AMZN", "PANW", "CSCO", "NFLX", "ZM"]
 
 
-def _ohlcv_loader(repo: Path) -> date | None:
-    return _max_date_per_ticker(repo / "data" / "ohlcv", _SAMPLE, "1d.parquet")
+def _ohlcv_loader(repo: Path, tickers: Sequence[str]) -> LoaderResult:
+    return _latest_dates_per_ticker(repo / "data" / "ohlcv", tickers, "1d.parquet")
 
 
-def _sentiment_loader(repo: Path) -> date | None:
-    return _max_date_per_ticker(repo / "data" / "news_sentiment_alpaca", _SAMPLE, "")
+def _sentiment_loader(repo: Path, tickers: Sequence[str]) -> LoaderResult:
+    return _latest_dates_per_ticker(repo / "data" / "news_sentiment_alpaca", tickers, "")
 
 
-def _fundamentals_loader(repo: Path) -> date | None:
-    return _max_date_in_parquet(repo / "data" / "sec_fundamentals_daily.parquet")
+def _fundamentals_loader(repo: Path, _tickers: Sequence[str]) -> LoaderResult:
+    return LoaderResult(_max_date_in_parquet(repo / "data" / "sec_fundamentals_daily.parquet"))
 
 
 def _fundamentals_completeness(repo: Path) -> str:
@@ -162,28 +216,67 @@ SOURCES: list[SourceSpec] = [
 ]
 
 
-def audit(repo: Path, today: date, sources: list[SourceSpec] = SOURCES) -> list[FreshnessResult]:
+def _default_strategy_config(repo: Path) -> Path | None:
+    candidates = [
+        repo / ".subrepo_runtime" / "repos" / "renquant-strategy-104"
+        / "configs" / "strategy_config.json",
+        repo / "backtesting" / "renquant_104" / "strategy_config.json",
+    ]
+    return next((p for p in candidates if p.exists()), None)
+
+
+def load_watchlist(repo: Path, strategy_config: Path | None = None) -> list[str]:
+    path = strategy_config or _default_strategy_config(repo)
+    if path is None or not path.exists():
+        return list(_SAMPLE)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    raw = payload.get("watchlist") or payload.get("tickers") or []
+    if not isinstance(raw, list):
+        return list(_SAMPLE)
+    tickers = sorted({str(t).upper() for t in raw if str(t).strip()})
+    return tickers or list(_SAMPLE)
+
+
+def audit(
+    repo: Path,
+    today: date,
+    sources: list[SourceSpec] = SOURCES,
+    tickers: Sequence[str] | None = None,
+) -> list[FreshnessResult]:
     results: list[FreshnessResult] = []
+    watchlist = [str(t).upper() for t in (tickers or load_watchlist(repo))]
     for spec in sources:
         try:
-            last = spec.loader(repo)
+            loaded = spec.loader(repo, watchlist)
         except Exception as exc:  # never let a bad file crash the daily run
             results.append(FreshnessResult(spec.key, UNKNOWN, None, None,
                                            note=f"loader error: {exc!s}"[:120]))
             continue
+        last = loaded.last_date
         lag = lag_in_days(last, today)
         status = classify(lag, spec.warn_days, spec.critical_days)
-        note = ""
+        if loaded.detail.get("missing_count") and status == FRESH:
+            status = STALE
+        notes = [loaded.note] if loaded.note else []
         if spec.extra is not None:
             try:
-                note = spec.extra(repo) or ""
+                extra = spec.extra(repo) or ""
             except Exception:
-                note = ""
+                extra = ""
+            if extra:
+                notes.append(extra)
+        detail = {
+            "warn_days": spec.warn_days,
+            "critical_days": spec.critical_days,
+            "description": spec.description,
+            "watchlist_size": len(watchlist),
+            **loaded.detail,
+        }
         results.append(FreshnessResult(
             spec.key, status, lag,
-            last.isoformat() if last else None, note=note,
-            detail={"warn_days": spec.warn_days, "critical_days": spec.critical_days,
-                    "description": spec.description}))
+            last.isoformat() if last else None,
+            note="; ".join(notes),
+            detail=detail))
     return results
 
 
@@ -213,20 +306,27 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--repo-dir", default=os.environ.get("RENQUANT_REPO_DIR", "."),
                    help="RenQuant umbrella repo root (holds data/).")
+    p.add_argument("--strategy-config", default=None,
+                   help="strategy_config.json path used to load the active watchlist")
     p.add_argument("--json", action="store_true", help="emit JSON instead of a table")
     p.add_argument("--fail-on-critical", action="store_true",
                    help="exit non-zero if any source is CRITICAL")
+    p.add_argument("--fail-on-unknown", action="store_true",
+                   help="exit non-zero if any source is UNKNOWN")
     p.add_argument("--summary-only", action="store_true",
                    help="print only the one-line ntfy summary")
     args = p.parse_args(argv)
 
     repo = Path(args.repo_dir).resolve()
     today = datetime.now().date()
-    results = audit(repo, today)
+    strategy_config = Path(args.strategy_config).resolve() if args.strategy_config else None
+    tickers = load_watchlist(repo, strategy_config)
+    results = audit(repo, today, tickers=tickers)
     summary = summarize(results)
 
     if args.json:
         print(json.dumps({"today": today.isoformat(), "summary": summary,
+                          "watchlist_size": len(tickers),
                           "results": [asdict(r) for r in results]}, indent=2))
     elif args.summary_only:
         print(summary)
@@ -236,6 +336,8 @@ def main(argv=None) -> int:
 
     if args.fail_on_critical and any(r.status == CRITICAL for r in results):
         return 2
+    if args.fail_on_unknown and any(r.status == UNKNOWN for r in results):
+        return 3
     return 0
 
 

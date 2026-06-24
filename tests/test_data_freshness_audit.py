@@ -87,7 +87,7 @@ def test_audit_flags_stale_fundamentals(tmp_path):
     today = date(2026, 6, 23)
     _write_ohlcv(tmp_path, "AAPL", today)
     _write_fundamentals(tmp_path, date(2026, 3, 24), complete=True)
-    results = {r.key: r for r in dfa.audit(tmp_path, today)}
+    results = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL"])}
     assert results["ohlcv"].status == dfa.FRESH
     assert results["ohlcv"].lag_days == 0
     assert results["fundamentals"].status == dfa.CRITICAL
@@ -103,9 +103,36 @@ def test_audit_missing_source_is_unknown_not_crash(tmp_path):
 
 def test_audit_fundamentals_completeness_note(tmp_path):
     _write_fundamentals(tmp_path, date(2026, 6, 23), complete=False)
-    results = {r.key: r for r in dfa.audit(tmp_path, date(2026, 6, 23))}
+    results = {r.key: r for r in dfa.audit(tmp_path, date(2026, 6, 23), tickers=["AAPL"])}
     # 0/1 complete because asset_growth is NaN
     assert "0/1" in results["fundamentals"].note
+
+
+def test_per_ticker_source_uses_oldest_latest_date_not_newest(tmp_path):
+    today = date(2026, 6, 23)
+    _write_ohlcv(tmp_path, "AAPL", today)
+    _write_ohlcv(tmp_path, "MSFT", date(2026, 6, 10))
+    results = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}
+    assert results["ohlcv"].status == dfa.CRITICAL
+    assert results["ohlcv"].lag_days == 13
+    assert results["ohlcv"].last_date == "2026-06-10"
+    assert results["ohlcv"].detail["oldest_latest"] == "2026-06-10"
+    assert results["ohlcv"].detail["newest_latest"] == "2026-06-23"
+
+
+def test_per_ticker_source_surfaces_partial_missing_coverage(tmp_path):
+    today = date(2026, 6, 23)
+    _write_ohlcv(tmp_path, "AAPL", today)
+    results = {r.key: r for r in dfa.audit(tmp_path, today, tickers=["AAPL", "MSFT"])}
+    assert results["ohlcv"].status == dfa.STALE
+    assert results["ohlcv"].detail["missing_count"] == 1
+    assert "MSFT" in results["ohlcv"].detail["missing_tickers"]
+
+
+def test_load_watchlist_reads_strategy_config(tmp_path):
+    cfg = tmp_path / "strategy_config.json"
+    cfg.write_text('{"watchlist": ["msft", "AAPL", "AAPL"]}', encoding="utf-8")
+    assert dfa.load_watchlist(tmp_path, cfg) == ["AAPL", "MSFT"]
 
 
 # ── --fail-on-critical exit code ──────────────────────────────────────────
@@ -119,3 +146,8 @@ def test_main_default_exit_zero_even_when_critical(tmp_path):
     _write_fundamentals(tmp_path, date(2026, 3, 24), complete=True)
     rc = dfa.main(["--repo-dir", str(tmp_path), "--summary-only"])
     assert rc == 0
+
+
+def test_main_fail_on_unknown_exit_code(tmp_path):
+    rc = dfa.main(["--repo-dir", str(tmp_path), "--fail-on-unknown", "--summary-only"])
+    assert rc == 3
