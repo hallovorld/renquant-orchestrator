@@ -108,8 +108,18 @@ def evaluate(db: Path, ds: Path, mu_floor: float, horizon_days: int,
     dem_mean = out["all_regimes"]["demean_admitted"]["mean"]
     out["demean_minus_raw_mean_fwd"] = (
         (dem_mean - raw_mean) if (raw_mean is not None and dem_mean is not None) else None)
+    # Causal number: realized return of the names demean DROPS but raw keeps. If
+    # demean is helping, these were losers (mean < 0) — more decision-relevant
+    # than the admitted-set delta, which mixes in the names both rules keep.
+    out["dropped_by_demean_mean_fwd"] = out["all_regimes"]["dropped_by_demean"]["mean"]
     out["verdict"] = (
         "DEMEAN_BETTER" if (out["demean_minus_raw_mean_fwd"] or 0) > 0 else "NOT_BETTER")
+    # The verdict is DIRECTIONAL over `aged_dates` dates — NOT a significance
+    # test. This enable engine must not flip production config on a sign alone;
+    # a bootstrap CI + per-regime consistency are required first.
+    out["caveat"] = (
+        f"directional over {aged_dates} aged dates; not significance-tested — do "
+        "not enable without a bootstrap CI and per-regime consistency")
     return out
 
 
@@ -140,7 +150,11 @@ def main(argv=None) -> int:
             a = res["all_regimes"]
             print(f"  RAW    admitted: n={a['raw_admitted']['n']} mean_fwd60={a['raw_admitted']['mean']:+.4f}")
             print(f"  DEMEAN admitted: n={a['demean_admitted']['n']} mean_fwd60={a['demean_admitted']['mean']:+.4f}")
+            dbd = res["dropped_by_demean_mean_fwd"]
+            print(f"  dropped-by-demean realized mean_fwd60 = {dbd:+.4f}"
+                  if dbd is not None else "  dropped-by-demean: n=0")
             print(f"  demean-raw mean fwd60 = {res['demean_minus_raw_mean_fwd']:+.4f} → {res['verdict']}")
+            print(f"  ⚠ {res['caveat']}")
         else:
             print(f"  {res['detail']}")
     # exit 0 always (read-only report); the verdict is in the payload

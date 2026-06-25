@@ -60,6 +60,10 @@ def test_demean_better_when_drops_loser(tmp_path):
     # demean (full-cross-section) keeps the WIN (+0.12), raw also admits LOSE (-0.05)
     assert res["demean_minus_raw_mean_fwd"] > 0
     assert res["verdict"] == "DEMEAN_BETTER"
+    # causal number: the names demean drops are realized losers
+    assert res["dropped_by_demean_mean_fwd"] < 0
+    # the OK verdict carries the directional/not-significance caveat
+    assert "significance" in res["caveat"]
 
 
 def test_not_yet_aged_rows_are_insufficient(tmp_path):
