@@ -42,8 +42,11 @@ re-review)** — treat Finnhub as a live-probe result, not yet established infra
   validated (a one-shot dry-run proving the active/no_coverage metrics + fail-closed).
 
 ## Cost discipline (account = ~$10.6k — this matters)
-Monthly data fees are a real drag at this size: FMP Starter $29/mo ≈ **3.3% of
-equity/yr** ($22 seen elsewhere is the annual-billing rate, not monthly).
+Monthly data fees are a real drag at this size. **Billing basis (fixed 2026-06-25):
+FMP Starter = $29/month on monthly billing** — the number used throughout this doc;
+the $22 sometimes quoted is the annual-prepay per-month rate, irrelevant to a
+one-month-then-cancel buy. $29/mo ≈ **3.3% of equity/yr** if held a year (we cancel
+after one month → ~$29 one-time).
 And the analyst edge is **UNPROVEN** — the FMP preliminary +0.031 (BULL_CALM, 1
 seed, 38 names) sat **inside** the ~0.036±0.046 leakage-floor noise. So:
 - Prefer **free / already-entitled** (the MCP if accessible).
@@ -51,7 +54,7 @@ seed, 38 names) sat **inside** the ~0.036±0.046 leakage-floor noise. So:
   subscription**: verify the tier unlocks the previously-402 symbols (one-call
   test ADI/NFLX) → buy ONE month → pull the full history → validate → **cancel**
   unless the signal clears a pre-registered bar. Take the cheapest that works
-  (FMP $22); do **not** stand up a recurring fee for unproven-edge data.
+  (FMP $29/mo); do **not** stand up a recurring fee for unproven-edge data.
 - **Validate the signal with its OWN pre-registered per-regime WF/placebo gate
   BEFORE** committing to any recurring fee — a complete historical dataset lets
   that run in days. (This is the analyst-FEATURE validation; it is **not** orch
