@@ -120,6 +120,10 @@ make agent-identity-codex
 
 This must print `codex GitHub actor OK: haorensjtu-dev`. If it prints
 `hallovorld` or any other login, stop and fix token loading before touching PRs.
+Do not substitute `gh auth status` for this check. The active `gh` account is
+allowed to differ from the agent token loaded into `GH_TOKEN`; Codex identity is
+the login returned by `gh api user --jq .login` after sourcing
+`agent_gh_env.sh codex`.
 
 Automated merges enforce this fail-closed: `agent-workflow --workflow merge
 --execute` and `repos agent --workflow merge --execute` require both

@@ -44,3 +44,7 @@ make agent-identity-codex
 
 The expected Codex actor is `haorensjtu-dev`. If the check prints any other
 login, stop; do not review, approve, or merge from the ambient `gh` account.
+Do not infer Codex identity from `gh auth status`: the active `gh` account can
+be `hallovorld` while the correct Codex token already exists in Keychain as
+`renquant-gh-codex`. The only valid preflight is loading that token and checking
+`gh api user --jq .login` under the loaded environment.
