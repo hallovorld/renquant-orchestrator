@@ -57,7 +57,8 @@ def load_ledger(db: Path):
 
 
 def evaluate(db: Path, ds: Path, mu_floor: float, horizon_days: int,
-             min_dates: int) -> dict:
+             min_dates: int, as_of=None) -> dict:
+    import datetime as _dt  # noqa: PLC0415
     import numpy as np, pandas as pd  # noqa: PLC0415
     cs = load_ledger(db)
     d = pd.read_parquet(ds, columns=["date", "ticker", "fwd_60d_excess", *REGIME_COLS])
@@ -66,12 +67,22 @@ def evaluate(db: Path, ds: Path, mu_floor: float, horizon_days: int,
     realized["regime"] = realized[REGIME_COLS].values.argmax(1)
     m = cs.merge(realized[["date", "ticker", "fwd_60d_excess", "regime"]],
                  on=["date", "ticker"], how="inner")
+    # AGE CUTOFF (Codex #190): a ledger date is only "aged" once its full
+    # `horizon_days` has ELAPSED as of `as_of` — a dataset can carry a
+    # fwd_60d_excess value for a date whose 60d window has not closed yet
+    # (backfill / lookahead), and counting those would let the validator return
+    # OK on un-realized returns. Filter to date <= as_of - horizon_days.
+    as_of_ts = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(_dt.date.today())
+    cutoff = as_of_ts - pd.Timedelta(days=horizon_days)
+    m = m[m["date"] <= cutoff]
     aged_dates = int(m["date"].nunique())
     out = {"ledger_dates": int(cs["date"].nunique()), "aged_joined_dates": aged_dates,
-           "mu_floor": mu_floor, "horizon_days": horizon_days}
+           "mu_floor": mu_floor, "horizon_days": horizon_days,
+           "as_of": str(as_of_ts.date()), "aged_cutoff": str(cutoff.date())}
     if aged_dates < min_dates:
         out["status"] = "INSUFFICIENT_AGED_LEDGER"
-        out["detail"] = (f"only {aged_dates} ledger dates have realized {horizon_days}d "
+        out["detail"] = (f"only {aged_dates} ledger dates are <= {cutoff.date()} "
+                         f"(as_of {as_of_ts.date()} - {horizon_days}d) with realized "
                          f"returns (need >= {min_dates}); the mu column populates going "
                          f"forward, so this closes as the ledger ages.")
         return out
@@ -109,6 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mu-floor", type=float, default=0.03)
     p.add_argument("--horizon-days", type=int, default=60)
     p.add_argument("--min-dates", type=int, default=30)
+    p.add_argument("--as-of", default=None,
+                   help="treat this date as 'today' for the age cutoff (default: today). "
+                        "Only ledger dates <= as_of - horizon_days count as aged.")
     p.add_argument("--json", action="store_true")
     return p
 
@@ -116,7 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     res = evaluate(Path(args.runs_db), Path(args.dataset), args.mu_floor,
-                   args.horizon_days, args.min_dates)
+                   args.horizon_days, args.min_dates, as_of=args.as_of)
     if args.json:
         print(json.dumps(res, indent=2))
     else:

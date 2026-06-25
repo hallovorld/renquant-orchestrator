@@ -53,8 +53,27 @@ def test_demean_better_when_drops_loser(tmp_path):
             csrows.append((rid, f"{tk}{i}", mu))
             dsrows.append((d, f"{tk}{i}", fwd))
     _mk_db(db, csrows); _mk_ds(ds, dsrows)
-    res = vcg.evaluate(db, ds, mu_floor=0.03, horizon_days=60, min_dates=30)
+    # as_of well after the 2025-01 dates → their 60d horizon has elapsed → aged
+    res = vcg.evaluate(db, ds, mu_floor=0.03, horizon_days=60, min_dates=30,
+                       as_of="2025-06-01")
     assert res["status"] == "OK"
     # demean (full-cross-section) keeps the WIN (+0.12), raw also admits LOSE (-0.05)
     assert res["demean_minus_raw_mean_fwd"] > 0
     assert res["verdict"] == "DEMEAN_BETTER"
+
+
+def test_not_yet_aged_rows_are_insufficient(tmp_path):
+    # Codex #190: even with MANY dates AND fwd_60d present, if the 60d horizon has
+    # NOT elapsed as of `as_of`, they must NOT count as aged → INSUFFICIENT.
+    import datetime as _dt
+    db = tmp_path / "runs.db"; ds = tmp_path / "ds.parquet"
+    csrows, dsrows = [], []
+    for i in range(40):  # 40 distinct dates, all "today-ish"
+        d = (_dt.date(2026, 6, 1) + _dt.timedelta(days=i)).isoformat()
+        csrows.append((f"{d}-live-r{i}", f"T{i}", 0.05))
+        dsrows.append((d, f"T{i}", 0.10))  # fwd present but horizon not elapsed
+    _mk_db(db, csrows); _mk_ds(ds, dsrows)
+    res = vcg.evaluate(db, ds, mu_floor=0.03, horizon_days=60, min_dates=30,
+                       as_of="2026-06-20")  # < first date + 60d → none aged
+    assert res["status"] == "INSUFFICIENT_AGED_LEDGER"
+    assert res["aged_joined_dates"] == 0
