@@ -1,34 +1,35 @@
-# Vol-gate opportunity-cost research (theory + rigorous data)
+# Vol-gate opportunity-cost — EXPLORATORY diagnostic (no config change)
 
-2026-06-25. Trigger: 2026-06-25 daily-full no-trade — `RealizedVolGateTask` dropped 21/97
-buy candidates over the 60% annualized-vol cap. Operator: high-vol is opportunity too, but
-demand **theory + rigorous data**, not a hot take. Research/discussion PR — NO behavior change.
+2026-06-25. Trigger: 2026-06-25 daily-full no-trade (`RealizedVolGateTask` dropped 21/97
+candidates over the 60% vol cap). Operator: high-vol is opportunity too — but with theory +
+rigorous data. Research/discussion PR — **NO behavior change, and (now) NO config proposal.**
+
+## What this is
+An exploratory diagnostic of whether the hard 60% realized-vol admission cap is conservative
+given the downstream `1/σ²` Kelly sizing. Rebuilt twice after Codex review; the honest verdict
+is **inconclusive** and explicitly **not** a basis for a config change.
 
 ## Deliverables
-- `doc/research/2026-06-25-vol-gate-opportunity-cost.md` — theory (Kelly/Merton continuous
-  sizing; Moreira–Muir vol-managed; low-vol anomaly / BAB), then a survivorship-aware,
-  cost-net, drawdown-aware, regime-split cap-sweep backtest.
-- `scripts/research_vol_gate_opportunity_cost.py` — reproducible.
+- `doc/research/2026-06-25-vol-gate-opportunity-cost.md` — theory (Kelly continuous; low-vol
+  anomaly/BAB; Moreira–Muir is *portfolio* vol-timing, not this gate), survivorship caveat,
+  regime-sliced cap sweep with bootstrap CIs.
+- `scripts/research_vol_gate_opportunity_cost.py` + `tests/test_research_vol_gate.py` (pure
+  helpers tested: fold non-overlap/embargo, bootstrap CI, metrics).
 
-## Theory (one line)
-With a `1/σ²` sizer downstream (which the live Kelly already is, clip [0.05,1.50]), a hard cap
-far below that clip is redundant in calm/bull regimes and should only bind in stress — so the
-right design is a **regime-aware** cap, not a uniform 60% line.
+## Honest findings
+- Point estimate: relaxing 0.6→1.0 raises Sharpe (+0.20→+0.70) without raising drawdown.
+- **But the paired block-bootstrap CI for the 0.6-vs-1.0 monthly delta INCLUDES ZERO**
+  (+0.0032/mo, 95% CI [−0.0002, +0.0080]) → **not statistically significant**.
+- By **actual regime**: helps in BULL_CALM (n=42) and BULL_VOLATILE (n=47); **BEAR is n=3 →
+  unmeasurable** (the earlier "cap helps in bear" was a calendar-period artifact — withdrawn).
+- Panel is **survivorship-biased** (291/291 survive to 2026); proxy XGB ranker, not live PatchTST
+  in the real sizing/QP/gate stack.
 
-## Findings (net of cost, excess vs SPY, monthly)
-- **The 60% cap is the worst point**: Sharpe +0.20 at 0.6 → +0.70 at cap ≥1.0, then saturates.
-  NOT a risk trade-off — vol (~7.5%) and maxDD are flat-to-better when relaxing (the sizer
-  controls risk). Survives dropping the top-1% survivor winners (0.6→0.10 vs 1.2→0.60) and the
-  median month agrees.
-- **Regime split (theory-consistent)**: relaxing helps in calm/recovery (2020: 0.25→2.68) but
-  the cap HELPS in the 2022 bear (−0.26 capped vs −0.72 uncapped) — the low-vol anomaly in stress.
-
-## Proposal (discuss, NOT deployed)
-Make `risk_gates.realized_vol.max_annualized` **regime-aware**: ~1.0 in BULL_CALM/BULL_VOLATILE,
-~0.6 in BEAR; keep a ~1.5 hard ceiling. Validate with live PatchTST scores + shadow-test before
-any graduate. Survivorship mitigated (drop-top-1%, median) not eliminated; 2022 is one bear
-episode; proxy ranker not live model — all stated in the research doc.
+## Conclusion
+**No config change supported.** Withdrew the prior "60% is the worst point / regime-aware rule"
+claims. A real decision needs: PIT universe w/ delistings + live PatchTST + real Kelly/QP/gate
+order + paired net/DD/turnover deltas with uncertainty → shadow-test before any production change.
 
 ## Note
-Supersedes the first (weaker) version of this PR that leaned on a survivorship-biased mean and
-had no theory — replaced after operator pushback ("理论 + 数据支持; 重新做").
+Supersedes two earlier framings (a survivorship-biased mean; then an over-claimed "regime-aware"
+calendar split). This version is faithful to the data: suggestive, not significant, not deployable.

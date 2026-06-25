@@ -1,42 +1,65 @@
-"""RIGOROUS redo: does relaxing the hard 60% realized-vol cap survive theory + honest data?
-
-THEORY frame (why a binary cap is the wrong tool, and where it's justified):
-- Kelly/Merton: optimal weight f* = μ/σ². Risk enters sizing CONTINUOUSLY; there is no
-  binary admission threshold in optimal theory. A hard cap = forcing f*=0 above a line.
-- Moreira & Muir (2017, JF) "Volatility-Managed Portfolios": scaling exposure DOWN when vol
-  is high (∝1/σ²) RAISES Sharpe — direct support for "size down high-vol, don't exclude".
-- COUNTER (the case FOR a vol penalty): the low-volatility anomaly (Ang 2006; Baker 2011;
-  Frazzini-Pedersen BAB 2014) — high idio-vol / high-beta names earn LOWER risk-adjusted
-  returns. A raw backtest showing high-vol WINNING contradicts this robust anomaly ⇒ suspect
-  SURVIVORSHIP/period bias. (Our panel: 291/291 tickers survive to 2026 → busts are missing.)
-So the honest test is not "do high-vol names win" (biased up) but: holding the sizer fixed
-(Kelly 1/σ²), does RAISING the cap help on RISK-ADJUSTED, NET-OF-COST, DRAWDOWN, and in
-CRISIS sub-periods — and does any edge SURVIVE dropping the survivor mega-winners?
-
-Backtest: monthly rebalance, top-quintile by OOS model score, weight ∝ 1/σ² (clip [.05,1.5],
-the live Kelly fallback), vary ONLY the cap C ∈ {0.6,0.8,1.0,1.2,1.5,inf}. Forward 1-month
-EXCESS return vs SPY from OHLCV. Turnover cost = Σ|Δw|·(5bps + 20bps·vol). Report ann ret,
-ann vol, Sharpe, Sortino, maxDD, CVaR5, by full sample + sub-periods; + robustness (median,
-drop-top-1% winners).
-"""
+"""EXPLORATORY diagnostic (NOT a config proposal): realized-vol admission cap vs downstream
+vol-aware sizing, on a SURVIVORSHIP-BIASED panel (291/291 survive to 2026 -> high-vol biased UP).
+Upper-bound only. Theory: Kelly f*=mu/sigma^2 (continuous, no binary threshold); low-vol anomaly/
+BAB = the real continuous vol-penalty case; Moreira-Muir is PORTFOLIO vol-timing, NOT a
+cross-sectional single-security gate (background only). Proxy XGB ranker (not live PatchTST;
+omits Kelly numerator/QP/concentration/daily-rebalance/live-gate-order)."""
+from __future__ import annotations
 import glob
-import warnings
-
 import numpy as np
 import pandas as pd
-from xgboost import XGBRegressor
 
-warnings.filterwarnings("ignore")
 R = "/Users/renhao/git/github/RenQuant"
 LABEL = "fwd_60d_excess"
-REG = {"BULL_CALM": "regime_p_bull_calm", "BEAR": "regime_p_bear", "BULL_VOLATILE": "regime_p_bull_volatile"}
-N_CUTS, EMB = 6, 60
+REGCOL = {"BULL_CALM": "regime_p_bull_calm", "BEAR": "regime_p_bear", "BULL_VOLATILE": "regime_p_bull_volatile"}
+REGNAME = ["BULL_CALM", "BEAR", "BULL_VOLATILE"]
+N_TEST_FOLDS, EMB = 5, 60
 CAPS = [0.6, 0.8, 1.0, 1.2, 1.5, np.inf]
 VOL_FLOOR, VOL_CEIL = 0.05, 1.5
-COST_BASE, COST_K = 0.0005, 0.0020   # per-name one-way: 5bps + 20bps*vol
+COST_BASE, COST_K = 0.0005, 0.0020
 
 
-def load_px(t):
+def annualize(monthly):
+    if len(monthly) < 6:
+        return {"n": int(len(monthly)), "sharpe": np.nan}
+    mu, sd = monthly.mean() * 12, monthly.std() * np.sqrt(12)
+    dn = monthly[monthly < 0].std() * np.sqrt(12)
+    cum = (1 + monthly).cumprod()
+    return {"n": int(len(monthly)), "ann_ret": mu, "ann_vol": sd,
+            "sharpe": (mu / sd if sd else np.nan), "sortino": (mu / dn if dn else np.nan),
+            "maxDD": float((cum / cum.cummax() - 1).min()),
+            "cvar5": float(monthly[monthly <= monthly.quantile(0.05)].mean()),
+            "median_m": float(monthly.median()), "hit": float((monthly > 0).mean())}
+
+
+def block_bootstrap_ci(diff, block=3, n_boot=2000, seed=0, lo=2.5, hi=97.5):
+    diff = np.asarray([d for d in diff if np.isfinite(d)], dtype=float)
+    n = len(diff)
+    if n < block + 1:
+        return (float(np.mean(diff)) if n else np.nan, np.nan, np.nan)
+    rng = np.random.default_rng(seed)
+    nb = int(np.ceil(n / block))
+    means = np.empty(n_boot)
+    for i in range(n_boot):
+        starts = rng.integers(0, n - block + 1, size=nb)
+        means[i] = np.concatenate([diff[s:s + block] for s in starts])[:n].mean()
+    return float(diff.mean()), float(np.percentile(means, lo)), float(np.percentile(means, hi))
+
+
+def purged_test_windows(dates, n_folds, embargo_days):
+    b = np.linspace(0, len(dates), n_folds + 2).astype(int)
+    out = []
+    for k in range(1, n_folds + 1):
+        lo_i, hi_i = b[k], b[k + 1] - 1
+        if lo_i > hi_i or lo_i >= len(dates):
+            continue
+        test_lo, test_hi = dates[lo_i], dates[hi_i]
+        train_end = min(pd.Timestamp(dates[lo_i - 1]), pd.Timestamp(test_lo) - pd.Timedelta(days=embargo_days))
+        out.append((train_end, test_lo, test_hi))
+    return out
+
+
+def _load_px(t):
     fs = glob.glob(f"{R}/data/ohlcv/{t}/1d.parquet")
     if not fs:
         return None
@@ -45,157 +68,111 @@ def load_px(t):
     return d["close"]
 
 
-# ---- panel + OOS scores (purged WF) ----
-df = pd.read_parquet(f"{R}/data/alpha158_291_fund_regime_dataset.parquet").dropna(subset=[LABEL]).copy()
-df["date"] = pd.to_datetime(df["date"])
-df = df.sort_values(["date", "ticker"]).reset_index(drop=True)
-df["regime"] = df[[REG[r] for r in REG]].values.argmax(1)
-tickers = sorted(str(t).upper() for t in df["ticker"].unique())
-meta = {"ticker", "date", "regime", "fwd_5d_excess", "fwd_20d_excess", "fwd_60d_excess",
-        "split_label", *REG.values()}
-feats = [c for c in df.columns if c not in meta]
-dts = np.sort(df["date"].unique())
-b = np.linspace(0, len(dts), N_CUTS + 1).astype(int)
-preds = []
-for k in range(1, N_CUTS):
-    i = b[k]
-    if i >= len(dts):
-        break
-    lo = dts[i]
-    emb = pd.Timestamp(lo) - pd.Timedelta(days=EMB)
-    tr = df[df.date <= min(pd.Timestamp(dts[b[k] - 1]), emb)]
-    te = df[(df.date >= lo) & (df.date <= dts[min(b[k + 1], len(dts) - 1)])]
-    if len(tr) < 1000 or len(te) < 200:
-        continue
-    m = XGBRegressor(n_estimators=180, max_depth=5, learning_rate=0.05, subsample=0.8,
-                     colsample_bytree=0.8, n_jobs=4, random_state=0, verbosity=0)
-    m.fit(tr[feats].values, tr[LABEL].values)
-    p = te[["date", "ticker"]].copy()
-    p["score"] = m.predict(te[feats].values)
-    preds.append(p)
-    print(f"  WF cut {k} done", flush=True)
-P = pd.concat(preds, ignore_index=True)
-print(f"OOS scored rows={len(P)}", flush=True)
+def main():
+    from xgboost import XGBRegressor
+    df = pd.read_parquet(f"{R}/data/alpha158_291_fund_regime_dataset.parquet").dropna(subset=[LABEL]).copy()
+    df["date"] = pd.to_datetime(df["date"]); df = df.sort_values(["date", "ticker"]).reset_index(drop=True)
+    df["regime"] = df[[REGCOL[r] for r in REGNAME]].values.argmax(1)
+    regime_by_date = df.groupby("date")["regime"].first()
+    tickers = sorted(str(t).upper() for t in df["ticker"].unique())
+    meta = {"ticker", "date", "regime", "fwd_5d_excess", "fwd_20d_excess", "fwd_60d_excess", "split_label", *REGCOL.values()}
+    feats = [c for c in df.columns if c not in meta]
+    dts = np.sort(df["date"].unique())
+    preds = []
+    for train_end, tlo, thi in purged_test_windows(dts, N_TEST_FOLDS, EMB):
+        tr = df[df.date <= train_end]; te = df[(df.date >= tlo) & (df.date <= thi)]
+        if len(tr) < 1000 or len(te) < 200:
+            continue
+        m = XGBRegressor(n_estimators=180, max_depth=5, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, n_jobs=4, random_state=0, verbosity=0)
+        m.fit(tr[feats].values, tr[LABEL].values)
+        p = te[["date", "ticker"]].copy(); p["score"] = m.predict(te[feats].values); preds.append(p)
+    P = pd.concat(preds, ignore_index=True)
+    print(f"OOS rows={len(P)} (5 non-overlapping purged folds)", flush=True)
+    px = {}
+    for t in tickers + ["SPY"]:
+        s = _load_px(t)
+        if s is not None:
+            px[t] = s
+    spy = px["SPY"]; PX = pd.DataFrame(px).sort_index()
+    VOL = PX.pct_change().rolling(60).std() * np.sqrt(252)
+    me = pd.Series(PX.index).groupby([PX.index.year, PX.index.month]).max().values
+    me = pd.to_datetime([d for d in me if P["date"].min() <= d <= P["date"].max()])
+    score_by_date = {pd.Timestamp(d): g.set_index("ticker")["score"] for d, g in P.groupby("date")}
+    oos = np.sort(P["date"].unique())
 
-# ---- price matrix + realized vol + SPY ----
-px = {}
-for t in tickers + ["SPY"]:
-    s = load_px(t)
-    if s is not None:
-        px[t] = s
-spy = px["SPY"]
-PX = pd.DataFrame(px).sort_index()
-RET = PX.pct_change()
-VOL = RET.rolling(60).std() * np.sqrt(252)          # annualized realized vol, per day
-
-# month-end trading dates within the OOS span
-oos_dates = np.sort(P["date"].unique())
-alld = PX.index
-me = pd.Series(alld).groupby([alld.year, alld.month]).max().values
-me = pd.to_datetime([d for d in me if d >= oos_dates.min() and d <= oos_dates.max()])
-score_by_date = {d: g.set_index("ticker")["score"] for d, g in P.groupby("date")}
-
-
-def nearest_score_date(d):
-    cand = [x for x in oos_dates if x <= np.datetime64(d)]
-    return cand[-1] if cand else None
-
-
-def fwd_excess(t, d0, d1):
-    try:
-        p0 = PX[t].asof(d0); p1 = PX[t].asof(d1)
-        s0 = spy.asof(d0); s1 = spy.asof(d1)
-        if any(pd.isna(x) or x <= 0 for x in (p0, p1, s0, s1)):
+    def fwd_excess(t, d0, d1):
+        try:
+            p0, p1, s0, s1 = PX[t].asof(d0), PX[t].asof(d1), spy.asof(d0), spy.asof(d1)
+            if any(pd.isna(x) or x <= 0 for x in (p0, p1, s0, s1)):
+                return np.nan
+            return (p1 / p0 - 1) - (s1 / s0 - 1)
+        except Exception:
             return np.nan
-        return (p1 / p0 - 1) - (s1 / s0 - 1)
-    except Exception:
-        return np.nan
 
+    def run(cap, drop_top_frac=0.0, winsor=False):
+        rets, dates, regs, prev = [], [], [], {}
+        for j in range(len(me) - 1):
+            d0, d1 = me[j], me[j + 1]
+            sdl = [x for x in oos if x <= np.datetime64(d0)]
+            if not sdl or not len(VOL.loc[:d0]):
+                continue
+            sc = score_by_date.get(pd.Timestamp(sdl[-1]))
+            if sc is None:
+                continue
+            vol = VOL.loc[:d0].iloc[-1]
+            cand = pd.DataFrame({"score": sc}); cand["vol"] = vol.reindex(cand.index); cand = cand.dropna()
+            if len(cand) < 20:
+                continue
+            top = cand[(cand["score"] >= cand["score"].quantile(0.80)) & (cand["vol"] <= cap)]
+            if not len(top):
+                rets.append(0.0); dates.append(d1); regs.append(int(regime_by_date.asof(d0))); prev = {}; continue
+            sig = top["vol"].clip(VOL_FLOOR, VOL_CEIL); w = (1.0 / sig ** 2); w = (w / w.sum()).to_dict()
+            fr = {t: (0.0 if pd.isna(v := fwd_excess(t, d0, d1)) else v) for t in w}
+            if winsor and fr:
+                cut = np.quantile(list(fr.values()), 1 - drop_top_frac); fr = {t: min(v, cut) for t, v in fr.items()}
+            gross = sum(w[t] * fr[t] for t in w)
+            cost = sum(abs(w.get(t, 0) - prev.get(t, 0)) * (COST_BASE + COST_K * float(sig.get(t, 0.5))) for t in set(w) | set(prev))
+            rets.append(gross - cost); dates.append(d1); regs.append(int(regime_by_date.asof(d0))); prev = w
+        s = pd.Series(rets, index=pd.to_datetime(dates)); rg = pd.Series(regs, index=pd.to_datetime(dates))
+        if drop_top_frac > 0 and not winsor and len(s):
+            keep = s < s.quantile(1 - drop_top_frac); s, rg = s[keep], rg[keep]
+        return s, rg
 
-def run(cap, drop_top_pct=0.0):
-    """Monthly series of basket excess return (net of turnover cost) for a given vol cap."""
-    rets, dates, prev_w = [], [], {}
-    for j in range(len(me) - 1):
-        d0, d1 = me[j], me[j + 1]
-        sd = nearest_score_date(d0)
-        if sd is None:
-            continue
-        sc = score_by_date.get(pd.Timestamp(sd))
-        if sc is None:
-            continue
-        vol = VOL.loc[:d0].iloc[-1] if d0 in VOL.index or len(VOL.loc[:d0]) else None
-        if vol is None:
-            continue
-        # candidates: have score + vol + price
-        cand = pd.DataFrame({"score": sc})
-        cand["vol"] = vol.reindex(cand.index)
-        cand = cand.dropna()
-        if len(cand) < 20:
-            continue
-        # top quintile by score
-        thr = cand["score"].quantile(0.80)
-        top = cand[cand["score"] >= thr].copy()
-        top = top[top["vol"] <= cap]                       # the CAP under test
-        if len(top) == 0:
-            rets.append(0.0); dates.append(d1); prev_w = {}; continue
-        # weight ∝ 1/σ² with the live Kelly clip
-        sig = top["vol"].clip(VOL_FLOOR, VOL_CEIL)
-        w = (1.0 / (sig ** 2))
-        w = (w / w.sum()).to_dict()
-        # forward excess returns
-        fr = {t: fwd_excess(t, d0, d1) for t in w}
-        fr = {t: (0.0 if pd.isna(v) else v) for t, v in fr.items()}
-        if drop_top_pct > 0 and fr:                        # robustness: drop survivor mega-winners
-            cut = np.quantile(list(fr.values()), 1 - drop_top_pct)
-            fr = {t: min(v, cut) for t, v in fr.items()}
-        gross = sum(w[t] * fr[t] for t in w)
-        # turnover cost
-        allt = set(w) | set(prev_w)
-        cost = sum(abs(w.get(t, 0) - prev_w.get(t, 0)) *
-                   (COST_BASE + COST_K * float(sig.get(t, top["vol"].mean()
-                    if t in top.index else 0.5))) for t in allt)
-        rets.append(gross - cost); dates.append(d1); prev_w = w
-    return pd.Series(rets, index=pd.to_datetime(dates))
-
-
-def metrics(s):
-    if len(s) < 6:
-        return dict(n=len(s))
-    mu, sd = s.mean() * 12, s.std() * np.sqrt(12)
-    dn = s[s < 0].std() * np.sqrt(12)
-    cum = (1 + s).cumprod()
-    dd = (cum / cum.cummax() - 1).min()
-    cvar = s[s <= s.quantile(0.05)].mean()
-    return dict(n=len(s), ann_ret=mu, ann_vol=sd, sharpe=(mu / sd if sd else np.nan),
-                sortino=(mu / dn if dn else np.nan), maxDD=dd, cvar5=cvar,
-                med_m=s.median(), hit=(s > 0).mean())
-
-
-print("\n=== CAP SWEEP — monthly top-quintile, weight∝1/σ², net of cost, excess vs SPY ===", flush=True)
-print(f"{'cap':>5s} {'annRet':>7s} {'annVol':>7s} {'Sharpe':>7s} {'Sortino':>7s} {'maxDD':>7s} {'CVaR5':>7s} {'medM':>7s} {'hit':>5s}", flush=True)
-series = {}
-for c in CAPS:
-    s = run(c); series[c] = s; m = metrics(s)
-    cs = "inf" if np.isinf(c) else f"{c:.1f}"
-    print(f"{cs:>5s} {m['ann_ret']:+.3f} {m['ann_vol']:7.3f} {m['sharpe']:+.3f} {m['sortino']:+.3f} {m['maxDD']:+.3f} {m['cvar5']:+.3f} {m['med_m']:+.4f} {m['hit']:.2f}", flush=True)
-
-print("\n=== ROBUSTNESS: drop top-1% monthly winners (kills survivor tail) ===", flush=True)
-for c in [0.6, 1.2, np.inf]:
-    m = metrics(run(c, drop_top_pct=0.01))
-    cs = "inf" if np.isinf(c) else f"{c:.1f}"
-    print(f"cap={cs:>4s} Sharpe={m['sharpe']:+.3f} annRet={m['ann_ret']:+.3f} maxDD={m['maxDD']:+.3f} medM={m['med_m']:+.4f}", flush=True)
-
-print("\n=== SUB-PERIODS (Sharpe by cap) — does relaxing help/hurt in crises? ===", flush=True)
-periods = {"<=2019": ("2015-01-01", "2019-12-31"), "2020": ("2020-01-01", "2020-12-31"),
-           "2022": ("2022-01-01", "2022-12-31"), "2023-26": ("2023-01-01", "2026-12-31")}
-hdr = "period   " + "".join(f"{('inf' if np.isinf(c) else f'{c:.1f}'):>8s}" for c in CAPS)
-print(hdr, flush=True)
-for pn, (a, bb) in periods.items():
-    row = f"{pn:8s} "
+    print("\n=== cap sweep OVERALL ===", flush=True)
+    series = {}
+    print(f"{'cap':>5s} {'n':>4s} {'annRet':>7s} {'Sharpe':>7s} {'maxDD':>7s} {'CVaR5':>7s} {'medM':>8s}", flush=True)
     for c in CAPS:
-        s = series[c]
-        sub = s[(s.index >= a) & (s.index <= bb)]
-        m = metrics(sub)
-        row += f"{(m.get('sharpe') if m.get('n',0)>=6 else float('nan')):>8.2f}" if m.get('n',0)>=6 else f"{'~':>8s}"
-    print(row, flush=True)
-print("\nDONE", flush=True)
+        s, rg = run(c); series[c] = (s, rg); m = annualize(s)
+        cs = "inf" if np.isinf(c) else f"{c:.1f}"
+        print(f"{cs:>5s} {m['n']:4d} {m['ann_ret']:+.3f} {m['sharpe']:+.3f} {m['maxDD']:+.3f} {m['cvar5']:+.3f} {m['median_m']:+.5f}", flush=True)
+
+    print("\n=== per ACTUAL REGIME Sharpe by cap (n) — BEAR small-sample ===", flush=True)
+    print("regime        " + "".join(f"{('inf' if np.isinf(c) else f'{c:.1f}'):>11s}" for c in CAPS), flush=True)
+    for ri, rn in enumerate(REGNAME):
+        row = f"{rn:13s} "
+        for c in CAPS:
+            s, rg = series[c]; m = annualize(s[rg == ri])
+            cell = f"{m['sharpe']:+.2f}({m['n']})" if m.get("n", 0) >= 6 else f"~({m.get('n',0)})"
+            row += f"{cell:>11s}"
+        print(row, flush=True)
+
+    print("\n=== paired block-bootstrap CI: monthly delta vs cap 0.6 ===", flush=True)
+    base = series[0.6][0]
+    for c in [0.8, 1.0, 1.2, np.inf]:
+        s = series[c][0]; idx = base.index.intersection(s.index)
+        mean, lo, hi = block_bootstrap_ci((s.reindex(idx) - base.reindex(idx)).values)
+        cs = "inf" if np.isinf(c) else f"{c:.1f}"
+        sig = "" if (np.isnan(lo) or lo <= 0 <= hi) else "  *CI excludes 0"
+        print(f"  cap {cs:>4s} - 0.6: dMean={mean:+.5f} 95%CI=[{lo:+.5f},{hi:+.5f}]{sig}", flush=True)
+
+    print("\n=== robustness: TRUE-exclude vs WINSORIZE top-1% winner months ===", flush=True)
+    for c in [0.6, 1.0, np.inf]:
+        cs = "inf" if np.isinf(c) else f"{c:.1f}"
+        se, _ = run(c, 0.01, False); sw, _ = run(c, 0.01, True)
+        print(f"  cap {cs:>4s}: true-exclude Sharpe={annualize(se).get('sharpe'):+.3f}  winsorize Sharpe={annualize(sw).get('sharpe'):+.3f}", flush=True)
+    print("NOTE: neither op removes survivorship (both keep only 2026 survivors).", flush=True)
+    print("DONE", flush=True)
+
+
+if __name__ == "__main__":
+    main()
