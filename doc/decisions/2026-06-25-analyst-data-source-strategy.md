@@ -27,18 +27,23 @@ re-review)** — treat Finnhub as a live-probe result, not yet established infra
    until OAuth). So this is an **expected connector to TEST**, not confirmed
    access — try the auth; only if it authenticates AND returns covered history is
    it the gold standard.
-2. **FMP paid (Starter ~$22/mo)** if no MCP entitlement. Unlocks the 7.5y
+2. **FMP paid (Starter $29/mo)** if no MCP entitlement. Unlocks the 7.5y
    full-coverage `grades-historical`; **the #24 FMP fetcher works immediately —
    zero new integration, collect today**. Verify the chosen tier actually
    unlocks the previously-402 symbols with a one-call test (ADI / NFLX) before
    committing to the recurring fee.
 3. **EOD Historical Data (~$20–60/mo)** as a backup vendor (analyst ratings +
    history) if FMP's tier doesn't unlock full coverage.
-- In parallel, the **Finnhub daily cron (#408)** accumulates a free full-coverage
+- In parallel, the **Finnhub daily cron (#408)** would accumulate a free
+  **broad-coverage** (NOT proven full — an empty response is ambiguous `no_coverage`)
   series — a few months → usable on its own, and a cross-check on the paid source.
+  **PENDING:** base-data #25 + cron #408 are still CHANGES_REQUESTED; this path is
+  not live until both land, the base-data pin is bumped, and the integration is
+  validated (a one-shot dry-run proving the active/no_coverage metrics + fail-closed).
 
 ## Cost discipline (account = ~$10.6k — this matters)
-Monthly data fees are a real drag at this size: $22/mo ≈ **2.5% of equity/yr**.
+Monthly data fees are a real drag at this size: FMP Starter $29/mo ≈ **3.3% of
+equity/yr** ($22 seen elsewhere is the annual-billing rate, not monthly).
 And the analyst edge is **UNPROVEN** — the FMP preliminary +0.031 (BULL_CALM, 1
 seed, 38 names) sat **inside** the ~0.036±0.046 leakage-floor noise. So:
 - Prefer **free / already-entitled** (the MCP if accessible).
