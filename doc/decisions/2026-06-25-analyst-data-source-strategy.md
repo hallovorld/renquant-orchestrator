@@ -9,18 +9,24 @@ is reproducible.
 | Source | Coverage | History | Verdict |
 |---|---|---|---|
 | FMP free `/stable/grades-historical` | **~30%** (HTTP 402 plan-lock on ~70%) | 7.5y | deep but coverage-blocked ([[fmp-free-tier-covers-only-30pct]]) |
-| Finnhub free `/stock/recommendation` | **full** (136/145; 9 missing = ETFs) | **~4 mo only** | full but shallow; collected 2026-06-25 → `data/analyst_ratings_finnhub.parquet` |
+| Finnhub free `/stock/recommendation` | **broad** (live probe 136/145 returned data; 9 `no_coverage` — unverified, could be ETF/uncovered, see #25) | **~4 mo only** | broad but shallow; collected 2026-06-25 → `data/analyst_ratings_finnhub.parquet` |
 | yfinance upgrades/downgrades | full | multi-year events | net-upgrade signal placebo-clean **NEGATIVE** all regimes; no PIT (rejected #23) |
 
-→ **No free source is full-coverage AND deep-history.** A complete-today dataset
-needs a paid/entitled source.
+→ **No free source is broad-coverage AND deep-history.** A complete-today dataset
+needs a paid/entitled source. NOTE: the Finnhub producer (base-data **#25**) and
+its cron (**#408**) are **still in review (CHANGES_REQUESTED → fixed, pending
+re-review)** — treat Finnhub as a live-probe result, not yet established infra.
 
 ## Decision — priority order
 1. **financial-analysis MCP FIRST** (FactSet / S&P Global-Kensho / Morningstar /
-   LSEG). Institutional-grade: full coverage + decades of estimate-revision
-   history. **$0 marginal cost IF the account is entitled** (the plugin is
-   installed in this environment; it only needs OAuth). Try the auth; if entitled
-   → this is the gold standard and the search stops here.
+   LSEG). Institutional-grade IF entitled: full coverage + decades of
+   estimate-revision history, at **$0 marginal cost**. **[UNVERIFIED]** In the
+   **Claude Code** environment the financial-analysis MCP `authenticate` stubs
+   are present (they are **NOT** in the Codex environment); but entitlement is
+   unknown and the data tools have **not been exercised** (they stay deferred
+   until OAuth). So this is an **expected connector to TEST**, not confirmed
+   access — try the auth; only if it authenticates AND returns covered history is
+   it the gold standard.
 2. **FMP paid (Starter ~$22/mo)** if no MCP entitlement. Unlocks the 7.5y
    full-coverage `grades-historical`; **the #24 FMP fetcher works immediately —
    zero new integration, collect today**. Verify the chosen tier actually
@@ -36,12 +42,24 @@ Monthly data fees are a real drag at this size: $22/mo ≈ **2.5% of equity/yr**
 And the analyst edge is **UNPROVEN** — the FMP preliminary +0.031 (BULL_CALM, 1
 seed, 38 names) sat **inside** the ~0.036±0.046 leakage-floor noise. So:
 - Prefer **free / already-entitled** (the MCP if accessible).
-- If paying, take the **cheapest that works (FMP $22)**; do **not** exceed ~$22–50/mo
-  for unproven-edge data.
-- **Validate the signal (WF gate / orch #190 outcome validator) BEFORE** committing
-  to a recurring fee — a complete historical dataset lets that validation run in days.
+- If paying, default to a **one-month validation buy, NOT a recurring
+  subscription**: verify the tier unlocks the previously-402 symbols (one-call
+  test ADI/NFLX) → buy ONE month → pull the full history → validate → **cancel**
+  unless the signal clears a pre-registered bar. Take the cheapest that works
+  (FMP $22); do **not** stand up a recurring fee for unproven-edge data.
+- **Validate the signal with its OWN pre-registered per-regime WF/placebo gate
+  BEFORE** committing to any recurring fee — a complete historical dataset lets
+  that run in days. (This is the analyst-FEATURE validation; it is **not** orch
+  #190, which is the live conviction-gate *outcome* validator over the decision
+  ledger — a different control. The analyst feature needs its own gate.)
 
 ## MCP query approach + prompts (reproducible)
+**[UNVERIFIED — Claude Code env only.]** The function names below are the auth
+entrypoints listed in the Claude Code tool registry this session; they are NOT
+present in the Codex environment and have NOT been called/authenticated, so none
+of this is confirmed working. Documented for reproducibility of the *attempt*,
+not as verified capability — re-discover the actual tools at auth time.
+
 **Auth flow** (per server, e.g. FactSet):
 1. Call `mcp__plugin_financial-analysis_factset__authenticate` → returns an OAuth
    authorization URL.
@@ -68,8 +86,9 @@ fair-value; LSEG / Aiera / Daloopa = other angles. Try FactSet or S&P first for
 estimate revisions.
 
 ## Integration path
-Existing fetchers: `#24` FMP (30%, infra), `#25` Finnhub (full/shallow,
-accumulator). The chosen COMPLETE source gets a **parallel base-data fetcher**
+Existing fetchers: `#24` FMP (~30%, merged infra), `#25` Finnhub (broad/shallow
+accumulator — pending re-review) + cron `#408` (pending). The chosen COMPLETE
+source gets a **parallel base-data fetcher**
 (reuse the FMP/Finnhub `FetchResult` + store + gate patterns) writing the same
 schema. The **feature-engineering + retrain PRs come AFTER** a complete dataset +
 signal validation — never train an analyst feature on the shallow Finnhub window
