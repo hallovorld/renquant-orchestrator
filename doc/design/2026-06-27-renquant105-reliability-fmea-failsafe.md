@@ -246,6 +246,55 @@ Underlying enforcement layers (defence-in-depth, independent, lower layers don't
 - (`FULL_HALT`, where even exits pause, is reserved for broker/account-integrity failures —
   unreconciled state / wrong account — never for a P&L loss.)
 
+### 3.3b Quantitative LOSS BUDGET + exposure envelope (finding 7 — DERIVED, not asserted)
+The −5% session / −20% drawdown thresholds were **asserted**; they are now **derived from the
+account risk budget** so the breaker thresholds follow from position caps + vol + gap risk, not
+a round number:
+- **Inputs (pinned):** account equity ~$10.6k; the M3 per-step caps (S1 ≤5% → S4 ≤33% of book,
+  ≤1-4 names); the **measured open→close per-name vol** (M0 σ_oc ~150-250 bps prior, replaced by
+  measurement); **overnight is excluded** (flat by close — no overnight gap on intraday names),
+  but an **intraday gap/halt-reopen** stress is included.
+- **Loss budget identity:** `max_session_loss ≈ Σ_name (position_weight · worst-case adverse
+  intraday move)`. At S1 (≤5% book, 1 name) a worst-case ~ −1σ_oc to −3σ_oc adverse move on that
+  name ⇒ a session loss well inside −5%; the **−5% session breaker is the binding cap that trips
+  BEFORE the per-name caps could compound to it**, and the **−20% drawdown** is the multi-session
+  envelope = roughly the worst-case of the ladder's max concurrent exposure × a stress move.
+  These are **re-derived per ladder step** (a higher step's larger book lowers the implied
+  per-name move that hits −5%), so the breaker stays calibrated to the *current* exposure, not a
+  fixed step.
+- **Per-order / per-symbol / per-session exposure envelope (pinned):** per-order notional cap +
+  per-symbol max weight (≤ the M3 step's per-name cap) + per-session gross cap (≤ the step's
+  book cap) + the AgentBreaker per-day notional ($5k) and order-count (25) caps — every order is
+  checked against ALL of these pre-submit (§3.5 15c3-5 pattern). An order breaching any envelope
+  is rejected pre-submit, not sized down silently.
+- **Worst-case gap / stale-price STRESS (acceptance):** before live-arming, replay a **−Xσ_oc
+  intraday gap + a halt-reopen + a stale-bar event** and assert the breaker + bar-age gate +
+  slippage band contain the loss within the budget (fault-injection acceptance, §3.10).
+
+### 3.10 Trigger-latency per failure class + restart/reconciliation acceptance (finding 7)
+The safety response time is **per failure class**, each tied to the fastest decision cadence —
+not one generic 30-min cycle:
+
+| Failure class | Trigger latency budget | Mechanism |
+|---|---|---|
+| Stale/partial bar (F1/F3/F20) | **same cycle** (pre-submit) | bar-age gate fails closed before the order |
+| Slippage-band breach (F32) | **pre-submit** | marketable-limit + 15c3-5 price band reject |
+| Duplicate / cron overlap (F29/F37) | **pre-submit** | deterministic `client_order_id` + run-lock |
+| Daily-loss −5% (§3.3) | **≤ 1 bar cycle** | `NO_NEW_RISK`, exits allowed |
+| Unreconciled broker state (F30) | **≤ 60 s** post-submit | reconcile loop → `FULL_HALT` |
+| Dead decision loop (F39) | **≤ 5 min** (out-of-process supervisor cadence; §3.9) | separate launchd supervisor + broker-side bracket |
+| Intra-session model decay (F15) | **K bars** (pre-registered K) | live-IC monitor → `skip_buys` |
+
+**Broker-side / open-order behavior on halt:** open orders are cancelled by the out-of-process
+supervisor (§3.9) idempotently; resting risk is covered by the **broker-side protective
+bracket/OCO** placed at entry — so a halt does not leave positions bare even if our process is
+dead. **Restart / reconciliation acceptance:** before live-arming, a **restart test** (kill the
+loop mid-session, restart) must show AgentBreaker counters persist (F35, keyed by trading_date),
+`live_state` reconciles to broker truth (F30/F34), no double-submit (F29), and no budget refill;
+and a **fault-injection acceptance suite** (stale bar, NaN feature, negative price, forming bar,
+duplicate retry, wrong-account, gap/halt-reopen) must show each fails closed within its
+class's latency budget above. These are **gating** for live-arming (§6 blocker list).
+
 ### 3.4 Shadow-first, intraday-trading-DISABLED-by-default
 - 105 ships **flag-off and shadow-only**: it scores, sizes, and writes a run bundle +
   decision ledger but submits **no live orders**. (Matches how the intraday governor
@@ -387,7 +436,7 @@ the ledger+forward-return audit flags as a clear killed-loser-inverse).
 | **Order reconciliation** | 100% of submits reconciled to broker truth ≤ 60 s | F30 reconcile loop |
 | **Daily-loss breaker** | trips to **`NO_NEW_RISK`** (exits allowed) within 1 cycle of **−5%** session P&L | §3.3 (consistent −5% across FMEA/metrics/M2/M3) |
 | **Feed availability (decision-grade)** | ≥ 99.5% of RTH minutes | WS heartbeat + REST fallback |
-| **Mean time to halt (MTTH)** | ≤ 1 cycle (≤ ~30 min) from a detectable bad state to no-trade | kill-switch hierarchy |
+| **Mean time to halt (MTTH) — TIED TO THE FASTEST DECISION CADENCE (finding 7)** | **≤ 1 decision cycle at the FASTEST configured cadence** (e.g. ≤ ~1-5 min on a 1-5 min bar, NOT a generic ~30 min). A 30-min MTTH on a 1-5 min bar would permit **several** bad decisions before containment — so MTTH = `bar_interval`, set per failure class (see §3.10 trigger-latency table) | kill-switch hierarchy + the §3.10 per-failure-class latency budget |
 | **Recovery (MTTR)** | operator-paced; system stays fail-closed until explicit re-enable | the `FULL_HALT`/`CANCEL_OPEN_ORDERS` markers never auto-clear (`NO_NEW_RISK` may auto-clear on a clean session, §3.2) |
 | **Controls self-review** | ≥ quarterly | 15c3-5(e)-style review recorded in `doc/` |
 
@@ -421,6 +470,14 @@ Before 105 is live-armed, all must exist + be shadow-validated:
 11. **Broker-contract checks (M0.5)** — current `buying_power`/intraday-margin fields,
     rejection/deficit handling, leverage caps independent of broker max, fail-closed on
     Alpaca field migration (finding 8).
+12. **Quantitative loss budget + exposure envelope** (§3.3b, finding 7): the −5%/−20%
+    thresholds DERIVED from position caps × measured vol × gap risk (re-derived per ladder step),
+    a per-order/per-symbol/per-session envelope checked pre-submit, and a worst-case
+    gap/halt-reopen/stale-price stress that contains the loss within budget.
+13. **Per-failure-class trigger latency + MTTH tied to the fastest cadence** (§3.10, finding 7):
+    MTTH = `bar_interval` (NOT a generic 30 min), with the per-class latency table, broker-side
+    open-order behavior on halt, and the **restart/reconciliation + fault-injection acceptance
+    suite** green before live-arming.
 
 Everything else (feed health WS, live-IC decay monitor, per-window sub-caps,
 governor wiring) is high-priority but can follow behind the flag, shadow-first.

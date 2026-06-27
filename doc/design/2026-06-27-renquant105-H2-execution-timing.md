@@ -25,14 +25,17 @@ order-intent + fill record and on arrival-price capture.
 
 ## Requirements
 **Functional:**
-- H2.1 **Per-order-intent data contract (the prerequisite — capture is a GAP today).** For
-  every 104 order intent, persist a **bar-timestamped, session-aware** record:
-  `decision/arrival timestamp`, **arrival mid price** (NBBO mid at the decision instant),
-  the 104 **selection + size** (given, immutable), the intraday **IEX bars over the
-  execution window**, and the **realized fill(s)** (price, qty, time, partial flags). The
-  metrics suite lists arrival/decision-price capture + the IS module as **not built today**
-  — H2 cannot start until this record exists. Overnight is excluded; all timestamps route
-  through `live.clock` (reliability F38).
+- H2.1 **Per-order-intent data contract — DELIVERED BY H2.0, NOT by M2 (finding 2 — breaks the
+  round-3 cycle).** For every 104 order intent, the **bar-timestamped, session-aware** record
+  (`decision/arrival timestamp`, **arrival mid price** = NBBO mid at the decision instant, the
+  104 **selection + size** given/immutable, the intraday **IEX bars over the execution window**,
+  the **realized fill(s)**) and the IS module are produced by the **independent H2.0 milestone**
+  (an M0/M0.5-class observability/TCA milestone — master §7.0 DAG + M0 doc), which runs
+  **PARALLEL to M0 and does NOT depend on M1/M2-H1**. H2 therefore no longer waits on M2: the
+  round-3 contradiction ("M2 is entered only if M1 passes" yet "H2 needs M2's IS module" yet "H2
+  runs even if M1 kills H1") is resolved by moving capture into H2.0. All records are
+  **event-time-contract bound** (finding 1: arrival/fill marked at `first_eligible_fill_ts`, not
+  the closed bar). Overnight excluded; all timestamps via `live.clock` (reliability F38).
 - H2.2 **Pre-registered timing-policy set (fixed BEFORE any run — no post-hoc selection).**
   Compare the **baseline = current 104 next-open market order** against a **small, frozen**
   set of timing policies applied to the **same** intents, e.g.: (a) **TWAP** over the first
@@ -105,8 +108,9 @@ replay/shadow before any live timing change); deseasonalized for the intraday U-
 all metrics **net of the M0-measured cost model**, never gross.
 
 ## Deliverables
-The per-intent arrival/fill record + capture wiring (the **M2 implementation-shortfall
-module**, consumed here); the **quote/trade-level replay + the conservative, OOS-validated fill
+The per-intent arrival/fill record + capture wiring (the **H2.0 implementation-shortfall
+module** — owned by H2.0, consumed here AND by M2; finding 2); the **quote/trade-level replay +
+the conservative, OOS-validated fill
 model** (queue-position aware, partial-fill probability, executable-NBBO path, conservative
 impact — H2.6) with its calibration/validation report; the frozen timing-policy replay harness;
 the **IS-difference report** (per-policy paired-block mean + 95% CI **with fill-model uncertainty
@@ -143,14 +147,16 @@ the correct outcome is **keep the baseline next-open execution** — that is a c
 result, not a failure. H2 ships zero new round-trips regardless.
 
 ## Dependencies / inputs
-The 104 **order-intent + fill history**; **arrival-price capture** (the M2 implementation-
-shortfall module — the binding prerequisite); the decision ledger (`GateRegistry.persist()`,
-reliability §4); `live.clock` for session math; the M0-measured cost model for net-of-cost
-accounting. **No dependence on M1 / H1** — H2 runs on 104's existing intents and can proceed
-even if H1 is stopped.
+The 104 **order-intent + fill history**; **arrival-price capture + the IS module** (owned by
+the **independent H2.0 milestone**, master §7.0 / M0 doc — the binding prerequisite, parallel to
+M0, **NOT** owned by M2; finding 2); the decision ledger (`GateRegistry.persist()`, reliability
+§4); `live.clock` for session math; the M0-measured cost model for net-of-cost accounting.
+**No dependence on M1 / M2 / H1** — H2 depends only on H2.0 + M0 and can proceed even if H1 is
+stopped (the DAG is acyclic; master §7.0).
 
 ## Risks (FMEA subset)
-Arrival-price capture not yet built (H2.1 is the long pole, not the policies); **counterfactual
+Arrival-price capture not yet built (the **H2.0** capture milestone is the long pole, not the
+policies — but H2.0 is independent of M1/M2, finding 2); **counterfactual
 fills not identifiable from bars + one factual fill (finding 4)** → promoting a **simulator
 artifact** (mitigated by the H2.6 conservative, OOS-validated, queue/partial/impact fill model
 with uncertainty propagated, and the no-promote-on-unvalidated-fills kill); **opportunity-cost
@@ -162,7 +168,7 @@ exits killing winners in benign regimes (the BULL_CALM panel-exit precedent — 
 reliability §4.3).
 
 ## Effort
-~2–3 weeks once arrival-price capture (the M2 IS module) exists: the replay harness + the
+~2–3 weeks once arrival-price capture (the **H2.0** IS module, finding 2) exists: the replay harness + the
 paired-block analysis + the protective-exit spec. The data capture + the opportunity-cost
 discipline, not the timing policies, are the work.
 

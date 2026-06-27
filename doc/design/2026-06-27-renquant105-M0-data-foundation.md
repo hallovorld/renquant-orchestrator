@@ -29,6 +29,29 @@ orders (paper / zero-live-risk probes only).
   Target ~40–60 names by ADV rank. **REMOVED** the look-ahead rule "names that have
   complete intraday history over the window" (future availability must not determine past
   membership). Each date's universe is **frozen + fingerprinted in the dataset manifest**.
+- F0.1b **Two-stage universe so the coverage gate is NOT gameable (finding 3 — Codex
+  holistic).** The naive flow (drop a name on `d` when bars are missing, then measure
+  ≥95% coverage on the already-filtered as-of universe) is **gameable**: exclude enough
+  names and coverage trivially → 100%. Fix with **two distinct, separately-recorded sets**:
+  1. **`ELIGIBLE_d` (the denominator, frozen FIRST, data-quality-blind):** the
+     pre-data-quality eligible universe at `d`, computed **ONLY from LAGGED reference data**
+     (lagged ADV, listing eligibility, IPO seasoning, corporate-action mapping as-of `d`) —
+     **WITHOUT** looking at whether intraday bars are present. This is the **fixed
+     denominator** for the coverage metric.
+  2. **`TRADEABLE_d ⊆ ELIGIBLE_d` (the numerator-passing subset):** the names in `ELIGIBLE_d`
+     that actually have complete, non-stale bars at `d`. **Coverage = |TRADEABLE_d| /
+     |ELIGIBLE_d|**, measured against the **data-quality-blind denominator** — so excluding a
+     name for missing bars *lowers* coverage (it cannot be gamed to 100%). The **tradeable
+     subset is recorded SEPARATELY** in the manifest (both sets fingerprinted), and the
+     trading universe is `TRADEABLE_d`, but the **gate is judged on the `ELIGIBLE_d`
+     denominator**.
+  - **As-of vintages + raw-vs-adjusted bars (finding 3).** Corporate-actions / listing
+    metadata are stored with their **as-of vintage** (what was known at `d`), and bars are
+    kept in **BOTH raw and adjusted** form with the adjustment basis fingerprinted — because a
+    **retrieval-timestamp fingerprint alone does NOT stop a provider's later back-adjustment**
+    from leaking future split/dividend knowledge into a past bar. M0 asserts the adjustment
+    basis used at scoring matches the as-of vintage; a back-adjusted bar that disagrees with
+    the as-of-`d` raw bar is flagged, not silently consumed.
 - F0.2 New `renquant-strategy-105` config skeleton (the NEW pinned subrepo, master §6)
   with `hourly.enabled=true` / `minute.enabled=true` (lifting the 2026-05-04 daily-only
   mandate, scoped to 105) + the point-in-time universe manifest.
@@ -43,6 +66,10 @@ orders (paper / zero-live-risk probes only).
   `ticker_forward_returns(fwd_1/5/…d)` surface is **insufficient** — finding 2) plus the
   intraday alpha158 + extras feature panel (re-enable `hourly_features.py`/
   `minute_features.py` + `tasks_build_hourly_panel.py`), all **bar-timestamped + session-aware**.
+  **EVENT-TIME CONTRACT bound (finding 1):** the forward return is keyed from the **first
+  executable quote/fill at or after `first_eligible_fill_ts`** (the master §3 chain), NOT the
+  `bar_close_ts` price that produced the score — so the surface measures a *tradable* open→close
+  return, not an inflated closed-bar-to-close one. Features end at the last **closed** bar.
 - F0.6 **Feed/cost provenance fingerprint (finding 5).** For every dataset, persist a
   fingerprint of: feed (IEX vs SIP), subscription tier, venue coverage, adjustment basis,
   bar-construction rule, and retrieval timestamp. **Assert the historical training bars
@@ -70,8 +97,10 @@ orders (paper / zero-live-risk probes only).
     capital), in addition to mining the existing 104 fills, so the strata that H1 will actually
     trade are populated.
 **Non-functional:**
-- N0.1 Intraday coverage ≥ **95%** of the as-of universe (no NaN-leaf rows — the original
-  calibrator-corruption cause), measured **point-in-time**, not over the full window.
+- N0.1 Intraday coverage ≥ **95%** measured as **|TRADEABLE_d| / |ELIGIBLE_d|** against the
+  **data-quality-blind `ELIGIBLE_d` denominator** (F0.1b — NOT against the already-filtered
+  as-of universe, which is gameable), point-in-time, not over the full window. No NaN-leaf rows
+  (the original calibrator-corruption cause).
 - N0.2 Cache freshness during session < **2 min**; full 50-name refresh < **2 s**.
 - N0.3 Panel build is reproducible + **placebo-clean** (no look-ahead via the open auction).
 
@@ -89,7 +118,9 @@ probes); a **data-quality report** (point-in-time coverage, freshness, NaN/gap r
 ## Metrics / KPIs
 | Metric | Definition | Target |
 |---|---|---|
-| Point-in-time coverage | % of the as-of universe with complete bars at each date | ≥ 95% |
+| Point-in-time coverage | **|TRADEABLE_d| / |ELIGIBLE_d|** (data-quality-blind denominator, F0.1b — not gameable) | ≥ 95% |
+| Eligible/tradeable split recorded | both `ELIGIBLE_d` (lagged-ref-only) and `TRADEABLE_d` fingerprinted per date | 100% of dates |
+| As-of vintage + raw/adjusted bars | corp-action/listing metadata stored with as-of vintage; bars kept raw AND adjusted, basis fingerprinted | 100% of dates |
 | Freshness | age of newest bar vs now, in-session | < 2 min |
 | NaN/gap rate | fraction of NaN-leaf / missing bars in the panel | ~0% |
 | Ingestion latency | wall time to refresh 50 names | < 2 s |
@@ -102,7 +133,10 @@ probes); a **data-quality report** (point-in-time coverage, freshness, NaN/gap r
 | Cost-model CI present | per-stratum block-bootstrap CI on the cost estimate | 100% of strata |
 
 ## Acceptance criteria (gate to M1)
-Point-in-time coverage ≥ **95%** on the as-of universe; freshness < **2 min** in-session;
+Point-in-time coverage ≥ **95%** measured as **|TRADEABLE_d| / |ELIGIBLE_d|** against the
+**data-quality-blind `ELIGIBLE_d` denominator** (F0.1b — the gate cannot be gamed by excluding
+names), with both sets + the as-of vintage + raw/adjusted bar basis fingerprinted; freshness <
+**2 min** in-session;
 NaN-leaf rate ≈ **0**; panel + session-horizon return surface build clean + placebo-checked;
 **every date's universe is frozen + fingerprinted**; **feed/cost provenance fingerprinted**
 and historical-vs-live IEX microstructure parity asserted; the refresh cron runs idempotently
@@ -151,6 +185,21 @@ zero-live-risk probe semantics — they never risk the live book.
   → NO_NEW_RISK, alert, operator review — never a guessed default.
 **Acceptance:** all four encoded + shadow-tested; only then is the account described as
 "operationally clear". **Until M0.5 passes, no live-size assumption is valid.**
+
+## H2.0 — arrival-price + IS CAPTURE (observability/TCA; finding 2; gating for H2; NO LIVE-CAPITAL ORDERS)
+**Moved OUT of M2 into this M0-class data milestone so H2 is independent of M1/M2 (master §7.0
+DAG — this is the edge that breaks the round-3 cycle).** H2.0 builds the **per-104-order-intent
+arrival-price capture + the implementation-shortfall (IS) module** that both H2 and M2 need:
+- F0.6.1 **Per-intent arrival/fill record** (bar-timestamped, session-aware, event-time-contract
+  bound — finding 1): for every 104 order intent persist `decision/arrival ts`, **arrival NBBO
+  mid** at the decision instant, the 104 selection + size (given/immutable), the intraday IEX
+  bars over the execution window, and the realized fill(s). Overnight excluded; all ts via
+  `live.clock`.
+- F0.6.2 **IS module (Perold):** `IS = (exec − arrival_mid)·side + delay + opportunity_cost`,
+  net of the M0 cost model. This is the module **M2 CONSUMES and H2 CONSUMES** — neither owns it.
+**Acceptance:** the capture wiring + IS module exist and reconcile against 104's real fills;
+**no dependence on M1/M2** (entry = Phase -1 GO; runs parallel to M0). H2 (master `…-H2-…`) and
+M2 both consume this artifact.
 
 ## Risks (FMEA subset)
 IEX coverage gaps (F1/F20 — DataFreshnessGate is session-day granular today, must go

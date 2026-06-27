@@ -198,3 +198,66 @@ addressed (DESIGN-level = spec text; CODE-level = script/tests):
 Validation: `pytest tests/test_research_intraday_feasibility.py` → **26 passed** (23 prior + 3
 new for the Sharpe-band split, plus formatter assertions added to the existing formatter test),
 `py_compile` clean, `git diff --check` clean.
+
+## Revision 5 — Codex HOLISTIC RFC-level review (18:13Z) resolved (2026-06-27)
+A SEPARATE, system-level review (9 blockers) on top of the round-3 fixes — extends round-3, does
+NOT duplicate it. All 9 addressed at the DESIGN level (spec text; the feasibility script needed
+no change — none of the reconciled numbers are script outputs):
+1. **Same-bar look-ahead → explicit EVENT-TIME CONTRACT.** Added the chain
+   `bar_close_ts → data_available_ts → decision_ts → submit_ts → broker_ack_ts →
+   first_eligible_fill_ts` (master §3 + M1 F1.1b); label/entry priced at the **first
+   conservative next-executable quote/fill** (incl. decision latency), NEVER the closed-bar
+   price; identical contract in training/replay/shadow/live; **delayed-entry sensitivity** +
+   **hard parity test** added to M1; reconciled §A.2 (executable IC caveat). Sharpens round-3
+   #1/#4. "Until fixed, M1 cannot measure tradable alpha."
+2. **Milestone DAG cycle (M2↔H2).** Moved arrival-price + IS capture OUT of M2 into a new
+   **independent H2.0** observability milestone (M0/M0.5-class; master §7.0 + M0 doc); published
+   an **explicit acyclic DAG** (owners/artifacts/entry-exit) in master §7.0; M2 now CONSUMES the
+   H2.0 IS module, H2 depends on H2.0+M0 (not M1/M2) — the cycle is broken.
+3. **Gameable M0 coverage gate.** Added F0.1b two-stage universe: freeze `ELIGIBLE_d` from
+   **LAGGED reference data only** (data-quality-blind denominator), measure coverage =
+   `|TRADEABLE_d|/|ELIGIBLE_d|`, record the tradeable subset separately; require **as-of
+   vintages** for corp-action/listing metadata + **raw-vs-adjusted bars** (a retrieval
+   fingerprint does not stop later back-adjustment leakage). Updated N0.1/metrics/acceptance.
+4. **Gate taxonomy (alpha vs safety).** Master §4 now classifies every gate
+   `alpha/admission | portfolio constraint | safety invariant`; only alpha gates judged by
+   nested-OOS ablation/marginal alpha; **safety invariants verified by fault injection +
+   invariant/property tests + zero-tolerance incident SLOs and NEVER PnL-optimized** (M2 F2.6 +
+   acceptance row).
+5. **Parity must be EXACT.** M2 pipeline parity (champion-vs-itself) changed from "≥90% / ρ≥0.9"
+   to **100% exact at the decision-contract level** (eligible universe, features/fingerprints,
+   scores-within-tolerance, gate verdicts, sizes, intents), all allowed differences enumerated +
+   reconciled; statistical thresholds kept ONLY for challenger-vs-champion strategy lift.
+6. **Metric dictionary (single source of truth).** Added metrics §0: per-metric numerator/
+   denominator/clock/annualization/benchmark/missing-rule/CI/action, thresholds DERIVED from the
+   frozen policy + risk budget. Resolved the contradictions: **turnover** (the "<25% one-way"
+   gate was WRONG for a 1-rotation/day policy → REMOVED; round-trip ≤1.0 pinned); **G1 k=1.75 ⇒
+   cost/gross <36.4% per-trade + ≤30% aggregate** (replaces the inconsistent "<25%"); IC 0.03 /
+   precision 0.55 / dd thresholds tied to ONE Sharpe-1.0 min-effect basis; all **alert windows
+   defined**. Reconciled master §4 G1 (k=1.75) + §8.4.
+7. **Risk limits matured for live capital.** Reliability §3.3b derives −5%/−20% from position
+   caps × measured vol × gap risk (re-derived per ladder step), adds a per-order/per-symbol/
+   per-session **exposure envelope**, a worst-case **gap/stale stress**; §3.10 adds
+   **per-failure-class trigger latency**, broker-side open-order behavior, restart/reconciliation
+   + fault-injection acceptance; **MTTH tied to the fastest decision cadence (≤ `bar_interval`),
+   not a generic 30 min**. Wired into M3 precondition/F3.3 + metrics kill conditions + §6 blockers
+   (12-13).
+8. **Cross-repo RFC ownership.** Added master §6.1 "Ownership & authority": this PR is a SCOPED
+   ORCHESTRATION design that **references**, not defines, the cross-repo topology; the
+   authoritative change (new `renquant-strategy-105` repo role, forbidden imports, artifact
+   contracts, pin/lock migration, rollback, integration test) is owned by an **umbrella ADR under
+   `RenQuant/doc/arch/` that MUST land FIRST** — enumerated as a 6-item checklist. **This PR does
+   NOT authorize the topology change and does NOT touch the umbrella.** (Flagged for the operator.)
+9. **Bounded resource decision (Phase -1).** Added `doc/design/2026-06-27-renquant105-Phase-
+   minus-1-cheap-feasibility.md`: a read-only, ≤5-analyst-day / ≤1-week, no-orders probe on
+   EXISTING data measuring the causal open→close σ_oc (the number §A ASSUMES), coverage, breadth,
+   and a conservative cost band, with a pre-registered STOP/GO; wired as the **FIRST gate** in the
+   master DAG (before M0). STOP before building the full stack if history can't meet the
+   pre-registered N_eff or the causal data contract.
+
+Validation: `py_compile` clean; `pytest tests/test_research_intraday_feasibility.py` → 26 passed
+(no script change — the reconciled numbers are doc-level, not script outputs); `git diff --check`
+clean.
+
+**Operator action item (NOT done in this PR):** land the **umbrella ADR** (finding 8) under
+`RenQuant/doc/arch/` BEFORE creating `renquant-strategy-105` or executing any pin order.

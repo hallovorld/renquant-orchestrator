@@ -73,11 +73,17 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
 > - `…-performance.md` — latency / compute / storage budgets
 > - `…-metrics-suite.md` — alpha/risk/cost/model-health metrics, per-phase acceptance, 每日复盘
 > - `…-oss-champion-challenger-validation.md` — OSS leverage, shadow-model pattern, validation discipline
-> - `…-M0-data-foundation.md` / `-M1-model-validation.md` / `-M2-gates-shadow.md` /
+> - `…-Phase-minus-1-cheap-feasibility.md` — the **FIRST gate** (finding 9): a read-only,
+>   ≤5-day, no-orders feasibility probe on EXISTING data (causal σ_oc, coverage, breadth,
+>   cost band) with a pre-registered STOP/GO — runs BEFORE M0
+> - `…-M0-data-foundation.md` (incl. **M0.5 broker contract** + **H2.0 arrival-price/IS capture**,
+>   the observability milestone moved OUT of M2 so H2 is independent — finding 2) /
+>   `-M1-model-validation.md` / `-M2-gates-shadow.md` /
 >   `-M3-live-monitored.md` — per-milestone detailed designs for **H1 (intraday alpha)**
 >   (requirements, metrics, numeric acceptance, expected outcomes + kill conditions)
 > - `…-H2-execution-timing.md` — the INDEPENDENT **H2 (execution-timing/risk)** milestone
->   (data contract, comparator, arrival-price capture, paired-block inference, promotion/kill)
+>   (data contract from H2.0, comparator, paired-block inference, conservative OOS fill model,
+>   promotion/kill); see the acyclic DAG in §7.0
 
 ## A. Quantitative feasibility analysis — PARAMETRIC PRIORS (UNDETERMINED, not a verdict)
 Account ~$10.6k, 4× intraday BP $37.7k; liquid >$6 large-caps; IEX data; 1–5 min bars.
@@ -116,8 +122,12 @@ negligible (A.3). Committed base placeholder = **11 bps** (band 7–17).
 | Conservative (IEX staleness) | 8.5 bps | **~17 bps** |
 
 **A.2 Open→close edge of the top pick vs cost — the UNIT FIX** (`expected_top_edge_bps`).
-`E[edge_top] = IC·σ_oc·factor`; top-bucket `factor≈1.75` (= E[Z | Z>1.28] for a top-decile
-truncated standard normal, a Gaussian PRIOR). **Codex finding 1 (verdict-changing):** the
+**Event-time caveat (finding 1):** these priors assume entry at the **first executable
+quote/fill after `first_eligible_fill_ts`** (the §3 event-time contract), NOT the closed-bar
+price that produced the score; the IC feeding this identity must be the **executable** IC
+(measured against the conservative next-executable return), or the gross edge here is an upper
+bound on a non-tradable quantity. `E[edge_top] = IC·σ_oc·factor`; top-bucket `factor≈1.75`
+(= E[Z | Z>1.28] for a top-decile truncated standard normal, a Gaussian PRIOR). **Codex finding 1 (verdict-changing):** the
 round-1 script used a single `σ_xs=25 bps` as BOTH a single-5-min-bar dispersion AND the
 open→close dispersion — but those differ by ~√78≈9× (78 five-minute bars/session). The two
 are now **distinct fields**: `σ_xs_5m≈25 bps` (single bar; churn comparison only) vs
@@ -253,6 +263,31 @@ config/wiring, not new plumbing.
   surface** (open→close per name per session). 30min / 2hr are *secondary* diagnostics
   only; they do not drive any contract. Tie the horizon to the **cost hurdle**: expected
   edge must clear ~1.75× round-trip cost or it's untradeable.
+- **EVENT-TIME CONTRACT — NO SAME-BAR LOOK-AHEAD (finding 1, sharpens round-3 #1/#4).**
+  The label/entry must NOT be priced at the closed bar that *produced* the signal: that
+  closed-bar price is **not executable** after feature compute + gating + sizing + network +
+  broker-ack, so labelling/entering at it **inflates every IC / quantile / barrier / PnL**
+  while still passing purge/CPCV (the inflation is causal, not a CV artifact, so CV cannot
+  catch it). **Every dataset, label, replay, shadow, and live decision is bound to ONE explicit
+  event-time chain** (the same chain in all four contexts):
+  `bar_close_ts → data_available_ts → decision_ts → submit_ts → broker_ack_ts →
+  first_eligible_fill_ts`. The label and the entry price are computed from the **first
+  conservative next-executable quote/fill at or after `first_eligible_fill_ts`** (a
+  next-bar/next-quote executable price **including decision latency**), **never** the
+  `bar_close_ts` price. Concretely: the signal forms on the bar closing at `bar_close_ts`;
+  data is available at `data_available_ts = bar_close_ts + feed_latency`; the decision is taken
+  at `decision_ts = data_available_ts + compute/gate/size latency`; the order is submitted at
+  `submit_ts`, acknowledged at `broker_ack_ts`, and the **earliest fill** can only occur at
+  `first_eligible_fill_ts`. The open→close return is measured **from `first_eligible_fill_ts`
+  to the session close** (not from the closed bar to the close). **A delayed-entry sensitivity
+  analysis** (sweep the assumed latency through the chain — best/expected/worst) is mandatory
+  in M1, and a **HARD PARITY TEST** asserts training, replay, shadow, and live all use the
+  identical event-time contract (same ts fields, same first-executable rule). **Until this
+  contract is in place, M1 cannot measure tradable alpha** — the §A priors and any pre-contract
+  IC are upper bounds on a non-executable quantity. The pinned H1 policy (§7) decision
+  timestamps are the `decision_ts` of this chain; the M1 policy replay (M1 F1.4b) charges the
+  entry from `first_eligible_fill_ts`, and the replay/live parity contract test (M1) includes
+  the full event-time chain.
 - **GPU verdict: NO.** Models stay small (≤ low-millions of params), universe is
   small; CPU/MPS nightly batch is minutes even at ~80–100× bars. GPU only pays off
   for deep LOB on full depth + large universe — impossible here. Rent cloud GPU if
@@ -273,8 +308,29 @@ config/wiring, not new plumbing.
 ## 4. Logic (要不要改: yes — a stricter, conjunctive, fail-closed gate stack)
 Default action = **DON'T TRADE**; a trade fires only if **ALL** gates pass; any
 missing/stale input ⇒ reject. (`FIRE ⟺ G1∧…∧G8`)
-- **G1 cost-edge:** `net_alpha = ER − round_trip_cost > k·round_trip_cost` (k≈1.5–2),
-  using **live intraday spread**, not a daily constant.
+
+**Gate TAXONOMY — three classes, evaluated by DIFFERENT criteria (finding 4 — a safety control
+is NEVER optimized on PnL).** Conflating alpha gates with safety controls is a footgun: a
+criterion that "every retained gate must show positive multiplicity-corrected marginal alpha"
+would pressure REMOVING the dedup / freshness / margin / daily-loss / kill-state / slippage
+controls, which are **safety invariants** — rarely triggered, and not there to improve mean
+alpha. Every gate is therefore tagged with exactly one class, and the class fixes how it is
+validated:
+
+| Class | Examples | Evaluation method (NEVER cross-mixed) |
+|---|---|---|
+| **alpha / admission** | G1 cost-edge, G2 conformal lower-bound, G3 entry meta-label, G4 CHOPPY-no-trade | incremental **utility / coverage** via **nested-OOS ablation** + marginal contribution with **multiplicity correction** (M2); a retained alpha gate must add OOS value |
+| **portfolio constraint** | G6 QP optimality / per-name + turnover caps, G7 top-k under scarcity | feasibility / constraint-satisfaction tests; judged by adherence to the risk budget, not by mean alpha |
+| **safety invariant** | G5 freshness/staleness, G6 daily-loss breaker, G8 kill-state machine, dedup (`client_order_id`), margin/BP check, slippage-band reject | **fault injection + invariant/property tests + zero-tolerance incident SLOs** (reliability §4/§5). **NEVER required to show positive marginal alpha** — a safety gate that "never helped mean alpha" is still mandatory; removing it is forbidden |
+
+So the M2 per-gate-ablation alpha criterion (master §7 / M2 doc) applies **only to the
+alpha/admission class**; safety invariants are verified by fault injection + property tests and
+held to incident SLOs, and are explicitly out of any PnL-optimization loop.
+
+- **G1 cost-edge:** `net_alpha = ER − round_trip_cost > k·round_trip_cost` with **k = 1.75**
+  (pinned — the metric dictionary derives cost/gross from this single k; see metrics §0.2),
+  using **live intraday spread**, not a daily constant. `k=1.75` ⇒ per-trade admission ceiling
+  cost/gross < 36.4%; the portfolio aggregate target ≤30% moves WITH k, never independently.
 - **G2 confidence:** conformal **lower bound** of ER > cost hurdle — using **ACI /
   block-conformal** (intraday is non-exchangeable; vanilla conformal's coverage
   collapses in high-vol), replacing the bare `mu>0` floor.
@@ -344,7 +400,97 @@ Deploy artifacts: `backtesting/renquant_105/` (config/state/artifacts) +
 routes by `--strategy` → **no orchestrator code change**. 104 keeps running unchanged.
 105 runs **shadow (readonly-alpaca, no orders)** until validated, then graduates.
 
+### 6.1 Ownership & authority — this PR is SCOPED to orchestration; the cross-repo topology is an UMBRELLA ADR (finding 8)
+Per the canonical operating model (CLAUDE.md → `RenQuant/doc/arch/subrepo-operating-model.md`),
+**cross-repo architecture lives ONCE under `RenQuant/doc/arch/` and is REFERENCED, not copied**
+into a subrepo. The matrix above (a NEW `renquant-strategy-105` repo, forbidden imports, artifact
+contracts across base-data/model/pipeline/execution/backtesting/umbrella, lock/pin migration) is
+an **authoritative cross-repo topology change** — and `RENQUANT_REPOS.md` does **not** yet list a
+strategy-105 repo. **This orchestrator PR does NOT authorize that topology change.** It is a
+**SCOPED orchestration design** that **references** the cross-repo contract; the contract itself
+is owned by an umbrella ADR that **MUST land FIRST**:
+
+- **(a) Re-scope.** Everything in this suite is read as **orchestration responsibilities**
+  (pinning, run-bundle stamping, `--strategy` routing, the shadow→graduate flow). Where this
+  doc describes another repo's internals (base-data ingestion primitive, pipeline gate kernel,
+  model label/CPCV, execution broker contract, a new strategy-105 repo), it is a **proposed
+  requirement to be ratified by the umbrella ADR**, NOT a decision this PR makes.
+- **(b) The authoritative change is an umbrella ADR under `RenQuant/doc/arch/` that lands FIRST.**
+  Until that ADR is merged, `renquant-strategy-105` is **not created**, no pin order is
+  executed, and 105 stays a design. **This PR neither opens nor edits the umbrella.**
+- **(c) Checklist — exactly what the umbrella ADR must contain (so the operator can land it
+  separately):**
+  1. The new `renquant-strategy-105` **repo role** + its place in `RENQUANT_REPOS.md` (mirrors
+     strategy-104) — what it owns (config skeleton, point-in-time universe manifest, config
+     fingerprint) and what it must NOT own (no data/model/broker internals).
+  2. **Forbidden-import rules** (strategy-105 must not import model-training / broker-adapter /
+     signal-tree internals — the same hard boundaries CLAUDE.md sets for the orchestrator).
+  3. The **artifact contracts** across base-data (intraday loader + session-return surface),
+     model (intraday label/CPCV), pipeline (gate kernel + decision ledger), execution
+     (broker-contract / M0.5), and the strategy-105 universe/fingerprint manifest — each with
+     its owning repo and consumer.
+  4. The **lock/pin migration + pin order** (base-data contract first → pipeline → model →
+     strategy-105 + orchestrator last) and the **paired-PR matrix**.
+  5. The **rollback** plan (how to un-pin 105 and revert to the 104-only topology) and the
+     **compat-shim retirement** rule (`# COMPAT-105-SHIM` + removal ticket).
+  6. The **cross-repo integration test** that proves the contract holds end-to-end before any
+     105 pin is treated as production.
+
+Until the umbrella ADR (items 1-6) lands, the matrix in §6 is a **proposal referenced by this
+orchestration design**, not an executed topology change.
+
 ## 7. Phased rollout (validation-gated, with a kill condition)
+
+### 7.0 Explicit ACYCLIC milestone DAG (finding 2 — resolves the H2-independence contradiction)
+The round-3 text both said "M2 is entered only if M1 passes" AND that H2 needs the
+arrival-price + implementation-shortfall (IS) capture that M2 delivers, AND that H2 continues
+even if M1 kills H1 — a **cyclic / contradictory** dependency (H2 → M2 → M1, but H2 ⊥ M1). It
+is resolved by **moving the common observability / TCA capture (arrival-price capture + the IS
+module) OUT of M2 and into a milestone H2 can reach without M1/M2** — pinned here as **H2.0**,
+owned by M0/M0.5-class data work (no alpha model, no live order). The DAG below is **acyclic**;
+each node lists owner, key artifact, entry condition, and exit/kill.
+
+```
+Phase -1 (cheap feasibility, read-only)         [owner: analyst; artifact: Phase -1 report;
+   │  GO ──────────────┐                          entry: none (FIRST gate); STOP ends program]
+   ▼                   │
+  M0  (data + cost)    │   ── parallel ──►  H2.0 (arrival-price + IS CAPTURE, observability/TCA)
+   │  artifact: panel  │                     [owner: M0/M0.5-class data; artifact: per-intent
+   │  + session-return │                      arrival/fill record + IS module; entry: Phase -1
+   │  surface + the    │                      GO; does NOT depend on M1/M2 — the round-3 cycle
+   │  CALIBRATED COST  │                      is broken here]
+   │  MODEL            │                          │
+   ▼                   ▼                          ▼
+  M0.5 (broker contract, paper-only)         H2 (execution-timing/risk on the 104 book)
+   │  artifact: broker-contract checks          [owner: H2 doc; entry: H2.0 + M0 cost model;
+   ▼                                             depends on H2.0 + M0, NOT on M1/M2; runs even
+  M1  (H1 alpha GO/NO-GO; frozen-policy           if M1 KILLS H1]
+   │  replay; KILL ends H1, H2 continues)
+   ▼  GO
+  M2  (gates + shadow e2e; entry: M1 GO)
+   │  ── consumes H2.0's IS module (does NOT own it) ──
+   ▼  GO
+  M3  (live, tiny, monitored; entry: M2 GO + PSR/DSR holds + M0.5)
+```
+
+**Acyclicity is explicit:** the ONLY consumer relationship from H2/H2.0 to the M-chain is that
+**M2 consumes H2.0's IS module** (M2 no longer *owns* it). H2 and H2.0 have **no inbound edge
+from M1 or M2**, so the H2 path is a clean parallel branch that survives an M1 kill. Owners /
+artifacts / entry-exit are restated per milestone below and in each milestone doc.
+
+### 7.1 Phase -1 — cheap, bounded feasibility (the FIRST gate, finding 9)
+**Read-only, hard-capped (≤5 analyst-days / ≤1 week), no orders, no new data.** Measures, on
+EXISTING historical data only: intraday-coverage census, the **causal open→close dispersion
+`σ_oc`** the §A priors ASSUME at 150-250 bps (under the event-time contract, finding 1),
+attainable universe breadth, and a conservative existing-data cost band — each against a
+**pre-registered STOP/GO rule** (full doc: `…-Phase-minus-1-cheap-feasibility.md`). **STOP
+before M0** if the causal σ_oc is materially below the assumed band, breadth/coverage is too
+thin, the cost band is materially worse than the §A conservative leg, or the available history
+cannot meet the pre-registered N_eff (M1 F1.7) / the causal data contract (finding 1). This is
+the first node of the DAG — the program does not spend 10-17 weeks before this cheap gate.
+
+### 7.2 Hypotheses and milestones
+
 **Two INDEPENDENT hypotheses, separated (execution-plan gap).** The pivot bundles two
 distinct claims that need distinct experiments and acceptance criteria:
 - **H1 — intraday ALPHA** (a new cost-clearing intraday signal). Prior = **UNDETERMINED /
@@ -371,8 +517,11 @@ charge cost from THIS stateful policy, never `rebalances_per_day=1` by assertion
 - **Turnover accounting:** each entered name incurs **exactly one round trip**; total
   round-trips/session = names-entered; book turnover/day = one rotation (≈1.0). The feasibility
   script (`H1Policy`) and the M1 replay compute cost from this path, per-decision-timestamp.
-- **Per-decision label construction:** the open→close (session-aware, bar-timestamped) forward
-  return from the entry bar to the session close, off the M0 session-horizon surface.
+- **Per-decision label construction (event-time-contract bound — finding 1):** the open→close
+  (session-aware, bar-timestamped) forward return from the **first executable quote/fill at or
+  after `first_eligible_fill_ts`** (NOT the `bar_close_ts` price that produced the signal) to the
+  session close, off the M0 session-horizon surface. The decision timestamp above is the
+  `decision_ts` of the §3 chain; the entry/label price is the conservative next-executable one.
 
 - **M0 — Data + COST INSTRUMENTATION (finding 5 — breaks the circular dependency):**
   point-in-time, coverage-gated universe (finding 4); re-enable intraday cache +
@@ -386,7 +535,20 @@ charge cost from THIS stateful policy, never `rebalances_per_day=1` by assertion
   representative of H1's arbitrary intraday entry + close-exit policy). "No order" in M0 means
   **no live-capital order**; the probes are paper/shadow. The calibrated cost model is an M0
   artifact that **exists before M1 gates on it** (the 11 bps placeholder cannot gate H1). (No
-  alpha model in M0.)
+  alpha model in M0.) **M0 binds every dataset/return to the event-time contract (finding 1):**
+  the session-horizon surface and the cost model are keyed to `first_eligible_fill_ts`, never
+  `bar_close_ts`; M0 also persists **as-of vintages** for corporate-actions/listing metadata and
+  **raw-vs-adjusted bars** (finding 3 — a retrieval fingerprint alone does NOT stop a provider's
+  later back-adjustment from leaking future split/dividend knowledge).
+- **H2.0 — arrival-price + IS CAPTURE (observability/TCA; finding 2 — runs PARALLEL to M0,
+  independent of M1/M2):** the **per-104-order-intent arrival-price capture + the
+  implementation-shortfall (IS) module** are moved OUT of M2 into this independent
+  data/observability milestone so H2 can proceed WITHOUT M1/M2-H1. Owner = M0/M0.5-class data
+  work (no alpha model, no live order). Artifact = the bar-timestamped per-intent
+  arrival/decision/fill record + the IS computation module (Perold). M2 later **consumes** this
+  module; M2 no longer owns it (this is the edge that breaks the round-3 cycle, §7.0). Entry =
+  Phase -1 GO; exit = the IS module + capture wiring exist and are validated against 104's real
+  fills.
 - **M0.5 — Broker contract (finding 8):** encode the post-PDT broker contract before any
   size assumption — use current `buying_power`/intraday-margin fields, test rejection +
   margin-deficit handling in paper/shadow, define **leverage caps independent of the
@@ -403,12 +565,22 @@ charge cost from THIS stateful policy, never `rebalances_per_day=1` by assertion
 - **M2 — Gates + shadow e2e:** build G1–G8 (entry meta-label, P&L breaker→NO_NEW_RISK,
   conformal lower-bound, CHOPPY gate, cost hurdle, slippage/stale rejects); shadow-run 105
   end-to-end on live intraday data; confirm the conjunction raises *realized* precision
-  (placebo) and doesn't kill winners (ledger audit). **Gate proliferation ≠ validation
-  (execution-plan gap):** G1–G3 are correlated transforms of the model/cost output, so
-  M2 requires **per-gate ablations + marginal-contribution with multiplicity correction**,
-  not only a conjunction-level placebo. Separate **pipeline parity** (champion vs itself,
-  order-intent agreement ≥90%) from **strategy lift** (challenger vs champion) — the two
-  are different comparators (execution-plan gap).
+  (placebo) and doesn't kill winners (ledger audit). **M2 CONSUMES the H2.0 IS module — it does
+  NOT own/deliver arrival-price capture (finding 2).** **Gate taxonomy (finding 4 — do NOT
+  optimize safety on PnL):** every gate is classified `alpha/admission | portfolio constraint |
+  safety invariant`; only **alpha/admission** gates are judged by incremental utility/coverage
+  via nested-OOS ablation; **safety invariants** (dedup/freshness/margin/daily-loss/kill-state/
+  slippage) are verified by **fault injection + invariant/property tests + zero-tolerance
+  incident SLOs** and are **NEVER** required to show positive marginal alpha (that criterion
+  would pressure REMOVING safety controls — a footgun). **Gate proliferation ≠ validation
+  (execution-plan gap):** G1–G3 are correlated transforms of the model/cost output, so the
+  alpha gates require **per-gate ablations + marginal-contribution with multiplicity correction**,
+  not only a conjunction-level placebo. **Parity is EXACT, not statistical (finding 5):** a
+  deterministic shadow repro of the SAME model/data/config/clock/policy must match **100% at the
+  decision-contract level** (eligible universe, features/fingerprints, scores within a stated
+  numeric tolerance, gate verdicts, target sizes, intents) — every allowed difference enumerated
+  and reconciled. The ≥90% / correlation thresholds apply ONLY to **strategy lift** (challenger
+  vs champion), never to same-system parity.
 - **M3 — Live, tiny, monitored:** graduate with minimal size + the daily-loss
   breaker armed (→NO_NEW_RISK, exits allowed); the **$99 SIP** decision is a **fresh
   shadow parity+cost experiment** before any live SIP use (finding 5). Scale only on a
@@ -426,7 +598,8 @@ design's position, not open questions:
    (Confirm the ~40–60 size + the ADV/eligibility thresholds.)
 3. **SIP feed ($99/mo):** build+train on free IEX (with feed fingerprints), and treat any
    live SIP switch as a **fresh shadow parity+cost experiment** (finding 5), decided at M3.
-4. **Net-of-cost edge bar (k):** k≈1.75× round-trip cost as the admission hurdle?
+4. **Net-of-cost edge bar (k) — RESOLVED: k = 1.75** (pinned; the metric dictionary derives
+   cost/gross < 36.4% per-trade + ≤30% aggregate from this single k — metrics §0.2). (Confirm.)
 5. **Scope:** single intraday horizon only (multi-horizon sleeves were rejected before).
 6. **Kill condition:** agree that if M1 net-of-cost edge is not placebo-clean
    (PSR/DSR≥0.95), we STOP H1 rather than ship a cost-negative intraday book (H2 continues)?

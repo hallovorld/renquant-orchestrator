@@ -18,6 +18,66 @@ per name per session; `ticker_forward_returns(fwd_1/5/…d)` is a secondary diag
 `decision_pnl_attribution.selection_edge()`, MLflow `*_shadow` + `challenger_decisions`,
 `post_ntfy()` alerting.
 
+## 0. METRIC DICTIONARY — the SINGLE SOURCE OF TRUTH (finding 6)
+Every metric below has **exactly one** definition here; M1/M2/M3, the reliability doc, and the
+master spec MUST agree with it. Each entry pins: **numerator · denominator · sampling clock ·
+annualization · benchmark · missing-data rule · CI method · action**. Thresholds are
+**derived from the frozen H1 policy + the account risk budget** (one utility/capacity/vol/
+min-effect basis), not asserted independently. The previously-inconsistent items (turnover,
+G1-vs-cost/gross, IC/precision/dd thresholds, undefined alert windows) are reconciled here.
+
+**Derivation basis (one frozen basis for ALL thresholds):**
+- **Policy:** the pinned H1 policy (master §7) = **one book rotation/day** (a 4-name book
+  entered once and exited at the close = 1.0 book turnover/day; **exactly one round trip per
+  entered name**). All turnover/cost numbers are charged on THIS stateful path.
+- **Account risk budget:** ~$10.6k, the per-name/per-session caps (M3 ladder), expected daily
+  vol, and the max-tolerable-loss budget (§ reliability §3.3 / finding 7).
+- **Min economically-meaningful effect:** net-of-cost Sharpe **1.0** ⇔ open→close IC **≥0.03**
+  on the policy replay (M1 F1.7 pre-registration) — this single effect anchors IC, precision,
+  and dd thresholds.
+
+**0.1 Turnover — RESOLVE one-way vs round-trip (was contradictory).**
+- **Round-trip (book) turnover/day** = book rotations/day. **Pinned policy value = 1.0** (one
+  rotation). This is the cost-charging unit (each entered name = 1 round trip).
+- **One-way turnover/day** = (shares traded in one direction) / book = with one full rotation,
+  buying the new book is **100% one-way** and selling the old book is another 100% one-way →
+  **a full rotation = ~100% one-way turnover/day**, NOT "<25%". **The old "one-way turnover
+  <25%/day" KPI was WRONG for the open→close rotation policy** and is **REMOVED**. The pinned
+  targets: **round-trip turnover/day ≤ 1.0** (warn >1.2 = unintended churn; alert >1.5 =
+  multi-rotation, which §A rejects). One-way is reported as a diagnostic (~2× round-trip), not
+  gated at 25%.
+- *Numerator:* round-trips (entered names); *denominator:* book; *clock:* per session; *missing:*
+  un-filled intents excluded from the numerator; *action:* >1.2 warn, >1.5 alert (churn).
+
+**0.2 Cost-as-%-of-gross vs the G1 hurdle — RECONCILE to ONE number.**
+- **G1 admission hurdle** (master §4): `net_alpha = ER − RT_cost > k·RT_cost` with **k = 1.75**
+  ⇒ `ER > 2.75·RT_cost` ⇒ **cost/gross = RT_cost/ER < 1/2.75 = 36.4%** *at the per-trade
+  admission margin* (the worst trade just clearing G1).
+- The **portfolio KPI** `cost as % of gross alpha` is an **aggregate** over the whole book, not
+  the marginal admitted trade; an aggregate below the marginal admission ceiling is expected
+  because most admitted trades clear G1 with room to spare. **Pinned reconciliation:** the
+  **per-trade G1 ceiling = 36.4%** (cost/gross at the k=1.75 margin) and the **portfolio
+  aggregate target = ≤ 30%** (warn >36.4% = the book is running at the admission margin; alert
+  >45%). The old "<25%" was an unjustified third number and is **replaced by ≤30% aggregate**,
+  derived from k. *(If the operator prefers a tighter book target, raise k, not the KPI — the
+  two must move together.)*
+- *Numerator:* Σ realized RT cost (measured cost model); *denominator:* Σ gross alpha; *clock:*
+  rolling effective-N window; *action:* >36.4% warn, >45% alert.
+
+**0.3 IC / precision / dd — derived from ONE min-effect basis.** All three trace to the Sharpe-1.0
+/ IC-0.03 min effect (M1 F1.7): **open→close IC ≥ 0.03** is the gating effect; **gate-stack
+precision ≥ 0.55** is the meta-label hit-rate that, at the policy's selection breadth and the
+measured σ_oc, yields net-Sharpe ≥ 1.0 after the measured cost (M2 acceptance); **max-dd
+thresholds** (warn −12..−15%, kill −20%) are set from the account max-tolerable-loss budget
+(reliability §3.3), not picked independently. If M1's measured moments change the basis, all
+three are re-derived together (the *procedure* is pinned, the numbers move as one).
+
+**0.4 Alert WINDOWS — defined (were undefined).** Every alert below names its window explicitly:
+rolling metrics use the **pre-registered effective-N window** (the step's ≥20 effective-
+independent open→close sessions; M3) unless stated; freshness/dedup/slippage are **per-cycle**;
+daily-loss is **per-session**; champion-vs-challenger divergence is over a **42-effective-session**
+window. No metric below leaves its window implicit.
+
 ## 1. ALPHA metrics (metric | def | target | warn | alert)
 *All "runs" below are reported with CIs over **effective-independent** observations (block
 scheme on overlapping labels), not raw run counts (finding 3).*
@@ -34,9 +94,11 @@ scheme on overlapping labels), not raw run counts (finding 3).*
 - **Beta SPY** 252d | 0.3–0.8 | >1.0/<0 | >1.3 ; **HHI** | <0.18 | >0.25 | >0.35 ; **Effective-N** | ≥6 | <4 | <3
 - **Gross/net exposure** | ≤1.0× / regime band ; **Intraday MAE** per name | >−5% | <−8% | <−12% (stop breach)
 
-## 3. COST / EXECUTION metrics (NEW implementation-shortfall module — gap today)
+## 3. COST / EXECUTION metrics (implementation-shortfall module — owned by **H2.0**, finding 2; gap today)
 - **Realized vs expected slippage (bps)** | ±5 of model | >+15 | >+30 (blowout)
-- **Cost as % of gross alpha** | <25% | >40% | >60% ; **Turnover** (1-way/day) | <25% | >40% | >60%
+- **Cost as % of gross alpha** (aggregate; reconciled to G1 k=1.75 — §0.2) | ≤**30%** | >**36.4%** (running at the admission margin) | >**45%**
+- **Round-trip (book) turnover/day** (the cost-charging unit; §0.1) | ≤**1.0** (one rotation) | >**1.2** | >**1.5** (multi-rotation churn — §A rejects)
+- **One-way turnover/day** (diagnostic only — §0.1; the old "<25%" gate was WRONG for the rotation policy and is REMOVED) | ~2× round-trip | — | —
 - **Fill rate** | ≥98% | <95% | <90% ; **Effective spread paid** | <quoted | >1.2× | >2×
 - **Implementation shortfall (Perold)** decomposed {delay, exec/spread, impact, opportunity} | <20 bps | >40 | >75
 - **Participation vs ADV** | <5% | >10% | >20%
@@ -56,10 +118,14 @@ as vacuous) · **PBO < 20%** · placebo-clean (shuffled-label + time-shift; trus
 DIFFERENCE). Sample = the **power/MinTRL-derived minimum in effective-independent observations**.
 **M2 shadow e2e (`alpaca_shadow`, no orders):** gate-stack precision ≥ **0.55**
 (P(**open→close return**>0|selected)) · killed-winner rate ≤ **15%** · selection edge with a
-**block-bootstrap 95% CI lower bound > 0** (not "≥80% of 21 runs") · **pipeline parity**
-(champion-vs-itself order-intent agreement ≥ **90%**, ρ ≥ **0.9**) reported separately from
-**strategy lift** (challenger-vs-champion marginal IC, CI>0) · **per-gate ablation** with
-multiplicity correction · sample ≥ the power/MinTRL effective-N minimum.
+**block-bootstrap 95% CI lower bound > 0** (not "≥80% of 21 runs") · **pipeline parity
+(champion-vs-itself) = EXACT 100% at the decision-contract level** (eligible universe,
+features/fingerprints, scores-within-tolerance, gate verdicts, sizes, intents — every allowed
+difference enumerated + reconciled; finding 5 — the old "≥90% / ρ≥0.9" is WRONG for a same-system
+deterministic repro) reported separately from **strategy lift** (challenger-vs-champion marginal
+IC, CI>0 — the ONLY comparator using statistical thresholds) · **per-gate ablation (ALPHA gates
+only — finding 4; safety invariants verified by fault injection + property tests, never
+PnL-scored)** with multiplicity correction · sample ≥ the power/MinTRL effective-N minimum.
 **M3 live go/scale/kill:** go = M2 green + PSR/DSR ≥ 0.95 holds on shadow-period realized;
 live Sharpe (over a pre-registered effective-N window) within **±0.5** of shadow → on track;
 SCALE only on a **minimum live sample + exposure schedule** (not "+1 gross step" alone) if net
@@ -68,6 +134,10 @@ or Sharpe<0.5. (`252d-equiv` Sharpe is a scaling convenience and does NOT create
 evidence — the sample bar is effective-N, not annualization.)
 
 ### Hard KILL conditions (fail-closed) — state machine (finding 7/8)
+*The −5% session / −20% drawdown thresholds are **DERIVED** from the quantitative loss budget
+(position caps × measured vol × gap risk, re-derived per ladder step — reliability §3.3b / metric
+dictionary §0.3), not asserted; the safety trigger latency is the **fastest decision cadence**
+(≤ `bar_interval`), not a generic 30 min (reliability §3.10).*
 1. `max_drawdown_252d < −0.20` → **`NO_NEW_RISK` + controlled flatten / reduce-only**
 (a drawdown breach is a MARKET-RISK event, not an integrity failure — exits must stay
 ALLOWED; blocking all exits would TRAP risk). **`FULL_HALT` is reserved for untrustworthy
@@ -99,8 +169,10 @@ gate anomaly (one `blocked_by` >50%/100% of universe → the historic sell-only 
 
 ## Build gaps to close (implementation PR)
 1. **Wire `GateRegistry.persist()`** (built+tested, never called — the whole counterfactual/acceptance
-layer needs a populated `decision_ledger`). 2. **New implementation-shortfall module** (no slippage/IS
-computation today — needs arrival/decision-price capture per fill). 3. confirm the
+layer needs a populated `decision_ledger`). 2. **Implementation-shortfall module — built in
+**H2.0** (the independent observability milestone, finding 2), consumed by M2 + H2** (no
+slippage/IS computation today — needs arrival/decision-price capture per fill, event-time-contract
+bound — finding 1). 3. confirm the
 **probabilistic PSR/DSR (≥0.95) + PBO** are computed in `model_acceptance.py` as GATING, fed the
 **full trial universe** N (finding 3). 4. build the **M0 session-horizon (open→close) return
 surface** (the daily `fwd_*d` surface is insufficient). 5. decide 105 schema reuse-vs-fork tag.

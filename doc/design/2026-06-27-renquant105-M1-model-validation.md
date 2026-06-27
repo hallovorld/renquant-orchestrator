@@ -26,6 +26,19 @@ experiment is independent and has its own milestone doc `…-H2-execution-timing
   diagnostics only*. **Separate overnight from intraday** (overnight gap excluded from
   label + features + PnL). Labels + forward returns are **bar-timestamped + session-aware**
   off the M0 session-horizon surface (the daily `fwd_5d`/`fwd_60d` surface is insufficient).
+- F1.1b **EVENT-TIME CONTRACT — NO same-bar look-ahead (finding 1, holistic; sharpens round-3
+  #1/#4).** The label and the entry are priced at the **first conservative next-executable
+  quote/fill AT OR AFTER `first_eligible_fill_ts`** of the event-time chain
+  (`bar_close_ts → data_available_ts → decision_ts → submit_ts → broker_ack_ts →
+  first_eligible_fill_ts`; master §3), **never** the `bar_close_ts` price that produced the
+  score — pricing at the closed bar inflates every IC/quantile/barrier/PnL while still passing
+  purge/CPCV (the inflation is causal, not a CV artifact). The open→close return is measured from
+  `first_eligible_fill_ts` to the session close. **A DELAYED-ENTRY SENSITIVITY analysis is
+  mandatory:** sweep the assumed latency through the chain (best / expected / worst
+  `decision→fill` lag) and report how the GO metrics degrade — a GO that survives only the
+  zero-latency case is NOT a GO. **A HARD PARITY TEST** asserts training, the M1 replay, shadow,
+  and live all use the **identical** event-time contract (same ts fields, same
+  first-executable rule). **Until this contract holds, M1 cannot measure tradable alpha.**
 - F1.2 **Embargo = the open→close label horizon IN BARS, rounded to a session boundary**
   (session-aware) + overnight-gap purge (the single most important leakage fix — getting it
   wrong reproduces the inflated-IC bug). The block scheme for the **overlapping** labels
@@ -57,11 +70,14 @@ experiment is independent and has its own milestone doc `…-H2-execution-timing
     the §A Gaussian edge prior with a *measured* conditional mean), but it is a diagnostic — it
     does **NOT** gate H1. Only the policy replay does.
   - **Replay/live parity contract tests (gating).** A test suite must prove the M1 replay and
-    the live H1 execution path agree on: **decision timestamps** (closed-bar boundaries),
-    the **session entry cap**, **no-reentry / one-open-per-name**, **barrier exits** (σ-scaled
-    profit/stop + session-close time barrier), and **cost charging** (same `H1Policy` stateful
-    round-trip count + the M0 cost model). A replay that does not match the live path is not
-    evidence for the live path.
+    the live H1 execution path agree on: the **full event-time chain** (`bar_close_ts →
+    data_available_ts → decision_ts → submit_ts → broker_ack_ts → first_eligible_fill_ts`;
+    finding 1 — entry priced at `first_eligible_fill_ts`, never `bar_close_ts`), **decision
+    timestamps** (closed-bar boundaries), the **session entry cap**, **no-reentry /
+    one-open-per-name**, **barrier exits** (σ-scaled profit/stop + session-close time barrier),
+    and **cost charging** (same `H1Policy` stateful round-trip count + the M0 cost model). A
+    replay that does not match the live path on the event-time contract is not evidence for the
+    live path.
 - F1.5 **NESTED CPCV** harness (finding 1): score calibration + gate thresholds + policy
   selection are fit ONLY inside each inner training fold; the **frozen H1 policy is replayed on
   the held-out outer fold** to produce the OOS-Sharpe distribution. **Probabilistic PSR/DSR ≥
@@ -127,7 +143,8 @@ is diagnostic-only).** The bar is the deployable stateful policy's realized perf
 | PBO (CSCV) on the policy-replay metric | **< 20%** |
 | **Policy-replay** net-PnL block-bootstrap 95% CI | lower bound **> 0** (block ≥ open→close label horizon) |
 | Sample | ≥ the **power/MinTRL-derived minimum in effective-independent observations** (F1.7), not a raw date count |
-| **Replay/live parity** (contract tests, F1.4b) | timestamps, session cap, no-reentry, barrier exits, and cost charging MATCH between the M1 replay and the live H1 path |
+| **Event-time contract + delayed-entry sensitivity** (F1.1b, finding 1) | label/entry priced at `first_eligible_fill_ts` (NOT `bar_close_ts`); GO metrics survive the delayed-entry latency sweep (best/expected/worst), not just zero-latency |
+| **Replay/live parity** (contract tests, F1.4b) | the full **event-time chain**, timestamps, session cap, no-reentry, barrier exits, and cost charging MATCH between the M1 replay and the live H1 path |
 | Quantile mapping `E[return|quantile]` | **diagnostic-only** (reported for calibration; does NOT gate) |
 
 ## Expected outcome (预期) + kill condition

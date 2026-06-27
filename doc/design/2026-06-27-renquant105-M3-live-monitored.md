@@ -15,7 +15,10 @@ kill conditions. Decide the SIP feed. Scale up only if net-of-cost edge holds li
 - F3.1 **Deliberate enable** — `intraday_buys_enabled=true` is a gated, human-authorized
   act (never a default); fail-closed everywhere else.
 - F3.2 Tiny size cap (e.g. ≤ 1–2 names, ≤ 10–20% of book) — canary, not full book.
-- F3.3 The **P&L daily-loss circuit breaker** + pre-trade 15c3-5 hard limits armed.
+- F3.3 The **P&L daily-loss circuit breaker** (threshold **derived** from the §3.3b loss budget,
+  re-derived for the current ladder step — NOT an asserted −5%) + pre-trade 15c3-5 hard limits
+  armed + the **per-order/per-symbol/per-session exposure envelope** (reliability §3.3b) checked
+  pre-submit + the per-failure-class trigger-latency budget (§3.10, MTTH ≤ `bar_interval`).
 - F3.4 **SIP feed decision** ($99/mo Algo Trader Plus) for NBBO-accurate live fills — the
   IEX adverse-selection penalty is a meaningful fraction of the entire net edge. **A switch
   to SIP changes the observation/execution distribution (finding 5): it is a FRESH
@@ -39,7 +42,7 @@ full alpha/risk/cost/model-health suite, live.
 counts (finding 3); `252d-equiv` Sharpe is a scaling convenience, not 252 days of evidence.*
 | State | Condition |
 |---|---|
-| **Go-live precondition** | M2 green + **PSR/DSR ≥ 0.95** holds on shadow-period realized + **M0.5 broker contract encoded** (finding 8) |
+| **Go-live precondition** | M2 green + **PSR/DSR ≥ 0.95** holds on shadow-period realized + **M0.5 broker contract encoded** (finding 8) + **the quantitative loss budget + exposure envelope + worst-case gap/stale stress + restart/reconciliation + fault-injection acceptance suite GREEN** (reliability §3.3b/§3.10, finding 7) — the −5%/−20% thresholds are **derived** from position caps × measured vol × gap risk, re-derived per ladder step, NOT asserted; safety MTTH = the **fastest decision cadence** (≤ `bar_interval`), not a generic 30 min |
 | **Exposure schedule (PRE-REGISTERED, EXACT — finding 3/round-3)** | a fixed 4-step ladder pinned NOW: **S1** ≤ 1 name / ≤ 5% of book → **S2** ≤ 2 names / ≤ 10% → **S3** ≤ 3 names / ≤ 20% → **S4** ≤ 4 names / ≤ 33%. **Observation unit = a completed live open→close session (effective-independent, block scheme), NOT a calendar day or a run.** **Minimum N per step = 20 effective-independent sessions** at the current exposure before the next step is eligible. **Maximum calendar duration to clear the whole ladder = 6 months;** **stop outcome if not met:** if any step fails to reach its scale-up gate within the duration, **do NOT advance — revert to last-known-good champion and STOP the live scale-up** (the edge did not hold live), rather than waiting indefinitely or hand-tuning the ladder. |
 | **On track** | live Sharpe (pre-registered effective-N window = the step's ≥20 sessions) within **±0.5** of shadow-period Sharpe |
 | **SCALE-UP** | the step's **≥ 20 effective-independent live sessions** completed AND net Sharpe ≥ **1.0** AND max-DD shallower than **−10%** AND killed-winner ≤ 15% → advance exactly one ladder step (S1→S2→S3→S4; precise limits, not "+1 gross step / 10–20% of book") |
