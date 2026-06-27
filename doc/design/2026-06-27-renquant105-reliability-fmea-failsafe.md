@@ -193,31 +193,52 @@ zero-trade on infeasible, `data_cache` returns `None` on cold-start). 105 extend
 - Unreconciled broker state ⇒ TRADING_OFF.
 - Any preflight HARD failure ⇒ `PreflightFailed` → exit, **zero orders**.
 
-### 3.2 Kill-switch hierarchy (most-dominant first)
-1. **`TRADING_OFF` file (AgentBreaker P4).** Presence refuses *every* order, even
-   with headroom. Durable, out-of-band, operator-cleared only. Written by
-   `deadman_check` (hung watchdog) and proposed: by the reconcile loop (F30) and the
-   daily-loss breaker (§3.3).
-2. **AgentBreaker caps (P1 ≤25 orders/day, P2 ≤$5k/day).** Hard, fail-closed,
-   counts-only-on-success, no retry-loop. 105 adds **per-session and per-window
-   sub-caps** + a message-rate throttle (FINRA 15-09).
-3. **`skip_buys` (drawdown / feed-health / decay).** Blocks new buys, allows exits.
-4. **Gate-stack `block`** (max-join over the lattice). Per-name or book.
-5. **Preflight** (run won't start armed).
+### 3.2 Kill-switch STATE MACHINE + precedence (finding 7)
+A single all-or-nothing `TRADING_OFF` flag is **wrong** for risk reduction: a breaker that
+prevents liquidation *increases* risk. 105 therefore defines **distinct states** with explicit
+exit semantics. States, from most to least dominant (a higher state subsumes the lower ones'
+restrictions):
 
-This is a **defence-in-depth** ordering: each layer is independent and lower layers
-do not trust upper ones.
+| State | New buys | Reduce-only / exits | Cancel open orders | Trigger(s) | Recovery authority |
+|---|---|---|---|---|---|
+| **`FULL_HALT`** | ✗ | ✗ (broker/account-integrity emergency only) | ✓ | unreconciled broker state (F30), wrong-account (F31), dd < −20% | operator only (out-of-band marker, never auto-clears) |
+| **`CANCEL_OPEN_ORDERS`** | ✗ | ✓ | ✓ | feed/broker disagreement, stale-but-recoverable | auto-recover when inputs healthy + operator ack |
+| **`NO_NEW_RISK`** | ✗ | **✓ (exits ALLOWED)** | ✓ | **daily-loss breaker (§3.3)**, drawdown skip, feed UNHEALTHY, intra-session decay | auto-clear on the next clean session OR operator |
+| **`NORMAL`** | ✓ (if all gates pass) | ✓ | ✓ | — | — |
+
+Precedence: `FULL_HALT > CANCEL_OPEN_ORDERS > NO_NEW_RISK > NORMAL` (max-dominance, like the
+gate lattice). **The daily-loss breaker maps to `NO_NEW_RISK`, NOT `FULL_HALT`/`TRADING_OFF`** —
+losing money is exactly when you must be able to *exit*. Only broker/account-integrity failures
+reach `FULL_HALT` (where even exits are paused until an operator reconciles).
+
+**Exit price authority + staleness:** in `NO_NEW_RISK`/`CANCEL_OPEN_ORDERS`, exits may use the
+**last-good price** up to a **max staleness of 1.5× bar interval** (the F1 bar-age bound); beyond
+that, exits use a marketable-limit at the freshest available NBBO. **Broker/feed disagreement:**
+if the broker position/price disagrees with our feed beyond a tolerance → escalate to
+`CANCEL_OPEN_ORDERS` (do not place new exits on a disputed price) and reconcile (F30).
+
+Underlying enforcement layers (defence-in-depth, independent, lower layers don't trust upper):
+1. The **state marker** (durable file; `FULL_HALT`/`NO_NEW_RISK` recorded with reason+time).
+2. **AgentBreaker caps** (P1 ≤25 orders/day, P2 ≤$5k/day) — hard, counts-only-on-success,
+   no retry-loop; 105 adds **per-session/per-window sub-caps** + a message-rate throttle (FINRA 15-09).
+3. **`skip_buys`** is the legacy name for the `NO_NEW_RISK` buy-side block (allows exits).
+4. **Gate-stack `block`** (max-join over the lattice). 5. **Preflight** (run won't start armed).
 
 ### 3.3 P&L daily-loss circuit breaker (the 104 gap — `[105-BLOCKER]`)
 104 has **no absolute daily-loss stop**: the drawdown breaker blocks *buys* on a
 ~20% peak-to-trough DD and allows sells; the weekly APY monitor only *alerts*.
-105 adds a **hard intraday loss breaker**:
+105 adds a **hard intraday loss breaker** that maps to **`NO_NEW_RISK`, NOT `TRADING_OFF`**
+(finding 7 — exits must stay allowed when losing money):
 - Track intraday realized+unrealized P&L vs session-open equity.
-- `session_pnl_pct ≤ −L_halt` (e.g. −2%) ⇒ write `TRADING_OFF` (halts *all* new
-  orders), alert, require operator clear. Hysteresis to avoid flap.
-- Optional `≤ −L_flatten` (e.g. −4%) ⇒ controlled flatten via the existing
-  protective-sell path (governor-throttled, §3.6).
-- NaN/inf P&L ⇒ fail-SAFE halt (mirror the DC-1/Issue-07 guards).
+- `session_pnl_pct ≤ −L_halt` (**−5%**, the single consistent threshold across the FMEA,
+  metrics, M2, M3) ⇒ enter **`NO_NEW_RISK`**: halt new buys, **exits/reduce-only ALLOWED**,
+  alert, require operator review to return to `NORMAL`. Hysteresis to avoid flap.
+- Optional `≤ −L_flatten` (deeper than −5%, e.g. −8%) ⇒ controlled flatten via the existing
+  protective-sell path (governor-throttled, §3.6) — still within `NO_NEW_RISK` (exits are the
+  point).
+- NaN/inf P&L ⇒ fail-SAFE to **`NO_NEW_RISK`** (mirror the DC-1/Issue-07 guards).
+- (`FULL_HALT`, where even exits pause, is reserved for broker/account-integrity failures —
+  unreconciled state / wrong account — never for a P&L loss.)
 
 ### 3.4 Shadow-first, intraday-trading-DISABLED-by-default
 - 105 ships **flag-off and shadow-only**: it scores, sizes, and writes a run bundle +
@@ -252,9 +273,11 @@ pattern* because it is the right shape for "prevent the bad trade before it leav
 ### 3.7 Recovery procedures
 - **Stale/UNHEALTHY feed:** auto → `skip_buys`; operator → verify Alpaca status,
   refresh, confirm freshness, resume.
-- **TRADING_OFF set (deadman / loss-breaker / reconcile):** operator reads the marker
-  (it records why + when), fixes root cause, **deletes the file** (the only re-enable
-  act; system never auto-clears).
+- **State marker set:** `FULL_HALT` (deadman / unreconciled / wrong-account) and
+  `CANCEL_OPEN_ORDERS` require the operator to read the marker (it records why + when), fix
+  root cause, and clear it (the system never auto-clears `FULL_HALT`). **`NO_NEW_RISK`**
+  (the daily-loss breaker, drawdown skip, feed UNHEALTHY) keeps **exits allowed** and may
+  auto-clear on the next clean session, or on operator review — it is NOT a full stop.
 - **Unreconciled order (F30):** query broker order/position truth, reconcile
   `live_state`, then clear TRADING_OFF.
 - **Corrupt cache (F8):** quarantine the parquet, re-fetch from Alpaca, bar-count
@@ -321,7 +344,7 @@ the ledger+forward-return audit flags as a clear killed-loser-inverse).
 | **Bar freshness at decision** | ≥ 99% of cycles use a bar ≤ 1.5× interval old | feed monitor; else degrade |
 | **Decision-loop liveness** | heartbeat ≤ 180 s during RTH | `deadman_check` → TRADING_OFF |
 | **Order reconciliation** | 100% of submits reconciled to broker truth ≤ 60 s | F30 reconcile loop |
-| **Daily-loss breaker** | trips within 1 cycle of −2% session P&L | §3.3 |
+| **Daily-loss breaker** | trips to **`NO_NEW_RISK`** (exits allowed) within 1 cycle of **−5%** session P&L | §3.3 (consistent −5% across FMEA/metrics/M2/M3) |
 | **Feed availability (decision-grade)** | ≥ 99.5% of RTH minutes | WS heartbeat + REST fallback |
 | **Mean time to halt (MTTH)** | ≤ 1 cycle (≤ ~30 min) from a detectable bad state to no-trade | kill-switch hierarchy |
 | **Recovery (MTTR)** | operator-paced; system stays fail-closed until explicit re-enable | TRADING_OFF never auto-clears |
@@ -340,11 +363,17 @@ Before 105 is live-armed, all must exist + be shadow-validated:
 2. **Deterministic `client_order_id` dedup** for equities (F29).
 3. **flock run-lock** keyed trading_date+window (F37).
 4. **All session math via `live.clock`** + CI ban on naive datetimes (F38).
-5. **Intraday daily-loss circuit breaker** (§3.3 — closes the 104 gap).
+5. **Intraday daily-loss circuit breaker → `NO_NEW_RISK`** (§3.3 — closes the 104 gap;
+   exits allowed, threshold −5%, finding 7).
 6. **Intraday `config_fingerprint`** + preflight feature-space match (F12/F14/F16).
 7. **Marketable-limit + slippage band** instead of raw market orders (F32).
-8. **Order reconcile loop** → UNRECONCILED ⇒ TRADING_OFF (F30).
+8. **Order reconcile loop** → UNRECONCILED ⇒ `FULL_HALT` (F30).
 9. **Gate-independence matrix + placebo CI** + FP-trade SLO meter (§4).
+10. **Kill-switch state machine** (`FULL_HALT`/`CANCEL_OPEN_ORDERS`/`NO_NEW_RISK`) with the
+    daily-loss breaker mapped to `NO_NEW_RISK` (§3.2, finding 7).
+11. **Broker-contract checks (M0.5)** — current `buying_power`/intraday-margin fields,
+    rejection/deficit handling, leverage caps independent of broker max, fail-closed on
+    Alpaca field migration (finding 8).
 
 Everything else (feed health WS, live-IC decay monitor, per-window sub-caps,
 governor wiring) is high-priority but can follow behind the flag, shadow-first.

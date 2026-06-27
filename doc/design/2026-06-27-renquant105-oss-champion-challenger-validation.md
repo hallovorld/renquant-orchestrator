@@ -38,9 +38,13 @@ canary → auto-rollback); financial-services champion/challenger promote only o
 out-performance, **human-in-the-loop, never automatic**.
 
 **Promotion bar (challenger → champion)** — thresholds are defensible starting points, calibrate:
-- min live-shadow window sized by **MinTRL** (≈40–60 sessions) with **0 parity/contract failures**;
+- min live-shadow window sized by **MinTRL in effective-independent observations** (block
+  scheme on overlapping labels; ~40–60 sessions is indicative, the BINDING quantity is the
+  power/MinTRL-derived effective-N, finding 3) with **0 parity/contract failures**;
 - **PSR on the difference of Sharpes ≥ 0.95** (corrects length+skew+kurtosis);
-- **Deflated Sharpe > 0** fed the *real* trial count N (renquant already ran ~70–81 PatchTST trials — that N must be carried in);
+- **Probabilistic Deflated Sharpe ≥ 0.95** (Bailey & López de Prado — a probability, not the
+  vacuous "DSR>0") fed the **full trial universe N** (horizons×labels×features×seeds×models×
+  gates **+ the prior ~70–81 PatchTST trials**; that N must be carried in, finding 3);
 - rank-IC superiority Z-test + higher ICIR;
 - net (not gross) turnover ≤ 1.25× champion, max-DD ≤ champion;
 - 104 fingerprint/config-parity + placebo/leakage WF sanity must pass before shadow numbers count;

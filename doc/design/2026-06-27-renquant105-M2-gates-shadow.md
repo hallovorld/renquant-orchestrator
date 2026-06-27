@@ -18,8 +18,9 @@ prove the gate stack actually prevents unreliable trades.
   spread), G2 conformal lower-bound (ACI/block — intraday non-exchangeable), G3 **entry
   meta-label** (P(profit)≥τ — highest-leverage new gate, symmetric to the existing exit
   veto), G4 **CHOPPY→no-trade** (ADX>20 / ATR%), G5 vol/spread/freshness, G6 risk budget
-  + **P&L daily-loss circuit breaker** (104 gap), G7 top-k under scarcity, G8 kill-switch
-  + max-deviation slippage reject.
+  + **P&L daily-loss circuit breaker** (104 gap) mapping to **`NO_NEW_RISK`** (blocks new
+  buys, **allows** reduce-only/cancel exits — NOT `TRADING_OFF`/all-orders-off; finding 7),
+  G7 top-k under scarcity, G8 kill-switch state machine + max-deviation slippage reject.
 - F2.3 **Reliability blockers (close before any live):** `client_order_id` dedup on the
   equities path (F29); a **run-lock** (F37); **intraday-granular DataFreshnessGate** (F1/F20);
   broker submit try/except + reconciliation (F30).
@@ -35,19 +36,24 @@ daily-loss-breaker/intraday-freshness); the shadow-model loop (MLflow aliases); 
 retrospective report + ntfy; the implementation-shortfall module.
 
 ## Metrics / KPIs
-Gate-stack precision (P(fwd_5d>0|selected)); killed-winner rate; selection edge
-(selected_mean − vetoed_mean); live-vs-shadow tracking (order-intent agreement, score rank-corr);
-false-positive-trade rate; per-gate `selection_edge` (which gate pays).
+Gate-stack precision (P(**open→close return**>0|selected)); killed-winner rate; selection
+edge (selected_mean − vetoed_mean); **two distinct comparators (execution-plan gap):**
+(a) **pipeline parity** = champion-vs-itself order-intent agreement (does the shadow pipeline
+reproduce the live one?), (b) **strategy lift** = challenger-vs-champion (does the new model
+add edge?) — these are different questions and must not be conflated; **per-gate marginal
+contribution** (ablation, multiplicity-corrected); false-positive-trade rate.
 
 ## Acceptance criteria (gate to M3)
 | Criterion | Threshold |
 |---|---|
-| Gate-stack precision | ≥ **0.55** |
-| Killed-winner rate | ≤ **15%** (blocked names whose fwd_5d was top-tercile) |
-| Selection edge | > 0 on ≥ **80%** of 21 runs |
-| Live-vs-shadow tracking | order-intent agreement ≥ **90%**, score rank-corr ρ ≥ **0.9** |
-| Sample | ≥ **20** full shadow runs |
-| Reliability blockers | dedup + run-lock + daily-loss-breaker + intraday-freshness **closed** |
+| Gate-stack precision | ≥ **0.55** (on the **open→close** label, not fwd_5d) |
+| Killed-winner rate | ≤ **15%** (blocked names whose open→close return was top-tercile) |
+| Selection edge | > 0 with a **block-bootstrap 95% CI lower bound > 0** over the effective-N sample (not "≥80% of 21 runs") |
+| **Pipeline parity** (champion vs itself) | order-intent agreement ≥ **90%**, score rank-corr ρ ≥ **0.9** |
+| **Strategy lift** (challenger vs champion) | positive marginal IC with a CI lower bound > 0 (separate from parity) |
+| **Per-gate ablation** | each retained gate shows positive marginal contribution, **multiplicity-corrected** (not just a conjunction-level placebo) |
+| Sample | ≥ the **power/MinTRL-derived minimum in effective-independent observations** (not "20 runs") |
+| Reliability blockers | dedup + run-lock + daily-loss-breaker(→NO_NEW_RISK) + intraday-freshness **closed** |
 | FP-trade SLO | ≤ **0.5%**, **zero** duplicate/stale-price orders |
 
 ## Expected outcome (预期) + kill condition
