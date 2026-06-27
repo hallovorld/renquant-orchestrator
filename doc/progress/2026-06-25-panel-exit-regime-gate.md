@@ -1,36 +1,45 @@
-# Panel-exit predictiveness research (XGB proxy + LIVE PatchTST validation)
+# Panel-exit predictiveness research (read-only ledger; BULL_CALM mis-fire RETRACTED)
 
-2026-06-25. Trigger: the SHADOW run exited AMZN on `panel_conviction` (−2.35%) while prod held
-it; operator asked for a theory+data teardown. Research/decision evidence; NO behavior change
-(the rule lives in renquant-pipeline).
+2026-06-25 (rewritten 2026-06-27 after Codex review of PR #195). Trigger: the SHADOW run exited
+AMZN on `panel_conviction` (−2.35%) while prod held it; operator asked for a theory+data teardown.
+Research/decision evidence; NO behavior change (the rule lives in renquant-pipeline).
 
 ## What this is
 Tests whether `CrossSectionalPanelExit`'s AND-rule (held name bottom-20% panel + mu≤0) predicts
-forward underperformance, and whether that depends on regime — first with an XGB proxy, then
-**validated on the live PatchTST pt07 seed44 scorer** (which CORRECTED a proxy artifact).
+forward underperformance, and whether that depends on regime — **read-only over the wired decision
+ledger** (`data/runs.alpaca.db`: `candidate_scores.panel_score`/`mu` joined to
+`ticker_forward_returns.fwd_60d`, per-run-date), within-date per-date-block inference.
 
 ## Deliverables
-- `doc/research/2026-06-25-panel-exit-regime-gate.md` — rule mechanism, QP-vs-rule contradiction,
-  XGB-proxy + LIVE-PatchTST empirical tables, theory, regime-gated proposal.
-- `scripts/research_panel_exit_predictiveness.py` + `tests/test_research_panel_exit.py`.
+- `doc/research/2026-06-25-panel-exit-regime-gate.md` — rule mechanism, ledger tables, conclusion.
+- `scripts/research_panel_exit_predictiveness.py` (read-only, no model training) +
+  `tests/test_research_panel_exit.py` (synthetic-ledger unit tests).
 
-## Findings — and a self-correction
-- **XGB proxy** suggested the bottom-20% ≈ the middle (exit captures ~0 alpha). **Live PatchTST
-  (20k OOS rows, 2020–22) RETRACTS that**: the real bottom-20% is monotonic and significantly
-  underperforms (AMZN-zone vs median = −0.086, CI [−0.124,−0.046]) → the rule has REAL aggregate
-  value where the scorer discriminates losers. The proxy understated it.
-- **The regime split SURVIVES the live model** (the actionable issue): bottom-20% predicts in
-  BEAR (−0.22) / BULL_VOLATILE (−0.05) but **NOT in BULL_CALM** (+0.026, CI [−0.073,+0.123],
-  leans positive). AMZN was exited in BULL_CALM — the regime where it doesn't hold.
-- Internal contradiction: the QP wanted to KEEP AMZN (+2.6%, lowest-σ holding); the σ-blind,
-  pre-QP rule overrode it.
+## Codex review (PR #195) — addressed
+1. **Repo boundary** (was training XGBRegressor in the orchestrator): REMOVED. The script now
+   only reads the ledger and joins to realized returns — no model is trained here.
+2. **Non-reproducible live-PatchTST table**: GONE. The decisive evidence is now the committed
+   read-only script over the pinned ledger DB; anyone can re-run it.
+3. **Anti-conservative CIs** (row bootstrap on overlapping 60d labels): replaced with WITHIN-DATE
+   per-date-block inference (t = mean/SEM over dates; the date, not the row, is the unit).
+4. **Execution plan not decision-grade**: the doc now explicitly defers any pipeline change to a
+   pre-registered, path-dependent shadow replay and does not propose a config change off
+   diagnostics.
 
-## Proposal (validate further → renquant-pipeline PR, not now)
-Regime-gate the AND-rule (BULL_CALM → strong-negative μ or defer to QP); don't override the QP
-when it wants to keep; tighten `mu_sell_ceiling`. Caveat: live-model BULL_CALM sample is small
-(n=260; these cuts are stress-heavy) — confirm with PatchTST scores from BULL_CALM-dominant
-periods, then shadow-test, before any pipeline change.
+## Finding — and a SELF-CORRECTION (the headline flips)
+On 417 aged BULL_CALM ledger dates, the AND-fired names underperform the names you'd keep by
+−0.081 fwd60 (t=−9.3, 76% of days; rank-IC +0.22). **So the "mis-fires in BULL_CALM" headline is
+RETRACTED — the exit IS predictive in BULL_CALM on the real ledger.** The earlier "not predictive"
+reading came from a tiny covid/inflation OOS PatchTST cut, not the production ledger. The signal
+is strongest in BULL_VOLATILE (−0.29) and only **inverts in CHOPPY** (+0.08, 14 dates) — that, not
+BULL_CALM, is the candidate carve-out.
+
+## What still stands
+The σ-blind / QP-override portfolio critique (the rule dumped AMZN, the lowest-σ ballast the QP
+wanted to keep) is INDEPENDENT of predictiveness and is not refuted — but it is a turnover/risk/QP
+question for a shadow replay, not a regime gate. The original regime-gate proposal is withdrawn.
 
 ## Note
-Self-corrected after validating on the live PatchTST: retracted the "exit captures zero alpha"
-over-claim (XGB-proxy artifact); the regime-conditional core (BULL_CALM mis-fire) held up.
+Second self-correction on this thread: I previously retracted an XGB-proxy "zero alpha" over-claim;
+now I also retract the "BULL_CALM mis-fire" claim once measured on the wired ledger instead of a
+trained proxy. Lesson reinforced: validate on the ledger ground truth, in this repo's lane.
