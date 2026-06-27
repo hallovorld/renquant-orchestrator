@@ -8,18 +8,23 @@ A no-trade daily-full refused 49/83 candidates on the signal-direction gate
 real winners? The decision-ledger is now wired richly enough to answer it on
 realized forward returns, so this validates it instead of guessing.
 
-## Findings (read-only, `data/runs.alpaca.db` sim ledger 2024→2026)
-- Early in-sample read: demean **appears to refuse relative under-performers, not
-  winners**: within-date (refused − kept) fwd60 = −0.60 (92d, 74% of days);
-  x-sec rank-IC(mu, fwd60) = +0.176 (451d); direction holds per-regime incl.
-  BULL_CALM (+0.168) and every year. Significance is a **block-bootstrap CI sign**
-  (overlapping 60-session labels → date obs not iid); the first-draft naive t
-  (≈12.9 / −5.6) overstates it and is retained only as a labelled reference.
-- So the no-trade reads as the gate declining a weak cross-section — a **monitored
-  positive read**, not yet validation-grade and not a bug to force through. Revert
-  gate not tripped. Caveats: in-sample sim, 42-ticker subset, overlapping labels →
-  trust the within-date relative *direction*, not absolute magnitudes or naive t;
-  confirm at the late-Aug #190 live-aged review.
+## Findings (read-only, `data/runs.alpaca.db` sim ledger 2024→2026) — verdict is MIXED
+The validator reports **two lenses** and the real `--as-of 2026-06-27` run has them
+**disagree**, so `gate_status=MIXED_MONITOR_ONLY` / `verdict=MIXED_NO_CLEARANCE`:
+- **Lens A (relative rank):** demean-refused names underperform the kept set —
+  within-date (refused − kept) fwd60 = −0.6028, block-bootstrap CI
+  [−0.6791, −0.5085] (excludes 0); x-sec rank-IC(mu, fwd60) +0.1758. Looks good.
+- **Lens B (absolute mu≥floor operational):** the monitored-enable's own named
+  revert metric is **positive** — `dropped_by_demean_mean_fwd = +1.1952`
+  (BULL_VOLATILE +4.1341, n=2; BULL_CALM −0.2743, n=4), so
+  `revert_trigger_tripped = true` (thin n=6, leakage-inflated, but tripped).
+- **Net: NO operational clearance.** The tool refuses to emit `DEMEAN_BETTER` while
+  the revert metric is positive. So this is **monitor-only, NOT a positive
+  validation** — one lens says keep, the named revert metric says revert. The
+  no-trade is not "a bug to force through", but neither is demean "validated".
+  Caveats: in-sample sim, 42-ticker subset, overlapping 60-session labels (naive t
+  ≈12.9/−5.6 anti-conservative → block bootstrap used). Decide at the late-Aug #190
+  live-aged review.
 
 ## Deliverables
 - `scripts/validate_conviction_gate.py` — (1) unblock: key the ledger on
@@ -36,10 +41,11 @@ realized forward returns, so this validates it instead of guessing.
   column still work).
 - `tests/test_validate_conviction_gate.py` — mu-path + rank-evidence test, a
   trading-session-vs-calendar-day age regression test (fails on the old cutoff),
-  and block-bootstrap field coverage. 5 pass.
+  block-bootstrap field coverage, and the two-lens conflict test (relative-positive
+  AND absolute-dropped-positive → `MIXED_MONITOR_ONLY`, never `DEMEAN_BETTER`). 6 pass.
 - `doc/research/2026-06-26-demean-signal-direction-validation.md` — full write-up,
-  methodology (incl. run_id-date provenance, not a `pipeline_runs` join), caveats,
-  cross-check on an independent return source. Framed as an early monitored read.
+  the two-lens (relative vs absolute-floor) decision surface, methodology (run_id-date
+  provenance, not a `pipeline_runs` join), caveats. Framed as MIXED / monitor-only.
 
 ## Not done / follow-up
 Production-faithful absolute-floor number awaits LIVE aged dates (accruing); the
