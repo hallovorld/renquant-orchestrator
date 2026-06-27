@@ -1,10 +1,14 @@
-# Design: two autonomous ops loops (error-responder + post-daily reviewer)
+# Design: autonomous ops + PR-review loops (error-responder + post-daily reviewer + PR-review watcher)
 
 2026-06-27. Status: **PROPOSAL for review** (not implemented). Operator request:
-two self-driving loops, executed mostly by **deterministic scripts** with subagents
+self-driving loops, executed mostly by **deterministic scripts** with subagents
 only where judgment is irreducible, every change via PR + Codex review, **never
 self-merge, never `git` in the live tree, never auto-touch live state/model/data**.
 
+Three loops, ONE operating model:
+0. **Loop 0 — PR-review watcher** (§1A): discover new/updated PRs → review Codex's,
+   fix Codex's comments on mine, merge good ones (account-separated). This is the
+   operator's main repeated workflow; it is a first-class part of this design.
 1. **Loop 1 — error-responder**: when an ERROR fires to ntfy, auto-investigate →
    (if a code bug) fix in a clone → open a PR → ntfy; (if operational/live) ntfy
    a human diagnosis, do NOT auto-change.
@@ -12,8 +16,8 @@ self-merge, never `git` in the live tree, never auto-touch live state/model/data
    tree is sound; if sound, run a fundamentals/technical/analyst trade-reliability
    review; ntfy the operator only when a change is warranted.
 
-This doc grounds both in the **existing** infra (file:line below) so the build is
-assembly, not invention. It is for Codex to discuss/review before any code lands.
+This doc grounds all three in the **existing** infra (file:line below) so the build
+is assembly, not invention. It is for Codex to discuss/review before any code lands.
 
 ## 0. Efficiency principle: SCRIPT-FIRST, agent-as-last-resort
 Scripts are deterministic and ~free; an LLM subagent costs tokens and latency. So
@@ -43,9 +47,16 @@ human-readable synthesis. Hard cap on agent spawns/cycle + /day.
 - `agent_workflows.py` control-plane: queue resolution, `reviewed/fixed/merged by
   <agent>` markers, no self-review, production-path protection, pre-merge audit.
 
-**Key consequence:** Loops 1/2 only ever **open PRs** and **send ntfy**. The
-existing agent-pr-loop already does codex review + the deterministic merge, so
-never-self-merge is inherited.
+**Key consequence + PREREQUISITE (not inherited).** Loops 1/2 only ever **open PRs**
+and **send ntfy** — they never merge. But this is NOT yet a complete safety
+contract: the existing agent-pr-loop would still merge an approved auto-generated
+PR, so error→PR→merge is not closed by default. **Prerequisite before Loops 1/2
+leave dry-run/draft:** the agent-pr-loop must first be *amended and audited* to
+(a) **refuse** any PR labeled `agent:auto-generated` / `agent:manual-hold`,
+(b) enforce **current-head approval** (an approval is void if the head advanced),
+and (c) enforce **account separation** (a PR is never merged by the account/workflow
+that created it). Until that amendment is merged + audited (Phase-2 gate, §6), loop
+PRs stay **draft + manual-hold** and a human clears them.
 
 New-loop shape: one launchd plist → one wrapper `.sh` (Keychain+lock) → one
 orchestrator subcommand (a **script** that polls/triages/checks) that spawns a
@@ -203,7 +214,9 @@ Each phase must MEET its criteria (observed in the dry-run logs) before the next
   Gate: its flags match a human spot-check on ≥5 days; freshness-degrade path
   exercised at least once.
 - **Phase 2 — Loop 1 scripted classifier + catalog only** (still 0 fix-agents;
-  opens draft PRs from the catalog). Gate: ≤ max-PRs/day honored; reviewer
+  opens draft PRs from the catalog). **Prerequisite**: the agent-pr-loop amendment
+  (refuse `agent:auto-generated`/`agent:manual-hold`, current-head approval, account
+  separation — §1) is merged + audited FIRST. Gate: ≤ max-PRs/day honored; reviewer
   separation verified (no same-account merge); spend within cap.
 - **Phase 3 — enable the novel-bug fix-agent** (draft PRs only, allowlist 4.2),
   after Codex signs off on the classifier + caps + an audited Phase-2 run.
@@ -221,3 +234,13 @@ Round 1 (safety contracts §4) + round 2 (Loop 0 + numeric caps):
 - Measurable acceptance criteria: §6.
 - Trailing-whitespace `git diff --check`: clean (was fixed in the safety-contracts
   commit the round-2 review predated).
+
+Round 3 (doc consistency):
+- Title/intro reframed to "autonomous ops + PR-review loops"; Loop 0 stated as
+  first-class part of the same operating model (intro list).
+- §1 "never-self-merge inherited" REWRITTEN: the agent-pr-loop amendment (refuse
+  auto-generated/manual-hold, current-head approval, account separation) is now an
+  explicit PREREQUISITE before Loops 1/2 leave dry-run/draft, not inherited; wired
+  into the §6 Phase-2 gate.
+- Progress doc rewritten to the accepted current design (Loop 0 + hard defaults +
+  manual-hold + numeric caps), open-questions framing removed.
