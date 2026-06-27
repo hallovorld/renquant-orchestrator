@@ -2,6 +2,15 @@
 
 2026-06-27.
 
+> ## ⛔ CURRENT STATUS (supersedes the framing below) — H1 INTRADAY-ALPHA: PARKED
+> **Phase -1 (PR #199) MEASURED the load-bearing σ_oc and the net edge is NEGATIVE at plausible
+> IC** (σ_oc 152.5 std / 114-115 robust bps vs 220-367 breakeven; net −6.4 @ IC 0.03 / −3.4 @ IC
+> 0.05). The H1 intraday-ALPHA stack (M1 → M2 → M3) is **PARKED** (reversible — un-park only on
+> concrete IC ≫ 0.05 evidence; not deleted). The **ACTIVE path is the defensible residual: M0
+> dual-use data + H2 execution-timing on the 104 book + the reliability/safety fixes** (none
+> require cost-clearing alpha). The earlier "UNDETERMINED / marginal prior" framing in this doc is
+> the *superseded hypothesis* Phase -1 rejected. See master §0 banner + the Revision 6 log below.
+
 ## What & why
 Operator asked for a complete, professional, scientific design for an INTRADAY
 trading system (renquant105) on the ~$10.6k Alpaca account: how to train the model,
@@ -259,5 +268,71 @@ Validation: `py_compile` clean; `pytest tests/test_research_intraday_feasibility
 (no script change — the reconciled numbers are doc-level, not script outputs); `git diff --check`
 clean.
 
-**Operator action item (NOT done in this PR):** land the **umbrella ADR** (finding 8) under
-`RenQuant/doc/arch/` BEFORE creating `renquant-strategy-105` or executing any pin order.
+**Operator action item (NOT done in this PR):** umbrella **ADR #416** (the cross-repo topology,
+finding 8) is **Deferred pending an alpha GO** — not created/executed while H1-alpha is parked.
+
+## Revision 6 — REFRAMED per the Phase -1 MEASURED result + Codex round-4 resolved (2026-06-27)
+Phase -1 (the FIRST gate this suite designed) was **EXECUTED** in orchestrator PR #199 (142-name
+universe, 1258 sessions, read-only, no orders). It **measured** the single load-bearing assumption
+§A only *assumed*, and the result refutes the marginal-alpha hypothesis:
+- σ_oc = **152.5 bps std / 114-115 bps robust** (causal event-time check 200.2) — at/below the §A
+  150 lower edge and far below the **220-367 bps breakeven** (σ_oc ≥ 220 @ IC 0.05 / ≥ 367 @ IC
+  0.03, even at the 11-bps cost floor). **Net edge NEGATIVE at plausible IC** (−6.4 @ IC 0.03,
+  −3.4 @ IC 0.05). Breadth 142/session; coverage **142/142, 0% missing (REFUTES the "~50% no
+  history" disable-cause)**; cost ~11 bps (spread ~6).
+- The literal "GO to M0" PR #199 printed was a **mis-specified-gate artifact** — the original
+  Phase -1 gate checked σ_oc against its *own assumed 150 prior* (exactly Codex round-4 #2's
+  circularity). Under the **corrected net-edge gate** it is a **STOP-for-ALPHA / data-foundation
+  GO**.
+
+**(A) Reframe (reversible park, content retained — NOT deleted):** added a prominent PARKED status
+banner to the master spec §0 + M1 + M3 + this progress doc; rewrote the master DAG (§7.0) as
+**Phase -1 (done, #199) → M0 (ACTIVE, dual-use) → [H1-alpha PARKED] / [H2 execution-timing +
+safety ACTIVE]**; promoted the **defensible residual to the ACTIVE path** (M0 dual-use data, H2
+execution-timing on the 104 book, the safety fixes — none requiring cost-clearing alpha); marked
+§A as the *superseded prior*. Un-park only on a concrete reason to believe IC ≫ 0.05.
+
+**(B) Codex round-4 (19:11:08Z, head 65b8001) — all 8 findings addressed (DESIGN-level spec text):**
+1. **Phase -1 not executable from declared inputs** — added an explicit identifiability boundary:
+   executable cost, fill dynamics, and "independent bets/day (N_eff)" are **NOT identifiable from
+   OHLC/daily bars**; cost is a conservative **bound** (not a measured fill model) and the GO test
+   **keeps the uncertainty in the verdict**; raw breadth is an upper bound on N_eff, not N_eff.
+2. **Circular σ_oc gate → net-edge gate** — replaced the σ_oc-vs-its-own-prior rule with a
+   **net-edge gate clearing cost with an uncertainty band**, every term given an exact definition,
+   estimator, missing-data behavior, and a **deterministic decision function** (no `~30-40 / ~150 /
+   ~4 / ~17 / "materially below"`); under it Phase -1 is **STOP-for-ALPHA**, "GO to M0" = dual-use
+   data only.
+3. **M1 pre-registration mutable + math-ambiguous** — **DELETED the false "Sharpe 1.0 ≡ IC 0.03"**
+   (kept IC ≥ 0.03 as a SEPARATE threshold, no equivalence) in M1 F1.7 + metrics §0; pinned ONE
+   block selector (Politis-White, session-rounded — no `n^{1/3}` alt), ONE moments window (full
+   series, one pass), ONE non-normal correction (MinTRL); required-N **computed + published BEFORE
+   fitting**, estimator + decision rule **frozen now**, M0 moments substituted into the same frozen
+   estimator.
+4. **Paper probes ≠ measured live cost** — M0 F0.7 now SEPARATES (a) quote-derived spread bounds,
+   (b) paper-WORKFLOW validation (`paper_cost`, never a live number), (c) live-execution
+   calibration (needs representative historical live fills OR a separately operator-approved tiny
+   live experiment — deferred while alpha parked); GO uses conservative bounds + keeps uncertainty;
+   nothing paper-calibrated is called "H1-representative measured cost".
+5. **H2 pre-registration singular** — pinned ONE multiple-comparison correction (**studentised
+   max-statistic** on the paired session-block bootstrap — Holm-Bonferroni dropped) and ONE
+   hierarchical dependence model (**calendar session**, no week-block alt → underpowered/stop);
+   fill-model parameter fitting is **nested DISJOINT** from policy evaluation (same probes never
+   both calibrate fills AND score policy).
+6. **M3 underpowered + repeated looks** — per-step **N derived from a live power calc** (the
+   hardcoded 20 REMOVED); **sequential / e-value** testing with a pre-registered boundary +
+   **multiplicity correction across the 4 promotion looks**; only model + cost-calibration transfer
+   between exposure levels (per-step Sharpe/DD/killed-winner do NOT transfer).
+7. **Risk thresholds contradictory** — committed ONE **`loss_budget.yaml` config artifact**
+   (equations + parameter sources + clamps that PRODUCE the per-step −5%/−20%); the M3 KILL row,
+   reliability §3.3/§3.10, metrics kill-conditions, and the stress (now with **defined `X=3` σ,
+   `K=30 bps` band**) all **CONSUME** the generated values — hardcoded contradictions removed.
+8. **Causal contract tied to data-availability semantics** — extended master §3 with
+   `data_available_ts` capture/conservative reconstruction (p99 feed latency), which feed supplies
+   executable quotes (IEX default; SIP = fresh experiment), **clock skew tolerance (250 ms)**, late
+   provider corrections/revisions (as-of vintage), **auction treatment** (no auction-print entry),
+   and **no-fill-before-close behavior** (no position, opportunity cost recorded — never a synthetic
+   fill).
+Cross-repo topology stays owned by umbrella **ADR #416**, now **authoritative-but-DEFERRED pending
+an alpha GO** (master §6.1). `py_compile`/`pytest` unchanged (no script edit — the reframe + all 8
+findings are doc-level; the feasibility script remains the parametric-prior artifact, superseded by
+the Phase -1 measurement in #199).

@@ -74,28 +74,41 @@ orders (paper / zero-live-risk probes only).
   fingerprint of: feed (IEX vs SIP), subscription tier, venue coverage, adjustment basis,
   bar-construction rule, and retrieval timestamp. **Assert the historical training bars
   share the live scoring path's IEX-only microstructure**; a mismatch fails M0.
-- F0.7 **M0 OWNS the CALIBRATED COST MODEL (finding 2 — it is an M0 artifact, not "a sample to
-  seed M1").** M0 captures the measured arrival/quote/fill sample **and fits a calibrated cost
-  estimator**, delivered + accepted in M0 (M1 only *consumes* it; the §A `11 bps` is a
-  placeholder this artifact replaces and must NOT gate H1):
-  - **Stratified estimator:** cost (half-spread + slippage + IEX adverse-selection; impact ≈ 0
-    at this size) estimated **by (ticker × time-of-day bucket × order-type)** stratum.
-  - **Minimum-N per stratum:** a stratum is only "calibrated" once it has ≥ **N_min** measured
-    fills/probes (e.g. N_min ≥ 30 per stratum — pinned in the M0 config, not after seeing data).
-  - **Stratification fallback (thin strata):** when a stratum is below N_min, fall back up a
-    fixed hierarchy (ticker×ToD → ToD-only → universe-wide pooled), recording which level was
-    used per estimate; **fail-closed** (no live-size assumption) for a stratum with no fallback.
-  - **CIs:** every stratum estimate carries a **block-bootstrap CI** (the dependence-aware CI
-    primitive); the cost charged to H1 uses the CI, not a point estimate alone.
-  - **Out-of-sample calibration acceptance:** the estimator is validated **out-of-sample**
-    (held-out probes/fills) — predicted vs realized cost calibration slope ∈ [0.7, 1.3] with a
-    bounded MAE — before it is accepted as the M0 cost artifact.
-  - **H1-representative probes (finding 2):** **104's existing next-open fills alone are NOT
-    representative** of H1's *arbitrary intraday entry + close-exit* policy (next-open is one
-    time-of-day / one order shape). M0 therefore gathers **paper / zero-live-risk probes that
-    span H1's entry timestamps × order types** (paper or randomized shadow orders, never live
-    capital), in addition to mining the existing 104 fills, so the strata that H1 will actually
-    trade are populated.
+- F0.7 **M0's cost model — THREE SEPARATED LAYERS; paper probes are NOT a measured live cost
+  (finding 4, Codex round-4).** Paper/shadow fills do **not** reproduce live queue priority, venue
+  routing, latency, partial fills, or adverse selection, so a model "calibrated on paper probes"
+  is **NOT** an "H1-representative MEASURED live cost". M0 therefore delivers **three explicitly
+  separated artifacts**, never conflated, and **the H1 GO test runs on conservative BOUNDS with
+  the uncertainty kept in the verdict** unless/until a representative live calibration exists:
+  - **(a) Quote-derived spread BOUNDS (the gating input for a parked-alpha un-park).** From the
+    historical quote series, a **conservative** round-trip cost **bound** by (ticker × time-of-day)
+    = `2·(quoted_half_spread + conservative_slippage_floor + IEX_adverse_floor)`. This is a
+    **bound, not a fill model** — it has no queue/partial/impact dynamics. The H1 net-edge GO
+    (M1) is charged at the **conservative high end of this bound** and the verdict is reported
+    **across the bound**, never at a single optimistic point.
+  - **(b) Paper-WORKFLOW validation (NOT a cost number).** Paper / zero-live-risk probes validate
+    the **workflow** (order submission, rejection/deficit handling, reconciliation, the
+    event-time-contract capture) and the **relative** ordering of order shapes — they are used to
+    exercise the pipeline, **not** to assert a live cost level. The paper-derived cost is
+    explicitly labelled `paper_cost` and **never** substituted for a live cost.
+  - **(c) Live-execution CALIBRATION (the ONLY thing that yields a measured live cost).** A
+    measured live cost model requires **either** representative **historical live fills / market
+    data** **or** a **separately operator-approved tiny live calibration experiment** (a few real
+    fills under explicit operator authorization — never autonomous, never bundled into M0's
+    "no-live-capital" probes). Until (c) exists, **no artifact may be called "H1-representative
+    measured cost"**; the GO test uses the (a) bound + carries the uncertainty.
+  - **Stratified estimator (applies to (a) and, if it exists, (c)):** cost by **(ticker ×
+    time-of-day × order-type)** stratum; **min-N per stratum** (pinned `N_min ≥ 30`, set in
+    config, not after seeing data); **stratification fallback** up a fixed hierarchy (ticker×ToD →
+    ToD-only → pooled), recording the level used and **failing closed** for a stratum with no
+    fallback; a **block-bootstrap CI** per stratum (cost charged uses the CI, not a point
+    estimate); **out-of-sample calibration acceptance** (held-out slope ∈ [0.7, 1.3], bounded MAE)
+    before any (c) live-calibrated estimator is accepted.
+  - **Note (alpha is PARKED):** since the H1-alpha path is **parked** (master §0; Phase -1 net
+    edge negative), the (c) live calibration is **not pursued now** — it is part of a future
+    un-park, not the active program. The **active** use of M0's cost work is **H2** net-of-cost
+    accounting, which likewise uses the conservative (a) bound + the H2.6 OOS-validated fill model
+    with uncertainty propagated, never a paper number dressed as measured live cost.
 **Non-functional:**
 - N0.1 Intraday coverage ≥ **95%** measured as **|TRADEABLE_d| / |ELIGIBLE_d|** against the
   **data-quality-blind `ELIGIBLE_d` denominator** (F0.1b — NOT against the already-filtered
@@ -142,11 +155,15 @@ NaN-leaf rate ≈ **0**; panel + session-horizon return surface build clean + pl
 and historical-vs-live IEX microstructure parity asserted; the refresh cron runs idempotently
 for ≥ 5 sessions with 0 duplicate/overlap incidents; ingestion code lands as **one
 base-data-owned copy** with a passing pipeline contract test (no triplication).
-**Cost model (finding 2 — gates M1):** the calibrated stratified cost estimator EXISTS as an M0
-artifact with (a) every traded stratum at/above **N_min** or covered by the recorded fallback
-hierarchy, (b) a **per-stratum block-bootstrap CI**, and (c) an **out-of-sample calibration**
-check passing (slope ∈ [0.7, 1.3], bounded MAE) on H1-representative probes — so M1 consumes a
-*measured* cost model, never the 11 bps placeholder.
+**Cost model (finding 4 — three separated layers, NOT a paper-as-measured-live conflation):** the
+**(a) quote-derived spread BOUND** estimator EXISTS as an M0 artifact, stratified, with every
+traded stratum at/above **N_min** or covered by the recorded fallback hierarchy, a **per-stratum
+block-bootstrap CI**, and an out-of-sample calibration check (slope ∈ [0.7, 1.3], bounded MAE);
+**(b) paper-WORKFLOW** validation is recorded as `paper_cost` and **NOT** treated as a live cost;
+**(c) live-execution calibration** is **deferred** (it needs representative historical live fills
+or a separately operator-approved tiny live experiment — and is moot while H1-alpha is parked).
+A future M1 un-park is **charged at the conservative (a) bound with the uncertainty kept in the GO
+test**, never a paper number called "measured live cost", and never the 11 bps placeholder.
 
 ## Expected outcome (预期) + kill condition
 A ~40–60 name **point-in-time** universe and a clean, fresh, incrementally-maintained

@@ -1,11 +1,19 @@
 # renquant105 milestone M1 — model + validation (the make-or-break gate)
 
-2026-06-27. Part of the renquant105 suite. **This is the GO/NO-GO milestone — and the FIRST
-MEASUREMENT.** The §A feasibility numbers are **parametric PRIORS, not evidence**; M1 is where
-the **UNDETERMINED** open→close prior is settled with measured OOS data. The prior is
-*marginal* (the low-turnover open→close variant clears cost at IC 0.03–0.05 / σ_oc~200 bps),
-so M1 is a genuine test, not a foregone conclusion either way; a measured FAIL is an
-acceptable, honest outcome, not a project failure.
+2026-06-27. Part of the renquant105 suite. **This is the GO/NO-GO milestone for H1 intraday
+ALPHA.**
+
+> ## ⛔ STATUS — M1 (H1 intraday-ALPHA) is **PARKED** (reversible)
+> **Phase -1 (PR #199) MEASURED the load-bearing σ_oc and the net edge is NEGATIVE at plausible
+> IC** (σ_oc 152.5 std / 114-115 robust vs 220-367 bps breakeven; net −6.4 bps @ IC 0.03 / −3.4
+> bps @ IC 0.05). **Do NOT build M1 absent a concrete, falsifiable reason to expect IC ≫ 0.05.**
+> M1's content is **retained, not deleted** — it is the pre-registered experiment to run **only
+> if** the H1-alpha path is un-parked (master §0 banner). The active path needs no M1: it is M0
+> (dual-use data) + H2 (execution-timing) + the safety fixes. Treat the rest of this doc as the
+> frozen design for that future un-park, not as an authorized build.
+
+**If un-parked, this is the FIRST live-capital-relevant MEASUREMENT** of a deployable open→close
+alpha edge; a measured FAIL is an acceptable, honest outcome, not a project failure.
 
 ## Objective + scope
 Train an intraday model (GBDT primary + PatchTST shadow) on **open→close** triple-barrier
@@ -89,29 +97,48 @@ experiment is independent and has its own milestone doc `…-H2-execution-timing
   horizons × labels × features × seeds × models × gate variants, **plus the prior 104/105
   trials** (the ~70–81 PatchTST runs already carry into N). This N feeds the DSR/PSR
   deflation and the multiple-testing haircut (t≈3, Harvey-Liu-Zhu).
-- F1.7 **Power / MinTRL PRE-REGISTRATION — algorithm + immutable artifact (finding 3, Codex
-  round-3: the procedure is PINNED NOW, not chosen after seeing data).** The selection
-  **ALGORITHM** and every input are fixed by this design and emitted as an **immutable
-  pre-registration artifact** (hashed, committed, timestamped) **BEFORE any training**:
-  - **Target effect size:** the minimum economically-meaningful effect = a net-of-cost Sharpe
-    of **1.0** (the GO bar) — equivalently the open→close IC ≥ 0.03 that produces it on the
-    policy replay. (Pinned, not tuned.)
-  - **Alpha / power:** α = **0.05** (one-sided), power **1−β = 0.80**.
-  - **Return moments:** the assumed per-observation net-return mean/variance (and skew/kurtosis
-    for the MinTRL non-normality correction) are taken from the §A priors **as the
-    pre-registered inputs**, replaced by the M0-measured moments once available (the swap is
-    itself recorded — the *procedure* does not change).
-  - **Block-length selection RULE:** block length = the **open→close label horizon rounded up
-    to a session boundary** (the F1.2 embargo-in-bars scheme), with the moving-block length set
-    by a **fixed automatic rule** (e.g. the Politis–White / `b ∝ n^{1/3}` data-driven selector
-    evaluated once on the pre-registered series) — NOT a post-hoc pick.
-  - **Resulting N_eff:** the **MinTRL** (Bailey & López de Prado) minimum track-record length in
-    **effective-independent observations** that this α/power/moments/block triple implies, NOT
-    a raw date count.
-  - **FALLBACK when required N exceeds available history (mandatory):** if the pre-registered
-    N_eff exceeds the available aged history, **declare the experiment UNDERPOWERED → do NOT run
-    M1 / re-scope** (extend the aged window, or widen the universe, or stop). **Never shrink the
-    bar to fit the data.** The underpowered declaration is recorded in the artifact.
+- F1.7 **Power / MinTRL PRE-REGISTRATION — ONE frozen algorithm + immutable artifact (finding 3,
+  Codex round-4: SINGULAR choices, no "e.g." / no "equivalently", required-N computed + published
+  BEFORE any fitting).** The selection **ALGORITHM** and every input are fixed by this design and
+  emitted as an **immutable pre-registration artifact** (hashed, committed, timestamped) **BEFORE
+  any training**. Round-4 #3 corrections are folded in: the false equivalence is deleted, and each
+  "alternative" choice is collapsed to exactly one:
+  - **Target effect size = a net-of-cost Sharpe of 1.0 (the GO bar). NO IC equivalence is
+    claimed.** *(Round-4 #3 — DELETED the false "Sharpe 1.0 ≡ IC 0.03" claim: a Sharpe↔IC
+    equivalence is FALSE without a fixed score→position mapping, breadth, transfer coefficient,
+    return vol, turnover, AND cost — those are not all pinned here, so no equivalence is asserted.
+    IC ≥ 0.03 remains a **SEPARATE, independently-stated** acceptance threshold on the policy-
+    replay rank IC, not a restatement of the Sharpe bar.)* The power calculation targets the
+    **Sharpe 1.0** effect on the policy-replay net-return series, full stop.
+  - **Alpha / power:** α = **0.05** (one-sided), power **1−β = 0.80**. (Pinned.)
+  - **ONE moments-estimation window (pinned):** the per-observation net-return mean/variance and
+    skew/kurtosis for the MinTRL non-normality correction are estimated on **the full aged
+    pre-registered policy-replay return series, in ONE pass** (no rolling/expanding choice, no
+    sub-window selection). Until M0 lands, the §A priors seed these inputs; **the ESTIMATOR and
+    the decision rule are FROZEN NOW** and the M0-measured moments are substituted into the
+    *same* frozen estimator when M0 lands (the *procedure*, *window definition*, and *decision
+    function* are immutable — only the input numbers update, and the substitution is recorded).
+  - **ONE block-length selector (pinned, NOT "e.g."):** the moving-block length `b` is set by the
+    **Politis–White (2004) automatic selector** evaluated **once** on the pre-registered policy-
+    replay return series, then **rounded UP to a whole open→close session boundary** (the F1.2
+    embargo-in-bars scheme). No alternative selector and no `b ∝ n^{1/3}` fallback — the
+    Politis–White output (session-rounded) is the block length, period.
+  - **ONE non-normal correction (pinned):** the **Bailey & López de Prado MinTRL** skew/kurtosis
+    adjustment (the PSR/DSR non-normality term) is the sole correction; no second adjustment is
+    applied or chosen between.
+  - **Immutable timing:** the artifact is hashed + committed + timestamped **BEFORE any model is
+    fit and before any OOS prediction is generated**. The required **N_eff is COMPUTED AND
+    PUBLISHED at pre-registration time** from the frozen (α, power, moments-estimator, block
+    selector, MinTRL) tuple — **not** "before training" in the abstract: a concrete number is in
+    the committed artifact. When M0 supplies measured moments, N_eff is **recomputed by the same
+    frozen estimator** and the new number recorded; the rule that compares N_eff to available
+    history is **immutable** and was fixed here.
+  - **Resulting N_eff:** the MinTRL minimum track-record length in **effective-independent
+    observations** that the frozen tuple implies, NOT a raw date count.
+  - **FALLBACK when required N exceeds available history (mandatory):** if the published N_eff
+    exceeds the available aged history, **declare the experiment UNDERPOWERED → do NOT run M1 /
+    re-scope** (extend the aged window, widen the universe, or stop). **Never shrink the bar to
+    fit the data.** The underpowered declaration is recorded in the artifact.
   Phase gates use **CIs + effective N** against this pre-registered N_eff.
 **Non-functional:** reproducible; deseasonalized targets (intraday U-shape); average-
 uniqueness weighting on overlapping labels.

@@ -235,10 +235,12 @@ Underlying enforcement layers (defence-in-depth, independent, lower layers don't
 105 adds a **hard intraday loss breaker** that maps to **`NO_NEW_RISK`, NOT `FULL_HALT`**
 (finding 8 — exits must stay allowed when losing money):
 - Track intraday realized+unrealized P&L vs session-open equity.
-- `session_pnl_pct ≤ −L_halt` (**−5%**, the single consistent threshold across the FMEA,
-  metrics, M2, M3) ⇒ enter **`NO_NEW_RISK`**: halt new buys, **exits/reduce-only ALLOWED**,
-  alert, require operator review to return to `NORMAL`. Hysteresis to avoid flap.
-- `≤ −L_flatten` (deeper than −5%, e.g. −8%, and the **deep-drawdown `dd < −20%`** breach)
+- `session_pnl_pct ≤ −L_halt` where **`L_halt = session_loss_budget_step` CONSUMED from
+  `loss_budget.yaml`** (current-step ceiling **−5%**; §3.3b — not a hardcoded constant) ⇒ enter
+  **`NO_NEW_RISK`**: halt new buys, **exits/reduce-only ALLOWED**, alert, require operator review
+  to return to `NORMAL`. Hysteresis to avoid flap.
+- `≤ −L_flatten` (the artifact's deeper flatten level, and the **deep-drawdown `dd < dd_kill`**
+  breach, current ceiling −20%)
   ⇒ controlled flatten / reduce-only via the existing protective-sell path (governor-throttled,
   §3.6) — still within `NO_NEW_RISK` (exits are the point). A drawdown breach NEVER escalates to
   `FULL_HALT`: trapping exits during a sell-off would *increase* risk.
@@ -246,30 +248,53 @@ Underlying enforcement layers (defence-in-depth, independent, lower layers don't
 - (`FULL_HALT`, where even exits pause, is reserved for broker/account-integrity failures —
   unreconciled state / wrong account — never for a P&L loss.)
 
-### 3.3b Quantitative LOSS BUDGET + exposure envelope (finding 7 — DERIVED, not asserted)
-The −5% session / −20% drawdown thresholds were **asserted**; they are now **derived from the
-account risk budget** so the breaker thresholds follow from position caps + vol + gap risk, not
-a round number:
-- **Inputs (pinned):** account equity ~$10.6k; the M3 per-step caps (S1 ≤5% → S4 ≤33% of book,
-  ≤1-4 names); the **measured open→close per-name vol** (M0 σ_oc ~150-250 bps prior, replaced by
-  measurement); **overnight is excluded** (flat by close — no overnight gap on intraday names),
-  but an **intraday gap/halt-reopen** stress is included.
-- **Loss budget identity:** `max_session_loss ≈ Σ_name (position_weight · worst-case adverse
-  intraday move)`. At S1 (≤5% book, 1 name) a worst-case ~ −1σ_oc to −3σ_oc adverse move on that
-  name ⇒ a session loss well inside −5%; the **−5% session breaker is the binding cap that trips
-  BEFORE the per-name caps could compound to it**, and the **−20% drawdown** is the multi-session
-  envelope = roughly the worst-case of the ladder's max concurrent exposure × a stress move.
-  These are **re-derived per ladder step** (a higher step's larger book lowers the implied
-  per-name move that hits −5%), so the breaker stays calibrated to the *current* exposure, not a
-  fixed step.
-- **Per-order / per-symbol / per-session exposure envelope (pinned):** per-order notional cap +
-  per-symbol max weight (≤ the M3 step's per-name cap) + per-session gross cap (≤ the step's
-  book cap) + the AgentBreaker per-day notional ($5k) and order-count (25) caps — every order is
-  checked against ALL of these pre-submit (§3.5 15c3-5 pattern). An order breaching any envelope
-  is rejected pre-submit, not sized down silently.
-- **Worst-case gap / stale-price STRESS (acceptance):** before live-arming, replay a **−Xσ_oc
-  intraday gap + a halt-reopen + a stale-bar event** and assert the breaker + bar-age gate +
-  slippage band contain the loss within the budget (fault-injection acceptance, §3.10).
+### 3.3b LOSS-BUDGET CONFIG ARTIFACT — the single source that PRODUCES the thresholds (finding 7)
+The −5% session / −20% drawdown numbers were **asserted in some tables and "re-derived" in
+others** — a contradiction. They are now **produced by ONE committed config artifact**
+(`loss_budget.yaml`, hashed + pinned), and **every downstream table CONSUMES its generated values**
+(the M3 KILL row, §3.10, the metrics kill conditions, and the stress below) — no table hardcodes a
+threshold (Codex round-4 #7).
+
+**The artifact's equations + parameter sources + clamps (these PRODUCE the per-step values):**
+- **Inputs (pinned, with sources):** `equity = $10,600`; the M3 ladder caps
+  `book_cap_step ∈ {5%, 10%, 20%, 33%}` and `n_names_step ∈ {1, 2, 3, 4}` (consumed FROM M3, not
+  re-stated); `sigma_oc` = the **M0-measured** open→close per-name vol (until M0, the seed prior;
+  Phase -1 measured 152.5 std / 114-115 robust bps — the artifact uses the **robust** value);
+  `stress_mult = 3.0` (the worst-case adverse move = `stress_mult · sigma_oc`, an intraday
+  −3σ_oc gap/halt-reopen — overnight excluded since names are flat by close).
+- **Generated per-step session-loss budget:** `session_loss_budget_step =
+  min( clamp(book_cap_step · stress_mult · sigma_oc, floor=2%, ceil=5%), 5% )`. This produces a
+  **per-step** number that the breaker uses; the **−5% session breaker is the CEILING clamp** (the
+  binding cap that trips before the per-name caps compound), and lower steps generate a tighter
+  budget. *(Worked: S1 0.05·3·0.0115 ≈ 0.17% → clamped to the 2% floor for breaker hysteresis;
+  S4 0.33·3·0.0115 ≈ 1.1%; all ≤ the 5% ceiling — so −5% is the artifact's ceiling, not a
+  hand-picked number.)*
+- **Generated drawdown envelope:** `dd_kill = clamp(max_concurrent_book · stress_mult · sigma_oc ·
+  multi_session_factor, floor=10%, ceil=20%)` with `multi_session_factor = 3.0` — producing the
+  **−20% ceiling** as the multi-session envelope of the ladder's max exposure. The metrics warn
+  band (−12..−15%) and the −10% scale-up DD gate are likewise generated by the same equation at
+  the relevant exposure, not picked independently.
+- **Defined stress parameters (no more undefined `X`, `K`, bands):** `stress_mult = X = 3.0`
+  (σ-multiples); the slippage **price band** `K = 30 bps` (the §3.5 erroneous-order band / F32);
+  the **bar-age band** = `1.5 × bar_interval` (F1). The §3.3b/§3.10 stress consumes these named
+  constants from the artifact, not free symbols.
+- **Per-order / per-symbol / per-session exposure envelope (generated):** per-order notional cap +
+  per-symbol max weight (= the step's per-name cap) + per-session gross cap (= the step's book
+  cap) + the AgentBreaker per-day notional ($5k) and order-count (25) caps — all read from the
+  artifact; every order is checked against ALL pre-submit (§3.5 15c3-5). Breach ⇒ reject
+  pre-submit, never silent down-size.
+- **Worst-case gap / stale-price STRESS (acceptance):** before live-arming, replay a
+  **`−X·sigma_oc` (X=3) intraday gap + a halt-reopen + a stale-bar event** and assert the breaker
+  + bar-age gate + slippage band (`K=30 bps`) contain the loss within the **generated** budget
+  (fault-injection acceptance, §3.10).
+
+**Consumption rule (pinned):** the M3 KILL row, §3.10 table, the metrics §0.3/§2/kill-conditions,
+and this stress all **READ** `session_loss_budget_step` / `dd_kill` / `X` / `K` from
+`loss_budget.yaml`. A literal `−5%` / `−20%` / `X σ` / `K` written into any of those tables is the
+artifact's **generated current-step value shown for the reader**, not an independent constant — if
+the artifact changes, every table changes with it. *(NOTE: while H1-alpha is PARKED (master §0),
+no live ladder runs; the artifact still governs any H2 live-timing risk-exit sizing and is the
+frozen contract for a future un-park.)*
 
 ### 3.10 Trigger-latency per failure class + restart/reconciliation acceptance (finding 7)
 The safety response time is **per failure class**, each tied to the fastest decision cadence —
@@ -280,7 +305,7 @@ not one generic 30-min cycle:
 | Stale/partial bar (F1/F3/F20) | **same cycle** (pre-submit) | bar-age gate fails closed before the order |
 | Slippage-band breach (F32) | **pre-submit** | marketable-limit + 15c3-5 price band reject |
 | Duplicate / cron overlap (F29/F37) | **pre-submit** | deterministic `client_order_id` + run-lock |
-| Daily-loss −5% (§3.3) | **≤ 1 bar cycle** | `NO_NEW_RISK`, exits allowed |
+| Daily-loss (§3.3, threshold = `session_loss_budget_step` consumed from `loss_budget.yaml`; current −5%) | **≤ 1 bar cycle** | `NO_NEW_RISK`, exits allowed |
 | Unreconciled broker state (F30) | **≤ 60 s** post-submit | reconcile loop → `FULL_HALT` |
 | Dead decision loop (F39) | **≤ 5 min** (out-of-process supervisor cadence; §3.9) | separate launchd supervisor + broker-side bracket |
 | Intra-session model decay (F15) | **K bars** (pre-registered K) | live-IC monitor → `skip_buys` |

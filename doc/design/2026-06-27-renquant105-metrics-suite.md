@@ -32,9 +32,12 @@ G1-vs-cost/gross, IC/precision/dd thresholds, undefined alert windows) are recon
   entered name**). All turnover/cost numbers are charged on THIS stateful path.
 - **Account risk budget:** ~$10.6k, the per-name/per-session caps (M3 ladder), expected daily
   vol, and the max-tolerable-loss budget (§ reliability §3.3 / finding 7).
-- **Min economically-meaningful effect:** net-of-cost Sharpe **1.0** ⇔ open→close IC **≥0.03**
-  on the policy replay (M1 F1.7 pre-registration) — this single effect anchors IC, precision,
-  and dd thresholds.
+- **Min economically-meaningful effect:** net-of-cost Sharpe **1.0** on the policy replay (the
+  power-calc target, M1 F1.7). **The open→close IC ≥ 0.03 bar is a SEPARATE, independently-stated
+  threshold — NOT an equivalence** (round-4 #3: a Sharpe↔IC equivalence is false without a fixed
+  score→position map, breadth, transfer coeff, vol, turnover, and cost, which are not all pinned;
+  do not read "Sharpe 1.0" and "IC ≥ 0.03" as restatements of one another). Both are gating; the
+  power calculation targets Sharpe 1.0, and IC ≥ 0.03 is a parallel acceptance row.
 
 **0.1 Turnover — RESOLVE one-way vs round-trip (was contradictory).**
 - **Round-trip (book) turnover/day** = book rotations/day. **Pinned policy value = 1.0** (one
@@ -64,13 +67,15 @@ G1-vs-cost/gross, IC/precision/dd thresholds, undefined alert windows) are recon
 - *Numerator:* Σ realized RT cost (measured cost model); *denominator:* Σ gross alpha; *clock:*
   rolling effective-N window; *action:* >36.4% warn, >45% alert.
 
-**0.3 IC / precision / dd — derived from ONE min-effect basis.** All three trace to the Sharpe-1.0
-/ IC-0.03 min effect (M1 F1.7): **open→close IC ≥ 0.03** is the gating effect; **gate-stack
-precision ≥ 0.55** is the meta-label hit-rate that, at the policy's selection breadth and the
-measured σ_oc, yields net-Sharpe ≥ 1.0 after the measured cost (M2 acceptance); **max-dd
-thresholds** (warn −12..−15%, kill −20%) are set from the account max-tolerable-loss budget
-(reliability §3.3), not picked independently. If M1's measured moments change the basis, all
-three are re-derived together (the *procedure* is pinned, the numbers move as one).
+**0.3 IC / precision / dd — derived from ONE min-effect basis (NO Sharpe↔IC equivalence).** All
+three trace to the **net-of-cost Sharpe 1.0** min-effect (M1 F1.7), but are stated as **separate
+thresholds, not equivalences** (round-4 #3): **open→close IC ≥ 0.03** is an independent gating
+threshold on the policy-replay rank IC; **gate-stack precision ≥ 0.55** is the meta-label
+hit-rate that, at the policy's selection breadth and the measured σ_oc, yields net-Sharpe ≥ 1.0
+after the measured cost (M2 acceptance); **max-dd thresholds** (warn −12..−15%, kill −20%) are
+**consumed from the reliability §3.3b loss-budget config artifact** (finding 7 / §0.5 below), not
+picked independently. If M1's measured moments change the basis, all are re-derived together via
+the frozen procedure (the numbers move as one; the procedure is pinned).
 
 **0.4 Alert WINDOWS — defined (were undefined).** Every alert below names its window explicitly:
 rolling metrics use the **pre-registered effective-N window** (the step's ≥20 effective-
@@ -134,16 +139,19 @@ or Sharpe<0.5. (`252d-equiv` Sharpe is a scaling convenience and does NOT create
 evidence — the sample bar is effective-N, not annualization.)
 
 ### Hard KILL conditions (fail-closed) — state machine (finding 7/8)
-*The −5% session / −20% drawdown thresholds are **DERIVED** from the quantitative loss budget
-(position caps × measured vol × gap risk, re-derived per ladder step — reliability §3.3b / metric
-dictionary §0.3), not asserted; the safety trigger latency is the **fastest decision cadence**
+*The session-loss / drawdown thresholds are **CONSUMED from the `loss_budget.yaml` config
+artifact** (reliability §3.3b — the single source that PRODUCES them from caps × measured vol × gap
+risk per ladder step; round-4 #7), NOT hardcoded here. The literal −5% / −20% below are the
+artifact's current-step **generated** ceilings, shown for the reader; if the artifact changes,
+these change with it. The safety trigger latency is the **fastest decision cadence**
 (≤ `bar_interval`), not a generic 30 min (reliability §3.10).*
-1. `max_drawdown_252d < −0.20` → **`NO_NEW_RISK` + controlled flatten / reduce-only**
-(a drawdown breach is a MARKET-RISK event, not an integrity failure — exits must stay
-ALLOWED; blocking all exits would TRAP risk). **`FULL_HALT` is reserved for untrustworthy
-order-state/account-identity ONLY** (unreconciled broker state, wrong account). 2.
-single-session `daily_return < −0.05` (the **consistent −5%** threshold) → **`NO_NEW_RISK`**
-(halt buys, **exits ALLOWED** — never a flag that blocks exits). 3. rolling OOS IC ≤ 0 over
+1. `max_drawdown_252d < dd_kill` (artifact; current ceiling **−0.20**) → **`NO_NEW_RISK` +
+controlled flatten / reduce-only** (a drawdown breach is a MARKET-RISK event, not an integrity
+failure — exits must stay ALLOWED; blocking all exits would TRAP risk). **`FULL_HALT` is reserved
+for untrustworthy order-state/account-identity ONLY** (unreconciled broker state, wrong account).
+2. single-session `daily_return < −session_loss_budget_step` (artifact; current ceiling **−0.05**)
+→ **`NO_NEW_RISK`** (halt buys, **exits ALLOWED** — never a flag that blocks exits). 3. rolling
+OOS IC ≤ 0 over
 the effective-N window. 4. calibration slope ≤ 0 (CI-bounded). 5. live-shadow rank-corr ρ <
 0.2 (CI-bounded) → revert to last-known-good champion.
 

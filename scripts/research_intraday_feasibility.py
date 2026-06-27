@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 """Parametric feasibility PRIORS for renquant105 intraday alpha (READ-ONLY, no measurement).
 
+SUPERSEDED BY MEASUREMENT (Phase -1, PR #199) — H1 INTRADAY-ALPHA IS PARKED
+---------------------------------------------------------------------------
+The priors below were the hypothesis Phase -1 was built to test. Phase -1 MEASURED the
+load-bearing open->close dispersion sigma_oc = ~152.5 bps std / ~114-115 bps robust (vs the
+ASSUMED 150-250 band) over a 142-name universe / 1258 sessions, giving a NEGATIVE net edge at
+plausible IC (IC 0.03 -> -6.4 bps, IC 0.05 -> -3.4 bps; breakeven needs sigma_oc >= 220 bps @
+IC 0.05 / >= 367 bps @ IC 0.03 even at the 11-bps cost floor). Economically this is a soft
+NO-GO for intraday ALPHA: the H1 M1->M3 stack is PARKED (reversible; master sec 0 banner), and
+the active path is the residual (M0 dual-use data + H2 execution-timing + safety). This script
+is retained as the (now-superseded) parametric-prior artifact; the operative verdict lives in
+the Phase -1 measured report (PR #199), not here.
+
 What this is, and what it is NOT (Codex PR #198 review, round 2)
 ---------------------------------------------------------------
 This module computes **parametric priors** for the renquant105 intraday economics. It is

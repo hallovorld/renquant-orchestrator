@@ -1,6 +1,14 @@
 # renquant105 milestone M2 — gates + shadow e2e (no live orders)
 
-2026-06-27. Part of the renquant105 suite. **Only entered if M1 passed** (the H1-alpha chain).
+2026-06-27. Part of the renquant105 suite.
+
+> ## ⛔ STATUS — M2 (H1 intraday-ALPHA gates) is **PARKED** (reversible)
+> M2 is entered only if M1 passes, and **M1 is PARKED** (Phase -1 #199 measured net edge negative
+> at plausible IC; master §0 banner) — so M2's alpha-gate work is **not built now**, retained for a
+> future un-park. **Exception:** the H2.0 arrival-price/IS capture that M2 *consumes* is on the
+> independent ACTIVE branch (it does NOT depend on M1/M2) and proceeds for H2.
+
+**Only entered if M1 passed** (the H1-alpha chain — currently PARKED).
 Still **zero live orders** — shadow/observe only. **Note (finding 2):** the H2.0 arrival-price/IS
 capture and the H2 execution-timing milestone are **NOT** gated by M1/M2 — they run on the
 independent parallel branch of the acyclic DAG (master §7.0); M2 only **consumes** H2.0's IS

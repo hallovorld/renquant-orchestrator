@@ -1,9 +1,18 @@
 # renquant105 milestone M3 — live (tiny, monitored)
 
-2026-06-27. Part of the renquant105 suite. **Only entered if M2 passed AND the
-probabilistic PSR/DSR ≥ 0.95 still holds on the shadow-period realized returns.** Given the
-feasibility prior, **this milestone may never be reached** — and that is the correct outcome
-if the edge isn't there.
+2026-06-27. Part of the renquant105 suite.
+
+> ## ⛔ STATUS — M3 (live H1 intraday-ALPHA) is **PARKED** (reversible)
+> M3 is the live tip of the **parked** H1-alpha stack (M1 → M2 → M3). **Phase -1 (PR #199)
+> measured the net edge negative at plausible IC**, so M3 is **not reached** and **no live
+> intraday-alpha capital is contemplated** under the current evidence. The design below is
+> retained for a future un-park (master §0 banner). It is **NOT** an authorized live milestone.
+> (The active live-relevant work is H2 execution-timing, which has its own gated, non-alpha live
+> path — see the H2 doc.)
+
+**Only entered if the H1-alpha path is un-parked AND M2 passed AND the probabilistic PSR/DSR ≥
+0.95 still holds on shadow-period realized returns.** Given the measured result, **this milestone
+is currently unreachable** — the correct outcome when the edge isn't there.
 
 ## Objective + scope
 Deliberately enable live intraday alpha trading at **tiny size**, with the daily-loss
@@ -43,11 +52,11 @@ counts (finding 3); `252d-equiv` Sharpe is a scaling convenience, not 252 days o
 | State | Condition |
 |---|---|
 | **Go-live precondition** | M2 green + **PSR/DSR ≥ 0.95** holds on shadow-period realized + **M0.5 broker contract encoded** (finding 8) + **the quantitative loss budget + exposure envelope + worst-case gap/stale stress + restart/reconciliation + fault-injection acceptance suite GREEN** (reliability §3.3b/§3.10, finding 7) — the −5%/−20% thresholds are **derived** from position caps × measured vol × gap risk, re-derived per ladder step, NOT asserted; safety MTTH = the **fastest decision cadence** (≤ `bar_interval`), not a generic 30 min |
-| **Exposure schedule (PRE-REGISTERED, EXACT — finding 3/round-3)** | a fixed 4-step ladder pinned NOW: **S1** ≤ 1 name / ≤ 5% of book → **S2** ≤ 2 names / ≤ 10% → **S3** ≤ 3 names / ≤ 20% → **S4** ≤ 4 names / ≤ 33%. **Observation unit = a completed live open→close session (effective-independent, block scheme), NOT a calendar day or a run.** **Minimum N per step = 20 effective-independent sessions** at the current exposure before the next step is eligible. **Maximum calendar duration to clear the whole ladder = 6 months;** **stop outcome if not met:** if any step fails to reach its scale-up gate within the duration, **do NOT advance — revert to last-known-good champion and STOP the live scale-up** (the edge did not hold live), rather than waiting indefinitely or hand-tuning the ladder. |
-| **On track** | live Sharpe (pre-registered effective-N window = the step's ≥20 sessions) within **±0.5** of shadow-period Sharpe |
-| **SCALE-UP** | the step's **≥ 20 effective-independent live sessions** completed AND net Sharpe ≥ **1.0** AND max-DD shallower than **−10%** AND killed-winner ≤ 15% → advance exactly one ladder step (S1→S2→S3→S4; precise limits, not "+1 gross step / 10–20% of book") |
+| **Exposure schedule (PRE-REGISTERED, EXACT; per-step N from a POWER calc, sequential testing across looks — finding 6, Codex round-4)** | a fixed 4-step ladder pinned NOW: **S1** ≤ 1 name / ≤ 5% of book → **S2** ≤ 2 names / ≤ 10% → **S3** ≤ 3 names / ≤ 20% → **S4** ≤ 4 names / ≤ 33%. **Observation unit = a completed live open→close session (effective-independent, block scheme).** **Per-step N is DERIVED, not hardcoded 20:** N_step = the **live minimum-effect / power calculation** (target = the step's go effect Sharpe ≥ 1.0 vs the HOLD boundary, α=0.05, power=0.80, using the step's measured session-return variance) — the **20 was a placeholder and is REMOVED**; the computed N_step is published in the pre-registration artifact before the step starts (and if N_step exceeds the 6-month budget, the step is **UNDERPOWERED → do-not-advance / stop**, the M1 F1.7 fallback). **Repeated-looks control (4 promotion decisions = 4 looks):** the scale-up test is a **sequential / e-value (anytime-valid) test** with a pre-registered **confidence/e-process boundary** per step, and the **family of 4 looks is multiplicity-corrected** (alpha spent across the 4 steps via an alpha-spending schedule pinned now) — so 4 sequential promotions do NOT inflate the false-promotion probability. **Evidence transfer between exposure levels (pinned):** **only the model + cost-calibration carry forward**; the **per-step Sharpe/DD/killed-winner evidence does NOT transfer** (a larger book changes fills, impact, and the loss budget), so each step is re-powered and re-tested on ITS OWN sessions — no borrowing a lower step's significance. **Maximum calendar duration to clear the whole ladder = 6 months;** **stop outcome if not met:** if any step fails its (sequential, corrected) scale-up boundary within the duration, **do NOT advance — revert to last-known-good champion and STOP** (the edge did not hold live), never wait indefinitely or hand-tune the ladder. |
+| **On track** | live Sharpe (pre-registered effective-N window = the step's DERIVED N_step sessions) within **±0.5** of shadow-period Sharpe |
+| **SCALE-UP** | the step's **derived N_step effective-independent live sessions** completed AND the **sequential/e-value boundary** (multiplicity-corrected across the 4 looks) is crossed for net Sharpe ≥ **1.0** AND max-DD shallower than **−10%** AND killed-winner ≤ 15% → advance exactly one ladder step (S1→S2→S3→S4) |
 | **HOLD / de-risk** | dd −12..−15% or live Sharpe < 0.5 → freeze sizing |
-| **KILL (state machine, fail-closed; finding 7/8)** | dd < **−20%** → **`NO_NEW_RISK` + controlled flatten / reduce-only** (a market-risk event — exits ALLOWED; `FULL_HALT` is reserved for untrustworthy order-state/account-identity, never a drawdown, which would trap exits) · single-session loss < **−5%** (the consistent threshold) → **`NO_NEW_RISK`** (halt buys, **exits ALLOWED**) · OOS IC ≤ 0 over the effective-N window · calibration slope ≤ 0 (CI-bounded) · live-shadow ρ < 0.2 (CI-bounded) → revert to last-known-good champion |
+| **KILL (state machine, fail-closed; finding 7/8 — thresholds CONSUMED from `loss_budget.yaml`, not hardcoded)** | dd < **`dd_kill`** (the artifact's generated multi-session envelope, current ceiling **−20%**; reliability §3.3b) → **`NO_NEW_RISK` + controlled flatten / reduce-only** (a market-risk event — exits ALLOWED; `FULL_HALT` is reserved for untrustworthy order-state/account-identity, never a drawdown, which would trap exits) · single-session loss < **`session_loss_budget_step`** (the artifact's generated per-step value, current ceiling **−5%**) → **`NO_NEW_RISK`** (halt buys, **exits ALLOWED**) · OOS IC ≤ 0 over the effective-N window · calibration slope ≤ 0 (CI-bounded) · live-shadow ρ < 0.2 (CI-bounded) → revert to last-known-good champion |
 
 ## Expected outcome (预期)
 A small, controlled, monitored live operation that **scales only if net-of-cost edge

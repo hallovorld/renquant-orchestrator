@@ -51,25 +51,30 @@ order-intent + fill record and on arrival-price capture.
   policy deadline is marked-to the **session-close** price and the residual shortfall booked
   as opportunity cost; a partial fill books filled-IS on the filled qty + opportunity cost on
   the remainder. Fill rate and opportunity cost are first-class metrics, not footnotes.
-- H2.4 **Paired-block inference + PRE-REGISTERED power/family-wise alpha (finding 3/round-3).**
+- H2.4 **Paired-block inference + PRE-REGISTERED power/family-wise alpha — SINGULAR choices
+  (finding 5, Codex round-4: ONE correction, ONE dependence model, fixed BEFORE data).**
   The **same** intent priced under each policy is a **matched pair**; analyse the **IS
-  difference** (policy − baseline) per intent. **Block rule (FIXED, not post-hoc):** block =
-  **calendar session** (one trading day) — the choice is pinned by this design (session, not
-  week) because the binding dependence is intraday + same-time-of-day autocorrelation within a
-  day; a week-block fallback is used **only** if the per-session sample is below the
-  pre-registered min and is recorded as such, never selected by which gives significance.
-  Report a **block-bootstrap 95% CI on the mean IS difference** (Kunsch moving-block) over
-  **effective-independent observations** (block scheme), **not** raw order counts.
-  - **Family-wise alpha + multiple-comparison correction (PINNED):** the comparison is over the
-    **K pre-registered timing policies** (TWAP / VWAP / marketable-limit / wait-for-spread).
-    Control the **family-wise error rate at α_FWER = 0.05** via a fixed correction (Holm–
-    Bonferroni over the K policies, or the studentised max-statistic on the paired-block
-    bootstrap) — pinned before any run, so a policy "wins" only after the multiplicity haircut.
-  - **Power against a minimum economically-meaningful IS improvement (PINNED):** the experiment
-    is powered (1−β = 0.80, α_FWER = 0.05) to detect a **minimum economically-meaningful IS
-    reduction** (e.g. ≥ **2 bps** per intent — pinned, the smallest reduction worth changing
-    execution for), using the paired-difference variance; the required effective-N per policy is
-    pre-registered, with the same **underpowered → do-not-run / re-scope** fallback as M1 (F1.7).
+  difference** (policy − baseline) per intent.
+  - **ONE hierarchical dependence model (pinned, NOT a fallback choice):** the binding dependence
+    is **the calendar trading session** (intraday + same-time-of-day autocorrelation clusters
+    within a day, then sessions are treated as the independent block). The block IS the calendar
+    session — **there is NO week-block alternative**. If the per-session sample is below the
+    pre-registered min, the experiment is declared **UNDERPOWERED → do-not-run / re-scope** (the
+    same M1 F1.7 fallback), **never** silently switched to a week block (round-4 #5: choosing the
+    block after seeing the sample changes inference). Report a **block-bootstrap 95% CI on the
+    mean IS difference** (Kunsch moving-block, session blocks) over **effective-independent
+    observations**, not raw order counts.
+  - **ONE family-wise multiple-comparison correction (PINNED — not "or"):** over the **K
+    pre-registered timing policies** (TWAP / VWAP / marketable-limit / wait-for-spread), control
+    FWER at **α_FWER = 0.05** by the **studentised max-statistic on the paired session-block
+    bootstrap** — the single correction, fixed before any run (it respects the cross-policy
+    correlation the bootstrap already carries). **Holm–Bonferroni is NOT used** (the round-3
+    "Holm-Bonferroni OR studentised max" choice is removed; a policy "wins" only after this one
+    haircut).
+  - **Power against a minimum economically-meaningful IS improvement (PINNED):** powered
+    (1−β = 0.80, α_FWER = 0.05) to detect a **≥ 2 bps per-intent** IS reduction (pinned — the
+    smallest reduction worth changing execution for), using the paired-difference variance; the
+    required effective-N per policy is pre-registered, with the M1 F1.7 underpowered fallback.
 - H2.5 **Intraday risk-exit leg (sell-only, kill-state-aware).** Define explicit protective
   exits on intraday signal decay / σ-scaled stop for the existing book. These are **exits
   only** — they create no new positions and never re-enter. They map to `NO_NEW_RISK` /
@@ -89,12 +94,19 @@ order-intent + fill record and on arrival-price capture.
     limits cross to the executable side; passive limits depend on the touch), and charges a
     **conservative market-impact** term. "Conservative" = biased AGAINST the policy (lower fill
     rate / worse price than the optimistic mid) so a promotion is not a simulator artifact.
-  - **Calibrate the fill model on randomized / paper shadow orders.** Fit the queue/partial/
-    impact parameters on **paper or randomized shadow orders** (zero live capital) placed across
-    H1/H2-representative times and order shapes — the same zero-live-risk probe discipline as M0.
-  - **Validate predicted fill/slippage OUT-OF-SAMPLE.** On held-out probes, the model's
-    predicted fill rate + realized slippage must match the measured outcomes within a bounded
-    error (calibration slope ∈ [0.7, 1.3]) before the fill model is used in the comparison.
+  - **Calibrate the fill model on randomized / paper shadow orders — NESTED SEPARATELY from
+    policy evaluation (finding 5, Codex round-4).** Fit the queue/partial/impact parameters on
+    **paper or randomized shadow orders** (zero live capital) placed across H1/H2-representative
+    times and order shapes (the same zero-live-risk discipline as M0). **The probes/sessions used
+    to FIT the fill-model parameters are a DISJOINT set from the intents/sessions used to EVALUATE
+    a timing policy** — the same data must NEVER both calibrate the fills and score the policy
+    (that double-uses the data and leaks the fill fit into the IS-difference). Concretely: the
+    fill-model fit is an **inner nesting** (its own probe set / its own folds); policy evaluation
+    runs on the **outer**, held-out intents only. This nesting is part of the pre-registration.
+  - **Validate predicted fill/slippage OUT-OF-SAMPLE.** On **held-out** probes (disjoint from the
+    fit set above), the model's predicted fill rate + realized slippage must match the measured
+    outcomes within a bounded error (calibration slope ∈ [0.7, 1.3]) before the fill model is used
+    in the comparison.
   - **Propagate fill-model UNCERTAINTY into the paired CI (H2.4).** The fill model's parameter
     uncertainty is carried through into the paired-block bootstrap (e.g. resample fill-model
     draws jointly with the block bootstrap), so the IS-difference CI reflects fill uncertainty,

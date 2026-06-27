@@ -4,7 +4,43 @@
 read-only research sweeps (regulatory/cost, 104→105 delta, intraday data/latency,
 intraday model/GPU, stricter gating). For Codex discussion before any build.
 
+> ## ⛔ STATUS BANNER — H1 INTRADAY-ALPHA: **PARKED** (reversible) — read before anything else
+> **H1 INTRADAY-ALPHA: PARKED — Phase -1 (PR #199) measured net-edge negative at plausible IC**
+> (**−6.4 bps @ IC 0.03 / −3.4 bps @ IC 0.05**; measured **σ_oc 152.5 bps std / 114-115 bps
+> robust** vs the **220-367 bps breakeven** needed even at the charitable 11 bps cost floor —
+> σ_oc ≥ 220 bps @ IC 0.05 / ≥ 367 bps @ IC 0.03). **Do NOT build the M1→M3 alpha stack absent a
+> concrete reason to believe IC ≫ 0.05.** This is a **soft NO-GO for intraday ALPHA**, not a
+> deletion: the milestone content (M1/M2/M3) is **retained, parked**. **Reversible:** un-park if a
+> concrete, falsifiable reason to expect IC ≫ 0.05 appears (a new feature family with measured
+> OOS IC, or a structurally higher-σ_oc universe). The literal "GO to M0" in PR #199 was a
+> **mis-specified-gate artifact** — the Phase -1 gate checked σ_oc against its *own assumed 150
+> prior* (exactly Codex round-4 #2's circularity), so passing it meant only "the cheap data
+> foundation is buildable", NOT "tradable alpha exists". Under a **net-edge** gate Phase -1 is a
+> **STOP-for-alpha**.
+>
+> **ACTIVE PATH (the defensible residual — does NOT require alpha to clear cost):**
+> **M0 data foundation is DUAL-USE** (Phase -1 confirmed clean coverage: 142/142, 0% missing,
+> refuting the "~50% no history" claim) **→ H2 execution-timing on the daily-104 book + the
+> reliability/safety fixes** (equities `client_order_id` dedup, `flock` run-lock, daily-loss
+> breaker → `NO_NEW_RISK`, intraday-granular freshness). H2 needs only to **beat current next-open
+> fills on trades 104 ALREADY makes** — it adds **no** round-trips and makes **no** new alpha
+> claim, so it stands even though the H1-alpha prior failed. See the master DAG (§7.0): **Phase -1
+> (done, #199) → M0 (ACTIVE, dual-use) → [H1-alpha PARKED] / [H2 execution-timing + safety
+> ACTIVE].**
+
 ## 0. Honest feasibility verdict (read first)
+- **PARKED RESULT (supersedes the parametric priors below): the H1 intraday-ALPHA path is
+  PARKED on the Phase -1 MEASUREMENT (PR #199).** Phase -1 measured the load-bearing number §A
+  only *assumed*: open→close cross-sectional dispersion **σ_oc 152.5 bps std / 114-115 bps
+  robust** (142-name universe, 1258 sessions) — **at or below** the §A 150-bps lower edge, and
+  **far below** the ~220-367 bps a positive net edge needs (σ_oc ≥ 220 @ IC 0.05, ≥ 367 @ IC
+  0.03, even at the charitable 11-bps cost floor). The measured net edge is **negative at plausible
+  IC** (−6.4 bps @ IC 0.03, −3.4 bps @ IC 0.05). **Economically this is a soft NO-GO for intraday
+  ALPHA.** Everything in §A below is now the *superseded prior* the measurement replaced — kept for
+  audit, no longer the operative verdict. The **active program is the defensible residual: M0
+  (dual-use data) + H2 (execution-timing on the 104 book) + the reliability/safety fixes** — none
+  of which require an alpha edge that clears cost. The H1 M1→M3 milestones stay **parked, not
+  deleted** (reversible; un-park only on concrete IC ≫ 0.05 evidence).
 - **Regulation is no longer the headline blocker, but the account is NOT yet
   "operationally clear" (finding 8).** The FINRA $25k / "3 day-trades per 5 days" PDT
   rule was replaced **effective 2026-06-04** (SEC order 34-105226; FINRA Notice 26-10 +
@@ -85,7 +121,15 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
 >   (data contract from H2.0, comparator, paired-block inference, conservative OOS fill model,
 >   promotion/kill); see the acyclic DAG in §7.0
 
-## A. Quantitative feasibility analysis — PARAMETRIC PRIORS (UNDETERMINED, not a verdict)
+## A. Quantitative feasibility analysis — PARAMETRIC PRIORS (now SUPERSEDED by the Phase -1 MEASUREMENT; H1-alpha PARKED)
+> **⚠ SUPERSEDED — kept for audit only.** Everything in §A is the *parametric prior* that Phase -1
+> (PR #199) was built to test. **Phase -1 MEASURED the central assumption and it failed:** σ_oc =
+> **152.5 bps std / 114-115 bps robust** (vs the §A 150-250 assumed band), giving a **negative net
+> edge at plausible IC** (−6.4 bps @ IC 0.03, −3.4 bps @ IC 0.05). So the §A "marginal-to-viable"
+> reading is **no longer operative** — the H1-alpha path is **PARKED** (§0 banner). Read §A as the
+> hypothesis the measurement rejected, not as a live verdict. The active path is the residual (M0
+> dual-use + H2 + safety).
+
 Account ~$10.6k, 4× intraday BP $37.7k; liquid >$6 large-caps; IEX data; 1–5 min bars.
 **Primary horizon/policy = open→close, bounded turnover** (enter on any gated bar, exit at
 the close, ≤1 open position per name per session; overnight excluded — pinned in §4/§7).
@@ -288,6 +332,44 @@ config/wiring, not new plumbing.
   timestamps are the `decision_ts` of this chain; the M1 policy replay (M1 F1.4b) charges the
   entry from `first_eligible_fill_ts`, and the replay/live parity contract test (M1) includes
   the full event-time chain.
+- **EVENT-TIME CONTRACT — DATA-AVAILABILITY SEMANTICS (finding 8, Codex round-4: naming the
+  timestamps is necessary but NOT sufficient — the contract must define how each ts is *captured*
+  and which feed supplies executable quotes, or replay/live can compare identical field names while
+  retaining causal leakage).** The chain above is extended with these binding semantics:
+  - **`data_available_ts` capture / conservative reconstruction.** In LIVE, `data_available_ts` is
+    the **wall-clock receipt time** of the closed bar (stamped on ingest via `live.clock`), NOT
+    `bar_close_ts`. In REPLAY (no receipt clock exists for historical bars), it is **conservatively
+    reconstructed** as `bar_close_ts + feed_latency_p99` using the **p99** measured feed latency
+    for that feed/tier (never the mean — conservative against leakage). A bar whose provider
+    emission time is unknown is treated as available no earlier than `bar_close_ts +
+    feed_latency_p99 + emission_uncertainty`.
+  - **Which feed supplies the EXECUTABLE quote (IEX vs SIP).** The executable price at
+    `first_eligible_fill_ts` is taken from the **same feed the live path will trade on** — **IEX
+    NBBO-proxy by default** (free tier). If a future un-park trades SIP, the executable quote MUST
+    come from SIP and that is a **fresh parity+cost experiment** (M3/finding 5) — replay and live
+    must agree on the feed identity, fingerprinted (M0 F0.6). Pricing a fill off SIP while live
+    executes on IEX (or vice-versa) is a parity violation the hard test must catch.
+  - **Clock skew / tolerance.** All timestamps route through `live.clock` (reliability F38); the
+    contract pins a **max tolerated skew** between the ingest clock and the broker/exchange clock
+    (`skew_tol = 250 ms`); a bar/quote whose timestamps disagree beyond `skew_tol` is **dropped
+    fail-closed**, not silently aligned.
+  - **Late provider corrections / revisions.** Historical bars/quotes may be **revised after
+    emission** (back-adjustment, late prints). The contract requires the **as-of vintage** (what
+    was known at `data_available_ts`, M0 F0.1b raw-vs-adjusted) — a later revision MUST NOT
+    retroactively change a past bar used in training/replay; a revised value that disagrees with
+    the as-of-vintage value is flagged, not consumed.
+  - **Auction treatment.** The **opening and closing auction prints are NOT continuous-session
+    executable quotes**; the open→close return is measured from the **first continuous-session
+    executable quote after `first_eligible_fill_ts`** to the **closing-auction or last
+    continuous-session executable price** per a pinned rule (overnight/auction-gap excluded). The
+    opening cross is never used as an entry price (Phase -1's causal check confirmed σ_oc is not an
+    open-auction artifact).
+  - **No-fill-before-close behavior.** If **no executable fill is possible before the session
+    close** (the name is gated-admitted too late, halted, or no executable quote exists within the
+    policy deadline), the contract is **no position for that name this session** — it is **NOT**
+    booked at the closed-bar price or a synthetic mid. In M1 replay this is a **dropped intent
+    with its opportunity cost recorded** (mirrors H2.3), never a free or assumed fill. The
+    replay/live parity test asserts identical no-fill handling.
 - **GPU verdict: NO.** Models stay small (≤ low-millions of params), universe is
   small; CPU/MPS nightly batch is minutes even at ~80–100× bars. GPU only pays off
   for deep LOB on full depth + large universe — impossible here. Rent cloud GPU if
@@ -407,19 +489,28 @@ into a subrepo. The matrix above (a NEW `renquant-strategy-105` repo, forbidden 
 contracts across base-data/model/pipeline/execution/backtesting/umbrella, lock/pin migration) is
 an **authoritative cross-repo topology change** — and `RENQUANT_REPOS.md` does **not** yet list a
 strategy-105 repo. **This orchestrator PR does NOT authorize that topology change.** It is a
-**SCOPED orchestration design** that **references** the cross-repo contract; the contract itself
-is owned by an umbrella ADR that **MUST land FIRST**:
+**SCOPED orchestration design** that **references** the cross-repo contract; **the cross-repo
+topology is OWNED by umbrella ADR #416** (`RenQuant/doc/arch/`), which is **authoritative but
+DEFERRED**. With the H1-alpha path **PARKED** (master §0; Phase -1 net edge negative), ADR #416 is
+**reframed to Deferred in parallel** — the new-repo / pin-migration topology is **deferred pending
+an alpha GO** (it is not needed by the active M0-dual-use + H2 + safety residual, which lives in
+the existing repos). #198 says only: the cross-repo topology is owned by umbrella ADR #416 and is
+deferred; this PR neither authorizes it nor touches the umbrella:
 
 - **(a) Re-scope.** Everything in this suite is read as **orchestration responsibilities**
   (pinning, run-bundle stamping, `--strategy` routing, the shadow→graduate flow). Where this
   doc describes another repo's internals (base-data ingestion primitive, pipeline gate kernel,
   model label/CPCV, execution broker contract, a new strategy-105 repo), it is a **proposed
   requirement to be ratified by the umbrella ADR**, NOT a decision this PR makes.
-- **(b) The authoritative change is an umbrella ADR under `RenQuant/doc/arch/` that lands FIRST.**
-  Until that ADR is merged, `renquant-strategy-105` is **not created**, no pin order is
-  executed, and 105 stays a design. **This PR neither opens nor edits the umbrella.**
-- **(c) Checklist — exactly what the umbrella ADR must contain (so the operator can land it
-  separately):**
+- **(b) The authoritative change is umbrella ADR #416 under `RenQuant/doc/arch/` — DEFERRED
+  pending an alpha GO.** ADR #416 owns the topology; with H1-alpha parked it is reframed to
+  **Deferred**, so `renquant-strategy-105` is **not created**, no pin order is executed, and the
+  new-repo topology stays a deferred design until a future alpha un-park revives the need. **This
+  PR neither opens nor edits the umbrella.** *(The active residual — M0 dual-use data + H2 +
+  safety — does NOT require the new repo; it extends the existing base-data/pipeline/execution
+  repos, so the deferral does not block the active path.)*
+- **(c) Checklist — exactly what umbrella ADR #416 must contain when revived (so the operator can
+  land it separately, post alpha-GO):**
   1. The new `renquant-strategy-105` **repo role** + its place in `RENQUANT_REPOS.md` (mirrors
      strategy-104) — what it owns (config skeleton, point-in-time universe manifest, config
      fingerprint) and what it must NOT own (no data/model/broker internals).
@@ -436,8 +527,9 @@ is owned by an umbrella ADR that **MUST land FIRST**:
   6. The **cross-repo integration test** that proves the contract holds end-to-end before any
      105 pin is treated as production.
 
-Until the umbrella ADR (items 1-6) lands, the matrix in §6 is a **proposal referenced by this
-orchestration design**, not an executed topology change.
+Until umbrella ADR #416 (items 1-6) is revived and lands, the matrix in §6 is a **proposal
+referenced by this orchestration design**, not an executed topology change. While H1-alpha is
+PARKED, ADR #416 stays **Deferred**.
 
 ## 7. Phased rollout (validation-gated, with a kill condition)
 
@@ -451,32 +543,36 @@ owned by M0/M0.5-class data work (no alpha model, no live order). The DAG below 
 each node lists owner, key artifact, entry condition, and exit/kill.
 
 ```
-Phase -1 (cheap feasibility, read-only)         [owner: analyst; artifact: Phase -1 report;
-   │  GO ──────────────┐                          entry: none (FIRST gate); STOP ends program]
-   ▼                   │
-  M0  (data + cost)    │   ── parallel ──►  H2.0 (arrival-price + IS CAPTURE, observability/TCA)
-   │  artifact: panel  │                     [owner: M0/M0.5-class data; artifact: per-intent
-   │  + session-return │                      arrival/fill record + IS module; entry: Phase -1
-   │  surface + the    │                      GO; does NOT depend on M1/M2 — the round-3 cycle
-   │  CALIBRATED COST  │                      is broken here]
-   │  MODEL            │                          │
-   ▼                   ▼                          ▼
-  M0.5 (broker contract, paper-only)         H2 (execution-timing/risk on the 104 book)
-   │  artifact: broker-contract checks          [owner: H2 doc; entry: H2.0 + M0 cost model;
-   ▼                                             depends on H2.0 + M0, NOT on M1/M2; runs even
-  M1  (H1 alpha GO/NO-GO; frozen-policy           if M1 KILLS H1]
-   │  replay; KILL ends H1, H2 continues)
+Phase -1 (cheap feasibility, read-only)  ── DONE; results in PR #199 ──
+   │  net-edge gate (corrected, §7.1):  STOP-for-ALPHA  /  data foundation GO
+   │  measured σ_oc 152.5 std / 114-115 robust; net edge −6.4@IC0.03 / −3.4@IC0.05 (NEGATIVE)
+   ▼
+  M0  (data + cost)  ── ACTIVE (DUAL-USE) ──►  H2.0 (arrival-price + IS CAPTURE, observability/TCA)
+   │  artifact: panel + session-return        [owner: M0/M0.5-class data; entry: Phase -1 data-GO;
+   │  surface + CALIBRATED COST MODEL          does NOT depend on M1/M2]
+   │  (serves BOTH H2 and a future un-park)         │
+   ▼                                                ▼
+  M0.5 (broker contract, paper-only)  ── ACTIVE ── H2 (execution-timing/risk on the 104 book)
+   │  artifact: broker-contract checks            ── ACTIVE: the defensible residual ──
+   │                                              [entry: H2.0 + M0 cost model; NOT on M1/M2;
+   ▼                                               beats next-open fills on 104's EXISTING trades]
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  H1-ALPHA SUB-DAG — ⛔ PARKED (reversible; Phase -1 measured net-edge negative, §0 banner)
+  M1  (H1 alpha GO/NO-GO; frozen-policy replay)   ── PARKED: do NOT build absent IC ≫ 0.05 ──
+   ▼  GO (un-park precondition only)
+  M2  (gates + shadow e2e; entry: M1 GO)          ── PARKED ──
    ▼  GO
-  M2  (gates + shadow e2e; entry: M1 GO)
-   │  ── consumes H2.0's IS module (does NOT own it) ──
-   ▼  GO
-  M3  (live, tiny, monitored; entry: M2 GO + PSR/DSR holds + M0.5)
+  M3  (live, tiny, monitored; entry: M2 GO + PSR/DSR + M0.5)  ── PARKED ──
 ```
 
-**Acyclicity is explicit:** the ONLY consumer relationship from H2/H2.0 to the M-chain is that
-**M2 consumes H2.0's IS module** (M2 no longer *owns* it). H2 and H2.0 have **no inbound edge
-from M1 or M2**, so the H2 path is a clean parallel branch that survives an M1 kill. Owners /
-artifacts / entry-exit are restated per milestone below and in each milestone doc.
+**PARK semantics (reversible):** Phase -1's MEASURED net edge is negative at plausible IC, so the
+**H1-alpha sub-DAG (M1 → M2 → M3) is PARKED** — retained verbatim, not deleted, and **un-parked
+only on a concrete reason to believe IC ≫ 0.05** (§0 banner). The **ACTIVE path is M0 → M0.5 (data
++ broker, DUAL-USE) + H2.0 → H2 (execution-timing) + the safety fixes** — it does NOT depend on
+M1/M2/M3 and requires no cost-clearing alpha. **Acyclicity is explicit:** the ONLY consumer
+relationship from H2/H2.0 to the M-chain is that **M2 consumes H2.0's IS module** (M2 does not
+*own* it); since M2 is parked, H2.0's IS module is consumed only by H2 today. H2 and H2.0 have
+**no inbound edge from M1 or M2**, so the active branch is independent of the parked H1 stack.
 
 ### 7.1 Phase -1 — cheap, bounded feasibility (the FIRST gate, finding 9)
 **Read-only, hard-capped (≤5 analyst-days / ≤1 week), no orders, no new data.** Measures, on
@@ -493,8 +589,10 @@ the first node of the DAG — the program does not spend 10-17 weeks before this
 
 **Two INDEPENDENT hypotheses, separated (execution-plan gap).** The pivot bundles two
 distinct claims that need distinct experiments and acceptance criteria:
-- **H1 — intraday ALPHA** (a new cost-clearing intraday signal). Prior = **UNDETERMINED /
-  marginal** (§A) — measured in M1; STOP at M1 if it fails the bar.
+- **H1 — intraday ALPHA** (a new cost-clearing intraday signal). **PARKED** — Phase -1 (PR #199)
+  MEASURED the net edge negative at plausible IC (§0 banner); the §A "UNDETERMINED / marginal"
+  prior was the *superseded hypothesis*. M1 is the un-park experiment, run only on concrete
+  IC ≫ 0.05 evidence — do NOT build it now.
 - **H2 — execution TIMING / RISK for the existing 104 book** (better fills + intraday
   exits on 104's *existing* trades; adds **no** new round-trips). This does NOT depend on
   H1 and has its OWN acceptance criterion + its OWN milestone doc
