@@ -21,6 +21,10 @@ Two lenses (2026-06-26):
      below the cross-sectional mean) and the names it KEEPS. Both cancel a uniform
      per-date level/leakage offset, so they read cleanly even in-sample. This is
      the decision-relevant question: does demean drop relative losers or winners?
+     Significance is reported via a MOVING-BLOCK BOOTSTRAP (block = the label
+     horizon in sessions) because adjacent dates share overlapping forward windows
+     and are not iid; the naive iid t is retained only as a labelled, known-
+     anti-conservative reference.
 
 The ledger now spans 2024→ (sim ``mu`` + live), so lens 2 is available immediately;
 lens 1 reports INSUFFICIENT_AGED_LEDGER until >= min_dates aged dates accrue.
@@ -69,8 +73,41 @@ def load_ledger(db: Path):
     return cs.merge(main[["date", "run_id"]], on=["date", "run_id"])
 
 
+def _block_bootstrap_se(x, *, block: int, n_boot: int = 2000, seed: int = 0):
+    """Moving-block bootstrap SE/CI for the mean of a serially-dependent series.
+
+    The per-date statistics below (rank-IC, refused−kept gap) are NOT iid across
+    dates: adjacent dates share ~60-session overlapping forward-return windows and
+    common market/regime shocks, so a naive ``mean/sem`` t hugely overstates
+    significance (Codex #196 #2). A moving-block bootstrap resamples contiguous
+    blocks of length ``block`` (set to the label horizon in sessions, the span of
+    the overlap), preserving that local dependence, and gives an honest SE/CI.
+
+    Returns ``(se, lo, hi)`` for a 95% percentile CI, or ``(None, None, None)``
+    when the series is too short for a block bootstrap.
+    """
+    import numpy as np  # noqa: PLC0415
+    a = np.asarray(x, dtype=float)
+    a = a[~np.isnan(a)]
+    n = len(a)
+    if n < 2 or block < 1:
+        return None, None, None
+    block = min(block, n)
+    rng = np.random.default_rng(seed)
+    n_blocks = int(np.ceil(n / block))
+    max_start = n - block  # inclusive
+    means = np.empty(n_boot)
+    for b in range(n_boot):
+        starts = rng.integers(0, max_start + 1, size=n_blocks)
+        idx = (starts[:, None] + np.arange(block)[None, :]).ravel()[:n]
+        means[b] = a[idx].mean()
+    se = float(means.std(ddof=1))
+    lo, hi = (float(v) for v in np.percentile(means, [2.5, 97.5]))
+    return se, lo, hi
+
+
 def _rank_evidence(m, *, score="expected_return", ret="fwd_60d_excess",
-                   min_xsec=8) -> dict:
+                   min_xsec=8, block_sessions=60) -> dict:
     """Floor-free, leakage-robust evidence for the demean transform.
 
     The admitted-set means (RAW vs DEMEAN at an absolute mu_floor) are
@@ -87,6 +124,12 @@ def _rank_evidence(m, *, score="expected_return", ret="fwd_60d_excess",
       the names demean REFUSES (score>0 but below the cross-sectional mean) minus
       the names it KEEPS. <0 means demean drops the relative losers (good); >0
       means it drops winners (bad → revert).
+
+    Significance: adjacent dates have heavily overlapping ~60-session forward
+    windows, so date-level observations are NOT iid (Codex #196 #2). We report a
+    MOVING-BLOCK-BOOTSTRAP SE and 95% CI (block = the label horizon in sessions)
+    alongside the naive iid t. The naive t is kept only as a (clearly-labelled,
+    anti-conservative) reference; the bootstrap CI is the one to trust.
     """
     import numpy as np, pandas as pd  # noqa: PLC0415
     g = m[m.groupby("date")["ticker"].transform("count") >= min_xsec].copy()
@@ -94,7 +137,7 @@ def _rank_evidence(m, *, score="expected_return", ret="fwd_60d_excess",
         return {"status": "thin", "n_dates": 0}
     g["dem"] = g[score] - g.groupby("date")[score].transform("mean")
     ics, diffs = [], []
-    for _dt, s in g.groupby("date"):
+    for _dt, s in g.sort_values("date").groupby("date", sort=True):
         if s[score].nunique() > 2:
             ics.append(float(s[[score, ret]].corr("spearman").iloc[0, 1]))
         ref = s[(s[score] > 0) & (s["dem"] < 0)][ret]
@@ -105,9 +148,21 @@ def _rank_evidence(m, *, score="expected_return", ret="fwd_60d_excess",
     diffs = pd.Series([x for x in diffs if x == x])
 
     def _stat(x):
+        mean = float(x.mean()) if len(x) else None
         sem = float(x.sem()) if len(x) > 1 else 0.0
-        return {"mean": float(x.mean()) if len(x) else None,
-                "t": (float(x.mean() / sem) if sem > 0 else None),
+        se_b, lo_b, hi_b = _block_bootstrap_se(x.to_numpy(), block=block_sessions)
+        # bootstrap t = mean / block-bootstrap SE (honest); naive t kept labelled
+        return {"mean": mean,
+                "t_iid_anticonservative": (float(mean / sem) if sem > 0 else None),
+                "block_bootstrap_se": se_b,
+                "ci95_block_bootstrap": ([lo_b, hi_b] if se_b is not None else None),
+                "t_block_bootstrap": (float(mean / se_b)
+                                      if (se_b not in (None, 0.0) and mean is not None)
+                                      else None),
+                # significant iff the block-bootstrap 95% CI excludes 0
+                "significant_block_bootstrap": (
+                    bool(lo_b is not None and (lo_b > 0 or hi_b < 0))),
+                "block_sessions": block_sessions,
                 "n_dates": int(len(x))}
 
     out = {"xsection_rank_ic": _stat(ics),
@@ -132,21 +187,40 @@ def evaluate(db: Path, ds: Path, mu_floor: float, horizon_days: int,
     realized["regime"] = realized[REGIME_COLS].values.argmax(1)
     m = cs.merge(realized[["date", "ticker", "fwd_60d_excess", "regime"]],
                  on=["date", "ticker"], how="inner")
-    # AGE CUTOFF (Codex #190): a ledger date is only "aged" once its full
-    # `horizon_days` has ELAPSED as of `as_of` — a dataset can carry a
-    # fwd_60d_excess value for a date whose 60d window has not closed yet
-    # (backfill / lookahead), and counting those would let the validator return
-    # OK on un-realized returns. Filter to date <= as_of - horizon_days.
+    # AGE CUTOFF (Codex #196): a ledger date is only "aged" once the FULL forward
+    # horizon of its label has elapsed as of `as_of`. `fwd_60d_excess` is a
+    # 60-TRADING-SESSION label — it is built as `c.shift(-60)/c - 1` over daily
+    # bars in renquant-base-data alpha158_qlib_panel._compute_excess_label_frame
+    # (a row/bar shift, confirmed by purged_cv.py's "purge in BARS, not calendar
+    # days" audit note), NOT a 60-calendar-day label — 60 sessions ≈ 84 calendar
+    # days. The previous
+    # cutoff (`as_of - Timedelta(days=horizon_days)`, i.e. 60 *calendar* days)
+    # therefore admitted dates only ~42 sessions old, counting not-yet-realized
+    # labels as evidence. We now age against the dataset's own sorted trading-date
+    # index: a ledger date is aged iff >= `horizon_days` trading dates from that
+    # index fall in (ledger_date, as_of]. (We use the dataset dates as the session
+    # calendar because they are exactly the bars over which the label is defined.)
     as_of_ts = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(_dt.date.today())
-    cutoff = as_of_ts - pd.Timedelta(days=horizon_days)
+    session_idx = pd.DatetimeIndex(sorted(d["date"].unique()))
+    session_idx = session_idx[session_idx <= as_of_ts]
+    # The newest ledger date whose label is fully realized: it must have at least
+    # `horizon_days` later sessions on-or-before as_of. That is the
+    # `horizon_days`-th session counting back from as_of.
+    if len(session_idx) > horizon_days:
+        cutoff = session_idx[-(horizon_days + 1)]
+    else:
+        cutoff = session_idx[0] - pd.Timedelta(days=1) if len(session_idx) else as_of_ts
     m = m[m["date"] <= cutoff]
     aged_dates = int(m["date"].nunique())
     out = {"ledger_dates": int(cs["date"].nunique()), "aged_joined_dates": aged_dates,
            "mu_floor": mu_floor, "horizon_days": horizon_days,
-           "as_of": str(as_of_ts.date()), "aged_cutoff": str(cutoff.date())}
+           "as_of": str(as_of_ts.date()), "aged_cutoff": str(cutoff.date()),
+           "aging": "trading_sessions"}
     # Floor-free, leakage-robust evidence — reported even when the absolute-floor
     # admission lens below is too thin (few names clear mu_floor on the sim mu).
-    out["rank_evidence"] = _rank_evidence(m)
+    # block length = the label's forward horizon in sessions, i.e. the span over
+    # which adjacent dates' labels overlap (Codex #196 #2).
+    out["rank_evidence"] = _rank_evidence(m, block_sessions=horizon_days)
     if aged_dates < min_dates:
         out["status"] = "INSUFFICIENT_AGED_LEDGER"
         out["detail"] = (f"only {aged_dates} ledger dates are <= {cutoff.date()} "
@@ -200,7 +274,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-dates", type=int, default=30)
     p.add_argument("--as-of", default=None,
                    help="treat this date as 'today' for the age cutoff (default: today). "
-                        "Only ledger dates <= as_of - horizon_days count as aged.")
+                        "A ledger date counts as aged only once >= horizon_days TRADING "
+                        "sessions (from the dataset's date index) fall in (date, as_of].")
     p.add_argument("--json", action="store_true")
     return p
 
@@ -217,12 +292,19 @@ def main(argv=None) -> int:
         re = res.get("rank_evidence", {})
         ic = re.get("xsection_rank_ic", {})
         rk = re.get("within_date_refused_minus_kept", {})
+
+        def _ci(stat):
+            ci = stat.get("ci95_block_bootstrap")
+            sig = " sig" if stat.get("significant_block_bootstrap") else " ns"
+            return (f"95%CI[{ci[0]:+.4f},{ci[1]:+.4f}]{sig}" if ci
+                    else "CI:thin")
+
         if ic.get("mean") is not None:
             print(f"  [robust] x-sec rank-IC(mu, fwd60) = {ic['mean']:+.4f} "
-                  f"(t={ic['t']:.1f}, {ic['n_dates']}d)")
+                  f"{_ci(ic)} ({ic['n_dates']}d, block-bootstrap)")
         if rk.get("mean") is not None:
             print(f"  [robust] within-date (demean-refused − kept) fwd60 = "
-                  f"{rk['mean']:+.4f} (t={rk['t']:.1f}, {rk['n_dates']}d, "
+                  f"{rk['mean']:+.4f} {_ci(rk)} ({rk['n_dates']}d, "
                   f"{100*rk['pct_days_refused_below_kept']:.0f}% days refused<kept) "
                   f"→ {re.get('reading','')}")
         if res["status"] == "OK":
