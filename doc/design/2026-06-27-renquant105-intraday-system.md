@@ -17,37 +17,40 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
   `buying_power`/intraday-margin fields, rejection + deficit handling tested in
   paper/shadow, leverage caps independent of the broker max, fail-closed on field
   migration). Until M0.5 passes, "operationally clear" is not claimed.
-- **The binding constraint is ECONOMICS, and the quantitative analysis says
-  intraday-alpha trading is likely NOT VIABLE at this size on this data (§A) —
-  demonstrated by the committed, runnable `scripts/research_intraday_feasibility.py`,
-  not asserted.** Hard numbers (every one derived by the script with units): round-trip
-  cost ≈ **11 bps** (placeholder, band 7–17, to be replaced by a *measured* cost
-  distribution at M1) vs the expected edge of a top-ranked name over a single
-  open→close horizon ≈ **~1 bp** even at IC 0.05 — **underwater ~10×**. Clearing the
-  admission hurdle at the honest-band IC needs a **multi-day hold** (e.g. the IC=0.03,
-  k=1.75 cell = 3.67% cumulative dispersion / **2.76 days** under the explicit
-  `σ_cum(h)=σ_xs·√h` random-walk model — no longer intraday). Via the Fundamental Law,
-  at the **primary open→close horizon** the cost drag (Sharpe ≈ −1.46 at 1 round-trip/day;
-  −8.73 at the rejected 6-rebalance churn) **exceeds** the transferred gross IR
-  (0.16–0.48) → **honest net-of-cost Sharpe band ≈ −1.3 to −0.7, centered NEGATIVE**.
-  The 104 daily book's own realized WF Sharpe is already sub-1; intraday strictly
-  worsens the cost side with no demonstrated IC uplift.
-- **So renquant105 is NOT a churn machine, and likely NOT a new-intraday-alpha
-  machine either.** What survives the math: (a) a **measurement-grade, cost-charged
-  SHADOW HARNESS** that *empirically tests* whether any intraday alpha clears cost
-  (no real money) — the only scientifically honest first step; (b) intraday
-  **execution-TIMING** to get better fills on the daily-104 book's *existing*
-  trades (reduces cost, adds **no** round-trips); (c) intraday **risk management**
-  (the existing sell-only exits on intraday signal decay). None of (b)/(c) needs an
-  intraday alpha model to clear the cost hurdle.
-- **GO/NO-GO is quantitative and the prior is NO-GO (§A.4).** Live intraday alpha
-  capital is justified ONLY if a Phase-1 run *empirically* delivers placebo-clean
-  OOS IC ≥ **0.03** at the open→close horizon AND net-of-cost Sharpe ≥ **1.0** AND a
-  **probabilistic PSR/DSR ≥ 0.95** (Deflated Sharpe per Bailey & López de Prado, fed
-  the full trial universe — §3 / finding 3), over a **power/MinTRL-derived minimum
-  aged sample sized in effective-independent observations** (not a raw date count) —
-  improbable given the ½-OOS-IC-decay prior + the leakage floor. **Default outcome =
-  intraday alpha trading stays OFF.**
+- **The binding constraint is ECONOMICS, and feasibility is UNDETERMINED (§A) — the
+  numbers in §A are SUGGESTIVE PARAMETRIC PRIORS, not measurement-grade evidence, and do
+  NOT "demonstrate" a verdict.** The committed, runnable
+  `scripts/research_intraday_feasibility.py` computes a *parametric prior*: the edge
+  identity `E[edge]=IC·σ_xs·factor` treats a Spearman rank-IC as a Pearson linear-forecast
+  coefficient under Gaussian assumptions — scenario arithmetic, not an accounting identity,
+  and the script holds **no measured sample**. The honest, unit-corrected split (finding 1):
+  - **HIGH-frequency churn** (many round-trips/session) is **unfavorable** — paying ~11 bps
+    round-trip several times a session swamps any plausible per-trade edge; multi-rebalance
+    intraday is rejected outright.
+  - **LOW-turnover open→close** (enter once, exit at the close, ≤1 round-trip/name/session)
+    is **marginal-to-plausibly-viable** at a realistic IC (0.03–0.05) and a realistic
+    open→close cross-sectional dispersion (~150–250 bps): there the top pick's gross edge is
+    **≈ or above** the ~11 bps round-trip cost (e.g. IC 0.05, σ_oc 200 bps → 17.5 bps gross,
+    +6.5 bps net). **This is the variant worth MEASURING.**
+  Round-trip cost ≈ **11 bps** is a **placeholder** (band 7–17) that M0/M0.5 must replace
+  with a *measured* distribution (finding 5) — it cannot gate H1. Note the round-1 "edge
+  ~1 bp / multi-day hold / 0-of-36-negative-grid" conclusion was a **unit bug** (a single
+  25-bps number used as BOTH a 5-min-bar AND an open→close dispersion, which differ by
+  ~√78≈9×); the corrected open→close grid is **14/48 positive**.
+- **So renquant105 is NOT a churn machine.** The defensible program: (a) **MEASURE** the
+  low-turnover open→close variant in a cost-charged SHADOW HARNESS (no real money) — the
+  only thing that can settle the UNDETERMINED prior; (b) intraday **execution-TIMING** for
+  better fills on the daily-104 book's *existing* trades (reduces cost, adds **no**
+  round-trips — **H2**); (c) intraday **risk management** (sell-only exits on intraday
+  signal decay). H2/(c) do not depend on an intraday alpha model clearing the cost hurdle.
+- **GO/NO-GO is quantitative and DEFERRED TO MEASURED DATA (§A.4 / M1).** The §A priors are
+  suggestive, not a license; only an M1 run on **measured** cost+dispersion settles it. Live
+  intraday alpha capital is justified ONLY if M1 *empirically* delivers placebo-clean OOS IC
+  ≥ **0.03** at the open→close horizon AND net-of-cost Sharpe ≥ **1.0** AND a **probabilistic
+  PSR/DSR ≥ 0.95** (Deflated Sharpe per Bailey & López de Prado, fed the full trial universe —
+  §3 / finding 3), over a **power/MinTRL-derived minimum aged sample sized in
+  effective-independent observations** (not a raw date count). **Default outcome = intraday
+  alpha trading stays OFF until measured to clear the bar.**
 - **HARD DEFAULT (operator mandate): live intraday TRADING IS DISABLED at the
   start.** `intraday_buys_enabled=false` (and intraday live orders off) is the
   fail-closed default. Phases 0–2 place **zero live intraday orders** — they only
@@ -63,30 +66,34 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
 > - `…-metrics-suite.md` — alpha/risk/cost/model-health metrics, per-phase acceptance, 每日复盘
 > - `…-oss-champion-challenger-validation.md` — OSS leverage, shadow-model pattern, validation discipline
 > - `…-M0-data-foundation.md` / `-M1-model-validation.md` / `-M2-gates-shadow.md` /
->   `-M3-live-monitored.md` — per-milestone detailed designs (requirements, metrics,
->   numeric acceptance, expected outcomes + kill conditions)
+>   `-M3-live-monitored.md` — per-milestone detailed designs for **H1 (intraday alpha)**
+>   (requirements, metrics, numeric acceptance, expected outcomes + kill conditions)
+> - `…-H2-execution-timing.md` — the INDEPENDENT **H2 (execution-timing/risk)** milestone
+>   (data contract, comparator, arrival-price capture, paired-block inference, promotion/kill)
 
-## A. Quantitative feasibility analysis (the make-or-break)
+## A. Quantitative feasibility analysis — PARAMETRIC PRIORS (UNDETERMINED, not a verdict)
 Account ~$10.6k, 4× intraday BP $37.7k; liquid >$6 large-caps; IEX data; 1–5 min bars.
-**Primary horizon = open→close (intraday-only)** — the single horizon the whole suite
-is standardized on (§3 + M1); every number below is at that horizon.
+**Primary horizon/policy = open→close, bounded turnover** (enter on any gated bar, exit at
+the close, ≤1 open position per name per session; overnight excluded — pinned in §4/§7).
+Every number below is at that horizon.
 
-**This section is REPRODUCIBLE, not asserted.** Every number is derived from explicit
-formulas with units by the committed, read-only, runnable artifact
-`scripts/research_intraday_feasibility.py` (no network, no DB, no model — a transparent
-cost-vs-edge accounting identity). Reproduce:
+**This section is REPRODUCIBLE but it is NOT measurement.** The numbers are computed by the
+committed, read-only `scripts/research_intraday_feasibility.py` (no network, no DB, no
+model). **They are PARAMETRIC PRIORS, not measurement-grade evidence:** the central identity
+`E[edge]=IC·σ_xs·factor` treats a **Spearman rank-IC as if it were a Pearson linear-forecast
+coefficient** under Gaussian assumptions (standardized scores/returns, a stable top-bucket
+conditional mean). That is suggestive **scenario arithmetic, NOT an accounting identity**, and
+it **cannot "demonstrate" a verdict**. The script holds **no measured sample** (its
+block-bootstrap CI is wired for use *once* a measured sample exists). **Feasibility is
+therefore UNDETERMINED — only M0/M1 measured OOS data settles it** (a purged-OOS
+`E[return | score quantile]` on a measured cost model, deferred to M1; finding 3). Reproduce:
 
 ```
 /Users/renhao/git/github/RenQuant/.venv/bin/python scripts/research_intraday_feasibility.py
 ```
 
-The script prints the tables below and the verdict, sweeps a sensitivity grid, and
-exposes a block-bootstrap CI for use once a **measured** cost/dispersion sample is
-committed (M0/M1). Until then every input is an **ASSUMPTION** (band noted), NOT a
-measurement — the verdict is a demonstrated *hypothesis*, and the script is built so it
-flips to GO if (and only if) the inputs justify it (a unit test proves both branches).
-The committed `11 bps` is a **placeholder** to be replaced by the M1 measured
-arrival/quote/fill distribution (finding 5); the conclusion must survive that swap.
+Every input is an **ASSUMPTION** (band noted). The committed `11 bps` cost is a
+**placeholder** the M0/M0.5 measurement must replace (finding 5) — it cannot gate H1.
 
 **A.1 Round-trip cost** (`round_trip_cost_bps`). `RT = 2·(half_spread + slippage +
 IEX_adverse_selection) + impact`. Per-leg liquid large-cap on IEX = 3.5–9 bps; impact
@@ -98,65 +105,70 @@ negligible (A.3). Committed base placeholder = **11 bps** (band 7–17).
 | Base (liquid large-cap, IEX) | 5.5 bps | **~11 bps** |
 | Conservative (IEX staleness) | 8.5 bps | **~17 bps** |
 
-**A.2 Edge of the top pick vs cost** (`expected_top_edge_bps`). `E[edge_top] =
-IC·σ_xs·factor`; top-bucket `factor≈1.75` (= E[Z | Z>1.28] for a top-decile truncated
-standard normal), single-open→close-horizon cross-sectional dispersion `σ_xs≈25 bps`:
+**A.2 Open→close edge of the top pick vs cost — the UNIT FIX** (`expected_top_edge_bps`).
+`E[edge_top] = IC·σ_oc·factor`; top-bucket `factor≈1.75` (= E[Z | Z>1.28] for a top-decile
+truncated standard normal, a Gaussian PRIOR). **Codex finding 1 (verdict-changing):** the
+round-1 script used a single `σ_xs=25 bps` as BOTH a single-5-min-bar dispersion AND the
+open→close dispersion — but those differ by ~√78≈9× (78 five-minute bars/session). The two
+are now **distinct fields**: `σ_xs_5m≈25 bps` (single bar; churn comparison only) vs
+**`σ_xs_open→close≈200 bps`** (whole session; band 150–250, to be MEASURED at M0). For the
+open→close policy the edge uses `σ_oc` **directly — NO √78 scaling**:
 
-| IC (OOS) | gross edge top-decile | − RT 11 bps | net | clears 1.75×cost? |
+| IC (OOS) | gross edge (σ_oc=200) | − RT 11 bps | net | clears RT? |
 |---|---|---|---|---|
-| 0.01 | 0.44 bps | −11 | −10.56 | NO |
-| 0.02 | 0.88 bps | −11 | −10.12 | NO |
-| 0.03 | 1.31 bps | −11 | −9.69 | NO |
-| 0.05 | 2.19 bps | −11 | −8.81 | NO |
+| 0.01 | 3.50 bps | −11 | −7.50 | no |
+| 0.02 | 7.00 bps | −11 | −4.00 | no |
+| 0.03 | 10.50 bps | −11 | −0.50 | ≈ break-even |
+| 0.05 | 17.50 bps | −11 | **+6.50** | **YES** |
 
-→ single-horizon edge ≈1 bp, RT cost ≈11 bps — **underwater ~10×** at any plausible IC.
+→ at a realistic open→close dispersion (~200 bps) and IC 0.03–0.05 the top pick's gross edge
+is **≈ or above** the ~11 bps round-trip cost. **NOT "underwater ~10×".** The round-1 ~1 bp /
+"0 of 36" result was the unit bug; corrected, the open→close variant is **marginal-to-viable**.
 
-**A.2b Cost-clearing horizon (the corrected arithmetic)** (`cost_clearing_horizon_bars`).
-Codex correctly flagged the old "~3.6%/2.5-day" as under-derived: `11/(0.05·1.75) =
-125.7 bps` is the **required cumulative dispersion** to break even at IC 0.05, not 3.6%.
-The horizon is derived from an **explicit scaling model with its independence assumption
-made explicit**: assume per-bar signed return increments are serially **uncorrelated**,
-so cumulative cross-sectional dispersion grows like a random walk `σ_cum(h)=σ_xs·√h`;
-hold the rank-IC of the cumulative-h label roughly constant (conservative — IC usually
-*decays* with horizon, lengthening the hold). Break-even (k=1) / hurdle (k=1.75):
-`ic·factor·σ_xs·√h ≥ k·RT ⇒ h ≥ [k·RT/(ic·factor·σ_xs)]²`.
+**A.2b Required open→close dispersion to clear cost** (`required_dispersion_to_clear_bps`).
+`σ_oc ≥ k·RT/(IC·factor)`. The honest question is not "how many bars to hold" (the round-1
+"multi-day hold" was an artifact of mis-scaling a 5-min dispersion across 78 bars) but
+**"is the single open→close dispersion large enough"**:
 
-| IC | k | req. cumulative dispersion | horizon (bars) | horizon (days, 78 bars/sess) |
-|---|---|---|---|---|
-| 0.03 | 1.0 | 209.5 bps | 70.2 | 0.90 |
-| 0.03 | 1.75 | **366.7 bps (≈3.67%)** | 215.1 | **2.76** |
-| 0.05 | 1.0 | 125.7 bps | 25.3 | 0.32 |
-| 0.05 | 1.75 | 220.0 bps | 77.4 | 0.99 |
+| IC | k | required σ_oc | measured prior (~200 bps) clears? |
+|---|---|---|---|
+| 0.03 | 1.0 | 209.5 bps | ≈ (just under) |
+| 0.05 | 1.0 | **125.7 bps** | **YES** (well inside the 150–250 band) |
+| 0.05 | 1.75 | 220.0 bps | ≈ |
 
-The old "~3.6% / ~2.5-day" is precisely the **IC=0.03, k=1.75 cell** (3.67% cumulative
-dispersion, 2.76 days) — now cleanly derived. A single open→close horizon is **1 session
-= 78 bars = 1.0 day**; clearing the admission hurdle at the honest-band IC requires a
-**multi-day hold — i.e. it is no longer intraday.**
+Break-even at IC 0.05 needs only ~126 bps of open→close dispersion — **inside the plausible
+band**. (`11/(0.05·1.75)=125.7 bps` is exactly that break-even dispersion, the number Codex
+flagged.)
 
-**A.3 Capacity / impact** (`square_root_impact_bps`). Square-root law `I=Y·σ·√(Q/ADV)`,
-Y≈1: at $1k–7.5k notional vs $300M–$40B ADV → impact **<1 bp** (script: 0.32 bps at
-$5k/$2B/2%) — a non-constraint. The binding cost is the **size-independent** spread/IEX
-floor, which capacity cannot rescue.
+**A.3 Sensitivity grid (the corrected result — NOT 0/36).** Sweeping
+IC × σ_open→close × RT over the **plausible measured open→close range** (σ_oc ∈ {120, 150,
+200, 250}, IC ∈ {0.01, 0.02, 0.03, 0.05}, RT ∈ {7, 11, 17}) gives **14/48 cells with positive
+net open→close edge** — concentrated at IC 0.03–0.05 and σ_oc ≥ 150 bps (e.g. IC 0.05/σ_oc
+200/RT 11 → **+6.5 bps**; IC 0.03/σ_oc 250/RT 11 → +2.1 bps). Capacity/impact
+(`square_root_impact_bps`, `I=Y·σ·√(Q/ADV)`) is **<1 bp** at this size — a non-constraint.
 
-**A.4 Net Sharpe (Fundamental Law) + GO/NO-GO** (`fundamental_law_gross_ir` +
-`cost_drag_sharpe`). OOS IC = ½ in-sample minus the leakage floor → honest band
-**0.01–0.03**; transfer coeff ≈0.5; **effective** breadth = 4 *independent* bets/day ×
-252 = 1008/yr (NOT names×rebalances — overlapping labels + same-time-of-day
-autocorrelation deflate N_eff to ~3–6/day). Transferred gross IR (TC·IC·√breadth) =
-**0.16–0.48** over the band. Cost drag (annualized) = `−(RT·rebal·turnover/1e4)/vol·√252`:
+**A.4 Net Sharpe (Fundamental Law) — the more pessimistic lens** (`fundamental_law_gross_ir`
++ `cost_drag_sharpe`). OOS IC honest band **0.01–0.03** (0.05 ref); transfer coeff ≈0.5;
+**effective** breadth = 4 *independent* bets/day × 252 = 1008/yr (NOT names×rebalances).
+Transferred gross IR (TC·IC·√breadth) = **0.16–0.48** (0.79 at IC 0.05). Cost drag is charged
+on the **stateful book turnover** from the pinned H1 policy (one full rotation of a 4-name
+book = **1.0 book turnover/day**, NOT a `rebalances_per_day=1` assertion nor 4× the book):
 
-| cost regime | rebalances/day | cost drag (Sharpe) |
+| cost regime | book turnover/day | cost drag (Sharpe) |
 |---|---|---|
-| **PRIMARY open→close** | 1 | **−1.46** |
-| rejected intra-session churn | 6 | −8.73 |
+| **PRIMARY open→close** (1 rotation) | 1.0 | **−1.46** |
+| rejected intra-session churn | 1.5 | −2.18 |
 
-→ at the **primary open→close horizon** the **net-Sharpe band ≈ −1.3 to −0.7, centered
-NEGATIVE** (the intra-session churn variant's drag alone is catastrophic, which is why
-105 is single-horizon, §3 / finding 2). A live-capital GO requires M1 to clear ALL of
-the pre-registered bar in M1/§3 (placebo-clean OOS IC, net Sharpe ≥1.0, **PSR/DSR
-probability ≥0.95**, PBO <20%, net-PnL block-bootstrap 95% CI lower bound >0) over a
-**power/MinTRL-derived minimum aged sample** (finding 3) on **measured** cost+dispersion
-(finding 5). **Prior = NO-GO; default = intraday alpha OFF.**
+→ the FL net-Sharpe band ≈ **−1.3 to −0.66** over the honest IC band. This is the
+**more pessimistic lens** (it charges a full rotation's cost against the *honest-band* IR;
+at the 0.05 reference the IR 0.79 roughly offsets the −1.46 drag). The cleaner per-trade test
+(A.2) clears cost at IC 0.05/σ_oc 200. **Both agree the open→close variant is MARGINAL —
+UNDETERMINED, worth MEASURING — not refuted; and high-frequency churn is rejected.** A
+live-capital GO requires M1 to clear ALL of the pre-registered bar (placebo-clean OOS IC, net
+Sharpe ≥1.0, **PSR/DSR probability ≥0.95**, PBO <20%, net-PnL block-bootstrap 95% CI lower
+bound >0) over a **power/MinTRL-derived minimum aged sample** (finding 3) on **measured**
+cost+dispersion (finding 5). **Prior = UNDETERMINED (marginal); default = intraday alpha OFF
+until measured to clear the bar.**
 
 ## 1. We are NOT starting from zero (the big de-risk)
 The intraday subsystem is **already built and parked** (disabled 2026-05-04), not
@@ -319,18 +331,42 @@ routes by `--strategy` → **no orchestrator code change**. 104 keeps running un
 ## 7. Phased rollout (validation-gated, with a kill condition)
 **Two INDEPENDENT hypotheses, separated (execution-plan gap).** The pivot bundles two
 distinct claims that need distinct experiments and acceptance criteria:
-- **H1 — intraday ALPHA** (a new cost-clearing intraday signal). Prior = NO-GO (§A).
-  Tested in M1; STOP at M1 if it fails.
+- **H1 — intraday ALPHA** (a new cost-clearing intraday signal). Prior = **UNDETERMINED /
+  marginal** (§A) — measured in M1; STOP at M1 if it fails the bar.
 - **H2 — execution TIMING / RISK for the existing 104 book** (better fills + intraday
   exits on 104's *existing* trades; adds **no** new round-trips). This does NOT depend on
-  H1 and has its OWN acceptance criterion: realized implementation-shortfall reduction vs
-  the current next-open execution (measured, CI-bounded), with zero added turnover. An H1
-  NO-GO leaves H2 as a clean, independently-validated deliverable — not a consolation.
+  H1 and has its OWN acceptance criterion + its OWN milestone doc
+  (`…-H2-execution-timing.md`): realized implementation-shortfall reduction vs the current
+  next-open execution on the SAME order intents (measured, paired-block CI-bounded), with
+  zero added turnover and no change to selection/size. An H1 stop leaves H2 as a clean,
+  independently-validated deliverable — not a consolation.
 
-- **M0 — Data:** point-in-time, coverage-gated universe (finding 4); re-enable intraday
-  cache + `hourly/minute` features; incremental ingestion (base-data-owned) + refresh
-  cron; the **session-horizon (open→close) forward-return surface**; feed/cost
-  fingerprints (finding 5). (No model yet.)
+**H1 trading policy (PINNED — finding 4).** The §A economics, M1 replay, and live path all
+charge cost from THIS stateful policy, never `rebalances_per_day=1` by assertion:
+- **Decision timestamps:** the gate stack is evaluated at each closed-bar boundary in the
+  session (e.g. every 5/30 min); a name is **entered on the first bar it is gated-admitted**.
+- **Holding rule / exit:** the triple-barrier **time barrier = the session close**; positions
+  exit at the close (or earlier on a σ-scaled profit/stop or a protective exit).
+- **≤1 open position per name per session; max replacements/session = 0** — once a name is
+  exited it is NOT re-entered the same session (bounded turnover, no churn).
+- **Max entries/session** = a small cap (e.g. ≤6 distinct names) under the G7 scarcity knapsack.
+- **Overnight boundary:** every position is flat by the close; the close→open gap is **excluded**
+  from label, features, and PnL (overnight is a separate book).
+- **Turnover accounting:** each entered name incurs **exactly one round trip**; total
+  round-trips/session = names-entered; book turnover/day = one rotation (≈1.0). The feasibility
+  script (`H1Policy`) and the M1 replay compute cost from this path, per-decision-timestamp.
+- **Per-decision label construction:** the open→close (session-aware, bar-timestamped) forward
+  return from the entry bar to the session close, off the M0 session-horizon surface.
+
+- **M0 — Data + COST INSTRUMENTATION (finding 5 — breaks the circular dependency):**
+  point-in-time, coverage-gated universe (finding 4); re-enable intraday cache +
+  `hourly/minute` features; incremental ingestion (base-data-owned) + refresh cron; the
+  **session-horizon (open→close) forward-return surface**; feed/cost fingerprints. **M0 also
+  CAPTURES the measured arrival/quote/fill sample AND CALIBRATES the cost model** (from the
+  existing 104 fills + paper-order probes with explicit no-live-risk semantics), with a
+  defined minimum sample by ticker × time-of-day × order type + a CI requirement — so the
+  measured cost model is an M0 artifact that **exists before M1 gates on it** (the 11 bps
+  placeholder cannot gate H1). (No alpha model in M0.)
 - **M0.5 — Broker contract (finding 8):** encode the post-PDT broker contract before any
   size assumption — use current `buying_power`/intraday-margin fields, test rejection +
   margin-deficit handling in paper/shadow, define **leverage caps independent of the
@@ -338,9 +374,12 @@ distinct claims that need distinct experiments and acceptance criteria:
   account is NOT treated as "operationally clear".
 - **M1 — Model + the make-or-break gate (H1):** train GBDT primary + PatchTST shadow on
   open→close triple-barrier labels; validate via **CPCV + PBO + probabilistic PSR/DSR
-  ≥0.95 + placebo, net-of-cost on a MEASURED cost model**, over a power/MinTRL-derived
-  aged sample (finding 3). **KILL:** if the intraday edge does not survive costs, **STOP**
-  (the honest outcome may be "no tradable intraday edge at this size/data"); H2 continues.
+  ≥0.95 + placebo, net-of-cost on the M0-calibrated MEASURED cost model** (consumed, not
+  produced, here — finding 5), over a power/MinTRL-derived aged sample (finding 3). M1 also
+  estimates `E[return | score quantile]` **directly** from purged-OOS predictions (replacing
+  the §A Gaussian edge prior with measurement). **KILL:** if the intraday edge does not
+  survive costs, **STOP** (the honest outcome may be "no tradable intraday edge at this
+  size/data"); H2 continues.
 - **M2 — Gates + shadow e2e:** build G1–G8 (entry meta-label, P&L breaker→NO_NEW_RISK,
   conformal lower-bound, CHOPPY gate, cost hurdle, slippage/stale rejects); shadow-run 105
   end-to-end on live intraday data; confirm the conjunction raises *realized* precision
@@ -374,10 +413,12 @@ design's position, not open questions:
 7. **Broker contract (M0.5):** agree the account is not "operationally clear" until the
    M0.5 broker-contract checks are encoded + shadow-tested (finding 8)?
 
-**Sources / auditable inputs (finding 1 + execution-plan gap).** The feasibility
-numbers are reproduced by the committed `scripts/research_intraday_feasibility.py`
-(the single auditable design input — *not* an off-PR "research transcript"); its inputs
-are explicit assumptions to be replaced by M0/M1 measurements. Primary references:
+**Sources / auditable inputs (finding 1 + execution-plan gap).** The §A feasibility numbers
+are reproduced by the committed `scripts/research_intraday_feasibility.py` (the single
+auditable design input — *not* an off-PR "research transcript"). They are **parametric
+PRIORS, not measurement** (the edge identity is a Gaussian scenario approximation, not an
+accounting identity); their inputs are explicit assumptions to be **replaced by M0/M1
+measurements** before any GO. Primary references:
 - **Regulatory:** SEC order **34-105226** (Rule 4210 PDT-replacement approval), **FINRA
   Notice 26-10** + new intraday-margin guidance, Alpaca **June-4 migration/deprecation**
   docs — to be linked as primary citations (a `pattern_day_trader=False` screenshot is

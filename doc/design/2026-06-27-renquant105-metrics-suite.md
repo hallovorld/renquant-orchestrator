@@ -67,12 +67,15 @@ Sharpe ≥ **1.0** AND dd shallower than **−10%** AND killed-winner ≤15%; HO
 or Sharpe<0.5. (`252d-equiv` Sharpe is a scaling convenience and does NOT create 252 days of
 evidence — the sample bar is effective-N, not annualization.)
 
-### Hard KILL conditions (fail-closed) — state machine (finding 7)
-1. `max_drawdown_252d < −0.20` → **FULL_HALT**. 2. single-session `daily_return < −0.05`
-(the **consistent −5%** threshold, finding 7) → **`NO_NEW_RISK`** (halt buys, **exits ALLOWED**
-— never `TRADING_OFF`). 3. rolling OOS IC ≤ 0 over the effective-N window. 4. calibration slope
-≤ 0 (CI-bounded). 5. live-shadow rank-corr ρ < 0.2 (CI-bounded) → revert to last-known-good
-champion.
+### Hard KILL conditions (fail-closed) — state machine (finding 7/8)
+1. `max_drawdown_252d < −0.20` → **`NO_NEW_RISK` + controlled flatten / reduce-only**
+(a drawdown breach is a MARKET-RISK event, not an integrity failure — exits must stay
+ALLOWED; blocking all exits would TRAP risk). **`FULL_HALT` is reserved for untrustworthy
+order-state/account-identity ONLY** (unreconciled broker state, wrong account). 2.
+single-session `daily_return < −0.05` (the **consistent −5%** threshold) → **`NO_NEW_RISK`**
+(halt buys, **exits ALLOWED** — never a flag that blocks exits). 3. rolling OOS IC ≤ 0 over
+the effective-N window. 4. calibration slope ≤ 0 (CI-bounded). 5. live-shadow rank-corr ρ <
+0.2 (CI-bounded) → revert to last-known-good champion.
 
 ## 6. DAILY RETROSPECTIVE (每日复盘)
 Automated post-session job (read-only over runs DB + decision_ledger + MLflow); writes a report
@@ -91,7 +94,8 @@ IC-COLLAPSE, SLIP-BLOWOUT, IS-HIGH, EDGE-NEGATIVE, SHADOW-DIVERGE, DD-WARN, CALI
 ## 7. Real-time monitoring (alert-lifecycle state machine; deduped)
 data-freshness (>4d → fail-closed), slippage blowout (>30bps → exits-only), daily-loss (<−5% → **NO_NEW_RISK**: halt buys, exits allowed; finding 7),
 gate anomaly (one `blocked_by` >50%/100% of universe → the historic sell-only failure), model-collapse
-(IC≤0 ×10 or PSI≥0.25 → revert champion), shadow-divergence (ρ<0.2), drawdown (<−20% → kill).
+(IC≤0 ×10 or PSI≥0.25 → revert champion), shadow-divergence (ρ<0.2), drawdown (<−20% →
+**NO_NEW_RISK + controlled flatten**, exits allowed — NOT a full halt that traps exits).
 
 ## Build gaps to close (implementation PR)
 1. **Wire `GateRegistry.persist()`** (built+tested, never called — the whole counterfactual/acceptance

@@ -48,7 +48,7 @@ mitigation (today) · NEW 105 mitigation**. "Unintended/bad trade" rows are mark
 | # | Failure mode | Effect | Cause | S | L | D | RPN | 104 mitigation | NEW 105 mitigation |
 |---|---|---|---|---|---|---|---|---|---|
 | F1 ⚠ | **Stale IEX bar served as fresh** → trade on ghost/off-NBBO price | Buy/sell at a price that no longer exists; bad fill | Free IEX feed lags SIP; `fetch_intraday_bars` returns cache on timeout (`data_cache.py` returns stale cache + WARNING) | 5 | 4 | 4 | **80** | `DataFreshnessGate` is **NYSE-session-day** granular only — a 30-min-old intraday bar passes | **[105-BLOCKER]** bar-age gate in *minutes*: reject if `now_ny − bar.close_ts > 1.5 × bar_interval`; **fail-closed to no-trade**, never serve stale cache into a buy decision (only sells may use last-good per shorting mandate) |
-| F2 ⚠ | **Websocket disconnect mid-session**, silent | Decisions on frozen prices; missed exits | TCP drop / Alpaca maintenance; no WS client exists yet (REST-only today) | 5 | 4 | 3 | **60** | n/a (no WS) | Heartbeat on WS; on gap > N s → mark feed UNHEALTHY → `skip_buys` + reconcile via REST; if REST also stale → `deadman_check`-style TRADING_OFF |
+| F2 ⚠ | **Websocket disconnect mid-session**, silent | Decisions on frozen prices; missed exits | TCP drop / Alpaca maintenance; no WS client exists yet (REST-only today) | 5 | 4 | 3 | **60** | n/a (no WS) | Heartbeat on WS; on gap > N s → mark feed UNHEALTHY → `skip_buys` + reconcile via REST; if REST also stale → **`NO_NEW_RISK`** (data-health failure; exits stay allowed), escalate to **`CANCEL_OPEN_ORDERS`** if the feed disagrees with broker |
 | F3 ⚠ | **Acting on a partial (not-yet-closed) bar** | Signal computed on a half-formed bar; whipsaw entry | Polling at :15 reads the :00–:30 bar still forming | 5 | 4 | 4 | **80** | none (daily bars are always closed) | **[105-BLOCKER]** only consume bars where `bar.close_ts ≤ now`; drop the current forming bar; assert `bar_count == expected_closed_bars(session, now)` |
 | F4 | Feed lag spike (latency blowout) | Decisions on minutes-old data | IEX congestion / network | 4 | 3 | 4 | 48 | none | p99 feed-lag SLO monitor; lag > threshold → degrade to sell-only |
 | F5 | NBBO crossed / locked or zero/negative price tick | Garbage feature inputs | Bad print, halt auction | 5 | 2 | 3 | 30 | runtime feature clip ±5σ (`runtime_features.py`) masks but does not reject | Sanity gate: reject bar if `high<low`, price ≤ 0, or spread > X% → fail-closed |
@@ -110,7 +110,7 @@ Mapped to live tasks in `kernel/pipeline/task_gates.py`, aggregated by `GateRegi
 | # | Failure mode | Effect | Cause | S | L | D | RPN | 104 mitigation | NEW 105 mitigation |
 |---|---|---|---|---|---|---|---|---|---|
 | F29 ⚠ | **Duplicate order on retry/timeout** | double position; ⚠BAD-TRADE | **equities path has NO `client_order_id` dedup**; timeout→retry→2 orders | 5 | 4 | 4 | **80** | options path is idempotent; **equities are not**; AgentBreaker caps *count* (25) but does not dedup | **[105-BLOCKER]** deterministic `client_order_id = hash(symbol, side, qty, session_bar_ts)`; broker rejects the dup. (SEC 15c3-5(c)(1)(ii) duplicative-order control.) |
-| F30 ⚠ | **Broker error/timeout swallowed; partial fill unknown** | position state diverges from broker | `place_order` has no try/except; exception propagates with fill state unknown | 5 | 3 | 4 | **60** | minimal; `_assert_account_active`, expected-account env guard | reconcile loop: after every submit, poll order status; on unknown → mark UNRECONCILED → TRADING_OFF, no further orders until operator |
+| F30 ⚠ | **Broker error/timeout swallowed; partial fill unknown** | position state diverges from broker | `place_order` has no try/except; exception propagates with fill state unknown | 5 | 3 | 4 | **60** | minimal; `_assert_account_active`, expected-account env guard | reconcile loop: after every submit, poll order status; on unknown → mark UNRECONCILED → **`FULL_HALT`** (order-state integrity failure — order state is untrustworthy), no further orders until operator |
 | F31 ⚠ | **Order sent to wrong account** | trades in the wrong book | account mix-up | 5 | 1 | 2 | 10 | `RENQUANT_EXPECTED_LIVE_ACCOUNT` hard match | keep; assert per submit |
 | F32 ⚠ | **Slippage blowout on market order** | fills far from decision price | 105 uses MARKET orders, DAY TIF; thin 30-min liquidity | 5 | 3 | 3 | **45** | none (market orders only) | **[105-BLOCKER]** marketable-limit (limit = NBBO ± cap bps) instead of pure market; reject if implied slippage > X bps (15c3-5 erroneous-order price band) |
 | F33 ⚠ | **Runaway order loop** | many orders fast | agent/pipeline loop bug | 5 | 2 | 2 | 20 | AgentBreaker P1 (≤25 orders/day) + P2 (≤$5k/day) | per-*session* and per-*window* sub-caps (e.g. ≤3 orders/window), not just per-day; message-rate throttle (FINRA 15-09) |
@@ -120,7 +120,7 @@ Mapped to live tasks in `kernel/pipeline/task_gates.py`, aggregated by `GateRegi
 | # | Failure mode | Effect | Cause | S | L | D | RPN | 104 mitigation | NEW 105 mitigation |
 |---|---|---|---|---|---|---|---|---|---|
 | F34 ⚠ | **`live_state.json` read-modify-write race** across overlapping cycles | lost holding/entry-date → wrong wash/exit decision | no atomic swap on live_state; intraday cadence increases overlap | 4 | 3 | 4 | 48 | v2 schema lossless round-trip; `parse()` fails loud on missing entry_date | single-writer + atomic swap (`.tmp`+rename) for live_state; run-lock (F38) removes the overlap |
-| F35 | AgentBreaker counters lost on restart | day budget resets mid-session | in-process counters not persisted | 4 | 2 | 3 | 24 | by design (TRADING_OFF is the durable surface) | persist intraday order/notional counters keyed by trading_date so a restart can't refill the budget |
+| F35 | AgentBreaker counters lost on restart | day budget resets mid-session | in-process counters not persisted | 4 | 2 | 3 | 24 | by design (the durable kill-state marker is the surface) | persist intraday order/notional counters keyed by trading_date so a restart can't refill the budget |
 | F36 | Decision-ledger write contention | missing forensic rows | multiple agents on one DB | 2 | 2 | 2 | 8 | WAL + 5s busy_timeout; `INSERT OR IGNORE` idempotent | same; ledger is append-only and idempotent already |
 
 ### 1.9 Cron / scheduler (launchd)
@@ -129,7 +129,7 @@ Mapped to live tasks in `kernel/pipeline/task_gates.py`, aggregated by `GateRegi
 |---|---|---|---|---|---|---|---|---|---|
 | F37 ⚠ | **Cron overlap → duplicate orders** | two cycles submit the same intent | **no run-lock**; launchd assumed single-exec; a slow cycle overlaps the next 30-min fire | 5 | 4 | 4 | **80** | none (launchd only); per-run timestamped dirs reduce *artifact* collision but not order collision | **[105-BLOCKER]** flock-based run-lock keyed on `trading_date+window`; second fire exits immediately; combined with F29 idempotency |
 | F38 ⚠ | **Clock / timezone / session-boundary error** | run on wrong session; day-roll at midnight Pacific not NYSE | 217 naive time sources repo-wide (intraday roadmap §4 P0.3); machine is Pacific | 5 | 3 | 4 | **60** | `live/clock.py` provides DST-proof `trading_date`/`ny_now`; `deadman_check` RTH uses NYSE calendar | **[105-BLOCKER]** route *all* session math through `live.clock`; CI lint bans naive `datetime.now()`/`date.today()` in 105 paths; DST-transition test (2026-11-01) |
-| F39 ⚠ | **Watchdog/process hang** mid-session | frozen, no exits | hung process | 5 | 2 | 2 | 20 | `deadman_check.py` (P0.5): heartbeat > 180s stale during RTH → writes TRADING_OFF; never auto-clears | keep; heartbeat from the 105 loop; 5-min launchd cadence |
+| F39 ⚠ | **Watchdog/process hang** mid-session | frozen, no exits | hung process | 5 | 2 | 2 | 20 | `deadman_check.py` (P0.5): heartbeat > 180s stale during RTH → writes the durable halt marker (legacy TRADING_OFF maps to **`FULL_HALT`** under the 105 state machine); never auto-clears | keep; heartbeat from the 105 loop; 5-min launchd cadence → **`FULL_HALT`** (liveness failure: the decision loop is dead, so even exits can't be trusted); never auto-clears |
 | F40 | Early-close / half-day mis-handling | run after close | holiday calendar | 3 | 2 | 2 | 12 | `_is_nyse_trading_day` + RTH window in `deadman`/`clock` | session windows from NYSE calendar; no fixed 16:00 assumption |
 
 **Top RPN / S=5 action list (the "不靠谱交易" hot-list):**
@@ -151,7 +151,9 @@ These do not exist in the daily 104 world and must be designed in:
    stale-cache-on-timeout fallback into a *buy*.
 
 2. **Websocket disconnect mid-session (F2).** *Mitigation:* WS heartbeat; gap →
-   feed UNHEALTHY → `skip_buys` + REST reconcile; double-failure → TRADING_OFF.
+   feed UNHEALTHY → `skip_buys` + REST reconcile; double-failure → **`NO_NEW_RISK`**
+   (data-health failure; exits stay allowed), escalating to **`CANCEL_OPEN_ORDERS`** on
+   feed/broker disagreement.
 
 3. **Partial (forming) bar (F3, F14).** *Mitigation:* consume only
    `bar.close_ts ≤ now`; drop the forming bar; assert expected closed-bar count.
@@ -190,7 +192,7 @@ zero-trade on infeasible, `data_cache` returns `None` on cold-start). 105 extend
 
 - Missing/stale/partial bar ⇒ exclude that name this cycle (never substitute).
 - Feed UNHEALTHY ⇒ `skip_buys` (exits still allowed).
-- Unreconciled broker state ⇒ TRADING_OFF.
+- Unreconciled broker state ⇒ `FULL_HALT` (order-state integrity failure).
 - Any preflight HARD failure ⇒ `PreflightFailed` → exit, **zero orders**.
 
 ### 3.2 Kill-switch STATE MACHINE + precedence (finding 7)
@@ -201,15 +203,18 @@ restrictions):
 
 | State | New buys | Reduce-only / exits | Cancel open orders | Trigger(s) | Recovery authority |
 |---|---|---|---|---|---|
-| **`FULL_HALT`** | ✗ | ✗ (broker/account-integrity emergency only) | ✓ | unreconciled broker state (F30), wrong-account (F31), dd < −20% | operator only (out-of-band marker, never auto-clears) |
+| **`FULL_HALT`** | ✗ | ✗ (order-state/account-identity integrity emergency ONLY) | ✓ | unreconciled broker state (F30), wrong-account (F31), decision-loop dead / heartbeat-stale (F39) — i.e. order state or identity is untrustworthy. **NOT a drawdown breach.** | operator only (out-of-band marker, never auto-clears) |
 | **`CANCEL_OPEN_ORDERS`** | ✗ | ✓ | ✓ | feed/broker disagreement, stale-but-recoverable | auto-recover when inputs healthy + operator ack |
-| **`NO_NEW_RISK`** | ✗ | **✓ (exits ALLOWED)** | ✓ | **daily-loss breaker (§3.3)**, drawdown skip, feed UNHEALTHY, intra-session decay | auto-clear on the next clean session OR operator |
+| **`NO_NEW_RISK`** | ✗ | **✓ (exits ALLOWED)** | ✓ | **daily-loss breaker (§3.3)**, drawdown skip, **deep drawdown `dd < −20%` → `NO_NEW_RISK` + controlled flatten / reduce-only via the protective-sell path (§3.3 `≤ −L_flatten`)**, feed UNHEALTHY / data-health double-failure (F2), intra-session decay | auto-clear on the next clean session OR operator |
 | **`NORMAL`** | ✓ (if all gates pass) | ✓ | ✓ | — | — |
 
 Precedence: `FULL_HALT > CANCEL_OPEN_ORDERS > NO_NEW_RISK > NORMAL` (max-dominance, like the
-gate lattice). **The daily-loss breaker maps to `NO_NEW_RISK`, NOT `FULL_HALT`/`TRADING_OFF`** —
-losing money is exactly when you must be able to *exit*. Only broker/account-integrity failures
-reach `FULL_HALT` (where even exits are paused until an operator reconciles).
+gate lattice). **Both the daily-loss breaker AND a deep-drawdown breach (`dd < −20%`) map to
+`NO_NEW_RISK` (+ controlled flatten / reduce-only), NOT `FULL_HALT`** — a drawdown is a
+market-risk event, and losing money is exactly when you must be able to *exit*; halting exits
+would TRAP risk. Only order-state/account-identity integrity failures (unreconciled broker
+state, wrong account, a dead decision loop) reach `FULL_HALT`, where even exits are paused
+until an operator reconciles.
 
 **Exit price authority + staleness:** in `NO_NEW_RISK`/`CANCEL_OPEN_ORDERS`, exits may use the
 **last-good price** up to a **max staleness of 1.5× bar interval** (the F1 bar-age bound); beyond
@@ -227,15 +232,16 @@ Underlying enforcement layers (defence-in-depth, independent, lower layers don't
 ### 3.3 P&L daily-loss circuit breaker (the 104 gap — `[105-BLOCKER]`)
 104 has **no absolute daily-loss stop**: the drawdown breaker blocks *buys* on a
 ~20% peak-to-trough DD and allows sells; the weekly APY monitor only *alerts*.
-105 adds a **hard intraday loss breaker** that maps to **`NO_NEW_RISK`, NOT `TRADING_OFF`**
-(finding 7 — exits must stay allowed when losing money):
+105 adds a **hard intraday loss breaker** that maps to **`NO_NEW_RISK`, NOT `FULL_HALT`**
+(finding 8 — exits must stay allowed when losing money):
 - Track intraday realized+unrealized P&L vs session-open equity.
 - `session_pnl_pct ≤ −L_halt` (**−5%**, the single consistent threshold across the FMEA,
   metrics, M2, M3) ⇒ enter **`NO_NEW_RISK`**: halt new buys, **exits/reduce-only ALLOWED**,
   alert, require operator review to return to `NORMAL`. Hysteresis to avoid flap.
-- Optional `≤ −L_flatten` (deeper than −5%, e.g. −8%) ⇒ controlled flatten via the existing
-  protective-sell path (governor-throttled, §3.6) — still within `NO_NEW_RISK` (exits are the
-  point).
+- `≤ −L_flatten` (deeper than −5%, e.g. −8%, and the **deep-drawdown `dd < −20%`** breach)
+  ⇒ controlled flatten / reduce-only via the existing protective-sell path (governor-throttled,
+  §3.6) — still within `NO_NEW_RISK` (exits are the point). A drawdown breach NEVER escalates to
+  `FULL_HALT`: trapping exits during a sell-off would *increase* risk.
 - NaN/inf P&L ⇒ fail-SAFE to **`NO_NEW_RISK`** (mirror the DC-1/Issue-07 guards).
 - (`FULL_HALT`, where even exits pause, is reserved for broker/account-integrity failures —
   unreconciled state / wrong account — never for a P&L loss.)
@@ -279,7 +285,7 @@ pattern* because it is the right shape for "prevent the bad trade before it leav
   (the daily-loss breaker, drawdown skip, feed UNHEALTHY) keeps **exits allowed** and may
   auto-clear on the next clean session, or on operator review — it is NOT a full stop.
 - **Unreconciled order (F30):** query broker order/position truth, reconcile
-  `live_state`, then clear TRADING_OFF.
+  `live_state`, then clear the `FULL_HALT` marker.
 - **Corrupt cache (F8):** quarantine the parquet, re-fetch from Alpaca, bar-count
   assert, resume.
 - **DST / clock incident:** `live.clock` is the single authority; re-run with correct
@@ -330,7 +336,8 @@ the ledger+forward-return audit flags as a clear killed-loser-inverse).
   two worst classes — duplicate orders and stale-price orders (both must be exactly
   0** in any rolling 20-session window before live-arming, and continuously after).
 - Measured automatically every session from the run bundle + ledger; any nonzero
-  duplicate or stale-price FP auto-sets `TRADING_OFF` pending review.
+  duplicate or stale-price FP auto-sets **`FULL_HALT`** (a zero-tolerance correctness/integrity
+  breach — the order path is untrustworthy) pending review.
 
 ---
 
@@ -338,16 +345,16 @@ the ledger+forward-return audit flags as a clear killed-loser-inverse).
 
 | Domain | SLO | Rationale / enforcement |
 |---|---|---|
-| **Duplicate orders** | **0** (hard) | F29/F37 idempotency + run-lock; any occurrence ⇒ TRADING_OFF |
+| **Duplicate orders** | **0** (hard) | F29/F37 idempotency + run-lock; any occurrence ⇒ `FULL_HALT` (integrity breach) |
 | **Stale-price trades** | **0** (hard) | F1/F20 bar-age gate; fail-closed |
 | **FP-trade rate** | **≤ 0.5%** of orders | §4.4; nonzero worst-class ⇒ halt |
 | **Bar freshness at decision** | ≥ 99% of cycles use a bar ≤ 1.5× interval old | feed monitor; else degrade |
-| **Decision-loop liveness** | heartbeat ≤ 180 s during RTH | `deadman_check` → TRADING_OFF |
+| **Decision-loop liveness** | heartbeat ≤ 180 s during RTH | `deadman_check` → `FULL_HALT` (liveness failure; F39) |
 | **Order reconciliation** | 100% of submits reconciled to broker truth ≤ 60 s | F30 reconcile loop |
 | **Daily-loss breaker** | trips to **`NO_NEW_RISK`** (exits allowed) within 1 cycle of **−5%** session P&L | §3.3 (consistent −5% across FMEA/metrics/M2/M3) |
 | **Feed availability (decision-grade)** | ≥ 99.5% of RTH minutes | WS heartbeat + REST fallback |
 | **Mean time to halt (MTTH)** | ≤ 1 cycle (≤ ~30 min) from a detectable bad state to no-trade | kill-switch hierarchy |
-| **Recovery (MTTR)** | operator-paced; system stays fail-closed until explicit re-enable | TRADING_OFF never auto-clears |
+| **Recovery (MTTR)** | operator-paced; system stays fail-closed until explicit re-enable | the `FULL_HALT`/`CANCEL_OPEN_ORDERS` markers never auto-clear (`NO_NEW_RISK` may auto-clear on a clean session, §3.2) |
 | **Controls self-review** | ≥ quarterly | 15c3-5(e)-style review recorded in `doc/` |
 
 **Deliberate non-goal:** *trade availability* is **not** an SLO. The system is allowed

@@ -44,15 +44,17 @@ counts (finding 3); `252d-equiv` Sharpe is a scaling convenience, not 252 days o
 | **On track** | live Sharpe (pre-registered effective-N window) within **±0.5** of shadow-period Sharpe |
 | **SCALE-UP** | a **defined minimum live sample at the current step** AND net Sharpe ≥ **1.0** AND max-DD shallower than **−10%** AND killed-winner ≤ 15% → advance one ladder step (precise limits, not "+1 gross step / 10–20% of book") |
 | **HOLD / de-risk** | dd −12..−15% or live Sharpe < 0.5 → freeze sizing |
-| **KILL (state machine, fail-closed; finding 7)** | dd < **−20%** → **FULL_HALT** · single-session loss < **−5%** (the consistent threshold) → **`NO_NEW_RISK`** (halt buys, **exits ALLOWED**) · OOS IC ≤ 0 over the effective-N window · calibration slope ≤ 0 (CI-bounded) · live-shadow ρ < 0.2 (CI-bounded) → revert to last-known-good champion |
+| **KILL (state machine, fail-closed; finding 7/8)** | dd < **−20%** → **`NO_NEW_RISK` + controlled flatten / reduce-only** (a market-risk event — exits ALLOWED; `FULL_HALT` is reserved for untrustworthy order-state/account-identity, never a drawdown, which would trap exits) · single-session loss < **−5%** (the consistent threshold) → **`NO_NEW_RISK`** (halt buys, **exits ALLOWED**) · OOS IC ≤ 0 over the effective-N window · calibration slope ≤ 0 (CI-bounded) · live-shadow ρ < 0.2 (CI-bounded) → revert to last-known-good champion |
 
 ## Expected outcome (预期)
 A small, controlled, monitored live operation that **scales only if net-of-cost edge
 holds live**, and that **kills itself** on any of the hard conditions. Honest expectation:
-the feasibility prior says the edge likely isn't there, so the most probable terminal
-state of the whole project is "M1/M2 gate not cleared → intraday alpha stays OFF; intraday
-data used for execution-timing + risk on the daily-104 book." That is success, not failure
-— it means we didn't deploy a cost-negative book.
+feasibility is **UNDETERMINED** — the unit-corrected open→close prior is *marginal* (it
+clears cost at IC 0.03–0.05 / σ_oc~200 bps but the FL net-Sharpe lens is more pessimistic),
+so the terminal state is decided by M1's MEASURED data, not assumed. Either outcome is a
+success: a measured pass → a small monitored live book; a measured fail → "M1/M2 gate not
+cleared → intraday alpha stays OFF; intraday data used for H2 execution-timing + risk on the
+daily-104 book." Either way we did not deploy a cost-negative book on a prior.
 
 ## Dependencies / inputs
 M2 pass; the SIP feed (optional but recommended for a fair live test); **operator

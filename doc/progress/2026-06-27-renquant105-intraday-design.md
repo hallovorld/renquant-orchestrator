@@ -24,17 +24,24 @@ direct live-account check. All read-only; no git in the live tree.
 - **No GPU needed; latency isn't the bottleneck.** The bottlenecks are IEX data
   coverage (~50% of universe lacks intraday history → liquid coverage-gated universe;
   $99/mo SIP only for live NBBO fills) and incremental ingestion.
-- **QUANTITATIVE FEASIBILITY = likely NO-GO for intraday alpha at this size/data
-  (§A):** RT cost ~11 bps vs ~1 bp single-bar edge (underwater ~10×); net-Sharpe
-  band −2.0 to +0.5 (centered negative); 104's own realized Sharpe is sub-1. So the
-  design pivots to a **measurement-grade cost-charged shadow harness** (no real
-  money) + intraday **execution-timing/risk** on the daily book — NOT a new-alpha
-  churn machine. Live intraday alpha stays OFF unless Phase-1 empirically clears
-  net-Sharpe ≥1.0 + OOS IC ≥0.03 placebo-clean + DSR>0.
+- **QUANTITATIVE FEASIBILITY = UNDETERMINED (§A) — the §A numbers are parametric
+  PRIORS, not measurement.** The edge identity `E[edge]=IC·σ_xs·factor` is a Gaussian
+  scenario approximation (rank-IC treated as a Pearson coefficient), NOT an accounting
+  identity, and the script holds no measured sample — so it cannot "demonstrate" a
+  verdict. Unit-corrected (the round-1 bug used one 25-bps number as BOTH a 5-min-bar
+  AND an open→close dispersion, which differ ~√78≈9×): **HIGH-frequency churn is
+  unfavorable** (cost drag swamps any per-trade edge → rejected), but the **LOW-turnover
+  open→close variant is marginal-to-plausibly-viable** at IC 0.03–0.05 and a realistic
+  ~150–250 bps open→close dispersion (top-pick gross edge ≈ or > the ~11 bps cost; the
+  corrected grid is 14/48 positive, not 0/36). So the program is: **MEASURE** the
+  open→close variant in a cost-charged shadow harness (M1, on a MEASURED cost model) +
+  intraday **execution-timing/risk** on the daily book (H2). Live intraday alpha stays
+  OFF until M1 empirically clears net-Sharpe ≥1.0 + OOS IC ≥0.03 placebo-clean +
+  PSR/DSR ≥0.95 over a power/MinTRL-derived effective-N sample.
 - **The decisioning is** a strict conjunctive fail-closed gate stack (cost-edge,
-  conformal lower-bound, entry meta-label, CHOPPY no-trade, P&L circuit breaker,
-  top-k under scarcity), with a
-  **kill condition** if Phase-1 net-of-cost edge isn't placebo-clean.
+  conformal lower-bound, entry meta-label, CHOPPY no-trade, P&L circuit breaker →
+  NO_NEW_RISK, top-k under scarcity), with a **kill condition** if the M1 measured
+  net-of-cost edge isn't placebo-clean.
 
 ## Deliverable
 - `doc/design/2026-06-27-renquant105-intraday-system.md` — the full design: honest
@@ -43,9 +50,11 @@ direct live-account check. All read-only; no git in the live tree.
   condition, and the open decisions for the operator.
 
 ## Next
-Operator decisions (universe size, label horizon, SIP go/no-go, cost-edge bar,
-single-horizon scope, kill condition) → then a Phase-0 (data) implementation PR.
-Codex review on feasibility + the validation/kill discipline.
+Label horizon is **RESOLVED** (open→close, intraday-only — no longer an open operator
+decision); remaining operator confirmations are scoped (universe size/thresholds, SIP
+go/no-go at M3, cost-edge k, kill condition, broker-contract gate). Then M0 (data + cost
+instrumentation) implementation PR. Codex review on the reframed feasibility + the
+validation/kill discipline.
 
 ## Revision 2 — Codex CHANGES_REQUESTED resolved (2026-06-27)
 Codex (haorensjtu-dev) requested changes on PR #198 with 8 blocking findings + an
@@ -57,7 +66,8 @@ execution-plan-gaps section. Addressed substantively, not papered over:
    sensitivity grid, a block-bootstrap CI) + `tests/test_research_intraday_feasibility.py`
    (17 tests). Fixed the arithmetic: `11/(0.05·1.75)=125.7 bps` is the *required cumulative
    dispersion*, and the doc's "~3.6%/2.5-day" = the IC=0.03,k=1.75 cell (3.67%/2.76d), now
-   derived. §A rewritten to cite the script as the reproducible artifact. **Still NO-GO.**
+   derived. §A rewritten to cite the script as the reproducible artifact. **(NO-GO claim
+   SUPERSEDED in Revision 3 — that result carried a unit bug; see below.)**
 2. **One primary horizon** — standardized the whole suite on **open→close (intraday-only)**;
    every contract (label, embargo-in-bars/session-aware, cost, IC, hit-rate, killed-winner,
    shadow, DSR/PBO, attribution, monitoring) uses it; flagged daily `ticker_forward_returns`
@@ -91,3 +101,47 @@ independent acceptance; defined the two comparators (pipeline parity vs strategy
 required per-gate ablations with multiplicity correction (gate proliferation ≠ validation);
 added a minimum-live-sample + exposure-schedule ladder for M3 scaling; replaced off-PR
 "research transcripts" with the committed script + primary references as the auditable inputs.
+
+## Revision 3 — Codex ROUND-2 CHANGES_REQUESTED resolved (2026-06-27)
+Codex's round-2 review showed the round-2 "demonstrated NO-GO" was **over-claimed** and
+carried a **unit bug**. The verdict is NOT restored; it is reframed honestly. All 8 findings:
+1. **UNITS (verdict-changing).** The script conflated a single-5-min-bar dispersion and the
+   whole open→close dispersion (one `σ=25 bps` used both ways; they differ ~√78≈9×). Split
+   into `sigma_xs_5m_bps` (25 bps; churn comparison only) and a measured/assumed
+   `sigma_xs_open_close_bps` (~200 bps, band 150–250). The open→close edge is now computed
+   from the open→close dispersion **directly (no √78 scaling)**. Added **dimensional/unit
+   tests** that block horizon aliasing. **Corrected result is NOT 0/36:** at IC 0.03–0.05 /
+   σ_oc~200 bps the top-pick gross edge (10.5–17.5 bps) is ≈ or > the ~11 bps cost; the
+   sensitivity grid is **14/48 positive**.
+2. **VERDICT REFRAMED.** The edge identity `IC·σ·factor` is a **parametric PRIOR** (Gaussian
+   scenario approximation, rank-IC as Pearson), NOT an accounting identity, and the script has
+   no measured sample (the bootstrap is unused) — it cannot "demonstrate" a verdict. Relabeled
+   everywhere (master §A/§0, this doc, PR body, script docstring): **feasibility UNDETERMINED;
+   suggestive priors, not measurement-grade evidence; only M0/M1 measured OOS data settles it.**
+   Honest split: HIGH-freq churn unfavorable (rejected); LOW-turnover open→close marginal-to-
+   plausibly-viable and worth measuring. "Demonstrated NO-GO" is NOT restored.
+3. **Edge identity** labeled a parametric prior under explicit distributional assumptions; M1
+   now estimates `E[return | score quantile]` directly from purged-OOS predictions (deferred
+   to measured data) to replace the prior.
+4. **Trading policy PINNED.** H1 = enter on any gated bar, exit at session close, ≤1 open
+   position per name per session (bounded turnover, 0 intraday replacements); pinned decision
+   timestamps, max entries/session, holding rule, overnight boundary, **turnover accounting**
+   (1 round trip/name; book turnover = one rotation/day), per-decision label. The script
+   (`H1Policy`) + M1 replay charge cost from the **stateful path**, not `rebalances=1`.
+5. **Circular cost dependency broken.** Quote/arrival/fill capture + cost-model **calibration**
+   moved into **M0** (104 fills + paper-order probes, no-live-risk), with a min sample by
+   ticker × time-of-day × order-type + CI; M1 **consumes** the M0 cost model; the 11 bps
+   placeholder cannot gate H1.
+6. **Power/MinTRL** kept (formula + config schema + pre-registration-before-training; finding
+   already in M1/§3).
+7. **H2 kept + designed** — new milestone doc `…-H2-execution-timing.md`: data contract,
+   comparator (104 next-open vs pre-registered timing policies on the SAME intents),
+   arrival-price capture, opportunity cost for unfilled, paired-block inference, no
+   selection/size change, explicit risk-exit semantics, promotion/kill criteria.
+8. **Kill-state machine fixed.** `dd<−20%` → **NO_NEW_RISK + controlled flatten/reduce-only**
+   (NOT FULL_HALT, which traps exits); FULL_HALT reserved for untrustworthy order-state/
+   account-identity + liveness (deadman). Replaced **every** legacy `TRADING_OFF` in the
+   reliability doc with a deterministic state + precedence + recovery authority, consistent
+   across FMEA/§3/§4/§5/§6 and the metrics/M3 kill tables.
+Also: removed DSR>0 / "40–80 dates" / horizon-as-operator-decision / WIP framing from the
+progress doc + PR body. `py_compile` + `pytest` (23 tests incl. the new unit tests) green.
