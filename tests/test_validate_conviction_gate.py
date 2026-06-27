@@ -79,9 +79,13 @@ def test_demean_better_when_drops_loser(tmp_path):
     assert res["status"] == "OK"
     # demean (full-cross-section) keeps the WIN (+0.12), raw also admits LOSE (-0.05)
     assert res["demean_minus_raw_mean_fwd"] > 0
-    assert res["verdict"] == "DEMEAN_BETTER"
-    # causal number: the names demean drops are realized losers
+    # causal number: the names demean drops are realized losers → revert NOT tripped
     assert res["dropped_by_demean_mean_fwd"] < 0
+    # absolute-floor revert trigger is NOT tripped, so the absolute lens / verdict
+    # may read clean-positive (this is the only path that may say DEMEAN_BETTER).
+    assert res["absolute_floor_lens"]["revert_trigger_tripped"] is False
+    assert res["absolute_floor_lens"]["verdict"] == "ABSOLUTE_DEMEAN_BETTER"
+    assert res["verdict"] == "DEMEAN_BETTER"
     # the OK verdict carries the directional/not-significance caveat
     assert "significance" in res["caveat"]
 
@@ -188,3 +192,60 @@ def test_rank_evidence_flags_demean_dropping_relative_underperformers(tmp_path):
     # +1 every date, so its SEM is 0 — the very degeneracy the bootstrap guards).
     assert "t_iid_anticonservative" in ic
     assert "t_block_bootstrap" in ic
+
+
+def test_mixed_status_when_relative_positive_but_absolute_dropped_positive(tmp_path):
+    # Codex #196 round 2: the EXACT contradictory decision surface seen on the real
+    # ledger — the RELATIVE rank lens says demean is good
+    # (within_date_refused_minus_kept < 0, CI excludes 0) while the ABSOLUTE-floor
+    # operational lens says `dropped_by_demean_mean_fwd > 0` (demean dropped
+    # winners — the NAMED monitored-enable revert trigger). The two lenses must be
+    # surfaced as DISTINCT sub-verdicts and the overall status must be
+    # MIXED_MONITOR_ONLY (no operational clearance) — NEVER a clean
+    # verdict=DEMEAN_BETTER.
+    #
+    # Per-date 9-name cross-section (>= min_xsec=8, so the relative lens is live)
+    # that reproduces both signs at once:
+    #   W1,W2   very high mu, big +fwd  -> kept, pull full_mean high
+    #   MID     mu just above the 0.03 floor but BELOW the cross-sectional mean
+    #           (so raw admits it, demean refuses it -> dropped_by_demean) with a
+    #           SMALL POSITIVE fwd  -> dropped_by_demean_mean_fwd > 0 (revert trip)
+    #   LO1..LO6 small mu>0, below mean, VERY negative fwd -> refused relative
+    #           losers dragging refused.mean below kept.mean -> relative lens < 0
+    import datetime as _dt
+    db = tmp_path / "r.db"; ds = tmp_path / "d.parquet"
+    names = [("W1", 0.20, +0.30), ("W2", 0.18, +0.28), ("MID", 0.035, +0.02),
+             ("LO1", 0.012, -0.20), ("LO2", 0.010, -0.22), ("LO3", 0.008, -0.24),
+             ("LO4", 0.006, -0.26), ("LO5", 0.004, -0.28), ("LO6", 0.002, -0.30)]
+    csrows, dsrows = [], []
+    for i in range(40):                       # 40 distinct aged dates
+        d = (_dt.date(2025, 1, 1) + _dt.timedelta(days=i)).isoformat()
+        rid = f"{d}-sim-r{i}"
+        for tk, mu, fwd in names:
+            csrows.append((rid, f"{tk}{i}", mu))
+            dsrows.append((d, f"{tk}{i}", fwd))
+    _mk_db_with_mu(db, csrows); _mk_ds(ds, dsrows, trailing_sessions=70)
+    res = vcg.evaluate(db, ds, mu_floor=0.03, horizon_days=60, min_dates=30,
+                       as_of="2025-09-01")
+    assert res["status"] == "OK"
+
+    # --- the two lenses DISAGREE, and that disagreement is VISIBLE ---
+    # Lens A (relative): demean drops relative under-performers (good)
+    rel = res["relative_lens"]
+    assert rel["refused_minus_kept_mean_fwd"] < 0
+    assert rel["significant_block_bootstrap"] is True
+    assert rel["verdict"] == "RELATIVE_DEMEAN_BETTER"
+    # Lens B (absolute floor): dropped-by-demean realized POSITIVE → revert trigger
+    ab = res["absolute_floor_lens"]
+    assert res["dropped_by_demean_mean_fwd"] > 0
+    assert ab["dropped_by_demean_mean_fwd"] > 0
+    assert ab["revert_trigger_tripped"] is True
+    assert ab["verdict"] == "ABSOLUTE_REVERT_TRIGGER_TRIPPED"
+
+    # --- the contract under test: NO clean positive verdict while the absolute
+    # revert trigger is tripped; the overall status is mixed / monitor-only ---
+    assert res["gate_status"] == "MIXED_MONITOR_ONLY"
+    assert res["verdict"] != "DEMEAN_BETTER"
+    assert res["verdict"] == "MIXED_NO_CLEARANCE"
+    # the detail names the disagreement so it cannot be misread operationally
+    assert "DISAGREE" in res["gate_detail"] or "no operational clearance" in res["gate_detail"]

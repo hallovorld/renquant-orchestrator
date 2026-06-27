@@ -254,14 +254,108 @@ def evaluate(db: Path, ds: Path, mu_floor: float, horizon_days: int,
     # demean is helping, these were losers (mean < 0) — more decision-relevant
     # than the admitted-set delta, which mixes in the names both rules keep.
     out["dropped_by_demean_mean_fwd"] = out["all_regimes"]["dropped_by_demean"]["mean"]
-    out["verdict"] = (
-        "DEMEAN_BETTER" if (out["demean_minus_raw_mean_fwd"] or 0) > 0 else "NOT_BETTER")
+
+    # --- TWO LENSES, TWO SUB-VERDICTS (Codex #196 round 2) ---------------------
+    # The relative-rank lens and the absolute-floor operational lens disagree on
+    # real data (relative: demean drops losers / good; absolute-floor: the few
+    # names demean drops realized POSITIVE fwd, i.e. "dropped winners"). The two
+    # readings answer different questions and must NOT be collapsed into a single
+    # `verdict=DEMEAN_BETTER`, because `dropped_by_demean_mean_fwd > 0` is the
+    # named monitored-enable REVERT trigger (strategy-104 #33). We emit each lens
+    # as its own clearly-labelled sub-verdict and a mechanically-safe overall
+    # `gate_status`.
+
+    # Lens A — RELATIVE rank (floor-free, leakage-robust, block-bootstrap CI).
+    # This is the trustworthy in-sample lens. It clears (positive) iff the
+    # within-date (refused−kept) gap is < 0 AND its block-bootstrap CI excludes 0.
+    rk = (out.get("rank_evidence", {}) or {}).get(
+        "within_date_refused_minus_kept", {}) or {}
+    rk_mean = rk.get("mean")
+    rk_sig = bool(rk.get("significant_block_bootstrap"))
+    rel_positive = bool(rk_mean is not None and rk_mean < 0 and rk_sig)
+    out["relative_lens"] = {
+        "label": "within-date relative rank (floor-free, leakage-robust)",
+        "refused_minus_kept_mean_fwd": rk_mean,
+        "ci95_block_bootstrap": rk.get("ci95_block_bootstrap"),
+        "significant_block_bootstrap": rk_sig,
+        # POSITIVE = demean drops relative under-performers with CI excluding 0
+        "verdict": ("RELATIVE_DEMEAN_BETTER" if rel_positive else "RELATIVE_INCONCLUSIVE"),
+        "reading": (out.get("rank_evidence", {}) or {}).get("reading"),
+    }
+
+    # Lens B — ABSOLUTE FLOOR (operational; the `dropped_by_demean_mean_fwd`
+    # field is the monitored-enable revert number). On the sim ledger this set is
+    # THIN (only a handful of names clear the 0.03 floor) and leakage-inflated, so
+    # it is directional-only — but it is the named revert trigger, so a positive
+    # value here BLOCKS any clean "demean better" clearance even if Lens A is
+    # positive.
+    dbd = out["dropped_by_demean_mean_fwd"]
+    dbd_n = out["all_regimes"]["dropped_by_demean"]["n"]
+    abs_dropped_positive = bool(dbd is not None and dbd > 0)
+    out["absolute_floor_lens"] = {
+        "label": "absolute mu>=floor admitted set (operational; thin / leakage-inflated)",
+        "demean_minus_raw_mean_fwd": out["demean_minus_raw_mean_fwd"],
+        "dropped_by_demean_mean_fwd": dbd,
+        "dropped_by_demean_n": dbd_n,
+        # the named monitored-enable revert trigger (strategy-104 #33)
+        "revert_trigger_tripped": abs_dropped_positive,
+        "verdict": (
+            "ABSOLUTE_REVERT_TRIGGER_TRIPPED" if abs_dropped_positive
+            else ("ABSOLUTE_DEMEAN_BETTER"
+                  if (out["demean_minus_raw_mean_fwd"] or 0) > 0
+                  else "ABSOLUTE_NOT_BETTER")),
+        "caveat": (
+            "thin (few names clear the absolute floor on the sim mu) and in-sample "
+            "leakage-inflated; directional only and NOT validation-grade, but it IS "
+            "the named monitored-enable revert metric so a positive value blocks "
+            "operational clearance"),
+    }
+
+    # OVERALL gate status — mechanically safe. We must NEVER emit a single clean
+    # positive verdict while the absolute-floor revert trigger is tripped.
+    if abs_dropped_positive and rel_positive:
+        out["gate_status"] = "MIXED_MONITOR_ONLY"
+        out["gate_detail"] = (
+            "relative-rank lens is positive (demean drops relative under-performers, "
+            "CI excludes 0) BUT the absolute-floor revert metric "
+            f"dropped_by_demean_mean_fwd={dbd:+.4f} is POSITIVE (the named "
+            "monitored-enable revert trigger). The lenses DISAGREE → no operational "
+            "clearance: keep monitoring, do NOT declare demean validated and do NOT "
+            "loosen the gate on this evidence.")
+    elif abs_dropped_positive:
+        out["gate_status"] = "ABSOLUTE_REVERT_TRIGGER"
+        out["gate_detail"] = (
+            f"absolute-floor revert metric dropped_by_demean_mean_fwd={dbd:+.4f} > 0 "
+            "(the named monitored-enable revert trigger) and the relative lens is not "
+            "positively conclusive → no clearance.")
+    elif rel_positive:
+        out["gate_status"] = "RELATIVE_POSITIVE_NO_REVERT"
+        out["gate_detail"] = (
+            "relative-rank lens positive and the absolute-floor revert trigger is "
+            "NOT tripped — directionally supportive, still pending live-aged "
+            "absolute-floor confirmation; not a clean validation.")
+    else:
+        out["gate_status"] = "INCONCLUSIVE"
+        out["gate_detail"] = (
+            "neither lens is positively conclusive on this evidence.")
+
+    # `verdict` is RETAINED (back-compat) but is now the ABSOLUTE-floor lens's
+    # admitted-set sign ONLY, and is mechanically prevented from reading
+    # "DEMEAN_BETTER" while the revert trigger is tripped. The decision field to
+    # read is `gate_status`, not `verdict`.
+    if abs_dropped_positive:
+        out["verdict"] = "MIXED_NO_CLEARANCE"
+    else:
+        out["verdict"] = (
+            "DEMEAN_BETTER" if (out["demean_minus_raw_mean_fwd"] or 0) > 0
+            else "NOT_BETTER")
     # The verdict is DIRECTIONAL over `aged_dates` dates — NOT a significance
     # test. This enable engine must not flip production config on a sign alone;
     # a bootstrap CI + per-regime consistency are required first.
     out["caveat"] = (
-        f"directional over {aged_dates} aged dates; not significance-tested — do "
-        "not enable without a bootstrap CI and per-regime consistency")
+        f"directional over {aged_dates} aged dates; not significance-tested — read "
+        "`gate_status` (two-lens, revert-safe), not `verdict`. Do not enable "
+        "without a bootstrap CI and per-regime consistency.")
     return out
 
 
@@ -309,12 +403,25 @@ def main(argv=None) -> int:
                   f"→ {re.get('reading','')}")
         if res["status"] == "OK":
             a = res["all_regimes"]
-            print(f"  RAW    admitted: n={a['raw_admitted']['n']} mean_fwd60={a['raw_admitted']['mean']:+.4f}")
-            print(f"  DEMEAN admitted: n={a['demean_admitted']['n']} mean_fwd60={a['demean_admitted']['mean']:+.4f}")
+            rel = res.get("relative_lens", {})
+            ab = res.get("absolute_floor_lens", {})
+            print("  --- LENS A (relative rank, floor-free, leakage-robust) ---")
+            print(f"    within-date (refused − kept) fwd60 = "
+                  f"{rel.get('refused_minus_kept_mean_fwd'):+.4f} "
+                  f"→ verdict={rel.get('verdict')}")
+            print("  --- LENS B (absolute mu>=floor; THIN / leakage-inflated; "
+                  "named revert metric) ---")
+            print(f"    RAW    admitted: n={a['raw_admitted']['n']} mean_fwd60={a['raw_admitted']['mean']:+.4f}")
+            print(f"    DEMEAN admitted: n={a['demean_admitted']['n']} mean_fwd60={a['demean_admitted']['mean']:+.4f}")
             dbd = res["dropped_by_demean_mean_fwd"]
-            print(f"  dropped-by-demean realized mean_fwd60 = {dbd:+.4f}"
-                  if dbd is not None else "  dropped-by-demean: n=0")
-            print(f"  demean-raw mean fwd60 = {res['demean_minus_raw_mean_fwd']:+.4f} → {res['verdict']}")
+            print((f"    dropped-by-demean realized mean_fwd60 = {dbd:+.4f}"
+                   f" (n={ab.get('dropped_by_demean_n')})"
+                   + ("  ⚠ REVERT TRIGGER (>0)" if ab.get("revert_trigger_tripped") else ""))
+                  if dbd is not None else "    dropped-by-demean: n=0")
+            print(f"    demean-raw mean fwd60 = {res['demean_minus_raw_mean_fwd']:+.4f} "
+                  f"→ verdict={ab.get('verdict')}")
+            print(f"  >>> GATE STATUS: {res.get('gate_status')}")
+            print(f"      {res.get('gate_detail')}")
             print(f"  ⚠ {res['caveat']}")
         else:
             print(f"  {res['detail']}")
