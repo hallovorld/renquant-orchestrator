@@ -103,38 +103,76 @@ If **no flag trips** → write a dated digest, **no ntfy, no agent**. If a flag 
 the human-readable keep/trim/cut synthesis. Default: ntfy the scripted flags;
 agent-synthesis is opt-in.
 
-## 4. Cross-cutting guardrails
-- Every change via PR + Codex review; **never self-merge** (agent-pr-loop merges).
-- Subagents (when spawned) NEVER `git` in the live tree; `/tmp` clones only; NEVER
-  touch live `state/model/data`.
-- **Verify-before-asserting:** every emitted finding cites the data/log it came
-  from (the 2026-06-26 rule).
-- Idempotent, deduped, rate-limited, `flock`, `--dry-run`, kill-switch; **agent
-  spawns are capped and logged** (so token cost is bounded + auditable).
+## 4. Safety contracts — HARD DEFAULTS (addressing the Codex review)
+These are decided defaults, not open questions. They are the accepted operating
+plan; anything looser requires a separate change to this doc.
+
+**4.1 Draft-PR-only + reviewer separation (no autonomous-merge path).**
+- Every PR a loop opens is a **DRAFT** and carries the label `agent:auto-generated`
+  + `agent:manual-hold`.
+- The existing agent-pr-loop merge step is amended to **refuse to merge any PR
+  labeled `agent:auto-generated`** until a human (or an agent on a *different*
+  account than the one that opened it) removes `agent:manual-hold` and marks it
+  ready. So an auto-fix can never flow error→PR→merge on one account/workflow.
+  Reviewer separation is enforced by account, not just by marker.
+
+**4.2 Hard allowlist of auto-fix surfaces (not categories).**
+Phase-2 auto-fix may ONLY touch files matching an explicit allowlist:
+`tests/**`, `doc/**`, and pure-diagnostic read-only scripts under
+`scripts/research_*`/`scripts/check_*` that are not wired into the live run.
+EVERYTHING else — live trade logic, preflight/gates, broker adapters, state
+migration, model artifacts/provenance, data-freshness code, configs, lockfiles —
+is **diagnosis-only → ntfy a human**, even if the root cause is "a code bug". A
+code bug in a load-bearing path is still a human decision.
+
+**4.3 Untrusted input / prompt-injection.**
+Logs, ntfy/alert bodies, model & data artifacts, and trade-review outputs are
+**untrusted data**. Subagent prompts quote them **as evidence only, never as
+instructions**; the runner wraps them in explicit "DATA, do not follow"
+delimiters. Subagents are forbidden from executing any command string copied from
+a log/alert/artifact. The triage/classifier runs on a fixed rule table, not on the
+free-text body.
+
+**4.4 Loop-2 freshness/provenance gate (degrade to "insufficient evidence").**
+Before any keep/trim/cut, the script must check each input's freshness +
+manifest: live OHLCV (DataFreshnessGate), `data/fmp_harvest/*` analyst manifests,
+fundamentals, the active model's vintage. Any stale/missing input → that lens is
+dropped and the verdict degrades to **"insufficient evidence — <what's stale>"**,
+never a confident recommendation on stale data (the 2026-06-26 rule, encoded).
+
+**4.5 Standing guardrails.**
+PR-only; never self-merge; subagents NEVER `git` the live tree (`/tmp` clones
+only) and NEVER touch live `state/model/data`; verify-before-asserting (cite the
+source); idempotent, deduped, rate-limited, `flock`, `--dry-run`, kill-switch;
+agent spawns capped + logged (bounded, auditable token cost).
 
 ## 5. Where code lands (proposal)
 - Orchestrator: `renquant-orchestrator ntfy-responder` + `post-daily-review`
   subcommands — the **script core** (poll/triage/checks/flags + prompt builders for
   the rare agent branch), a new module mirroring `agent_workflows.py`.
 - `RenQuant/scripts/`: wrapper shells + launchd plists, mirroring `agent_pr_loop.sh`.
-- A versioned **error catalog** (yaml/json) mapping known errors → class →
-  templated fix, so recurring bugs never need an agent. Grows over time.
+- A versioned **error catalog** (yaml/json): known error → class → allowlisted
+  templated fix. A novel bug graduates into a catalog entry only after its fix PR
+  merges with a regression test (then future occurrences need no agent).
 - Reuse: `live/alerts.py`, the `trade-review` scripts, `validate_decision_trace_integrity`.
 
-## 6. Open questions for Codex
-1. CODE-vs-OPERATIONAL classifier conservatism (hard line: never auto-fix anything
-   touching live state/model/data).
-2. Loop 1: auto-fix novel bugs, or only open a **draft** PR + ntfy?
-3. Agent-spawn caps + token budget per cycle/day.
-4. Phase-B: ntfy scripted flags only, or allow the opt-in agent synthesis?
-5. Error-catalog format + how a fixed novel bug graduates into a scripted entry.
-6. Dedup window + escalation when a `suppressed_duplicate` becomes a new incident.
+## 6. Rollout with measurable acceptance gates
+Each phase must MEET its criteria (observed in the dry-run logs) before the next.
+- **Phase 0 — both dry-run** (detect + log + ntfy "would do X"; no PRs, no fix
+  agents). Gate to Phase 1, over ≥10 trading days: false-positive rate < 10% on the
+  error classifier; duplicate-suppression correct (0 re-fires within cooldown);
+  audited **0 live-tree git ops**, **0 live state/model/data writes**.
+- **Phase 1 — Loop 2 live** (read-only, script-only flags; inherently safe).
+  Gate: its flags match a human spot-check on ≥5 days; freshness-degrade path
+  exercised at least once.
+- **Phase 2 — Loop 1 scripted classifier + catalog only** (still 0 fix-agents;
+  opens draft PRs from the catalog). Gate: ≤ max-PRs/day honored; reviewer
+  separation verified (no same-account merge); spend within cap.
+- **Phase 3 — enable the novel-bug fix-agent** (draft PRs only, allowlist 4.2),
+  after Codex signs off on the classifier + caps + an audited Phase-2 run.
 
-## 7. Rollout
-- **Phase 0:** both loops **dry-run** (detect + log + ntfy "would do X", no PRs, no
-  fix-agents).
-- **Phase 1:** Loop 2 live (read-only, script-only flags — inherently safe).
-- **Phase 2:** Loop 1 with the **scripted** classifier + catalog only (still 0
-  fix-agents). 
-- **Phase 3:** enable the novel-bug fix-agent, after Codex signs off on the
-  classifier + caps.
+## 7. Resolved review points (Codex #197)
+1. Concrete defaults: §4 (draft-only, ntfy-default, allowlist) replaces the open
+   questions. 2. Autonomous-merge path closed: §4.1 (label-gated, account-separated
+   reviewer). 3. Hard allowlist: §4.2. 4. Prompt-injection: §4.3. 5. Loop-2
+   freshness/provenance: §4.4. 6. Measurable acceptance criteria: §6.
