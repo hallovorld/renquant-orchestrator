@@ -41,12 +41,15 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
   fail-closed to no-intraday-trading on any missing gate, stale data, or unproven
   edge — turning it on is a deliberate, gated act, never the default.
 
-> **Document status (WIP).** This spec integrates the **quantitative feasibility
-> analysis (§A)**. Four more analysis modules — **reliability (FMEA + fail-safe +
-> SLOs), performance (latency/compute/storage budgets), the full metrics/KPI +
-> acceptance suite, and OSS/literature + the champion-challenger shadow pattern** —
-> plus the **4 per-milestone design docs (M0–M3)** are being produced and will be
-> pushed to this PR; it is a **draft** until they land.
+> **Suite index (this spec = the master; the full professional set):**
+> - `…-intraday-system.md` — master spec + quantitative feasibility (§A)
+> - `…-reliability-fmea-failsafe.md` — 43-row FMEA, fail-safe spec, SLOs
+> - `…-performance.md` — latency / compute / storage budgets
+> - `…-metrics-suite.md` — alpha/risk/cost/model-health metrics, per-phase acceptance, 每日复盘
+> - `…-oss-champion-challenger-validation.md` — OSS leverage, shadow-model pattern, validation discipline
+> - `…-M0-data-foundation.md` / `-M1-model-validation.md` / `-M2-gates-shadow.md` /
+>   `-M3-live-monitored.md` — per-milestone detailed designs (requirements, metrics,
+>   numeric acceptance, expected outcomes + kill conditions)
 
 ## A. Quantitative feasibility analysis (the make-or-break)
 Account ~$10.6k, 4× intraday BP $37.7k; liquid >$6 large-caps; IEX data; 1–5 min bars.
