@@ -1,12 +1,16 @@
-"""Tests for the read-only renquant105 trend-signal baseline study (synthetic ledger, no network).
+"""Tests for the read-only renquant105 trend-signal DIAGNOSTIC (synthetic ledger, no network).
 
 The study reads ONLY the decision ledger (candidate_scores + ticker_forward_returns +
 pipeline_runs) — it trains no model and never writes to a canonical path. These tests build a
 tiny synthetic SQLite ledger and assert that:
   * the rank-IC reads a planted monotone signal,
-  * recall/precision and the MODEL-vs-GATE killed-winner decomposition read a planted case,
-  * the data-sufficiency gate reports INSUFFICIENT_LIVE_HISTORY below --min-dates and does not
-    fabricate a baseline,
+  * the data-INSUFFICIENCY gate forces ``bottleneck_verdict == UNDETERMINED`` and emits NO
+    lever ranking (the central review fix),
+  * sufficiency is measured in EFFECTIVE NON-OVERLAPPING BLOCKS, not raw dates,
+  * the killed-winner split is reported across a sensitivity grid and labelled non-causal,
+  * an immutable input manifest (DB sha256, resolved runs, scorer mix, deterministic tie
+    rejection) is emitted,
+  * the on-cohort shuffled-label placebo runs,
   * the missing-DB path is a clean CI skip (exit 0).
 """
 from __future__ import annotations
@@ -52,16 +56,16 @@ def _mk_ledger(path: Path, *, n_dates: int, n_names: int = 20, run_type: str = "
         rid = f"{run_type}-{d.isoformat()}"
         con.execute("insert into pipeline_runs values (?,?,?)", (rid, d.isoformat(), run_type))
         for j in range(n_names):
-            # planted: higher mu -> higher fwd_20d (rank-IC ~ +1) when signal=True
             mu = (j - n_names / 2) / (n_names * 5.0)  # spread around 0
             fwd = (j / n_names - 0.5) * 0.2 if signal else ((n_names - j) / n_names - 0.5) * 0.2
+            # name the top few as "selected" so the deployed-selection summary has signal
+            selected = 1 if j >= n_names - 3 else 0
             con.execute(
                 "insert into candidate_scores values (?,?,?,?,?,?,?,?)",
-                (rid, f"T{j}", mu * 10, mu, 0, None, "hf_patchtst", "hf_patchtst"))
+                (rid, f"T{j}", mu * 10, mu, selected, None, "hf_patchtst", "hf_patchtst"))
             con.execute(
                 "insert into ticker_forward_returns values (?,?,?,?,?,?)",
                 (d.isoformat(), f"T{j}", fwd, fwd, fwd, fwd))
-    # extend the session calendar so the horizon elapses (filler ticker, distinct as_of dates)
     for s in _sessions_after(last, trailing_sessions):
         con.execute("insert into ticker_forward_returns values (?,?,?,?,?,?)",
                     (s.isoformat(), "FILLER", 0.0, 0.0, 0.0, 0.0))
@@ -71,44 +75,86 @@ def _mk_ledger(path: Path, *, n_dates: int, n_names: int = 20, run_type: str = "
 
 def test_rank_ic_reads_planted_signal(tmp_path):
     db = tmp_path / "led.db"
-    _mk_ledger(db, n_dates=40, signal=True)
-    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_dates=30, min_xsec=10,
-                        as_of="2024-12-31")
+    _mk_ledger(db, n_dates=160, signal=True)  # ~8 effective fwd_20d blocks
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
+                        as_of="2025-06-30")
     ic = res["live"]["ic"]["fwd_20d"]["mu"]
     assert ic["n_dates"] >= 30
     assert ic["mean_ic"] > 0.5  # strong planted monotone signal
-    assert ic["above_leakage_floor"] is True
 
 
 def test_inverted_signal_negative_ic(tmp_path):
     db = tmp_path / "led.db"
     _mk_ledger(db, n_dates=40, signal=False)
-    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_dates=30, min_xsec=10,
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
                         as_of="2024-12-31")
     ic = res["live"]["ic"]["fwd_20d"]["mu"]
     assert ic["mean_ic"] < 0  # inverted ranking -> negative IC
 
 
-def test_sufficiency_gate_does_not_fabricate(tmp_path):
+def test_insufficiency_forces_undetermined_and_no_lever_ranking(tmp_path):
+    """The central review fix: when the LIVE primary horizon is below the effective-block bar,
+    the verdict MUST be UNDETERMINED and NO lever ranking may be emitted."""
     db = tmp_path / "led.db"
-    _mk_ledger(db, n_dates=12, signal=True)  # below min_dates=30
-    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_dates=30, min_xsec=10,
+    _mk_ledger(db, n_dates=12, signal=True)  # ~0.6 effective fwd_20d blocks << 6
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
                         as_of="2024-12-31")
     assert res["data_sufficiency"]["verdict"] == "INSUFFICIENT_LIVE_HISTORY"
+    assert res["bottleneck_verdict"] == "UNDETERMINED"
+    assert res["lever_ranking"] is None  # gate must suppress any ranking
     assert res["live"]["sufficient"] is False
+    assert res["live"]["primary_eff_blocks"] < 6
 
 
-def test_killed_winner_decomposition_present(tmp_path):
+def test_sufficiency_uses_effective_blocks_not_raw_dates(tmp_path):
+    """30 raw overlapping dates ~ 1.5 effective blocks -> still INSUFFICIENT/UNDETERMINED."""
+    db = tmp_path / "led.db"
+    _mk_ledger(db, n_dates=50, signal=True)
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
+                        as_of="2024-12-31")
+    # ~30 aged dates but only ~1.5 effective fwd_20d blocks -> not sufficient
+    assert res["live"]["primary_aged_dates"] >= 20
+    assert res["live"]["primary_eff_blocks"] < 6
+    assert res["bottleneck_verdict"] == "UNDETERMINED"
+
+
+def test_killed_winner_sensitivity_and_noncausal_label(tmp_path):
     db = tmp_path / "led.db"
     _mk_ledger(db, n_dates=40, signal=True)
-    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_dates=30, min_xsec=10,
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
                         as_of="2024-12-31")
+    sens = res["live"]["killed_sensitivity"]
+    assert len(sens["grid"]) >= 1
+    assert "k-dependent" in sens["note"].lower()
+    # descriptive recall/precision plus naive baselines are present
     t = res["live"]["trend"]["fwd_20d"]
-    # both legs of the decomposition are computed and in [0,1]
-    assert t["missed_by_model"] is not None and 0.0 <= t["missed_by_model"] <= 1.0
-    assert t["killed_by_gate"] is not None and 0.0 <= t["killed_by_gate"] <= 1.0
-    # with a clean planted signal the model catches trends -> recall_topk > 0
-    assert t["recall_topk"] > 0.0
+    assert t["recall_topk"] is not None and t["recall_random"] is not None
+    assert t["prec_topk_pos"] is not None and t["prec_market_sign"] is not None
+
+
+def test_manifest_is_immutable_and_complete(tmp_path):
+    db = tmp_path / "led.db"
+    _mk_ledger(db, n_dates=40, signal=True)
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
+                        as_of="2024-12-31")
+    man = res["manifest"]
+    assert len(man["db_sha256"]) == 64
+    assert man["schema_version"] >= 0
+    assert man["resolved_runs"]  # per-date run ids persisted
+    assert "live_scorer_mix" in man
+    assert "ambiguous_dates_rejected" in man  # deterministic tie handling recorded
+    assert man["cli_args"]["min_eff_blocks"] == 6
+
+
+def test_placebo_runs_on_cohort(tmp_path):
+    db = tmp_path / "led.db"
+    _mk_ledger(db, n_dates=40, signal=True)
+    res = rtsb.evaluate(db, book_size=8, mu_floor=0.03, min_eff_blocks=6, min_xsec=10,
+                        as_of="2024-12-31", placebo_shuffles=50)
+    pb = res["live"]["placebo"]["fwd_20d"]
+    assert pb["n_shuffles"] > 0
+    # planted strong signal -> observed IC should beat the shuffled-label placebo
+    assert pb["p_value"] is not None and pb["p_value"] < 0.1
 
 
 def test_missing_db_is_clean_skip(capsys):

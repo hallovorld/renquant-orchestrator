@@ -1,160 +1,175 @@
-# renquant105 trend-signal baseline — model-vs-gate bottleneck
+# renquant105 trend-signal — DATA-QUALITY / PROVENANCE DIAGNOSTIC (verdict UNDETERMINED)
 
-- **Date:** 2026-06-27 (run timestamp 2026-06-27 ~13:10 PDT)
-- **Scope:** READ-ONLY measurement of where renquant105 stands on its real goal — catch
-  MORE (recall) and MORE-ACCURATE (precision) multi-period TREND signals — and whether the
-  bottleneck is the MODEL (weak signal) or the GATE (conviction gate kills recall).
+- **Date:** 2026-06-27 (run timestamp 2026-06-27 ~16:27 PDT)
+- **Scope:** READ-ONLY diagnostic of whether the now-wired decision ledger can yet measure
+  where renquant105 stands on its real goal — catch MORE (recall) and MORE-ACCURATE
+  (precision) multi-period TREND signals — and whether a MODEL-vs-GATE bottleneck can be
+  adjudicated. **It cannot, yet.** This document is therefore a data-quality / provenance
+  diagnostic plus the design of the controlled experiments that WOULD answer the question. It
+  is **not** a lever ranking and **not** a retraining recommendation.
+- **Bottleneck verdict:** **`UNDETERMINED`** (the script emits this whenever the live primary
+  horizon is below the pre-registered effective-block bar; it is today).
 - **Reproduce:** `scripts/research_trend_signal_baseline.py --runs-db <ledger> --json`
-- **Provenance:** decision ledger `data/runs.alpaca.db` under
-  `/Users/renhao/git/github/RenQuant` (size 90.6 MB, mtime 2026-06-26 14:07), opened
-  `mode=ro`; the analysis ran against a `/tmp` copy of that file so the canonical path was
-  never opened read-write. Forward returns from `ticker_forward_returns`; scores from
-  `candidate_scores`; run metadata from `pipeline_runs`. No model was trained; no order was
-  placed; no canonical path was written.
+  (add `--placebo-shuffles 200` for the on-cohort placebo). Every run emits the immutable
+  input manifest below.
 
-## Data sufficiency — measured FIRST (the headline)
+## Why the central conclusion is UNDETERMINED (the headline)
 
-The faithful, production-scorer cross-section is the **LIVE** ledger (`run_type='live'`, one
-run per date, a single `mu` per ticker). Counts as found:
+A prior draft of this study turned an explicitly insufficient sample into a "MODEL is the
+~3.6× dominant bottleneck, retraining is the single highest-leverage move" claim. That claim
+is **withdrawn.** The estimator cannot support it, for the reasons below, and the script now
+**gates the conclusion**: under insufficiency it sets `bottleneck_verdict = UNDETERMINED`,
+computes **no lever ranking** (`lever_ranking = null`), and the report consumes that gate so
+prose cannot override it.
 
-| run_type | distinct run_dates | joinable rows | clean single-run x-section |
+The faithful production cross-section is the **LIVE** ledger (`run_type='live'`). The
+per-name decision ledger was only wired ~2026-05-04 (#133), and a 20-session (`fwd_20d`) label
+needs 20 trading sessions to realize. As of 2026-06-27 that leaves **9 aged `fwd_20d` LIVE
+dates** inside a single ~5-week window. With overlapping 20-session labels that is
+**≈ 0.45 effective non-overlapping blocks** — roughly one independent observation, not nine.
+`fwd_60d` has **0** aged live dates. No model-vs-gate ranking, IC significance claim, or
+retraining prioritization is admissible on ≈1 effective observation.
+
+## Reproducibility — immutable input manifest
+
+Emitted machine-readable under `manifest` in `--json`. As measured 2026-06-27 against a `/tmp`
+copy of the canonical ledger (canonical opened `mode=ro`, mtime unchanged):
+
+| field | value (this run) |
+|---|---|
+| db_path | `data/runs.alpaca.db` (copied to `/tmp` for the read) |
+| db_sha256 | `731d566f2d696c37…` (full 64-hex in JSON) |
+| db_size_bytes / mtime | 90.6 MB / 2026-06-26 14:07 |
+| sqlite schema_version | 138 |
+| code_commit | (git HEAD of this branch, in JSON) |
+| session_calendar | 2024-01-02 … 2026-06-26 (605 sessions) |
+| resolved_runs | 351 per-(date,run_type) run_ids, max-row, **ties REJECTED** |
+| ambiguous_dates_rejected | 235 dates dropped for tied max-row runs (deterministic) |
+| live_scorer_mix | None 448, **panel_ltr_xgboost 408**, QLearning 99, Manual 93, **hf_patchtst 85**, XGBoost 78, Classification 54 |
+
+Run resolution is now **deterministic**: per `(date, run_type)` the max-candidate-row run is
+kept and **tied dates are rejected** (recorded in `ambiguous_dates_rejected`), so no result
+depends on row order. CLI args, as-of, and the aged session calendar are all in the manifest.
+
+## Findings 1–8 (review) and how this diagnostic addresses each
+
+**1 — Insufficiency gates the conclusion.** Done. `bottleneck_verdict = UNDETERMINED`,
+`lever_ranking = null`. The descriptive numbers below are explicitly DIAGNOSTICS only.
+
+**2 — This is NOT the production model-vs-gate path.** The live `mu` cohort is a **SCORER
+MIXTURE** (panel_ltr_xgboost-dominant; only **85** `hf_patchtst` rows ledger-wide), not a
+PatchTST-primary cross-section. The de-meaned `(mu − mean) ≥ mu_floor` rule is **one
+synthetic threshold**, not the deployed ordered gate stack + capacity. The diagnostic now
+(a) **labels** the output "scorer-mixture ranking vs one synthetic threshold", and (b)
+summarizes the **actual deployed selection** from the persisted `selected`/`blocked_by`
+columns. On the aged live subset the real path **selected ~1.2 names/date, 50% of dates
+selected zero**, and the dominant real blockers are `veto:rank_score_below_floor` (145),
+`kelly_zero:mu_le_min_edge` (52), `qp_delta_below_min_dw` (51), `qp_no_trade_band`,
+`quality_floor:gate_b` — i.e. an ordered stack the synthetic single threshold does not
+represent. A faithful adjudication requires replaying that stack (or a homogeneous
+PatchTST-only cohort), which today's data does not permit.
+
+**3 — Killed-winner split is k-dependent and non-causal.** Reported across a sensitivity grid
+of (book_size ∈ {5,8,12}, mu_floor ∈ {0,0.03,0.06}). The `missed_by_model / killed_by_gate`
+ratio **spans ≈ [0.91, 2.80]** on this cohort and **reverses**: at book=12, mu_floor=0.06 the
+gate (`killed_by_gate ≈ 0.49`) exceeds the model (`missed_by_model ≈ 0.45`). The earlier
+"3.6×" was a single arbitrary operating point. The split is therefore reported with its
+sensitivity surface and is **never** labelled a "bottleneck"; a causal answer needs the
+replayed path, paired counterfactual deltas (same scores gate-on/off; same gate vs
+oracle/ranking baseline), and a block CI — none yet computable.
+
+**4 — Recall/precision lack baselines + no trend-event definition.** "Real trend" here is an
+**ex-post top-decile positive `fwd_20d`** cross-section — a per-date drift label, **not** a
+persistent trend EVENT with a start/end. Top-k recall is universe-size dependent and 75%
+directional precision can reflect market drift. The diagnostic now reports **naive baselines**
+inline (random-ranking recall, market-sign precision); on the aged live subset model
+`recall_topk ≈ 0.285` barely exceeds **random ≈ 0.272**, and top-k precision ≈ 0.72 vs a
+**market-sign baseline ≈ 0.63** — i.e. the apparent skill is small once baselined. Still
+REQUIRED before any verdict (listed, not delivered): oracle-capacity, simple-momentum,
+current-selected-book, regime/sector-neutral variants, lift / AUPRC / capacity-normalized
+recall, net-of-turnover/cost, and an explicit event start/end + overlap definition.
+
+**5 — `min_dates=30` invalid for overlapping 20-day outcomes.** Replaced. Sufficiency is now
+pre-registered in **effective non-overlapping blocks** (`n_dates / horizon_n`), gated at
+`--min-eff-blocks` (default 6). 30 adjacent overlapping dates ≈ 1.5 blocks → still
+insufficient. The unblock target is stated in N_eff, not raw dates, and requires multiple
+regimes; block-bootstrap CIs are the reporting standard once N_eff is met.
+
+**6 — Staleness 5-vs-6 split confounds age with regime/scorer/universe/overlap.** The causal
+"freshness caused the decline" claim is **REMOVED**. The chronological IC split (older
++0.268 → recent +0.101) is emitted flagged `DESCRIPTIVE_ONLY_confounded` and is **not**
+evidence of a freshness effect. The controlled experiment that would identify one is designed
+below.
+
+**7 — The 0.036 leakage floor is not portable.** It came from another experiment/horizon/purge
+and is **no longer cited as a pass/fail bar** (kept only as a clearly-labelled foreign
+reference). The script now computes an **on-cohort shuffled-label placebo** per horizon
+(`--placebo-shuffles`), shuffling the score WITHIN each date to preserve cross-sectional/time
+dependence, and reports a p-value of observed IC vs the placebo distribution. (On today's ≈1
+effective block the placebo is itself underpowered — which is exactly why the verdict is
+UNDETERMINED rather than "IC beats floor".)
+
+**8 — Immutable input manifest + labelled denominators.** Manifest above. Denominators are now
+kept separate and labelled: the **all-live** gate stat and the **9-date aged subset** are
+distinct windows and are no longer conflated — the prior prose mixed an all-live "5.5
+admits/date" with an aged-subset figure (the aged-9 subset measures ≈ 7.9 admits/date). Each
+number now carries its own window label.
+
+## Descriptive diagnostics (UNDETERMINED — do NOT rank levers off these)
+
+LIVE, aged by trading sessions; **directional, ≈1 effective block, not significance-tested.**
+
+| horizon | aged dates (≈eff blocks) | mu rank-IC (IC_IR) | note |
 |---|---|---|---|
-| live | 32 (scored) / 50 (any) | ~9.4 k | yes (1 run/date, dmu == names) |
-| sim  | 560 | ~197 k | NO (see below) |
+| fwd_5d  | 14 (≈2.8) | +0.027 (0.14) | scorer-mixture; small |
+| fwd_10d | 14 (≈1.4) | +0.054 (0.36) | |
+| fwd_20d | 9 (≈0.45) | +0.175 (0.87) | ≈1 effective block — NOT validatable |
+| fwd_60d | 0 | — | unrealized |
 
-**The SIM ledger is NOT a faithful per-name production-PatchTST history** and is reported as
-reference only, never as a verdict basis:
+- Trend (fwd_20d, book=8): `recall_topk ≈ 0.285` (random ≈ 0.272); top-8 precision ≈ 0.72
+  (market-sign ≈ 0.63). Small edge over naive baselines on ≈1 block.
+- Gate (one synthetic mu-demean threshold, aged-9 subset): ≈ 7.9 admits/date.
+- Deployed selection (actual): ≈ 1.2 selected/date, 50% of dates zero; real blockers are the
+  ordered `veto:* / kelly_zero / qp_* / quality_floor` stack, not the synthetic threshold.
+- Killed split: k-dependent, ratio ≈ [0.91, 2.80], reverses at book=12/floor=0.06.
+- Staleness (DESCRIPTIVE ONLY, confounded): older +0.268 → recent +0.101.
 
-- `model_type` and `active_scorer` are **NULL on every sim row** (226,955/226,955) — the sim
-  ledger does not record which scorer produced the numbers.
-- sim `raw_score` ranges to **+155 … +270** per date — PatchTST raw scores are intrinsically
-  NEGATIVE (~−0.198 neutral; MEMORY: patchtst-scores-intrinsically-negative). These are not
-  PatchTST-native outputs.
-- a sim date carries **far more distinct `mu` values than tickers** (e.g. 170 distinct mu for
-  35 names) — up to 76 sim run_ids per date contribute conflicting mu for the same name, so
-  there is no single clean cross-section.
+SIM (`run_type='sim'`) is **reference only, NOT validation-grade**: NULL `model_type`/
+`active_scorer` on every row, `raw_score` to +200 (PatchTST is intrinsically negative
+~−0.198), and far more distinct `mu` than tickers per date (conflicting run_ids). It is
+excluded from any verdict.
 
-**LIVE realized-trend coverage by horizon** (rank-IC dates with ≥10 names, aged by trading
-sessions):
+## Controlled experiments REQUIRED before re-attempting a verdict
 
-| horizon | live aged dates | span | sufficient (≥30)? |
-|---|---|---|---|
-| fwd_5d  | 18 | 2026-04-23 … 2026-06-11 | no |
-| fwd_10d | 18 | 2026-04-23 … 2026-06-11 | no |
-| **fwd_20d (primary)** | **11** | 2026-04-23 … 2026-05-22 | **no** |
-| fwd_60d | 0 | — | no |
+These replace the withdrawn "retrain now" recommendation. None can run until the data exists.
 
-**Verdict: data is INSUFFICIENT to faithfully measure the primary (fwd_20d / fwd_60d)
-baseline on the production scorer.** The faithful live ledger only began ~2026-05-04 (the
-#133 decision-ledger wiring), and a 20-session label needs 20 trading days to realize, so the
-realized-trend window is ~5 weeks. The 11 fwd_20d dates also fall in a single ~4-week window
-with heavily **overlapping** 20-session forward windows — effectively ~1–2 independent
-observations, not 11. This is the documented "gate validation blocked by unwired ledger"
-note closing as the ledger ages, not yet closed.
+1. **N_eff power pre-registration.** Define the required effective non-overlapping blocks per
+   horizon and the multiple-regime coverage, with block-bootstrap CIs, BEFORE re-reading IC /
+   recall / precision. The unblock date follows N_eff, not a raw-date count.
+2. **Faithful path replay.** Require exact production run provenance and a homogeneous
+   PatchTST-only cohort; replay the actual ordered gate stack + capacity using the persisted
+   `selected`/`blocked_by`, and estimate paired counterfactual deltas (same scores gate-on/off;
+   same gate vs oracle/ranking baseline) with block CIs. Only then is a model-vs-gate split
+   admissible.
+3. **On-cohort placebo per horizon.** Recompute shuffled-label / time-shift placebos on THIS
+   exact cohort and each horizon, preserving cross-sectional/time dependence; compare observed
+   IC to the placebo distribution; multiplicity-correct across horizons. Stop citing 0.036.
+4. **Controlled paired freshness experiment** (replaces the confounded staleness claim): same
+   architecture / features / label / hyperparameters / evaluation folds, **old cutoff vs
+   updated cutoff only**, with immutable data + artifact fingerprints. Test any **trend-label
+   change SEPARATELY** — never bundle "fresh data" and "new trend label" into one retrain and
+   attribute the delta to either.
+5. **Baseline + event suite** (Finding 4): random, SPY/market-sign, simple-momentum,
+   current-selected-book, oracle-capacity; lift / AUPRC / capacity-normalized recall;
+   regime/sector-neutral; net-of-cost; and an explicit trend-event start/end + overlap
+   definition.
 
-Per the study's hard rule, **no fabricated baseline and no unfaithful sim proxy is used for
-the verdict.** The numbers below are reported as DIRECTIONAL-ONLY, with the live ones flagged
-thin and the sim ones flagged not-validation-grade.
+## Honesty ledger
 
-## Measured numbers (DIRECTIONAL — do not treat as validated)
-
-### 1. Signal accuracy (precision lens) — rank-IC vs the 0.036 leakage floor
-
-LIVE (faithful scorer, thin):
-
-| horizon | mu rank-IC (IC_IR, n) | raw rank-IC | vs 0.036 floor |
-|---|---|---|---|
-| fwd_5d  | +0.017 (IR 0.09, 18d) | +0.012 | **below** floor |
-| fwd_10d | +0.051 (IR 0.33, 18d) | +0.047 | just above |
-| fwd_20d | +0.173 (IR 0.95, 11d) | +0.014 (8d) | above (mu); raw below |
-| fwd_60d | n=0 | n=0 | — |
-
-SIM (reference only, NOT validation-grade): mu-IC +0.09/+0.13/+0.15/+0.17 across
-5/10/20/60d over ~423 dates — all "above floor" but on the unfaithful sim ledger the
-validator's own docstring calls leakage-inflated in-sample; the existing
-`validate_conviction_gate.py` reports the same +0.176 headline and it is ~100% sim-driven
-(0 live dates have a realized fwd_60d).
-
-Reading: the only short-horizon LIVE signal that is faithfully measurable (fwd_5d) sits AT or
-BELOW the leakage floor; fwd_10d is barely above; the fwd_20d +0.173 is encouraging but rests
-on ~1–2 effective independent observations and a `mu` cross-section that is dominated by
-`panel_ltr_xgboost` (408 rows) with only 85 `hf_patchtst` rows in the entire live ledger — so
-it is NOT a clean "PatchTST trend signal" number.
-
-### 2/3. Trend recall & precision (primary fwd_20d, book=8, LIVE, 11d — directional)
-
-- Real up-trends per date (top-decile positive fwd_20d): **mean 5.1 names**.
-- **Recall** (real trends caught): model top-8 = **0.245**, top-quintile = **0.326**,
-  gate-admitted set = **0.183**.
-- **Precision** of the model top-8: **0.75** realized positive, **0.44** in the positive
-  top-tercile. Gate-admitted precision: 0.61 positive / 0.39 top-tercile.
-
-So the model's top names are reasonably *accurate* (75% up), but the ranking *catches* only
-~25% of the day's real trends.
-
-### 4. GATE impact and the KILLED-WINNER decomposition (the bottleneck answer)
-
-Live conviction gate `(mu − mean(mu)) ≥ 0.03`, demean=True, over 32 live dates:
-
-- mean **5.5 admits / 54 names** per date; **44% of dates admit 0 names**; the gate passes
-  only **~15% of the mu>0 names**. This reproduces the documented near-zero-admit behaviour.
-
-Killed-winner decomposition of lost real trends (fwd_20d, 11 aged dates, directional):
-
-- **`missed_by_model` = 0.755** — 76% of real trends are ones the MODEL ranked OUTSIDE its
-  top-8. The signal never surfaced them.
-- **`killed_by_gate` = 0.209** — 21% of real trends are ones the model DID rank top-8 but the
-  GATE then rejected.
-
-→ **The MODEL is the dominant bottleneck (~3.6× the gate); the GATE is a real but secondary
-drag.** Even a perfect, fully-open gate would recover only the ~21% of trends the model
-already ranked high; the ~76% the model never ranks high are unreachable by gate redesign.
-
-### 5. Staleness
-
-LIVE fwd_20d per-date IC, older half vs recent half: **+0.244 → +0.113 (Δ −0.130)**. A
-decaying direction consistent with the live model being frozen at its train-cutoff
-(2024-11 weights / 2026-02-10 data; MEMORY: verify-freshness). The sample is far too thin
-(5 vs 6 dates) to size the freshness lever with confidence, but the sign matches the
-staleness hypothesis and is worth re-measuring once ≥30 aged dates accrue.
-
-## VERDICT
-
-**(a) Baseline recall & precision for multi-period trends (directional, thin live data):**
-on the primary fwd_20d the model catches ~**25%** of the day's real up-trends in its top-8
-(~33% in its top-quintile) and the names it does surface are ~**75%** correct on direction.
-This is a precision-decent / recall-poor profile.
-
-**(b) Bottleneck = MODEL (primary), GATE (secondary) — i.e. BOTH, MODEL-led.** The
-killed-winner decomposition is decisive: **76% of lost trends are model-ranked-low
-(model bottleneck) vs 21% gate-rejected-but-model-ranked-high (gate bottleneck)** — the model
-is ~3.6× the larger leak. The gate is genuinely tight (0 admits 44% of days, ~15% of mu>0
-names) and worth fixing, but opening it cannot recover the trends the model never ranks.
-
-**(c) Staleness gap:** directionally present (recent IC ≈ half the older IC), consistent with
-the stale train-cutoff, but the live sample is too thin to size the lever — re-measure when
-the ledger ages.
-
-**(d) Single highest-leverage move for "更多更准":** improve the MODEL's trend RANKING
-(recall) — a fresher-data retrain aligned to the multi-day trend target — NOT a gate redesign
-and NOT more orthogonal alpha. Rationale: 76% of the recall loss is the model failing to rank
-real trends highly; gate redesign addresses at most the 21% slice. Concretely: (i) refresh
-the training data past the 2026-02-10 vintage and retrain on a directional multi-day
-(fwd_10/20d) trend label so the score is optimized for the recall objective; (ii) THEN
-revisit the gate as a clear-but-smaller second lever. This is a research direction, not a
-deployment decision — it needs the live ledger to first age past ≥30 fwd_20d dates
-(~mid-Aug-2026) so the baseline and any retrain delta can be validated faithfully rather than
-on the unfaithful sim proxy.
-
-## Caveats / honesty ledger
-
-- Every LIVE number rests on **8–18 dates inside a single ~5-week window** with overlapping
-  forward windows → DIRECTIONAL, not significance-tested. Do not act on a sign alone.
-- The live `mu` cross-section is **not pure PatchTST** (dominated by `panel_ltr_xgboost`;
-  only 85 `hf_patchtst` rows ledger-wide), so "the model" here is the live scorer mix, not
-  the documented PatchTST primary in isolation.
-- The SIM ledger numbers are **reference only** (NULL scorer, non-PatchTST raw, conflicting
-  per-name mu) and are excluded from the verdict.
-- UNBLOCK to a validated baseline: let the live ledger age to ≥30 fwd_20d dates, and/or wire
-  faithful per-name PatchTST score history with scorer provenance (#133 follow-through), then
-  re-run this script.
+- Read-only: canonical `data/runs.alpaca.db` mtime unchanged (2026-06-26 14:07); analysis ran
+  against a `/tmp` copy; no canonical path written; no git in the live tree; no order placed.
+- Every live number rests on ≈1 effective block of a scorer-mixture cohort → DIAGNOSTIC, not
+  validated. Do not act on it.
+- UNBLOCK: let the live ledger reach ≥ the pre-registered N_eff for `fwd_20d`, wire a faithful
+  per-name PatchTST cohort with scorer provenance (#133 follow-through), run the placebo and
+  the controlled paired experiments above, THEN — and only then — re-attempt a verdict.

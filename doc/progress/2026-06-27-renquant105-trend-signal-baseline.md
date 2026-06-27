@@ -1,47 +1,56 @@
-# renquant105 trend-signal recall/precision baseline — model-vs-gate bottleneck
+# renquant105 trend-signal — data-quality / provenance DIAGNOSTIC (verdict UNDETERMINED)
 
 2026-06-27.
 
 ## STATUS
-Read-only baseline measured. **Primary horizon (fwd_20d/60d) is data-INSUFFICIENT on the
-faithful LIVE ledger** — directional only, NOT validated. No canonical path written, no order
+Read-only DIAGNOSTIC. **Bottleneck verdict = `UNDETERMINED`.** The decision ledger cannot yet
+adjudicate MODEL vs GATE for the primary trend horizon, so this PR ships a data-quality /
+provenance diagnostic + the controlled-experiment design — **NOT** a lever ranking and **NOT**
+a retraining recommendation (both withdrawn after review). No canonical path written, no order
 placed, no git in the live tree.
 
 ## WHAT
-renquant105's real goal = catch MORE (recall) + MORE-ACCURATE (precision) multi-period TREND
-signals; question = is the bottleneck the MODEL (weak signal) or the GATE (kills recall)?
-Measured it READ-ONLY off the now-wired decision ledger `data/runs.alpaca.db` (opened
-`mode=ro`, analysed against a `/tmp` copy).
+renquant105's goal = catch MORE (recall) + MORE-ACCURATE (precision) multi-period TREND
+signals. Question = MODEL vs GATE bottleneck. Measured READ-ONLY off the now-wired ledger
+`data/runs.alpaca.db` (opened `mode=ro`, analysed against a `/tmp` copy; canonical mtime
+2026-06-26 14:07 unchanged).
 
-## WHY-DIR
-Data-sufficiency gated FIRST, no fabrication. The faithful production cross-section is the
-**LIVE** ledger; the **SIM** ledger is NOT faithful (NULL `model_type`/`active_scorer` on every
-row, `raw_score` to +270 vs PatchTST's intrinsically-negative scale, 170 distinct mu for 35
-names) so it is reference-only. Aged by TRADING SESSIONS (an fwd_Nd label is a shift(-N) bar
-label, N sessions ≠ N calendar days).
+## WHY UNDETERMINED
+The faithful LIVE ledger has only **9 aged `fwd_20d` dates** in one ~5-week window ⇒
+**≈ 0.45 effective non-overlapping blocks** (~1 independent observation); `fwd_60d` = 0. The
+live `mu` cohort is a **scorer MIXTURE** (panel_ltr_xgboost-dominant; only 85 `hf_patchtst`
+rows ledger-wide), not PatchTST-primary. The SIM ledger is NOT faithful (NULL scorer,
+non-PatchTST raw) ⇒ reference-only. ≈1 effective block of a mixed cohort cannot support a
+model-vs-gate ranking, an IC significance claim, or a retraining call. The script now **gates
+the conclusion**: `bottleneck_verdict = UNDETERMINED`, `lever_ranking = null`, and the report
+consumes the gate.
+
+## REVIEW FIXES (8/8)
+1. Insufficiency gates the conclusion — verdict UNDETERMINED, no lever ranking emitted.
+2. Relabelled "scorer-mixture vs one synthetic threshold"; deployed `selected`/`blocked_by`
+   summarized (real path: ~1.2 selected/date, 50% zero, blockers `veto:*/kelly_zero/qp_*`).
+3. Killed-winner split reported across a (book,floor) sensitivity grid — ratio ≈ [0.91, 2.80],
+   reverses at book=12/floor=0.06; labelled k-dependent + non-causal.
+4. Naive baselines added inline (random recall, market-sign precision); model edge is small
+   once baselined; richer baselines + trend-event definition listed as REQUIRED follow-ups.
+5. Sufficiency is now in EFFECTIVE non-overlapping blocks (`--min-eff-blocks`), not raw dates.
+6. Causal staleness claim REMOVED; flagged `DESCRIPTIVE_ONLY_confounded`; controlled paired
+   freshness experiment designed in the research doc.
+7. Stopped citing the foreign 0.036 floor; added an on-cohort shuffled-label placebo
+   (`--placebo-shuffles`) with a p-value vs the placebo distribution.
+8. Immutable manifest (DB sha256, schema_version, resolved run_ids, scorer mix, deterministic
+   tie rejection, CLI args, session calendar); every denominator/window explicitly labelled
+   (all-live vs aged-9 subset no longer conflated).
 
 ## EVIDENCE
-- **Sufficiency:** live fwd_20d = **11 aged dates** (need ≥30), all in one ~5-week window
-  (overlapping 20-session windows ⇒ ~1–2 effective obs); fwd_60d = **0**; fwd_5/10d = 18 each.
-  The faithful live ledger began ~2026-05-04 (#133 wiring). → INSUFFICIENT_LIVE_HISTORY.
-- **Rank-IC (LIVE, directional) vs 0.036 floor:** fwd_5d +0.017 (BELOW floor), fwd_10d +0.051
-  (just above), fwd_20d +0.173 mu / +0.014 raw. The +0.176 headline from the existing
-  validator is ~100% SIM-driven (0 live fwd_60d dates).
-- **Trend (fwd_20d, book=8, LIVE):** recall_topk **0.245**, recall_quintile 0.326,
-  recall_gate 0.183; model-top-8 precision **0.75** positive / 0.44 top-tercile.
-- **Gate:** demean `(mu−mean)≥0.03` admits 5.5/54 names/date, **0 admits on 44% of dates**,
-  ~15% of mu>0 names. **Killed-winner decomp: missed_by_model 0.755 vs killed_by_gate 0.209**
-  ⇒ **MODEL is the dominant bottleneck (~3.6×), GATE secondary.**
-- **Staleness:** older IC +0.244 → recent +0.113 (Δ −0.130) — decay sign matches the stale
-  train-cutoff, sample too thin to size.
-- **Highest-leverage move:** improve MODEL trend RANKING via a fresher-data retrain on a
-  multi-day trend label (recall), NOT gate redesign (caps at the 21% slice) nor orthogonal
-  alpha. [VERIFIED — `scripts/research_trend_signal_baseline.py` + `validate_conviction_gate.py`
-  run read-only over `data/runs.alpaca.db` (mtime 2026-06-26 14:07) at 2026-06-27 ~13:10 PDT;
-  5/5 new tests pass.]
+- `scripts/research_trend_signal_baseline.py` run read-only over the ledger 2026-06-27 ~16:27
+  PDT ⇒ `bottleneck_verdict=UNDETERMINED`, `lever_ranking=None`; manifest sha256
+  `731d566f…`, schema_version 138, 351 resolved runs, 235 ambiguous dates rejected.
+- `tests/test_research_trend_signal_baseline.py` — 8/8 pass (incl. a test asserting
+  insufficiency ⇒ UNDETERMINED + no lever ranking, and effective-block sufficiency).
 
 ## NEXT
-Re-run this script once the live ledger ages to ≥30 fwd_20d dates (~mid-Aug-2026) and/or
-faithful per-name PatchTST score history with scorer provenance is wired (#133 follow-through),
-to convert the directional baseline into a validated one and size the retrain lever. No
-production change on this evidence.
+Do NOT prioritize retraining on this evidence. Run the controlled experiments in the research
+doc (N_eff power pre-registration, faithful path replay, on-cohort placebo, controlled paired
+freshness experiment, baseline+event suite) once the live ledger reaches the pre-registered
+N_eff and a faithful PatchTST cohort is wired (#133 follow-through), THEN re-attempt a verdict.
