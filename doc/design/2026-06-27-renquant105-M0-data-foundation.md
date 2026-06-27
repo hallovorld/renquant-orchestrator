@@ -1,7 +1,11 @@
 # renquant105 milestone M0 — data foundation
 
 2026-06-27. Part of the renquant105 suite (master: `…-intraday-system.md`).
-**No model, no trading in M0** — data only.
+**No alpha model, NO LIVE-CAPITAL ORDERS in M0.** M0 owns the data layer **and the calibrated
+cost model** (finding 2). "No order" means **no order that risks live capital**; M0 *does*
+submit **paper / zero-live-risk probes** (paper or randomized shadow orders that never touch
+the live book) to gather H1-representative arrival/quote/fill observations. No scoring, no
+alpha model, no live-capital order.
 
 ## Objective + scope
 Stand up the intraday data layer on a **point-in-time, coverage-gated universe**: select
@@ -10,7 +14,8 @@ cache + features under the **pinned-subrepo ownership model** (no triplication),
 daily full-rebuild to **incremental ingestion**, add a refresh cron, build the
 **session-horizon (open→close) forward-return surface + feature panel**, and fingerprint
 **feed/cost provenance**. Explicitly NOT in scope: any model, any scoring, any order.
-**M0.5 (broker contract)** is a sibling milestone below — also gating, also no orders.
+**M0.5 (broker contract)** is a sibling milestone below — also gating, also no **live-capital**
+orders (paper / zero-live-risk probes only).
 
 ## Requirements
 **Functional:**
@@ -41,9 +46,29 @@ daily full-rebuild to **incremental ingestion**, add a refresh cron, build the
 - F0.6 **Feed/cost provenance fingerprint (finding 5).** For every dataset, persist a
   fingerprint of: feed (IEX vs SIP), subscription tier, venue coverage, adjustment basis,
   bar-construction rule, and retrieval timestamp. **Assert the historical training bars
-  share the live scoring path's IEX-only microstructure**; a mismatch fails M0. Capture a
-  **measured** arrival/quote/fill sample (by ticker × time-of-day × order type) to seed the
-  M1 cost model — the §A `11 bps` is an explicit placeholder this measurement replaces.
+  share the live scoring path's IEX-only microstructure**; a mismatch fails M0.
+- F0.7 **M0 OWNS the CALIBRATED COST MODEL (finding 2 — it is an M0 artifact, not "a sample to
+  seed M1").** M0 captures the measured arrival/quote/fill sample **and fits a calibrated cost
+  estimator**, delivered + accepted in M0 (M1 only *consumes* it; the §A `11 bps` is a
+  placeholder this artifact replaces and must NOT gate H1):
+  - **Stratified estimator:** cost (half-spread + slippage + IEX adverse-selection; impact ≈ 0
+    at this size) estimated **by (ticker × time-of-day bucket × order-type)** stratum.
+  - **Minimum-N per stratum:** a stratum is only "calibrated" once it has ≥ **N_min** measured
+    fills/probes (e.g. N_min ≥ 30 per stratum — pinned in the M0 config, not after seeing data).
+  - **Stratification fallback (thin strata):** when a stratum is below N_min, fall back up a
+    fixed hierarchy (ticker×ToD → ToD-only → universe-wide pooled), recording which level was
+    used per estimate; **fail-closed** (no live-size assumption) for a stratum with no fallback.
+  - **CIs:** every stratum estimate carries a **block-bootstrap CI** (the dependence-aware CI
+    primitive); the cost charged to H1 uses the CI, not a point estimate alone.
+  - **Out-of-sample calibration acceptance:** the estimator is validated **out-of-sample**
+    (held-out probes/fills) — predicted vs realized cost calibration slope ∈ [0.7, 1.3] with a
+    bounded MAE — before it is accepted as the M0 cost artifact.
+  - **H1-representative probes (finding 2):** **104's existing next-open fills alone are NOT
+    representative** of H1's *arbitrary intraday entry + close-exit* policy (next-open is one
+    time-of-day / one order shape). M0 therefore gathers **paper / zero-live-risk probes that
+    span H1's entry timestamps × order types** (paper or randomized shadow orders, never live
+    capital), in addition to mining the existing 104 fills, so the strata that H1 will actually
+    trade are populated.
 **Non-functional:**
 - N0.1 Intraday coverage ≥ **95%** of the as-of universe (no NaN-leaf rows — the original
   calibrator-corruption cause), measured **point-in-time**, not over the full window.
@@ -55,8 +80,11 @@ daily full-rebuild to **incremental ingestion**, add a refresh cron, build the
 frozen + fingerprinted); the base-data-owned incremental ingestion code (one canonical copy
 + a contract test the pipeline imports) + the refresh cron; the **session-horizon forward-
 return surface** + the intraday feature panel parquet; the **feed/cost provenance
-fingerprints** + the measured cost sample; a **data-quality report** (point-in-time
-coverage, freshness, NaN/gap rates per name).
+fingerprints**; **the CALIBRATED COST MODEL ARTIFACT (finding 2)** — the stratified
+(ticker × time-of-day × order-type) cost estimator with per-stratum CIs, the stratification
+fallback table, the minimum-N record, and the out-of-sample calibration report — built from the
+measured arrival/quote/fill sample (existing 104 fills + paper / zero-live-risk H1-representative
+probes); a **data-quality report** (point-in-time coverage, freshness, NaN/gap rates per name).
 
 ## Metrics / KPIs
 | Metric | Definition | Target |
@@ -68,6 +96,10 @@ coverage, freshness, NaN/gap rates per name).
 | Panel completeness | rows present / expected (names × bars × days) | ≥ 99% |
 | Universe-manifest fingerprint | per-date frozen universe hash present | 100% of dates |
 | Feed/cost provenance | feed/tier/venue/adjustment/bar-rule/retrieval fingerprinted | 100% of datasets |
+| Cost-model stratum coverage | strata (ticker×ToD×order-type) at/above N_min (else fallback recorded) | 100% calibrated or fallback-tagged |
+| Cost-model min-N per stratum | measured fills/probes per calibrated stratum | ≥ **N_min** (pinned, e.g. 30) |
+| Cost-model OOS calibration | predicted-vs-realized cost slope (held-out) | slope ∈ **[0.7, 1.3]**, bounded MAE |
+| Cost-model CI present | per-stratum block-bootstrap CI on the cost estimate | 100% of strata |
 
 ## Acceptance criteria (gate to M1)
 Point-in-time coverage ≥ **95%** on the as-of universe; freshness < **2 min** in-session;
@@ -76,10 +108,17 @@ NaN-leaf rate ≈ **0**; panel + session-horizon return surface build clean + pl
 and historical-vs-live IEX microstructure parity asserted; the refresh cron runs idempotently
 for ≥ 5 sessions with 0 duplicate/overlap incidents; ingestion code lands as **one
 base-data-owned copy** with a passing pipeline contract test (no triplication).
+**Cost model (finding 2 — gates M1):** the calibrated stratified cost estimator EXISTS as an M0
+artifact with (a) every traded stratum at/above **N_min** or covered by the recorded fallback
+hierarchy, (b) a **per-stratum block-bootstrap CI**, and (c) an **out-of-sample calibration**
+check passing (slope ∈ [0.7, 1.3], bounded MAE) on H1-representative probes — so M1 consumes a
+*measured* cost model, never the 11 bps placeholder.
 
 ## Expected outcome (预期) + kill condition
 A ~40–60 name **point-in-time** universe and a clean, fresh, incrementally-maintained
-feature panel + session-horizon return surface, with feed/cost provenance fingerprinted.
+feature panel + session-horizon return surface, with feed/cost provenance fingerprinted, **plus
+the calibrated stratified cost-model artifact** (per-stratum CIs + OOS calibration) that M1
+consumes — so the cost gate is measured, not the 11 bps placeholder, before M1 runs.
 **Kill:** if even a liquid subset can't reach ≥95% point-in-time coverage / NaN-free panels
 on IEX, OR the historical bars cannot be shown to share the live IEX microstructure, the
 intraday data foundation is infeasible on the free feed → stop (or re-scope to a SIP feed,
@@ -92,16 +131,20 @@ ingestion primitive + pipeline loader contract (one canonical copy, master §6).
 
 ---
 
-## M0.5 — Broker-contract checkpoint (finding 8; gating; no orders)
+## M0.5 — Broker-contract checkpoint (finding 8; gating; NO LIVE-CAPITAL ORDERS)
 Encode the post-PDT broker contract before any size/leverage assumption is trusted. The
 verified live flags (`pattern_day_trader=False`, `daytrade_count=0`, 4× BP) are NOT proof
 the account is operationally unconstrained — the new regime is real-time intraday-margin
 deficits + broker pre-trade checks, and Alpaca is **deprecating** the old PDT/day-trade fields.
+**"No order" = no live-capital order; the rejection-sequence probes below are PAPER /
+ZERO-LIVE-RISK orders** (paper account or randomized shadow), consistent with M0's
+zero-live-risk probe semantics — they never risk the live book.
 - F0.5.1 Use the **current** `buying_power` / intraday-margin fields (not the deprecated
   PDT/day-trade fields) for every sizing/admissibility decision.
-- F0.5.2 **Test rejection + margin-deficit handling in paper/shadow:** submit order
-  sequences that should be rejected (insufficient BP, margin deficit) and assert the system
-  fails closed (no silent retry, no double-submit) and reconciles.
+- F0.5.2 **Test rejection + margin-deficit handling with PAPER / ZERO-LIVE-RISK probes:**
+  submit order sequences (on the paper account / shadow path, **never live capital**) that
+  should be rejected (insufficient BP, margin deficit) and assert the system fails closed (no
+  silent retry, no double-submit) and reconciles.
 - F0.5.3 Define **leverage caps independent of the broker maximum** (our cap ≤ broker max;
   the broker max is a ceiling, not a target).
 - F0.5.4 **Fail closed on Alpaca API field migration/deprecation:** a missing/renamed field

@@ -117,6 +117,37 @@ def test_net_sharpe_adds_drag():
     assert feas.net_sharpe(0.48, -1.46) == pytest.approx(-0.98)
 
 
+def test_honest_net_sharpe_band_uses_ic_band_only_upper_bound_is_minus_0_98():
+    # finding 6 (Codex round-3): the HONEST net-Sharpe band must be computed over inp.ic_band
+    # ONLY (0.01->0.03). Its UPPER bound = gir(0.03)+drag ~ 0.476 - 1.455 ~ -0.98, NOT -0.66.
+    res = feas.run_feasibility()
+    lo, hi = res.honest_net_sharpe_band
+    assert hi == pytest.approx(-0.98, abs=0.02)     # gir(max(ic_band)=0.03) + drag, NOT IC=0.05
+    assert lo == pytest.approx(-1.30, abs=0.02)     # gir(min(ic_band)=0.01) + drag
+    assert lo < hi < 0.0
+    # the upper bound must NOT have been pulled up to the optimistic IC=0.05 (the round-2 bug)
+    assert hi < -0.8                                  # -0.66 (the IC=0.05 ref) would violate this
+
+
+def test_optimistic_net_sharpe_ref_is_separate_and_is_minus_0_66():
+    # the IC=0.05 reference is reported SEPARATELY, NOT folded into the honest band.
+    res = feas.run_feasibility()
+    assert res.optimistic_net_sharpe_ref == pytest.approx(-0.66, abs=0.02)
+    # it is strictly above (less negative than) the honest band's upper bound
+    assert res.optimistic_net_sharpe_ref > res.honest_net_sharpe_band[1]
+
+
+def test_honest_band_upper_bound_is_a_function_of_ic_band_not_0_05():
+    # a DIFFERENT honest ic_band must move the honest upper bound (proving 0.05 is not baked in)
+    inp = feas.FeasibilityInputs(ic_band=(0.01, 0.015, 0.02))
+    res = feas.run_feasibility(inp)
+    # honest upper now uses max(ic_band)=0.02, strictly worse than the 0.03 default upper bound
+    default_hi = feas.run_feasibility().honest_net_sharpe_band[1]
+    assert res.honest_net_sharpe_band[1] < default_hi
+    # the optimistic IC=0.05 reference is unchanged (it does not depend on ic_band)
+    assert res.optimistic_net_sharpe_ref == pytest.approx(-0.66, abs=0.02)
+
+
 # ---- H1 trading policy: STATEFUL bounded turnover (finding 4) --------------------------
 def test_h1_policy_is_one_round_trip_per_name_per_session():
     pol = feas.H1Policy()
@@ -212,3 +243,10 @@ def test_formatter_prints_undetermined_and_reproduce_command():
     assert "PARAMETRIC PRIORS, NOT MEASUREMENT" in out
     assert "research_intraday_feasibility.py" in out
     assert "125.7" in out  # the corrected break-even dispersion surfaces in the printed table
+    # finding 6: the printed summary must show the HONEST band and the OPTIMISTIC ref DISTINCTLY
+    assert "HONEST NET SHARPE BAND" in out
+    assert "OPTIMISTIC REFERENCE" in out
+    assert "-0.98" in out   # the honest band's UPPER bound (NOT -0.66)
+    assert "-0.66" in out   # the SEPARATE optimistic IC=0.05 reference
+    # the dispersion band is an ASSUMED SENSITIVITY RANGE, not "realistic", until M0 measures it
+    assert "ASSUMED SENSITIVITY RANGE" in out

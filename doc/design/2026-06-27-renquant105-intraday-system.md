@@ -28,8 +28,9 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
     round-trip several times a session swamps any plausible per-trade edge; multi-rebalance
     intraday is rejected outright.
   - **LOW-turnover open→close** (enter once, exit at the close, ≤1 round-trip/name/session)
-    is **marginal-to-plausibly-viable** at a realistic IC (0.03–0.05) and a realistic
-    open→close cross-sectional dispersion (~150–250 bps): there the top pick's gross edge is
+    is **marginal-to-plausibly-viable** at an optimistic IC (0.03–0.05) and an open→close
+    cross-sectional dispersion in the **assumed sensitivity range ~150–250 bps** (a PRIOR
+    until M0 measures it): there the top pick's gross edge is
     **≈ or above** the ~11 bps round-trip cost (e.g. IC 0.05, σ_oc 200 bps → 17.5 bps gross,
     +6.5 bps net). **This is the variant worth MEASURING.**
   Round-trip cost ≈ **11 bps** is a **placeholder** (band 7–17) that M0/M0.5 must replace
@@ -44,13 +45,20 @@ intraday model/GPU, stricter gating). For Codex discussion before any build.
   round-trips — **H2**); (c) intraday **risk management** (sell-only exits on intraday
   signal decay). H2/(c) do not depend on an intraday alpha model clearing the cost hurdle.
 - **GO/NO-GO is quantitative and DEFERRED TO MEASURED DATA (§A.4 / M1).** The §A priors are
-  suggestive, not a license; only an M1 run on **measured** cost+dispersion settles it. Live
-  intraday alpha capital is justified ONLY if M1 *empirically* delivers placebo-clean OOS IC
-  ≥ **0.03** at the open→close horizon AND net-of-cost Sharpe ≥ **1.0** AND a **probabilistic
-  PSR/DSR ≥ 0.95** (Deflated Sharpe per Bailey & López de Prado, fed the full trial universe —
-  §3 / finding 3), over a **power/MinTRL-derived minimum aged sample sized in
-  effective-independent observations** (not a raw date count). **Default outcome = intraday
-  alpha trading stays OFF until measured to clear the bar.**
+  suggestive, not a license; only an M1 run on **measured** cost+dispersion settles it. **The
+  GO bar is measured on the FROZEN H1 POLICY REPLAYED on NESTED outer-fold OOS predictions
+  (finding 1), NOT on a per-row `E[return|score quantile]` mean** — the deployable policy is a
+  stateful admission path (first-passage gate selection at closed-bar boundaries, session entry
+  cap, no-reentry, barrier exits, exhausted top-k capacity), and a per-row quantile mean can
+  PASS while the deployable policy LOSES. The quantile mapping is **diagnostic-only**. Live
+  intraday alpha capital is justified ONLY if M1's **policy replay** *empirically* delivers
+  placebo-clean OOS IC ≥ **0.03** at the open→close horizon AND net-of-cost Sharpe ≥ **1.0**
+  (cost charged from the realized stateful path) AND a **probabilistic PSR/DSR ≥ 0.95**
+  (Deflated Sharpe per Bailey & López de Prado, fed the full trial universe — §3 / finding 3),
+  over a **power/MinTRL-derived minimum aged sample sized in effective-independent
+  observations** (not a raw date count), with **replay/live parity contract tests** green
+  (timestamps, session cap, no-reentry, barrier exits, cost charging all match). **Default
+  outcome = intraday alpha trading stays OFF until measured to clear the bar.**
 - **HARD DEFAULT (operator mandate): live intraday TRADING IS DISABLED at the
   start.** `intraday_buys_enabled=false` (and intraday live orders off) is the
   fail-closed default. Phases 0–2 place **zero live intraday orders** — they only
@@ -85,8 +93,10 @@ coefficient** under Gaussian assumptions (standardized scores/returns, a stable 
 conditional mean). That is suggestive **scenario arithmetic, NOT an accounting identity**, and
 it **cannot "demonstrate" a verdict**. The script holds **no measured sample** (its
 block-bootstrap CI is wired for use *once* a measured sample exists). **Feasibility is
-therefore UNDETERMINED — only M0/M1 measured OOS data settles it** (a purged-OOS
-`E[return | score quantile]` on a measured cost model, deferred to M1; finding 3). Reproduce:
+therefore UNDETERMINED — only M0/M1 measured OOS data settles it** (the FROZEN H1 POLICY
+replayed on nested outer-fold OOS predictions on a measured cost model, deferred to M1 —
+finding 1; the purged-OOS `E[return | score quantile]` mapping is a *diagnostic* lens, not the
+GO estimand). Reproduce:
 
 ```
 /Users/renhao/git/github/RenQuant/.venv/bin/python scripts/research_intraday_feasibility.py
@@ -121,8 +131,9 @@ open→close policy the edge uses `σ_oc` **directly — NO √78 scaling**:
 | 0.03 | 10.50 bps | −11 | −0.50 | ≈ break-even |
 | 0.05 | 17.50 bps | −11 | **+6.50** | **YES** |
 
-→ at a realistic open→close dispersion (~200 bps) and IC 0.03–0.05 the top pick's gross edge
-is **≈ or above** the ~11 bps round-trip cost. **NOT "underwater ~10×".** The round-1 ~1 bp /
+→ at an open→close dispersion in the **assumed sensitivity range** (~200 bps, a PRIOR) and IC
+0.03–0.05 the top pick's gross edge is **≈ or above** the ~11 bps round-trip cost. **NOT
+"underwater ~10×".** The round-1 ~1 bp /
 "0 of 36" result was the unit bug; corrected, the open→close variant is **marginal-to-viable**.
 
 **A.2b Required open→close dispersion to clear cost** (`required_dispersion_to_clear_bps`).
@@ -159,16 +170,21 @@ book = **1.0 book turnover/day**, NOT a `rebalances_per_day=1` assertion nor 4×
 | **PRIMARY open→close** (1 rotation) | 1.0 | **−1.46** |
 | rejected intra-session churn | 1.5 | −2.18 |
 
-→ the FL net-Sharpe band ≈ **−1.3 to −0.66** over the honest IC band. This is the
-**more pessimistic lens** (it charges a full rotation's cost against the *honest-band* IR;
-at the 0.05 reference the IR 0.79 roughly offsets the −1.46 drag). The cleaner per-trade test
-(A.2) clears cost at IC 0.05/σ_oc 200. **Both agree the open→close variant is MARGINAL —
-UNDETERMINED, worth MEASURING — not refuted; and high-frequency churn is rejected.** A
-live-capital GO requires M1 to clear ALL of the pre-registered bar (placebo-clean OOS IC, net
-Sharpe ≥1.0, **PSR/DSR probability ≥0.95**, PBO <20%, net-PnL block-bootstrap 95% CI lower
-bound >0) over a **power/MinTRL-derived minimum aged sample** (finding 3) on **measured**
-cost+dispersion (finding 5). **Prior = UNDETERMINED (marginal); default = intraday alpha OFF
-until measured to clear the bar.**
+→ the **HONEST FL net-Sharpe band ≈ −1.30 to −0.98** is computed over the **honest IC band
+(0.01–0.03) ONLY** (its upper bound = gross-IR(0.03) + drag ≈ 0.476 − 1.455 ≈ **−0.98**). The
+**−0.66** figure is a **SEPARATE OPTIMISTIC REFERENCE** for IC=0.05 (gross-IR 0.79 roughly
+offsetting the −1.46 drag) — it is **NOT** the honest band's upper bound (the round-2 script
+bug, finding 6, pulled the band's upper bound up to the IC=0.05 reference; that is corrected —
+the two are now reported distinctly in code, tests, and here). This FL lens is the **more
+pessimistic** one (it charges a full rotation's cost against the *honest-band* IR); the cleaner
+per-trade test (A.2) clears cost only at the **optimistic** IC 0.05 / σ_oc 200. **Both agree the
+open→close variant is MARGINAL — UNDETERMINED, worth MEASURING — not refuted; and high-frequency
+churn is rejected.** A live-capital GO requires M1 to clear ALL of the pre-registered bar **on
+the FROZEN H1 POLICY REPLAY** (finding 1 — not a per-row quantile mean): placebo-clean OOS IC,
+net Sharpe ≥1.0, **PSR/DSR probability ≥0.95**, PBO <20%, net-PnL block-bootstrap 95% CI lower
+bound >0, over a **power/MinTRL-derived minimum aged sample** (finding 3) on **measured**
+cost+dispersion (finding 5), with **replay/live parity** contract tests green. **Prior =
+UNDETERMINED (marginal); default = intraday alpha OFF until measured to clear the bar.**
 
 ## 1. We are NOT starting from zero (the big de-risk)
 The intraday subsystem is **already built and parked** (disabled 2026-05-04), not
@@ -362,11 +378,15 @@ charge cost from THIS stateful policy, never `rebalances_per_day=1` by assertion
   point-in-time, coverage-gated universe (finding 4); re-enable intraday cache +
   `hourly/minute` features; incremental ingestion (base-data-owned) + refresh cron; the
   **session-horizon (open→close) forward-return surface**; feed/cost fingerprints. **M0 also
-  CAPTURES the measured arrival/quote/fill sample AND CALIBRATES the cost model** (from the
-  existing 104 fills + paper-order probes with explicit no-live-risk semantics), with a
-  defined minimum sample by ticker × time-of-day × order type + a CI requirement — so the
-  measured cost model is an M0 artifact that **exists before M1 gates on it** (the 11 bps
-  placeholder cannot gate H1). (No alpha model in M0.)
+  CAPTURES the measured arrival/quote/fill sample AND CALIBRATES + OWNS the cost model**
+  (finding 2 — a stratified ticker × time-of-day × order-type estimator with a **minimum-N per
+  stratum**, a **stratification fallback** for thin strata, **per-stratum CIs**, and an
+  **out-of-sample calibration** acceptance check), built from the existing 104 fills **plus
+  paper / zero-live-risk H1-representative probes** (104's next-open fills alone are **not**
+  representative of H1's arbitrary intraday entry + close-exit policy). "No order" in M0 means
+  **no live-capital order**; the probes are paper/shadow. The calibrated cost model is an M0
+  artifact that **exists before M1 gates on it** (the 11 bps placeholder cannot gate H1). (No
+  alpha model in M0.)
 - **M0.5 — Broker contract (finding 8):** encode the post-PDT broker contract before any
   size assumption — use current `buying_power`/intraday-margin fields, test rejection +
   margin-deficit handling in paper/shadow, define **leverage caps independent of the

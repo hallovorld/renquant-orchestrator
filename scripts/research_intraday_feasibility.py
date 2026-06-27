@@ -18,9 +18,10 @@ Consequently the verdict this script can produce is **UNDETERMINED / SUGGESTIVE*
   *unfavorable*: paying ~11 bps round-trip several times a session swamps any plausible
   per-trade edge — the cost drag alone is catastrophic.
 * **LOW-turnover open->close** (enter once, exit at the close, <=1 round trip/name/session)
-  is *marginal-to-plausibly-viable* at a realistic IC (0.03-0.05) and a realistic
-  open->close cross-sectional dispersion (~150-250 bps): there gross edge is on the order
-  of, or above, the ~11 bps round-trip cost. **This is the variant worth MEASURING.**
+  is *marginal-to-plausibly-viable* at an optimistic IC (0.03-0.05) and an open->close
+  cross-sectional dispersion in the **ASSUMED SENSITIVITY RANGE ~150-250 bps** (a PRIOR until
+  M0 measures it): there gross edge is on the order of, or above, the ~11 bps round-trip cost.
+  **This is the variant worth MEASURING.**
 
 Only M0/M1 **measured** OOS data (a purged-OOS ``E[return | score quantile]`` estimate on
 a measured cost model) can settle feasibility. This script's job is to (a) correct the
@@ -39,7 +40,8 @@ This version splits the two parameters explicitly:
 
 * ``sigma_xs_5m_bps``        -- cross-sectional dispersion over ONE 5-minute bar (~25 bps);
 * ``sigma_xs_open_close_bps``-- cross-sectional dispersion over the WHOLE open->close session
-  (assumption band ~150-250 bps for liquid large caps; to be replaced by an M0 MEASURED value).
+  (ASSUMED SENSITIVITY RANGE ~150-250 bps for liquid large caps; a PRIOR, to be replaced by an
+  M0 MEASURED value -- NOT called "realistic" until measured).
 
 For the **open->close policy** the edge is computed DIRECTLY from
 ``sigma_xs_open_close_bps`` with **no sqrt(78) scaling** -- the dispersion is already at the
@@ -156,11 +158,12 @@ def required_dispersion_to_clear_bps(rt_cost_bps: float, ic: float, factor: floa
         sigma_oc >= (k * RT) / (ic * factor)
 
     At ``ic=0.05, factor=1.75, RT=11, k=1`` this is ``11/(0.05*1.75) = 125.7 bps`` -- i.e.
-    an open->close dispersion of ~126 bps already clears break-even at IC 0.05, and a
-    plausible measured open->close dispersion (~150-250 bps) clears it with margin. (This
+    an open->close dispersion of ~126 bps already clears break-even at IC 0.05, and the
+    ASSUMED SENSITIVITY RANGE (~150-250 bps, a PRIOR) clears it with margin. (This
     REPLACES the round-1 "cost-clearing horizon in bars" framing, which mis-scaled a 5-min
     dispersion across 78 bars. The relevant question is not "how many bars to hold" but
-    "is the SINGLE open->close dispersion large enough" -- and at realistic levels it is.)
+    "is the SINGLE open->close dispersion large enough" -- and across the assumed range it is,
+    PENDING the M0 measurement.)
     bps in, bps out.
     """
     return (k * rt_cost_bps) / (ic * factor)
@@ -351,7 +354,8 @@ class FeasibilityResult:
     impact_bps: float
     edge_table: list[dict] = field(default_factory=list)         # per-IC open->close edge
     required_dispersion_table: list[dict] = field(default_factory=list)
-    net_sharpe_band: tuple[float, float] = (0.0, 0.0)
+    honest_net_sharpe_band: tuple[float, float] = (0.0, 0.0)   # over ic_band ONLY (0.01->0.03)
+    optimistic_net_sharpe_ref: float = 0.0                     # IC=0.05 reference, NOT the band
     drag_open_close: float = 0.0
     drag_churn: float = 0.0
     sensitivity: list[dict] = field(default_factory=list)
@@ -404,11 +408,17 @@ def run_feasibility(inp: FeasibilityInputs | None = None) -> FeasibilityResult:
     drag_open_close = cost_drag_sharpe(rt, oc_book_turnover, 1.0, inp.daily_return_vol)
     churn_book_turnover = inp.churn_round_trips_per_day * inp.book_turnover_per_round_trip
     drag_churn = cost_drag_sharpe(rt, churn_book_turnover, 1.0, inp.daily_return_vol)
-    net_lo = net_sharpe(fundamental_law_gross_ir(min(inp.ic_band), breadth, inp.transfer_coeff),
-                        drag_open_close)
-    net_hi = net_sharpe(fundamental_law_gross_ir(max((*inp.ic_band, 0.05)), breadth, inp.transfer_coeff),
-                        drag_open_close)
-    net_band = (round(net_lo, 2), round(net_hi, 2))
+    # finding 6 (Codex round-3): the HONEST net-Sharpe band is over the honest IC band ONLY
+    # (min->max of inp.ic_band = 0.01->0.03). The optimistic IC=0.05 is a SEPARATE reference,
+    # NOT part of the honest band -- pulling the band's upper bound up to IC=0.05 (the round-2
+    # `max((*ic_band, 0.05))` bug) overstated it as -0.66 when the honest upper bound is ~-0.98.
+    honest_lo = net_sharpe(fundamental_law_gross_ir(min(inp.ic_band), breadth, inp.transfer_coeff),
+                           drag_open_close)
+    honest_hi = net_sharpe(fundamental_law_gross_ir(max(inp.ic_band), breadth, inp.transfer_coeff),
+                           drag_open_close)
+    honest_band = (round(honest_lo, 2), round(honest_hi, 2))    # ~(-1.30, -0.98)
+    optimistic_ref = round(net_sharpe(
+        fundamental_law_gross_ir(0.05, breadth, inp.transfer_coeff), drag_open_close), 2)  # ~-0.66
 
     # sensitivity grid: IC x sigma_OPEN_CLOSE x RT -> net open->close edge sign.
     # The grid sweeps the PLAUSIBLE MEASURED open->close dispersion range (finding 1).
@@ -437,7 +447,8 @@ def run_feasibility(inp: FeasibilityInputs | None = None) -> FeasibilityResult:
 
     return FeasibilityResult(
         inputs=inp, rt_cost_bps=rt, impact_bps=impact, edge_table=edge_table,
-        required_dispersion_table=required_dispersion_table, net_sharpe_band=net_band,
+        required_dispersion_table=required_dispersion_table,
+        honest_net_sharpe_band=honest_band, optimistic_net_sharpe_ref=optimistic_ref,
         drag_open_close=round(drag_open_close, 2), drag_churn=round(drag_churn, 2),
         sensitivity=sensitivity, n_positive_cells=n_pos, n_cells=len(sensitivity),
         verdict=verdict)
@@ -474,9 +485,10 @@ def _fmt(res: FeasibilityResult) -> str:
         L.append(f"  {c['ic']:<5}  {c['gross_edge_bps']:8.2f}  {c['net_edge_bps']:9.2f}    "
                  f"{'YES' if c['clears_break_even'] else 'no':<10} "
                  f"{'YES' if c['clears_hurdle'] else 'no'}")
-    L.append("  => at a realistic open->close dispersion (~200 bps) and IC 0.03-0.05 the top")
-    L.append("     pick's gross edge is ON THE ORDER OF, OR ABOVE, the ~11 bps round-trip cost.")
-    L.append("     This is the LOW-turnover variant worth MEASURING -- the verdict is UNDETERMINED.")
+    L.append("  => at an open->close dispersion in the ASSUMED SENSITIVITY RANGE (~200 bps; PRIOR)")
+    L.append("     and IC 0.03-0.05 the top pick's gross edge is ON THE ORDER OF, OR ABOVE, the")
+    L.append("     ~11 bps round-trip cost. This is the LOW-turnover variant worth MEASURING --")
+    L.append("     the verdict is UNDETERMINED (the dispersion level is a PRIOR until M0 measures).")
     L.append("")
     L.append("A.2b Required open->close dispersion to clear cost (sigma_oc >= k*RT/(IC*factor))")
     L.append("  IC     k       req_dispersion   measured-prior(%g bps) clears?"
@@ -485,7 +497,7 @@ def _fmt(res: FeasibilityResult) -> str:
         L.append(f"  {r['ic']:<5}  {r['k']:<5}  {r['req_dispersion_bps']:9.1f} bps      "
                  f"{'YES' if r['measured_prior_clears'] else 'no'}")
     L.append("  (e.g. break-even at IC=0.05 needs only ~126 bps of open->close dispersion --")
-    L.append("   well inside the plausible 150-250 bps band. The round-1 'multi-day hold'")
+    L.append("   inside the ASSUMED SENSITIVITY RANGE 150-250 bps (a PRIOR). The round-1 'multi-day hold'")
     L.append("   conclusion was an ARTIFACT of mis-scaling a 5-min dispersion across 78 bars.)")
     L.append("")
     L.append("A.4 Net Sharpe (Fundamental Law +/- cost drag)  [PRIOR]")
@@ -502,15 +514,19 @@ def _fmt(res: FeasibilityResult) -> str:
              f" book/name = {oc_turn:g} book turnover/day, one rotation): {res.drag_open_close:.2f}")
     L.append(f"    REJECTED intra-session churn ({inp.churn_round_trips_per_day:.0f} round-trips/day): "
              f"{res.drag_churn:.2f}")
-    L.append(f"  => NET SHARPE BAND at the PRIMARY open->close policy: "
-             f"{res.net_sharpe_band[0]} to {res.net_sharpe_band[1]} "
-             f"(centered {'POSITIVE' if sum(res.net_sharpe_band)/2>0 else 'NEGATIVE'})")
+    L.append(f"  => HONEST NET SHARPE BAND (HONEST IC band {inp.ic_band} ONLY): "
+             f"{res.honest_net_sharpe_band[0]} to {res.honest_net_sharpe_band[1]} "
+             f"(both NEGATIVE)")
+    L.append(f"     OPTIMISTIC REFERENCE (IC=0.05, NOT part of the honest band): "
+             f"{res.optimistic_net_sharpe_ref}")
     L.append("    NOTE: this FL band is the MORE PESSIMISTIC lens -- it charges a full book")
-    L.append("    rotation's cost against the transferred IR over the HONEST IC band (0.01-0.03);")
-    L.append("    at the 0.05 reference IC the transferred IR (0.79) roughly offsets the -1.46")
-    L.append("    drag. The per-trade A.2 edge (which CLEARS cost at IC 0.05 / sigma_oc~200) is")
-    L.append("    the cleaner test. Both agree the variant is MARGINAL (UNDETERMINED, not refuted),")
-    L.append("    and that high-frequency CHURN (its drag alone catastrophic) is rejected.")
+    L.append("    rotation's cost against the transferred IR. The HONEST band uses ONLY the honest")
+    L.append("    IC band (0.01-0.03), so its UPPER bound is gir(0.03)+drag ~ 0.476-1.455 ~ -0.98;")
+    L.append("    the -0.66 figure is the SEPARATE optimistic IC=0.05 reference (gir 0.79 roughly")
+    L.append("    offsetting the -1.46 drag), NOT the band's upper bound. The per-trade A.2 edge")
+    L.append("    (which CLEARS cost only at the OPTIMISTIC IC 0.05 / sigma_oc~200) is the cleaner")
+    L.append("    test. Both lenses agree the variant is MARGINAL (UNDETERMINED, not refuted), and")
+    L.append("    that high-frequency CHURN (its drag alone catastrophic) is rejected.")
     L.append("")
     L.append("A.3 Sensitivity grid (net open->close edge sign; IC x sigma_OPEN_CLOSE x RT)")
     L.append(f"  {res.n_positive_cells}/{res.n_cells} cells have POSITIVE net open->close edge.")
@@ -529,8 +545,9 @@ def _fmt(res: FeasibilityResult) -> str:
     L.append("  * HIGH-frequency churn (many round-trips/session): UNFAVORABLE -- cost drag swamps")
     L.append("    any plausible per-trade edge; multi-rebalance intraday is rejected outright.")
     L.append("  * LOW-turnover OPEN->CLOSE (<=1 round-trip/name/session): MARGINAL-TO-PLAUSIBLY-")
-    L.append("    VIABLE at IC 0.03-0.05 and a realistic ~150-250 bps open->close dispersion --")
-    L.append("    gross edge is ~= or > the ~11 bps cost. This is a SUGGESTIVE PRIOR, NOT proof.")
+    L.append("    VIABLE at IC 0.03-0.05 and an open->close dispersion in the ASSUMED SENSITIVITY")
+    L.append("    RANGE ~150-250 bps (a PRIOR until M0 measures it) -- gross edge is ~= or > the")
+    L.append("    ~11 bps cost. This is a SUGGESTIVE PRIOR, NOT proof.")
     L.append("  FEASIBILITY IS UNDETERMINED. Only M1 MEASURED OOS data on a MEASURED cost model")
     L.append("  (purged-OOS E[return|score quantile]) can settle it. A live-capital GO requires")
     L.append("  M1 to clear the pre-registered bar (placebo-clean OOS IC + net Sharpe +")

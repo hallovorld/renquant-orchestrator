@@ -129,7 +129,7 @@ Mapped to live tasks in `kernel/pipeline/task_gates.py`, aggregated by `GateRegi
 |---|---|---|---|---|---|---|---|---|---|
 | F37 ⚠ | **Cron overlap → duplicate orders** | two cycles submit the same intent | **no run-lock**; launchd assumed single-exec; a slow cycle overlaps the next 30-min fire | 5 | 4 | 4 | **80** | none (launchd only); per-run timestamped dirs reduce *artifact* collision but not order collision | **[105-BLOCKER]** flock-based run-lock keyed on `trading_date+window`; second fire exits immediately; combined with F29 idempotency |
 | F38 ⚠ | **Clock / timezone / session-boundary error** | run on wrong session; day-roll at midnight Pacific not NYSE | 217 naive time sources repo-wide (intraday roadmap §4 P0.3); machine is Pacific | 5 | 3 | 4 | **60** | `live/clock.py` provides DST-proof `trading_date`/`ny_now`; `deadman_check` RTH uses NYSE calendar | **[105-BLOCKER]** route *all* session math through `live.clock`; CI lint bans naive `datetime.now()`/`date.today()` in 105 paths; DST-transition test (2026-11-01) |
-| F39 ⚠ | **Watchdog/process hang** mid-session | frozen, no exits | hung process | 5 | 2 | 2 | 20 | `deadman_check.py` (P0.5): heartbeat > 180s stale during RTH → writes the durable halt marker (legacy TRADING_OFF maps to **`FULL_HALT`** under the 105 state machine); never auto-clears | keep; heartbeat from the 105 loop; 5-min launchd cadence → **`FULL_HALT`** (liveness failure: the decision loop is dead, so even exits can't be trusted); never auto-clears |
+| F39 ⚠ | **Watchdog/process hang** mid-session | frozen, no exits | hung process | 5 | 2 | 2 | 20 | `deadman_check.py` (P0.5): heartbeat > 180s stale during RTH → writes the durable halt marker (legacy TRADING_OFF maps to **`FULL_HALT`** under the 105 state machine); never auto-clears | **A DEAD decision loop CANNOT cancel/flatten itself (finding 5).** The cancel/flatten on `FULL_HALT` is performed by an **out-of-process supervisor** (`deadman_check.py` as a separate launchd job) and/or **broker-side bracket/OCO + account-level controls** — NOT an action the dead loop runs. The supervisor verifies the account first (F31 credential/account guard), then issues **idempotent** cancels (deterministic `client_order_id`, F29); existing positions are held under **broker-side protective brackets** while exits are paused (§3.2). Heartbeat from the 105 loop; 5-min launchd cadence; never auto-clears |
 | F40 | Early-close / half-day mis-handling | run after close | holiday calendar | 3 | 2 | 2 | 12 | `_is_nyse_trading_day` + RTH window in `deadman`/`clock` | session windows from NYSE calendar; no fixed 16:00 assumption |
 
 **Top RPN / S=5 action list (the "不靠谱交易" hot-list):**
@@ -203,7 +203,7 @@ restrictions):
 
 | State | New buys | Reduce-only / exits | Cancel open orders | Trigger(s) | Recovery authority |
 |---|---|---|---|---|---|
-| **`FULL_HALT`** | ✗ | ✗ (order-state/account-identity integrity emergency ONLY) | ✓ | unreconciled broker state (F30), wrong-account (F31), decision-loop dead / heartbeat-stale (F39) — i.e. order state or identity is untrustworthy. **NOT a drawdown breach.** | operator only (out-of-band marker, never auto-clears) |
+| **`FULL_HALT`** | ✗ | ✗ (order-state/account-identity integrity emergency ONLY) | ✓ **by the OUT-OF-PROCESS supervisor / broker-side, NOT the dead loop** (§3.9) | unreconciled broker state (F30), wrong-account (F31), decision-loop dead / heartbeat-stale (F39) — i.e. order state or identity is untrustworthy. **NOT a drawdown breach.** | operator only (out-of-band marker, never auto-clears) |
 | **`CANCEL_OPEN_ORDERS`** | ✗ | ✓ | ✓ | feed/broker disagreement, stale-but-recoverable | auto-recover when inputs healthy + operator ack |
 | **`NO_NEW_RISK`** | ✗ | **✓ (exits ALLOWED)** | ✓ | **daily-loss breaker (§3.3)**, drawdown skip, **deep drawdown `dd < −20%` → `NO_NEW_RISK` + controlled flatten / reduce-only via the protective-sell path (§3.3 `≤ −L_flatten`)**, feed UNHEALTHY / data-health double-failure (F2), intra-session decay | auto-clear on the next clean session OR operator |
 | **`NORMAL`** | ✓ (if all gates pass) | ✓ | ✓ | — | — |
@@ -295,6 +295,40 @@ pattern* because it is the right shape for "prevent the bad trade before it leav
 No git operations on the live tree; no overwriting canonical prod data paths;
 experiments in worktrees/separate files. (Carried from operating-model memory.)
 
+### 3.9 FULL_HALT is a REAL fail-safe MECHANISM, not an intent (finding 5, Codex round-3)
+The state table says "cancel open orders on `FULL_HALT`", but `FULL_HALT`'s triggers include a
+**dead decision loop** (F39 heartbeat-stale) — **a dead process cannot cancel or flatten
+anything it itself would have to run**. So the cancel/flatten action MUST live **outside the
+decision loop**. This subsection distinguishes the *intent* ("no orders should rest, exits are
+paused") from the **mechanism** that actually enforces it when the loop is dead.
+
+- **Out-of-process supervisor (survives a dead loop).** `deadman_check.py` runs as a
+  **separate launchd job** (its own process, its own 5-min cadence) that does NOT depend on the
+  decision loop being alive. On heartbeat-stale / `FULL_HALT`, the supervisor — not the loop —
+  is what writes the durable marker and (after the account guard below) issues cancels.
+- **Broker-side bracket / OCO + account-level control (survives the whole machine dying).**
+  Resting risk is bounded **at the broker**, not only in our process: every live entry carries
+  a **broker-side protective bracket / OCO** (a stop + an optional take-profit attached to the
+  position at submit time) and, where available, an **account-level kill / "liquidate-only"**
+  broker control. If our machine dies entirely, the broker's bracket is the last line — our
+  process is not the only thing standing between a position and a loss.
+- **Credential / account guard BEFORE any cancellation (independent, account-verified path).**
+  Before the supervisor cancels anything it **independently re-verifies the account identity**
+  (`RENQUANT_EXPECTED_LIVE_ACCOUNT` hard match, F31) against a freshly-fetched broker account
+  id — a wrong-account / unreconciled state must NOT cancel the **wrong** account's orders. If
+  the account cannot be verified, the supervisor escalates to operator and does **nothing**
+  (fail-closed), rather than cancelling blind.
+- **Idempotent cancellation.** Cancels are keyed by the deterministic `client_order_id` (F29)
+  and are **idempotent**: a re-issued cancel for an already-cancelled/filled order is a no-op,
+  so a supervisor retry (or an overlapping operator action) cannot double-act or thrash.
+- **What happens to existing POSITIONS while exits are paused.** Under `FULL_HALT` our process
+  places **no new exits** (order state is untrustworthy — a new exit on a disputed state could
+  be wrong). Positions are NOT left bare: they remain covered by the **broker-side protective
+  bracket/OCO** placed at entry. The operator then reconciles `live_state` against broker truth
+  (F30) and clears the marker; only after reconciliation do in-process exits resume. So
+  "exits paused" means *our* discretionary exits pause, while the **broker-side stop still
+  protects the position** — the fail-safe is real, not merely declared.
+
 ---
 
 ## 4. Decision reliability (not just uptime)
@@ -349,7 +383,7 @@ the ledger+forward-return audit flags as a clear killed-loser-inverse).
 | **Stale-price trades** | **0** (hard) | F1/F20 bar-age gate; fail-closed |
 | **FP-trade rate** | **≤ 0.5%** of orders | §4.4; nonzero worst-class ⇒ halt |
 | **Bar freshness at decision** | ≥ 99% of cycles use a bar ≤ 1.5× interval old | feed monitor; else degrade |
-| **Decision-loop liveness** | heartbeat ≤ 180 s during RTH | `deadman_check` → `FULL_HALT` (liveness failure; F39) |
+| **Decision-loop liveness** | heartbeat ≤ 180 s during RTH | the **out-of-process** `deadman_check` supervisor (separate process) → `FULL_HALT` + broker-side bracket protects positions (liveness failure; F39/§3.9) — a dead loop cannot self-cancel |
 | **Order reconciliation** | 100% of submits reconciled to broker truth ≤ 60 s | F30 reconcile loop |
 | **Daily-loss breaker** | trips to **`NO_NEW_RISK`** (exits allowed) within 1 cycle of **−5%** session P&L | §3.3 (consistent −5% across FMEA/metrics/M2/M3) |
 | **Feed availability (decision-grade)** | ≥ 99.5% of RTH minutes | WS heartbeat + REST fallback |
@@ -375,6 +409,12 @@ Before 105 is live-armed, all must exist + be shadow-validated:
 6. **Intraday `config_fingerprint`** + preflight feature-space match (F12/F14/F16).
 7. **Marketable-limit + slippage band** instead of raw market orders (F32).
 8. **Order reconcile loop** → UNRECONCILED ⇒ `FULL_HALT` (F30).
+8b. **Out-of-process `FULL_HALT` fail-safe MECHANISM** (finding 5, §3.9): the cancel/flatten is
+    executed by the **separate `deadman_check` supervisor process and/or broker-side
+    bracket/OCO** (NOT the dead decision loop), behind an **independent account-verified guard**
+    (F31) with **idempotent** cancels (F29); positions stay covered by the broker-side bracket
+    while in-process exits are paused. A `FULL_HALT` whose cancel depends on the dead loop is not
+    a fail-safe.
 9. **Gate-independence matrix + placebo CI** + FP-trade SLO meter (§4).
 10. **Kill-switch state machine** (`FULL_HALT`/`CANCEL_OPEN_ORDERS`/`NO_NEW_RISK`) with the
     daily-loss breaker mapped to `NO_NEW_RISK` (§3.2, finding 7).

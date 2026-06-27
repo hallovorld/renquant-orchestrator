@@ -48,28 +48,71 @@ order-intent + fill record and on arrival-price capture.
   policy deadline is marked-to the **session-close** price and the residual shortfall booked
   as opportunity cost; a partial fill books filled-IS on the filled qty + opportunity cost on
   the remainder. Fill rate and opportunity cost are first-class metrics, not footnotes.
-- H2.4 **Paired-block inference (finding 6).** The **same** intent priced under each policy is
-  a **matched pair**; analyse the **IS difference** (policy − baseline) per intent, blocked by
-  **session (or week)** to respect intraday + same-time-of-day autocorrelation. Report a
-  **block-bootstrap 95% CI on the mean IS difference** (Kunsch moving-block). The sample bar
-  is in **effective-independent observations** (block scheme), **not** raw order counts.
-  Apply a **multiplicity correction** across the pre-registered policy set (the comparison is
-  over K policies, so deflate the per-policy significance accordingly).
+- H2.4 **Paired-block inference + PRE-REGISTERED power/family-wise alpha (finding 3/round-3).**
+  The **same** intent priced under each policy is a **matched pair**; analyse the **IS
+  difference** (policy − baseline) per intent. **Block rule (FIXED, not post-hoc):** block =
+  **calendar session** (one trading day) — the choice is pinned by this design (session, not
+  week) because the binding dependence is intraday + same-time-of-day autocorrelation within a
+  day; a week-block fallback is used **only** if the per-session sample is below the
+  pre-registered min and is recorded as such, never selected by which gives significance.
+  Report a **block-bootstrap 95% CI on the mean IS difference** (Kunsch moving-block) over
+  **effective-independent observations** (block scheme), **not** raw order counts.
+  - **Family-wise alpha + multiple-comparison correction (PINNED):** the comparison is over the
+    **K pre-registered timing policies** (TWAP / VWAP / marketable-limit / wait-for-spread).
+    Control the **family-wise error rate at α_FWER = 0.05** via a fixed correction (Holm–
+    Bonferroni over the K policies, or the studentised max-statistic on the paired-block
+    bootstrap) — pinned before any run, so a policy "wins" only after the multiplicity haircut.
+  - **Power against a minimum economically-meaningful IS improvement (PINNED):** the experiment
+    is powered (1−β = 0.80, α_FWER = 0.05) to detect a **minimum economically-meaningful IS
+    reduction** (e.g. ≥ **2 bps** per intent — pinned, the smallest reduction worth changing
+    execution for), using the paired-difference variance; the required effective-N per policy is
+    pre-registered, with the same **underpowered → do-not-run / re-scope** fallback as M1 (F1.7).
 - H2.5 **Intraday risk-exit leg (sell-only, kill-state-aware).** Define explicit protective
   exits on intraday signal decay / σ-scaled stop for the existing book. These are **exits
   only** — they create no new positions and never re-enter. They map to `NO_NEW_RISK` /
   `CANCEL_OPEN_ORDERS` (master reliability §3.2): exits remain ALLOWED when buys are halted;
   `FULL_HALT` (broker/account-integrity only) is the sole state that also pauses exits.
+- H2.6 **Counterfactual fills are NOT observable from bars + one factual fill — a CONSERVATIVE
+  FILL MODEL is REQUIRED (finding 4, Codex round-3).** The per-intent record (NBBO arrival mid
+  + IEX bars + the realized baseline fill) does **NOT** determine the counterfactual TWAP / VWAP
+  / marketable-limit / wait-for-spread outcomes: it does not give **queue position**,
+  **partial-fill probability**, the **executable NBBO path**, or **counterfactual market
+  impact**. Opportunity-cost marking (H2.3) corrects one bias but does not make the
+  counterfactual fills observable. Therefore H2 requires:
+  - **Quote/trade-level replay + a conservative fill model.** Replay each candidate policy
+    against the **quote/trade tape** (not just OHLC bars), with a fill model that is
+    **queue-position aware** (a limit at the NBBO is filled only after the resting queue ahead
+    clears), models **partial-fill probability**, walks the **executable NBBO path** (marketable
+    limits cross to the executable side; passive limits depend on the touch), and charges a
+    **conservative market-impact** term. "Conservative" = biased AGAINST the policy (lower fill
+    rate / worse price than the optimistic mid) so a promotion is not a simulator artifact.
+  - **Calibrate the fill model on randomized / paper shadow orders.** Fit the queue/partial/
+    impact parameters on **paper or randomized shadow orders** (zero live capital) placed across
+    H1/H2-representative times and order shapes — the same zero-live-risk probe discipline as M0.
+  - **Validate predicted fill/slippage OUT-OF-SAMPLE.** On held-out probes, the model's
+    predicted fill rate + realized slippage must match the measured outcomes within a bounded
+    error (calibration slope ∈ [0.7, 1.3]) before the fill model is used in the comparison.
+  - **Propagate fill-model UNCERTAINTY into the paired CI (H2.4).** The fill model's parameter
+    uncertainty is carried through into the paired-block bootstrap (e.g. resample fill-model
+    draws jointly with the block bootstrap), so the IS-difference CI reflects fill uncertainty,
+    not just sampling noise.
+  - **KILL/GUARD (gating):** if counterfactual fills are **not identified out-of-sample** (the
+    fill model fails its OOS calibration, or its uncertainty makes the IS-difference CI lower
+    bound ≤ 0), **H2 does NOT promote** any timing policy — promoting on an unvalidated fill
+    model would be promoting a **simulator artifact**. Keep the baseline next-open execution.
 **Non-functional:** reproducible; shadow-first (measured on 104's **real** intents in
 replay/shadow before any live timing change); deseasonalized for the intraday U-shape;
 all metrics **net of the M0-measured cost model**, never gross.
 
 ## Deliverables
 The per-intent arrival/fill record + capture wiring (the **M2 implementation-shortfall
-module**, consumed here); the frozen timing-policy replay harness; the **IS-difference
-report** (per-policy paired-block mean + 95% CI, fill rate, opportunity cost, turnover
-delta) with the multiplicity correction; the intraday protective-exit spec wired to the
-kill-state machine; a go/keep-baseline recommendation per policy.
+module**, consumed here); the **quote/trade-level replay + the conservative, OOS-validated fill
+model** (queue-position aware, partial-fill probability, executable-NBBO path, conservative
+impact — H2.6) with its calibration/validation report; the frozen timing-policy replay harness;
+the **IS-difference report** (per-policy paired-block mean + 95% CI **with fill-model uncertainty
+propagated**, fill rate, opportunity cost, turnover delta) with the **family-wise-α multiplicity
+correction**; the intraday protective-exit spec wired to the kill-state machine; a
+go/keep-baseline recommendation per policy.
 
 ## Metrics / KPIs
 | Metric | Definition | Direction |
@@ -85,8 +128,8 @@ kill-state machine; a go/keep-baseline recommendation per policy.
 *Sample bars are effective-independent observations (block scheme), not raw order counts.*
 | Decision | Condition |
 |---|---|
-| **PROMOTE a timing policy** | paired-block 95% CI **lower bound > 0 bps IS improvement** vs next-open, **multiplicity-corrected** across the policy set; **AND** turnover delta ≈ 0; **AND** fill rate not degraded beyond the pre-registered bound; **AND** opportunity cost does not erase the spread saving |
-| **KEEP BASELINE / KILL** | no policy beats next-open after costs **and** opportunity cost (CI lower bound ≤ 0), **OR** a policy's unfilled opportunity cost erases its spread saving, **OR** fill-rate degradation breaches the bound → keep the current next-open execution |
+| **PROMOTE a timing policy** | paired-block 95% CI **lower bound > 0 bps IS improvement** vs next-open, **family-wise-α-corrected** across the K policies (H2.4); **AND** the **conservative fill model is OOS-validated** (H2.6) with its uncertainty propagated into the CI; **AND** turnover delta ≈ 0; **AND** fill rate not degraded beyond the pre-registered bound; **AND** opportunity cost does not erase the spread saving |
+| **KEEP BASELINE / KILL** | no policy beats next-open after costs **and** opportunity cost (CI lower bound ≤ 0), **OR** the **fill model fails OOS calibration / counterfactual fills are not identified** (H2.6 — would promote a simulator artifact), **OR** a policy's unfilled opportunity cost erases its spread saving, **OR** fill-rate degradation breaches the bound → keep the current next-open execution |
 | **Live gating** | a promoted policy is first proven in **shadow/replay on 104's real intents**; only then is a live timing change enabled, behind the same arming discipline + kill-state machine (a live change is itself gated, never a default) |
 | **Risk-exit leg** | protective exits validated to fire on decay/stop without killing winners (decision-ledger killed-winner audit, reliability §4.3); exits ALLOWED under `NO_NEW_RISK` |
 
@@ -107,12 +150,15 @@ accounting. **No dependence on M1 / H1** — H2 runs on 104's existing intents a
 even if H1 is stopped.
 
 ## Risks (FMEA subset)
-Arrival-price capture not yet built (H2.1 is the long pole, not the policies); **opportunity-
-cost mis-accounting** making a missing-limit policy look free (mitigated by the H2.3 unfilled
-rule); IEX off-NBBO / ghost prints contaminating the arrival mid (reliability F1/F5); fill-
-rate degradation from over-patient limits (the deadline + cross rule bounds it); over-fitting
-the policy window (mitigated by pre-registration + multiplicity correction); intraday exits
-killing winners in benign regimes (the BULL_CALM panel-exit precedent — regime-gate per
+Arrival-price capture not yet built (H2.1 is the long pole, not the policies); **counterfactual
+fills not identifiable from bars + one factual fill (finding 4)** → promoting a **simulator
+artifact** (mitigated by the H2.6 conservative, OOS-validated, queue/partial/impact fill model
+with uncertainty propagated, and the no-promote-on-unvalidated-fills kill); **opportunity-cost
+mis-accounting** making a missing-limit policy look free (mitigated by the H2.3 unfilled rule);
+IEX off-NBBO / ghost prints contaminating the arrival mid (reliability F1/F5); fill-rate
+degradation from over-patient limits (the deadline + cross rule bounds it); over-fitting the
+policy window (mitigated by pre-registration + family-wise-α multiplicity correction); intraday
+exits killing winners in benign regimes (the BULL_CALM panel-exit precedent — regime-gate per
 reliability §4.3).
 
 ## Effort

@@ -40,9 +40,9 @@ counts (finding 3); `252d-equiv` Sharpe is a scaling convenience, not 252 days o
 | State | Condition |
 |---|---|
 | **Go-live precondition** | M2 green + **PSR/DSR ≥ 0.95** holds on shadow-period realized + **M0.5 broker contract encoded** (finding 8) |
-| **Exposure schedule** | pre-registered step-up ladder (e.g. canary ≤1 name → fixed minimum live sample at each step before the next), NOT ad-hoc |
-| **On track** | live Sharpe (pre-registered effective-N window) within **±0.5** of shadow-period Sharpe |
-| **SCALE-UP** | a **defined minimum live sample at the current step** AND net Sharpe ≥ **1.0** AND max-DD shallower than **−10%** AND killed-winner ≤ 15% → advance one ladder step (precise limits, not "+1 gross step / 10–20% of book") |
+| **Exposure schedule (PRE-REGISTERED, EXACT — finding 3/round-3)** | a fixed 4-step ladder pinned NOW: **S1** ≤ 1 name / ≤ 5% of book → **S2** ≤ 2 names / ≤ 10% → **S3** ≤ 3 names / ≤ 20% → **S4** ≤ 4 names / ≤ 33%. **Observation unit = a completed live open→close session (effective-independent, block scheme), NOT a calendar day or a run.** **Minimum N per step = 20 effective-independent sessions** at the current exposure before the next step is eligible. **Maximum calendar duration to clear the whole ladder = 6 months;** **stop outcome if not met:** if any step fails to reach its scale-up gate within the duration, **do NOT advance — revert to last-known-good champion and STOP the live scale-up** (the edge did not hold live), rather than waiting indefinitely or hand-tuning the ladder. |
+| **On track** | live Sharpe (pre-registered effective-N window = the step's ≥20 sessions) within **±0.5** of shadow-period Sharpe |
+| **SCALE-UP** | the step's **≥ 20 effective-independent live sessions** completed AND net Sharpe ≥ **1.0** AND max-DD shallower than **−10%** AND killed-winner ≤ 15% → advance exactly one ladder step (S1→S2→S3→S4; precise limits, not "+1 gross step / 10–20% of book") |
 | **HOLD / de-risk** | dd −12..−15% or live Sharpe < 0.5 → freeze sizing |
 | **KILL (state machine, fail-closed; finding 7/8)** | dd < **−20%** → **`NO_NEW_RISK` + controlled flatten / reduce-only** (a market-risk event — exits ALLOWED; `FULL_HALT` is reserved for untrustworthy order-state/account-identity, never a drawdown, which would trap exits) · single-session loss < **−5%** (the consistent threshold) → **`NO_NEW_RISK`** (halt buys, **exits ALLOWED**) · OOS IC ≤ 0 over the effective-N window · calibration slope ≤ 0 (CI-bounded) · live-shadow ρ < 0.2 (CI-bounded) → revert to last-known-good champion |
 

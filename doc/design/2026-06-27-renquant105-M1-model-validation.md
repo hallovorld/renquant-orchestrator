@@ -9,12 +9,15 @@ acceptable, honest outcome, not a project failure.
 
 ## Objective + scope
 Train an intraday model (GBDT primary + PatchTST shadow) on **open→close** triple-barrier
-labels and **validate it net-of-cost (on the M0-CALIBRATED MEASURED cost model — consumed
-here, NOT produced here; see Dependencies + finding 5)** with CPCV / probabilistic PSR-DSR /
-PBO / placebo. Offline only — no shadow run, no orders. The output is a single decision: does
-a placebo-clean, cost-clearing **open→close** intraday edge exist at this size/data, yes or
-no. **This is the H1 (intraday-alpha) experiment;** the H2 (execution-timing/risk) experiment
-is independent and has its own milestone doc `…-H2-execution-timing.md` (master §7).
+labels and **validate the DEPLOYABLE H1 POLICY net-of-cost** (the frozen stateful admission
+path replayed on **nested outer-fold OOS** predictions; finding 1) on the **M0-CALIBRATED
+MEASURED cost model — consumed here, NOT produced here; see Dependencies + finding 5**, with
+**nested CPCV** / probabilistic PSR-DSR / PBO / placebo. Offline only — no shadow run, no
+orders. The output is a single decision: does a placebo-clean, cost-clearing **open→close**
+intraday edge exist *under the deployable stateful policy* at this size/data, yes or no — the
+estimand is the policy's realized performance, NOT a per-row quantile mean (which is
+diagnostic). **This is the H1 (intraday-alpha) experiment;** the H2 (execution-timing/risk)
+experiment is independent and has its own milestone doc `…-H2-execution-timing.md` (master §7).
 
 ## Requirements
 **Functional:**
@@ -35,53 +38,107 @@ is independent and has its own milestone doc `…-H2-execution-timing.md` (maste
   fills + paper-order probes — it is an **M0 artifact that exists before M1 runs**. M1 only
   *consumes* it; the §A `11 bps` is a placeholder, **NOT** a fixed gate. Every metric reported
   **net of the measured cost model**.
-- F1.4b **Replace the §A Gaussian edge PRIOR with a MEASURED mapping (finding 3).** The §A
-  `E[edge]=IC·σ_xs·factor` is a parametric prior (rank-IC treated as a Pearson coefficient
-  under Gaussian assumptions), NOT an accounting identity. M1 estimates
-  `E[open→close return | score quantile]` **directly from the purged-OOS predictions** (the
-  honest conditional mean per decile), so the realized top-bucket edge is *measured*, not
-  assumed — this is the artifact that actually settles the UNDETERMINED prior.
-- F1.5 **CPCV** harness (distribution of OOS Sharpes), **probabilistic PSR/DSR ≥ 0.95**
-  (Bailey & López de Prado Deflated Sharpe — a *probability*, reconciled with PSR; the old
-  vacuous "DSR>0" is dropped) fed the **full trial universe** (below), **PBO** (CSCV),
-  shuffled-label + time-shift **placebo** — all **gating**.
+- F1.4b **PRIMARY GO metric = the FROZEN H1 POLICY REPLAY on outer-fold OOS predictions in a
+  NESTED CV (finding 1 — the estimand must match the deployable policy).** The pinned H1 policy
+  (master §7) is a **stateful admission path**, not a per-row bucket: first-passage gate
+  selection at closed-bar boundaries, a session entry cap, **no-replacement / no-reentry**,
+  σ-scaled barrier exits, exhausted top-k capacity under scarcity, and repeated same-name
+  opportunities. A per-row `E[return | score quantile]` mean can **PASS while the deployable
+  policy LOSES** (different return AND cost distributions). Therefore:
+  - The GO bar's net-Sharpe / IC / DSR / CI criteria below apply to the **exact frozen H1
+    policy replayed on the OUTER-FOLD OOS predictions of a NESTED CPCV** — score calibration,
+    gate thresholds, and policy selection are fit **ONLY inside each training (inner) fold**;
+    the **outer fold is never seen by any fitting step** and is evaluated by replaying the
+    frozen stateful policy on it (correct decision timestamps, session entry cap,
+    no-reentry, barrier exits, exhausted capacity, **cost charged from the realized stateful
+    path** per `H1Policy`, not `rebalances_per_day=1`).
+  - **Quantile mapping is DIAGNOSTIC-ONLY.** `E[open→close return | score quantile]` from the
+    purged-OOS predictions is still computed (it surfaces per-decile calibration and replaces
+    the §A Gaussian edge prior with a *measured* conditional mean), but it is a diagnostic — it
+    does **NOT** gate H1. Only the policy replay does.
+  - **Replay/live parity contract tests (gating).** A test suite must prove the M1 replay and
+    the live H1 execution path agree on: **decision timestamps** (closed-bar boundaries),
+    the **session entry cap**, **no-reentry / one-open-per-name**, **barrier exits** (σ-scaled
+    profit/stop + session-close time barrier), and **cost charging** (same `H1Policy` stateful
+    round-trip count + the M0 cost model). A replay that does not match the live path is not
+    evidence for the live path.
+- F1.5 **NESTED CPCV** harness (finding 1): score calibration + gate thresholds + policy
+  selection are fit ONLY inside each inner training fold; the **frozen H1 policy is replayed on
+  the held-out outer fold** to produce the OOS-Sharpe distribution. **Probabilistic PSR/DSR ≥
+  0.95** (Bailey & López de Prado Deflated Sharpe — a *probability*, reconciled with PSR; the
+  old vacuous "DSR>0" is dropped) on the policy-replay returns, fed the **full trial universe**
+  (below), **PBO** (CSCV) on the policy-replay metric, shuffled-label + time-shift **placebo**
+  — all **gating**, all on the policy replay (not the per-row quantile mean).
 - F1.6 **Full trial-universe ledger (finding 3).** N counts EVERY trial across:
   horizons × labels × features × seeds × models × gate variants, **plus the prior 104/105
   trials** (the ~70–81 PatchTST runs already carry into N). This N feeds the DSR/PSR
   deflation and the multiple-testing haircut (t≈3, Harvey-Liu-Zhu).
-- F1.7 **Power / MinTRL pre-registration (finding 3).** Before training, pre-register the
-  **minimum aged sample in effective-independent observations** required to detect the
-  target effect at the chosen power, derived from MinTRL (Bailey & López de Prado), using
-  the F1.2 block scheme — NOT a raw "40–80 dates" count. Phase gates use **CIs + effective N**.
+- F1.7 **Power / MinTRL PRE-REGISTRATION — algorithm + immutable artifact (finding 3, Codex
+  round-3: the procedure is PINNED NOW, not chosen after seeing data).** The selection
+  **ALGORITHM** and every input are fixed by this design and emitted as an **immutable
+  pre-registration artifact** (hashed, committed, timestamped) **BEFORE any training**:
+  - **Target effect size:** the minimum economically-meaningful effect = a net-of-cost Sharpe
+    of **1.0** (the GO bar) — equivalently the open→close IC ≥ 0.03 that produces it on the
+    policy replay. (Pinned, not tuned.)
+  - **Alpha / power:** α = **0.05** (one-sided), power **1−β = 0.80**.
+  - **Return moments:** the assumed per-observation net-return mean/variance (and skew/kurtosis
+    for the MinTRL non-normality correction) are taken from the §A priors **as the
+    pre-registered inputs**, replaced by the M0-measured moments once available (the swap is
+    itself recorded — the *procedure* does not change).
+  - **Block-length selection RULE:** block length = the **open→close label horizon rounded up
+    to a session boundary** (the F1.2 embargo-in-bars scheme), with the moving-block length set
+    by a **fixed automatic rule** (e.g. the Politis–White / `b ∝ n^{1/3}` data-driven selector
+    evaluated once on the pre-registered series) — NOT a post-hoc pick.
+  - **Resulting N_eff:** the **MinTRL** (Bailey & López de Prado) minimum track-record length in
+    **effective-independent observations** that this α/power/moments/block triple implies, NOT
+    a raw date count.
+  - **FALLBACK when required N exceeds available history (mandatory):** if the pre-registered
+    N_eff exceeds the available aged history, **declare the experiment UNDERPOWERED → do NOT run
+    M1 / re-scope** (extend the aged window, or widen the universe, or stop). **Never shrink the
+    bar to fit the data.** The underpowered declaration is recorded in the artifact.
+  Phase gates use **CIs + effective N** against this pre-registered N_eff.
 **Non-functional:** reproducible; deseasonalized targets (intraday U-shape); average-
 uniqueness weighting on overlapping labels.
 
 ## Deliverables
 Intraday model artifacts (GBDT + PatchTST) + calibrator + WF-gate metadata; the
-Alpaca/IEX cost model; the **validation report** (CPCV OOS-Sharpe distribution, DSR,
-PBO, placebo deltas, net-of-cost Sharpe, IC + decay) with the trial count.
+Alpaca/IEX cost model; the **frozen H1 policy-replay harness + the replay/live parity contract
+tests (finding 1)**; the **validation report** (nested-CPCV policy-replay OOS-Sharpe
+distribution, DSR, PBO, placebo deltas, net-of-cost Sharpe, IC + decay, **plus the
+diagnostic-only `E[return|quantile]` calibration table**) with the trial count.
 
 ## Metrics / KPIs
-OOS rank IC at the **open→close** horizon (placebo-clean), net-of-cost Sharpe,
-probabilistic **PSR/DSR**, PBO, hit-rate on the cost-clearing subset,
-cost-as-%-of-gross-alpha, IC decay half-life — all at the open→close horizon (NOT `fwd_5d`).
+**Primary (gating):** the FROZEN H1 POLICY-REPLAY metrics on nested outer-fold OOS — policy-
+replay OOS rank IC at the **open→close** horizon (placebo-clean), policy-replay net-of-cost
+Sharpe, probabilistic **PSR/DSR**, PBO, policy-replay hit-rate, cost-as-%-of-gross-alpha
+(charged from the stateful path), IC decay half-life — all at the open→close horizon (NOT
+`fwd_5d`). **Diagnostic-only (non-gating):** `E[open→close return | score quantile]` per-decile
+calibration.
 
 ## Acceptance criteria (the GO bar — ALL must pass)
+**All net-Sharpe / IC / DSR / CI criteria are measured on the FROZEN H1 POLICY REPLAY on
+NESTED outer-fold OOS predictions (F1.4b), NOT on the per-row `E[return|quantile]` mean (which
+is diagnostic-only).** The bar is the deployable stateful policy's realized performance.
 | Criterion | Threshold |
 |---|---|
-| OOS rank IC @ **open→close** horizon | ≥ **+0.03**, placebo-clean (above the shuffled-label floor by a clear margin) |
-| Net-of-cost Sharpe (CPCV, **measured** cost) | ≥ **1.0** |
-| **Probabilistic PSR/DSR** (Bailey & LdP) at the full trial N | **≥ 0.95** (the old "DSR>0" is dropped as vacuous) |
-| PBO (CSCV) | **< 20%** |
-| Net-PnL block-bootstrap 95% CI | lower bound **> 0** (block ≥ open→close label horizon) |
+| **Policy-replay** OOS rank IC @ **open→close** horizon | ≥ **+0.03**, placebo-clean (above the shuffled-label floor by a clear margin) |
+| **Policy-replay** net-of-cost Sharpe (nested CPCV, **measured** cost charged from the stateful path) | ≥ **1.0** |
+| **Probabilistic PSR/DSR** (Bailey & LdP) on the policy-replay returns, at the full trial N | **≥ 0.95** (the old "DSR>0" is dropped as vacuous) |
+| PBO (CSCV) on the policy-replay metric | **< 20%** |
+| **Policy-replay** net-PnL block-bootstrap 95% CI | lower bound **> 0** (block ≥ open→close label horizon) |
 | Sample | ≥ the **power/MinTRL-derived minimum in effective-independent observations** (F1.7), not a raw date count |
+| **Replay/live parity** (contract tests, F1.4b) | timestamps, session cap, no-reentry, barrier exits, and cost charging MATCH between the M1 replay and the live H1 path |
+| Quantile mapping `E[return|quantile]` | **diagnostic-only** (reported for calibration; does NOT gate) |
 
 ## Expected outcome (预期) + kill condition
 **Honest prior (§A): UNDETERMINED / marginal.** The unit-corrected open→close prior is
 *marginal-to-plausibly-viable* (top-pick gross edge ≈ or > the ~11 bps cost at IC 0.03–0.05 /
-σ_oc~200 bps; the FL net-Sharpe lens is more pessimistic, ~−1.3 to −0.66 over the honest IC
-band). So M1 is a real test with a genuinely uncertain result — NOT a foregone FAIL and NOT a
-foregone GO. **KILL CONDITION:** if the measured GO bar is not cleared, **STOP — intraday
+σ_oc in the assumed sensitivity range ~200 bps; the FL net-Sharpe lens is more pessimistic — the
+**HONEST band is ~−1.30 to −0.98 over the honest IC band 0.01–0.03 ONLY** (upper bound ≈
+0.476−1.455 ≈ −0.98); the **−0.66** figure is a **SEPARATE optimistic IC=0.05 reference**, NOT
+the band's upper bound — finding 6). So M1 is a real test with a genuinely uncertain result —
+NOT a foregone FAIL and NOT a foregone GO. **KILL CONDITION:** if the measured GO bar is not
+cleared (on the **policy replay**, finding 1), **STOP — intraday
 alpha trading stays OFF**, and the project falls back to the defensible residual (H2
 execution-timing + intraday risk on the daily book; master §0). Do NOT ship a cost-negative
 book. A measured pass unlocks M2.
