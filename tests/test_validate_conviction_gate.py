@@ -81,3 +81,39 @@ def test_not_yet_aged_rows_are_insufficient(tmp_path):
                        as_of="2026-06-20")  # < first date + 60d → none aged
     assert res["status"] == "INSUFFICIENT_AGED_LEDGER"
     assert res["aged_joined_dates"] == 0
+
+
+def _mk_db_with_mu(path: Path, rows):
+    """candidate_scores with a populated ``mu`` column (expected_return NULL),
+    exercising the 2026-06-26 coalesce(mu, expected_return) ledger path."""
+    con = sqlite3.connect(str(path))
+    con.execute("create table candidate_scores "
+                "(run_id text, ticker text, expected_return real, mu real)")
+    con.executemany(
+        "insert into candidate_scores (run_id, ticker, mu) values (?,?,?)", rows)
+    con.commit(); con.close()
+
+
+def test_rank_evidence_flags_demean_dropping_relative_underperformers(tmp_path):
+    # Floor-free lens: mu rank perfectly predicts fwd, so the below-cross-section
+    # names demean refuses are the realized relative losers. Also exercises the
+    # mu-column ledger path (expected_return is NULL here, sim-style).
+    import datetime as _dt
+    db = tmp_path / "r.db"; ds = tmp_path / "d.parquet"
+    csrows, dsrows = [], []
+    for i in range(40):                       # 40 aged dates
+        d = (_dt.date(2025, 1, 1) + _dt.timedelta(days=i)).isoformat()
+        rid = f"{d}-sim-r{i}"
+        for k in range(1, 11):                # 10-name cross-section, all mu>0
+            mu = 0.01 * k                     # 0.01..0.10
+            csrows.append((rid, f"T{k}_{i}", mu))
+            dsrows.append((d, f"T{k}_{i}", mu))   # fwd == mu → monotone, IC=+1
+    _mk_db_with_mu(db, csrows); _mk_ds(ds, dsrows)
+    res = vcg.evaluate(db, ds, mu_floor=0.03, horizon_days=60, min_dates=30,
+                       as_of="2025-06-01")
+    assert res["aged_joined_dates"] >= 30           # mu column WAS picked up
+    re = res["rank_evidence"]
+    assert re["xsection_rank_ic"]["mean"] > 0.9      # mu ranks fwd
+    assert re["within_date_refused_minus_kept"]["mean"] < 0   # drops relative losers
+    assert re["within_date_refused_minus_kept"]["pct_days_refused_below_kept"] == 1.0
+    assert "good" in re["reading"]
