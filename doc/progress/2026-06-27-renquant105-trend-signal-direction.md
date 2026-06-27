@@ -10,13 +10,18 @@ traded as multi-day holds for the trend's duration — NOT intraday / HF /
 day-trading. This doc records that grounded direction so the next session starts
 from the evidence, not the closed framing.
 
-**This RFC is a PROPOSAL. It does NOT authorize retraining and does NOT
+**This RFC is a PROPOSAL and a pre-registration SCHEMA / measurement PLAN — NOT a
+completed pre-registration. It does NOT authorize retraining and does NOT
 establish a lever ranking.** It records corrected (regraded) evidence, marks
-model-vs-gate UNDETERMINED, operationally defines the objective, instantiates the
-validation spine, and pre-registers a factorial experiment + data-audit contract
-that will MEASURE the direction. (Reframed per Codex CHANGES_REQUESTED on PR
-#201 — the earlier draft overstated the literature and asserted a lever order on
-evidence it admitted was too thin.)
+model-vs-gate UNDETERMINED, gives the objective its measurement *schema* (exact
+event/horizon/thresholds NOT frozen here), instantiates the validation spine, and
+specifies a factorial + data-audit CONTRACT. **Execution is GATED on a separate,
+versioned, immutable pre-registration artifact that must receive its own review
+and merge before any experiment arm runs.** (Round-2 per Codex CHANGES_REQUESTED
+on PR #201 — round-1 reframed evidence + withdrew the lever order; round-2 makes
+the RFC accurately a measurement-schema, fixes the stale unblock rule to match
+#200, isolates Arm A to vintage only, fully specifies the factorial/inference, and
+gates model-vs-gate on faithful replay.)
 
 ## State (single durable record)
 - Design doc: `doc/design/2026-06-27-renquant105-trend-signal-direction.md` —
@@ -42,25 +47,39 @@ evidence it admitted was too thin.)
     INDEPENDENT bets after correlation/turnover constraints, NOT feature-family
     count. The "orthogonal > input-frequency" ORDERING is DELETED and replaced by
     a measured marginal-utility experiment.
-  - **[DATA·THIN]**: PR #200 ledger too short/impaired (fwd_20d = 11 aged dates,
-    ~1–2 independent blocks; fwd_60d = 0; sim rows unfaithful/excluded); IC
-    at/below the ~0.036 shuffled floor; the killed-winner decomposition is
-    parameter-dependent / scorer-mixed / non-causal → does NOT set a stable
-    model-vs-gate ratio.
+  - **[DATA·THIN]**: PR #200 ledger too short/impaired (fwd_20d ≈ 9 aged dates ≈
+    0.45 effective non-overlapping blocks — ~1 independent observation; fwd_60d =
+    0; scorer-mixture not PatchTST-primary; sim rows unfaithful/excluded);
+    per-horizon significance now uses #200's on-cohort shuffled-label placebo, and
+    the old 0.036 floor is a FOREIGN reference, NOT a pass/fail bar; the
+    killed-winner decomposition is parameter-dependent / scorer-mixed / non-causal
+    (ratio ≈ [0.91, 2.80], reverses) → does NOT set a stable model-vs-gate ratio.
 
 ## Decision / direction
 - **Model vs gate = UNDETERMINED.** The "MODEL ~3.6× bottleneck" ordering is
   withdrawn. Defensible conclusions only: (a) provenance inadequate, (b) live
   gate often admits nothing, (c) model quality unmeasured. Observability + gate
   correctness may proceed IN PARALLEL with model work; neither establishes a
-  ranking.
-- **No asserted lever order.** Replaced by a pre-registered FACTORIAL (A baseline
-  / B fresh-data-only / C trend-label-only / D both / E orthogonal analyst
-  feature on the winning base) under one shared trial ledger, identical folds /
-  universe / cost / turnover, paired OOS policy returns + recall/precision lift
-  with multiplicity control. "Fresher retrain" and "new label" are SEPARATE
-  factors, never bundled. Training internals run in `renquant-model` (CLAUDE.md
-  boundary).
+  ranking. **Any future model-vs-gate ORDERING is gated on a faithful homogeneous
+  scorer/artifact cohort (PatchTST-only with production provenance) + a STATEFUL
+  production replay of the ordered gate stack — consistent with #200 finding 1.
+  More raw history alone does NOT unlock the synthetic-threshold decomposition.**
+- **No asserted lever order.** Replaced by a FACTORIAL SCHEMA — a **2×2 freshness
+  × label** design (A old-cutoff baseline REBUILT through the B pipeline / B
+  fresh-data-only / C trend-label-only / D both) + E orthogonal analyst feature
+  evaluated on UNTOUCHED data AFTER the base winner is selected. **Arm A is rebuilt
+  from the OLD cutoff using the EXACT pinned B pipeline (code/config/data
+  construction), first proven to PARITY with the production artifact within
+  declared tolerances** — so A-vs-B isolates VINTAGE only; production-artifact
+  performance is a SEPARATE observational reference. Named primary contrasts
+  (freshness main effect, label main effect, interaction), a pre-registered
+  selection rule, **nested outer evaluation**, and a named correction family +
+  method (**Holm–Bonferroni FWER** across confirmatory contrasts + PBO /
+  Deflated-Sharpe over the policy-return surface). Secondary horizons (fwd_10/20,
+  triple-barrier, multi-horizon) are pre-registered ALTERNATIVES, not
+  trial-multipliers. One shared trial ledger, identical folds/universe/cost/
+  turnover. "Fresher retrain" and "new label" are SEPARATE factors, never bundled.
+  Training internals run in `renquant-model` (CLAUDE.md boundary).
 - **Objective operationally defined:** one primary trend EVENT + holding policy
   (event start/end, horizon, entry time, exit/time barrier, capacity, turnover,
   cost) and a constrained-PR / utility objective. fwd_10/20d + triple-barrier /
@@ -85,9 +104,17 @@ evidence it admitted was too thin.)
 
 ## Blocked / re-measure
 A conclusive model-vs-gate split, any lever ranking, and any absolute net-edge
-claim are BLOCKED until live ages to ≥30 fwd_20d dates (~mid-Aug-2026) OR
-faithful per-name PatchTST score history + provenance is wired (#133
-follow-through). Re-run the PR #200 baseline then.
+claim are BLOCKED on the **shared effective-sample contract** (RFC §11, matching
+#200): a conservative overlap-ratio descriptor now; the real unblock is a
+**pre-registered minimum-effect/power calc + an empirical dependence estimator on
+a FAITHFUL homogeneous cohort — NO calendar date is implied before that calc
+exists.** Sufficiency is scored in **effective non-overlapping blocks**
+(`n_dates / horizon_n`, #200 `--min-eff-blocks` default 6; 30 adjacent overlapping
+20-day dates ≈ 1.5 blocks → insufficient; today ≈ 0.45 blocks), with
+multiple-regime coverage + block-bootstrap CIs, AND a faithful per-name PatchTST
+cohort + provenance wired (#133). The earlier "≥30 fwd_20d dates (~mid-Aug-2026)"
+raw-date unblock is WITHDRAWN. Re-run the PR #200 baseline only once that contract
+is met.
 
 ## Scope
 Direction + design only — no code/runtime change. Live tree and canonical prod
