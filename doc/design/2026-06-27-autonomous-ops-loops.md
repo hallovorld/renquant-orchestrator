@@ -51,6 +51,36 @@ New-loop shape: one launchd plist → one wrapper `.sh` (Keychain+lock) → one
 orchestrator subcommand (a **script** that polls/triages/checks) that spawns a
 subagent only on the irreducible-judgment branch.
 
+## 1A. Loop 0 — PR-review watcher (the recurring review/fix/merge workflow)
+The operator's recurring ask — "review Codex's new/updated PRs, fix Codex's
+comments on mine, merge the good ones, be extra strict on design/experiment" — is
+itself a loop; formalize it (it currently runs as the 5-min agent-pr-loop, but the
+spec must pin its state + separation contract).
+
+**Mostly SCRIPT.** Queue resolution + the deterministic merge are already scripts
+(`repos agent --workflow review|fix|merge`); a subagent is spawned ONLY to author a
+review or a fix-commit. Per cycle, ideal = 0 agents when the queue is empty.
+- **Discover (script):** across the manifest repos, list open PRs → three queues:
+  (a) Codex PRs needing my review, (b) my PRs with Codex `CHANGES_REQUESTED`,
+  (c) approved-at-head PRs eligible to merge.
+- **Current-head + dedup (script):** persist `(repo, pr, head_sha, last_review_sha)`;
+  re-review/re-fix ONLY when the head SHA advanced past the one already acted on
+  (so a stale review isn't re-emitted; a force-push re-queues). This is exactly the
+  race that produced Codex's "review predates your push" here — pin it.
+- **Review (subagent, strict):** read the diff, post ONE review with `reviewed by
+  claude`. **Extra-strict gate on `design(`/`research(`/`experiment` PRs**: require
+  reproducibility, conservative stats (no iid t on overlapping labels), repo-boundary
+  compliance (no model training in the orchestrator), and explicit caveats — reject
+  otherwise. Never review own PR (account separation).
+- **Fix (subagent):** address Codex comments on my PRs in a `/tmp` clone, push,
+  comment `fixed by claude`. Genuinely fix valid points; rebut wrong ones with
+  evidence — never paper over.
+- **Merge (script):** only PRs APPROVED-at-current-head + checks green + no
+  `agent:manual-hold`; post the `merged by claude` pre-merge audit marker; **never
+  merge a PR this same account authored** (reviewer separation, §4.1).
+- **Dry-run rollout:** Phase 0 lists the three queues + would-do actions via ntfy,
+  opens/merges nothing.
+
 ## 2. Loop 1 — error-responder
 **Trigger (script):** poll `RenQuant/logs/alerts/alert_log.jsonl`
 (`live/alerts.py`). Filter `status=="sent"` AND `taxonomy=="ACTION_REQUIRED"`. Dedup
@@ -140,11 +170,18 @@ fundamentals, the active model's vintage. Any stale/missing input → that lens 
 dropped and the verdict degrades to **"insufficient evidence — <what's stale>"**,
 never a confident recommendation on stale data (the 2026-06-26 rule, encoded).
 
-**4.5 Standing guardrails.**
+**4.5 Standing guardrails + initial NUMERIC defaults.**
 PR-only; never self-merge; subagents NEVER `git` the live tree (`/tmp` clones
 only) and NEVER touch live `state/model/data`; verify-before-asserting (cite the
-source); idempotent, deduped, rate-limited, `flock`, `--dry-run`, kill-switch;
-agent spawns capped + logged (bounded, auditable token cost).
+source); idempotent, deduped, `flock`, `--dry-run`, kill-switch.
+Initial caps (config-overridable, tuned in Phase 0):
+- Loop 1: ≤ **3** agent spawns/cycle, ≤ **6** novel-fix agent spawns/day, ≤ **2**
+  open auto-generated PRs at a time.
+- Loop 0: ≤ **8** review/fix agent spawns/day; reviews never block on agents (queue
+  drains across cycles).
+- Loop 2: ≤ **1** synthesis agent/day (Phase B), and only when a flag trips.
+- Per-spawn token budget ≤ **120k**; daily aggregate ≤ **1M** output tokens across
+  all loops, hard-stop + ntfy on breach. Every spawn logged (id, reason, tokens).
 
 ## 5. Where code lands (proposal)
 - Orchestrator: `renquant-orchestrator ntfy-responder` + `post-daily-review`
@@ -172,7 +209,15 @@ Each phase must MEET its criteria (observed in the dry-run logs) before the next
   after Codex signs off on the classifier + caps + an audited Phase-2 run.
 
 ## 7. Resolved review points (Codex #197)
-1. Concrete defaults: §4 (draft-only, ntfy-default, allowlist) replaces the open
-   questions. 2. Autonomous-merge path closed: §4.1 (label-gated, account-separated
-   reviewer). 3. Hard allowlist: §4.2. 4. Prompt-injection: §4.3. 5. Loop-2
-   freshness/provenance: §4.4. 6. Measurable acceptance criteria: §6.
+Round 1 (safety contracts §4) + round 2 (Loop 0 + numeric caps):
+- Concrete defaults / draft-only / ntfy-default: §4.1, §4.2.
+- Autonomous-merge path closed (label-gated, account-separated reviewer): §4.1.
+- Hard allowlist of auto-fix surfaces: §4.2.
+- Prompt-injection / untrusted input: §4.3.
+- Loop-2 freshness/provenance gate: §4.4.
+- **Loop 0 / PR-review watcher** (round 2): §1A — state, dedup, current-head check,
+  reviewer separation, extra-strict design/experiment gate, dry-run.
+- **Numeric caps + token budget** (round 2): §4.5.
+- Measurable acceptance criteria: §6.
+- Trailing-whitespace `git diff --check`: clean (was fixed in the safety-contracts
+  commit the round-2 review predated).
