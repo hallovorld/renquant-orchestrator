@@ -24,13 +24,16 @@ Auth/endpoint pattern matches the existing harvest (the FMP ``stable`` API,
 ``apikey`` query param, key read read-only from the umbrella ``.env``).
 
 PIT PROVENANCE (HARD INVARIANT): every row is fetched NOW. ``snapshot_as_of`` is
-therefore ALWAYS derived from the actual UTC fetch date -- a live fetch may not
-be stamped with a user-supplied PAST date, because that would fabricate
-point-in-time history that never existed. ``--as-of`` is accepted ONLY for the
-current UTC date or a future date (e.g. to pre-name a scheduled slot); a past
-date is REJECTED. Historical backfill is valid *only* from an immutable source
-that was actually captured at that historical time (with its own provenance) --
-this forward collector cannot and must not manufacture it.
+therefore ALWAYS the actual UTC fetch date, and each manifest also records the
+``fetched_at`` UTC timestamp. ``--as-of`` is accepted ONLY when it equals today's
+UTC date (a redundant, self-documenting assertion that also fails loudly on host
+clock drift); BOTH a PAST and a FUTURE ``--as-of`` are REJECTED. A past date
+would fabricate point-in-time history that never existed; a future date would
+stamp today's freshly fetched data as future data -- equally fake provenance.
+Scheduling picks the date directory at RUN TIME from the real fetch date; it does
+NOT pre-name a future slot. Historical backfill is valid *only* from an immutable
+source that was actually captured at that historical time (with its own
+provenance) -- this forward collector cannot and must not manufacture it.
 
 ATOMIC PUBLISH: each date is written to a sibling temp dir, validated against a
 coverage floor, and published with an atomic rename ONLY on success. A
@@ -46,7 +49,7 @@ Usage:
     # explicit universe file (one ticker per line, or a strategy_config.json)
     python scripts/snapshot_fmp_estimates.py --universe /path/to/universe.txt
 
-    # name today's snapshot explicitly (today/future ONLY; a past date errors)
+    # assert today's date explicitly (must EQUAL today's UTC date; past/future error)
     python scripts/snapshot_fmp_estimates.py --as-of 2026-06-27
 
     # see what would be fetched/written without any network call or write
@@ -131,25 +134,31 @@ def load_api_key(env_path: Path) -> str | None:
 
 
 class AsOfError(ValueError):
-    """Raised when a user-supplied --as-of would backdate a live fetch."""
+    """Raised when a user-supplied --as-of would misdate a live fetch."""
 
 
 def resolve_as_of(as_of_arg: str | None, *, today: date | None = None) -> str:
     """Resolve the snapshot as-of date for a LIVE fetch.
 
-    Every row is fetched NOW, so the only honest as-of is the actual UTC fetch
-    date. We therefore:
+    HARD INVARIANT: every row is fetched NOW, so the ONLY honest as-of is the
+    actual UTC fetch date. We therefore:
 
     * default to today's UTC date when ``--as-of`` is omitted;
-    * accept an explicit ``--as-of`` ONLY if it is today's UTC date or a future
-      date (e.g. to pre-name a scheduled slot);
+    * accept an explicit ``--as-of`` ONLY if it equals today's UTC date -- it is
+      a redundant assertion of the fetch date, useful only to make a script
+      invocation self-documenting / to fail loudly if the host clock has drifted;
     * REJECT a PAST date -- stamping today's freshly fetched rows with a past
-      date fabricates point-in-time history that never existed. Historical
-      backfill must come from an immutable source captured at that time, not
-      from this forward collector.
+      date fabricates point-in-time history that never existed;
+    * REJECT a FUTURE date -- pre-labelling today's fetch with a future slot
+      stamps today's data as future data, which is equally fake provenance.
+      Scheduling chooses the directory at RUN TIME from the real fetch date; it
+      does not pre-name a future slot here.
 
-    Returns the validated ``YYYY-MM-DD`` string; raises :class:`AsOfError` on a
-    malformed or backdated value.
+    Legitimate historical backfill must come from an immutable source captured at
+    that time (with its own provenance), not from this forward collector.
+
+    Returns the validated ``YYYY-MM-DD`` string (always today's UTC date); raises
+    :class:`AsOfError` on a malformed, past, or future value.
     """
     utc_today = today or datetime.now(timezone.utc).date()
     if as_of_arg is None:
@@ -158,12 +167,16 @@ def resolve_as_of(as_of_arg: str | None, *, today: date | None = None) -> str:
         requested = datetime.strptime(as_of_arg, "%Y-%m-%d").date()
     except ValueError as exc:
         raise AsOfError(f"--as-of must be YYYY-MM-DD, got {as_of_arg!r}") from exc
-    if requested < utc_today:
+    if requested != utc_today:
+        when = "the past" if requested < utc_today else "the future"
         raise AsOfError(
-            f"--as-of {as_of_arg} is in the past (UTC today is {utc_today.isoformat()}). "
-            "A live fetch returns data as of NOW; stamping it with a past date "
-            "fabricates point-in-time history. Backfill is only valid from an "
-            "immutable source captured at that historical time."
+            f"--as-of {as_of_arg} is in {when} (UTC today is {utc_today.isoformat()}). "
+            "A live fetch returns data as of NOW, so snapshot_as_of must equal the "
+            "actual UTC fetch date. Backdating fabricates point-in-time history; "
+            "pre-labelling a future slot stamps today's data as future data. "
+            "Scheduling picks the directory at run time from the real fetch date; "
+            "it does not pre-name a future slot. Historical backfill is valid only "
+            "from an immutable source captured at that historical time."
         )
     return requested.isoformat()
 
@@ -495,9 +508,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--as-of",
         default=None,
-        help="as-of date YYYY-MM-DD for the snapshot dir (default = today, UTC). "
-        "TODAY or a FUTURE date only -- a past date is rejected because a live "
-        "fetch returns data as of NOW (backdating fabricates PIT history).",
+        help="redundant assertion of today's UTC date YYYY-MM-DD for the snapshot "
+        "dir (default = today, UTC). It must EQUAL today's UTC date -- BOTH a past "
+        "and a future date are rejected, because a live fetch returns data as of NOW "
+        "(snapshot_as_of = the actual fetch date). Backdating fabricates PIT history; "
+        "a future slot stamps today's data as future data.",
     )
     ap.add_argument(
         "--force",

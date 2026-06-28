@@ -3,7 +3,8 @@
 These cover the contracts Codex flagged as blocking on PR #205, using a
 fake/mocked fetch and /tmp output -- NO live FMP calls:
 
-  * a historical ``--as-of`` is REJECTED (no backdated PIT history);
+  * a historical OR future ``--as-of`` is REJECTED (no backdated/future PIT
+    history); only today's UTC date is accepted;
   * snapshot_as_of is derived from the actual UTC fetch date;
   * idempotency is a no-op verify, not a destructive refetch;
   * a partial endpoint failure marks ``status: partial`` and does NOT publish
@@ -88,12 +89,22 @@ def test_resolve_as_of_rejects_past_date():
         snap.resolve_as_of(past, today=today)
 
 
-def test_resolve_as_of_accepts_today_and_future():
+def test_resolve_as_of_rejects_future_date():
+    # A future --as-of pre-labels today's live fetch as future data -> fake
+    # provenance. snapshot_as_of must equal the actual UTC fetch date, so a
+    # future date is rejected just like a past one.
+    today = date(2026, 6, 27)
+    future = (today + timedelta(days=3)).isoformat()
+    with pytest.raises(snap.AsOfError):
+        snap.resolve_as_of(future, today=today)
+
+
+def test_resolve_as_of_accepts_only_today():
+    # The only honest as-of for a live fetch is today's UTC date: None defaults
+    # to it, and an explicit value is accepted ONLY when it equals today.
     today = date(2026, 6, 27)
     assert snap.resolve_as_of(None, today=today) == "2026-06-27"
     assert snap.resolve_as_of("2026-06-27", today=today) == "2026-06-27"
-    future = (today + timedelta(days=3)).isoformat()
-    assert snap.resolve_as_of(future, today=today) == future
 
 
 def test_resolve_as_of_rejects_malformed():
@@ -106,6 +117,13 @@ def test_main_rejects_historical_as_of(tmp_path, capsys):
     rc = snap.main(["--as-of", yesterday, "--out", str(tmp_path / "x")])
     assert rc == 2
     assert "past" in capsys.readouterr().err.lower()
+
+
+def test_main_rejects_future_as_of(tmp_path, capsys):
+    future = (date.today() + timedelta(days=2)).isoformat()
+    rc = snap.main(["--as-of", future, "--out", str(tmp_path / "x")])
+    assert rc == 2
+    assert "future" in capsys.readouterr().err.lower()
 
 
 def test_snapshot_as_of_stamped_from_resolved_date(monkeypatch, tmp_path, tickers):
