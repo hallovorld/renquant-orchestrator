@@ -5,15 +5,20 @@ The cheap screen (scripts/pead_test.py) flagged %-surprise as the one lead. The 
 leg is unmonetizable under our shorting mandate, so usability rests on the LONG leg. This
 script measures it FAITHFULLY:
 
-  (1) EVENT-DRIVEN long-only economics. Each POSITIVE-surprise event (top-quintile /
-      top-decile of positive %-surprises) opens a holding the first trading day AFTER the
-      announcement (+1d) and CLOSES it at the horizon (20d / 60d). Overlapping holdings
-      AGGREGATE into one equal-weight portfolio, rebalanced daily as names enter/expire.
-      Weights are applied with a one-day lag (no same-day look-ahead). Excess return is vs
-      the equal-weight universe. Cost is charged on ACTUAL daily turnover from
-      membership/weight changes (|Δw| summed over names and days), entry + exit, at an
-      11 bps one-way rate. This replaces the prior single arbitrary calendar phase + a
-      single fixed per-horizon cost subtraction, which overstated the edge.
+  (1) EVENT-DRIVEN long-only economics. Each POSITIVE-surprise event whose %-surprise clears
+      the top-quintile / top-decile of the EXPANDING distribution of STRICTLY-PRIOR positive
+      surprises (look-ahead-free selection — NO full-sample quantile, PR #203 review fix 2)
+      opens a holding the first trading day AFTER the announcement (+1d) and CLOSES it at the
+      horizon (20d / 60d). Overlapping holdings AGGREGATE into one equal-weight portfolio,
+      rebalanced daily as names enter/expire. Weights are applied with a one-day lag (no
+      same-day look-ahead). Cost is charged on ACTUAL daily turnover from membership/weight
+      changes (|Δw| summed over names and days), entry + exit, at an 11 bps one-way rate.
+      Excess return vs the equal-weight universe and its significance are computed on ACTIVE
+      days ONLY (days the lagged portfolio actually holds names) — idle days are NOT counted
+      as an invested portfolio shorting the market (PR #203 review fix 1). The fully-funded
+      TOTAL-strategy return (idle days held as cash @0) is reported separately. This replaces
+      the prior single arbitrary calendar phase + fixed per-horizon cost + whole-sample-excess
+      framing, which overstated the edge and embedded a cash-vs-market benchmark artifact.
 
   (1b) 63-PHASE dispersion of the OLD calendar-sampled design (every 63 trading days),
       swept over all 63 phase offsets, to show how phase-sensitive that framing was.
@@ -53,6 +58,7 @@ TRAIL = 63           # old calendar-sampling cadence (used only for the phase-di
 LAG = 1              # enter the first trading day AFTER the announcement (timing only)
 COST_ONEWAY_BPS = 11.0   # one-way cost charged on actual |Δw| turnover (entry + exit)
 WINSOR_Q = 0.05      # floor |epsEstimated| at this quantile so tiny denominators can't dominate
+EXPAND_MIN_HIST = 40  # min #prior positive-surprise events before an event can be ranked (warmup)
 
 
 # ---------------------------------------------------------------- repro helpers
@@ -80,6 +86,14 @@ def git_commit():
         return None
 
 
+def require_finite(value, label):
+    """Fail loudly on a non-finite scalar instead of silently writing NaN/inf."""
+    v = float(value)
+    if not np.isfinite(v):
+        raise ValueError(f"non-finite value for {label!r}: {v!r}")
+    return v
+
+
 def spearman_ic(sig_row, ret_row):
     m = sig_row.notna() & ret_row.notna()
     if m.sum() < 5:
@@ -88,7 +102,8 @@ def spearman_ic(sig_row, ret_row):
     bb = ret_row[m].rank()
     if a.std() == 0 or bb.std() == 0:
         return np.nan, m.sum()
-    return np.corrcoef(a, bb)[0, 1], m.sum()
+    rho = np.corrcoef(a, bb)[0, 1]
+    return (rho if np.isfinite(rho) else np.nan), m.sum()
 
 
 def main():
@@ -147,15 +162,41 @@ def main():
     print("\n=== (1) EVENT-DRIVEN long-only economics "
           "(faithful entry+exit, turnover-based cost) ===")
 
-    def event_driven(top_frac, H):
-        """Open each top-fraction positive-surprise event +1d, hold H trading days, expire.
-        Aggregate overlapping holdings into one EW portfolio; daily-rebalance; lag weights
-        one day (no same-day look-ahead); charge cost on actual |Δw| turnover."""
-        pos = e[e['pct_surp'] > 0].copy()
+    def select_expanding(top_frac):
+        """LOOK-AHEAD-FREE event selection (PR #203 review fix 2). Each positive-surprise
+        event is ranked ONLY against the EXPANDING distribution of positive surprises that
+        occurred STRICTLY BEFORE its date — no full-sample quantile cutoff. An event is
+        selected if its %-surprise clears the (1 - top_frac) quantile of that prior history.
+        Events before EXPAND_MIN_HIST prior positives are skipped (warmup; ~1% of events)."""
+        pos = e[e['pct_surp'] > 0].sort_values('date').reset_index(drop=True)
         if len(pos) == 0:
+            return pos
+        vals = pos['pct_surp'].to_numpy()
+        dates = pos['date'].to_numpy()
+        keep = []
+        for i in range(len(pos)):
+            hist = vals[dates < dates[i]]   # strictly-prior positives only
+            if len(hist) < EXPAND_MIN_HIST:
+                continue
+            if vals[i] >= np.quantile(hist, 1.0 - top_frac):
+                keep.append(i)
+        return pos.iloc[keep]
+
+    def event_driven(top_frac, H):
+        """Open each selected positive-surprise event +1d, hold H trading days, expire.
+        Aggregate overlapping holdings into one EW portfolio; daily-rebalance; lag weights
+        one day (no same-day look-ahead); charge cost on actual |Δw| turnover.
+
+        Selection is look-ahead-free (expanding prior-history quantile, see select_expanding).
+        Economics are reported TWO ways (PR #203 review fix 1):
+          * ACTIVE-day: excess / benchmark / significance restricted to days the (lagged)
+            portfolio actually HOLDS names — this is the PEAD economics, not a cash-vs-market
+            short-benchmark artifact;
+          * TOTAL-strategy: idle days are explicitly cash (0 return), reported over the whole
+            sample so the fully-funded picture is visible too."""
+        sel = select_expanding(top_frac)
+        if len(sel) == 0:
             return None
-        thresh = pos['pct_surp'].quantile(1.0 - top_frac)
-        sel = pos[pos['pct_surp'] >= thresh]
         holdings = np.zeros((len(trading_days), len(uni)))
         for _, r in sel.iterrows():
             i0 = first_td_on_or_after(r['date'] + pd.Timedelta(days=LAG))
@@ -167,25 +208,45 @@ def main():
         nheld = held.sum(axis=1)
         w = held.div(nheld.replace(0, np.nan), axis=0).fillna(0.0)   # EW among held
         # portfolio return: weights set at entry act on the NEXT day's return (one-day lag)
-        port = (w.shift(1).fillna(0.0) * ret.fillna(0.0)).sum(axis=1)
-        excess = (port - uni_daily).iloc[1:]
+        wlag = w.shift(1).fillna(0.0)
+        port = (wlag * ret.fillna(0.0)).sum(axis=1)
+        # ACTIVE = the day the lagged portfolio actually holds >=1 name (matches `port`).
+        # On idle days port==0; counting them as "an invested portfolio underperforming the
+        # market" is the benchmark-exposure artifact the review flagged.
+        active = wlag.abs().sum(axis=1) > 0
+        excess_all = (port - uni_daily).iloc[1:]              # drop day-0 (NaN return)
+        active_all = active.iloc[1:]
+        excess_act = excess_all[active_all]
         # actual one-way turnover: |Δw| summed over names, per day (counts entry AND exit)
         dturn = (w - w.shift(1)).abs().sum(axis=1).iloc[1:]
-        tot_turn = float(dturn.sum())
+        tot_turn = require_finite(dturn.sum(), 'tot_turnover')
         cost = tot_turn * COST_ONEWAY_BPS / 1e4
-        gross_cum = float(excess.sum())
-        net_cum = gross_cum - cost
-        days = len(excess)
-        yrs = days / 252.0
-        mu = excess.mean()
-        sd = excess.std(ddof=1)
-        daily_t = mu / (sd / np.sqrt(days)) if sd > 0 else np.nan
+
+        # ---- active-day economics (the honest PEAD read) ----
+        n_act = int(len(excess_act))
+        if n_act < 2:
+            return None
+        yrs_act = n_act / 252.0
+        gross_act = require_finite(excess_act.sum(), 'gross_act')
+        net_act = gross_act - cost
+        mu = require_finite(excess_act.mean(), 'mean_daily_excess')
+        sd = float(excess_act.std(ddof=1))
+        daily_t = require_finite(mu / (sd / np.sqrt(n_act)), 'daily_t') if sd > 0 else np.nan
+
+        # ---- total-strategy economics (idle = cash @0, fully-funded over the whole sample) ----
+        n_tot = int(len(excess_all))
+        yrs_tot = n_tot / 252.0
+        net_tot = require_finite(excess_all.sum(), 'gross_total') - cost
+
         return dict(
             leg=('top_quintile' if abs(top_frac - 0.20) < 1e-9 else 'top_decile'),
-            horizon=H, n_active_days=days, avg_held=float(nheld.mean()),
+            horizon=H, n_active_days=n_act, n_total_days=n_tot,
+            avg_held_active=float(nheld[active].mean()),
             n_events_sel=int(len(sel)), tot_turnover=tot_turn,
-            gross_cum_excess_bps=gross_cum * 1e4, cost_bps=cost * 1e4,
-            net_cum_excess_bps=net_cum * 1e4, net_ann_excess_bps=(net_cum / yrs) * 1e4,
+            gross_cum_excess_bps=gross_act * 1e4, cost_bps=cost * 1e4,
+            net_cum_excess_bps=net_act * 1e4,
+            net_ann_active_bps=(net_act / yrs_act) * 1e4,
+            net_ann_total_bps=(net_tot / yrs_tot) * 1e4,
             mean_daily_excess_bps=mu * 1e4, daily_t=daily_t,
         )
 
@@ -196,10 +257,13 @@ def main():
             if row is not None:
                 ed_rows.append(row)
     ed_df = pd.DataFrame(ed_rows)
-    pd.set_option('display.width', 220)
+    pd.set_option('display.width', 240)
     print(ed_df.to_string(index=False))
-    print("[read] net_cum = cumulative net excess over the whole sample; net_ann = annualized; "
-          "daily_t = t-stat of mean DAILY portfolio excess (the honest significance metric).")
+    print("[read] gross/net_cum + net_ann_active = ACTIVE-day economics (excess vs the EW "
+          "universe restricted to days the lagged portfolio holds names — the honest PEAD "
+          "read, free of the cash-vs-market benchmark artifact). net_ann_total = fully-funded "
+          "with idle days held as cash (0 return). daily_t = t of mean DAILY active-day excess. "
+          "Selection is look-ahead-free (expanding prior-history quantile).")
 
     # ---------------------------------------------------------------- (1b) 63-phase dispersion of the OLD design
     print("\n=== (1b) 63-PHASE dispersion of the OLD calendar-sampled design "
@@ -335,7 +399,11 @@ def main():
                    "pre-2024-09. ALL results are exploratory, not PIT-clean.",
         execution="event-driven (enter +1d, hold to horizon, overlapping holdings aggregated "
                   "into a daily-rebalanced EW portfolio, weights lagged one day); cost on "
-                  "actual |Δw| turnover (entry + exit) at one-way rate.",
+                  "actual |Δw| turnover (entry + exit) at one-way rate. Event selection is "
+                  "look-ahead-free (each event ranked vs the EXPANDING distribution of strictly-"
+                  "prior positive surprises, no full-sample quantile). Excess/benchmark/"
+                  "significance restricted to ACTIVE days (lagged portfolio holds names); "
+                  "total-strategy economics reported separately with idle days held as cash@0.",
         as_of=args.as_of,
         code_commit=git_commit(),
         generated_at_utc=datetime.now(timezone.utc).isoformat(),
@@ -345,7 +413,7 @@ def main():
         earnings_sha256=sha256_file(args.earnings),
         parameters=dict(
             fwd=FWD, trail=TRAIL, lag=LAG, cost_oneway_bps=COST_ONEWAY_BPS,
-            winsor_q=WINSOR_Q, denom_floor=denom_floor,
+            winsor_q=WINSOR_Q, denom_floor=denom_floor, expand_min_hist=EXPAND_MIN_HIST,
         ),
         panel=dict(
             days=int(px.shape[0]), names=int(px.shape[1]),

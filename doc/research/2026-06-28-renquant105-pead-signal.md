@@ -20,6 +20,15 @@
   `/tmp/sighunt/bars.parquet` (134 single names, 2018-05..2026-06), earnings
   `data/fmp_harvest/earnings_291.parquet`. No orders, no git in the live tree, no canonical
   writes.
+- **Round-2 review corrections (PR #203, 2026-06-28):** the event-driven economics had two
+  execution bugs that invalidated the old −705 bps/yr headline — (1) idle (cash) days were
+  scored against a rising market (a benchmark-exposure artifact) and ALL calendar days were
+  counted active; (2) event selection used one full-sample %-surprise threshold (future
+  information). Both are fixed: economics/significance are now restricted to ACTIVE days (with
+  a separate total-strategy line), and selection uses an EXPANDING strictly-prior-history
+  threshold. The cheap-screen IC/HAC path's NumPy overflow/invalid warnings are fixed with
+  finite-value guards that fail loudly (tests: `tests/test_research_pead_finite_guards.py`).
+  The corrected number is reported below — the −705 figure is NOT preserved.
 
 ## The measured candidate
 
@@ -52,37 +61,51 @@ turnover below — at 20d the portfolio churns hard.
 The short leg is unmonetizable under our shorting mandate, so usability rests on the LONG
 leg. **The prior table sampled one arbitrary calendar phase (`trading_days[252::63]`,
 28 rebalances) and subtracted a single fixed 11 bps per sampled horizon return — that
-overstated the edge.** This is now replaced with a faithful design: each top-fraction
-positive-surprise event opens a holding the first trading day AFTER the announcement (+1d)
-and CLOSES at the horizon; overlapping holdings aggregate into one equal-weight portfolio,
-rebalanced daily; weights are lagged one day (no same-day look-ahead); **cost is charged on
-ACTUAL daily turnover** (`|Δw|` summed over names and days = entry + exit) at 11 bps
-one-way.
+overstated the edge.** It is replaced with a faithful design, and that design is now
+corrected for two execution bugs Codex flagged in round 2 (PR #203 review, 2026-06-28):
 
-| leg | horizon | avg_held | total turnover | gross cum excess | cost | **net cum excess** | net /yr | daily t |
-|---|---|---|---|---|---|---|---|---|
-| top-quintile | 20 | 6.8 | 379.8× | −1499 bps | 4178 bps | **−5677 bps** | −705 bps/yr | **−0.22** |
-| top-quintile | 60 | 20.1 | 119.0× | +4516 bps | 1309 bps | **+3207 bps** | +398 bps/yr | **+1.27** |
-| top-decile | 20 | 3.4 | 300.5× | −2035 bps | 3305 bps | **−5340 bps** | −663 bps/yr | −0.25 |
-| top-decile | 60 | 10.1 | 117.3× | +8079 bps | 1291 bps | **+6788 bps** | +843 bps/yr | +1.33 |
+- **Look-ahead-free selection (fix 2):** an event is selected only if its %-surprise clears
+  the top-quintile / top-decile of the **EXPANDING distribution of STRICTLY-PRIOR positive
+  surprises** — no single full-sample quantile applied retroactively. (Warmup: events before
+  40 prior positives are skipped — ~1% of events; selection barely moved, 693→686.)
+- **Active-day economics (fix 1):** excess vs the EW universe, and its significance, are
+  computed on **ACTIVE days only** — days the (lagged) portfolio actually holds names. The
+  prior table computed `excess = port − universe` over the WHOLE sample and counted ALL
+  calendar days as active, so idle (cash) days were scored as an invested portfolio shorting
+  a rising market — a benchmark-exposure artifact. The fully-funded **total-strategy** return
+  (idle days held as cash @0) is reported alongside.
 
-**This is the decisive change.** Under the faithful turnover model:
+Each selected event opens +1d, closes at the horizon; overlapping holdings aggregate into one
+EW portfolio, rebalanced daily; weights lagged one day; **cost on ACTUAL daily turnover**
+(`|Δw|` = entry + exit) at 11 bps one-way.
 
-- **Top-quintile @20d is NET-NEGATIVE (−705 bps/yr, daily t = −0.22).** The 20d hold with
-  ~6.8 names average churns fast (turnover ≈ 380× over the sample → ~4178 bps of cost),
-  which swamps a gross excess that is itself only modestly positive-to-negative. The prior
-  "+42.8 bps net @20d" does not survive a faithful entry/exit cost — Codex's flag was
-  correct.
-- **Top-quintile @60d is positive but NOT significant: +398 bps/yr net, daily t = +1.27.**
-  The longer hold has far lower turnover (119× → ~1309 bps cost) so it keeps a positive net,
-  but the daily-excess t-stat is ~1.3 (≈ the same significance the prior small-N
-  per-rebalance read implied) — directional, not significance-grade.
-- **Top-decile** mirrors the quintile: net-negative at 20d, +843 bps/yr at 60d (t = 1.33).
-  Concentrating helps a little at 60d but does not change the verdict.
+| leg | horizon | n_active | avg_held | turnover | gross cum (active) | cost | **net cum (active)** | net/yr active | net/yr total | daily t |
+|---|---|---|---|---|---|---|---|---|---|---|
+| top-quintile | 20 | 1792 | 7.6 | 372.0× | −2058 bps | 4092 bps | **−6150 bps** | **−865 bps/yr** | −1111 bps/yr | **−0.34** |
+| top-quintile | 60 | 1989 | 20.3 | 116.5× | +3329 bps | 1281 bps | **+2048 bps** | **+259 bps/yr** | +200 bps/yr | **+0.92** |
+| top-decile | 20 | 1605 | 4.1 | 294.7× | +2649 bps | 3241 bps | **−592 bps** | **−93 bps/yr** | −634 bps/yr | +0.35 |
+| top-decile | 60 | 1987 | 9.8 | 118.5× | +7205 bps | 1304 bps | **+5901 bps** | **+748 bps/yr** | +713 bps/yr | +1.18 |
 
-The honest read: **the monetizable long leg is unusable at 20d after real costs and only
-weakly/insignificantly positive at 60d.** The 20d horizon is where the original tilt was
-proposed; it does not survive.
+**This is the decisive change, and the corrected number kills the old headline.** Under the
+look-ahead-free, active-day turnover model:
+
+- **Top-quintile @20d is NET-NEGATIVE: −865 bps/yr on active days (−1111 total), daily
+  t = −0.34.** The prior −705 bps/yr was NOT mainly a cash-vs-market artifact — restricting to
+  active days makes 20d slightly WORSE, because the active-day GROSS excess is itself negative
+  (−2058 bps): the 20d hold with ~7.6 names churns fast (turnover ≈ 372× → ~4092 bps cost)
+  and there is no positive gross to pay it from. The prior "+42.8 bps net @20d" does not
+  survive a faithful entry/exit cost — Codex's original flag holds.
+- **Top-quintile @60d is positive but EVEN WEAKER than before: +259 bps/yr net on active days
+  (+200 total), daily t = +0.92 (was +398 bps/yr, t 1.27 under the buggy whole-sample
+  framing).** Removing the look-ahead threshold and the idle-day benchmark exposure pulls the
+  60d net DOWN and below t = 1 — directional at best, clearly NOT significance-grade.
+- **Top-decile** mirrors it: net-negative at 20d (−93 bps/yr active), +748 bps/yr at 60d
+  (t = 1.18, also down from +843/yr, t 1.33). Concentrating helps a little at 60d but does
+  not change the verdict.
+
+The honest read: **the monetizable long leg is unusable at 20d after real costs (net-negative
+on active days) and only weakly/insignificantly positive at 60d (t < 1 at the quintile).** The
+20d horizon is where the original tilt was proposed; it does not survive.
 
 ### (1b) 63-phase dispersion of the OLD calendar-sampled design
 
@@ -99,7 +122,9 @@ The 20d net ranges from −30 to +211 bps across phases (std 46) — **the origi
 single number was one draw from a wide distribution.** Note this calendar-sampled framing
 *understates* turnover (one rebalance per 63 days), so even its "best" phases are not the
 faithful economics; the event-driven table above is. The 60d calendar-sampled phases are
-all positive, consistent with the event-driven +398 bps/yr being a real-but-modest tilt.
+all positive, consistent with the corrected event-driven +259 bps/yr active being a small
+positive-but-insignificant (daily t ≈ 0.92) 60d tilt. (This phase sweep is unchanged — it
+diagnoses the OLD design and is kept verbatim for that purpose.)
 
 ### (1c) Long-only IC (positive-surprise side only)
 
@@ -139,11 +164,15 @@ reaches sufficiency — it is **not** computed or estimated here.
 - **NON-PIT exploratory.** Single current one-shot harvest; `epsEstimated` is today's value,
   not a captured pre-announcement consensus; `lastUpdated` is a generic floor pre-2024-09.
   The +1d convention is entry timing only. Treat every number as a directional probe.
-- **The long leg does not monetize at 20d.** Under a faithful event-driven entry+exit with
-  turnover-based cost, top-quintile @20d is **net-negative (−705 bps/yr, daily t −0.22)**;
-  the prior +42.8 bps was a single-phase / fixed-cost artifact.
-- **60d is positive but insignificant.** +398 bps/yr net, daily t ≈ 1.27 — directional, not
-  significance-grade.
+- **The long leg does not monetize at 20d.** Under a look-ahead-free (expanding-threshold),
+  active-day, turnover-based cost model, top-quintile @20d is **net-negative (−865 bps/yr on
+  active days, −1111 total, daily t −0.34)**; the prior +42.8 bps was a single-phase /
+  fixed-cost artifact, and the earlier −705 figure was computed with a future-information
+  threshold and an idle-day benchmark exposure (both now removed; the corrected active-day
+  number is WORSE).
+- **60d is positive but insignificant — weaker than first reported.** +259 bps/yr net on
+  active days (+200 total), daily t ≈ 0.92 (below 1) — was +398/yr, t 1.27 under the buggy
+  whole-sample / look-ahead framing. Directional, clearly not significance-grade.
 - **Modest IC, scaling load-bearing.** ~2.6–3.0% IC; the RAW surprise is null; only the
   SCALED (%-surprise winsorized, SUE) forms clear the floor.
 - **NOT regime-stable.** Year-by-year SUE×fwd60 IC is negative in some years (e.g. 2022,
@@ -153,14 +182,15 @@ reaches sufficiency — it is **not** computed or estimated here.
 
 ## Proposed use (NOT a core signal)
 
-Given the faithful economics, **there is no clean case for a 20d tilt** — it loses money
-after costs. The most that is defensible from this evidence is a **low-turnover ~60d
-%-surprise LONG-side overweight**, where lower churn keeps a small positive net (+398 bps/yr
-at the quintile, daily t ≈ 1.3) — but that is **directional and insignificant**, so it would
-need stronger validation (a real PIT estimate-vintage source, a placebo on the long-only
-60d net, a longer/wider universe) before any live use. It remains an **orthogonal complement
-candidate at best, NOT a core signal and NOT a replacement** for the PatchTST primary, and
-**size-capped + regime-aware** if ever used.
+Given the corrected economics, **there is no clean case for a 20d tilt** — it loses money
+after costs (net-negative on active days). The most that is defensible from this evidence is a
+**low-turnover ~60d %-surprise LONG-side overweight**, where lower churn keeps a small
+positive net (+259 bps/yr at the quintile on active days, daily t ≈ 0.92) — but with the
+look-ahead and idle-day artifacts removed that net is now **below t = 1, i.e. directional and
+insignificant**, so it would need stronger validation (a real PIT estimate-vintage source, a
+placebo on the long-only 60d net, a longer/wider universe) before any live use. It remains an
+**orthogonal complement candidate at best, NOT a core signal and NOT a replacement** for the
+PatchTST primary, and **size-capped + regime-aware** if ever used.
 
 ## Honesty ledger
 
@@ -170,5 +200,11 @@ candidate at best, NOT a core signal and NOT a replacement** for the PatchTST pr
   hashed into `manifest_pead_test.json` / `manifest_pead_longonly.json`.
 - PIT status is downgraded to NON-PIT exploratory; the long-only 20d economics are
   net-negative under faithful costs.
+- Event selection is now look-ahead-free (expanding strictly-prior-history threshold);
+  excess/significance are restricted to ACTIVE days (idle days reported separately as cash@0).
+  The old −705 bps/yr headline is corrected (NOT preserved) to −865 bps/yr active @20d.
+- The IC/HAC path is finite-guarded and fails loudly on non-finite inputs/outputs (no more
+  spurious NumPy matmul overflow/invalid warnings); covered by
+  `tests/test_research_pead_finite_guards.py`.
 - The LIVE-model-score orthogonality is a flagged follow-up, NOT estimated here.
 - This is an EXPLORATORY doc. Do not act on it as a validated signal.

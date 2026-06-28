@@ -19,6 +19,16 @@ Reproducibility (same standard as scripts/sighunt.py, PR #202): pass `--as-of` (
 NO datetime.now), `--bars-cache`, `--earnings`, `--out`. Input hashes + all parameters +
 code commit are written to a `manifest.json` next to the outputs. The output dir is
 created.
+
+Numerical finiteness (PR #203 review fix 3): the IC / HAC helpers (`spearman_ic`,
+`nw_tstat`, `_safe_dot`) are module-level and FINITE-GUARDED. NumPy 2.x's matmul BLAS path
+emitted spurious overflow/invalid/divide warnings in the correlation/HAC computation even on
+bounded inputs; the HAC autocovariance now uses a validated-finite `np.sum(u*v)` and asserts
+every input and output is finite, failing loudly instead of silently writing NaN statistics.
+The SUE z-score (`surp / rolling-std`) is also guarded — a zero/near-zero past-std produced a
+stray `+inf` that survived `dropna()` and silently corrupted the `qcut` quintile binning
+("invalid value encountered in subtract"); it is now mapped to NaN and the quintile cut
+asserts a finite input. Covered by tests/test_research_pead_finite_guards.py.
 """
 import argparse
 import hashlib
@@ -66,6 +76,76 @@ def git_commit():
         ).decode().strip()
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------- IC / HAC (finite-guarded)
+# Module-level so they are unit-testable (PR #203 review fix 3): every IC/HAC input and output
+# is finite or we fail loudly, instead of letting NumPy's spurious matmul overflow/invalid
+# warnings stand and silently writing NaN statistics.
+def spearman_ic(sig_row, ret_row):
+    m = sig_row.notna() & ret_row.notna()
+    if m.sum() < 5:
+        return np.nan, m.sum()
+    a = sig_row[m].rank()
+    bb = ret_row[m].rank()
+    if a.std() == 0 or bb.std() == 0:
+        return np.nan, m.sum()
+    rho = np.corrcoef(a, bb)[0, 1]
+    # finite guard: a degenerate rank vector can yield NaN/inf from corrcoef; surface it as
+    # NaN (skipped upstream) rather than poison the mean.
+    return (rho if np.isfinite(rho) else np.nan), m.sum()
+
+
+def _safe_dot(u, v, label):
+    """Sum-of-products that is FINITE-GUARDED. The bare ``@``/matmul BLAS path in NumPy 2.x
+    emits spurious overflow/invalid/divide warnings even on bounded inputs; ``np.sum(u*v)`` on
+    validated-finite float64 avoids that, and we assert the output is finite, failing loudly
+    instead of letting a NaN/inf propagate into the HAC variance."""
+    u = np.ascontiguousarray(u, dtype=np.float64)
+    v = np.ascontiguousarray(v, dtype=np.float64)
+    if not (np.isfinite(u).all() and np.isfinite(v).all()):
+        raise ValueError(f"non-finite input to HAC autocovariance ({label})")
+    out = float(np.sum(u * v))
+    if not np.isfinite(out):
+        raise ValueError(f"non-finite HAC autocovariance ({label}): {out!r}")
+    return out
+
+
+def sue_zscore(surp, window=8, min_periods=4):
+    """Standardized unexpected earnings = surprise / trailing std of prior surprises.
+    FINITE-GUARDED (PR #203 review fix 3): a zero/near-zero trailing-std denominator would
+    yield +/-inf, which survives dropna() and silently corrupts the qcut quintile binning
+    ("invalid value encountered in subtract"). An undefined z-score is mapped to NaN (excluded
+    cleanly), never +/-inf."""
+    s = pd.Series(surp).astype(float)
+    past_std = s.shift(1).rolling(window, min_periods=min_periods).std()
+    z = s / past_std.replace(0.0, np.nan)
+    return z.replace([np.inf, -np.inf], np.nan)
+
+
+def nw_tstat(x, lag):
+    x = np.asarray(x, dtype=np.float64)
+    x = x[~np.isnan(x)]
+    n = len(x)
+    if n < 10:
+        return np.nan
+    if not np.isfinite(x).all():
+        raise ValueError("non-finite IC series passed to nw_tstat")
+    mu = float(x.mean())
+    xd = x - mu
+    var = _safe_dot(xd, xd, "lag0") / n
+    for k in range(1, lag + 1):
+        if k >= n:
+            break
+        w = 1 - k / (lag + 1)
+        var += 2 * w * _safe_dot(xd[k:], xd[:-k], f"lag{k}") / n
+    if not np.isfinite(var) or var < 0:
+        return np.nan
+    se = np.sqrt(var / n)
+    if se <= 0:
+        return np.nan
+    t = mu / se
+    return t if np.isfinite(t) else np.nan
 
 
 def main():
@@ -120,11 +200,11 @@ def main():
     e['pct_surp'] = e['surp'] / denom
     print(f"[winsor] %-surprise denominator floored at |epsEstimated| p{int(WINSOR_Q*100)} = {denom_floor:.4f}")
 
-    def roll_sue(g):
-        s = g['surp']
-        past_std = s.shift(1).rolling(8, min_periods=4).std()
-        return s / past_std
-    e['sue'] = e.groupby('symbol', group_keys=False).apply(roll_sue)
+    e['sue'] = e.groupby('symbol', group_keys=False).apply(
+        lambda g: sue_zscore(g['surp']), include_groups=False)
+    n_sue_nonfinite = int(np.isinf(e['sue'].to_numpy(dtype=float)).sum())
+    if n_sue_nonfinite:
+        raise ValueError(f"non-finite SUE survived the guard: {n_sue_nonfinite} rows")
 
     # ---------------------------------------------------------------- forward returns from bars
     fwd_panels = {h: px.shift(-h) / px - 1.0 for h in FWD}
@@ -152,31 +232,7 @@ def main():
             raw_panel.iloc[sl, raw_panel.columns.get_loc(sym)] = row['surp']
 
     # ---------------------------------------------------------------- cross-sectional IC framing
-    def spearman_ic(sig_row, ret_row):
-        m = sig_row.notna() & ret_row.notna()
-        if m.sum() < 5:
-            return np.nan, m.sum()
-        a = sig_row[m].rank()
-        bb = ret_row[m].rank()
-        if a.std() == 0 or bb.std() == 0:
-            return np.nan, m.sum()
-        return np.corrcoef(a, bb)[0, 1], m.sum()
-
-    def nw_tstat(x, lag):
-        x = x[~np.isnan(x)]
-        n = len(x)
-        if n < 10:
-            return np.nan
-        mu = x.mean()
-        xd = x - mu
-        var = (xd @ xd) / n
-        for k in range(1, lag + 1):
-            if k >= n:
-                break
-            w = 1 - k / (lag + 1)
-            var += 2 * w * (xd[k:] @ xd[:-k]) / n
-        se = np.sqrt(var / n)
-        return mu / se if se > 0 else np.nan
+    # spearman_ic / nw_tstat / _safe_dot are module-level (finite-guarded, unit-tested).
 
     def shuffle_floor(sig_panel, ret_panel, n_shuffle):
         floors = []
@@ -265,6 +321,12 @@ def main():
     for H in FWD:
         ev[f'car{H}'] = ev.apply(lambda r: event_car(r, H), axis=1)
 
+    # finite guard before binning (PR #203 review fix 3): qcut/percentile must see only finite
+    # SUE values — a stray inf silently corrupts the quintile cut. Drop non-finite, fail loudly
+    # if any remain.
+    ev = ev[np.isfinite(ev['sue'].to_numpy(dtype=float))].copy()
+    if not np.isfinite(ev['sue'].to_numpy(dtype=float)).all():
+        raise ValueError("non-finite SUE reached the quintile cut")
     ev['q'] = pd.qcut(ev['sue'], 5, labels=False, duplicates='drop')
     qtab_rows = []
     from scipy import stats as _st
