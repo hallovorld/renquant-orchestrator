@@ -8,6 +8,14 @@ source decision). Those say *what* the revision signal is and *which* source to
 buy; this says *how we start accruing the point-in-time history it needs*, today,
 for ~free.
 
+> **Ownership note (read first).** Data acquisition/storage is a
+> `renquant-base-data` responsibility, not an orchestrator one (see
+> "Repo boundary / proper home" below). The orchestrator's only durable role is
+> to *schedule/invoke* a base-data primitive and persist its fingerprint. This
+> PR lands the collector here only as a working, reviewed reference; **moving it
+> into `renquant-base-data` is the proposed resolution and is left as an explicit
+> operator decision** (this PR does not create a base-data PR).
+
 ## Problem
 
 The analyst estimate-**revision** signal — Δ(consensus EPS/target estimate) over a
@@ -56,34 +64,99 @@ data/estimate_snapshots/<YYYY-MM-DD>/<endpoint>.manifest.json
 canonical/existing path — there is a structural guard (`is_canonical_path`) that
 refuses `fmp_harvest`, `sec_fundamentals_daily`, `rawlabel.parquet`, `score_db`,
 or any non-`estimate_snapshots` leaf (a `/tmp` scratch path is the only other
-allowed target, for demos). Every row is stamped with `snapshot_as_of` so the
-accruing series is self-describing PIT. Each manifest carries `as_of`, `endpoint`,
-`sha256`, `ticker_count`, and `fetched_at` (mirroring the harvest manifest shape).
+allowed target, for demos). The guard follows symlinks (`resolve()`), so a link
+named `estimate_snapshots` that actually points into a forbidden tree is still
+rejected. Every row is stamped with `snapshot_as_of` so the accruing series is
+self-describing PIT. Each manifest carries `as_of`, `endpoint`, `sha256`,
+`ticker_count`, `coverage`, `status`, and `fetched_at` (mirroring the harvest
+manifest shape).
 
 Auth/endpoint match the harvest exactly: the FMP `stable` base, `?…&apikey=` query
 param, key read **read-only** from the umbrella `.env` (`FMP_API_KEY`, env var
 override first).
 
-## Cadence
+## PIT provenance: `snapshot_as_of` is always the actual fetch date
 
-**Daily.** Estimates and targets move on a multi-day-to-weekly cadence, so one
-snapshot per trading day fully captures the revision series with margin; a
-pre-market or post-market slot is fine (the as-of date is what matters, not the
-intraday time). The writer is **idempotent per as-of date** — re-running a date
-overwrites only that date's directory, so a missed day backfilled with
-`--as-of` (re-stamping the as-of label) and a retried day both stay clean.
+Every row is fetched **now**. The only honest `snapshot_as_of` is therefore the
+actual UTC fetch date — the collector derives it from `datetime.now(timezone.utc)`
+and a row is never stamped with a user-supplied past date. `--as-of` is accepted
+**only for today's UTC date or a future date** (e.g. to pre-name a scheduled
+slot); a **past `--as-of` is rejected** with an error, because stamping freshly
+fetched rows with a past date would manufacture point-in-time history that never
+existed — exactly the look-ahead the walk-forward gate exists to catch. This
+forward collector therefore cannot, and must not, produce historical backfill.
+Legitimate historical backfill is valid **only from an immutable source that was
+actually captured at that historical time, with its own provenance** — not from
+re-labelling a live fetch.
 
-For a real scheduled deploy, wrap the call in a `flock` guard so two runs can't
-race the same date dir:
+## Atomic publish, partial handling, non-destructive idempotency
 
-```
-flock -n /tmp/snapshot_fmp_estimates.lock \
-    python scripts/snapshot_fmp_estimates.py --out data/estimate_snapshots
-```
+A fetch can fail partway (HTTP errors, network drops). The collector never
+publishes a partial result over a good one:
 
-**Scheduling (cron/launchd) is a separate operator deploy decision and is NOT
-done in this PR.** This PR ships the collector and proves it runs; turning it on
-is an explicit operator action.
+- **Staged write.** Every endpoint is written into a sibling temp dir under the
+  out-root, not the final date dir.
+- **Coverage floor + status.** Each endpoint computes `coverage` = share of the
+  universe reached (data **or** a clean no-data). If coverage is below
+  `--min-coverage` (default 0.90) **or** any HTTP/network error occurred, that
+  endpoint's manifest is marked `status: partial`.
+- **Atomic publish only on success.** Only if **every** endpoint is `ok` is the
+  date published via a single atomic `os.replace` of the staged dir onto the
+  final date dir. A partial run is **not** published; any prior good snapshot is
+  left untouched, and the staging dir is cleaned up. A real shortfall exits
+  non-zero so a scheduler/alert can react.
+- **Idempotency = no-op verify, not destructive refetch.** If the date is
+  already fully published, a re-run is a **no-op** (it does not refetch or
+  overwrite). `--force` is required to deliberately re-publish, and even then a
+  partial fetch will not clobber the prior good snapshot.
+
+## Repo boundary / proper home (`renquant-base-data`)
+
+Per the orchestrator's CLAUDE.md hard boundary, **data acquisition and storage
+belong in `renquant-base-data`**, not the orchestrator. The orchestrator's
+durable role is to *schedule/invoke* a base-data primitive and *persist its
+fingerprint* into the run bundle — not to own the fetch/write logic.
+
+The proper home for this collector is therefore a `renquant-base-data` primitive
+(e.g. `renquant_base_data.estimate_snapshots`), with the orchestrator keeping only
+the scheduling wiring + fingerprint persistence. This PR intentionally lands the
+collector under `scripts/` here **only as a reviewed reference implementation**;
+**relocating it to `renquant-base-data` is the proposed resolution and is flagged
+as an explicit operator decision** — analogous to the earlier umbrella ADR move.
+This PR does **not** open a base-data PR or relocate the code unilaterally.
+
+## Scheduling — PROPOSAL ONLY (not deployed in this PR)
+
+Scheduling a cron/launchd job is a separate operator deploy decision and is
+**not** done here. This PR ships the collector and proves it runs; turning it on
+is an explicit operator action. The proposal the operator would sign off on:
+
+- **Deployment owner.** Ideally a `renquant-base-data` scheduled primitive once
+  the collector is relocated (see ownership note); until then, the operator's
+  daily-run host, invoked alongside the existing FMP harvest.
+- **Cadence.** **Daily**, one snapshot per trading day. Estimates/targets move on
+  a multi-day-to-weekly cadence, so daily captures the revision series with
+  margin; a pre- or post-market slot is fine (the as-of *date* is what matters,
+  not the intraday time). A `flock` guard prevents two runs racing the same date:
+
+  ```
+  flock -n /tmp/snapshot_fmp_estimates.lock \
+      python scripts/snapshot_fmp_estimates.py --out data/estimate_snapshots
+  ```
+
+- **Retry / backfill policy (NO fake timestamps).** A failed/partial run is
+  marked `partial`, **not** published, and exits non-zero → retry the **same UTC
+  day**. A day that is fully missed stays a genuine gap: it is **not**
+  back-dated. There is no honest way to recover a missed day's *as-of consensus*
+  from a later fetch, so the feature builder simply treats it as missing (the
+  trailing-delta windows already tolerate sparse dates). Re-running a published
+  day is a no-op verify; `--force` re-publishes only the current/future day.
+- **Freshness alert.** A monitor (extending the existing data-freshness audit)
+  should alert if the newest `data/estimate_snapshots/<date>/` is older than N
+  trading days, or if the most recent run's manifest `status != ok` — so a silent
+  outage surfaces instead of quietly starving the future feature.
+
+These are a proposal for operator review, not an installed schedule.
 
 ## How the revision signal gets built later (from accrued snapshots)
 
@@ -115,14 +188,23 @@ coverage of the few locked names, which is an independent decision.
 
 ## What this PR explicitly does NOT do
 
-- No cron / launchd / scheduler (operator deploy decision).
-- No write to any canonical/existing data path (structural guard).
+- No cron / launchd / scheduler (operator deploy decision — see scheduling
+  proposal above).
+- No write to any canonical/existing data path (symlink-following structural
+  guard).
+- **No backdating.** A past `--as-of` errors out; `snapshot_as_of` is always the
+  actual UTC fetch date.
+- No relocation into `renquant-base-data` — flagged as the proposed resolution
+  for an operator decision, not done here.
 - No feature engineering, no retrain, no model change.
 - No claim the signal works — that needs accrued history (~3–6 months) and its
   own gate.
 
 ## Open questions for discussion
 
+0. **Relocate to `renquant-base-data`?** (Recommended.) Should the collector
+   move to a base-data primitive now, with the orchestrator keeping only
+   scheduling + fingerprint persistence? Operator decision.
 1. **Path layout** — is `data/estimate_snapshots/<date>/<endpoint>.parquet` the
    right shape, or should it be `<endpoint>/<date>.parquet`? (date-major is
    simpler to prune/backfill; endpoint-major is simpler to concat a single

@@ -23,6 +23,22 @@ cron/launchd job is a separate operator deploy decision.
 Auth/endpoint pattern matches the existing harvest (the FMP ``stable`` API,
 ``apikey`` query param, key read read-only from the umbrella ``.env``).
 
+PIT PROVENANCE (HARD INVARIANT): every row is fetched NOW. ``snapshot_as_of`` is
+therefore ALWAYS derived from the actual UTC fetch date -- a live fetch may not
+be stamped with a user-supplied PAST date, because that would fabricate
+point-in-time history that never existed. ``--as-of`` is accepted ONLY for the
+current UTC date or a future date (e.g. to pre-name a scheduled slot); a past
+date is REJECTED. Historical backfill is valid *only* from an immutable source
+that was actually captured at that historical time (with its own provenance) --
+this forward collector cannot and must not manufacture it.
+
+ATOMIC PUBLISH: each date is written to a sibling temp dir, validated against a
+coverage floor, and published with an atomic rename ONLY on success. A
+partial/error fetch is marked ``status: partial`` and is NOT published over an
+existing good snapshot. By default an existing successful snapshot is a no-op
+(verify), never a destructive refetch -- pass ``--force`` to deliberately
+re-publish.
+
 Usage:
     # demo to /tmp (proves fetch+write without touching live data/)
     python scripts/snapshot_fmp_estimates.py --out /tmp/snap_demo
@@ -30,15 +46,15 @@ Usage:
     # explicit universe file (one ticker per line, or a strategy_config.json)
     python scripts/snapshot_fmp_estimates.py --universe /path/to/universe.txt
 
-    # backfill-label a snapshot to a specific as-of date (idempotent overwrite)
+    # name today's snapshot explicitly (today/future ONLY; a past date errors)
     python scripts/snapshot_fmp_estimates.py --as-of 2026-06-27
 
     # see what would be fetched/written without any network call or write
     python scripts/snapshot_fmp_estimates.py --dry-run
 
-Cron-safety: this writer is idempotent per as-of date (re-running a date
-overwrites only that date's directory). For a real scheduled deploy, wrap the
-invocation in a ``flock`` guard so two runs can't race the same date dir, e.g.::
+Cron-safety: re-running an already-published date is a no-op verify (NOT a
+destructive refetch). For a real scheduled deploy, wrap the invocation in a
+``flock`` guard so two runs can't race the same date dir, e.g.::
 
     flock -n /tmp/snapshot_fmp_estimates.lock \
         python scripts/snapshot_fmp_estimates.py --out data/estimate_snapshots
@@ -51,7 +67,9 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
+import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -82,6 +100,13 @@ DEFAULT_UNIVERSE_CONFIG = Path(
 )
 REQUEST_TIMEOUT_S = 30
 THROTTLE_S = 0.20  # gentle on the rate limit (FMP Starter = 300/min)
+# Coverage floor: the fraction of the requested universe that must return data
+# (per endpoint) for the snapshot to be considered complete and publishable.
+# Free FMP returns ~134/142 (~94%) for these endpoints; the ~8 misses are
+# plan-locked, not transient. A real run below this floor signals a fetch
+# outage (HTTP/network) rather than the known plan gaps, so we mark it partial
+# and refuse to overwrite a good prior snapshot.
+DEFAULT_MIN_COVERAGE = 0.90
 
 
 # --- helpers ------------------------------------------------------------------
@@ -103,6 +128,44 @@ def _read_env_value(env_path: Path, key: str) -> str | None:
 def load_api_key(env_path: Path) -> str | None:
     """FMP key: env var first, then read-only from the umbrella .env."""
     return os.environ.get("FMP_API_KEY") or _read_env_value(env_path, "FMP_API_KEY")
+
+
+class AsOfError(ValueError):
+    """Raised when a user-supplied --as-of would backdate a live fetch."""
+
+
+def resolve_as_of(as_of_arg: str | None, *, today: date | None = None) -> str:
+    """Resolve the snapshot as-of date for a LIVE fetch.
+
+    Every row is fetched NOW, so the only honest as-of is the actual UTC fetch
+    date. We therefore:
+
+    * default to today's UTC date when ``--as-of`` is omitted;
+    * accept an explicit ``--as-of`` ONLY if it is today's UTC date or a future
+      date (e.g. to pre-name a scheduled slot);
+    * REJECT a PAST date -- stamping today's freshly fetched rows with a past
+      date fabricates point-in-time history that never existed. Historical
+      backfill must come from an immutable source captured at that time, not
+      from this forward collector.
+
+    Returns the validated ``YYYY-MM-DD`` string; raises :class:`AsOfError` on a
+    malformed or backdated value.
+    """
+    utc_today = today or datetime.now(timezone.utc).date()
+    if as_of_arg is None:
+        return utc_today.isoformat()
+    try:
+        requested = datetime.strptime(as_of_arg, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise AsOfError(f"--as-of must be YYYY-MM-DD, got {as_of_arg!r}") from exc
+    if requested < utc_today:
+        raise AsOfError(
+            f"--as-of {as_of_arg} is in the past (UTC today is {utc_today.isoformat()}). "
+            "A live fetch returns data as of NOW; stamping it with a past date "
+            "fabricates point-in-time history. Backfill is only valid from an "
+            "immutable source captured at that historical time."
+        )
+    return requested.isoformat()
 
 
 def load_universe(universe_arg: str | None) -> list[str]:
@@ -173,10 +236,18 @@ def snapshot_one_endpoint(
     tickers: Sequence[str],
     api_key: str,
     as_of: str,
-    out_dir: Path,
+    stage_dir: Path,
     dry_run: bool,
+    min_coverage: float = DEFAULT_MIN_COVERAGE,
 ) -> dict[str, Any]:
-    """Fetch one endpoint across the universe and write a dated parquet + manifest."""
+    """Fetch one endpoint across the universe into a STAGING dir.
+
+    Writes the parquet + manifest into ``stage_dir`` (a temp area), never the
+    final published dir -- publication is an atomic rename done by the caller
+    once every endpoint clears its coverage floor. The per-endpoint manifest
+    carries a ``status`` of ``ok``/``partial``/``dry_run`` so a shortfall is
+    visible and blocks publication.
+    """
     started = datetime.now(timezone.utc)
     rows: list[dict[str, Any]] = []
     with_data = no_data = http_error = fetch_error = 0
@@ -205,7 +276,18 @@ def snapshot_one_endpoint(
                 rows.append(rec)
         time.sleep(THROTTLE_S)
 
-    out_path = out_dir / endpoint
+    requested = len(tickers)
+    # A fetch error (HTTP/network) is the failure mode that must block
+    # publication; "no_data" (plan-locked names) is expected and OK. Coverage
+    # is the share of names that either returned data OR cleanly had none.
+    reached = with_data + no_data
+    coverage = (reached / requested) if requested else 1.0
+    had_fetch_failure = (http_error + fetch_error) > 0
+    status = "ok"
+    if not dry_run and (coverage < min_coverage or had_fetch_failure):
+        status = "partial"
+
+    out_path = stage_dir / endpoint
     parquet_path = out_path.with_suffix(".parquet")
     manifest_path = out_path.with_suffix(".manifest.json")
     finished = datetime.now(timezone.utc)
@@ -215,33 +297,126 @@ def snapshot_one_endpoint(
         "path_template": endpoint_path,
         "url_base": FMP_STABLE_BASE,
         "as_of": as_of,
-        "requested": len(tickers),
+        "requested": requested,
         "with_data": with_data,
         "no_data": no_data,
         "http_error": http_error,
         "fetch_error": fetch_error,
         "error_samples": error_samples,
+        "coverage": round(coverage, 4),
+        "min_coverage": min_coverage,
         "rows": len(rows),
         "tickers": with_data,
+        "ticker_count": with_data,
         "output": f"{endpoint}.parquet",
         "fetched_at": finished.isoformat(),
         "started_at": started.isoformat(),
         "finished_at": finished.isoformat(),
-        "status": "dry_run" if dry_run else "ok",
+        "status": "dry_run" if dry_run else status,
     }
 
     if dry_run:
         manifest["sha256"] = None
         return manifest
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    stage_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(rows)
-    # idempotent: overwrite this date's file in place
     df.to_parquet(parquet_path, index=False)
     manifest["sha256"] = _sha256_file(parquet_path)
-    manifest["ticker_count"] = with_data
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
+
+
+def _snapshot_is_published(final_dir: Path) -> bool:
+    """A date is 'published' if its dir holds a manifest for every endpoint."""
+    if not final_dir.is_dir():
+        return False
+    for endpoint in ENDPOINTS:
+        if not (final_dir / f"{endpoint}.manifest.json").exists():
+            return False
+    return True
+
+
+def collect_snapshot(
+    *,
+    session: requests.Session,
+    tickers: Sequence[str],
+    api_key: str,
+    as_of: str,
+    out_root: Path,
+    dry_run: bool,
+    force: bool = False,
+    min_coverage: float = DEFAULT_MIN_COVERAGE,
+) -> dict[str, Any]:
+    """Fetch every endpoint for ``as_of`` and atomically publish on success.
+
+    Safety contract:
+      * Idempotent verify, NOT destructive refetch -- if the date is already
+        fully published and ``force`` is False, this is a no-op (``skipped``)
+        and the existing snapshot is left untouched.
+      * Staged then atomically renamed -- all endpoints are written into a
+        sibling temp dir; only if EVERY endpoint clears its coverage floor is
+        the date dir published via an atomic ``os.replace``. A partial fetch
+        leaves any prior good snapshot intact and returns ``status: partial``.
+    """
+    final_dir = out_root / as_of
+
+    if dry_run:
+        manifests = [
+            snapshot_one_endpoint(
+                session=session,
+                endpoint=endpoint,
+                endpoint_path=endpoint_path,
+                tickers=tickers,
+                api_key=api_key,
+                as_of=as_of,
+                stage_dir=final_dir,  # unused on dry-run (no writes)
+                dry_run=True,
+                min_coverage=min_coverage,
+            )
+            for endpoint, endpoint_path in ENDPOINTS.items()
+        ]
+        return {"status": "dry_run", "published": False, "out_dir": final_dir,
+                "manifests": manifests}
+
+    if _snapshot_is_published(final_dir) and not force:
+        return {"status": "skipped", "published": False, "out_dir": final_dir,
+                "reason": "already_published", "manifests": []}
+
+    out_root.mkdir(parents=True, exist_ok=True)
+    stage_dir = Path(tempfile.mkdtemp(prefix=f".stage-{as_of}-", dir=out_root))
+    try:
+        manifests = [
+            snapshot_one_endpoint(
+                session=session,
+                endpoint=endpoint,
+                endpoint_path=endpoint_path,
+                tickers=tickers,
+                api_key=api_key,
+                as_of=as_of,
+                stage_dir=stage_dir,
+                dry_run=False,
+                min_coverage=min_coverage,
+            )
+            for endpoint, endpoint_path in ENDPOINTS.items()
+        ]
+        partial = [m["endpoint"] for m in manifests if m["status"] != "ok"]
+        if partial:
+            # Do NOT publish over a (possibly good) existing snapshot.
+            return {"status": "partial", "published": False, "out_dir": final_dir,
+                    "partial_endpoints": partial, "manifests": manifests}
+        # Atomic publish: replace the final dir in one rename.
+        if final_dir.exists():
+            backup = out_root / f".replaced-{as_of}-{int(time.time())}"
+            os.replace(final_dir, backup)
+            shutil.rmtree(backup, ignore_errors=True)
+        os.replace(stage_dir, final_dir)
+        stage_dir = final_dir  # consumed by the rename; nothing to clean up
+        return {"status": "ok", "published": True, "out_dir": final_dir,
+                "manifests": manifests}
+    finally:
+        if stage_dir != final_dir and stage_dir.exists():
+            shutil.rmtree(stage_dir, ignore_errors=True)
 
 
 # Canonical inputs we must never touch.
@@ -264,7 +439,14 @@ def _is_scratch_arg(out_root: Path) -> bool:
     process happens to run from under /tmp.
     """
     s = str(out_root)
-    return s.startswith("/tmp/") or s == "/tmp" or s.startswith("/private/var/folders")
+    return (
+        s.startswith("/tmp/")
+        or s == "/tmp"
+        or s.startswith("/private/tmp/")  # macOS resolves /tmp -> /private/tmp
+        or s == "/private/tmp"
+        or s.startswith("/private/var/folders")  # tempfile default on macOS
+        or s.startswith("/var/folders")
+    )
 
 
 def is_canonical_path(out_root: Path) -> bool:
@@ -272,19 +454,29 @@ def is_canonical_path(out_root: Path) -> bool:
 
     The whole point is a NEW dedicated directory. We accept ONLY an out-root
     whose leaf is the dedicated ``estimate_snapshots`` name, or an explicit
-    scratch (/tmp) target. Judged on the path *as given* AND on its resolved
-    form, so neither a relative arg nor the cwd can sneak a canonical leaf
-    through. This makes it structurally hard to clobber, e.g., the fmp_harvest,
-    rawlabel, or sec_fundamentals canonical inputs.
+    scratch (/tmp) target. Judged on the path *as given* AND on its fully
+    resolved form, so neither a relative arg, the cwd, NOR a symlink can sneak a
+    canonical leaf through: ``resolve()`` follows every symlink component, so a
+    benign-looking ``estimate_snapshots`` that is actually a symlink into
+    ``fmp_harvest`` resolves to the forbidden leaf and is rejected. This makes
+    it structurally hard to clobber, e.g., the fmp_harvest, rawlabel, or
+    sec_fundamentals canonical inputs.
     """
-    if _is_scratch_arg(out_root):
-        return False  # explicit scratch is allowed
-    # inspect components of BOTH the given arg and its resolved absolute form
-    parts = set(out_root.parts) | set(out_root.resolve().parts)
+    resolved = out_root.resolve()
+    # Forbidden-leaf check FIRST and on the resolved (symlink-followed) path, so a
+    # symlink -- even one whose own path looks like /tmp scratch -- that resolves
+    # into fmp_harvest / rawlabel / sec_fundamentals / score_db is always caught.
+    parts = set(out_root.parts) | set(resolved.parts)
     if parts & _FORBIDDEN_LEAVES:
         return True
-    # require the dedicated leaf name for any non-scratch target
-    return out_root.name != "estimate_snapshots"
+    # A scratch target is allowed only if it is scratch BOTH as given and once
+    # fully resolved -- a symlink under /tmp pointing at a real data tree must
+    # not be waved through.
+    if _is_scratch_arg(out_root) and _is_scratch_arg(resolved):
+        return False
+    # require the dedicated leaf name for any non-scratch target, judged on the
+    # resolved leaf too (a symlink can rename the leaf)
+    return out_root.name != "estimate_snapshots" or resolved.name != "estimate_snapshots"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -303,7 +495,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--as-of",
         default=None,
-        help="as-of date YYYY-MM-DD for the snapshot dir (default = today, UTC)",
+        help="as-of date YYYY-MM-DD for the snapshot dir (default = today, UTC). "
+        "TODAY or a FUTURE date only -- a past date is rejected because a live "
+        "fetch returns data as of NOW (backdating fabricates PIT history).",
+    )
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="re-publish even if this date is already fully published "
+        "(default: an already-published date is a no-op verify, not a refetch)",
+    )
+    ap.add_argument(
+        "--min-coverage",
+        type=float,
+        default=DEFAULT_MIN_COVERAGE,
+        help="fraction of the universe that must be reached per endpoint to "
+        f"publish (default {DEFAULT_MIN_COVERAGE}); below it the snapshot is "
+        "marked partial and NOT published",
     )
     ap.add_argument(
         "--env",
@@ -317,11 +525,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
-    as_of = args.as_of or date.today().isoformat()
     try:
-        datetime.strptime(as_of, "%Y-%m-%d")
-    except ValueError:
-        print(f"error: --as-of must be YYYY-MM-DD, got {as_of!r}", file=sys.stderr)
+        as_of = resolve_as_of(args.as_of)
+    except AsOfError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
 
     out_root = Path(args.out)
@@ -358,23 +565,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
 
     session = requests.Session()
-    manifests: list[dict[str, Any]] = []
-    for endpoint, endpoint_path in ENDPOINTS.items():
-        m = snapshot_one_endpoint(
-            session=session,
-            endpoint=endpoint,
-            endpoint_path=endpoint_path,
-            tickers=tickers,
-            api_key=api_key or "",
-            as_of=as_of,
-            out_dir=out_dir,
-            dry_run=args.dry_run,
-        )
-        manifests.append(m)
+    result = collect_snapshot(
+        session=session,
+        tickers=tickers,
+        api_key=api_key or "",
+        as_of=as_of,
+        out_root=out_root,
+        dry_run=args.dry_run,
+        force=args.force,
+        min_coverage=args.min_coverage,
+    )
+    manifests = result.get("manifests", [])
+    for m in manifests:
         print(
-            f"  {endpoint:24s} rows={m['rows']:6d} with_data={m['with_data']:4d} "
+            f"  {m['endpoint']:24s} rows={m['rows']:6d} with_data={m['with_data']:4d} "
             f"no_data={m['no_data']:3d} http_err={m['http_error']:3d} "
             f"fetch_err={m['fetch_error']:3d} status={m['status']}",
+            file=sys.stderr,
+        )
+    if result["status"] == "skipped":
+        print(
+            f"  {as_of} already published at {out_dir} -- no-op (pass --force to re-publish)",
+            file=sys.stderr,
+        )
+    elif result["status"] == "partial":
+        print(
+            f"  PARTIAL: endpoints below coverage floor: {result['partial_endpoints']}; "
+            f"NOT published (prior snapshot, if any, left intact)",
             file=sys.stderr,
         )
 
@@ -385,12 +602,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "out_dir": str(out_dir),
                 "universe": len(tickers),
                 "dry_run": args.dry_run,
+                "status": result["status"],
+                "published": result.get("published", False),
                 "endpoints": {m["endpoint"]: m["rows"] for m in manifests},
             },
             indent=2,
         )
     )
-    return 0
+    # Non-zero exit on a real shortfall so a scheduler/alert can react.
+    return 1 if result["status"] == "partial" else 0
 
 
 if __name__ == "__main__":
