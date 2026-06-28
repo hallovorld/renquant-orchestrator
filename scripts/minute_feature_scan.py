@@ -1,39 +1,45 @@
 #!/usr/bin/env python
 """
-MVP cross-sectional MINUTE-DERIVED feature IC scan on the renquant-104 universe.
+Cross-sectional MINUTE-DERIVED feature IC scan on the renquant-104 universe
+(DISCOVERY screen + honest OOS holdout). READ-ONLY.
 
-READ-ONLY: pulls intraday (15-minute) bars for the single-name universe over a
-BOUNDED recent window, derives ~8 point-in-time cross-sectional features per name
-per day (as-of each day's close), and measures raw Spearman rank-IC vs forward
-1d/3d (short / intraday-adjacent) AND 5d/20d (multi-day, the renquant-105 goal).
-It reports, for every feature x horizon:
-  - mean IC, Newey-West / block t-stat, hit-rate, IC / within-date-shuffle-floor
-  - MARGINAL IC: IC against the forward return RESIDUALIZED on the daily price
-    factors (mom_12_1, mom_6_1, st_rev_21, ma200_dist, pct_52w_high) -- i.e. does
-    the minute feature add cross-sectional signal ON TOP of the daily factors.
-No orders. No git. No canonical writes. Output/cache under --out (default /tmp).
+WHAT THIS SETTLES
+  Do minute-derived cross-sectional features carry Spearman rank-IC -- standalone
+  AND *marginal* over the 5 daily price factors -- at short (1d/3d) and multi-day
+  (5d/20d) horizons, measured from a NEXT-SESSION TRADABLE entry, and does any
+  candidate effect survive a chronological out-of-sample holdout? This is the cheap
+  gate BEFORE any heavy "PatchTST-on-minute" experiment in renquant-model.
 
-WHY 15-MINUTE BARS: 1-minute over 134 names x ~2.5y RTH is ~26M rows -- too large
-to pull reliably and rate-limit-prone. 15-min (26 RTH bars/day) is ample to derive
-intraday realized vol, opening-range, last-30/60-min momentum, VWAP deviation,
-range / close-location-in-range, overnight gap, and an Amihud illiquidity / signed
-order-flow proxy. The granularity choice is stated in the manifest and the doc.
+CORRECTNESS FIXES vs the first cut (#206 review, haorensjtu-dev, 2026-06-28):
+  1. DST-CORRECT RTH: bars are filtered to each session's [open, close) window from
+     the XNYS exchange calendar (exchange_calendars), in UTC -- so 09:30-16:00 LOCAL
+     including half-days (early closes truncate automatically). The old fixed UTC
+     13:30-21:00 union admitted ~12% pre-/after-hours bars that drifted by season.
+  2. NEXT-SESSION ENTRY (no look-ahead): a feature for day D is known only AFTER D's
+     close. Positions are therefore ENTERED at the OPEN of the next session D+1 (the
+     first tradable timestamp) and the horizon-h forward return is close[D+h]/open[D+1]
+     - 1 (strictly future of the signal). No "execute at close[D]" assumption.
+  3. PROPER FWL MARGINAL IC: BOTH the minute feature AND the forward return are
+     residualized cross-sectionally on the SAME 5 daily factors (rank-standardized)
+     per date, then the two residuals are Spearman-correlated. (The old code
+     residualized only the return and correlated it with the RAW feature -- not a
+     valid partial effect.)
+  4. MARGINAL PLACEBO: a SEPARATE within-date shuffle floor is built on the
+     residualized feature vs residualized return, using the exact FWL pipeline and
+     masks, for each horizon -- not the standalone floor.
+  5. CHRONOLOGICAL OOS: sessions are split ~70/30 in time. Everything is reported
+     DISCOVERY (in-sample) vs OOS (untouched holdout). Winners are *selected on
+     discovery only*; the headline test is whether their marginal IC survives OOS.
 
-PIT / NO LOOK-AHEAD: every feature for day D uses ONLY bars with timestamp <= D's
-RTH close. Forward returns use the DAILY close panel (reused from sighunt's
-bars.parquet) shifted -h, so the label is strictly in the future. RTH only
-(13:30-20:00 UTC). The pinned --as-of caps both the minute pull and the labels.
-
-CAVEATS (stated, not hidden): bounded recent window (survivorship: current
-watchlist applied back); 15-min granularity (coarser than 1-min microstructure);
-overlapping forward windows for the headline are de-overlapped (step==horizon) for
-the t-stat, naive-overlap IC reported alongside. This is a CHEAP GATE, not proof.
+PIT / NO LOOK-AHEAD: every feature for day D uses ONLY bars with timestamp < D's RTH
+close. Forward returns use the daily close panel (reused from sighunt) and the daily
+OPEN panel derived from the corrected RTH minute bars; the entry timestamp is the
+NEXT session. The pinned --as-of caps both the minute pull and the labels.
 
 Reproducibility mirrors scripts/sighunt.py: pinned --as-of (NO datetime.now in the
 math), cache-first minute parquet (read WITHOUT Alpaca creds when present and
---refresh is unset), and a manifest.json pinning as-of, universe-file hash,
-min-bar-cache hash, daily-bars hash, kept-symbol list+hash, all parameters, and
-code commit.
+--refresh unset), and a manifest.json pinning as-of, universe/min-cache/daily-bars
+hashes, kept-symbol list+hash, all parameters, and the code commit.
 """
 import argparse
 import hashlib
@@ -47,6 +53,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
+from minute_rth import rth_filter, session_open_close, DAILY_FACTOR_NAMES, daily_factors
+
 DEFAULT_CFG = "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/strategy_config.golden.json"
 # ETFs / non-single-name members dropped so the cross-section is comparable stocks.
 ETFS = {"SPY", "GLD", "TLT", "XLE", "XLF", "XLI", "XLK", "XLU", "XLY", "XLV"}
@@ -54,12 +62,8 @@ ETFS = {"SPY", "GLD", "TLT", "XLE", "XLF", "XLI", "XLK", "XLU", "XLY", "XLV"}
 # Short / intraday-adjacent AND multi-day (the renquant-105 goal).
 HORIZONS = [1, 3, 5, 20]
 N_PERM = 200
-# RTH in UTC (US equities 09:30-16:00 ET; data is UTC). DST-naive but the cross
-# section is computed per-day from whatever RTH bars exist; a 1h DST shift does not
-# bias a same-day cross-sectional rank. We keep 13:30-20:00 UTC (EDT) and also
-# admit 14:30-21:00 (EST) by simply taking bars within the union session window.
-RTH_START_UTC = "13:30"
-RTH_END_UTC = "21:00"  # union upper bound to admit both EDT/EST; pre-market excluded
+OOS_FRAC = 0.70  # first 70% of sessions = DISCOVERY; last 30% = OOS holdout
+MIN_NAMES = 15   # min cross-section per date for an IC / residualization
 
 
 def sha256_file(path):
@@ -138,31 +142,18 @@ def fetch_minute_bars(universe, start, end, minutes):
     return out
 
 
-def to_rth(df):
-    """Filter a (symbol,timestamp) bar frame to RTH (UTC) and add a session date."""
-    ts = df.index.get_level_values("timestamp")
-    # Keep bars whose UTC wall-clock time is within the union RTH window.
-    tt = ts.tz_convert("UTC").time
-    lo = pd.Timestamp(RTH_START_UTC).time()
-    hi = pd.Timestamp(RTH_END_UTC).time()
-    mask = np.array([(t >= lo) and (t <= hi) for t in tt])
-    df = df[mask].copy()
-    sess = df.index.get_level_values("timestamp").tz_convert("UTC").normalize().tz_localize(None)
-    df["session"] = sess
-    return df
-
-
 def build_features(minbars, daily_close, kept):
-    """From RTH intraday bars, build PIT cross-sectional features as-of each day's
-    close. Returns dict feature_name -> (date x symbol) DataFrame aligned to the
-    daily-close panel's date index."""
+    """From DST-correct RTH intraday bars, build PIT cross-sectional features as-of
+    each day's close. Also returns the per-(symbol,session) day OPEN (first RTH bar
+    open) so the cost test / next-session label can use a real tradable open.
+    Returns (feat_dict, day_open_frame) both date x symbol aligned to the daily index."""
     feats = {name: {} for name in (
         "intraday_rvol", "intraday_mom_last", "open_range", "vwap_dev",
         "overnight_gap", "range_pct", "close_loc", "amihud_illiq",
     )}
+    day_open = {}
     prev_close = daily_close.shift(1)
 
-    # group once per (symbol, session)
     grouped = minbars.groupby([minbars.index.get_level_values("symbol"), "session"])
     for (sym, sess), g in grouped:
         if sym not in kept:
@@ -211,61 +202,50 @@ def build_features(minbars, daily_close, kept):
         feats["range_pct"].setdefault(sess, {})[sym] = rng_pct
         feats["close_loc"].setdefault(sess, {})[sym] = close_loc
         feats["amihud_illiq"].setdefault(sess, {})[sym] = amihud
+        day_open.setdefault(sess, {})[sym] = day_o
         # overnight gap needs prev daily close (PIT: known at today's open)
-        pc = prev_close.get(sym)
-        if pc is not None and sess in prev_close.index:
-            pcv = prev_close.at[sess, sym] if sym in prev_close.columns else np.nan
+        if sess in prev_close.index and sym in prev_close.columns:
+            pcv = prev_close.at[sess, sym]
             if pd.notna(pcv) and pcv > 0:
                 feats["overnight_gap"].setdefault(sess, {})[sym] = float(day_o / pcv - 1.0)
 
-    # assemble into date x symbol frames aligned to daily index
     idx = daily_close.index
     out = {}
     for name, dd in feats.items():
         frame = pd.DataFrame.from_dict(dd, orient="index")
         frame = frame.reindex(index=idx, columns=daily_close.columns)
         out[name] = frame.sort_index()
-    return out
+    dofr = pd.DataFrame.from_dict(day_open, orient="index").reindex(
+        index=idx, columns=daily_close.columns).sort_index()
+    return out, dofr
 
 
-def daily_factors(px):
-    """The same canonical daily price factors used by sighunt, for marginal-IC."""
-    f = {}
-    f["mom_12_1"] = (px.shift(21) / px.shift(252) - 1.0)
-    f["mom_6_1"] = (px.shift(21) / px.shift(126) - 1.0)
-    f["st_rev_21"] = -1.0 * (px / px.shift(21) - 1.0)
-    sma200 = px.rolling(200, min_periods=150).mean()
-    f["ma200_dist"] = px / sma200 - 1.0
-    hi252 = px.rolling(252, min_periods=200).max()
-    f["pct_52w_high"] = px / hi252
-    return f
+def rank_z(series):
+    """Cross-sectional rank -> z within a single date (NaN-safe over the given mask)."""
+    r = series.rank()
+    return (r - r.mean()) / (r.std(ddof=0) + 1e-12)
 
 
-def residualize_fwd(fwd, factors, dates):
-    """Cross-sectionally regress forward return on rank-standardized daily factors
-    per date; return residual forward return (date x symbol). This isolates the
-    component of the label NOT explained by the daily factors -> marginal IC."""
-    resid = pd.DataFrame(index=fwd.index, columns=fwd.columns, dtype=float)
+def residualize_panel(panel, factors, dates):
+    """Cross-sectionally regress `panel` (date x symbol) on the rank-standardized
+    daily factors per date; return the residual panel. Used to residualize BOTH the
+    forward return AND the minute feature on the SAME controls (proper FWL)."""
+    resid = pd.DataFrame(index=panel.index, columns=panel.columns, dtype=float)
     fac_names = list(factors.keys())
     for d in dates:
-        y = fwd.loc[d]
-        m = y.notna()
-        if m.sum() < 15:
+        if d not in panel.index:
             continue
-        cols = []
-        ok = m.copy()
+        y = panel.loc[d]
+        ok = y.notna()
         for fn in fac_names:
-            fv = factors[fn].loc[d]
-            ok = ok & fv.notna()
-        if ok.sum() < 15:
+            ok = ok & factors[fn].loc[d].notna()
+        if ok.sum() < MIN_NAMES:
             continue
         yv = y[ok].values.astype(float)
-        X = []
+        X = [np.ones(int(ok.sum()))]
         for fn in fac_names:
-            r = factors[fn].loc[d][ok].rank()
-            r = (r - r.mean()) / (r.std(ddof=0) + 1e-12)
-            X.append(r.values)
-        X = np.column_stack([np.ones(ok.sum())] + X)
+            X.append(rank_z(factors[fn].loc[d][ok]).values)
+        X = np.column_stack(X)
         try:
             beta, *_ = np.linalg.lstsq(X, yv, rcond=None)
             r = yv - X @ beta
@@ -311,13 +291,77 @@ def nw_tstat(x, lag):
     return mu / se if se > 0 else np.nan
 
 
+def marginal_placebo_floor(resid_feat, resid_fwd, reb_dates, rng, n_perm):
+    """Within-date shuffle floor on the RESIDUALIZED feature vs RESIDUALIZED return,
+    using the exact FWL residuals + masks. Returns the |mean_ic| 95th-pct floor."""
+    perm_means = []
+    for _ in range(n_perm):
+        ics = []
+        for d in reb_dates:
+            if d not in resid_feat.index or d not in resid_fwd.index:
+                continue
+            s = resid_feat.loc[d]
+            f = resid_fwd.loc[d]
+            m = s.notna() & f.notna()
+            if m.sum() < 10:
+                continue
+            fv = f[m].values.copy()
+            rng.shuffle(fv)
+            rho = spearmanr(s[m].values, fv).correlation
+            if rho is not None and not np.isnan(rho):
+                ics.append(rho)
+        if ics:
+            perm_means.append(np.mean(ics))
+    perm_means = np.array(perm_means) if perm_means else np.array([0.0])
+    return float(np.percentile(np.abs(perm_means), 95))
+
+
+def scan_window(label, feats, fwd_by_h, factors, dates_by_h, rng, n_perm,
+                marg_floor_feature):
+    """Run the standalone + proper-FWL marginal IC scan over a set of rebalance dates
+    per horizon. `marg_floor_feature` is the feature whose residual is used to build
+    the marginal placebo floor (one floor per horizon, feature-agnostic null)."""
+    results = []
+    marg_floor = {}
+    for h in HORIZONS:
+        fwd = fwd_by_h[h]
+        nonover = dates_by_h[h]
+        if len(nonover) < 5:
+            continue
+        # residualize the forward return ONCE per horizon (shared controls)
+        resid_fwd = residualize_panel(fwd, factors, nonover)
+        # marginal placebo floor: residual-of-a-feature vs residual-return null
+        resid_floor_feat = residualize_panel(feats[marg_floor_feature], factors, nonover)
+        marg_floor[h] = marginal_placebo_floor(resid_floor_feat, resid_fwd, nonover, rng, n_perm)
+        for name, sig in feats.items():
+            ic = daily_ic(sig, fwd, nonover)
+            if len(ic) < 5:
+                continue
+            mean_ic = ic.mean()
+            n = len(ic)
+            tstat = nw_tstat(ic.values, lag=min(5, n - 1))
+            hit = (ic > 0).mean()
+            # PROPER FWL: residualize the FEATURE on the same controls, then correlate
+            # residual feature vs residual forward return.
+            resid_feat = residualize_panel(sig, factors, nonover)
+            ic_marg = daily_ic(resid_feat, resid_fwd, nonover)
+            marg_mean = ic_marg.mean() if len(ic_marg) else np.nan
+            marg_t = nw_tstat(ic_marg.values, lag=min(5, len(ic_marg) - 1)) if len(ic_marg) >= 3 else np.nan
+            results.append(dict(
+                window=label, feature=name, horizon=h, n_obs=n,
+                mean_ic=mean_ic, nw_t=tstat, hit_rate=hit,
+                marg_ic=marg_mean, marg_nw_t=marg_t,
+            ))
+    return results, marg_floor
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--as-of", required=True,
                     help="Pinned end date YYYY-MM-DD (no datetime.now). Bars + labels end here.")
-    ap.add_argument("--out", default="/tmp/minfeat_out", help="Output directory.")
-    ap.add_argument("--min-cache", default=None,
+    ap.add_argument("--out", default="/tmp/rq206f_out", help="Output directory.")
+    ap.add_argument("--min-cache", default="/tmp/minfeat_out/minbars.parquet",
                     help="Cached intraday bar parquet. If present and --refresh is "
                          "not set, read WITHOUT Alpaca credentials.")
     ap.add_argument("--daily-bars", default="/tmp/sighunt/bars.parquet",
@@ -331,6 +375,8 @@ def main():
                     help="Minute-bar window length in years ending at --as-of.")
     ap.add_argument("--coverage", type=float, default=0.55,
                     help="Min full-period DAILY coverage to keep a name (shared w/ sighunt).")
+    ap.add_argument("--oos-frac", type=float, default=OOS_FRAC,
+                    help="Fraction of sessions used for DISCOVERY (rest = OOS holdout).")
     ap.add_argument("--config", default=DEFAULT_CFG,
                     help="renquant-104 golden watchlist json (universe source).")
     args = ap.parse_args()
@@ -366,104 +412,113 @@ def main():
     # PIT: never use bars after the as-of close
     ts = mb.index.get_level_values("timestamp")
     mb = mb[ts.tz_convert("UTC").normalize().tz_localize(None) <= as_of]
-    mb = to_rth(mb)
+    # DST-correct RTH filter via the XNYS exchange calendar (half-days included).
+    mb = rth_filter(mb)
     n_sess = mb["session"].nunique()
     print(f"[data] RTH intraday rows={len(mb)} sessions={n_sess} "
-          f"{mb['session'].min().date()}->{mb['session'].max().date()}", flush=True)
+          f"{mb['session'].min().date()}->{mb['session'].max().date()} "
+          f"(DST-correct XNYS calendar filter)", flush=True)
 
-    feats = build_features(mb, px, set(px.columns))
+    feats, day_open = build_features(mb, px, set(px.columns))
     for name, fr in feats.items():
         nz = fr.notna().sum().sum()
         print(f"[feat] {name:18s} non-null cells={nz}", flush=True)
 
     factors = daily_factors(px)
 
-    def fwd_ret(h):
-        return px.shift(-h) / px - 1.0
+    # ---- NEXT-SESSION TRADABLE forward returns (no look-ahead) ----
+    # Feature for day D known after D's close -> ENTER at OPEN of session D+1.
+    # horizon-h forward return = close[D+h] / open[D+1] - 1  (entry t+1 open).
+    # day_open[D+1] is aligned to the daily index; shift to map D -> D+1 open.
+    next_open = day_open.shift(-1)  # open at the NEXT session, indexed at D
 
-    # restrict scoring to days that have minute coverage
+    def fwd_ret_next(h):
+        # exit at close of session D+h, entry at open of session D+1
+        exit_close = px.shift(-h)
+        return exit_close / next_open - 1.0
+
+    # restrict scoring to days that have a minute signal AND a tradable next open
     min_days = feats["intraday_rvol"].dropna(how="all").index
+    sessions = [d for d in px.index if d in set(min_days)]
+    sessions = sorted(sessions)
+
+    # chronological OOS split
+    cut = int(len(sessions) * args.oos_frac)
+    disc_dates = set(sessions[:cut])
+    oos_dates = set(sessions[cut:])
+    split_date = sessions[cut] if cut < len(sessions) else None
+    print(f"[oos] {len(sessions)} signal-sessions -> DISCOVERY {len(disc_dates)} "
+          f"(<= {sessions[cut-1].date()}) | OOS {len(oos_dates)} (>= {split_date.date()})",
+          flush=True)
+
+    fwd_by_h = {h: fwd_ret_next(h) for h in HORIZONS}
+
+    def dates_for(h, pool):
+        # need a realized exit: close[D+h] must exist AND entry open[D+1] must exist
+        valid = [d for d in sessions if d in pool]
+        last_ok = px.index[max(0, len(px.index) - 1 - h)]
+        valid = [d for d in valid if d <= last_ok]
+        # de-overlap by horizon for the t-stat
+        return valid[::h]
+
+    disc_dates_by_h = {h: dates_for(h, disc_dates) for h in HORIZONS}
+    oos_dates_by_h = {h: dates_for(h, oos_dates) for h in HORIZONS}
+
     rng = np.random.default_rng(42)
-    results = []
-    for h in HORIZONS:
-        fwd = fwd_ret(h)
-        valid = [d for d in min_days if d in px.index]
-        valid = [d for d in valid if d <= px.index[-1]]
-        # drop tail where label is unavailable
-        valid = [d for d in valid if d <= px.index[max(0, len(px.index) - 1 - h)]]
-        nonover = valid[::h]  # de-overlapped rebalance dates for the t-stat
-        resid = residualize_fwd(fwd, factors, valid)
-        for name, sig in feats.items():
-            ic = daily_ic(sig, fwd, nonover)
-            if len(ic) < 5:
-                continue
-            mean_ic = ic.mean()
-            std_ic = ic.std(ddof=1)
-            n = len(ic)
-            tstat = nw_tstat(ic.values, lag=min(5, n - 1))
-            hit = (ic > 0).mean()
-            ic_overlap = daily_ic(sig, fwd, valid)
-            # marginal IC vs residualized forward return
-            ic_marg = daily_ic(sig, resid, nonover)
-            marg_mean = ic_marg.mean() if len(ic_marg) else np.nan
-            marg_t = nw_tstat(ic_marg.values, lag=min(5, len(ic_marg) - 1)) if len(ic_marg) >= 3 else np.nan
-            results.append(dict(
-                feature=name, horizon=h, n_obs=n,
-                mean_ic=mean_ic, ic_std=std_ic, nw_t=tstat, hit_rate=hit,
-                mean_ic_overlap=ic_overlap.mean(),
-                marg_ic=marg_mean, marg_nw_t=marg_t,
-            ))
 
-    # ---- shuffle placebo floor (within-date label shuffle) ----
-    placebo_floor = {}
-    print("[placebo] building within-date shuffle noise floor...", flush=True)
-    sig0 = feats["intraday_rvol"]
-    for h in HORIZONS:
-        fwd = fwd_ret(h)
-        valid = [d for d in min_days if d in px.index]
-        valid = [d for d in valid if d <= px.index[max(0, len(px.index) - 1 - h)]]
-        nonover = valid[::h]
-        perm_means = []
-        for _ in range(N_PERM):
-            ics = []
-            for d in nonover:
-                if d not in sig0.index or d not in fwd.index:
-                    continue
-                s = sig0.loc[d]
-                f = fwd.loc[d]
-                m = s.notna() & f.notna()
-                if m.sum() < 10:
-                    continue
-                fv = f[m].values.copy()
-                rng.shuffle(fv)
-                rho = spearmanr(s[m].values, fv).correlation
-                if rho is not None and not np.isnan(rho):
-                    ics.append(rho)
-            if ics:
-                perm_means.append(np.mean(ics))
-        perm_means = np.array(perm_means)
-        placebo_floor[h] = dict(
-            mean=float(perm_means.mean()), std=float(perm_means.std(ddof=1)),
-            p95_abs=float(np.percentile(np.abs(perm_means), 95)),
-            p05=float(np.percentile(perm_means, 5)), p95=float(np.percentile(perm_means, 95)),
-        )
-        print(f"[placebo] h={h}: |mean_ic| p95 floor={placebo_floor[h]['p95_abs']:.4f}", flush=True)
+    # DISCOVERY scan (select winners here)
+    disc_res, disc_floor = scan_window(
+        "discovery", feats, fwd_by_h, factors, disc_dates_by_h, rng, N_PERM,
+        marg_floor_feature="intraday_rvol")
+    # OOS scan (report the SAME features, untouched holdout)
+    oos_res, oos_floor = scan_window(
+        "oos", feats, fwd_by_h, factors, oos_dates_by_h, rng, N_PERM,
+        marg_floor_feature="intraday_rvol")
 
-    df = pd.DataFrame(results)
-    df["floor_p95_abs"] = df["horizon"].map(lambda h: placebo_floor[h]["p95_abs"])
-    df["ic_over_floor"] = df["mean_ic"].abs() / df["floor_p95_abs"]
-    df["clears_floor"] = df["mean_ic"].abs() > df["floor_p95_abs"]
-    df["marg_over_floor"] = df["marg_ic"].abs() / df["floor_p95_abs"]
-    df["marg_clears_floor"] = df["marg_ic"].abs() > df["floor_p95_abs"]
-    df = df.sort_values(["horizon", "ic_over_floor"], ascending=[True, False]).reset_index(drop=True)
+    df = pd.DataFrame(disc_res + oos_res)
+    df["marg_floor_p95"] = df.apply(
+        lambda r: (disc_floor if r["window"] == "discovery" else oos_floor).get(r["horizon"], np.nan),
+        axis=1)
+    df["marg_over_floor"] = df["marg_ic"].abs() / df["marg_floor_p95"]
+    df["marg_clears_floor"] = df["marg_ic"].abs() > df["marg_floor_p95"]
+    df = df.sort_values(["window", "horizon", "marg_over_floor"],
+                        ascending=[True, True, False]).reset_index(drop=True)
     df.to_csv(os.path.join(args.out, "results.csv"), index=False)
-    with open(os.path.join(args.out, "placebo_floor.json"), "w") as f:
-        json.dump(placebo_floor, f, indent=2)
+
+    floors = dict(
+        discovery={int(h): disc_floor.get(h) for h in HORIZONS},
+        oos={int(h): oos_floor.get(h) for h in HORIZONS},
+    )
+    with open(os.path.join(args.out, "marginal_placebo_floor.json"), "w") as f:
+        json.dump(floors, f, indent=2)
+
+    # ---- select short-horizon winners on DISCOVERY, test them on OOS ----
+    disc = df[df.window == "discovery"]
+    winners = disc[(disc.horizon.isin([1, 3])) & (disc.marg_clears_floor)
+                   & (disc.marg_ic > 0) & (disc.marg_nw_t >= 3.0)]
+    winner_keys = sorted(set(zip(winners.feature, winners.horizon)))
+    oos = df[df.window == "oos"].set_index(["feature", "horizon"])
+    survived = []
+    for feat, h in winner_keys:
+        row = oos.loc[(feat, h)] if (feat, h) in oos.index else None
+        ok = bool(row is not None and row["marg_clears_floor"] and row["marg_ic"] > 0)
+        survived.append(dict(
+            feature=feat, horizon=int(h),
+            disc_marg_ic=float(disc.set_index(["feature", "horizon"]).loc[(feat, h), "marg_ic"]),
+            disc_marg_t=float(disc.set_index(["feature", "horizon"]).loc[(feat, h), "marg_nw_t"]),
+            oos_marg_ic=float(row["marg_ic"]) if row is not None else None,
+            oos_marg_t=float(row["marg_nw_t"]) if row is not None else None,
+            oos_floor=float(oos_floor.get(h)) if oos_floor.get(h) is not None else None,
+            survived_oos=ok,
+        ))
+    with open(os.path.join(args.out, "oos_winners.json"), "w") as f:
+        json.dump(survived, f, indent=2)
 
     symbols = list(px.columns)
     manifest = dict(
         script="scripts/minute_feature_scan.py",
-        kind="renquant-104 minute-derived cross-sectional feature IC scan (cheap gate)",
+        kind="renquant-104 minute-derived cross-sectional feature IC scan "
+             "(DST-correct RTH, next-session entry, proper FWL marginal IC, chronological OOS)",
         as_of=args.as_of,
         code_commit=git_commit(),
         generated_at_utc=datetime.now(timezone.utc).isoformat(),
@@ -474,37 +529,58 @@ def main():
         daily_bars=args.daily_bars,
         daily_bars_sha256=sha256_file(args.daily_bars),
         used_cache_without_credentials=bool(use_cache),
+        rth_filter="XNYS exchange_calendars [session_open, session_close) UTC (half-days included)",
+        entry_timing="next-session OPEN (feature known after close[D]; enter open[D+1]); "
+                     "fwd ret = close[D+h]/open[D+1] - 1",
+        marginal_ic="proper FWL: residualize BOTH feature and forward return on the "
+                    "5 rank-standardized daily factors, then Spearman-correlate residuals",
+        oos="chronological %.0f/%.0f split; winners selected on DISCOVERY, reported on OOS"
+            % (args.oos_frac * 100, (1 - args.oos_frac) * 100),
         parameters=dict(
             minutes=args.minutes, years=args.years, coverage=args.coverage,
-            horizons=HORIZONS, n_perm=N_PERM, seed=42,
-            rth_start_utc=RTH_START_UTC, rth_end_utc=RTH_END_UTC,
+            horizons=HORIZONS, n_perm=N_PERM, seed=42, oos_frac=args.oos_frac,
+            daily_factors=DAILY_FACTOR_NAMES,
         ),
         intraday_panel=dict(
             sessions=int(n_sess), rth_rows=int(len(mb)),
             start=str(mb["session"].min().date()), end=str(mb["session"].max().date()),
         ),
         daily_panel=dict(days=int(px.shape[0]), names=int(px.shape[1])),
+        discovery_sessions=int(len(disc_dates)),
+        oos_sessions=int(len(oos_dates)),
+        oos_split_date=str(split_date.date()) if split_date is not None else None,
         kept_symbols=symbols,
         kept_symbols_sha256=sha256_text(",".join(symbols)),
     )
     with open(os.path.join(args.out, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
 
-    pd.set_option("display.width", 220)
+    pd.set_option("display.width", 240)
     pd.set_option("display.max_columns", 30)
     pd.set_option("display.float_format", lambda x: f"{x:.4f}")
-    print("\n================ FEATURE x HORIZON IC (standalone + marginal) ================")
-    cols = ["feature", "horizon", "n_obs", "mean_ic", "nw_t", "hit_rate",
-            "ic_over_floor", "clears_floor", "marg_ic", "marg_nw_t",
-            "marg_over_floor", "marg_clears_floor"]
-    print(df[cols].to_string(index=False))
-    print("\n================ PLACEBO NOISE FLOOR ================")
-    for h in HORIZONS:
-        pf = placebo_floor[h]
-        print(f"h={h:>3}: perm mean_ic={pf['mean']:+.4f}  |mean_ic| 95th-pct={pf['p95_abs']:.4f}  "
-              f"[5%,95%]=[{pf['p05']:+.4f},{pf['p95']:+.4f}]")
-    print(f"\nKept-symbols sha256={manifest['kept_symbols_sha256'][:12]} (coverage={args.coverage})")
-    print(f"Wrote: {args.out}/results.csv, placebo_floor.json, manifest.json")
+    print("\n========= DISCOVERY: marginal (proper FWL) + standalone IC =========")
+    cols = ["feature", "horizon", "n_obs", "mean_ic", "nw_t",
+            "marg_ic", "marg_nw_t", "marg_over_floor", "marg_clears_floor"]
+    print(df[df.window == "discovery"][cols].to_string(index=False))
+    print("\n========= OOS HOLDOUT (untouched): same features =========")
+    print(df[df.window == "oos"][cols].to_string(index=False))
+    print("\n========= MARGINAL PLACEBO FLOOR (|mean_ic| 95th pct) =========")
+    for w, fl in (("discovery", disc_floor), ("oos", oos_floor)):
+        print(f"  {w:9s}: " + "  ".join(f"h{h}={fl.get(h, float('nan')):.4f}" for h in HORIZONS))
+    print("\n========= DISCOVERY winners -> OOS survival =========")
+    if survived:
+        for s in survived:
+            verdict = "SURVIVED" if s["survived_oos"] else "DID NOT SURVIVE"
+            print(f"  {s['feature']:18s} h{s['horizon']}: disc marg_IC {s['disc_marg_ic']:+.4f} "
+                  f"(t {s['disc_marg_t']:.2f}) -> OOS marg_IC "
+                  f"{(s['oos_marg_ic'] if s['oos_marg_ic'] is not None else float('nan')):+.4f} "
+                  f"(t {(s['oos_marg_t'] if s['oos_marg_t'] is not None else float('nan')):.2f}, "
+                  f"floor {(s['oos_floor'] if s['oos_floor'] is not None else float('nan')):.4f}) "
+                  f"=> {verdict}")
+    else:
+        print("  (no discovery winner cleared marg-floor + marg t>=3 at 1d/3d)")
+    print(f"\nWrote: {args.out}/results.csv, marginal_placebo_floor.json, "
+          f"oos_winners.json, manifest.json")
 
 
 if __name__ == "__main__":

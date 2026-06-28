@@ -1,92 +1,85 @@
-# renquant-105 minute-feature cross-sectional IC scan — cheap gate (for discussion)
+# renquant-105 minute-feature cross-sectional IC scan — corrected to an honest null
 
-2026-06-28.
+2026-06-28 (corrected after the #206 review).
 
 ## STATUS
 READ-ONLY research GATE. Settles, with DATA, whether minute-derived features carry
-cross-sectional IC on renquant-104 — at SHORT (1d/3d) and multi-day (5d/20d) horizons,
-standalone and marginal-over-the-daily-price-factors — BEFORE any heavy PatchTST-on-minute
-experiment. **Not** a backtest, **not** a promotion, **not** a model change. No canonical
-path written, no order placed, no git in the live tree, no self-merge.
+**next-tradable, marginal-over-the-daily-factors** cross-sectional IC on renquant-104 — and
+whether any candidate survives a chronological OOS holdout — BEFORE any heavy PatchTST-on-minute
+experiment. Not a backtest, not a promotion, not a model change. No canonical path written, no
+order placed, no git in the live tree, no self-merge.
 
-## VERDICT
-**Minute data DOES carry real cross-sectional IC — but only at SHORT horizons.**
-- **1d / 3d:** `vwap_dev`, `intraday_mom_last`, `close_loc` clear the shuffle floor by 2.4–5.3×
-  AND survive residualization on the 5 daily price factors (marginal NW t = 3.3–5.2).
-  vwap_dev is strongest (1d marginal IC +0.028 t=5.2; 3d +0.030 t=3.3). The "minute = noise"
-  prior is **refuted at short horizons.**
-- **5d:** every feature's marginal IC over daily factors is below floor (best 0.67×).
-- **20d:** standalone vol/range/illiquidity "clear" but their MARGINAL IC is ~zero (subsumed by
-  daily factors); n=31 too thin. **No robust marginal multi-day IC.**
+## VERDICT — NULL (the first cut's "edge" was a bug artifact)
+The first cut claimed a real short-horizon edge (vwap_dev 1d marginal IC +0.028 t=5.2,
+"net Sharpe ~4"). The #206 review identified that the headline rested on three bugs. Fixing all
+three **collapses the signal to zero**:
+- **Marginal IC (proper FWL), DISCOVERY:** vwap_dev 1d **+0.0017 (t=0.23)**; intraday_mom_last
+  1d −0.006 (t=−0.94); close_loc 1d +0.005 (t=0.74); vwap_dev 3d +0.017 (t=1.62) — **none clears
+  the marginal placebo floor with a positive sign and t≥3.**
+- **OOS holdout (chronological 70/30):** **ZERO discovery winners** to test — nothing survives
+  because nothing qualified in discovery.
+- **Economics (next-session entry, market-neutral L/S, the clean read):** 1d gross is **negative
+  before cost** (net Sharpe ≈ −2.3, full window AND OOS); 3d clears 11 bps only for one signal in
+  one thin OOS cell (combo +9%/yr Sharpe 0.79) while vwap_dev 3d is **negative OOS**. **Does not
+  monetize.**
 
-## SO WHAT (the discussion the PR opens)
-- For the renquant-105 **multi-day** goal: this gate is **NEGATIVE** — minute features add no
-  robust marginal 5d/20d IC, so a PatchTST-on-minute experiment is **NOT justified for the
-  multi-day objective** on this evidence.
-- The **short-horizon (1–3d)** edge is **real and marginal** — a genuinely different angle. If
-  renquant ever wants a short-horizon sleeve, a minute-aware model is worth a scoped TEST (mind
-  turnover/cost/PDT and that PatchTST is the multi-day primary, not this product).
+## THE DECOMPOSITION (why it collapsed)
+vwap_dev 1d marginal IC, adding one fix at a time (full 626-date sample):
+- OLD (fixed-UTC RTH + close-entry + invalid-FWL): **+0.0279 (t=5.10)** ← reproduces headline
+- + DST-correct RTH: **−0.0151 (t=−2.86)** ← sign flips; signal lived in contaminated bars
+- + next-session entry: +0.0020 (t=0.36)
+- + proper FWL (full fix): **+0.0004 (t=0.07)** ← null
+
+The old fixed UTC 13:30–21:00 filter admitted **290,917 bars (11.8%)** of pre-market (EST) /
+after-hours (EDT) data that *created* the apparent VWAP/close-location signal.
+
+## THE 6 FIXES (mapped to the review)
+1. **DST-correct RTH:** XNYS `exchange_calendars` `[session_open, session_close)` per session in
+   UTC = 09:30–16:00 LOCAL, half-days truncated (6 early closes in window → 14 bars not 26).
+2. **Next-session entry:** signal known after close[D] → enter `open[D+1]`; fwd ret =
+   `close[D+h]/open[D+1] − 1`. (Day-open derived from the corrected RTH bars.)
+3. **Proper FWL marginal IC:** residualize BOTH feature and forward return on the same 5
+   rank-standardized daily factors, then correlate residuals (was: residualize return only,
+   correlate with raw feature — invalid).
+4. **Marginal placebo:** separate within-date shuffle floor on residualized-feature vs
+   residualized-return, per horizon (was: reused standalone floor).
+5. **Chronological OOS holdout:** 70/30 split; winners selected on discovery, reported on the
+   untouched holdout; "real edge / prior refuted" downgraded to "candidate, pending OOS" → then
+   shown to be a null.
+6. **Execution economics from next-tradable entry:** cost-test re-run with `open[D+1]` entry,
+   actual turnover, 5/11/20 bps sensitivity, active-day exposure, full-window + OOS.
 
 ## WHAT / HOW
-`scripts/minute_feature_scan.py` (pinned `--as-of`, cache-first, manifest — mirrors
-`sighunt.py`'s contract). Pulled 15-min RTH bars (1-min too large for a gate) for 134 golden
-single names, **2023-12-22→2026-06-25, 627 sessions, 2.47M RTH rows**; 8 PIT cross-sectional
-features as-of each close; Spearman rank-IC vs fwd 1/3/5/20d on non-overlapping dates (NW
-t-stat); marginal IC vs forward returns residualized on the daily price factors; 200-perm
-within-date shuffle placebo floor. Labels + daily factors reuse sighunt's `bars.parquet`.
+- `scripts/minute_rth.py` — shared DST-correct RTH filter + daily-factor helpers (one source of
+  truth for both scripts and tests).
+- `scripts/minute_feature_scan.py --as-of 2026-06-25 --out /tmp/rq206f_out` — DST-correct, 627
+  sessions, **2,174,757 RTH rows** (was 2,465,674); discovery 438 / OOS 189; proper-FWL marginal
+  IC + marginal placebo + OOS survival. Writes `results.csv`, `marginal_placebo_floor.json`,
+  `oos_winners.json`, `manifest.json`.
+- `scripts/minute_signal_costtest.py --as-of 2026-06-25 --out /tmp/rq206f_out` — next-session
+  entry economics, full + OOS. Writes `costtest_*`.
+- `tests/test_minute_feature_scan.py` — 11 focused tests: DST premarket/afterhours filtering,
+  half-day truncation + schedule, next-session label alignment / no-look-ahead, proper-FWL
+  partial-correlation (nulls a no-marginal case, detects a genuine one, residual orthogonality).
 
 ## REPRODUCIBILITY / SAFETY
-- `--as-of 2026-06-26` pinned (no `datetime.now` in the math). Cache-first: re-run reads
-  `minbars.parquet` WITHOUT Alpaca credentials and reproduces identically (verified:
-  `used_cache_without_credentials=true`, vwap_dev 1d IC 0.0351 unchanged).
-- `manifest.json` pins as-of, universe-config sha, min-cache sha, daily-bars sha, kept-symbol
-  list+sha (`7f9687c4a01b`, shared with sighunt), all params, code commit.
-- READ-ONLY market data via `.env` (Alpaca); output/cache in `/tmp/minfeat_out` only. No
-  canonical writes, no orders, no live-tree git.
+- `--as-of 2026-06-25` pinned (no `datetime.now` in the math). Cache-first: reads
+  `minbars.parquet` WITHOUT Alpaca credentials (`used_cache_without_credentials=true`).
+- `manifest.json` pins as-of, RTH-filter + entry-timing + marginal-IC method, universe/min-cache/
+  daily-bars shas, kept-symbol list+sha (`7f9687c4a01b`, shared with sighunt), OOS split date,
+  all params, code commit.
+- READ-ONLY; output/cache in `/tmp/rq206f_out` only. No canonical writes, no orders, no live-tree
+  git, no self-merge.
 
 ## CAVEATS
-15-min (not 1-min) granularity; bounded 2.5y single-regime window + current-watchlist
-survivorship; IC ≠ net P&L (no cost model); no CPCV/FWER/DSR (lean gate — single placebo +
-NW t + marginal residual). The short-horizon cluster (vwap_dev/mom_last/close_loc, marginal
-t>3) is consistent across 1d & 3d, not one lucky cell; the multi-day null is robust to the
-thin-n caveat because it is a *marginal*-IC null.
+15-min (not 1-min); bounded 2.5y single-regime window + current-watchlist survivorship; lean
+mandate (one marginal placebo floor + NW t + one chronological OOS holdout; no CPCV/FWER/DSR —
+none needed to read a null). Finer 1-min bars are a separate heavier pull and would have to
+overcome a clean null.
 
-## NEXT (for discussion, not committed)
-1. Decide: short-horizon sleeve in scope at all? (operating-model question, not a quant one.)
-2. If yes → 1-min pull + cost/turnover model + proper CPCV before any model spend.
-3. If no → minute-on-multi-day is closed by this gate; do NOT spin up PatchTST-on-minute for 105.
+## NEXT
+- **Do NOT** spin up a PatchTST-on-minute experiment for renquant-105 multi-day OR for a
+  short-horizon sleeve on this evidence — both gates are negative. The "minute = noise" prior is
+  not refuted.
 
 DO NOT merge / approve — opened for review by the counterpart agent.
-
----
-
-## ADDENDUM 2026-06-27 — MONETIZATION under faithful costs (extends this branch / #206)
-
-The IC was the cheap gate; the decisive question is whether ~0.02–0.03 marginal IC clears
-realistic cost at 1–3d turnover. Added `scripts/minute_signal_costtest.py` (pinned `--as-of`,
-cache-first, manifest — mirrors the #206 contract): builds the actual cross-sectional portfolio
-(`vwap_dev` + the 3-feature combo; top-decile/quintile LONG-ONLY and top-minus-bottom L/S; 1d
-and 3d rebalance) and charges **faithful** turnover cost (one-way `Σ|Δw|/2` × round-trip bps),
-base 11 bps with a 5/20 bps sensitivity band — exactly like the PEAD faithful-cost fix.
-
-**Result — it MONETIZES, decisively, at every tested cell.** Net of 11 bps round-trip:
-- vwap_dev market-neutral **L/S decile: +30 bps/period @1d (Sharpe 4.1), +50 bps/period @3d
-  (Sharpe 2.8)**; breakeven round-trip **47 / 71 bps** (4–6× the base cost).
-- vwap_dev **long-only decile: +49 bps/period @1d (Sharpe 3.7), +104 @3d (Sharpe 2.6)**;
-  breakeven **70 / 134 bps**. (Caveat: long-only carries ~+13 bps/day market beta over this
-  2024–26 rally; the L/S leg is the clean, beta-free alpha read.)
-- **No cell flips negative anywhere in 5–20 bps.** Net-positive in EVERY full year (2024/2025/
-  2026); only the 2023 n=5 stub is negative (statistically empty).
-
-This is the **opposite of the PEAD/fundamentals nulls** (there cost killed the IC; here the IC
-is real AND clears cost with multiples of headroom). It is a **genuine short-horizon (1–3d)
-product candidate** — but NOT a deployable book yet (needs OOS/walk-forward + CPCV/DSR on the
-portfolio + execution realism beyond flat bps + borrow on the short leg), and it remains a
-**different product** from the multi-day PatchTST primary. The shorting mandate constrains the
-clean L/S leg; the long-only leg is deployable but carries rally beta.
-
-Repro: `scripts/minute_signal_costtest.py --as-of 2026-06-26 --out /tmp/minfeat2_out` (reuses
-#206's `minbars.parquet` WITHOUT credentials + sighunt `bars.parquet`); writes
-`costtest_summary.csv` / `costtest_perperiod.csv` / `costtest_by_year.json` /
-`costtest_manifest.json`. READ-ONLY, no orders, no canonical writes, no live-tree git, no
-self-merge.
