@@ -1,139 +1,174 @@
-# renquant105 PEAD %-surprise — candidate signal (long-side economics + orthogonality)
+# renquant105 PEAD %-surprise — candidate signal (event-driven long-only economics + orthogonality)
 
 - **Date:** 2026-06-28
-- **Status:** CANDIDATE SIGNAL (lean, candidate-style — NOT a CPCV/FWER/DSR validation).
-  The one real lead out of the trend/factor signal hunt. This doc does the
-  *proportionate* follow-up the cheap screen earned: long-side-only economics +
-  orthogonality. It is NOT a promote recommendation.
-- **Reproduce:** `scripts/pead_test.py` (the cheap screen) then
-  `scripts/pead_longonly_orthogonality.py` (this doc's new economics + orthogonality).
-  READ-ONLY: bars `/tmp/sighunt/bars.parquet` (134 single names, 2018-05..2026-06),
-  earnings `data/fmp_harvest/earnings_291.parquet`. No orders, no git in the live tree,
-  no canonical writes.
+- **Status:** EXPLORATORY (lean candidate-style — NOT a CPCV/FWER/DSR validation, NOT a
+  promote recommendation). The one lead out of the trend/factor signal hunt. This doc does
+  the proportionate follow-up the cheap screen earned: a FAITHFUL event-driven long-side
+  economics pass + orthogonality.
+- **PIT status — NON-POINT-IN-TIME (downgraded per PR #203 review):** the earnings parquet
+  is a SINGLE CURRENT one-shot harvest. `epsEstimated` on a historical row is the value in
+  *today's* harvest, NOT a captured pre-announcement consensus snapshot, and `lastUpdated`
+  is a generic floor before 2024-09 so it cannot establish per-event vintage. The +1d entry
+  convention controls ENTRY TIMING only; it does NOT prove the estimate was the consensus
+  that existed pre-event or was not later revised. **ALL results here are non-PIT
+  exploratory evidence — a directional probe, not a clean PIT backtest.** Do not call this
+  "PIT-clean in principle."
+- **Reproduce:** `scripts/pead_test.py --as-of 2026-06-26` (cheap screen) then
+  `scripts/pead_longonly_orthogonality.py --as-of 2026-06-26` (this doc's economics +
+  orthogonality). Both take `--as-of` / `--bars-cache` / `--earnings` / `--out`, are pinned
+  (no datetime.now), hash inputs and write a manifest. READ-ONLY: bars
+  `/tmp/sighunt/bars.parquet` (134 single names, 2018-05..2026-06), earnings
+  `data/fmp_harvest/earnings_291.parquet`. No orders, no git in the live tree, no canonical
+  writes.
 
 ## The measured candidate
 
-### Cross-sectional IC (the cheap screen that passed)
+### Cross-sectional IC (the cheap screen) — winsorized denominator
 
-Per-date Spearman rank-IC of the as-of earnings-surprise signal vs forward returns;
-NW t-stat (overlap lag = horizon); within-date shuffle placebo floor (200 perms).
+Per-date Spearman rank-IC of the as-of earnings-surprise signal vs forward returns; NW
+t-stat (overlap lag = horizon); within-date shuffle placebo floor (200 perms). The
+%-surprise denominator is now WINSORIZED — `|epsEstimated|` floored at its 5th percentile
+(0.110) — so tiny estimates near zero cannot dominate the top-positive selection.
 
 | signal | horizon | n_dates | mean_IC | NW_t | hit_rate | shuffle_IC_std | IC / floor |
 |---|---|---|---|---|---|---|---|
-| **pct_surprise** | **20** | 2006 | **+0.0313** | **3.12** | 0.594 | 0.00215 | **14.5×** |
-| pct_surprise | 60 | 1966 | +0.0327 | 1.83 | 0.604 | 0.00212 | 15.4× |
+| **pct_surprise** | **20** | 2006 | **+0.0290** | **2.96** | 0.589 | 0.00217 | **13.3×** |
+| pct_surprise | 60 | 1966 | +0.0281 | 1.63 | 0.594 | 0.00211 | 13.3× |
 | SUE | 20 | 1758 | +0.0216 | 2.12 | 0.568 | 0.00251 | 8.6× |
-| SUE | 60 | 1718 | +0.0107 | 0.75 | 0.547 | 0.00244 | 4.4× |
 | raw_surprise | 20 | 2006 | +0.0050 | 0.63 | 0.518 | 0.00229 | 2.2× |
-| raw_surprise | 60 | 1966 | −0.0082 | −0.59 | 0.456 | 0.00219 | −3.8× |
 
-The headline is **%-surprise @20d: IC +0.0313, NW t=3.12, 14.5× the shuffle floor,
-placebo-clean.** The raw (unscaled) surprise is null — **scaling is load-bearing**
-(%/SUE only). Low-turnover: ~quarterly cadence (one earnings event per name per quarter).
+(SUE and raw_surprise are unchanged by the winsorization, which touches only the %-surprise
+denominator; their values are from the same run.)
 
-### (1) LONG-SIDE-ONLY economics (the usability test)
+The headline is **%-surprise @20d: IC +0.0290, NW t=2.96, ~13× the shuffle floor,
+placebo-clean** (modestly attenuated from the prior +0.0313 once the denominator is
+winsorized — the tiny-estimate names were inflating it). The raw (unscaled) surprise is
+null — **scaling is load-bearing** (%/SUE only). Low-turnover at the *signal* level
+(~quarterly cadence: one earnings event per name per quarter), but see the event-driven
+turnover below — at 20d the portfolio churns hard.
 
-The short leg is unmonetizable under our shorting mandate, so usability rests entirely
-on the LONG leg. On each quarterly rebalance (every 63 trading days, non-overlapping;
-28 rebalances) we take names with a POSITIVE recent %-surprise (the monetizable side),
-rank them, take the top-quintile / top-decile, equal-weight, and measure excess return
-vs the equal-weight universe mean. NET subtracts one-way 11 bps per quarterly rebalance.
+### (1) EVENT-DRIVEN long-only economics (the faithful usability test)
 
-| leg | horizon | n_rebal | avg_names | gross excess bps | **net excess bps** | hit-rate vs uni | rebal pos-frac |
-|---|---|---|---|---|---|---|---|
-| top-quintile | 20 | 28 | 21.9 | +53.8 | **+42.8** | 0.468 | 0.54 |
-| top-quintile | 60 | 28 | 21.9 | +309.7 | **+298.7** | 0.512 | 0.61 |
-| top-decile | 20 | 28 | 11.3 | +1.9 | **−9.1** | 0.432 | 0.50 |
-| top-decile | 60 | 28 | 11.3 | +257.6 | **+246.6** | 0.519 | 0.61 |
+The short leg is unmonetizable under our shorting mandate, so usability rests on the LONG
+leg. **The prior table sampled one arbitrary calendar phase (`trading_days[252::63]`,
+28 rebalances) and subtracted a single fixed 11 bps per sampled horizon return — that
+overstated the edge.** This is now replaced with a faithful design: each top-fraction
+positive-surprise event opens a holding the first trading day AFTER the announcement (+1d)
+and CLOSES at the horizon; overlapping holdings aggregate into one equal-weight portfolio,
+rebalanced daily; weights are lagged one day (no same-day look-ahead); **cost is charged on
+ACTUAL daily turnover** (`|Δw|` summed over names and days = entry + exit) at 11 bps
+one-way.
 
-**Long-only IC** (IC restricted to the monetizable positive-surprise names only):
+| leg | horizon | avg_held | total turnover | gross cum excess | cost | **net cum excess** | net /yr | daily t |
+|---|---|---|---|---|---|---|---|---|
+| top-quintile | 20 | 6.8 | 379.8× | −1499 bps | 4178 bps | **−5677 bps** | −705 bps/yr | **−0.22** |
+| top-quintile | 60 | 20.1 | 119.0× | +4516 bps | 1309 bps | **+3207 bps** | +398 bps/yr | **+1.27** |
+| top-decile | 20 | 3.4 | 300.5× | −2035 bps | 3305 bps | **−5340 bps** | −663 bps/yr | −0.25 |
+| top-decile | 60 | 10.1 | 117.3× | +8079 bps | 1291 bps | **+6788 bps** | +843 bps/yr | +1.33 |
+
+**This is the decisive change.** Under the faithful turnover model:
+
+- **Top-quintile @20d is NET-NEGATIVE (−705 bps/yr, daily t = −0.22).** The 20d hold with
+  ~6.8 names average churns fast (turnover ≈ 380× over the sample → ~4178 bps of cost),
+  which swamps a gross excess that is itself only modestly positive-to-negative. The prior
+  "+42.8 bps net @20d" does not survive a faithful entry/exit cost — Codex's flag was
+  correct.
+- **Top-quintile @60d is positive but NOT significant: +398 bps/yr net, daily t = +1.27.**
+  The longer hold has far lower turnover (119× → ~1309 bps cost) so it keeps a positive net,
+  but the daily-excess t-stat is ~1.3 (≈ the same significance the prior small-N
+  per-rebalance read implied) — directional, not significance-grade.
+- **Top-decile** mirrors the quintile: net-negative at 20d, +843 bps/yr at 60d (t = 1.33).
+  Concentrating helps a little at 60d but does not change the verdict.
+
+The honest read: **the monetizable long leg is unusable at 20d after real costs and only
+weakly/insignificantly positive at 60d.** The 20d horizon is where the original tilt was
+proposed; it does not survive.
+
+### (1b) 63-phase dispersion of the OLD calendar-sampled design
+
+To show how phase-sensitive the prior single-phase framing was, the old
+`trading_days[252::63]` design is swept over all 63 phase offsets (top-quintile, fixed
+11 bps/rebal):
+
+| horizon | n phases | net mean | net std | min | max | frac phases > 0 |
+|---|---|---|---|---|---|---|
+| 20 | 63 | +58.3 bps | 46.3 | −30.0 | +211.4 | 0.94 |
+| 60 | 63 | +220.6 bps | 48.0 | +118.8 | +360.6 | 1.00 |
+
+The 20d net ranges from −30 to +211 bps across phases (std 46) — **the originally-reported
+single number was one draw from a wide distribution.** Note this calendar-sampled framing
+*understates* turnover (one rebalance per 63 days), so even its "best" phases are not the
+faithful economics; the event-driven table above is. The 60d calendar-sampled phases are
+all positive, consistent with the event-driven +398 bps/yr being a real-but-modest tilt.
+
+### (1c) Long-only IC (positive-surprise side only)
 
 | horizon | n_dates | long-only mean IC | hit_rate |
 |---|---|---|---|
-| 20 | 2006 | **+0.0298** | 0.571 |
-| 60 | 1966 | **+0.0378** | 0.592 |
+| 20 | 2006 | **+0.0259** | 0.566 |
+| 60 | 1966 | **+0.0301** | 0.577 |
 
-**Blunt read of the long leg.** The earlier event study showed the drift is
-**short-skewed** (Q1 −101 vs Q5 −24 bps @20d): most of the L/S spread is the bad-news
-leg falling, which we cannot trade. So the question is exactly how much the LONG leg
-delivers alone — and the answer is *positive but modest and noisy*:
-
-- **Top-quintile @20d: +42.8 bps net** excess — but this is a **mean** over only 28
-  quarters with **std ≈ 215 bps** (median only +20.7 bps, right-skewed); the per-rebalance
-  t-stat is **≈ 1.30** (not significant). Worst quarter −344 bps, best +553 bps.
-- **Top-quintile @60d: +298.7 bps net** — large but with **std ≈ 683 bps** over 28
-  quarters (worst −1061 bps, best +1716 bps); per-rebalance t ≈ **2.36**. The 60d window
-  overlaps less cleanly into quarters and carries far more beta/market dispersion.
-- **Top-decile @20d is net-NEGATIVE (−9.1 bps)** — concentrating into the top 10% of
-  positive surprises does NOT help at 20d; the quintile is the better long-only cut.
-- Hit-rate vs the universe is ≈ **47–52%** (coin-flip at the name level); the edge is a
-  small mean tilt, not a high name-level win-rate. Rebalance-level pos-frac 0.50–0.61.
-
-The **long-only IC (+0.030 @20d, +0.038 @60d)** is the more stable measure than the
-small-N per-rebalance excess and is consistent with the full-cross-section screen.
+The long-only IC (+0.026 @20d, +0.030 @60d, winsorized) is the more stable measure than the
+small-N economics and remains positive — i.e. there *is* a weak positive rank-signal on the
+long side, but it does not monetize at 20d once you pay to trade it.
 
 ### (2) ORTHOGONALITY vs canonical price factors
 
-Per-date cross-sectional Spearman rank correlation of the %-surprise signal vs the
-canonical price factors from the hunt (recomputed on the same bars panel).
+Per-date cross-sectional Spearman rank correlation of the %-surprise signal vs the canonical
+price factors from the hunt (recomputed on the same bars panel).
 
 | factor | n_dates | mean rank-corr | abs-mean rank-corr | p05 | p95 |
 |---|---|---|---|---|---|
-| mom_12_1 | 1778 | +0.153 | 0.160 | −0.034 | +0.311 |
-| mom_6_1 | 1904 | +0.140 | 0.160 | −0.079 | +0.345 |
-| ma200_dist | 1881 | +0.181 | 0.188 | −0.017 | +0.379 |
+| mom_12_1 | 1778 | +0.149 | 0.156 | −0.029 | +0.302 |
+| mom_6_1 | 1904 | +0.138 | 0.157 | −0.066 | +0.337 |
+| ma200_dist | 1881 | +0.179 | 0.184 | −0.011 | +0.365 |
 
 Correlations are **low-to-moderate (+0.14 to +0.18)** — a mild positive tilt (positive
-surprisers also tend to have positive price momentum, as expected) but far from
-collinear. This is a **genuinely different bet** (Fundamental-Law value: an orthogonal
-complement, not a re-skin of momentum).
+surprisers also tend to have positive price momentum) but far from collinear. As a *rank
+signal* it is a genuinely different bet; that orthogonality survives even though the
+*tradable economics* do not.
 
-**PENDING (follow-up, NOT fabricated):** correlation of %-surprise ranks vs the LIVE
-model (PatchTST) scores requires faithful per-name decision-ledger data. The ledger is
-currently too thin/impaired for a faithful cross-section (see the 2026-06-27 trend-signal
-baseline audit: ≈0.45 overlap-ratio, scorer-mixture). This correlation is flagged as a
-required follow-up once the ledger reaches sufficiency — it is **not** computed or
-estimated here.
+**PENDING (follow-up, NOT fabricated):** correlation of %-surprise ranks vs the LIVE model
+(PatchTST) scores requires faithful per-name decision-ledger data. The ledger is currently
+too thin/impaired for a faithful cross-section (see the 2026-06-27 trend-signal baseline
+audit: ≈0.45 overlap-ratio, scorer-mixture). Flagged as a required follow-up once the ledger
+reaches sufficiency — it is **not** computed or estimated here.
 
 ## Honest caveats (verbatim — do not soften)
 
-- **Modest effect.** ~2–3% IC. This is a small cross-sectional edge, not a strong signal.
-- **Scaling is load-bearing.** The RAW surprise is null (IC +0.005 / −0.008, NW t<1);
-  only the SCALED forms (%-surprise, SUE) clear the floor. %-surprise is the strongest.
-- **Short-skewed drift.** The L/S spread is driven by the bad-news (short) leg, which is
-  unmonetizable under our shorting mandate. The monetizable LONG leg alone is positive
-  but modest (+42.8 bps net @20d top-quintile) and noisy (per-rebalance t≈1.3, 28 quarters).
-- **NOT regime-stable.** Year-by-year SUE×fwd60 IC is **negative in 2022 (−0.047) and
-  2024 (−0.041)** (pos-frac 0.36 and 0.29) and positive in 2019/2021/2023/2025. The edge
-  is conditional on regime, not a constant.
-- **PIT timing.** epsEstimated is point-in-time-clean in principle, but the harvested
-  `lastUpdated` field only carries meaningful per-event timestamps from **2024-09 onward**;
-  pre-2024 events carry a generic floor timestamp. So the pre-2024 point-in-time guarantee
-  rests on the **enter-signal-+1-trading-day-after-announcement timing convention**, not on
-  a per-event PIT update stamp. No look-ahead beyond that convention.
-- **Small-N economics.** The long-only excess rests on 28 non-overlapping quarterly
-  rebalances on a 134-name universe. Treat the per-rebalance means as directional, not
-  significance-grade; the long-only IC is the more robust statistic.
+- **NON-PIT exploratory.** Single current one-shot harvest; `epsEstimated` is today's value,
+  not a captured pre-announcement consensus; `lastUpdated` is a generic floor pre-2024-09.
+  The +1d convention is entry timing only. Treat every number as a directional probe.
+- **The long leg does not monetize at 20d.** Under a faithful event-driven entry+exit with
+  turnover-based cost, top-quintile @20d is **net-negative (−705 bps/yr, daily t −0.22)**;
+  the prior +42.8 bps was a single-phase / fixed-cost artifact.
+- **60d is positive but insignificant.** +398 bps/yr net, daily t ≈ 1.27 — directional, not
+  significance-grade.
+- **Modest IC, scaling load-bearing.** ~2.6–3.0% IC; the RAW surprise is null; only the
+  SCALED (%-surprise winsorized, SUE) forms clear the floor.
+- **NOT regime-stable.** Year-by-year SUE×fwd60 IC is negative in some years (e.g. 2022,
+  2024) and positive in others — conditional on regime, not constant.
+- **Small-N / phase-sensitive economics.** The calendar-sampled design swings −30..+211 bps
+  @20d across phases; the event-driven read is the faithful one and it is weak.
 
 ## Proposed use (NOT a core signal)
 
-A **low-turnover 20d %-surprise LONG-side TILT / overweight** on the 104 book:
-overweight names with a recent strong positive %-surprise (top-quintile of positive
-surprisers), rebalanced ~quarterly to match the earnings cadence. Rationale:
-
-- It is **orthogonal** (+0.14–0.18 to momentum/trend) → a genuine diversifying complement.
-- The monetizable LONG leg is **net-positive** at the quintile cut (top-decile is not — use
-  the quintile).
-- Low turnover (~1 rebalance/quarter) keeps cost drag small (one-way 11 bps).
-
-It is explicitly an **orthogonal complement / sizing tilt, NOT a core signal** and NOT a
-replacement for the PatchTST primary. Given the regime instability (2022/2024 negative)
-and modest IC, any live use should be **size-capped and regime-aware**, not a standalone bet.
+Given the faithful economics, **there is no clean case for a 20d tilt** — it loses money
+after costs. The most that is defensible from this evidence is a **low-turnover ~60d
+%-surprise LONG-side overweight**, where lower churn keeps a small positive net (+398 bps/yr
+at the quintile, daily t ≈ 1.3) — but that is **directional and insignificant**, so it would
+need stronger validation (a real PIT estimate-vintage source, a placebo on the long-only
+60d net, a longer/wider universe) before any live use. It remains an **orthogonal complement
+candidate at best, NOT a core signal and NOT a replacement** for the PatchTST primary, and
+**size-capped + regime-aware** if ever used.
 
 ## Honesty ledger
 
-- READ-ONLY: bars and earnings parquet read from `/tmp` and `data/fmp_harvest`
-  respectively; no canonical path written; no git in the live tree; no order placed.
-- All numbers reproduce from the two scripts above on the stated inputs.
+- READ-ONLY: bars and earnings parquet read from `/tmp` and `data/fmp_harvest`; no canonical
+  path written; no git in the live tree; no order placed; no self-merge / no self-approve.
+- All numbers reproduce from the two pinned scripts above (`--as-of 2026-06-26`); inputs are
+  hashed into `manifest_pead_test.json` / `manifest_pead_longonly.json`.
+- PIT status is downgraded to NON-PIT exploratory; the long-only 20d economics are
+  net-negative under faithful costs.
 - The LIVE-model-score orthogonality is a flagged follow-up, NOT estimated here.
-- This is a CANDIDATE doc. Do not act on it as a validated signal.
+- This is an EXPLORATORY doc. Do not act on it as a validated signal.
