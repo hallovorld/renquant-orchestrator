@@ -132,3 +132,137 @@ NW t=−1.6 (not significant), and it is a *daily* gap (open vs prev close), not
   lucky cell.
 - This is a **diagnostic gate**, not a backtest and not a promotion. No canonical paths written,
   no orders, no live-tree git.
+
+---
+
+# Monetization under faithful costs — does the short-horizon signal CLEAR cost?
+
+- **Added:** 2026-06-27 (same as-of pin `2026-06-26`). Extends #206.
+- **The question (the decisive one, separate from IC):** the 1–3d marginal IC above is
+  real, but **does ~0.02–0.03 marginal IC clear realistic round-trip cost at 1–3d
+  turnover?** We build the actual cross-sectional portfolio and charge **faithful**
+  turnover costs — exactly like the PEAD faithful-cost fix.
+- **Reproduce:** `scripts/minute_signal_costtest.py --as-of 2026-06-26 --out /tmp/minfeat2_out`
+  (cache-first: reuses #206's `minbars.parquet` WITHOUT Alpaca credentials; reuses
+  sighunt's daily `bars.parquet` for forward returns). Writes `costtest_summary.csv`,
+  `costtest_perperiod.csv`, `costtest_by_year.json`, `costtest_manifest.json`.
+
+## Method (faithful)
+
+- **Signal:** standardized minute features, PIT as-of each day's close, **entered next
+  session**. `vwap_dev` (primary) AND an **equal-weight combo** of {vwap_dev,
+  intraday_mom_last, close_loc}, each rank-standardized cross-sectionally per date.
+  Feature construction is the **identical #206 code path** (same `build_features`).
+- **Portfolios** (cross-sectional, equal-weight): top-decile (10%) and top-quintile
+  (20%) **LONG-ONLY** (the monetizable leg under our shorting mandate); top-minus-bottom
+  decile **L/S** (dollar-neutral, reported with the shorting-mandate caveat). Rebalanced
+  at **1-day AND 3-day** frequency, **non-overlapping** holding periods.
+- **Faithful cost:** one-way turnover = `Σ|w_t − w_{t−1}| / 2` from ACTUAL weight changes
+  each rebalance; cost per rebalance = `one_way_turnover × round_trip_bps`. **Base 11 bps**
+  round-trip; sensitivity **5 / 20 bps**. Net = gross − cost.
+- **Breakeven** = round-trip cost (bps) at which net edge = 0 = `gross_per_period /
+  one_way_turnover × 1e4`.
+
+## Net economics — read per-period bps + net Sharpe (NOT the annualized headline)
+
+> **Honest-framing note:** these are high-Sharpe SHORT-horizon series. Geometric
+> annualization of a +30–110 bps/period return over 252 (1d) or 84 (3d) periods produces
+> absurd-looking numbers (e.g. "+240% ann"); they are arithmetically correct but
+> **meaningless to quote** — the trustworthy quantities are **per-period bps**, **net
+> Sharpe**, and the **breakeven cost**. (Annualized figures are in `costtest_summary.csv`
+> for completeness; do not headline them.)
+
+Per-period economics at the **base 11 bps** round-trip (gross/net in bps per rebalance):
+
+| signal | portfolio | step | gross bps | **net@11 bps** | one-way turn | **net Sharpe** | hit | **breakeven RT (bps)** |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+| vwap_dev | long-decile | 1d | +58.1 | **+48.9** | 0.84 | **3.71** | 0.62 | **69.5** |
+| vwap_dev | long-decile | 3d | +112.8 | **+103.5** | 0.84 | **2.62** | 0.67 | **134.0** |
+| vwap_dev | long-quintile | 1d | +37.3 | **+28.9** | 0.76 | **2.97** | 0.60 | **48.9** |
+| vwap_dev | long-quintile | 3d | +89.4 | **+81.1** | 0.75 | **2.67** | 0.66 | **118.4** |
+| vwap_dev | **L/S decile** | 1d | +39.5 | **+30.2** | 0.84 | **4.09** | 0.60 | **46.8** |
+| vwap_dev | **L/S decile** | 3d | +59.8 | **+50.5** | 0.85 | **2.80** | 0.62 | **70.6** |
+| combo | long-decile | 1d | +48.2 | **+38.4** | 0.89 | **3.60** | 0.60 | **54.4** |
+| combo | long-decile | 3d | +99.8 | **+90.1** | 0.88 | **2.66** | 0.65 | **113.5** |
+| combo | long-quintile | 1d | +33.9 | **+25.2** | 0.79 | **3.00** | 0.59 | **42.8** |
+| combo | long-quintile | 3d | +72.5 | **+63.9** | 0.78 | **2.36** | 0.64 | **92.8** |
+| combo | **L/S decile** | 1d | +30.6 | **+20.8** | 0.89 | **3.65** | 0.58 | **34.4** |
+| combo | **L/S decile** | 3d | +54.5 | **+44.8** | 0.89 | **2.79** | 0.61 | **61.6** |
+
+L/S = `0.5×top − 0.5×bottom` (dollar-neutral, gross 2). The **top-minus-bottom decile
+spread** (the standard quote) is 2× the L/S row: vwap_dev **+78.9 bps/period gross →
++60.4 net@11** (1d), **+119.6 → +101.0 net@11** (3d).
+
+**Cost sensitivity (net Sharpe @ 5 / 11 / 20 bps round-trip):** every cell stays strongly
+positive even at 20 bps. E.g. vwap_dev L/S 1d net Sharpe 4.78 / 4.09 / 3.06; long-decile 3d
+2.75 / 2.62 / 2.43. **No cell flips negative anywhere in the 5–20 bps band** — breakevens
+(47–134 bps) are 4–12× the base cost.
+
+## Stability — net@11 bps by year (per-period bps, net Sharpe)
+
+| cell | 2024 | 2025 | 2026 (part) |
+|---|--:|--:|--:|
+| vwap_dev L/S 1d | +33.1 bps (Sh 5.3) | +21.7 (Sh 3.1) | +41.7 (Sh 4.2) |
+| vwap_dev L/S 3d | +66.5 bps (Sh 3.9) | +28.5 (Sh 1.8) | +66.6 (Sh 2.7) |
+| vwap_dev long-decile 1d | +49.2 bps (Sh 4.2) | +39.1 (Sh 3.0) | +70.8 (Sh 4.3) |
+| combo L/S 1d | +22.4 bps (Sh 4.7) | +8.9 (Sh 1.7) | +42.7 (Sh 5.5) |
+| combo long-decile 3d | +96.3 bps (Sh 3.1) | +61.5 (Sh 2.1) | +150.5 (Sh 3.3) |
+
+**Every full year (2024, 2025, 2026-to-date) is net-positive in every cell.** The only
+negative cells are the 2023 stub (n=5 days, the 22-Dec start) and are statistically empty.
+2025 is the weakest year (combo L/S 1d Sh 1.7) but still positive. **The edge survives
+across the three regimes in-sample.**
+
+## The honest beta caveat (don't over-claim the long-only number)
+
+The **long-only legs carry market beta**: over this 2024–26 window the universe equal-weight
+1d return is **+13.1 bps/day (~rally beta)**. So of vwap_dev long-decile's +58 bps/day gross,
+~13 bps is just being long a ripping tech tape and ~45 bps is the cross-sectional tilt. **The
+market-neutral L/S decile is the clean alpha read** (+30 bps/day net@11, no beta) — and it is
+the one constrained by our shorting mandate. The long-only leg monetizes, but part of its
+return is beta you could get from the index; size/attribute it accordingly.
+
+## Verdict — does it MONETIZE? **Yes, decisively, in-sample at every tested cell.**
+
+1. **At 1d rebalance** — high turnover (~0.84 one-way, ~11 names/day traded on a 13-name
+   decile), BUT the per-period edge is large enough that it is **NOT cost-killed**: vwap_dev
+   long-decile net **+48.9 bps/period @11 bps, Sharpe 3.71**, breakeven **69.5 bps** (6× the
+   base cost). Market-neutral vwap_dev L/S net **+30.2 bps, Sharpe 4.09**, breakeven 46.8 bps.
+2. **At 3d** — turnover per *rebalance* is barely lower (~0.84; the decile reshuffles almost
+   fully over 3 days) BUT each period earns ~2× the return, so **cost-per-day is far lower** →
+   breakevens jump to **70–134 bps**. Net Sharpe is a touch lower (2.6–2.8) but cost headroom
+   is much larger. **Clears 11 bps net comfortably, long-only AND L/S.**
+3. **It clears net-of-cost at ALL tradeable (horizon, cost) cells with positive net Sharpe AND
+   regime stability** → on this evidence the short-horizon minute signal is **a genuine
+   short-horizon product candidate**, NOT a cost-killed null. The decisive number: **vwap_dev,
+   market-neutral L/S, net of 11 bps round-trip = +30 bps/period (1d) / +50 bps/period (3d),
+   Sharpe ~4 / ~2.8, breakeven 47 / 71 bps, positive every full year.**
+
+This is the OPPOSITE of the PEAD/fundamentals economics nulls: there the IC died under faithful
+cost; here the IC is real **and** the economics clear cost with multiples of headroom.
+
+## What this does NOT prove (do not over-claim)
+
+- **In-sample, 2.5y, single regime, 15-min bars, current-watchlist survivorship.** A net Sharpe
+  of ~4 on a 1d signal over one strong-tape regime is a *candidate*, not a deployable book. The
+  decisive next gates are **out-of-sample / walk-forward**, a **proper CPCV/DSR** on the
+  portfolio (not just the IC), and **execution realism beyond a flat bps** (impact at the
+  implied ~11 names/day, borrow for the short leg, queue/fill on a *next-session* entry).
+- **Flat round-trip bps is a simplification.** 11 bps is a reasonable large-cap base, but real
+  cost is name- and size-dependent; we report 5–20 bps precisely because the point estimate is
+  uncertain. The signal clears the whole band, which is the robust claim.
+- **Shorting mandate binds the L/S leg.** Our operating model defaults to NO short (very high
+  bar); the cleanly-monetizable, beta-free L/S read is therefore **not directly deployable** as
+  a long/short book today. The **long-only** leg is deployable but carries the beta noted above.
+- **PDT / next-session entry / a different product.** A 1–3d minute sleeve is a *separate*
+  product from the multi-day PatchTST primary — same conclusion as #206's IC section.
+- **No CPCV/FWER/DSR** (lean mandate). Single faithful-cost portfolio + year-by-year stability +
+  cost-sensitivity band. The multiple-cell consistency (12 cells, all net-positive, two signals,
+  two horizons) is the informal robustness, not a formal multiple-testing correction.
+
+**Bottom line:** the short-horizon minute signal is **real AND monetizable** net of faithful
+11 bps cost — the cleanest "this clears cost" result in the renquant-105 alpha hunt so far. It
+is a genuine **short-horizon (1–3d) product candidate** (best cell: vwap_dev, 3d, breakeven
+~134 bps). It is **not** yet a deployable book (needs OOS/CPCV/execution realism) and it remains
+a **different product** from the multi-day PatchTST primary, with the long-only leg carrying
+rally beta and the clean L/S leg constrained by the shorting mandate.

@@ -57,3 +57,36 @@ thin-n caveat because it is a *marginal*-IC null.
 3. If no → minute-on-multi-day is closed by this gate; do NOT spin up PatchTST-on-minute for 105.
 
 DO NOT merge / approve — opened for review by the counterpart agent.
+
+---
+
+## ADDENDUM 2026-06-27 — MONETIZATION under faithful costs (extends this branch / #206)
+
+The IC was the cheap gate; the decisive question is whether ~0.02–0.03 marginal IC clears
+realistic cost at 1–3d turnover. Added `scripts/minute_signal_costtest.py` (pinned `--as-of`,
+cache-first, manifest — mirrors the #206 contract): builds the actual cross-sectional portfolio
+(`vwap_dev` + the 3-feature combo; top-decile/quintile LONG-ONLY and top-minus-bottom L/S; 1d
+and 3d rebalance) and charges **faithful** turnover cost (one-way `Σ|Δw|/2` × round-trip bps),
+base 11 bps with a 5/20 bps sensitivity band — exactly like the PEAD faithful-cost fix.
+
+**Result — it MONETIZES, decisively, at every tested cell.** Net of 11 bps round-trip:
+- vwap_dev market-neutral **L/S decile: +30 bps/period @1d (Sharpe 4.1), +50 bps/period @3d
+  (Sharpe 2.8)**; breakeven round-trip **47 / 71 bps** (4–6× the base cost).
+- vwap_dev **long-only decile: +49 bps/period @1d (Sharpe 3.7), +104 @3d (Sharpe 2.6)**;
+  breakeven **70 / 134 bps**. (Caveat: long-only carries ~+13 bps/day market beta over this
+  2024–26 rally; the L/S leg is the clean, beta-free alpha read.)
+- **No cell flips negative anywhere in 5–20 bps.** Net-positive in EVERY full year (2024/2025/
+  2026); only the 2023 n=5 stub is negative (statistically empty).
+
+This is the **opposite of the PEAD/fundamentals nulls** (there cost killed the IC; here the IC
+is real AND clears cost with multiples of headroom). It is a **genuine short-horizon (1–3d)
+product candidate** — but NOT a deployable book yet (needs OOS/walk-forward + CPCV/DSR on the
+portfolio + execution realism beyond flat bps + borrow on the short leg), and it remains a
+**different product** from the multi-day PatchTST primary. The shorting mandate constrains the
+clean L/S leg; the long-only leg is deployable but carries rally beta.
+
+Repro: `scripts/minute_signal_costtest.py --as-of 2026-06-26 --out /tmp/minfeat2_out` (reuses
+#206's `minbars.parquet` WITHOUT credentials + sighunt `bars.parquet`); writes
+`costtest_summary.csv` / `costtest_perperiod.csv` / `costtest_by_year.json` /
+`costtest_manifest.json`. READ-ONLY, no orders, no canonical writes, no live-tree git, no
+self-merge.
