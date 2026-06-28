@@ -59,21 +59,55 @@ never needed to reject this signal.
 
 ---
 
+## §2b Structural insight — why price-trend is exhausted here
+
+This is not bad luck on one factor. The universe is only **~134 liquid US
+large-caps**, and cross-sectional price-trend anomalies (momentum / reversal)
+are documented to be **weak in large-caps** and to concentrate in smaller-cap and
+broader universes. So this universe is **structurally inhospitable to
+cross-sectional PRICE alpha**. The price-trend family is now **exhausted by two
+direct negative tests** — the canonical-factor table (§1/§2) and
+regime-conditioning (§3, lead #1). We stop mining price-trend and move to a
+different family.
+
+---
+
 ## §3 Forward leads — the discovery loop continues here
 
-1. **Regime-conditioned momentum.** The yearly sign-flip shows 12-1 is
-   *conditional*, not dead. Gate the momentum tilt on a regime signal (existing
-   HMM regime labels) so the tilt fires only in regimes that pay momentum.
-   **Cheap test:** split mom_12_1 IC by regime label — does it become stable and
-   positive *within* momentum-on regimes? If yes, the conditional signal is
-   real and the unconditional null is just regime-averaging.
+### Lead #1 — regime-conditioned momentum: **TESTED → NO.**
 
-2. **Orthogonal signals (different family — price-trend is exhausted).**
-   Analyst-estimate revisions / fundamentals, which carry low correlation to
-   price-trend. **Prerequisite, non-negotiable:** a point-in-time data audit
-   first — publication timestamps, revision history, coverage, lag, survivorship
-   — *before* any IC claim. No IC number on this family is trustworthy until the
-   data is proven point-in-time.
+The hypothesis was that the yearly sign-flip means 12-1 is *conditional*, not
+dead — gate the tilt on a regime that pays momentum and it stabilizes. Tested
+directly with a PIT SPY trend×vol regime label over the 134-name 8y panel
+(`scripts/regimemom.py`). It does **not** rescue the signal:
+
+- **UP regime is just the unconditional average.** UP-trend covers 81% of
+  history (~75-day runs); its fwd_20d IC is **0.0184, NW t 0.87** —
+  indistinguishable from ALL (0.0188) and not significant. Conditioning on trend
+  buys nothing.
+- **Decisive cross-check: the yearly sign-flip SURVIVES inside UP-trend.** 2021
+  was 100% UP-trend yet momentum IC = **−0.065** (the worst year of the panel);
+  2025 was 83% UP and also negative. The trend regime therefore does **not**
+  isolate the momentum-paying state — the flip is *orthogonal to trend*, so a
+  trend gate cannot remove it.
+- **The one live 20d cell is not usable.** UP_CALM shows IC 0.051 / +262 net bps,
+  but (a) its NW t is **1.86** as 1 of ~7 cells with no multiplicity control →
+  exploratory, not a finding, and (b) its mean run-length is **15.4 trading days
+  < the 20-day holding horizon** — the regime turns over before the position
+  matures, so you cannot hold the trade without whipsaw.
+- Note: risk-management overlays (e.g. Barroso–Santa-Clara vol-scaling) *size*
+  the momentum bet; they do not fix a sign-flipping cross-sectional IC.
+
+### Lead — orthogonal signals (the live lead; different family)
+
+Price-trend is exhausted (§2b). The remaining lead is **orthogonal signals** —
+analyst-estimate revisions / earnings-surprise PEAD / fundamental quality. These
+**do** work in large-caps and are low-correlation to price-trend, so by the
+Fundamental Law of Active Management orthogonal breadth is worth more even at low
+IC. **Prerequisite, non-negotiable:** a cheap **point-in-time data audit** of the
+FMP/analyst harvest first — publication timestamps, revision history,
+coverage-by-date, lag, survivorship — *before any IC claim*. A naive non-PIT
+analyst IC is self-deception.
 
 ---
 

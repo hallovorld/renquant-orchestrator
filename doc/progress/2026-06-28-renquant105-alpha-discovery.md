@@ -6,14 +6,18 @@
 PROPOSAL doc + reproducible signal-scan scripts. READ-ONLY product: the scan
 pulls Alpaca daily bars, computes 5 canonical price factors, measures
 cross-sectional rank-IC vs a within-date shuffle floor. No orders, no git in the
-live tree, no canonical writes.
+live tree, no canonical writes. Forward lead #1 (regime-conditioned momentum) now
+TESTED → NO; the orthogonal-signals pivot is pending operator/Codex review.
 
 ## WHAT
 - `doc/design/2026-06-28-renquant105-alpha-discovery.md` — the plan, reorganized
   around an alpha-candidate table with MEASURED results, then an honest verdict,
-  then forward leads, then ONE proportionate-validation paragraph.
+  a structural large-cap insight (§2b), then forward leads (lead #1 now TESTED →
+  NO), then ONE proportionate-validation paragraph.
 - `scripts/sighunt.py` — the cross-sectional rank-IC scan + shuffle placebo floor.
 - `scripts/robustness.py` — Newey-West HAC t-stat + half-sample + yearly IC.
+- `scripts/regimemom.py` — forward-lead-#1 probe: mom_12_1 conditional IC by PIT
+  SPY trend×vol regime + per-regime shuffle floor + run-length actionability.
 
 ## WHY (the rewrite)
 Supersedes the **closed** RFC #201, which led with a heavyweight validation
@@ -34,13 +38,25 @@ first and shrinks validation to one proportionate paragraph.
   mom_12_1 IC sign-flips yearly (positive 22/23/24/26, negative 19/21/25).
 - A minutes-of-compute screen caught this → proportionate validation is
   sufficient; the heavyweight rig was never needed.
+- **Lead #1 (regime-conditioned momentum) now TESTED → NO** (`regimemom.py`, PIT
+  SPY trend×vol regime). UP-trend IC 0.0184 / NW t 0.87 = the unconditional
+  average. The yearly sign-flip **survives inside UP-trend** (2021 100% UP yet IC
+  −0.065), so trend does not isolate the momentum-paying state. The only live 20d
+  cell, UP_CALM (IC 0.051 / +262 bps), is unusable: NW t 1.86 (1 of ~7 cells, no
+  multiplicity control) and mean run-length 15.4d < the 20d holding horizon.
+- **Structural insight:** ~134 liquid large-caps + documented large-cap weakness
+  of price-trend anomalies = universe structurally inhospitable to cross-sectional
+  PRICE alpha. Price-trend family **exhausted by two direct negative tests**
+  (canonical factors + regime-conditioning).
 
 ## FORWARD LEADS
-1. Regime-conditioned momentum (gate the tilt on existing HMM regime labels;
-   cheap test = split IC by regime).
-2. Orthogonal signals — analyst-revision / fundamentals — but only after a
-   point-in-time data audit (publication timestamps, revision history, coverage,
-   lag, survivorship).
+1. ~~Regime-conditioned momentum~~ — **TESTED → NO** (see above; flip survives
+   inside UP-trend, UP_CALM fails persistence).
+2. **Orthogonal signals** (the live lead) — analyst-revision / earnings-surprise
+   PEAD / fundamentals — work in large-caps, low-correlation to price-trend.
+   **Pending operator/Codex review.** Prerequisite: a cheap point-in-time data
+   audit of the FMP/analyst harvest (publication timestamps, revision history,
+   coverage-by-date, lag, survivorship) BEFORE any IC claim.
 
 ## NOT DONE / OUT OF SCOPE
 No CPCV/FWER/DSR framework, no pre-registration schema, no governance gates.
