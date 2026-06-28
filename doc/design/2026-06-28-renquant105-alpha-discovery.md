@@ -129,6 +129,30 @@ directly with a PIT SPY trend×vol regime label over the 134-name 8y panel
 - Note: risk-management overlays (e.g. Barroso–Santa-Clara vol-scaling) *size*
   the momentum bet; they do not fix a sign-flipping cross-sectional IC.
 
+**Reproduce these regime numbers (one command, no credentials when the caches
+exist).** `regimemom.py` uses the SAME pinned, cache-first contract as
+`sighunt.py`: explicit `--as-of` (no `datetime.now`), and it reuses
+`sighunt`'s `manifest.json` `kept_symbols` so it runs on the **identical**
+134-name cross-section (same kept-symbols sha256). With `--bars-cache` /
+`--spy-cache` present and `--refresh` omitted, no Alpaca client is built and no
+credentials are needed; it writes its own `manifest.json` next to the outputs.
+
+```bash
+# run scripts/sighunt.py first (writes /tmp/sighunt/manifest.json kept_symbols),
+# then the regime-conditioning lead on that identical cross-section:
+python scripts/regimemom.py \
+    --as-of 2026-06-26 \
+    --bars-cache /tmp/sighunt/bars.parquet \
+    --spy-cache /tmp/regimemom/spy.parquet \
+    --sighunt-out /tmp/sighunt \
+    --out /tmp/regimemom \
+    --coverage 0.55
+```
+
+The UP/ALL/UP_CALM and per-year figures cited above are transcribed from this
+pinned run's `regime_ic.txt` / `manifest.json` (kept-symbols sha256 identical to
+the §1 sighunt manifest).
+
 ### Lead — orthogonal signals (the live lead; different family)
 
 We have **not found a robust price-trend edge here** (§2 / §3 lead #1 — *not* a
