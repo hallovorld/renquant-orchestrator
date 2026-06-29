@@ -1,33 +1,44 @@
 # renquant105 — DIRECTION DECISION
 
-Status: **DECISION RECORD (for Codex + operator discussion)** — 2026-06-28.
-Author: Ren Hao (with Claude Opus 4.8). The operator delegated this call to me;
-this PR is the discussion vehicle. It is the single durable record of the pivot.
+Status: **SCOPED DIRECTION HYPOTHESIS (for Codex + operator discussion)** —
+2026-06-28. Author: Ren Hao (with Claude Opus 4.8). The operator delegated this
+call to me; this PR is the discussion vehicle. It is the single durable record of
+the proposed pivot — framed as a scoped hypothesis with cited artifacts (§4(b)),
+not a definitive exhaustion decision.
 
-This is a **decision record, not a research framework**. It transcribes the
-evidence this session established and states the resulting decision. It does
-**not** stand up a CPCV/FWER validation cathedral — the per-signal scans that
-produced the evidence below already shipped (`scripts/sighunt.py`,
-`scripts/robustness.py`, `scripts/regimemom.py`, `scripts/fundamentals_scan.py`)
-and are documented in the §1 references.
+This is a **scoped decision hypothesis, not a research framework and not a
+proof.** It transcribes the evidence this session established and states the
+resulting direction. It does **not** stand up a CPCV/FWER validation cathedral —
+the per-signal scans that produced the *durable* evidence below already shipped
+(`scripts/sighunt.py`, `scripts/robustness.py`, `scripts/regimemom.py`,
+`scripts/fundamentals_scan.py`) and are documented in §5. The A1 / A2 / BEAR
+audits that anchor the strongest model-side claims are **temporary `/tmp`
+scratch outputs from unmerged, uncommitted scripts** (full provenance in §4(b))
+and are therefore **discussion evidence, NOT a decision keystone.** The decision
+below stands as a scoped hypothesis, not a theorem.
 
 ---
 
-## §1 The rigorous finding (the keystone)
+## §1 The finding (scoped hypothesis, not a keystone proof)
 
-**Directional cross-sectional alpha is exhausted on the current 134-large-cap
-universe + current data** — across every regime / signal / combination /
-盘中·盘后 we tested this session, read-only, with proper OOS / CI / placebo
-injection. The binding constraint is **DATA + UNIVERSE, not validation method or
-model architecture.** Stated honestly: these are faithful read-only diagnostics
-on a *current-watchlist, survivorship-biased* panel; they cannot prove the
-universal absence of edge, but every direct test points the same way, and the
-null is exactly what the literature predicts for large-cap cross-sectional
-anomalies. On the current inputs, the answer is NO.
+**No robust directional edge has surfaced under the current diagnostic suite on
+the current large-cap inputs** (~134 liquid US large-caps + current
+price/fundamental data) — across every regime / signal / combination / 盘中·盘后
+we tested this session, read-only, with OOS / CI / placebo injection. We state
+this as a **scoped hypothesis**, NOT as an exhaustion theorem and NOT as a proven
+causal "binding constraint = DATA + UNIVERSE." Stated honestly: these are
+read-only diagnostics on a *current-watchlist, survivorship-biased* panel; they
+**cannot** prove the universal absence of edge. Every direct test we ran points
+the same way, and the null is *consistent with* what the literature reports for
+large-cap cross-sectional anomalies — but "consistent with" is not "caused by,"
+and the A1 / A2 / BEAR numbers below come from un-durable `/tmp` scratch (§4(b)).
+Under this diagnostic suite, on these inputs, no usable directional edge
+surfaced.
 
 The evidence, with numbers:
 
-- **A1 — the existing model's directional skill is a thin slice, not a book.**
+- **A1 — the existing model's directional skill looks like a thin slice, not a
+  book.** [Discussion evidence — temporary `/tmp` scratch, see §4(b).]
   Read-only audit of the live model's per-name scores: genuine (leak-controlled)
   IC has a **CI that includes 0**, and it is **not leak-free** — predictor-side
   persistence balloons the naive IC. The apparent skill is **entirely a ~10%
@@ -39,8 +50,9 @@ The evidence, with numbers:
   read-only model audit and the ledger both fail to surface a usable directional
   edge.)
 
-- **A2 — ML combination buys nothing (Gu–Kelly–Xiu style).** Sector+beta
-  neutralized, walk-forward, **1002 OOS dates**: every multi-factor combination
+- **A2 — ML combination buys nothing (Gu–Kelly–Xiu style).** [Discussion
+  evidence — temporary `/tmp` scratch, see §4(b).] Sector+beta neutralized,
+  walk-forward, **1002 OOS dates**: every multi-factor combination
   is **dominated by a single momentum factor**, and that momentum is itself a
   **recent-bull regime artifact** (null on the full sample). **No multi-factor
   synergy** — combining the available factors does not manufacture an edge that
@@ -64,18 +76,23 @@ The evidence, with numbers:
     are **null**. Regime-conditional, large-cap-weak.
   - PEAD / minute: null or net-negative under faithful costs.
 
-- **BEAR / short audit — not a short edge either.** The BEAR-slice skill is a
+- **BEAR / short audit — not a short edge either.** [Discussion evidence —
+  temporary `/tmp` scratch, see §4(b).] The BEAR-slice skill is a
   **V-recovery LONG-ranking** (config-forbidden to act on as a short), the short
   leg is **net-negative**, effective **N ≈ 6**, the bootstrap **CI includes 0**,
   and 盘中 (intraday) adds nothing. There is no harvestable directional edge on
   the short side.
 
-**Conclusion of §1.** The binding constraint is the **inputs** — ~134 liquid US
-large-caps + the current price/fundamental data. Cross-sectional anomalies are
-documented to be *weak* in large-caps; our consistent null is exactly what that
-literature predicts. This is not a validation failure and not a model-architecture
-failure: more rigorous validation or a fancier model will not change a coin-flip
-primary on these inputs.
+**Conclusion of §1 (scoped).** Under this diagnostic suite, on these inputs, no
+robust directional edge surfaced. The **working hypothesis** — not a proven
+binding constraint — is that the **inputs** (~134 liquid US large-caps + current
+price/fundamental data) are the limiting factor: cross-sectional anomalies are
+documented to be *weak* in large-caps, and our null is *consistent with* that
+literature. This is a hypothesis to act on, not a theorem: we did not (and on a
+survivorship-biased current-watchlist panel cannot) prove that more rigorous
+validation or a different model architecture could not surface an edge. The
+honest read is that none surfaced here, and the cheapest next move treats the
+inputs as the suspected bottleneck while keeping that claim falsifiable.
 
 ---
 
@@ -109,9 +126,12 @@ A genuine directional 105 requires **changing an input.** Two candidates:
   small/mid-cap, weak in large-cap**. This is the most literature-supported path
   to real directional edge — but it **conflicts with the large-cap liquidity
   design** of renquant-104 and is a structural change.
-- **Acquire new data.** The estimate-revision snapshotter (#205) is already
-  accruing **point-in-time revision history**; alt-data is a further option.
-  New orthogonal, PIT-clean inputs are the other documented large-cap path.
+- **Acquire new data.** The estimate-revision snapshotter (#205) is **proposed /
+  blocked — pending base-data ownership + a scheduler.** It is **NOT merged**
+  (CI-red as of 2026-06-28) and is **NOT accruing any point-in-time revision
+  history yet**; no PIT history exists today. Alt-data is a further option. New
+  orthogonal, PIT-clean inputs are the other documented large-cap path, but every
+  one of them is a future build, not an existing asset.
 
 Both are **bigger decisions that take months and conflict with the current
 design** — explicitly **the operator's call**, not something I start under this
@@ -122,9 +142,10 @@ PR.
 ## §3 Why this decision (honest)
 
 The original 105 goal — **"catch more / more-accurate trends"** — requires a
-**directional edge**, which the §1 evidence says is **not available on the
-current inputs.** Therefore a real, directional 105 needs **Track B (an input
-change).**
+**directional edge**, which **did not surface under this session's diagnostic
+suite on the current inputs** (§1, scoped hypothesis). On that read, a real,
+directional 105 most plausibly needs **Track B (an input change)** — stated as
+the leading hypothesis, not a proven necessity.
 
 **Track A is the immediate, low-cost thing that can help the LIVE book NOW
 without new inputs — but it is "lose less / size better / enter better", NOT
@@ -136,22 +157,143 @@ today.
 
 ---
 
-## §4 Proposed first concrete step
+## §4 Proposed first concrete step — Track A conditional-pick-quality TEST SPEC
 
-**Track A, step 1 — test conditional pick-quality, before building any filter.**
-Rigorously test whether the existing model's pick quality is **conditionally
-predictable**: is there a measurable state (regime / dispersion / surprise
-window / liquidity) where its **hit-rate / expectancy is materially higher**?
+This is a **runnable test spec**, defined **before** any meta-label filter is
+built. We do NOT build a filter first. We first answer one falsifiable question:
+**is the existing model's pick quality conditionally predictable — measurably
+higher in some identifiable, ex-ante-observable state?** If not, Track A is null
+and we say so. The spec is deliberately concrete so a reviewer can run it.
 
-- **If YES:** build the meta-label filter on that conditioning, and measure the
-  **EXISTING book's expectancy improvement net of cost** — proper OOS, CI,
-  net-of-turnover. Promote only if the lift is real and net-positive.
-- **If NO:** report that **Track A is also null**, and that **Track B (an input
-  change) is the only remaining path** to a directional 105.
+**Target / label.** Reuse the same OOS prediction table that A1 already produced
+read-only (the gate's `_load_sanity_panel` + `_score_manifest_sanity` over
+manifest `walkforward_manifest_gbdt_prod_recipe_v2`, label `fwd_60d_excess`, 508
+OOS dates 2024-02 → 2026-02). Define a **binary pick-success label** per
+(date, name) that the model *acted on*: `y = 1` if the realized `fwd_60d_excess`
+of a top-decile (long-side) pick is `> 0` net of the 11 bps round-trip cost
+proxy, else `0`. The conditioning question is "given the model picked it, did it
+pay?" — exactly the meta-label framing.
 
-Same rigor as A1 / A2: OOS, CI, net-of-cost, no over-claim. The cheap conditional
-test is run **before** any filter is built, so we don't construct a filter on a
-non-existent conditional signal.
+**Candidate conditioning variables (ex-ante only, no look-ahead).** Each must be
+computable strictly from information available at the decision date:
+1. **Regime** — the live regime label at pick date (BEAR / BULL_CALM / CHOPPY /
+   BULL_VOLATILE) from the same classifier the book uses.
+2. **Cross-sectional dispersion** — std of model scores on that date (high
+   dispersion = more confident ranking).
+3. **Score margin** — the picked name's score distance above the decile cutoff.
+4. **Earnings-surprise window** — days-since-earnings / in-PEAD-window flag.
+5. **Liquidity / volatility state** — name-level 60d realized vol + ADV bucket.
+
+**Sample split / OOS window.** Chronological only. **Train/fit** the conditional
+estimator on the **first 60%** of the 508 OOS dates (≈ 2024-02 → 2025-05),
+**embargo 60 trading days** (= the label horizon, to kill overlap leakage),
+**test** on the **remaining ~40%** (≈ 2025-08 → 2026-02). No shuffling, no
+k-fold across time. Report per-regime cell counts so thin slices (BEAR ≈ 50
+dates, BULL_VOLATILE ≈ 19) are visible and not over-read.
+
+**Baseline.** The **unconditional** acted-on pick set over the same test window —
+i.e. take every top-decile pick with no conditioning. Track A only earns its keep
+if conditioning **beats this baseline out-of-sample**, net of the turnover it
+removes.
+
+**Metrics (all on the held-out test window).**
+- **Hit-rate** of conditioned picks vs baseline hit-rate (with bootstrap 95% CI,
+  date-block bootstrap, block = 13 as in A1).
+- **Expectancy net of turnover/cost** — mean `fwd_60d_excess` of the conditioned
+  acted-on set minus the 11 bps round-trip proxy, vs the same for baseline.
+- **Active-day exposure** — fraction of test dates on which the conditioned
+  filter is in-market at all (a filter that only acts 5% of days is not a usable
+  book lever even if its conditional hit-rate is high).
+
+**Stop / go threshold (explicit, pre-registered).**
+- **GO** (build the meta-label filter on the winning conditioning) only if, on
+  the held-out test window, **all three** hold: (a) net-of-cost expectancy lift
+  over baseline is **≥ +5 bps per 60d** AND its bootstrap 95% CI lower bound is
+  **> 0**; (b) hit-rate lift is **≥ +3 pp** with CI excluding 0; (c) active-day
+  exposure is **≥ 25%** of test dates (else the lever is too sparse to matter).
+- **STOP / NULL** otherwise: if no conditioning clears all three, declare **Track
+  A null** and record that **Track B (an input change) is the only remaining path**
+  to a directional 105. We do not then go fishing for a filter.
+
+Same rigor as A1 / A2: chronological OOS, embargo, bootstrap CI, net-of-cost, and
+a pre-registered threshold so the test cannot be talked into a pass.
+
+---
+
+## §4(b) Evidence contract — provenance, status, scope per source
+
+Per the §4(b) evidence-block convention. The strongest model-side claims (A1,
+A2, BEAR) come from **temporary `/tmp` scratch from unmerged scripts**, so they
+are **discussion evidence, NOT a decision keystone** — the decision stands as a
+scoped hypothesis (§1), not a proof. These outputs are **not committed, not
+durable, and will be deleted**; a reviewer cannot re-fetch them from git.
+
+### A1 — live-model per-name skill audit
+- **Scripts (NOT committed, temporary):** `/tmp/a1_modeledge/01_get_oos_predictions.py`,
+  `02_repro_and_rigor.py`, `03_injection_tests.py`, `04_injection_floor_leak.py`,
+  `05_regime_and_sharpe.py`.
+- **Outputs (NOT committed, temporary `/tmp` — will be deleted):**
+  `/tmp/a1_modeledge/{VERDICT.md, oos_meta.json, rigor_summary.json,
+  injection_results.json, injection_floor_leak.json, regime_sharpe.json,
+  oos_predictions.parquet, per_date_ic.parquet, panel_label_history.parquet}`.
+- **Prod-or-exp:** EXPERIMENT / scratch. Read-only re-score of the **prod**
+  manifest, but the audit itself is not a committed artifact.
+- **Inputs (existing, read-only — these ARE durable):** manifest
+  `walkforward_manifest_gbdt_prod_recipe_v2.json` (37 PIT artifacts); feature
+  panel `data/alpha158_291_fundamental_dataset.parquet`; label panel
+  `data/alpha158_291_fundamental_dataset_rawlabel.parquet` (umbrella RenQuant
+  tree). Label `fwd_60d_excess`, val cut 2024-02-01, 147,066 OOS rows / 508 dates.
+- **Reproducibility check:** reproduced the committed `genuine_ic` to 4dp
+  (0.0415 vs committed 0.0417) — the OOS table is faithful to prod.
+- **Best-known?** Best read-only audit available **of this model on this panel**;
+  NOT best-achievable absent a durable, committed re-run.
+- **Scope / limits:** current-watchlist, survivorship-biased; genuine_ic CI
+  **[−0.031, +0.129] includes 0**; the metric fails the slow-persistence
+  injection (predictor-side persistence balloons genuine 0.042 → 0.29), so it is
+  NOT clean leak removal; per-regime BULL_CALM (79% of OOS) genuine ≈ −0.003.
+
+### A2 — multi-factor combination (Gu–Kelly–Xiu construction)
+- **Scripts (NOT committed, temporary):** `/tmp/a2_combo/{combo.py, combo_model.py,
+  walkforward.py, eval.py}`.
+- **Outputs (NOT committed, temporary `/tmp` — will be deleted):**
+  `/tmp/a2_combo/{VERDICT.md, manifest.json, economics.csv, factor_corr.csv,
+  _intermediate.pkl, _model_stage.pkl, _wf_stage.pkl, _eval_stage.pkl}`.
+- **Prod-or-exp:** EXPERIMENT / scratch.
+- **Inputs (existing, read-only):** prices `/tmp/sighunt/bars.parquet` (134
+  names, 2018-05-30 → 2026-06-26, also scratch); earnings/fundamentals
+  `data/fmp_harvest/earnings_291.parquet` + `key_metrics_291` / `financial_growth_291`
+  / `income_statement_291` (annual, PIT via SEC acceptedDate); sector_map from
+  `strategy_config.golden.json`. Label fwd-20d (primary) + 5d.
+- **Construction:** 10 long-set factors, cross-sectional rank → inverse-normal z,
+  sector + 120d-beta neutralized; walk-forward 17 blocks, refit/63d, purge 20d,
+  OOS span 2022-05-31 → 2026-06-26 = **1002 dates**; EW / Ridge(α=10) / shallow
+  GBM combos; Spearman rank-IC, NW-t lag20, block-bootstrap 95% CI.
+- **Best-known?** Best read-only combination test on this factor set + panel;
+  hyperparams deliberately fixed (1 ridge α, 1 GBM config) to avoid OOS-peeking,
+  so it is a single-spec read, not a tuned ceiling.
+- **Scope / limits:** every combo **dominated by single mom_12_1** (combo net L/S
+  Sharpe ≤ baseline; EW −0.09, Ridge +0.23, GBM +0.74 vs mom +1.11); mom itself
+  is a recent-bull artifact; current-watchlist / survivorship-biased.
+
+### BEAR / short audit
+- **Source:** the per-regime cut of the **same A1 scratch** (`05_regime_and_sharpe.py`
+  → `/tmp/a1_modeledge/regime_sharpe.json`, `VERDICT.md` §3) plus the short-leg /
+  intraday reads from the same session — **all temporary `/tmp`, NOT committed.**
+- **Prod-or-exp:** EXPERIMENT / scratch.
+- **Inputs:** same as A1 (prod manifest re-score), regime labels from the book's
+  classifier.
+- **Best-known?** Best read-only short-side read on this model; NOT a durable
+  artifact.
+- **Scope / limits:** BEAR genuine +0.236 on **n ≈ 50 dates only (effective N
+  small)**, bootstrap CI includes 0; it is a **V-recovery LONG-ranking** that
+  config forbids acting on as a short (`regime_params.BEAR.max_position_pct = 0`);
+  short leg net-negative; intraday adds nothing. Thin-slice, untradable long, not
+  a short edge.
+
+### Durable, committed evidence (NOT `/tmp`) — see §5
+The price-trend / regime-momentum / fundamentals scans (`sighunt.py`,
+`robustness.py`, `regimemom.py`, `fundamentals_scan.py`) and their write-ups in
+§5 ARE committed and durable; those are the parts of §1 a reviewer can re-fetch.
 
 ---
 
@@ -168,5 +310,6 @@ non-existent conditional signal.
 All scans are **read-only**: no orders, no git in the live tree, no canonical
 writes. Every panel is **current-watchlist / survivorship-biased**, so each
 verdict is "no robust edge surfaced **under this diagnostic**", not a universal
-proof of exhaustion — but the diagnostics agree, and the inputs (large-cap
-cross-section) are the documented reason.
+proof of exhaustion — the diagnostics agree, and the inputs (large-cap
+cross-section) are the **suspected** reason (consistent with the literature), not
+a proven cause.
