@@ -4,15 +4,15 @@ STATUS: **DRAFT — UNFROZEN.** This artifact MUST be moved to `FROZEN` (status 
 
 DATE: 2026-06-30
 OWNER: orchestrator control-plane (measurement); pipeline owns the runtime IS ledger schema.
-REFERENCED BY: `doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md` §9.2b / §9.2c / §9.3.
-PURPOSE: pin every researcher degree of freedom in the **synthetic batch-fill control arm** of the Stage-1 execution-quality A/B (RFC option (a): one real intraday fill vs a quote-based synthetic batch fill). These DOF can move the baseline by **more than the 10-bps acceptance gate** and could otherwise be chosen *after* canary fills are seen — so they are frozen here, before any canary data exists.
+REFERENCED BY: `doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md` §9.2b / §9.2c / §9.2d / §9.3.
+PURPOSE: pin every researcher degree of freedom in the **synthetic batch-fill control arm** of the Stage-1 execution-quality A/B (RFC option (a): one real intraday fill vs a quote-based synthetic batch fill), **and** the no-fill / censoring imputation DOF of the §9.2d intent-to-treat worst-case bound. These DOF can move the baseline by **more than the 10-bps acceptance gate** and could otherwise be chosen *after* canary fills are seen — so they are frozen here, before any canary data exists.
 
 ---
 
 ## 0. Freeze procedure (immutability)
 
 1. Populate the committed default values below (those marked `<<FROZEN AT …>>` are calibrated from §3; the rest are already fixed).
-2. Run the §3 calibration on the trailing 60-session window ending strictly before the readonly phase; write the fitted `k_spread`, `k_auction` and their standard errors into §2.
+2. Run the §3 calibration on the trailing 60-session window ending strictly before the readonly phase; write the fitted `k_spread`, `k_auction` and their standard errors into §2, **and** the §7 censoring caps (`IS_cap_hi`, `IS_cap_lo`) computed from the same window.
 3. Flip `STATUS` to `FROZEN (<date>)`. Compute `synthetic_baseline_prereg_sha = sha256(frozen content of this file)` (git blob sha is acceptable) and record it in §6.
 4. From that point the file is immutable. Every synthetic batch-fill ledger row stamps `synthetic = true` and `synthetic_baseline_prereg_sha`. **Any edit after freeze changes the sha and INVALIDATES the run.**
 
@@ -70,6 +70,22 @@ synthetic_batch_fill = P_open + side_sign * ( k_spread * half_spread_open + k_au
 - On freeze: `synthetic_baseline_prereg_sha = <<sha256 / git-blob sha of this frozen file — recorded at freeze>>`.
 - **Every** ledger row carrying a synthetic batch fill stores `synthetic = true` **and** `synthetic_baseline_prereg_sha`.
 - Any post-freeze change to this model changes the sha and is therefore detectable in the ledger → such a run is **invalidated**.
+
+## 7. No-fill / censoring imputation (RFC §9.2d — the ITT worst-case bound)
+
+The Stage-1 execution-quality estimand is **intent-to-treat over the admitted pre-treatment pair set** (RFC §9.2 / §9.2d): no admitted pair is dropped for an arm's no-fill, because intraday no-fill / no-trigger is **not missing-at-random**. Each censored *cell* (one arm of one pair) is imputed to a frozen, **adversarial-against-PASS** cap, so the worst executions cannot vanish from the median. These caps are researcher DOF and are frozen here, from the **pre-canary** calibration window of §3 — never from canary data.
+
+| DOF | Frozen value | Meaning |
+|---|---|---|
+| `IS_cap_hi` | `<<FROZEN AT CALIBRATION §3>>` = **95th percentile** of the §3 calibration-window realized 104 next-open IS distribution (bps) | imputed for a censored **intraday** cell (intraday no-trigger / reject / unfilled-at-close) — assume the missing intraday execution was as **bad** as this cap |
+| `IS_cap_lo` | `<<FROZEN AT CALIBRATION §3>>` = **5th percentile** of the same distribution (bps) | imputed for a censored **batch** cell (synthetic no-quote, §4) — assume the missing batch execution was as **good** as this cap |
+| `c_max` | **0.10** (10% of admitted pairs) | max censored fraction at which the IS gate is **evaluable**; above it the gate is **NOT evaluable** → operations-only + fix the censoring cause |
+
+- **Why these directions:** a censored intraday cell → `IS_cap_hi` (push intraday cost UP) and a censored batch cell → `IS_cap_lo` (push batch cost DOWN) both **enlarge** `Δ = IS_intraday − IS_batch`. The §5 one-sided upper CB of Δ is then computed on the **imputed-complete admitted set**; **PASS requires that worst-case upper CB to stay below the +10-bps margin.** If the gate survives the maximally-adversarial imputation, censoring cannot have manufactured the PASS.
+- **Support proxy, stated:** no intraday IS distribution exists strictly before canary, so the §3 batch IS distribution is the only frozen reference; the 95th/5th percentiles are a deliberately conservative support proxy for the worst/best plausible execution. This choice is frozen.
+- **Reported alongside (not a gate):** the **complete-case** Δ (censored cells dropped) is reported with the worst-case Δ and the per-cause censoring counts each session-window; a complete-case-PASS / worst-case-FAIL split → **NOT a PASS** (RFC §9.2d).
+- **Critical-cause censoring** (intraday reject from invalid order/state/contract) independently triggers the RFC §9.3 Tier-1 HARD halt regardless of `c_max`; it is never *only* censored.
+- `IS_cap_hi`, `IS_cap_lo`, `c_max` are part of the frozen content → covered by `synthetic_baseline_prereg_sha`; changing any after canary invalidates the run.
 
 ---
 
