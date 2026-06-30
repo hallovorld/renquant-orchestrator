@@ -1,10 +1,11 @@
-# renquant105 PEAD %-surprise — candidate signal (event-driven long-only economics + orthogonality)
+# renquant105 PEAD %-surprise — exploratory probe (event-driven long-only economics + orthogonality)
 
 - **Date:** 2026-06-28
 - **Status:** EXPLORATORY (lean candidate-style — NOT a CPCV/FWER/DSR validation, NOT a
-  promote recommendation). The one lead out of the trend/factor signal hunt. This doc does
-  the proportionate follow-up the cheap screen earned: a FAITHFUL event-driven long-side
-  economics pass + orthogonality.
+  promote recommendation). **After the faithful round-2 corrections this is a WEAK orthogonal
+  candidate that is mostly NON-MONETIZED after costs — NOT "a real lead."** One probe out of
+  the trend/factor signal hunt; this doc does the proportionate follow-up the cheap screen
+  earned: a FAITHFUL event-driven long-side economics pass + orthogonality.
 - **PIT status — NON-POINT-IN-TIME (downgraded per PR #203 review):** the earnings parquet
   is a SINGLE CURRENT one-shot harvest. `epsEstimated` on a historical row is the value in
   *today's* harvest, NOT a captured pre-announcement consensus snapshot, and `lastUpdated`
@@ -49,12 +50,20 @@ t-stat (overlap lag = horizon); within-date shuffle placebo floor (200 perms). T
 (SUE and raw_surprise are unchanged by the winsorization, which touches only the %-surprise
 denominator; their values are from the same run.)
 
-The headline is **%-surprise @20d: IC +0.0290, NW t=2.96, ~13× the shuffle floor,
+The headline is **%-surprise @20d: IC +0.0290, NW t=2.96, ~13× the WITHIN-DATE shuffle floor,
 placebo-clean** (modestly attenuated from the prior +0.0313 once the denominator is
 winsorized — the tiny-estimate names were inflating it). The raw (unscaled) surprise is
 null — **scaling is load-bearing** (%/SUE only). Low-turnover at the *signal* level
 (~quarterly cadence: one earnings event per name per quarter), but see the event-driven
 turnover below — at 20d the portfolio churns hard.
+
+**Leakage caveat — trust the differences, not the absolute IC.** The ~13× figure is vs the
+*within-date* permutation placebo (0.00217 std). It is NOT the WF-gate number: that gate has a
+separate ~+0.04 shuffled-label leakage floor on overlapping ~60d labels (≈30d embargo gap), so
+an absolute single-horizon IC of ~0.03 is at/near that floor and is not by itself evidence of
+edge. The load-bearing, placebo-clean signal here is the **DIFFERENCE** — scaled (%-surprise,
+SUE) clears the within-date floor while raw_surprise does not, and %-surprise @20d beats SUE —
+not the raw absolute IC level.
 
 ### (1) EVENT-DRIVEN long-only economics (the faithful usability test)
 
