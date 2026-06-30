@@ -17,7 +17,6 @@ dependencies = [
   "renquant-pipeline>=0.1.0",
   "renquant-execution>=0.1.0",
   "renquant-backtesting>=0.1.0",
-  "requests>=2.28",
 ]
 
 [project.scripts]

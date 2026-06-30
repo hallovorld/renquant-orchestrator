@@ -1,9 +1,12 @@
 # Forward snapshotter for FMP estimate-revision history (design)
 
-**Status:** reference implementation / NOT the merge point. The collector here is
-a reviewed reference; the real work is split into two PRs (base-data collector
-first, then a thin orchestrator schedule PR — see "Repo boundary" below). No
-cron, no canonical writes. 2026-06-28.
+**Status:** design / decision record. The **collector has moved to
+`renquant-base-data`** — base-data PR #27
+(`renquant_base_data.fmp_estimate_revisions` + 24 ported tests). This
+orchestrator PR (#205) no longer adds any collector code; it is the design note +
+a pointer to the base-data collector. The orchestrator's remaining piece is a
+**future thin schedule / fingerprint / freshness-alert PR** (see "Repo boundary"
+below). No cron, no canonical writes. 2026-06-28 (collector moved 2026-06-29).
 
 Companion to `doc/design/2026-06-24-analyst-revision-feature.md` (the feature
 design) and `doc/decisions/2026-06-25-analyst-data-source-strategy.md` (the
@@ -11,18 +14,18 @@ source decision). Those say *what* the revision signal is and *which* source to
 buy; this says *how we start accruing the point-in-time history it needs*, today,
 for ~free.
 
-> **Ownership note (read first — this PR is superseded by the split).** Data
+> **Ownership note (read first — the collector has moved).** Data
 > acquisition/storage is a `renquant-base-data` responsibility, not an
 > orchestrator one — it is a hard boundary in this repo's CLAUDE.md, not a
 > preference (see "Repo boundary / proper home" below). The orchestrator's only
 > durable role is to *schedule/invoke* a base-data primitive and persist its
-> fingerprint. **This collector WILL move to `renquant-base-data`.** The correct
-> split is: **(a) a `renquant-base-data` collector PR FIRST**, then **(b) a thin
-> orchestrator schedule/fingerprint/freshness-alert PR** that is the actual
-> operational merge point. **This PR is the reference implementation, NOT the
-> merge point**, and is superseded by that split. Like the umbrella ADR, the
-> cross-repo move is an **operator decision**: this PR does not create the
-> base-data PR itself.
+> fingerprint. **The collector now lives in `renquant-base-data` — base-data PR
+> #27** (`renquant_base_data.fmp_estimate_revisions` + its 24 contract tests).
+> The split is: **(a) the `renquant-base-data` collector PR (DONE — PR #27)**,
+> then **(b) a thin orchestrator schedule/fingerprint/freshness-alert PR** that is
+> the operational merge point. **This orchestrator PR (#205) is the design /
+> decision record + pointer, NOT a collector and NOT the operational merge
+> point.**
 
 ## Problem
 
@@ -49,10 +52,11 @@ on its own, leakage-free.
 
 ## What this collects, and where it writes
 
-`scripts/snapshot_fmp_estimates.py` fetches, for the renquant-104 universe (read
-read-only from the golden `strategy_config.json` `watchlist`, or a `--universe`
-file), the current FMP analyst series from the same `stable` endpoints the
-harvest already uses:
+The collector — `renquant_base_data.fmp_estimate_revisions` (base-data PR #27,
+invoked as `python -m renquant_base_data.fmp_estimate_revisions`) — fetches, for
+the renquant-104 universe (read read-only from the golden `strategy_config.json`
+`watchlist`, or a `--universe` file), the current FMP analyst series from the same
+`stable` endpoints the harvest already uses:
 
 | endpoint | FMP `stable` path | carries |
 |---|---|---|
@@ -68,7 +72,7 @@ data/estimate_snapshots/<YYYY-MM-DD>/<endpoint>.parquet
 data/estimate_snapshots/<YYYY-MM-DD>/<endpoint>.manifest.json
 ```
 
-`data/estimate_snapshots/` is a new directory. The script **never** writes any
+`data/estimate_snapshots/` is a new directory. The collector **never** writes any
 canonical/existing path — there is a structural guard (`is_canonical_path`) that
 refuses `fmp_harvest`, `sec_fundamentals_daily`, `rawlabel.parquet`, `score_db`,
 or any non-`estimate_snapshots` leaf (a `/tmp` scratch path is the only other
@@ -131,27 +135,24 @@ publishes a partial result over a good one:
 Per the orchestrator's CLAUDE.md **hard boundary**, **data acquisition and
 storage belong in `renquant-base-data`**, not the orchestrator. The
 orchestrator's durable role is to *schedule/invoke* a base-data primitive and
-*persist its fingerprint* into the run bundle — not to own the 397-line
-fetch/write logic. This is not a preference to be "flagged for later"; it is the
-boundary, so **the collector WILL move**.
+*persist its fingerprint* into the run bundle — not to own the fetch/write logic.
+This is the boundary, so **the collector has moved**.
 
-The work therefore splits into two PRs, in order:
+The work splits into two PRs, in order:
 
-1. **base-data collector PR (FIRST, separate repo).** Move the fetch/write
-   primitive (e.g. `renquant_base_data.estimate_snapshots`) and its focused tests
-   into `renquant-base-data`. This is where the 397-line writer + its contract
-   tests live.
-2. **thin orchestrator PR (SECOND, this repo — the operational merge point).**
-   Schedule/invoke that base-data primitive, persist its fingerprint into the run
-   bundle, and add the freshness alert. This is the PR that actually turns the
-   feature on and where the operational plan (cadence / retry / freshness)
-   belongs.
+1. **base-data collector PR — DONE (PR #27, separate repo).** The fetch/write
+   primitive lives in `renquant_base_data.fmp_estimate_revisions` with its 24
+   contract tests in `tests/test_fmp_estimate_revisions.py`. Run it as
+   `python -m renquant_base_data.fmp_estimate_revisions`.
+2. **thin orchestrator PR (SECOND, this repo — the operational merge point, a
+   FUTURE PR).** Schedule/invoke that base-data primitive, persist its fingerprint
+   into the run bundle, and add the freshness alert. This is the PR that actually
+   turns the feature on and where the operational plan (cadence / retry /
+   freshness) belongs.
 
-**This PR (#205) is the reviewed *reference implementation*, NOT the merge
-point**, and is **superseded by that split**. Like the earlier umbrella ADR
-move, the cross-repo relocation is an **explicit operator decision**: this PR does
-**not** open the base-data PR or relocate the code unilaterally — it makes the
-split plan explicit and flags it for the operator to action.
+**This orchestrator PR (#205) is the design / decision record + pointer, NOT a
+collector and NOT the operational merge point.** The collector code now lives in
+base-data PR #27; the orchestrator wiring is the future thin PR above.
 
 ## Scheduling — PROPOSAL ONLY (not deployed in this PR)
 
@@ -167,9 +168,10 @@ Scheduling a cron/launchd job is a separate operator deploy decision and is
 is an explicit operator action via the future orchestrator PR. The proposal the
 operator would sign off on there:
 
-- **Deployment owner.** The thin orchestrator schedule PR (step 2), invoking the
-  relocated `renquant-base-data` collector primitive on the operator's daily-run
-  host alongside the existing FMP harvest, and persisting its fingerprint.
+- **Deployment owner.** The future thin orchestrator schedule PR (step 2),
+  invoking the `renquant-base-data` collector primitive (PR #27,
+  `renquant_base_data.fmp_estimate_revisions`) on the operator's daily-run host
+  alongside the existing FMP harvest, and persisting its fingerprint.
 - **Cadence.** **Daily**, one snapshot per trading day. Estimates/targets move on
   a multi-day-to-weekly cadence, so daily captures the revision series with
   margin; a pre- or post-market slot is fine (the as-of *date* is what matters,
@@ -177,7 +179,7 @@ operator would sign off on there:
 
   ```
   flock -n /tmp/snapshot_fmp_estimates.lock \
-      python scripts/snapshot_fmp_estimates.py --out data/estimate_snapshots
+      python -m renquant_base_data.fmp_estimate_revisions --out data/estimate_snapshots
   ```
 
 - **Retry / backfill policy (NO fake timestamps).** A failed/partial run is
@@ -224,10 +226,10 @@ coverage of the few locked names, which is an independent decision.
 
 ## What this PR explicitly does NOT do
 
-- **Not achieve "history accrues."** Merging this script alone takes no
-  snapshots — there is no deployed scheduler. History accrues only once the
-  future thin orchestrator schedule PR (step 2 of the split) is deployed; that is
-  the operational merge point, not this one.
+- **Not ship a collector.** The collector moved to renquant-base-data PR #27;
+  this PR is the design / decision record. Merging it takes no snapshots —
+  history accrues only once the future thin orchestrator schedule PR (step 2 of
+  the split) is deployed; that is the operational merge point, not this one.
 - No cron / launchd / scheduler (operator deploy decision — see scheduling
   proposal above).
 - No write to any canonical/existing data path (symlink-following structural
@@ -235,21 +237,20 @@ coverage of the few locked names, which is an independent decision.
 - **No backdating, no future-dating.** BOTH a past and a future `--as-of` error
   out; `--as-of` may only equal today's UTC date. `snapshot_as_of` is always the
   actual UTC fetch date (with a `fetched_at` timestamp).
-- No relocation into `renquant-base-data` *in this PR* — the collector WILL move
-  via a separate base-data PR (step 1 of the split); this PR is the reference, not
-  the relocation, and the cross-repo move is the operator's to action.
+- No collector code in this PR — the collector has moved to renquant-base-data
+  PR #27 (step 1 of the split); this orchestrator PR is the design/decision
+  record. The remaining orchestrator wiring is the future thin schedule PR.
 - No feature engineering, no retrain, no model change.
 - No claim the signal works — that needs accrued history (~3–6 months) and its
   own gate.
 
 ## Open questions for discussion
 
-0. **Two-PR split is decided (not a question) — operator to action.** The
-   collector belongs in `renquant-base-data` (hard boundary), so it WILL move:
-   (a) base-data collector PR first, (b) thin orchestrator schedule PR second
-   (the operational merge point). The only operator call is *sequencing/timing*
-   of the cross-repo move — like the umbrella ADR, this PR does not open the
-   base-data PR itself.
+0. **Two-PR split — base-data collector is DONE.** The collector belongs in
+   `renquant-base-data` (hard boundary) and now lives in base-data PR #27. The
+   remaining piece is (b) a future thin orchestrator schedule/fingerprint/
+   freshness PR (the operational merge point). Not a question — the boundary is
+   settled.
 1. **Path layout** — is `data/estimate_snapshots/<date>/<endpoint>.parquet` the
    right shape, or should it be `<endpoint>/<date>.parquet`? (date-major is
    simpler to prune/backfill; endpoint-major is simpler to concat a single
