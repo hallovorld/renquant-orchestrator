@@ -123,6 +123,20 @@ what the daily price factors already carry.**
   question — *does minute data carry next-tradable, marginal cross-sectional IC?* — is answered
   negatively here; finer bars are a separate, heavier pull and would have to overcome a clean null.
 - **Bounded 2.5y single-regime window; current-watchlist survivorship.**
+- **Look-ahead / embargo.** Features are known only after `close[D]`, so entry is the next
+  session's `open[D+1]` and the forward window runs `open[D+1] → close[D+h]` — there is a built-in
+  ≥1-session gap between the feature timestamp and the start of the labelled return, and IC / NW t
+  are computed on **non-overlapping** dates so a single label is never reused across periods. This
+  is the embargo that the same-close first cut lacked; it is what kills the 1d "edge" (see the
+  decomposition row "+next-session entry").
+- **Multiple testing (selection bias) — and why it only HARDENS the null.** The screen evaluates
+  8 features × 4 horizons = 32 cells, then re-checks any apparent winner on the held-out window.
+  With 32 looks the danger is a **false positive**, not a false null: more cells = more chances for
+  noise to clear a floor by luck. We found **zero** positive, floor-clearing, t≥3, OOS-surviving
+  cells — so multiplicity, if anything, makes the null more credible (we gave the signal 32 shots
+  and it took none). No FWER/Bonferroni correction is applied or needed precisely because we are
+  not claiming any discovery; these are **candidate cells screened to a null**, not validated
+  effects. The "real edge / prior refuted" language of the first cut is withdrawn.
 - **Lean mandate:** one marginal placebo floor + NW t + one chronological OOS holdout. No
   CPCV/FWER/DSR — and none is needed to read a null.
 - READ-ONLY: no canonical paths written, no orders, no live-tree git.
