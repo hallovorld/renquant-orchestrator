@@ -2,7 +2,7 @@
 
 STATUS: design / RFC — the ENGINEERING DESIGN is the prerequisite; build is staged after review. Design first, do not rush to build.
 DATE: 2026-06-30
-REVISION: r2 (2026-06-30) — addresses the Codex review of `c976ed8`. The seven blocking points are answered by new contract sections (§6 data-time, §7 order lifecycle, §8 per-repo slices + merge order, §9 measurement plan, §10 safety defaults, §11 dependencies); the point-by-point map is §16.
+REVISION: r3 (2026-06-30) — addresses the Codex round-2 review of `268c0af` (8 points: parent/child intent ids, 4-class PIT contract, implementation-shortfall vs timing-economics split, concrete pre-registration, pre-treatment matched pairs, safety interaction rules, fractional relabel, session-boundary policy). r2 addressed the round-1 review of `c976ed8`. Point-by-point maps in §16 (round 1) and §17 (round 2).
 SCOPE: orchestrator-owned control-plane design that *coordinates* a cross-repo build. The runtime decision logic (pipeline) and broker order lifecycle (execution) live in their own repos per the operating model — this RFC defines the contracts and merge order, it does NOT authorize cross-repo behavior changes from orchestrator alone (§8). Model rework is explicitly downstream (§14).
 
 ---
@@ -84,19 +84,21 @@ The **buy decision and its timing are coupled to the once-daily batch.** Decoupl
 
 ---
 
-## 6. Data-time / as-of contract (answers Codex #1)
+## 6. Data-time / point-in-time contract (answers Codex r1#1, r2#2)
 
-Stage 1's safety case rests on one invariant: **the model/gate inputs are frozen at the prior close; the only live input is price, used for *timing*, never fed back into the model or the freshness gates.** Per-input as-of rules:
+**Correction from r2:** it is wrong to say "no input later than T-1 close except the live quote" — pre-market fundamentals/analyst revisions are legitimately later than T-1 close, and proving score-equality only freezes the *model score*, not every gate input. So the contract is split into **four input classes**, each with its own cutoff and intraday mutability, and the replay proof inspects **all** of them (not just the score):
 
-| Input | As-of / freshness rule | Stale / violation behavior |
-|---|---|---|
-| **Daily model score (PatchTST/XGB rank + conviction)** | Frozen as-of **T-1 close** (or pre-market build); **never** recomputed intraday in Stage 1 | If the frozen vector is missing/older than 1 trading day → no intraday entries this session (sell-only fallback) |
-| **Fundamentals / sentiment / analyst** | Vendor snapshot date, evaluated **once at session start** by the existing P-FUND-FRESHNESS gate (they do not change intraday) | Same as 104: fails the freshness gate → name not admitted |
-| **Quote / last-trade (live)** | `age = now − exchange_ts`; entries require `age ≤ quote_staleness_entry` (§10) | age over threshold → **skip entry** (fail-safe); exits still allowed up to a looser bound |
-| **Current-day partial OHLCV** | **NOT admitted into any model input or freshness gate** in Stage 1 (within-bar look-ahead, unvalidated). Partial-bar price/VWAP/volume may be read **only** by the Stage-2 entry-timing trigger, which is outside the model | If a Stage-1 code path tries to feed a partial bar into the model/gates → hard fail (assertion), not silent |
-| **Cash / positions / pending orders** | Live broker state snapshotted at **tick start**; pending orders included in the reserved-cash ledger (§7) | snapshot older than the tick, or reconciliation mismatch → halt new entries, reconcile |
+| Class | Examples | `event_time` | `observed_at` / `available_at` | Cutoff | Fingerprint | May change **intraday**? |
+|---|---|---|---|---|---|---|
+| **A. Frozen signal** | PatchTST/XGB rank + conviction, `signal_version` | ≤ T-1 close | T-1 EOD build | **T-1 close** | `signal_version` hash | **No** — frozen for the session |
+| **B. Session-start PIT gate inputs** | fundamentals, sentiment, analyst (P-FUND-FRESHNESS inputs) | vendor as-of date | vendor snapshot pull | **pre-open snapshot** (a pre-market revision IS allowed; it is later than T-1 close *by design*) | `gate_input_fingerprint` over the snapshot | **No** — snapshotted + fingerprinted at first eligible tick, then frozen for the session |
+| **C. Live-state inputs** | cash, positions, pending/open orders | broker event ts | tick-start snapshot | per tick | reconciliation hash vs broker | **Yes** — changes every tick *by design* (§7) |
+| **D. Timing-only quote** | last-trade / NBBO used for the entry trigger | exchange ts | tick read | `age ≤ quote_staleness_entry` (§10) | n/a (never enters model/gate) | **Yes** — but feeds the *timing trigger only*, never class A/B |
 
-**No-leak proof obligation (test, not prose):** a replay test asserts `score_vector(tick T) == score_vector(T-1 EOD)` for every tick in a session, and that no gate/model input reads a timestamp `> T-1 close` except the live quote used purely for the timing trigger. Because the decision content is frozen at T-1 close, a 10:00 vs 12:00 decision differ **only** in whether the live price cleared the timing trigger — there is structurally no close/after-close data path into the decision. (When Stage 3 introduces intraday re-scoring, this section must be rewritten with a point-in-time feature contract; Stage 1/2 deliberately sidestep it.)
+- **Current-day partial OHLCV** is **barred from classes A and B** in Stage 1 (within-bar look-ahead, unvalidated); a code path that feeds a partial bar into a model/gate input must **hard-fail (assertion)**, not silently proceed. Partial-bar price/VWAP/volume is class D only (Stage-2 timing trigger).
+- **Stale behavior:** A missing/older-than-1-day → no intraday entries (sell-only fallback). B fails P-FUND-FRESHNESS → name not admitted. C reconciliation mismatch → halt new entries, reconcile. D over staleness threshold → skip entry (exits allowed looser).
+
+**No-leak proof obligation (test over all four classes, not just the score):** a replay test asserts, for every tick in a session, that (i) class-A `signal_version` is constant and equals the T-1 EOD build; (ii) class-B `gate_input_fingerprint` is constant after the first eligible tick and its `available_at ≤ pre-open cutoff`; (iii) the only inputs whose values differ across ticks are class C (state) and class D (timing quote); (iv) no class-A/B input has `available_at` later than its cutoff. Thus a 10:00 vs 12:00 decision differs **only** in live state + whether the timing quote cleared the trigger — there is no after-the-cutoff data path into the scored/gated decision. *(Stage 3 intraday re-scoring will require a full PIT feature contract; Stages 1–2 deliberately keep class A frozen.)*
 
 ---
 
@@ -111,11 +113,14 @@ NONE → INTENDED → SUBMITTED → ACCEPTED → PARTIALLY_FILLED → FILLED
                        └→ STALE_PENDING (age > max_pending_age) → reconcile → CANCELED/FILLED
 ```
 
-- **Idempotency key:** `intent_id = hash(account, symbol, trading_day, side, daily_signal_version)`. One INTENDED row per intent; the broker submit carries `intent_id` as the client order id so a double-submit is rejected at the broker, not just locally.
-- **Re-emit rule (Stage 1):** a name is re-emittable **only** when it has *no* open/pending order and *no* fill for the same `intent_id` this session → **at most one entry per name per session**. (Re-entry after a same-session exit is a Stage-2 question, deliberately excluded.)
-- **Cash reservation:** maintain `reserved_cash = Σ notional(pending + unsettled buys)`. Sizing uses `available = broker_cash − reserved_cash`, never raw broker cash — this is what prevents two overlapping ticks from each spending the "same" dollar.
-- **Partial fills:** next tick sizes the **remainder only** *if still admitted by the full gate-stack*; if conviction/gates have dropped, **cancel the remainder** rather than chase.
-- **Duplicate prevention across overlapping ticks / restarts:** the intraday run-lock guarantees at-most-one tick in flight; on process restart the loop **rebuilds the in-flight set from broker open-orders + the ledger and reconciles BEFORE any emit** (reconcile-before-emit). The `intent_id` client-order-id dedups even if a tick double-fires.
+- **Two-level id (fixes the r2 contradiction):** a single client-order-id cannot both be unique-per-order *and* be reused for a remainder. So:
+  - **`parent_intent_id = hash(account, symbol, trading_day, side, signal_version)`** — stable, identifies the *decision* (one INTENDED row). This is the dedup key, **not** a broker id.
+  - **`child_order_id = parent_intent_id + ":" + attempt_n`** (monotonic `attempt_n`) — this is the broker **client-order-id**; every actual submission (initial + each remainder) gets a fresh, unique one, so the broker never duplicate-rejects.
+- **Cumulative-quantity invariants** tracked per `parent_intent_id`: `target_qty ≥ cum_requested`, and `cum_requested = cum_filled + open_qty + cum_canceled` at all times. A remainder submission requests `target_qty − cum_filled − open_qty`.
+- **Re-emit rule (Stage 1):** a parent is eligible to emit a *remainder child* **only** when it has **no OPEN child** and `cum_filled < target_qty` **and** the name is still admitted by the full gate-stack. → **at most one OPEN child per parent at a time**, **at most one filled position per name per session** (a parent reaches its target then stops). Re-entry after a same-session exit is a Stage-2 question, deliberately excluded.
+- **Cash reservation:** `reserved_cash = Σ notional(open children of buy parents, at limit/marketable price) + unsettled buys`. Sizing uses `available = broker_cash − reserved_cash`, never raw broker cash — prevents two overlapping ticks from spending the "same" dollar; the unfilled remainder of a partial stays reserved until its child is filled or canceled.
+- **Partial fills:** if conviction/gates have dropped, **cancel the open child** (no remainder chase); else next tick opens a new remainder child (attempt_n+1) for `target_qty − cum_filled`.
+- **Duplicate prevention across overlapping ticks / restarts:** the intraday run-lock guarantees at-most-one tick in flight; on process restart the loop **rebuilds the in-flight set from broker open-orders + the ledger and reconciles BEFORE any emit** (reconcile-before-emit). Dedup is on `parent_intent_id` (no second open child); each `child_order_id` is unique so a double-fire cannot double-submit the same child.
 - **Reconciliation mismatch** (broker open-orders ≠ ledger) → halt new entries for the session, alert, exits still allowed.
 
 ---
@@ -126,26 +131,35 @@ Per the subrepo operating model, no single repo owns this. Stage 1 splits into t
 
 | Order | Repo | Owns | Acceptance tests |
 |---|---|---|---|
-| 1 | **execution** (broker adapter) | Order-lifecycle state machine (§7), `intent_id` client-order-id honored at submit, reserved-cash accounting, reconcile-before-emit on restart, stale-pending cancel | state-machine unit tests; duplicate-submit rejected; partial-fill accounting; restart reconcile |
-| 2 | **pipeline** (renquant-common runtime) | Runtime decision logic — gate-stack on **live** state, sizing against `available` (§7), idempotent emit keyed on `intent_id`, partial-fill remainder sizing, dedup-vs-pending | **sim-parity**: intraday-mode emits *identical* decisions to batch-mode given identical (frozen-score, snapshot-state) inputs; dedup unit tests; reserved-cash never negative |
-| 3 | **orchestrator** (this repo) | Scheduling (repoint the intraday loop to full-decisioning mode), run-bundle/provenance per tick, control-plane flag + canary allowlist + kill switch, intraday decision-ledger rows, the A/B + replay harness (§6, §9) | flag default-OFF; canary allowlist enforced; per-tick bundle persisted; replay/no-leak test (§6); readonly-mode logs decisions without placing |
+| 1 | **execution** (broker adapter) | Order-lifecycle state machine (§7), `child_order_id` as client-order-id (unique per attempt), `parent_intent_id` dedup, cumulative-qty invariants, reserved-cash accounting, reconcile-before-emit on restart, timer-driven stale-pending cancel (§10) | state-machine unit tests; duplicate child-id rejected; partial-fill + remainder accounting; restart reconcile; watchdog cancel fires between ticks |
+| 2 | **pipeline** (renquant-common runtime) | Runtime decision logic — gate-stack on **live** state, sizing against `available` (§7), idempotent emit keyed on `parent_intent_id`, partial-fill remainder sizing, dedup-vs-pending, envelope interaction rules (§10) | **sim-parity**: intraday-mode emits *identical* decisions to batch-mode given identical (frozen-signal, snapshot-state) inputs; dedup unit tests; reserved-cash never negative; envelope most-restrictive-wins tests |
+| 3 | **orchestrator** (this repo) | Scheduling (repoint the intraday loop to full-decisioning mode), session-boundary policy (§11b), run-bundle/provenance per tick, control-plane flag + canary allowlist + kill switch, intraday decision-ledger rows, the A/B + replay harness (§6, §9) | flag default-OFF; canary allowlist enforced; session-boundary unit tests; per-tick bundle persisted; four-class replay/no-leak test (§6); readonly-mode logs decisions without placing |
 
 Boundary compliance (CLAUDE.md): orchestrator does **not** implement broker adapters (execution) or decision/sizing internals (pipeline) — it schedules, provenances, and gates rollout. The orchestrator change is inert (default-OFF / canary-only) until execution+pipeline are merged AND pinned.
 
 ---
 
-## 9. Stage-1 measurement plan — operational-correctness gate, alpha deferred (answers Codex #3 & #7)
+## 9. Stage-1 measurement plan — operational gate, two separated estimands (answers Codex r1#3/#7, r2#3/#4/#5)
 
-Codex #3 (valid experiment, not a deployment-driven one) and #7 (Stage 1 is plumbing, not an alpha claim) point the same way; the resolution is to make the **Stage-1 gate operational/execution-quality**, pre-registered and falsifiable, and to **explicitly defer the alpha estimand** rather than pre-register a heavyweight alpha trial for a stage whose alpha may be null by design.
+The Stage-1 gate is **operational/execution-quality**, pre-registered and falsifiable; the **alpha/timing-return estimand is explicitly deferred**. r2 wrongly folded the overnight market move into "execution cost"; r3 separates the two estimands cleanly and commits concrete pre-registration numbers.
 
-**Stage-1 PASS gate (pre-registered, all required):**
-- **No-leak:** the §6 replay invariant holds for every tick in every canary session.
-- **Idempotency:** zero duplicate entries across the canary window; `reserved_cash ≥ 0` always; no order exceeds the §10 envelope.
+### 9.1 Two distinct estimands (do not conflate)
+- **Implementation shortfall (IS) — the Stage-1 execution-quality readout.** Per *accepted order*, each path's fill vs **its own arrival/reference quote at decision time** (the mid/NBBO when the path decided). Components: realized spread paid, fees, latency (decision→fill), reject rate, partial-fill rate. This is broker/microstructure cost and is path-internal — it does **not** include any market move between paths.
+- **Timing economics (timing P&L) — DEFERRED to Stage-2 scoping.** A counterfactual estimand on the **same frozen signal**: intraday-trigger entry vs the batch's next-open entry, evaluated over a **defined holding horizon** (e.g. close of T and the multi-day H-day mark). This is where "did acting intraday vs next-open help the return" lives. It is *not* execution cost, needs a larger N, is regime-confounded, and pre-registering it now would be over-engineering validation ahead of a demonstrated edge (operator lesson, 2026-06-28). It accrues passively in the ledger; it does **not** gate Stage 1.
+
+### 9.2 Matched-pair construction (pre-treatment only — no post-treatment selection)
+- The batch counterfactual is a **readonly shadow decision computed from the pre-treatment snapshot** (class-A frozen signal + class-B session-start gate inputs + the pre-order state), **not** from realized post-fill availability. The intraday path having already changed cash/holdings must never enter pair eligibility.
+- **Pair key = `(signal_session, symbol, signal_version)`.** "Admitted by both paths" is decided from that pre-treatment snapshot.
+- **Baseline fill = session-T open** (the fill the 104 batch would get acting on the same T-1-close signal); **intraday fill = during session T**. (Resolves the r2 "(symbol, session) vs next-day fill" ambiguity — both paths act on the *same* signal_session; only the fill *timing within T* differs.)
+
+### 9.3 Pre-registered Stage-1 PASS gate (concrete values — frozen before any canary data is observed)
+- **No-leak:** the §6 four-class replay invariant holds for every tick in every canary session.
+- **Idempotency:** zero duplicate filled positions per `parent_intent_id`; `reserved_cash ≥ 0` and `cum_requested = cum_filled + open_qty + cum_canceled` always; no order exceeds the §10 envelope.
 - **Reconciliation:** at session close, broker state == ledger == run-bundle, every session.
-- **Execution-quality A/B (matched pairs):** unit of observation = `(symbol, session)` admitted by **both** paths. Baseline = the next-day open 104 actually used. Measure the **fill/slippage distribution** (intraday-trigger fill vs next-open), turnover, exposure, rejected/partial counts. Stage-1 success requires execution cost **not worse** than the batch baseline within a pre-set tolerance — this is an *execution* readout (entry fill), not a return readout.
-- **Rollout discipline:** **readonly** (decide + log, place nothing) for ≥ K sessions → **canary** 1–2 allowlisted names live → expand only after ≥ N (pre-set, e.g. ≥ 20) clean matched live entries. The minimum sample is fixed *before* the canary starts.
+- **Execution-quality (IS) acceptance:** intraday-path median IS **not worse than batch-path median IS by more than 10 bps**, over the matched-pair set; reject rate ≤ 2%. **Denominator = matched admitted pairs** for the A/B; per-order fill-quality stats use **accepted orders** as the denominator (both stated to remove the post-hoc DoF).
+- **Rollout discipline (concrete):** **readonly** (decide + log, place nothing) for **K = 5 sessions** → **canary** = **1–2 allowlisted names** live → **expand only after N ≥ 20 matched admitted pairs** with clean ops (no-leak + idempotency + reconciliation all green). K, N, the 10-bps tolerance, and the denominators are **the pre-registration**; changing them after canary data is observed invalidates the run. (If preferred, these can live in a separate `preregistration.md` artifact that must merge *before* canary starts — open question §15.4.)
 
-**Explicitly DEFERRED (not a Stage-1 gate):** the **alpha estimand** — "does same-session entry add *return*-alpha vs the next-day batch over the multi-day hold?" — needs a much larger matched panel, is regime-confounded, and is exactly the kind of pre-registered alpha trial that would be **over-engineering validation ahead of a demonstrated edge** (operator lesson, 2026-06-28). It accrues passively as a secondary, larger-N readout in the decision-ledger and is judged at **Stage-2 scoping**, not used to gate Stage 1. Stage 1 ships on operational correctness + non-worse execution cost; if it turns out alpha-null, that is an accepted, pre-stated outcome — the engineering scaffold is the deliverable.
+Stage 1 ships on operational correctness + non-worse IS; an alpha-null timing readout is an accepted, pre-stated outcome — the engineering scaffold is the deliverable.
 
 ---
 
@@ -161,18 +175,44 @@ Starting values, debatable, but no longer blank — so the first build PR cannot
 | Quote-staleness threshold (entries) | **5 s** soft / **15 s** hard-skip | entries need a fresh tape |
 | Quote-staleness threshold (exits) | **60 s** | exits favor action over freshness |
 | Max per-tick run duration | **90 s** | well under the 12-min cadence; overrun → skip, don't queue |
-| Max pending-order age | **10 min** (< 1 tick) | force cancel + reconcile before re-emit |
+| Max pending-order age | **10 min**, **timer-driven** (not next-tick) | < the 12-min cadence, so a watchdog timer cancels+reconciles *between* ticks; a tick must never inherit an already-overdue order |
 | Intraday daily-loss breaker | **reuse 104's threshold** → halts NEW entries for the session; exits allowed | reuse existing guard |
 | Global kill switch | env flag `RENQUANT_INTRADAY_DECISIONING` default **off**; canary allowlist required | nothing live until explicitly enabled |
 
+**Interaction rules (which limit binds, and how the counters move) — answers Codex r2#6:**
+- **Most-restrictive-wins:** an entry is blocked the moment *any* of {entries-count, deployment-notional, turnover} would be exceeded; they are not additive.
+- **Deployment** (the 15% cap) counts **net new long notional including open/pending buy children** (a pending buy already consumes deployment headroom, consistent with `reserved_cash`). A partial fill keeps its **unfilled remainder reserved** against deployment until the child fills or is canceled.
+- **Turnover** (the 25% cap) counts **gross** buys **and** sells; **sells consume turnover but not deployment** (a sell frees, not uses, long exposure).
+- **Timer-driven pending cancel:** the max-pending-age (10 min) is enforced by a watchdog independent of the 12-min decision tick, so an overdue order is canceled+reconciled before the next tick reads state (otherwise the next tick would see an already-stale pending). On cancel, the unfilled remainder's reservation is released.
+
 ---
 
-## 11. Dependencies & blockers (answers Codex #5)
+## 11. Dependencies & blockers (answers Codex r1#5, r2#7)
 
-- **Fractional shares — BLOCKER, do not assume available.** Per Codex (2026-06-30) the chain is un-mergeable: execution **#19** has red CI + broker stop/classification hazards; pipeline **#153** lacks full fractional lifecycle / sim parity; strategy **#36** is blocked behind both. → Stage 1 sizes in **whole shares with the existing min-notional guard**; fractional is a **Stage-2 dependency**, tracked against that chain, and is NOT cited as a Stage-1 safety primitive. *(To verify independently before the build PR; carried here as a stated dependency, not an assumption.)*
-- **Live-quote data plane** — Alpaca live quote/last-trade entitlement + rate-limit headroom for per-tick reads across the watchlist. Must be confirmed before Stage-1 execution-quality testing.
+**Terminology fix (r3):** a *BLOCKER* prevents Stage 1 from **starting**; a *deferred dependency* is needed by a later stage. r2 mislabeled fractional shares a BLOCKER even though Stage 1 uses whole shares — corrected below.
+
+**Stage-1 BLOCKERs (must clear before the canary):**
+- **Live-quote data plane** — Alpaca live quote/last-trade entitlement + rate-limit headroom for per-tick reads across the watchlist.
 - **Broker open-orders API** — required for §7 dedup-vs-pending and reconcile-before-emit.
-- **Intraday decision-ledger write path** — the ledger must accept intraday-cadence rows (schema unchanged) for the §9 A/B and the daily retrospective.
+- **Intraday decision-ledger cadence** — the ledger must accept intraday-cadence rows (schema unchanged) for the §9 A/B + daily retrospective.
+
+**Deferred dependencies (not Stage-1 blockers):**
+- **Fractional shares — Stage-2 dependency, NOT a Stage-1 blocker.** Stage 1 sizes in **whole shares + the existing min-notional guard**, so the fractional chain does not gate Stage 1. It *is* needed for Stage 2; that chain is currently un-mergeable (per Codex 2026-06-30: execution **#19** red CI + broker stop/classification hazards; pipeline **#153** lacks fractional lifecycle / sim parity; strategy **#36** blocked behind both). Tracked as a Stage-2 prerequisite, to verify independently before Stage 2 — not assumed available.
+
+---
+
+## 11b. Session-boundary & market-state policy (answers Codex r2#8)
+
+Intraday control-plane correctness needs explicit boundary behavior; the NYSE calendar guard 104 already uses is reused for the calendar parts.
+
+| Condition | Stage-1 policy |
+|---|---|
+| **First eligible tick after open** | No entries in the **first 5 min** after open (spread/auction settling); first eligible decision tick at **open + 5 min**. Class-B gate inputs are snapshotted + fingerprinted at this first eligible tick (§6). |
+| **No-entry cutoff before close** | **No new entries in the last 30 min**; exits remain allowed to the bell. |
+| **Early-close days** | NYSE calendar guard detects half-days; the open+5min and close−30min cutoffs scale to the actual session; no hard-coded clock times. |
+| **Halted / LULD symbol** | Skip **entries** for that symbol while halted/limit-locked; exits follow the existing risk rules; resume entries only after a normal two-sided quote returns and passes class-D staleness. |
+| **Market closed / delayed or stale feed** | Fail-safe: **no entries**; if the feed is delayed/stale beyond class-D threshold the loop degrades to sell-only (the 104 behavior). |
+| **Pending DAY orders at session end** | Stage 1 uses **DAY** orders only (no GTC carry). Any unfilled child is **canceled before the close** and reconciled; nothing crosses the session boundary. |
 
 ---
 
@@ -203,20 +243,36 @@ These now live in dedicated sections: loop run-lock/skip-on-overrun (§10), data
 
 1. Cadence: confirm fixed 12-min tick for Stage 1, or event-driven from the start?
 2. Entry-timing: confirm Stage-1 immediate-on-conviction as the **plumbing/operational-correctness baseline** (not an alpha claim), with confirmation logic in Stage 2?
-3. Safety envelope (§10): are the proposed conservative defaults acceptable as starting values?
-4. Measurement (§9): is the operational-correctness gate + deferred-alpha framing the right Stage-1 bar, or do you want an alpha pre-registration up front?
+3. Safety envelope (§10): are the proposed conservative defaults + interaction rules acceptable as starting values?
+4. Pre-registration (§9.3): are the committed K=5 / N≥20 / 10-bps-IS-tolerance values right, and should they live inline or in a separate `preregistration.md` that must merge before canary?
 5. Is the per-repo decomposition + merge order (§8) correct, and who owns each slice?
+6. Session boundaries (§11b): confirm the open+5min / close−30min / DAY-only-no-carry defaults.
 
 ---
 
-## 16. Review-response map — Codex review of `c976ed8`
+## 16. Review-response map — Codex round-1 review of `c976ed8`
 
 | # | Codex point | Disposition | Where |
 |---|---|---|---|
 | 1 | Data-time contract underspecified | **Accepted** | §6 + replay no-leak test |
-| 2 | Order lifecycle/idempotency too high-level | **Accepted** | §7 state machine, intent_id, reserved-cash |
-| 3 | Stage-1 A/B not a valid experiment | **Accepted with refinement** — pre-registered operational/execution-quality gate; alpha estimand explicitly deferred (not a Stage-1 gate) to avoid over-engineering validation ahead of a demonstrated edge | §9 |
+| 2 | Order lifecycle/idempotency too high-level | **Accepted** | §7 state machine, ids, reserved-cash |
+| 3 | Stage-1 A/B not a valid experiment | **Accepted with refinement** — pre-registered operational/execution-quality gate; alpha estimand explicitly deferred | §9 |
 | 4 | Safety envelope numbers can't stay open | **Accepted** | §10 defaults |
-| 5 | Dependency reality (fractional chain) | **Accepted** | §11; §2 note — fractional removed from available primitives |
+| 5 | Dependency reality (fractional chain) | **Accepted** | §11 |
 | 6 | Repo ownership boundaries | **Accepted** | §8 per-repo slices + merge order + acceptance tests |
-| 7 | Entry-timing baseline too naive | **Accepted** | §5.3 + §9 — Stage 1 is a plumbing baseline, readonly/canary first, success even if alpha-null |
+| 7 | Entry-timing baseline too naive | **Accepted** | §5.3 + §9 — plumbing baseline, readonly/canary first |
+
+---
+
+## 17. Review-response map — Codex round-2 review of `268c0af`
+
+| # | Codex point | Disposition | Where |
+|---|---|---|---|
+| 1 | Idempotency key can't support partial-fill (one client-order-id can't be unique *and* reused) | **Accepted** — split `parent_intent_id` (dedup) vs `child_order_id = parent:attempt_n` (broker id); cumulative-qty invariants | §7 |
+| 2 | No-leak claim internally inconsistent (pre-market revisions are later than T-1 close; score-equality ≠ all inputs frozen) | **Accepted** — four input classes (frozen-signal / session-start-PIT / live-state / timing-quote), each with cutoff + fingerprint; replay inspects all four | §6 |
+| 3 | A/B conflates execution quality with timing return | **Accepted** — IS measured vs each path's own arrival quote; timing P&L is a separate, deferred counterfactual estimand | §9.1 |
+| 4 | Gate not actually pre-registered (K, tolerance, denominator unspecified) | **Accepted** — committed K=5, N≥20, 10-bps IS tolerance, denominators (matched pairs / accepted orders); optional `preregistration.md` | §9.3 |
+| 5 | Matched-pair selects on post-treatment outcomes | **Accepted** — pairs from pre-treatment snapshot only; key `(signal_session, symbol, signal_version)`; baseline = session-T open | §9.2 |
+| 6 | Safety defaults need interaction rules | **Accepted** — most-restrictive-wins, pending counts vs deployment, sells consume turnover-not-deployment, partials reserve remainder, timer-driven cancel | §10 |
+| 7 | Fractional mislabeled BLOCKER | **Accepted** — relabeled deferred Stage-2 dependency; true Stage-1 BLOCKERs = quote entitlement / open-orders API / ledger cadence | §11 |
+| 8 | Missing session-boundary policy | **Accepted** — new §11b (first-tick, close cutoff, early-close, halt/LULD, stale-feed, DAY-only no-carry) | §11b |
