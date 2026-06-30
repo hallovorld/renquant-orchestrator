@@ -108,10 +108,15 @@ create new alpha.
 **Honest caveat, stated plainly:** meta-labeling improves the **precision of
 acting on a primary signal**; it **cannot manufacture edge from a coin-flip
 primary.** Given §1 (BULL_CALM genuine IC ≈ −0.003), the **first step is to
-confirm there is a *conditional* signal worth filtering** — i.e. that the model
-is measurably better in some identifiable state (regime, surprise window,
-liquidity, dispersion). **If there is no conditional state where pick quality is
-materially higher, Track A is also null, and we say so.** No over-claim.
+confirm there is a *conditional* signal worth filtering** — i.e. that the model is
+measurably better in some identifiable state (regime, surprise window, liquidity,
+dispersion). That first step is a **candidate-quality test** on the model's
+top-decile candidates (NOT a reconstruction of the live acted-on book — §4), and
+it **is not runnable today**: it depends on a durable OOS pick table that does not
+yet exist as a committed artifact, so Track A's literal first move is a small
+**regeneration PR** (§4). **If, once that table exists, no conditional state shows
+materially higher pick quality, Track A is also null, and we say so.** No
+over-claim.
 
 Secondary non-directional levers (note, do not start): **vol / risk-timing**
 (minute data is verified to improve volatility estimation — sizing, not
@@ -159,30 +164,89 @@ today.
 
 ## §4 Proposed first concrete step — Track A conditional-pick-quality TEST SPEC
 
-This is a **runnable test spec**, defined **before** any meta-label filter is
-built. We do NOT build a filter first. We first answer one falsifiable question:
-**is the existing model's pick quality conditionally predictable — measurably
-higher in some identifiable, ex-ante-observable state?** If not, Track A is null
-and we say so. The spec is deliberately concrete so a reviewer can run it.
+This is a **test spec**, defined **before** any meta-label filter is built. We do
+NOT build a filter first. We first answer one falsifiable question: **is the
+existing model's pick quality conditionally predictable — measurably higher in
+some identifiable, ex-ante-observable state?** If not, Track A is null and we say
+so.
 
-**Target / label.** Reuse the same OOS prediction table that A1 already produced
-read-only (the gate's `_load_sanity_panel` + `_score_manifest_sanity` over
-manifest `walkforward_manifest_gbdt_prod_recipe_v2`, label `fwd_60d_excess`, 508
-OOS dates 2024-02 → 2026-02). Define a **binary pick-success label** per
-(date, name) that the model *acted on*: `y = 1` if the realized `fwd_60d_excess`
-of a top-decile (long-side) pick is `> 0` net of the 11 bps round-trip cost
-proxy, else `0`. The conditioning question is "given the model picked it, did it
-pay?" — exactly the meta-label framing.
+**This is a CANDIDATE-QUALITY test, not a live-book expectancy test.** The label
+below is defined on the model's **top-decile long-side candidates**, NOT on the
+portfolio the live book actually held. The live book does not act on every
+top-decile candidate — cash, risk caps, held-name constraints, regime gates, and
+execution filters intervene — so a conditional improvement in candidate quality is
+an **upper bound on**, not a measurement of, the lift to the live book. Track A's
+first deliverable is therefore a candidate-quality verdict; reconstructing the
+actual acted-on portfolio path (same constraints) is a **separate, larger step**
+and is explicitly out of scope for this first test.
+
+**Prerequisite — this step is NOT ready to run; it needs a regeneration PR
+first.** The OOS prediction table the A1 audit used is **temporary `/tmp` scratch
+from unmerged scripts** (§4(b)); it is **not committed, not durable, and will be
+deleted**, so the test below cannot depend on it. There is **no committed
+generator for this table in this repo** — `model_sanity_compare.py` only collates
+`analyze_manifest_sanity_placebo` JSON; the per-(date,name) OOS prediction parquet
+is produced by the gate's sanity-panel scoring, which is not exposed as a
+committed, re-runnable command here. So **Track A's first step is to land a small
+regeneration PR**, not to run anything today. That PR must commit:
+- **Generator:** a committed script/module (proposed home
+  `scripts/regen_oos_pick_table.py` in this repo, or the equivalent in the gate
+  repo if scoring must live there) that re-scores the prod manifest read-only.
+- **Inputs (durable, in the umbrella RenQuant tree — read-only, NOT this repo):**
+  manifest `walkforward_manifest_gbdt_prod_recipe_v2.json` (37 PIT artifacts);
+  feature panel `data/alpha158_291_fundamental_dataset.parquet`; label panel
+  `data/alpha158_291_fundamental_dataset_rawlabel.parquet`; label
+  `fwd_60d_excess`; val cut `2024-02-01`.
+- **Output (durable, committed):** an OOS pick table parquet (proposed path
+  `data/exp/oos_pick_table_recipe_v2.parquet`, an **experiment path, never a
+  canonical prod path**) with schema `{date, name, score, decile_rank,
+  fwd_60d_excess, regime}` over the 508 OOS dates (2024-02 → 2026-02).
+
+Until that regeneration PR lands, the rest of §4 is the **spec the regenerated
+table will be tested against**, not a command that can run on current artifacts.
+
+**Target / label (defined against the regenerated, durable table above).** Define
+a **binary candidate-success label** per (date, name) among the model's top-decile
+long-side candidates: `y = 1` if the realized `fwd_60d_excess` is `> 0` net of the
+11 bps round-trip cost proxy, else `0`. The conditioning question is "given the
+model ranked it top-decile, did it pay?" — the meta-label framing, scoped to
+candidate quality (not the acted-on book).
 
 **Candidate conditioning variables (ex-ante only, no look-ahead).** Each must be
-computable strictly from information available at the decision date:
+computable strictly from information available at the decision date. **All sources
+below are existing umbrella-tree files (read-only, NOT this repo, NOT new
+inputs)** — so this stays Track A. Where a variable's PIT-safety or full-OOS-window
+coverage is **not yet verified from here** (this session did not re-run scans to
+confirm), it is flagged; any variable that turns out to need #205 or another
+unmerged source is **Track B, not Track A**, and is dropped from the Track A test.
 1. **Regime** — the live regime label at pick date (BEAR / BULL_CALM / CHOPPY /
-   BULL_VOLATILE) from the same classifier the book uses.
-2. **Cross-sectional dispersion** — std of model scores on that date (high
-   dispersion = more confident ranking).
-3. **Score margin** — the picked name's score distance above the decile cutoff.
-4. **Earnings-surprise window** — days-since-earnings / in-PEAD-window flag.
+   BULL_VOLATILE). Source: the same regime classifier the live book uses (umbrella
+   tree). As-of: computed from data through the pick date. PIT status:
+   **[VERIFIED available]** — already attached per-date in the A1 scratch
+   (`regime_sharpe.json` cut), so it will be a column on the regenerated table.
+2. **Cross-sectional dispersion** — std of model scores on that date. Source:
+   derived directly from the regenerated OOS pick table's `score` column. As-of:
+   same-date scores only. PIT status: **[VERIFIED]** — pure function of the table.
+3. **Score margin** — the picked name's `score` minus the date's decile cutoff.
+   Source/PIT: same as (2), **[VERIFIED]**.
+4. **Earnings-surprise window** — days-since-last-earnings + in-PEAD-window flag.
+   Source: `data/fmp_harvest/earnings_291.parquet` (umbrella tree), PIT via SEC
+   `acceptedDate`. As-of: last earnings on/before pick date. PIT status:
+   **[GUESS — needs check]** — `acceptedDate` is the right PIT key, but full
+   coverage of all 134 names across the whole 2024-02 → 2026-02 OOS window is **not
+   verified from here**. If coverage is incomplete or not PIT-clean, drop this
+   variable (do NOT substitute an unmerged feed — that would be Track B).
 5. **Liquidity / volatility state** — name-level 60d realized vol + ADV bucket.
+   Source: the price/bars panel used by the scans (umbrella tree). As-of: trailing
+   60 sessions ending at the pick date (no forward window). PIT status: **[GUESS —
+   needs check]** — trailing-window vol/ADV are PIT-safe by construction, but the
+   committed home of a durable bars panel must be confirmed (the A2 bars were `/tmp`
+   scratch). If no durable bars source exists, this variable is regenerated by the
+   same Track-A regeneration PR or dropped.
+
+If, after the availability check, only the **[VERIFIED]** variables (1–3) survive,
+the Track A test runs on those alone and the doc says so — it does not wait on, or
+quietly reach for, any unmerged data.
 
 **Sample split / OOS window.** Chronological only. **Train/fit** the conditional
 estimator on the **first 60%** of the 508 OOS dates (≈ 2024-02 → 2025-05),
@@ -191,29 +255,53 @@ estimator on the **first 60%** of the 508 OOS dates (≈ 2024-02 → 2025-05),
 k-fold across time. Report per-regime cell counts so thin slices (BEAR ≈ 50
 dates, BULL_VOLATILE ≈ 19) are visible and not over-read.
 
-**Baseline.** The **unconditional** acted-on pick set over the same test window —
-i.e. take every top-decile pick with no conditioning. Track A only earns its keep
-if conditioning **beats this baseline out-of-sample**, net of the turnover it
-removes.
+**Baseline.** The **unconditional** top-decile candidate set over the same test
+window — i.e. every top-decile candidate with no conditioning. Track A only earns
+its keep if conditioning **beats this baseline out-of-sample**, net of the
+turnover it removes, **and the lift is large enough to matter at the portfolio
+level** (next paragraph).
 
 **Metrics (all on the held-out test window).**
-- **Hit-rate** of conditioned picks vs baseline hit-rate (with bootstrap 95% CI,
-  date-block bootstrap, block = 13 as in A1).
-- **Expectancy net of turnover/cost** — mean `fwd_60d_excess` of the conditioned
-  acted-on set minus the 11 bps round-trip proxy, vs the same for baseline.
+- **Hit-rate** of conditioned candidates vs baseline hit-rate (with bootstrap 95%
+  CI, date-block bootstrap, block = 13 as in A1).
+- **Per-pick expectancy net of turnover/cost** — mean `fwd_60d_excess` of the
+  conditioned candidate set minus the 11 bps round-trip proxy, vs the same for
+  baseline.
+- **Portfolio-level / capital-weighted lift** — the per-pick expectancy lift
+  **annualized** (×≈4 60d-periods/yr, holding overlap acknowledged) and scaled by
+  the **fraction of book capital it can actually touch** (active days × names
+  filtered ÷ baseline names), so the gate is read in **annualized book-return
+  terms**, not per-pick bps. A +5 bps/60d per-pick lift on a sliver of capital is
+  near-zero at the book level and must NOT pass.
+- **Turnover / opportunity cost** — incremental turnover the filter adds vs
+  baseline (each removed-then-re-added name is a round trip), and the **count of
+  baseline winners the filter drops** (missed-winner / opportunity cost). A filter
+  that buys a small hit-rate gain by dropping many eventual winners is not a win.
 - **Active-day exposure** — fraction of test dates on which the conditioned
-  filter is in-market at all (a filter that only acts 5% of days is not a usable
-  book lever even if its conditional hit-rate is high).
+  filter is in-market at all (a filter that acts on only a few percent of days is
+  not a usable book lever even if its conditional hit-rate is high).
 
-**Stop / go threshold (explicit, pre-registered).**
-- **GO** (build the meta-label filter on the winning conditioning) only if, on
-  the held-out test window, **all three** hold: (a) net-of-cost expectancy lift
-  over baseline is **≥ +5 bps per 60d** AND its bootstrap 95% CI lower bound is
-  **> 0**; (b) hit-rate lift is **≥ +3 pp** with CI excluding 0; (c) active-day
-  exposure is **≥ 25%** of test dates (else the lever is too sparse to matter).
-- **STOP / NULL** otherwise: if no conditioning clears all three, declare **Track
-  A null** and record that **Track B (an input change) is the only remaining path**
-  to a directional 105. We do not then go fishing for a filter.
+**Stop / go threshold (explicit, pre-registered — calibrated to PORTFOLIO impact,
+not per-pick statistical nonzero).**
+- **GO** (build the meta-label filter on the winning conditioning) only if, on the
+  held-out test window, **all of** the following hold:
+  (a) **Annualized, capital-weighted book-return lift over baseline ≥ +50 bps/yr**
+      (i.e. economically material to the actual book, not just statistically
+      nonzero per pick) AND its bootstrap 95% CI lower bound is **> 0**;
+  (b) per-pick net-of-cost expectancy lift **≥ +5 bps per 60d** with bootstrap 95%
+      CI lower bound **> 0** (statistical-significance floor, necessary but **not
+      sufficient** — (a) is the binding economic gate);
+  (c) hit-rate lift **≥ +3 pp** with CI excluding 0;
+  (d) active-day exposure **≥ 25%** of test dates;
+  (e) the filter does **not** drop **> 1/3** of baseline winners (missed-winner /
+      opportunity-cost cap) and adds no more than a **doubling** of baseline
+      turnover.
+  The numeric levels in (a) and (e) are **first-pass proposals for operator/Codex
+  calibration**, deliberately set so a statistically-nonzero-but-untradeable result
+  cannot pass; they are open to tightening, not loosening.
+- **STOP / NULL** otherwise: if no conditioning clears all of (a)–(e), declare
+  **Track A null** and record that **Track B (an input change) is the only
+  remaining path** to a directional 105. We do not then go fishing for a filter.
 
 Same rigor as A1 / A2: chronological OOS, embargo, bootstrap CI, net-of-cost, and
 a pre-registered threshold so the test cannot be talked into a pass.
