@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
 import shutil
@@ -76,10 +77,29 @@ import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import pandas as pd
-import requests
+
+if TYPE_CHECKING:  # pragma: no cover - type hints only
+    import requests
+
+# ``requests`` is needed ONLY on the live network path (``fetch_endpoint`` /
+# ``main``). It is imported lazily via :func:`_require_requests` so that merely
+# importing this module -- e.g. CI test collection, which exercises the pure
+# contract functions with a fake fetch and never hits the network -- does not
+# require the dependency to be installed. The live path raises a clear error if
+# it is genuinely missing.
+def _require_requests() -> "requests":
+    """Import and return the ``requests`` module on demand (live path only)."""
+    try:
+        return importlib.import_module("requests")
+    except ImportError as exc:  # pragma: no cover - exercised only without the dep
+        raise SystemExit(
+            "error: the 'requests' package is required for a live fetch but is not "
+            "installed. Install it (declared in pyproject [project].dependencies) "
+            "or run with --dry-run, which makes no network call."
+        ) from exc
 
 # --- FMP endpoints to snapshot ------------------------------------------------
 # Mirrors the umbrella harvest manifests (data/fmp_harvest/*.manifest.json):
@@ -216,10 +236,14 @@ def fetch_endpoint(
     session: requests.Session, endpoint_path: str, sym: str, api_key: str
 ) -> tuple[list[dict[str, Any]] | None, str | None]:
     """Fetch one (endpoint, symbol). Returns (records, error). Never raises."""
+    # ``requests`` is imported lazily, so resolve its exception base here (the
+    # live path has already imported it via ``main``/``_require_requests``). Any
+    # transport error becomes a clean ``fetch_error`` rather than propagating.
+    request_exception = _require_requests().RequestException
     url = f"{FMP_STABLE_BASE}/{endpoint_path.format(sym=sym)}&apikey={api_key}"
     try:
         resp = session.get(url, timeout=REQUEST_TIMEOUT_S)
-    except requests.RequestException as exc:
+    except request_exception as exc:
         return None, f"fetch_error:{type(exc).__name__}"
     if resp.status_code != 200:
         return None, f"http_{resp.status_code}"
@@ -579,7 +603,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 2
 
-    session = requests.Session()
+    # ``requests`` (lazy) is needed only for a live fetch; a dry-run plans paths
+    # without any network session, so it must work without the dependency.
+    session = None if args.dry_run else _require_requests().Session()
     result = collect_snapshot(
         session=session,
         tickers=tickers,

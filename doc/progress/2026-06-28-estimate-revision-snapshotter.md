@@ -1,18 +1,57 @@
-# Estimate-revision forward snapshotter — progress
+# Estimate-revision forward snapshotter — progress   (PR #205)
 
-STATUS:   reference implementation, NOT the merge point. Collector script + design
-          note only. Superseded by a two-PR split (base-data collector PR first,
-          then a thin orchestrator schedule/fingerprint/freshness PR = the
-          operational merge point). No cron, no canonical writes, no model change.
-          Merging this script alone does NOT make "history accrue" (no scheduler).
+STATUS:   in-progress / reference implementation, NOT the merge point. Collector
+          script + design note only. Superseded by a two-PR split (base-data
+          collector PR first, then a thin orchestrator schedule/fingerprint/
+          freshness PR = the operational merge point). No cron, no canonical
+          writes, no model change. Merging this script alone does NOT make
+          "history accrue" (no scheduler).
 
-WHY:      The analyst estimate-REVISION signal (best large-cap orthogonal lead;
+WHY/DIR:  The analyst estimate-REVISION signal (best large-cap orthogonal lead;
           Womack 1996 / Gleason-Lee 2003; surfaced by the 2026-06-23 trade review)
           is un-buildable today: our FMP harvest (umbrella PR #409,
           data/fmp_harvest/) is a single CURRENT snapshot with no revision history.
           Using today's consensus on past dates = look-ahead the WF gate must catch.
           The fix needs only TIME: snapshot estimates forward from today so a real
-          as-of revision history accrues, leakage-free.
+          as-of revision history accrues, leakage-free. DIRECTION: builds the data
+          substrate for a future orthogonal feature (post-revision drift) that the
+          2026-06-23 trade review flagged as the highest-value missing lens; it does
+          NOT itself add a feature or change any model.
+
+EVIDENCE: §4(b) block (this PR makes a data-provenance claim — "the current harvest
+          cannot build PIT revision history" — and a fetch-coverage claim):
+          - artifact:      scripts/snapshot_fmp_estimates.py (this PR);
+                           tests/test_snapshot_fmp_estimates.py (24 tests).
+          - prod or exp:   experiment / reference-implementation. NOT wired to prod;
+                           writes only data/estimate_snapshots/<date>/ (a NEW path)
+                           or a /tmp demo path; no canonical/live path is touched.
+          - existing data: the umbrella FMP harvest (data/fmp_harvest/*.parquet +
+                           *.manifest.json, umbrella PR #409) is a SINGLE current
+                           snapshot — its manifests carry one harvest-day consensus
+                           per endpoint, with no per-date series, so "what consensus
+                           was 1m/3m ago" cannot be reconstructed from it. No
+                           estimate_snapshots series exists yet (this PR creates the
+                           collector that would accrue it forward).
+          - best-known?:   yes — this is the only forward PIT-safe accrual path for
+                           FMP estimate revisions in-repo; the alternative (stamping
+                           today's consensus onto past dates) is the look-ahead this
+                           script structurally refuses (resolve_as_of rejects past
+                           AND future --as-of).
+          - scope:         "this is scripts/snapshot_fmp_estimates.py, experiment,
+                           a leakage-free FORWARD collector; vs existing best =
+                           data/fmp_harvest (a single non-PIT snapshot that cannot
+                           express revision history)."
+          Fetch-coverage demo (live, pre-fix run to /tmp, NOT live data/): 134–135
+          of 142 names returned per endpoint, 1338 analyst-estimate rows; the ~7–8
+          misses are plan-locked FMP names, not transient. Contract behaviour
+          (as-of rejection, idempotent no-op, partial-not-published, atomic publish,
+          path guard incl symlink, manifest sha256) is covered by the 24 focused
+          tests with a fake fetch + /tmp output (no live FMP).
+          `[VERIFIED — 24 tests pass in a requests-ABSENT CI-simulation venv
+          (pytest numpy pandas scipy pyarrow pydantic scikit-learn, no requests):
+          PYTHONPATH=src python -m pytest -q tests/test_snapshot_fmp_estimates.py ->
+          24 passed; py_compile OK; dry-run + live-path-error verified; 2026-06-29
+          this session]`
 
 WHAT:     scripts/snapshot_fmp_estimates.py — fetches the renquant-104 universe
           (read read-only from the golden strategy_config watchlist, or --universe)
@@ -24,6 +63,8 @@ WHAT:     scripts/snapshot_fmp_estimates.py — fetches the renquant-104 univers
           Each row stamped snapshot_as_of = ACTUAL UTC fetch date; --as-of may
           only EQUAL today's UTC date (both past AND future rejected).
           --as-of / --force / --min-coverage / --universe / --out / --dry-run.
+          `requests` is imported LAZILY (live network path only) so module import /
+          test collection / dry-run do not require it.
           doc/design/2026-06-28-estimate-revision-snapshotter.md — design note.
 
 GUARDS:   Structural is_canonical_path() refuses fmp_harvest / sec_fundamentals_daily
@@ -31,10 +72,35 @@ GUARDS:   Structural is_canonical_path() refuses fmp_harvest / sec_fundamentals_
           follows symlinks (resolve()) so a link into a forbidden tree is rejected;
           /tmp scratch allowed for demos. FMP key read READ-ONLY from umbrella .env.
 
+CODEX REVIEW — ROUND 3 (PR #205, CHANGES_REQUESTED 2026-06-28, all addressed):
+  R3.1 CI STILL red — the pyproject dep is not enough. .github/workflows/ci.yml
+       installs an EXPLICIT package list (pytest numpy pandas scipy xgboost
+       pyarrow pydantic cvxpy scikit-learn) and does NOT install project
+       dependencies, so declaring `requests` in pyproject did not reach CI;
+       test collection still hit ModuleNotFoundError: No module named 'requests'.
+       FIXED by the "import shape" path Codex offered: `requests` is now imported
+       LAZILY (TYPE_CHECKING for the type hints + a _require_requests() on-demand
+       import on the live network path only). The tests exercise the pure contract
+       functions with a fake fetch and never touch the network, so importing the
+       module — i.e. CI test collection — no longer needs `requests` at all. The
+       live path raises a clear, actionable error if the dependency is genuinely
+       missing; dry-run works without it. The `requests>=2.28` pyproject
+       declaration is kept (correct for the live path) but is no longer
+       load-bearing for CI. VERIFIED: 24 tests pass in a requests-ABSENT venv
+       built from CI's exact package subset (see EVIDENCE).
+  R3.2 Progress doc did not match the mandatory C5 field set. Converted `WHY:` →
+       `WHY/DIR:` and added an `EVIDENCE:` section ending in a `[VERIFIED — …]`
+       tag, matching doc/AGENT-RETROSPECTIVE.md §4(c).
+  R3.3 No explicit §4(b) evidence block for the data/provenance claims. Added the
+       full block (artifact / prod-or-exp / existing-data / best-known? / scope)
+       under EVIDENCE, scoping the forward collector against the existing non-PIT
+       fmp_harvest snapshot.
+
 CODEX REVIEW — ROUND 2 (PR #205, CHANGES_REQUESTED 2026-06-28, all addressed):
   R2.1 CI red — missing dep. The script imports `requests` but it was not
        declared in pyproject.toml, so CI test-collection hit ModuleNotFoundError.
-       Added `requests>=2.28` to [project].dependencies. Focused tests still pass.
+       Added `requests>=2.28` to [project].dependencies. (Round 3 found this was
+       insufficient for THIS repo's CI install path and switched to a lazy import.)
   R2.2 Future --as-of was still fake provenance. resolve_as_of() previously
        allowed today OR future and wrote it into every row's snapshot_as_of.
        FIXED to the exact invariant: --as-of must EQUAL today's UTC date; BOTH
