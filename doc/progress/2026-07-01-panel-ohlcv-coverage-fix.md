@@ -163,3 +163,63 @@ TESTS (revision 2): `tests/test_retrain_ohlcv_coverage.py` adds the 1-session de
           real-NYSE-calendar session resolution (importorskip). Run:
           `.venv/bin/python -m pytest tests/test_retrain_ohlcv_coverage.py tests/test_retrain_*.py -q`
           → 121 passed. Still compatible with PR #218 (no shared symbol/task touched).
+
+── REVISION 3 (2026-07-01, Codex "reconcile with current main" blocker on PR #217) ──
+WHY:      Main advanced past this branch's last merge (#215's paired-IS harness) with #216
+          (`feat/renquant105-intraday-quote-logger`) plus #219/#220/#213/#222 landing, and GitHub
+          reported a merge conflict. Codex required the conflict be resolved SEMANTICALLY — not a
+          blind take-one-side — and the calendar/refresh behavior documented, because #216 also
+          touches NYSE-calendar/session code and could plausibly collide with this PR's freshness
+          guard.
+
+CONFLICT DIAGNOSIS: `git merge origin/main` produced exactly ONE textual conflict —
+          `.github/workflows/ci.yml`'s "Install test tools" step. Both branches independently
+          appended a `pandas_market_calendars` pip install to that line, spelled differently
+          (`pandas-market-calendars` on this branch vs `pandas_market_calendars` on #216)
+          — pip treats the hyphen/underscore forms as equivalent, so this was a pure naming
+          duplicate-add, not a competing design. `pyproject.toml`'s `pandas_market_calendars>=4`
+          dependency (added by #216) merged cleanly with no conflict. `retrain_alpha158_fund.py`
+          itself has ZERO diff from the merge (confirmed via
+          `git diff <pre-merge-217-tip>..<post-merge-head> -- src/renquant_orchestrator/retrain_alpha158_fund.py`)
+          — main never touched this file, so there is no line-level collision in the freshness-guard
+          code itself.
+
+SEMANTIC CHECK (calendar/session overlap, per Codex's specific concern): #216's
+          `intraday_quote_logger.py` adds its OWN NYSE-calendar wrapper
+          (`SessionCalendar`/`NyseSessionCalendar`/`default_session_calendar()`), returning
+          `SessionBounds` (open/close datetimes) for ONE session — used to gate real-time RTH quote
+          sampling. This PR's `_exchange_calendar()` / `_expected_last_completed_session()` /
+          `_default_session_gap()` in `retrain_alpha158_fund.py` answer a DIFFERENT question — the
+          most recent COMPLETED session as of a wall-clock timestamp, and a session-count gap
+          between two dates, for a WEEKLY freshness/staleness check — and both already say so
+          in their own docstrings before this merge. DECISION: keep the two implementations
+          independent; do NOT rewire this PR's freshness guard onto #216's `SessionCalendar`.
+          Reasons: (1) the freshness guard's docstring already commits to an INDEPENDENTLY-derived
+          expected session, mirroring `renquant_base_data.loaders.data._last_completed_nyse_session`
+          — coupling it to #216's real-time-quote-logger module would trade that independence for a
+          cross-subsystem dependency the design explicitly avoids; (2) #216's own docstring frames
+          `intraday_quote_logger.py` as "STANDALONE, DECOUPLED... a bug in it can never affect a live
+          trade" — importing it from the weekly retrain pipeline would violate that isolation
+          contract in the other direction; (3) the primitives don't fit efficiently: #216's
+          `session_bounds(day)` is a per-day open/close lookup (right for RTH gating), while this
+          PR's `_default_session_gap` needs a batched `cal.valid_days(start, end)` range query —
+          reusing #216's per-day primitive would mean a day-by-day loop, strictly worse. Both
+          wrappers do call the SAME underlying `pandas_market_calendars.get_calendar("NYSE")`
+          primitive (that's why the CI/pyproject dependency merges to one line), so there is no
+          actual calendar-data divergence risk — only two independent, intentionally-decoupled call
+          sites over the same library.
+
+RESOLUTION: `.github/workflows/ci.yml` keeps a single `pandas_market_calendars` install (canonical
+          underscore form, matching the PyPI package name and `pyproject.toml`'s declared
+          dependency), with a comment explaining it now serves BOTH #216 (intraday_quote_logger RTH
+          gating) and #217 (retrain freshness guard's independent session/gap resolution).
+
+VERIFICATION (resolved head, `ff089467` on `fix/panel-ohlcv-coverage`):
+          `.venv/bin/python -m pytest tests/test_retrain_ohlcv_coverage.py tests/test_retrain_*.py -q`
+          → 121 passed (the glob re-matches `test_retrain_ohlcv_coverage.py`, so its 44 tests are
+          counted twice — the 4 unique files are `test_retrain_ohlcv_coverage.py` (44),
+          `test_retrain_alpha158_fund.py` (14), `test_retrain_alpha158_linear.py` (7),
+          `test_retrain_patchtst.py` (12), 77 unique tests, all green). `tests/test_intraday_quote_logger.py`
+          (the #216 suite sharing the same underlying calendar library) → 49 passed, no regression.
+          Full `make test`-equivalent (all sibling repos on PYTHONPATH) → 925 passed, 3 skipped, 0
+          failed. `git diff --check` on the merge → clean.
