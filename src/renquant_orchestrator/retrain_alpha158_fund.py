@@ -835,12 +835,18 @@ def is_rawlabel_admissible(rawlabel_path: Path) -> bool:
 
 
 def assert_rawlabel_admissible(rawlabel_path: Path) -> None:
-    """Downstream admission enforcement: raise ``RawlabelStaleError`` unless the
-    σ-head ``_rawlabel`` corpus exists and carries no invalidation receipt.
+    """Reference admission check: raise ``RawlabelStaleError`` unless the σ-head
+    ``_rawlabel`` corpus exists and carries no invalidation receipt.
 
-    σ-head / QuantileHead training MUST call this before consuming the corpus, so
-    a swallowed refresh failure BLOCKS the dependent σ-head artifact instead of
-    silently training on a stale label (an ntfy alert alone cannot enforce that).
+    This repo does not run real σ-head / QuantileHead training (CLAUDE.md hard
+    boundary), so this function is producer-side documentation of the contract,
+    not the enforcement point itself. The enforcement point is the actual
+    training entrypoint, ``scripts/train_ngboost_proper.py`` in the ``RenQuant``
+    umbrella repo, which reimplements this same check (receipt + provenance
+    horizon/digest match) by file-contract — see RenQuant PR #427. Until #427 is
+    merged, a swallowed refresh failure here is recorded (receipt + provenance
+    written correctly) but is NOT YET blocked at the training boundary — do not
+    claim end-to-end enforcement before that PR lands.
     """
     if not rawlabel_path.exists():
         raise RawlabelStaleError(f"σ-head _rawlabel corpus is missing: {rawlabel_path}")
@@ -1131,12 +1137,22 @@ class RefreshSigmaHeadRawLabelTask(Task):
     XGB-ranker / calibrator retrain. Because a swallowed failure would otherwise
     leave a silently-stale corpus, every non-certified outcome (build failure,
     empty / rejected output, or a missing upstream panel) also writes a durable
-    INVALIDATION RECEIPT beside the corpus; ``assert_rawlabel_admissible`` lets
-    downstream σ-head training ENFORCE it (refuse to train on a stale label). A
-    successful, validated swap clears the receipt and stamps a provenance sidecar
-    (horizon, source-panel digest + frontier, row/ticker counts, finite fraction).
-    A missing upstream panel stays a soft skip (no alert — the ranker path
-    surfaces that itself) but still records the receipt.
+    INVALIDATION RECEIPT beside the corpus. A successful, validated swap clears
+    the receipt and stamps a provenance sidecar (horizon, source-panel digest +
+    frontier, row/ticker counts, finite fraction). A missing upstream panel stays
+    a soft skip (no alert — the ranker path surfaces that itself) but still
+    records the receipt.
+
+    ``assert_rawlabel_admissible`` (below) is the enforcement CONTRACT this task
+    writes for; this repo is producer-only (it does not run real σ-head training
+    — see CLAUDE.md hard boundaries). The contract is enforced, end to end, at
+    the ACTUAL σ-head training entrypoint — ``scripts/train_ngboost_proper.py``
+    in the ``RenQuant`` umbrella repo — by a coordinated companion change,
+    RenQuant PR #427 (which reimplements the same receipt/provenance check
+    there by file-contract, not by cross-repo import, since RenQuant does not
+    depend on this package). Until #427 is merged, an INVALID receipt or a
+    stale/un-provenanced corpus is NOT yet blocked at that boundary — do not
+    claim end-to-end admission control before it lands.
     """
 
     def run(self, ctx: RetrainContext) -> bool | None:
@@ -1224,9 +1240,10 @@ class RefreshSigmaHeadRawLabelTask(Task):
             body = (
                 f"σ-head _rawlabel refresh FAILED ({exc}). The XGB-ranker retrain "
                 f"is UNAFFECTED, but the QuantileHead label is now stale relative to "
-                f"{panel_in}; an INVALIDATION RECEIPT was written so σ-head training "
-                f"admission (assert_rawlabel_admissible) will BLOCK until a validated "
-                f"build_raw_fwd60d_label refresh succeeds."
+                f"{panel_in}; an INVALIDATION RECEIPT was written. Once RenQuant PR #427 "
+                f"(consumer-side enforcement in scripts/train_ngboost_proper.py) is merged, "
+                f"this BLOCKS σ-head training until a validated build_raw_fwd60d_label "
+                f"refresh clears the receipt."
             )
             if not ctx.quiet:
                 post_ntfy("RenQuant retrain SIGMA-HEAD-RAWLABEL", body, ctx.ntfy_topic)
