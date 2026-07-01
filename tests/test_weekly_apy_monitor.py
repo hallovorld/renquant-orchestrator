@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -13,14 +13,6 @@ from renquant_orchestrator import weekly_apy_monitor as mod
 def _write_audit(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
-
-
-def _recent_date(days_ago: int) -> str:
-    """A date `days_ago` before *now*, so audit fixtures stay inside the
-    rolling window regardless of when the test runs. Using hard-coded calendar
-    dates made `read_recent_rows`' wall-clock cutoff drop boundary rows once the
-    fixtures aged past `window_days`, so the test rotted over time."""
-    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
 
 def test_pipeline_shape() -> None:
@@ -60,6 +52,50 @@ def test_read_recent_rows_accepts_timezone_aware_dates(tmp_path: Path) -> None:
     assert [row["equity"] for row in rows] == [110.0]
 
 
+def test_read_recent_rows_excludes_future_rows(tmp_path: Path) -> None:
+    # A row after the injected `now` (an operator --as-of replay) must be
+    # excluded: the window is bounded on both sides (cutoff <= row_dt <= now).
+    audit = tmp_path / "audit.jsonl"
+    _write_audit(audit, [
+        {"date": "2026-05-25T00:00:00+00:00", "equity": 100.0},
+        {"date": "2026-06-10T00:00:00+00:00", "equity": 999.0},
+    ])
+
+    rows = mod.read_recent_rows(
+        audit,
+        30,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+
+    assert [row["equity"] for row in rows] == [100.0]
+
+
+def test_main_as_of_excludes_future_rows(tmp_path: Path, capsys) -> None:
+    # End-to-end: `--as-of` replay must not consume rows dated after the as-of.
+    audit = tmp_path / "audit.jsonl"
+    _write_audit(audit, [
+        {"date": "2026-05-20T00:00:00+00:00", "equity": 100.0, "drawdown_pct": 0.0},
+        {"date": "2026-05-28T00:00:00+00:00", "equity": 110.0, "drawdown_pct": 0.0},
+        {"date": "2026-06-15T00:00:00+00:00", "equity": 500.0, "drawdown_pct": 0.0},
+    ])
+
+    mod.main([
+        "--repo-root",
+        str(tmp_path),
+        "--audit-log",
+        str(audit),
+        "--window-days",
+        "30",
+        "--as-of",
+        "2026-06-01T00:00:00+00:00",
+        "--quiet",
+        "--json",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["n_rows"] == 2
+
+
 def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:
     audit = tmp_path / "audit.jsonl"
     _write_audit(audit, [
@@ -72,6 +108,7 @@ def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:
         window_days=60,
         alert_threshold=0.25,
         quiet=True,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
     )
 
     result = mod.build_pipeline().run(ctx)
@@ -84,10 +121,12 @@ def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:
 
 def test_pipeline_alerts_on_persistent_drawdown(tmp_path: Path) -> None:
     audit = tmp_path / "audit.jsonl"
-    # dates relative to now (5 consecutive recent days) so all stay inside the
-    # default rolling window — fixes the previous wall-clock-dependent failure.
+    # Fixed dates on/before the injected now (2026-06-01), all inside the
+    # default 30d window (cutoff 2026-05-01). Deterministic and in-window by
+    # construction — the rows are counted because they are genuinely <= now,
+    # not because the window is unbounded on the upper side.
     _write_audit(audit, [
-        {"date": _recent_date(5 - i), "equity": 100.0 + i, "drawdown_pct": 0.25}
+        {"date": f"2026-05-2{i + 1}", "equity": 100.0 + i, "drawdown_pct": 0.25}
         for i in range(5)
     ])
     ctx = mod.WeeklyApyContext(
@@ -96,6 +135,7 @@ def test_pipeline_alerts_on_persistent_drawdown(tmp_path: Path) -> None:
         alert_threshold=-1.0,
         drawdown_days=5,
         quiet=True,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
     )
 
     mod.build_pipeline().run(ctx)
@@ -135,6 +175,8 @@ def test_main_json_outputs_summary(tmp_path: Path, capsys) -> None:
         str(audit),
         "--window-days",
         "60",
+        "--as-of",
+        "2026-06-01T00:00:00+00:00",
         "--quiet",
         "--json",
     ])
