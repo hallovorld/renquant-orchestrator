@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,48 @@ def _write_json(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def _write_pt(path: Path, content: bytes = b"patchtst-weights") -> str:
+    """Write a served ``.pt`` blob and return its sha256 (the receipt digest)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return hashlib.sha256(content).hexdigest()
+
+
+def _promote_report(
+    *,
+    promoted_pin: str,
+    candidate_sha256: str | None,
+    data_cutoff: str = "2026-06-25",
+    gate_version: str = "wf_gate@v3",
+    rc: int | None = 0,
+    fresh: bool = True,
+    gates_ok: bool = True,
+    n_gates: int = 2,
+    labeled_non_fresh: bool = False,
+) -> dict:
+    """A #419 ``PromoteReport`` sidecar (the persisted promotion receipt schema)."""
+    report = {
+        "promoted_pin": promoted_pin,
+        "candidate_pt": promoted_pin,
+        "gate_version": gate_version,
+        "rc": rc,
+        "fresh": fresh,
+        "labeled_non_fresh": labeled_non_fresh,
+        "gates": [{"name": f"g{i}", "ok": gates_ok} for i in range(n_gates)],
+        "source_verdicts": [{"source": "alpha158", "data_cutoff": data_cutoff}],
+        "promoted_at": "2026-06-30T00:00:00Z",
+    }
+    if candidate_sha256 is not None:
+        report["candidate_sha256"] = candidate_sha256
+    return report
+
+
+def _write_receipt(receipt_dir: Path, report: dict, *, stamp: str = "2026-06-30T00-00-00Z") -> Path:
+    """Persist one promotion receipt under ``receipt_dir`` (newest == lexicographic max)."""
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    return _write_json(receipt_dir / f"{stamp}.json", report)
 
 
 def _write_policy(models_dir: Path, ticker: str, **fields) -> Path:
@@ -251,7 +294,14 @@ def _build_fixture(tmp_path: Path, *, prod_cutoff: str, shadow_cutoff: str, tick
         tmp_path / "strategy_config.shadow.json",
         {"ranking": {"panel_scoring": {"kind": "hf_patchtst", "artifact_path": "shadow/seed_44/model.pt"}}},
     )
-    return {"models": models, "prod": prod, "shadow_cfg": shadow_cfg}
+    # The wired promote gate (RFC #212 §3.2) needs a persisted, pin-bound receipt for the
+    # shadow age tier to stand; otherwise the shadow fails closed to escalate. Write the
+    # served .pt and a validated receipt bound to it (repo_root defaults to tmp_path).
+    pin_rel = "shadow/seed_44/model.pt"
+    sha = _write_pt(tmp_path / pin_rel)
+    receipt_dir = mod.default_promote_receipt_dir(tmp_path)
+    _write_receipt(receipt_dir, _promote_report(promoted_pin=pin_rel, candidate_sha256=sha))
+    return {"models": models, "prod": prod, "shadow_cfg": shadow_cfg, "receipt_dir": receipt_dir}
 
 
 def test_pipeline_all_healthy_exit_zero(tmp_path: Path) -> None:
@@ -300,6 +350,7 @@ def test_main_json_is_deterministic_via_as_of(tmp_path: Path, capsys) -> None:
     fx = _build_fixture(tmp_path, prod_cutoff="2026-06-14", shadow_cutoff="2026-06-25", ticker_cutoff="2026-06-25")
     argv = [
         "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
         "--models-dir", str(fx["models"]),
         "--prod-panel", str(fx["prod"]),
         "--shadow-config", str(fx["shadow_cfg"]),
@@ -310,7 +361,9 @@ def test_main_json_is_deterministic_via_as_of(tmp_path: Path, capsys) -> None:
     rc = mod.main(argv)
     payload = json.loads(capsys.readouterr().out)
     assert rc == payload["exit_code"]
-    # prod panel 16d old (binding DATA cutoff) -> warn dominates a healthy rest.
+    # shadow is fresh + validated-promote (receipt bound), so prod panel 16d old (binding
+    # DATA cutoff) -> warn dominates a healthy rest.
+    assert payload["shadow_panel"]["promotion_status"] == mod.PROMOTE_OK
     assert payload["worst_tier"] == mod.TIER_WARN
     assert rc == 1
     assert payload["prod_panel"]["binding_field"] == "data_cutoff_date"
@@ -323,6 +376,7 @@ def test_main_as_of_bounds_both_sides(tmp_path: Path, capsys) -> None:
     # Same fixture, two different injected 'now' values -> different tiers (no wall clock).
     fx = _build_fixture(tmp_path, prod_cutoff="2026-06-20", shadow_cutoff="2026-06-20", ticker_cutoff="2026-06-20")
     base = [
+        "--repo-root", str(tmp_path),
         "--models-dir", str(fx["models"]),
         "--prod-panel", str(fx["prod"]),
         "--shadow-config", str(fx["shadow_cfg"]),
@@ -344,6 +398,7 @@ def test_main_cli_future_cutoff_rejected(tmp_path: Path, capsys) -> None:
     fx = _build_fixture(tmp_path, prod_cutoff="2026-07-15", shadow_cutoff="2026-06-25", ticker_cutoff="2026-06-25")
     argv = [
         "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
         "--models-dir", str(fx["models"]),
         "--prod-panel", str(fx["prod"]),
         "--shadow-config", str(fx["shadow_cfg"]),
@@ -370,6 +425,7 @@ def test_main_cli_missing_cutoff_is_unknown_failclosed(tmp_path: Path, capsys) -
     )
     argv = [
         "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
         "--models-dir", str(tmp_path / "models"),
         "--prod-panel", str(prod),
         "--shadow-config", str(shadow_cfg),
@@ -404,40 +460,17 @@ def test_shadow_policy_breach_only_past_35d(tmp_path: Path) -> None:
     assert shadow.tier == mod.TIER_BREACH
 
 
-def test_shadow_non_fresh_label_forces_breach(tmp_path: Path) -> None:
-    # RFC #212 §3.2: a served pin labeled non-fresh is breach even with a fresh age.
+def test_read_artifact_freshness_no_longer_reads_sidecar_promote_booleans(tmp_path: Path) -> None:
+    # The pure age reader NEVER trusts a free sidecar boolean (spoofable/stale, #419);
+    # promote status is decided by apply_promotion_gate from a persisted receipt only.
     art = _write_json(
         tmp_path / "s.json",
-        {"effective_selection_cutoff_date": "2026-06-27", "non_fresh": True},
+        {"effective_selection_cutoff_date": "2026-06-27", "validated_promote": True, "non_fresh": True},
     )
     shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
-    assert shadow.age_days == 3  # healthy on age alone
-    assert shadow.non_fresh is True
-    assert shadow.tier == mod.TIER_BREACH
-    assert "non-fresh" in shadow.detail
-
-
-def test_shadow_unvalidated_promote_caps_at_escalate(tmp_path: Path) -> None:
-    # RFC #212 §3.2: a fresh age does not certify healthy without a validated promote.
-    art = _write_json(
-        tmp_path / "s.json",
-        {"effective_selection_cutoff_date": "2026-06-27", "validated_promote": False},
-    )
-    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
-    assert shadow.promote_validated is False
-    assert shadow.tier == mod.TIER_ESCALATE  # not healthy despite 3d age
-    assert "promote not validated" in shadow.detail
-
-
-def test_shadow_validated_promote_allows_healthy(tmp_path: Path) -> None:
-    art = _write_json(
-        tmp_path / "s.json",
-        {"effective_selection_cutoff_date": "2026-06-27", "validated_promote": True},
-    )
-    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
-    assert shadow.promote_validated is True
-    assert shadow.tier == mod.TIER_HEALTHY
-    assert "validated promote" in shadow.detail
+    assert shadow.promote_validated is None  # not read here
+    assert shadow.non_fresh is False         # not read here
+    assert shadow.tier == mod.TIER_HEALTHY   # 3d age, gate not applied by the reader
 
 
 def test_prod_policy_ignores_promote_status(tmp_path: Path) -> None:
@@ -452,12 +485,190 @@ def test_prod_policy_ignores_promote_status(tmp_path: Path) -> None:
     assert prod.tier == mod.TIER_HEALTHY  # 3d age, no promote gate applied
 
 
+# --------------------------------------------------------------------------- #
+# Shadow promote RECEIPT gate (umbrella #419 / RFC #212 §5): pin-bound, fail-closed.
+# A fresh age never certifies healthy without a persisted, bound, validated receipt.
+# --------------------------------------------------------------------------- #
+def _shadow_setup(
+    tmp_path: Path,
+    *,
+    shadow_cutoff: str = "2026-06-27",
+    pin_rel: str = "shadow/seed_44/model.pt",
+    pt_content: bytes = b"patchtst-weights",
+) -> dict:
+    sidecar = _write_json(
+        tmp_path / (pin_rel + ".metadata.json"),
+        {"kind": "hf_patchtst", "effective_selection_cutoff_date": shadow_cutoff},
+    )
+    sha = _write_pt(tmp_path / pin_rel, pt_content)
+    cfg = _write_json(
+        tmp_path / "strategy_config.shadow.json",
+        {"ranking": {"panel_scoring": {"kind": "hf_patchtst", "artifact_path": pin_rel}}},
+    )
+    return {
+        "sidecar": sidecar,
+        "pin_rel": pin_rel,
+        "sha": sha,
+        "cfg": cfg,
+        "served_pt": tmp_path / pin_rel,
+        "receipt_dir": mod.default_promote_receipt_dir(tmp_path),
+    }
+
+
+def _apply_gate(tmp_path: Path, setup: dict) -> mod.ArtifactFreshness:
+    fresh = mod.read_artifact_freshness("shadow-panel", setup["sidecar"], AS_OF, policy=mod.SHADOW_POLICY)
+    return mod.apply_promotion_gate(
+        fresh,
+        receipt_dir=setup["receipt_dir"],
+        served_pt=mod._blob_from_freshness_path(setup["sidecar"]),
+        config_path=setup["cfg"],
+        repo_root=tmp_path,
+    )
+
+
+def test_promote_receipt_validated_allows_age_tier(tmp_path: Path) -> None:
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"]),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_OK
+    assert fresh.promote_validated is True
+    assert fresh.tier == mod.TIER_HEALTHY  # 3d age stands
+    assert fresh.promotion_receipt_path is not None
+
+
+def test_promote_missing_receipt_fails_closed_escalate(tmp_path: Path) -> None:
+    # THE production path today: #419 writes no receipt yet -> must NOT read healthy.
+    setup = _shadow_setup(tmp_path)  # no receipt written
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_MISSING
+    assert fresh.promote_validated is False
+    assert fresh.tier == mod.TIER_ESCALATE  # age was healthy; gate raises to escalate
+    assert "no promotion receipt" in fresh.detail
+
+
+def test_promote_unreadable_receipt_escalate(tmp_path: Path) -> None:
+    setup = _shadow_setup(tmp_path)
+    setup["receipt_dir"].mkdir(parents=True, exist_ok=True)
+    (setup["receipt_dir"] / "2026-06-30T00-00-00Z.json").write_text("{not json", encoding="utf-8")
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_UNREADABLE
+    assert fresh.tier == mod.TIER_ESCALATE
+
+
+def test_promote_unbound_receipt_escalate(tmp_path: Path) -> None:
+    # A receipt for a DIFFERENT (superseded) pin must not certify the served pin.
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin="shadow/seed_99/other.pt", candidate_sha256=setup["sha"]),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_UNBOUND
+    assert fresh.tier == mod.TIER_ESCALATE
+    assert "does not bind served pin" in fresh.detail
+
+
+def test_promote_incomplete_receipt_escalate(tmp_path: Path) -> None:
+    # A partial receipt (a free boolean without the binding evidence) is not trusted.
+    setup = _shadow_setup(tmp_path)
+    report = _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"])
+    report.pop("gate_version")
+    _write_receipt(setup["receipt_dir"], report)
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_INCOMPLETE
+    assert fresh.tier == mod.TIER_ESCALATE
+    assert "gate_version" in fresh.detail
+
+
+def test_promote_missing_digest_when_required_escalate(tmp_path: Path) -> None:
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=None),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_INCOMPLETE
+    assert "candidate_sha256" in fresh.detail
+
+
+def test_promote_non_fresh_receipt_breach(tmp_path: Path) -> None:
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"], labeled_non_fresh=True),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_NON_FRESH
+    assert fresh.non_fresh is True
+    assert fresh.tier == mod.TIER_BREACH  # non-fresh is actively bad, not just uncertain
+
+
+def test_promote_validation_failed_breach(tmp_path: Path) -> None:
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"], rc=1, gates_ok=False),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_VALIDATION_FAILED
+    assert fresh.tier == mod.TIER_BREACH
+
+
+def test_promote_digest_mismatch_breach(tmp_path: Path) -> None:
+    # The served .pt bytes were replaced out of band after the receipt was written.
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256="deadbeef" * 8),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_DIGEST_MISMATCH
+    assert fresh.tier == mod.TIER_BREACH
+    assert "candidate_sha256" in fresh.detail
+
+
+def test_promote_gate_only_raises_severity(tmp_path: Path) -> None:
+    # An already-breach age (40d) stays breach even with a validated receipt: the gate
+    # only ever RAISES severity, it never launders a stale pin back to healthy.
+    setup = _shadow_setup(tmp_path, shadow_cutoff="2026-05-21")  # 40d > 35d shadow ceiling
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"]),
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.age_days == 40
+    assert fresh.promotion_status == mod.PROMOTE_OK
+    assert fresh.tier == mod.TIER_BREACH
+
+
+def test_promote_latest_receipt_wins(tmp_path: Path) -> None:
+    # Two receipts: the newest (lexicographic-max stamp) is authoritative.
+    setup = _shadow_setup(tmp_path)
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"], labeled_non_fresh=True),
+        stamp="2026-06-28T00-00-00Z",  # older: non-fresh
+    )
+    _write_receipt(
+        setup["receipt_dir"],
+        _promote_report(promoted_pin=setup["pin_rel"], candidate_sha256=setup["sha"]),
+        stamp="2026-06-30T00-00-00Z",  # newer: validated
+    )
+    fresh = _apply_gate(tmp_path, setup)
+    assert fresh.promotion_status == mod.PROMOTE_OK
+    assert fresh.tier == mod.TIER_HEALTHY
+
+
 def test_main_cli_shadow_uses_its_own_policy(tmp_path: Path, capsys) -> None:
     # Full pipeline: a 30d-stale shadow is WARN under its 35d policy, NOT breach under
     # the prod 28d scalar. Per-population thresholds are explicit in the JSON.
     fx = _build_fixture(tmp_path, prod_cutoff="2026-06-25", shadow_cutoff="2026-05-31", ticker_cutoff="2026-06-25")
     argv = [
         "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
         "--models-dir", str(fx["models"]),
         "--prod-panel", str(fx["prod"]),
         "--shadow-config", str(fx["shadow_cfg"]),
@@ -467,9 +678,145 @@ def test_main_cli_shadow_uses_its_own_policy(tmp_path: Path, capsys) -> None:
     rc = mod.main(argv)
     payload = json.loads(capsys.readouterr().out)
     assert payload["shadow_panel"]["age_days"] == 30
+    # 30d age is WARN under the 35d shadow ceiling, and the validated receipt lets the
+    # age tier stand (does not force it healthy nor escalate it).
+    assert payload["shadow_panel"]["promotion_status"] == mod.PROMOTE_OK
     assert payload["shadow_panel"]["tier"] == mod.TIER_WARN
     assert payload["worst_tier"] == mod.TIER_WARN
     assert rc == 1
     assert payload["thresholds"]["shadow"]["breach_days"] == 35
     assert payload["thresholds"]["fast_axis"]["breach_days"] == 28
     assert payload["thresholds"]["shadow"]["require_validated_promote"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Panel freshness axis (umbrella #423): key on the RAW feature frontier
+# (max_feature_anchor_date), NEVER the fwd_60d-clipped label cutoff (~60d provenance).
+# --------------------------------------------------------------------------- #
+def test_max_feature_anchor_date_is_the_freshness_axis(tmp_path: Path) -> None:
+    # A freshly retrained panel: feature frontier ~= today-3, label cutoff ~60d behind
+    # by construction. Keying on the feature frontier => HEALTHY; keying on the label
+    # cutoff would make every fresh retrain born-BREACH (the exact bug #423 fixes).
+    art = _write_json(
+        tmp_path / "panel.json",
+        {
+            "kind": "xgb",
+            "trained_date": "2026-06-30",
+            "max_feature_anchor_date": "2026-06-27",       # freshness axis (3d)
+            "label_observation_cutoff": "2026-04-28",       # ~60d provenance, NOT tiered
+        },
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "max_feature_anchor_date"
+    assert fresh.age_days == 3
+    assert fresh.tier == mod.TIER_HEALTHY
+    assert fresh.label_observation_cutoff == "2026-04-28"
+    assert "provenance" in fresh.detail  # label lag flagged, not read as staleness
+
+
+def test_feature_anchor_beats_older_generic_cutoff(tmp_path: Path) -> None:
+    # max_feature_anchor_date leads DATA_CUTOFF_FIELDS: it binds over an older generic
+    # data_cutoff_date so the raw frontier is the axis.
+    art = _write_json(
+        tmp_path / "panel.json",
+        {"max_feature_anchor_date": "2026-06-26", "data_cutoff_date": "2026-05-10"},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "max_feature_anchor_date"
+    assert fresh.age_days == 4
+    assert fresh.tier == mod.TIER_HEALTHY
+
+
+def test_label_observation_cutoff_alone_is_not_a_freshness_axis(tmp_path: Path) -> None:
+    # A panel carrying ONLY the fwd-clipped label cutoff (no feature frontier) has NO
+    # freshness axis -> fail closed to unknown. The label cutoff must never tier.
+    art = _write_json(
+        tmp_path / "panel.json",
+        {"kind": "xgb", "trained_date": "2026-06-30", "label_observation_cutoff": "2026-06-28"},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field is None
+    assert fresh.age_days is None
+    assert fresh.tier == mod.TIER_UNKNOWN  # NOT healthy off a 2d label cutoff
+    assert fresh.label_observation_cutoff == "2026-06-28"  # echoed as provenance only
+
+
+def test_main_cli_panel_fresh_on_feature_anchor_despite_label_lag(tmp_path: Path, capsys) -> None:
+    # End-to-end: a fresh panel with a 60d-behind label cutoff reads HEALTHY on the
+    # feature frontier through the full pipeline (populations' cutoff semantics tested
+    # end to end, per the reviewer's merge gate).
+    fx = _build_fixture(tmp_path, prod_cutoff="2026-06-25", shadow_cutoff="2026-06-27", ticker_cutoff="2026-06-25")
+    _write_json(
+        fx["prod"],
+        {
+            "kind": "xgb",
+            "trained_date": "2026-06-30",
+            "max_feature_anchor_date": "2026-06-27",
+            "label_observation_cutoff": "2026-04-28",
+        },
+    )
+    argv = [
+        "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
+        "--models-dir", str(fx["models"]),
+        "--prod-panel", str(fx["prod"]),
+        "--shadow-config", str(fx["shadow_cfg"]),
+        "--watchlist", "AAPL,MSFT",
+        "--quiet", "--json",
+    ]
+    rc = mod.main(argv)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["prod_panel"]["binding_field"] == "max_feature_anchor_date"
+    assert payload["prod_panel"]["age_days"] == 3
+    assert payload["prod_panel"]["label_observation_cutoff"] == "2026-04-28"
+    assert payload["prod_panel"]["tier"] == mod.TIER_HEALTHY
+    assert payload["worst_tier"] == mod.TIER_HEALTHY
+    assert rc == 0
+
+
+# --------------------------------------------------------------------------- #
+# Integration: run a #419 promotion output through the whole monitor (main()).
+# --------------------------------------------------------------------------- #
+def test_integration_419_receipt_makes_shadow_healthy(tmp_path: Path, capsys) -> None:
+    fx = _build_fixture(tmp_path, prod_cutoff="2026-06-25", shadow_cutoff="2026-06-27", ticker_cutoff="2026-06-25")
+    argv = [
+        "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
+        "--models-dir", str(fx["models"]),
+        "--prod-panel", str(fx["prod"]),
+        "--shadow-config", str(fx["shadow_cfg"]),
+        "--promote-receipt-dir", str(fx["receipt_dir"]),
+        "--watchlist", "AAPL,MSFT",
+        "--quiet", "--json",
+    ]
+    rc = mod.main(argv)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["shadow_panel"]["promotion_status"] == mod.PROMOTE_OK
+    assert payload["shadow_panel"]["promote_validated"] is True
+    assert payload["shadow_panel"]["promotion_receipt_path"] is not None
+    assert payload["shadow_panel"]["tier"] == mod.TIER_HEALTHY
+    assert payload["worst_tier"] == mod.TIER_HEALTHY
+    assert rc == 0
+
+
+def test_integration_no_receipt_shadow_fails_closed(tmp_path: Path, capsys) -> None:
+    # The production path BEFORE #419 emits receipts: the served pin exists and is fresh
+    # on age, but with no receipt the monitor must NOT read healthy (fail closed).
+    fx = _build_fixture(tmp_path, prod_cutoff="2026-06-25", shadow_cutoff="2026-06-27", ticker_cutoff="2026-06-25")
+    empty_receipts = tmp_path / "empty_receipts"
+    argv = [
+        "--as-of", "2026-06-30",
+        "--repo-root", str(tmp_path),
+        "--models-dir", str(fx["models"]),
+        "--prod-panel", str(fx["prod"]),
+        "--shadow-config", str(fx["shadow_cfg"]),
+        "--promote-receipt-dir", str(empty_receipts),
+        "--watchlist", "AAPL,MSFT",
+        "--quiet", "--json",
+    ]
+    rc = mod.main(argv)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["shadow_panel"]["promotion_status"] == mod.PROMOTE_MISSING
+    assert payload["shadow_panel"]["tier"] == mod.TIER_ESCALATE
+    assert payload["worst_tier"] == mod.TIER_ESCALATE
+    assert rc == 2

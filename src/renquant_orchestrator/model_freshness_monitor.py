@@ -17,7 +17,34 @@ scalar): the per-ticker tournament and the prod XGB panel use the prod fast-axis
 tiers (design §1/§4: ``healthy`` <=14d, ``warn`` 14-21d, ``escalate`` 21-28d,
 ``breach`` >28d), while the **shadow PatchTST panel** uses the merged RFC #212 §3.2
 shadow policy (looser 35d breach ceiling because shadow is non-trading, AND keyed on
-the served pin's validated-promote status).
+a persisted, pin-bound **promotion receipt** — never a free, spoofable sidecar
+boolean).
+
+**Panel freshness axis (umbrella #423).** The prod XGB panel stamps TWO DISTINCT
+information-set fields (never conflated):
+
+- ``max_feature_anchor_date`` — the RAW feature/data frontier (latest date with
+  feature rows, BEFORE the fwd-label ``dropna`` clip). For a fresh daily retrain
+  this is ~= today-1, so it is THE freshness axis. The monitor keys panel freshness
+  here first, so a fresh retrain reads HEALTHY (not born-BREACH).
+- ``label_observation_cutoff`` — the fwd_60d-clipped max fully-labeled training row
+  (~60 business days behind the frontier by construction). This is **provenance**
+  (which labels the model saw), **NOT** a freshness axis: the ~60d label lag is
+  EXPECTED and must not be read as staleness. It is captured for context only and
+  is never used for tiering.
+
+**Shadow promote binding (umbrella #419 / RFC #212 §3.2).** The served shadow pin's
+freshness reaches ``healthy`` only when a persisted **promotion receipt** (written by
+``scripts/promote_shadow_patchtst.py`` to ``logs/promote_shadow_patchtst/*.json``)
+certifies it. The receipt is validated to **bind** the served pin (``promoted_pin``),
+the source cutoffs it saw (``source_verdicts[].data_cutoff``), the gate build that
+judged it (``gate_version``), the candidate bytes (``candidate_sha256`` vs the served
+``.pt`` hash) and the validation result (``rc``/``fresh``/``gates``). A missing,
+unreadable, unbound (superseded/stale) or under-populated receipt **FAILS CLOSED**
+(escalate — the served pin can never read ``healthy`` on age alone); a receipt that
+labels the pin non-fresh, fails validation, or whose digest does not match the served
+bytes fails closed to ``breach``. A free boolean in the sidecar is spoofable and stale
+after an artifact replacement, so it is NOT trusted.
 
 Fail-closed states, kept DISTINCT so operators can tell them apart:
 
@@ -44,6 +71,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import statistics
@@ -86,12 +114,15 @@ _TIER_RANK = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3, T
 _TIER_EXIT_CODE = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3, TIER_UNKNOWN: 3}
 
 # Data-cutoff axes, most-binding first. The binding cutoff is the model's most-recent
-# DATA exposure; ``effective_selection_cutoff_date`` is the freshest such axis when
-# present (PatchTST shadow sidecar), then the retrain/train cutoffs, then the
-# per-ticker ``live_train_end``. ``trained_date`` (run time) is deliberately NOT in
+# DATA exposure. ``max_feature_anchor_date`` (umbrella #423) is the RAW feature/data
+# frontier and the freshest, most-binding panel axis — it must lead so a fresh panel
+# retrain reads HEALTHY, not born-BREACH on the ~60d-behind label cutoff. Then the
+# PatchTST shadow ``effective_selection_cutoff_date``, the retrain/train cutoffs, and
+# the per-ticker ``live_train_end``. ``trained_date`` (run time) is deliberately NOT in
 # this list: it is not a data-freshness axis (design §2) and never certifies freshness
 # — a missing binding cutoff fails closed to ``unknown`` instead of falling back to it.
 DATA_CUTOFF_FIELDS = (
+    "max_feature_anchor_date",
     "effective_selection_cutoff_date",
     "effective_train_cutoff_date",
     "data_cutoff_date",
@@ -100,8 +131,23 @@ DATA_CUTOFF_FIELDS = (
 )
 _TRAINED_DATE_FIELD = "trained_date"
 
+# PROVENANCE-only fields: captured + echoed for context, NEVER used for tiering.
+# ``label_observation_cutoff`` (umbrella #423) is the fwd_60d-clipped max labeled row,
+# ~60 business days BEHIND the feature frontier by construction — that lag is EXPECTED
+# provenance (which labels the model saw), not staleness. Reading it as a freshness axis
+# would make every fresh panel retrain born-BREACH, which is exactly the bug #423 fixes.
+_LABEL_OBSERVATION_FIELD = "label_observation_cutoff"
+
 # Model blobs whose freshness metadata lives in a ``<path>.metadata.json`` sidecar.
 _MODEL_BLOB_SUFFIXES = {".pt", ".pth", ".bin", ".ckpt", ".safetensors", ".onnx"}
+
+# Persisted shadow promotion receipts (umbrella #419 / RFC #212 §5): one JSON per
+# validated served-pin promote, written under ``<repo_root>/logs/promote_shadow_patchtst``.
+_PROMOTE_RECEIPT_DIRNAME = ("logs", "promote_shadow_patchtst")
+
+
+def default_promote_receipt_dir(repo_root: Path) -> Path:
+    return repo_root.joinpath(*_PROMOTE_RECEIPT_DIRNAME)
 
 
 def default_models_dir(repo_root: Path) -> Path:
@@ -271,10 +317,17 @@ class ArtifactFreshness:
     age_days: int | None = None
     tier: str = TIER_BREACH
     detail: str = ""
-    # Shadow (RFC #212 §3.2) only: served-pin validated-promote status. ``None`` when
-    # the population has no promote gate, or the field is absent (unverified).
+    # PROVENANCE only (umbrella #423): the fwd_60d-clipped label-observation cutoff,
+    # ~60d behind the feature frontier. Echoed for context; NEVER used for tiering.
+    label_observation_cutoff: str | None = None
+    # Shadow (RFC #212 §3.2) only: validated-promote status derived from a persisted,
+    # pin-bound promotion RECEIPT (never a sidecar boolean). ``None`` when the
+    # population has no promote gate; ``True`` only when a bound, validated receipt
+    # certifies the served pin.
     promote_validated: bool | None = None
     non_fresh: bool = False
+    promotion_status: str | None = None
+    promotion_receipt_path: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -283,10 +336,13 @@ class ArtifactFreshness:
             "binding_field": self.binding_field,
             "detail": self.detail,
             "label": self.label,
+            "label_observation_cutoff": self.label_observation_cutoff,
             "non_fresh": self.non_fresh,
             "path": self.path,
             "present": self.present,
             "promote_validated": self.promote_validated,
+            "promotion_receipt_path": self.promotion_receipt_path,
+            "promotion_status": self.promotion_status,
             "tier": self.tier,
             "trained_date": self.trained_date,
         }
@@ -308,10 +364,13 @@ def read_artifact_freshness(
       for exit code, reported separately from a too-old ``breach``). ``trained_date``
       is captured as informational context ONLY and never certifies freshness (§2);
     - a cutoff **later than** ``now`` -> ``breach`` (look-ahead; a negative age must
-      never read as ``healthy`` — PR #211 lesson, windows bounded on both sides);
-    - for a shadow policy (``require_validated_promote``): a served pin labeled
-      non-fresh -> ``breach``; a not-yet-validated promote caps the tier at
-      ``escalate`` (RFC #212 §3.2).
+      never read as ``healthy`` — PR #211 lesson, windows bounded on both sides).
+
+    The freshness axis for the panel is ``max_feature_anchor_date`` (the raw feature
+    frontier, umbrella #423); the ~60d-behind ``label_observation_cutoff`` is captured
+    as PROVENANCE only and never tiered. The shadow promote gate (RFC #212 §3.2) is
+    NOT applied here — it keys on a persisted, pin-bound RECEIPT and is layered on by
+    ``apply_promotion_gate`` in the caller, so this reader stays a pure age function.
     """
     result = ArtifactFreshness(label=label, path="" if path is None else str(path))
     if path is None:
@@ -331,19 +390,16 @@ def read_artifact_freshness(
 
     result.present = True
     result.trained_date = _text_or_none(data.get(_TRAINED_DATE_FIELD))
+    # PROVENANCE only (#423): captured + echoed, NEVER used for tiering.
+    result.label_observation_cutoff = (
+        raw[:10] if (raw := _text_or_none(data.get(_LABEL_OBSERVATION_FIELD))) else None
+    )
 
     for field_name in DATA_CUTOFF_FIELDS:
         if _parse_date(data.get(field_name)) is not None:
             result.binding_cutoff = str(data[field_name]).strip()[:10]
             result.binding_field = field_name
             break
-
-    # RFC #212 §3.2: the shadow tier also keys on the served pin's promote status.
-    if policy.require_validated_promote:
-        result.non_fresh = _optional_bool(data.get("non_fresh")) is True or (
-            _text_or_none(data.get("freshness_label")) == "non_fresh"
-        )
-        result.promote_validated = _optional_bool(data.get("validated_promote"))
 
     # A missing / unparseable binding DATA cutoff is UNKNOWN, not "stale" — it FAILS
     # CLOSED (breach-severity) but is reported separately so operators see "cutoff
@@ -381,21 +437,11 @@ def read_artifact_freshness(
         breach_days=policy.breach_days,
     )
     result.detail = f"{result.binding_field}={result.binding_cutoff} age={age_days}d"
-
-    # RFC #212 §3.2: a shadow pin reaches ``healthy`` only via a VALIDATED promote and
-    # only if not labeled non-fresh; otherwise the challenger comparison is untrustworthy.
-    if policy.require_validated_promote:
-        if result.non_fresh:
-            result.tier = TIER_BREACH
-            result.detail += "; served pin labeled non-fresh (fail-closed)"
-        elif result.promote_validated is False:
-            result.tier = worst_tier([result.tier, TIER_ESCALATE])
-            result.detail += "; promote not validated (escalate)"
-        elif result.promote_validated is None:
-            result.detail += "; promote status unverified"
-        else:
-            result.detail += "; validated promote"
-
+    if result.label_observation_cutoff and result.binding_field != _LABEL_OBSERVATION_FIELD:
+        result.detail += (
+            f"; label_observation_cutoff={result.label_observation_cutoff}"
+            " is provenance (~60d fwd-clip lag), not a freshness axis"
+        )
     return result
 
 
@@ -488,6 +534,24 @@ def _freshness_path_for(artifact: Path) -> Path:
     return artifact
 
 
+def _blob_from_freshness_path(freshness_path: Path | None) -> Path | None:
+    """Invert ``_freshness_path_for``: recover the served model blob (the ``.pt`` pin)
+    from its ``<blob>.metadata.json`` sidecar, so the promote gate can BIND and DIGEST
+    the served bytes. Returns ``None`` when the freshness path is not a model-blob
+    sidecar (a plain ``.json`` scoring artifact has no ``.pt`` pin to bind — the gate
+    then fails closed to ``unbound`` rather than certifying on age alone)."""
+    if freshness_path is None:
+        return None
+    suffix = ".metadata.json"
+    name = freshness_path.name
+    if not name.endswith(suffix):
+        return None
+    blob = freshness_path.with_name(name[: -len(suffix)])
+    if blob.suffix.lower() not in _MODEL_BLOB_SUFFIXES:
+        return None
+    return blob
+
+
 def resolve_shadow_artifact_path(
     config_path: Path | None,
     *,
@@ -521,6 +585,261 @@ def resolve_shadow_artifact_path(
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+# --------------------------------------------------------------------------- #
+# Shadow promotion receipt (umbrella #419 / RFC #212 §5): a persisted, pin-bound
+# certification of the served shadow pin. The monitor never trusts a free, spoofable
+# sidecar boolean — it reads the LATEST receipt and verifies it BINDS the served pin,
+# the source cutoffs, the gate build, the candidate bytes, and the validation result.
+# --------------------------------------------------------------------------- #
+# Promote-gate outcomes, mapped to a tier effect by ``apply_promotion_gate``.
+PROMOTE_OK = "validated"                 # bound + validated + fresh -> allow age tier
+PROMOTE_MISSING = "missing"              # no receipt dir / no receipts -> fail closed (escalate)
+PROMOTE_UNREADABLE = "unreadable"        # latest receipt corrupt / not an object -> escalate
+PROMOTE_UNBOUND = "unbound"              # latest receipt does not bind served pin (superseded/stale) -> escalate
+PROMOTE_INCOMPLETE = "incomplete"        # receipt missing a required binding field -> escalate
+PROMOTE_NON_FRESH = "non_fresh"          # receipt labels the served pin non-fresh -> breach
+PROMOTE_VALIDATION_FAILED = "validation_failed"  # rc!=0 / a gate failed / not fresh -> breach
+PROMOTE_DIGEST_MISMATCH = "digest_mismatch"      # served .pt bytes != receipt candidate_sha256 -> breach
+
+# Escalate-severity (can't certify) vs breach-severity (actively bad) fail-closed sets.
+_PROMOTE_ESCALATE = frozenset(
+    {PROMOTE_MISSING, PROMOTE_UNREADABLE, PROMOTE_UNBOUND, PROMOTE_INCOMPLETE}
+)
+_PROMOTE_BREACH = frozenset(
+    {PROMOTE_NON_FRESH, PROMOTE_VALIDATION_FAILED, PROMOTE_DIGEST_MISMATCH}
+)
+
+
+def _sha256_file(path: Path, *, chunk: int = 1 << 20) -> str | None:
+    """Streamed sha256 of a file (bounded memory); ``None`` if unreadable."""
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while block := handle.read(chunk):
+                digest.update(block)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+@dataclass(frozen=True)
+class PromotionReceipt:
+    """One persisted shadow-promote receipt (umbrella #419 ``PromoteReport`` schema).
+
+    Written by ``scripts/promote_shadow_patchtst.py`` on every validated served-pin
+    promote. The monitor validates that it BINDS the decision so a stale/spoofed
+    boolean can never certify: ``promoted_pin`` (which pin), ``source_cutoffs`` (which
+    sources), ``gate_version`` (which gate build), ``candidate_sha256`` (which bytes)
+    and the validation result (``rc``/``fresh``/``gates_ok``/``labeled_non_fresh``).
+    """
+
+    path: str
+    promoted_pin: str | None = None
+    candidate_pt: str | None = None
+    candidate_sha256: str | None = None
+    gate_version: str | None = None
+    rc: int | None = None
+    fresh: bool = False
+    labeled_non_fresh: bool = False
+    gates_ok: bool = False
+    n_gates: int = 0
+    source_cutoffs: tuple[str, ...] = ()
+    promoted_at: str | None = None
+
+    @classmethod
+    def from_dict(cls, path: Path, data: dict) -> "PromotionReceipt":
+        gates = data.get("gates")
+        gates = gates if isinstance(gates, list) else []
+        verdicts = data.get("source_verdicts")
+        verdicts = verdicts if isinstance(verdicts, list) else []
+        cutoffs = tuple(
+            str(v["data_cutoff"])
+            for v in verdicts
+            if isinstance(v, dict) and v.get("data_cutoff")
+        )
+        rc = data.get("rc")
+        return cls(
+            path=str(path),
+            promoted_pin=_text_or_none(data.get("promoted_pin")),
+            candidate_pt=_text_or_none(data.get("candidate_pt")),
+            candidate_sha256=_text_or_none(data.get("candidate_sha256")),
+            gate_version=_text_or_none(data.get("gate_version")),
+            rc=rc if isinstance(rc, int) else None,
+            fresh=_optional_bool(data.get("fresh")) is True,
+            labeled_non_fresh=_optional_bool(data.get("labeled_non_fresh")) is True,
+            gates_ok=bool(gates) and all(_optional_bool(g.get("ok")) is True for g in gates),
+            n_gates=len(gates),
+            source_cutoffs=cutoffs,
+            promoted_at=_text_or_none(data.get("promoted_at")),
+        )
+
+
+def read_latest_promotion_receipt(receipt_dir: Path) -> tuple[PromotionReceipt | None, str]:
+    """Return ``(receipt, status)`` for the newest receipt in ``receipt_dir``.
+
+    Receipts are named on a UTC ISO timestamp, so lexicographic max == newest. A
+    missing dir / empty dir -> ``(None, PROMOTE_MISSING)``; a corrupt or non-object
+    newest file -> ``(None, PROMOTE_UNREADABLE)`` (fail closed, never skipped-over).
+    """
+    if not receipt_dir.is_dir():
+        return None, PROMOTE_MISSING
+    receipts = sorted(p for p in receipt_dir.glob("*.json") if p.is_file())
+    if not receipts:
+        return None, PROMOTE_MISSING
+    latest = receipts[-1]
+    try:
+        data = json.loads(latest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, PROMOTE_UNREADABLE
+    if not isinstance(data, dict):
+        return None, PROMOTE_UNREADABLE
+    return PromotionReceipt.from_dict(latest, data), PROMOTE_OK
+
+
+def _resolve_pin_blob(pin: str, config_path: Path, repo_root: Path) -> Path | None:
+    """Resolve a (possibly relative) pin to its ``.pt`` blob path the way the runtime
+    does (umbrella ``resolve_pin_path``): config dir first, then repo-root fallbacks."""
+    p = Path(pin)
+    if p.is_absolute():
+        return p.resolve()
+    bases = [
+        config_path.parent,
+        repo_root / "backtesting" / "renquant_104",
+        repo_root,
+    ]
+    candidates = [(base / p).resolve() for base in bases]
+    for cand in candidates:
+        if cand.exists() or Path(str(cand) + ".metadata.json").exists():
+            return cand
+    return candidates[0]
+
+
+def evaluate_promotion(
+    *,
+    receipt_dir: Path,
+    served_pt: Path | None,
+    config_path: Path,
+    repo_root: Path,
+    require_digest: bool = True,
+) -> tuple[str, str, PromotionReceipt | None]:
+    """Judge the served shadow pin against its latest promotion receipt.
+
+    Returns ``(status, detail, receipt)``. A receipt certifies (``PROMOTE_OK``) only
+    when it BINDS the served pin (``promoted_pin`` resolves to ``served_pt``), carries
+    every required binding field (source cutoffs, gate version, candidate digest,
+    validation result), passes validation (``rc==0`` & ``fresh`` & all gates ok & not
+    labeled non-fresh), and the served ``.pt`` bytes hash to ``candidate_sha256``.
+    Everything else fails closed (escalate for "cannot certify", breach for "bad").
+    """
+    receipt, read_status = read_latest_promotion_receipt(receipt_dir)
+    if receipt is None:
+        detail = {
+            PROMOTE_MISSING: f"no promotion receipt under {receipt_dir}",
+            PROMOTE_UNREADABLE: f"newest promotion receipt in {receipt_dir} is unreadable",
+        }.get(read_status, read_status)
+        return read_status, detail, None
+
+    # BIND to the served pin: a receipt for a superseded/replaced pin is stale and must
+    # not certify (each promote writes a distinct timestamped snapshot path).
+    if not receipt.promoted_pin:
+        return PROMOTE_UNBOUND, "receipt has no promoted_pin", receipt
+    if served_pt is None:
+        return PROMOTE_UNBOUND, "served pin unresolved; cannot bind receipt", receipt
+    promoted_blob = _resolve_pin_blob(receipt.promoted_pin, config_path, repo_root)
+    if promoted_blob is None or promoted_blob.resolve() != served_pt.resolve():
+        return (
+            PROMOTE_UNBOUND,
+            f"receipt promoted_pin={receipt.promoted_pin} does not bind served pin "
+            f"{served_pt} (superseded/stale)",
+            receipt,
+        )
+
+    # Verify the receipt actually BINDS every certification input (a partial receipt is
+    # not trusted — this is the producer contract the monitor enforces, #419 follow-up).
+    missing: list[str] = []
+    if not receipt.source_cutoffs:
+        missing.append("source_cutoffs")
+    if receipt.gate_version is None:
+        missing.append("gate_version")
+    if require_digest and receipt.candidate_sha256 is None:
+        missing.append("candidate_sha256")
+    if receipt.rc is None or receipt.n_gates == 0:
+        missing.append("validation_result")
+    if missing:
+        return (
+            PROMOTE_INCOMPLETE,
+            f"receipt missing required binding(s): {','.join(missing)}",
+            receipt,
+        )
+
+    # Validation RESULT (a free bool is spoofable — we require the full gate evidence).
+    if receipt.labeled_non_fresh:
+        return PROMOTE_NON_FRESH, "receipt labels served pin non-fresh", receipt
+    if receipt.rc != 0 or not receipt.fresh or not receipt.gates_ok:
+        return (
+            PROMOTE_VALIDATION_FAILED,
+            f"receipt validation failed (rc={receipt.rc} fresh={receipt.fresh} "
+            f"gates_ok={receipt.gates_ok})",
+            receipt,
+        )
+
+    # Candidate DIGEST binding: the served .pt bytes must match the promoted candidate
+    # (robust to an out-of-band artifact replacement at the same path).
+    if require_digest and receipt.candidate_sha256 is not None:
+        digest = _sha256_file(served_pt)
+        if digest is None:
+            return (
+                PROMOTE_DIGEST_MISMATCH,
+                f"served pin {served_pt} unreadable; cannot verify candidate_sha256",
+                receipt,
+            )
+        if digest != receipt.candidate_sha256:
+            return (
+                PROMOTE_DIGEST_MISMATCH,
+                "served .pt sha256 != receipt candidate_sha256 (artifact replaced out of band)",
+                receipt,
+            )
+    return PROMOTE_OK, "validated promote (receipt bound to served pin + digest)", receipt
+
+
+def apply_promotion_gate(
+    freshness: ArtifactFreshness,
+    *,
+    receipt_dir: Path,
+    served_pt: Path | None,
+    config_path: Path,
+    repo_root: Path,
+    require_digest: bool = True,
+) -> ArtifactFreshness:
+    """Layer the RFC #212 §3.2 promote gate onto a shadow artifact's age tier.
+
+    The gate only ever RAISES severity: a validated, pin-bound receipt lets the age
+    tier stand (so a fresh shadow can read ``healthy``); anything else fails closed.
+    """
+    status, detail, receipt = evaluate_promotion(
+        receipt_dir=receipt_dir,
+        served_pt=served_pt,
+        config_path=config_path,
+        repo_root=repo_root,
+        require_digest=require_digest,
+    )
+    freshness.promotion_status = status
+    if receipt is not None:
+        freshness.promotion_receipt_path = receipt.path
+        freshness.non_fresh = receipt.labeled_non_fresh
+    freshness.promote_validated = status == PROMOTE_OK
+
+    if status == PROMOTE_OK:
+        freshness.detail += f"; {detail}"
+    elif status in _PROMOTE_BREACH:
+        freshness.tier = TIER_BREACH
+        freshness.detail += f"; {detail} (fail-closed breach)"
+    else:  # _PROMOTE_ESCALATE — cannot certify; never let age alone read healthy.
+        freshness.tier = worst_tier([freshness.tier, TIER_ESCALATE])
+        freshness.detail += f"; {detail} (fail-closed escalate)"
+    return freshness
 
 
 def _watchlist_from_config(path: Path) -> list[str]:
@@ -591,6 +910,7 @@ class ModelFreshnessContext:
     prod_panel_path: Path
     shadow_config_path: Path
     strategy_config_path: Path
+    promote_receipt_dir: Path | None = None
     explicit_watchlist: list[str] | None = None
     fast_policy: FreshnessPolicy = PROD_FAST_POLICY
     shadow_policy: FreshnessPolicy = SHADOW_POLICY
@@ -642,6 +962,19 @@ class ComputeFreshnessTask(Task):
         ctx.shadow_panel = read_artifact_freshness(
             "shadow-panel", ctx.shadow_artifact_path, ctx.now, policy=ctx.shadow_policy
         )
+        # RFC #212 §3.2 / umbrella #419: layer the persisted, pin-bound promote RECEIPT
+        # gate onto the shadow age tier. Fail-closed — a shadow with no validated receipt
+        # can never read healthy on age alone (reader-side of the #419 producer contract).
+        if ctx.shadow_policy.require_validated_promote:
+            apply_promotion_gate(
+                ctx.shadow_panel,
+                receipt_dir=(
+                    ctx.promote_receipt_dir or default_promote_receipt_dir(ctx.repo_root)
+                ),
+                served_pt=_blob_from_freshness_path(ctx.shadow_artifact_path),
+                config_path=ctx.shadow_config_path,
+                repo_root=ctx.repo_root,
+            )
         ctx.worst_tier = worst_tier(
             [ctx.tournament.tier, ctx.prod_panel.tier, ctx.shadow_panel.tier]
         )
@@ -711,6 +1044,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--prod-panel", type=Path, default=None)
     parser.add_argument("--shadow-config", type=Path, default=None)
     parser.add_argument("--strategy-config", type=Path, default=None)
+    parser.add_argument(
+        "--promote-receipt-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Dir of persisted shadow promotion receipts (umbrella #419); defaults to "
+            "<repo-root>/logs/promote_shadow_patchtst."
+        ),
+    )
     parser.add_argument("--watchlist", default=None, help="Comma-separated tickers; overrides config/scan resolution.")
     # Prod fast-axis tiers (per-ticker tournament + prod XGB panel), governance §4.
     parser.add_argument("--warn-days", type=int, default=DEFAULT_WARN_DAYS)
@@ -760,6 +1102,9 @@ def build_context(args: argparse.Namespace) -> ModelFreshnessContext:
         args.strategy_config
         or default_strategy_config_candidates(repo_root=repo_root, github_root=github_root)[1]
     ).expanduser().resolve()
+    promote_receipt_dir = (
+        args.promote_receipt_dir or default_promote_receipt_dir(repo_root)
+    ).expanduser().resolve()
     explicit = (
         [t for t in str(args.watchlist).split(",") if t.strip()] if args.watchlist else None
     )
@@ -784,6 +1129,7 @@ def build_context(args: argparse.Namespace) -> ModelFreshnessContext:
         prod_panel_path=prod_panel,
         shadow_config_path=shadow_config,
         strategy_config_path=strategy_config,
+        promote_receipt_dir=promote_receipt_dir,
         explicit_watchlist=explicit,
         fast_policy=fast_policy,
         shadow_policy=shadow_policy,
