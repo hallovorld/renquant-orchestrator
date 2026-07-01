@@ -35,10 +35,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from contextlib import closing
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Callable, Iterable, Optional, Protocol, Sequence
+from typing import Callable, Iterable, Iterator, Optional, Protocol, Sequence
 
 from .agent_workflows import (
     PROD_PATH_RULES,
@@ -279,6 +279,12 @@ class WorkKey:
 class AcquireResult:
     acquired: bool
     reason: str = ""
+    #: Monotonic fencing token for the lease generation (design §6.2). The
+    #: holder MUST thread this back into :meth:`StateStore.transition` /
+    #: :meth:`StateStore.release`; a reclaimed old holder carries a stale fence
+    #: and can therefore never commit against a re-acquired lease — even when
+    #: the reclaimer re-uses the same ``owner`` id.
+    fence: int = 0
 
 
 _SCHEMA = """
@@ -290,9 +296,11 @@ CREATE TABLE IF NOT EXISTS work_items (
     state        TEXT    NOT NULL,
     lease_owner  TEXT,
     lease_expiry REAL,
+    fence        INTEGER NOT NULL DEFAULT 0,
     attempt      INTEGER NOT NULL DEFAULT 0,
     last_event_id TEXT,
     superseded   INTEGER NOT NULL DEFAULT 0,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
     pending_rerun INTEGER NOT NULL DEFAULT 0,
     created_at   REAL    NOT NULL,
     updated_at   REAL    NOT NULL,
@@ -303,7 +311,13 @@ CREATE TABLE IF NOT EXISTS processed_events (
     repo         TEXT NOT NULL,
     pr_number    INTEGER NOT NULL,
     head_sha     TEXT,
-    processed_at REAL NOT NULL
+    -- 'processing' = claimed but the state mutation is not yet applied;
+    -- 'applied'    = the driven transition committed. Only 'applied' is a
+    -- true duplicate: a crash mid-flight leaves 'processing', which is
+    -- re-drivable on redelivery (never a silent "duplicate" that loses work).
+    status       TEXT NOT NULL DEFAULT 'processing',
+    processed_at REAL NOT NULL,
+    applied_at   REAL
 );
 """
 
@@ -321,16 +335,38 @@ class StateStore:
 
     def __init__(self, path: str = ":memory:", *, clock: Callable[[], float] = time.time):
         self._clock = clock
+        # ``isolation_level=None`` puts the driver in autocommit mode: single
+        # statements commit immediately, and every multi-statement critical
+        # section runs inside an EXPLICIT ``BEGIN IMMEDIATE`` (see ``_immediate``)
+        # so the whole read-then-write is one serialised transaction. This is
+        # what makes PR-level lease exclusion atomic across connections.
         # check_same_thread=False so a test can simulate a second worker via a
         # second StateStore over the same file; SQLite serialises the writes.
-        self._db = sqlite3.connect(path, check_same_thread=False)
+        self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA busy_timeout = 5000")
         self._db.executescript(_SCHEMA)
-        self._db.commit()
 
     def close(self) -> None:
         self._db.close()
+
+    @contextmanager
+    def _immediate(self) -> Iterator[sqlite3.Connection]:
+        """Run a ``BEGIN IMMEDIATE … COMMIT`` critical section.
+
+        ``BEGIN IMMEDIATE`` takes the write (RESERVED) lock up front, so two
+        connections can never interleave the read-then-write inside — the
+        second blocks (``busy_timeout``) until the first commits. Any exception
+        rolls the whole section back, leaving no partial state.
+        """
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            yield self._db
+        except BaseException:
+            self._db.rollback()
+            raise
+        else:
+            self._db.commit()
 
     # ── rows ──────────────────────────────────────────────────────────────
 
@@ -339,12 +375,11 @@ class StateStore:
         now = self._clock()
         self._db.execute(
             "INSERT OR IGNORE INTO work_items "
-            "(repo, pr_number, head_sha, review_id, state, attempt, superseded, "
-            " pending_rerun, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,0,0,0,?,?)",
+            "(repo, pr_number, head_sha, review_id, state, fence, attempt, superseded, "
+            " cancel_requested, pending_rerun, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,0,0,0,0,0,?,?)",
             (*key.as_tuple(), State(state).value, now, now),
         )
-        self._db.commit()
 
     def get_row(self, key: WorkKey) -> Optional[dict]:
         cur = self._db.execute(
@@ -362,24 +397,54 @@ class StateStore:
     # ── event idempotency (§6.3) ───────────────────────────────────────────
 
     def record_event(self, event: Event) -> bool:
-        """Record a delivery id. Return True if NEW, False if already seen.
+        """Claim an inbound event for processing (idempotency ledger).
 
-        Atomic via ``INSERT OR IGNORE`` + ``changes()`` so a duplicate or
-        out-of-order redelivery of the same ``event_id`` is dropped exactly
-        once, even across connections.
+        Returns ``True`` when the caller should process the event, ``False``
+        only when it was ALREADY fully ``applied``. A brand-new delivery is
+        claimed ``processing``; a redelivery that finds a prior ``processing``
+        row (i.e. a previous attempt crashed before the state mutation
+        committed) also returns ``True`` so the work is re-driven rather than
+        silently swallowed. The state mutation is marked ``applied`` only after
+        the transition succeeds — see :meth:`mark_event_applied`.
         """
-        with closing(self._db.cursor()) as cur:
-            cur.execute(
+        now = self._clock()
+        with self._immediate() as db:
+            cur = db.execute(
                 "INSERT OR IGNORE INTO processed_events "
-                "(event_id, repo, pr_number, head_sha, processed_at) VALUES (?,?,?,?,?)",
-                (event.event_id, event.repo, event.pr_number, event.head_sha, self._clock()),
+                "(event_id, repo, pr_number, head_sha, status, processed_at) "
+                "VALUES (?,?,?,?, 'processing', ?)",
+                (event.event_id, event.repo, event.pr_number, event.head_sha, now),
             )
-            self._db.commit()
-            return cur.rowcount == 1
+            if cur.rowcount == 1:
+                return True  # brand-new claim
+            row = db.execute(
+                "SELECT status FROM processed_events WHERE event_id=?",
+                (event.event_id,),
+            ).fetchone()
+            # Already fully applied → a true duplicate; otherwise a crashed
+            # in-flight attempt that must be re-driven.
+            return not (row is not None and row["status"] == "applied")
+
+    def mark_event_applied(self, event_id: str) -> None:
+        """Mark a claimed event as fully applied (its state mutation committed).
+
+        Idempotent: safe to call again on redelivery of an already-applied id.
+        """
+        self._db.execute(
+            "UPDATE processed_events SET status='applied', applied_at=? WHERE event_id=?",
+            (self._clock(), event_id),
+        )
 
     def event_seen(self, event_id: str) -> bool:
         cur = self._db.execute(
             "SELECT 1 FROM processed_events WHERE event_id=?", (event_id,)
+        )
+        return cur.fetchone() is not None
+
+    def event_applied(self, event_id: str) -> bool:
+        cur = self._db.execute(
+            "SELECT 1 FROM processed_events WHERE event_id=? AND status='applied'",
+            (event_id,),
         )
         return cur.fetchone() is not None
 
@@ -388,46 +453,71 @@ class StateStore:
     def acquire(self, key: WorkKey, owner: str, ttl: float) -> AcquireResult:
         """Atomically acquire the lease on a work item (compare-and-set).
 
+        The PR-busy coalescing check AND the row acquisition run inside ONE
+        ``BEGIN IMMEDIATE`` transaction, so two workers targeting DIFFERENT
+        ``(head_sha, review_id)`` rows of the SAME ``(repo, pr)`` can never both
+        observe ``busy=0`` and each acquire — the second serialises behind the
+        first's commit and coalesces.
+
         Semantics (design §6.2):
           * two acquirers on the SAME key → exactly one wins (CAS on the row);
           * a second live lease on a DIFFERENT head/review of the SAME
             ``(repo, pr)`` → coalesce: flag ``pending_rerun`` and do not start
             a concurrent run;
-          * an expired lease (crashed owner) is reclaimable.
+          * an expired lease (crashed owner) is reclaimable, and the lease
+            ``fence`` is bumped so the reclaimed owner cannot commit.
         """
-        self.ensure_row(key, State.AWAIT_REVIEW)
         now = self._clock()
-
-        # PR-busy coalescing: another non-terminal, non-superseded row for the
-        # same (repo, pr) holds a live lease on a different head/review.
-        busy = self._db.execute(
-            f"SELECT count(*) AS n FROM work_items "
-            f"WHERE repo=? AND pr_number=? "
-            f"AND NOT (head_sha=? AND review_id=?) "
-            f"AND superseded=0 AND state NOT IN ({_TERMINAL_SQL}) "
-            f"AND lease_owner IS NOT NULL AND lease_expiry > ?",
-            (key.repo, key.pr_number, key.head_sha, key.review_id, now),
-        ).fetchone()["n"]
-        if busy:
-            self._db.execute(
-                "UPDATE work_items SET pending_rerun=1, updated_at=? "
-                "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
-                (now, *key.as_tuple()),
+        with self._immediate() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO work_items "
+                "(repo, pr_number, head_sha, review_id, state, fence, attempt, superseded, "
+                " cancel_requested, pending_rerun, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,0,0,0,0,0,?,?)",
+                (*key.as_tuple(), State.AWAIT_REVIEW.value, now, now),
             )
-            self._db.commit()
-            return AcquireResult(False, "coalesced: another fix in-flight for this PR")
 
-        with closing(self._db.cursor()) as cur:
-            cur.execute(
-                "UPDATE work_items SET lease_owner=?, lease_expiry=?, updated_at=? "
+            row = db.execute(
+                "SELECT superseded FROM work_items WHERE repo=? AND pr_number=? "
+                "AND head_sha=? AND review_id=?",
+                key.as_tuple(),
+            ).fetchone()
+            if row is not None and row["superseded"]:
+                return AcquireResult(False, "superseded: row cancelled by a newer head")
+
+            # PR-busy coalescing: another non-terminal, non-superseded row for
+            # the same (repo, pr) holds a live lease on a different head/review.
+            busy = db.execute(
+                f"SELECT count(*) AS n FROM work_items "
+                f"WHERE repo=? AND pr_number=? "
+                f"AND NOT (head_sha=? AND review_id=?) "
+                f"AND superseded=0 AND state NOT IN ({_TERMINAL_SQL}) "
+                f"AND lease_owner IS NOT NULL AND lease_expiry > ?",
+                (key.repo, key.pr_number, key.head_sha, key.review_id, now),
+            ).fetchone()["n"]
+            if busy:
+                db.execute(
+                    "UPDATE work_items SET pending_rerun=1, updated_at=? "
+                    "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
+                    (now, *key.as_tuple()),
+                )
+                return AcquireResult(False, "coalesced: another fix in-flight for this PR")
+
+            cur = db.execute(
+                "UPDATE work_items SET lease_owner=?, lease_expiry=?, fence=fence+1, "
+                "cancel_requested=0, updated_at=? "
                 "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
                 "AND superseded=0 "
                 "AND (lease_owner IS NULL OR lease_expiry <= ?)",
                 (owner, now + ttl, now, *key.as_tuple(), now),
             )
-            self._db.commit()
             if cur.rowcount == 1:
-                return AcquireResult(True, "acquired")
+                fence = db.execute(
+                    "SELECT fence FROM work_items WHERE repo=? AND pr_number=? "
+                    "AND head_sha=? AND review_id=?",
+                    key.as_tuple(),
+                ).fetchone()["fence"]
+                return AcquireResult(True, "acquired", fence=int(fence))
             return AcquireResult(False, "lease already held")
 
     def holds_lease(self, key: WorkKey, owner: str) -> bool:
@@ -436,46 +526,96 @@ class StateStore:
             return False
         return (row["lease_expiry"] or 0) > self._clock()
 
-    def release(self, key: WorkKey, owner: str) -> bool:
-        with closing(self._db.cursor()) as cur:
-            cur.execute(
-                "UPDATE work_items SET lease_owner=NULL, lease_expiry=NULL, updated_at=? "
-                "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? AND lease_owner=?",
-                (self._clock(), *key.as_tuple(), owner),
-            )
-            self._db.commit()
-            return cur.rowcount == 1
+    def release(self, key: WorkKey, owner: str, *, fence: Optional[int] = None) -> bool:
+        """Release the lease held by ``owner``.
+
+        When ``fence`` is supplied the release is fenced: a stale holder whose
+        generation was superseded/reclaimed (possibly re-using the same
+        ``owner`` id) will NOT clobber the current holder's lease.
+        """
+        sql = (
+            "UPDATE work_items SET lease_owner=NULL, lease_expiry=NULL, updated_at=? "
+            "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? AND lease_owner=?"
+        )
+        params: list = [self._clock(), *key.as_tuple(), owner]
+        if fence is not None:
+            sql += " AND fence=?"
+            params.append(int(fence))
+        cur = self._db.execute(sql, params)
+        return cur.rowcount == 1
 
     # ── stale-run cancellation (§6.3) ──────────────────────────────────────
 
     def supersede_stale(self, repo: str, pr_number: int, current_head: str) -> list[WorkKey]:
-        """Mark every non-terminal row for ``(repo, pr)`` on an OLD head as
-        superseded when the head advances. Returns the superseded keys.
+        """Request cancellation of every non-terminal row on an OLD head when
+        the head advances. Returns the superseded keys.
 
-        Only the newest head can hold an active lease; a stale in-flight run is
-        signalled superseded and drops its lease.
+        The row is flagged ``superseded=1, cancel_requested=1`` but its lease is
+        RETAINED (the PR-level lease is not dropped) until the in-flight
+        executor ACKNOWLEDGES cancellation via
+        :meth:`acknowledge_cancellation` / a fenced :meth:`release`. This is
+        what stops an old executor from racing the new head: the new head is a
+        different (non-superseded) row and proceeds, while any output the old
+        run exports is fenced out by :meth:`fence_ok`. A crashed old executor
+        that never acknowledges has its dangling lease swept once it expires by
+        :meth:`reconcile_expired_leases`.
+        """
+        now = self._clock()
+        with self._immediate() as db:
+            cur = db.execute(
+                f"SELECT repo, pr_number, head_sha, review_id FROM work_items "
+                f"WHERE repo=? AND pr_number=? AND head_sha != ? "
+                f"AND superseded=0 AND state NOT IN ({_TERMINAL_SQL})",
+                (repo, pr_number, current_head),
+            )
+            stale = [
+                WorkKey(r["repo"], r["pr_number"], r["head_sha"], r["review_id"]) for r in cur
+            ]
+            if stale:
+                db.execute(
+                    f"UPDATE work_items SET superseded=1, cancel_requested=1, updated_at=? "
+                    f"WHERE repo=? AND pr_number=? AND head_sha != ? "
+                    f"AND superseded=0 AND state NOT IN ({_TERMINAL_SQL})",
+                    (now, repo, pr_number, current_head),
+                )
+        return stale
+
+    def acknowledge_cancellation(self, key: WorkKey) -> bool:
+        """The in-flight executor acknowledges a supersede: drop its lease.
+
+        Only meaningful for a ``cancel_requested`` row; clears the retained
+        lease so the PR is fully released once the old run has wound down.
         """
         now = self._clock()
         cur = self._db.execute(
-            f"SELECT repo, pr_number, head_sha, review_id FROM work_items "
-            f"WHERE repo=? AND pr_number=? AND head_sha != ? "
-            f"AND superseded=0 AND state NOT IN ({_TERMINAL_SQL})",
-            (repo, pr_number, current_head),
+            "UPDATE work_items SET lease_owner=NULL, lease_expiry=NULL, "
+            "cancel_requested=0, updated_at=? "
+            "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
+            (now, *key.as_tuple()),
         )
-        stale = [WorkKey(r["repo"], r["pr_number"], r["head_sha"], r["review_id"]) for r in cur]
-        if stale:
-            self._db.execute(
-                f"UPDATE work_items SET superseded=1, lease_owner=NULL, lease_expiry=NULL, "
-                f"updated_at=? WHERE repo=? AND pr_number=? AND head_sha != ? "
-                f"AND superseded=0 AND state NOT IN ({_TERMINAL_SQL})",
-                (now, repo, pr_number, current_head),
-            )
-            self._db.commit()
-        return stale
+        return cur.rowcount == 1
 
     def is_superseded(self, key: WorkKey) -> bool:
         row = self.get_row(key)
         return bool(row and row["superseded"])
+
+    def fence_ok(self, key: WorkKey, fence: int, head_sha: str) -> bool:
+        """True iff an exported patch/push may still be applied.
+
+        Fences every executor output by lease generation + current head SHA
+        (design §6.3): the row must be un-superseded, still carry the acquiring
+        ``fence`` generation, and match the head the fix was computed against. A
+        superseded run, a head that advanced, or a reclaimed lease all fail —
+        so a stale run's patch is discarded, never pushed.
+        """
+        row = self.get_row(key)
+        if row is None:
+            return False
+        if row["superseded"]:
+            return False
+        if row["head_sha"] != head_sha:
+            return False
+        return int(row["fence"]) == int(fence)
 
     # ── transitions (§6.3, single owner) ───────────────────────────────────
 
@@ -486,13 +626,19 @@ class StateStore:
         *,
         actor: Actor,
         owner: Optional[str] = None,
+        fence: Optional[int] = None,
         require_lease: bool = True,
     ) -> State:
         """Atomically move a work item to ``to`` under a single writer.
 
         Enforces the legal transition graph AND actor authorisation (the
-        human-gate wall lives here). For ``POLLER`` transitions the caller
-        must hold the lease (single writer), unless ``require_lease=False``.
+        human-gate wall lives here). For a ``POLLER`` transition the state
+        UPDATE is FENCED BY THE LEASE in one statement: it requires the current
+        row to still be at the expected ``frm`` state, un-superseded, and leased
+        to ``owner`` with ``lease_expiry`` in the future — plus, when supplied,
+        the acquiring ``fence`` generation. So if the lease expires or is
+        reclaimed (even by the same ``owner`` id) between check and commit, the
+        stale owner's transition simply fails; it can never commit.
         """
         row = self.get_row(key)
         if row is None:
@@ -502,24 +648,39 @@ class StateStore:
         frm = State(row["state"])
         assert_transition(frm, to, actor)
 
-        if require_lease and Actor(actor) is Actor.POLLER:
-            if not self.holds_lease(key, owner or ""):
-                raise IllegalTransition(
-                    f"poller must hold the lease to transition {frm.value} → {to.value}"
-                )
-
         now = self._clock()
-        with closing(self._db.cursor()) as cur:
-            cur.execute(
+        if require_lease and Actor(actor) is Actor.POLLER:
+            sql = (
                 "UPDATE work_items SET state=?, updated_at=? "
-                "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? AND state=?",
-                (State(to).value, now, *key.as_tuple(), frm.value),
+                "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
+                "AND state=? AND superseded=0 "
+                "AND lease_owner=? AND lease_expiry>?"
             )
-            self._db.commit()
+            params: list = [
+                State(to).value, now, *key.as_tuple(), frm.value, owner or "", now,
+            ]
+            if fence is not None:
+                sql += " AND fence=?"
+                params.append(int(fence))
+            cur = self._db.execute(sql, params)
             if cur.rowcount != 1:
                 raise IllegalTransition(
-                    f"lost race transitioning {frm.value} → {to.value} for {key.as_tuple()}"
+                    f"poller cannot transition {frm.value} → {to.value} for "
+                    f"{key.as_tuple()}: lease lost, expired, reclaimed (stale fence), "
+                    f"or state changed under it"
                 )
+            return State(to)
+
+        cur = self._db.execute(
+            "UPDATE work_items SET state=?, updated_at=? "
+            "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
+            "AND state=? AND superseded=0",
+            (State(to).value, now, *key.as_tuple(), frm.value),
+        )
+        if cur.rowcount != 1:
+            raise IllegalTransition(
+                f"lost race transitioning {frm.value} → {to.value} for {key.as_tuple()}"
+            )
         return State(to)
 
     def bump_attempt(self, key: WorkKey) -> int:
@@ -529,7 +690,6 @@ class StateStore:
             "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
             (now, *key.as_tuple()),
         )
-        self._db.commit()
         row = self.get_row(key)
         return int(row["attempt"]) if row else 0
 
@@ -540,12 +700,23 @@ class StateStore:
     ) -> list[WorkKey]:
         """Sweep expired leases on poller start (crash recovery).
 
-        For each row whose lease has expired without release, reconcile against
-        ground truth (if provided — e.g. is the PR still open / did the push
-        land?) BEFORE reclaiming; then clear the lease so exactly one recoverer
-        may re-acquire. Never blindly re-runs. Returns the reclaimed keys.
+        Two sweeps: (a) a SUPERSEDED row whose retained cancellation lease has
+        expired — the old executor crashed without acknowledging — just has its
+        dangling lease cleared; (b) an ACTIVE row whose lease expired without
+        release is reconciled against ground truth (if provided — e.g. is the
+        PR still open / did the push land?) BEFORE reclaiming, then its lease is
+        cleared so exactly one recoverer may re-acquire (with a bumped fence).
+        Never blindly re-runs. Returns the reclaimed (re-runnable) keys.
         """
         now = self._clock()
+        # (a) dangling cancellation lease from a crashed, superseded old run.
+        self._db.execute(
+            "UPDATE work_items SET lease_owner=NULL, lease_expiry=NULL, "
+            "cancel_requested=0, updated_at=? "
+            "WHERE lease_owner IS NOT NULL AND lease_expiry <= ? AND superseded=1",
+            (now, now),
+        )
+        # (b) active rows whose lease expired without release.
         cur = self._db.execute(
             f"SELECT repo, pr_number, head_sha, review_id FROM work_items "
             f"WHERE lease_owner IS NOT NULL AND lease_expiry <= ? "
@@ -563,14 +734,12 @@ class StateStore:
                     "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
                     (State.DROPPED.value, now, *key.as_tuple()),
                 )
-                self._db.commit()
                 continue
             self._db.execute(
                 "UPDATE work_items SET lease_owner=NULL, lease_expiry=NULL, updated_at=? "
                 "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
                 (now, *key.as_tuple()),
             )
-            self._db.commit()
             reclaimed.append(key)
         return reclaimed
 
@@ -591,6 +760,47 @@ class FixResult:
     evidence: str
 
 
+class ExecutorCancelled(RuntimeError):
+    """Raised by a cooperative executor that acknowledged a cancellation."""
+
+
+class CancellationToken:
+    """One-shot cancellation signal handed to an in-flight executor (design
+    §6.3 / §5.2).
+
+    A supersede on a newer head calls :meth:`cancel`; the executor cooperatively
+    polls :attr:`cancelled` (or calls :meth:`raise_if_cancelled` at checkpoints)
+    and, when cancelled, :meth:`acknowledge`\\ s and aborts. The poller keeps the
+    PR-level lease until the executor has acknowledged, so an old run can never
+    quietly keep computing/pushing against a head that has moved on.
+    """
+
+    def __init__(self) -> None:
+        self._cancelled = False
+        self._acknowledged = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def acknowledge(self) -> None:
+        self._acknowledged = True
+
+    @property
+    def acknowledged(self) -> bool:
+        return self._acknowledged
+
+    def raise_if_cancelled(self) -> None:
+        """Cooperative checkpoint: acknowledge + abort if cancellation was
+        requested. A well-behaved executor calls this before exporting output."""
+        if self._cancelled:
+            self._acknowledged = True
+            raise ExecutorCancelled("executor acknowledged cancellation")
+
+
 class SandboxExecutor(Protocol):
     """Interface for the ephemeral fix executor (design §5.2/§7.5).
 
@@ -598,12 +808,19 @@ class SandboxExecutor(Protocol):
     ephemeral OS/container/VM sandbox (only the disposable checkout mounted,
     no host home/creds/live tree, default-deny egress) and returns ONLY a
     bounded patch + test evidence. The poller — outside the sandbox — then
-    validates paths, revalidates the head SHA, and pushes. NONE of that is
-    implemented in this PR.
+    validates paths, revalidates the head SHA, fences the output by lease
+    generation + current head, and pushes. NONE of that is implemented in this
+    PR. The ``cancel_token`` lets a supersede on a newer head abort a stale run.
     """
 
     def run_fix_in_sandbox(
-        self, *, repo: str, pr_number: int, head_sha: str, review_comments: Sequence[str]
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+        head_sha: str,
+        review_comments: Sequence[str],
+        cancel_token: Optional[CancellationToken] = None,
     ) -> FixResult: ...
 
 
@@ -616,7 +833,13 @@ class StubSandboxExecutor:
     """
 
     def run_fix_in_sandbox(
-        self, *, repo: str, pr_number: int, head_sha: str, review_comments: Sequence[str]
+        self,
+        *,
+        repo: str,
+        pr_number: int,
+        head_sha: str,
+        review_comments: Sequence[str],
+        cancel_token: Optional[CancellationToken] = None,
     ) -> FixResult:
         raise NotImplementedError("ephemeral sandbox executor — follow-up PR")
 
@@ -695,14 +918,23 @@ class AutomationPoller:
         self.config = config
         self.store = store
         self.executor: SandboxExecutor = executor or StubSandboxExecutor()
+        #: in-flight cancellation tokens keyed by work item (design §6.3). A
+        #: supersede on a newer head cancels the matching token so a threaded /
+        #: async executor for the stale head is told to stop. In the synchronous
+        #: stub model this stays empty except during a ``run_fix_in_sandbox``
+        #: call, but it is the plumbing the real sandbox executor relies on.
+        self._inflight: dict[WorkKey, CancellationToken] = {}
 
     # ── ingestion ──────────────────────────────────────────────────────────
 
     def ingest(self, event: Event) -> Action:
         """Ingest one event and drive its resulting transition (deterministic).
 
-        Order (design §6.3): allowlist filter → idempotency → stale-cancel →
-        state-machine drive.
+        Order (design §6.3): allowlist filter → CLAIM (idempotency) → stale-
+        cancel → state-machine drive → mark APPLIED. The event is marked
+        ``applied`` only AFTER the driven transition commits — a crash anywhere
+        in between leaves it re-drivable on redelivery instead of a silent
+        "duplicate" that loses the work.
         """
         if not self.config.is_tracked(event.repo, event.pr_number):
             return Action(event.event_id, event.repo, event.pr_number,
@@ -710,10 +942,29 @@ class AutomationPoller:
 
         if not self.store.record_event(event):
             return Action(event.event_id, event.repo, event.pr_number,
-                          "duplicate", "event id already processed")
+                          "duplicate", "event id already applied")
 
-        # A newer head supersedes any in-flight run on an older head.
-        self.store.supersede_stale(event.repo, event.pr_number, event.head_sha)
+        action = self._process_claimed(event)
+        # Only now — after the state mutation has committed — mark the event
+        # applied, closing the idempotency window against redelivery.
+        self.store.mark_event_applied(event.event_id)
+        return action
+
+    def _process_claimed(self, event: Event) -> Action:
+        """Drive a claimed event through the state machine (crash-safe boundary).
+
+        Anything that raises here propagates WITHOUT marking the event applied,
+        so redelivery re-drives it.
+        """
+        # A newer head supersedes any in-flight run on an older head; signal
+        # cancellation to any executor still running the stale head.
+        superseded_keys = self.store.supersede_stale(
+            event.repo, event.pr_number, event.head_sha
+        )
+        for stale_key in superseded_keys:
+            token = self._inflight.get(stale_key)
+            if token is not None:
+                token.cancel()
 
         key = event.row_key
         self.store.ensure_row(key, State.AWAIT_REVIEW)
@@ -752,10 +1003,11 @@ class AutomationPoller:
             return Action(event.event_id, event.repo, event.pr_number, "coalesced", acq.reason)
         try:
             self.store.transition(
-                key, State.MERGE_ELIGIBLE, actor=Actor.POLLER, owner=self.config.owner
+                key, State.MERGE_ELIGIBLE, actor=Actor.POLLER,
+                owner=self.config.owner, fence=acq.fence,
             )
         finally:
-            self.store.release(key, self.config.owner)
+            self.store.release(key, self.config.owner, fence=acq.fence)
         return Action(event.event_id, event.repo, event.pr_number,
                       "merge_eligible",
                       "approved at head; poller authority ends at the human-gate wall")
@@ -765,47 +1017,75 @@ class AutomationPoller:
         acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
         if not acq.acquired:
             return Action(event.event_id, event.repo, event.pr_number, "coalesced", acq.reason)
+        fence = acq.fence
         try:
+            if self.config.dry_run:
+                # A dry-run must NOT mutate durable workflow state: no attempt
+                # bump, no FIXING transition. Otherwise the row would be wedged
+                # in FIXING and a later CHANGES_REQUESTED event would attempt an
+                # illegal FIXING → FIXING. Record intent only; the row stays at
+                # AWAIT_REVIEW.
+                return Action(event.event_id, event.repo, event.pr_number,
+                              "fixing_dry_run", "would invoke sandbox executor (dry-run)")
+
             attempt = self.store.bump_attempt(key)
             # Design §8.1: escalate ON the Nth round (no silent round N+1) —
             # so the loop fixes on rounds 1..N-1 and escalates on round N.
             if attempt >= self.config.max_rounds_per_pr:
                 self.store.transition(
-                    key, State.ESCALATED, actor=Actor.POLLER, owner=self.config.owner
+                    key, State.ESCALATED, actor=Actor.POLLER,
+                    owner=self.config.owner, fence=fence,
                 )
                 return Action(event.event_id, event.repo, event.pr_number,
                               "escalated", f"round cap {self.config.max_rounds_per_pr} reached")
 
             self.store.transition(
-                key, State.FIXING, actor=Actor.POLLER, owner=self.config.owner
+                key, State.FIXING, actor=Actor.POLLER, owner=self.config.owner, fence=fence
             )
 
-            if self.config.dry_run:
-                # Do not invoke the executor at all in dry-run; record intent.
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "fixing_dry_run", "would invoke sandbox executor (dry-run)")
-
+            token = CancellationToken()
+            self._inflight[key] = token
             try:
                 self.executor.run_fix_in_sandbox(
                     repo=event.repo,
                     pr_number=event.pr_number,
                     head_sha=event.head_sha,
                     review_comments=[event.body],
+                    cancel_token=token,
                 )
+            except ExecutorCancelled:
+                # The stale run acknowledged cancellation: drop the retained
+                # PR-level lease and stop. Its output (if any) is fenced anyway.
+                self.store.acknowledge_cancellation(key)
+                return Action(event.event_id, event.repo, event.pr_number,
+                              "cancelled", "executor acknowledged supersede cancellation")
             except NotImplementedError as exc:
                 self.store.transition(
-                    key, State.ESCALATED, actor=Actor.POLLER, owner=self.config.owner
+                    key, State.ESCALATED, actor=Actor.POLLER,
+                    owner=self.config.owner, fence=fence,
                 )
                 return Action(event.event_id, event.repo, event.pr_number,
                               "escalated", f"sandbox stubbed: {exc}")
+            finally:
+                self._inflight.pop(key, None)
+
+            # FENCE the exported patch by lease generation + current head SHA
+            # (design §6.3): if the head advanced / the row was superseded / the
+            # lease was reclaimed while the executor ran, DISCARD the patch — it
+            # must never be applied or pushed against a moved-on PR.
+            if not self.store.fence_ok(key, fence, event.head_sha):
+                return Action(event.event_id, event.repo, event.pr_number,
+                              "fenced_stale",
+                              "patch discarded: head advanced / superseded / lease reclaimed")
             # A real executor path is intentionally unreachable in this PR.
             self.store.transition(
-                key, State.AWAIT_REVIEW, actor=Actor.POLLER, owner=self.config.owner
+                key, State.AWAIT_REVIEW, actor=Actor.POLLER,
+                owner=self.config.owner, fence=fence,
             )
             return Action(event.event_id, event.repo, event.pr_number,
                           "fixed", "patch produced; awaiting re-review")
         finally:
-            self.store.release(key, self.config.owner)
+            self.store.release(key, self.config.owner, fence=fence)
 
     def startup_recover(
         self, *, ground_truth: Optional[Callable[[WorkKey], bool]] = None

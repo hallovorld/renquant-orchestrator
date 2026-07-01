@@ -61,6 +61,49 @@ EVIDENCE:
 - scope: `renquant-orchestrator` control plane only; ephemeral sandbox executor,
   live GitHub polling, and any push/merge wiring are explicit follow-up PRs.
 
+REVIEW ROUND 1 (Codex CHANGES_REQUESTED — 5 distributed-systems correctness
+bugs in the lease/state core; all fixed, the core must be correct because the
+follow-up sandbox/push executor relies on it):
+
+1. **Cross-key PR lease race.** `acquire` did the PR-busy SELECT and the row
+   UPDATE as SEPARATE transactions, so two workers on different
+   `(head_sha, review_id)` rows of the same PR could both see `busy=0` and each
+   acquire. FIX: the store now runs in autocommit + an explicit
+   `_immediate()` (`BEGIN IMMEDIATE`) critical section wraps the busy check AND
+   the row acquisition in ONE serialised transaction. Test:
+   barrier-based two-connection race on DIFFERENT keys of the same PR → exactly
+   one acquires, the other coalesces.
+2. **Transition not fenced by the lease.** `transition` checked `holds_lease`
+   then UPDATEd on old-state only. FIX: the POLLER state UPDATE is atomic —
+   `state=frm AND superseded=0 AND lease_owner=owner AND lease_expiry>now` in one
+   statement — PLUS a monotonic `fence` generation (bumped on every acquire,
+   threaded through `transition`/`release`) so a reclaimed old worker reusing the
+   same `owner` id carries a stale fence and can never commit. Tests:
+   expiry-during-transition + reclaim-then-stale-fence.
+3. **Event idempotency could lose events on crash.** `record_event` committed
+   the delivery id BEFORE the mutation → a crash left it "duplicate forever".
+   FIX: a `received/processing/applied` inbox — `record_event` CLAIMS
+   `processing` (a mid-flight redelivery is re-drivable), and
+   `mark_event_applied` closes the window only AFTER the driven transition
+   commits. Tests: crash-injection at each boundary (supersede / ensure_row /
+   mark_applied) + applied-is-true-duplicate control.
+4. **Supersede did not cancel the in-flight executor.** FIX: `CancellationToken`
+   plumbed into `run_fix_in_sandbox`; supersede RETAINS the PR-level lease
+   (`cancel_requested`) until the executor acknowledges
+   (`acknowledge_cancellation` / fenced `release`), a crashed old run's dangling
+   lease is swept once expired, and every exported patch is fenced by
+   `fence_ok(fence, head_sha)` — a stale/superseded run's output is discarded,
+   never applied. Tests: token acknowledged, stale-patch fenced, dangling-lease
+   sweep.
+5. **Dry-run wedged state in `FIXING`.** FIX: dry-run no longer mutates durable
+   workflow state (no attempt bump, no `FIXING` transition) — the row stays at
+   `AWAIT_REVIEW`. Test: repeated changes-requested no longer hits an illegal
+   `FIXING → FIXING`.
+
+Evidence updated: `tests/test_agent_automation_poller.py` now 54 tests →
+`… -m pytest tests/test_agent_automation_poller.py -q` → 54 passed;
+`git diff --check` clean.
+
 NEXT: (1) ephemeral OS/container/VM sandbox executor behind
 `run_fix_in_sandbox` (design §7.5) + Phase-0 escape/exfiltration suite; (2) live
 GitHub read-only event feed into `ingest`; (3) integrate the existing

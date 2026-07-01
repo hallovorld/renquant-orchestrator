@@ -20,7 +20,9 @@ import pytest
 from renquant_orchestrator.agent_automation_poller import (
     Actor,
     AutomationPoller,
+    CancellationToken,
     Event,
+    ExecutorCancelled,
     FixResult,
     IllegalTransition,
     PollerConfig,
@@ -143,13 +145,21 @@ def test_second_fix_on_different_head_coalesces():
 # ─────────────────────────── idempotency ────────────────────────────────
 
 
-def test_event_idempotency_duplicate_id_processed_once():
+def test_event_idempotency_claim_then_apply():
+    """Claim/apply ledger: a redelivery mid-flight (claimed but NOT yet applied)
+    is re-drivable; only a fully APPLIED id is a true duplicate."""
     clock = FakeClock()
     store = StateStore(clock=clock)
     evt = _event(event_id="rev-1")
+    assert store.record_event(evt) is True   # brand-new claim
+    # not yet applied → a redelivery mid-flight is reprocessable, not a silent
+    # "duplicate forever" that loses work (the point-3 bug)
     assert store.record_event(evt) is True
-    assert store.record_event(evt) is False  # duplicate delivery id
+    assert store.event_applied("rev-1") is False
+    store.mark_event_applied("rev-1")
+    assert store.record_event(evt) is False  # now truly applied → duplicate
     assert store.event_seen("rev-1") is True
+    assert store.event_applied("rev-1") is True
 
 
 def test_poller_drops_duplicate_review_event():
@@ -172,31 +182,39 @@ def test_poller_drops_duplicate_review_event():
 # ─────────────────────── stale-run cancellation ─────────────────────────
 
 
-def test_stale_cancel_on_head_sha_change():
+def test_stale_cancel_retains_lease_until_ack():
+    """Supersede requests cancellation and RETAINS the PR-level lease until the
+    in-flight executor acknowledges (design §6.3 / review point 4)."""
     clock = FakeClock()
     store = StateStore(clock=clock)
     old = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-old", "rev-1")
     store.ensure_row(old, State.AWAIT_REVIEW)
-    store.acquire(old, "w1", ttl=100.0)
+    acq = store.acquire(old, "w1", ttl=100.0)
 
     superseded = store.supersede_stale("hallovorld/renquant-orchestrator", 42, "sha-new")
 
     assert old in superseded
     assert store.is_superseded(old) is True
     row = store.get_row(old)
-    assert row["lease_owner"] is None  # stale run drops its lease
+    assert row["lease_owner"] == "w1"       # lease RETAINED until acknowledged
+    assert row["cancel_requested"] == 1
+    # the stale run's exported output is fenced out regardless
+    assert store.fence_ok(old, acq.fence, "sha-old") is False
+    # once the executor acknowledges, the retained lease is dropped
+    assert store.acknowledge_cancellation(old) is True
+    assert store.get_row(old)["lease_owner"] is None
 
 
 def test_poller_supersedes_old_head_on_new_event():
     clock = FakeClock()
     store = StateStore(clock=clock)
-    # dry-run keeps the fix in-flight at FIXING (non-terminal) so a new head can
-    # supersede a genuinely in-flight run.
+    # dry-run leaves the row at AWAIT_REVIEW (non-terminal) without mutating
+    # durable state, so a new head can still supersede the old head's row.
     poller = AutomationPoller(_config(dry_run=True), store)
 
     poller.ingest(_event(event_id="e-old", head_sha="sha-old", review_id="rev-1"))
     old = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-old", "rev-1")
-    assert store.get_state(old) == State.FIXING  # in-flight
+    assert store.get_state(old) == State.AWAIT_REVIEW  # dry-run: no wedge
 
     poller.ingest(_event(event_id="e-new", head_sha="sha-new", review_id="rev-2"))
     new = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-new", "rev-2")
@@ -345,7 +363,26 @@ def test_dry_run_never_invokes_executor():
     action = poller.ingest(_event(event_id="cr-dry", state="CHANGES_REQUESTED"))
     assert action.outcome == "fixing_dry_run"
     key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
-    assert store.get_state(key) == State.FIXING
+    # dry-run must NOT mutate durable workflow state: no FIXING wedge, no attempt
+    assert store.get_state(key) == State.AWAIT_REVIEW
+    assert store.get_row(key)["attempt"] == 0
+
+
+def test_dry_run_repeated_changes_requested_no_illegal_transition():
+    """Regression (review point 5): a dry-run must not wedge the row in FIXING,
+    so a SECOND changes-requested event does not attempt an illegal
+    FIXING -> FIXING and blow up."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(dry_run=True), store)
+
+    a1 = poller.ingest(_event(event_id="cr-1", state="CHANGES_REQUESTED"))
+    a2 = poller.ingest(_event(event_id="cr-2", state="CHANGES_REQUESTED"))
+
+    assert a1.outcome == "fixing_dry_run"
+    assert a2.outcome == "fixing_dry_run"  # not an IllegalTransition crash
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    assert store.get_state(key) == State.AWAIT_REVIEW  # never wedged in FIXING
 
 
 def test_round_cap_escalates():
@@ -490,6 +527,225 @@ def test_crash_recovery_ground_truth_drops_gone_pr():
     reclaimed = store.reconcile_expired_leases(ground_truth=lambda k: False)
     assert reclaimed == []
     assert store.get_state(key) == State.DROPPED
+
+
+# ───────────── point 1: cross-key PR lease race (two connections) ────────
+
+
+def test_cross_key_same_pr_two_connections_only_one_acquires(tmp_path):
+    """Review point 1: two workers on DIFFERENT ``(head_sha, review_id)`` rows
+    of the SAME ``(repo, pr)`` must NOT both acquire. A barrier releases both
+    into ``acquire`` simultaneously; because the PR-busy check + row acquisition
+    run in ONE ``BEGIN IMMEDIATE`` transaction, exactly one wins and the other
+    coalesces (this fails on the pre-fix separate-transaction code)."""
+    import threading
+
+    db = str(tmp_path / "race.db")
+    store_a = StateStore(db)
+    store_b = StateStore(db)
+    key_a = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    key_b = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-2")  # same PR
+    store_a.ensure_row(key_a, State.AWAIT_REVIEW)
+    store_b.ensure_row(key_b, State.AWAIT_REVIEW)
+
+    results: dict = {}
+    errors: list = []
+    barrier = threading.Barrier(2)
+
+    def worker(store, key, name):
+        try:
+            barrier.wait()  # release both threads into acquire together
+            results[name] = store.acquire(key, name, ttl=100.0)
+        except Exception as exc:  # pragma: no cover - surfaced via assert
+            errors.append(exc)
+
+    t1 = threading.Thread(target=worker, args=(store_a, key_a, "wa"))
+    t2 = threading.Thread(target=worker, args=(store_b, key_b, "wb"))
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+    store_a.close(); store_b.close()
+
+    assert errors == []
+    acquired = [r for r in results.values() if r.acquired]
+    coalesced = [r for r in results.values() if not r.acquired]
+    assert len(acquired) == 1        # exactly one holds the PR-level lease
+    assert len(coalesced) == 1       # the other coalesced — no concurrent run
+    assert "coalesced" in coalesced[0].reason
+
+
+# ────────────── point 2: transition fenced by the lease ──────────────────
+
+
+def test_transition_rejected_when_lease_expired_before_commit():
+    """Review point 2: a poller whose lease has expired cannot transition — the
+    state UPDATE requires ``lease_expiry > now`` atomically."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    store.ensure_row(key, State.AWAIT_REVIEW)
+    acq = store.acquire(key, "w1", ttl=100.0)
+    clock.advance(101.0)  # lease expired, not yet reclaimed
+    with pytest.raises(IllegalTransition):
+        store.transition(key, State.FIXING, actor=Actor.POLLER, owner="w1", fence=acq.fence)
+
+
+def test_transition_fenced_reclaimed_lease_cannot_commit():
+    """Review point 2: after a reclaim + re-acquire (even by the SAME ``owner``
+    id), the OLD holder's stale fence is refused; only the current lease
+    generation can commit. This is the fencing token that plain owner+expiry
+    cannot provide when the reclaimer reuses the owner id."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    store.ensure_row(key, State.AWAIT_REVIEW)
+    acq1 = store.acquire(key, "poller-1", ttl=100.0)
+    clock.advance(101.0)  # lease expires
+    assert store.reconcile_expired_leases() == [key]
+    acq2 = store.acquire(key, "poller-1", ttl=100.0)  # same owner id reclaims
+    assert acq2.fence != acq1.fence
+    # the OLD in-flight worker (holding the stale fence) must never commit
+    with pytest.raises(IllegalTransition):
+        store.transition(
+            key, State.FIXING, actor=Actor.POLLER, owner="poller-1", fence=acq1.fence
+        )
+    # the current generation transitions fine
+    assert store.transition(
+        key, State.FIXING, actor=Actor.POLLER, owner="poller-1", fence=acq2.fence
+    ) == State.FIXING
+
+
+# ─────────── point 3: crash-injection idempotency at each boundary ────────
+
+
+class _CrashInjected(RuntimeError):
+    """Simulated process crash at a specific boundary."""
+
+
+def _crash_once(store, method_name):
+    """Make ``store.<method_name>`` raise :class:`_CrashInjected` on its next
+    call, then self-heal so the redelivery uses the real method."""
+    original = getattr(store, method_name)
+
+    def wrapper(*args, **kwargs):
+        setattr(store, method_name, original)  # heal for redelivery
+        raise _CrashInjected(method_name)
+
+    setattr(store, method_name, wrapper)
+
+
+@pytest.mark.parametrize("boundary", ["supersede_stale", "ensure_row", "mark_event_applied"])
+def test_crash_injection_event_not_lost_at_boundary(boundary):
+    """Review point 3: a crash at ANY boundary between claiming an event and
+    marking it applied leaves the event RE-DRIVABLE on redelivery — never a
+    permanent 'duplicate' that silently drops the work (the point-3 bug)."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+    evt = _event(event_id="cr-crash", state="CHANGES_REQUESTED")
+
+    _crash_once(store, boundary)
+    with pytest.raises(_CrashInjected):
+        poller.ingest(evt)
+
+    # claimed but NOT applied → still re-drivable, not a silent duplicate
+    assert store.event_seen("cr-crash") is True
+    assert store.event_applied("cr-crash") is False
+
+    # redelivery re-drives the work to completion (stub → ESCALATED)
+    action = poller.ingest(evt)
+    assert action.outcome != "duplicate"
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    assert store.get_state(key) == State.ESCALATED
+    assert store.event_applied("cr-crash") is True
+    # exactly one attempt was ever recorded — idempotent, no double work
+    assert store.get_row(key)["attempt"] == 1
+
+
+def test_crash_after_apply_is_a_true_duplicate():
+    """The positive control: once an event is APPLIED, redelivery is a genuine
+    duplicate (idempotency window closes only after the mutation commits)."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+    evt = _event(event_id="cr-applied", state="CHANGES_REQUESTED")
+    first = poller.ingest(evt)
+    assert first.outcome == "escalated"
+    assert store.event_applied("cr-applied") is True
+    assert poller.ingest(evt).outcome == "duplicate"
+
+
+# ──────────── point 4: supersede cancels the in-flight executor ───────────
+
+
+def test_poller_executor_receives_cancel_token_and_acknowledges():
+    """Review point 4: the executor is handed a cancellation token; a
+    cooperative executor cancelled mid-run acknowledges, and the poller reports
+    'cancelled' and drops the PR-level lease (no patch applied)."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+
+    class CooperativeExecutor:
+        def __init__(self):
+            self.token = None
+
+        def run_fix_in_sandbox(self, *, cancel_token=None, **kwargs):
+            self.token = cancel_token
+            # a newer head superseded us while we were computing:
+            cancel_token.cancel()
+            cancel_token.raise_if_cancelled()  # cooperative checkpoint → ack + abort
+            return FixResult(patch="p", evidence="e")  # unreachable
+
+    ex = CooperativeExecutor()
+    poller = AutomationPoller(_config(), store, executor=ex)
+    action = poller.ingest(_event(event_id="cr-cancel", state="CHANGES_REQUESTED"))
+
+    assert action.outcome == "cancelled"
+    assert isinstance(ex.token, CancellationToken)  # plumbing: token handed in
+    assert ex.token.acknowledged is True            # executor acknowledged
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    # cancelled run winds down: retained lease dropped, patch never applied
+    assert store.get_row(key)["lease_owner"] is None
+
+
+def test_poller_fences_stale_patch_when_head_advances_mid_run():
+    """Review point 4: an executor output computed against a head that advanced
+    (superseded) mid-run is FENCED OUT — never applied/pushed. The row does not
+    progress to AWAIT_REVIEW."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+
+    class SupersedingExecutor:
+        def __init__(self, store):
+            self.store = store
+
+        def run_fix_in_sandbox(self, *, repo, pr_number, head_sha, review_comments,
+                               cancel_token=None):
+            # a newer head lands while we compute → our row is superseded
+            self.store.supersede_stale(repo, pr_number, "sha-new")
+            return FixResult(patch="p", evidence="e")
+
+    poller = AutomationPoller(_config(), store, executor=SupersedingExecutor(store))
+    action = poller.ingest(_event(event_id="cr-fence", state="CHANGES_REQUESTED"))
+
+    assert action.outcome == "fenced_stale"
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    assert store.get_state(key) == State.FIXING     # patch discarded, not applied
+    assert store.is_superseded(key) is True
+
+
+def test_reconcile_clears_dangling_superseded_lease():
+    """A superseded old run that crashed WITHOUT acknowledging has its retained
+    cancellation lease swept once it expires — no permanent PR occupation."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-old", "rev-1")
+    store.ensure_row(key, State.FIXING)
+    store.acquire(key, "w1", ttl=100.0)
+    store.supersede_stale("hallovorld/renquant-orchestrator", 42, "sha-new")
+    assert store.get_row(key)["lease_owner"] == "w1"  # retained (cancel pending)
+    clock.advance(101.0)  # old executor never acked; its lease expired
+    store.reconcile_expired_leases()
+    assert store.get_row(key)["lease_owner"] is None  # dangling lease swept
 
 
 # ─────────────────────────── replay harness ─────────────────────────────
