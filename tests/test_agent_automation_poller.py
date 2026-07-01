@@ -863,6 +863,157 @@ def test_crash_after_apply_is_a_true_duplicate():
     assert poller.ingest(evt).outcome == "duplicate"
 
 
+# ────── PR #214 review: coalesced work must never be lost or wedged ───────
+#
+# The exact-once path (claim → drive → fold applied-marker with the
+# transition) closed the crash window for a SINGLE event's own transition.
+# But a PR-level lease coalesce (AcquireResult.acquired is False because
+# ANOTHER row for the same PR holds a live lease) is a DIFFERENT event whose
+# intended transition never ran at all. Marking that event "applied" anyway
+# would silently and permanently drop its work — the bug these tests guard.
+
+
+def test_coalesced_event_not_applied_and_redelivery_completes_it():
+    """(1) Two concurrent events on the SAME PR where the SECOND coalesces
+    behind the first: the second must NOT be marked applied merely because it
+    lost the PR-lease race, and once the blocker is done, redelivering it must
+    actually execute its intended fix round — never a silent no-op."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+
+    evt_a = _event(event_id="evt-a", head_sha="sha-a", review_id="rev-a",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b", head_sha="sha-a", review_id="rev-b",
+                    state="CHANGES_REQUESTED")
+    key_b = evt_b.row_key
+
+    class ConcurrentThenStubExecutor:
+        """A holds the PR-level lease while running; from INSIDE that run, B
+        (a different review of the SAME PR/head) is ingested — it must
+        coalesce, not run concurrently. Behaves like the plain stub
+        otherwise (including on B's own later, separate invocation)."""
+
+        def __init__(self):
+            self.calls = 0
+            self.captured_b_action = None
+            self.poller = None  # AutomationPoller, wired after construction
+
+        def run_fix_in_sandbox(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                self.captured_b_action = self.poller.ingest(evt_b)
+            raise NotImplementedError("stub")
+
+    executor = ConcurrentThenStubExecutor()
+    poller = AutomationPoller(_config(), store, executor=executor)
+    executor.poller = poller
+
+    action_a = poller.ingest(evt_a)
+    assert action_a.outcome == "escalated"  # A's own round: stub → escalate
+
+    # B coalesced while A's lease was live — NOT applied (the bug).
+    b_first = executor.captured_b_action
+    assert b_first.outcome == "coalesced"
+    assert store.event_applied("evt-b") is False
+    assert store.event_seen("evt-b") is True
+    assert store.get_row(key_b)["pending_rerun"] == 1
+
+    # Redeliver B now that A is terminal and its lease is released: the
+    # intended fix round must actually execute this time.
+    b_retry = poller.ingest(evt_b)
+    assert b_retry.outcome == "escalated"
+    assert store.event_applied("evt-b") is True
+    assert store.get_state(key_b) == State.ESCALATED
+    assert store.get_row(key_b)["attempt"] == 1       # the round DID run
+    assert store.get_row(key_b)["pending_rerun"] == 0  # cleared on acquire
+
+
+def test_startup_recover_lets_coalesced_event_complete_after_holder_crash():
+    """(2) The CURRENT lease holder (A) crashes WHILE a coalesced event (B) is
+    pending: crash-recovery must re-surface B so it eventually completes, not
+    leave it permanently stuck 'applied'-without-execution."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    evt_a = _event(event_id="evt-a2", head_sha="sha-a", review_id="rev-a2",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b2", head_sha="sha-a", review_id="rev-b2",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    key_b = evt_b.row_key
+
+    # A acquires the PR-level lease and "crashes": it never transitions out of
+    # FIXING or releases.
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+
+    # B arrives while A's lease is still live → coalesces, must NOT be applied.
+    b_first = poller.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+    assert store.event_applied("evt-b2") is False
+    assert store.get_row(key_b)["pending_rerun"] == 1
+
+    # A's lease TTL elapses without ever releasing (the crash).
+    clock.advance(poller.config.lease_ttl_seconds + 1)
+
+    # Crash-recovery sweep on poller start reconciles A's dangling lease.
+    poller.startup_recover()
+    assert store.get_row(key_a)["lease_owner"] is None
+
+    # Redelivering B must now actually execute its fix round.
+    b_retry = poller.ingest(evt_b)
+    assert b_retry.outcome == "escalated"
+    assert store.event_applied("evt-b2") is True
+    assert store.get_state(key_b) == State.ESCALATED
+    assert store.get_row(key_b)["attempt"] == 1
+
+
+def test_coalesced_event_superseded_by_newer_head_ends_applied():
+    """(3) A coalesced event that IS genuinely superseded by an equivalent
+    later transition (a newer head's own event) must correctly end up
+    applied — the fix must not over-correct into 'never mark applied'."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    key_a = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-a4")
+    evt_b = _event(event_id="evt-b4", head_sha="sha-a", review_id="rev-b4",
+                    state="CHANGES_REQUESTED")
+    evt_c = _event(event_id="evt-c4", head_sha="sha-new", review_id="rev-c4",
+                    state="CHANGES_REQUESTED")
+    key_b = evt_b.row_key
+
+    # A holds the PR-level lease on the OLD head (simulating an in-flight run).
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    assert store.acquire(
+        key_a, poller.config.owner, poller.config.lease_ttl_seconds
+    ).acquired is True
+
+    # B coalesces behind A — not applied, pending work recorded.
+    b_first = poller.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+    assert store.event_applied("evt-b4") is False
+
+    # A NEWER head lands: its event supersedes every non-terminal row on the
+    # old head (A and B alike) and drives the equivalent work itself.
+    c_action = poller.ingest(evt_c)
+    assert c_action.outcome == "escalated"
+    assert store.is_superseded(key_a) is True
+    assert store.is_superseded(key_b) is True
+
+    # B, redelivered, discovers it is genuinely superseded — correctly ends up
+    # applied (never re-attempted; C already did the equivalent work). Not
+    # permanently stuck un-applied, and not re-processed forever either.
+    b_retry = poller.ingest(evt_b)
+    assert b_retry.outcome == "superseded"
+    assert store.event_applied("evt-b4") is True
+    assert store.get_state(key_b) == State.AWAIT_REVIEW  # never actually driven
+
+
 # ──────────── point 4: supersede cancels the in-flight executor ───────────
 
 

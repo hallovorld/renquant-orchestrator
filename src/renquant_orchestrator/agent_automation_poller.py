@@ -545,6 +545,12 @@ class StateStore:
             a concurrent run;
           * an expired lease (crashed owner) is reclaimable, and the lease
             ``fence`` is bumped so the reclaimed owner cannot commit.
+
+        A successful acquire clears ``pending_rerun`` — the row is no longer
+        merely "waiting to be picked up", it is now actually being driven. The
+        caller (:meth:`AutomationPoller._handle_lease_contention`) is what
+        guarantees a coalesced event's ``pending_rerun=1`` row is eventually
+        re-examined by a later acquirer rather than silently dropped.
         """
         now = self._clock()
         with self._immediate() as db:
@@ -584,7 +590,7 @@ class StateStore:
 
             cur = db.execute(
                 "UPDATE work_items SET lease_owner=?, lease_expiry=?, fence=fence+1, "
-                "cancel_requested=0, updated_at=? "
+                "cancel_requested=0, pending_rerun=0, updated_at=? "
                 "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
                 "AND superseded=0 "
                 "AND (lease_owner IS NULL OR lease_expiry <= ?)",
@@ -1334,6 +1340,45 @@ class AutomationPoller:
 
     # ── transition drivers ─────────────────────────────────────────────────
 
+    def _handle_lease_contention(self, event: Event, acq: AcquireResult) -> Action:
+        """Handle a failed :meth:`StateStore.acquire` WITHOUT marking the event
+        applied unless a durably-recorded EQUIVALENT transition actually
+        completed (design §6.3, review follow-up: the exact-once path must
+        never lose valid work under contention/crash).
+
+        ``acq.reason`` distinguishes two very different situations:
+
+        * ``"superseded: ..."`` — THIS row was cancelled because a NEWER head
+          already landed (:meth:`StateStore.supersede_stale`). That newer
+          head's own event is what drives the equivalent (superseding) work
+          going forward, under a DIFFERENT, non-superseded row; this row can
+          never be un-superseded, so redelivering this event will hit the same
+          "superseded" reason forever. It is therefore both safe AND correct
+          to mark it applied now — the alternative (never applying it) would
+          make it a permanent no-op that is reprocessed on every redelivery
+          for nothing.
+        * ``"coalesced: ..."`` (a live PR-level lease held by another,
+          possibly still-in-flight run) or ``"lease already held"`` (an
+          exact-key CAS race) — the current holder may be doing DIFFERENT
+          work for a DIFFERENT event, or may crash before ever driving THIS
+          event's intended transition. Marking this event applied here would
+          silently and PERMANENTLY drop the work (the bug this fixes: the
+          coalesced/in-progress outcome is not itself proof that an
+          equivalent transition happened). So the event is left un-applied —
+          it stays ``processing`` in the idempotency ledger (never
+          ``duplicate`` on redelivery) and the row keeps ``pending_rerun=1``
+          — so a LATER worker re-examines it: either the same owner's next
+          poll tick (an immediate reclaim, see :meth:`StateStore.
+          claim_event`), or, after the blocking holder crashes, once
+          :meth:`StateStore.reconcile_expired_leases` (driven from
+          :meth:`startup_recover`) clears its dangling lease so the retry's
+          ``acquire`` can finally succeed.
+        """
+        if acq.reason.startswith("superseded"):
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number, "superseded", acq.reason))
+        return Action(event.event_id, event.repo, event.pr_number, "coalesced", acq.reason)
+
     def _drive_merge_eligible(self, event: Event, key: WorkKey) -> Action:
         """APPROVED at head → MERGE_ELIGIBLE. The poller STOPS here.
 
@@ -1343,8 +1388,7 @@ class AutomationPoller:
         """
         acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
         if not acq.acquired:
-            return self._apply(event, Action(
-                event.event_id, event.repo, event.pr_number, "coalesced", acq.reason))
+            return self._handle_lease_contention(event, acq)
         action = Action(event.event_id, event.repo, event.pr_number,
                         "merge_eligible",
                         "approved at head; poller authority ends at the human-gate wall")
@@ -1362,8 +1406,7 @@ class AutomationPoller:
         """CHANGES_REQUESTED / comment → attempt a fix (stubbed → ESCALATE)."""
         acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
         if not acq.acquired:
-            return self._apply(event, Action(
-                event.event_id, event.repo, event.pr_number, "coalesced", acq.reason))
+            return self._handle_lease_contention(event, acq)
         fence = acq.fence
         try:
             if self.config.dry_run:
@@ -1408,8 +1451,7 @@ class AutomationPoller:
         """
         acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
         if not acq.acquired:
-            return self._apply(event, Action(
-                event.event_id, event.repo, event.pr_number, "coalesced", acq.reason))
+            return self._handle_lease_contention(event, acq)
         try:
             return self._execute_fix(event, key, acq.fence)
         finally:

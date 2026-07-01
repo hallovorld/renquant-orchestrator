@@ -149,6 +149,52 @@ threaded race drives exactly once). Evidence updated:
 `… -m pytest tests/test_agent_automation_poller.py -q` → 64 passed;
 `git diff --check` clean.
 
+REVIEW ROUND 3 (Codex CHANGES_REQUESTED — the exact-once path from round 2
+still could LOSE valid work under contention/crash, distinct from the event-id
+duplicate bug round 2 fixed):
+
+1. **PR-lease coalescing marked the source event `applied` regardless of
+   whether its work ran.** When `acquire` coalesced an event (another live
+   lease already held for a DIFFERENT `(head_sha, review_id)` row of the same
+   PR — `pending_rerun` flagged) — or lost the same-key CAS race
+   (`"lease already held"`) — all three drivers (`_drive_merge_eligible`,
+   `_drive_fixing`, `_resume_fix`) unconditionally called
+   `mark_event_applied`. The event's OWN intended transition never ran, but it
+   was now permanently a "duplicate" on any redelivery — if the blocking
+   holder then crashed, or was doing DIFFERENT work, that work was silently
+   lost forever. FIX: a new `AutomationPoller._handle_lease_contention`
+   distinguishes the acquire-failure reason. `"superseded: ..."` (a NEWER
+   head already cancelled this row via `supersede_stale`) is the ONLY case
+   safe to mark applied — the newer head's own event drives the equivalent
+   work under a different, non-superseded row, and this row can never be
+   un-superseded, so leaving it un-applied would just make it a permanent
+   no-op reprocessed on every redelivery for nothing. `"coalesced: ..."` /
+   `"lease already held"` are left UN-applied — the event stays `processing`
+   in the idempotency ledger (never a false `duplicate`) and the row keeps
+   `pending_rerun=1`, so a later redelivery (the same owner's next poll tick,
+   or — after the blocking holder crashes — once `reconcile_expired_leases`
+   (via `startup_recover`) clears its dangling lease) re-examines and
+   actually executes it. `acquire`'s successful CAS also now clears
+   `pending_rerun` (it was previously set-only, dead for observability).
+2. Tests added (3, exactly the review's required scenarios): (1) two
+   concurrent events on the same PR where the second coalesces — asserts it is
+   NOT applied at coalesce time and a later redelivery actually executes its
+   fix round (`test_coalesced_event_not_applied_and_redelivery_completes_it`);
+   (2) the current lease holder crashes while a coalesced event is pending —
+   asserts `startup_recover`'s expiry-sweep frees the dangling PR lease so
+   redelivery completes the coalesced event, never permanently stuck
+   `applied`-without-execution
+   (`test_startup_recover_lets_coalesced_event_complete_after_holder_crash`);
+   (3) a coalesced event genuinely superseded by a newer head's equivalent
+   transition correctly ends up applied — proving the fix does not over-correct
+   into "never mark applied"
+   (`test_coalesced_event_superseded_by_newer_head_ends_applied`).
+
+Evidence updated: `tests/test_agent_automation_poller.py` now 67 tests →
+`/Users/renhao/git/github/RenQuant/.venv/bin/python -m pytest
+tests/test_agent_automation_poller.py -q` → 67 passed; `git diff --check`
+clean.
+
 NEXT: (1) ephemeral OS/container/VM sandbox executor behind
 `run_fix_in_sandbox` (design §7.5) + Phase-0 escape/exfiltration suite; (2) live
 GitHub read-only event feed into `ingest`; (3) integrate the existing
