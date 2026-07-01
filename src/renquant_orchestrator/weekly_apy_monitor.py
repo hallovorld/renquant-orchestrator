@@ -30,6 +30,7 @@ class WeeklyApyContext:
     drawdown_days: int = 5
     topic: str = "renquant"
     quiet: bool = False
+    now: datetime | None = None
     rows: list[dict] = field(default_factory=list)
     apy: float | None = None
     n_rows: int = 0
@@ -69,7 +70,7 @@ def read_recent_rows(path: Path, window_days: int, *, now: datetime | None = Non
                 row_dt = _parse_utc_datetime(row["date"])
             except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                 continue
-            if row_dt >= cutoff:
+            if cutoff <= row_dt <= current:
                 out.append(row)
     return out
 
@@ -139,7 +140,7 @@ def post_ntfy(title: str, body: str, topic: str) -> None:
 
 class LoadAuditRowsTask(Task):
     def run(self, ctx: WeeklyApyContext) -> bool | None:
-        ctx.rows = read_recent_rows(ctx.audit_log, ctx.window_days)
+        ctx.rows = read_recent_rows(ctx.audit_log, ctx.window_days, now=ctx.now)
         return True
 
 
@@ -225,6 +226,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--audit-log", default=None)
     parser.add_argument("--topic", default="renquant")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--as-of", default=None, help="ISO datetime treated as 'now' (testing/replay); default = real now")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
@@ -244,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         drawdown_days=args.drawdown_days,
         topic=args.topic,
         quiet=args.quiet,
+        now=_parse_utc_datetime(args.as_of) if args.as_of else None,
     )
     build_pipeline().run(ctx)
     if args.json:
