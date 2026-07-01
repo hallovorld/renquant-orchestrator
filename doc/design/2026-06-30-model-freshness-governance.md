@@ -1,25 +1,47 @@
 # Design: Model Freshness Governance — 28-day ceiling, deferred best-of-recent fallback, reliable retrain cadence, and WF-promote repair
 
 STATUS: design for review (no implementation in this PR — describe → discuss → PR to Codex → then implement per-repo).
-REVISION: **R5 (round-5)** — addresses Codex's round-4 review (head `c02655d7`), which **acknowledged R4 resolved B3**
-(the fail-closed replay-feasibility / registry-coverage audit, the committed held-out confirmation, and the honest
-prospective-logging fallback) and left **ONE** remaining blocker: **point-in-time eligibility still lacks an explicit
-ARTIFACT-AVAILABILITY timestamp.** §5.0 defined the candidate set by `data cutoff <= simulated date` — necessary but **not
-sufficient**: a model trained / registered on July 1 against a May 31 cutoff was **not available** to a June 15 decision, yet
-that predicate admits it, **backfilling a later-created artifact into an earlier date**. R5 requires, for **every** candidate,
-immutable **`artifact_created_at` / `registry_available_at`** fields (plus the gate verdict's **`observed_at`**), redefines
-eligibility (§5.0-i-a) as **ALL relevant data cutoffs AND the artifact/gate availability timestamps `<= the simulated
-decision time`**, applies that temporal predicate to **EVERY arm** (§5.4 — including current-prod-hold and the rollback
-identity), and reports **missing availability timestamps** as their own missingness class in the §5.0 coverage matrix —
-**failing closed** rather than inferring them from current filesystem mtimes or git commit ancestry. Prior history: R4 (head
-`c02655d7`) added the Phase-0 replay-feasibility audit + prospective-logging fallback + committed held-out confirmation; R3
-(head `68e2ab01`) split selection from confirmation + moved to per-source SLA; R2 corrected the production-state premise and
-disabled the fallback; R1 (head `183764a5`) rested on a stale premise.
+REVISION: **R6 (round-6)** — addresses Codex's round-5 review (head `6bf6c2f4`), which **acknowledged R5 fixed the
+point-in-time artifact-availability eligibility** (immutable `artifact_created_at` / `registry_available_at` / gate
+`observed_at` on every arm) and left **ONE** remaining experiment-design blocker: **the replay conditions on
+POLICY-SPECIFIC breach events, so the candidate thresholds are not evaluated on a COMMON sample.** A 21d / 28d / 35d / 45d
+fast-axis ceiling generates **different** breach dates; §5 evaluated arms "at each simulated ceiling-breach date" without a
+policy-INDEPENDENT decision calendar — so a threshold can win because it **picked favorable event dates** (different
+regimes, artifact availability, and 60d-outcome overlap), not because its intervention is better
+(**selection-by-favorable-dates bias**). R6 rewrites §5's evaluation design: (1) **pre-register a COMMON, policy-independent
+decision calendar** — a shared sequence of decision epochs (every trading day, or every scheduled-retrain date) that is the
+SAME for all candidate policies (§5.4a); (2) **simulate each COMPLETE candidate policy from the SAME initial state across
+that SAME calendar** — including no-action / hold days, cooldowns, promotions, rollbacks, transaction costs, and overlapping
+60-day outcomes (full path-dependent simulation, not isolated breach-date arms — §5.4b); (3) **compare POLICY-LEVEL return /
+risk / availability on that shared timeline** (§5.4d/f), not on each policy's own trigger dates; (4) **breach events are
+reported as STRATA only** and must NOT define a different evaluation sample per threshold; (5) the **§5.0 registry-coverage
+audit is performed over this COMMON calendar** (coverage assessed over all shared epochs, not per-policy breach dates). The
+earlier selection / confirmation split (§5.1–§5.3), the per-source SLA (§2/§3), and the artifact-availability predicate
+(§5.0) stay intact — this fix layers a SHARED evaluation sample on top. Prior history: R5 (head `6bf6c2f4`) added the
+immutable artifact-availability timestamp + per-arm eligibility predicate; R4 (head `c02655d7`) added the Phase-0
+replay-feasibility audit + prospective-logging fallback + committed held-out confirmation; R3 (head `68e2ab01`) split
+selection from confirmation + moved to per-source SLA; R2 corrected the production-state premise and disabled the fallback;
+R1 (head `183764a5`) rested on a stale premise.
 
 This is a discussion document. It proposes a governance contract and a phased
 rollout; it does **not** change any code, config, broker, risk-cap, or sizing
 behaviour. Cross-repo implementation happens in follow-up per-repo PRs **after**
 this design is agreed.
+
+## Response to Codex round-6 review (per-point map)
+
+Codex's round-5 review (head `6bf6c2f4`) **acknowledged R5 fixed the point-in-time artifact-availability eligibility**
+(immutable `artifact_created_at` / `registry_available_at` / gate `observed_at` required on every arm) and raised **ONE**
+remaining experiment-design blocking issue.
+
+| Codex round-6 blocker | Resolution in R6 | Section |
+|---|---|---|
+| **The replay conditions on POLICY-SPECIFIC breach events, so the candidate thresholds are not evaluated on a COMMON sample.** A 21d ceiling, a 28d ceiling, a 35d ceiling, and a 45d ceiling generate **different** breach dates. §5 described arms "at each simulated ceiling-breach date" **without** defining a policy-independent decision calendar. Comparing outcomes **only on the dates each policy happens to trigger** changes market regimes, artifact availability, and 60d-outcome overlap across candidates; the selected threshold can win because it **selected favorable event dates**, not because its intervention is better (selection-by-favorable-dates bias). Breach events may be reported as strata, but must **not** define a different evaluation sample per threshold; the §5.0 registry-coverage audit must be performed on that common calendar too | §5 rewrites the evaluation **sample**: (1) **§5.4a pre-registers a COMMON, policy-INDEPENDENT decision calendar** — a single shared sequence of decision epochs (e.g. **every trading day** or **every scheduled-retrain date**) that is the **SAME for all candidate policies** and is **not** a function of any threshold, frozen + hashed before evidence is seen; (2) **§5.4b simulates each COMPLETE candidate policy from the SAME initial state across the SAME calendar** — full **path-dependent** simulation stepping every epoch, including **no-action / hold** epochs, **cooldowns**, **promotions**, **rollbacks**, **transaction / turnover costs**, and **overlapping 60-day outcomes** — **not** isolated breach-date arms; (3) each ceiling / window is a **distinct policy** whose threshold changes **when it acts**, never **which epochs it is scored on** (§5.4c); (4) **§5.4d/f compare POLICY-LEVEL** return / risk / drawdown / turnover / admission-coverage and the non-inferiority gate **on the common calendar** (held-out confirmation span, §5.2), **not** on each policy's own trigger dates; (5) **breach events (and infra-vs-substance failure modes) are reported as STRATA** over the shared timeline for diagnosis but **never** become a different evaluation sample per threshold; (6) **§5.0's coverage / missingness audit runs over the common calendar** — every shared epoch, not per-policy breach dates — and its minimum-sample floor (§5.0-iii) is stated in **independent decision epochs / 60d outcomes on that calendar**. The §5.1–§5.3 selection / confirmation split, the §2/§3 per-source SLA, and the §5.0 point-in-time eligibility predicate are **unchanged** — this fix layers a shared evaluation sample on top | §5.0, §5.4 |
+
+**Required-CI note (round-6).** Codex again requires the repo's required checks to be green before merge. The previously-red
+`test` check was the weekly-APY look-ahead failure, fixed in **PR #211** (`fix/weekly-apy-monitor-time-dependent`), **merged
+to `main`**; this revision keeps the branch current by **merging `origin/main`** so the shared `test` check reruns against the
+fixed code. This PR remains **docs-only** (no code / config / broker / risk / sizing change).
 
 ## Response to Codex round-5 review (per-point map)
 
@@ -441,6 +463,22 @@ rollback identity), with a **missing availability timestamp failing closed** in 
 §5.0 coverage matrix rather than being inferred from a filesystem mtime or git
 ancestry.
 
+Codex's round-6 follow-up sharpens the **evaluation SAMPLE**: a per-candidate replay that
+scores each arm **only at that policy's own breach dates** compares the thresholds on a
+**different sample each** — a 21d / 28d / 35d / 45d ceiling fires on **different dates**
+(different regimes, artifact availability, and 60d-outcome overlap), so a threshold can win
+because it **selected favorable event dates**, not because its intervention is better
+(selection-by-favorable-dates bias). R6 therefore pre-registers a **COMMON,
+policy-independent decision calendar** (§5.4a) — the SAME shared sequence of decision epochs
+for all candidate policies — **simulates each COMPLETE policy from the same initial state
+across that same calendar** (no-action / hold, cooldowns, promotions, rollbacks, costs,
+overlapping 60d outcomes — §5.4b), and reads **policy-level** return / risk / availability
+and the non-inferiority gate **on that shared timeline** (§5.4d/f). Breach events become
+**strata** only (§5.4d); the §5.0 coverage audit runs over the **same common calendar**
+(every shared epoch, not per-policy breach dates). The §5.1–§5.3 selection / confirmation
+split and the §5.0 eligibility predicate are unchanged — this is a fix to the evaluation
+sample, layered on top.
+
 **5.0 Phase-0 replay-feasibility audit (MUST PASS, fail-closed, BEFORE any
 pre-registration).** The replay in §5.1–§5.5 cannot be pre-registered — let alone
 authorize a ceiling — until this audit establishes that the point-in-time record it
@@ -448,11 +486,12 @@ depends on was actually **retained**. It runs first and its verdict gates
 everything after it.
 
 - **(i) Enumerate the exact required fields and their IMMUTABLE sources.** For each
-  simulated breach date the registry must supply, from a write-once / append-only
-  source that could **not** have been edited after the fact:
-  - the **complete candidate set ELIGIBLE at that date** — every staging / prod
+  **decision epoch on the common calendar (§5.4a)** — **not** a per-policy breach
+  date — the registry must supply, from a write-once / append-only source that could
+  **not** have been edited after the fact:
+  - the **complete candidate set ELIGIBLE at that epoch** — every staging / prod
     artifact that satisfies the **full point-in-time eligibility predicate**
-    (§5.0-i-a) at that date — sourced from the artifact store's creation-time index
+    (§5.0-i-a) at that epoch — sourced from the artifact store's creation-time index
     / MLflow run log, **not** a today-listing of surviving files;
   - for **every** candidate, its immutable **`artifact_created_at` /
     `registry_available_at`** timestamps — the write-once instant the artifact bytes
@@ -477,8 +516,9 @@ everything after it.
   into an earlier date** (look-ahead). This predicate is applied to **EVERY arm**
   (§5.4) — including the **current-prod-hold** and the **rollback-identity** arms —
   so no arm can reference an artifact whose availability timestamp is after `t`.
-- **(ii) Report date-by-date COVERAGE and MISSINGNESS, broken down by arm AND by
-  failure class.** For every candidate breach date and every arm (current-prod
+- **(ii) Report epoch-by-epoch COVERAGE and MISSINGNESS, broken down by arm AND by
+  failure class.** For **every decision epoch on the common calendar (§5.4a)** — over
+  **all** shared epochs, **not** per-policy breach dates — and every arm (current-prod
   hold / newest-eligible / best-recent fallback / **rollback identity**), tabulate
   which required fields are present, which are missing, and — critically — the
   **missingness split by failure class**: if infra-failed candidates were pruned from
@@ -491,10 +531,11 @@ everything after it.
   from the current filesystem mtime or git commit ancestry. The output is a **coverage
   matrix**, not a single "we have a registry" assertion.
 - **(iii) Define the MINIMUM independent-sample floor.** Pre-state the minimum
-  number of **independent breach events** and **independent 60-day OOS outcomes**
-  (accounting for the 60d-label overlap of §5.5) needed for the confirmation span
-  to distinguish the arms at the registered margin. This floor is fixed **before**
-  the coverage matrix is read.
+  number of **independent decision epochs on the common calendar (§5.4a)** and
+  **independent 60-day OOS outcomes** (accounting for the 60d-label overlap of §5.5)
+  needed for the confirmation span to distinguish the **policies** at the registered
+  margin. **Breach events are counted as a stratum, not as the sample.** This floor
+  is fixed **before** the coverage matrix is read.
 - **(iv) FAIL CLOSED.** If the untouched confirmation window does not contain enough
   **complete, unbiased, un-tampered** events to meet the floor — or if missingness
   is correlated with failure class — the historical replay is declared
@@ -549,50 +590,82 @@ for the number of configurations tried) so that testing many thresholds does not
 inflate the apparent pass rate. The reported selection-stage estimate is the
 **deflated** one.
 
-**5.4 Arms, metrics, gate.**
+**5.4 Common decision calendar, full-policy simulation, metrics, gate.**
 
-- **Arms** at each simulated ceiling-breach date `t`, **each restricted to artifacts
-  that satisfy the §5.0-i-a point-in-time eligibility predicate at `t`** (all data
-  cutoffs **AND** `artifact_created_at` / `registry_available_at` **AND** the gate
-  `observed_at` `<= t`): (i) **current-prod hold** (keep aging the model that was
-  *actually live* at `t` — not a later re-stamp of it); (ii) **newest eligible**
-  (promote the most recent candidate that is both data-fresh **and** already
-  available at `t`); (iii) **proposed best-recent fallback** (the §4.3.4 pick,
-  infra-only + OOS floor, drawn **only** from the set available at `t`); (iv)
-  **rollback identity** (revert to the prior artifact — which must itself have
-  existed and been available at `t`). **No arm** may reference an artifact whose
-  `artifact_created_at` / `registry_available_at` (or gate `observed_at`) is after
-  `t`, so the replay cannot backfill later artifacts into earlier dates.
-- **Metrics:** net OOS return / Sharpe / drawdown / turnover; **admission
-  coverage** (how often each arm even has a candidate); **failure-mode strata**
-  (split by infra-vs-substance reject reason).
-- **Per-source, not one global age.** The replay evaluates the **source-specific**
-  freshness policies of §2 — the **fast-axis ceiling** AND the **slow-axis
-  filing-calendar SLA** as SEPARATE dimensions — never a single global age. An arm
-  that would drop an on-SLA quarterly value merely for exceeding 28 calendar days
-  is a **distinct (worse) policy** and is scored as such.
-- **Pre-registered gate:** the fallback must be **non-inferior** to
-  current-prod-hold net of cost and drawdown, at the registered margin, **evaluated
-  on the held-out confirmation span (§5.2) only**, over a **pre-registered shadow
-  duration** — and only after Phase-0 (§5.0) certifies the registry is complete and
-  unbiased.
+Codex round-6 (**retained**): scoring each arm **only at that policy's own breach dates**
+compares the candidate ceilings on a **different sample each** — a 21d / 28d / 35d / 45d
+ceiling fires on **different dates** (different regimes, artifact availability, and
+60d-outcome overlap), so a threshold can win by **selecting favorable event dates**, not by
+a better intervention (**selection-by-favorable-dates bias**). The evaluation **sample** must
+be a **shared calendar**, layered on top of the §5.0 eligibility predicate and the §5.1–§5.3
+selection / confirmation split.
+
+- **(5.4a) Common, policy-INDEPENDENT decision calendar.** Pre-register — **before** any
+  replay — a **single shared sequence of decision epochs** that is the **SAME for every
+  candidate policy**: e.g. **every trading day**, or **every scheduled-retrain date**. This
+  calendar is **not** a function of any threshold, and breach dates do **not** define it. The
+  calendar (and its selection / confirmation temporal split, §5.2) is frozen and hashed into
+  the run bundle **before** any evidence is seen.
+- **(5.4b) Full path-dependent policy simulation (NOT isolated breach-date arms).** Each arm
+  is a **COMPLETE candidate policy** simulated **from the SAME initial state across the SAME
+  calendar**, stepping **every** epoch and applying that policy's full mechanics: **no-action
+  / hold** epochs, **cooldowns**, **promotions**, **rollbacks**, **transaction / turnover
+  costs**, and **overlapping 60-day outcomes**. State is **path-dependent** — a promote (or
+  rollback) at epoch `k` changes the live artifact seen at `k+1` — so each policy produces a
+  full return / holding **path** over the whole calendar, **not** a set of one-shot decisions
+  sampled at its own trigger dates.
+- **(5.4c) Arms (each a complete policy over the common calendar).** At **every** epoch each
+  policy may act **only** on artifacts that satisfy the §5.0-i-a point-in-time eligibility
+  predicate at that epoch (all data cutoffs **AND** `artifact_created_at` /
+  `registry_available_at` **AND** gate `observed_at` `<=` the epoch time): (i) **current-prod
+  hold** (never promote on age — keep aging whatever was *actually live*, not a later
+  re-stamp of it); (ii) **newest-eligible** (each epoch, promote the most recent candidate
+  that is data-fresh **and** already available); (iii) **proposed best-recent fallback** (the
+  §4.3.4 pick, infra-only + OOS floor, from the set available at that epoch); (iv) **rollback
+  identity** (revert to the prior artifact, which must itself have existed and been
+  available). Each candidate **fast-axis ceiling** (21 / 28 / 35 / 45d) and **best-of-recent
+  window** (5 / 10 / 15d) is a **distinct policy** run over the **same** calendar — its
+  ceiling changes **when it chooses to act**, never **which epochs it is scored on**. **No
+  arm** may reference an artifact whose availability timestamp is after the epoch, so the
+  replay cannot backfill later artifacts into earlier dates.
+- **(5.4d) Metrics — POLICY-LEVEL on the shared timeline.** Compare each complete policy's
+  **path-level** net OOS return / Sharpe / drawdown / turnover, and **admission coverage**
+  (how often the policy even has an eligible candidate), **on the common calendar** — **not**
+  on each policy's own trigger dates. **Breach events (and infra-vs-substance failure modes)
+  are reported as STRATA** over the shared timeline for diagnosis, but a stratum **must NOT
+  become a different evaluation sample per threshold.**
+- **(5.4e) Per-source, not one global age.** The replay evaluates the **source-specific**
+  freshness policies of §2 — the **fast-axis ceiling** AND the **slow-axis filing-calendar
+  SLA** as SEPARATE dimensions — never a single global age. An arm that would drop an on-SLA
+  quarterly value merely for exceeding 28 calendar days is a **distinct (worse) policy** and
+  is scored as such, over the **same** common calendar.
+- **(5.4f) Pre-registered gate — on the shared timeline.** The fallback **policy** must be
+  **non-inferior** to the current-prod-hold **policy** net of cost and drawdown, at the
+  registered margin, **compared on the common calendar's held-out confirmation span (§5.2)
+  only** (**not** on either policy's own breach dates), over a **pre-registered shadow
+  duration** — and only after Phase-0 (§5.0) certifies the registry is complete and unbiased
+  **over that shared calendar**.
 
 **5.5 Sample-size caveat.** The 60-day label means one week of shadow covers very
 few **independent** outcomes; the shadow must accumulate enough independent
-60d-label windows — likely well beyond one week — to distinguish the arms.
-Splitting off the **held-out confirmation** span (§5.2) further reduces usable
-samples, so the registered minimum-sample floor (§5.0-iii) and shadow duration must
-budget for **both** the split and the label horizon.
+60d-label windows **over the common calendar (§5.4a)** — likely well beyond one week
+— to distinguish the **policies**. Splitting off the **held-out confirmation** span
+(§5.2) further reduces usable samples, so the registered minimum-sample floor
+(§5.0-iii) and shadow duration must budget for **both** the split and the label
+horizon. Because each policy is scored on the **same** epochs, the arms share this
+sample rather than each drawing its own (breach-conditioned) subsample.
 
 **5.6 Honest fallback — prospective shadow logging first if history is
 insufficient (§5.0 fail-closed path).** If Phase-0 (§5.0) declares the historical
 replay **INFEASIBLE** — the point-in-time registry was not retained with enough
 complete, unbiased events — the RFC does **NOT** claim the historical replay can
 authorize `28d` / `10d`. The honest plan is to **build the registry going forward**:
-stand up **prospective shadow logging** that, from day one, appends each breach
-date's complete candidate set, artifact bytes + fingerprints + cutoffs, gate
-verdict + failure class, and (as they mature) the 60-day OOS outcomes into a
-write-once / append-only point-in-time store. Only once that prospective log has
+stand up **prospective shadow logging** that, from day one, appends **each
+common-calendar epoch's (§5.4a)** complete candidate set, artifact bytes +
+fingerprints + cutoffs + availability timestamps, gate verdict + failure class, and
+(as they mature) the 60-day OOS outcomes into a write-once / append-only
+point-in-time store — logged on the shared calendar so every policy is later scored
+on the same epochs, not its own breach dates. Only once that prospective log has
 accrued the §5.0-iii minimum independent-sample floor does the §5.2 held-out
 confirmation run — on data that was, **by construction**, never survivor-pruned or
 regenerated. This **delays** authorizing the tighter ceiling but keeps Pillar 3
@@ -601,10 +674,11 @@ observe-only monitor + cadence repair (Phase 1) ship regardless and are unaffect
 
 The `28d` / `10d` (and every other) number is an **output of the selection stage**;
 the **authorizing verdict comes only from the untouched held-out confirmation span
-(§5.2)** — and **only** if Phase-0 (§5.0) first certifies the historical registry is
-complete and unbiased, else prospective logging (§5.6) runs first. Only if arm (iii)
-clears that verdict does Pillar 3 move from DEFERRED to shadow-first, then
-flag-enabled.
+(§5.2)**, **evaluated policy-level on the common decision calendar (§5.4a) — never on
+each policy's own breach dates** — and **only** if Phase-0 (§5.0) first certifies the
+historical registry is complete and unbiased over that calendar, else prospective
+logging (§5.6) runs first. Only if arm (iii) clears that verdict does Pillar 3 move
+from DEFERRED to shadow-first, then flag-enabled.
 
 ## 6. Rollout, ownership, and provenance
 
@@ -616,7 +690,7 @@ flag-enabled.
 | **1 (near-term shippable)** | Freshness **monitor** (observe-only, §2 data-axis keyed) + the **durable timeout fix** + restored tournament cadence + Action P0 production-state re-audit | first | low |
 | 2 | **WF-gate repair** (Fix-1/2/3) so the gate re-validates the active primary; validate the shadow PatchTST path | after P0 | medium |
 | 3a | **Phase-0 replay-feasibility audit** (§5.0): date-by-date registry coverage / missingness by arm **and** failure class; fixed minimum independent-sample floor; **fail-closed** if the untouched confirmation window lacks enough complete, unbiased events | after Phase 2 | analysis |
-| 3b | **Point-in-time shadow experiment** (§5.1–§5.5) — **only if 3a PASSES**: current-prod-hold vs newest vs best-recent; pre-registered candidate grid + **committed held-out confirmation** (nested / rolling = robustness only) + multiplicity control; per-source SLA policies evaluated (not one global age). **If 3a FAILS → prospective shadow logging first (§5.6); no authorization from historical replay** | after 3a passes (else §5.6) | analysis |
+| 3b | **Point-in-time shadow experiment** (§5.1–§5.5) — **only if 3a PASSES**: on a **common, policy-independent decision calendar (§5.4a)**, simulate each COMPLETE policy (current-prod-hold vs newest vs best-recent vs rollback) from the same initial state over the same epochs (path-dependent — hold / cooldown / promote / rollback / costs / overlapping 60d outcomes); pre-registered candidate grid + **committed held-out confirmation** (nested / rolling = robustness only) + multiplicity control; **policy-level** metrics compared on the shared timeline (breach events = strata); per-source SLA policies evaluated (not one global age). **If 3a FAILS → prospective shadow logging first (§5.6); no authorization from historical replay** | after 3a passes (else §5.6) | analysis |
 | 4 | Best-of-recent fallback **shadow-first** (log-only), then flag-enabled — **only if** Phase 3 clears the gate | after Phase 3 clears | medium |
 | Final | Flip `model_staleness_days` 60 → 28 — only after Phases 1–4 and the §5 experiment authorise the tighter ceiling | last | low |
 
@@ -684,17 +758,22 @@ independently recomputed OOS economic floor."** Why:
 2. **Ceiling numerics, grid & feasibility** — confirm 28d/10d are **selection-stage**
    outputs of the §5.1 grid, not priors; what **held-out confirmation-span length**
    (§5.2 primary), non-inferiority margin, shadow duration, and multiplicity
-   correction across the grid? And what is the **§5.0 minimum
-   independent-breach-event / 60d-outcome floor**, and does the retained registry
-   actually meet it (else §5.6 prospective logging)?
-3. **Per-ticker coverage floor** — what fraction of the 142 watchlist must be fresh
+   correction across the grid? And what is the **§5.0 minimum independent
+   decision-epoch / 60d-outcome floor** (§5.0-iii), and does the retained registry
+   actually meet it over the common calendar (else §5.6 prospective logging)?
+3. **Common-calendar granularity (§5.4a)** — should the shared, policy-independent
+   decision calendar be **every trading day** (finest, most epochs, but most
+   overlapping 60d outcomes) or **every scheduled-retrain date** (coarser, fewer but
+   more independent epochs)? The choice sets both the sample size and the
+   independence of the 60d outcomes and must be **frozen before** the replay.
+4. **Per-ticker coverage floor** — what fraction of the 142 watchlist must be fresh
    to admit vs page?
-4. **Active-primary escalation** — if the repaired gate returns Fix-4 on the live
+5. **Active-primary escalation** — if the repaired gate returns Fix-4 on the live
    05-18 XGB primary, what is the operator's intended action (retrain-and-wait,
    revert to PatchTST-primary, or accept-with-note)?
-5. **Panel admission on staleness** — should panel staleness also gate admission
+6. **Panel admission on staleness** — should panel staleness also gate admission
    (today only the per-ticker tournament gates the universe)?
-6. **Per-source SLA reuse** — is adopting `P-FUND-FRESHNESS`'s
+7. **Per-source SLA reuse** — is adopting `P-FUND-FRESHNESS`'s
    `max_feed_stale_days=20` / `filing_lag_days=45` / `max_quarters_behind=1`
    verbatim for the fundamentals source the right contract, or should the
    governance monitor register its own (tighter) fast-axis ceiling separate from

@@ -1,12 +1,14 @@
 # model freshness governance — design PR
 
 STATUS:   design for review (no code/config in this PR). Describe → discuss → PR to Codex → then implement per-repo.
-REVISION: R5 (round-5) — addresses Codex's round-4 review on head `c02655d7`, which ACKNOWLEDGED R4 resolved B3 (the
-          fail-closed replay-feasibility audit + committed held-out confirmation + prospective-logging fallback) and left
-          ONE remaining blocker: point-in-time eligibility lacks an explicit ARTIFACT-AVAILABILITY timestamp. Prior: R4
-          (head `c02655d7`) added the §5.0 Phase-0 audit; R3 (head `68e2ab01`) split selection from confirmation +
-          per-source SLA; R2 reworked round-1 on head `183764a5`. This revision also MERGES `origin/main` (weekly-APY CI
-          fix #211) so the shared `test` check reruns green.
+REVISION: R6 (round-6) — addresses Codex's round-5 review on head `6bf6c2f4`, which ACKNOWLEDGED R5 fixed the point-in-time
+          artifact-availability eligibility (immutable artifact_created_at / registry_available_at / gate observed_at on
+          every arm) and left ONE remaining EXPERIMENT-DESIGN blocker: the replay conditions on POLICY-SPECIFIC breach
+          events, so the candidate thresholds are not evaluated on a COMMON sample (selection-by-favorable-dates bias).
+          Prior: R5 (head `6bf6c2f4`) added the artifact-availability timestamp + per-arm eligibility predicate; R4 (head
+          `c02655d7`) added the §5.0 Phase-0 audit; R3 (head `68e2ab01`) split selection from confirmation + per-source
+          SLA; R2 reworked round-1 on head `183764a5`. This revision keeps the branch current by MERGING `origin/main`
+          (weekly-APY CI fix #211, now on main) so the shared `test` check reruns green.
 WHAT:     proposes a freshness-governance contract — a data-cutoff-keyed staleness monitor (NOT just `trained_date`), a
           28-day hard ceiling on BOTH production models, a reliable/monitored retrain cadence, a DEFERRED best-of-recent
           fallback bounded to infra-failures + an OOS floor, and a WF-gate REPAIR so the strict path can re-validate the
@@ -22,6 +24,27 @@ R2-FIX:   R1 rested on a FACTUALLY STALE premise (claimed PatchTST primary since
           promotion); PatchTST is now SHADOW (`LoadScorerTask: loaded xgb` + `ApplyShadowScoringTask: shadow hf_patchtst`).
           The 06-23 switch was a CONFIG-KIND directive, NOT a gate pass; `promotion_status="gated_buys"` is a STALE stamp.
           → WF-gate section reframed from "retire the vestigial GBDT promote" to "REPAIR the gate to re-validate the PRIMARY".
+CODEX-R6: ONE remaining EXPERIMENT-DESIGN blocker resolved (docs-only, §5 evaluation-sample rewrite). Codex round-5
+          ACKNOWLEDGED R5 fixed the artifact-availability eligibility. BLOCKER: the replay conditioned on POLICY-SPECIFIC
+          breach events, so candidate ceilings were NOT evaluated on a COMMON sample — a 21d/28d/35d/45d ceiling fires on
+          DIFFERENT dates (different regimes, artifact availability, 60d-outcome overlap), so a threshold could win by
+          SELECTING FAVORABLE EVENT DATES, not by a better intervention (§5 said arms "at each simulated ceiling-breach
+          date" with no policy-independent decision calendar). FIX: (1) §5.4a PRE-REGISTERS a COMMON, policy-INDEPENDENT
+          decision calendar — a single shared sequence of decision epochs (every trading day OR every scheduled-retrain
+          date), the SAME for all candidate policies, not a function of any threshold, frozen+hashed before evidence;
+          (2) §5.4b simulates each COMPLETE candidate policy from the SAME initial state across the SAME calendar — full
+          PATH-DEPENDENT simulation stepping every epoch incl no-action/hold, cooldowns, promotions, rollbacks, transaction
+          costs, overlapping 60d outcomes (NOT isolated breach-date arms); (3) §5.4c each ceiling/window is a DISTINCT
+          policy whose threshold changes WHEN it acts, never WHICH epochs it is scored on, each epoch restricted by the
+          §5.0-i-a eligibility predicate; (4) §5.4d/f compare POLICY-LEVEL return/risk/drawdown/turnover/coverage + the
+          non-inferiority gate ON the common calendar (held-out confirmation span §5.2), NOT on each policy's own trigger
+          dates; (5) breach events (+ infra-vs-substance failure modes) reported as STRATA only, never a different sample
+          per threshold; (6) §5.0 coverage/missingness audit + minimum-sample floor (§5.0-iii) now run over the common
+          calendar (all shared epochs, independent decision-epochs / 60d outcomes), §5.6 prospective logging logs on the
+          shared calendar too. Added §8 open-question 2a (calendar granularity: trading-day vs scheduled-retrain-date).
+          UNCHANGED: §5.1–§5.3 selection/confirmation split, §2/§3 per-source SLA, §5.0 artifact-availability predicate —
+          this fix layers a SHARED evaluation sample on top. Header REVISION + §5-intro round-6 note + round-6 per-point
+          map added.
 CODEX-R5: ONE remaining blocker resolved (docs-only, §5.0/§5.4 edit). Codex round-4 acknowledged R4 resolved B3. BLOCKER:
           point-in-time eligibility lacked an explicit ARTIFACT-AVAILABILITY timestamp — §5.0 admitted a candidate on
           `data cutoff <= simulated date` ALONE, which is necessary but NOT sufficient: a model trained/registered July 1
