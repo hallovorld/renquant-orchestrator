@@ -16,12 +16,15 @@ pair is censored `no_intraday_tick`**. This PR ships the missing producer.
 ## What
 
 `src/renquant_orchestrator/intraday_quote_logger.py` — a **standalone, decoupled,
-observe-only** quote poller. It samples the 104 watchlist during RTH and appends a
-JSONL tick feed in the exact schema the consumer reads (`date`, `ticker`, `mid`,
-`tick_time`; plus raw `bid`/`ask`/`last`/`ts` and provenance for the future §9.4
-analysis). `entry_price` is deliberately not asserted — the consumer defaults the
-hypothetical intraday entry to `mid`, the honest neutral choice for an observe-only
-feed; a fill model is the future experiment's call.
+observe-only** quote poller. It samples the 104 watchlist during a real exchange
+session and appends a JSONL tick feed in the exact schema the consumer reads
+(`date`, `ticker`, `mid`, `tick_time`; plus raw `bid`/`ask`/`last`/`ts`, `status`,
+`quote_age` and the frozen policy stamp for the future §9.4 analysis). `entry_price`
+is deliberately not asserted — the consumer defaults the hypothetical intraday entry
+to `mid`, the honest neutral choice for an observe-only feed; a fill model is the
+future experiment's call. Midpoint-as-fill yields zero modeled shortfall by
+construction, so this feed stores raw observations only and implies no executable
+performance.
 
 Design points:
 - **Decoupled / zero live-trading risk.** A separate process, NOT embedded in the
@@ -41,26 +44,65 @@ Design points:
   is a no-op. Dedup survives restart (keys reloaded from the file).
 - **Best-effort robustness.** A whole-batch fetch failure or any single-ticker miss
   is logged and skipped — never crashes the loop.
-- **Modes.** `--once` (single sample) + `--json` summary, and a market-hours loop
+- **Modes.** `--once` (single sample) + `--json` summary, and a session loop
   (`--cadence`, default 60s) that waits before the open and self-terminates at the
-  16:00 ET close. `--force` bypasses the RTH gate for testing/off-hours.
+  calendar close (incl. early closes). `--force` bypasses the sample gate for
+  testing/off-hours, but off-hours quotes are still censored out-of-session.
 
 Boundary compliance (CLAUDE.md): the orchestrator does not implement broker adapters
 or decision/sizing internals — this only observes market data and provenances a log.
 
+## Data-validity (addresses Codex r1 CHANGES_REQUESTED)
+
+The r1 feed hard-coded weekday 09:30–16:00 ET and accepted `quote.ts` verbatim, so
+it could log out-of-session or stale/future/crossed quotes as eligible decision
+ticks. r2 makes the feed *eligibility-aware*:
+
+- **Calendar-aware sessions.** Session boundaries now come from a dependency-injected
+  `SessionCalendar`; the real `NyseSessionCalendar` is backed by
+  `pandas_market_calendars` NYSE — the SAME primitive execution uses
+  (`renquant_execution.preopen_cancel_gate`, and the 104 kernel `data.py` / `exits.py`
+  / `t2_settlement.py`). Holidays (no session), half days / early closes (earlier
+  close) and DST (tz-aware instants) are all honored. Tests inject a deterministic
+  fake calendar. Out-of-session samples are censored, never logged as eligible.
+- **Causality + freshness + same-session membership.** A frozen policy (`evaluate_quote`)
+  requires `source_ts <= sampled_at` (small skew tolerance), a configured max age
+  (`--max-quote-age`, default 120s), and that the quote's `source_ts` falls inside the
+  current session. Crossed (`bid > ask`) / invalid (non-positive, non-finite) NBBO and
+  unpriceable quotes are rejected. Every record carries `status` + `quote_age`; only
+  `status=ok` rows reach the eligible feed (with a consumable `mid`), and every censor
+  reason (`out_of_session`, `stale_quote`, `stale_prior_session`, `future_quote`,
+  `crossed_nbbo`, `invalid_nbbo`, `no_source_ts`, `unpriceable`) is recorded WITH
+  `mid=None` to an audit sidecar `<feed>.censored.jsonl` — auditable, never evidence.
+- **Frozen eligibility-policy version.** Each record stamps `ELIGIBILITY_POLICY_VERSION`
+  plus the concrete policy params (`max_quote_age_sec`, `session_open`/`session_close`),
+  so a row self-identifies which policy admitted or censored it.
+
 ## Tests
 
-`tests/test_intraday_quote_logger.py` — 27 tests, hermetic (fake source + injected
-clock + tmp paths). Covers: mid/NBBO + fallback, record schema, market-hours gating,
-per-ticker and whole-batch failure isolation, idempotent append (incl. restart),
-loop with injected clock/sleep, watchlist load, `--once` CLI, credential preflight.
-A round-trip test loads the feed through the **real** `intraday_pairing_logger`
-consumer and asserts a non-censored pair; it is `importorskip`-guarded because #215
-is not yet on `main` (skips until #215 merges, then asserts real interop — verified
-locally by dropping the #215 module in: all 27 pass, round-trip included).
+`tests/test_intraday_quote_logger.py` — hermetic (fake source + fake calendar +
+injected clock + tmp paths). Covers mid/NBBO + fallback, record schema, and — added
+for the r1 review — the full data-validity surface: **holiday** (no session, all
+censored), **early close / half day** (calendar closes at 13:00, a naive 14:00 would
+be "open"), **DST boundary** (09:30 local in both EDT/EST seasons; UTC instant shifts
+by the DST hour), **stale repeated prior-session quote**, **stale-by-age quote**,
+**future/skewed quote**, **crossed and invalid NBBO**, **no-source-ts**, and
+**partial source failures** (per-ticker miss + whole-batch failure isolation). Also:
+idempotent append (incl. restart), the session loop with injected clock/sleep,
+watchlist load, `--once` CLI, credential preflight, and a real NYSE-calendar
+cross-check against a direct `pandas_market_calendars` schedule.
 
-Run: `.venv/bin/python -m pytest tests/test_intraday_quote_logger.py -q` → 26 passed,
-1 skipped on `main` today (round-trip skip); 27 passed once #215 is present.
+Contract test (the load-bearing integration): the tick feed is round-tripped through
+the **actual #215 consumer** (`load_intraday_ticks` → `pair_records`) and asserted to
+yield a non-censored pair. To keep it non-skipped and branch-independent, the #215
+module is pinned VERBATIM as `tests/fixtures/intraday_pairing_logger_pr215.py` and
+loaded in-process (`test_round_trip_into_vendored_pr215_consumer`, passing now); a
+second `importorskip`-guarded test exercises the real installed module once #215
+merges to `main`, at which point the fixture and its test are deleted.
+
+Run: `.venv/bin/python -m pytest tests/test_intraday_quote_logger.py -q` → 45 passed,
+1 skipped on `main` today (only the real-module round-trip skips; the vendored
+contract test proves interop now); 46 pass once #215 is present.
 
 ## Proposed scheduled invocation (NOT installed)
 
@@ -68,7 +110,8 @@ Observe-only pilot collection, one bounded process per session. Do not wire unti
 the operator opts in; it needs read-only Alpaca market-data credentials.
 
 ```cron
-# 09:30 ET, Mon–Fri — loops until the 16:00 ET close, then exits.
+# 09:30 ET, Mon–Fri — loops until the calendar close (incl. early closes), then
+# exits. Holidays are self-skipping (no session -> no eligible ticks).
 30 9 * * 1-5  cd <orchestrator> && RENQUANT_DATA_ROOT=<data_root> \
   .venv/bin/python -m renquant_orchestrator.intraday_quote_logger \
     --env-file <path>/.env --cadence 60
@@ -84,10 +127,11 @@ same file:
 
 ## Notes / follow-ups
 
-- Holidays are not excluded (weekday + 09:30–16:00 ET only); a holiday yields
-  stale/empty quotes that are logged and skipped — harmless for an observe-only feed.
-  The schedule governs which days it runs.
+- Holidays, early closes and DST are now handled by the NYSE calendar (r2), not the
+  schedule; out-of-session samples are censored to the audit sidecar rather than
+  emitted as eligible ticks.
 - Free-tier IEX quotes are a partial-book reference, adequate for the Stage-1
   diagnostic mid; the §9.4 experiment decides whether SIP/full-NBBO is required.
+  A crossed/invalid NBBO from the partial book is censored, not emitted.
 - This is Stage-1 **operations-only** data collection: it renders no execution-quality
   verdict and gates nothing (design §9.3 / §9.4).
