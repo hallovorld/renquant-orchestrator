@@ -690,69 +690,129 @@ def test_main_cli_shadow_uses_its_own_policy(tmp_path: Path, capsys) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Panel freshness axis (umbrella #423): key on the RAW feature frontier
-# (max_feature_anchor_date), NEVER the fwd_60d-clipped label cutoff (~60d provenance).
+# Panel freshness axis (umbrella #423 ROUND-3, correcting this module's own round-2
+# fix): key on ``label_observation_cutoff`` (the fwd_60d-clipped max LABELED row --
+# the latest information that actually affected fitting), with its EXPECTED ~60 BD
+# label-horizon lag WIDENING the tiering thresholds. NEVER key on the RAW feature
+# frontier (``max_feature_anchor_date``): round-3 Codex review on #423 established
+# that field is data-pipeline-HEALTH provenance only -- keying freshness on it lets
+# fresh UNLABELED rows the model never trained on make a frozen panel read fresh.
 # --------------------------------------------------------------------------- #
-def test_max_feature_anchor_date_is_the_freshness_axis(tmp_path: Path) -> None:
-    # A freshly retrained panel: feature frontier ~= today-3, label cutoff ~60d behind
-    # by construction. Keying on the feature frontier => HEALTHY; keying on the label
-    # cutoff would make every fresh retrain born-BREACH (the exact bug #423 fixes).
+def test_label_observation_cutoff_is_the_freshness_axis(tmp_path: Path) -> None:
+    # A genuinely fresh retrain: label_observation_cutoff sits exactly at the EXPECTED
+    # 60-business-day frontier behind AS_OF (2026-06-30 -> 2026-04-07, 84 calendar
+    # days). That 84d raw age reads HEALTHY only because the threshold is widened by
+    # the same 84d lag (14 + 84 = 98 >= 84) -- unadjusted it would be born-BREACH.
     art = _write_json(
         tmp_path / "panel.json",
         {
             "kind": "xgb",
             "trained_date": "2026-06-30",
-            "max_feature_anchor_date": "2026-06-27",       # freshness axis (3d)
-            "label_observation_cutoff": "2026-04-28",       # ~60d provenance, NOT tiered
+            "label_observation_cutoff": "2026-04-07",  # freshness axis, 84d raw age
+            "max_feature_anchor_date": "2026-06-27",   # data-pipeline-health provenance only
         },
     )
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
-    assert fresh.binding_field == "max_feature_anchor_date"
-    assert fresh.age_days == 3
+    assert fresh.binding_field == "label_observation_cutoff"
+    assert fresh.age_days == 84  # literal, unadjusted calendar-day age
     assert fresh.tier == mod.TIER_HEALTHY
-    assert fresh.label_observation_cutoff == "2026-04-28"
-    assert "provenance" in fresh.detail  # label lag flagged, not read as staleness
+    assert fresh.max_feature_anchor_date == "2026-06-27"
+    assert "provenance" in fresh.detail  # feature anchor flagged, not read as freshness
+    assert "label horizon" in fresh.detail  # threshold widening is surfaced
 
 
-def test_feature_anchor_beats_older_generic_cutoff(tmp_path: Path) -> None:
-    # max_feature_anchor_date leads DATA_CUTOFF_FIELDS: it binds over an older generic
-    # data_cutoff_date so the raw frontier is the axis.
+def test_label_observation_cutoff_lag_threshold_boundary(tmp_path: Path) -> None:
+    # The widened warn ceiling is EXACTLY 14 + 84 = 98 calendar days for AS_OF's
+    # 60-BD lookahead: 98d reads healthy, 99d tips to warn.
+    healthy = _write_json(tmp_path / "h.json", {"label_observation_cutoff": "2026-03-24"})  # 98d
+    warn = _write_json(tmp_path / "w.json", {"label_observation_cutoff": "2026-03-23"})  # 99d
+    fresh_healthy = mod.read_artifact_freshness("prod-panel", healthy, AS_OF)
+    fresh_warn = mod.read_artifact_freshness("prod-panel", warn, AS_OF)
+    assert fresh_healthy.age_days == 98
+    assert fresh_healthy.tier == mod.TIER_HEALTHY
+    assert fresh_warn.age_days == 99
+    assert fresh_warn.tier == mod.TIER_WARN
+
+
+def test_frozen_label_observation_cutoff_breaches_despite_lag_widening(tmp_path: Path) -> None:
+    # A globally frozen panel (label cutoff far older than even the widened ceiling)
+    # must still BREACH -- the lag widening accounts for the EXPECTED horizon, it does
+    # not launder genuine staleness.
+    art = _write_json(tmp_path / "frozen.json", {"label_observation_cutoff": "2025-05-01"})  # 425d
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "label_observation_cutoff"
+    assert fresh.age_days == 425
+    assert fresh.tier == mod.TIER_BREACH
+
+
+def test_feature_anchor_no_longer_binds_freshness(tmp_path: Path) -> None:
+    # max_feature_anchor_date is REMOVED from DATA_CUTOFF_FIELDS (round-3): a fresh
+    # frontier must NOT bind over -- or launder -- an older generic data_cutoff_date.
     art = _write_json(
         tmp_path / "panel.json",
-        {"max_feature_anchor_date": "2026-06-26", "data_cutoff_date": "2026-05-10"},
+        {"max_feature_anchor_date": "2026-06-26", "data_cutoff_date": "2026-05-10"},  # 51d
     )
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
-    assert fresh.binding_field == "max_feature_anchor_date"
-    assert fresh.age_days == 4
-    assert fresh.tier == mod.TIER_HEALTHY
+    assert fresh.binding_field == "data_cutoff_date"
+    assert fresh.age_days == 51
+    assert fresh.tier == mod.TIER_BREACH  # stale on the REAL axis, fresh frontier ignored
+    assert fresh.max_feature_anchor_date == "2026-06-26"  # still echoed as provenance
 
 
-def test_label_observation_cutoff_alone_is_not_a_freshness_axis(tmp_path: Path) -> None:
-    # A panel carrying ONLY the fwd-clipped label cutoff (no feature frontier) has NO
-    # freshness axis -> fail closed to unknown. The label cutoff must never tier.
+def test_max_feature_anchor_date_alone_is_not_a_freshness_axis(tmp_path: Path) -> None:
+    # A panel carrying ONLY the raw feature frontier (no label-observation cutoff or
+    # any other binding axis) has NO freshness axis -> fail closed to unknown.
     art = _write_json(
         tmp_path / "panel.json",
-        {"kind": "xgb", "trained_date": "2026-06-30", "label_observation_cutoff": "2026-06-28"},
+        {"kind": "xgb", "trained_date": "2026-06-30", "max_feature_anchor_date": "2026-06-27"},
     )
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
     assert fresh.binding_field is None
     assert fresh.age_days is None
-    assert fresh.tier == mod.TIER_UNKNOWN  # NOT healthy off a 2d label cutoff
-    assert fresh.label_observation_cutoff == "2026-06-28"  # echoed as provenance only
+    assert fresh.tier == mod.TIER_UNKNOWN  # NOT healthy off a 3d-old feature frontier
+    assert fresh.max_feature_anchor_date == "2026-06-27"  # echoed as provenance only
 
 
-def test_main_cli_panel_fresh_on_feature_anchor_despite_label_lag(tmp_path: Path, capsys) -> None:
-    # End-to-end: a fresh panel with a 60d-behind label cutoff reads HEALTHY on the
-    # feature frontier through the full pipeline (populations' cutoff semantics tested
-    # end to end, per the reviewer's merge gate).
+def test_fresh_unlabeled_rows_do_not_improve_panel_freshness(tmp_path: Path) -> None:
+    # Regression for the Codex #423 round-3 review (mirrors
+    # TestModelFreshnessAxisIntegration::test_fresh_unlabeled_rows_do_not_improve_model_freshness
+    # in RenQuant): appending fresh UNLABELED feature rows advances
+    # ``max_feature_anchor_date`` alone -- the labeled training frame (and therefore
+    # ``label_observation_cutoff``) is unchanged, so the freshness READ must be
+    # IDENTICAL even though the raw frontier genuinely moved.
+    frozen = _write_json(
+        tmp_path / "frozen.json",
+        {"label_observation_cutoff": "2025-05-01", "max_feature_anchor_date": "2025-05-05"},
+    )
+    extended = _write_json(
+        tmp_path / "extended.json",
+        # Simulates the data pipeline catching up to just before AS_OF with fresh,
+        # not-yet-labelable rows -- same frozen label cutoff, much fresher frontier.
+        {"label_observation_cutoff": "2025-05-01", "max_feature_anchor_date": "2026-06-29"},
+    )
+    fresh_frozen = mod.read_artifact_freshness("prod-panel", frozen, AS_OF)
+    fresh_extended = mod.read_artifact_freshness("prod-panel", extended, AS_OF)
+    assert fresh_frozen.binding_field == fresh_extended.binding_field == "label_observation_cutoff"
+    assert fresh_frozen.age_days == fresh_extended.age_days == 425
+    assert fresh_frozen.tier == fresh_extended.tier == mod.TIER_BREACH
+    # ...even though the raw frontier DID advance (a genuine, separate data-pipeline-
+    # health signal) -- proving the two fields are decoupled, not that the panel
+    # extension silently no-opped.
+    assert fresh_extended.max_feature_anchor_date != fresh_frozen.max_feature_anchor_date
+
+
+def test_main_cli_panel_fresh_on_label_cutoff_with_lag_accounted(tmp_path: Path, capsys) -> None:
+    # End-to-end: a fresh panel whose label_observation_cutoff sits at the EXPECTED
+    # ~60 BD frontier reads HEALTHY through the full pipeline once the threshold
+    # widening is applied; the (fresher) feature anchor is echoed but never tiered.
     fx = _build_fixture(tmp_path, prod_cutoff="2026-06-25", shadow_cutoff="2026-06-27", ticker_cutoff="2026-06-25")
     _write_json(
         fx["prod"],
         {
             "kind": "xgb",
             "trained_date": "2026-06-30",
+            "label_observation_cutoff": "2026-04-07",
             "max_feature_anchor_date": "2026-06-27",
-            "label_observation_cutoff": "2026-04-28",
         },
     )
     argv = [
@@ -766,9 +826,9 @@ def test_main_cli_panel_fresh_on_feature_anchor_despite_label_lag(tmp_path: Path
     ]
     rc = mod.main(argv)
     payload = json.loads(capsys.readouterr().out)
-    assert payload["prod_panel"]["binding_field"] == "max_feature_anchor_date"
-    assert payload["prod_panel"]["age_days"] == 3
-    assert payload["prod_panel"]["label_observation_cutoff"] == "2026-04-28"
+    assert payload["prod_panel"]["binding_field"] == "label_observation_cutoff"
+    assert payload["prod_panel"]["age_days"] == 84
+    assert payload["prod_panel"]["max_feature_anchor_date"] == "2026-06-27"
     assert payload["prod_panel"]["tier"] == mod.TIER_HEALTHY
     assert payload["worst_tier"] == mod.TIER_HEALTHY
     assert rc == 0

@@ -20,18 +20,28 @@ shadow policy (looser 35d breach ceiling because shadow is non-trading, AND keye
 a persisted, pin-bound **promotion receipt** — never a free, spoofable sidecar
 boolean).
 
-**Panel freshness axis (umbrella #423).** The prod XGB panel stamps TWO DISTINCT
-information-set fields (never conflated):
+**Panel freshness axis (umbrella #423, round-3 CORRECTED).** The prod XGB panel
+stamps TWO DISTINCT information-set fields (never conflated). This module's own
+round-2 fix keyed panel freshness on ``max_feature_anchor_date``; Codex's round-3
+review on #423 established that is WRONG, so the roles are swapped here:
 
+- ``label_observation_cutoff`` — the fwd_60d-clipped max FULLY-LABELED training
+  row. THIS is the freshness axis: it is the latest information that actually
+  affected fitting (weights/normalization/CV), and only moves when the labeled
+  training frame moves. Because the fwd_60d label horizon means even a same-day
+  retrain cannot show a label more recent than ~60 business days ago, the panel
+  fast-axis policy WIDENS its tiering thresholds by that EXPECTED lag (never
+  subtracted from the reported age) so a genuinely fresh retrain reads HEALTHY,
+  not born-BREACH.
 - ``max_feature_anchor_date`` — the RAW feature/data frontier (latest date with
-  feature rows, BEFORE the fwd-label ``dropna`` clip). For a fresh daily retrain
-  this is ~= today-1, so it is THE freshness axis. The monitor keys panel freshness
-  here first, so a fresh retrain reads HEALTHY (not born-BREACH).
-- ``label_observation_cutoff`` — the fwd_60d-clipped max fully-labeled training row
-  (~60 business days behind the frontier by construction). This is **provenance**
-  (which labels the model saw), **NOT** a freshness axis: the ~60d label lag is
-  EXPECTED and must not be read as staleness. It is captured for context only and
-  is never used for tiering.
+  feature rows, BEFORE the fwd-label ``dropna`` clip; leads the label axis by
+  ~60 business days by construction). This is **data-pipeline-HEALTH provenance
+  only** (proof the feed is current) — **NOT** a freshness axis. Those trailing
+  rows carry no observable forward label, so the model's weights/CV never
+  consumed them: keying freshness here would let fresh UNLABELED rows make a
+  frozen, never-retrained model read fresh ("fresh metadata over stale trained
+  information" under a new field name — the exact bug #423 round-3 rejects). It
+  is captured for context only and is never used for tiering.
 
 **Shadow promote binding (umbrella #419 / RFC #212 §3.2).** The served shadow pin's
 freshness reaches ``healthy`` only when a persisted **promotion receipt** (written by
@@ -70,7 +80,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -114,15 +124,21 @@ _TIER_RANK = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3, T
 _TIER_EXIT_CODE = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3, TIER_UNKNOWN: 3}
 
 # Data-cutoff axes, most-binding first. The binding cutoff is the model's most-recent
-# DATA exposure. ``max_feature_anchor_date`` (umbrella #423) is the RAW feature/data
-# frontier and the freshest, most-binding panel axis — it must lead so a fresh panel
-# retrain reads HEALTHY, not born-BREACH on the ~60d-behind label cutoff. Then the
+# DATA exposure -- specifically the latest information that actually affected fitting.
+# ``label_observation_cutoff`` (umbrella #423 round-3) is the fwd_60d-clipped max
+# FULLY-LABELED training row and leads this list: it is the panel's freshness axis
+# (round-3 Codex review REJECTED keying freshness on ``max_feature_anchor_date`` --
+# see the module docstring). Its ~60 business-day EXPECTED lag is accounted for by
+# widening the tiering thresholds (``_AXIS_EXPECTED_LAG_BDAYS`` /
+# ``_expected_lag_calendar_days`` below), never by omitting it from this list. Then the
 # PatchTST shadow ``effective_selection_cutoff_date``, the retrain/train cutoffs, and
-# the per-ticker ``live_train_end``. ``trained_date`` (run time) is deliberately NOT in
-# this list: it is not a data-freshness axis (design §2) and never certifies freshness
-# — a missing binding cutoff fails closed to ``unknown`` instead of falling back to it.
+# the per-ticker ``live_train_end``. ``max_feature_anchor_date`` is deliberately NOT in
+# this list (data-pipeline-health provenance only, never a freshness axis -- captured
+# separately below). ``trained_date`` (run time) is also deliberately NOT in this list:
+# it is not a data-freshness axis (design §2) and never certifies freshness — a missing
+# binding cutoff fails closed to ``unknown`` instead of falling back to it.
 DATA_CUTOFF_FIELDS = (
-    "max_feature_anchor_date",
+    "label_observation_cutoff",
     "effective_selection_cutoff_date",
     "effective_train_cutoff_date",
     "data_cutoff_date",
@@ -130,13 +146,29 @@ DATA_CUTOFF_FIELDS = (
     "cutoff_date",
 )
 _TRAINED_DATE_FIELD = "trained_date"
-
-# PROVENANCE-only fields: captured + echoed for context, NEVER used for tiering.
-# ``label_observation_cutoff`` (umbrella #423) is the fwd_60d-clipped max labeled row,
-# ~60 business days BEHIND the feature frontier by construction — that lag is EXPECTED
-# provenance (which labels the model saw), not staleness. Reading it as a freshness axis
-# would make every fresh panel retrain born-BREACH, which is exactly the bug #423 fixes.
+# The freshness-axis field name, named so the EXPECTED fwd-label-horizon lag (below)
+# can be keyed on it without hardcoding the string in multiple places.
 _LABEL_OBSERVATION_FIELD = "label_observation_cutoff"
+
+# PROVENANCE-only field: captured + echoed for context, NEVER used for tiering.
+# ``max_feature_anchor_date`` (umbrella #423) is the RAW feature/data frontier, ~60
+# business days AHEAD of the label-observation cutoff by construction (it includes
+# rows whose forward label is not yet observable). It is data-pipeline-HEALTH
+# provenance (proof the feed is current) — NOT model freshness: those trailing rows
+# were excluded from training, so appending fresh unlabeled rows to a frozen panel
+# must never make a stale model read fresh (Codex #423 round-3 review).
+_FEATURE_ANCHOR_FIELD = "max_feature_anchor_date"
+
+# EXPECTED business-day lag inherent to a freshness axis, keyed by binding field name
+# (0 / absent for axes with no inherent horizon lag). ``label_observation_cutoff`` is
+# fwd_60d-clipped: even a same-day retrain cannot show a label more recent than ~60
+# business days ago (the label horizon is WHY the trailing rows are still unlabeled),
+# so its age must be measured against that EXPECTED frontier — never against ``now``
+# directly, or every fresh retrain would read born-BREACH.
+_LABEL_OBSERVATION_LOOKAHEAD_BDAYS = 60
+_AXIS_EXPECTED_LAG_BDAYS: dict[str, int] = {
+    _LABEL_OBSERVATION_FIELD: _LABEL_OBSERVATION_LOOKAHEAD_BDAYS,
+}
 
 # Model blobs whose freshness metadata lives in a ``<path>.metadata.json`` sidecar.
 _MODEL_BLOB_SUFFIXES = {".pt", ".pth", ".bin", ".ckpt", ".safetensors", ".onnx"}
@@ -212,6 +244,35 @@ def _optional_bool(value: object) -> bool | None:
     if text in {"false", "0", "no"}:
         return False
     return None
+
+
+def _subtract_business_days(base: date, n: int) -> date:
+    """Subtract ``n`` Mon-Fri business days from ``base``. Matches
+    ``pandas.offsets.BDay`` weekday semantics (no holiday calendar) — sufficient for
+    a fixed, documented label horizon (#423)."""
+    current = base
+    remaining = n
+    while remaining > 0:
+        current -= timedelta(days=1)
+        if current.weekday() < 5:
+            remaining -= 1
+    return current
+
+
+def _expected_lag_calendar_days(binding_field: str | None, now: datetime) -> int:
+    """Calendar-day width of ``binding_field``'s EXPECTED business-day lag as of
+    ``now`` (0 for axes with no inherent horizon lag — every axis except
+    ``label_observation_cutoff``). Used to WIDEN the tiering thresholds so a
+    genuinely fresh artifact on a lagged axis does not read born-stale (#423
+    round-3): a same-day retrain's ``label_observation_cutoff`` is ~60 business
+    days behind ``now`` by construction, and that gap is expected, not staleness.
+    ``age_days`` itself is never adjusted — only the ceilings it is compared
+    against."""
+    bdays = _AXIS_EXPECTED_LAG_BDAYS.get(binding_field or "", 0)
+    if not bdays:
+        return 0
+    expected_frontier = _subtract_business_days(now.date(), bdays)
+    return (now.date() - expected_frontier).days
 
 
 def parse_as_of(value: str | None) -> datetime | None:
@@ -317,9 +378,10 @@ class ArtifactFreshness:
     age_days: int | None = None
     tier: str = TIER_BREACH
     detail: str = ""
-    # PROVENANCE only (umbrella #423): the fwd_60d-clipped label-observation cutoff,
-    # ~60d behind the feature frontier. Echoed for context; NEVER used for tiering.
-    label_observation_cutoff: str | None = None
+    # PROVENANCE only (umbrella #423 round-3): the RAW feature/data frontier, ~60d
+    # AHEAD of the (tiered) label-observation cutoff. Data-pipeline-health context
+    # only; NEVER used for tiering (round-3 Codex review — see module docstring).
+    max_feature_anchor_date: str | None = None
     # Shadow (RFC #212 §3.2) only: validated-promote status derived from a persisted,
     # pin-bound promotion RECEIPT (never a sidecar boolean). ``None`` when the
     # population has no promote gate; ``True`` only when a bound, validated receipt
@@ -336,7 +398,7 @@ class ArtifactFreshness:
             "binding_field": self.binding_field,
             "detail": self.detail,
             "label": self.label,
-            "label_observation_cutoff": self.label_observation_cutoff,
+            "max_feature_anchor_date": self.max_feature_anchor_date,
             "non_fresh": self.non_fresh,
             "path": self.path,
             "present": self.present,
@@ -366,11 +428,17 @@ def read_artifact_freshness(
     - a cutoff **later than** ``now`` -> ``breach`` (look-ahead; a negative age must
       never read as ``healthy`` — PR #211 lesson, windows bounded on both sides).
 
-    The freshness axis for the panel is ``max_feature_anchor_date`` (the raw feature
-    frontier, umbrella #423); the ~60d-behind ``label_observation_cutoff`` is captured
-    as PROVENANCE only and never tiered. The shadow promote gate (RFC #212 §3.2) is
-    NOT applied here — it keys on a persisted, pin-bound RECEIPT and is layered on by
-    ``apply_promotion_gate`` in the caller, so this reader stays a pure age function.
+    The freshness axis for the panel is ``label_observation_cutoff`` (the fwd_60d-
+    clipped max LABELED row — the latest information that actually affected fitting,
+    umbrella #423 round-3); its EXPECTED ~60 BD label-horizon lag WIDENS the tiering
+    thresholds (never subtracted from the reported ``age_days``) so a genuinely fresh
+    retrain reads HEALTHY. ``max_feature_anchor_date`` (the raw feature/data frontier)
+    is captured as data-pipeline-health PROVENANCE only and is NEVER tiered — keying
+    freshness on it would let fresh unlabeled rows the model never trained on make a
+    frozen panel read fresh (round-3 Codex review on #423 rejected round-2's choice).
+    The shadow promote gate (RFC #212 §3.2) is NOT applied here — it keys on a
+    persisted, pin-bound RECEIPT and is layered on by ``apply_promotion_gate`` in the
+    caller, so this reader stays a pure age function.
     """
     result = ArtifactFreshness(label=label, path="" if path is None else str(path))
     if path is None:
@@ -390,9 +458,9 @@ def read_artifact_freshness(
 
     result.present = True
     result.trained_date = _text_or_none(data.get(_TRAINED_DATE_FIELD))
-    # PROVENANCE only (#423): captured + echoed, NEVER used for tiering.
-    result.label_observation_cutoff = (
-        raw[:10] if (raw := _text_or_none(data.get(_LABEL_OBSERVATION_FIELD))) else None
+    # PROVENANCE only (#423 round-3): captured + echoed, NEVER used for tiering.
+    result.max_feature_anchor_date = (
+        raw[:10] if (raw := _text_or_none(data.get(_FEATURE_ANCHOR_FIELD))) else None
     )
 
     for field_name in DATA_CUTOFF_FIELDS:
@@ -422,6 +490,8 @@ def read_artifact_freshness(
 
     # A cutoff later than the effective ``now`` is a look-ahead: reject it (fail
     # closed) rather than let a negative age be accepted as healthy by ``tier_for_age``.
+    # Checked against ``now`` directly (never the lag-widened threshold below): a
+    # labeled row genuinely cannot postdate "now", regardless of any axis lag.
     if age_days < 0:
         result.tier = TIER_BREACH
         result.detail = (
@@ -430,17 +500,28 @@ def read_artifact_freshness(
         )
         return result
 
+    # ``label_observation_cutoff`` carries an EXPECTED ~60 BD fwd-label-horizon lag
+    # (#423 round-3): WIDEN the tiering thresholds by that lag so a genuinely fresh
+    # retrain reads HEALTHY instead of born-BREACH. ``age_days`` stays the literal,
+    # unadjusted calendar-day age (consistent meaning across every axis); only the
+    # ceilings it is compared against shift for a lagged axis.
+    lag_days = _expected_lag_calendar_days(result.binding_field, now)
     result.tier = tier_for_age(
         age_days,
-        warn_days=policy.warn_days,
-        escalate_days=policy.escalate_days,
-        breach_days=policy.breach_days,
+        warn_days=policy.warn_days + lag_days,
+        escalate_days=policy.escalate_days + lag_days,
+        breach_days=policy.breach_days + lag_days,
     )
     result.detail = f"{result.binding_field}={result.binding_cutoff} age={age_days}d"
-    if result.label_observation_cutoff and result.binding_field != _LABEL_OBSERVATION_FIELD:
+    if lag_days:
         result.detail += (
-            f"; label_observation_cutoff={result.label_observation_cutoff}"
-            " is provenance (~60d fwd-clip lag), not a freshness axis"
+            f" (thresholds +{lag_days}d for the expected "
+            f"{_LABEL_OBSERVATION_LOOKAHEAD_BDAYS}-BD label horizon)"
+        )
+    if result.max_feature_anchor_date:
+        result.detail += (
+            f"; max_feature_anchor_date={result.max_feature_anchor_date}"
+            " is data-pipeline-health provenance, not a freshness axis"
         )
     return result
 
