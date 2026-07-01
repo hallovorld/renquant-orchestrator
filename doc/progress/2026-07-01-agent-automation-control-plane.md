@@ -104,6 +104,51 @@ Evidence updated: `tests/test_agent_automation_poller.py` now 54 tests →
 `… -m pytest tests/test_agent_automation_poller.py -q` → 54 passed;
 `git diff --check` clean.
 
+REVIEW ROUND 2 (Codex CHANGES_REQUESTED — the round-1 lease/fence fixes were
+accepted, but the EVENT/STATE crash boundary was still not exactly-once; the
+event claim had no owner/lease, and cancellation was in-memory only):
+
+1. **Claim + state mutation + applied marker were separate commits.** A crash
+   after a transition but before `mark_event_applied` re-drove the event from
+   the NEW state on redelivery → a non-idempotent handler could raise an illegal
+   transition or bump the round counter twice. FIX: every FINAL transition is
+   now FOLDED with the applied marker in ONE `BEGIN IMMEDIATE` transaction
+   (`transition_and_apply`), and the fix round's counter-bump + `FIXING`/
+   `ESCALATED` decision is folded too (`begin_fix_round`). `_process_claimed` is
+   resume-idempotent: it dispatches off the CURRENT durable state — a row found
+   at `FIXING` RESUMES the executor without a second `begin_fix_round` (counter
+   never inflated), a terminal/`MERGE_ELIGIBLE` row short-circuits + applies.
+   The terminal action (outcome/detail) is persisted with the marker
+   (`result_json`) so a true duplicate is answered from the ledger.
+2. **Concurrent deliveries could both enter `_process_claimed`.** The processing
+   row had no owner/lease. FIX: `claim_event(event, owner, ttl)` gives the event
+   an EXCLUSIVE processing lease — a concurrent delivery by a DIFFERENT owner is
+   refused (`in_progress`), reclaimable only after that lease expires; the SAME
+   owner may resume its own claim at once (so an in-process redelivery re-drives
+   immediately instead of stalling). Two-owner exclusion is what makes state
+   application at-most-once, not merely coalesced.
+3. **Cancellation was cooperative/in-memory only.** FIX: durable ownership +
+   heartbeat + hard-kill seam — `heartbeat` (only the live `owner`+`fence` holder
+   renews; a hung executor stops heart-beating and its lease expires),
+   `request_cancellation`/`is_cancellation_requested` (a PERSISTED flag is the
+   cross-restart source of truth an executor polls, not a poller token), and
+   `list_uncooperative_cancellations` + a `TerminationHook` the poller invokes at
+   `startup_recover` for any run whose retained lease expired without ack — a
+   SQLite flag alone cannot stop untrusted work, so the hard kill is an explicit,
+   observable mechanism (default hook records the obligation; no real executor
+   yet). Sandbox stays stubbed; NO push/merge; human-gate wall unchanged.
+
+Crash-injection tests added at every boundary the reviewer enumerated — after
+claim (supersede), after supersede (ensure_row), at lease-acquire, after the
+state transition (executor crash → resume from `FIXING`, counter not double-
+bumped), after the executor result (`transition_and_apply` crash → resume), and
+before the applied marker (round-cap `mark_event_applied` crash) — plus
+two-concurrent-deliveries (an owner-held claim refuses a second poller; a
+threaded race drives exactly once). Evidence updated:
+`tests/test_agent_automation_poller.py` now 64 tests →
+`… -m pytest tests/test_agent_automation_poller.py -q` → 64 passed;
+`git diff --check` clean.
+
 NEXT: (1) ephemeral OS/container/VM sandbox executor behind
 `run_fix_in_sandbox` (design §7.5) + Phase-0 escape/exfiltration suite; (2) live
 GitHub read-only event feed into `ingest`; (3) integrate the existing

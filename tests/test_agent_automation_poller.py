@@ -21,10 +21,12 @@ from renquant_orchestrator.agent_automation_poller import (
     Actor,
     AutomationPoller,
     CancellationToken,
+    ClaimResult,
     Event,
     ExecutorCancelled,
     FixResult,
     IllegalTransition,
+    NoopTerminationHook,
     PollerConfig,
     State,
     StateStore,
@@ -145,21 +147,54 @@ def test_second_fix_on_different_head_coalesces():
 # ─────────────────────────── idempotency ────────────────────────────────
 
 
-def test_event_idempotency_claim_then_apply():
-    """Claim/apply ledger: a redelivery mid-flight (claimed but NOT yet applied)
-    is re-drivable; only a fully APPLIED id is a true duplicate."""
+def test_claim_event_exclusive_then_apply():
+    """Claim/apply ledger (review point 3): the FIRST delivery gets an EXCLUSIVE
+    processing claim (owner + lease); a concurrent delivery by a DIFFERENT owner
+    is refused (in_progress); the SAME owner may resume its own claim at once;
+    and only a fully APPLIED id is a true duplicate — carrying its recorded
+    terminal result so it is answered from the ledger, not re-driven."""
     clock = FakeClock()
     store = StateStore(clock=clock)
     evt = _event(event_id="rev-1")
-    assert store.record_event(evt) is True   # brand-new claim
-    # not yet applied → a redelivery mid-flight is reprocessable, not a silent
-    # "duplicate forever" that loses work (the point-3 bug)
-    assert store.record_event(evt) is True
+
+    first = store.claim_event(evt, owner="poller-A", ttl=100.0)
+    assert isinstance(first, ClaimResult)
+    assert first.proceed is True and first.disposition == "new"
+
+    # a DIFFERENT owner cannot claim while poller-A's processing lease is LIVE —
+    # this is what makes two concurrent deliveries at-most-once, not coalesced
+    contend = store.claim_event(evt, owner="poller-B", ttl=100.0)
+    assert contend.proceed is False and contend.disposition == "in_progress"
+
+    # the SAME owner may reclaim immediately (its own crash / redelivery) rather
+    # than stall until its own lease TTL elapses
+    same = store.claim_event(evt, owner="poller-A", ttl=100.0)
+    assert same.proceed is True and same.disposition == "reclaimed"
+
+    # not yet applied → still re-drivable, never a silent "duplicate" that loses
+    # work (the point-3 bug)
     assert store.event_applied("rev-1") is False
-    store.mark_event_applied("rev-1")
-    assert store.record_event(evt) is False  # now truly applied → duplicate
+    store.mark_event_applied("rev-1", result_json='{"outcome": "escalated"}')
+
+    # now truly applied → a genuine duplicate, and the recorded result is carried
+    dup = store.claim_event(evt, owner="poller-A", ttl=100.0)
+    assert dup.proceed is False and dup.disposition == "applied"
+    assert dup.result_json == '{"outcome": "escalated"}'
     assert store.event_seen("rev-1") is True
     assert store.event_applied("rev-1") is True
+
+
+def test_claim_event_reclaimable_by_other_owner_only_after_lease_expiry():
+    """A crashed owner's processing claim is reclaimed by ANOTHER owner ONLY
+    after the processing lease TTL — never while the prior owner might be live."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    evt = _event(event_id="rev-x")
+    assert store.claim_event(evt, owner="A", ttl=100.0).proceed is True
+    assert store.claim_event(evt, owner="B", ttl=100.0).proceed is False  # A live
+    clock.advance(101.0)  # A's processing lease expires (A crashed mid-flight)
+    reclaimed = store.claim_event(evt, owner="B", ttl=100.0)
+    assert reclaimed.proceed is True and reclaimed.disposition == "reclaimed"
 
 
 def test_poller_drops_duplicate_review_event():
@@ -633,11 +668,30 @@ def _crash_once(store, method_name):
     setattr(store, method_name, wrapper)
 
 
-@pytest.mark.parametrize("boundary", ["supersede_stale", "ensure_row", "mark_event_applied"])
-def test_crash_injection_event_not_lost_at_boundary(boundary):
-    """Review point 3: a crash at ANY boundary between claiming an event and
-    marking it applied leaves the event RE-DRIVABLE on redelivery — never a
-    permanent 'duplicate' that silently drops the work (the point-3 bug)."""
+class _CrashOnceExecutor:
+    """Delegates to ``inner`` but raises :class:`_CrashInjected` on its FIRST
+    call — a crash AFTER the FIXING hop committed, BEFORE the terminal result —
+    then heals so the redelivery's resume path runs the real executor."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.calls = 0
+
+    def run_fix_in_sandbox(self, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            raise _CrashInjected("executor")
+        return self.inner.run_fix_in_sandbox(**kwargs)
+
+
+_KEY = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+
+
+@pytest.mark.parametrize("boundary", ["supersede_stale", "ensure_row", "acquire"])
+def test_crash_injection_before_drive_is_redrivable(boundary):
+    """Review point 3: a crash AFTER CLAIM but before the fix is driven (at the
+    supersede / ensure-row / lease-acquire boundaries) leaves the event
+    RE-DRIVABLE — never a permanent 'duplicate' that silently drops the work."""
     clock = FakeClock()
     store = StateStore(clock=clock)
     poller = AutomationPoller(_config(), store)
@@ -654,11 +708,146 @@ def test_crash_injection_event_not_lost_at_boundary(boundary):
     # redelivery re-drives the work to completion (stub → ESCALATED)
     action = poller.ingest(evt)
     assert action.outcome != "duplicate"
-    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
-    assert store.get_state(key) == State.ESCALATED
+    assert store.get_state(_KEY) == State.ESCALATED
     assert store.event_applied("cr-crash") is True
-    # exactly one attempt was ever recorded — idempotent, no double work
-    assert store.get_row(key)["attempt"] == 1
+    # exactly one round was ever recorded — idempotent, no double work
+    assert store.get_row(_KEY)["attempt"] == 1
+
+
+def test_crash_after_state_transition_resumes_without_double_round():
+    """Review point 3: a crash AFTER the FIXING transition committed (round
+    counter already bumped) resumes from FIXING on redelivery WITHOUT a second
+    begin_fix_round — the counter is never inflated and no illegal FIXING ->
+    FIXING is attempted."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    executor = _CrashOnceExecutor(StubSandboxExecutor())
+    poller = AutomationPoller(_config(), store, executor=executor)
+    evt = _event(event_id="cr-mid", state="CHANGES_REQUESTED")
+
+    with pytest.raises(_CrashInjected):
+        poller.ingest(evt)
+    # the FIXING hop committed (round bumped) but the event is NOT applied
+    assert store.get_state(_KEY) == State.FIXING
+    assert store.get_row(_KEY)["attempt"] == 1
+    assert store.event_applied("cr-mid") is False
+
+    action = poller.ingest(evt)  # resume from FIXING → stub → ESCALATE
+    assert action.outcome == "escalated"
+    assert store.get_state(_KEY) == State.ESCALATED
+    assert store.get_row(_KEY)["attempt"] == 1  # NOT bumped a second time
+    assert store.event_applied("cr-mid") is True
+
+
+def test_crash_after_executor_result_before_apply_resumes():
+    """Review point 3: a crash AFTER the executor produced a result but BEFORE
+    the terminal transition+apply committed re-drives cleanly on redelivery
+    (fold means the row never moved, so no duplicate side effect)."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+
+    class NoopExecutor:
+        def run_fix_in_sandbox(self, **kwargs):
+            return FixResult(patch="", evidence="ok")
+
+    poller = AutomationPoller(_config(), store, executor=NoopExecutor())
+    evt = _event(event_id="cr-post", state="CHANGES_REQUESTED")
+
+    _crash_once(store, "transition_and_apply")
+    with pytest.raises(_CrashInjected):
+        poller.ingest(evt)
+    # executor ran, but the fold did NOT commit → row still FIXING, un-applied
+    assert store.get_state(_KEY) == State.FIXING
+    assert store.event_applied("cr-post") is False
+    assert store.get_row(_KEY)["attempt"] == 1
+
+    action = poller.ingest(evt)  # resume → executor → fold commits
+    assert action.outcome == "fixed"
+    assert store.get_state(_KEY) == State.AWAIT_REVIEW
+    assert store.event_applied("cr-post") is True
+    assert store.get_row(_KEY)["attempt"] == 1  # still exactly one round
+
+
+def test_crash_before_applied_marker_on_roundcap_is_redrivable():
+    """Review point 3: a crash BEFORE the applied marker on the round-cap
+    ESCALATED path (whose transition is not folded) re-drives into the terminal
+    short-circuit on redelivery — idempotent, counter unchanged, then applied."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(max_rounds_per_pr=1), store)
+    evt = _event(event_id="cr-cap", state="CHANGES_REQUESTED")
+
+    _crash_once(store, "mark_event_applied")
+    with pytest.raises(_CrashInjected):
+        poller.ingest(evt)
+    # begin_fix_round transitioned to ESCALATED (cap=1) but the marker crashed
+    assert store.get_state(_KEY) == State.ESCALATED
+    assert store.get_row(_KEY)["attempt"] == 1
+    assert store.event_applied("cr-cap") is False
+
+    action = poller.ingest(evt)  # terminal short-circuit → apply
+    assert action.outcome == "terminal"
+    assert store.event_applied("cr-cap") is True
+    assert store.get_row(_KEY)["attempt"] == 1
+
+
+def test_poller_refuses_event_claimed_by_another_owner():
+    """Review point 3 (concurrency): a live processing claim held by a DIFFERENT
+    owner refuses this poller (in_progress) — two owners never both enter the
+    drive for one event id, so the state mutation is at-most-once."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    evt = _event(event_id="held", state="CHANGES_REQUESTED")
+    # another poller process claimed it and is mid-flight (lease live, un-applied)
+    assert store.claim_event(evt, owner="other-poller", ttl=100.0).proceed is True
+
+    poller = AutomationPoller(_config(owner="poller-1"), store)
+    action = poller.ingest(evt)
+    assert action.outcome == "in_progress"
+    # this poller drove NOTHING
+    assert store.get_state(_KEY) is None
+    assert store.event_applied("held") is False
+
+
+def test_two_concurrent_deliveries_drive_exactly_once(tmp_path):
+    """Review point 3: two poller processes (DISTINCT owners) racing the SAME
+    event id — exactly one drives it to a terminal outcome; the other is refused
+    (in_progress) or sees a true duplicate. The work item is driven ONCE."""
+    import threading
+
+    db = str(tmp_path / "concurrent.db")
+    store_a = StateStore(db)
+    store_b = StateStore(db)
+    poller_a = AutomationPoller(_config(owner="poller-A"), store_a)
+    poller_b = AutomationPoller(_config(owner="poller-B"), store_b)
+    evt = _event(event_id="race", state="CHANGES_REQUESTED")
+
+    results: dict = {}
+    errors: list = []
+    barrier = threading.Barrier(2)
+
+    def worker(poller, name):
+        try:
+            barrier.wait()
+            results[name] = poller.ingest(evt)
+        except Exception as exc:  # pragma: no cover - surfaced via assert
+            errors.append(exc)
+
+    t1 = threading.Thread(target=worker, args=(poller_a, "a"))
+    t2 = threading.Thread(target=worker, args=(poller_b, "b"))
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+
+    assert errors == []
+    outcomes = [r.outcome for r in results.values()]
+    # exactly one delivery drove the fix to a terminal escalation
+    assert outcomes.count("escalated") == 1
+    other = [o for o in outcomes if o != "escalated"][0]
+    assert other in ("in_progress", "duplicate")
+    # the work item was driven exactly once (one round, no double side effect)
+    assert store_a.get_row(_KEY)["attempt"] == 1
+    store_a.close()
+    store_b.close()
 
 
 def test_crash_after_apply_is_a_true_duplicate():
@@ -746,6 +935,87 @@ def test_reconcile_clears_dangling_superseded_lease():
     clock.advance(101.0)  # old executor never acked; its lease expired
     store.reconcile_expired_leases()
     assert store.get_row(key)["lease_owner"] is None  # dangling lease swept
+
+
+# ─────── point 4: durable cancellation ownership / heartbeat / kill ───────
+
+
+def test_heartbeat_renews_only_for_the_live_holder():
+    """Review point 4: a durable liveness heartbeat keeps the lease alive for
+    the CURRENT holder only; a wrong owner or a stale fence cannot renew, so a
+    crashed/hung executor stops heart-beating and its lease expires."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    store.ensure_row(key, State.FIXING)
+    acq = store.acquire(key, "w1", ttl=100.0)
+
+    clock.advance(50.0)
+    assert store.heartbeat(key, "w1", acq.fence, ttl=100.0) is True
+    clock.advance(80.0)  # would have expired at t+100 without the renew
+    assert store.holds_lease(key, "w1") is True  # renewed to t+130
+
+    assert store.heartbeat(key, "w1", acq.fence + 1, ttl=100.0) is False   # stale fence
+    assert store.heartbeat(key, "intruder", acq.fence, ttl=100.0) is False  # wrong owner
+
+
+def test_request_cancellation_is_durable_and_retains_lease():
+    """Review point 4: cancellation is a PERSISTED flag (the cross-restart
+    source of truth an executor polls), not an in-memory token; the lease is
+    RETAINED until the executor acknowledges, and terminal rows cannot be
+    flagged."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-1")
+    store.ensure_row(key, State.FIXING)
+    store.acquire(key, "w1", ttl=100.0)
+
+    assert store.is_cancellation_requested(key) is False
+    assert store.request_cancellation(key) is True
+    assert store.is_cancellation_requested(key) is True     # durable flag
+    assert store.get_row(key)["lease_owner"] == "w1"        # lease retained
+
+    term = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-a", "rev-term")
+    store.ensure_row(term, State.ESCALATED)
+    assert store.request_cancellation(term) is False        # terminal → no-op
+
+
+def test_list_uncooperative_cancellations_flags_expired_unacked_only():
+    """Review point 4: only a run whose cancellation was durably requested AND
+    whose retained lease expired WITHOUT acknowledgement is 'uncooperative' —
+    the set a hard termination mechanism must forcibly tear down."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-old", "rev-1")
+    store.ensure_row(key, State.FIXING)
+    store.acquire(key, "w1", ttl=100.0)
+    store.supersede_stale("hallovorld/renquant-orchestrator", 42, "sha-new")
+
+    assert store.list_uncooperative_cancellations() == []   # lease still live
+    clock.advance(101.0)
+    assert key in store.list_uncooperative_cancellations()  # expired w/o ack
+    store.acknowledge_cancellation(key)
+    assert store.list_uncooperative_cancellations() == []   # acked → cleared
+
+
+def test_startup_recover_hard_terminates_uncooperative_runs():
+    """Review point 4: at startup, an uncooperative run is handed to the hard
+    TerminationHook BEFORE its dangling lease is reconciled — a retained SQLite
+    flag by itself does not stop untrusted work, so the kill is an explicit,
+    observable mechanism (here: recorded)."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    hook = NoopTerminationHook()
+    poller = AutomationPoller(_config(), store, termination_hook=hook)
+    key = WorkKey("hallovorld/renquant-orchestrator", 42, "sha-old", "rev-1")
+    store.ensure_row(key, State.FIXING)
+    store.acquire(key, "dead", ttl=100.0)
+    store.supersede_stale("hallovorld/renquant-orchestrator", 42, "sha-new")
+    clock.advance(101.0)  # dead executor never acked; its lease expired
+
+    poller.startup_recover()
+    assert key in hook.terminated                       # hard-kill obligation surfaced
+    assert store.get_row(key)["lease_owner"] is None    # dangling lease then swept
 
 
 # ─────────────────────────── replay harness ─────────────────────────────

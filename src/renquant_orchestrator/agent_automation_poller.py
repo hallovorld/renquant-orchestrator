@@ -276,6 +276,27 @@ class WorkKey:
 
 
 @dataclass(frozen=True)
+class ClaimResult:
+    """Outcome of an EXCLUSIVE event claim (design §6.3, review point 3).
+
+    * ``proceed`` — the caller owns the processing claim and must drive the
+      event (a brand-new claim, or a reclaim of a crashed owner's expired
+      processing lease).
+    * ``disposition`` — ``"new"`` | ``"reclaimed"`` | ``"applied"`` |
+      ``"in_progress"``. ``"applied"`` is a true duplicate (already fully
+      applied); ``"in_progress"`` means another owner currently holds a LIVE
+      processing lease, so the caller must NOT process it — it will be
+      redelivered and reclaimed once that lease expires. This is what makes two
+      concurrent deliveries at-most-once, not merely coalesced.
+    * ``result_json`` — the recorded terminal action for a duplicate.
+    """
+
+    proceed: bool
+    disposition: str = ""
+    result_json: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class AcquireResult:
     acquired: bool
     reason: str = ""
@@ -316,6 +337,18 @@ CREATE TABLE IF NOT EXISTS processed_events (
     -- true duplicate: a crash mid-flight leaves 'processing', which is
     -- re-drivable on redelivery (never a silent "duplicate" that loses work).
     status       TEXT NOT NULL DEFAULT 'processing',
+    -- EXCLUSIVE processing claim (design §6.3): the owner that claimed the
+    -- event and the lease under which it is being processed. A second delivery
+    -- of the SAME event id (a redelivery / a concurrent worker) can only take
+    -- over once this processing lease EXPIRES — so two owners can never both
+    -- enter ``_process_claimed`` for one event. Distinct poller processes MUST
+    -- use distinct ``owner`` ids (the same invariant as the work-item lease).
+    owner        TEXT,
+    lease_expiry REAL,
+    -- the recorded terminal :class:`Action` (outcome/detail) for this event id,
+    -- persisted atomically with the applied marker, so a true duplicate can be
+    -- answered from the ledger instead of re-driving.
+    result_json  TEXT,
     processed_at REAL NOT NULL,
     applied_at   REAL
 );
@@ -394,45 +427,91 @@ class StateStore:
         row = self.get_row(key)
         return State(row["state"]) if row else None
 
-    # ── event idempotency (§6.3) ───────────────────────────────────────────
+    # ── event idempotency (§6.3, review point 3) ───────────────────────────
 
-    def record_event(self, event: Event) -> bool:
-        """Claim an inbound event for processing (idempotency ledger).
+    def claim_event(self, event: Event, owner: str, ttl: float) -> ClaimResult:
+        """EXCLUSIVELY claim an inbound event for processing (idempotency ledger).
 
-        Returns ``True`` when the caller should process the event, ``False``
-        only when it was ALREADY fully ``applied``. A brand-new delivery is
-        claimed ``processing``; a redelivery that finds a prior ``processing``
-        row (i.e. a previous attempt crashed before the state mutation
-        committed) also returns ``True`` so the work is re-driven rather than
-        silently swallowed. The state mutation is marked ``applied`` only after
-        the transition succeeds — see :meth:`mark_event_applied`.
+        The whole claim runs in ONE ``BEGIN IMMEDIATE`` transaction, so two
+        deliveries of the same ``event_id`` — a redelivery or a concurrent
+        worker — cannot both win it:
+
+          * brand-new id → inserted ``processing`` with an owner + lease →
+            ``proceed=True`` (``"new"``);
+          * already ``applied`` → a true duplicate → ``proceed=False``
+            (``"applied"``), carrying the recorded terminal action;
+          * ``processing`` with a LIVE lease held by ANOTHER owner → a
+            concurrent worker is mid-flight → ``proceed=False``
+            (``"in_progress"``): the caller must NOT process it (that is what
+            makes two concurrent deliveries at-most-once, not merely coalesced);
+            it is redelivered and reclaimed after that lease expires;
+          * ``processing`` whose lease is EXPIRED, or is held by THIS SAME
+            ``owner`` → the prior attempt (a crash, or an immediate same-worker
+            redelivery) is ours to resume → reclaimed → ``proceed=True``
+            (``"reclaimed"``). Same-owner reclaim is safe because one worker
+            drives its own deliveries serially — it can never race itself — and
+            it is what lets an in-process redelivery re-drive at once instead of
+            stalling until its own lease TTL elapses.
+
+        Recovery of a crashed in-flight event is therefore lease-driven, exactly
+        like the work-item lease: a DIFFERENT owner re-drives only on the first
+        redelivery after the processing lease TTL, never while the prior owner
+        might still be live.
         """
         now = self._clock()
         with self._immediate() as db:
             cur = db.execute(
                 "INSERT OR IGNORE INTO processed_events "
-                "(event_id, repo, pr_number, head_sha, status, processed_at) "
-                "VALUES (?,?,?,?, 'processing', ?)",
-                (event.event_id, event.repo, event.pr_number, event.head_sha, now),
+                "(event_id, repo, pr_number, head_sha, status, owner, lease_expiry, "
+                " processed_at) "
+                "VALUES (?,?,?,?, 'processing', ?, ?, ?)",
+                (event.event_id, event.repo, event.pr_number, event.head_sha,
+                 owner, now + ttl, now),
             )
             if cur.rowcount == 1:
-                return True  # brand-new claim
+                return ClaimResult(True, "new")
             row = db.execute(
-                "SELECT status FROM processed_events WHERE event_id=?",
+                "SELECT status, owner, lease_expiry, result_json FROM processed_events "
+                "WHERE event_id=?",
                 (event.event_id,),
             ).fetchone()
-            # Already fully applied → a true duplicate; otherwise a crashed
-            # in-flight attempt that must be re-driven.
-            return not (row is not None and row["status"] == "applied")
+            if row is not None and row["status"] == "applied":
+                return ClaimResult(False, "applied", result_json=row["result_json"])
+            # Still 'processing': reclaim iff the prior processing lease has
+            # expired (crashed owner) OR it is already held by THIS owner (our
+            # own crash / immediate redelivery). A LIVE lease held by a DIFFERENT
+            # owner is exclusive — refuse.
+            expiry = row["lease_expiry"] if row is not None else None
+            same_owner = row is not None and row["owner"] == owner
+            if expiry is None or expiry <= now or same_owner:
+                taken = db.execute(
+                    "UPDATE processed_events SET owner=?, lease_expiry=? "
+                    "WHERE event_id=? AND status='processing' "
+                    "AND (lease_expiry IS NULL OR lease_expiry <= ? OR owner=?)",
+                    (owner, now + ttl, event.event_id, now, owner),
+                ).rowcount
+                if taken == 1:
+                    return ClaimResult(True, "reclaimed")
+                # lost the reclaim race to another owner in the same instant
+                return ClaimResult(False, "in_progress")
+            return ClaimResult(False, "in_progress")
 
-    def mark_event_applied(self, event_id: str) -> None:
-        """Mark a claimed event as fully applied (its state mutation committed).
+    def mark_event_applied(self, event_id: str, result_json: Optional[str] = None) -> None:
+        """Mark a claimed event as fully applied and record its terminal action.
 
-        Idempotent: safe to call again on redelivery of an already-applied id.
+        Idempotent and first-writer-wins: ``COALESCE`` preserves the
+        ``applied_at`` / ``result_json`` written by a folded
+        :meth:`transition_and_apply`, so calling this again from ``ingest`` (the
+        no-mutation paths) never overwrites the atomic record. Clears the
+        processing lease — the event is done.
         """
+        now = self._clock()
         self._db.execute(
-            "UPDATE processed_events SET status='applied', applied_at=? WHERE event_id=?",
-            (self._clock(), event_id),
+            "UPDATE processed_events SET status='applied', "
+            "applied_at=COALESCE(applied_at, ?), result_json=COALESCE(result_json, ?), "
+            "owner=NULL, lease_expiry=NULL "
+            "WHERE event_id=?",
+            (now, result_json, event_id),
         )
 
     def event_seen(self, event_id: str) -> bool:
@@ -619,28 +698,26 @@ class StateStore:
 
     # ── transitions (§6.3, single owner) ───────────────────────────────────
 
-    def transition(
+    def _do_transition(
         self,
+        db: sqlite3.Connection,
         key: WorkKey,
         to: State,
         *,
         actor: Actor,
-        owner: Optional[str] = None,
-        fence: Optional[int] = None,
-        require_lease: bool = True,
+        owner: Optional[str],
+        fence: Optional[int],
+        require_lease: bool,
     ) -> State:
-        """Atomically move a work item to ``to`` under a single writer.
-
-        Enforces the legal transition graph AND actor authorisation (the
-        human-gate wall lives here). For a ``POLLER`` transition the state
-        UPDATE is FENCED BY THE LEASE in one statement: it requires the current
-        row to still be at the expected ``frm`` state, un-superseded, and leased
-        to ``owner`` with ``lease_expiry`` in the future — plus, when supplied,
-        the acquiring ``fence`` generation. So if the lease expires or is
-        reclaimed (even by the same ``owner`` id) between check and commit, the
-        stale owner's transition simply fails; it can never commit.
+        """Enforce + apply one transition on ``db`` (autocommit OR inside a
+        ``BEGIN IMMEDIATE``). Split out so :meth:`transition` and
+        :meth:`transition_and_apply` share exactly one fenced-UPDATE code path.
         """
-        row = self.get_row(key)
+        row = db.execute(
+            "SELECT state, superseded FROM work_items "
+            "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
+            key.as_tuple(),
+        ).fetchone()
         if row is None:
             raise IllegalTransition(f"no work item for {key.as_tuple()}")
         if row["superseded"]:
@@ -662,7 +739,7 @@ class StateStore:
             if fence is not None:
                 sql += " AND fence=?"
                 params.append(int(fence))
-            cur = self._db.execute(sql, params)
+            cur = db.execute(sql, params)
             if cur.rowcount != 1:
                 raise IllegalTransition(
                     f"poller cannot transition {frm.value} → {to.value} for "
@@ -671,7 +748,7 @@ class StateStore:
                 )
             return State(to)
 
-        cur = self._db.execute(
+        cur = db.execute(
             "UPDATE work_items SET state=?, updated_at=? "
             "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
             "AND state=? AND superseded=0",
@@ -683,15 +760,188 @@ class StateStore:
             )
         return State(to)
 
-    def bump_attempt(self, key: WorkKey) -> int:
+    def transition(
+        self,
+        key: WorkKey,
+        to: State,
+        *,
+        actor: Actor,
+        owner: Optional[str] = None,
+        fence: Optional[int] = None,
+        require_lease: bool = True,
+    ) -> State:
+        """Atomically move a work item to ``to`` under a single writer.
+
+        Enforces the legal transition graph AND actor authorisation (the
+        human-gate wall lives here). For a ``POLLER`` transition the state
+        UPDATE is FENCED BY THE LEASE in one statement: it requires the current
+        row to still be at the expected ``frm`` state, un-superseded, and leased
+        to ``owner`` with ``lease_expiry`` in the future — plus, when supplied,
+        the acquiring ``fence`` generation. So if the lease expires or is
+        reclaimed (even by the same ``owner`` id) between check and commit, the
+        stale owner's transition simply fails; it can never commit.
+        """
+        return self._do_transition(
+            self._db, key, to, actor=actor, owner=owner, fence=fence,
+            require_lease=require_lease,
+        )
+
+    def transition_and_apply(
+        self,
+        key: WorkKey,
+        to: State,
+        *,
+        actor: Actor,
+        event_id: str,
+        result_json: Optional[str],
+        owner: Optional[str] = None,
+        fence: Optional[int] = None,
+        require_lease: bool = True,
+    ) -> State:
+        """Apply an event's FINAL transition AND mark the event applied in ONE
+        transaction (design §6.3, review point 3).
+
+        Folding the two commits closes the exact crash window the reviewer
+        flagged: a crash can never leave the row transitioned but the event
+        un-applied (which would RE-DRIVE and duplicate the side effect on
+        redelivery), nor the event applied but the row not transitioned. Either
+        both commit or neither does — so redelivery after this point is a true
+        duplicate, and redelivery before it re-drives cleanly from the prior
+        state.
+        """
         now = self._clock()
-        self._db.execute(
-            "UPDATE work_items SET attempt=attempt+1, updated_at=? "
-            "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
+        with self._immediate() as db:
+            result = self._do_transition(
+                db, key, to, actor=actor, owner=owner, fence=fence,
+                require_lease=require_lease,
+            )
+            db.execute(
+                "UPDATE processed_events SET status='applied', "
+                "applied_at=COALESCE(applied_at, ?), "
+                "result_json=COALESCE(result_json, ?), "
+                "owner=NULL, lease_expiry=NULL "
+                "WHERE event_id=?",
+                (now, result_json, event_id),
+            )
+        return result
+
+    def begin_fix_round(
+        self, key: WorkKey, *, owner: str, fence: int, max_rounds: int
+    ) -> tuple[str, int]:
+        """Atomically bump the attempt counter AND make the round decision +
+        transition in ONE transaction (design §8.1, review point 3).
+
+        Folding the bump with the transition means a crash can never leave the
+        attempt incremented without the matching state change (an inflated round
+        counter that would escalate early) or vice versa — so a resumed
+        redelivery, which finds the row already at ``FIXING``, must NOT call this
+        again. Requires the row at ``AWAIT_REVIEW``, un-superseded, and still
+        leased to ``owner`` at the acquiring ``fence`` generation. Returns
+        ``("fixing", attempt)`` (drive into the executor) or
+        ``("escalated", attempt)`` (round cap reached; the row is now
+        ``ESCALATED``, a terminal state).
+        """
+        now = self._clock()
+        with self._immediate() as db:
+            row = db.execute(
+                "SELECT state, superseded, attempt, lease_owner, lease_expiry, fence "
+                "FROM work_items WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=?",
+                key.as_tuple(),
+            ).fetchone()
+            if row is None:
+                raise IllegalTransition(f"no work item for {key.as_tuple()}")
+            if row["superseded"]:
+                raise IllegalTransition(f"work item {key.as_tuple()} is superseded")
+            frm = State(row["state"])
+            if frm is not State.AWAIT_REVIEW:
+                raise IllegalTransition(
+                    f"begin_fix_round requires AWAIT_REVIEW, got {frm.value} "
+                    f"for {key.as_tuple()}"
+                )
+            if (
+                row["lease_owner"] != owner
+                or (row["lease_expiry"] or 0) <= now
+                or int(row["fence"]) != int(fence)
+            ):
+                raise IllegalTransition(
+                    f"begin_fix_round: lease lost/expired/reclaimed for {key.as_tuple()}"
+                )
+            attempt = int(row["attempt"]) + 1
+            to = State.ESCALATED if attempt >= max_rounds else State.FIXING
+            assert_transition(frm, to, Actor.POLLER)
+            cur = db.execute(
+                "UPDATE work_items SET attempt=?, state=?, updated_at=? "
+                "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
+                "AND state=? AND superseded=0 AND lease_owner=? AND lease_expiry>? AND fence=?",
+                (attempt, to.value, now, *key.as_tuple(), State.AWAIT_REVIEW.value,
+                 owner, now, int(fence)),
+            )
+            if cur.rowcount != 1:
+                raise IllegalTransition(f"begin_fix_round CAS failed for {key.as_tuple()}")
+            return ("escalated" if to is State.ESCALATED else "fixing", attempt)
+
+    # ── durable cancellation ownership / heartbeat (§6.3, review point 4) ───
+
+    def heartbeat(self, key: WorkKey, owner: str, fence: int, ttl: float) -> bool:
+        """Renew the executor lease (durable liveness / ownership heartbeat).
+
+        A long-running (real) executor MUST call this periodically to keep its
+        lease alive. Only the CURRENT live holder — matching ``owner`` and the
+        acquiring ``fence`` generation, not yet expired — can renew. If the
+        executor crashes or hangs it stops heart-beating, the lease expires, and
+        :meth:`reconcile_expired_leases` reclaims the work — so liveness is
+        durable state, never an in-memory token. Returns ``True`` on renew.
+        """
+        now = self._clock()
+        cur = self._db.execute(
+            "UPDATE work_items SET lease_expiry=?, updated_at=? "
+            "WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
+            "AND lease_owner=? AND fence=? AND lease_expiry>?",
+            (now + ttl, now, *key.as_tuple(), owner, int(fence), now),
+        )
+        return cur.rowcount == 1
+
+    def request_cancellation(self, key: WorkKey) -> bool:
+        """Durably request cancellation of an in-flight run (operator / budget
+        abort), independent of a head advance. Sets the persisted
+        ``cancel_requested`` flag; the lease is RETAINED until the executor
+        acknowledges (or its lease expires and is reclaimed). Returns ``True``
+        if a non-terminal row was flagged.
+        """
+        now = self._clock()
+        cur = self._db.execute(
+            f"UPDATE work_items SET cancel_requested=1, updated_at=? "
+            f"WHERE repo=? AND pr_number=? AND head_sha=? AND review_id=? "
+            f"AND state NOT IN ({_TERMINAL_SQL})",
             (now, *key.as_tuple()),
         )
+        return cur.rowcount == 1
+
+    def is_cancellation_requested(self, key: WorkKey) -> bool:
+        """True iff cancellation is durably requested for this row.
+
+        This is the SOURCE OF TRUTH an executor (in ANY process, after ANY
+        restart) polls — a persisted flag, not the poller's in-memory token. It
+        is what makes cancellation survive a poller restart.
+        """
         row = self.get_row(key)
-        return int(row["attempt"]) if row else 0
+        return bool(row and (row["cancel_requested"] or row["superseded"]))
+
+    def list_uncooperative_cancellations(self) -> list[WorkKey]:
+        """Rows whose cancellation was durably requested but whose retained
+        lease has EXPIRED without the executor acknowledging — i.e. a run that
+        did not stop cooperatively within its lease. These are the runs a hard
+        termination mechanism must forcibly tear down (see
+        :class:`TerminationHook`); a retained flag alone cannot stop untrusted
+        work.
+        """
+        now = self._clock()
+        cur = self._db.execute(
+            "SELECT repo, pr_number, head_sha, review_id FROM work_items "
+            "WHERE cancel_requested=1 AND lease_owner IS NOT NULL AND lease_expiry <= ?",
+            (now,),
+        )
+        return [WorkKey(r["repo"], r["pr_number"], r["head_sha"], r["review_id"]) for r in cur]
 
     # ── crash recovery (§6.3) ──────────────────────────────────────────────
 
@@ -844,6 +1094,41 @@ class StubSandboxExecutor:
         raise NotImplementedError("ephemeral sandbox executor — follow-up PR")
 
 
+# ─────────────────────── hard termination mechanism ─────────────────────
+
+
+class TerminationHook(Protocol):
+    """Hard, out-of-band teardown of a run that ignored cooperative cancel
+    (design §6.3 / review point 4).
+
+    A durable ``cancel_requested`` flag alone CANNOT stop untrusted work — a
+    hung or malicious executor may never poll it. So a real deployment must own
+    a hard kill (terminate the sandbox container/VM, revoke its lease + creds)
+    for any run whose retained lease expired without acknowledging. This
+    interface is that mechanism's seam; the poller hands it every uncooperative
+    run found at startup (see :meth:`AutomationPoller.startup_recover`).
+    """
+
+    def terminate(self, key: "WorkKey") -> None: ...
+
+
+class NoopTerminationHook:
+    """Default hook: RECORD the kill requirement instead of pretending to kill.
+
+    This control-plane PR wires no real executor, so there is no live process to
+    tear down — but leaving the requirement implicit is exactly the overclaim
+    the reviewer flagged. Recording each uncooperative key makes the unmet
+    hard-termination obligation explicit and observable (and asserted in tests)
+    rather than silently assumed satisfied by a SQLite flag.
+    """
+
+    def __init__(self) -> None:
+        self.terminated: list["WorkKey"] = []
+
+    def terminate(self, key: "WorkKey") -> None:
+        self.terminated.append(key)
+
+
 # ───────────────────────────── poller config ────────────────────────────
 
 
@@ -914,50 +1199,96 @@ class AutomationPoller:
         store: StateStore,
         *,
         executor: Optional[SandboxExecutor] = None,
+        termination_hook: Optional[TerminationHook] = None,
     ):
         self.config = config
         self.store = store
         self.executor: SandboxExecutor = executor or StubSandboxExecutor()
+        #: hard-termination seam (review point 4). Handed every uncooperative
+        #: run at startup — one whose cancellation was durably requested but
+        #: whose retained lease expired without acknowledgement. The default
+        #: hook RECORDS the unmet kill obligation instead of pretending a SQLite
+        #: flag stopped untrusted work.
+        self.termination_hook: TerminationHook = termination_hook or NoopTerminationHook()
         #: in-flight cancellation tokens keyed by work item (design §6.3). A
         #: supersede on a newer head cancels the matching token so a threaded /
-        #: async executor for the stale head is told to stop. In the synchronous
-        #: stub model this stays empty except during a ``run_fix_in_sandbox``
-        #: call, but it is the plumbing the real sandbox executor relies on.
+        #: async executor for the stale head is told to stop. This is the
+        #: in-memory FAST signal; the DURABLE ``cancel_requested`` flag (set by
+        #: :meth:`StateStore.supersede_stale`) is the cross-restart source of
+        #: truth the executor also polls.
         self._inflight: dict[WorkKey, CancellationToken] = {}
 
     # ── ingestion ──────────────────────────────────────────────────────────
 
-    def ingest(self, event: Event) -> Action:
-        """Ingest one event and drive its resulting transition (deterministic).
+    @staticmethod
+    def _result_json(action: Action) -> str:
+        """Compact record of an event's terminal action, persisted WITH the
+        applied marker (review point 3) so a true duplicate is answered from the
+        ledger and the recorded decision is returned, not re-driven."""
+        return json.dumps({"outcome": action.outcome, "detail": action.detail})
 
-        Order (design §6.3): allowlist filter → CLAIM (idempotency) → stale-
-        cancel → state-machine drive → mark APPLIED. The event is marked
-        ``applied`` only AFTER the driven transition commits — a crash anywhere
-        in between leaves it re-drivable on redelivery instead of a silent
-        "duplicate" that loses the work.
+    def ingest(self, event: Event) -> Action:
+        """Ingest one event and drive its transition (deterministic, exactly-once).
+
+        Order (design §6.3, review point 3): allowlist filter → EXCLUSIVE claim
+        (owner + processing lease) → resume-idempotent drive. The claim is the
+        first half of exactly-once: a concurrent delivery held by a DIFFERENT
+        owner is refused (``in_progress``) rather than double-driven, and an
+        already-``applied`` id is a true duplicate. The second half is that
+        every FINAL transition is FOLDED with the applied marker
+        (:meth:`StateStore.transition_and_apply`) — so a crash can never leave
+        the row moved but the event un-applied, and redelivery either re-drives
+        cleanly from the CURRENT durable state or is a genuine duplicate.
         """
         if not self.config.is_tracked(event.repo, event.pr_number):
             return Action(event.event_id, event.repo, event.pr_number,
                           "ignored_untracked", "repo/PR not on allowlist")
 
-        if not self.store.record_event(event):
+        claim = self.store.claim_event(
+            event, self.config.owner, self.config.lease_ttl_seconds
+        )
+        if not claim.proceed:
+            if claim.disposition == "applied":
+                detail = "event id already applied"
+                recorded = self._recorded_outcome(claim.result_json)
+                if recorded:
+                    detail += f" (recorded outcome: {recorded})"
+                return Action(event.event_id, event.repo, event.pr_number,
+                              "duplicate", detail)
+            # a DIFFERENT owner holds a live processing lease — do NOT double
+            # drive; it will be redelivered and reclaimed after that lease ends.
             return Action(event.event_id, event.repo, event.pr_number,
-                          "duplicate", "event id already applied")
+                          "in_progress", "another owner holds the processing claim")
 
-        action = self._process_claimed(event)
-        # Only now — after the state mutation has committed — mark the event
-        # applied, closing the idempotency window against redelivery.
-        self.store.mark_event_applied(event.event_id)
+        return self._process_claimed(event)
+
+    @staticmethod
+    def _recorded_outcome(result_json: Optional[str]) -> str:
+        if not result_json:
+            return ""
+        try:
+            return str(json.loads(result_json).get("outcome", ""))
+        except (ValueError, TypeError):
+            return ""
+
+    def _apply(self, event: Event, action: Action) -> Action:
+        """Mark ``event`` applied (recording ``action``) for a path that did NOT
+        fold the marker into a durable transition — the no-mutation / already-
+        terminal / idempotent cases. Folded transitions use
+        :meth:`StateStore.transition_and_apply` and never reach here."""
+        self.store.mark_event_applied(event.event_id, self._result_json(action))
         return action
 
     def _process_claimed(self, event: Event) -> Action:
-        """Drive a claimed event through the state machine (crash-safe boundary).
-
-        Anything that raises here propagates WITHOUT marking the event applied,
-        so redelivery re-drives it.
+        """Drive a claimed event through the state machine (crash-safe, resume-
+        idempotent). Anything that raises here propagates WITHOUT marking the
+        event applied, so redelivery re-drives it from the CURRENT durable state
+        — never a double round-increment or an illegal repeat transition.
         """
         # A newer head supersedes any in-flight run on an older head; signal
-        # cancellation to any executor still running the stale head.
+        # cancellation via the in-memory token AND the durable cancel_requested
+        # flag (set inside supersede_stale) to any executor still on the stale
+        # head.
         superseded_keys = self.store.supersede_stale(
             event.repo, event.pr_number, event.head_sha
         )
@@ -970,19 +1301,33 @@ class AutomationPoller:
         self.store.ensure_row(key, State.AWAIT_REVIEW)
 
         current = self.store.get_state(key)
+        # ── resume idempotently from the CURRENT durable state ──────────────
         if current in TERMINAL_STATES:
-            return Action(event.event_id, event.repo, event.pr_number,
-                          "terminal", f"work item already {current.value}")
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number,
+                "terminal", f"work item already {current.value}"))
+        if current is State.MERGE_ELIGIBLE:
+            # a re-driven approval whose fold committed the state — idempotently
+            # re-affirm + apply (never crosses the human-gate wall).
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number,
+                "merge_eligible", "already merge-eligible (idempotent)"))
+        if current is State.FIXING:
+            # a prior attempt committed the FIXING hop (round counter already
+            # bumped) then crashed before finishing — RESUME the executor
+            # WITHOUT a second begin_fix_round, so the counter is never inflated.
+            return self._resume_fix(event, key)
 
-        state = event.state or ""
-        if event.kind == "review" and state.upper() == "APPROVED":
+        state = (event.state or "").upper()
+        if event.kind == "review" and state == "APPROVED":
             return self._drive_merge_eligible(event, key)
-        if event.kind == "review" and state.upper() == "CHANGES_REQUESTED":
+        if event.kind == "review" and state == "CHANGES_REQUESTED":
             return self._drive_fixing(event, key)
         if event.kind == "comment":
             return self._drive_fixing(event, key)
-        return Action(event.event_id, event.repo, event.pr_number,
-                      "await_review", f"tracked {event.kind} recorded")
+        return self._apply(event, Action(
+            event.event_id, event.repo, event.pr_number,
+            "await_review", f"tracked {event.kind} recorded"))
 
     def ingest_all(self, events: Iterable[Event]) -> list[Action]:
         return [self.ingest(e) for e in events]
@@ -993,104 +1338,152 @@ class AutomationPoller:
         """APPROVED at head → MERGE_ELIGIBLE. The poller STOPS here.
 
         Crossing the human-gate wall (to MERGED or HUMAN_GATE) is the separate
-        MERGE_AUTHORITY's job, never the poller's.
+        MERGE_AUTHORITY's job, never the poller's. The transition is FOLDED with
+        the event's applied marker so approval is exactly-once across a crash.
         """
-        if self.store.get_state(key) is State.MERGE_ELIGIBLE:
-            return Action(event.event_id, event.repo, event.pr_number,
-                          "merge_eligible", "already merge-eligible (idempotent)")
         acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
         if not acq.acquired:
-            return Action(event.event_id, event.repo, event.pr_number, "coalesced", acq.reason)
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number, "coalesced", acq.reason))
+        action = Action(event.event_id, event.repo, event.pr_number,
+                        "merge_eligible",
+                        "approved at head; poller authority ends at the human-gate wall")
         try:
-            self.store.transition(
+            self.store.transition_and_apply(
                 key, State.MERGE_ELIGIBLE, actor=Actor.POLLER,
+                event_id=event.event_id, result_json=self._result_json(action),
                 owner=self.config.owner, fence=acq.fence,
             )
         finally:
             self.store.release(key, self.config.owner, fence=acq.fence)
-        return Action(event.event_id, event.repo, event.pr_number,
-                      "merge_eligible",
-                      "approved at head; poller authority ends at the human-gate wall")
+        return action
 
     def _drive_fixing(self, event: Event, key: WorkKey) -> Action:
         """CHANGES_REQUESTED / comment → attempt a fix (stubbed → ESCALATE)."""
         acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
         if not acq.acquired:
-            return Action(event.event_id, event.repo, event.pr_number, "coalesced", acq.reason)
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number, "coalesced", acq.reason))
         fence = acq.fence
         try:
             if self.config.dry_run:
-                # A dry-run must NOT mutate durable workflow state: no attempt
+                # A dry-run must NOT mutate durable workflow state: no round
                 # bump, no FIXING transition. Otherwise the row would be wedged
                 # in FIXING and a later CHANGES_REQUESTED event would attempt an
-                # illegal FIXING → FIXING. Record intent only; the row stays at
+                # illegal FIXING → FIXING. Record intent only; row stays at
                 # AWAIT_REVIEW.
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "fixing_dry_run", "would invoke sandbox executor (dry-run)")
+                return self._apply(event, Action(
+                    event.event_id, event.repo, event.pr_number,
+                    "fixing_dry_run", "would invoke sandbox executor (dry-run)"))
 
-            attempt = self.store.bump_attempt(key)
-            # Design §8.1: escalate ON the Nth round (no silent round N+1) —
-            # so the loop fixes on rounds 1..N-1 and escalates on round N.
-            if attempt >= self.config.max_rounds_per_pr:
-                self.store.transition(
-                    key, State.ESCALATED, actor=Actor.POLLER,
-                    owner=self.config.owner, fence=fence,
-                )
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "escalated", f"round cap {self.config.max_rounds_per_pr} reached")
-
-            self.store.transition(
-                key, State.FIXING, actor=Actor.POLLER, owner=self.config.owner, fence=fence
+            # Atomically bump the round counter AND make the FIXING/ESCALATED
+            # decision (design §8.1, review point 3) in ONE transaction — a
+            # crash can never inflate the counter without the matching
+            # transition, so a resumed redelivery (which finds the row already
+            # FIXING) never bumps twice.
+            decision, _attempt = self.store.begin_fix_round(
+                key, owner=self.config.owner, fence=fence,
+                max_rounds=self.config.max_rounds_per_pr,
             )
-
-            token = CancellationToken()
-            self._inflight[key] = token
-            try:
-                self.executor.run_fix_in_sandbox(
-                    repo=event.repo,
-                    pr_number=event.pr_number,
-                    head_sha=event.head_sha,
-                    review_comments=[event.body],
-                    cancel_token=token,
-                )
-            except ExecutorCancelled:
-                # The stale run acknowledged cancellation: drop the retained
-                # PR-level lease and stop. Its output (if any) is fenced anyway.
-                self.store.acknowledge_cancellation(key)
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "cancelled", "executor acknowledged supersede cancellation")
-            except NotImplementedError as exc:
-                self.store.transition(
-                    key, State.ESCALATED, actor=Actor.POLLER,
-                    owner=self.config.owner, fence=fence,
-                )
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "escalated", f"sandbox stubbed: {exc}")
-            finally:
-                self._inflight.pop(key, None)
-
-            # FENCE the exported patch by lease generation + current head SHA
-            # (design §6.3): if the head advanced / the row was superseded / the
-            # lease was reclaimed while the executor ran, DISCARD the patch — it
-            # must never be applied or pushed against a moved-on PR.
-            if not self.store.fence_ok(key, fence, event.head_sha):
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "fenced_stale",
-                              "patch discarded: head advanced / superseded / lease reclaimed")
-            # A real executor path is intentionally unreachable in this PR.
-            self.store.transition(
-                key, State.AWAIT_REVIEW, actor=Actor.POLLER,
-                owner=self.config.owner, fence=fence,
-            )
-            return Action(event.event_id, event.repo, event.pr_number,
-                          "fixed", "patch produced; awaiting re-review")
+            if decision == "escalated":
+                # begin_fix_round already committed the ESCALATED (terminal)
+                # transition; mark the event applied. A crash before this marker
+                # re-drives into the terminal short-circuit (idempotent):
+                # ESCALATED cannot be re-entered, so the counter stays put.
+                return self._apply(event, Action(
+                    event.event_id, event.repo, event.pr_number,
+                    "escalated", f"round cap {self.config.max_rounds_per_pr} reached"))
+            # decision == "fixing": row is now at FIXING, counter bumped once.
+            return self._execute_fix(event, key, fence)
         finally:
             self.store.release(key, self.config.owner, fence=fence)
+
+    def _resume_fix(self, event: Event, key: WorkKey) -> Action:
+        """Resume a crashed fix that already committed the FIXING hop.
+
+        Re-acquires the lease (the crashed attempt's was released/expired) but
+        does NOT call :meth:`StateStore.begin_fix_round`, so the round counter is
+        never bumped a second time. This is the resume-idempotent handler the
+        reviewer asked for at the state-transition boundary.
+        """
+        acq = self.store.acquire(key, self.config.owner, self.config.lease_ttl_seconds)
+        if not acq.acquired:
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number, "coalesced", acq.reason))
+        try:
+            return self._execute_fix(event, key, acq.fence)
+        finally:
+            self.store.release(key, self.config.owner, fence=acq.fence)
+
+    def _execute_fix(self, event: Event, key: WorkKey, fence: int) -> Action:
+        """Run the (stubbed) executor for a row already at FIXING under a lease
+        the CALLER holds at ``fence``, and drive its terminal transition FOLDED
+        with the applied marker. The caller owns acquire + release.
+        """
+        token = CancellationToken()
+        self._inflight[key] = token
+        try:
+            self.executor.run_fix_in_sandbox(
+                repo=event.repo,
+                pr_number=event.pr_number,
+                head_sha=event.head_sha,
+                review_comments=[event.body],
+                cancel_token=token,
+            )
+        except ExecutorCancelled:
+            # The run acknowledged cancellation: drop the retained PR-level
+            # lease and stop. Its output (if any) is fenced anyway.
+            self.store.acknowledge_cancellation(key)
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number,
+                "cancelled", "executor acknowledged supersede cancellation"))
+        except NotImplementedError as exc:
+            # Stubbed sandbox → ESCALATE, folded with the applied marker.
+            action = Action(event.event_id, event.repo, event.pr_number,
+                            "escalated", f"sandbox stubbed: {exc}")
+            self.store.transition_and_apply(
+                key, State.ESCALATED, actor=Actor.POLLER,
+                event_id=event.event_id, result_json=self._result_json(action),
+                owner=self.config.owner, fence=fence,
+            )
+            return action
+        finally:
+            self._inflight.pop(key, None)
+
+        # FENCE the exported patch by lease generation + current head SHA
+        # (design §6.3): if the head advanced / the row was superseded / the
+        # lease was reclaimed while the executor ran, DISCARD the patch — it must
+        # never be applied or pushed against a moved-on PR. The row stays at
+        # FIXING (still superseded) and is swept by reconcile.
+        if not self.store.fence_ok(key, fence, event.head_sha):
+            return self._apply(event, Action(
+                event.event_id, event.repo, event.pr_number,
+                "fenced_stale",
+                "patch discarded: head advanced / superseded / lease reclaimed"))
+        # A real executor path is intentionally unreachable in this PR.
+        action = Action(event.event_id, event.repo, event.pr_number,
+                        "fixed", "patch produced; awaiting re-review")
+        self.store.transition_and_apply(
+            key, State.AWAIT_REVIEW, actor=Actor.POLLER,
+            event_id=event.event_id, result_json=self._result_json(action),
+            owner=self.config.owner, fence=fence,
+        )
+        return action
 
     def startup_recover(
         self, *, ground_truth: Optional[Callable[[WorkKey], bool]] = None
     ) -> list[WorkKey]:
-        """Crash-recovery sweep to run on poller start (design §6.3)."""
+        """Crash-recovery sweep to run on poller start (design §6.3, review
+        point 4).
+
+        BEFORE reclaiming leases, hand every UNCOOPERATIVE cancellation — a run
+        whose cancellation was durably requested but whose retained lease
+        expired without acknowledgement — to the hard :class:`TerminationHook`.
+        A retained SQLite flag alone cannot stop untrusted work; the kill is a
+        DISTINCT, explicit mechanism. Then reconcile expired leases.
+        """
+        for key in self.store.list_uncooperative_cancellations():
+            self.termination_hook.terminate(key)
         return self.store.reconcile_expired_leases(ground_truth=ground_truth)
 
 
