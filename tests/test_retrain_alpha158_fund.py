@@ -59,6 +59,7 @@ def test_pipeline_shape_is_single_job_with_ordered_tasks(tmp_path) -> None:
         "PanelUniverseFreshnessGuardTask",
         "BuildAlpha158PanelTask",
         "MergeFundFeaturesTask",
+        "RefreshSigmaHeadRawLabelTask",
         "TrainGbdtScorerTask",
         "RefitCalibratorTask",
     ]

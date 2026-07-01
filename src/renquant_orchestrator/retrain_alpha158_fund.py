@@ -93,6 +93,16 @@ DEFAULT_FRESHNESS_MAX_STALE_FRACTION = 0.0
 DEFAULT_EXCHANGE = "NYSE"
 DEFAULT_NTFY_TOPIC = "renquant"
 
+# σ-head (QuantileHead) RAW-label panel. ``alpha158_291_fundamental_dataset.parquet``
+# is the cross-sectionally z-scored ranker panel; ``build_raw_fwd60d_label.py``
+# derives a sibling ``*_rawlabel.parquet`` that swaps the z-scored fwd_60d_excess
+# for an UN-normalized (raw ticker return − SPY return) target so the QuantileHead
+# can recover σ on the return scale. That derived panel had NO retrain cadence, so
+# it drifted behind the ranker panel (fix #1 from the training-data investigation).
+DEFAULT_PANEL_FILENAME = "alpha158_291_fundamental_dataset.parquet"
+DEFAULT_RAWLABEL_FILENAME = "alpha158_291_fundamental_dataset_rawlabel.parquet"
+DEFAULT_RAWLABEL_HORIZON = 60  # match production fwd_60d
+
 
 GITHUB = default_github_root()
 DEFAULT_REPO_DIR = default_repo_root()
@@ -161,11 +171,27 @@ class RetrainContext:
     session_gap_fn: "Callable[[dt.date, dt.date], int] | None" = None
     ntfy_topic: str = DEFAULT_NTFY_TOPIC
     quiet: bool = False
+
+    # ── σ-head (QuantileHead) RAW-label refresh (lockstep with the panel) ────
+    # Regenerates ``alpha158_291_fundamental_dataset_rawlabel.parquet`` right
+    # after the fund-panel merge so the σ-head label never drifts behind the
+    # ranker panel. The σ-head is a SEPARATE downstream model, so a failure here
+    # alerts + logs but NEVER aborts the main XGB-ranker / calibrator retrain.
+    refresh_rawlabel: bool = True
+    # Dependency-injected raw-label build callable. Signature:
+    #   build(panel_in: Path, panel_out: Path, ohlcv_dir: Path, horizon: int) -> None
+    # When None it resolves to ``_default_rawlabel_build_fn`` (a path-parametrized
+    # port of scripts/build_raw_fwd60d_label.py). Injected in tests so no real
+    # build runs and no production ``_rawlabel`` parquet is ever written.
+    rawlabel_build_fn: "Callable[..., None] | None" = None
+    rawlabel_horizon: int = DEFAULT_RAWLABEL_HORIZON
+
     # Populated at runtime by the refresh / guard tasks (audit surface).
     ohlcv_max_dates: dict[str, "dt.date | None"] = field(default_factory=dict)
     ohlcv_refresh_summary: dict[str, int] = field(default_factory=dict)
     freshness_report: dict = field(default_factory=dict)
     panel_universe_provenance: dict = field(default_factory=dict)
+    rawlabel_refresh_summary: dict = field(default_factory=dict)
 
     @property
     def data_dir(self) -> Path:
@@ -174,6 +200,14 @@ class RetrainContext:
     @property
     def ohlcv_dir(self) -> Path:
         return self.data_dir / DEFAULT_OHLCV_DIRNAME
+
+    @property
+    def panel_path(self) -> Path:
+        return self.data_dir / DEFAULT_PANEL_FILENAME
+
+    @property
+    def rawlabel_path(self) -> Path:
+        return self.data_dir / DEFAULT_RAWLABEL_FILENAME
 
     @property
     def resolved_inventory_path(self) -> Path:
@@ -557,6 +591,58 @@ def _freshness_overrides(ctx: RetrainContext) -> dict:
     return overrides
 
 
+def _default_rawlabel_build_fn() -> "Callable[..., None]":
+    """Resolve the σ-head RAW-label builder.
+
+    This is a path-parametrized port of umbrella ``scripts/build_raw_fwd60d_label.py``:
+    for each ticker in the fresh fund panel it computes the UN-normalized
+    ``fwd_60d_excess_raw`` = (ticker fwd_60d return − SPY fwd_60d return) on the
+    return scale, then writes the panel (identical schema, with the raw label
+    column added) to ``panel_out``. It is dependency-injected via
+    ``RetrainContext.rawlabel_build_fn`` so the orchestrator task is unit-testable
+    without reading real panels / OHLCV or writing a production ``_rawlabel``
+    parquet. The caller (the task) points ``panel_out`` at a staging path and
+    atomically swaps on success, so this builder never mutates the live artifact.
+    """
+
+    def _build(panel_in: Path, panel_out: Path, ohlcv_dir: Path, horizon: int) -> None:
+        import numpy as np  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+
+        panel = pd.read_parquet(panel_in)
+        panel["date"] = pd.to_datetime(panel["date"])
+
+        spy = pd.read_parquet(ohlcv_dir / "SPY" / "1d.parquet")
+        spy.index = pd.to_datetime(spy.index)
+        spy_close = spy["close"].sort_index()
+        spy_fwd_ret = (spy_close.shift(-horizon) / spy_close - 1.0)
+
+        out_blocks = []
+        for tkr, g in panel.groupby("ticker"):
+            g = g.sort_values("date").reset_index(drop=True).copy()
+            ohlcv_p = ohlcv_dir / tkr / "1d.parquet"
+            if not ohlcv_p.exists():
+                g["fwd_60d_excess_raw"] = np.nan
+                out_blocks.append(g)
+                continue
+            ohlcv = pd.read_parquet(ohlcv_p)
+            ohlcv.index = pd.to_datetime(ohlcv.index)
+            close = ohlcv["close"].sort_index()
+            ticker_fwd_ret = (close.shift(-horizon) / close - 1.0)
+            g_dates = g["date"].values
+            excess = (
+                ticker_fwd_ret.reindex(g_dates).values
+                - spy_fwd_ret.reindex(g_dates).values
+            )
+            g["fwd_60d_excess_raw"] = excess
+            out_blocks.append(g)
+
+        out = pd.concat(out_blocks, ignore_index=True)
+        out.to_parquet(panel_out, index=False)
+
+    return _build
+
+
 class RefreshFullUniverseOhlcvTask(Task):
     """Refresh daily OHLCV bars for the FULL panel training universe.
 
@@ -809,6 +895,77 @@ class MergeFundFeaturesTask(Task):
         return True
 
 
+class RefreshSigmaHeadRawLabelTask(Task):
+    """Rebuild the σ-head (QuantileHead) RAW ``_rawlabel`` panel in lockstep with
+    the freshly-merged fund panel.
+
+    ROOT CAUSE (fix #1 from the training-data investigation): the derived
+    ``alpha158_291_fundamental_dataset_rawlabel.parquet`` sat at 2026-02-11 only
+    because ``build_raw_fwd60d_label.py`` had no retrain cadence — its source
+    (``alpha158_291_fundamental_dataset.parquet``) was already fresh once the
+    panel build ran. This task regenerates the RAW-label panel right after the
+    fund-panel merge so the σ-head label never drifts behind the ranker panel.
+
+    Non-destructive: builds to a ``.staging`` sibling then atomically swaps into
+    place; the prior ``_rawlabel`` is only replaced on a fully-successful build.
+
+    Resilient / isolated: the σ-head is a SEPARATE downstream model, so any
+    failure here logs + emits a LOUD ntfy alert but NEVER aborts the main
+    XGB-ranker / calibrator retrain — it records the outcome in the audit summary
+    and returns True. A missing upstream panel is a soft skip (the ranker path
+    surfaces that failure on its own), not a σ-head alert.
+    """
+
+    def run(self, ctx: RetrainContext) -> bool | None:
+        panel_in = ctx.panel_path
+        rawlabel_out = ctx.rawlabel_path
+        summary: dict = {
+            "status": "skipped",
+            "panel": str(panel_in),
+            "rawlabel": str(rawlabel_out),
+        }
+        ctx.rawlabel_refresh_summary = summary
+        if not ctx.refresh_rawlabel:
+            log.info("σ-head _rawlabel refresh disabled (refresh_rawlabel=False); skipping")
+            return True
+        if ctx.dry_run:
+            summary["status"] = "dry-run"
+            log.info("[dry-run] would rebuild σ-head _rawlabel %s from %s", rawlabel_out, panel_in)
+            return True
+
+        try:
+            if not panel_in.exists():
+                summary["status"] = "skipped-no-panel"
+                log.warning(
+                    "σ-head _rawlabel refresh: panel %s not found; skipping "
+                    "(upstream panel build produced no output)",
+                    panel_in,
+                )
+                return True
+            build_fn = ctx.rawlabel_build_fn or _default_rawlabel_build_fn()
+            staging = rawlabel_out.with_name(rawlabel_out.name + ".staging")
+            if staging.exists():
+                staging.unlink()
+            build_fn(panel_in, staging, ctx.ohlcv_dir, ctx.rawlabel_horizon)
+            if not staging.exists():
+                raise RuntimeError(f"σ-head rawlabel build produced no output: {staging}")
+            os.replace(staging, rawlabel_out)  # atomic in-place swap
+            summary["status"] = "refreshed"
+            log.info("σ-head _rawlabel refreshed: %s ← %s", rawlabel_out, panel_in)
+        except Exception as exc:  # downstream model — NEVER abort the ranker retrain
+            summary["status"] = "failed"
+            summary["error"] = str(exc)
+            body = (
+                f"σ-head _rawlabel refresh FAILED ({exc}). The XGB-ranker retrain "
+                f"is UNAFFECTED, but the QuantileHead label is now stale relative "
+                f"to {panel_in}. Re-run build_raw_fwd60d_label after fixing."
+            )
+            if not ctx.quiet:
+                post_ntfy("RenQuant retrain SIGMA-HEAD-RAWLABEL", body, ctx.ntfy_topic)
+            log.error("σ-head _rawlabel refresh failed (isolated, retrain continues): %s", exc)
+        return True
+
+
 class TrainGbdtScorerTask(Task):
     def run(self, ctx: RetrainContext) -> bool | None:
         cmd = [
@@ -859,6 +1016,7 @@ class RetrainJob(Job):
             PanelUniverseFreshnessGuardTask(),
             BuildAlpha158PanelTask(),
             MergeFundFeaturesTask(),
+            RefreshSigmaHeadRawLabelTask(),
             TrainGbdtScorerTask(),
             RefitCalibratorTask(),
         ]
@@ -964,6 +1122,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--ohlcv-timeout-sec", type=float, default=DEFAULT_OHLCV_TIMEOUT_SEC)
+    parser.add_argument(
+        "--refresh-rawlabel",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Rebuild the σ-head (QuantileHead) RAW _rawlabel panel in lockstep "
+            "with the fresh fund panel after the merge (fix #1: it had no retrain "
+            "cadence and drifted behind the ranker panel). Failure is isolated "
+            "(alerts + logs, never aborts the ranker retrain). --no-refresh-rawlabel skips."
+        ),
+    )
     parser.add_argument(
         "--panel-universe-file",
         type=Path,
@@ -1087,6 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
         truncate_to_sec_max=args.truncate_to_sec_max,
         dry_run=args.dry_run,
         refresh_ohlcv=args.refresh_ohlcv,
+        refresh_rawlabel=args.refresh_rawlabel,
         panel_universe=panel_universe,
         inventory_path=inventory_path,
         ohlcv_timeout_sec=args.ohlcv_timeout_sec,
