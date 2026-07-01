@@ -35,6 +35,8 @@ def test_pipeline_shape_is_single_job_with_ordered_tasks(tmp_path) -> None:
     assert pipeline.name == "weekly-alpha158-fund-retrain"
     assert [type(job).__name__ for job in pipeline.jobs] == ["RetrainJob"]
     assert [type(task).__name__ for task in pipeline.jobs[0].tasks] == [
+        "RefreshFullUniverseOhlcvTask",
+        "PanelUniverseFreshnessGuardTask",
         "BuildAlpha158PanelTask",
         "MergeFundFeaturesTask",
         "TrainGbdtScorerTask",
