@@ -35,6 +35,7 @@ deterministic fake with an explicit ``as_of`` (no wall-clock, no network, no I/O
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -42,11 +43,18 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 from zoneinfo import ZoneInfo
 
-from .runtime_paths import default_data_root, default_strategy_config_path
+from .runtime_paths import default_data_root
 
 STAGE = "renquant105-stage1-operations-only"
 RECORD_KIND = "intraday_market_snapshot_row"
 SNAPSHOT_SCHEMA_VERSION = "1"
+
+# Version of the point-in-time TICK POLICY this data plane enforces: same-session
+# eligibility + causality (``source_ts <= as_of``) + staleness censoring at
+# ``staleness_sec``. Bumped whenever that censoring contract changes, so every
+# logged snapshot/shadow row is bound to the exact mechanism that produced it
+# (Codex #221: a comparison must be reproducible, not silently re-parameterized).
+TICK_POLICY_VERSION = "1"
 
 # Reused from the #216 tick feed: US-equities regular session, America/New_York.
 ET = ZoneInfo("America/New_York")
@@ -94,6 +102,81 @@ def session_date(when: Any) -> str:
     """The ET calendar date (YYYY-MM-DD) of a timestamp — the session key ticks
     are filtered on (same rule as the #216 feed)."""
     return _parse_dt(when).astimezone(ET).date().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Materialized T-1 daily FEATURE SNAPSHOT (PIT-frozen, cutoff-stamped, digested)
+# ---------------------------------------------------------------------------
+def digest_obj(obj: Any) -> str:
+    """Stable content digest over a JSON-serializable object (canonical, sorted).
+
+    Used to fingerprint the frozen feature snapshot so a downstream row can be
+    bound to exactly the immutable feature state it was scored against.
+    """
+    canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class FeatureSnapshot:
+    """A materialized, cutoff-stamped T-1 daily feature snapshot with a content
+    digest — the class-A frozen feature reference for the session (design §6).
+
+    Codex #221: a bare watchlist / strategy-config reference is NOT a valid
+    feature snapshot — it carries no frozen T-1 feature values and no digest, so
+    a downstream scorer seam could construct arbitrary features outside this
+    module and defeat the point-in-time audit. A real snapshot pins (i) the
+    ``cutoff`` (the T-1 EOD as-of the values were frozen), (ii) the
+    ``builder_version`` (feature-builder identity), (iii) the per-name frozen
+    ``features`` values, and (iv) a ``digest`` over all three so every downstream
+    row is bound to exactly this immutable feature state and a mismatch is
+    detectable, never silently mixed.
+    """
+
+    cutoff: str
+    builder_version: str
+    features: Mapping[str, Any]
+    digest: str
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "FeatureSnapshot":
+        """Parse + validate a materialized snapshot; reject one missing its
+        cutoff, builder version, or non-empty frozen feature values."""
+        if not isinstance(payload, Mapping):
+            raise ValueError("feature snapshot must be a JSON object")
+        cutoff = str(payload.get("feature_cutoff", "")).strip()
+        if not cutoff:
+            raise ValueError("feature snapshot missing 'feature_cutoff' (T-1 EOD as-of)")
+        builder_version = str(payload.get("feature_builder_version", "")).strip()
+        if not builder_version:
+            raise ValueError("feature snapshot missing 'feature_builder_version'")
+        raw_features = payload.get("features")
+        if not isinstance(raw_features, Mapping) or not raw_features:
+            raise ValueError(
+                "feature snapshot missing non-empty 'features' (ticker -> frozen T-1 values)"
+            )
+        features = {str(t).strip().upper(): v for t, v in raw_features.items()}
+        digest = digest_obj(
+            {"cutoff": cutoff, "builder_version": builder_version, "features": features}
+        )
+        return cls(
+            cutoff=cutoff, builder_version=builder_version, features=features, digest=digest
+        )
+
+    def refs(self) -> dict[str, Any]:
+        """``ticker -> daily_feature_ref`` bound to this immutable snapshot: the
+        per-name frozen feature values plus the cutoff / builder / digest
+        provenance, so a snapshot row can never be mistaken for a bare watchlist
+        reference (Codex #221)."""
+        return {
+            ticker: {
+                "feature_cutoff": self.cutoff,
+                "feature_builder_version": self.builder_version,
+                "feature_snapshot_digest": self.digest,
+                "values": values,
+            }
+            for ticker, values in self.features.items()
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -254,24 +337,39 @@ def _latest_eligible_ticks(
 def build_realtime_snapshot(
     *,
     as_of: Any,
-    daily_features: Mapping[str, Any],
+    daily_features: Mapping[str, Any] | None = None,
     feed_source: TickFeedSource,
     staleness_sec: float = DEFAULT_STALENESS_SEC,
     tickers: Sequence[str] | None = None,
+    feature_snapshot: FeatureSnapshot | None = None,
 ) -> MarketSnapshot:
     """Assemble a point-in-time :class:`MarketSnapshot` at ``as_of``.
 
-    ``daily_features`` maps ``ticker -> daily_feature_ref`` — the frozen class-A/B
-    reference from the T-1 EOD build (a ``signal_version`` string, a fingerprint
-    dict, whatever the caller pins); its keys define the watchlist unless
-    ``tickers`` overrides. Each name is joined to the latest same-session, causal,
-    non-stale tick from ``feed_source`` per the §6 contract above.
+    Provide the frozen T-1 daily feature reference via **exactly one** of:
+
+      * ``feature_snapshot`` — a materialized, cutoff-stamped :class:`FeatureSnapshot`
+        (the PIT-audit-safe path; its cutoff / builder / digest are stamped into
+        the snapshot metadata so every downstream row is bound to immutable
+        feature state, per Codex #221); or
+      * ``daily_features`` — a raw ``ticker -> daily_feature_ref`` mapping, for
+        pure snapshot assembly / diagnostics that carry no feature provenance.
+
+    Its keys define the watchlist unless ``tickers`` overrides. Each name is
+    joined to the latest same-session, causal, non-stale tick from ``feed_source``
+    per the §6 contract above.
     """
     as_of_dt = _parse_dt(as_of)
     as_of_iso = as_of_dt.isoformat()
     sess = as_of_dt.astimezone(ET).date().isoformat()
 
-    ref_by_ticker = {str(t).strip().upper(): ref for t, ref in daily_features.items()}
+    if feature_snapshot is not None:
+        ref_by_ticker = feature_snapshot.refs()
+    elif daily_features is not None:
+        ref_by_ticker = {str(t).strip().upper(): ref for t, ref in daily_features.items()}
+    else:
+        raise ValueError(
+            "build_realtime_snapshot requires either feature_snapshot or daily_features"
+        )
     if tickers is not None:
         watchlist = [str(t).strip().upper() for t in tickers]
     else:
@@ -317,11 +415,19 @@ def build_realtime_snapshot(
     metadata = {
         "feed_source": getattr(feed_source, "name", "unknown"),
         "staleness_sec": float(staleness_sec),
+        "tick_policy_version": TICK_POLICY_VERSION,
         "n_tickers": len(watchlist),
         "n_ok": counts[QUOTE_OK],
         "n_stale": counts[QUOTE_STALE],
         "n_missing": counts[QUOTE_MISSING],
         "schema_ref": "intraday_ticks.jsonl (#216)",
+        "feature_cutoff": feature_snapshot.cutoff if feature_snapshot is not None else None,
+        "feature_builder_version": (
+            feature_snapshot.builder_version if feature_snapshot is not None else None
+        ),
+        "feature_snapshot_digest": (
+            feature_snapshot.digest if feature_snapshot is not None else None
+        ),
     }
     return MarketSnapshot(
         as_of=as_of_iso,
@@ -341,23 +447,14 @@ def _load_json_object(path: str | Path) -> dict[str, Any]:
     return payload
 
 
-def _daily_features_from_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
-    raw = payload.get("features", payload)
-    if not isinstance(raw, Mapping):
-        raise ValueError("daily-features JSON must be an object (ticker -> ref)")
-    return {str(t).strip().upper(): ref for t, ref in raw.items()}
+def _load_feature_snapshot(path: str | Path) -> FeatureSnapshot:
+    """Load a materialized, cutoff-stamped T-1 feature snapshot from JSON.
 
-
-def _load_watchlist_features(config_path: str | Path | None) -> dict[str, Any]:
-    """Fallback daily-feature refs = the pinned watchlist, each ref = the config
-    session date (a minimal frozen ref) when no explicit features JSON is given."""
-    path = Path(config_path) if config_path else default_strategy_config_path()
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    watchlist = data.get("watchlist")
-    if not isinstance(watchlist, list) or not watchlist:
-        raise ValueError(f"strategy config {path} has no non-empty 'watchlist'")
-    ref = {"source": "strategy_config_watchlist", "config_path": str(path)}
-    return {str(t).strip().upper(): ref for t in watchlist}
+    Codex #221: the observe-only CLI no longer fabricates feature refs from the
+    pinned watchlist (that path carried no frozen values and no digest, defeating
+    the PIT audit). It requires a real snapshot and persists its digest.
+    """
+    return FeatureSnapshot.from_mapping(_load_json_object(path))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -374,11 +471,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--tick-feed", default=None, help="intraday_ticks.jsonl (default under the data root)"
     )
     parser.add_argument(
-        "--daily-features-json",
-        default=None,
-        help="JSON object ticker->daily_feature_ref (default: pinned watchlist)",
+        "--feature-snapshot-json",
+        required=True,
+        help=(
+            "materialized, cutoff-stamped T-1 feature snapshot "
+            "({feature_cutoff, feature_builder_version, features: {ticker->values}}); "
+            "its digest is persisted into the snapshot metadata (PIT audit, Codex #221)"
+        ),
     )
-    parser.add_argument("--watchlist", default=None, help="strategy config for the fallback watchlist")
     parser.add_argument(
         "--staleness-sec", type=float, default=DEFAULT_STALENESS_SEC, help="stale-quote censor bound"
     )
@@ -390,14 +490,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     data_root = Path(args.data_root).expanduser().resolve() if args.data_root else None
     feed_path = Path(args.tick_feed) if args.tick_feed else default_tick_feed_path(data_root)
 
-    if args.daily_features_json:
-        daily_features = _daily_features_from_payload(_load_json_object(args.daily_features_json))
-    else:
-        daily_features = _load_watchlist_features(args.watchlist)
+    feature_snapshot = _load_feature_snapshot(args.feature_snapshot_json)
 
     snapshot = build_realtime_snapshot(
         as_of=args.as_of,
-        daily_features=daily_features,
+        feature_snapshot=feature_snapshot,
         feed_source=JsonlTickFeedSource(feed_path),
         staleness_sec=args.staleness_sec,
     )
@@ -416,6 +513,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  as_of        : {snapshot.as_of}")
         print(f"  session_date : {snapshot.session_date}")
         print(f"  feed         : {feed_path}")
+        print(f"  feature_cut  : {meta['feature_cutoff']} ({meta['feature_builder_version']})")
+        print(f"  feature_dig  : {meta['feature_snapshot_digest']}")
+        print(f"  tick_policy  : v{meta['tick_policy_version']}")
         print(f"  tickers      : {meta['n_tickers']}")
         print(f"  ok/stale/miss: {meta['n_ok']}/{meta['n_stale']}/{meta['n_missing']}")
     return 0
@@ -423,6 +523,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 __all__ = [
     "DEFAULT_STALENESS_SEC",
+    "FeatureSnapshot",
     "IntradaySnapshotRow",
     "JsonlTickFeedSource",
     "MarketSnapshot",
@@ -432,9 +533,11 @@ __all__ = [
     "RECORD_KIND",
     "SNAPSHOT_SCHEMA_VERSION",
     "STAGE",
+    "TICK_POLICY_VERSION",
     "TickFeedSource",
     "build_realtime_snapshot",
     "default_tick_feed_path",
+    "digest_obj",
     "main",
     "session_date",
 ]

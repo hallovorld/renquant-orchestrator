@@ -10,14 +10,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from renquant_orchestrator.realtime_data_plane import (
     QUOTE_MISSING,
     QUOTE_OK,
     QUOTE_STALE,
+    TICK_POLICY_VERSION,
+    FeatureSnapshot,
     IntradaySnapshotRow,
     JsonlTickFeedSource,
     build_realtime_snapshot,
     default_tick_feed_path,
+    digest_obj,
     main as data_plane_main,
     session_date,
 )
@@ -85,6 +90,10 @@ def test_snapshot_assembly_picks_latest_causal_tick() -> None:
     assert feed.read_calls == 1
     assert snap.metadata["n_ok"] == 2
     assert snap.metadata["schema_ref"] == "intraday_ticks.jsonl (#216)"
+    # Tick policy is always stamped so a row is bound to the censoring mechanism.
+    assert snap.metadata["tick_policy_version"] == TICK_POLICY_VERSION
+    # Raw daily_features path carries no feature provenance (no snapshot digest).
+    assert snap.metadata["feature_snapshot_digest"] is None
 
 
 def test_causality_future_tick_is_censored() -> None:
@@ -221,20 +230,76 @@ def test_jsonl_feed_reads_and_skips_bad_lines(tmp_path: Path) -> None:
     assert {r["ticker"] for r in rows} == {"AAPL", "MSFT"}
 
 
+def _feature_snapshot_payload():
+    """A materialized, cutoff-stamped T-1 feature snapshot (the PIT-safe input)."""
+    return {
+        "feature_cutoff": "2026-06-30",
+        "feature_builder_version": "alpha158-v3",
+        "features": {"AAPL": {"mom_12_1": 0.21, "rv_20": 0.014}},
+    }
+
+
+def test_feature_snapshot_from_mapping_digests_and_binds() -> None:
+    snap = FeatureSnapshot.from_mapping(_feature_snapshot_payload())
+    assert snap.cutoff == "2026-06-30"
+    assert snap.builder_version == "alpha158-v3"
+    assert snap.digest.startswith("sha256:")
+    # Digest is a content hash over cutoff + builder + frozen features.
+    assert snap.digest == digest_obj(
+        {"cutoff": snap.cutoff, "builder_version": snap.builder_version, "features": snap.features}
+    )
+    refs = snap.refs()
+    assert refs["AAPL"]["feature_snapshot_digest"] == snap.digest
+    assert refs["AAPL"]["values"] == {"mom_12_1": 0.21, "rv_20": 0.014}
+
+
+def test_feature_snapshot_rejects_missing_cutoff_or_values() -> None:
+    # No cutoff → rejected (a bare watchlist ref is not a valid PIT snapshot).
+    with pytest.raises(ValueError):
+        FeatureSnapshot.from_mapping({"feature_builder_version": "v1", "features": {"AAPL": {}}})
+    # No builder version → rejected.
+    with pytest.raises(ValueError):
+        FeatureSnapshot.from_mapping({"feature_cutoff": "2026-06-30", "features": {"AAPL": {}}})
+    # Empty features → rejected.
+    with pytest.raises(ValueError):
+        FeatureSnapshot.from_mapping(
+            {"feature_cutoff": "2026-06-30", "feature_builder_version": "v1", "features": {}}
+        )
+
+
+def test_snapshot_from_feature_snapshot_stamps_provenance() -> None:
+    feed = FakeTickFeed([_tick("AAPL", 101.0, "2026-07-01T12:59:55-04:00")])
+    fsnap = FeatureSnapshot.from_mapping(_feature_snapshot_payload())
+    snap = build_realtime_snapshot(as_of=AS_OF, feature_snapshot=fsnap, feed_source=feed)
+    assert snap.metadata["feature_cutoff"] == "2026-06-30"
+    assert snap.metadata["feature_builder_version"] == "alpha158-v3"
+    assert snap.metadata["feature_snapshot_digest"] == fsnap.digest
+    # The per-name ref is the frozen values bound to the digest, not a bare string.
+    ref = snap.by_ticker()["AAPL"].daily_feature_ref
+    assert ref["feature_snapshot_digest"] == fsnap.digest
+    assert ref["values"] == {"mom_12_1": 0.21, "rv_20": 0.014}
+
+
+def test_build_requires_a_feature_source() -> None:
+    feed = FakeTickFeed([])
+    with pytest.raises(ValueError):
+        build_realtime_snapshot(as_of=AS_OF, feed_source=feed)
+
+
 def test_cli_writes_snapshot(tmp_path: Path, capsys) -> None:
     feed_path = tmp_path / "intraday_ticks.jsonl"
     feed_path.write_text(
         json.dumps(_tick("AAPL", 101.0, "2026-07-01T12:59:55-04:00")) + "\n", encoding="utf-8"
     )
-    features = tmp_path / "features.json"
-    features.write_text(json.dumps({"AAPL": "sig-v1"}), encoding="utf-8")
+    features = tmp_path / "feature_snapshot.json"
+    features.write_text(json.dumps(_feature_snapshot_payload()), encoding="utf-8")
     out = tmp_path / "snapshot.json"
 
     rc = data_plane_main(
         [
             "--as-of", AS_OF,
             "--tick-feed", str(feed_path),
-            "--daily-features-json", str(features),
+            "--feature-snapshot-json", str(features),
             "--output-json", str(out),
             "--json",
         ]
@@ -244,5 +309,8 @@ def test_cli_writes_snapshot(tmp_path: Path, capsys) -> None:
     assert written["observe_only"] is True
     assert written["rows"][0]["ticker"] == "AAPL"
     assert written["rows"][0]["intraday_mid"] == 101.0
+    # The materialized snapshot digest is persisted into the snapshot metadata.
+    assert written["metadata"]["feature_snapshot_digest"].startswith("sha256:")
+    assert written["metadata"]["feature_cutoff"] == "2026-06-30"
     printed = json.loads(capsys.readouterr().out)
     assert printed == written
