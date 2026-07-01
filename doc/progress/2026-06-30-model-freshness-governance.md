@@ -1,9 +1,12 @@
 # model freshness governance — design PR
 
 STATUS:   design for review (no code/config in this PR). Describe → discuss → PR to Codex → then implement per-repo.
-REVISION: R4 (round-4) — addresses Codex's round-3 review on head `5472247f`, which ACKNOWLEDGED R3 resolved both prior
-          blockers and left ONE remaining blocker (B3). Prior: R3 (head `68e2ab01`) split selection from confirmation +
-          per-source SLA; R2 reworked round-1 on head `183764a5`.
+REVISION: R5 (round-5) — addresses Codex's round-4 review on head `c02655d7`, which ACKNOWLEDGED R4 resolved B3 (the
+          fail-closed replay-feasibility audit + committed held-out confirmation + prospective-logging fallback) and left
+          ONE remaining blocker: point-in-time eligibility lacks an explicit ARTIFACT-AVAILABILITY timestamp. Prior: R4
+          (head `c02655d7`) added the §5.0 Phase-0 audit; R3 (head `68e2ab01`) split selection from confirmation +
+          per-source SLA; R2 reworked round-1 on head `183764a5`. This revision also MERGES `origin/main` (weekly-APY CI
+          fix #211) so the shared `test` check reruns green.
 WHAT:     proposes a freshness-governance contract — a data-cutoff-keyed staleness monitor (NOT just `trained_date`), a
           28-day hard ceiling on BOTH production models, a reliable/monitored retrain cadence, a DEFERRED best-of-recent
           fallback bounded to infra-failures + an OOS floor, and a WF-gate REPAIR so the strict path can re-validate the
@@ -19,7 +22,20 @@ R2-FIX:   R1 rested on a FACTUALLY STALE premise (claimed PatchTST primary since
           promotion); PatchTST is now SHADOW (`LoadScorerTask: loaded xgb` + `ApplyShadowScoringTask: shadow hf_patchtst`).
           The 06-23 switch was a CONFIG-KIND directive, NOT a gate pass; `promotion_status="gated_buys"` is a STALE stamp.
           → WF-gate section reframed from "retire the vestigial GBDT promote" to "REPAIR the gate to re-validate the PRIMARY".
-CODEX-R4: ONE remaining blocker resolved (docs-only, §5 rewrite). Codex round-3 acknowledged R3 fixed both prior blockers.
+CODEX-R5: ONE remaining blocker resolved (docs-only, §5.0/§5.4 edit). Codex round-4 acknowledged R4 resolved B3. BLOCKER:
+          point-in-time eligibility lacked an explicit ARTIFACT-AVAILABILITY timestamp — §5.0 admitted a candidate on
+          `data cutoff <= simulated date` ALONE, which is necessary but NOT sufficient: a model trained/registered July 1
+          on a May 31 cutoff was NOT available to a June 15 decision, yet that predicate admits it → BACKFILLS a
+          later-created artifact into an earlier date (look-ahead). FIX: (1) §5.0(i) now enumerates immutable
+          `artifact_created_at` / `registry_available_at` fields for EVERY candidate + the gate verdict's `observed_at`,
+          recorded at creation from a write-once source; (2) new §5.0(i-a) eligibility predicate — a candidate is eligible
+          at simulated time `t` IFF all data-cutoff axes (§2) AND `artifact_created_at`/`registry_available_at` AND gate
+          `observed_at` are `<= t` (cutoff alone is explicitly insufficient); (3) the predicate is applied to EVERY arm
+          in §5.4 — current-prod-hold, newest-eligible, best-recent fallback, AND the rollback identity — so no arm can
+          reference an artifact created after `t`; (4) §5.0(ii) coverage matrix reports a MISSING availability timestamp
+          as its own missingness class and FAILS CLOSED (excludes/flags the candidate) rather than inferring it from a
+          filesystem mtime or git commit ancestry. Header REVISION + §5-intro round-5 note updated to match.
+CODEX-R4: ONE prior blocker resolved (docs-only, §5 rewrite). Codex round-3 acknowledged R3 fixed both prior blockers.
           (B3) REGISTRY FEASIBILITY NOT ESTABLISHED — §5 assumed a point-in-time registry (per breach date: complete
           then-knowable candidate set, artifact bytes + recipe/data fingerprints + cutoffs, gate result + failure class,
           subsequent OOS outcomes) whose EXISTENCE + COVERAGE were never audited; reconstructing from artifacts surviving
@@ -50,10 +66,11 @@ CODEX-R3: TWO blockers resolved (docs-only, §2/§3/§5 rewrites). (B1) SELECTIO
           max_feed_stale_days=20 vs quarterly-availability filing_lag_days=45 / max_quarters_behind=1) — governance REUSES
           those two dimensions rather than inventing a third number; §5 replay evaluates the source-specific policies, not one
           global age.
-CI-NOTE:  Codex (round-4) also requires the required checks green before merge. The RED required check is the weekly-APY
-          LOOK-AHEAD failure, fixed SEPARATELY in PR #211 (`fix/weekly-apy-monitor-time-dependent`) — a SHARED / pre-existing
-          CODE failure; this docs-only PR touches no code and did not cause it. Merge of this RFC is gated on #211 turning the
-          required check green; tracked there, not here.
+CI-NOTE:  Codex (round-5) again requires the required checks green before merge. The previously-RED required `test` check was
+          the weekly-APY LOOK-AHEAD failure, fixed in PR #211 (`fix/weekly-apy-monitor-time-dependent`), now MERGED to `main`.
+          This revision MERGES `origin/main` into the branch (disjoint change: this branch = docs, #211 = src/tests → clean
+          merge, no conflicts) so the shared `test` check reruns against the fixed code. This PR itself remains docs-only and
+          touches no code / config / broker / risk / sizing.
 CODEX-6:  (1) premise corrected + Action P0 production-state re-audit; (2) freshness keys on DATA cutoff / event_time /
           available_at / fingerprints, stale feeds BLOCK a fresh stamp; (3) fallback splits infra vs quality failures —
           bypasses ONLY enumerated infra failures AND only after an independently recomputed OOS economic floor;

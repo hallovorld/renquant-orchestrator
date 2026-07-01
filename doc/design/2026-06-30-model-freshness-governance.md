@@ -1,22 +1,39 @@
 # Design: Model Freshness Governance — 28-day ceiling, deferred best-of-recent fallback, reliable retrain cadence, and WF-promote repair
 
 STATUS: design for review (no implementation in this PR — describe → discuss → PR to Codex → then implement per-repo).
-REVISION: **R4 (round-4)** — addresses Codex's round-3 review (head `5472247f`), which **acknowledged R3 resolved both prior
-blockers** (threshold **selection** is now separated from confirmation; freshness is now **per-source SLA**, not a universal
-raw-age rule) and left **ONE** remaining blocker: **B3 — the §5 shadow replay assumes a point-in-time registry whose
-existence and coverage are NOT established.** Reconstructing the arms from artifacts that survive today is **survivor bias**;
-regenerating candidates with today's code/data is **look-ahead + recipe drift**; and a selection/confirmation split cannot
-repair biased or missing INPUT history. R4 adds a **Phase-0 replay-feasibility audit** that must PASS (fail-closed) **before**
-any pre-registration (§5.0), states the honest fallback — **prospective shadow logging first** if historical coverage is
-insufficient (§5.6) — and **commits** §5.2 to a temporally-later **held-out confirmation** span as the policy-authorizing
-design (nested / rolling is kept **only** as a secondary robustness check of the adaptive selector, explicitly **not**
-policy-authorizing). Prior history: R3 (head `68e2ab01`) split selection from confirmation + moved to per-source SLA; R2
-corrected the production-state premise and disabled the fallback; R1 (head `183764a5`) rested on a stale premise.
+REVISION: **R5 (round-5)** — addresses Codex's round-4 review (head `c02655d7`), which **acknowledged R4 resolved B3**
+(the fail-closed replay-feasibility / registry-coverage audit, the committed held-out confirmation, and the honest
+prospective-logging fallback) and left **ONE** remaining blocker: **point-in-time eligibility still lacks an explicit
+ARTIFACT-AVAILABILITY timestamp.** §5.0 defined the candidate set by `data cutoff <= simulated date` — necessary but **not
+sufficient**: a model trained / registered on July 1 against a May 31 cutoff was **not available** to a June 15 decision, yet
+that predicate admits it, **backfilling a later-created artifact into an earlier date**. R5 requires, for **every** candidate,
+immutable **`artifact_created_at` / `registry_available_at`** fields (plus the gate verdict's **`observed_at`**), redefines
+eligibility (§5.0-i-a) as **ALL relevant data cutoffs AND the artifact/gate availability timestamps `<= the simulated
+decision time`**, applies that temporal predicate to **EVERY arm** (§5.4 — including current-prod-hold and the rollback
+identity), and reports **missing availability timestamps** as their own missingness class in the §5.0 coverage matrix —
+**failing closed** rather than inferring them from current filesystem mtimes or git commit ancestry. Prior history: R4 (head
+`c02655d7`) added the Phase-0 replay-feasibility audit + prospective-logging fallback + committed held-out confirmation; R3
+(head `68e2ab01`) split selection from confirmation + moved to per-source SLA; R2 corrected the production-state premise and
+disabled the fallback; R1 (head `183764a5`) rested on a stale premise.
 
 This is a discussion document. It proposes a governance contract and a phased
 rollout; it does **not** change any code, config, broker, risk-cap, or sizing
 behaviour. Cross-repo implementation happens in follow-up per-repo PRs **after**
 this design is agreed.
+
+## Response to Codex round-5 review (per-point map)
+
+Codex's round-4 review (head `c02655d7`) **acknowledged R4 resolved B3** (the fail-closed replay-feasibility / registry-coverage
+audit; the committed held-out confirmation; the honest prospective-logging fallback) and raised **ONE** remaining blocking issue.
+
+| Codex round-5 blocker | Resolution in R5 | Section |
+|---|---|---|
+| **Point-in-time eligibility still lacks an explicit ARTIFACT-AVAILABILITY timestamp.** §5.0 defined the complete candidate set as artifacts whose `data cutoff <= simulated date`. That is necessary but **not sufficient**: a model trained or registered on July 1 using a May 31 cutoff was **not available** to a June 15 decision, yet this predicate admits it into the historical candidate set (**backfilling later artifacts into earlier dates**). Mentioning a creation-time index as the source does not state the eligibility rule or require an immutable timestamp field | §5.0 now (1) **enumerates immutable `artifact_created_at` / `registry_available_at` fields for EVERY candidate** (and the gate verdict's **`observed_at`**), recorded at creation from a write-once source; (2) **redefines the eligibility predicate (§5.0-i-a)** as: a candidate is eligible at simulated decision time `t` **iff ALL relevant data-cutoff axes (§2) AND its `artifact_created_at` / `registry_available_at` AND the gate `observed_at` are `<= t`** — data cutoff alone is explicitly insufficient; (3) **applies this temporal predicate to EVERY arm** in §5.4 — current-prod-hold, newest-eligible, best-recent fallback, **and the rollback identity** — so no arm can substitute an artifact that did not yet exist at `t`; (4) in the **§5.0 coverage matrix, reports a MISSING availability timestamp as its own missingness class and FAILS CLOSED** (excludes / flags the candidate) rather than inferring it from the current filesystem mtime or git commit ancestry | §5.0, §5.4 |
+
+**Required-CI note (round-5).** Codex again requires the repo's required checks to be green before merge. The previously-red
+`test` check was the weekly-APY look-ahead failure, fixed in **PR #211** (`fix/weekly-apy-monitor-time-dependent`), now on
+`main`; this revision **merges `origin/main`** into the branch so the shared `test` check reruns against the fixed code. This
+PR remains **docs-only** (no code / config / broker / risk / sizing change).
 
 ## Response to Codex round-4 review (per-point map)
 
@@ -411,6 +428,19 @@ history. So R4 puts a **feasibility audit (§5.0) FIRST** — it **fails closed*
 routes to prospective logging (§5.6) if the history is not there — and only then do
 the pre-registration (§5.1) and the committed held-out confirmation (§5.2) run.
 
+Codex's round-5 follow-up sharpens the audit's **eligibility rule** itself: "knowable
+at that date" must be pinned to an explicit **artifact-availability timestamp**, not
+just the data cutoff. A model registered on July 1 against a May 31 cutoff was **not
+available** to a June 15 decision; admitting it on cutoff alone **backfills a
+later-created artifact into an earlier date** (look-ahead). R5 therefore requires
+immutable **`artifact_created_at` / `registry_available_at`** (and the gate verdict's
+**`observed_at`**) on **every** candidate, and defines eligibility (§5.0-i-a) as **all
+relevant data cutoffs AND the artifact/gate availability timestamps `<= the simulated
+decision time`** — enforced on **every arm** (§5.4, including current-prod-hold and the
+rollback identity), with a **missing availability timestamp failing closed** in the
+§5.0 coverage matrix rather than being inferred from a filesystem mtime or git
+ancestry.
+
 **5.0 Phase-0 replay-feasibility audit (MUST PASS, fail-closed, BEFORE any
 pre-registration).** The replay in §5.1–§5.5 cannot be pre-registered — let alone
 authorize a ceiling — until this audit establishes that the point-in-time record it
@@ -420,24 +450,46 @@ everything after it.
 - **(i) Enumerate the exact required fields and their IMMUTABLE sources.** For each
   simulated breach date the registry must supply, from a write-once / append-only
   source that could **not** have been edited after the fact:
-  - the **complete candidate set knowable at that date** (every staging / prod
-    artifact whose data cutoff ≤ the date) — from the artifact store's
-    creation-time index / MLflow run log, **not** a today-listing of surviving
-    files;
+  - the **complete candidate set ELIGIBLE at that date** — every staging / prod
+    artifact that satisfies the **full point-in-time eligibility predicate**
+    (§5.0-i-a) at that date — sourced from the artifact store's creation-time index
+    / MLflow run log, **not** a today-listing of surviving files;
+  - for **every** candidate, its immutable **`artifact_created_at` /
+    `registry_available_at`** timestamps — the write-once instant the artifact bytes
+    were first materialised / registered — recorded **at creation**, **never**
+    inferred from a current filesystem mtime or git commit ancestry;
   - each candidate's **artifact bytes + recipe / data fingerprints + data-cutoff
     axes** (§2) — recorded content hashes, not re-derived today;
-  - the **gate result + failure class** (§4.3.1 infra-vs-substance) as recorded at
-    the time — from the WF-gate run logs / run bundles, not re-run today;
+  - the **gate result + failure class** (§4.3.1 infra-vs-substance) **plus its
+    immutable `observed_at`** (the write-once instant that verdict was rendered) as
+    recorded at the time — from the WF-gate run logs / run bundles, not re-run today;
   - the **subsequent 60-day OOS outcomes** per arm — from realized price / label
     history, point-in-time.
+
+- **(i-a) Point-in-time eligibility predicate (the ARTIFACT-AVAILABILITY rule).** A
+  candidate is **eligible** at a simulated decision time `t` **iff ALL of the
+  following are `<= t`**: (1) every relevant **data-cutoff axis** (§2, fast **and**
+  slow), **AND** (2) the artifact's **`artifact_created_at` /
+  `registry_available_at`**, **AND** (3) the gate verdict's **`observed_at`**. A
+  data cutoff `<= t` **alone is necessary but NOT sufficient**: a model trained /
+  registered on July 1 against a May 31 cutoff was **not available** to a June 15
+  decision, so admitting it on cutoff alone would **backfill a later-created artifact
+  into an earlier date** (look-ahead). This predicate is applied to **EVERY arm**
+  (§5.4) — including the **current-prod-hold** and the **rollback-identity** arms —
+  so no arm can reference an artifact whose availability timestamp is after `t`.
 - **(ii) Report date-by-date COVERAGE and MISSINGNESS, broken down by arm AND by
   failure class.** For every candidate breach date and every arm (current-prod
-  hold / newest-eligible / best-recent fallback), tabulate which required fields
-  are present, which are missing, and — critically — the **missingness split by
-  failure class**: if infra-failed candidates were pruned from the store while
-  substance-failed ones were kept (or vice-versa), the surviving sample is
-  **biased**, not merely thin. The output is a **coverage matrix**, not a single
-  "we have a registry" assertion.
+  hold / newest-eligible / best-recent fallback / **rollback identity**), tabulate
+  which required fields are present, which are missing, and — critically — the
+  **missingness split by failure class**: if infra-failed candidates were pruned from
+  the store while substance-failed ones were kept (or vice-versa), the surviving
+  sample is **biased**, not merely thin. A **MISSING `artifact_created_at` /
+  `registry_available_at` / gate `observed_at`** is its **own** reported missingness
+  class: a candidate whose availability timestamp cannot be read from a write-once
+  source is **FAILED CLOSED** — excluded from that date's eligible set (or the date
+  itself flagged infeasible) — and is **never** admitted by inferring the timestamp
+  from the current filesystem mtime or git commit ancestry. The output is a **coverage
+  matrix**, not a single "we have a registry" assertion.
 - **(iii) Define the MINIMUM independent-sample floor.** Pre-state the minimum
   number of **independent breach events** and **independent 60-day OOS outcomes**
   (accounting for the 60d-label overlap of §5.5) needed for the confirmation span
@@ -499,10 +551,18 @@ inflate the apparent pass rate. The reported selection-stage estimate is the
 
 **5.4 Arms, metrics, gate.**
 
-- **Arms** at each simulated ceiling-breach date: (i) **current-prod hold** (keep
-  aging the live model); (ii) **newest eligible** (promote the most recent
-  data-fresh candidate); (iii) **proposed best-recent fallback** (the §4.3.4 pick,
-  infra-only + OOS floor).
+- **Arms** at each simulated ceiling-breach date `t`, **each restricted to artifacts
+  that satisfy the §5.0-i-a point-in-time eligibility predicate at `t`** (all data
+  cutoffs **AND** `artifact_created_at` / `registry_available_at` **AND** the gate
+  `observed_at` `<= t`): (i) **current-prod hold** (keep aging the model that was
+  *actually live* at `t` — not a later re-stamp of it); (ii) **newest eligible**
+  (promote the most recent candidate that is both data-fresh **and** already
+  available at `t`); (iii) **proposed best-recent fallback** (the §4.3.4 pick,
+  infra-only + OOS floor, drawn **only** from the set available at `t`); (iv)
+  **rollback identity** (revert to the prior artifact — which must itself have
+  existed and been available at `t`). **No arm** may reference an artifact whose
+  `artifact_created_at` / `registry_available_at` (or gate `observed_at`) is after
+  `t`, so the replay cannot backfill later artifacts into earlier dates.
 - **Metrics:** net OOS return / Sharpe / drawdown / turnover; **admission
   coverage** (how often each arm even has a candidate); **failure-mode strata**
   (split by infra-vs-substance reject reason).
