@@ -1,7 +1,8 @@
 # model freshness governance — design PR
 
 STATUS:   design for review (no code/config in this PR). Describe → discuss → PR to Codex → then implement per-repo.
-REVISION: R2 (round-2) — reworked to address Codex `CHANGES_REQUESTED` on head `183764a5`.
+REVISION: R3 (round-3) — addresses Codex `CHANGES_REQUESTED` on head `68e2ab01` (round-2 approved the corrected premise +
+          disabled fallback, but flagged 2 remaining blockers). Prior: R2 reworked round-1 on head `183764a5`.
 WHAT:     proposes a freshness-governance contract — a data-cutoff-keyed staleness monitor (NOT just `trained_date`), a
           28-day hard ceiling on BOTH production models, a reliable/monitored retrain cadence, a DEFERRED best-of-recent
           fallback bounded to infra-failures + an OOS floor, and a WF-gate REPAIR so the strict path can re-validate the
@@ -17,6 +18,24 @@ R2-FIX:   R1 rested on a FACTUALLY STALE premise (claimed PatchTST primary since
           promotion); PatchTST is now SHADOW (`LoadScorerTask: loaded xgb` + `ApplyShadowScoringTask: shadow hf_patchtst`).
           The 06-23 switch was a CONFIG-KIND directive, NOT a gate pass; `promotion_status="gated_buys"` is a STALE stamp.
           → WF-gate section reframed from "retire the vestigial GBDT promote" to "REPAIR the gate to re-validate the PRIMARY".
+CODEX-R3: TWO blockers resolved (docs-only, §2/§3/§5 rewrites). (B1) SELECTION-BIAS — R2 chose 28d/10d AND gated them on the
+          SAME shadow replay; §5 rebuilt as a two-stage protocol: pre-registered candidate grid (fast ceiling {21,28,35,45},
+          window {5,10,15}, slow-axis P-FUND-FRESHNESS params) + ALL selection inside an inner/selection stage + verdict read
+          ONLY from a temporally-later UNTOUCHED confirmation span (5.2a) OR nested/rolling OUTER folds (5.2b) + simultaneous
+          confidence bounds / DSR-style multiplicity haircut across the grid; 28d/10d are labelled SELECTION-STAGE OUTPUTS,
+          the authorizing verdict comes only from the confirmation/outer stage. (B2) PER-SOURCE FRESHNESS — one universal
+          raw-age ceiling is invalid for heterogeneous feeds (a point-in-time quarterly value can be >28d old yet CURRENT; a
+          fresh backfill timestamp does NOT make an overdue filing current). §2/§3 replaced with PER-SOURCE SLA: each
+          actually-used feed judged on its own contract (reporting period, available_at, expected-next-update, failed-harvest);
+          28d ceiling binds ONLY the FAST axis (OHLCV/price-derived/retrain cutoff), SLOW axis (quarterly fundamentals/
+          estimates) "current" iff latest-expected filing present + on-SLA; model's BINDING status = worst actually-used
+          source, not one global age. Reconciled with the pipeline's existing P-FUND-FRESHNESS split (daily-feed
+          max_feed_stale_days=20 vs quarterly-availability filing_lag_days=45 / max_quarters_behind=1) — governance REUSES
+          those two dimensions rather than inventing a third number; §5 replay evaluates the source-specific policies, not one
+          global age.
+CI-NOTE:  Codex also flags CI RED on 2 weekly-APY tests (553 pass / 2 fail). That is a SHARED / pre-existing CODE failure
+          being fixed SEPARATELY — this docs-only PR touches no code and did not cause it; the required-check dependency is
+          tracked in that separate fix, not here.
 CODEX-6:  (1) premise corrected + Action P0 production-state re-audit; (2) freshness keys on DATA cutoff / event_time /
           available_at / fingerprints, stale feeds BLOCK a fresh stamp; (3) fallback splits infra vs quality failures —
           bypasses ONLY enumerated infra failures AND only after an independently recomputed OOS economic floor;
