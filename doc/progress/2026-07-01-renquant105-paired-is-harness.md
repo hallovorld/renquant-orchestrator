@@ -6,7 +6,10 @@ claim, places **no** orders, and gates/promotes/pins nothing. First buildable
 piece of the merged RFC `doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md`
 (§9, converged r11/r12). Rev 2 (2026-07-01): reworked from a single-mid paired
 shortfall to RAW per-arm arrival observations + a timing/execution decomposition,
-per the Codex CHANGES_REQUESTED review (see FIX below).
+per the Codex CHANGES_REQUESTED review (see FIX below). Rev 3 (2026-07-01):
+timestamp-correct tick selection (compare true UTC instants, not raw strings) +
+independent QuoteRef validation (crossed / non-positive / non-finite quote never
+fabricates a mid), per the second Codex CHANGES_REQUESTED review (see FIX-R3).
 
 WHAT: New module `src/renquant_orchestrator/intraday_pairing_logger.py` — an
 OBSERVE-ONLY / post-hoc logger. For each daily-admitted name on a session it
@@ -59,14 +62,37 @@ is invalid. Rev 2:
 3. **Tick-selection rule made explicit + tested + frozen** (below), so no future
    analysis can pick a favorable tick post hoc.
 
+FIX-R3 (Codex CHANGES_REQUESTED, 2026-07-01 — second review; two blocking points):
+1. **Timestamp-correct tick selection.** `select_first_eligible_tick` sorted and
+   compared ISO-8601 `source_ts` as raw STRINGS. Lexical order is not chronological
+   across mixed UTC offsets, a trailing `Z`, or DST-shifted offsets (e.g.
+   `09:36-04:00` = `13:36Z` is a LATER instant than `13:35Z` yet sorts earlier as a
+   string), so the rule could pick a later tick as "first", admit a pre-eligibility
+   tick, or mishandle `not_after`. Now every timestamp is parsed to an aware **UTC**
+   instant (`_parse_instant`) and all ordering / eligibility / cutoff comparisons
+   are on instants. A tick whose `source_ts` is missing, timezone-naive, or
+   malformed is INELIGIBLE (cannot be ordered as-of, never admitted as "first"); a
+   naive/malformed `eligible_after` or `not_after` is a CONTROL error and raises
+   `ValueError` (a bad as-of fails loud, never silently censors everything). Ties on
+   the instant still resolve to feed order (stable).
+2. **Independent QuoteRef validation.** This collector ingests ARBITRARY JSONL, so
+   it enforces the quote contract itself rather than trusting the #216 producer's
+   censoring. `QuoteRef.resolved_mid` now validates before deriving a mid: a crossed
+   market (`bid > ask`), a non-positive price, or a non-finite (NaN / ±inf) price
+   yields `None` (censored) instead of a plausible-looking midpoint. The RAW bid/ask
+   are still recorded by `to_dict`; only the DERIVED mid is censored, so a bad quote
+   flows through as `no_{batch,intraday}_arrival_mid` — recorded by cause, never
+   imputed. An explicit single-print `mid` is validated the same way.
+
 PRE-REGISTRATION (frozen BEFORE evidence — mirrored in code as `FROZEN_PREREG`,
 stamped on every row as `prereg`; changing any of these is a recorded decision,
 not an ad-hoc edit):
 - **Tick selection** = `first_eligible_tick_after_conviction`: the FIRST intraday
-  tick whose quote `source_ts` is at/after the name's conviction/eligibility
-  instant (**as-of enforced**) — never a later, more favorable tick. Ties resolve
-  to feed order (stable), never "best price at that instant". Without a declared
-  eligibility instant, NO tick is selected (closes the post-hoc loophole).
+  tick whose quote `source_ts` (parsed to a true UTC **instant**, not a raw string)
+  is at/after the name's conviction/eligibility instant (**as-of enforced**) — never
+  a later, more favorable tick. Ties resolve to feed order (stable), never "best
+  price at that instant". Without a declared eligibility instant, NO tick is selected
+  (closes the post-hoc loophole).
 - **Session / calendar** = eligibility window `open+5min .. close−30min` (§11b);
   ticks before eligibility or after the no-entry cutoff are ineligible. The loader
   returns the RAW tick list; selection is deferred to the frozen rule at join time.
@@ -89,23 +115,31 @@ can be built now without touching the (deferred) statistics or placing any real
 intraday order.
 
 EVIDENCE:
-- `tests/test_intraday_pairing_logger.py` — 31 deterministic tests (all injected
+- `tests/test_intraday_pairing_logger.py` — 51 deterministic tests (all injected
   timestamps, in-memory + tmp fixtures, never touches live state): within-path
   execution sign/magnitude (buy + sell) + missing-input null; timing-component as
   arrival-to-arrival move (not execution) + null; decomposition identity
   (`total = timing + exec_b − exec_i`), Stage-1 no-intraday-fill leaves execution
   + total null (NOT zero), no-batch-arrival censors timing + exec_batch; raw
   per-arm arrival quotes on the record; censoring (no-fill / no-tick /
-  no-intraday-fill-is-not-an-anomaly); **first-eligible-tick selection** (earliest
-  at/after eligibility, later favorable tick NOT selected, pre-eligibility ticks
-  ignored, no-entry cutoff respected, no-eligibility-instant selects nothing,
-  out-of-order feed sorted); pair-join with selection + tick-stamped-eligibility
-  fallback + date-keyed fill fallback; counts-only summary with `analysis_unit`;
-  idempotent append; read-only loaders (`selected=1` + `run_type` filter, `run_id`
-  fill join buy-only, raw tick list not collapsed, batch-arrival first-wins),
-  end-to-end `collect`.
+  no-intraday-fill-is-not-an-anomaly); **QuoteRef validation** (valid midpoint,
+  locked market bid==ask valid, crossed / non-positive / non-finite censored to
+  null, explicit-mid validated, `to_dict` keeps raw bid/ask but nulls the invalid
+  mid, crossed intraday quote → `no_intraday_arrival_mid`); **first-eligible-tick
+  selection** (earliest at/after eligibility, later favorable tick NOT selected,
+  pre-eligibility ticks ignored, no-entry cutoff respected, no-eligibility-instant
+  selects nothing, out-of-order feed sorted); **timestamp correctness** (mixed UTC
+  offsets ordered by instant not string, pre-eligibility across offsets excluded,
+  `Z`-suffix parses as UTC, equal instant across encodings admitted, DST offsets
+  ordered by instant, `not_after` compared by instant, naive/malformed `source_ts`
+  ineligible, all-unparseable → none, naive/malformed `eligible_after` + bad
+  `not_after` raise); pair-join with selection + tick-stamped-eligibility fallback +
+  date-keyed fill fallback; counts-only summary with `analysis_unit`; idempotent
+  append; read-only loaders (`selected=1` + `run_type` filter, `run_id` fill join
+  buy-only, raw tick list not collapsed, batch-arrival first-wins), end-to-end
+  `collect`.
   `RenQuant/.venv/bin/python -m pytest tests/test_intraday_pairing_logger.py -q`
-  → **31 passed**.
+  → **51 passed**.
 - CLI smoke (tmp DB): `--out` append produces the expected JSONL. Worked example
   (NVDA, batch arrival mid 101, intraday first-eligible-tick mid 100, batch fill
   102): `timing_component=+1.0` (overnight move), `execution_shortfall_batch=+1.0`

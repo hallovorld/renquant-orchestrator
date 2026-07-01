@@ -51,8 +51,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -118,6 +120,49 @@ def default_pilot_path(data_root: Path | None = None) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Input validation — this collector ingests ARBITRARY JSONL, so it enforces the
+# consumer contract independently of any producer (the #216 producer censors bad
+# quotes, but we must not rely on that here).
+# ---------------------------------------------------------------------------
+def _valid_price(value: Any) -> bool:
+    """A price is valid only if it is finite and strictly positive. NaN / ±inf /
+    non-numeric / non-positive values are rejected (a crossed or garbage quote must
+    never yield a plausible-looking midpoint)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(v) and v > 0.0
+
+
+def _parse_instant(ts: Any) -> datetime | None:
+    """Parse an ISO-8601 timestamp to an aware **UTC** :class:`datetime`, or return
+    ``None`` when it is missing, timezone-naive, or malformed.
+
+    String lexical order is NOT chronological across mixed UTC offsets, a trailing
+    ``Z`` designator, or DST-shifted offsets (e.g. ``09:36-04:00`` is the SAME
+    instant as ``13:36+00:00`` and LATER than ``13:35Z``). Every ordering / cutoff
+    comparison therefore parses to a real instant instead of comparing strings. A
+    naive timestamp (no offset) is refused — we make no local-time assumption — and
+    a malformed one is refused rather than silently mis-ordered."""
+    if ts is None:
+        return None
+    s = str(ts).strip()
+    if not s:
+        return None
+    # Accept a trailing 'Z' (UTC designator) that Python 3.10 fromisoformat rejects.
+    if s[-1:] in ("Z", "z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return None  # naive — refuse (offset required; no local-time guess)
+    return dt.astimezone(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
@@ -136,7 +181,9 @@ class QuoteRef:
     """An arm's ARRIVAL / reference quote at the instant that arm becomes
     executable (§9.1 arrival-price convention). Records bid/ask/source-ts raw; the
     reference mid is DERIVED from bid/ask (or an explicitly supplied ``mid`` when a
-    single print — e.g. the opening auction cross — is all that exists, §9.2c). No
+    single print — e.g. the opening auction cross — is all that exists, §9.2c) and
+    is VALIDATED first: a crossed (``bid > ask``), non-positive, or non-finite quote
+    is censored to ``None`` rather than fabricating a plausible midpoint. No
     spread/impact model is applied here; ``mid`` is a raw reference, not a fill."""
 
     bid: float | None = None
@@ -146,12 +193,28 @@ class QuoteRef:
     source: str | None = None  # e.g. "opening_auction_print", "first_eligible_tick"
 
     def resolved_mid(self) -> float | None:
-        """Reference mid: explicit ``mid`` if given, else the bid/ask midpoint,
-        else ``None`` (recorded, never imputed)."""
+        """Reference mid: an explicit ``mid`` if given, else the bid/ask midpoint,
+        else ``None`` (recorded, never imputed).
+
+        The quote is VALIDATED before a mid is derived — this collector ingests
+        arbitrary JSONL and enforces the consumer contract itself. A crossed market
+        (``bid > ask``), a non-positive price, or a non-finite (NaN / ±inf) price is
+        invalid market data and yields ``None`` (censored), never a plausible-looking
+        midpoint. The raw ``bid`` / ``ask`` are still recorded by :meth:`to_dict`;
+        only the DERIVED mid is censored."""
+        # Explicit single-print reference (e.g. the opening-auction cross): accept
+        # only when finite and positive.
         if self.mid is not None:
-            return float(self.mid)
+            return float(self.mid) if _valid_price(self.mid) else None
+        # Derive from bid/ask only when BOTH are finite, positive, and not crossed.
         if self.bid is not None and self.ask is not None:
-            return (float(self.bid) + float(self.ask)) / 2.0
+            if not (_valid_price(self.bid) and _valid_price(self.ask)):
+                return None
+            bid = float(self.bid)
+            ask = float(self.ask)
+            if bid > ask:
+                return None  # crossed market — invalid, do not fabricate a mid
+            return (bid + ask) / 2.0
         return None
 
     def to_dict(self) -> dict[str, Any]:
@@ -374,22 +437,52 @@ def select_first_eligible_tick(
     tick. Optionally bounded above by ``not_after`` (the close−30min no-entry
     cutoff, §11b): ticks after it are ineligible.
 
-    Returns ``None`` (censored) when there is no eligibility instant (we refuse to
+    All comparisons are on true INSTANTS, not raw strings. Timestamps are parsed to
+    aware UTC datetimes (:func:`_parse_instant`) so mixed UTC offsets, a trailing
+    ``Z``, DST-shifted offsets, and sub-second precision order chronologically —
+    lexical string order does NOT (it can pick a later tick as "first", admit a
+    pre-eligibility tick, or mishandle ``not_after``).
+
+    Returns ``None`` (censored) when ``eligible_after`` is not supplied (we refuse to
     pick a tick without a declared as-of, closing the post-hoc-selection loophole),
-    when no tick carries a ``source_ts``, or when no tick falls in the window. Ties
-    on ``source_ts`` resolve to the first in feed order (stable) — deterministic,
-    never "the best price at that instant"."""
+    when no tick carries a parseable timestamp, or when no tick falls in the window.
+    A tick whose ``source_ts`` is missing, timezone-naive, or malformed is INELIGIBLE
+    (it cannot be ordered as-of, so it is never admitted as "first"). A supplied
+    ``eligible_after`` / ``not_after`` that is itself naive or malformed is a control
+    error and raises :class:`ValueError` — a bad as-of must fail loud, never silently
+    censor everything. Ties on the instant resolve to the first in feed order
+    (stable) — deterministic, never "the best price at that instant"."""
     if eligible_after is None:
         return None
-    # Stable sort by source_ts (string ISO-8601 timestamps sort chronologically);
-    # ties keep original feed order so selection can never prefer a better price.
-    eligible = [t for t in ticks if t.get("source_ts") is not None]
-    eligible.sort(key=lambda t: str(t["source_ts"]))
-    for tick in eligible:
-        ts = str(tick["source_ts"])
-        if ts < str(eligible_after):
+    elig = _parse_instant(eligible_after)
+    if elig is None:
+        raise ValueError(
+            "eligible_after must be a timezone-aware ISO-8601 instant, got "
+            f"{eligible_after!r}"
+        )
+    cutoff: datetime | None = None
+    if not_after is not None:
+        cutoff = _parse_instant(not_after)
+        if cutoff is None:
+            raise ValueError(
+                "not_after must be a timezone-aware ISO-8601 instant, got "
+                f"{not_after!r}"
+            )
+    # Parse each tick to a real instant; ticks with a missing / naive / malformed
+    # timestamp are ineligible (cannot be chronologically ordered as-of). Keep the
+    # original feed index so ties break to feed order (stable) and selection can
+    # never prefer a better price.
+    parsed: list[tuple[datetime, int, Mapping[str, Any]]] = []
+    for idx, tick in enumerate(ticks):
+        inst = _parse_instant(tick.get("source_ts"))
+        if inst is None:
+            continue
+        parsed.append((inst, idx, tick))
+    parsed.sort(key=lambda item: (item[0], item[1]))
+    for inst, _idx, tick in parsed:
+        if inst < elig:
             continue  # before eligibility — cannot be used
-        if not_after is not None and ts > str(not_after):
+        if cutoff is not None and inst > cutoff:
             break  # past the no-entry cutoff; all later ticks are too
         return tick
     return None

@@ -73,6 +73,73 @@ def _intraday_arm(arrival_mid=100.0):
 
 
 # ---------------------------------------------------------------------------
+# QuoteRef validation — the collector enforces the consumer contract on ARBITRARY
+# JSONL: a crossed / non-positive / non-finite quote never fabricates a mid.
+# ---------------------------------------------------------------------------
+def test_quote_ref_valid_bid_ask_midpoint():
+    assert QuoteRef(bid=100.9, ask=101.1).resolved_mid() == pytest.approx(101.0)
+
+
+def test_quote_ref_locked_market_bid_equals_ask_is_valid():
+    # A locked (zero-spread) market is valid, not crossed.
+    assert QuoteRef(bid=100.0, ask=100.0).resolved_mid() == pytest.approx(100.0)
+
+
+def test_quote_ref_crossed_market_censors_mid():
+    # bid > ask is a crossed market — invalid data, must NOT yield a midpoint.
+    assert QuoteRef(bid=101.5, ask=100.5).resolved_mid() is None
+
+
+def test_quote_ref_non_positive_price_censors_mid():
+    assert QuoteRef(bid=0.0, ask=101.0).resolved_mid() is None
+    assert QuoteRef(bid=100.0, ask=0.0).resolved_mid() is None
+    assert QuoteRef(bid=-1.0, ask=101.0).resolved_mid() is None
+
+
+def test_quote_ref_non_finite_price_censors_mid():
+    assert QuoteRef(bid=float("nan"), ask=101.0).resolved_mid() is None
+    assert QuoteRef(bid=100.0, ask=float("inf")).resolved_mid() is None
+    assert QuoteRef(bid=float("-inf"), ask=float("inf")).resolved_mid() is None
+
+
+def test_quote_ref_explicit_mid_validated_too():
+    assert QuoteRef(mid=101.0).resolved_mid() == pytest.approx(101.0)
+    assert QuoteRef(mid=0.0).resolved_mid() is None
+    assert QuoteRef(mid=-5.0).resolved_mid() is None
+    assert QuoteRef(mid=float("nan")).resolved_mid() is None
+    assert QuoteRef(mid=float("inf")).resolved_mid() is None
+
+
+def test_quote_ref_to_dict_keeps_raw_bid_ask_but_nulls_invalid_mid():
+    # The RAW quote is still recorded (observe-only); only the DERIVED mid is
+    # censored, so nothing is silently dropped.
+    d = QuoteRef(bid=101.5, ask=100.5, source_ts=OPEN_REF_TS).to_dict()
+    assert d["bid"] == 101.5 and d["ask"] == 100.5  # raw preserved
+    assert d["mid"] is None  # crossed -> censored, not fabricated
+
+
+def test_paired_record_crossed_intraday_quote_is_censored():
+    # A crossed intraday arrival quote yields no arrival mid -> recorded, censored
+    # by cause, never imputed.
+    rec = build_paired_record(
+        date=DATE,
+        ticker="NVDA",
+        side="buy",
+        batch_arm=_batch_arm(fill=102.0, arrival_mid=101.0),
+        intraday_arm=ArmObservation(
+            arm="intraday",
+            eligible_ts=ELIGIBLE_TS,
+            arrival_quote=QuoteRef(bid=100.6, ask=100.4, source_ts=TICK_TS),  # crossed
+            fill=None,
+        ),
+        signal_version="sv1",
+    )
+    assert rec["censored_reason"] == "no_intraday_arrival_mid"
+    assert rec["intraday_arm"]["arrival_quote"]["mid"] is None  # not fabricated
+    assert rec["decomposition"]["timing_component"] is None
+
+
+# ---------------------------------------------------------------------------
 # Pure within-path execution shortfall + timing component
 # ---------------------------------------------------------------------------
 def test_execution_shortfall_buy_sign_and_magnitude():
@@ -308,6 +375,120 @@ def test_first_eligible_tick_out_of_order_feed_is_sorted():
     ]
     sel = select_first_eligible_tick(ticks, "2026-06-30T09:35:00-04:00")
     assert sel["source_ts"] == "2026-06-30T09:36:00-04:00"
+
+
+# ---------------------------------------------------------------------------
+# Timestamp CORRECTNESS — compare true instants, not raw strings (Codex 2026-07-01):
+# mixed UTC offsets, Z-suffix, DST, and naive/malformed values.
+# ---------------------------------------------------------------------------
+def test_first_eligible_tick_mixed_offsets_order_by_instant_not_string():
+    # -04:00 09:36 == 13:36Z; +00:00 13:35 == 13:35Z (an EARLIER instant). Lexical
+    # string sort orders "2026-06-30T09:36:00-04:00" BEFORE "2026-06-30T13:35:00+00:00"
+    # (the wrong order); by instant the +00:00 tick is first and must be selected.
+    ticks = [
+        _tick("2026-06-30T09:36:00-04:00", 100.0),  # 13:36Z
+        _tick("2026-06-30T13:35:00+00:00", 99.0),   # 13:35Z -> earlier instant
+    ]
+    sel = select_first_eligible_tick(ticks, "2026-06-30T13:00:00+00:00")
+    assert sel["source_ts"] == "2026-06-30T13:35:00+00:00"
+
+
+def test_first_eligible_tick_pre_eligibility_across_offsets_is_excluded():
+    # A tick whose LOCAL clock string looks "after" the as-of but whose true instant
+    # is BEFORE it must be rejected. 09:31-04:00 = 13:31Z is before the 13:34Z as-of,
+    # even though "09:31" > "09:30" lexically vs a -04:00 as-of string.
+    ticks = [
+        _tick("2026-06-30T09:31:00-04:00", 98.0),   # 13:31Z -> before as-of
+        _tick("2026-06-30T09:36:00-04:00", 100.0),  # 13:36Z -> after as-of
+    ]
+    sel = select_first_eligible_tick(ticks, "2026-06-30T13:34:00+00:00")  # 09:34-04:00
+    assert sel["source_ts"] == "2026-06-30T09:36:00-04:00"
+
+
+def test_first_eligible_tick_z_suffix_parses_as_utc():
+    # A 'Z' designator must parse identically to '+00:00'.
+    ticks = [
+        _tick("2026-06-30T13:36:00Z", 100.0),
+        _tick("2026-06-30T14:00:00Z", 101.0),
+    ]
+    sel = select_first_eligible_tick(ticks, "2026-06-30T09:35:00-04:00")  # 13:35Z
+    assert sel["source_ts"] == "2026-06-30T13:36:00Z"
+
+
+def test_first_eligible_tick_equal_instant_across_encodings_is_admitted():
+    # As-of is "at or after": a tick at the SAME instant as the eligibility bound,
+    # even in a different encoding (13:35Z == 09:35-04:00), is admitted.
+    ticks = [_tick("2026-06-30T13:35:00Z", 100.0)]
+    sel = select_first_eligible_tick(ticks, "2026-06-30T09:35:00-04:00")
+    assert sel is not None and sel["mid"] == 100.0
+
+
+def test_first_eligible_tick_dst_offsets_order_by_instant():
+    # Winter EST (-05:00) vs summer EDT (-04:00): the collector must not assume a
+    # fixed offset. 14:36-05:00 = 19:36Z is LATER than 14:40-04:00 = 18:40Z, though
+    # the local strings ("14:36" < "14:40") suggest otherwise.
+    ticks = [
+        _tick("2026-01-15T14:36:00-05:00", 100.0),  # 19:36Z (EST)
+        _tick("2026-01-15T14:40:00-04:00", 99.0),   # 18:40Z (as if EDT) -> earlier
+    ]
+    sel = select_first_eligible_tick(ticks, "2026-01-15T18:00:00+00:00")
+    assert sel["source_ts"] == "2026-01-15T14:40:00-04:00"
+
+
+def test_first_eligible_tick_not_after_compared_by_instant():
+    # not_after 13:40Z; a tick at 09:45-04:00 = 13:45Z is past the cutoff by instant
+    # even though "09:45" < "13:40" lexically. It must be excluded -> censored.
+    ticks = [_tick("2026-06-30T09:45:00-04:00", 100.0)]  # 13:45Z
+    sel = select_first_eligible_tick(
+        ticks, "2026-06-30T13:30:00+00:00", not_after="2026-06-30T13:40:00+00:00"
+    )
+    assert sel is None
+
+
+def test_first_eligible_tick_naive_source_ts_is_ineligible():
+    # A timezone-naive tick cannot be ordered as-of, so it is never admitted; a
+    # later well-formed tick is selected instead of the ambiguous one.
+    ticks = [
+        _tick("2026-06-30T09:36:00", 100.0),        # naive -> ineligible
+        _tick("2026-06-30T09:40:00-04:00", 101.0),  # valid
+    ]
+    sel = select_first_eligible_tick(ticks, "2026-06-30T09:35:00-04:00")
+    assert sel["source_ts"] == "2026-06-30T09:40:00-04:00"
+
+
+def test_first_eligible_tick_malformed_source_ts_is_ineligible():
+    ticks = [
+        _tick("not-a-timestamp", 100.0),            # malformed -> ineligible
+        _tick("2026-06-30T09:40:00-04:00", 101.0),  # valid
+    ]
+    sel = select_first_eligible_tick(ticks, "2026-06-30T09:35:00-04:00")
+    assert sel["source_ts"] == "2026-06-30T09:40:00-04:00"
+
+
+def test_first_eligible_tick_all_ticks_unparseable_is_none():
+    ticks = [_tick("2026-06-30T09:36:00", 100.0), _tick("garbage", 101.0)]
+    assert select_first_eligible_tick(ticks, "2026-06-30T09:35:00-04:00") is None
+
+
+def test_first_eligible_tick_naive_eligibility_raises():
+    # A bad as-of is a CONTROL error: fail loud, never silently censor everything.
+    ticks = [_tick("2026-06-30T09:36:00-04:00", 100.0)]
+    with pytest.raises(ValueError):
+        select_first_eligible_tick(ticks, "2026-06-30T09:35:00")  # naive
+
+
+def test_first_eligible_tick_malformed_eligibility_raises():
+    ticks = [_tick("2026-06-30T09:36:00-04:00", 100.0)]
+    with pytest.raises(ValueError):
+        select_first_eligible_tick(ticks, "not-a-timestamp")
+
+
+def test_first_eligible_tick_bad_not_after_raises():
+    ticks = [_tick("2026-06-30T09:36:00-04:00", 100.0)]
+    with pytest.raises(ValueError):
+        select_first_eligible_tick(
+            ticks, "2026-06-30T09:35:00-04:00", not_after="2026-06-30T15:30:00"  # naive
+        )
 
 
 # ---------------------------------------------------------------------------
