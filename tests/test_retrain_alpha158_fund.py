@@ -30,11 +30,33 @@ def _repo(tmp_path: Path) -> Path:
     return repo
 
 
+def _fresh_kwargs() -> dict:
+    """Freshness-satisfying context kwargs for full-pipeline tests that exercise
+    the build/train command sequence (not the OHLCV coverage guard itself).
+
+    The refresh + guard tasks now FAIL CLOSED without a resolvable universe /
+    provable freshness, so these command-sequence tests pin an explicit
+    single-name fresh universe: refresh disabled (no network / base-data import),
+    an injected fresh OHLCV max date at the injected expected session, and a
+    zero-gap session counter so the guard passes deterministically without the
+    exchange-calendar dependency."""
+    d = dt.date(2026, 6, 30)
+    return dict(
+        refresh_ohlcv=False,
+        panel_universe=["AAPL"],
+        ohlcv_max_dates={"AAPL": d},
+        expected_session=d,
+        session_gap_fn=lambda a, b: 0,
+    )
+
+
 def test_pipeline_shape_is_single_job_with_ordered_tasks(tmp_path) -> None:
     pipeline = mod.build_pipeline()
     assert pipeline.name == "weekly-alpha158-fund-retrain"
     assert [type(job).__name__ for job in pipeline.jobs] == ["RetrainJob"]
     assert [type(task).__name__ for task in pipeline.jobs[0].tasks] == [
+        "RefreshFullUniverseOhlcvTask",
+        "PanelUniverseFreshnessGuardTask",
         "BuildAlpha158PanelTask",
         "MergeFundFeaturesTask",
         "TrainGbdtScorerTask",
@@ -69,6 +91,7 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
         xgb_artifact_out=scorer,
         calibrator_out=calibrator,
         strategy_config_path=strategy_config,
+        **_fresh_kwargs(),
     )
 
     result = mod.build_pipeline().run(ctx)
@@ -105,7 +128,9 @@ def test_missing_scorer_fails_before_calibrator(monkeypatch, tmp_path) -> None:
         return subprocess.CompletedProcess(_cmd, 0)
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
-    ctx = mod.RetrainContext(repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator)
+    ctx = mod.RetrainContext(
+        repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator, **_fresh_kwargs()
+    )
 
     with pytest.raises(FileNotFoundError, match="GBDT training did not produce"):
         mod.build_pipeline().run(ctx)
@@ -123,7 +148,9 @@ def test_invalid_scorer_content_fails_before_calibrator(monkeypatch, tmp_path) -
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
-    ctx = mod.RetrainContext(repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator)
+    ctx = mod.RetrainContext(
+        repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator, **_fresh_kwargs()
+    )
 
     with pytest.raises(ValueError, match="missing config_fingerprint"):
         mod.build_pipeline().run(ctx)
