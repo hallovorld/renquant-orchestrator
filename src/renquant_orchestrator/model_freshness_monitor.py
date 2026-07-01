@@ -12,13 +12,29 @@ fast-axis freshness for the **three** model populations, each keyed on the
    ``strategy_config.shadow.json`` ``ranking.panel_scoring.artifact_path`` (a model
    blob resolves to its ``<path>.metadata.json`` sidecar).
 
-Fast-axis age tiers (design §1/§4): ``healthy`` <=14d, ``warn`` 14-21d,
-``escalate`` 21-28d, ``breach`` >28d. Missing / unreadable artifacts **fail
-closed** to ``breach``. The process exit code reflects the worst tier
-(``healthy``=0, ``warn``=1, ``escalate``=2, ``breach``=3).
+Each population keys on a **per-population** freshness policy (never one global
+scalar): the per-ticker tournament and the prod XGB panel use the prod fast-axis
+tiers (design §1/§4: ``healthy`` <=14d, ``warn`` 14-21d, ``escalate`` 21-28d,
+``breach`` >28d), while the **shadow PatchTST panel** uses the merged RFC #212 §3.2
+shadow policy (looser 35d breach ceiling because shadow is non-trading, AND keyed on
+the served pin's validated-promote status).
+
+Fail-closed states, kept DISTINCT so operators can tell them apart:
+
+- ``breach``  — the binding data cutoff is known but too OLD (or a future/look-ahead
+  cutoff, or a shadow pin labeled non-fresh).
+- ``unknown`` — the binding DATA cutoff is missing / unparseable. This is NOT
+  ``trained_date`` (run time): a fresh ``trained_date`` over stale/absent data does
+  NOT certify freshness (design §2). ``trained_date`` is informational context only.
+  ``unknown`` fails closed at breach severity for the exit code / alerting.
+
+Missing / unreadable artifacts **fail closed** to ``breach``. The process exit code
+reflects the worst tier (``healthy``=0, ``warn``=1, ``escalate``=2, ``breach``=3,
+``unknown``=3 [breach-severity]).
 
 CRITICAL: ``now`` is injectable via ``--as-of`` so every time window is bounded on
-both sides and tests are deterministic (never wall-clock-dependent).
+both sides (a cutoff LATER than ``now`` is rejected as a look-ahead, never treated as
+a negative age that reads healthy) and tests are deterministic.
 
 OBSERVE-ONLY: this reads + reports + (behind ``--notify``) alerts. It never
 retrains, promotes, or changes any pin.
@@ -42,23 +58,39 @@ from .weekly_apy_monitor import post_ntfy
 GITHUB = default_github_root()
 DEFAULT_REPO_ROOT = default_repo_root()
 
-# Fast-axis (daily OHLCV / price-derived / retrain-data cutoff) age tiers, design §1/§4.
+# Prod fast-axis (daily OHLCV / price-derived / retrain-data cutoff) age tiers, design §1/§4.
 DEFAULT_WARN_DAYS = 14
 DEFAULT_ESCALATE_DAYS = 21
 DEFAULT_BREACH_DAYS = 28
+
+# Shadow PatchTST fast-axis tiers — merged RFC #212 §3.2: a looser breach ceiling
+# (35d, because the shadow moves no capital) AND keyed on validated-promote status.
+# NOT the prod 28d scalar applied uniformly to all three populations.
+SHADOW_WARN_DAYS = 28
+SHADOW_ESCALATE_DAYS = 33
+SHADOW_BREACH_DAYS = 35
 
 TIER_HEALTHY = "healthy"
 TIER_WARN = "warn"
 TIER_ESCALATE = "escalate"
 TIER_BREACH = "breach"
+# UNKNOWN = binding DATA cutoff missing/unparseable. Reported SEPARATELY from a
+# too-old ``breach`` (design §2 / #210: trained_date must never certify freshness),
+# but fails closed at breach severity for the exit code / alerting.
+TIER_UNKNOWN = "unknown"
 
-_TIER_RANK = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3}
+# Ordering for the headline "worst" tier. ``unknown`` ranks ABOVE ``breach`` (a
+# missing cutoff is at least as alarming as a stale one — you cannot even tell how
+# stale it is), but both map to exit code 3 (breach severity) via ``_TIER_EXIT_CODE``.
+_TIER_RANK = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3, TIER_UNKNOWN: 4}
+_TIER_EXIT_CODE = {TIER_HEALTHY: 0, TIER_WARN: 1, TIER_ESCALATE: 2, TIER_BREACH: 3, TIER_UNKNOWN: 3}
 
-# Data-cutoff axes, most-binding first. ``trained_date`` is a LAST-RESORT fallback
-# only — run time is not a data-freshness axis (design §2). The binding cutoff is
-# the model's most-recent data exposure; ``effective_selection_cutoff_date`` is the
-# freshest such axis when present (PatchTST shadow sidecar), then the retrain/train
-# cutoffs, then the per-ticker ``live_train_end``.
+# Data-cutoff axes, most-binding first. The binding cutoff is the model's most-recent
+# DATA exposure; ``effective_selection_cutoff_date`` is the freshest such axis when
+# present (PatchTST shadow sidecar), then the retrain/train cutoffs, then the
+# per-ticker ``live_train_end``. ``trained_date`` (run time) is deliberately NOT in
+# this list: it is not a data-freshness axis (design §2) and never certifies freshness
+# — a missing binding cutoff fails closed to ``unknown`` instead of falling back to it.
 DATA_CUTOFF_FIELDS = (
     "effective_selection_cutoff_date",
     "effective_train_cutoff_date",
@@ -122,6 +154,20 @@ def _text_or_none(value: object) -> str | None:
     return text or None
 
 
+def _optional_bool(value: object) -> bool | None:
+    """Parse a JSON-ish bool (native, or a "true"/"false"/"1"/"0" string); else None."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes"}:
+        return True
+    if text in {"false", "0", "no"}:
+        return False
+    return None
+
+
 def parse_as_of(value: str | None) -> datetime | None:
     """Parse a ``--as-of`` value (date or ISO datetime) into a UTC-aware datetime."""
     if not value:
@@ -168,6 +214,50 @@ def worst_tier(tiers: list[str]) -> str:
     return worst
 
 
+@dataclass(frozen=True)
+class FreshnessPolicy:
+    """Per-population freshness policy.
+
+    Makes the tiering ceilings and any promote-status gate EXPLICIT per population so
+    the prod fast axis and the shadow (RFC #212) axis are never conflated into one
+    global scalar. ``require_validated_promote`` additionally keys the shadow tier on
+    the served pin's validated-promote status (RFC #212 §3.2).
+    """
+
+    name: str
+    warn_days: int = DEFAULT_WARN_DAYS
+    escalate_days: int = DEFAULT_ESCALATE_DAYS
+    breach_days: int = DEFAULT_BREACH_DAYS
+    require_validated_promote: bool = False
+
+    def as_dict(self) -> dict:
+        return {
+            "breach_days": self.breach_days,
+            "escalate_days": self.escalate_days,
+            "name": self.name,
+            "require_validated_promote": self.require_validated_promote,
+            "warn_days": self.warn_days,
+        }
+
+
+# Prod fast-axis policy: per-ticker tournament + prod XGB panel (governance §1/§4).
+PROD_FAST_POLICY = FreshnessPolicy(
+    name="prod-fast-axis",
+    warn_days=DEFAULT_WARN_DAYS,
+    escalate_days=DEFAULT_ESCALATE_DAYS,
+    breach_days=DEFAULT_BREACH_DAYS,
+)
+
+# Shadow PatchTST policy: merged RFC #212 §3.2 — 35d breach ceiling + validated-promote.
+SHADOW_POLICY = FreshnessPolicy(
+    name="shadow-patchtst",
+    warn_days=SHADOW_WARN_DAYS,
+    escalate_days=SHADOW_ESCALATE_DAYS,
+    breach_days=SHADOW_BREACH_DAYS,
+    require_validated_promote=True,
+)
+
+
 @dataclass
 class ArtifactFreshness:
     """Freshness of a single JSON model artifact keyed on its binding data cutoff."""
@@ -181,6 +271,10 @@ class ArtifactFreshness:
     age_days: int | None = None
     tier: str = TIER_BREACH
     detail: str = ""
+    # Shadow (RFC #212 §3.2) only: served-pin validated-promote status. ``None`` when
+    # the population has no promote gate, or the field is absent (unverified).
+    promote_validated: bool | None = None
+    non_fresh: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -189,8 +283,10 @@ class ArtifactFreshness:
             "binding_field": self.binding_field,
             "detail": self.detail,
             "label": self.label,
+            "non_fresh": self.non_fresh,
             "path": self.path,
             "present": self.present,
+            "promote_validated": self.promote_validated,
             "tier": self.tier,
             "trained_date": self.trained_date,
         }
@@ -201,13 +297,21 @@ def read_artifact_freshness(
     path: Path | None,
     now: datetime,
     *,
-    warn_days: int = DEFAULT_WARN_DAYS,
-    escalate_days: int = DEFAULT_ESCALATE_DAYS,
-    breach_days: int = DEFAULT_BREACH_DAYS,
+    policy: FreshnessPolicy = PROD_FAST_POLICY,
 ) -> ArtifactFreshness:
     """Read one JSON artifact and derive its data-cutoff-keyed freshness tier.
 
-    Missing / unreadable / cutoff-less artifacts fail closed to ``breach``.
+    Fail-closed semantics (all kept DISTINCT so operators can act on them):
+
+    - missing / unreadable / non-object artifact -> ``breach``;
+    - a missing / unparseable **binding DATA cutoff** -> ``unknown`` (breach-severity
+      for exit code, reported separately from a too-old ``breach``). ``trained_date``
+      is captured as informational context ONLY and never certifies freshness (§2);
+    - a cutoff **later than** ``now`` -> ``breach`` (look-ahead; a negative age must
+      never read as ``healthy`` — PR #211 lesson, windows bounded on both sides);
+    - for a shadow policy (``require_validated_promote``): a served pin labeled
+      non-fresh -> ``breach``; a not-yet-validated promote caps the tier at
+      ``escalate`` (RFC #212 §3.2).
     """
     result = ArtifactFreshness(label=label, path="" if path is None else str(path))
     if path is None:
@@ -233,25 +337,65 @@ def read_artifact_freshness(
             result.binding_cutoff = str(data[field_name]).strip()[:10]
             result.binding_field = field_name
             break
-    if result.binding_cutoff is None and _parse_date(result.trained_date) is not None:
-        result.binding_cutoff = result.trained_date[:10]
-        result.binding_field = _TRAINED_DATE_FIELD
 
+    # RFC #212 §3.2: the shadow tier also keys on the served pin's promote status.
+    if policy.require_validated_promote:
+        result.non_fresh = _optional_bool(data.get("non_fresh")) is True or (
+            _text_or_none(data.get("freshness_label")) == "non_fresh"
+        )
+        result.promote_validated = _optional_bool(data.get("validated_promote"))
+
+    # A missing / unparseable binding DATA cutoff is UNKNOWN, not "stale" — it FAILS
+    # CLOSED (breach-severity) but is reported separately so operators see "cutoff
+    # unknown" vs "cutoff old". trained_date is NEVER used to certify freshness (§2);
+    # it is only echoed as informational context (recreating the #210 incident — a
+    # retrain-today-on-stale-data reads age 0 / healthy — is exactly what we prevent).
     cutoff = _parse_date(result.binding_cutoff)
     if cutoff is None:
-        result.detail = "no parseable trained_date or data cutoff (fail-closed)"
-        result.tier = TIER_BREACH
+        result.tier = TIER_UNKNOWN
+        context = (
+            f"; trained_date={result.trained_date} is informational only, not a freshness axis"
+            if result.trained_date
+            else ""
+        )
+        result.detail = f"binding data cutoff unknown (fail-closed){context}"
         return result
 
-    result.age_days = (now.date() - cutoff).days
+    age_days = (now.date() - cutoff).days
+    result.age_days = age_days
+
+    # A cutoff later than the effective ``now`` is a look-ahead: reject it (fail
+    # closed) rather than let a negative age be accepted as healthy by ``tier_for_age``.
+    if age_days < 0:
+        result.tier = TIER_BREACH
+        result.detail = (
+            f"future cutoff {result.binding_field}={result.binding_cutoff} "
+            f"> now={now.date().isoformat()} (look-ahead, fail-closed)"
+        )
+        return result
+
     result.tier = tier_for_age(
-        result.age_days,
-        warn_days=warn_days,
-        escalate_days=escalate_days,
-        breach_days=breach_days,
+        age_days,
+        warn_days=policy.warn_days,
+        escalate_days=policy.escalate_days,
+        breach_days=policy.breach_days,
     )
-    fallback = "; trained_date fallback (no data-cutoff field)" if result.binding_field == _TRAINED_DATE_FIELD else ""
-    result.detail = f"{result.binding_field}={result.binding_cutoff} age={result.age_days}d{fallback}"
+    result.detail = f"{result.binding_field}={result.binding_cutoff} age={age_days}d"
+
+    # RFC #212 §3.2: a shadow pin reaches ``healthy`` only via a VALIDATED promote and
+    # only if not labeled non-fresh; otherwise the challenger comparison is untrustworthy.
+    if policy.require_validated_promote:
+        if result.non_fresh:
+            result.tier = TIER_BREACH
+            result.detail += "; served pin labeled non-fresh (fail-closed)"
+        elif result.promote_validated is False:
+            result.tier = worst_tier([result.tier, TIER_ESCALATE])
+            result.detail += "; promote not validated (escalate)"
+        elif result.promote_validated is None:
+            result.detail += "; promote status unverified"
+        else:
+            result.detail += "; validated promote"
+
     return result
 
 
@@ -289,9 +433,7 @@ def read_tournament_freshness(
     watchlist: list[str],
     now: datetime,
     *,
-    warn_days: int = DEFAULT_WARN_DAYS,
-    escalate_days: int = DEFAULT_ESCALATE_DAYS,
-    breach_days: int = DEFAULT_BREACH_DAYS,
+    policy: FreshnessPolicy = PROD_FAST_POLICY,
 ) -> TournamentFreshness:
     result = TournamentFreshness(n_expected=len(watchlist))
     if not watchlist:
@@ -307,13 +449,14 @@ def read_tournament_freshness(
             f"tournament:{ticker}",
             path,
             now,
-            warn_days=warn_days,
-            escalate_days=escalate_days,
-            breach_days=breach_days,
+            policy=policy,
         )
         result.per_ticker.append(freshness)
         tiers.append(freshness.tier)
-        if freshness.present and freshness.age_days is not None:
+        # A usable age is present, parseable, AND non-negative. Missing files,
+        # cutoff-unknown, and future/look-ahead cutoffs all fail closed via ``tiers``
+        # and are excluded from the age spread so they cannot skew min/median/max.
+        if freshness.present and freshness.age_days is not None and freshness.age_days >= 0:
             result.n_present += 1
             ages.append(freshness.age_days)
         else:
@@ -449,9 +592,8 @@ class ModelFreshnessContext:
     shadow_config_path: Path
     strategy_config_path: Path
     explicit_watchlist: list[str] | None = None
-    warn_days: int = DEFAULT_WARN_DAYS
-    escalate_days: int = DEFAULT_ESCALATE_DAYS
-    breach_days: int = DEFAULT_BREACH_DAYS
+    fast_policy: FreshnessPolicy = PROD_FAST_POLICY
+    shadow_policy: FreshnessPolicy = SHADOW_POLICY
     topic: str = "renquant"
     quiet: bool = False
     notify: bool = False
@@ -481,16 +623,13 @@ class ResolveWatchlistTask(Task):
 
 class ComputeFreshnessTask(Task):
     def run(self, ctx: ModelFreshnessContext) -> bool | None:
-        thresholds = dict(
-            warn_days=ctx.warn_days,
-            escalate_days=ctx.escalate_days,
-            breach_days=ctx.breach_days,
-        )
+        # Per-population policy (NOT one global scalar): tournament + prod panel key on
+        # the prod fast axis; the shadow panel keys on RFC #212's 35d + promote status.
         ctx.tournament = read_tournament_freshness(
-            ctx.models_dir, ctx.watchlist, ctx.now, **thresholds
+            ctx.models_dir, ctx.watchlist, ctx.now, policy=ctx.fast_policy
         )
         ctx.prod_panel = read_artifact_freshness(
-            "prod-panel", ctx.prod_panel_path, ctx.now, **thresholds
+            "prod-panel", ctx.prod_panel_path, ctx.now, policy=ctx.fast_policy
         )
         ctx.shadow_artifact_path = resolve_shadow_artifact_path(
             ctx.shadow_config_path,
@@ -501,7 +640,7 @@ class ComputeFreshnessTask(Task):
             ],
         )
         ctx.shadow_panel = read_artifact_freshness(
-            "shadow-panel", ctx.shadow_artifact_path, ctx.now, **thresholds
+            "shadow-panel", ctx.shadow_artifact_path, ctx.now, policy=ctx.shadow_policy
         )
         ctx.worst_tier = worst_tier(
             [ctx.tournament.tier, ctx.prod_panel.tier, ctx.shadow_panel.tier]
@@ -523,7 +662,8 @@ class ComputeFreshnessTask(Task):
 
 class DecideFreshnessAlertTask(Task):
     def run(self, ctx: ModelFreshnessContext) -> bool | None:
-        ctx.exit_code = _TIER_RANK[ctx.worst_tier]
+        # UNKNOWN outranks BREACH for the headline tier but both map to exit code 3.
+        ctx.exit_code = _TIER_EXIT_CODE[ctx.worst_tier]
         if ctx.worst_tier != TIER_HEALTHY:
             ctx.alert_title = f"RenQuant 104 model freshness {ctx.worst_tier.upper()}"
             ctx.alert_body = ctx.summary
@@ -572,9 +712,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--shadow-config", type=Path, default=None)
     parser.add_argument("--strategy-config", type=Path, default=None)
     parser.add_argument("--watchlist", default=None, help="Comma-separated tickers; overrides config/scan resolution.")
+    # Prod fast-axis tiers (per-ticker tournament + prod XGB panel), governance §4.
     parser.add_argument("--warn-days", type=int, default=DEFAULT_WARN_DAYS)
     parser.add_argument("--escalate-days", type=int, default=DEFAULT_ESCALATE_DAYS)
     parser.add_argument("--breach-days", type=int, default=DEFAULT_BREACH_DAYS)
+    # Shadow PatchTST tiers (RFC #212 §3.2) — explicit per-population config, NOT the
+    # prod 28d scalar applied uniformly. Looser breach ceiling (35d, non-trading).
+    parser.add_argument("--shadow-warn-days", type=int, default=SHADOW_WARN_DAYS)
+    parser.add_argument("--shadow-escalate-days", type=int, default=SHADOW_ESCALATE_DAYS)
+    parser.add_argument("--shadow-breach-days", type=int, default=SHADOW_BREACH_DAYS)
     parser.add_argument("--topic", default="renquant")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--notify", action="store_true", help="Post an ntfy alert when the worst tier is not healthy.")
@@ -592,9 +738,8 @@ def _context_json(ctx: ModelFreshnessContext) -> dict:
         "shadow_panel": ctx.shadow_panel.as_dict() if ctx.shadow_panel else None,
         "summary": ctx.summary,
         "thresholds": {
-            "breach_days": ctx.breach_days,
-            "escalate_days": ctx.escalate_days,
-            "warn_days": ctx.warn_days,
+            "fast_axis": ctx.fast_policy.as_dict(),
+            "shadow": ctx.shadow_policy.as_dict(),
         },
         "tournament": ctx.tournament.as_dict() if ctx.tournament else None,
         "watchlist_source": ctx.watchlist_source,
@@ -618,6 +763,19 @@ def build_context(args: argparse.Namespace) -> ModelFreshnessContext:
     explicit = (
         [t for t in str(args.watchlist).split(",") if t.strip()] if args.watchlist else None
     )
+    fast_policy = FreshnessPolicy(
+        name="prod-fast-axis",
+        warn_days=args.warn_days,
+        escalate_days=args.escalate_days,
+        breach_days=args.breach_days,
+    )
+    shadow_policy = FreshnessPolicy(
+        name="shadow-patchtst",
+        warn_days=args.shadow_warn_days,
+        escalate_days=args.shadow_escalate_days,
+        breach_days=args.shadow_breach_days,
+        require_validated_promote=True,
+    )
     return ModelFreshnessContext(
         now=resolve_now(parse_as_of(args.as_of)),
         repo_root=repo_root,
@@ -627,9 +785,8 @@ def build_context(args: argparse.Namespace) -> ModelFreshnessContext:
         shadow_config_path=shadow_config,
         strategy_config_path=strategy_config,
         explicit_watchlist=explicit,
-        warn_days=args.warn_days,
-        escalate_days=args.escalate_days,
-        breach_days=args.breach_days,
+        fast_policy=fast_policy,
+        shadow_policy=shadow_policy,
         topic=args.topic,
         quiet=args.quiet,
         notify=args.notify,

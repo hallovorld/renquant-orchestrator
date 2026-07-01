@@ -90,13 +90,31 @@ def test_selection_cutoff_preferred_over_train_cutoff(tmp_path: Path) -> None:
     assert fresh.tier == mod.TIER_HEALTHY
 
 
-def test_trained_date_fallback_when_no_cutoff(tmp_path: Path) -> None:
+def test_trained_date_never_certifies_freshness_unknown_failclosed(tmp_path: Path) -> None:
+    # A fresh trained_date with NO binding data cutoff must NOT read as freshness.
+    # This is the #210 incident: retrain-today-on-stale-data -> age 0 -> "healthy".
+    # It must fail closed to a DISTINCT unknown state, not fall back to trained_date.
     art = _write_json(tmp_path / "prod.json", {"trained_date": "2026-06-14"})
     fresh = mod.read_artifact_freshness("prod", art, AS_OF)
-    assert fresh.binding_field == "trained_date"
-    assert fresh.age_days == 16
-    assert fresh.tier == mod.TIER_WARN
-    assert "trained_date fallback" in fresh.detail
+    assert fresh.present is True
+    assert fresh.binding_field is None
+    assert fresh.binding_cutoff is None
+    assert fresh.age_days is None
+    assert fresh.tier == mod.TIER_UNKNOWN
+    assert fresh.tier != mod.TIER_BREACH  # reported SEPARATELY from "cutoff old"
+    assert "unknown" in fresh.detail
+    # trained_date is echoed as informational context only, never as a freshness axis.
+    assert "informational" in fresh.detail
+    # unknown fails closed at breach severity for exit code / alerting.
+    assert mod._TIER_EXIT_CODE[fresh.tier] == 3
+
+
+def test_unknown_outranks_breach_but_exits_breach_severity() -> None:
+    # unknown is the headline worst (you can't even tell how stale it is)...
+    assert mod.worst_tier([mod.TIER_BREACH, mod.TIER_UNKNOWN]) == mod.TIER_UNKNOWN
+    assert mod.worst_tier([mod.TIER_UNKNOWN, mod.TIER_HEALTHY]) == mod.TIER_UNKNOWN
+    # ...but both fail closed to exit code 3.
+    assert mod._TIER_EXIT_CODE[mod.TIER_UNKNOWN] == mod._TIER_EXIT_CODE[mod.TIER_BREACH] == 3
 
 
 def test_missing_artifact_fails_closed(tmp_path: Path) -> None:
@@ -112,12 +130,37 @@ def test_no_path_fails_closed() -> None:
     assert fresh.tier == mod.TIER_BREACH
 
 
-def test_cutoffless_artifact_fails_closed(tmp_path: Path) -> None:
+def test_cutoffless_artifact_fails_closed_unknown(tmp_path: Path) -> None:
+    # Present artifact, no cutoff field AND no trained_date -> unknown (fail closed).
     art = _write_json(tmp_path / "bad.json", {"kind": "xgb"})
     fresh = mod.read_artifact_freshness("prod", art, AS_OF)
     assert fresh.present is True
-    assert fresh.tier == mod.TIER_BREACH
+    assert fresh.tier == mod.TIER_UNKNOWN
     assert fresh.age_days is None
+    assert mod._TIER_EXIT_CODE[fresh.tier] == 3
+
+
+# --------------------------------------------------------------------------- #
+# Future / look-ahead cutoff: fail closed (windows bounded on BOTH sides, #211)
+# --------------------------------------------------------------------------- #
+def test_future_cutoff_fails_closed_not_healthy(tmp_path: Path) -> None:
+    # A cutoff LATER than 'now' yields a negative age; it must be rejected, never
+    # accepted as healthy (a replay at June 1 must not consume a June 15 cutoff).
+    art = _write_json(tmp_path / "future.json", {"data_cutoff_date": "2026-07-15"})
+    fresh = mod.read_artifact_freshness("prod", art, AS_OF)  # AS_OF = 2026-06-30
+    assert fresh.present is True
+    assert fresh.binding_cutoff == "2026-07-15"
+    assert fresh.age_days == -15  # negative == future
+    assert fresh.tier == mod.TIER_BREACH  # fail closed, NOT healthy
+    assert "future cutoff" in fresh.detail
+    assert "look-ahead" in fresh.detail
+
+
+def test_future_shadow_cutoff_fails_closed(tmp_path: Path) -> None:
+    art = _write_json(tmp_path / "shadow.json", {"effective_selection_cutoff_date": "2026-08-01"})
+    fresh = mod.read_artifact_freshness("shadow", art, AS_OF, policy=mod.SHADOW_POLICY)
+    assert fresh.tier == mod.TIER_BREACH
+    assert "future cutoff" in fresh.detail
 
 
 # --------------------------------------------------------------------------- #
@@ -197,7 +240,8 @@ def _build_fixture(tmp_path: Path, *, prod_cutoff: str, shadow_cutoff: str, tick
     _write_policy(models, "MSFT", trained_date="2026-06-30", live_train_end=ticker_cutoff)
     prod = _write_json(
         tmp_path / "artifacts" / "prod" / "panel-ltr.alpha158_fund.json",
-        {"kind": "xgb", "trained_date": prod_cutoff},
+        # A real binding DATA cutoff (trained_date alone no longer certifies freshness).
+        {"kind": "xgb", "trained_date": "2026-06-30", "data_cutoff_date": prod_cutoff},
     )
     _write_json(
         tmp_path / "shadow" / "seed_44" / "model.pt.metadata.json",
@@ -266,10 +310,10 @@ def test_main_json_is_deterministic_via_as_of(tmp_path: Path, capsys) -> None:
     rc = mod.main(argv)
     payload = json.loads(capsys.readouterr().out)
     assert rc == payload["exit_code"]
-    # prod panel 16d old (trained_date fallback) -> warn dominates a healthy rest.
+    # prod panel 16d old (binding DATA cutoff) -> warn dominates a healthy rest.
     assert payload["worst_tier"] == mod.TIER_WARN
     assert rc == 1
-    assert payload["prod_panel"]["binding_field"] == "trained_date"
+    assert payload["prod_panel"]["binding_field"] == "data_cutoff_date"
     assert payload["prod_panel"]["age_days"] == 16
     assert payload["tournament"]["n_present"] == 2
     assert payload["watchlist_source"] == "explicit"
@@ -291,3 +335,141 @@ def test_main_as_of_bounds_both_sides(tmp_path: Path, capsys) -> None:
     far = json.loads(capsys.readouterr().out)
     assert (rc_near, near["worst_tier"]) == (0, mod.TIER_HEALTHY)
     assert (rc_far, far["worst_tier"]) == (3, mod.TIER_BREACH)
+
+
+def test_main_cli_future_cutoff_rejected(tmp_path: Path, capsys) -> None:
+    # CLI regression (point 2): a cutoff LATER than --as-of must fail closed as a
+    # look-ahead, never accepted as a healthy negative age. The PR's "windows bounded
+    # on both sides" claim is only true for cutoff evaluation once this passes.
+    fx = _build_fixture(tmp_path, prod_cutoff="2026-07-15", shadow_cutoff="2026-06-25", ticker_cutoff="2026-06-25")
+    argv = [
+        "--as-of", "2026-06-30",
+        "--models-dir", str(fx["models"]),
+        "--prod-panel", str(fx["prod"]),
+        "--shadow-config", str(fx["shadow_cfg"]),
+        "--watchlist", "AAPL,MSFT",
+        "--quiet", "--json",
+    ]
+    rc = mod.main(argv)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["prod_panel"]["age_days"] == -15  # 15d in the future
+    assert payload["prod_panel"]["tier"] == mod.TIER_BREACH  # rejected, not healthy
+    assert "future cutoff" in payload["prod_panel"]["detail"]
+    assert payload["worst_tier"] == mod.TIER_BREACH
+    assert rc == 3
+
+
+def test_main_cli_missing_cutoff_is_unknown_failclosed(tmp_path: Path, capsys) -> None:
+    # CLI regression (point 1): a prod panel with only trained_date (no binding data
+    # cutoff) must report unknown and exit at breach severity, never certify healthy.
+    _write_policy(tmp_path / "models", "AAPL", live_train_end="2026-06-25")
+    prod = _write_json(tmp_path / "prod.json", {"kind": "xgb", "trained_date": "2026-06-30"})
+    shadow_cfg = _write_json(
+        tmp_path / "strategy_config.shadow.json",
+        {"ranking": {"panel_scoring": {"kind": "xgb", "artifact_path": "prod.json"}}},
+    )
+    argv = [
+        "--as-of", "2026-06-30",
+        "--models-dir", str(tmp_path / "models"),
+        "--prod-panel", str(prod),
+        "--shadow-config", str(shadow_cfg),
+        "--watchlist", "AAPL",
+        "--quiet", "--json",
+    ]
+    rc = mod.main(argv)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["prod_panel"]["tier"] == mod.TIER_UNKNOWN
+    assert payload["prod_panel"]["age_days"] is None
+    assert payload["worst_tier"] == mod.TIER_UNKNOWN  # headline is distinct from breach
+    assert rc == 3  # but exits at breach severity (fail closed)
+
+
+# --------------------------------------------------------------------------- #
+# Shadow population uses RFC #212's policy (35d + promote status), not prod 28d
+# --------------------------------------------------------------------------- #
+def test_shadow_policy_looser_than_prod_at_30d(tmp_path: Path) -> None:
+    # Same 30d-stale artifact: prod policy BREACHes (>28d), shadow policy is only WARN.
+    art = _write_json(tmp_path / "s.json", {"effective_selection_cutoff_date": "2026-05-31"})
+    prod = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.PROD_FAST_POLICY)
+    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
+    assert prod.age_days == shadow.age_days == 30
+    assert prod.tier == mod.TIER_BREACH   # prod 28d fast ceiling
+    assert shadow.tier == mod.TIER_WARN   # shadow 35d ceiling (RFC #212 §3.2)
+
+
+def test_shadow_policy_breach_only_past_35d(tmp_path: Path) -> None:
+    art = _write_json(tmp_path / "s.json", {"effective_selection_cutoff_date": "2026-05-25"})  # 36d
+    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
+    assert shadow.age_days == 36
+    assert shadow.tier == mod.TIER_BREACH
+
+
+def test_shadow_non_fresh_label_forces_breach(tmp_path: Path) -> None:
+    # RFC #212 §3.2: a served pin labeled non-fresh is breach even with a fresh age.
+    art = _write_json(
+        tmp_path / "s.json",
+        {"effective_selection_cutoff_date": "2026-06-27", "non_fresh": True},
+    )
+    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
+    assert shadow.age_days == 3  # healthy on age alone
+    assert shadow.non_fresh is True
+    assert shadow.tier == mod.TIER_BREACH
+    assert "non-fresh" in shadow.detail
+
+
+def test_shadow_unvalidated_promote_caps_at_escalate(tmp_path: Path) -> None:
+    # RFC #212 §3.2: a fresh age does not certify healthy without a validated promote.
+    art = _write_json(
+        tmp_path / "s.json",
+        {"effective_selection_cutoff_date": "2026-06-27", "validated_promote": False},
+    )
+    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
+    assert shadow.promote_validated is False
+    assert shadow.tier == mod.TIER_ESCALATE  # not healthy despite 3d age
+    assert "promote not validated" in shadow.detail
+
+
+def test_shadow_validated_promote_allows_healthy(tmp_path: Path) -> None:
+    art = _write_json(
+        tmp_path / "s.json",
+        {"effective_selection_cutoff_date": "2026-06-27", "validated_promote": True},
+    )
+    shadow = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.SHADOW_POLICY)
+    assert shadow.promote_validated is True
+    assert shadow.tier == mod.TIER_HEALTHY
+    assert "validated promote" in shadow.detail
+
+
+def test_prod_policy_ignores_promote_status(tmp_path: Path) -> None:
+    # The prod fast axis has no promote gate: promote fields are not consulted.
+    art = _write_json(
+        tmp_path / "p.json",
+        {"data_cutoff_date": "2026-06-27", "validated_promote": False, "non_fresh": True},
+    )
+    prod = mod.read_artifact_freshness("x", art, AS_OF, policy=mod.PROD_FAST_POLICY)
+    assert prod.promote_validated is None
+    assert prod.non_fresh is False
+    assert prod.tier == mod.TIER_HEALTHY  # 3d age, no promote gate applied
+
+
+def test_main_cli_shadow_uses_its_own_policy(tmp_path: Path, capsys) -> None:
+    # Full pipeline: a 30d-stale shadow is WARN under its 35d policy, NOT breach under
+    # the prod 28d scalar. Per-population thresholds are explicit in the JSON.
+    fx = _build_fixture(tmp_path, prod_cutoff="2026-06-25", shadow_cutoff="2026-05-31", ticker_cutoff="2026-06-25")
+    argv = [
+        "--as-of", "2026-06-30",
+        "--models-dir", str(fx["models"]),
+        "--prod-panel", str(fx["prod"]),
+        "--shadow-config", str(fx["shadow_cfg"]),
+        "--watchlist", "AAPL,MSFT",
+        "--quiet", "--json",
+    ]
+    rc = mod.main(argv)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["shadow_panel"]["age_days"] == 30
+    assert payload["shadow_panel"]["tier"] == mod.TIER_WARN
+    assert payload["worst_tier"] == mod.TIER_WARN
+    assert rc == 1
+    assert payload["thresholds"]["shadow"]["breach_days"] == 35
+    assert payload["thresholds"]["fast_axis"]["breach_days"] == 28
+    assert payload["thresholds"]["shadow"]["require_validated_promote"] is True
