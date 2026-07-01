@@ -20,10 +20,13 @@ import pytest
 from renquant_orchestrator import entry_timing_shadow as ets
 from renquant_orchestrator.entry_timing_shadow import (
     DEFAULT_CONFIG,
+    FEED_ELIGIBILITY_POLICY_VERSION,
     POLICY_IMMEDIATE,
     POLICY_OPENING_RANGE_BREAKOUT,
     POLICY_PULLBACK_TO_REF,
     POLICY_VWAP_CROSS,
+    REF_KIND_OPENING_PRINT,
+    REF_KIND_PRIOR_CLOSE,
     REGISTERED_POLICIES,
     AdmittedName,
     EntryTimingConfig,
@@ -50,8 +53,16 @@ def _et(hh: int, mm: int, ss: int = 0) -> str:
     return f"{DATE}T{hh:02d}:{mm:02d}:{ss:02d}-04:00"
 
 
+# Calendar-resolved session bounds #216 stamps on every eligible tick (a regular
+# NYSE session on the fixed date). Half-day tests override session_close.
+SESSION_OPEN = _et(9, 30)
+SESSION_CLOSE = _et(16, 0)
+
+
 def _tick(ticker: str, hh: int, mm: int, mid: float, *, ss: int = 0, **extra) -> dict:
-    """Build a raw #216-shaped feed row with a fresh (age-0) quote by default."""
+    """Build a raw #216-shaped ELIGIBLE feed row: producer status=ok, a fresh (age-0)
+    quote, the calendar-resolved session bounds, and the frozen policy version. Tests
+    that exercise a censored / legacy / unverified row override or drop these keys."""
     t = _et(hh, mm, ss)
     row = {
         "date": DATE,
@@ -60,6 +71,11 @@ def _tick(ticker: str, hh: int, mm: int, mid: float, *, ss: int = 0, **extra) ->
         "tick_time": t,
         "ts": t,
         "quote_ts": t,
+        "status": "ok",
+        "quote_age": 0.0,
+        "session_open": SESSION_OPEN,
+        "session_close": SESSION_CLOSE,
+        "eligibility_policy_version": FEED_ELIGIBILITY_POLICY_VERSION,
     }
     row.update(extra)
     return row
@@ -92,9 +108,19 @@ def test_registered_policy_set_is_the_four_candidates():
 
 def test_config_fingerprint_is_stable_and_pins_params():
     # A frozen, regression-pinned fingerprint: if a param changes, this must change.
-    assert DEFAULT_CONFIG.fingerprint() == "656e8f36b1f58130"
+    assert DEFAULT_CONFIG.fingerprint() == "2d5527caff70f91f"
     changed = EntryTimingConfig(pullback_pct=0.01)
     assert changed.fingerprint() != DEFAULT_CONFIG.fingerprint()
+
+
+def test_fingerprint_pins_the_confirmatory_design_not_just_policy_knobs():
+    # Freezing four policy names is NOT a pre-registration: the confirmatory-analysis
+    # design must be pinned too, so changing any of it changes the fingerprint.
+    assert EntryTimingConfig(primary_policy=POLICY_VWAP_CROSS).fingerprint() != DEFAULT_CONFIG.fingerprint()
+    assert EntryTimingConfig(analysis_unit="name").fingerprint() != DEFAULT_CONFIG.fingerprint()
+    assert EntryTimingConfig(min_pilot_sessions=5).fingerprint() != DEFAULT_CONFIG.fingerprint()
+    assert EntryTimingConfig(multiplicity_control="none").fingerprint() != DEFAULT_CONFIG.fingerprint()
+    assert EntryTimingConfig(period_policy="reuse_same_period").fingerprint() != DEFAULT_CONFIG.fingerprint()
 
 
 def test_preregistration_manifest_declares_every_policy_and_params():
@@ -102,6 +128,7 @@ def test_preregistration_manifest_declares_every_policy_and_params():
     assert manifest["observe_only"] is True
     assert manifest["config_fingerprint"] == DEFAULT_CONFIG.fingerprint()
     assert manifest["policies"] == list(REGISTERED_POLICIES)
+    assert manifest["feed_eligibility_policy_version"] == FEED_ELIGIBILITY_POLICY_VERSION
     # every policy carries its frozen params (window is always present)
     for policy in REGISTERED_POLICIES:
         params = manifest["policy_params"][policy]
@@ -109,6 +136,23 @@ def test_preregistration_manifest_declares_every_policy_and_params():
         assert params["entry_close_cutoff_min"] == 30
     assert manifest["policy_params"][POLICY_OPENING_RANGE_BREAKOUT]["opening_range_minutes"] == 30
     assert manifest["policy_params"][POLICY_PULLBACK_TO_REF]["pullback_pct"] == pytest.approx(0.003)
+
+
+def test_preregistration_manifest_freezes_the_confirmatory_design():
+    # Codex: not preregistered merely because four policy names are in code. The
+    # frozen design must fix primary policy/endpoint, analysis unit, censoring,
+    # cost/fill model, minimum dates, multiplicity control, and a held-out period.
+    fd = preregistration_manifest()["frozen_design"]
+    assert fd["primary_policy"] == POLICY_IMMEDIATE
+    assert "shortfall" in fd["primary_endpoint"] and "deferred" in fd["primary_endpoint"]
+    assert fd["analysis_unit"] == "session"
+    assert fd["censoring_rule"] == "recorded_by_cause__never_imputed"
+    assert "zero_modeled_shortfall" in fd["fill_model"]
+    assert fd["min_pilot_sessions"] == 20
+    assert fd["multiplicity_control"] == "holm_bonferroni_secondary_vs_primary"
+    assert "held_out" in fd["period_policy"]
+    # Stage-1 renders NO confirmatory statistic — it is deferred to §9.4.
+    assert fd["confirmatory_inference"] == "deferred_to_experiment_prereg_9_4"
 
 
 # ===========================================================================
@@ -135,7 +179,8 @@ def test_normalize_drops_out_of_session_ticks():
 
 def test_normalize_drops_stale_quotes_beyond_hard_threshold():
     fresh = _tick("AAA", 10, 0, 100.0)
-    # quote_ts 20s older than the sample ts => age 20s > 15s hard-skip => dropped
+    # quote_ts 20s older than the sample ts => recomputed age 20s > 15s hard-skip =>
+    # dropped. (No stamped quote_age here so the ts−quote_ts fallback is exercised.)
     stale = {
         "date": DATE,
         "ticker": "AAA",
@@ -143,6 +188,9 @@ def test_normalize_drops_stale_quotes_beyond_hard_threshold():
         "tick_time": _et(10, 30, 20),
         "ts": _et(10, 30, 20),
         "quote_ts": _et(10, 30, 0),
+        "status": "ok",
+        "session_open": SESSION_OPEN,
+        "session_close": SESSION_CLOSE,
     }
     ticks = normalize_ticks([fresh, stale], ticker="AAA", date=DATE)
     assert [t.mid for t in ticks] == [100.0]
@@ -150,14 +198,54 @@ def test_normalize_drops_stale_quotes_beyond_hard_threshold():
 
 def test_normalize_skips_unpriceable_and_derives_mid_from_bid_ask():
     rows = [
-        {"date": DATE, "ticker": "AAA", "tick_time": _et(10, 0), "ts": _et(10, 0),
-         "quote_ts": _et(10, 0)},  # no mid/bid/ask/last — unpriceable, skipped
-        {"date": DATE, "ticker": "AAA", "bid": 99.0, "ask": 101.0,
-         "tick_time": _et(10, 5), "ts": _et(10, 5), "quote_ts": _et(10, 5)},
+        # no mid/bid/ask/last — unpriceable, skipped
+        _tick("AAA", 10, 0, mid=None),
+        {**_tick("AAA", 10, 5, mid=None), "bid": 99.0, "ask": 101.0},
     ]
     ticks = normalize_ticks(rows, ticker="AAA", date=DATE)
     assert len(ticks) == 1
     assert ticks[0].mid == pytest.approx(100.0)  # (99+101)/2
+
+
+def test_normalize_drops_non_ok_status_rows():
+    # Only rows #216 certified status="ok" are evidence; a censored status is dropped.
+    ok = _tick("AAA", 10, 0, 100.0)
+    censored = _tick("AAA", 10, 5, 100.5, status="stale_quote")
+    ticks = normalize_ticks([ok, censored], ticker="AAA", date=DATE)
+    assert [t.mid for t in ticks] == [100.0]
+
+
+def test_normalize_drops_rows_without_status():
+    # A legacy / unverified quote (no eligibility status) is not evidence.
+    row = _tick("AAA", 10, 0, 100.0)
+    row.pop("status")
+    assert normalize_ticks([row], ticker="AAA", date=DATE) == []
+
+
+def test_normalize_drops_rows_with_unknown_quote_age():
+    # Freshness must be PROVEN: no stamped quote_age and no ts/quote_ts to recompute
+    # => age unknown => dropped (never kept because age is unknown).
+    row = _tick("AAA", 10, 0, 100.0)
+    row.pop("quote_age", None)
+    row.pop("ts", None)
+    row.pop("quote_ts", None)
+    assert normalize_ticks([row], ticker="AAA", date=DATE) == []
+
+
+def test_normalize_drops_rows_without_calendar_session_bounds():
+    # Without the calendar-resolved bounds #216 stamps, the tick cannot be certified
+    # against a real session (early-close/holiday aware) => dropped.
+    row = _tick("AAA", 10, 0, 100.0)
+    row.pop("session_open")
+    row.pop("session_close")
+    assert normalize_ticks([row], ticker="AAA", date=DATE) == []
+
+
+def test_normalize_prefers_stamped_quote_age_over_recompute():
+    # A row whose STAMPED quote_age exceeds the hard skip is dropped even if ts and
+    # quote_ts are equal (recompute would say 0) — the producer's stamp is trusted.
+    row = _tick("AAA", 10, 0, 100.0, quote_age=99.0)
+    assert normalize_ticks([row], ticker="AAA", date=DATE) == []
 
 
 def test_normalize_filters_by_ticker_and_date():
@@ -285,36 +373,61 @@ def test_orb_censored_when_no_opening_range_ticks():
 # ===========================================================================
 # policy: pullback_to_ref
 # ===========================================================================
-def test_pullback_uses_batch_ref_and_picks_first_dip():
-    # batch_ref = 100; threshold = 100 * (1 - 0.003) = 99.7. First tick <= 99.7 wins.
+def test_pullback_uses_causal_prior_close_ref_and_picks_first_dip():
+    # CAUSAL reference: prior_close_ref = 100 (a frozen daily level known pre-market);
+    # threshold = 100 * (1 - 0.003) = 99.7. First tick <= 99.7 wins.
     raw = _series("AAA", [(10, 0, 100.0), (10, 12, 99.6), (10, 24, 99.0)])
     name = AdmittedName(date=DATE, ticker="AAA")
     ticks = normalize_ticks(raw, ticker="AAA", date=DATE)
-    row = _outcome(evaluate_name(name, ticks, batch_ref=100.0), POLICY_PULLBACK_TO_REF)
+    row = _outcome(evaluate_name(name, ticks, prior_close_ref=100.0), POLICY_PULLBACK_TO_REF)
     assert row["eligible"] is True
     # First dip below threshold is 10:12 (99.6), NOT the deeper later 99.0.
     assert row["entry_tick_time"] == _et(10, 12)
     assert row["entry_ref_quote"] == 99.6
-    assert row["batch_ref"] == 100.0
+    assert row["causal_reference"] == 100.0
+    assert row["causal_reference_kind"] == REF_KIND_PRIOR_CLOSE
 
 
-def test_pullback_falls_back_to_first_tick_mid_without_batch_ref():
-    # No batch_ref => reference is the first tick mid (100). threshold 99.7.
+def test_pullback_falls_back_to_observed_opening_print_when_no_prior_close():
+    # No prior_close_ref => reference is the OBSERVED opening print (first in-session
+    # tick mid = 100), known as-of the decision instant. threshold 99.7.
     raw = _series("AAA", [(10, 0, 100.0), (10, 12, 99.5)])
     name = AdmittedName(date=DATE, ticker="AAA")
     ticks = normalize_ticks(raw, ticker="AAA", date=DATE)
     row = _outcome(evaluate_name(name, ticks), POLICY_PULLBACK_TO_REF)
     assert row["eligible"] is True
     assert row["entry_tick_time"] == _et(10, 12)
+    assert row["causal_reference"] == 100.0
+    assert row["causal_reference_kind"] == REF_KIND_OPENING_PRINT
+
+
+def test_pullback_batch_ref_is_provenance_only_never_triggers():
+    # Codex blocking look-ahead: the next-open batch reference is NOT known at the
+    # decision instant and must never trigger. With no prior_close_ref, the causal
+    # reference is the observed opening print (100); prices never dip below 99.7, so
+    # the policy censors — batch_ref=200 does not (and must not) create an entry.
+    raw = _series("AAA", [(10, 0, 100.0), (10, 12, 100.2), (10, 24, 100.5)])
+    name = AdmittedName(date=DATE, ticker="AAA")
+    ticks = normalize_ticks(raw, ticker="AAA", date=DATE)
+    row = _outcome(evaluate_name(name, ticks, batch_ref=200.0), POLICY_PULLBACK_TO_REF)
+    assert row["eligible"] is False
+    assert row["censored_reason"] == "no_pullback"
+    # batch_ref is recorded for provenance only, flagged as NOT a trigger input.
+    assert row["batch_ref"] == 200.0
+    assert row["batch_ref_used_for_trigger"] is False
+    assert row["causal_reference_kind"] == REF_KIND_OPENING_PRINT
 
 
 def test_pullback_censored_when_never_dips():
     raw = _series("AAA", [(10, 0, 100.0), (10, 12, 100.5), (10, 24, 101.0)])
     name = AdmittedName(date=DATE, ticker="AAA")
     ticks = normalize_ticks(raw, ticker="AAA", date=DATE)
-    row = _outcome(evaluate_name(name, ticks, batch_ref=100.0), POLICY_PULLBACK_TO_REF)
+    row = _outcome(evaluate_name(name, ticks, prior_close_ref=100.0), POLICY_PULLBACK_TO_REF)
     assert row["eligible"] is False
     assert row["censored_reason"] == "no_pullback"
+    # The causal reference is still recorded on the censored row for provenance.
+    assert row["causal_reference"] == 100.0
+    assert row["causal_reference_kind"] == REF_KIND_PRIOR_CLOSE
 
 
 # ===========================================================================
@@ -326,17 +439,40 @@ def test_record_has_required_keys_and_no_fill_quality():
     rows = evaluate_name(name, normalize_ticks(raw, ticker="AAA", date=DATE))
     row = _outcome(rows, POLICY_IMMEDIATE)
     for key in ("date", "ticker", "policy", "entry_tick_time", "entry_ref_quote",
-                "eligible", "censored_reason"):
+                "eligible", "censored_reason", "feed_eligibility_policy_version",
+                "batch_ref_used_for_trigger"):
         assert key in row
     # provenance / observe-only markers
     assert row["observe_only"] is True
     assert row["places_orders"] is False
     assert row["config_fingerprint"] == DEFAULT_CONFIG.fingerprint()
     assert row["signal_version"] == "run-123"
+    # #216 eligibility provenance carried onto the row.
+    assert row["feed_eligibility_policy_version"] == FEED_ELIGIBILITY_POLICY_VERSION
+    # the next-open batch reference is never a trigger input.
+    assert row["batch_ref_used_for_trigger"] is False
     # NO execution-quality / verdict fields leak in.
     forbidden = {"shortfall", "implementation_shortfall", "fill", "fill_price",
                  "pnl", "slippage", "pass", "fail", "verdict", "non_inferiority", "bps"}
     assert forbidden.isdisjoint(row.keys())
+
+
+def test_entry_window_scales_to_calendar_early_close_session():
+    # Early close (half-day): #216 stamps session_close at 13:00 ET; the §11b
+    # close−30min cutoff scales to it (last eligible 12:30) with NO hard-coded 16:00.
+    early_close = _et(13, 0)
+
+    def _row(hh: int, mm: int, mid: float) -> dict:
+        r = _tick("AAA", hh, mm, mid)
+        r["session_close"] = early_close
+        return r
+
+    raw = [_row(12, 0, 100.0), _row(12, 45, 101.0)]
+    name = AdmittedName(date=DATE, ticker="AAA")
+    ticks = normalize_ticks(raw, ticker="AAA", date=DATE)
+    row = _outcome(evaluate_name(name, ticks), POLICY_IMMEDIATE)
+    # 12:00 is eligible; 12:45 is inside the last-30-min cutoff of a 13:00 close.
+    assert row["entry_tick_time"] == _et(12, 0)
 
 
 def test_evaluate_name_emits_one_row_per_registered_policy():
@@ -481,6 +617,26 @@ def test_collect_missing_feed_yields_all_censored(tmp_path: Path):
     rows = collect(date=DATE, tick_source=tmp_path / "absent.jsonl",
                    admitted=[AdmittedName(date=DATE, ticker="AAA")])
     assert rows and all(r["eligible"] is False for r in rows)
+
+
+def test_collect_threads_causal_prior_close_ref_for_pullback(tmp_path: Path):
+    src = tmp_path / "intraday_ticks.jsonl"
+    src.write_text(
+        "\n".join(json.dumps(r) for r in _series("AAA", [(10, 0, 100.0), (10, 12, 99.6)])) + "\n",
+        encoding="utf-8",
+    )
+    rows = collect(
+        date=DATE, tick_source=src,
+        admitted=[AdmittedName(date=DATE, ticker="AAA")],
+        prior_close_refs={"AAA": 100.0},
+        batch_refs={"AAA": 250.0},  # provenance only — must not trigger
+    )
+    row = _outcome(rows, POLICY_PULLBACK_TO_REF)
+    assert row["eligible"] is True
+    assert row["causal_reference"] == 100.0
+    assert row["causal_reference_kind"] == REF_KIND_PRIOR_CLOSE
+    assert row["batch_ref"] == 250.0
+    assert row["batch_ref_used_for_trigger"] is False
 
 
 # ===========================================================================
