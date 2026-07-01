@@ -33,7 +33,12 @@ Data-validity (why the feed can be trusted as *eligible decision-tick* evidence)
     closes and DST are honored. Out-of-session samples are CENSORED, never logged
     as eligible ticks.
   * **Causality + freshness**: every quote must carry a source timestamp with
-    ``source_ts <= sampled_at``, be no older than a configured maximum age, and
+    ``source_ts <= sampled_at`` — enforced with **zero** tolerance: any
+    ``source_ts`` after the sample instant, even by a single second, is a
+    causality violation and is ALWAYS censored ``future_quote``, never admitted
+    (point-in-time evidence must never include future data; a drifted sampling
+    clock is a bug to fix at the source, not a skew to launder through a grace
+    window). Every quote must also be no older than a configured maximum age, and
     belong to the CURRENT session. A repeated prior-session quote, a future/skewed
     timestamp, or a crossed/invalid NBBO is CENSORED (recorded with a ``status``
     to a separate audit sidecar), never emitted to the eligible feed.
@@ -42,16 +47,23 @@ Data-validity (why the feed can be trusted as *eligible decision-tick* evidence)
     self-identifies which eligibility/decision policy admitted it (a 60s stream
     alone does not identify which quote was available at the decision instant).
 
-Schema alignment (the load-bearing contract): each ELIGIBLE JSONL line carries the
-exact keys ``intraday_pairing_logger.load_intraday_ticks`` reads — ``date``
-(session, filtered on equality), ``ticker``, ``mid`` (the decision-time reference
-mid) and ``tick_time`` — plus richer raw fields (``bid``/``ask``/``last``/``ts``,
-``status``, ``quote_age`` …) for the future analysis. ``entry_price`` is
-deliberately NOT asserted here: the consumer defaults the hypothetical intraday
-entry to ``mid`` (the honest neutral choice for an observe-only feed); a fill
-model is the future experiment's call (design §9.4). Midpoint-as-fill yields zero
-modeled shortfall by construction — this feed stores raw observations only and
-implies NO executable performance.
+Schema alignment (the load-bearing contract, verified by a round-trip test against
+the #215 consumer's CURRENT head — not a stale pinned snapshot): each ELIGIBLE
+JSONL line carries the exact keys ``intraday_pairing_logger.load_intraday_ticks`` /
+``select_first_eligible_tick`` read — ``date`` (session, filtered on equality),
+``ticker``, ``source_ts`` (the exchange quote timestamp; the AS-OF ordering key
+the consumer's frozen first-eligible-tick selection sorts and compares against a
+name's conviction instant) and ``bid``/``ask`` (the consumer DERIVES and validates
+its own arrival mid from these — crossed/non-positive/non-finite is censored to
+``None`` independently of this producer's own eligibility policy). ``mid`` (this
+producer's own validated decision-time reference) rides along as a convenience/audit
+field, plus richer raw fields (``last``, ``ts``, ``tick_time``, ``status``,
+``quote_age`` …) for the future analysis. ``entry_price`` is deliberately NOT
+asserted here, and the consumer does **NOT** default any arm's entry to a midpoint
+(v2 removed midpoint-as-fill, which had silently collapsed the intraday arm's
+"shortfall" to ~zero) — the intraday arm is recorded as a raw arrival OBSERVATION
+only (``intraday_entry_hypothetical: true``), never a fabricated fill; a real fill
+model is the future experiment's call (design §9.4).
 """
 from __future__ import annotations
 
@@ -73,8 +85,14 @@ from .runtime_paths import default_data_root, default_strategy_config_path
 log = logging.getLogger("renquant.intraday_quote_logger")
 
 # Schema version for the tick JSONL rows — bump if the record shape changes so the
-# consumer (intraday_pairing_logger, §9.4 experiment) can migrate cleanly.
-TICK_SCHEMA_VERSION = "2"
+# consumer (intraday_pairing_logger, §9.4 experiment) can migrate cleanly. v3 adds
+# ``source_ts`` (the exchange quote timestamp, verbatim) as its own top-level key:
+# the #215 v2 consumer's frozen first-eligible-tick selection
+# (``select_first_eligible_tick``) and arrival-quote builder (``_quote_from_tick``)
+# read ``source_ts`` directly, not the producer-internal ``tick_time``/``quote_ts``
+# names — v2's vendored contract test caught this drifted key name against #215's
+# CURRENT head.
+TICK_SCHEMA_VERSION = "3"
 STAGE = "renquant105-stage1-operations-only"
 RECORD_KIND = "intraday_quote_tick"
 
@@ -90,9 +108,14 @@ DEFAULT_CADENCE_SEC = 60
 # A decision tick must be fresh: quotes older than this (vs the sample instant) are
 # censored ``stale_quote``. 120s comfortably covers a 60s cadence + slack.
 DEFAULT_MAX_QUOTE_AGE_SEC = 120.0
-# Small tolerance for benign sub-second clock skew before a quote is treated as a
-# future/skewed timestamp (causality violation).
-DEFAULT_FUTURE_TOLERANCE_SEC = 2.0
+# ZERO tolerance by default: the contract is ``source_ts <= sampled_at`` and
+# point-in-time evidence must NEVER include future data. Nothing in this module's
+# production path (the CLI has no flag for this) overrides the default, so this
+# constant IS the enforced production policy. The parameter is retained (not
+# hard-coded) only so a test can exercise the boundary explicitly; production
+# callers must not raise it — a nonzero value would launder clock skew into
+# admitted evidence instead of recording/censoring it (Codex r2).
+DEFAULT_FUTURE_TOLERANCE_SEC = 0.0
 
 # Record statuses. Only ``ok`` rows are eligible decision ticks (written to the
 # feed the consumer reads); every other status is a CENSOR reason (written to the
@@ -416,7 +439,11 @@ def evaluate_quote(
     3. crossed NBBO (bid > ask) -> ``crossed_nbbo``;
     4. non-positive / non-finite NBBO or mid -> ``invalid_nbbo``;
     5. no source timestamp (causality unprovable) -> ``no_source_ts``;
-    6. source_ts > sampled_at (+tolerance) -> ``future_quote``;
+    6. source_ts > sampled_at -> ``future_quote``. ``future_tolerance_sec``
+       defaults to **0.0** (production is never given a nonzero value — the CLI
+       exposes no flag for it): the contract is ``source_ts <= sampled_at`` with
+       NO grace window, so ANY future skew — even one second — fails closed. The
+       parameter exists only for a test to probe the boundary explicitly;
     7. source_ts outside the current session (repeated prior-session /
        pre-open) -> ``stale_prior_session``;
     8. quote_age > max_age -> ``stale_quote``;
@@ -478,12 +505,18 @@ def build_tick_record(
     consumer it could not be used as evidence). The caller routes ``ok`` rows to
     the eligible feed and censored rows to the audit sidecar.
 
-    ``date`` (consumer-filtered), ``ticker``, ``mid`` and ``tick_time`` are the
-    keys the consumer reads; ``tick_time`` is the quote's exchange timestamp (the
-    true as-of of the mid) when present, else the sample time. Raw
-    ``bid``/``ask``/``last``/``ts``, the frozen policy version, ``status`` and
-    ``quote_age`` ride along for the future analysis; the consumer ignores extra
-    keys.
+    ``date`` (consumer-filtered), ``ticker``, ``source_ts`` and ``bid``/``ask``
+    (or ``mid``) are the keys the CURRENT #215 consumer reads: ``source_ts`` is
+    the quote's raw exchange timestamp (``quote.ts`` verbatim, ``None`` when
+    absent) — the AS-OF ordering key ``select_first_eligible_tick`` sorts and
+    compares against a name's conviction instant; the consumer derives and
+    validates its OWN arrival mid from ``bid``/``ask`` independently of this
+    producer's eligibility policy. ``mid`` (this producer's own validated
+    decision-time reference) and ``tick_time`` (an as-of convenience field that
+    falls back to the sample instant only when ``source_ts`` is absent) ride
+    along for readability/audit, plus raw ``last``/``ts``, the frozen policy
+    version, ``status`` and ``quote_age`` for the future analysis; the consumer
+    ignores extra keys.
     """
     verdict = evaluate_quote(
         quote,
@@ -505,6 +538,11 @@ def build_tick_record(
         "ticker": ticker,
         # Only eligible ticks carry a consumable mid; censored rows are mid=None.
         "mid": verdict.mid,
+        # The exact key intraday_pairing_logger's select_first_eligible_tick /
+        # _quote_from_tick read for as-of ordering + arrival-quote construction
+        # (v3 schema fix — was only reachable under the producer-internal names
+        # tick_time/quote_ts, which the vendored current-head contract test caught).
+        "source_ts": quote.ts,
         "tick_time": tick_time,
         "quote_age": verdict.quote_age,
         "max_quote_age_sec": max_age_sec,

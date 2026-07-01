@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from renquant_orchestrator.intraday_quote_logger import (
+    DEFAULT_FUTURE_TOLERANCE_SEC,
     DEFAULT_MAX_QUOTE_AGE_SEC,
     ELIGIBILITY_POLICY_VERSION,
     ET,
@@ -281,6 +282,27 @@ def test_evaluate_future_quote_censored():
     assert ev.status == STATUS_FUTURE_QUOTE
 
 
+def test_evaluate_future_quote_censored_even_by_one_second():
+    # Codex r2: the contract is source_ts <= sampled_at with ZERO tolerance — a
+    # quote just ONE SECOND ahead of the sample instant must fail closed, never be
+    # admitted as OK (point-in-time evidence must never include future data; a
+    # prior 2s "benign clock skew" tolerance let this slip through as STATUS_OK).
+    q = Quote(bid=100.0, ask=100.2, ts="2026-06-30T10:00:01-04:00")
+    ev = evaluate_quote(q, sampled_at=OPEN_10AM, session=SESSION_0630)
+    assert ev.status == STATUS_FUTURE_QUOTE
+    assert ev.mid is None
+    # explicit default-tolerance sanity: the production default is really 0.0
+    assert DEFAULT_FUTURE_TOLERANCE_SEC == 0.0
+
+
+def test_evaluate_quote_at_exact_sample_instant_is_ok_not_future():
+    # source_ts == sampled_at (quote_age == 0) is the boundary case: NOT future.
+    q = Quote(bid=100.0, ask=100.2, ts="2026-06-30T10:00:00-04:00")
+    ev = evaluate_quote(q, sampled_at=OPEN_10AM, session=SESSION_0630)
+    assert ev.status == STATUS_OK
+    assert ev.quote_age == pytest.approx(0.0)
+
+
 def test_evaluate_stale_repeated_prior_session_quote_censored():
     # A repeated quote whose exchange ts is from YESTERDAY's session: same-session
     # membership fails -> stale_prior_session (not treated as today's evidence).
@@ -315,9 +337,15 @@ def test_build_tick_record_ok_schema_and_mid():
         source_name="fake",
     )
     assert rec["status"] == STATUS_OK
-    # keys the consumer reads
+    # keys the CURRENT #215 consumer reads (schema v3):
+    # date/ticker (join key) + source_ts (as-of ordering/selection) + bid/ask
+    # (the consumer derives + validates its own arrival mid from these).
+    assert rec["schema_version"] == "3"
     assert rec["date"] == DATE
     assert rec["ticker"] == "NVDA"
+    assert rec["source_ts"] == QTS  # exact key select_first_eligible_tick reads
+    assert rec["bid"] == 100.0 and rec["ask"] == 100.2 and rec["last"] == 100.1
+    # this producer's own validated mid + as-of convenience field ride along too
     assert rec["mid"] == pytest.approx(100.1)
     assert rec["tick_time"] == QTS  # prefers the exchange quote timestamp
     # frozen eligibility policy stamp + provenance
@@ -325,11 +353,28 @@ def test_build_tick_record_ok_schema_and_mid():
     assert rec["max_quote_age_sec"] == DEFAULT_MAX_QUOTE_AGE_SEC
     assert rec["session_open"] == SESSION_0630.open.isoformat()
     assert rec["quote_age"] == pytest.approx(0.0)
-    # observe-only provenance + raw fields, no verdict / order / entry_price
+    # observe-only provenance, no verdict / order / entry_price. The consumer no
+    # longer defaults any arm's entry to a midpoint (v2 removed midpoint-as-fill).
     assert rec["observe_only"] is True
-    assert rec["bid"] == 100.0 and rec["ask"] == 100.2 and rec["last"] == 100.1
-    assert "entry_price" not in rec  # not asserted here (consumer defaults to mid)
+    assert "entry_price" not in rec
     assert "order" not in rec and "verdict" not in rec
+
+
+def test_build_tick_record_source_ts_none_when_quote_ts_absent():
+    # source_ts is the RAW quote.ts (None when absent), never fabricated from the
+    # sample instant — that fallback belongs only to tick_time (an audit
+    # convenience field for the censored sidecar, since a no-source-ts quote is
+    # censored anyway and never reaches the eligible feed).
+    rec = build_tick_record(
+        ticker="NVDA",
+        quote=Quote(bid=100.0, ask=100.2, ts=None),
+        sample_ts=OPEN_10AM,
+        session=SESSION_0630,
+        date=DATE,
+    )
+    assert rec["status"] == STATUS_NO_SOURCE_TS
+    assert rec["source_ts"] is None
+    assert rec["tick_time"] is not None  # falls back to the sample instant
 
 
 def test_build_tick_record_censored_has_no_consumable_mid():
@@ -548,16 +593,20 @@ def test_feed_reads_back_required_keys(tmp_path):
     for r in lines:
         assert r["date"] == DATE
         assert isinstance(r["mid"], float)
+        assert isinstance(r["source_ts"], str)  # the consumer's as-of ordering key
         assert "tick_time" in r
 
 
 def _load_vendored_pr215_consumer():
-    """Drop the ACTUAL #215 consumer in (pinned verbatim in tests/fixtures) and
-    load it under the ``renquant_orchestrator`` package so its relative import
+    """Drop the ACTUAL #215 consumer in (pinned verbatim, re-vendored from its
+    CURRENT head at ``tests/fixtures/intraday_pairing_logger_pr215.py`` — see that
+    file's header for the exact pinned commit) and load it under the
+    ``renquant_orchestrator`` package so its relative import
     (``from .runtime_paths import ...``) resolves against the installed package.
-    Proves interop NOW instead of leaving the integration skipped until #215
-    merges. Loaded under a distinct module name so it never shadows the real
-    module; cleaned up by the caller."""
+    Proves interop against the current producer/consumer schema+version contract
+    NOW instead of leaving it skipped until #215 merges (Codex #216 r2). Loaded
+    under a distinct module name so it never shadows the real module; cleaned up
+    by the caller."""
     fixture = Path(__file__).parent / "fixtures" / "intraday_pairing_logger_pr215.py"
     modname = "renquant_orchestrator._vendored_intraday_pairing_logger_pr215"
     spec = importlib.util.spec_from_file_location(modname, fixture)
@@ -567,42 +616,9 @@ def _load_vendored_pr215_consumer():
     return modname, mod
 
 
-def test_round_trip_into_vendored_pr215_consumer(tmp_path):
-    # Local, hermetic interop against the pinned #215 consumer fixture.
-    modname, pairing = _load_vendored_pr215_consumer()
-    try:
-        source = FakeQuoteSource(
-            {
-                "NVDA": Quote(bid=100.0, ask=100.2, ts=QTS),
-                "MU": Quote(bid=50.0, ask=50.4, ts=QTS),
-            }
-        )
-        out = tmp_path / "ticks.jsonl"
-        QuoteLogger(
-            source,
-            TickFeedWriter(out),
-            ["NVDA", "MU"],
-            calendar=CAL_0630,
-            censor_writer=TickFeedWriter(tmp_path / "ticks.censored.jsonl"),
-        ).sample_once(now=OPEN_10AM)
-
-        ticks = pairing.load_intraday_ticks(out, DATE)
-        assert set(ticks) == {(DATE, "NVDA"), (DATE, "MU")}
-        assert ticks[(DATE, "NVDA")]["mid"] == pytest.approx(100.1)
-        # and it feeds a non-censored intraday arm through the consumer's pairing
-        admitted = [pairing.AdmittedName(DATE, "NVDA", "buy", "sv1")]
-        fills = {("sv1", "NVDA"): pairing.PriceRef(101.0)}
-        rec = pairing.pair_records(admitted, fills, ticks)[0]
-        assert rec["censored_reason"] is None
-        assert rec["intraday_entry_ref"] is not None
-    finally:
-        sys.modules.pop(modname, None)
-
-
-def test_round_trip_into_intraday_pairing_logger(tmp_path):
-    # When #215 merges to main the real installed module exists — assert real
-    # interop then; skip cleanly until (the vendored round-trip above covers now).
-    pairing = pytest.importorskip("renquant_orchestrator.intraday_pairing_logger")
+def _sample_two_names_into(tmp_path, calendar=CAL_0630, now=OPEN_10AM):
+    """Shared setup for both round-trip tests: sample NVDA + MU through THIS
+    producer into a real tick-feed file, returning its path."""
     source = FakeQuoteSource(
         {
             "NVDA": Quote(bid=100.0, ask=100.2, ts=QTS),
@@ -614,18 +630,74 @@ def test_round_trip_into_intraday_pairing_logger(tmp_path):
         source,
         TickFeedWriter(out),
         ["NVDA", "MU"],
-        calendar=CAL_0630,
+        calendar=calendar,
         censor_writer=TickFeedWriter(tmp_path / "ticks.censored.jsonl"),
-    ).sample_once(now=OPEN_10AM)
+    ).sample_once(now=now)
+    return out
 
+
+def _assert_round_trip_into_current_pairing_contract(pairing, out, tmp_path):
+    """Shared assertions against the v2 (current-head) #215 contract: raw per-arm
+    arrival observations, NO midpoint-as-fill, ``source_ts``-keyed tick selection.
+    Shared by the vendored-fixture test and the (currently skipped)
+    real-installed-module test so both exercise the identical current contract."""
     ticks = pairing.load_intraday_ticks(out, DATE)
     assert set(ticks) == {(DATE, "NVDA"), (DATE, "MU")}
-    assert ticks[(DATE, "NVDA")]["mid"] == pytest.approx(100.1)
+    # each name maps to the RAW LIST of its ticks (v2 — selection happens in
+    # pair_records via the frozen first-eligible-tick rule, not in the loader).
+    nvda_ticks = ticks[(DATE, "NVDA")]
+    assert len(nvda_ticks) == 1
+    # the exact key select_first_eligible_tick / _quote_from_tick read for as-of
+    # ordering + arrival-quote construction — this producer's schema v3 field.
+    assert nvda_ticks[0]["source_ts"] == QTS
+    assert nvda_ticks[0]["mid"] == pytest.approx(100.1)
+    assert nvda_ticks[0]["bid"] == 100.0 and nvda_ticks[0]["ask"] == 100.2
+
     admitted = [pairing.AdmittedName(DATE, "NVDA", "buy", "sv1")]
     fills = {("sv1", "NVDA"): pairing.PriceRef(101.0)}
-    rec = pairing.pair_records(admitted, fills, ticks)[0]
-    assert rec["censored_reason"] is None
-    assert rec["intraday_entry_ref"] is not None
+    # The intraday arm's arrival tick is chosen by the FROZEN first-eligible-tick
+    # rule (as-of enforced): supply the conviction/eligibility instant explicitly —
+    # this producer stamps market data, not decision eligibility, so the consumer
+    # (or its caller) must always supply it.
+    eligibility = {(DATE, "NVDA"): "2026-06-30T09:59:00-04:00"}
+    rec = pairing.pair_records(admitted, fills, ticks, eligibility=eligibility)[0]
+
+    # No arm's entry is ever defaulted to a midpoint (v2 removed midpoint-as-fill,
+    # which had silently collapsed the intraday "shortfall" to ~zero) — the
+    # intraday arm is recorded as a raw arrival OBSERVATION, flagged hypothetical.
+    assert rec["intraday_entry_hypothetical"] is True
+    assert "entry_price" not in rec["intraday_arm"]
+    # this producer's tick DID supply a usable intraday arrival quote/mid
+    assert rec["intraday_arm"]["arrival_quote"] is not None
+    assert rec["intraday_arm"]["arrival_quote"]["mid"] == pytest.approx(100.1)
+    assert rec["intraday_arm"]["fill"] is None  # Stage-1: no real intraday order
+    # no batch arrival quote was supplied in this test -> that ONE input is
+    # censored (recorded, not imputed) — never fabricated from the intraday mid.
+    assert rec["censored_reason"] == "no_batch_arrival_quote"
+    assert rec["filled"] is True  # the batch arm DID get a real historical fill
+    assert rec["decomposition"]["is_execution_quality"] is False
+
+
+def test_round_trip_into_vendored_pr215_consumer(tmp_path):
+    # Local, hermetic interop against the pinned #215 consumer fixture, re-vendored
+    # from its CURRENT head (not a stale earlier schema) so this proves the real
+    # producer/consumer contract, not an outdated one.
+    modname, pairing = _load_vendored_pr215_consumer()
+    try:
+        out = _sample_two_names_into(tmp_path)
+        _assert_round_trip_into_current_pairing_contract(pairing, out, tmp_path)
+    finally:
+        sys.modules.pop(modname, None)
+
+
+def test_round_trip_into_intraday_pairing_logger(tmp_path):
+    # When #215 merges to main the real installed module exists — assert real
+    # interop then against the identical assertions the vendored test already
+    # proves now; skip cleanly until it lands (the vendored round-trip above is
+    # the real, non-skipped assurance of the current contract today).
+    pairing = pytest.importorskip("renquant_orchestrator.intraday_pairing_logger")
+    out = _sample_two_names_into(tmp_path)
+    _assert_round_trip_into_current_pairing_contract(pairing, out, tmp_path)
 
 
 # ---------------------------------------------------------------------------
