@@ -1,18 +1,36 @@
 # Design: Model Freshness Governance — 28-day ceiling, deferred best-of-recent fallback, reliable retrain cadence, and WF-promote repair
 
 STATUS: design for review (no implementation in this PR — describe → discuss → PR to Codex → then implement per-repo).
-REVISION: **R3 (round-3)** — addresses Codex's round-2 `CHANGES_REQUESTED` (head `68e2ab01`). R2 corrected the
-production-state premise and disabled the fallback pending evidence; Codex's two remaining blockers are (B1) §5 chose the
-`28d`/`10d` thresholds and gated them on the **same** shadow replay (selection bias) and (B2) §2/§3 imposed **one universal
-raw-age ceiling** on heterogeneous feeds. R3 splits threshold **selection** from an untouched **confirmation / outer**
-evaluation with multiplicity control (§5), and replaces the single age ceiling with **per-source SLA** freshness reconciled
-with the pipeline's existing `P-FUND-FRESHNESS` daily-feed-vs-quarterly-availability split (§2/§3). Prior history: R2
-reworked round-1 (head `183764a5`), which rested on a stale premise and let the fallback auto-promote gate-rejected models.
+REVISION: **R4 (round-4)** — addresses Codex's round-3 review (head `5472247f`), which **acknowledged R3 resolved both prior
+blockers** (threshold **selection** is now separated from confirmation; freshness is now **per-source SLA**, not a universal
+raw-age rule) and left **ONE** remaining blocker: **B3 — the §5 shadow replay assumes a point-in-time registry whose
+existence and coverage are NOT established.** Reconstructing the arms from artifacts that survive today is **survivor bias**;
+regenerating candidates with today's code/data is **look-ahead + recipe drift**; and a selection/confirmation split cannot
+repair biased or missing INPUT history. R4 adds a **Phase-0 replay-feasibility audit** that must PASS (fail-closed) **before**
+any pre-registration (§5.0), states the honest fallback — **prospective shadow logging first** if historical coverage is
+insufficient (§5.6) — and **commits** §5.2 to a temporally-later **held-out confirmation** span as the policy-authorizing
+design (nested / rolling is kept **only** as a secondary robustness check of the adaptive selector, explicitly **not**
+policy-authorizing). Prior history: R3 (head `68e2ab01`) split selection from confirmation + moved to per-source SLA; R2
+corrected the production-state premise and disabled the fallback; R1 (head `183764a5`) rested on a stale premise.
 
 This is a discussion document. It proposes a governance contract and a phased
 rollout; it does **not** change any code, config, broker, risk-cap, or sizing
 behaviour. Cross-repo implementation happens in follow-up per-repo PRs **after**
 this design is agreed.
+
+## Response to Codex round-4 review (per-point map)
+
+Codex's round-3 review (head `5472247f`) **acknowledged R3 resolved both prior blockers** (selection separated from
+confirmation; per-source SLA freshness) and raised **ONE** remaining blocking issue.
+
+| Codex round-4 blocker | Resolution in R4 | Section |
+|---|---|---|
+| **B3. The §5 replay assumes a point-in-time registry whose existence and coverage are NOT established.** Each arm requires, at every simulated breach date: the complete candidate set then knowable, each candidate's artifact bytes + recipe/data fingerprints + cutoffs, the gate result + failure class, and the subsequent OOS outcomes. The RFC only said "point-in-time registry" without auditing whether those records were **retained**. Reconstructing from artifacts that still exist today introduces **survivor bias**; regenerating candidates with current code/data introduces **look-ahead + recipe drift**. A selection/confirmation split cannot correct **biased or missing INPUT history** | (1) New **§5.0 Phase-0 replay-feasibility audit — MUST PASS, fail-closed, BEFORE any pre-registration**: enumerate the exact required fields + their **immutable** sources; report **date-by-date candidate/artifact COVERAGE and MISSINGNESS broken down by arm AND by failure class**; define the **minimum** number of independent breach events + 60d OOS outcomes; **FAIL CLOSED** if the confirmation period lacks enough untouched, complete events. (2) Honest fallback stated in **§5.6**: if historical coverage is insufficient, **do prospective shadow LOGGING first** (accumulate a clean point-in-time registry going forward) — the RFC does **NOT** claim the historical replay can authorize `28d` / `10d` from incomplete / survivor-biased history. (3) **§5.2 now COMMITS** to a temporally-later **held-out confirmation** span as the policy-authorizing design (it confirms one FIXED `28d` / `10d` policy); **nested / rolling is demoted to a SECONDARY robustness check of the adaptive selector, explicitly NOT the policy-authorizing evidence** — chosen before the pre-registration is frozen | §5.0, §5.2, §5.6 |
+
+**Required-CI note.** Codex also requires the repo's required checks to be green before merge. The current red required check
+is the weekly-APY look-ahead failure, fixed **separately in PR #211** (`fix/weekly-apy-monitor-time-dependent`) — a
+shared / pre-existing **code** failure; this **docs-only** PR touches no code and did not cause it. Merge of this RFC is
+gated on #211 turning that required check green; it is tracked there, not here.
 
 ## Response to Codex round-3 review (per-point map)
 
@@ -327,7 +345,7 @@ family** (they are different populations — Codex point 4):
 | Comparable OOS window / cutoffs | one fixed WF window, same embargo, same label horizon | per-ticker fixed OOS window; **no cross-ticker pooling** |
 | Selection score | pre-registered (OOS Sharpe or genuine_ic, decided **before** looking) | per-ticker OOS score; the **admission** decision is coverage, not ranking |
 | Uncertainty | report CI / SE on the score; require separation, not point-estimate ties | per-ticker CI |
-| Multiple-candidate selection-bias control | selection runs **only** in the §5 inner / selection stage; deflate for #candidates compared with **simultaneous confidence bounds** across the pre-registered grid (Šidák / DSR-style haircut); the gate verdict is rendered on the **untouched confirmation / outer** stage | per-ticker, low candidate count |
+| Multiple-candidate selection-bias control | selection runs **only** in the §5 inner / selection stage; deflate for #candidates compared with **simultaneous confidence bounds** across the pre-registered grid (Šidák / DSR-style haircut); the gate verdict is rendered on the **untouched held-out confirmation span (§5.2)** | per-ticker, low candidate count |
 | Minimum sample / trades | pre-registered floor on #trades and #independent 60d outcomes | per-ticker minimum |
 | Turnover / cost assumptions | net-of-cost, same cost model as live | same |
 | Regime coverage | require ≥ N regimes represented in the OOS window | n/a (admission) |
@@ -381,6 +399,59 @@ evidence — searching a threshold grid and then reporting the winner's gate on 
 same outcomes inflates the pass rate (selection bias). R3 **separates SELECTION
 from CONFIRMATION**.
 
+Codex round-4 blocker **B3** adds the prerequisite that precedes all of the above:
+**the replay is only valid if the point-in-time registry it reads actually EXISTS
+with sufficient, unbiased coverage.** Each arm needs, at every simulated breach
+date, the then-knowable candidate set, each candidate's artifact bytes + recipe /
+data fingerprints + cutoffs, the gate verdict + failure class, and the subsequent
+OOS outcomes. Reconstructing those from artifacts that survive today is **survivor
+bias**; regenerating candidates with today's code / data is **look-ahead + recipe
+drift**; and no selection/confirmation split can repair biased or missing INPUT
+history. So R4 puts a **feasibility audit (§5.0) FIRST** — it **fails closed** and
+routes to prospective logging (§5.6) if the history is not there — and only then do
+the pre-registration (§5.1) and the committed held-out confirmation (§5.2) run.
+
+**5.0 Phase-0 replay-feasibility audit (MUST PASS, fail-closed, BEFORE any
+pre-registration).** The replay in §5.1–§5.5 cannot be pre-registered — let alone
+authorize a ceiling — until this audit establishes that the point-in-time record it
+depends on was actually **retained**. It runs first and its verdict gates
+everything after it.
+
+- **(i) Enumerate the exact required fields and their IMMUTABLE sources.** For each
+  simulated breach date the registry must supply, from a write-once / append-only
+  source that could **not** have been edited after the fact:
+  - the **complete candidate set knowable at that date** (every staging / prod
+    artifact whose data cutoff ≤ the date) — from the artifact store's
+    creation-time index / MLflow run log, **not** a today-listing of surviving
+    files;
+  - each candidate's **artifact bytes + recipe / data fingerprints + data-cutoff
+    axes** (§2) — recorded content hashes, not re-derived today;
+  - the **gate result + failure class** (§4.3.1 infra-vs-substance) as recorded at
+    the time — from the WF-gate run logs / run bundles, not re-run today;
+  - the **subsequent 60-day OOS outcomes** per arm — from realized price / label
+    history, point-in-time.
+- **(ii) Report date-by-date COVERAGE and MISSINGNESS, broken down by arm AND by
+  failure class.** For every candidate breach date and every arm (current-prod
+  hold / newest-eligible / best-recent fallback), tabulate which required fields
+  are present, which are missing, and — critically — the **missingness split by
+  failure class**: if infra-failed candidates were pruned from the store while
+  substance-failed ones were kept (or vice-versa), the surviving sample is
+  **biased**, not merely thin. The output is a **coverage matrix**, not a single
+  "we have a registry" assertion.
+- **(iii) Define the MINIMUM independent-sample floor.** Pre-state the minimum
+  number of **independent breach events** and **independent 60-day OOS outcomes**
+  (accounting for the 60d-label overlap of §5.5) needed for the confirmation span
+  to distinguish the arms at the registered margin. This floor is fixed **before**
+  the coverage matrix is read.
+- **(iv) FAIL CLOSED.** If the untouched confirmation window does not contain enough
+  **complete, unbiased, un-tampered** events to meet the floor — or if missingness
+  is correlated with failure class — the historical replay is declared
+  **INFEASIBLE** and the plan falls back to prospective shadow logging (§5.6). The
+  coverage matrix + the pass/fail verdict are hashed into the run bundle.
+
+Only if Phase-0 **PASSES** do the pre-registration (§5.1) and the committed held-out
+confirmation (§5.2) proceed on the historical registry.
+
 **5.1 Pre-registered candidate grid.** Before any replay runs, register the full
 discrete search space — the **fast-axis ceiling** ∈ {21, 28, 35, 45} days, the
 **best-of-recent window** ∈ {5, 10, 15} days, and the **slow-axis on-SLA
@@ -390,21 +461,34 @@ non-inferiority margin, and the minimum independent-sample floor. `28d` / `10d`
 are **one point in this grid, not a foregone conclusion**; the registered set is
 frozen and hashed into the run bundle **before** any evidence is seen.
 
-**5.2 Two-stage evaluation (choose one; both eliminate the selection bias).**
+**5.2 Two-stage evaluation — COMMITTED to held-out confirmation as the
+policy-authorizing design.** R3 offered held-out and nested / rolling as
+interchangeable options. Codex round-4 requires the choice to be **fixed before the
+pre-registration is frozen**, and they are **not** interchangeable for this purpose:
+a nested / rolling scheme evaluates an **adaptive SELECTOR** (a rule that may pick a
+different threshold in each fold) and therefore does **not** by itself confirm one
+**FIXED final `28d` / `10d` policy**. Because the object this RFC must authorize is
+exactly a **single fixed ceiling + window**, the **primary, policy-authorizing**
+design is the temporally-later held-out confirmation span:
 
-- **(a) Held-out confirmation period.** Split the replay history into an earlier
-  **selection** span and a temporally-later, **untouched confirmation** span. ALL
-  grid search — every threshold, window, and selection-score choice — happens on
-  the **selection span only**. Exactly ONE configuration (the selection-stage
-  winner) is then run on the confirmation span, and the **non-inferiority gate
+- **(PRIMARY — policy-authorizing) Held-out confirmation period.** Split the replay
+  history into an earlier **selection** span and a temporally-later, **untouched
+  confirmation** span. ALL grid search — every threshold, window, and
+  selection-score choice — happens on the **selection span only**. Exactly ONE
+  configuration (the selection-stage winner: the specific `Xd` ceiling + `Yd`
+  window) is then run on the confirmation span, and the **non-inferiority gate
   verdict is read ONLY from the confirmation span.** The confirmation span is
-  touched once; re-using it to re-tune **burns** it and requires a new later span.
-- **(b) Nested / rolling outer evaluation.** Use nested walk-forward: within each
-  **outer** fold, ALL threshold / window selection happens **strictly inside** that
-  fold's **inner** (training) sub-folds; the **outer** fold is scored only with the
-  inner-selected configuration and is **never** used to pick thresholds. The gate
-  verdict aggregates the **outer** folds only. This gives an unbiased estimate even
-  as the selected threshold varies fold-to-fold.
+  touched **once**; re-using it to re-tune **burns** it and requires a new later
+  span. This is the evidence that authorizes the one fixed policy.
+- **(SECONDARY — robustness only, NOT policy-authorizing) Nested / rolling outer
+  evaluation.** Optionally, a nested walk-forward — all selection strictly inside
+  each **outer** fold's **inner** (training) sub-folds, the outer folds scored only
+  with the inner-selected configuration and never used to pick thresholds — may be
+  reported as a **robustness check on the SELECTOR** (does the selection rule
+  generalize as the fold moves?). It is **explicitly labelled NOT the authorizing
+  evidence for a fixed `28d` / `10d` ceiling**, because it measures an adaptive rule,
+  not one frozen policy. A disagreement between the two is a **caution flag on the
+  selector**, not a substitute verdict.
 
 **5.3 Multiplicity control.** Because the grid tests several candidates, the
 **selection** stage applies **simultaneous confidence bounds** across the whole
@@ -429,20 +513,38 @@ inflate the apparent pass rate. The reported selection-stage estimate is the
   is a **distinct (worse) policy** and is scored as such.
 - **Pre-registered gate:** the fallback must be **non-inferior** to
   current-prod-hold net of cost and drawdown, at the registered margin, **evaluated
-  on the confirmation / outer stage only**, over a **pre-registered shadow
-  duration**.
+  on the held-out confirmation span (§5.2) only**, over a **pre-registered shadow
+  duration** — and only after Phase-0 (§5.0) certifies the registry is complete and
+  unbiased.
 
 **5.5 Sample-size caveat.** The 60-day label means one week of shadow covers very
 few **independent** outcomes; the shadow must accumulate enough independent
 60d-label windows — likely well beyond one week — to distinguish the arms.
-Splitting off a confirmation span (5.2a) further reduces usable samples, so the
-registered minimum-sample floor and shadow duration must budget for **both** the
-split and the label horizon.
+Splitting off the **held-out confirmation** span (§5.2) further reduces usable
+samples, so the registered minimum-sample floor (§5.0-iii) and shadow duration must
+budget for **both** the split and the label horizon.
+
+**5.6 Honest fallback — prospective shadow logging first if history is
+insufficient (§5.0 fail-closed path).** If Phase-0 (§5.0) declares the historical
+replay **INFEASIBLE** — the point-in-time registry was not retained with enough
+complete, unbiased events — the RFC does **NOT** claim the historical replay can
+authorize `28d` / `10d`. The honest plan is to **build the registry going forward**:
+stand up **prospective shadow logging** that, from day one, appends each breach
+date's complete candidate set, artifact bytes + fingerprints + cutoffs, gate
+verdict + failure class, and (as they mature) the 60-day OOS outcomes into a
+write-once / append-only point-in-time store. Only once that prospective log has
+accrued the §5.0-iii minimum independent-sample floor does the §5.2 held-out
+confirmation run — on data that was, **by construction**, never survivor-pruned or
+regenerated. This **delays** authorizing the tighter ceiling but keeps Pillar 3
+**DEFERRED** (its existing state) rather than authorizing it on biased history; the
+observe-only monitor + cadence repair (Phase 1) ship regardless and are unaffected.
 
 The `28d` / `10d` (and every other) number is an **output of the selection stage**;
-the **authorizing verdict comes only from the untouched confirmation / outer
-stage.** Only if arm (iii) clears that verdict does Pillar 3 move from DEFERRED to
-shadow-first, then flag-enabled.
+the **authorizing verdict comes only from the untouched held-out confirmation span
+(§5.2)** — and **only** if Phase-0 (§5.0) first certifies the historical registry is
+complete and unbiased, else prospective logging (§5.6) runs first. Only if arm (iii)
+clears that verdict does Pillar 3 move from DEFERRED to shadow-first, then
+flag-enabled.
 
 ## 6. Rollout, ownership, and provenance
 
@@ -453,7 +555,8 @@ shadow-first, then flag-enabled.
 | 0 (DONE) | Emergency per-ticker tournament retrain via a side config (`strategy_config.tournament_retrain.json`, timeout 3600) to clear today's 61d breach — already running **outside this PR** | done | operational |
 | **1 (near-term shippable)** | Freshness **monitor** (observe-only, §2 data-axis keyed) + the **durable timeout fix** + restored tournament cadence + Action P0 production-state re-audit | first | low |
 | 2 | **WF-gate repair** (Fix-1/2/3) so the gate re-validates the active primary; validate the shadow PatchTST path | after P0 | medium |
-| 3 | **Point-in-time shadow experiment** (§5): current-prod-hold vs newest vs best-recent; **pre-registered candidate grid + selection/confirmation (or nested outer) split + multiplicity control**; per-source SLA policies evaluated (not one global age) | after Phase 2 | analysis |
+| 3a | **Phase-0 replay-feasibility audit** (§5.0): date-by-date registry coverage / missingness by arm **and** failure class; fixed minimum independent-sample floor; **fail-closed** if the untouched confirmation window lacks enough complete, unbiased events | after Phase 2 | analysis |
+| 3b | **Point-in-time shadow experiment** (§5.1–§5.5) — **only if 3a PASSES**: current-prod-hold vs newest vs best-recent; pre-registered candidate grid + **committed held-out confirmation** (nested / rolling = robustness only) + multiplicity control; per-source SLA policies evaluated (not one global age). **If 3a FAILS → prospective shadow logging first (§5.6); no authorization from historical replay** | after 3a passes (else §5.6) | analysis |
 | 4 | Best-of-recent fallback **shadow-first** (log-only), then flag-enabled — **only if** Phase 3 clears the gate | after Phase 3 clears | medium |
 | Final | Flip `model_staleness_days` 60 → 28 — only after Phases 1–4 and the §5 experiment authorise the tighter ceiling | last | low |
 
@@ -518,10 +621,12 @@ independently recomputed OOS economic floor."** Why:
 
 1. **OOS floor definition** — exact economic floor for §4.3.3 (SPY-relative Sharpe?
    net-of-cost return? both?) and the comparable-window spec.
-2. **Ceiling numerics & grid** — confirm 28d/10d are **selection-stage** outputs of
-   the §5.1 grid, not priors; what confirmation-span length (5.2a) or nested-outer
-   layout (5.2b), non-inferiority margin, shadow duration, and multiplicity
-   correction across the grid?
+2. **Ceiling numerics, grid & feasibility** — confirm 28d/10d are **selection-stage**
+   outputs of the §5.1 grid, not priors; what **held-out confirmation-span length**
+   (§5.2 primary), non-inferiority margin, shadow duration, and multiplicity
+   correction across the grid? And what is the **§5.0 minimum
+   independent-breach-event / 60d-outcome floor**, and does the retained registry
+   actually meet it (else §5.6 prospective logging)?
 3. **Per-ticker coverage floor** — what fraction of the 142 watchlist must be fresh
    to admit vs page?
 4. **Active-primary escalation** — if the repaired gate returns Fix-4 on the live
