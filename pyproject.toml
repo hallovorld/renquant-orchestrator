@@ -17,6 +17,13 @@ dependencies = [
   "renquant-pipeline>=0.1.0",
   "renquant-execution>=0.1.0",
   "renquant-backtesting>=0.1.0",
+  # NyseSessionCalendar (intraday_quote_logger) — the SAME exchange-calendar
+  # primitive renquant_execution.preopen_cancel_gate uses. renquant-execution only
+  # declares this under its optional "preopen" extra, but the orchestrator imports
+  # it directly (not merely transitively), so it must be a real, always-installed
+  # dependency here too — CI's "Install test tools" step must match (root cause of
+  # the #216 r2 CI failure: ModuleNotFoundError: pandas_market_calendars).
+  "pandas_market_calendars>=4",
 ]
 
 [project.scripts]

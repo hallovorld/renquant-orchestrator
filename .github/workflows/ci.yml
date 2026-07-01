@@ -64,7 +64,18 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install test tools
-        run: python -m pip install pytest numpy pandas scipy xgboost pyarrow pydantic cvxpy scikit-learn pandas-market-calendars
+        # pandas_market_calendars: two independent NYSE-calendar wrappers depend on
+        # it now — NyseSessionCalendar (intraday_quote_logger, #216, RTH session
+        # bounds for real-time quote validation) and the freshness guard's own
+        # _exchange_calendar/_expected_last_completed_session (retrain_alpha158_fund,
+        # #217, last-completed-session + session-gap lag checks). Both wrap the same
+        # renquant_execution.preopen_cancel_gate primitive independently by design
+        # (see retrain_alpha158_fund.py's "independently-derived expected session"
+        # docstring) rather than sharing a helper, so either module's real-calendar
+        # tests fail closed with ModuleNotFoundError without this. Also declared as
+        # a real dependency in pyproject.toml (#216 r2 CI failure fix).
+        run: python -m pip install pytest numpy pandas scipy xgboost pyarrow pydantic cvxpy scikit-learn pandas_market_calendars
+
       - name: Full multirepo test
         if: env.RENQUANT_HAS_CI_TOKEN == 'true'
         working-directory: renquant-orchestrator
