@@ -72,6 +72,7 @@ def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:
         window_days=60,
         alert_threshold=0.25,
         quiet=True,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
     )
 
     result = mod.build_pipeline().run(ctx)
@@ -96,6 +97,7 @@ def test_pipeline_alerts_on_persistent_drawdown(tmp_path: Path) -> None:
         alert_threshold=-1.0,
         drawdown_days=5,
         quiet=True,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
     )
 
     mod.build_pipeline().run(ctx)
@@ -135,6 +137,8 @@ def test_main_json_outputs_summary(tmp_path: Path, capsys) -> None:
         str(audit),
         "--window-days",
         "60",
+        "--as-of",
+        "2026-06-01T00:00:00+00:00",
         "--quiet",
         "--json",
     ])
