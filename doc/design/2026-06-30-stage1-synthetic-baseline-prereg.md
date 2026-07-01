@@ -13,7 +13,7 @@ PURPOSE: pin every researcher degree of freedom in the **synthetic batch-fill co
 
 **The PROCEDURE in §1–§5 and §7 is pinned by this committed template and ceases to be a researcher DOF once the RFC merges.** Only the fitted numerical outputs (`k_spread`, `k_auction`, their §5 bootstrap dispersion, and the §7 caps) remain to be populated. The freeze steps:
 
-1. Run the §3 calibration **exactly as specified** on the trailing 60-session window ending strictly before the readonly phase; write the fitted `k_spread`, `k_auction`, their session-block-bootstrap dispersion (§5), and the §7 caps (`IS_cap_hi`, `IS_cap_lo`) into §2/§5/§7. No step of the procedure may be altered — only the numbers are filled in.
+1. Run the §3 calibration **exactly as specified** on the trailing 60-session window ending strictly before the readonly phase; write the fitted `k_spread`, `k_auction`, their §5 **calibration-coefficient** bootstrap dispersion (the outer-loop diagnostic — the full joint CB of `Δ` is computed at gate-evaluation over canary, §5), and the §7 caps (`IS_cap_hi`, `IS_cap_lo`) into §2/§5/§7. No step of the procedure may be altered — only the numbers are filled in.
 2. Flip `STATUS` to `FROZEN (<date>)`.
 3. Compute the **detached canonical fingerprint** (§6) over the frozen file bytes and commit it to the sidecar `2026-06-30-stage1-synthetic-baseline-prereg.sha256`. The hash is **NOT** written inside this file (this is what removes the self-reference — see §6).
 4. **This freeze PR MUST MERGE before the readonly phase starts.** From merge onward the file is immutable; every synthetic batch-fill ledger row stamps `synthetic = true` and the §6 fingerprint. **Any edit after freeze changes the hash and INVALIDATES the run.**
@@ -43,7 +43,7 @@ synthetic_batch_fill = P_open + side_sign * ( k_spread * half_spread_open + k_au
 | `auction_slippage_proxy` | per-symbol opening-imbalance slippage, in price terms (§4 transform) | §4 auction-imbalance treatment |
 | `k_auction` | auction-slippage coefficient (dimensionless), box-constrained `k_auction ≥ 0` (§3.4) | `<<FROZEN AT CALIBRATION §3>>` |
 
-`k_spread` and `k_auction` are **fit once** by the §3 procedure and then frozen; their fitted values and the §5 session-block-bootstrap dispersion are recorded here at freeze and **never re-fit** after readonly/canary data is observed.
+`k_spread` and `k_auction` are **fit once** by the §3 procedure and then frozen; their fitted values and their §5 **calibration-coefficient** bootstrap dispersion are recorded here at freeze and **never re-fit** after readonly/canary data is observed. (The full joint upper CB of `Δ` also folds in evaluation-sample uncertainty and is computed at gate-evaluation over the canary window — §5.)
 
 ## 3. Calibration procedure (frozen) — dataset, estimator, and every fitting DOF
 
@@ -59,7 +59,7 @@ Every fitting degree of freedom is pinned here; only the numbers produced by *ru
 
 **3.5 Outlier / pre-cleaning policy.** Before fitting, calibration `IS_obs` is **winsorized** at the **bucket-wise 1st/99th percentile** (winsorize, not drop — preserves N). Rows with a missing/zero `half_spread_open`, or without a two-sided open NBBO, are **excluded** from calibration and logged. This pre-cleaning governs only the *calibration fit*; it is distinct from the §7 caps, which govern the *live censored cells*.
 
-**3.6 Frozen outputs.** Running §3.1–§3.5 yields, per (pooled) bucket, the point estimates `k_spread`, `k_auction`, the §5 bootstrap joint distribution, and (from the same window's `IS_obs`) the §7 caps. These numbers are written into §2/§5/§7 at freeze and **never re-fit** after readonly/canary data is observed.
+**3.6 Frozen outputs.** Running §3.1–§3.5 yields, per (pooled) bucket, the point estimates `k_spread`, `k_auction`, the §5 **calibration-coefficient** bootstrap joint distribution (outer-loop diagnostic), and (from the same window's `IS_obs`) the §7 caps. These numbers are written into §2/§5/§7 at freeze and **never re-fit** after readonly/canary data is observed. The §5 gate CB itself (which additionally block-resamples the canary window) is **evaluated at gate time, not at freeze** — only the procedure is frozen now.
 
 ## 4. Per-component treatment (each: how handled / how censored)
 
@@ -74,17 +74,41 @@ Every fitting degree of freedom is pinned here; only the numbers produced by *ru
 | **Rejects** | synthetic arm **cannot** be rejected (no real order) | a **real intraday reject** removes that pair's intraday fill → the **pair is censored** (RFC §9.3), imputed as an *intraday* cell under §7 (`IS_cap_hi`) and counted |
 | **No-quote** | no valid open NBBO → **no synthetic fill is formed** | pair **censored**, flag `synthetic_no_quote = true`; the censored **batch** cell is **imputed under §7** (`IS_cap_lo`) — see §7 (this reconciles the earlier "never imputed" wording with the §9.2d ITT scheme) |
 
-## 5. Uncertainty procedure (frozen) + the overlap PASS rule
+## 5. Uncertainty procedure (frozen) — JOINT calibration+evaluation bootstrap + the overlap PASS rule
 
-Every resampling DOF is pinned here.
+Every resampling DOF is pinned here. The reported bound must propagate **BOTH** sources of uncertainty in the estimand: **(i) calibration-coefficient** uncertainty (the fitted synthetic model) **and (ii) evaluation-sample** uncertainty (the canary sessions/pairs whose median intraday IS and synthetic-batch IS define `Δ`). The earlier (r7) procedure resampled only the calibration window and re-fit the coefficients, but computed each `Δ*` over the **FIXED** canary/admitted set — so its distribution captured coefficient uncertainty **only**, the one-sided 95% upper CB was too narrow, and it could not support the +10-bps gate. The r8 procedure below is a **joint (nested) session-block bootstrap** that also block-resamples the canary window.
 
 - **Confidence level:** **one-sided 95%** (matching the RFC §9.3 reject gate); the gate uses the one-sided **upper** 95% confidence bound of `Δ`.
-- **Resampling unit + blocking:** a **session-level block bootstrap** — the resampling unit is the **session**, resampled with replacement (all fills within a drawn session stay together), so intra-session cross-sectional correlation is preserved. Individual fills are **never** resampled independently.
-- **Repetitions:** **`B = 10000`** bootstrap replications.
-- **Seed:** fixed **`rng_seed = 20260630`** (NumPy PCG64); recorded so the interval is exactly reproducible.
-- **Parameter-uncertainty draw:** on each replication, `(k_spread, k_auction)` are **re-fit by the full §3.4 constrained-Huber procedure on the resampled sessions** — parameter uncertainty is thus taken directly from the session-block-bootstrap joint distribution of the coefficients (NOT an assumed Gaussian from analytic SEs, and NOT a separate parameter draw). Residual dispersion enters through the same resampled fits. This is a single, consistent resampling of coefficients and residuals together.
-- **Aggregation:** per replication compute the matched-pair statistic `Δ* = median(IS_intraday_real) − median(IS_batch_synthetic)` over the **§7 imputed-complete admitted set** (the frozen gate scenario), using that replication's re-fit synthetic model. The **one-sided upper 95% confidence bound of `Δ`** is the **95th percentile of the `{Δ*}` distribution**.
+
+- **Two disjoint resampling universes (the cross-fit boundary):**
+  - **CALIBRATION universe** = the 60 pre-readonly calibration sessions of §3.1.
+  - **EVALUATION universe** = the canary/admitted sessions (the readonly/canary window over which the `Δ` estimand is defined).
+  - These universes are **DISJOINT by construction**: the §3.1 calibration cutoff **is** the readonly/canary boundary, so **no canary session can enter the calibration fit** and no calibration session can enter the evaluation median. **This split IS the cross-fit boundary** — coefficients are always fit on calibration resamples and applied to (never fit on) evaluation resamples.
+
+- **Resampling unit + blocking (both universes):** a **session-level block bootstrap** — the resampling unit is the **session**, resampled with replacement, **block length = one session** (all fills/pairs within a drawn session stay together), so intra-session cross-sectional correlation **and the matched-pair structure** are preserved. Individual fills or pairs are **NEVER** resampled independently.
+
+- **Nested / paired draw (per replication `b = 1 … B`):**
+  1. **Outer — calibration resample (coefficient uncertainty):** draw sessions with replacement from the **CALIBRATION** universe and **re-fit** `(k_spread, k_auction)` per bucket by the full §3.4 constrained-Huber procedure on that resample. Parameter + residual dispersion enter through the re-fit itself (NOT an assumed Gaussian from analytic SEs, NOT a separate parameter draw).
+  2. **Inner — evaluation resample (sample uncertainty), drawn INDEPENDENTLY:** **independently** (a separate RNG substream, never index-paired to the outer draw) draw sessions with replacement from the **EVALUATION** universe.
+  3. **Statistic:** on the evaluation resample, form each admitted pair's synthetic batch fill with **this replication's** re-fit coefficients, apply the §7 adversarial imputation to every censored cell, and compute `Δ*_b = median(IS_intraday_real) − median(IS_batch_synthetic)` over that replication's **§7 imputed-complete admitted set** (the frozen gate scenario).
+
+  Because step 1 (calibration) and step 2 (evaluation) are drawn **independently**, the `{Δ*_b}` distribution carries **both** the coefficient variability (step 1) **and** the canary-session/pair sampling variability (step 2). This is the single substantive change from r7, which held the evaluation set fixed.
+
+- **Exact independence / cross-fitting rule:** the calibration-session draw and the evaluation-session draw use **two independent RNG substreams** (seed below), are **never coupled or index-paired**, and operate on the **disjoint** universes above. Coefficients are **only ever** fit on calibration resamples and **only ever** applied to evaluation resamples — **no canary session ever enters a calibration fit** (the cross-fit boundary is the readonly/canary split). The coefficient error and the evaluation-sample error are therefore propagated **jointly but without leakage**.
+
+- **Block length:** **one session** (frozen, both universes).
+- **Repetitions:** **`B = 10000`** *valid* replications (degenerate redraws below do not count toward `B`).
+- **Seed:** fixed **`rng_seed = 20260630`** (NumPy `SeedSequence(20260630)`, PCG64), **spawned into two independent child streams** `spawn(2) → [calibration_stream, evaluation_stream]`; recorded so the interval is exactly reproducible.
+
+- **Degenerate-resample rule (pre-registered — no post-hoc DOF):**
+  - **Per-replication guard (discard + redraw):** an **evaluation** resample is **degenerate** if it draws fewer than **`M_admit_min = 10`** admitted pairs with **≥ 1 uncensored arm**, or fewer than **`S_eval_min = 3`** *distinct* canary sessions (a with-replacement draw can collapse onto too few sessions). A degenerate evaluation resample is **discarded and REDRAWN** from the same `evaluation_stream` (advancing it), up to **`R_redraw_max = 100`** attempts per replication; only a valid resample's `Δ*_b` counts toward `B`. (The calibration resample is governed by the §3.3 `N_bucket_min = 200` pooling and is not separately re-guarded here.)
+  - **Whole-gate non-evaluability:** if the **base** (un-resampled) admitted set has fewer than **`M_admit_min`** admitted pairs, **OR** `R_redraw_max` is exhausted on any replication (valid evaluation resamples are structurally too rare), the **entire IS gate is declared NON-EVALUABLE** → **operations-only** + fix the sampling/censoring cause + re-run the window — identical handling to the §7.1 `c_max` precondition. The gate is **never** silently computed on a degenerate sample.
+
+- **Aggregation:** the **one-sided upper 95% confidence bound of `Δ`** is the **95th percentile of the `{Δ*_b}` distribution over the `B` valid replications** — this bound now reflects **both** the calibration-coefficient and the evaluation-sample variability. Because the EVALUATION universe is the canary window, **this joint CB can only be COMPUTED at gate-evaluation time (after canary), not at freeze**; what is recorded at freeze (§2/§3.6) is the **calibration-coefficient** bootstrap dispersion (the outer-loop diagnostic), while the reported gate bound is evaluated over the canary sessions **under this frozen procedure**.
+
 - **PASS rule (overlap-aware):** the intraday arm PASSES execution-quality **only if that one-sided upper 95% CB of `Δ` lies BELOW the +10-bps inferiority margin** — the interval must **exclude** +10 bps, not merely the point estimate. If +10 bps lies within the interval, the result is "**not distinguishable**" → **NOT a PASS**.
+
+- **Frozen resampling DOF:** the two-universe cross-fit split, the session block length (1), `B = 10000`, `rng_seed = 20260630` (spawned into 2 child streams), the one-sided-95% level, `M_admit_min = 10`, `S_eval_min = 3`, `R_redraw_max = 100`, and the discard-redraw / non-evaluability handling are **all part of the frozen content** (§6 fingerprint). Only the fitted `k_spread` / `k_auction` (and their calibration-coefficient bootstrap dispersion) remain `<<FROZEN AT CALIBRATION §3>>`.
 
 ## 6. Immutable fingerprint (detached, single canonical algorithm)
 
@@ -107,6 +131,7 @@ The Stage-1 execution-quality estimand is **intent-to-treat over the admitted pr
 | `c_max` | **0.10** (10% of admitted pairs) | max censored fraction at which the IS gate is **evaluable**; above it the gate is **NOT evaluable** → operations-only + fix the censoring cause |
 
 - **Why these directions:** a censored intraday cell → `IS_cap_hi` (push intraday cost UP) and a censored batch cell → `IS_cap_lo` (push batch cost DOWN) both **enlarge** `Δ = IS_intraday − IS_batch`. The §5 one-sided upper CB of Δ is computed on the **imputed-complete admitted set**; **the gate requires that adversarial-scenario upper CB to stay below the +10-bps margin.** If the gate survives the maximally-adversarial-within-scenario imputation, censoring within the frozen scenario cannot have manufactured the PASS.
+- **Second non-evaluability trigger (from §5):** independent of `c_max`, the gate is **also NON-EVALUABLE** whenever the §5 **degenerate-resample rule** fires — the base admitted set has fewer than `M_admit_min = 10` admitted pairs, or a replication exhausts `R_redraw_max = 100` valid-evaluation-resample redraws. Same **operations-only** handling: fix the sampling/censoring cause and re-run the window; the gate is never computed on a degenerate sample.
 
 ### 7.2 Sensitivity grid + tipping point (REQUIRED report, not optional)
 
