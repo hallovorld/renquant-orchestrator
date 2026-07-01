@@ -70,7 +70,7 @@ def read_recent_rows(path: Path, window_days: int, *, now: datetime | None = Non
                 row_dt = _parse_utc_datetime(row["date"])
             except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                 continue
-            if row_dt >= cutoff:
+            if cutoff <= row_dt <= current:
                 out.append(row)
     return out
 

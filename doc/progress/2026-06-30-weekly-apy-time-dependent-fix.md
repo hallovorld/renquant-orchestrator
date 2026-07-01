@@ -13,6 +13,26 @@ WHAT:
   `now` (`2026-06-01`) instead of relying on the real clock — `WeeklyApyContext(now=...)`
   for the two pipeline tests, `--as-of 2026-06-01T00:00:00+00:00` for the CLI test.
 
+FOLLOW-UP (look-ahead fix, Codex blocking review on PR #211):
+- `read_recent_rows` only enforced the lower bound (`row_dt >= cutoff`); it never
+  enforced the upper bound against the injected/real `now`. An operator replay with
+  `--as-of <past date>` would therefore consume EVERY later audit row in the file
+  (look-ahead into the future relative to the requested as-of).
+  - FIX: bound the window on both sides — `cutoff <= row_dt <= current`. Rows strictly
+    after the effective `now` are excluded. Live behavior is unchanged: with `--as-of`
+    unset, `current` is the real now and no future rows exist anyway.
+- `test_pipeline_alerts_on_persistent_drawdown` previously built fixture dates relative
+  to the real current date (via a `_recent_date` helper) while injecting `now=2026-06-01`,
+  so the rows were in the FUTURE relative to the as-of and only "passed" because the
+  upper bound was missing. Replaced with FIXED in-window dates 2026-05-21..2026-05-25
+  (all <= now=2026-06-01, all inside the default 30d window, cutoff 2026-05-01). Removed
+  the now-obsolete `_recent_date` helper and its unused `timedelta` import.
+- Added regression coverage that a post-as-of row is excluded:
+  `test_read_recent_rows_excludes_future_rows` (unit: future row not returned) and
+  `test_main_as_of_excludes_future_rows` (e2e via `main --as-of`: `n_rows` counts only
+  the <= now rows). Both FAIL against the old `row_dt >= cutoff` code and PASS with the
+  two-sided bound, confirming they catch the look-ahead.
+
 WHY:
 - `read_recent_rows` filters audit rows to a `window_days`-relative window around
   `datetime.now()`. The three tests wrote fixed May-2026 fixture dates but never
@@ -23,7 +43,7 @@ WHY:
 - `--as-of` also gives operators a replay/testing knob for the monitor.
 
 EVIDENCE:
-- `tests/test_weekly_apy_monitor.py`: 7 passed.
+- `tests/test_weekly_apy_monitor.py`: 9 passed (7 original + 2 new look-ahead regressions).
 - Broader `tests/` (excluding 3 modules that need sibling repos `renquant_pipeline`/
   `renquant_execution` not installed in this env): 535 passed, 2 skipped; the only
   failures are pre-existing sibling-import ModuleNotFoundErrors, unrelated to this change.
