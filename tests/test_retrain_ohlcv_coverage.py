@@ -602,6 +602,208 @@ def test_pipeline_includes_refresh_and_guard_first() -> None:
     assert tasks[:2] == ["RefreshFullUniverseOhlcvTask", "PanelUniverseFreshnessGuardTask"]
 
 
+# ───────────── per-name lag tolerance (Codex #217 policy blocker) ───────────
+# The tolerated fraction cannot see a PER-NAME lag: the old default of 10
+# sessions let every active ticker sit ~two weeks stale with n_bad=0. The
+# default is now a single session (a narrowly-justified operational lag).
+
+
+def test_default_stale_after_days_is_one_session(tmp_path) -> None:
+    assert mod.DEFAULT_FRESHNESS_STALE_AFTER_DAYS == 1
+    ctx = _ctx(tmp_path)
+    assert ctx.freshness_stale_after_days == 1
+
+
+def test_guard_blocks_uniform_multi_session_lag_by_default(tmp_path, monkeypatch) -> None:
+    """A whole universe five sessions behind the expected session BLOCKS under
+    the default 1-session tolerance — the old 10-session default silently passed
+    the exact two-week per-name mismatch Codex flagged."""
+    universe = [f"T{i}" for i in range(20)]
+    lag_date = FRONTIER - dt.timedelta(days=5)  # 5-session gap in the proxy
+    ctx = _guard_ctx(
+        tmp_path,
+        panel_universe=universe,
+        ohlcv_max_dates={t: lag_date for t in universe},
+        # default freshness_stale_after_days (1) + strict fraction (0.0)
+    )
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    assert ctx.freshness_report["n_stale"] == 20
+    assert ctx.freshness_report["stale_after_days"] == 1
+
+
+def test_guard_tolerates_exactly_one_session_lag(tmp_path, monkeypatch) -> None:
+    """One session behind is within the operational allowance; two sessions is
+    stale (default tolerance = 1)."""
+    universe = ["A", "B", "C"]
+    md = {
+        "A": FRONTIER,  # 0 sessions
+        "B": FRONTIER - dt.timedelta(days=1),  # 1 session → tolerated
+        "C": FRONTIER - dt.timedelta(days=2),  # 2 sessions → stale
+    }
+    ctx = _guard_ctx(
+        tmp_path,
+        panel_universe=universe,
+        ohlcv_max_dates=md,
+        freshness_max_stale_fraction=0.5,  # 1/3 <= 0.5 → does not raise
+        freshness_fail_on_stale=False,
+    )
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert ctx.freshness_report["n_stale"] == 1
+    assert set(ctx.freshness_report["stale_names"]) == {"C"}
+
+
+# ─────────── run-bundle persistence: affected names + overrides ─────────────
+
+
+def test_freshness_report_persists_affected_names_and_overrides(tmp_path, monkeypatch) -> None:
+    """The run bundle records the FULL affected-name lists (stale / missing /
+    future — not just the worst 10) and any deliberate override of the
+    fail-closed defaults (Codex #217: 'persist any override and affected names
+    in the run bundle')."""
+    universe = [f"T{i}" for i in range(6)]
+    md = {t: FRONTIER for t in universe}
+    md["T0"] = FROZEN  # stale
+    md["T1"] = None  # missing
+    md["T2"] = dt.date(2026, 7, 20)  # future-dated
+    ctx = _guard_ctx(
+        tmp_path,
+        panel_universe=universe,
+        ohlcv_max_dates=md,
+        freshness_stale_after_days=3,  # override (non-default)
+        freshness_max_stale_fraction=0.9,  # override → keeps it from raising
+        freshness_fail_on_stale=False,  # override
+    )
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    rep = ctx.freshness_report
+    assert set(rep["stale_names"]) == {"T0"}
+    assert rep["missing_names"] == ["T1"]
+    assert set(rep["future_names"]) == {"T2"}
+    ov = rep["overrides"]
+    assert ov["stale_after_days"] == {"value": 3, "default": 1}
+    assert ov["max_stale_fraction"]["value"] == 0.9
+    assert ov["fail_on_stale"] == {"value": False, "default": True}
+    assert ov["expected_session_pinned"] == FRONTIER.isoformat()
+
+
+def test_freshness_report_affected_names_persist_on_fail_closed(tmp_path, monkeypatch) -> None:
+    """Even when the guard RAISES (fail-closed block), the report — with the
+    affected names — is persisted BEFORE the raise so the run bundle keeps the
+    exact names to chase."""
+    universe = [f"T{i}" for i in range(4)]
+    md = {t: FROZEN for t in universe}
+    ctx = _guard_ctx(tmp_path, panel_universe=universe, ohlcv_max_dates=md)  # strict defaults
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+    with pytest.raises(RuntimeError):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    assert set(ctx.freshness_report["stale_names"]) == set(universe)
+    # strict defaults → no override recorded except the pinned reference session
+    assert set(ctx.freshness_report["overrides"]) == {"expected_session_pinned"}
+
+
+# ─────────── CLI / integration: expected-session / as-of injection ──────────
+# main() must expose the reference-session injection so historical replay does
+# NOT depend on the wall clock (Codex #217).
+
+
+def _main_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "RenQuant"
+    (repo / "data").mkdir(parents=True)
+    return repo
+
+
+def test_cli_parses_expected_session(tmp_path) -> None:
+    args = mod.parse_args(["--repo-dir", str(tmp_path), "--expected-session", "2026-06-30"])
+    assert args.expected_session == dt.date(2026, 6, 30)
+    assert args.as_of is None
+
+
+def test_cli_parses_as_of_bare_date_and_timestamp() -> None:
+    bare = mod.parse_args(["--as-of", "2026-06-30"])
+    # a bare date means that day's end-of-session, not midnight
+    assert bare.as_of == dt.datetime(2026, 6, 30, 23, 59, 59)
+    ts = mod.parse_args(["--as-of", "2026-06-30T15:00:00"])
+    assert ts.as_of == dt.datetime(2026, 6, 30, 15, 0, 0)
+
+
+def test_cli_rejects_bad_expected_session() -> None:
+    with pytest.raises(SystemExit):
+        mod.parse_args(["--expected-session", "not-a-date"])
+    with pytest.raises(SystemExit):
+        mod.parse_args(["--as-of", "nonsense"])
+
+
+def test_main_injects_expected_session_into_context(tmp_path, monkeypatch) -> None:
+    repo = _main_repo(tmp_path)
+    captured: list[mod.RetrainContext] = []
+
+    class FakePipeline:
+        def run(self, ctx):
+            captured.append(ctx)
+            return None
+
+    monkeypatch.setattr(mod, "build_pipeline", lambda: FakePipeline())
+    assert mod.main(
+        ["--repo-dir", str(repo), "--dry-run", "--expected-session", "2026-06-29"]
+    ) == 0
+    assert captured[0].expected_session == dt.date(2026, 6, 29)
+    assert captured[0].now_fn is None
+
+
+def test_main_as_of_injects_now_fn(tmp_path, monkeypatch) -> None:
+    repo = _main_repo(tmp_path)
+    captured: list[mod.RetrainContext] = []
+
+    class FakePipeline:
+        def run(self, ctx):
+            captured.append(ctx)
+            return None
+
+    monkeypatch.setattr(mod, "build_pipeline", lambda: FakePipeline())
+    assert mod.main(
+        ["--repo-dir", str(repo), "--dry-run", "--as-of", "2026-06-30T16:30:00"]
+    ) == 0
+    ctx = captured[0]
+    assert ctx.expected_session is None
+    assert ctx.now_fn is not None
+    assert ctx.now_fn() == dt.datetime(2026, 6, 30, 16, 30, 0)
+
+
+def test_expected_session_priority_over_as_of(tmp_path) -> None:
+    """When both are set, the explicit expected_session wins (no clock/calendar
+    dependency at all)."""
+    ctx = _ctx(
+        tmp_path,
+        panel_universe=["A"],
+        expected_session=dt.date(2026, 6, 25),
+        now_fn=lambda: dt.datetime(2026, 6, 30, 16, 30, 0),
+    )
+    assert mod._resolve_expected_session(ctx) == dt.date(2026, 6, 25)
+
+
+def test_as_of_now_fn_resolves_session_via_real_calendar(tmp_path) -> None:
+    """The as-of clock resolves the expected session through the real NYSE
+    calendar — deterministic historical replay, independent of the wall clock."""
+    pytest.importorskip("pandas_market_calendars")
+    # 2026-06-30 16:30 ET is after the regular close → that session is complete.
+    ctx = _ctx(
+        tmp_path,
+        panel_universe=["A"],
+        now_fn=lambda: dt.datetime(2026, 6, 30, 16, 30, 0),
+    )
+    assert mod._resolve_expected_session(ctx) == dt.date(2026, 6, 30)
+    # Before the close, the prior session is the last completed one.
+    ctx_before = _ctx(
+        tmp_path,
+        panel_universe=["A"],
+        now_fn=lambda: dt.datetime(2026, 6, 30, 15, 0, 0),
+    )
+    assert mod._resolve_expected_session(ctx_before) == dt.date(2026, 6, 29)
+
+
 # ─────────────────── shared exchange calendar (holiday / half-day) ──────────
 # These exercise the REAL NYSE calendar and are skipped where
 # pandas_market_calendars is not installed (e.g. minimal CI).

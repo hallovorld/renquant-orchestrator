@@ -61,7 +61,22 @@ class FreshnessUnprovableError(RuntimeError):
 DEFAULT_INVENTORY_FILENAME = "transformer_universe_inventory.json"
 DEFAULT_OHLCV_DIRNAME = "ohlcv"
 DEFAULT_OHLCV_TIMEOUT_SEC = 30.0
-DEFAULT_FRESHNESS_STALE_AFTER_DAYS = 10
+# One session (a narrowly-justified OPERATIONAL lag), NOT ten. The earlier
+# default of 10 let every active ticker sit up to ten exchange sessions (~two
+# calendar weeks) behind the expected session and still read n_bad=0 — even with
+# max_stale_fraction pinned to 0.0 — because the fraction gate cannot see a
+# per-name tolerance. For a cross-sectional daily panel a two-week date mismatch
+# materially moves ranks and labels, so the guard now measures every name
+# against the INDEPENDENTLY-derived expected latest completed market session and
+# tolerates at most a SINGLE session of lag. Why one and not zero: the refresh
+# can legitimately finish before a vendor publishes a name's T+0 bar, and a
+# one-session input lag has zero label impact (the panel's fwd_60d clip puts the
+# training frontier ~60 sessions back), so exactly one session is a deliberate,
+# minimal allowance that still catches the ~two-month partial freeze and any
+# multi-session drift. A wider tolerance is a documented per-run override (and is
+# recorded in the freshness_report), never a silent default. See
+# doc/progress/2026-07-01-panel-ohlcv-coverage-fix.md.
+DEFAULT_FRESHNESS_STALE_AFTER_DAYS = 1
 # STRICT by default (fail-closed). The earlier 0.10 default silently tolerated
 # ~29/292 missing-or-frozen names — enough to materially move cross-sectional
 # ranks — and had no sensitivity justification (coverage-loss vs rank/IC/turnover
@@ -71,7 +86,7 @@ DEFAULT_FRESHNESS_STALE_AFTER_DAYS = 10
 # what remains is the active universe that MUST be fresh. Operators may still set
 # a non-zero tolerance for a single run, but it is a deliberate, documented
 # override — not a default that hides a partial freeze. See
-# doc/progress/2026-07-01-panel-ohlcv-coverage-failclosed.md.
+# doc/progress/2026-07-01-panel-ohlcv-coverage-fix.md.
 DEFAULT_FRESHNESS_MAX_STALE_FRACTION = 0.0
 # NYSE is the shared exchange the whole stack prices against (base-data's
 # _last_completed_nyse_session, the live path, and the panel build all use it).
@@ -517,6 +532,31 @@ def _session_gap(ctx: RetrainContext, start: "dt.date", end: "dt.date") -> int:
     return _default_session_gap(ctx.exchange, start, end)
 
 
+def _freshness_overrides(ctx: RetrainContext) -> dict:
+    """Record every freshness knob that deviates from its (fail-closed) default,
+    plus whether the expected session was pinned rather than clock-derived. This
+    is persisted into ``freshness_report`` so the run bundle shows exactly when an
+    operator loosened the gate (e.g. widened the per-name lag or the tolerated
+    stale fraction) and against which reference session — a loosened gate must
+    never be silent."""
+    overrides: dict = {}
+    if ctx.freshness_stale_after_days != DEFAULT_FRESHNESS_STALE_AFTER_DAYS:
+        overrides["stale_after_days"] = {
+            "value": ctx.freshness_stale_after_days,
+            "default": DEFAULT_FRESHNESS_STALE_AFTER_DAYS,
+        }
+    if ctx.freshness_max_stale_fraction != DEFAULT_FRESHNESS_MAX_STALE_FRACTION:
+        overrides["max_stale_fraction"] = {
+            "value": ctx.freshness_max_stale_fraction,
+            "default": DEFAULT_FRESHNESS_MAX_STALE_FRACTION,
+        }
+    if not ctx.freshness_fail_on_stale:
+        overrides["fail_on_stale"] = {"value": False, "default": True}
+    if ctx.expected_session is not None:
+        overrides["expected_session_pinned"] = ctx.expected_session.isoformat()
+    return overrides
+
+
 class RefreshFullUniverseOhlcvTask(Task):
     """Refresh daily OHLCV bars for the FULL panel training universe.
 
@@ -632,7 +672,9 @@ class PanelUniverseFreshnessGuardTask(Task):
     lags the INDEPENDENTLY-derived expected latest completed market session
     (``_resolve_expected_session`` — the shared exchange calendar, NOT
     ``max(known dates)``) by more than ``freshness_stale_after_days`` exchange
-    sessions. Measuring against the expected session is what catches a
+    sessions (default 1 — a single-session operational lag; the tolerated
+    *fraction* cannot see this per-name lag, so it is gated here). Measuring
+    against the expected session is what catches a
     *globally-uniform* freeze: if the whole universe is stuck on one old date,
     ``max(known)`` would call everything fresh, but the expected session is
     recent, so every name reads stale and the guard trips.
@@ -696,6 +738,14 @@ class PanelUniverseFreshnessGuardTask(Task):
             "stale_after_days": ctx.freshness_stale_after_days,
             "max_stale_fraction": ctx.freshness_max_stale_fraction,
             "worst_examples": [[lag, t] for lag, t in worst],
+            # FULL affected-name lists (not just the worst 10) so the run bundle
+            # records every ticker that tripped the gate — the exact names an
+            # operator must chase before promotion.
+            "stale_names": {t: lag for t, lag in sorted(stale.items())},
+            "missing_names": sorted(missing),
+            "future_names": {t: d.isoformat() for t, d in sorted(future.items())},
+            # Any deviation from the fail-closed defaults, persisted for audit.
+            "overrides": _freshness_overrides(ctx),
         }
         ctx.freshness_report = report
 
@@ -842,6 +892,40 @@ def _validate_repo_dir(repo_dir: Path) -> None:
         raise FileNotFoundError(f"repo-dir is not a usable RenQuant checkout; missing: {joined}")
 
 
+def _parse_cli_date(raw: str) -> "dt.date":
+    """Parse an ISO ``YYYY-MM-DD`` for ``--expected-session`` (argparse type)."""
+    try:
+        return dt.date.fromisoformat(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected an ISO date (YYYY-MM-DD): {raw!r} ({exc})"
+        ) from exc
+
+
+def _parse_cli_as_of(raw: str) -> "dt.datetime":
+    """Parse ``--as-of`` for the freshness reference clock.
+
+    A full ISO timestamp (contains ``T`` or a ``:`` time) is used verbatim; a
+    BARE date is interpreted as that day's end-of-session (23:59:59), so
+    ``--as-of 2026-06-30`` treats 2026-06-30's session as completed rather than
+    as midnight (which the calendar would read as the PRIOR session)."""
+    has_time = ("T" in raw) or (":" in raw)
+    if has_time:
+        try:
+            return dt.datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"expected an ISO datetime: {raw!r} ({exc})"
+            ) from exc
+    try:
+        day = dt.date.fromisoformat(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected an ISO date or datetime: {raw!r} ({exc})"
+        ) from exc
+    return dt.datetime(day.year, day.month, day.day, 23, 59, 59)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-dir", type=Path, default=DEFAULT_REPO_DIR)
@@ -895,7 +979,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--freshness-stale-after-days",
         type=int,
         default=DEFAULT_FRESHNESS_STALE_AFTER_DAYS,
-        help="A panel ticker is stale when its newest bar lags the universe frontier by more than this many trading days.",
+        help=(
+            "A panel ticker is stale when its newest bar lags the expected "
+            "latest completed exchange session by MORE than this many sessions. "
+            "Default 1 (a narrowly-justified single-session operational lag); "
+            "the old default of 10 tolerated a ~two-week per-name mismatch that "
+            "materially moves cross-sectional ranks. Widen it only as a "
+            "deliberate, documented per-run override (recorded in the "
+            "freshness_report)."
+        ),
     )
     parser.add_argument(
         "--freshness-max-stale-fraction",
@@ -915,6 +1007,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=True,
         action=argparse.BooleanOptionalAction,
         help="Fail the retrain when the guard trips (default, fail-closed). --no-freshness-fail-on-stale only warns (ntfy) and proceeds.",
+    )
+    parser.add_argument(
+        "--expected-session",
+        type=_parse_cli_date,
+        default=None,
+        help=(
+            "Pin the expected latest completed exchange session (YYYY-MM-DD) the "
+            "freshness guard measures every panel ticker against, INSTEAD of "
+            "deriving it from the wall clock. Use for deterministic historical "
+            "replay / reproducible audits so freshness never depends on when the "
+            "job happens to run. Persisted (as an override) in the "
+            "freshness_report. Takes priority over --as-of."
+        ),
+    )
+    parser.add_argument(
+        "--as-of",
+        type=_parse_cli_as_of,
+        default=None,
+        help=(
+            "Pin the wall clock (YYYY-MM-DD or an ISO timestamp) used to DERIVE "
+            "the expected session through the shared exchange calendar (holiday / "
+            "half-day aware), for historical replay that should still exercise "
+            "the calendar. A bare date is treated as that day's end-of-session. "
+            "--expected-session wins when both are given."
+        ),
     )
     parser.add_argument("--ntfy-topic", default=DEFAULT_NTFY_TOPIC)
     return parser.parse_args(argv)
@@ -953,6 +1070,14 @@ def main(argv: list[str] | None = None) -> int:
             inventory_path = puf
         else:
             raise SystemExit(f"--panel-universe-file must be a JSON list or object: {puf}")
+    # Historical-replay / reproducibility injection: --expected-session pins the
+    # reference session directly (fully deterministic, no clock / calendar); or
+    # --as-of pins the wall clock and lets the exchange calendar derive it. Both
+    # keep freshness from depending on the ambient wall clock.
+    now_fn: "Callable[[], object] | None" = None
+    if args.as_of is not None:
+        _as_of = args.as_of
+        now_fn = lambda: _as_of  # noqa: E731 - tiny closure over the pinned clock
     ctx = RetrainContext(
         repo_dir=repo_dir,
         xgb_artifact_out=xgb_artifact_out,
@@ -968,6 +1093,8 @@ def main(argv: list[str] | None = None) -> int:
         freshness_stale_after_days=args.freshness_stale_after_days,
         freshness_max_stale_fraction=args.freshness_max_stale_fraction,
         freshness_fail_on_stale=args.freshness_fail_on_stale,
+        expected_session=args.expected_session,
+        now_fn=now_fn,
         ntfy_topic=args.ntfy_topic,
     )
     build_pipeline().run(ctx)

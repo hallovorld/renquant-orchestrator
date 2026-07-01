@@ -124,3 +124,42 @@ TESTS (revised): `tests/test_retrain_ohlcv_coverage.py` now covers globally-unif
           → all green; full `make test` → 599 passed / 3 skipped.
 NOTE:     stays compatible with PR #218 (σ-head `_rawlabel` refresh) which stacks on this branch —
           no shared symbol/task touched.
+
+── REVISION 2 (2026-07-01, 2nd Codex CHANGES_REQUESTED on PR #217): per-name tolerance + replay ──
+WHY:      Codex confirmed the fail-open defects are fixed but found one policy blocker plus a
+          reproducibility gap. The tolerated stale FRACTION cannot see a PER-NAME lag, so the old
+          `freshness_stale_after_days=10` let EVERY active ticker sit up to ten sessions (~two
+          calendar weeks) behind and still read `n_bad=0` even at `max_stale_fraction=0.0`. And the
+          reference-session injection existed on the context but `main()` did not expose it, so
+          historical replay depended on the wall clock unless invoked programmatically.
+
+1. PER-NAME LAG TIGHTENED 10 → 1 SESSION. `DEFAULT_FRESHNESS_STALE_AFTER_DAYS` is now 1 — a
+   narrowly-justified single-session OPERATIONAL lag (the option Codex explicitly allowed in lieu of
+   the 0/1/5/10-session sensitivity experiment, which needs data this code-only PR does not run).
+   Why one and not zero: the refresh can legitimately finish before a vendor publishes a name's T+0
+   bar, and a one-session input lag has zero label impact (the panel's fwd_60d clip puts the training
+   frontier ~60 sessions back), so exactly one session is a deliberate, minimal allowance that still
+   catches the ~two-month partial freeze and any multi-session drift. A wider tolerance is a
+   documented per-run override, never a silent default.
+
+2. RUN-BUNDLE PERSISTENCE of overrides + affected names. `freshness_report` now carries the FULL
+   affected-name lists (`stale_names` with per-name lag, `missing_names`, `future_names`) — not just
+   the worst 10 — plus an `overrides` block recording every knob deviating from the fail-closed
+   defaults (`stale_after_days` / `max_stale_fraction` / `fail_on_stale`) and whether the expected
+   session was pinned. The report is set BEFORE any fail-closed raise, so a blocked run still records
+   the exact names to chase and any loosening an operator applied.
+
+3. CLI/REPLAY INJECTION exposed on `main()`. New `--expected-session YYYY-MM-DD` pins the reference
+   session directly (fully deterministic, no clock/calendar) and `--as-of {date|ISO-datetime}` pins
+   the wall clock and lets the shared exchange calendar derive the session (a bare date = that day's
+   end-of-session). `--expected-session` wins when both are given. Both flow into `RetrainContext`
+   (`expected_session` / `now_fn`), so freshness never depends on when the job happens to run.
+
+TESTS (revision 2): `tests/test_retrain_ohlcv_coverage.py` adds the 1-session default guard, a
+          uniform multi-session-lag block, the exactly-one-session tolerance boundary, affected-name
+          + override persistence (incl. on a fail-closed raise), CLI parsing of
+          `--expected-session` / `--as-of` (bare date and timestamp) + bad-input rejection, `main()`
+          injection into the context, the expected-session-over-as-of priority, and an as-of →
+          real-NYSE-calendar session resolution (importorskip). Run:
+          `.venv/bin/python -m pytest tests/test_retrain_ohlcv_coverage.py tests/test_retrain_*.py -q`
+          → 121 passed. Still compatible with PR #218 (no shared symbol/task touched).
