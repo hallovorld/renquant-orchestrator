@@ -14,6 +14,7 @@ from renquant_orchestrator.model_staging_registry import (
     CATEGORY_PLACEBO,
     CATEGORY_SUBSTANTIVE,
     CATEGORY_UNKNOWN,
+    INFRA_FAILURE_CLASSES,
     INTEGRITY_FLOOR_KEYS,
     ModelStagingRegistry,
     StagingCandidate,
@@ -166,8 +167,11 @@ def test_created_after_as_of_excluded_even_if_cutoff_old(tmp_path):
         ("ParallelTimeoutError", "fail", CATEGORY_INFRA),
         ("config_path_not_found", "fail", CATEGORY_INFRA),
         ("artifact_not_found", "fail", CATEGORY_INFRA),
-        ("recipe_fingerprint_mismatch", "fail", CATEGORY_INFRA),
-        ("recipe_mismatch", "fail", CATEGORY_INFRA),
+        # Codex r7: a recipe / fingerprint mismatch of ANY flavour is NOT
+        # comparable to the prod contract → fail-closed (substantive), never infra.
+        ("recipe_fingerprint_mismatch", "fail", CATEGORY_SUBSTANTIVE),
+        ("recipe_mismatch", "fail", CATEGORY_SUBSTANTIVE),
+        ("fingerprint_mismatch", "fail", CATEGORY_SUBSTANTIVE),
         ("sub_spy", "fail", CATEGORY_SUBSTANTIVE),
         ("delta_sharpe_negative", "fail", CATEGORY_SUBSTANTIVE),
         ("recipe_identity_mismatch", "fail", CATEGORY_SUBSTANTIVE),
@@ -182,6 +186,17 @@ def test_created_after_as_of_excluded_even_if_cutoff_old(tmp_path):
 )
 def test_classify_failure(raw, verdict, expected):
     assert classify_failure(raw, verdict) == expected
+
+
+def test_infra_failure_classes_narrowed_to_mechanical_only():
+    # Codex r7: the enumerated infra allowlist is timeout / config-path /
+    # artifact-not-found ONLY. Recipe/fingerprint mismatches are a comparability
+    # violation, not a mechanical rescue, and must never be in this set.
+    assert INFRA_FAILURE_CLASSES == frozenset(
+        {"timeout", "config_path", "artifact_not_found"}
+    )
+    assert "recipe_mismatch" not in INFRA_FAILURE_CLASSES
+    assert "recipe_fingerprint_mismatch" not in INFRA_FAILURE_CLASSES
 
 
 def test_candidate_carries_classified_category(tmp_path):

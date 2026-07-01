@@ -40,6 +40,7 @@ def _payload(
     spy_sharpe: float = 0.3,
     net_return: float = 0.01,
     integrity_ok: bool = True,
+    recipe_fingerprint: str | None = None,
 ) -> dict:
     if created is None:
         created = f"{trained}T12:00:00Z"
@@ -48,7 +49,7 @@ def _payload(
         if integrity_ok
         else {"loads": True}
     )
-    return {
+    payload = {
         "artifact_id": artifact_id,
         "model_family": "panel",
         "artifact_path": f"artifacts/{artifact_id}/model.pt",
@@ -64,6 +65,9 @@ def _payload(
         },
         "integrity": integ,
     }
+    if recipe_fingerprint is not None:
+        payload["recipe_fingerprint"] = recipe_fingerprint
+    return payload
 
 
 def _write(staging: Path, artifact_id: str, **kw) -> Path:
@@ -78,35 +82,42 @@ def _breached(**kw) -> ProdModelState:
 
 
 # ── would-promote (the happy path) ──────────────────────────────────────────
-def test_would_promote_selects_best_score_among_infra_candidates(tmp_path):
+def test_would_promote_selects_newest_eligible_not_best_score(tmp_path):
     staging = tmp_path / "staging"
-    # newest failed for infra (timeout); an older infra candidate scores higher.
+    # newest failed for infra (timeout) and scores LOWER than an older infra
+    # candidate. Selection is OUTCOME-INDEPENDENT (Codex r7): the newest eligible
+    # candidate wins regardless — ranking by the max OOS Sharpe over dependent,
+    # overlapping-retrain candidates is winner's-curse / multiple-testing bias.
     _write(staging, "newest", trained="2026-06-29", failure_class="timeout", oos_sharpe=0.5)
-    _write(staging, "best", trained="2026-06-27", failure_class="config_path", oos_sharpe=0.7)
+    _write(staging, "best_score", trained="2026-06-27", failure_class="config_path", oos_sharpe=0.7)
     _write(staging, "worse", trained="2026-06-26", failure_class="artifact_not_found", oos_sharpe=0.4)
     reg = ModelStagingRegistry.scan(staging)
 
     d = shadow_decision(reg, _breached())
     assert d.would_promote is True
-    assert d.candidate == "best"           # best-of-recent picks the top score, not the newest
-    assert d.selection_score == 0.7
+    assert d.candidate == "newest"          # newest-eligible wins, NOT the top score
+    assert d.selection_score == 0.5         # recorded for audit; not the ranker
     assert d.failure_class == "infra"
     assert d.would_NOT_because is None
-    assert d.meta["pool"] == ["best", "newest", "worse"] or set(d.meta["pool"]) == {"best", "newest", "worse"}
+    assert d.selection_rule == "newest_eligible_outcome_independent"
+    assert set(d.meta["pool"]) == {"newest", "best_score", "worse"}
+    assert d.meta["candidates_are_dependent"] is True
+    assert d.meta["not_policy_authorizing"]
 
 
 def test_would_promote_tie_break_freshest_cutoff(tmp_path):
     staging = tmp_path / "staging"
-    _write(staging, "n", trained="2026-06-29", failure_class="timeout", oos_sharpe=0.5)
-    _write(staging, "tieold", trained="2026-06-28", cutoff="2026-06-20",
+    # Same recency date (trained_date) for both candidates → the newest-eligible
+    # rule ties, and the tie-break is the freshest DATA CUTOFF, not score.
+    _write(staging, "tieold", trained="2026-06-29", cutoff="2026-06-20",
            failure_class="timeout", oos_sharpe=0.6)
-    _write(staging, "tienew", trained="2026-06-28", cutoff="2026-06-24",
+    _write(staging, "tienew", trained="2026-06-29", cutoff="2026-06-24",
            failure_class="timeout", oos_sharpe=0.6)
     reg = ModelStagingRegistry.scan(staging)
 
     d = shadow_decision(reg, _breached())
     assert d.would_promote is True
-    assert d.candidate == "tienew"  # equal score → freshest data cutoff wins
+    assert d.candidate == "tienew"  # equal recency date → freshest data cutoff wins
 
 
 # ── fail-closed paths ───────────────────────────────────────────────────────
@@ -120,15 +131,24 @@ def test_prod_within_ceiling_no_fallback(tmp_path):
     assert d.would_NOT_because == "prod_model_within_ceiling"
 
 
-def test_unknown_prod_cutoff_is_breached(tmp_path):
+def test_unknown_prod_cutoff_is_indeterminate_not_breached(tmp_path):
     staging = tmp_path / "staging"
+    # Even with a clean infra candidate available, an UNKNOWN prod cutoff must
+    # NOT authorize a hypothetical replacement (Codex r7) — it is reported as
+    # its own "indeterminate" decision, never would_promote=True.
     _write(staging, "c", trained="2026-06-29", failure_class="timeout")
     reg = ModelStagingRegistry.scan(staging)
 
     prod = ProdModelState(data_cutoff=None, as_of=AS_OF)
-    assert prod.breached is True
+    assert prod.indeterminate is True
+    assert prod.breached is False  # unknown is NOT a breach
     d = shadow_decision(reg, prod)
-    assert d.would_promote is True  # unknown cutoff proceeds; clean infra candidate exists
+    assert d.would_promote is False
+    assert d.candidate is None
+    assert d.reason == "indeterminate"
+    assert d.would_NOT_because == "prod_cutoff_unknown"
+    assert d.prod["indeterminate"] is True
+    assert d.prod["breached"] is False
 
 
 def test_slow_axis_off_sla_breaches_even_if_fast_fresh(tmp_path):
@@ -223,11 +243,83 @@ def test_integrity_dirty_excluded_but_clean_wins(tmp_path):
     assert d.meta["rejected"]["dirty"] == "integrity_floor_failed"
 
 
+# ── recipe comparability (Codex r7 §4.3.1) ──────────────────────────────────
+def test_recipe_mismatch_ineligible_not_rescued(tmp_path):
+    staging = tmp_path / "staging"
+    _write(staging, "mismatched", trained="2026-06-29", failure_class="timeout",
+           recipe_fingerprint="deadbeef")
+    reg = ModelStagingRegistry.scan(staging)
+    d = shadow_decision(reg, _breached(recipe_fingerprint="cfdd6cb8"))
+    assert d.would_promote is False
+    assert d.would_NOT_because == "no_eligible_candidate_cleared_floors"
+    assert d.meta["rejected"]["mismatched"] == "recipe_not_comparable"
+
+
+def test_recipe_missing_fingerprint_ineligible_when_prod_known(tmp_path):
+    staging = tmp_path / "staging"
+    # No recipe_fingerprint recorded at all → not comparable when prod's is known.
+    _write(staging, "unfingerprinted", trained="2026-06-29", failure_class="timeout")
+    reg = ModelStagingRegistry.scan(staging)
+    d = shadow_decision(reg, _breached(recipe_fingerprint="cfdd6cb8"))
+    assert d.would_promote is False
+    assert d.meta["rejected"]["unfingerprinted"] == "recipe_not_comparable"
+
+
+def test_recipe_matching_fingerprint_eligible(tmp_path):
+    staging = tmp_path / "staging"
+    _write(staging, "matched", trained="2026-06-29", failure_class="timeout",
+           recipe_fingerprint="cfdd6cb8")
+    reg = ModelStagingRegistry.scan(staging)
+    d = shadow_decision(reg, _breached(recipe_fingerprint="cfdd6cb8"))
+    assert d.would_promote is True
+    assert d.candidate == "matched"
+
+
+def test_recipe_comparability_skipped_when_prod_fingerprint_unknown(tmp_path):
+    staging = tmp_path / "staging"
+    # Prod recipe_fingerprint not supplied at all → the comparability gate is a
+    # no-op (nothing to compare against); other floors still apply.
+    _write(staging, "no_fp_either_side", trained="2026-06-29", failure_class="timeout")
+    reg = ModelStagingRegistry.scan(staging)
+    d = shadow_decision(reg, _breached())  # recipe_fingerprint=None by default
+    assert d.would_promote is True
+    assert d.candidate == "no_fp_either_side"
+
+
+def test_recipe_mismatch_classified_substantive_fails_closed_at_newest_gate(tmp_path):
+    staging = tmp_path / "staging"
+    # A recipe/fingerprint mismatch is NEVER treated as a mechanical (infra)
+    # failure — it fails closed as substantive, even when it is the newest
+    # retrain and a clean older infra candidate exists (Codex r7 narrowing).
+    _write(staging, "newest", trained="2026-06-29", failure_class="recipe_fingerprint_mismatch")
+    _write(staging, "older_infra", trained="2026-06-27", failure_class="timeout")
+    reg = ModelStagingRegistry.scan(staging)
+    d = shadow_decision(reg, _breached())
+    assert d.would_promote is False
+    assert d.failure_class == "substantive"
+    assert d.would_NOT_because == "newest_retrain_failed_substantive_fail_closed"
+
+
+# ── shadow-evidence schema (Codex r7 pre-registration context) ─────────────
+def test_decision_records_selection_rule_and_schema_version(tmp_path):
+    staging = tmp_path / "staging"
+    _write(staging, "best", trained="2026-06-29", failure_class="timeout")
+    reg = ModelStagingRegistry.scan(staging)
+    d = shadow_decision(reg, _breached())
+    rec = d.to_record()
+    assert rec["selection_rule"] == "newest_eligible_outcome_independent"
+    assert rec["schema_version"] == 2
+    assert REQUIRED_KEYS <= set(rec)
+
+
 def test_clears_oos_floor_helper():
     assert clears_oos_floor({"oos_sharpe": 0.4, "spy_sharpe": 0.3}) is True
     assert clears_oos_floor({"oos_sharpe": 0.2, "spy_sharpe": 0.3}) is False
-    assert clears_oos_floor({"oos_sharpe": 0.4, "net_return": -0.01}) is False
-    assert clears_oos_floor({"oos_sharpe": 0.4}) is True  # no comparator → passes
+    assert clears_oos_floor({"oos_sharpe": 0.4, "spy_sharpe": 0.3, "net_return": -0.01}) is False
+    # SPY benchmark comparator is REQUIRED (Codex r7) — no comparator FAILS CLOSED,
+    # it does not pass by default.
+    assert clears_oos_floor({"oos_sharpe": 0.4}) is False
+    assert clears_oos_floor({"oos_sharpe": 0.4, "spy_sharpe": True}) is False  # bool rejected
     assert clears_oos_floor({}) is False
 
 

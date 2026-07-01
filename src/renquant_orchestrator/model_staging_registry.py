@@ -24,6 +24,7 @@ Staging sidecar schema (``<artifact>.staging.json``)::
       "registry_available_at": "2026-06-25T14:05:00Z",  # optional; overrides created_at
       "data_cutoff": "2026-06-20",                   # fast-axis data cutoff (§2)
       "trained_date": "2026-06-25",                  # retrain run date
+      "recipe_fingerprint": "cfdd6cb8",              # optional; prod-contract comparability (§4.3.1)
       "gate": {
         "verdict": "fail",                           # pass | fail | error | unknown
         "failure_class": "timeout",                  # raw token (classified below)
@@ -55,9 +56,15 @@ from typing import Any, Mapping
 # The ONLY failure classes the best-of-recent fallback may EVER act on. This is
 # a closed, enumerated allowlist (the operator's directive, narrowed by Codex to
 # mechanical/infra reasons only). Anything not classified into this set — every
-# substance / leakage / placebo / unknown failure — stays FAIL-CLOSED.
+# substance / leakage / placebo / recipe-mismatch / unknown failure — stays
+# FAIL-CLOSED.
+#
+# Codex r7 narrowing: a RECIPE / FINGERPRINT mismatch (of ANY flavour, mechanical
+# hash bug included) means the candidate is **not comparable to the production
+# contract**, so it must be INELIGIBLE — never "rescued" as infra. It is removed
+# from this allowlist and classified fail-closed (see :func:`classify_failure`).
 INFRA_FAILURE_CLASSES: frozenset[str] = frozenset(
-    {"timeout", "config_path", "artifact_not_found", "recipe_mismatch"}
+    {"timeout", "config_path", "artifact_not_found"}
 )
 
 # Normalized categories a raw gate ``failure_class`` maps to.
@@ -119,6 +126,14 @@ def classify_failure(raw_failure_class: str | None, verdict: str | None = None) 
         return CATEGORY_LEAKAGE
     if "placebo" in token:
         return CATEGORY_PLACEBO
+    # Recipe / fingerprint mismatch → NOT comparable to the production contract
+    # (Codex r7). Any recipe or fingerprint mismatch — the mechanical hash bug
+    # ("recipe_fingerprint_mismatch"), the identity violation
+    # ("recipe_identity_mismatch"), or a bare "recipe_mismatch" — is a
+    # comparability violation, NOT a mechanical rescue. Fail-closed as substantive
+    # so it can never be selected. Matched BEFORE the infra allowlist.
+    if "recipe" in token or "fingerprint" in token:
+        return CATEGORY_SUBSTANTIVE
     if any(
         k in token
         for k in (
@@ -127,13 +142,10 @@ def classify_failure(raw_failure_class: str | None, verdict: str | None = None) 
             "weak", "monoton", "identity", "delta",
         )
     ):
-        # includes "recipe_identity_mismatch" (the candidate is not the model the
-        # recipe claims) — a provenance violation, NOT the mechanical hash bug.
         return CATEGORY_SUBSTANTIVE
 
-    # Enumerated infra allowlist (§4.3.1). "recipe_mismatch" here is the mechanical
-    # fingerprint-hash mismatch (Fix recipe-fp), distinct from the identity
-    # violation caught above.
+    # Enumerated infra allowlist (§4.3.1): timeout / config-path / artifact-not-found
+    # ONLY. Recipe / fingerprint mismatches were already fail-closed above.
     if any(k in token for k in ("timeout", "time_out")):
         return CATEGORY_INFRA
     if "config" in token and ("path" in token or "not_found" in token or token == "config"):
@@ -141,10 +153,6 @@ def classify_failure(raw_failure_class: str | None, verdict: str | None = None) 
     if "config_path" in token:
         return CATEGORY_INFRA
     if "not_found" in token or "notfound" in token:  # artifact/file not found
-        return CATEGORY_INFRA
-    if "recipe" in token and ("mismatch" in token or "fingerprint" in token):
-        return CATEGORY_INFRA
-    if "fingerprint_mismatch" in token:
         return CATEGORY_INFRA
 
     return CATEGORY_UNKNOWN
@@ -219,6 +227,7 @@ class StagingCandidate:
     raw_failure_class: str | None
     failure_category: str
     gate_observed_at: datetime | None
+    recipe_fingerprint: str | None = None
     quality: dict = field(default_factory=dict)
     integrity: dict = field(default_factory=dict)
     parse_error: str | None = None
@@ -277,6 +286,9 @@ class StagingCandidate:
             raw_failure_class=raw_fc,
             failure_category=classify_failure(raw_fc, verdict),
             gate_observed_at=_parse_dt(gate.get("observed_at")),
+            recipe_fingerprint=(
+                str(payload["recipe_fingerprint"]) if payload.get("recipe_fingerprint") else None
+            ),
             quality=dict(payload.get("quality") or {}),
             integrity=dict(payload.get("integrity") or {}),
         )

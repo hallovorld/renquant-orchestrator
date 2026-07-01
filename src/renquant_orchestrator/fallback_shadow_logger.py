@@ -10,21 +10,37 @@ touches a pin, model, config, broker, risk cap, or sizing.
 
 The fallback would fire **only** if ALL of these hold (design §3, §4.3, §7):
 
+  0. the prod model's fast-axis freshness is **DETERMINATE** — an UNKNOWN prod
+     data cutoff yields a separate ``indeterminate`` decision that authorizes
+     NOTHING (Codex r7): unknown freshness must not justify a replacement;
   1. the prod model **breached** the fast-axis freshness ceiling (or a slow axis
      is off-SLA);
   2. the **newest** retrain within the window **failed for an ENUMERATED
-     INFRASTRUCTURE reason** (timeout / config-path / artifact-not-found /
-     recipe-mismatch) — NOT substance / leakage / placebo / unknown, which stay
+     INFRASTRUCTURE reason** (timeout / config-path / artifact-not-found) — NOT
+     substance / leakage / placebo / recipe-mismatch / unknown, which stay
      FAIL-CLOSED;
   3. among the recent (≤ N-day) candidates there is one that is point-in-time
-     available (§5.0-i-a), failed only for an infra reason, clears the
-     basic-integrity floor (§4.3.2) AND the recomputed OOS economic floor
-     (§4.3.3), and has a computable pre-registered selection score (§4.3.4).
+     available (§5.0-i-a), failed only for an infra reason, is comparable to the
+     production recipe contract (§4.3.1), clears the basic-integrity floor
+     (§4.3.2) AND the recomputed OOS economic floor (§4.3.3, SPY-benchmark
+     REQUIRED), and has a computable selection score (§4.3.4).
 
-The winner is the highest selection score, tie-broken by freshest data cutoff then
-artifact id. If any condition fails, the decision is ``would_promote=False`` with an
-explicit ``would_NOT_because``. Every decision is appended (idempotently) to a
-JSONL log.
+**Selection is OUTCOME-INDEPENDENT (Codex r7).** The winner is the **NEWEST
+ELIGIBLE** candidate (freshest recency date, tie-broken by freshest data cutoff
+then artifact id) — a rule fixed BEFORE the evaluation outcome is seen. It is
+explicitly **not** the maximum OOS Sharpe: picking the max over N noisy,
+dependent (overlapping-retrain) candidates is winner's-curse / multiple-testing
+bias that would overstate what a pre-registered fallback could realize. The OOS
+floor stays a per-candidate PASS/FAIL eligibility gate, never a ranker.
+
+If any condition fails, the decision is ``would_promote=False`` with an explicit
+``would_NOT_because``. Every decision is appended (idempotently) to a JSONL log.
+
+**These logs are OBSERVE-ONLY EVIDENCE, not policy-authorizing.** Before they may
+choose policy, a pre-registration must fix the candidate-generation count, a
+common untouched evaluation window, the primary net endpoint, the cost model,
+dependence-aware resampling, and a one-time acceptance rule (design §5). Shadow
+containment prevents capital impact; it does not make biased evidence useful.
 """
 from __future__ import annotations
 
@@ -43,9 +59,15 @@ from renquant_orchestrator.model_staging_registry import (
     _as_of_date,
 )
 
-SCHEMA_VERSION = 1
+# Schema v2 (Codex r7): outcome-independent (newest-eligible) selection; SPY-
+# required OOS floor; recipe-mismatch fail-closed; indeterminate-cutoff decision.
+SCHEMA_VERSION = 2
 DEFAULT_CEILING_DAYS = 28   # fast-axis ceiling (design §3; candidate, gated by §5)
 DEFAULT_WINDOW_DAYS = 10    # best-of-recent window (design §4.3.4; candidate)
+
+# The pre-registered, outcome-INDEPENDENT selection rule (Codex r7): pick the
+# newest eligible candidate, NOT the maximum score. Recorded on every decision.
+SELECTION_RULE = "newest_eligible_outcome_independent"
 
 
 @dataclass(frozen=True)
@@ -56,6 +78,7 @@ class ProdModelState:
     as_of: date
     ceiling_days: int = DEFAULT_CEILING_DAYS
     slow_axis_off_sla: bool = False  # any actually-used slow source off its SLA (§2)
+    recipe_fingerprint: str | None = None  # prod recipe contract, for comparability (§4.3.1)
 
     @property
     def fast_axis_age_days(self) -> int | None:
@@ -64,31 +87,46 @@ class ProdModelState:
         return (self.as_of - self.data_cutoff).days
 
     @property
+    def indeterminate(self) -> bool:
+        """Prod freshness is INDETERMINATE when the fast-axis data cutoff is
+        UNKNOWN (Codex r7). An unknown cutoff must NOT be treated as a breach and
+        must NOT authorize a hypothetical replacement — it is reported as its own
+        decision (``would_promote=False``, ``reason="indeterminate"``). Fail-safe:
+        we never promote on an unknown."""
+        return self.data_cutoff is None
+
+    @property
     def breached(self) -> bool:
-        """Breached iff the fast axis is older than the ceiling OR a slow axis is
-        off-SLA. An UNKNOWN prod cutoff is treated as breached (can't confirm
-        fresh → fail toward the fallback path, which itself stays fail-closed
-        unless a clean infra candidate exists)."""
+        """Breached iff a DETERMINATE staleness signal fires: the KNOWN fast-axis
+        age exceeds the ceiling, OR a slow axis is off its SLA. An UNKNOWN
+        fast-axis cutoff is NOT a breach — it is :attr:`indeterminate` and is
+        handled separately, because unknown freshness cannot authorize a
+        replacement."""
         age = self.fast_axis_age_days
-        if age is None:
+        if age is not None and age > self.ceiling_days:
             return True
-        return age > self.ceiling_days or self.slow_axis_off_sla
+        return self.slow_axis_off_sla
 
 
 def clears_oos_floor(quality: Mapping[str, Any] | None) -> bool:
-    """Independent OOS economic floor (design §4.3.3): OOS Sharpe must exist and be
-    ``>= SPY`` Sharpe (when a SPY comparator is present), and net-of-cost return —
-    when present — must be non-negative. Placebo/leakage contamination is handled
-    upstream by the failure classification (those categories fail closed)."""
+    """Independent OOS economic floor (design §4.3.3). The **SPY benchmark
+    comparator is REQUIRED** (Codex r7): OOS Sharpe must exist, a SPY Sharpe
+    comparator must exist, AND OOS Sharpe ``>= SPY`` Sharpe. A candidate with **no
+    SPY comparator FAILS CLOSED** — an unbenchmarked OOS Sharpe cannot clear a
+    benchmark-required gate (the earlier "no comparator → passes" behaviour
+    contradicted the gate and is removed). Net-of-cost return, when present, must
+    be non-negative. Placebo/leakage contamination is handled upstream by the
+    failure classification (those categories fail closed)."""
     if not quality:
         return False
     oos = quality.get("oos_sharpe")
     if isinstance(oos, bool) or not isinstance(oos, (int, float)):
         return False
     spy = quality.get("spy_sharpe")
-    if isinstance(spy, (int, float)) and not isinstance(spy, bool):
-        if float(oos) < float(spy):
-            return False
+    if isinstance(spy, bool) or not isinstance(spy, (int, float)):
+        return False  # benchmark REQUIRED — no comparator → fail closed
+    if float(oos) < float(spy):
+        return False
     net = quality.get("net_return")
     if isinstance(net, (int, float)) and not isinstance(net, bool):
         if float(net) < 0:
@@ -96,7 +134,12 @@ def clears_oos_floor(quality: Mapping[str, Any] | None) -> bool:
     return True
 
 
-def candidate_ineligibility(cand: StagingCandidate, as_of: date | datetime) -> str | None:
+def candidate_ineligibility(
+    cand: StagingCandidate,
+    as_of: date | datetime,
+    *,
+    prod_recipe_fingerprint: str | None = None,
+) -> str | None:
     """Return ``None`` if ``cand`` is eligible for the best-of-recent fallback,
     else a short machine reason token. Order matters: the first failing check wins.
     """
@@ -105,14 +148,21 @@ def candidate_ineligibility(cand: StagingCandidate, as_of: date | datetime) -> s
     if not cand.is_available_at(as_of):
         return "not_point_in_time_available"  # §5.0-i-a: missing/future availability
     if cand.failure_category != CATEGORY_INFRA:
-        # substance / leakage / placebo / unknown → fail-closed (§4.3.1); a
-        # gate-passing candidate ("none") is handled by the normal promote path,
-        # not by the fallback pool.
+        # substance / leakage / placebo / recipe-mismatch / unknown → fail-closed
+        # (§4.3.1); a gate-passing candidate ("none") is handled by the normal
+        # promote path, not by the fallback pool.
         return f"failure_class_fail_closed:{cand.failure_category}"
+    if prod_recipe_fingerprint is not None:
+        # Codex r7 comparability gate: when the production recipe contract is
+        # known, an infra-failed candidate must carry a recipe fingerprint that
+        # MATCHES it. A missing or divergent fingerprint means the candidate is
+        # not comparable to the production contract → ineligible (never rescued).
+        if not cand.recipe_fingerprint or cand.recipe_fingerprint != prod_recipe_fingerprint:
+            return "recipe_not_comparable"
     if not cand.passes_integrity_floor:
         return "integrity_floor_failed"  # §4.3.2
     if not clears_oos_floor(cand.quality):
-        return "oos_floor_not_cleared"  # §4.3.3
+        return "oos_floor_not_cleared"  # §4.3.3 (SPY comparator required)
     if cand.selection_score is None:
         return "no_selection_score"  # §4.3.4 — unscoreable
     return None
@@ -120,8 +170,9 @@ def candidate_ineligibility(cand: StagingCandidate, as_of: date | datetime) -> s
 
 @dataclass(frozen=True)
 class ShadowDecision:
-    """One shadow decision. The first seven fields are the pre-registered log
-    schema; the rest is audit context. PROMOTES NOTHING."""
+    """One shadow decision. The first eight fields (through ``selection_rule``,
+    the outcome-independent selection rule fixed before the outcome is seen) are
+    the pre-registered log schema; the rest is audit context. PROMOTES NOTHING."""
 
     as_of: str
     would_promote: bool
@@ -130,6 +181,7 @@ class ShadowDecision:
     failure_class: str
     selection_score: float | None
     would_NOT_because: str | None
+    selection_rule: str = SELECTION_RULE
     schema_version: int = SCHEMA_VERSION
     window_days: int = DEFAULT_WINDOW_DAYS
     ceiling_days: int = DEFAULT_CEILING_DAYS
@@ -160,6 +212,7 @@ def _decision(
         failure_class=failure_class,
         selection_score=selection_score,
         would_NOT_because=would_NOT_because,
+        selection_rule=SELECTION_RULE,
         window_days=window_days,
         ceiling_days=prod.ceiling_days,
         prod={
@@ -167,6 +220,8 @@ def _decision(
             "fast_axis_age_days": prod.fast_axis_age_days,
             "slow_axis_off_sla": prod.slow_axis_off_sla,
             "breached": prod.breached,
+            "indeterminate": prod.indeterminate,
+            "recipe_fingerprint": prod.recipe_fingerprint,
         },
         meta=meta or {},
     )
@@ -182,6 +237,18 @@ def shadow_decision(
     """Compute the shadow decision. Promotes nothing; returns a
     :class:`ShadowDecision` describing what the fallback WOULD do."""
     as_of = prod.as_of
+
+    # (0) Prod freshness INDETERMINATE (unknown fast-axis cutoff) → authorize
+    #     nothing. An unknown cutoff is NOT a breach and cannot justify a
+    #     hypothetical replacement (Codex r7); it is reported separately.
+    if prod.indeterminate:
+        return _decision(
+            prod, window_days,
+            would_promote=False, candidate=None,
+            reason="indeterminate", failure_class=CATEGORY_NONE,
+            selection_score=None,
+            would_NOT_because="prod_cutoff_unknown",
+        )
 
     # (1) Prod still fresh → no fallback needed.
     if not prod.breached:
@@ -235,12 +302,14 @@ def shadow_decision(
             },
         )
 
-    # (4) Newest failed infra → build the eligible pool (infra-only + integrity +
-    #     OOS floor + scoreable), select the best.
+    # (4) Newest failed infra → build the eligible pool (infra-only + comparable
+    #     recipe + integrity + OOS floor + scoreable), then select.
     pool: list[StagingCandidate] = []
     rejected: dict[str, str] = {}
     for c in recent:
-        why = candidate_ineligibility(c, as_of)
+        why = candidate_ineligibility(
+            c, as_of, prod_recipe_fingerprint=prod.recipe_fingerprint
+        )
         if why is None:
             pool.append(c)
         else:
@@ -256,28 +325,47 @@ def shadow_decision(
             meta={"newest_candidate": newest.artifact_id, "rejected": rejected},
         )
 
-    # Highest selection score, tie-broken by freshest data cutoff then artifact id.
+    # OUTCOME-INDEPENDENT selection (Codex r7): pick the NEWEST eligible candidate,
+    # NOT the maximum selection score. Ranking N noisy, dependent (overlapping-
+    # retrain) candidates by the same OOS metric that declares the winner is
+    # winner's-curse / multiple-testing bias. The rule is fixed before the outcome
+    # is seen: freshest recency date, tie-broken by freshest data cutoff then
+    # artifact id. The OOS floor remains a per-candidate PASS/FAIL gate, not a
+    # ranker. Stable sorts applied in reverse priority order.
     pool.sort(key=lambda c: c.artifact_id)
-    pool.sort(
-        key=lambda c: (c.selection_score, c.data_cutoff or date.min),
-        reverse=True,
-    )
+    pool.sort(key=lambda c: c.data_cutoff or date.min, reverse=True)
+    pool.sort(key=lambda c: c.recency_date() or date.min, reverse=True)
     winner = pool[0]
     return _decision(
         prod, window_days,
         would_promote=True, candidate=winner.artifact_id,
-        reason=f"best_of_{window_days}d_infra_fallback",
+        reason=f"newest_eligible_within_{window_days}d_infra_fallback",
         failure_class=CATEGORY_INFRA,
         selection_score=winner.selection_score,
         would_NOT_because=None,
         meta={
             "newest_candidate": newest.artifact_id,
+            "selection_rule": SELECTION_RULE,
+            # Multiplicity context for a later pre-registered analysis: these
+            # candidates are DEPENDENT (overlapping retrains), not independent
+            # draws, and the raw would_promote rate is NOT policy-authorizing
+            # until §5's pre-registration (candidate-generation count, common
+            # untouched window, primary net endpoint, cost model, dependence-aware
+            # resampling, one-time acceptance rule) lands.
+            "n_candidates_considered": len(pool),
+            "n_recent_in_window": len(recent),
+            "candidates_are_dependent": True,
+            "not_policy_authorizing": (
+                "shadow evidence only — see design §5 pre-registration before "
+                "using these logs to choose policy"
+            ),
             "winner": {
                 "artifact_id": winner.artifact_id,
                 "artifact_path": winner.artifact_path,
                 "data_cutoff": winner.data_cutoff.isoformat() if winner.data_cutoff else None,
                 "trained_date": winner.trained_date.isoformat() if winner.trained_date else None,
                 "raw_failure_class": winner.raw_failure_class,
+                "recipe_fingerprint": winner.recipe_fingerprint,
                 "selection_score": winner.selection_score,
             },
             "pool": [c.artifact_id for c in pool],
@@ -336,7 +424,11 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--staging-dir", required=True, help="dir holding *.staging.json sidecars")
     p.add_argument("--prod-cutoff", default=None,
-                   help="prod model fast-axis data cutoff (YYYY-MM-DD); omit if unknown")
+                   help="prod model fast-axis data cutoff (YYYY-MM-DD); omit if unknown "
+                        "(unknown → an 'indeterminate' decision that promotes nothing)")
+    p.add_argument("--prod-recipe-fingerprint", default=None,
+                   help="prod recipe-contract fingerprint; when set, candidates must match "
+                        "it to be comparable (§4.3.1)")
     p.add_argument("--as-of", default=None, help="decision date (YYYY-MM-DD); default today")
     p.add_argument("--log-path", required=True, help="JSONL shadow-decision log to append to")
     p.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS)
@@ -352,6 +444,7 @@ def main(argv: list[str] | None = None) -> int:
         as_of=as_of,
         ceiling_days=args.ceiling_days,
         slow_axis_off_sla=args.slow_axis_off_sla,
+        recipe_fingerprint=args.prod_recipe_fingerprint,
     )
     decision = run_shadow(
         args.staging_dir, prod, log_path=args.log_path,
