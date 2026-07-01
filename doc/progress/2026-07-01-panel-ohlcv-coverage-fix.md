@@ -68,3 +68,59 @@ SCOPE:    orchestrator code + tests only. Does NOT run the retrain, does NOT tou
           skip-existing `fetch_russell2000_ohlcv.py` behavior in favor of this incremental path,
           and widen the umbrella `ScanDailyTrainingDataTask` to the panel universe (or delete it
           in favor of this guard).
+
+── REVISION (2026-07-01, Codex CHANGES_REQUESTED on PR #217): the guard FAILED OPEN ──
+WHY:      Codex found the load-bearing guard could pass while proving nothing. Every soft path
+          was a silent success. Fixes below make it fail CLOSED.
+
+1. UNESTABLISHABLE UNIVERSE → FAIL CLOSED. `_resolve_panel_universe` no longer returns `[]`
+   (which made refresh+guard an `n_universe=0` "success") on a missing / unreadable / corrupt /
+   non-inventory / empty file, or an empty explicit universe. It raises `InventoryUnavailableError`
+   and returns a FINGERPRINTED provenance (`sha256:` over the sorted active universe + generated_utc
+   + kind) for a NON-EMPTY inventory. The fingerprint is persisted into the refresh summary and
+   freshness report so every run is tied to a specific inventory content.
+
+2. UNPROVABLE FRESHNESS → FAIL CLOSED. No resolvable OHLCV max dates now raises
+   `FreshnessUnprovableError` instead of the old "soft skip" success — that state is exactly when a
+   silent freeze slips through. An underivable expected session also raises.
+
+3. INDEPENDENT REFERENCE SESSION (the uniform-freeze hole). Freshness is now measured against an
+   INDEPENDENTLY-derived expected latest completed market session (`_resolve_expected_session`;
+   injectable / persisted in the report), NOT `max(known dates)`. A globally-uniform freeze — the
+   whole universe stuck on one old date — used to look 100% fresh; it now reads 100% stale and
+   BLOCKS. Per-name lag is measured vs that expected session.
+
+4. SHARED EXCHANGE CALENDAR. Replaced the plain Mon-Fri `np.busday_count` helper with the shared
+   NYSE `pandas_market_calendars` calendar (`_default_session_gap` / `_expected_last_completed_session`,
+   mirroring base-data's `_last_completed_nyse_session`). Holidays are skipped (e.g. Juneteenth 6/19,
+   observed Independence Day 7/3) and half-days count as sessions with an early-close cutoff for the
+   "is today complete" decision. Injectable so unit tests need no calendar; the real calendar is
+   covered by importorskip tests, and `pandas-market-calendars` is added to CI install.
+
+5. THRESHOLD + DELISTINGS + PROMOTION SEPARATION.
+   • STRICT-DEFAULT: `DEFAULT_FRESHNESS_MAX_STALE_FRACTION` 0.10 → 0.0. The old 10% was unjustified
+     (no coverage-loss-vs-rank/IC/turnover sensitivity was ever run) and could hide ~29/292 frozen
+     names — enough to move cross-sectional ranks. Rather than ship an unjustified escape hatch, the
+     guard now blocks on ANY genuinely-stale name. A non-zero tolerance remains available only as a
+     deliberate, documented per-run override.
+   • DELISTINGS via VERSIONED UNIVERSE, not tolerated failures: the inventory may declare
+     `delisted_tickers` / `inactive_tickers` / `retired_tickers`; those names are pruned from the
+     active universe (audited as `n_delisted_excluded`). Missing/absent bars for names that are NOT
+     declared delisted count as stale (fail-closed), never absorbed by the tolerance slack.
+   • REFRESH ≠ PROMOTION: `RefreshFullUniverseOhlcvTask` always completes to populate the audit
+     summary; the fail-closed `PanelUniverseFreshnessGuardTask` is the authoritative gate, and this
+     module still writes only to caller-provided (staging) artifact paths — it never promotes. Also
+     `n_future` bucket added: bars dated after the expected session are integrity anomalies, counted
+     stale.
+
+TESTS (revised): `tests/test_retrain_ohlcv_coverage.py` now covers globally-uniform-stale → BLOCK,
+          missing/corrupt/empty inventory → fail-closed, no-readable-parquet → fail-closed,
+          no-resolvable-dates → fail-closed, underivable-expected-session → fail-closed, future-dated
+          bars, versioned delisted exclusion + fingerprint, strict default, and the real
+          NYSE-calendar holiday + half-day (early-close cutoff) semantics (importorskip).
+          `tests/test_retrain_alpha158_fund.py` full-pipeline tests pin a fresh single-name universe
+          (the guard is now fail-closed). Run:
+          `.venv/bin/python -m pytest tests/test_retrain_ohlcv_coverage.py tests/test_retrain_*.py -q`
+          → all green; full `make test` → 599 passed / 3 skipped.
+NOTE:     stays compatible with PR #218 (σ-head `_rawlabel` refresh) which stacks on this branch —
+          no shared symbol/task touched.

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 from dataclasses import dataclass, field
+import functools
 import json
 import logging
 import os
@@ -35,6 +36,21 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 log = logging.getLogger("renquant_orchestrator.retrain_alpha158_fund")
 
+
+class InventoryUnavailableError(RuntimeError):
+    """The panel training universe could not be established from a non-empty,
+    fingerprinted inventory. This is a fail-closed condition: a required training
+    input's universe is unprovable, so the refresh/guard must NOT proceed as if
+    the universe were legitimately empty (that masked a total-inventory outage as
+    an ``n_universe=0`` success)."""
+
+
+class FreshnessUnprovableError(RuntimeError):
+    """Freshness could not be proven: no OHLCV max dates were resolvable, or the
+    independently-derived expected market session could not be computed. Failing
+    closed here is the whole point — an unprovable-freshness state is exactly when
+    a silent freeze slips through, so it must block rather than soft-skip."""
+
 # Panel training-universe sourcing + freshness. The panel build
 # (renquant_base_data.alpha158_qlib_panel.LoadUniverseJob) reads the FULL
 # training universe from ``transformer_universe_inventory.json`` (tier_A +
@@ -46,7 +62,20 @@ DEFAULT_INVENTORY_FILENAME = "transformer_universe_inventory.json"
 DEFAULT_OHLCV_DIRNAME = "ohlcv"
 DEFAULT_OHLCV_TIMEOUT_SEC = 30.0
 DEFAULT_FRESHNESS_STALE_AFTER_DAYS = 10
-DEFAULT_FRESHNESS_MAX_STALE_FRACTION = 0.10
+# STRICT by default (fail-closed). The earlier 0.10 default silently tolerated
+# ~29/292 missing-or-frozen names — enough to materially move cross-sectional
+# ranks — and had no sensitivity justification (coverage-loss vs rank/IC/turnover
+# was never measured). Rather than ship an unjustified 10% escape hatch, the
+# guard now blocks on ANY genuinely-stale name: delisted/retired names are pruned
+# from the *versioned* inventory (``delisted_tickers`` / ``inactive_tickers``), so
+# what remains is the active universe that MUST be fresh. Operators may still set
+# a non-zero tolerance for a single run, but it is a deliberate, documented
+# override — not a default that hides a partial freeze. See
+# doc/progress/2026-07-01-panel-ohlcv-coverage-failclosed.md.
+DEFAULT_FRESHNESS_MAX_STALE_FRACTION = 0.0
+# NYSE is the shared exchange the whole stack prices against (base-data's
+# _last_completed_nyse_session, the live path, and the panel build all use it).
+DEFAULT_EXCHANGE = "NYSE"
 DEFAULT_NTFY_TOPIC = "renquant"
 
 
@@ -101,12 +130,27 @@ class RetrainContext:
     # >max-stale-fraction of the panel universe stale after a refresh is a real
     # training-input integrity failure. Set False to only warn (ntfy) + proceed.
     freshness_fail_on_stale: bool = True
+    # Freshness is measured against an INDEPENDENTLY derived expected latest
+    # completed market session — NOT max(known ticker dates), which would let a
+    # uniform freeze (every name stuck on the same old date) look perfectly
+    # fresh. ``expected_session`` pins it explicitly (tests / reproducibility);
+    # otherwise ``now_fn`` (a tz-aware clock) feeds the shared NYSE exchange
+    # calendar to resolve the last completed session (holiday / early-close
+    # aware). ``session_gap_fn`` counts exchange sessions between two dates;
+    # when None it resolves the NYSE calendar. All three are injectable so the
+    # guard is unit-testable without a live clock or a calendar dependency, and
+    # the resolved session is persisted into ``freshness_report``.
+    exchange: str = DEFAULT_EXCHANGE
+    expected_session: "dt.date | None" = None
+    now_fn: "Callable[[], object] | None" = None
+    session_gap_fn: "Callable[[dt.date, dt.date], int] | None" = None
     ntfy_topic: str = DEFAULT_NTFY_TOPIC
     quiet: bool = False
     # Populated at runtime by the refresh / guard tasks (audit surface).
     ohlcv_max_dates: dict[str, "dt.date | None"] = field(default_factory=dict)
     ohlcv_refresh_summary: dict[str, int] = field(default_factory=dict)
     freshness_report: dict = field(default_factory=dict)
+    panel_universe_provenance: dict = field(default_factory=dict)
 
     @property
     def data_dir(self) -> Path:
@@ -206,30 +250,115 @@ def _validate_calibrator_artifact(path: Path) -> None:
         raise ValueError(f"calibrator artifact is empty: {path}")
 
 
-def _resolve_panel_universe(ctx: RetrainContext) -> list[str]:
+def _fingerprint(payload: dict) -> str:
+    """Stable content fingerprint (sha256 over canonical JSON) of a universe
+    provenance payload, so every refresh/guard run is tied to a specific,
+    reproducible inventory content — not just "some file existed"."""
+    import hashlib  # noqa: PLC0415
+
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(blob).hexdigest()
+
+
+# Optional versioned-exclusion keys: names the *inventory itself* declares as no
+# longer part of the active universe (delisted / retired / halted). Excluding
+# them here is how delistings are handled — via a versioned universe — rather
+# than being absorbed as "tolerated failures" by the stale-fraction slack.
+_INVENTORY_DELISTED_KEYS = ("delisted_tickers", "inactive_tickers", "retired_tickers")
+
+
+def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
     """Source the FULL panel training universe (tier_A + tier_B), NOT just the
-    ~142-ticker live watchlist.
+    ~142-ticker live watchlist, and FAIL CLOSED if it cannot be established.
 
     This mirrors ``renquant_base_data.alpha158_qlib_panel.LoadUniverseJob``,
     which reads ``tier_A_tickers`` + ``tier_B_tickers`` from
     ``transformer_universe_inventory.json``. An explicit ``ctx.panel_universe``
-    wins so callers can pin the universe. Returns a sorted, de-duplicated list;
-    an unreadable / missing inventory yields an empty list (logged), so the
-    refresh + guard degrade to safe no-ops rather than aborting the retrain.
+    wins so callers can pin the universe.
+
+    Returns ``(universe, provenance)`` where ``provenance`` carries a content
+    ``fingerprint`` and the source metadata. It raises
+    :class:`InventoryUnavailableError` when the universe cannot be established
+    from a NON-EMPTY, fingerprinted inventory — a missing / unreadable / corrupt
+    / non-inventory / empty file no longer degrades to an ``n_universe=0``
+    success (which silently disabled the whole refresh + guard for a required
+    training input). Names the inventory declares delisted/inactive/retired are
+    pruned as a versioned exclusion (audited, not counted as stale failures).
     """
-    if ctx.panel_universe:
-        return sorted(dict.fromkeys(str(t) for t in ctx.panel_universe))
+    if ctx.panel_universe is not None:
+        universe = sorted(dict.fromkeys(str(t) for t in ctx.panel_universe))
+        if not universe:
+            raise InventoryUnavailableError(
+                "explicit panel_universe is empty — refuse to run the refresh/guard "
+                "on an empty universe (fail-closed)"
+            )
+        prov = {
+            "source": "explicit",
+            "n_universe": len(universe),
+            "fingerprint": _fingerprint({"universe": universe}),
+        }
+        return universe, prov
+
     inv_path = ctx.resolved_inventory_path
     if not inv_path.exists():
-        log.warning("panel universe inventory not found: %s — universe empty", inv_path)
-        return []
+        raise InventoryUnavailableError(
+            f"panel universe inventory not found: {inv_path} — cannot establish the "
+            f"required training universe (fail-closed)"
+        )
     try:
-        inv = json.loads(inv_path.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        log.warning("failed to read panel universe inventory %s: %s", inv_path, exc)
-        return []
-    universe = set(inv.get("tier_A_tickers", [])) | set(inv.get("tier_B_tickers", []))
-    return sorted(str(t) for t in universe)
+        raw = inv_path.read_text()
+    except OSError as exc:
+        raise InventoryUnavailableError(
+            f"panel universe inventory unreadable: {inv_path}: {exc} (fail-closed)"
+        ) from exc
+    try:
+        inv = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise InventoryUnavailableError(
+            f"panel universe inventory is invalid JSON: {inv_path}: {exc} (fail-closed)"
+        ) from exc
+    if not isinstance(inv, dict):
+        raise InventoryUnavailableError(
+            f"panel universe inventory must be a JSON object: {inv_path} (fail-closed)"
+        )
+    # Reject a wrong/placeholder file that is not actually the tier inventory —
+    # a "default"/empty stand-in must not silently resolve to an empty universe.
+    if "tier_A_tickers" not in inv and "tier_B_tickers" not in inv:
+        raise InventoryUnavailableError(
+            f"panel universe inventory has no tier_A_tickers/tier_B_tickers keys: "
+            f"{inv_path} — not a usable universe inventory (fail-closed)"
+        )
+    declared = sorted(
+        str(t)
+        for t in (set(inv.get("tier_A_tickers", [])) | set(inv.get("tier_B_tickers", [])))
+    )
+    delisted: set[str] = set()
+    for key in _INVENTORY_DELISTED_KEYS:
+        delisted |= {str(t) for t in inv.get(key, [])}
+    universe = [t for t in declared if t not in delisted]
+    if not universe:
+        raise InventoryUnavailableError(
+            f"panel universe inventory yields an EMPTY active universe: {inv_path} "
+            f"(declared={len(declared)}, delisted-excluded={len(delisted & set(declared))}) "
+            f"(fail-closed)"
+        )
+    prov = {
+        "source": str(inv_path),
+        "kind": inv.get("kind"),
+        "generated_utc": inv.get("generated_utc"),
+        "n_declared": len(declared),
+        "n_delisted_excluded": len(delisted & set(declared)),
+        "n_universe": len(universe),
+        "fingerprint": _fingerprint(
+            {
+                "universe": universe,
+                "delisted": sorted(delisted & set(declared)),
+                "generated_utc": inv.get("generated_utc"),
+                "kind": inv.get("kind"),
+            }
+        ),
+    }
+    return universe, prov
 
 
 def _default_fetch_fn() -> "Callable[..., pd.DataFrame]":
@@ -290,19 +419,102 @@ def _resolve_ohlcv_max_date(ctx: RetrainContext, ticker: str) -> "dt.date | None
     return _default_ohlcv_max_date(ctx.ohlcv_dir, ticker)
 
 
-def _frontier(dates) -> "dt.date | None":
-    known = [d for d in dates if d is not None]
-    return max(known) if known else None
+@functools.lru_cache(maxsize=4)
+def _exchange_calendar(exchange: str):
+    """The SHARED exchange calendar (NYSE by default) — holiday and early-close
+    (half-day) aware. This is the same ``pandas_market_calendars`` calendar the
+    rest of the stack prices against (base-data's ``_last_completed_nyse_session``
+    and the live freshness checks), NOT a plain Mon-Fri business-day helper which
+    would count holidays as sessions and mis-decide lag."""
+    import pandas_market_calendars as mcal  # noqa: PLC0415
+
+    return mcal.get_calendar(exchange)
 
 
-def _trading_days_between(start: "dt.date", end: "dt.date") -> int:
-    """Business-day gap (Mon-Fri) between two dates — a holiday-agnostic proxy
-    for trading days. Non-negative; 0 when ``start >= end``."""
+def _default_now() -> object:
+    """Timezone-aware wall clock used to derive the expected market session."""
+    import pandas as pd  # noqa: PLC0415
+
+    return pd.Timestamp.now(tz="America/New_York")
+
+
+def _expected_last_completed_session(exchange: str, now) -> "dt.date | None":
+    """Most recent COMPLETED exchange session as of ``now`` (tz-aware).
+
+    Mirrors ``renquant_base_data.loaders.data._last_completed_nyse_session``:
+    today counts only once its (possibly early, half-day) close has passed;
+    otherwise the prior session is used. Holidays are skipped by the calendar.
+    Returns ``None`` only when the calendar yields no sessions in the lookback.
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    cal = _exchange_calendar(exchange)
+    now = pd.Timestamp(now)
+    if now.tzinfo is None:
+        now = now.tz_localize("America/New_York")
+    ref_date = now.date()
+    sched = cal.schedule(
+        start_date=(ref_date - dt.timedelta(days=16)).isoformat(),
+        end_date=ref_date.isoformat(),
+    )
+    if sched.empty:
+        return None
+    todays = sched[sched.index.date == ref_date]
+    if not todays.empty:
+        close = pd.Timestamp(todays["market_close"].iloc[-1])
+        close = close.tz_localize("UTC") if close.tzinfo is None else close
+        if now >= close.tz_convert(now.tz):
+            return ref_date
+    before = sched[sched.index.date < ref_date]
+    if before.empty:
+        return None
+    return before.index[-1].date()
+
+
+def _resolve_expected_session(ctx: RetrainContext) -> "dt.date":
+    """Independently-derived expected latest completed market session.
+
+    Priority: an explicitly-injected ``expected_session`` (reproducible pin) →
+    the shared exchange calendar fed by ``now_fn`` / the wall clock. Raises
+    :class:`FreshnessUnprovableError` when it cannot be resolved — freshness
+    against an unknown reference is unprovable, so we fail closed rather than
+    fall back to ``max(known dates)`` (which lets a uniform freeze look fresh).
+    """
+    if ctx.expected_session is not None:
+        return ctx.expected_session
+    now = (ctx.now_fn or _default_now)()
+    try:
+        sess = _expected_last_completed_session(ctx.exchange, now)
+    except Exception as exc:  # calendar unavailable → cannot prove freshness
+        raise FreshnessUnprovableError(
+            f"cannot derive expected {ctx.exchange} session (calendar unavailable): "
+            f"{exc} (fail-closed)"
+        ) from exc
+    if sess is None:
+        raise FreshnessUnprovableError(
+            f"cannot derive expected {ctx.exchange} session as of {now} (fail-closed)"
+        )
+    return sess
+
+
+def _default_session_gap(exchange: str, start: "dt.date", end: "dt.date") -> int:
+    """Number of exchange sessions strictly after ``start`` up to and including
+    ``end`` (holiday / half-day aware). 0 when ``start >= end`` — half-days count
+    as full sessions (they are open sessions, merely early-close)."""
     if start >= end:
         return 0
-    import numpy as np  # noqa: PLC0415
+    cal = _exchange_calendar(exchange)
+    vd = cal.valid_days(
+        start_date=(start + dt.timedelta(days=1)).isoformat(),
+        end_date=end.isoformat(),
+    )
+    return int(len(vd))
 
-    return int(np.busday_count(start, end))
+
+def _session_gap(ctx: RetrainContext, start: "dt.date", end: "dt.date") -> int:
+    if ctx.session_gap_fn is not None:
+        return ctx.session_gap_fn(start, end)
+    return _default_session_gap(ctx.exchange, start, end)
 
 
 class RefreshFullUniverseOhlcvTask(Task):
@@ -316,25 +528,42 @@ class RefreshFullUniverseOhlcvTask(Task):
     non-destructive, timeout-protected) fetch for each ticker BEFORE the panel
     build. It is resilient: a single ticker's failure or delisting NEVER aborts
     the retrain — delisted names return their stale cache and are counted, not
-    fatal. Records a summary (n_refreshed / n_stale / n_delisted / n_failed).
+    fatal. Records a summary (n_refreshed / n_stale / n_future / n_delisted /
+    n_failed). Refresh COMPLETION is deliberately separate from the fail-closed
+    freshness gate (:class:`PanelUniverseFreshnessGuardTask`) and from model
+    promotion: this task always finishes so the audit summary is populated, then
+    the guard is the authoritative block.
     """
 
     def run(self, ctx: RetrainContext) -> bool | None:
-        universe = _resolve_panel_universe(ctx)
-        summary = {
+        if not ctx.refresh_ohlcv:
+            log.info("OHLCV refresh disabled (refresh_ohlcv=False); skipping")
+            ctx.ohlcv_refresh_summary = {"status": "disabled", "n_universe": 0}
+            return True
+        # Fail closed: a required training input's universe must be establishable
+        # from a non-empty, fingerprinted inventory (raises InventoryUnavailableError).
+        # A dry-run is a non-executing preview (no fetch, no promotion), so an
+        # unresolvable universe degrades to a noted skip there rather than blocking
+        # the command-plan preview.
+        try:
+            universe, provenance = _resolve_panel_universe(ctx)
+        except InventoryUnavailableError:
+            if ctx.dry_run:
+                ctx.ohlcv_refresh_summary = {"status": "dry-run-no-inventory", "n_universe": 0}
+                log.info("[dry-run] panel universe not resolvable; skipping refresh")
+                return True
+            raise
+        ctx.panel_universe_provenance = provenance
+        summary: dict = {
             "n_universe": len(universe),
             "n_refreshed": 0,
             "n_stale": 0,
+            "n_future": 0,
             "n_delisted": 0,
             "n_failed": 0,
+            "inventory_fingerprint": provenance["fingerprint"],
         }
         ctx.ohlcv_refresh_summary = summary
-        if not ctx.refresh_ohlcv:
-            log.info("OHLCV refresh disabled (refresh_ohlcv=False); skipping")
-            return True
-        if not universe:
-            log.warning("panel universe empty; nothing to refresh")
-            return True
         if ctx.dry_run:
             log.info("[dry-run] would refresh OHLCV for %d panel tickers", len(universe))
             return True
@@ -353,28 +582,39 @@ class RefreshFullUniverseOhlcvTask(Task):
             max_dates[ticker] = _df_max_date(df)
         ctx.ohlcv_max_dates = max_dates
 
-        # Classify against the batch frontier (freshest bar any ticker returned)
-        # into disjoint buckets so the counts sum to the universe size.
-        frontier = _frontier(max_dates.values())
+        # Classify each name into DISJOINT buckets (they sum to the universe
+        # size) against the INDEPENDENTLY-derived expected session — not the
+        # batch frontier, which a uniform freeze would drag backwards. If the
+        # expected session cannot be derived the guard (next task) fails closed;
+        # here we only degrade the audit label, never the counts.
+        try:
+            expected = _resolve_expected_session(ctx)
+        except FreshnessUnprovableError:
+            expected = None
+        summary["expected_session"] = expected.isoformat() if expected else None
         for ticker, md in max_dates.items():
             if ticker in failed:
                 summary["n_failed"] += 1
             elif md is None:
                 summary["n_delisted"] += 1
+            elif expected is not None and md > expected:
+                summary["n_future"] += 1  # bar dated after the expected session (corrupt)
             elif (
-                frontier is not None
-                and _trading_days_between(md, frontier) > ctx.freshness_stale_after_days
+                expected is not None
+                and _session_gap(ctx, md, expected) > ctx.freshness_stale_after_days
             ):
                 summary["n_stale"] += 1
             else:
                 summary["n_refreshed"] += 1
         log.info(
-            "OHLCV refresh: universe=%d refreshed=%d stale=%d delisted=%d failed=%d",
+            "OHLCV refresh: universe=%d refreshed=%d stale=%d future=%d delisted=%d failed=%d expected=%s",
             summary["n_universe"],
             summary["n_refreshed"],
             summary["n_stale"],
+            summary["n_future"],
             summary["n_delisted"],
             summary["n_failed"],
+            summary["expected_session"],
         )
         return True
 
@@ -389,42 +629,69 @@ class PanelUniverseFreshnessGuardTask(Task):
     label clip. Reading raw bars means an on-frontier panel never trips this
     guard: genuine input staleness (the bars themselves old) is distinguished
     from the expected fwd_60d frontier. A ticker is 'stale' when its newest bar
-    lags the universe frontier (the freshest bar any ticker has) by more than
-    ``freshness_stale_after_days`` trading days. If more than
-    ``freshness_max_stale_fraction`` of the universe is stale, emit a LOUD ntfy
-    alert and — per ``freshness_fail_on_stale`` — either fail the retrain
-    (default, fail-closed) or proceed with the warning.
+    lags the INDEPENDENTLY-derived expected latest completed market session
+    (``_resolve_expected_session`` — the shared exchange calendar, NOT
+    ``max(known dates)``) by more than ``freshness_stale_after_days`` exchange
+    sessions. Measuring against the expected session is what catches a
+    *globally-uniform* freeze: if the whole universe is stuck on one old date,
+    ``max(known)`` would call everything fresh, but the expected session is
+    recent, so every name reads stale and the guard trips.
+
+    FAIL CLOSED: a missing / unreadable / empty inventory, no resolvable OHLCV
+    max dates, or an underivable expected session all raise (freshness is
+    unprovable) rather than soft-skipping to success. Missing bars and
+    future-dated bars are counted as stale (never tolerated). If the stale
+    fraction exceeds ``freshness_max_stale_fraction`` (strict 0.0 by default),
+    emit a LOUD ntfy alert and — per ``freshness_fail_on_stale`` — either fail
+    the retrain (default, fail-closed) or proceed with the warning.
     """
 
     def run(self, ctx: RetrainContext) -> bool | None:
-        universe = _resolve_panel_universe(ctx)
-        if not universe:
-            log.warning("freshness guard: panel universe empty; cannot assess — skipping")
+        # A dry-run is a non-executing preview with no real data to assess; the
+        # gate applies to real runs (which promote nothing until it passes).
+        if ctx.dry_run:
+            log.info("[dry-run] skipping panel freshness guard")
             return True
+        # Fail closed on an unestablishable universe (raises).
+        universe, provenance = _resolve_panel_universe(ctx)
+        ctx.panel_universe_provenance = provenance
+        # Independently-derived reference session (raises if underivable).
+        expected = _resolve_expected_session(ctx)
         dates = {t: _resolve_ohlcv_max_date(ctx, t) for t in universe}
         known = {t: d for t, d in dates.items() if d is not None}
         if not known:
-            log.warning("freshness guard: no OHLCV max dates resolvable — skipping")
-            return True
+            raise FreshnessUnprovableError(
+                f"freshness guard: no OHLCV max dates resolvable for any of "
+                f"{len(universe)} panel tickers — freshness unprovable (fail-closed)"
+            )
 
-        frontier = max(known.values())
-        stale = {
-            t: d
-            for t, d in known.items()
-            if _trading_days_between(d, frontier) > ctx.freshness_stale_after_days
-        }
         missing = {t for t, d in dates.items() if d is None}
-        n_stale = len(stale) + len(missing)
-        fraction = n_stale / len(universe)
+        future = {t: d for t, d in known.items() if d > expected}
+        stale: dict[str, int] = {}
+        for t, d in known.items():
+            if t in future:
+                continue
+            lag = _session_gap(ctx, d, expected)
+            if lag > ctx.freshness_stale_after_days:
+                stale[t] = lag
+        # Missing and future-dated bars are integrity failures, never tolerated.
+        n_bad = len(stale) + len(missing) + len(future)
+        fraction = n_bad / len(universe)
+        frontier = max(known.values())
         worst = sorted(
-            ((_trading_days_between(d, frontier), t) for t, d in stale.items()),
+            [(lag, t) for t, lag in stale.items()]
+            + [(_session_gap(ctx, d, expected), t) for t, d in future.items()],
             reverse=True,
         )[:10]
         report = {
+            "expected_session": expected.isoformat(),
             "as_of_frontier": frontier.isoformat(),
+            "inventory_fingerprint": provenance["fingerprint"],
+            "exchange": ctx.exchange,
             "n_universe": len(universe),
-            "n_stale": n_stale,
+            "n_stale": n_bad,
             "n_missing": len(missing),
+            "n_future": len(future),
             "stale_fraction": round(fraction, 4),
             "stale_after_days": ctx.freshness_stale_after_days,
             "max_stale_fraction": ctx.freshness_max_stale_fraction,
@@ -434,22 +701,23 @@ class PanelUniverseFreshnessGuardTask(Task):
 
         if fraction <= ctx.freshness_max_stale_fraction:
             log.info(
-                "freshness guard OK: %d/%d stale (%.1f%% <= %.1f%%), frontier=%s",
-                n_stale,
+                "freshness guard OK: %d/%d stale (%.2f%% <= %.2f%%), expected_session=%s",
+                n_bad,
                 len(universe),
                 fraction * 100,
                 ctx.freshness_max_stale_fraction * 100,
-                frontier.isoformat(),
+                expected.isoformat(),
             )
             return True
 
-        worst_str = ", ".join(f"{t}(-{lag}d)" for lag, t in worst[:8])
+        worst_str = ", ".join(f"{t}(-{lag}s)" for lag, t in worst[:8])
         title = "RenQuant retrain PANEL-FREEZE"
         body = (
-            f"{n_stale}/{len(universe)} panel tickers stale "
-            f"({fraction:.1%} > {ctx.freshness_max_stale_fraction:.0%}); "
-            f"bars lag frontier {frontier.isoformat()} by "
-            f">{ctx.freshness_stale_after_days} trading days. "
+            f"{n_bad}/{len(universe)} panel tickers stale "
+            f"({fraction:.1%} > {ctx.freshness_max_stale_fraction:.1%}; "
+            f"missing={len(missing)} future={len(future)}); "
+            f"bars lag expected {ctx.exchange} session {expected.isoformat()} by "
+            f">{ctx.freshness_stale_after_days} sessions. "
             f"Worst: {worst_str}. "
             f"{'FAILING retrain' if ctx.freshness_fail_on_stale else 'proceeding with warning'}."
         )
@@ -633,7 +901,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--freshness-max-stale-fraction",
         type=float,
         default=DEFAULT_FRESHNESS_MAX_STALE_FRACTION,
-        help="Guard trips when the stale fraction of the panel universe exceeds this.",
+        help=(
+            "Tolerated fraction of the panel universe that may be stale before "
+            "the guard trips. STRICT 0.0 by default (fail-closed on any stale "
+            "name): delistings are pruned via the versioned inventory, so the "
+            "active universe must be fresh. Raise it only as a deliberate, "
+            "documented per-run override — the old 10% default was unjustified "
+            "and could hide ~29 frozen names."
+        ),
     )
     parser.add_argument(
         "--freshness-fail-on-stale",
