@@ -1,0 +1,212 @@
+{
+  "as_of": "2026-07-02",
+  "inputs": {
+    "db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
+    "db_open_mode": "mode=ro",
+    "rq_root": "/Users/renhao/git/github/RenQuant"
+  },
+  "measured_at": "2026-07-02T08:37:13",
+  "metrics": {
+    "buy_side_decision_tc": {
+      "detail": {
+        "category_counts": {
+          "insufficient_sizing_population": 2,
+          "measured": 4
+        },
+        "n_canonical_runs": 10,
+        "n_measured": 4,
+        "per_run": [
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 1.221,
+            "n_survived_admission": 5,
+            "run_id": "2026-06-09-live-70c90efc",
+            "tc": 0.588
+          },
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 1.235,
+            "n_survived_admission": 5,
+            "run_id": "2026-06-10-live-c2bf522c",
+            "tc": 0.566
+          },
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 0.296,
+            "n_survived_admission": 7,
+            "run_id": "2026-06-22-live-c26c0042",
+            "tc": 0.0
+          },
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 0.397,
+            "n_survived_admission": 7,
+            "run_id": "2026-06-23-live-844746ad",
+            "tc": 0.0
+          },
+          {
+            "category": "insufficient_sizing_population",
+            "exposure_transfer_ratio": null,
+            "n_survived_admission": 1,
+            "run_id": "2026-06-30-live-b616357c",
+            "tc": null
+          },
+          {
+            "category": "insufficient_sizing_population",
+            "exposure_transfer_ratio": null,
+            "n_survived_admission": 2,
+            "run_id": "2026-07-01-live-01c54b39",
+            "tc": null
+          }
+        ],
+        "se_measured": 0.167
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "imported unchanged from poc_transfer_coefficient.buy_side_decision_tc: eligible = candidates with mu >= 0.03; admission survivors classified by the round-3 blocked_by stage taxonomy; Pearson TC only over runs with real dispersion ('measured'); undefined cases categorized, never averaged in as 0. Caveats in doc/progress/2026-07-02-s-tc-measurement.md apply verbatim.",
+      "source": "runs.alpaca.db candidate_scores + trades via scripts/poc_transfer_coefficient.py (round-3 blocked_by taxonomy)",
+      "status": "ok",
+      "unit": "mean Pearson corr(kelly_target_pct, emitted buy target_pct) over admission-surviving candidates, 'measured'-category canonical runs only \u2014 EXPLORATORY DIAGNOSTIC, not measured-tier TC (POC-S-TC round 3)",
+      "value": 0.288
+    },
+    "calibrator_sign_laundered": {
+      "detail": {
+        "all_counters": {
+          "blocked_wash": 0,
+          "broker_pending_submitted": 1,
+          "calibrator_sign_laundered": 44,
+          "conviction_vetoed": 0,
+          "corr_blocks": 1,
+          "data_verification_failures": 0,
+          "defensive_non_bear_blocks": 0,
+          "no_candidate_streak": 0,
+          "no_trade_streak": 0,
+          "panel_vetoed": 69,
+          "risk_gate_vol_dropped": 31,
+          "sector_blocks": 0,
+          "selection_size_insufficient_cash": 1,
+          "topup_negative_raw_signal_no_long": 1
+        },
+        "n_scored": 89,
+        "run_date": "2026-07-01",
+        "run_id": "2026-07-01-live-01c54b39"
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "parse counters_json['calibrator_sign_laundered']. M4 AC: single digits (BL-1 recentering); 44/90 was the measured 2026-07-01 state.",
+      "source": "runs.alpaca.db pipeline_runs.counters_json of the latest canonical daily FULL run (>= 80 candidate_scores rows, last created_at per run_date)",
+      "status": "ok",
+      "unit": "names whose calibrated mu sign was laundered, latest daily FULL run",
+      "value": 44
+    },
+    "collector_liveness": {
+      "detail": {
+        "renquant105_pilot_ticks": {
+          "age_hours": 0.01,
+          "mtime": "2026-07-02T08:36:55",
+          "newest_file": "intraday_ticks.jsonl.censored.jsonl",
+          "size_bytes": 487705,
+          "zero_byte_warning": false
+        },
+        "rq105_quote_logger": {
+          "age_hours": 0.42,
+          "mtime": "2026-07-02T08:11:49",
+          "newest_file": "quote_logger_2026-07-02.log",
+          "size_bytes": 0,
+          "zero_byte_warning": true
+        }
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "newest-file mtime per collector dir; 'live' iff every collector wrote within 30h (covers the overnight gap, catches a dead launchd job by the next scorecard). Weekend runs will read 'stale' benignly \u2014 run the scorecard on a trading day. Zero-byte newest files are flagged but do not fail liveness (a fresh log can legitimately be empty at open).",
+      "source": "file mtimes under $RQ_ROOT/logs/rq105 and $RQ_ROOT/logs/renquant105_pilot",
+      "status": "ok",
+      "unit": "all collectors' newest file within 30h",
+      "value": "live"
+    },
+    "deployed_fraction": {
+      "detail": {
+        "cash": 8459.54,
+        "latest_live_run_created_at": "2026-07-02 15:36:36",
+        "latest_live_run_id": "2026-07-02-live-d5a30794",
+        "portfolio_value": 10760.35,
+        "trailing_5_session_mean": 0.2227,
+        "trailing_5_sessions": [
+          "2026-06-26",
+          "2026-06-29",
+          "2026-06-30",
+          "2026-07-01",
+          "2026-07-02"
+        ]
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "deployed = 1 - cash/portfolio_value. Counts long stock positions only; no parking sleeve exists yet (RS-1 not implemented), so idle cash is genuinely idle. Target (#231 \u00a70): >=95% incl. sleeve.",
+      "source": "runs.alpaca.db pipeline_runs (run_type='live'), latest row by created_at; trailing mean over the canonical daily series (last row per run_date)",
+      "status": "ok",
+      "unit": "fraction of book (1 - cash/portfolio_value)",
+      "value": 0.2138
+    },
+    "floor_gap_vs_spy": {
+      "detail": {
+        "avg_cash_weight_pct": 72.1,
+        "n_sessions": 46,
+        "spy_span_return_pct": 4.5,
+        "window": [
+          "2026-04-24",
+          "2026-07-01"
+        ]
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "for each canonical session t (last live row per run_date, trading days only): foregone += cash_weight(t) * SPY close-to-close return t->t+1; cumulative simple sum in pp of book. Same method family as RS-1 \u00a71 (which reported 46 sessions / 75.5% avg cash / 2.88pp on this window); this implementation's canonical-row selection yields the same session count but slightly different weights \u2014 treat RS-1's exact figures as its own snapshot and THIS series as the standing weekly definition.",
+      "source": "runs.alpaca.db pipeline_runs (canonical daily live rows) + data/ohlcv/SPY/1d.parquet close",
+      "status": "ok",
+      "unit": "pp of book, cumulative realized foregone SPY return on idle cash (2026-04-24 -> 2026-07-01); DESCRIPTIVE, NOT annualized (RS-1 \u00a71)",
+      "value": 3.48
+    },
+    "gate_verdict_age": {
+      "detail": {
+        "gate_verdicts_table_rows": 0,
+        "latest_wf_gate_metadata_stamp": {
+          "diagnostic_only": true,
+          "gate_version": 2,
+          "passed": false,
+          "run_at": "2026-06-22T05:37:02.965705",
+          "sanity_reason": "FAIL: regime sanity IC failed: regime sanity IC failed: BULL_CALM,CHOPPY",
+          "wf_reason": "PASS: absolute Sharpe floor met and SPY benchmark met; SPY mean Sharpe +1.081, \u0394Sharpe -0.384, beat SPY Sharpe 1/3, beat SPY APY 0/3; benchmark-lag regimes=['HIGH_CALM', 'LOW_SPIKED']"
+        },
+        "serving_artifact": "$RQ_ROOT/backtesting/renquant_104/artifacts/panel-ltr.alpha158_fund.json"
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "authoritative verdict := wf_gate_metadata with diagnostic_only != true and a non-null passed field; report its age in days. Otherwise report 'mute since 2026-05-18' (operator-established date, #231 \u00a70) with the latest diagnostic stamp attached for context. Unmuting is S1-S4 of the master plan.",
+      "source": "metadata.wf_gate_metadata stamped by RenQuant/scripts/run_wf_gate.py into the serving artifact; cross-checked against the (empty) runs.alpaca.db gate_verdicts table",
+      "status": "ok",
+      "unit": "no authoritative verdict exists \u2014 the freshest stamp on the serving artifact is diagnostic_only",
+      "value": "mute since 2026-05-18 (45 days)"
+    },
+    "ledger_coverage": {
+      "detail": {
+        "aged_cutoff_days": 35,
+        "joined_any_pct": 88.5,
+        "n_aged_rows": 5199
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "aged := run_date at least 35 calendar days old (20 trading days for fwd_20d to resolve, plus buffer). Coverage = share of those decision rows whose (run_date, ticker) has a non-null fwd_20d. S5 AC: >=95%.",
+      "source": "runs.alpaca.db candidate_scores JOIN pipeline_runs (run_date) LEFT JOIN ticker_forward_returns on (as_of_date, ticker)",
+      "status": "ok",
+      "unit": "% of aged live candidate_scores rows (run_date <= 2026-05-28) with a non-null fwd_20d forward outcome",
+      "value": 86.2
+    },
+    "pit_accrual_days": {
+      "detail": {
+        "accrual_stale": false,
+        "first": "2026-07-02",
+        "latest": "2026-07-02"
+      },
+      "measured_at": "2026-07-02T08:37:13",
+      "method": "count directories named YYYY-MM-DD. accrual_stale flags a latest dir more than 3 calendar days old (missed-day alert is task N2's AC). M-SIG needs >=120 accrued days before D3.",
+      "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing",
+      "status": "ok",
+      "unit": "count of dated snapshot dirs (accrued PIT days; time-irreversible, cannot be backfilled)",
+      "value": 1
+    }
+  },
+  "schema_version": 1,
+  "scorecard": "RS-6 weekly KPI scorecard (#231 \u00a70 state vector)"
+}
