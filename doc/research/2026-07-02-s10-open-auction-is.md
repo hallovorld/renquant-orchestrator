@@ -3,7 +3,8 @@
 STATUS: research evidence (read-only). Task S10 of the unified plan (#231, Term EXEC);
 upgrades POC-C leg 1 from point estimate to a CI-backed formal verdict.
 DATE: 2026-07-02 (R2: corrected mixed-reference estimand; R3: corrected power-calculation
-denominator + retrospective/descriptive framing, both 2026-07-02)
+denominator + retrospective/descriptive framing; R4: corrected one-sided critical value
++ "prespecified" wording; all 2026-07-02)
 SCRIPT: `scripts/s10_open_auction_is_study.py` (one-command reproduce, constants at top).
 EVIDENCE: `doc/research/evidence/2026-07-02-roadmap-pocs/s10_open_auction_is.json`.
 
@@ -34,7 +35,7 @@ to zero** (denominator = materiality_bps alone) — that is not the preregistere
 (`H0: mu<=10bps` vs `H1: mu>10bps`), whose correct denominator is `(mu_alternative -
 10bps)` for a stated alternative effect above the bar; at `mu_alternative==10bps` the
 true required n is infinite (no gap to detect). R3 replaces the single point figure with
-a sensitivity table across three prespecified alternatives (20/30/50bps) — see below.
+a sensitivity table across three alternatives (20/30/50bps) — see below.
 
 R3 also corrects the "decided before inspecting results" framing: the materiality rule
 was actually introduced in R2, **after** R1 had already exposed this data's point
@@ -43,6 +44,23 @@ therefore RETROSPECTIVE/DESCRIPTIVE, not a valid prospective confirmatory test, 
 though the 10bps threshold itself is a reasonable, externally-motivated number. A
 genuinely prospective/confirmatory application of this same frozen rule requires a new,
 non-overlapping cohort collected going forward.
+
+## R4 correction (Codex review): one-sided critical value + "prespecified" wording
+
+R3's power calculation described itself as a ONE-SIDED alpha=0.05 test but used
+`z=1.96` — the TWO-SIDED critical value (correct one-sided value: `z≈1.645`). This
+mismatch systematically OVERSTATED every required-n figure in the sensitivity table
+below while presenting them as the smaller, correctly-sided numbers. Fixed: alpha and
+tail (one-sided/two-sided) are now explicit function parameters, and the critical value
+is computed from them via `scipy.stats.norm.ppf` rather than a hardcoded constant. All
+sensitivity-table figures below are recomputed with the corrected `z≈1.645`.
+
+R4 also corrects R3's own "prespecified alternatives" wording above: the 20/30/50bps
+grid was actually chosen **after** this cohort's result was already observed, so it is
+a POST-HOC sensitivity table for PLANNING purposes, not a prespecified/frozen
+specification. A genuinely prospective confirmatory alternative and required sample
+size must be frozen before collecting a new, non-overlapping cohort — not read off this
+table.
 
 ## Results
 
@@ -85,34 +103,42 @@ replacement computed a single required-n figure powered against the 10bps materi
 bar treated as a null of *zero* — but the actual preregistered claim is the one-sided
 superiority test `H0: mu<=10bps` vs `H1: mu>10bps`, whose correct denominator is the gap
 `(mu_alternative - 10bps)` for a stated alternative effect above the bar, not 10bps
-alone. R3 replaces the single figure with a sensitivity table across three prespecified
-alternatives, using the same cluster-robust (day-level) variance from the true-VWAP
-cohort:
+alone. R3 replaced the single figure with a sensitivity table across three alternatives
+(R4 corrects a critical-value error in that table — see below), using the same
+cluster-robust (day-level) variance from the true-VWAP cohort:
 
 - Day-level SD: **151.7bps** (the true-VWAP cohort's per-day mean dispersion — the fills
   are extremely noisy at the day-cluster level).
 - Assumption: day-level means are treated as independent draws (no day-to-day
   autocorrelation correction); if fill quality is autocorrelated across days, this
   UNDERSTATES the true required sample size.
+- **R4 correction**: R3's table used the two-sided critical value `z=1.96` while
+  describing a one-sided alpha=0.05 test (correct one-sided value: `z≈1.645`),
+  systematically overstating every figure below. Recomputed with the corrected value:
 
-| Assumed true effect (mu_alternative) | Gap vs 10bps bar | Required independent days (80% power, alpha=0.05) |
+| Assumed true effect (mu_alternative) | Gap vs 10bps bar | Required independent days (80% power, one-sided alpha=0.05) |
 |---|---|---|
-| 20bps | 10bps | ≈1,804 |
-| 30bps | 20bps | ≈451 |
-| 50bps | 40bps | ≈113 |
+| 20bps | 10bps | ≈1,422 |
+| 30bps | 20bps | ≈356 |
+| 50bps | 40bps | ≈89 |
 
 (At `mu_alternative==10bps`, i.e. zero gap, the required n is infinite — not computed.
-R2's original single figure of "≈1,804 days" turns out to numerically match R3's 20bps
-row exactly: R2's denominator of 10bps alone is equivalent to R3's formula evaluated at
-`mu_alternative=20bps`, since `20-10=10` — R2 was implicitly (and silently) powering
-against a 20bps alternative while presenting it as if it were powered against the 10bps
-bar itself.)
+R2's original single figure of "≈1,804 days" (computed with R3's since-corrected z=1.96)
+numerically matched R3's 20bps row under that same z: R2's denominator of 10bps alone is
+equivalent to the formula evaluated at `mu_alternative=20bps`, since `20-10=10` — R2 was
+implicitly powering against a 20bps alternative while presenting it as if it were
+powered against the 10bps bar itself. That structural coincidence is a property of the
+denominator, not the critical value, so it still holds under R4's corrected z — R2's
+figure would have been ≈1,422 days (matching this table's 20bps row) had it used the
+correct one-sided critical value from the start.)
 
 This remains a **fragile planning scenario** at every row, not a validated result — every
 figure is highly sensitive to the day-level SD estimate, which itself comes from only 10
-days. Even the most favorable prespecified alternative (50bps, an effect five times the
-materiality bar) still requires well over 100 independent days — an impractically large
-sample under the current per-day-noise estimand. If a future confirmatory attempt is
+days. Even the most favorable alternative (50bps, an effect five times the
+materiality bar) still requires ≈89 independent days — nearly 9x the current 10-day
+sample, and every less-favorable alternative requires several hundred to well over a
+thousand days, an impractically large sample under the current per-day-noise estimand.
+If a future confirmatory attempt is
 preregistered, it should use a materially different design (e.g. matched-pair or
 paired-difference estimand to cut cross-day noise) rather than simply accumulating more
 days under the current estimand.

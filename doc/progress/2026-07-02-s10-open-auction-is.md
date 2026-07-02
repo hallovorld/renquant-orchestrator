@@ -94,3 +94,34 @@ presenting it as powered against the 10bps bar itself). 5 new/updated tests
 `test_power_denominator_uses_gap_to_alternative_not_bar_alone`,
 `test_power_at_or_below_materiality_bar_is_infinite_not_silently_finite`,
 `test_power_sensitivity_n_decreases_as_alternative_grows`), 10/10 tests pass (was 7).
+
+ROUND 4 (Codex CHANGES_REQUESTED, 2026-07-02): two more precision issues in R3's power
+calculation. (1) The code described a ONE-SIDED alpha=0.05 superiority test
+(`H0: mu<=materiality_bps` vs `H1: mu>materiality_bps`) but used `z=1.96` — the
+TWO-SIDED critical value (correct one-sided value: `z≈1.645`) — systematically
+OVERSTATING every required-n figure while labeling them one-sided. (2) R3 called the
+20/30/50bps sensitivity grid "prespecified," but it was actually chosen AFTER this
+cohort's result was already observed — a post-hoc planning table, not a genuinely
+prospective specification.
+
+Fix: `POWER_Z_ALPHA2`/hardcoded `1.96` replaced with `_z_alpha(alpha, one_sided)`, computed
+via `scipy.stats.norm.ppf` from explicit `alpha`/`one_sided` parameters (default
+alpha=0.05, one_sided=True, matching the test this script actually describes); same
+treatment for `_z_beta(power)`. `_n_days_for_alternative()` and
+`_cluster_robust_prospective_n_days()` both thread `alpha`/`one_sided`/`power` through as
+real inputs rather than module constants, and the output dict now records `alpha`,
+`one_sided`, and the actual `z_alpha` used, so a reader can verify the table matches the
+claimed test. All "prespecified" language corrected to "post-hoc sensitivity table for
+planning," with an explicit statement that a genuine confirmatory alternative/sample size
+must be frozen prospectively on a new, non-overlapping cohort. Script re-run end-to-end
+against the real 41-fill dataset (no new network fetch needed) — sensitivity table
+recomputed with the corrected z: 20bps→≈1,422 days (was ≈1,804), 30bps→≈356 days (was
+≈451), 50bps→≈89 days (was ≈113); the "R2 numerically matches the 20bps row" aside in
+the research doc updated to reflect the corrected figure, since that coincidence is a
+property of the denominator structure, not the critical value, and still holds. Research
+doc and evidence JSON both regenerated. Fixed one existing test
+(`test_power_denominator_uses_gap_to_alternative_not_bar_alone`) that hardcoded `1.96`
+in its expected-value formula and would otherwise have started failing against the
+corrected code; added 3 new tests (`test_power_z_alpha_one_sided_not_two_sided`,
+`test_power_alpha_and_tail_are_explicit_not_hardcoded`,
+`test_prospective_power_output_reports_alpha_and_actual_z_used`). 13/13 tests pass.

@@ -180,14 +180,65 @@ def test_prospective_power_reports_sensitivity_not_post_hoc_point_estimate():
 
 def test_power_denominator_uses_gap_to_alternative_not_bar_alone():
     """Hand-computed sanity check: with sigma=100bps, materiality=10bps,
-    mu_alternative=30bps, required n = ((1.96+0.84)*100/(30-10))**2 -- NOT
-    ((1.96+0.84)*100/10)**2, which is what the old (buggy) formula computed."""
+    mu_alternative=30bps, required n = ((z_one_sided+0.84)*100/(30-10))**2 --
+    NOT ((z+0.84)*100/10)**2, which is what the old (buggy) denominator
+    formula computed (a DIFFERENT bug from the z-value one below)."""
     sigma = 100.0
+    z_one_sided = s10._z_alpha()  # one-sided alpha=0.05, ~1.645
+    z_beta = s10._z_beta()  # 80% power, ~0.8416
     n = s10._n_days_for_alternative(sigma, materiality_bps=10.0, mu_alternative_bps=30.0)
-    expected = ((1.96 + 0.84) * sigma / (30.0 - 10.0)) ** 2
-    assert n == pytest.approx(expected)
-    buggy_old_formula = ((1.96 + 0.84) * sigma / 10.0) ** 2
-    assert n != pytest.approx(buggy_old_formula)
+    expected = ((z_one_sided + z_beta) * sigma / (30.0 - 10.0)) ** 2
+    assert n == pytest.approx(expected, rel=1e-6)
+    buggy_denominator_formula = ((z_one_sided + z_beta) * sigma / 10.0) ** 2
+    assert n != pytest.approx(buggy_denominator_formula)
+
+
+def test_power_z_alpha_one_sided_not_two_sided():
+    """R4 regression test: the code describes a ONE-SIDED alpha=0.05 test
+    (H0: mu<=materiality_bps vs H1: mu>materiality_bps) and must use the
+    matching one-sided critical value z~=1.645, NOT the two-sided z~=1.96
+    (R3 used 1.96 while documenting the test as one-sided, systematically
+    overstating every required-n figure)."""
+    z_one_sided = s10._z_alpha(alpha=0.05, one_sided=True)
+    z_two_sided = s10._z_alpha(alpha=0.05, one_sided=False)
+    assert z_one_sided == pytest.approx(1.6449, abs=1e-4)
+    assert z_two_sided == pytest.approx(1.9600, abs=1e-4)
+    assert z_one_sided < z_two_sided
+    # The module default (used by the sensitivity table) must be the
+    # one-sided value, matching the test this script actually describes.
+    assert s10._z_alpha() == pytest.approx(z_one_sided)
+
+
+def test_power_alpha_and_tail_are_explicit_not_hardcoded():
+    """alpha/one_sided must be real function inputs -- changing them must
+    change the computed critical value and the resulting required-n, proving
+    the critical value is derived from the inputs rather than a hardcoded
+    magic number baked into the formula."""
+    sigma, materiality_bps, mu_alt = 100.0, 10.0, 30.0
+    n_one_sided = s10._n_days_for_alternative(
+        sigma, materiality_bps, mu_alt, alpha=0.05, one_sided=True)
+    n_two_sided = s10._n_days_for_alternative(
+        sigma, materiality_bps, mu_alt, alpha=0.05, one_sided=False)
+    # Two-sided uses the larger critical value -> strictly larger required n.
+    assert n_two_sided > n_one_sided
+    z_two_sided = s10._z_alpha(alpha=0.05, one_sided=False)
+    z_beta = s10._z_beta()
+    n_two_sided_expected = ((z_two_sided + z_beta) * sigma / (mu_alt - materiality_bps)) ** 2
+    assert n_two_sided == pytest.approx(n_two_sided_expected, rel=1e-6)
+
+
+def test_prospective_power_output_reports_alpha_and_actual_z_used():
+    """The output dict must record which alpha/tail/critical-value were
+    actually used, so a reader can verify the sensitivity table matches the
+    test it claims to power (this is what let the R3 z=1.96 bug hide: the
+    output didn't distinguish one-sided from two-sided)."""
+    rows = [_fill_row("AAA", f"2026-01-{i+1:02d}", "true_vwap_10min", 40.0 + (i % 5) * 20)
+            for i in range(10)]
+    df = pd.DataFrame(rows)
+    power = s10._cluster_robust_prospective_n_days(df, "fill_vs_vwap_bps")
+    assert power["alpha"] == pytest.approx(0.05)
+    assert power["one_sided"] is True
+    assert power["z_alpha"] == pytest.approx(1.6449, abs=1e-4)
 
 
 def test_power_at_or_below_materiality_bar_is_infinite_not_silently_finite():

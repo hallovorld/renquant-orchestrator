@@ -53,7 +53,7 @@
     }
   },
   "prospective_power_vs_vwap_true": {
-    "method": "cluster_robust_day_level_sd, one-sided superiority test H0: mu<=10.0bps vs H1: mu>10.0bps; required n powered against (mu_alternative - materiality_bps), NOT materiality_bps alone (that would power a test against a null of zero, not the actual preregistered threshold)",
+    "method": "cluster_robust_day_level_sd, one-sided superiority test H0: mu<=10.0bps vs H1: mu>10.0bps; required n powered against (mu_alternative - materiality_bps), NOT materiality_bps alone (that would power a test against a null of zero, not the actual preregistered threshold); POST-HOC sensitivity table for planning \u2014 the alternatives grid was chosen after this cohort's result was observed, so a genuine confirmatory alternative/sample-size must be frozen prospectively on a new, non-overlapping cohort, not read off this table",
     "assumptions": "day-level means are treated as independent draws (no day-to-day autocorrelation correction); if fill quality is autocorrelated across days this UNDERSTATES the true required sample size",
     "day_level_sd_bps": 151.7,
     "current_n_days": 10,
@@ -62,21 +62,23 @@
       {
         "mu_alternative_bps": 20.0,
         "gap_vs_materiality_bar_bps": 10.0,
-        "required_n_days_80pct_power": 1804
+        "required_n_days_80pct_power": 1422
       },
       {
         "mu_alternative_bps": 30.0,
         "gap_vs_materiality_bar_bps": 20.0,
-        "required_n_days_80pct_power": 451
+        "required_n_days_80pct_power": 356
       },
       {
         "mu_alternative_bps": 50.0,
         "gap_vs_materiality_bar_bps": 40.0,
-        "required_n_days_80pct_power": 113
+        "required_n_days_80pct_power": 89
       }
     ],
-    "z_alpha2": 1.96,
-    "z_beta_80pct_power": 0.84
+    "alpha": 0.05,
+    "one_sided": true,
+    "z_alpha": 1.6449,
+    "z_beta_80pct_power": 0.8416
   },
   "verdict": {
     "vs_day_vwap_true": "INCONCLUSIVE",

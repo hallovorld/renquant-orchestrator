@@ -42,13 +42,30 @@ H1: mu>materiality_bps), whose correct denominator is
 (mu_alternative - materiality_bps) for a stated alternative effect above the
 bar; at mu_alternative==materiality_bps the true required n is infinite.
 Fixed: `_cluster_robust_prospective_n_days` now reports a sensitivity table
-across prespecified alternatives (20/30/50bps) instead of one point figure,
-with day-clustering/autocorrelation assumptions stated explicitly. Also: the
+across alternatives (20/30/50bps) instead of one point figure, with
+day-clustering/autocorrelation assumptions stated explicitly. Also: the
 materiality rule's CURRENT application to the existing 10-day cohort is now
 labeled RETROSPECTIVE/DESCRIPTIVE (the rule was introduced after earlier
 revisions had already exposed this data's shape) rather than a prospective
 decision made before inspecting results — a genuinely prospective
 confirmatory test requires a new, non-overlapping cohort going forward.
+
+R4 (2026-07-02, Codex review): two more precision issues in R3's fix. (1)
+the code described the power calculation as a ONE-SIDED alpha=0.05 test but
+used z=1.96 (the TWO-SIDED critical value; correct one-sided value is
+z~=1.645) — this mismatch systematically OVERSTATED every required-n figure
+in the sensitivity table while claiming to be the smaller, correctly-sided
+number. Fixed: alpha and one_sided (tail) are now explicit function
+parameters, and the critical value is computed from them via
+`scipy.stats.norm.ppf` rather than a hardcoded constant, so it always
+matches whatever test is actually being described. (2) R3's own history
+entry above called the 20/30/50bps alternatives grid "prespecified" — that
+was inaccurate: the grid was chosen AFTER this cohort's result was already
+observed, so it is a POST-HOC sensitivity table for planning, not a
+prespecified/frozen specification. Corrected in the function's own
+docstring/output; a genuinely prospective confirmatory alternative and
+sample size must be frozen before collecting a new, non-overlapping cohort,
+not read off this table.
 
 Reproduce:
   cd /Users/renhao/git/github/RenQuant && set -a && source .env && set +a && \
@@ -63,6 +80,7 @@ import urllib.request
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 BASE = os.environ.get("ALPACA_BASE_URL", "https://api.alpaca.markets")
@@ -75,8 +93,27 @@ N_BOOT = 5000
 SEED = 20260702
 MATERIALITY_BPS = 10.0
 # Prospective power target for the NEXT (real, prereg'd) confirmatory sample.
-POWER_Z_ALPHA2 = 1.96  # two-sided alpha=0.05
-POWER_Z_BETA = 0.84    # 80% power
+# The preregistered claim (H0: mu<=materiality_bps vs H1: mu>materiality_bps)
+# is ONE-SIDED, so alpha=0.05 must use the one-sided critical value z~=1.645,
+# NOT the two-sided z=1.96 (R3 used 1.96 while documenting the test as
+# one-sided, which systematically overstated every required-n figure).
+POWER_ALPHA = 0.05
+POWER_ONE_SIDED = True
+POWER_TARGET = 0.80  # 80% power
+
+
+def _z_alpha(alpha=POWER_ALPHA, one_sided=POWER_ONE_SIDED):
+    """Critical value for the given alpha/tail. One-sided: z = Phi^-1(1-alpha).
+    Two-sided: z = Phi^-1(1-alpha/2) (splits alpha across both tails)."""
+    return norm.ppf(1 - alpha) if one_sided else norm.ppf(1 - alpha / 2)
+
+
+def _z_beta(power=POWER_TARGET):
+    return norm.ppf(power)
+
+
+POWER_Z_ALPHA = _z_alpha()
+POWER_Z_BETA = _z_beta()
 
 
 def _daily(t):
@@ -201,7 +238,9 @@ def _materiality_verdict(stat, materiality_bps=MATERIALITY_BPS):
 SENSITIVITY_ALTERNATIVES_BPS = (20.0, 30.0, 50.0)
 
 
-def _n_days_for_alternative(sigma, materiality_bps, mu_alternative_bps):
+def _n_days_for_alternative(sigma, materiality_bps, mu_alternative_bps,
+                             alpha=POWER_ALPHA, one_sided=POWER_ONE_SIDED,
+                             power=POWER_TARGET):
     """One-sided superiority test H0: mu <= materiality_bps vs H1: mu >
     materiality_bps. The detectable gap is (mu_alternative - materiality_bps),
     NOT materiality_bps alone (which would power a test against a null of
@@ -209,18 +248,32 @@ def _n_days_for_alternative(sigma, materiality_bps, mu_alternative_bps):
     At mu_alternative == materiality_bps there is no gap to detect and the
     required n is infinite — returns math.inf explicitly rather than a
     silently-wrong finite number.
+
+    alpha/one_sided are explicit inputs (not hardcoded constants) so the
+    critical value always matches the test actually being described; the
+    preregistered claim here is one-sided, so the default uses z~=1.645
+    (Phi^-1(1-alpha)), not the two-sided z~=1.96 (Phi^-1(1-alpha/2)).
     """
     gap = mu_alternative_bps - materiality_bps
     if gap <= 0:
         return float("inf")
-    z = POWER_Z_ALPHA2 + POWER_Z_BETA
+    z = _z_alpha(alpha, one_sided) + _z_beta(power)
     return (z * sigma / gap) ** 2
 
 
 def _cluster_robust_prospective_n_days(df, col, materiality_bps=MATERIALITY_BPS,
-                                        alternatives_bps=SENSITIVITY_ALTERNATIVES_BPS):
-    """Prospective sample-size sensitivity table for a FUTURE confirmatory
-    test of the preregistered one-sided superiority claim H0: mu <=
+                                        alternatives_bps=SENSITIVITY_ALTERNATIVES_BPS,
+                                        alpha=POWER_ALPHA, one_sided=POWER_ONE_SIDED,
+                                        power=POWER_TARGET):
+    """POST-HOC sensitivity table (for PLANNING a future confirmatory test),
+    not a preregistered power calculation: the alternatives_bps grid below
+    was chosen after this cohort's result was already observed, so it cannot
+    itself stand in for a prospective, frozen specification. A genuinely
+    confirmatory test requires the alternative effect size and required
+    sample size to be frozen BEFORE collecting a new, non-overlapping cohort
+    — not derived from, or informed by, this table.
+
+    Models the preregistered one-sided superiority claim H0: mu <=
     materiality_bps vs H1: mu > materiality_bps.
 
     A single number here is misleading: the required n depends entirely on
@@ -229,8 +282,16 @@ def _cluster_robust_prospective_n_days(df, col, materiality_bps=MATERIALITY_BPS,
     (treating the null as zero) understates the true requirement — at
     mu_alternative == materiality_bps the true required n is infinite, since
     there is zero gap between the null and alternative to resolve. This
-    reports a sensitivity table across several prespecified, economically
-    plausible alternatives instead of one point figure.
+    reports the sample size across several economically plausible
+    alternatives instead of one point figure.
+
+    alpha/one_sided are explicit inputs, not hardcoded constants — the
+    critical value must match the tail actually being tested. The
+    preregistered claim is one-sided, so the default critical value is
+    z~=1.645 (Phi^-1(1-alpha)), not the two-sided z~=1.96 (Phi^-1(1-alpha/2))
+    a prior round of this function used while still describing the test as
+    one-sided — that mismatch systematically overstated every required-n
+    figure.
 
     Cluster-robust: sigma is the day-level (not fill-level) standard
     deviation, since fills within a day are not independent observations.
@@ -250,7 +311,9 @@ def _cluster_robust_prospective_n_days(df, col, materiality_bps=MATERIALITY_BPS,
         return None
     sensitivity = []
     for mu_alt in alternatives_bps:
-        n_required = _n_days_for_alternative(sigma, materiality_bps, mu_alt)
+        n_required = _n_days_for_alternative(sigma, materiality_bps, mu_alt,
+                                              alpha=alpha, one_sided=one_sided,
+                                              power=power)
         sensitivity.append({
             "mu_alternative_bps": mu_alt,
             "gap_vs_materiality_bar_bps": round(mu_alt - materiality_bps, 1),
@@ -263,7 +326,12 @@ def _cluster_robust_prospective_n_days(df, col, materiality_bps=MATERIALITY_BPS,
                   f"H0: mu<={materiality_bps}bps vs H1: mu>{materiality_bps}bps; "
                   "required n powered against (mu_alternative - materiality_bps), "
                   "NOT materiality_bps alone (that would power a test against a "
-                  "null of zero, not the actual preregistered threshold)",
+                  "null of zero, not the actual preregistered threshold); "
+                  "POST-HOC sensitivity table for planning — the alternatives grid "
+                  "was chosen after this cohort's result was observed, so a "
+                  "genuine confirmatory alternative/sample-size must be frozen "
+                  "prospectively on a new, non-overlapping cohort, not read off "
+                  "this table",
         "assumptions": "day-level means are treated as independent draws (no "
                        "day-to-day autocorrelation correction); if fill quality "
                        "is autocorrelated across days this UNDERSTATES the true "
@@ -272,8 +340,10 @@ def _cluster_robust_prospective_n_days(df, col, materiality_bps=MATERIALITY_BPS,
         "current_n_days": int(n_days),
         "materiality_bar_bps": materiality_bps,
         "sensitivity_by_alternative": sensitivity,
-        "z_alpha2": POWER_Z_ALPHA2,
-        "z_beta_80pct_power": POWER_Z_BETA,
+        "alpha": alpha,
+        "one_sided": one_sided,
+        "z_alpha": round(_z_alpha(alpha, one_sided), 4),
+        "z_beta_80pct_power": round(_z_beta(power), 4),
     }
 
 
