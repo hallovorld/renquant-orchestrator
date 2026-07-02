@@ -85,28 +85,61 @@ deployed-fraction rising is necessary but never sufficient on its own.
   NOT hand-tune without evidence. When run, tested with A-1/A-2/A-3 held fixed, same
   turnover/cost/concentration/drawdown non-degradation gate.
 
-### 1.3 Lane B — benchmark parking sleeve (removes drag without needing edge)
+### 1.3 Lane B — benchmark parking sleeve (a real beta position, not a cash substitute)
 
 **Design**: idle cash above a small operational reserve (proposed: reserve = 5% PV + open-order
 headroom) is swept into a **benchmark sleeve** (SPY — already in the watchlist/data plane), and the
 sleeve is sold FIRST to fund any admitted single-name buy. Rationale: the book's benchmark is SPY;
 un-deployed cash is a structural short-SPY bet that has cost the book most of its measured
 underperformance vs benchmark; parking converts "75% idle" into "75% benchmark" so stock-picking
-capability is the ONLY live bet. Contract points for review:
+capability is the ONLY live bet.
 
+**Correction (Codex review): the SPY sleeve is NOT cash-equivalent — it is a large, real equity-beta
+position, and an earlier draft of this section contradicted itself by calling it "cash-equivalent"
+in the same breath as noting it raises book beta from ~0.25 to ~1.0.** Something that roughly
+quadruples market-beta exposure is emphatically not cash. The sleeve MUST participate in every risk
+control that governs real positions, even though it is excluded from single-name ALPHA RANKING
+(it never competes for a "best pick" slot — that exclusion is legitimate and unchanged):
+
+- **Total-book beta**: the sleeve's full beta contribution (~1.0 for SPY) is included in the
+  book-level beta calculation, not netted out or ignored.
+- **Gross/net exposure**: sleeve notional counts fully toward both gross and net exposure limits.
+- **Concentration**: the sleeve is a real, large single-position concentration in SPY and must be
+  checked against whatever concentration ceiling governs any other single holding of comparable
+  size — it does not get a "it's the benchmark" exemption.
+- **Drawdown**: sleeve mark-to-market losses count toward book-level drawdown triggers exactly like
+  any other position's losses.
+- **Liquidity**: the sleeve is assumed liquid (SPY is highly liquid), but that assumption is stated
+  explicitly, not implied by exemption from other liquidity checks.
+- **Liquidation / funding rules**: when the book needs to raise cash under stress, the sleeve is a
+  normal, sellable position subject to the SAME liquidation-priority and funding rules as any other
+  holding — it is not an untouchable cash-like reserve. (It IS sold first to fund an admitted
+  single-name buy under normal operation, per the design above — that ordering rule stays, but is a
+  distinct thing from being "cash-equivalent" for risk-accounting purposes.)
 - Regime interaction: the sleeve follows the regime gates — BEAR (`cash_reserve_pct = 1`) sweeps
   the sleeve OFF (to cash), preserving the defensive semantics; CHOPPY/BULL_VOLATILE reserve
   percentages apply to the sleeve size.
-- The sleeve is **not** a position for the QP/exits (excluded from correlation/sector caps and the
-  panel-exit; it is cash-equivalent), but IS margin/settlement-aware (sell T+1 settlement precedes
-  buy funding — verified margin account makes same-day re-use viable).
+- Excluded ONLY from single-name alpha ranking and the panel-exit's alpha-driven rotation logic
+  (it is not a stock pick and does not compete with one) — but IS margin/settlement-aware (sell T+1
+  settlement precedes buy funding — verified margin account makes same-day re-use viable).
 - Wash-sale: SPY sleeve trades can wash-sale against nothing in the current book; note the rule
   anyway for the ledger.
 - Risk framing for the operator: this raises book beta from ~0.25-equivalent to ~1.0 — it is a
   RISK DECISION (recorded), not a pure optimization. The alternative parking (short-duration
   T-bill ETF, e.g. BIL/SGOV) keeps beta ~0 and only harvests carry; offer both in the config.
-- Experiment: none needed for the mechanism (it is arithmetic); a 10-session shadow log validates
-  the sweep/fund plumbing before enabling.
+- **Authorization bar (corrected — a plumbing check cannot authorize an economic risk change).**
+  Before ANY real capital is exposed via this sleeve, a **pre-registered replay/shadow comparison**
+  of at least three candidate treatments — (a) plain cash (current baseline), (b) a short-duration
+  Treasury sleeve (BIL/SGOV), (c) the SPY/benchmark sleeve — covering: beta contribution, drawdown
+  behavior, turnover, tax treatment (short-term realized gains from frequent cash-drag rebalancing
+  vs. a more buy-and-hold-ish sleeve), settlement mechanics, and STRESSED sell-to-fund behavior
+  (what happens to the sleeve's value/liquidity precisely when the book needs cash during a
+  drawdown — the worst-case correlated scenario, since SPY tends to be down exactly when the book
+  most needs to raise cash defensively). Completing this comparison is a PREREQUISITE for capital
+  authorization, not an optional nicety. A separate 10-session shadow log MAY still run first, but
+  validates ONLY operational correctness (does the sweep/fund plumbing work mechanically) — it does
+  NOT, by itself, authorize the sleeve's real economic exposure; that requires the pre-registered
+  comparison above plus an explicit, separately recorded capital-authorization decision.
 
 ### 1.4 Lane C — the expectancy question (evidence-gated)
 
@@ -209,8 +242,9 @@ model's own directional skill in the dominant BULL_CALM regime is a SEPARATE, UN
 question, not part of the above.** The originally-cited "genuine (leak-controlled) IC ≈ −0.003"
 ("a coin flip") has NOT been confirmed by a durable reproduction: `hallovorld/RenQuant#431`
 (open, unresolved) reproduces **+0.044** on the best-available committed proxy methodology instead
-— sign-disagreeing with the original figure — with a frozen-but-not-yet-executed reconciliation
-protocol to decide between them. Any alpha-route conclusion below that depends specifically on the
+— sign-disagreeing with the original figure — with a **proposed, not-yet-frozen** reconciliation
+protocol (Algorithm B and the adjudication slice remain open choices as of this writing) to decide
+between them. Any alpha-route conclusion below that depends specifically on the
 model's own BULL_CALM skill (as opposed to the four independently-scanned factor NULLs, which
 stand on their own durable evidence regardless of #431's outcome) is **BLOCKED pending that
 reconciliation** — this program does not pick a side. The alpha budget therefore goes to
