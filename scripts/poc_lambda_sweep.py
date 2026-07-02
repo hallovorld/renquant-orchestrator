@@ -91,9 +91,16 @@ def _runs(con, k=2):
 
 
 def _reconstruct_w_current(con, cs, run_id, run_date):
-    """Point-in-time current weight per held ticker: the most recent
-    trades.target_pct for that ticker as of (and including) this run's date.
-    Not the run's own equal-weight-of-cap approximation used in round 1."""
+    """TARGET-WEIGHT APPROXIMATION of current weight per held ticker: the
+    most recent trades.target_pct for that ticker as of (and including) this
+    run's date. NOT a true as-of delivered weight -- target_pct records the
+    INTENDED target at trade time, and misses price drift since the trade,
+    partial/unfilled fills, subsequent sells/exits, corporate actions, and
+    cash/NAV normalization. Better than round 1's equal-weight-of-cap
+    approximation, but still an approximation -- see sum_w_current_target_
+    pct_approx in the output for how far it drifts from a normalized vector.
+    A genuine as-of reconstruction requires a full run-bound replay/shadow
+    with actual position/fill state, not this standalone script."""
     held = cs.loc[cs["role"] == "holding", "ticker"].tolist()
     if not held:
         return {}, held
@@ -170,6 +177,13 @@ def sweep_run(con, run_id, run_date):
         "run_id": run_id, "run_date": run_date, "n_names": n,
         "n_held": len(held), "n_held_reconstructed": n_reconstructed,
         "n_held_no_trade_history": len(held) - n_reconstructed,
+        # w_current is a TARGET-WEIGHT APPROXIMATION (trades.target_pct at
+        # trade time), not a true as-of delivered weight -- it misses price
+        # drift since the trade, partial/unfilled fills, subsequent
+        # sells/exits, corporate actions, and cash/NAV normalization.
+        # sum(w_current) close to but not exactly 1.0 quantifies how far the
+        # approximation drifts from a fully-normalized weight vector.
+        "sum_w_current_target_pct_approx": round(float(w_cur.sum()), 4),
     }
 
     # (A) current production reality: min_invested_pct=0 -- structurally

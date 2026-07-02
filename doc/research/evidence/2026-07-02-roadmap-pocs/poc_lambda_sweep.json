@@ -23,6 +23,7 @@
       "n_held": 6,
       "n_held_reconstructed": 6,
       "n_held_no_trade_history": 0,
+      "sum_w_current_target_pct_approx": 0.3951,
       "production_reality_min_invested_0": [
         {
           "lambda": 0.0,
@@ -337,6 +338,7 @@
       "n_held": 7,
       "n_held_reconstructed": 7,
       "n_held_no_trade_history": 0,
+      "sum_w_current_target_pct_approx": 0.4278,
       "production_reality_min_invested_0": [
         {
           "lambda": 0.0,
