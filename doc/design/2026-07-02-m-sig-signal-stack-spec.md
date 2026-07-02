@@ -15,7 +15,16 @@ justified only as "below a known floor" without an actual noise argument. r3 fix
 four: a real Bonferroni correction (k=3, one-sided α=0.05/3 per candidate — see §2a),
 frozen production source citations for C2/C3 in place of deferred confirmation, an honest
 arbitrary-margin-with-sensitivity label for C4 in place of the floor-based hand-wave, and a
-bounded (not indefinite) horizon for C1's background accrual.)
+bounded (not indefinite) horizon for C1's background accrual.); r4 2026-07-02 (Codex review:
+r3's C2 admissible-mapping rule fell back to the bare fundamentals-PERIOD date as a "same-day
+conservative floor" when no filing timestamp existed — that is LOOKAHEAD BIAS, not a floor
+(the period date precedes actual publication by weeks to months). r4 removes the period-date
+fallback entirely: an observation with no genuine `acceptedDate`/`filingDate` is INADMISSIBLE,
+not proxy-dated. Investigated this repo's actual FMP fundamentals fetcher and found it
+carries no filing-timestamp field at all (fetch-date indexed only) — the expected case is
+that C2 falls back to a `sec_fundamentals.py`-sourced SEC EDGAR `available_date` join (a
+genuine PIT timestamp already implemented and pinned in this repo, with a realistic ~45-day
+filing-lag fallback, never zero-lag) before being marked inadmissible.)
 
 **Freeze status (honest, per-candidate — see §1 for detail): C2, C3, C4 are FROZEN — every
 parameter below is fixed and may not be tuned after seeing a result, and their formal GO/KILL
@@ -183,17 +192,55 @@ Shared conventions across all four candidates (defined once, referenced below):
   1 trading day after the fundamentals record's PIT-acceptance timestamp. The exact field
   name on the N3-upgraded FMP Starter-tier schema is NOT yet verified in this session (grep
   of this repo's current FMP/base-data source found no confirmed field name to cite here
-  honestly rather than guess one). Rather than defer the choice to "confirm in the build
-  PR" (r2's exact contradiction codex flagged — a deferred choice made after N3 data exists
-  is a choice made after seeing what's available, not a frozen spec), this freezes an
-  ADMISSIBLE MAPPING RULE instead: at build time, use the FIRST field present, in this
-  fixed priority order, from the N3 schema's own response payload: (1) `acceptedDate` (SEC
-  EDGAR acceptance timestamp — the standard PIT anchor for filing-based fundamentals), (2)
-  `filingDate`, (3) `date` (the fundamentals-period date itself, treated as a same-day
-  conservative floor if neither timestamp field exists). This priority order is fixed NOW,
-  before N3 data exists, and is not itself a choice made after seeing the schema — whichever
-  field is present first in this list is used, mechanically, with no discretion at build
-  time. Record which field actually matched in the build PR's evidence.
+  honestly rather than guess one). r3 froze an admissible-mapping rule that fell back from
+  `acceptedDate`/`filingDate` to the bare fundamentals-PERIOD date ("date") as a "same-day
+  conservative floor" when neither timestamp field was present. **That fallback is WRONG and
+  is removed in this round (r4, codex-caught):** a fundamentals period date describes what
+  time period the data COVERS (e.g. "this is Q2 2026 data"), not when it became knowable —
+  it virtually always PRECEDES actual publication/filing by weeks to months. Using it as an
+  availability timestamp is LOOKAHEAD BIAS (the backtest sees the number before a real
+  trader could have), which can manufacture IC rather than measure it. There is no safe
+  same-day floor for this; the fallback is deleted outright, not replaced with a different
+  single field.
+  **Corrected admissible-mapping rule (r4, frozen):** the availability timestamp MUST come
+  from a genuinely PIT-verified publication/acceptance field. (1) `acceptedDate` (SEC EDGAR
+  acceptance timestamp) if present in the N3 payload; (2) `filingDate` if present and
+  `acceptedDate` is not. If NEITHER is present for a given ticker-period observation, that
+  observation is **INADMISSIBLE** — excluded from C2's cross-section at that date entirely,
+  not backfilled with any proxy. This priority order is fixed now, before N3 data exists,
+  with no discretion at build time; record which field matched (or "INADMISSIBLE — neither
+  present") per observation in the build PR's evidence.
+  **Source-level investigation (r4, this round):** grepped this session's actual checked-out
+  `renquant-base-data` for whether FMP's fundamentals path exposes any PIT filing timestamp.
+  Finding: `src/renquant_base_data/fetchers/fundamentals.py` and
+  `src/renquant_base_data/loaders/fundamentals.py` (the FMP-backed fundamentals fetch/load
+  path) index data by FETCH date only — no `acceptedDate`/`filingDate`/period-date field
+  appears anywhere in either module. As currently implemented in this repo, **FMP's
+  fundamentals path cannot supply the `acceptedDate`/`filingDate` fields this admissible
+  mapping rule requires** — meaning C2 would be inadmissible on essentially 100% of
+  observations if run against the current FMP fetcher, unless the N3 upgrade's actual API
+  response payload turns out to carry these fields even though the current fetcher code
+  doesn't surface them (this is genuinely unverified — N3 data doesn't exist in this
+  session).
+  However, this repo ALREADY has a working, PIT-correct alternative:
+  `src/renquant_base_data/sec_fundamentals.py::build_quarterly_panel` derives an
+  `available_date` field directly from real SEC EDGAR XBRL `filed` timestamps per concept
+  (`row["available_date"] = max(selected_filed) if selected_filed else end_date +
+  pd.Timedelta(days=45)` — i.e. it uses the genuine filing date when known, and even its own
+  fallback is a REALISTIC ~45-day filing-lag estimate added to the period end, never the
+  bare period date with zero lag). This is the kind of "externally verified filing timestamp
+  join" codex's review asks for. **C2's admissible-mapping rule is therefore amended: at
+  build time, if the N3/FMP payload does not carry `acceptedDate`/`filingDate` for a given
+  observation (the expected case per the grep above), fall back to sourcing that
+  observation's availability timestamp from `sec_fundamentals.py`'s `available_date` via a
+  ticker+period-end join, BEFORE declaring the observation inadmissible.** Only if NEITHER
+  the FMP payload nor a SEC EDGAR join can supply a genuine filing-adjacent timestamp is the
+  observation inadmissible. Whether the SEC EDGAR XBRL concept tags actually cover C2's three
+  required fields (gross-profit/assets, total accruals, net share issuance) is itself
+  unverified in this pass — confirm the exact XBRL concept-tag mapping in the build PR; if
+  coverage is incomplete, C2 runs on whichever fraction of the universe/period grid has a
+  genuine timestamp from either source, with the coverage gap reported explicitly rather than
+  silently reducing effective sample size.
 - **Universe & missingness**: current production universe; a name missing ANY of the three
   legs at date `t` is excluded from that date's cross-section entirely (no partial-composite
   fallback — a composite with 2 of 3 legs is a different, uncontrolled instrument).

@@ -154,3 +154,53 @@ gate applies to this progress doc's schema, not new test coverage.
 **NEXT:** the build PRs (C3 first, per §2a's operational ordering) inherit the corrected
 98.33% CI level and must report the C4 sensitivity table and C2's matched-field diagnostic
 as part of their own evidence, not just the frozen-gate verdict alone.
+
+## r4 (Codex review): C2's admissible-mapping rule fell back to lookahead bias
+
+**Finding.** r3's fail-closed mapping rule for C2's PIT lag fell back, as a last resort, to
+the bare fundamentals-PERIOD date ("date") treated as a "same-day conservative floor" when
+neither `acceptedDate` nor `filingDate` was present. Codex correctly identified this is not
+a floor at all: a fundamentals period date describes what time period the data COVERS (e.g.
+"Q2 2026"), not when it became knowable to a trader — it virtually always precedes actual
+publication/filing by weeks to months. Using it as an availability timestamp is lookahead
+bias and can manufacture IC rather than measure it.
+
+**Fix.**
+- Removed the period-date fallback outright — no replacement single field, since no field in
+  the current N3/FMP payload is known to be a safe same-day proxy.
+- The corrected admissible-mapping rule requires a genuine `acceptedDate` or `filingDate`; an
+  observation lacking both is now INADMISSIBLE (excluded from that date's cross-section),
+  never proxy-dated.
+- **Investigated whether FMP even provides a usable PIT field.** Grepped this session's
+  checked-out `renquant-base-data` (`src/renquant_base_data/fetchers/fundamentals.py`,
+  `src/renquant_base_data/loaders/fundamentals.py` — the actual FMP-backed fundamentals
+  fetch/load path). Neither module carries an `acceptedDate`/`filingDate`/period-date field;
+  both index solely by FETCH date. As currently implemented, FMP's fundamentals path in this
+  repo cannot supply the mapping rule's required fields — meaning C2 would be inadmissible on
+  essentially the entire universe if the N3-upgraded payload doesn't newly expose these
+  fields (genuinely unverified, since N3 data doesn't exist yet).
+- **Found a real, already-pinned alternative.** `src/renquant_base_data/sec_fundamentals.py
+  ::build_quarterly_panel` already derives a genuine PIT `available_date` per ticker/period
+  from real SEC EDGAR XBRL `filed` timestamps (`row["available_date"] = max(selected_filed)
+  if selected_filed else end_date + pd.Timedelta(days=45)` — uses the real filing date when
+  known, and even its OWN fallback is a realistic ~45-day filing-lag estimate, never a
+  zero-lag period date). C2's mapping rule now falls back to a ticker+period-end join against
+  this module's `available_date` before declaring an observation inadmissible — this is the
+  kind of externally-verified filing-timestamp join codex's review asked for, and it already
+  exists in this repo rather than needing to be built.
+- Whether SEC EDGAR's XBRL concept tags actually cover C2's three required fields
+  (gross-profit/assets, total accruals, net share issuance) is itself unverified in this
+  pass — flagged as a build-time confirmation item, not assumed.
+
+**Also fixed:** the PR body (`gh pr edit`) was still r1-era (implied uncorrected bars, C1
+shown as a voting candidate, stale "sequencing guard" language, C4 margin shown unresolved)
+— rewritten to match the actual current r4 state (Bonferroni 98.33% CI, C1 informative-only
+and excluded from the vote, C4's arbitrary-with-sensitivity margin, the 2027-Q4 deterministic
+stack rule).
+
+**Scope:** pure design-doc edit, no code/tests — `python3 scripts/require_progress_doc.py`
+gate applies to this progress doc's schema.
+
+**NEXT:** unchanged from r3 — build PRs inherit the corrected 98.33% CI and C2's SEC-EDGAR
+fallback join must be implemented (not just specified) before C2's first real test in
+2026-Q4.
