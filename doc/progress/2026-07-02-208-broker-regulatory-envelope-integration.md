@@ -14,8 +14,11 @@ implementer building the execution/pipeline pieces (per §8's decomposition) nee
 RFC:
 
 - **REVISION header**: new r13 entry recording the verified account facts (margin account, FINRA
-  Intraday Margin Standards effective 2026-06-04 replacing legacy PDT, `daytrading_buying_power ≈
-  $37.5k` on ~$10.8k equity) and pointing to the new §22 integration map.
+  Intraday Margin Standards effective 2026-06-04 replacing legacy PDT, `daytrading_buying_power`
+  materially exceeding what the legacy sub-$25k PDT regime would permit relative to equity) and
+  pointing to the new §22 integration map. Specific dollar balances are NOT reproduced in the RFC or
+  here (Codex finding: they go stale immediately and belong in the protected run bundle for the
+  verification date, not a durable, widely-read design doc).
 - **§7 (order lifecycle)**: new settlement-accounting bullet — `available` derives from
   `non_marginable_buying_power` today (margin account); the cash-account variant (T+1 settled-funds
   gating) is stated conditionally for a future account-regime change, decided by the new §11
@@ -50,12 +53,38 @@ correctly scoped as a docs-only fold-in now (the spec exists and is unambiguous 
 implementer starts on the execution/pipeline pieces), not new safety-critical runtime code, which
 would be premature against a Stage that hasn't started building its order-emission path yet.
 
-EVIDENCE: diff reviewed manually for internal consistency (new §10 rows match the existing table's
+EVIDENCE:
+```
+artifact:      doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md (RFC #208)
+prod or exp:   n/a — design/RFC doc integration, no model or data claim; docs-only, no code/config/
+               broker behavior change
+existing data: grepped this RFC's own §16-§21 review-response-map convention before adding §22, to
+               match structure; grepped the repo for stale legacy-PDT references (see below) before
+               concluding the withdrawn r1 framing does not recur elsewhere
+best-known?:   this is the r2-converged, Codex-accepted text from PR #223's independent design
+               review — the best-available reconciliation of #208's original (gap-having) envelope
+               design against the account's actual verified regulatory regime, not a first draft
+scope:         this is doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md,
+               docs-only integration of already-reviewed amendment text; no comparison to an
+               existing "best" numeric result applies (not a model/data PR)
+```
+Diff reviewed manually for internal consistency (new §10 rows match the existing table's
 column/style conventions; new §22 disposition table mirrors §16–§21's existing format; REVISION
-header chains correctly with "Prior: r12 ..." preserved verbatim). No code changed — nothing to
-test/run. `git diff --stat`: 1 file changed
-(`doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md`), 81 insertions, 2
-deletions.
+header chains correctly with "Prior: r12 ..." preserved verbatim; confirmed no raw account dollar
+figures remain anywhere in the file after the balance-figure fix below). No code changed — nothing
+to test/run. `git diff --stat`: 1 file changed
+(`doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md`), insertions/deletions per
+the balance-figure correction below.
+
+**Fix (this revision, addressing Codex round-2 review on #224):** the REVISION header and §22 row 1
+previously stated specific live-account dollar figures (`daytrading_buying_power ≈ $37.5k` on
+`~$10.8k` equity, `≈3.5×`). Codex flagged this: durable, widely-read RFC text should not carry
+transient account balances — they go stale immediately and are unnecessary operational detail in a
+docs file. Replaced with field-semantics + a dated verification statement (qualitative: margin
+account, buying power consistent with the new regime rather than legacy sub-$25k PDT) with a note
+that exact figures live in the protected run bundle for that verification date, not this RFC. The
+durable, load-bearing finding (margin account, new regulatory regime, sized against
+`non_marginable_buying_power`) is unchanged.
 
 Checked for stale references to the withdrawn PDT framing elsewhere in the repo: found
 `doc/renquant-system-feature-map.md` mentions a "T+2 settlement, PDT guard" feature-status row and

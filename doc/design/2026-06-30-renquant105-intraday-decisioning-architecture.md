@@ -5,10 +5,14 @@ DATE: 2026-06-30
 REVISION: r13 (2026-07-02) — **folds in amendment A2 from the independent design review**
 (`doc/design/2026-07-01-104-105-design-review-amendments.md`, PR #223, Codex-accepted r2): this RFC
 designed an intraday order loop with **no broker-regulatory / settlement envelope at all**. A
-read-only query of the live Alpaca account (2026-07-02) confirmed it is a **margin account**
-governed by FINRA's **Intraday Margin Standards** (effective 2026-06-04, which replaced the legacy
-four-trades/$25k PDT designation — `daytrading_buying_power ≈ $37.5k` on ~$10.8k equity, ≈3.5×,
-impossible under the old sub-$25k PDT regime, confirming the new rules govern). Four amendments
+read-only query of the live Alpaca account (verified 2026-07-02; re-verify before relying on this —
+account state changes and is NOT reproduced here since specific balances go stale immediately and
+do not belong in a durable, widely-read design doc) confirmed it is a **margin account** governed by
+FINRA's **Intraday Margin Standards** (effective 2026-06-04, which replaced the legacy
+four-trades/$25k PDT designation). The verification found `daytrading_buying_power` materially
+exceeding what the legacy sub-$25k PDT regime would permit relative to account equity — confirming
+the new rules govern, not the old ones. Exact balances/ratios are recorded in the protected run
+bundle for that verification date, not in this RFC. Four amendments
 folded in as genuine RFC content (not a pointer to the amendments doc): (1) a new **§11 Stage-1
 BLOCKER** — verify-then-bind the account's broker-effective rule regime, recorded per session,
 session aborts (no entries) if the recorded regime differs from what the envelope was designed for;
@@ -441,7 +445,7 @@ building the execution/pipeline pieces per §8's decomposition needs to read onl
 
 | # | A2 point (from #223, r2-converged) | Disposition | Where |
 |---|---|---|---|
-| 1 | Verify the account's actual broker-regulatory regime before designing against it — a read-only `GET /v2/account` query (2026-07-02) found a **margin account** under FINRA's Intraday Margin Standards (effective 2026-06-04), not the legacy PDT designation the r1 draft assumed. | **Accepted** — verified-regime facts (margin account, `daytrading_buying_power ≈ $37.5k` on ~$10.8k equity, deprecated PDT fields) recorded in the REVISION header and this section. | REVISION header, §22 |
+| 1 | Verify the account's actual broker-regulatory regime before designing against it — a read-only `GET /v2/account` query (2026-07-02) found a **margin account** under FINRA's Intraday Margin Standards (effective 2026-06-04), not the legacy PDT designation the r1 draft assumed. | **Accepted** — verified-regime facts (margin account, `daytrading_buying_power` consistent with the new regime rather than legacy sub-$25k PDT, deprecated PDT fields present-but-unused) recorded in the REVISION header and this section; specific dollar balances/ratios deliberately NOT reproduced here (stale immediately, belong in the protected run bundle for the verification date, not this durable doc). | REVISION header, §22 |
 | 2 | Add a Stage-1 BLOCKER: verify-then-bind the broker-rule regime, recorded per session in the run bundle; abort (no entries) if the recorded regime diverges from what the envelope was designed for. | **Accepted** — new §11 BLOCKER. | §11 |
 | 3 | Add §10 envelope rows binding entries to real-time intraday margin / buying-power headroom (consistent with `non_marginable_buying_power` / `execution.buying_power_mode`), with a broker-reported intraday margin deficit as a Tier-1 halt condition. | **Accepted** — two new §10 table rows + a new interaction-rule bullet. | §10 |
 | 4 | Add an exits-always-allowed safety precedence: no envelope/regulatory/budget constraint may ever block a protective exit; constraints bind entries only; same-session round trips become a ledger diagnostic, not a hard counter. This **inverts** the withdrawn r1 "day-trade budget = 0" control, which would have unsafely blocked same-session exits. | **Accepted** — new §10 interaction-rule bullet, stated as superseding every other §10 rule for the exit side. | §10 |
