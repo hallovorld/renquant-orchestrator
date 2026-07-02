@@ -305,11 +305,44 @@ def metric_gate_verdict_age(con, as_of: dt.date) -> dict:
     }
 
 
+def _ledger_session_keys(run_dates) -> "tuple[pd.Series, str]":
+    """Map run_dates to the canonical decision-session key: the last NYSE
+    session at or before the date — the same pure-date rule as
+    renquant-backtesting `analysis/session_resolution.py` (backtesting#60
+    review: weekend/holiday-dated live runs share their preceding session's
+    market realization, so raw row coverage and unique-session admissible
+    coverage must be reported separately).
+
+    Returns (keys, calendar_kind). calendar_kind is 'nyse' when the shared
+    NYSE calendar (pandas_market_calendars) resolved the keys, else
+    'weekday_fallback' (Sat/Sun roll to Friday; weekday holidays are NOT
+    detected — degraded, flagged in the metric detail).
+    """
+    import pandas as pd
+    d = pd.to_datetime(run_dates).dt.normalize()
+    try:
+        import pandas_market_calendars as mcal
+        cal = mcal.get_calendar("NYSE")
+        sessions = pd.DatetimeIndex(cal.valid_days(
+            start_date=(d.min() - pd.Timedelta(days=14)).date(),
+            end_date=(d.max() + pd.Timedelta(days=7)).date(),
+        ))
+        if sessions.tz is not None:
+            sessions = sessions.tz_localize(None)
+        sessions = sessions.normalize()
+        idx = (sessions.searchsorted(d.values, side="right") - 1).clip(min=0)
+        return pd.Series(sessions.values[idx], index=d.index), "nyse"
+    except ImportError:
+        shift = (d.dt.weekday - 4).clip(lower=0)  # Sat -> -1d, Sun -> -2d
+        return d - pd.to_timedelta(shift, unit="D"), "weekday_fallback"
+
+
 def metric_ledger_coverage(con, as_of: dt.date) -> dict:
     import pandas as pd
     cutoff = (as_of - dt.timedelta(days=LEDGER_AGED_CUTOFF_DAYS)).isoformat()
     cov = pd.read_sql(
-        "select p.run_date, tfr.ticker is not null as joined, "
+        "select p.run_date, cs.ticker as ticker, "
+        "       tfr.ticker is not null as joined, "
         "       tfr.fwd_20d is not null as has_fwd20 "
         "from candidate_scores cs "
         "join pipeline_runs p on p.run_id = cs.run_id "
@@ -318,6 +351,18 @@ def metric_ledger_coverage(con, as_of: dt.date) -> dict:
         "where p.run_type='live' and p.run_date <= ?", con, params=(cutoff,))
     if cov.empty:
         raise ValueError(f"no aged live candidate_scores rows (run_date <= {cutoff})")
+    # Admissible view (backtesting#60): weekend/holiday-dated rows resolve
+    # their forward outcome as-of the preceding NYSE session, so they share
+    # ONE market realization with that session's rows. Raw row coverage
+    # measures ledger storage; unique (ticker, session) coverage measures
+    # independent realizations — a cluster counts as covered when any of
+    # its rows joined a non-null fwd_20d.
+    skeys, calendar_kind = _ledger_session_keys(cov["run_date"])
+    cov["session"] = skeys
+    clusters = cov.groupby(["ticker", "session"])["has_fwd20"].max()
+    n_non_session = int(
+        (pd.to_datetime(cov["run_date"]).dt.normalize() != cov["session"]).sum()
+    )
     return {
         "value": round(float(cov["has_fwd20"].mean()) * 100.0, 1),
         "unit": f"% of aged live candidate_scores rows (run_date <= {cutoff}) with a "
@@ -325,6 +370,10 @@ def metric_ledger_coverage(con, as_of: dt.date) -> dict:
         "detail": {
             "n_aged_rows": int(len(cov)),
             "joined_any_pct": round(float(cov["joined"].mean()) * 100.0, 1),
+            "admissible_coverage_pct": round(float(clusters.mean()) * 100.0, 1),
+            "n_unique_ticker_sessions": int(len(clusters)),
+            "n_non_session_rows": n_non_session,
+            "session_calendar": calendar_kind,
             "aged_cutoff_days": LEDGER_AGED_CUTOFF_DAYS,
             "run_date_range": [cov["run_date"].min(), cov["run_date"].max()],
             "extract_sha256": _extract_hash(cov),
@@ -332,8 +381,12 @@ def metric_ledger_coverage(con, as_of: dt.date) -> dict:
         "source": "runs.alpaca.db candidate_scores JOIN pipeline_runs (run_date) "
                   "LEFT JOIN ticker_forward_returns on (as_of_date, ticker)",
         "method": "aged := run_date at least 35 calendar days old (20 trading days for "
-                  "fwd_20d to resolve, plus buffer). Coverage = share of those decision "
-                  "rows whose (run_date, ticker) has a non-null fwd_20d. S5 AC: >=95%.",
+                  "fwd_20d to resolve, plus buffer). Raw coverage = share of those "
+                  "decision rows whose (run_date, ticker) has a non-null fwd_20d. "
+                  "Admissible coverage = share of unique (ticker, NYSE-session) "
+                  "clusters covered, where session = last NYSE session at or before "
+                  "run_date (weekend/holiday rows share their base session's "
+                  "realization — backtesting#60). S5 AC: >=95% on BOTH.",
     }
 
 
@@ -742,7 +795,10 @@ def main() -> None:
                 extra = (f"pp foregone / {m['detail']['n_sessions']} sessions / "
                          f"avg cash {m['detail']['avg_cash_weight_pct']}%")
             elif name == "ledger_coverage":
-                extra = f"% fwd_20d over {m['detail']['n_aged_rows']} aged rows"
+                extra = (f"% fwd_20d raw over {m['detail']['n_aged_rows']} aged rows; "
+                         f"admissible {m['detail']['admissible_coverage_pct']}% over "
+                         f"{m['detail']['n_unique_ticker_sessions']} (ticker, session) "
+                         f"clusters [{m['detail']['session_calendar']}]")
             elif name == "buy_side_decision_tc":
                 extra = (f"(n_measured={m['detail']['n_measured']}, "
                          f"categories={m['detail']['category_counts']})")
