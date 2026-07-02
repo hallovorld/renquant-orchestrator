@@ -14,9 +14,19 @@ rollout). It is **Phase-0/1 control plane only**:
     payload is persisted (``processed_events``), so a coalesced/pending event
     never depends on an external source redelivering it — the very next
     :meth:`AutomationPoller.recover_pending` pass (run from
-    :meth:`AutomationPoller.startup_recover` and/or a periodic poll tick)
-    autonomously claims and drives it once the blocking PR-level lease
-    releases or expires;
+    :meth:`AutomationPoller.startup_recover` at cold start AND from
+    :meth:`AutomationPoller.tick` — the callable a live poller loop calls on
+    every interval, not just at process start) autonomously claims and drives
+    it once the blocking PR-level lease releases or expires;
+  * an **upgrade-safe schema**: opening a SQLite file created by an EARLIER
+    revision of this module — one whose ``work_items``/``processed_events``
+    tables are missing columns this revision writes — idempotently migrates
+    it (:func:`_migrate_schema`, ``ALTER TABLE ... ADD COLUMN``) instead of
+    hard-crashing on the persisted state this control plane exists to
+    recover. A ``processed_events`` row too old to have the full event
+    payload is explicitly flagged ``'legacy_unrecoverable'`` (see
+    :meth:`AutomationPoller._flag_legacy_unrecoverable`) rather than guessed
+    at, silently dropped, or silently treated as done;
   * config-driven repo/PR allowlists and a ``--dry-run`` mode.
 
 What this module deliberately does **NOT** do (explicit follow-ups, per the
@@ -290,12 +300,17 @@ class ClaimResult:
       event (a brand-new claim, or a reclaim of a crashed owner's expired
       processing lease).
     * ``disposition`` — ``"new"`` | ``"reclaimed"`` | ``"applied"`` |
-      ``"in_progress"``. ``"applied"`` is a true duplicate (already fully
-      applied); ``"in_progress"`` means another owner currently holds a LIVE
-      processing lease, so the caller must NOT process it — it will be
-      redelivered and reclaimed once that lease expires. This is what makes two
-      concurrent deliveries at-most-once, not merely coalesced.
-    * ``result_json`` — the recorded terminal action for a duplicate.
+      ``"legacy_unrecoverable"`` | ``"in_progress"``. ``"applied"`` is a true
+      duplicate (already fully applied); ``"legacy_unrecoverable"`` is the
+      same idempotency guarantee (never re-driven) for a row a recovery pass
+      could not reconstruct because it predates the full event payload (see
+      :meth:`StateStore.mark_event_legacy_unrecoverable`); ``"in_progress"``
+      means another owner currently holds a LIVE processing lease, so the
+      caller must NOT process it — it will be redelivered and reclaimed once
+      that lease expires. This is what makes two concurrent deliveries
+      at-most-once, not merely coalesced.
+    * ``result_json`` — the recorded terminal action for a duplicate /
+      legacy-unrecoverable disposition.
     """
 
     proceed: bool
@@ -350,10 +365,21 @@ CREATE TABLE IF NOT EXISTS processed_events (
     kind         TEXT,
     state        TEXT,
     body         TEXT,
-    -- 'processing' = claimed but the state mutation is not yet applied;
-    -- 'applied'    = the driven transition committed. Only 'applied' is a
-    -- true duplicate: a crash mid-flight leaves 'processing', which is
-    -- re-drivable on redelivery (never a silent "duplicate" that loses work).
+    -- 'processing'  = claimed but the state mutation is not yet applied;
+    -- 'applied'     = the driven transition committed. A true duplicate: a
+    -- crash mid-flight leaves 'processing', which is re-drivable on
+    -- redelivery (never a silent "duplicate" that loses work).
+    -- 'legacy_unrecoverable' = set ONLY by :meth:`StateStore.
+    -- mark_event_legacy_unrecoverable` for a row claimed under a schema
+    -- revision that predates review_id/kind/state/body (see
+    -- ``_migrate_schema`` / ``_PROCESSED_EVENTS_MIGRATIONS`` below): those
+    -- columns cannot be backfilled (the data never existed), so the durable-
+    -- inbox recovery pass cannot reconstruct a real :class:`Event` to drive
+    -- and would otherwise have to GUESS. Treated like 'applied' for
+    -- idempotency (never re-driven, never retried every tick) but kept a
+    -- DISTINCT value so an operator auditing the ledger can tell "actually
+    -- driven" apart from "flagged, needs a human" (design §6.3, review: do
+    -- not silently crash or silently drop legacy in-flight state).
     status       TEXT NOT NULL DEFAULT 'processing',
     -- EXCLUSIVE processing claim (design §6.3): the owner that claimed the
     -- event and the lease under which it is being processed. A second delivery
@@ -380,6 +406,85 @@ CREATE TABLE IF NOT EXISTS processed_events (
 _TERMINAL_SQL = ",".join(f"'{s.value}'" for s in TERMINAL_STATES)
 
 
+# ─────────────────────── upgrade-safe schema migration ──────────────────
+#
+# ``CREATE TABLE IF NOT EXISTS`` (in ``_SCHEMA`` above) only creates a table
+# that does not exist AT ALL — it silently does nothing to a table that was
+# already created by an EARLIER revision of this module, even if that
+# revision's shape is missing columns the CURRENT code writes. Opening such
+# a database (this control plane's whole reason to exist: recovering
+# persisted state across a restart / redeploy) would otherwise fail hard the
+# first time :meth:`StateStore.claim_event` INSERTs a row naming a column
+# that revision never had (``sqlite3.OperationalError: no column named
+# review_id``) — on exactly the durable state a crash/redeploy is meant to
+# recover.
+#
+# Every column ever added to these two tables AFTER their initial
+# ``CREATE TABLE`` is listed below in introduction order, each with a type
+# SQLite's ``ALTER TABLE ... ADD COLUMN`` can legally add to an existing
+# table (nullable, or ``NOT NULL`` with a constant ``DEFAULT`` — SQLite
+# cannot add a ``NOT NULL`` column without one). ``_migrate_schema``
+# introspects ``PRAGMA table_info`` and only adds what is actually missing,
+# so it is a true no-op against a database already at the current schema
+# (including a brand-new one, where ``_SCHEMA`` just created every column
+# already) — safe to run unconditionally on every open.
+_WORK_ITEMS_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    # pre-fence/cancel revision (059c5652) → 47c83e69: monotonic lease
+    # fencing + durable cancellation-request flag.
+    ("fence", "INTEGER NOT NULL DEFAULT 0"),
+    ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
+)
+_PROCESSED_EVENTS_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    # bare "seen" marker (059c5652) → 47c83e69: claim/apply ledger. A row
+    # that predates this column was, under THAT revision's own semantics
+    # (``record_event`` / ``event_seen``), fully recorded the instant it was
+    # inserted — there was no separate in-flight "processing" concept at
+    # all — so backfilling it as already 'applied' is not a guess, it is
+    # that revision's actual meaning. This is what makes an already-applied
+    # legacy row still correctly recognized as a duplicate/no-op after
+    # migration (never re-driven, never a hard crash).
+    ("status", "TEXT NOT NULL DEFAULT 'applied'"),
+    ("applied_at", "REAL"),
+    # 47c83e69 → b6b7c03f: exclusive processing claim (owner + lease) and
+    # the recorded terminal result for a true duplicate.
+    ("owner", "TEXT"),
+    ("lease_expiry", "REAL"),
+    ("result_json", "TEXT"),
+    # b6b7c03f → 945ce844 ("durable inbox" round, PR #214 review): the FULL
+    # event payload, so a recovery pass never depends on external
+    # redelivery. THESE FOUR ARE THE ONES THE REVIEW FLAGGED: a row still
+    # 'processing' when it was written under a revision that lacked them
+    # cannot be backfilled (the data never existed) — see
+    # ``AutomationPoller._flag_legacy_unrecoverable`` for the fail-closed
+    # disposition applied to that specific case.
+    ("review_id", "TEXT"),
+    ("kind", "TEXT"),
+    ("state", "TEXT"),
+    ("body", "TEXT"),
+)
+
+
+def _migrate_schema(db: sqlite3.Connection) -> None:
+    """Idempotently bring an EXISTING sqlite file up to the current schema.
+
+    Safe to call on every :class:`StateStore` open: a database already at
+    the current schema (including a freshly created one) has nothing missing
+    and this is a no-op; a database created by an earlier revision gets
+    exactly its missing columns added via ``ALTER TABLE ... ADD COLUMN``,
+    never a drop or rewrite of existing rows.
+    """
+    for table, migrations in (
+        ("work_items", _WORK_ITEMS_MIGRATIONS),
+        ("processed_events", _PROCESSED_EVENTS_MIGRATIONS),
+    ):
+        existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        if not existing:
+            continue  # table doesn't exist yet; _SCHEMA's CREATE TABLE handles it
+        for column, ddl in migrations:
+            if column not in existing:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 class StateStore:
     """Single-owner atomic SQLite state/lease store (design §6).
 
@@ -402,6 +507,12 @@ class StateStore:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA busy_timeout = 5000")
         self._db.executescript(_SCHEMA)
+        # Upgrade-safety (design §6.3, review): CREATE TABLE IF NOT EXISTS
+        # above does nothing to a table an EARLIER revision already created
+        # with fewer columns — this brings it up to date before anything
+        # else touches it. See ``_migrate_schema`` for why this must run
+        # unconditionally (it is a no-op on an up-to-date / brand-new db).
+        _migrate_schema(self._db)
 
     def close(self) -> None:
         self._db.close()
@@ -463,6 +574,15 @@ class StateStore:
             ``proceed=True`` (``"new"``);
           * already ``applied`` → a true duplicate → ``proceed=False``
             (``"applied"``), carrying the recorded terminal action;
+          * already ``legacy_unrecoverable`` (set by :meth:`mark_event_
+            legacy_unrecoverable` — a durable-inbox row claimed under a
+            schema revision that predates the full event payload, so a
+            recovery pass could not reconstruct it — see
+            ``AutomationPoller._flag_legacy_unrecoverable``) → treated the
+            SAME as a true duplicate for idempotency (never re-driven, never
+            retried), but returned under its OWN distinct ``proceed=False``
+            (``"legacy_unrecoverable"``) so a caller/operator can tell it
+            apart from an event that actually ran;
           * ``processing`` with a LIVE lease held by ANOTHER owner → a
             concurrent worker is mid-flight → ``proceed=False``
             (``"in_progress"``): the caller must NOT process it (that is what
@@ -499,8 +619,8 @@ class StateStore:
                 "WHERE event_id=?",
                 (event.event_id,),
             ).fetchone()
-            if row is not None and row["status"] == "applied":
-                return ClaimResult(False, "applied", result_json=row["result_json"])
+            if row is not None and row["status"] in ("applied", "legacy_unrecoverable"):
+                return ClaimResult(False, row["status"], result_json=row["result_json"])
             # Still 'processing': reclaim iff the prior processing lease has
             # expired (crashed owner) OR it is already held by THIS owner (our
             # own crash / immediate redelivery). A LIVE lease held by a DIFFERENT
@@ -538,6 +658,36 @@ class StateStore:
             (now, result_json, event_id),
         )
 
+    def mark_event_legacy_unrecoverable(
+        self, event_id: str, result_json: Optional[str] = None
+    ) -> None:
+        """Fail-closed terminal disposition for a durable-inbox row whose
+        payload predates the full-event columns (design §6.3, review: a
+        pre-"durable inbox" ``processing`` row, after :func:`_migrate_schema`
+        adds ``review_id``/``kind``/``state``/``body`` with no data to
+        backfill them from, cannot be reconstructed into a real
+        :class:`Event` — driving it would be a GUESS, not a recovery).
+
+        Set ONLY by :meth:`AutomationPoller._flag_legacy_unrecoverable`
+        instead of :meth:`mark_event_applied`, so the ledger keeps this
+        DISTINCT from a row that was actually driven — an operator auditing
+        ``processed_events`` can tell "ran" apart from "flagged, needs a
+        human" — while still guaranteeing (via :meth:`claim_event` treating
+        this status the same as ``'applied'``) that it is never silently
+        retried on every future recovery tick, and never re-attempted with
+        guessed data on redelivery either. Only transitions a row that is
+        still ``'processing'`` (idempotent under a race with another
+        recovery pass reaching the same row).
+        """
+        now = self._clock()
+        self._db.execute(
+            "UPDATE processed_events SET status='legacy_unrecoverable', "
+            "applied_at=COALESCE(applied_at, ?), result_json=COALESCE(result_json, ?), "
+            "owner=NULL, lease_expiry=NULL "
+            "WHERE event_id=? AND status='processing'",
+            (now, result_json, event_id),
+        )
+
     def event_seen(self, event_id: str) -> bool:
         cur = self._db.execute(
             "SELECT 1 FROM processed_events WHERE event_id=?", (event_id,)
@@ -547,6 +697,17 @@ class StateStore:
     def event_applied(self, event_id: str) -> bool:
         cur = self._db.execute(
             "SELECT 1 FROM processed_events WHERE event_id=? AND status='applied'",
+            (event_id,),
+        )
+        return cur.fetchone() is not None
+
+    def event_legacy_unrecoverable(self, event_id: str) -> bool:
+        """True iff this event id was flagged fail-closed by
+        :meth:`mark_event_legacy_unrecoverable` — a distinct terminal status
+        from ``'applied'`` (see that method's docstring)."""
+        cur = self._db.execute(
+            "SELECT 1 FROM processed_events WHERE event_id=? "
+            "AND status='legacy_unrecoverable'",
             (event_id,),
         )
         return cur.fetchone() is not None
@@ -1071,6 +1232,24 @@ class StateStore:
         cur = self._db.execute("SELECT * FROM work_items ORDER BY created_at, pr_number")
         return [dict(r) for r in cur]
 
+    def event_row(self, event_id: str) -> Optional[dict]:
+        """Return the full ``processed_events`` ledger row (observability /
+        migration test assertions), or ``None`` if this event id was never
+        seen."""
+        cur = self._db.execute(
+            "SELECT * FROM processed_events WHERE event_id=?", (event_id,)
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def table_columns(self, table: str) -> set[str]:
+        """Column names currently present on ``table`` (observability /
+        migration test assertions) — introspects ``PRAGMA table_info``
+        directly, so a test can verify :func:`_migrate_schema` actually ran
+        against the real on-disk table rather than assuming the in-code
+        ``_SCHEMA`` string."""
+        return {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})")}
+
 
 # ─────────────────────── stubbed sandbox executor ───────────────────────
 
@@ -1372,13 +1551,19 @@ class AutomationPoller:
         """
         claim = self.store.claim_event(event, claim_owner, self.config.lease_ttl_seconds)
         if not claim.proceed:
-            if claim.disposition == "applied":
-                detail = "event id already applied"
+            if claim.disposition in ("applied", "legacy_unrecoverable"):
+                detail = f"event id already {claim.disposition}"
                 recorded = self._recorded_outcome(claim.result_json)
                 if recorded:
                     detail += f" (recorded outcome: {recorded})"
-                return Action(event.event_id, event.repo, event.pr_number,
-                              "duplicate", detail)
+                # A redelivery of an id already flagged legacy_unrecoverable
+                # must NOT be silently reported as an ordinary "duplicate" —
+                # that would hide that it was never actually driven. Keep the
+                # distinct outcome so a redelivery still surfaces the same
+                # "needs a human" signal every time (see :meth:`StateStore.
+                # mark_event_legacy_unrecoverable`).
+                outcome = "duplicate" if claim.disposition == "applied" else "legacy_unrecoverable"
+                return Action(event.event_id, event.repo, event.pr_number, outcome, detail)
             # a DIFFERENT claimant holds a live processing lease — do NOT
             # double drive; it will be reclaimed once that lease is released
             # or expires (by a later delivery, OR autonomously by the next
@@ -1495,7 +1680,8 @@ class AutomationPoller:
           execution AUTONOMOUS instead of dependent on an external
           redelivery (design §6.3, review: durable inbox + recovery/poll
           loop): the very next :meth:`recover_pending` pass — run from
-          :meth:`startup_recover` and/or a periodic poll tick — scans the
+          :meth:`startup_recover` at cold start and/or :meth:`tick` on a live
+          poller's ongoing interval — scans the
           durable inbox (:meth:`StateStore.list_processing_events`, which
           carries the FULL event payload, not just a marker), reclaims this
           event under its OWN distinct claim owner
@@ -1664,6 +1850,45 @@ class AutomationPoller:
         """
         return f"{self.config.owner}::recovery"
 
+    def _flag_legacy_unrecoverable(self, row: dict) -> Action:
+        """Fail-closed disposition for a durable-inbox row claimed under a
+        schema revision that predates the full event payload (design §6.3,
+        review: not upgrade-safe — ``processed_events`` created by an
+        EARLIER revision lacks ``review_id``/``kind``/``state``/``body``, and
+        :func:`_migrate_schema` can only ADD those columns as ``NULL`` for
+        pre-existing rows, never backfill data that was never persisted).
+
+        A ``kind IS NULL`` row (the signal :meth:`recover_pending` uses to
+        route here — those four columns were introduced together, see
+        ``_PROCESSED_EVENTS_MIGRATIONS``) cannot be reconstructed into a real
+        :class:`Event`: we do not know whether it was a review or a comment,
+        what state a review carried, or its body. Autonomously driving it
+        would mean GUESSING at review semantics, which is worse than doing
+        nothing. So this does NOT call :meth:`_claim_and_process` /
+        :meth:`_process_claimed` at all — it never touches the associated
+        work-item row (which this legacy ledger shape cannot even fully key,
+        since it also predates ``review_id`` — see :class:`WorkKey`) — and
+        instead durably flags the LEDGER row via :meth:`StateStore.
+        mark_event_legacy_unrecoverable`, which is treated the same as
+        ``'applied'`` by :meth:`StateStore.claim_event` (never retried on the
+        next tick, never silently re-attempted with guessed data on a genuine
+        redelivery), while remaining a DISTINCT status an operator can find
+        and act on (``processed_events.status = 'legacy_unrecoverable'``).
+        """
+        action = Action(
+            str(row["event_id"]), str(row["repo"]), int(row["pr_number"]),
+            "legacy_unrecoverable",
+            "processed_events row predates the durable full-payload columns "
+            "(review_id/kind/state/body all NULL after schema migration) — "
+            "claimed under an earlier code revision; cannot be autonomously "
+            "reconstructed without guessing, so it is flagged for manual "
+            "review instead of being driven or silently dropped",
+        )
+        self.store.mark_event_legacy_unrecoverable(
+            str(row["event_id"]), self._result_json(action)
+        )
+        return action
+
     def recover_pending(self) -> list[Action]:
         """Durable-inbox recovery/poll pass (design §6.3, review: no external
         redelivery may ever be REQUIRED for an event to eventually execute).
@@ -1681,23 +1906,60 @@ class AutomationPoller:
             and whose own event-claim was left immediately reclaimable by
             :meth:`_handle_lease_contention` (:meth:`StateStore.
             expire_processing_claim`), is claimed and driven RIGHT HERE —
-            autonomously, with no external redelivery involved at all.
+            autonomously, with no external redelivery involved at all;
+          * a row claimed under a schema revision predating the full event
+            payload (``kind IS NULL`` — see ``_migrate_schema`` / review: not
+            upgrade-safe) can never be reconstructed and driven — it is
+            instead flagged fail-closed by :meth:`_flag_legacy_unrecoverable`
+            rather than guessed at, silently dropped, or hard-crashed on.
 
         Call this from :meth:`startup_recover` (cold-start catch-up) AND from
-        a periodic poll tick in a live poller loop (so a coalesced event that
-        unblocks between ticks, without the process ever restarting, is still
-        picked up promptly rather than waiting out its own claim TTL).
+        :meth:`tick` — a periodic poll tick in a live poller loop — so a
+        coalesced event that unblocks between ticks, without the process ever
+        restarting, is still picked up promptly rather than waiting out its
+        own claim TTL.
         """
         owner = self._recovery_owner()
         actions: list[Action] = []
         for row in self.store.list_processing_events():
-            event = _event_from_inbox_row(row)
-            if not self.config.is_tracked(event.repo, event.pr_number):
+            if not self.config.is_tracked(str(row["repo"]), int(row["pr_number"])):
                 # allowlist shrank since this event was claimed — leave it be,
                 # do not silently execute work outside the current allowlist.
                 continue
+            if row["kind"] is None:
+                actions.append(self._flag_legacy_unrecoverable(row))
+                continue
+            event = _event_from_inbox_row(row)
             actions.append(self._claim_and_process(event, owner))
         return actions
+
+    def tick(self) -> list[Action]:
+        """One periodic-loop iteration a LIVE, staying-up poller process
+        calls repeatedly (design §6.3, review: "wire recover_pending into an
+        actual periodic tick before claiming long-lived autonomous recovery;
+        startup-only invocation is insufficient for coalescing that resolves
+        while the process stays up").
+
+        :meth:`startup_recover` alone only catches a coalesced/blocked event
+        at COLD START. Without this, a coalesced event whose blocker clears
+        WHILE the process keeps running (no restart) has no mechanism to be
+        picked up until the next restart — exactly the gap the review
+        flagged. ``tick`` is the callable a live poller's main loop wires
+        :meth:`recover_pending` into so that case is covered too, every
+        interval, without a restart.
+
+        This is the durable-inbox recovery half of a live loop's per-tick
+        work only; a real live poller would also, each tick, ingest any
+        newly-arrived review/comment events (not implemented in this PR — no
+        live GitHub polling loop exists yet, see the module docstring).
+        Actually invoking ``tick`` on a schedule (cron, a systemd timer, an
+        asyncio/threading loop with a sleep interval, …) is a deployment
+        concern outside this PR's scope; what this PR guarantees is that the
+        CALLABLE tick mechanism itself exists, is idempotent/safe to call
+        repeatedly (including with nothing pending — a no-op empty list),
+        and actually performs the recovery pass the review requires.
+        """
+        return self.recover_pending()
 
     def startup_recover(
         self, *, ground_truth: Optional[Callable[[WorkKey], bool]] = None

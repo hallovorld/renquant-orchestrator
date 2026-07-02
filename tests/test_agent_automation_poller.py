@@ -15,6 +15,8 @@ network — the FIXING executor is stubbed and never runs untrusted code.
 """
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from renquant_orchestrator.agent_automation_poller import (
@@ -1316,6 +1318,361 @@ def test_startup_recover_hard_terminates_uncooperative_runs():
     poller.startup_recover()
     assert key in hook.terminated                       # hard-kill obligation surfaced
     assert store.get_row(key)["lease_owner"] is None    # dangling lease then swept
+
+
+# ─────────── upgrade-safe schema migration (PR #214 review) ─────────────
+#
+# CREATE TABLE IF NOT EXISTS (in _SCHEMA) does nothing to a table an EARLIER
+# revision of this module already created with fewer columns. These tests
+# open a db file built with the PRE-"durable inbox" processed_events shape
+# (git rev b6b7c03f / 2074eccd: has status/owner/lease_expiry/result_json/
+# applied_at, but NOT review_id/kind/state/body — those four were added
+# together by the "durable inbox" round, git rev 945ce844) — exactly the
+# "database created with the PREVIOUS schema" scenario the review asks to be
+# tested, and verify claim_event's INSERT (which names all current columns)
+# does not hard-fail with "no column named review_id" on it.
+
+
+def _write_pre_durable_inbox_db(path: str) -> None:
+    """Build a db file with the processed_events shape from BEFORE the
+    "durable inbox" round (git rev b6b7c03f / 2074eccd) — the exact prior
+    schema PR #214's review flagged as unreadable by the current claim_event
+    INSERT."""
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE work_items (
+            repo         TEXT    NOT NULL,
+            pr_number    INTEGER NOT NULL,
+            head_sha     TEXT    NOT NULL,
+            review_id    TEXT    NOT NULL,
+            state        TEXT    NOT NULL,
+            lease_owner  TEXT,
+            lease_expiry REAL,
+            fence        INTEGER NOT NULL DEFAULT 0,
+            attempt      INTEGER NOT NULL DEFAULT 0,
+            last_event_id TEXT,
+            superseded   INTEGER NOT NULL DEFAULT 0,
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            pending_rerun INTEGER NOT NULL DEFAULT 0,
+            created_at   REAL    NOT NULL,
+            updated_at   REAL    NOT NULL,
+            PRIMARY KEY (repo, pr_number, head_sha, review_id)
+        );
+        CREATE TABLE processed_events (
+            event_id     TEXT PRIMARY KEY,
+            repo         TEXT NOT NULL,
+            pr_number    INTEGER NOT NULL,
+            head_sha     TEXT,
+            status       TEXT NOT NULL DEFAULT 'processing',
+            owner        TEXT,
+            lease_expiry REAL,
+            result_json  TEXT,
+            processed_at REAL NOT NULL,
+            applied_at   REAL
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def _write_oldest_v1_db(path: str) -> None:
+    """Build a db file with the ORIGINAL processed_events shape (git rev
+    059c5652, before ANY of status/owner/lease_expiry/result_json/
+    applied_at/review_id/kind/state/body existed — a bare "seen" marker) and
+    the original work_items shape (before fence/cancel_requested). Proves the
+    migration is not special-cased to just the immediately-prior revision."""
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE work_items (
+            repo         TEXT    NOT NULL,
+            pr_number    INTEGER NOT NULL,
+            head_sha     TEXT    NOT NULL,
+            review_id    TEXT    NOT NULL,
+            state        TEXT    NOT NULL,
+            lease_owner  TEXT,
+            lease_expiry REAL,
+            attempt      INTEGER NOT NULL DEFAULT 0,
+            last_event_id TEXT,
+            superseded   INTEGER NOT NULL DEFAULT 0,
+            pending_rerun INTEGER NOT NULL DEFAULT 0,
+            created_at   REAL    NOT NULL,
+            updated_at   REAL    NOT NULL,
+            PRIMARY KEY (repo, pr_number, head_sha, review_id)
+        );
+        CREATE TABLE processed_events (
+            event_id     TEXT PRIMARY KEY,
+            repo         TEXT NOT NULL,
+            pr_number    INTEGER NOT NULL,
+            head_sha     TEXT,
+            processed_at REAL NOT NULL
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_migration_adds_missing_columns_without_dropping_existing_rows(tmp_path):
+    """Opening a db built with the pre-'durable inbox' schema must not raise,
+    must add exactly the missing columns, and must not touch the row already
+    there."""
+    db = str(tmp_path / "legacy.db")
+    _write_pre_durable_inbox_db(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO processed_events "
+        "(event_id, repo, pr_number, head_sha, status, result_json, processed_at, applied_at) "
+        "VALUES ('evt-legacy-1','hallovorld/renquant-orchestrator',42,'sha-a',"
+        "'applied','{\"outcome\": \"escalated\"}', 1000.0, 1000.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    store = StateStore(db)  # must NOT raise "no column named review_id"
+    cols = store.table_columns("processed_events")
+    assert {"review_id", "kind", "state", "body"} <= cols
+    seen = store.event_row("evt-legacy-1")
+    assert seen["status"] == "applied"                 # existing row untouched
+    assert seen["result_json"] == '{"outcome": "escalated"}'
+    assert seen["review_id"] is None                    # added, NULL (never guessed)
+    assert seen["kind"] is None
+    store.close()
+
+
+def test_migration_handles_oldest_v1_schema_too(tmp_path):
+    """The introspection-based migration is not special-cased to just the
+    immediately-prior revision: it also opens the ORIGINAL (git rev
+    059c5652) shape cleanly, and a v1 "seen" row is correctly treated as
+    already-applied (matching v1's own semantics: presence = fully
+    recorded, there was no separate in-flight concept at all)."""
+    db = str(tmp_path / "v1-legacy.db")
+    _write_oldest_v1_db(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO processed_events (event_id, repo, pr_number, head_sha, processed_at) "
+        "VALUES ('evt-v1-1','hallovorld/renquant-orchestrator',42,'sha-a', 1000.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    store = StateStore(db)  # must NOT raise on the even-older shape either
+    cols = store.table_columns("processed_events")
+    assert {"status", "owner", "lease_expiry", "result_json", "applied_at",
+            "review_id", "kind", "state", "body"} <= cols
+    wi_cols = store.table_columns("work_items")
+    assert {"fence", "cancel_requested"} <= wi_cols
+
+    assert store.event_seen("evt-v1-1") is True
+    assert store.event_applied("evt-v1-1") is True       # backfilled 'applied'
+    evt = _event(event_id="evt-v1-1")
+    dup = store.claim_event(evt, owner="poller-1", ttl=100.0)
+    assert dup.proceed is False and dup.disposition == "applied"
+    store.close()
+
+
+def test_legacy_applied_row_remains_a_recognized_duplicate_after_migration(tmp_path):
+    """Review requirement (a): an already-'applied' row from the PREVIOUS
+    schema must remain correctly recognized as a duplicate/no-op — never
+    re-driven, never crashing — after the migration runs."""
+    db = str(tmp_path / "legacy-applied.db")
+    _write_pre_durable_inbox_db(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO processed_events "
+        "(event_id, repo, pr_number, head_sha, status, result_json, processed_at, applied_at) "
+        "VALUES ('evt-applied-1','hallovorld/renquant-orchestrator',42,'sha-a',"
+        "'applied','{\"outcome\": \"merge_eligible\", \"detail\": \"approved\"}', 1000.0, 1000.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    store = StateStore(db)
+    poller = AutomationPoller(_config(), store)
+    # a genuine redelivery of the SAME event id — must be a true duplicate,
+    # not an attempt to re-drive it (which would crash: this legacy row has
+    # no review_id/kind/state/body to reconstruct anyway).
+    redelivered = _event(event_id="evt-applied-1", head_sha="sha-a")
+    action = poller.ingest(redelivered)
+    assert action.outcome == "duplicate"
+    assert "merge_eligible" in action.detail
+    # no work item was created/mutated by the duplicate redelivery
+    assert store.snapshot() == []
+    store.close()
+
+
+def test_legacy_processing_row_is_flagged_fail_closed_not_guessed_or_dropped(tmp_path):
+    """Review requirement (b): a row still 'processing' under the PREVIOUS
+    schema (a genuine crash mid-flight, before review_id/kind/state/body
+    existed) cannot be autonomously reconstructed — it must get a
+    WELL-DEFINED fail-closed disposition, never silently dropped (i.e. never
+    just disappear) and never silently guessed at (i.e. never driven as if
+    it were a real reconstructed Event)."""
+    db = str(tmp_path / "legacy-processing.db")
+    _write_pre_durable_inbox_db(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO processed_events "
+        "(event_id, repo, pr_number, head_sha, status, owner, lease_expiry, processed_at) "
+        "VALUES ('evt-stuck-1','hallovorld/renquant-orchestrator',42,'sha-a',"
+        "'processing','dead-legacy-owner', 500.0, 400.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    clock = FakeClock(start=2_000.0)  # well past the legacy lease_expiry=500.0
+    store = StateStore(db, clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    # no work item exists for this legacy ledger row (review_id was never
+    # persisted under the old schema, so it can't even be located) — the
+    # recovery pass must not crash trying to touch one.
+    actions = poller.recover_pending()
+    flagged = [a for a in actions if a.event_id == "evt-stuck-1"]
+    assert len(flagged) == 1
+    assert flagged[0].outcome == "legacy_unrecoverable"
+    assert "manual review" in flagged[0].detail
+
+    # durably terminal: never re-appears in the durable inbox scan again...
+    assert store.list_processing_events() == []
+    # ...distinct from a true 'applied' duplicate (never conflated)...
+    assert store.event_applied("evt-stuck-1") is False
+    assert store.event_legacy_unrecoverable("evt-stuck-1") is True
+    # ...and a SECOND recovery tick is a stable no-op, not a repeat flag/spam.
+    assert poller.recover_pending() == []
+
+    # if a genuine external redelivery ever did arrive for this id, it must
+    # see the SAME fail-closed signal — never re-attempt with guessed data,
+    # never a plain silent "duplicate" that hides it was never actually run.
+    redelivered = _event(event_id="evt-stuck-1", head_sha="sha-a")
+    late = poller.ingest(redelivered)
+    assert late.outcome == "legacy_unrecoverable"
+    store.close()
+
+
+def test_new_events_after_migration_recover_autonomously_via_full_payload(tmp_path):
+    """Review requirement (c): a database migrated up from the PREVIOUS
+    schema must, for a NEW event ingested afterwards, still deliver the full
+    durable-inbox autonomous-recovery behaviour (design §6.3) — no
+    degradation from having been opened against a legacy file."""
+    db = str(tmp_path / "legacy-then-new.db")
+    _write_pre_durable_inbox_db(db)
+    # an unrelated legacy applied row, just to prove migration + new activity
+    # coexist in the same migrated file.
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO processed_events "
+        "(event_id, repo, pr_number, head_sha, status, processed_at, applied_at) "
+        "VALUES ('evt-old','hallovorld/renquant-orchestrator',1,'sha-x','applied', 1.0, 1.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    clock = FakeClock()
+    store = StateStore(db, clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    evt_a = _event(event_id="evt-new-a", head_sha="sha-a", review_id="rev-new-a",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-new-b", head_sha="sha-a", review_id="rev-new-b",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    key_b = evt_b.row_key
+
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+
+    # B coalesces behind A — claimed with its FULL payload under the NOW-
+    # CURRENT schema (the migrated file has every column claim_event needs).
+    b_first = poller.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+    inbox = {r["event_id"]: r for r in store.list_processing_events()}
+    assert inbox["evt-new-b"]["kind"] == "review"
+    assert inbox["evt-new-b"]["state"] == "CHANGES_REQUESTED"
+
+    # A completes normally; NO external redelivery of B ever happens.
+    store.transition(key_a, State.AWAIT_REVIEW, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+    assert store.release(key_a, poller.config.owner, fence=acq_a.fence) is True
+
+    recovered = poller.tick()
+    recovered_b = [a for a in recovered if a.event_id == "evt-new-b"]
+    assert len(recovered_b) == 1
+    assert recovered_b[0].outcome == "escalated"
+    assert store.event_applied("evt-new-b") is True
+    assert store.get_state(key_b) == State.ESCALATED
+    store.close()
+
+
+# ───────────────────── periodic tick (PR #214 review) ────────────────────
+
+
+def test_tick_autonomously_completes_coalesced_event_without_process_restart():
+    """Review point 2: 'wire recover_pending into an actual periodic tick
+    before claiming long-lived autonomous recovery; startup-only invocation
+    is insufficient for coalescing that resolves while the process stays
+    up.' A coalesced event whose blocker clears WHILE the process keeps
+    running (no restart, so startup_recover never runs again) must still be
+    picked up — via the repeatedly-callable AutomationPoller.tick(), not
+    just recover_pending() called ad hoc by a test."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    evt_a = _event(event_id="evt-a9", head_sha="sha-a", review_id="rev-a9",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b9", head_sha="sha-a", review_id="rev-b9",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    key_b = evt_b.row_key
+
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+
+    b_first = poller.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+
+    # A plain tick BEFORE A's lease clears still finds A's lease live, so B
+    # stays coalesced (not driven) — ticking is safe to call even when there
+    # is genuinely nothing recoverable yet.
+    still_blocked = poller.tick()
+    assert [a.outcome for a in still_blocked] == ["coalesced"]
+    assert store.event_applied("evt-b9") is False
+
+    # A completes normally — no crash, no restart, the process just keeps
+    # running (nothing calls startup_recover again).
+    store.transition(key_a, State.AWAIT_REVIEW, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+    assert store.release(key_a, poller.config.owner, fence=acq_a.fence) is True
+
+    actions = poller.tick()
+    recovered_b = [a for a in actions if a.event_id == "evt-b9"]
+    assert len(recovered_b) == 1
+    assert recovered_b[0].outcome == "escalated"
+    assert store.event_applied("evt-b9") is True
+    assert store.get_state(key_b) == State.ESCALATED
+
+    # a subsequent tick is a stable no-op — never re-drives a finished event.
+    assert poller.tick() == []
+
+
+def test_tick_is_a_safe_noop_with_nothing_pending():
+    """A live loop calls tick() every interval regardless of whether
+    anything is actually pending; it must never raise and must be a true
+    no-op (no phantom actions, no mutation) when the durable inbox is
+    empty."""
+    store = StateStore(clock=FakeClock())
+    poller = AutomationPoller(_config(), store)
+    assert poller.tick() == []
+    assert store.snapshot() == []
 
 
 # ─────────────────────────── replay harness ─────────────────────────────
