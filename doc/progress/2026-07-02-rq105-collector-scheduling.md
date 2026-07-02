@@ -2,7 +2,24 @@
 
 STATUS:   ops scaffolding for review (repo files only — nothing is installed or executed by this
           PR; installation is the landing step, per the direction-advancement loop's charter).
-REVISION: r2 (2026-07-02) — Codex review round 1: fixed an invalid `Hour=25` on the quote-logger
+REVISION: r3 (2026-07-02) — Codex review round 2: the code was correct but the DOCUMENTED
+          activation contract still contradicted #229's own dependency DAG (README instructed
+          bootstrapping all jobs immediately; the N1 AC section started the live 3-session clock
+          unconditionally; NEXT told the operator to just install it). Made the repo artifact
+          itself unambiguously N1a/N1b split: (1) new `ops/renquant105/check_activation_prereqs.py`
+          — a mechanical (non-cryptographic, heuristic RFC-text-marker) guard that refuses with a
+          non-zero exit + explicit error if #224 (broker envelope) and #227 (measurement pins)
+          haven't both landed on the checked-out RFC; (2) README rewritten into two clearly
+          labeled sections — N1a (plist validation, log-dir creation, test suite — safe now, no
+          gate) vs. N1b (the actual `launchctl bootstrap` step, prefixed by a MANDATORY guard-check
+          command, explicitly labeled "DO NOT RUN until #224 and #227 have both merged"); (3)
+          Acceptance section split the same way — N1a acceptance (tests/plist-parsing/dry-run
+          calendar check) is gradeable now, N1b acceptance (the 3-live-session clock, #231 §1)
+          explicitly states it has NOT started and starts only once N1b is actually activated; (4)
+          `check_activation_prereqs.py` verified against the real repo state (correctly REFUSES —
+          #224/#227 are still open as of this round) and covered by 7 new tests (missing-both,
+          missing-224-only, missing-227-only, both-present, RFC-file-missing, main() refuse/pass
+          exit codes) — 23/23 total pass. Prior: r2 (2026-07-02) — Codex review round 1: fixed an invalid `Hour=25` on the quote-logger
           plist (never a valid launchd hour) and two wrong times (postclose 15:15→13:15,
           liveness 00:00→14:00, all PT); replaced the liveness check's bare-weekday session gate
           with the REAL NYSE exchange calendar (`intraday_quote_logger.default_session_calendar`,
@@ -57,20 +74,19 @@ EVIDENCE: collectors verified present on origin/main with argparse CLIs and inte
                           calendar primitive already proven in production by
                           intraday_quote_logger/preopen_cancel_gate rather than introducing a
                           second, divergent holiday-handling implementation
-          scope:         this is ops/renquant105/rq105_liveness_check.py + 3 plists, round 2 of
-                          #232, vs round 1's baseline (Hour=25 invalid, 15:15/00:00 wrong,
-                          weekday-only gate, glob-based check) — 16/16 new tests pass, all 3
-                          plists parse with valid 0-23 hours matching the documented 06:25/
-                          13:15/14:00 PT schedule, real end-to-end run against the actual
-                          pandas_market_calendars NYSE calendar confirms today correctly reads
-                          as a session day
+          scope:         this is ops/renquant105/{rq105_liveness_check.py,
+                          check_activation_prereqs.py} + 3 plists + README, round 3 of #232, vs
+                          round 2's baseline (correct schedule/holiday-gate/output-check code, but
+                          a documented activation path that still let an operator bootstrap live
+                          jobs before #224/#227 land) — 23/23 tests pass (16 round-2 + 7 new for
+                          the activation guard); `check_activation_prereqs.py` run directly against
+                          this worktree's real `main` checkout correctly REFUSES (exit 1) since
+                          #224/#227 are still open PRs as of this round
           ```
-NEXT:     Codex review; operator/lander runs the README install (now 4 steps: pin checkout,
-          create log dirs, bootstrap the 3 jobs, smoke-test); N1 AC clock starts at first
-          session with all three outputs present; follow-up PR wires the batch-scores export
-          so the fourth collector (shadow serving) can be scheduled. Separately: a parallel
-          fix to #229 (H2 execution roadmap, in flight this session) marks actual
-          installation/activation of this package as BLOCKED pending #224 (broker envelope)
-          and #227 (measurement pins) landing first, to avoid a retroactively-dirty pilot
-          corpus — this PR's own scope (fixing the scheduling/liveness code) is unaffected by
-          that gate, only the INSTALL step is.
+NEXT:     Codex review. Once #224 AND #227 both merge to main: operator/lander runs N1a (install +
+          validate, already safe) then re-checks `check_activation_prereqs.py` (should now exit 0)
+          before running N1b (actual `launchctl bootstrap`); N1 AC's live 3-session clock starts
+          only at that point, not at install time. Follow-up PR wires the batch-scores export so
+          the fourth collector (shadow serving) can be scheduled. This round's fix makes that
+          blocked-until-#224/#227 dependency mechanically enforced by this PR's own artifact
+          (the guard script), not just documented in the parallel #229 roadmap fix.

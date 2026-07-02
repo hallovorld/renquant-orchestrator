@@ -18,6 +18,7 @@ OPS_DIR = REPO / "ops" / "renquant105"
 sys.path.insert(0, str(OPS_DIR))
 
 import rq105_liveness_check as liveness  # noqa: E402
+import check_activation_prereqs as prereqs  # noqa: E402
 
 
 # ─────────────────────────── plist schedule checks ───────────────────────────
@@ -178,3 +179,89 @@ def test_last_jsonl_row_reads_the_final_line_of_a_multiline_file(tmp_path):
 
 def test_last_jsonl_row_none_for_missing_file():
     assert liveness._last_jsonl_row("/nonexistent/path/x.jsonl") is None
+
+
+# ─────────────────────── N1b activation guard (#232 review r2) ───────────────
+
+
+def _write_rfc(tmp_path: Path, body: str) -> Path:
+    doc_dir = tmp_path / "doc" / "design"
+    doc_dir.mkdir(parents=True)
+    rfc = doc_dir / "2026-06-30-renquant105-intraday-decisioning-architecture.md"
+    rfc.write_text(body)
+    return tmp_path
+
+
+def test_activation_guard_refuses_when_both_prereqs_missing(tmp_path):
+    repo_root = _write_rfc(tmp_path, "REVISION: r12 (2026-06-30) — rollout-boundary fix.")
+    ok, missing = prereqs.check_prereqs(repo_root)
+    assert ok is False
+    assert len(missing) == 2
+
+
+def test_activation_guard_refuses_when_only_224_landed(tmp_path):
+    repo_root = _write_rfc(
+        tmp_path,
+        "REVISION: r13 (2026-07-02) — folds in amendment A2 from the independent design review.",
+    )
+    ok, missing = prereqs.check_prereqs(repo_root)
+    assert ok is False
+    assert any("#227" in m for m in missing)
+    assert not any("#224" in m for m in missing)
+
+
+def test_activation_guard_refuses_when_only_227_landed(tmp_path):
+    repo_root = _write_rfc(
+        tmp_path,
+        "REVISION: r14 (2026-07-02) — measurement-integrity pins (amendment A5.1-A5.3).",
+    )
+    ok, missing = prereqs.check_prereqs(repo_root)
+    assert ok is False
+    assert any("#224" in m for m in missing)
+    assert not any("#227" in m for m in missing)
+
+
+def test_activation_guard_passes_when_both_landed(tmp_path):
+    repo_root = _write_rfc(
+        tmp_path,
+        "REVISION: r14 (2026-07-02) — measurement-integrity pins (amendment A5.1-A5.3). "
+        "Prior: r13 (2026-07-02) — folds in amendment A2 from the independent design review.",
+    )
+    ok, missing = prereqs.check_prereqs(repo_root)
+    assert ok is True
+    assert missing == []
+
+
+def test_activation_guard_refuses_when_rfc_file_missing(tmp_path):
+    ok, missing = prereqs.check_prereqs(tmp_path)
+    assert ok is False
+    assert "not found" in missing[0]
+
+
+def test_activation_guard_main_refuses_and_prints_missing_items(tmp_path, monkeypatch, capsys):
+    repo_root = _write_rfc(tmp_path, "REVISION: r12 (2026-06-30) — rollout-boundary fix.")
+    original_check_prereqs = prereqs.check_prereqs
+    monkeypatch.setattr(
+        prereqs, "check_prereqs", lambda root: original_check_prereqs(repo_root)
+    )
+    rc = prereqs.main([])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "REFUSED" in err
+    assert "#224" in err and "#227" in err
+
+
+def test_activation_guard_main_passes_when_both_landed(tmp_path, monkeypatch, capsys):
+    repo_root = _write_rfc(
+        tmp_path,
+        "REVISION: r14 (2026-07-02) — measurement-integrity pins (amendment A5.1-A5.3). "
+        "Prior: r13 (2026-07-02) — folds in amendment A2 from the independent design review.",
+    )
+    original_check_prereqs = prereqs.check_prereqs
+    monkeypatch.setattr(
+        prereqs, "check_prereqs", lambda root: original_check_prereqs(repo_root)
+    )
+    rc = prereqs.main([])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "OK" in out
