@@ -129,21 +129,60 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def test_data_output_fresh_true_when_last_row_dated_today(tmp_path):
-    today = "2026-07-02"
+    today = dt.date.today().isoformat()
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
     p = tmp_path / "intraday_ticks.jsonl"
-    _write_jsonl(p, [{"date": "2026-07-01", "ticker": "AAPL"},
-                      {"date": today, "ticker": "AAPL"}])
+    _write_jsonl(p, [{"date": "2026-07-01", "ticker": "AAPL", "ts": now_iso},
+                      {"date": today, "ticker": "AAPL", "ts": now_iso}])
     ok, reason = liveness._data_output_fresh(str(p), today)
     assert ok is True, reason
 
 
 def test_data_output_fresh_false_when_last_row_is_stale(tmp_path):
-    today = "2026-07-02"
+    today = dt.date.today().isoformat()
+    stale_ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=2)).isoformat()
     p = tmp_path / "paired_is.jsonl"
-    _write_jsonl(p, [{"date": "2026-06-30", "ticker": "MSFT"}])
+    _write_jsonl(p, [{"date": "2026-06-30", "ticker": "MSFT", "ts": stale_ts}])
     ok, reason = liveness._data_output_fresh(str(p), today)
     assert ok is False
     assert "stale" in reason
+
+
+def test_data_output_fresh_false_when_last_row_has_no_timestamp_field(tmp_path):
+    """All three collectors write ts/source_ts/tick_time unconditionally — a
+    row missing all three does NOT count as 'complete' even with a valid
+    date+ticker, and must not pass on a date-only match (that was the
+    weaker fallback this review closed: 'today' alone could be hours old)."""
+    today = dt.date.today().isoformat()
+    p = tmp_path / "no_timestamp.jsonl"
+    _write_jsonl(p, [{"date": today, "ticker": "AAPL"}])
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is False, reason
+    assert "timestamp" in reason
+
+
+def test_data_output_fresh_false_when_row_timestamp_is_in_the_future(tmp_path):
+    """A timestamp materially ahead of wall-clock now is clock skew or
+    source corruption, not extra freshness — negative age must not read as
+    'very fresh'."""
+    today = dt.date.today().isoformat()
+    future_ts = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
+    p = tmp_path / "future_ts.jsonl"
+    _write_jsonl(p, [{"date": today, "ticker": "AAPL", "ts": future_ts}])
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is False, reason
+    assert "FUTURE" in reason
+
+
+def test_data_output_fresh_true_within_small_clock_skew_tolerance(tmp_path):
+    """A few seconds ahead is genuine inter-machine clock drift, not
+    corruption — the tolerance must not be zero."""
+    today = dt.date.today().isoformat()
+    slightly_ahead = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=2)).isoformat()
+    p = tmp_path / "small_skew.jsonl"
+    _write_jsonl(p, [{"date": today, "ticker": "AAPL", "ts": slightly_ahead}])
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is True, reason
 
 
 def test_data_output_fresh_false_when_file_missing(tmp_path):
@@ -259,11 +298,24 @@ def test_data_output_fresh_handles_row_larger_than_fixed_tail_chunk(tmp_path, mo
 
 
 def test_last_complete_jsonl_row_reads_the_final_valid_line_of_a_multiline_file(tmp_path):
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
     p = tmp_path / "multi.jsonl"
-    _write_jsonl(p, [{"date": "2026-07-02", "ticker": f"T{i}"} for i in range(50)])
+    _write_jsonl(p, [{"date": "2026-07-02", "ticker": f"T{i}", "ts": now_iso} for i in range(50)])
     row, tail_was_corrupt = liveness._last_complete_jsonl_row(str(p))
-    assert row == {"date": "2026-07-02", "ticker": "T49"}
+    assert row == {"date": "2026-07-02", "ticker": "T49", "ts": now_iso}
     assert tail_was_corrupt is False
+
+
+def test_last_complete_jsonl_row_skips_rows_missing_timestamp_field(tmp_path):
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+    p = tmp_path / "mixed.jsonl"
+    _write_jsonl(p, [
+        {"date": "2026-07-02", "ticker": "AAPL", "ts": now_iso},
+        {"date": "2026-07-02", "ticker": "MSFT"},  # no timestamp — must be skipped
+    ])
+    row, tail_was_corrupt = liveness._last_complete_jsonl_row(str(p))
+    assert row == {"date": "2026-07-02", "ticker": "AAPL", "ts": now_iso}
+    assert tail_was_corrupt is True
 
 
 def test_last_complete_jsonl_row_none_for_missing_file():

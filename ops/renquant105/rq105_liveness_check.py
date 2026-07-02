@@ -19,12 +19,16 @@ Checked (session days only):
   collector data outputs  each collector's OWN ``default_*_path()`` resolver (not a hardcoded
                            path and not a glob) — verified by scanning the tail JSONL lines
                            BACKWARD for the most recent COMPLETE row with a valid "date"+"ticker"
-                           schema. A corrupt/truncated/missing-field last row is NEVER treated as
-                           evidence of liveness via a raw-mtime fallback (that was fail-open: a
-                           process appending garbage with a fresh mtime read as healthy). If the
-                           found row's own fine-grained timestamp (ts/source_ts/tick_time) is
-                           present, its age must also be within a tight bound (not merely "today")
-                           — a truncated tail with no usable timestamp fails liveness outright.
+                           schema AND a parseable timestamp (ts/source_ts/tick_time — all three
+                           collectors write one unconditionally; a row missing all three does
+                           NOT count as "complete" and is skipped by the backward scan, never
+                           silently accepted on a date-only match). A corrupt/truncated/
+                           missing-field last row is NEVER treated as evidence of liveness via a
+                           raw-mtime fallback (that was fail-open: a process appending garbage
+                           with a fresh mtime read as healthy). The found row's timestamp must be
+                           within a tight <=10-minute bound of wall-clock now; a timestamp
+                           materially AHEAD of now (beyond a small clock-skew tolerance) is
+                           rejected as corrupt/clock-issue, not treated as "very fresh".
 """
 from __future__ import annotations
 
@@ -120,6 +124,11 @@ _TAIL_CHUNK_MAX_BYTES = 8192 * 16  # cap the expanding read so a truly pathologi
 # is several missed cycles of slack for a transient hiccup while still being
 # far tighter than "anywhere in today" (the bug this replaces).
 _TIGHT_AGE_BOUND = dt.timedelta(minutes=10)
+# A row's own timestamp materially AHEAD of wall-clock now is clock skew or
+# source corruption, not freshness — negative age must not read as "very
+# fresh". A few seconds covers genuine inter-machine clock drift; this is
+# NOT a grace window for a collector that's actually running ahead.
+_CLOCK_SKEW_TOLERANCE = dt.timedelta(seconds=5)
 _REQUIRED_ROW_FIELDS = ("date", "ticker")
 
 
@@ -164,9 +173,16 @@ def _last_complete_jsonl_row(path: str) -> tuple[dict | None, bool]:
                 row = json.loads(lines[i])
             except (ValueError, json.JSONDecodeError):
                 row = None
-            if not isinstance(row, dict) or any(
+            schema_ok = isinstance(row, dict) and not any(
                 not isinstance(row.get(f), str) or not row.get(f) for f in _REQUIRED_ROW_FIELDS
-            ):
+            )
+            # All three collectors write one of ts/source_ts/tick_time
+            # unconditionally (verified against their own record-construction
+            # code). A row missing all three is treated the same as a
+            # schema-invalid row — NOT a weaker "date-only" fallback — so it
+            # can never bypass the tight age bound below by omission.
+            has_timestamp = schema_ok and _row_timestamp(row) is not None
+            if not (schema_ok and has_timestamp):
                 if not checked_last_line:
                     tail_was_corrupt = True
                     checked_last_line = True
@@ -204,20 +220,28 @@ def _data_output_fresh(path: str, today_iso: str) -> tuple[bool, str]:
         return False, f"{path} EMPTY"
     row, tail_was_corrupt = _last_complete_jsonl_row(path)
     if row is None:
-        return False, f"{path} no parseable complete row (date+ticker) found in tail — corrupt/truncated"
+        return False, (
+            f"{path} no parseable complete row (date+ticker+timestamp) found in tail "
+            "— corrupt/truncated/missing timestamp field")
     date_val = row["date"]
     if date_val != today_iso:
         return False, f"{path} last complete row date={date_val!r} != today {today_iso!r} (stale)"
     corrupt_note = " [most-recent physical line was truncated/corrupt; used prior complete row]" if tail_was_corrupt else ""
+    # _last_complete_jsonl_row now requires a parseable ts/source_ts/tick_time
+    # for a row to count as "complete" at all, so ts_val is never None here —
+    # asserted rather than silently branched around, so a future refactor
+    # that weakens that invariant fails loudly instead of reintroducing the
+    # date-only fallback this review flagged.
     ts_val = _row_timestamp(row)
-    if ts_val is not None:
-        age = dt.datetime.now(dt.timezone.utc) - ts_val
-        if age > _TIGHT_AGE_BOUND:
-            return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}"
-    elif tail_was_corrupt:
-        # No fine-grained timestamp to bound against AND the tail is corrupt —
-        # the date-only match is not enough evidence of genuine freshness.
-        return False, f"{path} tail truncated/corrupt and no timestamp field to bound the fallback row's age"
+    assert ts_val is not None, "complete row must carry a parseable timestamp"
+    age = dt.datetime.now(dt.timezone.utc) - ts_val
+    if age < -_CLOCK_SKEW_TOLERANCE:
+        return False, (
+            f"{path} last complete row timestamp is {-age} in the FUTURE, beyond the "
+            f"{_CLOCK_SKEW_TOLERANCE} clock-skew tolerance — treated as corrupt/clock "
+            f"issue, not freshness{corrupt_note}")
+    if age > _TIGHT_AGE_BOUND:
+        return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}"
     if tail_was_corrupt:
         print(f"WARNING: {path} tail had a truncated/corrupt final line (writer likely mid-write); "
               f"prior complete row passed date+age freshness checks", file=sys.stderr)

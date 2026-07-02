@@ -59,3 +59,47 @@ behavior was rewritten to assert the corrected fail-closed behavior instead.
 environment fact — re-verified clean via `uv venv --python 3.10` +
 `uv pip install pytest pandas_market_calendars pandas`: 57 passed across both rq105 test
 files with zero regressions).
+
+## Round 3 (Codex review — future-timestamp fail-open + weaker missing-timestamp fallback)
+
+**Finding.** Two consistency gaps in round 2's fix: (1) `age = now - ts_val` treated a
+timestamp materially in the FUTURE (clock skew, corrupted/garbage `ts` field) as very
+fresh — a negative age is always `< _TIGHT_AGE_BOUND`, so it passed; (2) a row with a
+valid `date`+`ticker` but no parseable `ts`/`source_ts`/`tick_time` fell back to the OLD
+"date matches today" check without the tight bound, silently permitting anywhere-in-today
+staleness for that one case — weakening the exact contract round 2 established, even
+though all three collectors are confirmed (by reading their write code directly) to emit
+one of the three timestamp fields unconditionally.
+
+**Fix.**
+- New `_CLOCK_SKEW_TOLERANCE = 5 seconds`. A row's timestamp more than this far in the
+  future is now rejected with an explicit "in the FUTURE... treated as corrupt/clock
+  issue, not freshness" reason — distinct from the "exceeds bound" staleness message.
+- `_last_complete_jsonl_row`'s definition of a "complete" row now REQUIRES a parseable
+  timestamp (`_row_timestamp(row) is not None`) in addition to `date`+`ticker` — a row
+  missing all three timestamp fields is treated exactly like a schema-invalid row (skipped
+  by the backward scan, contributes to `tail_was_corrupt` if it's the physical last line),
+  never silently accepted on a date-only match. `_data_output_fresh` now `assert`s
+  `ts_val is not None` rather than branching around a `None` case that can no longer occur
+  — a future refactor that weakens the invariant fails loudly instead of quietly
+  reintroducing the date-only fallback.
+- Module docstring updated to state the current contract precisely (timestamp required for
+  row-completeness, future-timestamp rejection) rather than the round-2 wording.
+- Updated the PR body, which still described the round-1 "existence + mtime ≤6h" contract.
+
+**Evidence:** 6 new/updated tests: a row with `ts` 1 hour in the future is rejected
+("FUTURE" in the reason); a row 2 seconds ahead still passes (tolerance isn't zero); a
+row with `date`+`ticker` but no timestamp field is rejected ("timestamp" in the reason,
+not silently accepted); `_last_complete_jsonl_row` directly tested to skip a
+no-timestamp row and fall back to an earlier valid+timestamped one; the two round-2 tests
+that previously wrote timestamp-free rows (`..._true_when_last_row_dated_today`,
+`..._false_when_last_row_is_stale`) updated to include a `ts` field, since a bare
+date-only row is no longer "complete" under the tightened contract.
+
+`/Users/renhao/git/github/RenQuant/.venv/bin/python -m pytest
+tests/test_rq105_collector_scheduling.py tests/test_pit_snapshotter_scheduling.py -q` →
+54 passed (Python 3.10.20), zero regressions.
+
+[VERIFIED — ran the exact commands above in this session; syntax-checked the modified
+module directly; re-read all three collectors' write code to confirm the
+ts/source_ts/tick_time-unconditional claim before relying on it, rather than assuming it.]
