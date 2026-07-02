@@ -3,7 +3,18 @@
 STATUS:   research + route design for review (docs only — no code/config/broker/risk/sizing
           change). Durable record of the 2026-07-02 strategy discussion; extends roadmap #229 to
           2028 and supersedes its §9 sign-off list per the operator's delegation grant.
-REVISION: r2 — operator review ("规划不够专业不够深入不够负责任"): the route lacked bounds, per-
+REVISION: r3 — operator directive "每个论点需要理论或数据支持；允许POC；严肃科研": four read-only,
+          reproducible POCs executed and committed (scripts/poc_*.py + evidence JSONs +
+          `doc/research/2026-07-02-roadmap-poc-verification.md`), converting the route's
+          load-bearing reasoned-tier claims to measured-tier: POC-A effective breadth
+          BR_eff ≈ 131/yr point [77,500] (route §7.1 re-anchored: current-universe active IR
+          0.24, post-M8 0.40); POC-B conviction-scarcity claim REFUTED as stated (post-retrain
+          raw-Kelly ceiling 93–95%; shrinkage-realistic ≈40–43%, state-dependent → S6 rationale
+          rewritten); POC-C real broker fills (N=41) confirm fills = open auction, buy-day
+          open-vs-close +48.6bps mean/+58.1 median (t≈1.0 — direction measured, significance =
+          S10), overnight/intraday split corrected to 62/38 (not ~100/0); POC-D intra-family
+          factor |ρ| = 0.217 ⇒ stacking 3×0.02 → 0.029 not 0.035 (§2.4 planning range
+          0.028–0.033). Prior: r2 — operator review ("规划不够专业不够深入不够负责任"): the route lacked bounds, per-
           milestone contingencies, and a whole-roadmap confidence audit. Added: §7 BOUNDS (the
           ceiling in IC/book/dollar layers + an ABOVE-ceiling leakage alarm at IC>0.08/Sharpe>2;
           the floor in three tiers — engineered benchmark-sleeve floor, the UNBOUNDED

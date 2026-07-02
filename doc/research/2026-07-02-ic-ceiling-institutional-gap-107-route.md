@@ -77,10 +77,13 @@ ceiling itself moves only with the information set.
 ### 2.4 How to approach the ceiling (four paths, by ROI)
 
 1. **Measurement first** (roadmap S1–S5): an unmeasurable IC cannot be optimized.
-2. **Orthogonal stacking — the only theory-supported IC growth**: combined IC ≈ √(Σ IC_i²) for
-   independent signals; three orthogonal 0.02s ≈ 0.035. Candidate stack, by evidence: estimate
-   revisions (PIT store, N2), quality/fundamentals (FMP, N3), regime-conditioned residual
-   momentum (#176 — our one "relatively promising" lead).
+2. **Orthogonal stacking — the only theory-supported IC growth**: for k signals with pairwise
+   score correlation ρ, IC_comb = k·IC/√(k + k(k−1)ρ). **Measured (POC-D,
+   `poc_factor_orthogonality.py`): intra-price-family avg |ρ| = 0.217 on our panel ⇒ three
+   0.02s stack to 0.029, not the ideal-orthogonal 0.035** — plan on **0.028–0.033**
+   (cross-data-family ρ is typically lower). Candidate stack, by evidence: estimate revisions
+   (PIT store, N2), quality/fundamentals (FMP, N3), regime-conditioned residual momentum
+   (#176 — our one "relatively promising" lead).
 3. **TC and BR are cheaper than IC**: our constraint stack (whole-share, top_n=3, σ
    double-shrinkage, panel-exit-overrides-QP) puts TC ≈ ~0.4; lane A + R4 → ~0.7 = **+75% IR at
    zero IC cost**. Breadth: nominal BR = 142 × 4.2 ≈ 600/yr, correlation-effective ~100–200;
@@ -154,7 +157,7 @@ The increment stack (each independently measurable, none requiring heroics):
 | Increment | Mechanism | Contribution (est.) | Evidence tier |
 |---|---|---|---|
 | 0. Parking sleeve (lane B) | idle 75% stops being a structural short-benchmark bet | book returns ≈ benchmark baseline (Sharpe ~0.8 era-dependent) | measured (drag decomposition, RS-1) |
-| 1. Execution/expectancy engineering (105 + meta-label) | cut open-auction cost, filter negative-expectancy entries | **+0.5–1.5%/yr** at unchanged risk | S10 measures the prize; Track A verdict |
+| 1. Execution/expectancy engineering (105 + meta-label) | cut open-auction cost, filter negative-expectancy entries | **+0.5–1.5%/yr** at unchanged risk | **POC-C measured anchor**: fills = open confirmed (N=41, 09:30:00–01); open vs close on buy days +48.6bps mean/+58.1 median, t≈1.0 — economically large, significance = S10's job; Track A verdict pending |
 | 2. Modest orthogonal IC stack (106) | genuine IC 0.02–0.03 × TC 0.7 × √BR ~200 ⇒ active IR ≈ 0.2–0.3 on the active sleeve | **+1–2%/yr** alpha | gated on measured placebo-clean IC |
 | 3. Risk shaping (regime overlay, DD control — partially exists) | Sharpe via drawdown reduction, not return | +0.1–0.2 Sharpe | ledger-measurable |
 | **Endpoint** | | **total Sharpe 0.9–1.2, alpha +1–3%/yr net, DD ≤ 15%** — clears §4's bar | |
@@ -229,10 +232,15 @@ either.
 
 1. **IC layer** (§2.2): current set 0.02–0.04 · +orthogonal PIT 0.03–0.05 · down-cap 0.05–0.08
    gross ⇒ **~0.03–0.05 net** after 25–40bps small-cap costs at our (impact-free) size.
-2. **Book layer** (IR = TC·IC·√BR): best realistic configuration — combined IC 0.03, TC 0.7,
-   effective BR 200–400 post-106 ⇒ **active IR ≈ 0.3–0.45 ⇒ alpha ≈ +1.5–3.5%/yr**; if down-cap
-   ALSO works: IR 0.5–0.7 ⇒ **alpha +3–5%/yr**. Total-book ceiling ≈ benchmark Sharpe + active
-   ⇒ **Sharpe ~1.2–1.5 in a normal era.** That is the ceiling of this structure — not of effort.
+2. **Book layer** (IR = TC·IC·√BR). **Measured (POC-A, `poc_effective_breadth.py`): the
+   current panel's effective breadth is BR_eff ≈ 131 bets/yr point estimate, interval
+   [77, 500]** (participation-ratio vs equicorrelation bounds; ρ̄ ≈ 0.001 on excess labels —
+   the reduction comes from residual sector/style structure, not the market mode). Anchored
+   arithmetic: current universe — IC 0.03 × TC 0.7 × √131 ⇒ **active IR ≈ 0.24 ⇒ alpha ≈
+   +1.2–2%/yr**; with the M8 breadth wave succeeding (~400 quality names at the measured
+   N_eff/N ratio ⇒ BR_eff ≈ 370) ⇒ **IR ≈ 0.40 ⇒ +2–3.5%/yr**; if down-cap ALSO works:
+   IR 0.5–0.7 ⇒ **+3–5%/yr**. Total-book ceiling ≈ benchmark Sharpe + active ⇒ **Sharpe
+   ~1.2–1.5 in a normal era.** That is the ceiling of this structure — not of effort.
 3. **Dollar layer (the honest one):** at the current $10.8k book, the FULL ceiling (+5%/yr) is
    ~$540/yr. The plan's monetary value is the **capability + the scaling option (L6)**, not
    near-term P&L. Written here so nobody discovers it in 2028.
@@ -276,11 +284,11 @@ unfavorable outcome executed cleanly is the process WORKING, not failing;** thos
 | S1–S3 gate repair | 0.85 | hidden path deps; margin dispute; deeper rot than mapped | **build a minimal standalone validation harness** (WF + placebo-diff only, single-purpose) instead of repairing the legacy script | D1 undecidable → model stays directive-traded, thesis #1 treats it as unvalidated (default: shrink active risk). **Key resilience: G106's measured-IC gate runs on the S5/S8 substrate, NOT the WF gate — the alpha track survives this failure** |
 | S4 / D1 verdict | outcome: P(pass)≈0.25 / P(fail-substance)≈0.55 / P(inconclusive)≈0.20 (prior: Fix-4 history) | — | on FAIL: demote primary to directive-with-shrunk-sizing OR best-of-recent under #210's protocol | **a FAIL is information, not roadmap failure** — increment 2 bets on NEW signals, not this model; the route's P is nearly independent of D1 |
 | S5 ledger wiring | 0.90 | schema/perf; backfill gaps | forward-only ledger (no backfill) | M3/M5/RS-2 validations delayed ~1 quarter; nothing dies |
-| S6 lane A | 0.80 (deployed ≥60% in 15 sessions) | conviction scarcity is the TRUE binding constraint (only 3 names cleared the floor on 07-01), not the knobs | route residual idle cash to lane B — the sleeve absorbs what stock-selection won't | none on the alpha track; deployment target met via B |
+| S6 lane A | 0.80 (deployed ≥60% in 15 sessions, A+B combined) | **measured (POC-B)**: post-retrain runs have 17–20 names above the floor with a raw-Kelly ceiling of 93–95% — scarcity does NOT bind now; the binding constraints are the shrinkage stack (×≈0.43 observed ⇒ realistic lane-A ceiling ≈ 40–43%) and gate-state volatility (fail-closed days zero the ceiling) | lane B covers the ~20pp residual AND insures deployment against fail-closed states | none on the alpha track; deployment target met via A+B |
 | S7 lane B sleeve | 0.95 (mechanism is arithmetic) | sweep plumbing bugs; risk-appetite reversal | T-bill variant (β=0) or partial sleeve | floor uplift delayed; nothing else |
 | S8 regen table | 0.90 | artifact rot blocks faithful re-score | forward-collect OOS predictions from the live shadow path (3–6 months) | S9 slips a quarter; G106 timeline pressure |
 | S9 Track A verdict | outcome: P(GO)≈0.30 / P(NULL)≈0.70 (prior: BULL_CALM coin-flip) | — | NULL is pre-registered and lands on Track B — already the plan's expectation | on NULL, increment 1 loses its meta-label half: contribution +0.5–1.5%/yr → +0.3–0.8%/yr |
-| S10 IS prize memo | 0.85 execution; outcome: P(prize material) ≈ 0.50 | thin historical fill sample | supplement with the N1 collector corpus (weeks) | if immaterial: **G105 kill branch** — Stage-2 descoped to risk-exit modernization; increment 1 halves; 107 re-scoped away from intraday-entry emphasis |
+| S10 IS prize memo | 0.85 execution; outcome: P(prize material) raised ≈ 0.50 → **≈ 0.65** on the POC-C point estimate | thin historical fill sample (N=41; open-vs-close +48.6bps mean/+58.1 median but SE 47.5 ⇒ t≈1.0 — **direction measured, significance pending**) | supplement with the N1 collector corpus (weeks) | if immaterial: **G105 kill branch** — Stage-2 descoped to risk-exit modernization; increment 1 halves; 107 re-scoped away from intraday-entry emphasis |
 | S11 hotfix PRs | 0.95 | none material | — | floor tier-2 stays leaky until done |
 | S12 shadow freshness | 0.80 | panel-refresh root cause is deep (label-join redesign) | serve shadow at the achievable frontier with a documented-lag caveat | champion–challenger reads carry vintage caveats; no other branch |
 
