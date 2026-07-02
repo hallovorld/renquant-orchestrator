@@ -117,3 +117,57 @@ Do NOT call the vector "class-A frozen" as an accomplished fact — it is now pr
 coverage-checked, and atomically written, which is what makes that claim SUPPORTABLE once an
 operator actually runs it against real production data; this PR still ships as inert repo files
 per its own N1a/N1b split.
+
+## Round 4 (Codex CHANGES_REQUESTED — source freshness still fail-open + atomicity wording)
+
+**Finding.** Round 3's selection required a real completed `pipeline_runs` row with a bound
+fingerprint, but still accepted the latest qualifying run from ANY date strictly before today
+(`pr.run_date < today`). If the underlying pipeline had failed for several days, the exporter
+would silently pick up whatever the last successful run happened to be, re-stamp it
+`session_date=today`, and replay-side verification would pass — it only checked the stamp
+against itself (is `session_date` today? does the score hash match?), never against reality (is
+the SOURCE run actually fresh?). Also: the module docstring's "single atomically-written...
+bundle" phrasing overclaimed — two independently renamed files are not one atomic transaction as
+a pair, even though each individual write is atomic and the hash check does correctly fail
+closed on any inconsistency between them.
+
+**Fix.**
+- New `batch_scores_bundle.expected_previous_session(today_iso)` — computes the immediately
+  preceding NYSE trading session via `pandas_market_calendars` (same primitive as
+  `intraday_quote_logger.NyseSessionCalendar` / `preopen_cancel_gate`), holiday/weekend aware.
+- `export_batch_scores.py`'s `_select_source_run` now requires `pr.run_date =
+  expected_run_date` (exact match), not `< today` — no fallback to an older run if the exact
+  expected session has no qualifying run; the exporter fails/refuses instead (the existing
+  ntfy-alert wrapper convention already covers this failure path).
+- The run's actual `run_date` is persisted as `source_run_date` in the meta bundle, distinct
+  from `session_date` (the date being served *to*).
+- `batch_scores_bundle.verify_bundle` now also verifies `source_run_date` equals the expected
+  prior session at REPLAY time (defense in depth — catches a bundle that was correctly stamped
+  `session_date=today` at export but is stale by the time it's actually replayed, or any other
+  path that could leave a mismatched pair on disk).
+- Corrected the atomicity claim: both `export_batch_scores.py`'s module docstring and
+  `batch_scores_bundle.py`'s module docstring now state precisely that the score+meta pair is
+  NOT a single atomic transaction — each file's own write is atomic (temp+fsync+rename), and
+  `verify_bundle` fails closed on any pairwise inconsistency (hash mismatch, wrong/missing
+  `source_run_date`), which is the actual mitigation in place, not a false claim of
+  cross-file atomicity.
+
+**Tests.** 10 new: `expected_previous_session` regular-weekday/weekend-skip/holiday-skip (Friday
+2026-07-03 is the observed July 4th holiday since July 4 falls on a Saturday — the correct prior
+session before Monday 2026-07-06 is Thursday 2026-07-02, a 4-calendar-day gap naive weekday
+arithmetic would get wrong); an old (3-session-stale) run correctly refused rather than silently
+republished; a missing-exact-prior-session case (only an older run exists) correctly refused
+with no fallback; a run dated exactly on the holiday date never selected even if present in the
+DB; `source_run_date` correctly persisted in meta; `verify_bundle` correctly rejects a missing
+`source_run_date` and a stale (mismatched) `source_run_date`. 28/28 passed
+(`tests/test_rq105_batch_scores_export.py`), 51/51 across both rq105 test files together
+(`test_rq105_collector_scheduling.py` unaffected).
+
+**Verification:** `.venv/bin/python -m pytest tests/test_rq105_batch_scores_export.py
+tests/test_rq105_collector_scheduling.py -q` → 51 passed (Python 3.10 venv via
+`uv venv --python 3.10` — system `python3` is 3.9, same pre-existing environment gap documented
+in prior rounds).
+
+**Honest scope note (unchanged from round 3):** `run_shadow_serving.sh` still invokes
+`shadow_realtime_serving` without the required `--feature-snapshot-json` flag — out of scope for
+this round's fixes, still worth a follow-up before N1b activation.

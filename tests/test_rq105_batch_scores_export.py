@@ -201,6 +201,119 @@ def test_no_qualifying_run_before_today_is_refused(tmp_path):
     assert not (tmp_path / "out").exists()
 
 
+# ─────────────── source-freshness: exact-prior-session requirement ─────────
+# Codex #236 round 3: round 2 accepted the latest qualifying run from ANY
+# date strictly before today, so a multi-day pipeline outage would silently
+# republish however-old a vector was last produced, re-stamped as today's.
+# These tests prove the fix requires an EXACT match on the immediately
+# preceding NYSE session (holiday/weekend aware), with no fallback.
+
+def test_old_run_is_rejected_not_silently_accepted(tmp_path):
+    """The most recent available run is 3 days stale (not the immediately
+    preceding session) — must be refused, never silently republished as
+    today's fresh vector."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-06-29-live-stale", run_date="2026-06-29",
+                created_at="2026-06-29T13:55:00")
+    # today=2026-07-02 (Thu); expected prior session=2026-07-01 (Wed) — the
+    # only available run is 2026-06-29, 3 sessions earlier.
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert not (tmp_path / "out").exists()
+
+
+def test_missing_exact_prior_session_run_is_refused_no_fallback(tmp_path):
+    """Only an OLDER qualifying run exists (no run at all for the exact
+    expected prior session) — must fail/refuse, never fall back to the older
+    run."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-06-30-live-older", run_date="2026-06-30",
+                created_at="2026-06-30T13:55:00")
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert not (tmp_path / "out").exists()
+
+
+def test_weekend_and_holiday_aware_prior_session(tmp_path):
+    """2026-07-03 (Fri) is the observed July 4th holiday (July 4 falls on a
+    Saturday) and 2026-07-04/05 are the weekend, so the correct 'immediately
+    preceding session' before 2026-07-06 (Mon) is 2026-07-02 (Thu) — a 4
+    calendar-day gap that naive weekday-only arithmetic would get wrong
+    (it would land on Friday 07-03, a holiday with no real session)."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-02-live-correct", run_date="2026-07-02",
+                created_at="2026-07-02T13:55:00")
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-06")
+    assert rc == 0
+    meta = json.loads((tmp_path / "out" / "batch_scores_2026-07-06.meta.json").read_text())
+    assert meta["source_run_date"] == "2026-07-02"
+
+
+def test_holiday_date_run_never_selected_even_if_present(tmp_path):
+    """A (synthetic, DB-only) run dated on the market-holiday Friday 2026-07-03
+    must never be selected for a Monday 2026-07-06 export — the real prior
+    session is Thursday 2026-07-02, not the naive "Friday before" guess."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-03-live-holidayrun", run_date="2026-07-03",
+                created_at="2026-07-03T13:55:00")
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-06")
+    assert rc == 1
+    assert not (tmp_path / "out").exists()
+
+
+def test_source_run_date_persisted_in_meta(tmp_path):
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-dated", run_date="2026-07-01")
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 0
+    meta = json.loads((tmp_path / "out" / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["source_run_date"] == "2026-07-01"
+
+
+def test_verify_bundle_rejects_missing_source_run_date(tmp_path):
+    """A bundle predating this fix (no source_run_date in meta) must be
+    refused, not silently trusted."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        score_path = os.path.join(d, "s.json")
+        meta_path = os.path.join(d, "m.json")
+        scores = {"AAA": 0.1}
+        with open(score_path, "w") as f:
+            json.dump(scores, f)
+        with open(meta_path, "w") as f:
+            json.dump({
+                "session_date": "2026-07-02",
+                "score_content_sha256": bundle.canonical_hash(scores),
+            }, f)  # no source_run_date field
+        ok, reason = bundle.verify_bundle(score_path, meta_path, today="2026-07-02")
+        assert not ok
+        assert "source_run_date" in reason.lower()
+
+
+def test_verify_bundle_rejects_stale_source_run_date(tmp_path):
+    """meta.session_date is correctly today, but meta.source_run_date points
+    at a stale run (not the immediately preceding session) — must be
+    refused, catching a bundle that was correctly stamped session_date=today
+    but sourced from an old run (the exact failure mode this round fixes on
+    the export side; this is the replay-side defense-in-depth check)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        score_path = os.path.join(d, "s.json")
+        meta_path = os.path.join(d, "m.json")
+        scores = {"AAA": 0.1}
+        with open(score_path, "w") as f:
+            json.dump(scores, f)
+        with open(meta_path, "w") as f:
+            json.dump({
+                "session_date": "2026-07-02",
+                "source_run_date": "2026-06-29",  # 3 sessions stale
+                "score_content_sha256": bundle.canonical_hash(scores),
+            }, f)
+        ok, reason = bundle.verify_bundle(score_path, meta_path, today="2026-07-02")
+        assert not ok
+        assert "stale source" in reason.lower()
+
+
 # ─────────────────────────── coverage + missing tickers ───────────────────
 
 def test_coverage_below_floor_is_refused_with_missing_tickers_named(tmp_path, capsys):
@@ -287,6 +400,23 @@ def test_score_content_hash_is_deterministic_regardless_of_db_row_order(tmp_path
     assert meta1["score_content_sha256"] == meta2["score_content_sha256"]
 
 
+# ─────────────────────── expected_previous_session ─────────────────────────
+
+def test_expected_previous_session_regular_weekday():
+    assert bundle.expected_previous_session("2026-07-02") == "2026-07-01"
+
+
+def test_expected_previous_session_skips_weekend():
+    # Monday 2026-06-29 -> prior session is Friday 2026-06-26, not Sunday.
+    assert bundle.expected_previous_session("2026-06-29") == "2026-06-26"
+
+
+def test_expected_previous_session_skips_holiday():
+    # Monday 2026-07-06 -> prior session is Thursday 2026-07-02: Friday
+    # 2026-07-03 is the observed July 4th holiday, then the weekend.
+    assert bundle.expected_previous_session("2026-07-06") == "2026-07-02"
+
+
 # ─────────────────────────── replay-side verification ─────────────────────
 
 def test_verify_bundle_accepts_freshly_exported_bundle(tmp_path):
@@ -338,7 +468,9 @@ def test_verify_bundle_rejects_content_hash_mismatch(tmp_path):
 
 def test_verify_bundle_rejects_missing_meta_hash_field():
     """A bundle exported before this fix (no score_content_sha256 in meta)
-    must be refused, not silently trusted."""
+    must be refused, not silently trusted. source_run_date is present and
+    correct so this test isolates the hash-field check specifically (a
+    separate test below covers a missing source_run_date)."""
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         score_path = os.path.join(d, "s.json")
@@ -346,7 +478,9 @@ def test_verify_bundle_rejects_missing_meta_hash_field():
         with open(score_path, "w") as f:
             json.dump({"AAA": 0.1}, f)
         with open(meta_path, "w") as f:
-            json.dump({"session_date": "2026-07-02"}, f)  # no hash field
+            json.dump(
+                {"session_date": "2026-07-02", "source_run_date": "2026-07-01"}, f
+            )  # no hash field
         ok, reason = bundle.verify_bundle(score_path, meta_path, today="2026-07-02")
         assert not ok
         assert "sha256" in reason.lower() or "hash" in reason.lower()

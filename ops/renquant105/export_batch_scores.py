@@ -21,15 +21,30 @@ fingerprint, or that it was actually the canonical latest run for that date
 (run_id's random uuid suffix does not sort chronologically). It also wrote the
 score/meta JSON as two separate direct-to-final-path writes (a crash between
 them exposes a mismatched pair) and accepted as few as 40/80 non-null scores
-with no visibility into which tickers were missing. Fixed below: selection now
-joins `pipeline_runs` and requires a real completed live run with a bound
+with no visibility into which tickers were missing. Fixed: selection now joins
+`pipeline_runs` and requires a real completed live run with a bound
 fingerprint (config_hash + non-empty artifact_hashes), ordered by the run's
-own `created_at` timestamp (not the run_id string); the export is a single
-atomically-written, content-hashed bundle; coverage is measured against the
-run's own persisted candidate roster (role='candidate', per the 2026-05-04
-"full pre-veto candidate list" mandate — the concrete, run-bound expected
-universe, not an external/driftable definition) with the missing tickers
-recorded by name.
+own `created_at` timestamp (not the run_id string); the score and meta files
+are each written atomically (temp+fsync+rename — see
+batch_scores_bundle.py's module docstring for why the PAIR is not a single
+atomic transaction, and how verify_bundle compensates); coverage is measured
+against the run's own persisted candidate roster (role='candidate', per the
+2026-05-04 "full pre-veto candidate list" mandate — the concrete, run-bound
+expected universe, not an external/driftable definition) with the missing
+tickers recorded by name.
+
+Codex #236 review (round 3) — round 2's selection accepted the latest
+qualifying run from ANY date strictly before today, then stamped
+session_date=today regardless of how old the source run actually was; a
+multi-day pipeline outage could silently republish a stale vector as today's
+"fresh" bundle, undetected because replay verification only checked the
+stamp against itself. Fixed: the source run's date must now equal exactly
+the immediately preceding NYSE session (via
+batch_scores_bundle.expected_previous_session, the same
+pandas_market_calendars primitive used elsewhere this session) — no
+fallback to an older run if that exact session has no qualifying run. The
+run's actual `run_date` is persisted as `source_run_date` in the meta, and
+verified again on the replay side (batch_scores_bundle.verify_bundle).
 """
 from __future__ import annotations
 
@@ -40,7 +55,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from batch_scores_bundle import canonical_hash  # noqa: E402
+from batch_scores_bundle import canonical_hash, expected_previous_session  # noqa: E402
 
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 DB = os.path.join(RQ, "data/runs.alpaca.db")
@@ -69,42 +84,47 @@ def _atomic_write_json(path: str, payload) -> None:
     os.rename(tmp, path)
 
 
-def _select_source_run(con: sqlite3.Connection, today: str):
-    """Select the canonical completed live run strictly before `today`,
-    ordered by the run's own created_at (pipeline_runs), not the run_id
-    string — run_id's trailing uuid does not sort chronologically, so two
-    live runs on the same date could previously resolve to an arbitrary one.
+def _select_source_run(con: sqlite3.Connection, expected_run_date: str):
+    """Select the canonical completed live run from EXACTLY
+    `expected_run_date` (the immediately preceding NYSE session — computed by
+    the caller via batch_scores_bundle.expected_previous_session, NOT "any
+    date before today": round 2 accepted any qualifying run strictly before
+    today, so a multi-day pipeline outage would silently republish however-
+    old a vector was last successfully produced. Ordered by the run's own
+    created_at (pipeline_runs), not the run_id string — run_id's trailing
+    uuid does not sort chronologically, so two live runs on the same date
+    could previously resolve to an arbitrary one.
 
     Requires a `pipeline_runs` row (proves the run actually completed through
     to record_pipeline_run, not just a partial candidate_scores write) with
     run_type='live' (a real column check, not the previous run_id LIKE
     '%-live-%' string match) and a non-empty `strategy`.
 
-    Returns (run_id, run_bundle: dict) or None.
+    Returns (run_id, run_date, run_bundle: dict) or None.
     """
     row = con.execute(
-        "select pr.run_id, pr.run_bundle_json, count(cs.ticker) as n "
+        "select pr.run_id, pr.run_date, pr.run_bundle_json, count(cs.ticker) as n "
         "from pipeline_runs pr "
         "join candidate_scores cs "
         "  on cs.run_id = pr.run_id and cs.role = 'candidate' "
         "  and cs.panel_score is not null "
         "where pr.run_type = 'live' "
-        "  and pr.run_date < ? "
+        "  and pr.run_date = ? "
         "  and pr.strategy is not null and pr.strategy != '' "
         "group by pr.run_id "
         "having n >= ? "
         "order by pr.created_at desc "
         "limit 1",
-        (today, MIN_ROWS),
+        (expected_run_date, MIN_ROWS),
     ).fetchone()
     if not row:
         return None
-    run_id, run_bundle_raw, _n = row
+    run_id, run_date, run_bundle_raw, _n = row
     try:
         run_bundle = json.loads(run_bundle_raw) if run_bundle_raw else {}
     except (TypeError, ValueError):
         run_bundle = {}
-    return run_id, run_bundle
+    return run_id, run_date, run_bundle
 
 
 def _fingerprint_gaps(run_bundle: dict) -> list[str]:
@@ -128,19 +148,26 @@ def main(
     db_path = db_path or DB
     out_dir = out_dir or OUT_DIR
     today = today or dt.date.today().isoformat()
+    try:
+        expected_run_date = expected_previous_session(today)
+    except ValueError as exc:
+        print(f"cannot compute expected prior session for {today}: {exc}", file=sys.stderr)
+        return 1
     con = sqlite3.connect(db_path)
 
-    selected = _select_source_run(con, today)
+    selected = _select_source_run(con, expected_run_date)
     if not selected:
         print(
-            f"no qualifying completed live run before {today} "
-            "(joined pipeline_runs: requires run_type='live', a recorded "
-            "strategy, and >= %d role='candidate' rows with non-null "
-            "panel_score)" % MIN_ROWS,
+            f"no qualifying completed live run for the expected prior "
+            f"session {expected_run_date} (immediately preceding NYSE "
+            f"session before {today}) — refusing to fall back to an older "
+            "run (joined pipeline_runs: requires run_type='live', a "
+            "recorded strategy, and >= %d role='candidate' rows with "
+            "non-null panel_score)" % MIN_ROWS,
             file=sys.stderr,
         )
         return 1
-    run_id, run_bundle = selected
+    run_id, run_date, run_bundle = selected
 
     gaps = _fingerprint_gaps(run_bundle)
     if gaps:
@@ -199,6 +226,7 @@ def main(
         "coverage": coverage,
         "missing_tickers": missing_tickers,
         "session_date": today,
+        "source_run_date": run_date,
         "score_content_sha256": score_content_hash,
         "source_run_bundle_sha256": source_run_bundle_hash,
         "exported_at": dt.datetime.utcnow().isoformat() + "Z",

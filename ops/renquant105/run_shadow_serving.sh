@@ -20,9 +20,13 @@ if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
   exit 1
 fi
 PY="$RQ_ROOT/.venv/bin/python"
-# Verify the on-disk bundle is genuinely today's and unmodified before
-# trusting it — session_date match + score-content-hash match (Codex #236
-# round 2: the wrapper previously trusted a stale/tampered bundle blindly).
+# Verify the on-disk bundle is genuinely today's, sourced from the correct
+# prior session, and unmodified before trusting it — session_date match +
+# source_run_date match against the real prior NYSE session + score-content-
+# hash match (Codex #236 round 2: the wrapper previously trusted a
+# stale/tampered bundle blindly; round 3: added the source_run_date check so
+# a bundle correctly stamped session_date=today but sourced from a stale
+# multi-day-old run is also caught here, not just at export time).
 if ! VERIFY_OUT=$("$PY" "$RQ105_ORCH_ROOT/ops/renquant105/batch_scores_bundle.py" verify "$SCORES" "$META" "$TS" 2>&1); then
   source "$RQ_ROOT/.env" 2>/dev/null || true
   [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 shadow serving SKIPPED — bundle verification failed ($TS)" \
