@@ -1,0 +1,220 @@
+{
+  "leg1_real_fills_vs_references": {
+    "n_fills": 41,
+    "stats": {
+      "fill_vs_open_bps": {
+        "mean": -4.6,
+        "median": 0.0,
+        "se_mean": 9.6
+      },
+      "fill_vs_ohlc4_bps": {
+        "mean": 23.0,
+        "median": 13.4,
+        "se_mean": 23.0
+      },
+      "fill_vs_close_bps": {
+        "mean": 43.4,
+        "median": 27.4,
+        "se_mean": 45.9
+      },
+      "open_vs_close_bps": {
+        "mean": 48.6,
+        "median": 58.1,
+        "se_mean": 47.5
+      }
+    },
+    "fills_sample": [
+      {
+        "symbol": "NEE",
+        "date": "2026-06-30",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": 0.00013827629707918732,
+        "fill_vs_ohlc4_bps": 21.284584192904354,
+        "fill_vs_close_bps": 58.10679918419215,
+        "open_vs_close_bps": 58.10666010442
+      },
+      {
+        "symbol": "SOFI",
+        "date": "2026-06-30",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": -16.574796042788662,
+        "fill_vs_ohlc4_bps": 40.980674744346416,
+        "fill_vs_close_bps": 78.08125624169992,
+        "open_vs_close_bps": 94.81320323506681
+      },
+      {
+        "symbol": "CME",
+        "date": "2026-06-25",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": -13.833966543594922,
+        "fill_vs_ohlc4_bps": 131.13450444086627,
+        "fill_vs_close_bps": 266.6666666666662,
+        "open_vs_close_bps": 280.889214409723
+      },
+      {
+        "symbol": "AMZN",
+        "date": "2026-06-25",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": -1.2931761015610999,
+        "fill_vs_ohlc4_bps": 120.62374014933263,
+        "fill_vs_close_bps": 219.37384316416563,
+        "open_vs_close_bps": 220.69555908799998
+      },
+      {
+        "symbol": "AVGO",
+        "date": "2026-06-24",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": -9.311342448244941,
+        "fill_vs_ohlc4_bps": 69.40879423931622,
+        "fill_vs_close_bps": 109.66557425235557,
+        "open_vs_close_bps": 119.08780343251823
+      },
+      {
+        "symbol": "CRWD",
+        "date": "2026-06-24",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": 0.0001435087249035405,
+        "fill_vs_ohlc4_bps": 45.406824897817884,
+        "fill_vs_close_bps": 110.99195049135035,
+        "open_vs_close_bps": 110.99180538979736
+      },
+      {
+        "symbol": "NFLX",
+        "date": "2026-06-24",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": -9.630270883904668,
+        "fill_vs_ohlc4_bps": 30.040642247457505,
+        "fill_vs_close_bps": 108.57512553880566,
+        "open_vs_close_bps": 118.3193411533212
+      },
+      {
+        "symbol": "CSCO",
+        "date": "2026-06-24",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": -20.734817571286257,
+        "fill_vs_ohlc4_bps": -19.493202652806076,
+        "fill_vs_close_bps": 49.27725937729388,
+        "open_vs_close_bps": 70.15754734312152
+      },
+      {
+        "symbol": "AMZN",
+        "date": "2026-06-24",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": -14.96711970837783,
+        "fill_vs_ohlc4_bps": -100.58405958633942,
+        "fill_vs_close_bps": -32.86823999735788,
+        "open_vs_close_bps": -17.927953271253962
+      },
+      {
+        "symbol": "PANW",
+        "date": "2026-06-24",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": 23.133930464345198,
+        "fill_vs_ohlc4_bps": 95.63883549129403,
+        "fill_vs_close_bps": 176.3300169030968,
+        "open_vs_close_bps": 152.84250165821467
+      },
+      {
+        "symbol": "GILD",
+        "date": "2026-06-01",
+        "fill_time_et": "09:30:02",
+        "fill_vs_open_bps": -50.75046386192938,
+        "fill_vs_ohlc4_bps": 68.54070017732195,
+        "fill_vs_close_bps": 168.57313452292243,
+        "open_vs_close_bps": 220.44235355462183
+      },
+      {
+        "symbol": "ORCL",
+        "date": "2026-06-01",
+        "fill_time_et": "09:30:32",
+        "fill_vs_open_bps": 70.28199566160521,
+        "fill_vs_ohlc4_bps": -262.4016780283167,
+        "fill_vs_close_bps": -645.9800238065394,
+        "open_vs_close_bps": -711.2631203145247
+      },
+      {
+        "symbol": "ORCL",
+        "date": "2026-06-01",
+        "fill_time_et": "09:30:32",
+        "fill_vs_open_bps": 70.28199566160521,
+        "fill_vs_ohlc4_bps": -262.4016780283167,
+        "fill_vs_close_bps": -645.9800238065394,
+        "open_vs_close_bps": -711.2631203145247
+      },
+      {
+        "symbol": "HON",
+        "date": "2026-05-18",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": 7.939815476336598,
+        "fill_vs_ohlc4_bps": -70.55069642960987,
+        "fill_vs_close_bps": -135.80057015878722,
+        "open_vs_close_bps": -143.62634896429083
+      },
+      {
+        "symbol": "META",
+        "date": "2026-05-18",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": 3.9404155933997487,
+        "fill_vs_ohlc4_bps": -9.018021757947192,
+        "fill_vs_close_bps": -30.431797676567783,
+        "open_vs_close_bps": -34.358674524281874
+      },
+      {
+        "symbol": "EQIX",
+        "date": "2026-05-18",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": -0.000368413345386287,
+        "fill_vs_ohlc4_bps": 11.779404516161218,
+        "fill_vs_close_bps": -21.926889460899268,
+        "open_vs_close_bps": -21.926521855355485
+      },
+      {
+        "symbol": "TXN",
+        "date": "2026-05-15",
+        "fill_time_et": "09:30:00",
+        "fill_vs_open_bps": -8.065698331449767e-05,
+        "fill_vs_ohlc4_bps": -0.16517269295079906,
+        "fill_vs_close_bps": -1.3216722781383972,
+        "open_vs_close_bps": -1.321591631814334
+      },
+      {
+        "symbol": "GE",
+        "date": "2026-05-14",
+        "fill_time_et": "09:30:10",
+        "fill_vs_open_bps": 17.286419103592632,
+        "fill_vs_ohlc4_bps": 73.79633574776446,
+        "fill_vs_close_bps": 137.20214508609496,
+        "open_vs_close_bps": 119.70879234701081
+      },
+      {
+        "symbol": "VRT",
+        "date": "2026-05-13",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": 29.81069354747845,
+        "fill_vs_ohlc4_bps": 154.34160592153302,
+        "fill_vs_close_bps": 184.59985258786116,
+        "open_vs_close_bps": 154.32909330977296
+      },
+      {
+        "symbol": "MCD",
+        "date": "2026-05-13",
+        "fill_time_et": "09:30:01",
+        "fill_vs_open_bps": -21.857923497268228,
+        "fill_vs_ohlc4_bps": -48.50402773597607,
+        "fill_vs_close_bps": -65.2887967839333,
+        "open_vs_close_bps": -43.52601211095042
+      }
+    ]
+  },
+  "leg2_overnight_vs_intraday": {
+    "n_names": 142,
+    "lookback_days": 756,
+    "avg_overnight_bps_per_day": 7.74,
+    "avg_intraday_bps_per_day": 4.79,
+    "annualized_overnight_pct": 19.5,
+    "annualized_intraday_pct": 12.1,
+    "top_quartile_mom_overnight_bps": 15.57,
+    "top_quartile_mom_intraday_bps": 8.27,
+    "caveat": "momentum quartile uses CURRENT 12-1, not point-in-time membership \u2014 indicative only; the PIT version is the S10 deliverable"
+  }
+}
