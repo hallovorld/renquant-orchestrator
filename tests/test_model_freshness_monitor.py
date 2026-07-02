@@ -800,6 +800,64 @@ def test_invalid_lookahead_days_fails_closed_not_guessed(tmp_path: Path) -> None
         assert fresh.lookahead_days_stamped is None, bad_value
 
 
+def test_lookahead_days_rejects_non_int_types_and_implausible_magnitude(tmp_path: Path) -> None:
+    # #225 round 2 (Codex): int(...) coercion previously accepted True (==1),
+    # floats, and numeric strings, and had NO upper bound -- a stale artifact
+    # could self-certify healthy by stamping an arbitrarily large horizon
+    # (e.g. 6000). Every one of these must fail closed exactly like a missing
+    # horizon, never widen the threshold.
+    bad_values = (
+        True,             # bool -- int(True) == 1 would have been silently accepted
+        False,            # bool -- int(False) == 0 would have been silently accepted
+        60.9,             # float -- int(60.9) == 60 would have been silently truncated+accepted
+        "60",              # numeric string -- int("60") == 60 would have been silently parsed
+        6000,             # implausibly large in-type value -- no prior upper bound at all
+        -1,               # out of range (already covered for 0/-5, add a boundary case)
+    )
+    for bad_value in bad_values:
+        art = _write_json(
+            tmp_path / f"panel_bad_{repr(bad_value)}.json",
+            {"label_observation_cutoff": "2026-04-07", "lookahead_days": bad_value},
+        )
+        fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+        assert fresh.tier == mod.TIER_UNKNOWN, bad_value
+        assert fresh.lookahead_days_stamped is None, bad_value
+        assert fresh.horizon_validated_against is None, bad_value
+
+
+def test_lookahead_days_accepts_valid_in_range_int_and_records_validation_basis(
+    tmp_path: Path,
+) -> None:
+    # A genuine, in-range JSON integer still validates and widens the
+    # threshold correctly (regression against round-1 behavior), and the
+    # validated ArtifactFreshness now also records WHAT it was validated
+    # against (#225 round 2), not just a bare pass/fail.
+    art = _write_json(
+        tmp_path / "valid_horizon.json",
+        {"label_observation_cutoff": "2026-04-08", "lookahead_days": 60},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.lookahead_days_stamped == 60
+    assert fresh.horizon_validated_against == "explicit_range[1,120]bdays"
+    assert fresh.tier == mod.TIER_HEALTHY
+
+    # The upper bound itself (2x the documented fwd_60d convention) is still
+    # accepted -- only values STRICTLY beyond it are rejected.
+    at_bound = _write_json(
+        tmp_path / "at_upper_bound.json",
+        {"label_observation_cutoff": "2026-04-08", "lookahead_days": 120},
+    )
+    fresh_bound = mod.read_artifact_freshness("prod-panel", at_bound, AS_OF)
+    assert fresh_bound.lookahead_days_stamped == 120
+    just_over = _write_json(
+        tmp_path / "just_over_upper_bound.json",
+        {"label_observation_cutoff": "2026-04-08", "lookahead_days": 121},
+    )
+    fresh_over = mod.read_artifact_freshness("prod-panel", just_over, AS_OF)
+    assert fresh_over.lookahead_days_stamped is None
+    assert fresh_over.tier == mod.TIER_UNKNOWN
+
+
 def test_per_recipe_lookahead_scales_the_widened_threshold(tmp_path: Path) -> None:
     # A SHORTER label horizon (e.g. a future 20-BD model) must widen the
     # threshold by ITS OWN lag, not the fwd_60d default -- proving the width is

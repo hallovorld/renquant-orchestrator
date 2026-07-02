@@ -84,3 +84,50 @@ NEXT:     none required by this PR. If a future model family with a genuinely di
           horizon is added to any of the three populations, this fix is what makes its freshness
           read correctly (or fail closed if its recipe forgets to stamp `lookahead_days`) without
           further code changes here.
+
+## Round 2 (Codex CHANGES_REQUESTED — self-declared horizon was unvalidated and unbounded)
+
+Codex: "The replacement still lets an unvalidated artifact value determine its own freshness
+allowance. `read_artifact_freshness` coerces `lookahead_days` with `int(...)` and then adds the
+resulting business-day lag directly to every threshold. Therefore `true`, `60.9`, `'60'`, and an
+accidental `6000` are all accepted; a stale artifact can certify itself healthy by stamping an
+arbitrarily large horizon. ... Bind the horizon to a known recipe/provenance schema: validate an
+exact JSON integer (reject bool, floats, strings), require a recognized recipe/schema ID, verify
+that recipe's expected horizon or an explicit allowed range."
+
+Correct finding: round 1 fixed the MISSING/invalid-type-but-falsy case (`0`, negative, non-numeric
+strings via the `try: int(...) except` fallback to `0`) but never rejected a value that
+successfully coerces via `int(...)` — `int(True) == 1`, `int(60.9) == 60`, `int("60") == 60` all
+silently passed, and there was NO upper bound at all, so a corrupted/tampered `lookahead_days` of
+any size would widen every threshold by that many business days.
+
+**Fix.** New `_validate_lookahead_days(value)`: strict `isinstance(value, int) and not
+isinstance(value, bool)` type check (rejects bool, float, str, None outright — no coercion
+attempted), AND an explicit plausible-range check (`_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS=1`,
+`_MAX_PLAUSIBLE_LOOKAHEAD_BDAYS=120` — 2x the documented fwd_60d convention). This repo's
+artifacts carry no existing recipe/model-kind identifier field this monitor could bind an
+expected-horizon lookup against (confirmed: grepped the whole file for any `kind`/`recipe`/
+`family` concept — none exists; all three populations this monitor covers currently use fwd_60d
+in practice), so the explicit-range approach is the most defensible available binding today — a
+per-recipe expected-value table is the natural follow-up once/if artifacts gain a real recipe
+identifier (mirrors the training-side `provenance_schema_version`/`recipe_id` stamping landing
+concurrently in RenQuant's `shadow_scoring.py`, PR #426). Both call sites (`_expected_lag_calendar_days`
+and `read_artifact_freshness`) now route through this single validator — no separate coercion
+logic left in either. `ArtifactFreshness` gained `horizon_validated_against` (e.g.
+`"explicit_range[1,120]bdays"`), echoed in `as_dict()`, so the validation basis is part of the
+observable record for whichever artifact certified a tier under a stamped horizon, not just an
+internal pass/fail.
+
+**Evidence:** `PYTHONPATH=<sibling repos>:src RenQuant/.venv/bin/python -m pytest
+tests/test_model_freshness_monitor.py -q` -> 64 passed (was 62; +2). New tests:
+`test_lookahead_days_rejects_non_int_types_and_implausible_magnitude` (bool `True`/`False`, float
+`60.9`, numeric string `"60"`, implausible `6000`, and boundary `-1` all fail closed to
+`TIER_UNKNOWN` with `lookahead_days_stamped is None` and `horizon_validated_against is None` —
+proving none of them silently widen a threshold), `test_lookahead_days_accepts_valid_in_range_int_and_records_validation_basis`
+(a genuine in-range int still validates and widens correctly — regression check — and the exact
+upper bound `120` is accepted while `121` is rejected, pinning the boundary precisely).
+`py_compile` clean on both changed files.
+
+**Scope:** unchanged — observe-only, no model/pin/config change. The explicit-range bound (120
+business days) is itself a judgment call, not derived from any per-recipe contract (there isn't
+one yet); documented in-code as the reason and the natural upgrade path.

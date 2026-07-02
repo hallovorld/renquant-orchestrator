@@ -195,6 +195,41 @@ _AXIS_EXPECTED_LAG_BDAYS: dict[str, int] = {
     _LABEL_OBSERVATION_FIELD: _LABEL_OBSERVATION_LOOKAHEAD_BDAYS,
 }
 
+# 2026-07-02 (Codex #225 round 2): a self-declared ``lookahead_days`` is
+# NECESSARY but not SUFFICIENT — the round-1 fix accepted ANY value coerced
+# via ``int(...)``, which silently accepted ``True`` (== 1), floats (e.g.
+# ``60.9``), numeric strings (e.g. ``"60"``), and — critically — any
+# unboundedly large integer. A stale artifact could therefore certify
+# itself HEALTHY by stamping ``lookahead_days=6000``, widening every
+# threshold by ~6000 business days. This repo's artifacts carry no existing
+# recipe/model-kind identifier field to bind an expected horizon against
+# (all three populations this monitor covers — per-ticker tournament, prod
+# XGB panel, shadow PatchTST panel — currently use fwd_60d), so the
+# accepted value is bound to an EXPLICIT PLAUSIBLE RANGE instead: up to 2x
+# the documented fwd_60d convention — generous enough for a plausible
+# future shorter/longer-horizon model, but rejecting clearly-implausible or
+# corrupted values. If/when artifacts gain a real recipe/schema identifier,
+# replace this range check with a per-recipe expected-value lookup (mirrors
+# the training-side provenance-schema fix landing concurrently in
+# RenQuant's shadow_scoring.py — #426).
+_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS = 1
+_MAX_PLAUSIBLE_LOOKAHEAD_BDAYS = 2 * _LABEL_OBSERVATION_LOOKAHEAD_BDAYS
+
+
+def _validate_lookahead_days(value: object) -> int | None:
+    """Strictly validate a stamped ``lookahead_days`` value: must be an
+    EXACT JSON integer — never a ``bool`` (``int(True) == 1`` would
+    otherwise silently accept it), a ``float``, or a numeric string — AND
+    within the explicit plausible range (#225 round 2). Returns the
+    validated int, or ``None`` if the value fails any check; callers MUST
+    treat ``None`` exactly like a missing horizon (fail closed to
+    ``TIER_UNKNOWN``), never fall back to guessing a default from it."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    if not (_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS <= value <= _MAX_PLAUSIBLE_LOOKAHEAD_BDAYS):
+        return None
+    return value
+
 # Model blobs whose freshness metadata lives in a ``<path>.metadata.json`` sidecar.
 _MODEL_BLOB_SUFFIXES = {".pt", ".pth", ".bin", ".ckpt", ".safetensors", ".onnx"}
 
@@ -323,10 +358,7 @@ def _expected_lag_calendar_days(
     bdays_default = _AXIS_EXPECTED_LAG_BDAYS.get(binding_field or "", 0)
     if not bdays_default:
         return 0, 0
-    try:
-        stamped_bdays = int(lookahead_bdays) if lookahead_bdays else 0
-    except (TypeError, ValueError):
-        stamped_bdays = 0
+    stamped_bdays = _validate_lookahead_days(lookahead_bdays) or 0
     diagnostic_bdays = stamped_bdays if stamped_bdays > 0 else bdays_default
     diagnostic_frontier = _subtract_business_days(now.date(), diagnostic_bdays)
     diagnostic_lag = (now.date() - diagnostic_frontier).days
@@ -451,11 +483,17 @@ class ArtifactFreshness:
     promotion_status: str | None = None
     promotion_receipt_path: str | None = None
     # #223 amendment A1: the artifact's OWN stamped ``lookahead_days`` (the label
-    # horizon this recipe declares), parsed as a positive int. ``None`` when the
-    # binding axis needs horizon compensation but no valid value was stamped — the
-    # tier fails closed to ``unknown`` in that case (see ``read_artifact_freshness``).
-    # Always ``None`` for an axis that does not need compensation at all.
+    # horizon this recipe declares), strictly validated (#225 round 2: exact JSON
+    # int, not bool/float/string, within the explicit plausible range — see
+    # ``_validate_lookahead_days``). ``None`` when the binding axis needs horizon
+    # compensation but no valid value was stamped — the tier fails closed to
+    # ``unknown`` in that case (see ``read_artifact_freshness``). Always ``None``
+    # for an axis that does not need compensation at all.
     lookahead_days_stamped: int | None = None
+    # #225 round 2: what ``lookahead_days_stamped`` was validated against, so the
+    # validation basis is part of the observable record, not just an internal
+    # pass/fail. ``None`` when no horizon was stamped/validated at all.
+    horizon_validated_against: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -463,6 +501,7 @@ class ArtifactFreshness:
             "binding_cutoff": self.binding_cutoff,
             "binding_field": self.binding_field,
             "detail": self.detail,
+            "horizon_validated_against": self.horizon_validated_against,
             "label": self.label,
             "lookahead_days_stamped": self.lookahead_days_stamped,
             "max_feature_anchor_date": self.max_feature_anchor_date,
@@ -532,14 +571,17 @@ def read_artifact_freshness(
     result.max_feature_anchor_date = (
         raw[:10] if (raw := _text_or_none(data.get(_FEATURE_ANCHOR_FIELD))) else None
     )
-    # #223 amendment A1: this artifact's OWN declared label horizon, if any and
-    # valid (a positive int). Read here so it is available for BOTH the widening
-    # computation below and observability (``as_dict``) regardless of tier outcome.
-    try:
-        _lookahead_parsed = int(data.get(_LOOKAHEAD_DAYS_FIELD) or 0)
-    except (TypeError, ValueError):
-        _lookahead_parsed = 0
-    result.lookahead_days_stamped = _lookahead_parsed if _lookahead_parsed > 0 else None
+    # #223 amendment A1 / #225 round 2: this artifact's OWN declared label
+    # horizon, strictly validated (exact JSON int, in-range — see
+    # ``_validate_lookahead_days``). Read here so it is available for BOTH the
+    # widening computation below and observability (``as_dict``) regardless of
+    # tier outcome.
+    result.lookahead_days_stamped = _validate_lookahead_days(data.get(_LOOKAHEAD_DAYS_FIELD))
+    if result.lookahead_days_stamped is not None:
+        result.horizon_validated_against = (
+            f"explicit_range[{_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS},"
+            f"{_MAX_PLAUSIBLE_LOOKAHEAD_BDAYS}]bdays"
+        )
 
     for field_name in DATA_CUTOFF_FIELDS:
         if _parse_date(data.get(field_name)) is not None:
