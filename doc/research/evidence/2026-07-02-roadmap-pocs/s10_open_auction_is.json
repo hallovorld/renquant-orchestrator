@@ -53,10 +53,28 @@
     }
   },
   "prospective_power_vs_vwap_true": {
-    "method": "cluster_robust_day_level_sd, powered against the 10.0bps materiality bar (NOT the observed point estimate)",
+    "method": "cluster_robust_day_level_sd, one-sided superiority test H0: mu<=10.0bps vs H1: mu>10.0bps; required n powered against (mu_alternative - materiality_bps), NOT materiality_bps alone (that would power a test against a null of zero, not the actual preregistered threshold)",
+    "assumptions": "day-level means are treated as independent draws (no day-to-day autocorrelation correction); if fill quality is autocorrelated across days this UNDERSTATES the true required sample size",
     "day_level_sd_bps": 151.7,
     "current_n_days": 10,
-    "required_n_days_80pct_power": 1804,
+    "materiality_bar_bps": 10.0,
+    "sensitivity_by_alternative": [
+      {
+        "mu_alternative_bps": 20.0,
+        "gap_vs_materiality_bar_bps": 10.0,
+        "required_n_days_80pct_power": 1804
+      },
+      {
+        "mu_alternative_bps": 30.0,
+        "gap_vs_materiality_bar_bps": 20.0,
+        "required_n_days_80pct_power": 451
+      },
+      {
+        "mu_alternative_bps": 50.0,
+        "gap_vs_materiality_bar_bps": 40.0,
+        "required_n_days_80pct_power": 113
+      }
+    ],
     "z_alpha2": 1.96,
     "z_beta_80pct_power": 0.84
   },
@@ -64,7 +82,7 @@
     "vs_day_vwap_true": "INCONCLUSIVE",
     "vs_close": "INCONCLUSIVE",
     "vwap_proxy_cohort_is_descriptive_only": true,
-    "reading": "S10 verdict per #230 \u00a78, R2 (frozen rule, decided before inspecting results): MATERIAL requires the date-clustered CI's LOWER bound to exceed 10.0bps; NOT_MATERIAL requires the CI's UPPER bound to stay below 10.0bps; otherwise INCONCLUSIVE. The primary estimand is the TRUE-10min-VWAP cohort only (n=20 fills / 10 days) \u2014 the OHLC4-proxy cohort (n=21 fills / 8 days) is reported for reference but never moves this verdict, since it uses a different, coarser reference with different bias/variance. G105 kill-branch status: neither GO nor KILL is triggered by an INCONCLUSIVE result \u2014 the branch remains UNRESOLVED pending a properly powered confirmatory sample (see prospective_power_vs_vwap_true)."
+    "reading": "S10 verdict per #230 \u00a78, R3 (frozen rule, applied RETROSPECTIVELY/DESCRIPTIVELY to the already-inspected 10-day cohort \u2014 the rule was introduced after earlier revisions exposed this data's point estimates, so this application cannot be called a prospective confirmatory test; a genuine confirmatory application of this same frozen rule requires a new, non-overlapping cohort collected going forward): MATERIAL requires the date-clustered CI's LOWER bound to exceed 10.0bps; NOT_MATERIAL requires the CI's UPPER bound to stay below 10.0bps; otherwise INCONCLUSIVE. The primary estimand is the TRUE-10min-VWAP cohort only (n=20 fills / 10 days) \u2014 the OHLC4-proxy cohort (n=21 fills / 8 days) is reported for reference but never moves this verdict, since it uses a different, coarser reference with different bias/variance. G105 kill-branch status: neither GO nor KILL is triggered by an INCONCLUSIVE result \u2014 the branch remains UNRESOLVED pending a properly powered, genuinely prospective confirmatory sample on new data (see prospective_power_vs_vwap_true)."
   },
   "fills": [
     {

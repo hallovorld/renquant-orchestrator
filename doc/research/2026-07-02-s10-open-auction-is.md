@@ -2,7 +2,8 @@
 
 STATUS: research evidence (read-only). Task S10 of the unified plan (#231, Term EXEC);
 upgrades POC-C leg 1 from point estimate to a CI-backed formal verdict.
-DATE: 2026-07-02 (R2: corrected mixed-reference estimand, 2026-07-02)
+DATE: 2026-07-02 (R2: corrected mixed-reference estimand; R3: corrected power-calculation
+denominator + retrospective/descriptive framing, both 2026-07-02)
 SCRIPT: `scripts/s10_open_auction_is_study.py` (one-command reproduce, constants at top).
 EVIDENCE: `doc/research/evidence/2026-07-02-roadmap-pocs/s10_open_auction_is.json`.
 
@@ -24,8 +25,24 @@ and adjudicates them **separately**; the true-VWAP cohort is the primary estiman
 Fetching real SIP minute bars to eliminate the proxy cohort entirely was considered but
 not pursued this round (no SIP/minute-bar fetch utility exists yet in this codebase, and
 even Alpaca SIP feed *entitlement* has not been verified against the live key — see
-#237). The materiality verdict is now a frozen CI-lower-bound rule, decided before
-inspecting results, not the point estimate.
+#237). The materiality verdict is now a CI-lower-bound rule, not the point estimate.
+
+## R3 correction (Codex review): power-calc denominator + retrospective framing
+
+R2's prospective power calculation powered a test against the materiality bar **relative
+to zero** (denominator = materiality_bps alone) — that is not the preregistered claim
+(`H0: mu<=10bps` vs `H1: mu>10bps`), whose correct denominator is `(mu_alternative -
+10bps)` for a stated alternative effect above the bar; at `mu_alternative==10bps` the
+true required n is infinite (no gap to detect). R3 replaces the single point figure with
+a sensitivity table across three prespecified alternatives (20/30/50bps) — see below.
+
+R3 also corrects the "decided before inspecting results" framing: the materiality rule
+was actually introduced in R2, **after** R1 had already exposed this data's point
+estimates and general shape — its CURRENT application to this same 10-day cohort is
+therefore RETROSPECTIVE/DESCRIPTIVE, not a valid prospective confirmatory test, even
+though the 10bps threshold itself is a reasonable, externally-motivated number. A
+genuinely prospective/confirmatory application of this same frozen rule requires a new,
+non-overlapping cohort collected going forward.
 
 ## Results
 
@@ -41,11 +58,13 @@ pooled figure — pooling with the near-zero proxy cohort had been diluting it. 
 CI is also far wider (only 10 independent days) and still includes both zero and
 values well below the materiality bar.
 
-## Verdict (per the #230 §8 S10 row, R2 frozen rule)
+## Verdict (per the #230 §8 S10 row, R3 rule — applied retrospectively to this cohort)
 
-Frozen equivalence/superiority rule (decided before inspecting this sample): **MATERIAL**
-requires the CI's lower bound to exceed +10bps; **NOT_MATERIAL** requires the CI's upper
-bound to stay below +10bps; otherwise **INCONCLUSIVE**.
+Equivalence/superiority rule, applied RETROSPECTIVELY/DESCRIPTIVELY to this
+already-inspected sample (see R3 correction above — this is not a prospective
+confirmatory test): **MATERIAL** requires the CI's lower bound to exceed +10bps;
+**NOT_MATERIAL** requires the CI's upper bound to stay below +10bps; otherwise
+**INCONCLUSIVE**.
 
 - **vs true day VWAP (primary): INCONCLUSIVE.** CI [−14.8, +165.2] straddles both 0 and
   the 10bps bar. The point estimate is well above the bar, but the estimate is not
@@ -57,27 +76,46 @@ bound to stay below +10bps; otherwise **INCONCLUSIVE**.
 - **G105 kill-branch status: UNRESOLVED.** Neither GO nor KILL is triggered by an
   inconclusive result.
 
-## Properly-powered prospective sample size (not the R1 post-hoc figure)
+## Properly-powered prospective sample size (sensitivity table, not one point figure)
 
 R1 reported "≈38–40 independent fill-days" to significance by extrapolating from the
 *observed* +40bps effect and its standard error — a post-hoc calculation that assumes
-the observed point estimate is the true effect, which overstates confidence. R2 replaces
-this with a genuine prospective calculation: sample size required for 80% power to
-detect the **10bps materiality bar** (not the observed effect), using cluster-robust
-(day-level) variance from the true-VWAP cohort:
+the observed point estimate is the true effect, which overstates confidence. R2's
+replacement computed a single required-n figure powered against the 10bps materiality
+bar treated as a null of *zero* — but the actual preregistered claim is the one-sided
+superiority test `H0: mu<=10bps` vs `H1: mu>10bps`, whose correct denominator is the gap
+`(mu_alternative - 10bps)` for a stated alternative effect above the bar, not 10bps
+alone. R3 replaces the single figure with a sensitivity table across three prespecified
+alternatives, using the same cluster-robust (day-level) variance from the true-VWAP
+cohort:
 
 - Day-level SD: **151.7bps** (the true-VWAP cohort's per-day mean dispersion — the fills
   are extremely noisy at the day-cluster level).
-- Required independent days for 80% power at alpha=0.05: **≈1,804 days**.
+- Assumption: day-level means are treated as independent draws (no day-to-day
+  autocorrelation correction); if fill quality is autocorrelated across days, this
+  UNDERSTATES the true required sample size.
 
-This is a **fragile planning scenario**, not a validated result — it is highly sensitive
-to the day-level SD estimate, which itself comes from only 10 days. It should be read as
-"the true-VWAP fill population, at its currently observed dispersion, would need an
-impractically large number of independent days to confirm a 10bps effect via this exact
-estimand" — not as a commitment to collect 1,804 days of data. If a future confirmatory
-attempt is preregistered, it should use a materially different design (e.g. matched-pair
-or paired-difference estimand to cut cross-day noise) rather than simply accumulating
-more days under the current estimand.
+| Assumed true effect (mu_alternative) | Gap vs 10bps bar | Required independent days (80% power, alpha=0.05) |
+|---|---|---|
+| 20bps | 10bps | ≈1,804 |
+| 30bps | 20bps | ≈451 |
+| 50bps | 40bps | ≈113 |
+
+(At `mu_alternative==10bps`, i.e. zero gap, the required n is infinite — not computed.
+R2's original single figure of "≈1,804 days" turns out to numerically match R3's 20bps
+row exactly: R2's denominator of 10bps alone is equivalent to R3's formula evaluated at
+`mu_alternative=20bps`, since `20-10=10` — R2 was implicitly (and silently) powering
+against a 20bps alternative while presenting it as if it were powered against the 10bps
+bar itself.)
+
+This remains a **fragile planning scenario** at every row, not a validated result — every
+figure is highly sensitive to the day-level SD estimate, which itself comes from only 10
+days. Even the most favorable prespecified alternative (50bps, an effect five times the
+materiality bar) still requires well over 100 independent days — an impractically large
+sample under the current per-day-noise estimand. If a future confirmatory attempt is
+preregistered, it should use a materially different design (e.g. matched-pair or
+paired-difference estimand to cut cross-day noise) rather than simply accumulating more
+days under the current estimand.
 
 ## Roadmap effects
 

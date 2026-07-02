@@ -158,14 +158,61 @@ def test_materiality_verdict_uses_ci_lower_bound_not_point_estimate():
     assert s10._materiality_verdict(stat_not_material) == "NOT_MATERIAL"
 
 
-def test_prospective_power_uses_materiality_bar_not_observed_effect():
-    """The required-n_days estimate must be powered against the fixed
-    materiality bar, not the (possibly inflated) observed point estimate --
-    confirms the fix no longer does post-hoc power calculation."""
+def test_prospective_power_reports_sensitivity_not_post_hoc_point_estimate():
+    """The required-n_days estimate must be a sensitivity table powered
+    against stated alternatives above the materiality bar, not the
+    (possibly inflated) observed point estimate or the materiality bar
+    treated as a null of zero -- confirms the fix no longer does post-hoc
+    power calculation."""
     rows = [_fill_row("AAA", f"2026-01-{i+1:02d}", "true_vwap_10min", 40.0 + (i % 5) * 20)
             for i in range(10)]
     df = pd.DataFrame(rows)
     power = s10._cluster_robust_prospective_n_days(df, "fill_vs_vwap_bps")
     assert power is not None
-    assert "10.0bps materiality bar" in power["method"]
-    assert power["required_n_days_80pct_power"] > power["current_n_days"]
+    assert "materiality_bar_bps" in power and power["materiality_bar_bps"] == 10.0
+    assert "assumptions" in power and "autocorrelation" in power["assumptions"]
+    sens = power["sensitivity_by_alternative"]
+    assert [row["mu_alternative_bps"] for row in sens] == [20.0, 30.0, 50.0]
+    for row in sens:
+        assert isinstance(row["required_n_days_80pct_power"], int)
+        assert row["required_n_days_80pct_power"] > 0
+
+
+def test_power_denominator_uses_gap_to_alternative_not_bar_alone():
+    """Hand-computed sanity check: with sigma=100bps, materiality=10bps,
+    mu_alternative=30bps, required n = ((1.96+0.84)*100/(30-10))**2 -- NOT
+    ((1.96+0.84)*100/10)**2, which is what the old (buggy) formula computed."""
+    sigma = 100.0
+    n = s10._n_days_for_alternative(sigma, materiality_bps=10.0, mu_alternative_bps=30.0)
+    expected = ((1.96 + 0.84) * sigma / (30.0 - 10.0)) ** 2
+    assert n == pytest.approx(expected)
+    buggy_old_formula = ((1.96 + 0.84) * sigma / 10.0) ** 2
+    assert n != pytest.approx(buggy_old_formula)
+
+
+def test_power_at_or_below_materiality_bar_is_infinite_not_silently_finite():
+    """mu_alternative <= materiality_bps means zero gap to detect -- must
+    return math.inf explicitly, never a finite (silently wrong) number."""
+    assert s10._n_days_for_alternative(100.0, materiality_bps=10.0, mu_alternative_bps=10.0) == float("inf")
+    assert s10._n_days_for_alternative(100.0, materiality_bps=10.0, mu_alternative_bps=5.0) == float("inf")
+
+    rows = [_fill_row("AAA", f"2026-01-{i+1:02d}", "true_vwap_10min", 40.0 + (i % 5) * 20)
+            for i in range(10)]
+    df = pd.DataFrame(rows)
+    power = s10._cluster_robust_prospective_n_days(
+        df, "fill_vs_vwap_bps", alternatives_bps=(10.0,))
+    assert power["sensitivity_by_alternative"][0]["required_n_days_80pct_power"] is None
+
+
+def test_power_sensitivity_n_decreases_as_alternative_grows():
+    """Basic sanity property of the correct formula: as the assumed true
+    effect moves further above the materiality bar, the required sample
+    size to detect it shrinks monotonically."""
+    rows = [_fill_row("AAA", f"2026-01-{i+1:02d}", "true_vwap_10min", 40.0 + (i % 5) * 20)
+            for i in range(10)]
+    df = pd.DataFrame(rows)
+    power = s10._cluster_robust_prospective_n_days(
+        df, "fill_vs_vwap_bps", alternatives_bps=(20.0, 30.0, 50.0))
+    ns = [row["required_n_days_80pct_power"] for row in power["sensitivity_by_alternative"]]
+    assert ns == sorted(ns, reverse=True)
+    assert len(set(ns)) == len(ns)

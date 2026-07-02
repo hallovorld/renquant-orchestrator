@@ -66,3 +66,31 @@ pooling two different references and a post-hoc power calculation, not a robust 
 The true-VWAP point estimate remains suggestive (well above the bar) but the corrected,
 properly-scoped sample cannot distinguish it from noise; the S10/G105 branch is
 UNRESOLVED, not resolved-toward-material.
+
+ROUND 3 (Codex CHANGES_REQUESTED, 2026-07-02): the R2 power calculation's denominator
+(`materiality_bps` alone) powers a test against a null of ZERO, not the actual
+preregistered claim `H0: mu<=10bps` vs `H1: mu>10bps` — the correct denominator is
+`(mu_alternative - 10bps)` for a stated alternative above the bar; at
+`mu_alternative==10bps` the true required n is infinite. Also, "decided BEFORE
+inspecting results" mischaracterized the materiality rule's application: the rule was
+introduced in R2, AFTER R1 had already exposed the data's shape — its application to
+this same cohort is retrospective/descriptive, not prospective.
+
+Fix: `_cluster_robust_prospective_n_days()` now returns a sensitivity table across three
+prespecified alternatives (20/30/50bps) via a new `_n_days_for_alternative()` helper,
+each computed against `(mu_alternative - materiality_bps)`; `mu_alternative <=
+materiality_bps` returns `math.inf` explicitly (surfaced as `null` in the JSON/table),
+never a silently-wrong finite number. Day-clustering/autocorrelation assumptions are now
+stated explicitly in the output (`assumptions` field). `_materiality_verdict()`'s
+docstring and the `verdict.reading` text both now label the rule's application to this
+cohort as RETROSPECTIVE/DESCRIPTIVE, with a genuine confirmatory test requiring a new,
+non-overlapping cohort collected going forward. Research doc and evidence JSON
+regenerated (`analyze()` re-applied to the existing 41-fill dataset, no new network
+fetch needed) — sensitivity table: 20bps→≈1,804 days, 30bps→≈451 days, 50bps→≈113 days
+(the 20bps row numerically matches R2's old "1,804 days" figure exactly, since R2's
+formula was equivalent to implicitly powering against a 20bps alternative while
+presenting it as powered against the 10bps bar itself). 5 new/updated tests
+(`test_prospective_power_reports_sensitivity_not_post_hoc_point_estimate`,
+`test_power_denominator_uses_gap_to_alternative_not_bar_alone`,
+`test_power_at_or_below_materiality_bar_is_infinite_not_silently_finite`,
+`test_power_sensitivity_n_decreases_as_alternative_grows`), 10/10 tests pass (was 7).

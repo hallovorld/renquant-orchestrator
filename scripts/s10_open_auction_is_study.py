@@ -35,6 +35,21 @@ a fragile planning scenario, with a separate, properly-powered prospective
 sample-size estimate against the 10bps materiality bar (not the observed
 effect) using cluster-robust (day-level) variance.
 
+R3 (2026-07-02, Codex review): the prospective power calculation powered a
+test against materiality_bps relative to ZERO (denominator = materiality_bps
+alone) — that is not the preregistered claim (H0: mu<=materiality_bps vs
+H1: mu>materiality_bps), whose correct denominator is
+(mu_alternative - materiality_bps) for a stated alternative effect above the
+bar; at mu_alternative==materiality_bps the true required n is infinite.
+Fixed: `_cluster_robust_prospective_n_days` now reports a sensitivity table
+across prespecified alternatives (20/30/50bps) instead of one point figure,
+with day-clustering/autocorrelation assumptions stated explicitly. Also: the
+materiality rule's CURRENT application to the existing 10-day cohort is now
+labeled RETROSPECTIVE/DESCRIPTIVE (the rule was introduced after earlier
+revisions had already exposed this data's shape) rather than a prospective
+decision made before inspecting results — a genuinely prospective
+confirmatory test requires a new, non-overlapping cohort going forward.
+
 Reproduce:
   cd /Users/renhao/git/github/RenQuant && set -a && source .env && set +a && \
     .venv/bin/python <orchestrator>/scripts/s10_open_auction_is_study.py
@@ -154,11 +169,23 @@ def _cluster_boot(df, col, seed=SEED, n_boot=N_BOOT):
 
 
 def _materiality_verdict(stat, materiality_bps=MATERIALITY_BPS):
-    """Frozen equivalence/superiority rule, decided BEFORE inspecting results:
-    material only if the CI LOWER bound clears the bar; not-material only if
-    the CI UPPER bound stays below it; otherwise INCONCLUSIVE. A bare point
-    estimate above the bar is not sufficient — its CI may still include values
-    at or below the bar (or below zero)."""
+    """Equivalence/superiority rule: material only if the CI LOWER bound
+    clears the bar; not-material only if the CI UPPER bound stays below it;
+    otherwise INCONCLUSIVE. A bare point estimate above the bar is not
+    sufficient — its CI may still include values at or below the bar (or
+    below zero).
+
+    R3 (2026-07-02, Codex review): this rule's CURRENT application to the
+    existing 10-day cohort is RETROSPECTIVE/DESCRIPTIVE, not a prospective
+    confirmatory test — the rule itself was introduced in a later revision of
+    this study, AFTER earlier revisions had already exposed the data's point
+    estimates and general shape. The 10bps threshold is reasonable and
+    externally motivated, but its application here was informed by hindsight.
+    A genuinely prospective/confirmatory application of this SAME frozen rule
+    requires a NEW, NON-OVERLAPPING cohort collected after the rule was
+    fixed (e.g. a fresh SIP-sourced sample with no overlap with the 10 days
+    analyzed here) — only that future application should be treated as a
+    true confirmatory test."""
     if stat is None:
         return "NO_DATA"
     if not stat["reliable_ci"]:
@@ -171,13 +198,46 @@ def _materiality_verdict(stat, materiality_bps=MATERIALITY_BPS):
     return "INCONCLUSIVE"
 
 
-def _cluster_robust_prospective_n_days(df, col, minimum_relevant_effect_bps=MATERIALITY_BPS):
-    """Prospective sample size for a FUTURE confirmatory test, powered against
-    the MINIMUM ECONOMICALLY RELEVANT effect (the materiality bar) — not the
-    observed point estimate, which post-hoc power calculations misuse and
-    which overstates confidence when the true effect is smaller than observed.
-    Cluster-robust: sigma is the day-level (not fill-level) standard deviation,
-    since fills within a day are not independent observations.
+SENSITIVITY_ALTERNATIVES_BPS = (20.0, 30.0, 50.0)
+
+
+def _n_days_for_alternative(sigma, materiality_bps, mu_alternative_bps):
+    """One-sided superiority test H0: mu <= materiality_bps vs H1: mu >
+    materiality_bps. The detectable gap is (mu_alternative - materiality_bps),
+    NOT materiality_bps alone (which would power a test against a null of
+    zero, a different and easier claim than the one actually preregistered).
+    At mu_alternative == materiality_bps there is no gap to detect and the
+    required n is infinite — returns math.inf explicitly rather than a
+    silently-wrong finite number.
+    """
+    gap = mu_alternative_bps - materiality_bps
+    if gap <= 0:
+        return float("inf")
+    z = POWER_Z_ALPHA2 + POWER_Z_BETA
+    return (z * sigma / gap) ** 2
+
+
+def _cluster_robust_prospective_n_days(df, col, materiality_bps=MATERIALITY_BPS,
+                                        alternatives_bps=SENSITIVITY_ALTERNATIVES_BPS):
+    """Prospective sample-size sensitivity table for a FUTURE confirmatory
+    test of the preregistered one-sided superiority claim H0: mu <=
+    materiality_bps vs H1: mu > materiality_bps.
+
+    A single number here is misleading: the required n depends entirely on
+    what true effect size ("mu_alternative") you assume and want power to
+    detect above the materiality bar. Powering against materiality_bps alone
+    (treating the null as zero) understates the true requirement — at
+    mu_alternative == materiality_bps the true required n is infinite, since
+    there is zero gap between the null and alternative to resolve. This
+    reports a sensitivity table across several prespecified, economically
+    plausible alternatives instead of one point figure.
+
+    Cluster-robust: sigma is the day-level (not fill-level) standard
+    deviation, since fills within a day are not independent observations.
+    This assumes trading DAYS themselves are independent draws — if fill
+    quality is autocorrelated day-to-day (e.g. a multi-day liquidity regime),
+    this understates the true required sample size; no autocorrelation
+    correction is applied here, flagged as a known limitation.
     """
     if df.empty:
         return None
@@ -188,15 +248,30 @@ def _cluster_robust_prospective_n_days(df, col, minimum_relevant_effect_bps=MATE
     sigma = float(day_means.std(ddof=1))
     if sigma <= 0:
         return None
-    z = POWER_Z_ALPHA2 + POWER_Z_BETA
-    n_required = (z * sigma / minimum_relevant_effect_bps) ** 2
+    sensitivity = []
+    for mu_alt in alternatives_bps:
+        n_required = _n_days_for_alternative(sigma, materiality_bps, mu_alt)
+        sensitivity.append({
+            "mu_alternative_bps": mu_alt,
+            "gap_vs_materiality_bar_bps": round(mu_alt - materiality_bps, 1),
+            "required_n_days_80pct_power": (
+                None if not np.isfinite(n_required) else int(np.ceil(n_required))
+            ),
+        })
     return {
-        "method": "cluster_robust_day_level_sd, powered against the "
-                  f"{minimum_relevant_effect_bps}bps materiality bar (NOT the "
-                  "observed point estimate)",
+        "method": "cluster_robust_day_level_sd, one-sided superiority test "
+                  f"H0: mu<={materiality_bps}bps vs H1: mu>{materiality_bps}bps; "
+                  "required n powered against (mu_alternative - materiality_bps), "
+                  "NOT materiality_bps alone (that would power a test against a "
+                  "null of zero, not the actual preregistered threshold)",
+        "assumptions": "day-level means are treated as independent draws (no "
+                       "day-to-day autocorrelation correction); if fill quality "
+                       "is autocorrelated across days this UNDERSTATES the true "
+                       "required sample size",
         "day_level_sd_bps": round(sigma, 1),
         "current_n_days": int(n_days),
-        "required_n_days_80pct_power": int(np.ceil(n_required)),
+        "materiality_bar_bps": materiality_bps,
+        "sensitivity_by_alternative": sensitivity,
         "z_alpha2": POWER_Z_ALPHA2,
         "z_beta_80pct_power": POWER_Z_BETA,
     }
@@ -235,16 +310,22 @@ def analyze(df, seed=SEED, n_boot=N_BOOT, materiality_bps=MATERIALITY_BPS):
         "vs_close": close_verdict,
         "vwap_proxy_cohort_is_descriptive_only": True,
         "reading": (
-            "S10 verdict per #230 §8, R2 (frozen rule, decided before inspecting "
-            "results): MATERIAL requires the date-clustered CI's LOWER bound to exceed "
-            f"{materiality_bps}bps; NOT_MATERIAL requires the CI's UPPER bound to stay "
-            f"below {materiality_bps}bps; otherwise INCONCLUSIVE. The primary estimand is "
+            "S10 verdict per #230 §8, R3 (frozen rule, applied RETROSPECTIVELY/"
+            "DESCRIPTIVELY to the already-inspected 10-day cohort — the rule was "
+            "introduced after earlier revisions exposed this data's point estimates, "
+            "so this application cannot be called a prospective confirmatory test; a "
+            "genuine confirmatory application of this same frozen rule requires a new, "
+            "non-overlapping cohort collected going forward): MATERIAL requires the "
+            f"date-clustered CI's LOWER bound to exceed {materiality_bps}bps; "
+            f"NOT_MATERIAL requires the CI's UPPER bound to stay below "
+            f"{materiality_bps}bps; otherwise INCONCLUSIVE. The primary estimand is "
             "the TRUE-10min-VWAP cohort only (n=%d fills / %d days) — the OHLC4-proxy "
             "cohort (n=%d fills / %d days) is reported for reference but never moves this "
             "verdict, since it uses a different, coarser reference with different "
             "bias/variance. G105 kill-branch status: neither GO nor KILL is triggered by "
             "an INCONCLUSIVE result — the branch remains UNRESOLVED pending a properly "
-            "powered confirmatory sample (see prospective_power_vs_vwap_true)."
+            "powered, genuinely prospective confirmatory sample on new data (see "
+            "prospective_power_vs_vwap_true)."
         ) % (
             vwap_true_stat["n_fills"] if vwap_true_stat else 0,
             vwap_true_stat["n_days"] if vwap_true_stat else 0,
