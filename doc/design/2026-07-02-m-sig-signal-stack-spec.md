@@ -7,13 +7,25 @@ substantial researcher degrees of freedom left open in every candidate — not y
 spec. This revision closes every open parameter per candidate, adds multiplicity control,
 separates prior-inspected from genuinely prospective evidence, and replaces the narrative
 "wait for strongest leg" sequencing rule with a deterministic, date-bounded stack decision
-procedure.)
+procedure.); r3 2026-07-02 (Codex review: r2's "fixed hierarchical order" did NOT control
+family-wise error — every candidate still ran at the full nominal α=0.05, and the 2-of-3
+early-GO rule adds an implicit additional look. r2 also left C2's PIT field and C3's
+benchmark/sector sources deferred to "confirm in the build PR," and C4's margin was
+justified only as "below a known floor" without an actual noise argument. r3 fixes all
+four: a real Bonferroni correction (k=3, one-sided α=0.05/3 per candidate — see §2a),
+frozen production source citations for C2/C3 in place of deferred confirmation, an honest
+arbitrary-margin-with-sensitivity label for C4 in place of the floor-based hand-wave, and a
+bounded (not indefinite) horizon for C1's background accrual.)
 
 **Freeze status (honest, per-candidate — see §1 for detail): C2, C3, C4 are FROZEN — every
-parameter below is fixed and may not be tuned after seeing a result. C1 is FROZEN on
+parameter below is fixed and may not be tuned after seeing a result, and their formal GO/KILL
+decision rule now uses a Bonferroni-corrected one-sided 98.33% CI (not the naive 95%) to
+control the 3-candidate family-wise error rate — see §2a. C1 is FROZEN on
 methodology/procedure but its go/kill bar's STATISTICAL POWER is honestly unresolved until
 real accrued data exists to check it against (§1.1); C1 may not be used as a standalone
-go/kill gate until that check passes — see the explicit downgrade rule in §1.1.**
+go/kill gate until that check passes, is EXCLUDED from the Bonferroni family (it never
+independently votes — §1.1, §3), and its background accrual is now bounded to 2027-Q4, not
+indefinite — see the explicit downgrade rule in §1.1.**
 
 ## 0. The gate this feeds (fixed, from the merged route)
 
@@ -41,13 +53,23 @@ Shared conventions across all four candidates (defined once, referenced below):
   observations (≈2.4 years at daily cadence) — below this the bootstrap in
   `_moving_block_bootstrap` itself refuses to produce a CI (`n <= block` returns
   `(None, None, None)`), and even above that floor a bootstrap with too few independent
-  blocks understates true uncertainty. 600 is a floor, not a target; report the actual `n`
-  and block count achieved.
-- **Deterministic decision rule (default)**: GO iff the block-bootstrap 95% CI lower bound
-  exceeds the candidate's frozen individual threshold; KILL iff the CI upper bound is below
-  the threshold; else INCONCLUSIVE (this mirrors the frozen equivalence-style rule already
-  applied to `#235`/`#431` this session — a point estimate above the bar is never sufficient
-  on its own).
+  blocks understates true uncertainty. **600 decision dates ÷ block=60 is only 10 EFFECTIVE
+  BLOCKS at the floor** — the same thin-sample regime that made #235's/#431's 10-day
+  cohorts unreliable for CI width; 600 is a floor for the bootstrap to run at all, not
+  evidence the resulting CI is narrow. Report the actual `n`, block count, AND (per
+  candidate, §1) a detectable-effect/power read at that block count — a floor being met is
+  not the same as the test being adequately powered (see the per-candidate power notes
+  added in r3 below; C2/C3/C4 do not yet have real σ estimates to compute this rigorously,
+  same limitation as C1's illustrative-only calc in §1.1 — report it as illustrative, not
+  authoritative, until real data exists).
+- **Deterministic decision rule (default, r3: Bonferroni-corrected)**: GO iff the
+  block-bootstrap CI lower bound, at the level in §2a (98.33% one-sided for C2/C3/C4 — NOT
+  the naive 95%), exceeds the candidate's frozen individual threshold; KILL iff the
+  same-level CI upper bound is below the threshold; else INCONCLUSIVE (this mirrors the
+  frozen equivalence-style rule already applied to `#235`/`#431` this session — a point
+  estimate above the bar is never sufficient on its own). C1 is explicitly EXEMPT from this
+  corrected level (§1.1: it never independently votes, so it is not part of the 3-candidate
+  Bonferroni family — see §2a).
 - **Prospective-vs-retrospective evidence**: per candidate below, every number that was
   already computed/inspected BEFORE this freeze date (2026-07-02) is explicitly labeled
   EXPLORATORY/RETROSPECTIVE and may motivate why a candidate is worth testing, but may
@@ -107,19 +129,34 @@ Shared conventions across all four candidates (defined once, referenced below):
   need `n ≈ ((1.645+0.84)·0.10/0.015)² ≈ 274` months — i.e., monthly cadence cannot reach
   power at any accrual horizon anyone would wait for. This is illustrative of the scale of
   the problem, not a number to act on directly (the real σ is unknown until data exists).
-  **Frozen resolution — codex's third option, applied**: C1 is DOWNGRADED to
-  INFORMATIVE-ONLY at both the 6mo and 9mo checkpoints. It may NEVER independently decide
-  GO or KILL for the stack. At each checkpoint, compute the empirical monthly-IC std from
-  the actually-accrued data and the resulting CI width using the SAME moving-block-bootstrap
-  machinery (block=1 month here, since that's the true independence unit) applied to however
-  many monthly points exist; report it, but do not gate on it. C1 is READ (not decided) at
-  9mo: if the point estimate and CI are directionally encouraging (CI does not clearly
-  exclude the 0.015 bar), accrual continues indefinitely as a background PIT-collection task
-  and C1 is re-read at each subsequent 6-month mark using the same informative-only
-  procedure — it simply never becomes a G106 stack vote until the CI is genuinely narrow
-  enough to resolve GO/KILL, which may take years at this cadence. **G106's ≥2-of-4 stack
-  vote (§3) is computed over C2/C3/C4 only unless C1 someday reaches a genuinely powered
-  read; the 2027-Q4 gate date does not wait on C1.**
+  **Frozen resolution — codex's third option, applied, r3 adds an explicit horizon bound**:
+  C1 is DOWNGRADED to INFORMATIVE-ONLY at both the 6mo and 9mo checkpoints. It may NEVER
+  independently decide GO or KILL for the stack, and it is EXCLUDED from the §2a Bonferroni
+  family (a candidate that structurally can never vote should not consume shared alpha
+  budget). At each checkpoint, compute the empirical monthly-IC std from the actually-accrued
+  data and the resulting CI width using the SAME moving-block-bootstrap machinery (block=1
+  month here, since that's the true independence unit) applied to however many monthly
+  points exist; report it, but do not gate on it. **r3 correction**: r2 said "accrual
+  continues indefinitely" as a background task past 9mo if directionally encouraging — codex
+  correctly flagged this as conflicting with the stack's own date-bounded design. Fixed:
+  C1's monitoring under THIS design doc's scope is bounded to the SAME 2027-Q4 deadline as
+  every other candidate (§3). C1 is re-read at each 6-month mark through 2027-Q4 using the
+  informative-only procedure above; if it has not reached a genuinely powered read by
+  2027-Q4, monitoring under this document STOPS at that date — it does not roll forward
+  indefinitely as part of the G106 stack's scope. (The underlying PIT data collection itself
+  — N2's raw accrual — may continue as separately-scoped, ordinary data infrastructure
+  outside this design doc's purview; what stops at 2027-Q4 is C1's status as a monitored
+  G106 candidate, not N2's data pipeline.) **G106's stack vote (§3) is computed over
+  C2/C3/C4 only, at the k=3 Bonferroni correction from §2a. In the unlikely event C1
+  reaches a genuinely powered read before 2027-Q4, this document does not attempt to
+  pre-specify how it would join the vote — that would require re-deriving a k=4 correction
+  and re-examining whether C2/C3/C4's already-resolved verdicts (evaluated at k=3) remain
+  valid once a 4th test enters the family, which is a real methodological question this
+  edge case cannot be pre-answered without knowing which candidates have resolved by then.
+  If this scenario actually arises, it requires its own follow-up design note before C1's
+  read is used, rather than a rule frozen now under uncertainty about which candidates would
+  even still be live. The 2027-Q4 gate date never waits on C1 either way — this is only
+  about how C1 could, in principle, join a k=3 decision that has already been made.**
 - **Prior evidence**: literature-cited standalone monthly IC 0.02–0.03 post-decay
   (McLean–Pontiff-style post-publication decay already discounted in the citation) — this is
   EXTERNAL literature, not this repo's own prior-inspected data; OUR data is genuinely
@@ -142,10 +179,21 @@ Shared conventions across all four candidates (defined once, referenced below):
   completeness). The composite's OWN individual threshold, once re-tested, is the same
   ≥0.015 placebo-clean bar as every other candidate (§0) — there is no separate,
   weaker bar for C2.
-- **As-of lag**: 1 trading day after `acceptedDate` (SEC filing acceptance timestamp, or
-  FMP's equivalent PIT field — confirm exact field name against the N3-upgraded FMP schema
-  in the build PR; if it differs from `acceptedDate`, use whichever field FMP's Starter tier
-  actually PIT-stamps, and record that decision).
+- **As-of lag (frozen, fail-closed admissible-mapping rule — r3, resolves r2's deferral)**:
+  1 trading day after the fundamentals record's PIT-acceptance timestamp. The exact field
+  name on the N3-upgraded FMP Starter-tier schema is NOT yet verified in this session (grep
+  of this repo's current FMP/base-data source found no confirmed field name to cite here
+  honestly rather than guess one). Rather than defer the choice to "confirm in the build
+  PR" (r2's exact contradiction codex flagged — a deferred choice made after N3 data exists
+  is a choice made after seeing what's available, not a frozen spec), this freezes an
+  ADMISSIBLE MAPPING RULE instead: at build time, use the FIRST field present, in this
+  fixed priority order, from the N3 schema's own response payload: (1) `acceptedDate` (SEC
+  EDGAR acceptance timestamp — the standard PIT anchor for filing-based fundamentals), (2)
+  `filingDate`, (3) `date` (the fundamentals-period date itself, treated as a same-day
+  conservative floor if neither timestamp field exists). This priority order is fixed NOW,
+  before N3 data exists, and is not itself a choice made after seeing the schema — whichever
+  field is present first in this list is used, mechanically, with no discretion at build
+  time. Record which field actually matched in the build PR's evidence.
 - **Universe & missingness**: current production universe; a name missing ANY of the three
   legs at date `t` is excluded from that date's cross-section entirely (no partial-composite
   fallback — a composite with 2 of 3 legs is a different, uncontrolled instrument).
@@ -174,12 +222,22 @@ Shared conventions across all four candidates (defined once, referenced below):
   refit at each decision date using only data available as of that date (no lookahead) —
   `residual_mom(i,t) = mom_12_1(i,t) − β̂_sector(i,t)·sector_factor(t) − β̂_mkt(i,t)·mkt_factor(t)`,
   with `β̂` estimated by OLS over the trailing 252-day window.
-- **Beta/sector definitions (frozen)**: market beta = OLS slope of the name's daily return
-  against the S5/S8 substrate's existing benchmark series (whatever this repo's production
-  panel already uses as its market factor — confirm the exact series name in the build PR
-  and cite it; do not introduce a new benchmark definition). Sector = this repo's existing
-  production sector-map assignment (the same map already used elsewhere in the panel
-  pipeline — confirm and cite the exact source file in the build PR).
+- **Beta/sector definitions (frozen NOW, r3 — resolves r2's "confirm in the build PR"
+  deferral)**: market beta = OLS slope of the name's daily return against the strategy
+  config's `benchmark` key (`config.get("benchmark", "SPY")` — confirmed live in this
+  repo's own preflight gate,
+  `RenQuant/backtesting/renquant_104/kernel/preflight.py:1010`; production default is SPY,
+  the actual pinned value comes from the run's `strategy_config.json`, not a value chosen
+  after seeing C3's results). Sector = the strategy config's `sector_map` key, the SAME map
+  already consumed uniformly across this repo's production panel/sim/lean adapters and
+  config-consistency/preflight checks (confirmed live at
+  `RenQuant/backtesting/renquant_104/adapters/panel_runtime.py:54`,
+  `adapters/sim.py:1306`, `adapters/lean.py:909`,
+  `kernel/decision_trace.py:132,166`, `kernel/config_consistency.py:72-73`,
+  `kernel/preflight.py:1009` — one canonical config-sourced map, not independently defined
+  per adapter). No new benchmark or sector definition is introduced; both are the existing
+  production values already pinned in whatever `strategy_config.json` the eventual build PR
+  runs against.
 - **Regime pooling (frozen)**: `BULL_CALM` and `BULL_VOLATILE` dates are POOLED into one
   combined test population for the frozen gate (not tested separately with an
   either/or pass) — this matches how the candidate is framed in §0 (a single individual
@@ -194,11 +252,14 @@ Shared conventions across all four candidates (defined once, referenced below):
   13 was never actually adopted anywhere in this codebase as a block-size convention — a
   check of `research_panel_exit_predictiveness.py`, the only extant block-bootstrap
   implementation in this repo, confirms block is always set to the label horizon).
-- **The frozen comparison (unchanged from r1, restated precisely)**: GO requires BOTH (a)
-  the conditioned (residual×regime) cell's own CI lower bound > 0.015, AND (b) the
-  conditioned-minus-unconditioned point-estimate difference has a block-bootstrap 95% CI
-  that excludes zero on the positive side (computed via the paired daily difference series,
-  block-bootstrapped the same way — not two separate CIs compared by eye).
+- **The frozen comparison (restated precisely; r3: both legs use the §2a Bonferroni-corrected
+  98.33% level, not the naive 95%)**: GO requires BOTH (a) the conditioned (residual×regime)
+  cell's own 98.33% CI lower bound > 0.015, AND (b) the conditioned-minus-unconditioned
+  point-estimate difference has a block-bootstrap 98.33% CI that excludes zero on the
+  positive side (computed via the paired daily difference series, block-bootstrapped the
+  same way — not two separate CIs compared by eye). Both legs are part of C3's ONE frozen
+  decision rule, not two separate looks — the correction is spent once per candidate (§2a),
+  not once per leg within a candidate.
 - **Earliest test**: 2026-Q3 (data exists now).
 - **Prior evidence — EXPLORATORY/RETROSPECTIVE, with an explicit prospectivity check
   required**: `regimemom` (measured): the UNCONDITIONAL trend-gate fails (2021 sign-flip
@@ -219,18 +280,29 @@ Shared conventions across all four candidates (defined once, referenced below):
   PROPER (repaired) WF gate.
 - **Substrate**: alpha158 multi-horizon panel (exists) + the repaired WF gate (S1–S3;
   S1/S2 merged, S3 pending as of this freeze).
-- **Placebo-difference margin (frozen NOW, not deferred)**: **0.02**. Justification: the
-  measured shared embargo-leakage floor is ~+0.04 (see
-  `doc/design/2026-06-30-model-freshness-governance.md`'s Fix-3 discussion and this
-  session's memory record `wf-gate-embargo-leakage-floor`) — requiring the placebo
-  DIFFERENCE (trend-scan minus raw) to exceed 0.02 means the signal must clear roughly half
-  of that floor's magnitude, which is comfortably distinguishable from floor noise while
-  not being an arbitrarily strict bar. r1 left this "to be fixed in the S3 gate-repair PR" —
-  that deferral is exactly the "claims frozen, isn't" contradiction codex flagged. **This
-  revision freezes the margin here, in this design doc, now.** S3's job is to confirm the
-  repaired gate computes placebo-difference correctly, not to choose or adjust this number.
-- **Deterministic rule**: GO iff placebo-difference (trend-scan minus raw, on the S3-repaired
-  gate) block-bootstrap 95% CI lower bound > 0.02, evaluated on production WF; sim
+- **Placebo-difference margin (frozen NOW, not deferred; r3 corrects r2's justification)**:
+  **0.02**. r2 justified this as "half the measured ~+0.04 embargo-leakage floor," which
+  codex correctly rejected: being below a known noise floor is not automatically
+  "comfortably distinguishable" from that floor without an actual variance/paired-difference
+  argument — this session has no verified paired placebo-difference noise distribution
+  (standard error / CI width of the difference itself, as opposed to the floor's point
+  estimate) available to derive the margin rigorously from data. **r3 is honest about this:
+  the 0.02 margin is ARBITRARY, not derived from a paired-noise argument** — it is a
+  round number below the ~0.04 floor, chosen for legibility, not statistically justified as
+  "comfortably distinguishable." The frozen GATE stays 0.02 (do not move it after seeing
+  results — that discretion is exactly what freezing exists to prevent), but the build PR
+  MUST additionally report a sensitivity check: the same block-bootstrap CI evaluated
+  against neighboring candidate margins {0.015, 0.02, 0.025} (bracketing the frozen value),
+  to show whether the GO/KILL/INCONCLUSIVE conclusion is robust to small perturbations in
+  this admittedly-arbitrary choice or flips on them. If the conclusion flips within that
+  bracket, the result must be reported as margin-sensitive/fragile alongside the frozen-gate
+  verdict, not just the frozen-gate verdict alone. r1 left this "to be fixed in the S3
+  gate-repair PR" — that deferral is exactly the "claims frozen, isn't" contradiction codex
+  flagged. S3's job remains to confirm the repaired gate computes placebo-difference
+  correctly, not to choose or adjust this number.
+- **Deterministic rule (r3: Bonferroni-corrected 98.33% level, per §2a)**: GO iff
+  placebo-difference (trend-scan minus raw, on the S3-repaired gate) block-bootstrap 98.33%
+  CI lower bound > 0.02, evaluated on production WF; sim
   non-inferiority (trend-scan does not materially underperform raw on the simulation-side
   metrics the repaired gate reports) is a required secondary condition, not a separate
   threshold — define "non-inferiority" as: sim Sharpe does not fall by more than 0.1 versus
@@ -263,33 +335,69 @@ Shared conventions across all four candidates (defined once, referenced below):
    a candidate that misses its bar is recorded (evidence doc) and dropped — the stack's
    value is the survivors, not the roster.
 
-## 2a. Multiplicity control (new in r2)
+## 2a. Multiplicity control (r2 attempt corrected in r3 — a fixed order alone does NOT
+control FWER)
 
 The candidate space has real multiplicity: 4 candidates, C3's residual×regime combination,
 seed-robustness across `{42,43,44}` per candidate, and C1's window/FY choice (now closed to
-a single 1m/FY1 path — see §1.1, which itself IS this revision's multiplicity-reduction move
-for that candidate). Without control, the chance that at least one candidate/cut spuriously
-clears its bar is materially higher than the nominal per-candidate α=0.05.
+a single 1m/FY1 path — see §1.1). Without control, the chance that at least one
+candidate/cut spuriously clears its bar is materially higher than the nominal
+per-candidate α=0.05.
 
-**Frozen rule: a FIXED HIERARCHICAL TESTING ORDER, not a formal multiplicity correction.**
-A Bonferroni-style correction across 4 candidates would shrink each already-thin-sample
-threshold further, compounding C1's power problem onto every candidate — the wrong tool
-here. Instead, the candidates are tested in a fixed, pre-declared order, and only a
-candidate's OWN frozen bar (§1, not a corrected one) applies at its own test — the ordering
-itself is what bounds the effective number of independent "looks" the overall G106 decision
-gets to take:
+**r2's claim was wrong and is retracted.** r2 asserted a fixed testing ORDER alone bounds
+the number of independent "looks." Codex correctly identified the flaw: a fixed order does
+not control family-wise error when every candidate is STILL RUN regardless of prior
+outcomes, each retains the FULL nominal α=0.05, and the §3 "2 of 3 reach GO" early-stack-GO
+rule adds a genuine additional combinatorial look (which PAIR of 3 candidates clears is
+itself a choice made after seeing results, unless corrected for).
 
-1. **C3 first** (2026-Q3, data exists now, cheapest to test).
-2. **C4 second** (2026-Q3, gated on S3 landing).
-3. **C2 third** (2026-Q4, gated on the N3 coverage verdict).
-4. **C1 last, informative-only** (2027-Q1 earliest read, never a standalone gate — §1.1).
+**Frozen rule (r3): Bonferroni correction across the k=3 formally-voting candidates
+{C2, C3, C4}.** C1 is excluded from this family — it never independently votes (§1.1, §3),
+so including it in the correction would (as r2 correctly worried) needlessly shrink C2/C3/C4's
+already-thin budgets to compensate for a candidate that structurally cannot cast a vote.
+Bonferroni, not a step-down procedure (Holm) or formal gatekeeping, is used deliberately:
+Holm's step-down ordering requires knowing all k p-values SIMULTANEOUSLY to rank them, but
+C2/C3/C4 resolve SEQUENTIALLY over calendar time (C3 in 2026-Q3, C4 in 2026-Q3, C2 in
+2026-Q4) — there is no well-defined "smallest p-value first" order to step down through
+without waiting for the last candidate to resolve, which would delay every decision to the
+slowest candidate. A true fixed-sequence gatekeeping procedure (stop testing entirely on the
+first non-significant result) does not fit this stack's actual goal either — the goal is
+"find ANY 2 of 3 that clear," and stopping at the first miss could kill the stack even if the
+other two would have cleared. Bonferroni is the correction that remains VALID regardless of
+resolution order and is compatible with "test all 3 independently, count the survivors":
 
-Each candidate's result is FINAL once measured (per design rule 5: a miss is recorded and
-dropped, never re-run under the same hypothesis) — this, not a p-value correction, is what
-prevents "keep trying candidates until one clears." The seed-robustness check
-(`{42,43,44}`, all three reported) within each candidate's own test is a ROBUSTNESS check on
-that one result, not an independent additional look — it does not multiply the candidate
-count for multiplicity purposes.
+- Each of {C2, C3, C4} uses a per-candidate one-sided α = 0.05 / 3 ≈ **0.01667**, i.e. a
+  one-sided **98.33%** CI (z ≈ 2.128, replacing the naive one-sided 95%/z≈1.645 everywhere
+  in §1's per-candidate GO/KILL rules — this is now the actual value used in §0's shared
+  "Deterministic decision rule").
+- This is CONSERVATIVE (Bonferroni is known to be looser than necessary when tests are
+  positively correlated, which C2/C3/C4 likely are to some degree via shared market
+  exposure) but VALID under any correlation structure, unlike a naive uncorrected 0.05 — the
+  conservatism is the honest cost of controlling FWER without step-down machinery this
+  stack's sequential-resolution structure cannot support.
+- **Consequence, stated plainly**: this makes each individual candidate's own bar harder to
+  clear than r1/r2's spec implied. A candidate that would have read GO at the naive 95%
+  level may now read INCONCLUSIVE at the corrected 98.33% level. This is the actual price of
+  a genuinely FWER-controlled 3-candidate family; it is not a cosmetic wording change.
+- **Early GO inherits the same correction, no separate combinatorial adjustment needed.**
+  Because each individual candidate's own GO verdict already required clearing the
+  Bonferroni-corrected bar (not the naive one), a §3 early-GO on any 2 of the 3 candidates
+  is not an additional uncorrected look — the correction was already spent per-candidate,
+  not per-combination. No further adjustment for "which pair" is required once the
+  per-candidate correction is in place.
+- **Testing order is retained for a DIFFERENT reason than r2 claimed**: not as the
+  multiplicity-control mechanism (that role now belongs to the Bonferroni correction above),
+  but purely for OPERATIONAL sequencing (cheapest/soonest-ready candidate first) and to keep
+  design rule 5's "a miss is recorded and dropped, never re-run" invariant simple to
+  administer:
+  1. **C3 first** (2026-Q3, data exists now, cheapest to test).
+  2. **C4 second** (2026-Q3, gated on S3 landing).
+  3. **C2 third** (2026-Q4, gated on the N3 coverage verdict).
+  4. **C1 read only, never voting** (2027-Q1 earliest read — §1.1).
+
+The seed-robustness check (`{42,43,44}`, all three reported) within each candidate's own
+test is a ROBUSTNESS check on that one already-corrected result, not an independent
+additional look — it does not further multiply the k=3 family for Bonferroni purposes.
 
 ## 3. Sequencing and the stack-level decision rule (rewritten — r1's version created
 optional stopping)
@@ -302,10 +410,11 @@ open indefinitely). Both are fixed here:
 - **Maximum calendar date (frozen): 2027-Q4** (unchanged from the existing G106 gate date in
   §0 — this revision makes explicit that it is a hard deadline, not just a target).
 - **Per-candidate outcome, using the hierarchical order in §2a**: each of C2, C3, C4 resolves
-  to GO, KILL, or INCONCLUSIVE per its own frozen rule (§1) by its earliest-test date. C1
-  never resolves to GO/KILL under this stack's timeline (§1.1) — it contributes NOTHING to
-  the stack vote below unless it independently reaches a powered read before 2027-Q4, in
-  which case it is added to the vote using its own frozen bar.
+  to GO, KILL, or INCONCLUSIVE per its own Bonferroni-corrected frozen rule (§1, §2a) by its
+  earliest-test date. C1 never resolves to GO/KILL under this stack's timeline (§1.1) and
+  contributes NOTHING to the stack vote below — see §1.1's r3 note on why the edge case of
+  C1 someday reaching a powered read is deliberately left as "requires its own follow-up
+  design note," not pre-answered here.
 - **Missing-data / underpowered outcome**: if a candidate other than C1 fails to reach its
   minimum effective sample size (§1, shared default: n≥600 decision dates) by 2027-Q3 (one
   quarter before the deadline, leaving time to act on the result), it is marked

@@ -87,3 +87,70 @@ gate the stack until that's checked, which is itself a frozen (not tunable) rule
 
 Commit: see PR history. Files: `doc/design/2026-07-02-m-sig-signal-stack-spec.md` (full
 rewrite of §1, new §2a, rewritten §3, §4 items marked resolved), this progress doc.
+
+## ROUND 3 (Codex CHANGES_REQUESTED — r2's "fixed order" did not control FWER; several
+parameters still deferred)
+
+**Finding.** r2's §2a claimed a fixed hierarchical testing order alone bounds the number of
+independent "looks," which Codex correctly rejected: every candidate still runs at the full
+nominal α=0.05 regardless of order, and the §3 "2 of 3 reach GO" early-stack-GO rule adds an
+implicit additional combinatorial look. Separately: C2's PIT field ("confirm in the build
+PR") and C3's benchmark/sector definitions ("confirm in the build PR") were still deferred —
+the same "claims frozen, isn't" pattern already fixed for C4's margin in r2. C4's margin
+itself was only justified as "below a known floor," not from an actual noise argument. C1's
+background accrual ("continues indefinitely") conflicted with the stack's own date-bounded
+design. The n≥600 floor was presented without an actual power/detectable-effect analysis.
+
+**Fix.**
+- **§2a rewritten**: a real Bonferroni correction across the k=3 formally-voting candidates
+  {C2, C3, C4} — one-sided α=0.05/3≈0.01667 per candidate, i.e. a 98.33% CI (z≈2.128,
+  replacing the naive 95%/z≈1.645) — applied to every GO/KILL threshold test in §1 for
+  C2/C3/C4 (including C3's two-leg AND condition and C4's sole criterion, both previously
+  left at the naive 95%). Explicitly justified Bonferroni over Holm (Holm's step-down needs
+  simultaneous p-values; C2/C3/C4 resolve sequentially over calendar quarters) and over
+  fixed-sequence gatekeeping (stop-on-failure doesn't fit "find any 2 of 3" — it could kill
+  the stack on the first candidate's miss even if the other two would clear). C1 is
+  explicitly excluded from the k=3 family since it never votes. Stated plainly that this
+  makes each candidate's own bar HARDER to clear than r1/r2 implied — not a wording change.
+- **C2's PIT field**: replaced "confirm in the build PR" with a frozen, fail-closed
+  ADMISSIBLE MAPPING RULE (fixed priority order over 3 candidate field names on the N3
+  schema, decided now, mechanically applied at build time — no field name is guessed/cited
+  as fact since it wasn't verified in this session).
+- **C3's benchmark/sector**: replaced "confirm in the build PR" with the actual verified
+  production sources — `strategy_config.json`'s `benchmark` key (confirmed live at
+  `RenQuant/backtesting/renquant_104/kernel/preflight.py:1010`) and `sector_map` key
+  (confirmed live across `panel_runtime.py`, `sim.py`, `lean.py`, `decision_trace.py`,
+  `config_consistency.py`, `preflight.py` as one canonical config-sourced map) — grepped and
+  cited by exact file:line, not asserted from memory.
+- **C4's margin**: retracted the "half the floor ⇒ comfortably distinguishable" justification
+  (no paired placebo-difference noise distribution was verified in this session to derive it
+  rigorously). Now labeled explicitly ARBITRARY — the frozen gate stays 0.02, but the build
+  PR must additionally report a sensitivity check across neighboring margins
+  {0.015, 0.02, 0.025} and flag the result as margin-sensitive if the verdict flips within
+  that bracket.
+- **C1's accrual horizon**: bounded to 2027-Q4 (same as every other candidate), not
+  indefinite. The underlying N2 data-collection pipeline may continue as ordinary
+  infrastructure outside this doc's scope; what stops at 2027-Q4 is C1's status as a
+  monitored G106 candidate under THIS design.
+- **n≥600 floor reframed**: explicitly noted 600 decision dates ÷ block=60 is only 10
+  effective blocks — the same thin-sample regime that made #235's/#431's 10-day cohorts
+  unreliable — and that meeting the floor is not the same as being adequately powered;
+  candidate-specific power analysis remains illustrative-only pending real σ estimates
+  (same limitation already honestly stated for C1's 274-month calculation), not silently
+  dropped.
+
+**Evidence:** grep of `RenQuant/backtesting/renquant_104` confirmed `benchmark`/`sector_map`
+are both sourced from `strategy_config.json` via `config.get(...)`, consumed identically
+across 6+ adapter/kernel files — cited by exact path:line. No FMP-schema field name for C2's
+PIT lag could be verified in this session (searched `renquant-base-data` sources, found no
+confirmed field), hence the fail-closed mapping rule rather than a guessed citation. No
+paired placebo-difference noise-distribution evidence file was found in this session's
+RenQuant checkout for C4's margin, hence the arbitrary-with-sensitivity label rather than a
+fabricated derivation.
+
+**Scope:** pure design-doc edit, no code/tests — `python3 scripts/require_progress_doc.py`
+gate applies to this progress doc's schema, not new test coverage.
+
+**NEXT:** the build PRs (C3 first, per §2a's operational ordering) inherit the corrected
+98.33% CI level and must report the C4 sensitivity table and C2's matched-field diagnostic
+as part of their own evidence, not just the frozen-gate verdict alone.
