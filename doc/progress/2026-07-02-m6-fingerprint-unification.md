@@ -63,3 +63,46 @@ RenQuant#430 read-only for precedent reuse (recipe/family split, canonical hash 
 **Scope:** design-doc-only change, no code in this PR (unchanged from r1) — the staged
 migration and recursive classifier are specified here for the implementation PRs that
 follow, not built in this one.
+
+## r3 (2026-07-02, Codex review): numeric integrity + verdict-comparison correction
+
+r2's design had two remaining integrity gaps and a stale PR body, all now fixed in
+§2b/§2c of the design doc:
+
+- **Lossy rounding removed (§2b).** r2 specified rounding predictive floats to 8
+  significant digits before hashing. This was a real bug: two genuinely DIFFERENT model
+  parameter values agreeing to 8 sig figs would COLLIDE under that rule — a false-MATCH
+  manufactured by the fingerprinting mechanism itself, the mirror-image of the original
+  false-MISMATCH bug the whole design exists to fix. Replaced with EXACT canonicalization:
+  `repr(float)`'s shortest round-tripping decimal representation (guaranteed to round-trip
+  to the identical IEEE-754 double), not lossy quantization. A per-field `quantize`
+  annotation remains available for fields whose modeling contract genuinely defines a
+  fixed precision (e.g. cents), scoped explicitly to that field, never applied globally.
+- **Non-finite values rejected, not canonicalized (§2b).** r2 converted NaN/Infinity to
+  string literals so they could be hashed. Fixed: the stamping path now REJECTS (hard
+  error, artifact never written) any predictive-classified field containing a non-finite
+  value — a non-finite predictive value almost always indicates an invalid model state
+  (training failure, numerical instability), and silently canonicalizing it into a
+  "stable" fingerprint would bless that invalid state as legitimate content.
+- **Stage 3 verdict comparison corrected (§2c).** r2's Stage 3 read as comparing raw
+  OLD and NEW hash DIGESTS directly — a category error, since the two mechanisms use
+  different algorithms/field sets by design and their digest values need not (and
+  generally will not) be byte-equal even when both correctly describe the same artifact.
+  Corrected: each verifier now checks the artifact against its OWN matching stamp,
+  independently producing an accept/reject SEMANTIC VERDICT; the thing Stage 3 actually
+  classifies is whether the OLD and NEW verifiers' independent verdicts agree, not
+  whether their hash strings match.
+- **Frozen promotion-record schema added (§2c, Stage 2).** An accepted-expected
+  divergence must now be recorded as a structured entry (key-path, artifact family,
+  classification rationale, classifier identity, stage-2 work-item reference, timestamp)
+  — "accounted for" requires a real, auditable record, not an unlogged operator assertion,
+  closing the informal-bypass risk Codex flagged.
+- **PR body updated** to describe the current r3 state (was still describing r1's
+  dual-hash-OR-accept window and the superseded 30-day-fail-closed-events criterion).
+
+**Evidence:** re-read the full design doc for internal consistency after each edit;
+verified §3's "Zero unexplained old/new divergence" acceptance language remains accurate
+under the corrected verdict-comparison semantics (divergence = verdict disagreement, not
+digest mismatch) — no further terminology fix needed there.
+
+**Scope:** design-doc-only change, no code (unchanged).

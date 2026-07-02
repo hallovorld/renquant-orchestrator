@@ -78,14 +78,41 @@ exists to catch.
   summary output and the fixed-precision approach RenQuant#430's
   `regen_oos_pick_table.py::canonical_table_content_hash()` established this session for
   the same reason (platform-stable float repr, not raw float64 bytes).
-- **Numeric/NaN handling**: floats are rounded to a fixed precision (8 significant digits)
-  and formatted via Python's `repr()` before hashing, not hashed as raw binary — two
-  numerically-identical floats computed via different code paths (e.g. numpy vs. plain
-  Python) must hash identically. `NaN`/`Infinity`/`-Infinity` are not valid JSON; they are
-  canonicalized to the literal strings `"NaN"` / `"Infinity"` / `"-Infinity"` before
-  serialization (matching `json.dumps`'s own non-standard-but-consistent `allow_nan=True`
-  output, made explicit here rather than left as an implicit library default). `None`
-  serializes to JSON `null` as normal.
+- **Numeric/NaN handling — corrected (r3 review)**: r2 specified rounding floats to 8
+  significant digits before hashing. That is a real bug, not a refinement: two genuinely
+  DIFFERENT model parameter values that happen to agree to 8 sig figs would silently
+  COLLIDE under that rule — a false-MATCH manufactured by the fingerprinting mechanism
+  itself, the mirror-image of the original false-MISMATCH bug this whole design exists to
+  remove. Global lossy rounding is dropped entirely. Floats are hashed via an EXACT,
+  cross-language-stable canonical representation instead: Python's `repr(float)` (since
+  3.1, guaranteed to produce the shortest decimal string that round-trips to the exact
+  same IEEE-754 double via `float(repr(x)) == x`) is the reference representation; any
+  other language/runtime computing or verifying these hashes MUST implement the equivalent
+  shortest-round-tripping-decimal algorithm (e.g. Grisu3/Ryu-class formatters — most
+  modern languages' default float-to-string already satisfies this; the requirement is
+  that whatever is used is documented and tested to round-trip exactly, not merely
+  "close enough"). This is EXACT canonicalization, not quantization — two floats produced
+  by different code paths (numpy vs. plain Python) still hash identically PROVIDED they
+  are the exact same IEEE-754 value; if they differ in the last bit (a genuine numerical
+  difference from different computation order), they correctly hash differently, which is
+  the desired property for a content fingerprint. If a SPECIFIC field's modeling contract
+  deliberately requires quantization (for example, a price field the model itself defines
+  as cents-precision), that quantization is declared explicitly in that field's
+  classification-table entry (a per-field `quantize` annotation, documented and reviewed
+  as part of the modeling contract per the ownership split below) — never applied as a
+  blanket rule to all predictive floats.
+- **Non-finite values are rejected, not canonicalized (r3 review)**: r2 canonicalized
+  `NaN`/`Infinity`/`-Infinity` to string literals so they could be included in a "stable"
+  fingerprint. This is wrong: a predictive field containing a non-finite value almost
+  always indicates an INVALID model state (a training failure, a numerical instability,
+  a division-by-zero in a derived feature) — silently normalizing it into a hashable,
+  stable representation blesses that invalid state as legitimate, reproducible content,
+  exactly the kind of silent acceptance this redesign exists to remove elsewhere. Fixed:
+  `classify()`/the stamping path REJECTS any artifact whose PREDICTIVE-classified subset
+  contains a non-finite float (`NaN`, `Infinity`, `-Infinity`) — this is a hard error at
+  stamp time (the artifact is never written), not a warning and not a canonicalization
+  rule. `None` continues to serialize to JSON `null` as normal (a legitimate, finite
+  "no value" state, unrelated to non-finite numerics).
 - **Unknown-key behavior at stamp time**: a key-path with no classification-table entry
   (and no matching wildcard) is a **hard error** — `classify()` raises, the artifact is
   never written. This is the actual mechanism behind §2.1's "fails loudly at stamp time";
@@ -119,14 +146,44 @@ exists to catch.
    against real production artifacts: is it a genuine PREDICTIVE difference the old
    contract was silently missing (the actual bug class), or a field that's genuinely
    OPERATIONAL and the new table currently misclassifies it as PREDICTIVE? Fix the
-   classification table for the latter; log the former as confirmed findings. This must
-   run against real artifacts, not synthetic fixtures alone — stage 3's exit criterion
-   depends on it.
+   classification table for the latter; log the former as confirmed findings, each
+   recorded as a frozen **promotion record** (schema below) — this record is what stage 3
+   checks against, not an operator's unlogged say-so.
+
+   **Promotion-record schema (frozen, r3 review)** — every accepted-expected divergence
+   must be recorded as a structured entry, never an ad hoc "accounted for" comment:
+   ```
+   {
+     "key_path": "<the exact key-path, e.g. params.early_stopping_patience>",
+     "artifact_family": "<xgb | hf_patchtst | ...>",
+     "classification_rationale": "<why this is OPERATIONAL not PREDICTIVE, or why this
+        specific old/new disagreement is expected and safe>",
+     "classified_by": "<agent or operator identity>",
+     "stage2_work_item": "<reference to the specific triage record/commit/ticket this
+        classification came from>",
+     "timestamp": "<ISO-8601, when classified>"
+   }
+   ```
+   A divergence with no matching promotion record is, by definition, NOT accounted for —
+   there is no other path to "accepted" status. This is what prevents "accounted for" from
+   becoming an informal operator bypass: acceptance requires a real, auditable record with
+   a rationale and an identified classifier, not a passing mention in a PR description.
 3. **Stage 3 — block on unexplained disagreement.** Verifiers still gate on the OLD hash
-   (no live-trading behavior change yet), but promotion additionally fails if the NEW
-   hash disagrees with the OLD hash's verdict in a way NOT already accounted for by
-   stage 2's classification work. Only classified, expected-and-accepted differences
-   pass; anything new blocks and gets triaged the same way as stage 2.
+   (no live-trading behavior change yet — this is the corrected r3 semantics, replacing
+   r2's ambiguous "NEW hash disagrees with the OLD hash's verdict" framing, which read as
+   comparing raw hash DIGESTS directly). The old and new mechanisms use different
+   algorithms and field sets by design — their digest VALUES need not and generally will
+   not be byte-equal even when both correctly describe the same artifact, so a raw digest
+   comparison is a category error, not a signal. What stage 3 actually compares: **each
+   verifier checks the artifact against its OWN matching stamp** (the old verifier
+   evaluates the artifact under the old contract, producing an accept/reject verdict; the
+   new verifier evaluates it under the new contract, independently producing its own
+   accept/reject verdict) — the divergence being classified is whether these two
+   INDEPENDENT SEMANTIC VERDICTS agree (both accept, or both reject), not whether the two
+   hash strings match byte-for-byte. Promotion fails if the verdicts disagree in a way with
+   no matching promotion record from stage 2 (per the schema above); a disagreement WITH a
+   matching record passes as an expected, already-classified difference; anything new
+   blocks and gets triaged the same way as stage 2.
 4. **Stage 4 — cutover.** Only once stage 3 has run clean for the acceptance window in
    §3 do verifiers SWITCH to REQUIRING the new `model_fingerprint` hash + schema version
    as the actual gate. From this point the OLD hash is retained **only as audit/rollback
