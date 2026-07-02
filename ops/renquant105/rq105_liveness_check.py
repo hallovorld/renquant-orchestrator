@@ -155,13 +155,12 @@ def main() -> int:
         p = os.path.join(LOGS, f"{mod}_{today_iso}.log")
         if not os.path.exists(p):
             missing.append(f"{mod} wrapper log missing ({p})")
-        elif os.path.getsize(p) == 0 and mod == "quote_logger":
-            # Only the quote logger's wrapper log is expected non-empty by
-            # itself today (session-long process writes INFO lines as it
-            # samples); the post-close loggers' wrapper logs may legitimately
-            # be tiny/empty on a quiet session, so only presence is checked
-            # for those two.
-            missing.append(f"{mod} wrapper log EMPTY ({p})")
+        # Wrapper logs are checked for PRESENCE only. The quote logger's
+        # wrapper log is legitimately zero-byte while ticks flow normally
+        # (measured 2026-07-02: 3,900+ tick rows with an empty redirect —
+        # the module writes data directly and emits no per-sample stderr
+        # lines). Loop health is judged by the tick DATA feed above
+        # (default_tick_feed_path), never by the plumbing's chatter.
 
     data_root = Path(RQ)
     for name, full_path in _data_outputs(data_root):
