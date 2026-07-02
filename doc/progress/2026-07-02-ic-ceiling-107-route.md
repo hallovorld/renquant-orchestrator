@@ -3,7 +3,21 @@
 STATUS:   research + route design for review (docs only — no code/config/broker/risk/sizing
           change). Durable record of the 2026-07-02 strategy discussion; extends roadmap #229 to
           2028 and supersedes its §9 sign-off list per the operator's delegation grant.
-REVISION: r1.
+REVISION: r2 — operator review ("规划不够专业不够深入不够负责任"): the route lacked bounds, per-
+          milestone contingencies, and a whole-roadmap confidence audit. Added: §7 BOUNDS (the
+          ceiling in IC/book/dollar layers + an ABOVE-ceiling leakage alarm at IC>0.08/Sharpe>2;
+          the floor in three tiers — engineered benchmark-sleeve floor, the UNBOUNDED
+          undisciplined floor that makes the ops track load-bearing, and the fact we sit BELOW
+          the engineered floor today); §8 PER-MILESTONE RISK REGISTER (every N/S/M/L milestone
+          and composite gate: P(success) with basis, dominant failure modes, a Plan B written
+          before outcomes are known, and the downstream-impact propagation — incl. the key
+          resilience facts that G106 does not depend on the WF gate and the route's P is nearly
+          independent of D1's verdict); §9 REASONABLENESS AUDIT (failure-independence /
+          resource-realism / sequence-risk tests; July capacity priority order fixed now:
+          S1–S5 > S8–S10 > S6–S7 > S11–S12) + the MASTER FALLBACK LADDER (four stable,
+          pre-valued terminal states — the direct answer to "实现不来怎么办") + the confidence
+          statement: P(rung 1) ≈ 0.60–0.70 dominated by G106 ≈ 0.45–0.50 (a coin flip, named as
+          the plan's honest heart), P(rung ≥2) ≈ 0.85, P(rung ≥3) ≈ 0.97. Prior: r1.
 WHAT:     `doc/research/2026-07-02-ic-ceiling-institutional-gap-107-route.md` — (1) the
           delegated-decision protocol operationalizing the operator's grant (the four §9
           sign-offs now author-decided, conditional on a six-point research standard:

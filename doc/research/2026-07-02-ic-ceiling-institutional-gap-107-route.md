@@ -223,7 +223,143 @@ either.
 
 ---
 
-## 7. Cross-references
+## 7. Bounds: where the model's ceiling AND floor actually are
+
+### 7.1 The ceiling, in three layers (and the alarm above it)
+
+1. **IC layer** (§2.2): current set 0.02–0.04 · +orthogonal PIT 0.03–0.05 · down-cap 0.05–0.08
+   gross ⇒ **~0.03–0.05 net** after 25–40bps small-cap costs at our (impact-free) size.
+2. **Book layer** (IR = TC·IC·√BR): best realistic configuration — combined IC 0.03, TC 0.7,
+   effective BR 200–400 post-106 ⇒ **active IR ≈ 0.3–0.45 ⇒ alpha ≈ +1.5–3.5%/yr**; if down-cap
+   ALSO works: IR 0.5–0.7 ⇒ **alpha +3–5%/yr**. Total-book ceiling ≈ benchmark Sharpe + active
+   ⇒ **Sharpe ~1.2–1.5 in a normal era.** That is the ceiling of this structure — not of effort.
+3. **Dollar layer (the honest one):** at the current $10.8k book, the FULL ceiling (+5%/yr) is
+   ~$540/yr. The plan's monetary value is the **capability + the scaling option (L6)**, not
+   near-term P&L. Written here so nobody discovers it in 2028.
+
+**The above-ceiling alarm (responsibility cuts both ways):** any sustained measurement of
+IC > 0.08 or book Sharpe > 2 at this scale/structure is treated as **presumed leakage or luck
+and triggers an audit before it is believed or sized up** — the inverse discipline of hoping it
+is real.
+
+### 7.2 The floor, in three tiers
+
+1. **Engineered floor (available at any time, by one recorded decision):** benchmark-sleeve mode
+   — the book tracks SPY (or T-bill carry at β=0) minus ~0.3%/yr ops drag. Every kill branch in
+   this plan lands HERE, not at zero. Caveat stated plainly: this floor is *relative*; SPY itself
+   can draw down 30–50% — the floor removes *relative* failure, not market risk (the β=0 T-bill
+   variant removes both, at the cost of expected return).
+2. **Undisciplined floor (why the ops track is not optional):** if the safety engineering fails,
+   the floor is **unbounded below in relative terms** — this system has already demonstrated the
+   failure class (the 06-26 18-FAIL day from a clobbered hotfix; wash-sale mis-blocks;
+   fail-closed no-trade weeks; stale-model universe zeroing). S11/R2/monitors ARE the floor's
+   load-bearing wall. A plan that skipped them to chase alpha would have no floor at all.
+3. **Current realized position:** live ≈ flat while SPY rallied — **we sit BELOW the engineered
+   floor today.** Lane B closes that gap mechanically, which is why it is a July item and not an
+   optimization.
+
+---
+
+## 8. Per-milestone risk register — P(success), failure modes, Plan B, downstream impact
+
+Probabilities are stated with their basis (engineering judgment vs measured priors vs outcome
+uncertainty). **"P" for OUTCOME milestones is the probability the outcome is favorable — an
+unfavorable outcome executed cleanly is the process WORKING, not failing;** those rows say so.
+
+### 8.1 NOW + SHORT (July)
+
+| Milestone | P | Dominant failure modes | Plan B | Downstream impact if failed |
+|---|---|---|---|---|
+| N1 collectors live | 0.90 | scheduling/entitlement friction | manual daily invocation while fixing | 105 pilot data slips day-for-day; G105 only |
+| N2 PIT accrual | 0.85 | base-data ownership unresolved; schema churn | **minimal-viable snapshotter** (raw dump + `available_at`, formalize later) — depth of history is what matters, elegance is not | every month lost is unrecoverable; <6mo history by 2027-Q2 removes the revisions signal from G106's candidate set → P(G106) 0.50→~0.40 |
+| N3 FMP | 0.95 | vendor coverage gaps | RS-3 substitutes (Polygon/Sharadar — spend authorized) | minor delay only |
+| S1–S3 gate repair | 0.85 | hidden path deps; margin dispute; deeper rot than mapped | **build a minimal standalone validation harness** (WF + placebo-diff only, single-purpose) instead of repairing the legacy script | D1 undecidable → model stays directive-traded, thesis #1 treats it as unvalidated (default: shrink active risk). **Key resilience: G106's measured-IC gate runs on the S5/S8 substrate, NOT the WF gate — the alpha track survives this failure** |
+| S4 / D1 verdict | outcome: P(pass)≈0.25 / P(fail-substance)≈0.55 / P(inconclusive)≈0.20 (prior: Fix-4 history) | — | on FAIL: demote primary to directive-with-shrunk-sizing OR best-of-recent under #210's protocol | **a FAIL is information, not roadmap failure** — increment 2 bets on NEW signals, not this model; the route's P is nearly independent of D1 |
+| S5 ledger wiring | 0.90 | schema/perf; backfill gaps | forward-only ledger (no backfill) | M3/M5/RS-2 validations delayed ~1 quarter; nothing dies |
+| S6 lane A | 0.80 (deployed ≥60% in 15 sessions) | conviction scarcity is the TRUE binding constraint (only 3 names cleared the floor on 07-01), not the knobs | route residual idle cash to lane B — the sleeve absorbs what stock-selection won't | none on the alpha track; deployment target met via B |
+| S7 lane B sleeve | 0.95 (mechanism is arithmetic) | sweep plumbing bugs; risk-appetite reversal | T-bill variant (β=0) or partial sleeve | floor uplift delayed; nothing else |
+| S8 regen table | 0.90 | artifact rot blocks faithful re-score | forward-collect OOS predictions from the live shadow path (3–6 months) | S9 slips a quarter; G106 timeline pressure |
+| S9 Track A verdict | outcome: P(GO)≈0.30 / P(NULL)≈0.70 (prior: BULL_CALM coin-flip) | — | NULL is pre-registered and lands on Track B — already the plan's expectation | on NULL, increment 1 loses its meta-label half: contribution +0.5–1.5%/yr → +0.3–0.8%/yr |
+| S10 IS prize memo | 0.85 execution; outcome: P(prize material) ≈ 0.50 | thin historical fill sample | supplement with the N1 collector corpus (weeks) | if immaterial: **G105 kill branch** — Stage-2 descoped to risk-exit modernization; increment 1 halves; 107 re-scoped away from intraday-entry emphasis |
+| S11 hotfix PRs | 0.95 | none material | — | floor tier-2 stays leaky until done |
+| S12 shadow freshness | 0.80 | panel-refresh root cause is deep (label-join redesign) | serve shadow at the achievable frontier with a documented-lag caveat | champion–challenger reads carry vintage caveats; no other branch |
+
+### 8.2 MID (Aug–Sep)
+
+| Milestone | P | Dominant failure modes | Plan B | Downstream impact if failed |
+|---|---|---|---|---|
+| M1 Stage-1 build + readonly | 0.75 in-quarter | 3-repo coordination + review-loop latency (the risk is calendar, not engineering) | descope: orchestrator readonly first, defer the execution-repo state machine one quarter | M2→L2 slip one quarter; no branch dies |
+| M2 frozen canary | 0.70 operational-clean; **P(noise-halt) ≈ 0.4–0.5** (#223 A5.4 scenario) | loss-budget hit by market beta | **pre-committed**: halt → re-authorization is a recorded delegated decision (§1 protocol); never silent continuation | pilot corpus accrues slower; G105 slips, does not die |
+| M3 conviction haircut | 0.70 | S5 dependency; replay inconclusive | ship the thin-margin *alert* (observe-only) instead of the gate change | thin-margin buys (OXY class) persist; cosmetic to the route |
+| M4 BL-1 recentering | 0.75 | admission-set surprises | keep BL-4 direction gate as the permanent guard | mu absolute scale stays untrustworthy → M3 weakens; conviction semantics stay counter-based |
+| M5 R1 shadow migration | 0.80 (panel admission proves safe) | delta report shows the tournament adds unique value (low prior) | keep the tournament, permanently fix its ops (timeout, monitor) — the fallback IS the status quo with better plumbing | freshness surface stays 2× larger; ops cost persists; route unaffected |
+| M6 R2 fingerprints | 0.90 | migration friction | staged per-site migration | fail-closed incidents keep recurring until done |
+| M7 down-cap screen | 0.85 execution; **outcome: P(positive at realistic costs) ≈ 0.35–0.45** (HXZ concentration vs 25–40bps + simple factor suite) | survivorship-clean membership data quality (RS-5) | if data inadequate: buy better membership data (authorized) before concluding | on NULL: D3 loses its universe half → new-data-only path; **P(G106) 0.50 → ~0.35–0.40** |
+| M8 cluster wave-1 | **outcome: P(non-degradation) ≈ 0.50** (E34 prior) | transfer-coefficient collapse repeats | halt waves; breadth stays 142 | BR term stays ~200 → active-IR ceiling −~30%; alpha estimate in §5 shifts to its lower band |
+| M9–M11 process items | 0.90 | none material | — | — |
+
+### 8.3 LONG (2027–2028) — the composite gates
+
+| Gate | P | How computed | Plan B | Downstream impact |
+|---|---|---|---|---|
+| D3 has something to act on | ≈ 0.75 | 1 − P(Track A NULL ∧ down-cap NULL ∧ revisions untestable) ≈ 1 − (0.7 × 0.6 × 0.55) | if truly empty-handed: hold + accrue PIT + re-screen in 2 quarters — a stable state, not a crisis | G106 slips ≥2 quarters |
+| **G106 (≥2 orthogonal signals, combined IC ≥ 0.02, TC ≥ 0.6)** | **≈ 0.45–0.50** | ≥2-of-4 candidates (revisions, quality, residual-momentum, down-cap-derived) at individual P ≈ 0.4–0.5 each, with correlated failure (same-market confound) haircut | **the pre-registered kill branch**: benchmark-sleeve default + PIT accrual + 107 re-scoped to execution-only product | this IS the plan's central bet; §9's ladder is the answer |
+| L2 §9.4 prereg feasible | 0.50 | identifiability arithmetic (#223 A5.5) | risk-acceptance path (already designed, §1 protocol) | canary expansion becomes a recorded judgment call |
+| **G107 (the §4 bar, on point estimates, end-2028)** | **≈ 0.60–0.70** | increment 0 (≈1.0) + any 2 of {1: 0.75, 2: 0.45–0.50, 3: 0.70} with partial independence | fall one rung down §9's ladder | the ladder's next state is stable and pre-valued |
+
+---
+
+## 9. Is the roadmap reasonable? The audit, the ladder, and the confidence statement
+
+### 9.1 Reasonableness audit (three tests)
+
+1. **Failure-independence test:** the route survives D1 FAIL (increment 2 does not bet on the old
+   model), Track A NULL (pre-registered expectation), and down-cap NULL (new-data-only path) —
+   individually AND pairwise. The only failure that reaches the route's core is **all four G106
+   candidates failing together** — and that lands on the pre-registered kill branch, not on
+   improvisation. No milestone failure leads to an undefined state; every row in §8 has a Plan B
+   column that was written BEFORE the outcome is known.
+2. **Resource-realism test:** July (S1–S12) is the crunch; one operator + agents cannot do 12
+   items at once. Priority order if capacity binds, fixed now: **S1–S5 (measurement substrate) >
+   S8–S10 (evidence generation) > S6–S7 (drag) > S11–S12 (hygiene)** — because everything in
+   MID/LONG consumes the measurement substrate, and drag has a one-decision fallback (the
+   sleeve) while measurement has none.
+3. **Sequence-risk test:** a 2027–28 bear market resets the *trailing* metrics clock (G107's
+   point estimates), not the thesis — leading-indicator gates (IC, TC, IS) are
+   regime-conditioned by construction (per-regime cuts are mandatory in every memo). BEAR also
+   flips the sleeve to cash by the existing regime contract — the floor is regime-aware.
+
+### 9.2 The master fallback ladder (the direct answer to "实现不来怎么办")
+
+Every terminal state is stable, pre-valued, and reachable by recorded decisions — partial failure
+degrades, it does not crash:
+
+| Rung | State | When | Expected value of the state |
+|---|---|---|---|
+| 1 | **Full 107**: execution + signal stack + risk shaping | G105 ∧ G106 pass | Sharpe 0.9–1.2, alpha +1–3%/yr, scaling option live |
+| 2 | **Execution-only product**: 105 capability + sleeve, no directional alpha claim | G105 passes, G106 kill branch | Sharpe ≈ benchmark + 0.3–0.8%/yr (execution + expectancy residue); an honest, REAL product |
+| 3 | **Benchmark-sleeve + accrual**: book parks, PIT/data platform keeps compounding, screens re-run every 2 quarters | G105 also disappoints | Sharpe ≈ benchmark; zero relative bleed; the OPTION on future signals is preserved at near-zero cost |
+| 4 | **Full stop of active risk** (β=0 variant) | operator risk preference or thesis review says so | capital preserved; capability + data remain |
+
+The ladder's existence is the plan's core safety property: **the worst *designed* outcome is rung
+3–4 — matching the median professional's realized alpha (≈0) at a fraction of their cost — while
+the undisciplined outcome (skipping the ops track) has no floor at all.** That asymmetry is why
+the boring items (S11, R2, monitors) outrank alpha work whenever they conflict.
+
+### 9.3 Confidence statement (what I am actually claiming, and what I am not)
+
+- P(reach rung 1 by end-2028, point-estimate basis) ≈ **0.60–0.70** — dominated by G106 ≈ 0.45–0.50.
+- P(reach rung ≥2) ≈ **0.85** — G105 is mostly engineering.
+- P(reach rung ≥3) ≈ **0.97** — one decision away at all times; residual risk is operational
+  discipline, which is exactly what the hard-gated ops track exists to hold.
+- NOT claimed: statistical proof of any Sharpe by 2028 (§5's SE arithmetic); any path to
+  top-tier parity (§6 T3); that the G106 bet is likely — it is roughly a coin flip and it is the
+  honest heart of the plan. What makes the plan responsible is not a high P on the bet; it is
+  that **both sides of the coin land on a pre-registered, valued state.**
+
+---
+
+## 10. Cross-references
 
 PR #228 (capability program: P0–P3, lanes, R1–R7) · PR #229 (H2 roadmap: N/S/M/L items, D1–D4,
 RS-1…RS-6; its §9 sign-off list is superseded by §1 of this document) · #208 (105 RFC) ·
