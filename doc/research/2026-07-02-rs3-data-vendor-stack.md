@@ -147,3 +147,28 @@ Sources: [Alpaca market data plans](https://alpaca.markets/data) ·
 Norgate pricing ($346.50/6mo, $630/12mo, no monthly plan) and integration model
 (Windows/VM + per-security/date boolean plugin interface) corrected 2026-07-02 per Codex
 review against current official documentation — not independently re-probed in this fix.
+
+---
+
+## r2 addendum (2026-07-02, operator cost review): ATP DEFERRED
+
+The operator challenged the $99/mo Alpaca ATP recommendation on cost. The challenge is
+CORRECT and the recommendation is revised:
+
+- **The arithmetic the r1 memo under-weighted**: $99/mo = ~$1,190/yr ≈ **11%/yr of the
+  current $10.8k book** — measurement-precision spend an order of magnitude out of
+  proportion to the book it measures.
+- **What ATP is NOT needed for now**: opening-auction prints (the S10 references) come from
+  official DAILY bars already on hand; the S10 study and its successor runs need no live
+  SIP. Stage-1 collectors run observe-only — the IEX-only NBBO bias affects diagnostic
+  precision, not safety, and is now **accepted + documented** (the #223 A5.3 second path):
+  every collector row already carries its feed identity; analyses label the regime.
+- **FMP Starter is NOT a substitute and was never the question**: FMP = fundamentals/
+  estimates (need (a), now CONFIRMED subscribed — key-metrics + 10-year estimate depth
+  verified 2026-07-02); ATP = real-time consolidated tape (need (b)). Different data;
+  deferring (b) does not touch (a).
+- **Re-trigger conditions (recorded)**: M2 canary go-live (real orders need honest arrival
+  NBBO) OR book ≥ $50k (the %-of-book arithmetic flips) — whichever first.
+
+Steady-state new spend drops to **$0/mo now** (FMP already active); Norgate stays at the
+M7 kickoff slot.
