@@ -1,0 +1,16 @@
+{
+  "n_month_end_dates": 36,
+  "avg_pairwise_spearman": {
+    "mom~rev": -0.051,
+    "mom~lowvol": -0.201,
+    "rev~lowvol": 0.067
+  },
+  "avg_abs_rho": 0.217,
+  "stacking_math": {
+    "ideal_3x0.02_rho0": 0.0346,
+    "at_measured_avg_abs_rho": 0.0289,
+    "at_rho_0.3": 0.0274,
+    "formula": "IC_comb = k*IC / sqrt(k + k*(k-1)*rho)"
+  },
+  "limitation": "price-family trio only; revisions/quality rho is measurable only after the PIT store matures (N2) \u2014 cross-data-family rho is typically LOWER, so this bounds the discount from the pessimistic side for the price family specifically"
+}
