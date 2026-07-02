@@ -1,58 +1,109 @@
 {
+  "label": "EXPLORATORY DIAGNOSTIC \u2014 not measured-tier TC; see round-2 response map in doc/progress/2026-07-02-s-tc-measurement.md before citing any number below as a decision input",
   "theory": "IR = TC * IC * sqrt(BR); TC = corr(w_actual, w* \u221d mu/sigma^2) (Clarke-de Silva-Thorley 2002)",
+  "n_canonical_daily_runs_considered": 10,
   "buy_side_decision_tc_series": [
     {
       "run_id": "2026-06-09-live-70c90efc",
-      "n_eligible": 5,
-      "n_bought": 5,
-      "buy_side_decision_tc": 0.588
-    },
-    {
-      "run_id": "2026-06-09-live-b92892f6",
-      "n_eligible": 5,
-      "n_bought": 0,
-      "buy_side_decision_tc": 0.0
+      "n_eligible_by_mu": 5,
+      "admission_breakdown": {
+        "broker_pending_submitted": 5,
+        "survived_admission": 0
+      },
+      "n_survived_admission": 0,
+      "category": "insufficient_sizing_population",
+      "buy_side_decision_tc": null,
+      "exposure_transfer_ratio": null
     },
     {
       "run_id": "2026-06-10-live-c2bf522c",
-      "n_eligible": 5,
-      "n_bought": 5,
-      "buy_side_decision_tc": 0.566
+      "n_eligible_by_mu": 5,
+      "admission_breakdown": {
+        "broker_pending_submitted": 5,
+        "survived_admission": 0
+      },
+      "n_survived_admission": 0,
+      "category": "insufficient_sizing_population",
+      "buy_side_decision_tc": null,
+      "exposure_transfer_ratio": null
     },
     {
       "run_id": "2026-06-22-live-c26c0042",
-      "n_eligible": 9,
-      "n_bought": 5,
-      "buy_side_decision_tc": 0.0
+      "n_eligible_by_mu": 9,
+      "admission_breakdown": {
+        "broker_pending_submitted": 5,
+        "size_insufficient_cash": 2,
+        "candidate_not_selected": 2,
+        "survived_admission": 0
+      },
+      "n_survived_admission": 0,
+      "category": "insufficient_sizing_population",
+      "buy_side_decision_tc": null,
+      "exposure_transfer_ratio": null
     },
     {
       "run_id": "2026-06-23-live-844746ad",
-      "n_eligible": 8,
-      "n_bought": 6,
-      "buy_side_decision_tc": 0.0
+      "n_eligible_by_mu": 8,
+      "admission_breakdown": {
+        "broker_pending_submitted": 6,
+        "size_insufficient_cash": 1,
+        "correlation": 1,
+        "survived_admission": 0
+      },
+      "n_survived_admission": 0,
+      "category": "insufficient_sizing_population",
+      "buy_side_decision_tc": null,
+      "exposure_transfer_ratio": null
     },
     {
       "run_id": "2026-06-30-live-b616357c",
-      "n_eligible": 14,
-      "n_bought": 0,
-      "buy_side_decision_tc": 0.0
+      "n_eligible_by_mu": 14,
+      "admission_breakdown": {
+        "candidate_not_selected": 12,
+        "size_insufficient_cash": 1,
+        "correlation": 1,
+        "survived_admission": 0
+      },
+      "n_survived_admission": 0,
+      "category": "insufficient_sizing_population",
+      "buy_side_decision_tc": null,
+      "exposure_transfer_ratio": null
     },
     {
       "run_id": "2026-07-01-live-01c54b39",
-      "n_eligible": 14,
-      "n_bought": 1,
-      "buy_side_decision_tc": 0.0
+      "n_eligible_by_mu": 14,
+      "admission_breakdown": {
+        "candidate_not_selected": 11,
+        "size_insufficient_cash": 1,
+        "correlation": 1,
+        "broker_pending_submitted": 1,
+        "survived_admission": 0
+      },
+      "n_survived_admission": 0,
+      "category": "insufficient_sizing_population",
+      "buy_side_decision_tc": null,
+      "exposure_transfer_ratio": null
     }
   ],
-  "buy_side_decision_tc_mean_recent": 0.094,
+  "buy_side_decision_tc_category_counts": {
+    "measured": 0,
+    "no_deployment": 0,
+    "zero_dispersion": 0,
+    "insufficient_sizing_population": 6
+  },
+  "buy_side_decision_tc_mean_measured_only": null,
+  "buy_side_decision_tc_n_measured": 0,
+  "buy_side_decision_tc_se_measured": "undefined (n<2)",
   "full_book": {
     "run_id": "2026-07-01-live-01c54b39",
     "n_names": 89,
-    "book_pv": 10816.0,
-    "deployed_frac": 0.431,
-    "full_book_tc_pearson": 0.438,
+    "book_pv": 10802.0,
+    "deployed_frac": 0.43,
+    "full_book_tc_pearson": 0.439,
     "full_book_tc_spearman": 0.481,
-    "caveat": "actual weights are TODAY's broker positions vs the latest run's desired vector \u2014 a same-day pairing; historical full-book TC becomes routine once the S5 ledger persists per-run position values"
+    "exposure_transfer_ratio": 0.399,
+    "same_day_aligned": false,
+    "caveat": "actual weights are queried LIVE at script-execution time, vs the desired vector from the LATEST recorded run (2026-07-01-live-01c54b39) \u2014 these are NOT guaranteed to be the same calendar day (same_day_aligned=false: this is a cross-day, descriptive pairing, not a measured same-timestamp TC). Historical, point-in-time-aligned full-book TC becomes possible once the S5 ledger persists per-run position values."
   },
-  "state_vector_update": "replaces the reasoned '\u22480.4' in #231 \u00a70; the lane-A/R4 target is TC \u2265 0.6 on BOTH readouts"
+  "state_vector_update": "EXPLORATORY diagnostic input candidate for the reasoned '\u22480.4' in #231 \u00a70 \u2014 NOT a validated replacement and NOT, by itself, justification for any lane/route decision (small, non-independent-until-now sample; admission/sizing effects were conflated until this round; see the progress doc's round-2 section for the full caveat list)."
 }

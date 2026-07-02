@@ -116,27 +116,43 @@ regenerated with one command per script.
 
 ---
 
-## POC-S-TC — the transfer coefficient, measured (addendum, task S-TC of #231)
+## POC-S-TC — the transfer coefficient, an EXPLORATORY diagnostic (addendum, task S-TC of #231)
+
+**Revised 2026-07-02 (Codex CHANGES_REQUESTED, 5 methodology findings — see
+`doc/progress/2026-07-02-s-tc-measurement.md` for the full response map).** The claims below
+were originally reported as "measured" and as "the strongest quantitative case for lane A + R4."
+Both framings are WITHDRAWN: the full-book pairing is cross-day (not same-day as originally
+claimed), the buy-side figure conflated upstream admission blocks with sizing-stage shrinkage,
+undefined correlations (no-buy / uniform-size runs) were averaged in as 0.0, the 7 observations
+were not independent (a duplicate day, an arbitrary "recent" slice), and Pearson/Spearman cannot
+detect the uniform deployment-shrinkage the narrative attributed to it.
 
 **Claim tested** (#231 §0): TC ≈ 0.4 (the state vector's last reasoned-tier number).
 **Theory**: Clarke–de Silva–Thorley (2002): IR = TC·IC·√BR with TC = corr(actual active
 weights, unconstrained desired weights w* ∝ μ/σ² — the model's own `kelly_target_pct`).
-**Method** (`scripts/poc_transfer_coefficient.py`): (1) FULL-BOOK TC — today's broker
-positions (read-only /v2/positions) vs the latest full run's desired vector over all 89
-scored names; (2) BUY-SIDE DECISION-TC — per historical full run, corr between desired
-kelly and the actually-emitted buy target_pct among floor-clearing candidates.
-**Result**:
-- **Full-book TC = 0.438 Pearson / 0.481 Spearman** (n=89, deployed 43.1%) — the asserted
-  0.4 was accurate; now measured.
-- **Buy-side decision-TC ≈ 0.09 recent-mean, individual runs mostly 0.0** — even on runs
-  that DID buy (6/8 eligible bought on 06-23), order sizes carry essentially none of the
-  model's relative-conviction ordering: the top_n window + whole-share floor + uniformizing
-  shrinkage stack flatten desired sizes into near-constant orders. The full-book 0.44 is
-  inherited from historical position accumulation, not from the current decision path.
-**Verdict**: state vector updated (TC row → measured 0.44 full-book / **0.09 buy-side**);
-the buy-side number is the **strongest quantitative case for lane A + R4** yet: the
-constraint stack does not merely shrink deployment (POC-B), it destroys the cross-sectional
-ordering that IC is supposed to monetize — TC·IC is bounded by the SMALLER pipe.
-**Limitation**: full-book is a same-day single pairing until the S5 ledger persists per-run
-position values (then the series becomes routine). Target unchanged: **TC ≥ 0.6 on BOTH
-readouts** after lane A + R4.
+**Method** (`scripts/poc_transfer_coefficient.py`, r2): (1) FULL-BOOK TC — today's broker
+positions (read-only /v2/positions) vs the latest full run's desired vector over all scored
+names, now explicitly flagged `same_day_aligned: false` (it is a cross-day pairing); (2)
+BUY-SIDE DECISION-TC — per CANONICAL daily full run (one per calendar day, deduped), corr
+between desired kelly and the actually-emitted buy target_pct among candidates that survived
+EVERY upstream admission gate (`blocked_by IS NULL`), separately from an admission-stage
+breakdown.
+**Result (r2, corrected)**:
+- **Full-book: Pearson 0.438 / Spearman 0.481 / exposure_transfer_ratio 0.399** (n=89, deployed
+  43%) — numerically similar to r1, but now correctly labelled a cross-day, descriptive pairing,
+  not a same-day measurement.
+- **Buy-side: no sizing-stage correlation is currently computable at all.** Re-measured on all
+  10 canonical daily runs (deduped from r1's 7, which double-counted 2026-06-09): **every single
+  run has zero candidates surviving admission** (`n_survived_admission = 0` in all 10) — upstream
+  gates (`broker_pending_submitted`, `candidate_not_selected`, `size_insufficient_cash`,
+  `correlation`) block 100% of mu-floor-eligible candidates before any of them reach a sizing
+  test. This is a DIFFERENT and more precise finding than r1's "0.09, sizing destroys ordering":
+  it says admission, not sizing, is the binding constraint in this sample — the sizing/shrinkage
+  hypothesis literally cannot be tested against this data until some candidates actually survive
+  admission.
+**Verdict**: WITHDRAWN as a "measured" state-vector update and as justification for lane A / R4.
+The corrected diagnostic instead points at a DIFFERENT, upstream open question — why is
+admission blocking everything — which needs its own investigation before lane A (sizing-focused
+remediation) can be prioritized on this evidence. Full-book TC stays a rough, cross-day estimate
+until the S5 ledger lands. See `doc/progress/2026-07-02-s-tc-measurement.md` NEXT for the
+concrete follow-up. No target number is asserted here pending that investigation.
