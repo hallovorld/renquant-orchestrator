@@ -14,7 +14,15 @@ hypothesis in a separate frozen prereg**. (3) **A1 re-scoped**: the shipped #213
 horizon-aware (`label_observation_cutoff` freshness key + expected-lag threshold widening +
 `max_feature_anchor_date` as provenance-only, per umbrella #423 round-3); the amendment is to align
 the merged **RFC text** with that implementation and require per-recipe axis semantics — not to
-imply no implementation exists. Response map in the appendix.
+imply no implementation exists. r3 (2026-07-02) — addresses Codex's r2 review: (1) the **progress
+record** rewritten to the current conclusions in the control schema (literal `STATUS:` / `WHAT:` /
+`WHY/DIR:` / `EVIDENCE:` / `NEXT:` fields) so the durable record no longer preserves the withdrawn
+r1 claims; amendment-order item 7 renamed to the separate frozen BEAR-risk-switch preregistration.
+(2) **A5.4/A5.5 reworded as sensitivity SCENARIOS** with explicit formula + assumptions (never
+settled probabilities), plus a §9.4 power-prereg requirements list (pilot paired-residual
+variance/correlation, cluster unit, target effect, α/power, attrition, blinded sample-size
+re-estimation) and the explicit rule that an underpowered design routes expansion through §9.3a as
+**recorded risk acceptance, never evidence**. Response maps in the appendix.
 SCOPE: an independent deep review of the four merged design documents —
 **#208** (`2026-06-30-renquant105-intraday-decisioning-architecture.md`, r12),
 **#210** (`2026-06-30-model-freshness-governance.md`, R6),
@@ -32,7 +40,7 @@ Verdict summary (severity-ordered):
 | A2 | The Stage-1 intraday design carries **no broker-regulatory / settlement envelope**. Verified (read-only account query, 2026-07-02): a margin account governed by FINRA's Intraday Margin Standards (effective 2026-06-04; PDT designation deprecated) — the envelope must bind on real-time intraday margin / buying-power semantics with **exits-always-allowed** precedence, not legacy PDT counting | #208 | **blocking gap** |
 | A3 | #210's Final phase has an **experiment-only authorization path** that will, with high probability, never complete — inconsistent with the two-path authorization #208 §9.3a already adopted; Fix-3 (placebo floor) is mis-classified as bypassable infra | #210 | governance |
 | A4 | Stage 1–2 framing ("catch the entry as it forms") does not match the frozen-signal mechanics; Stage-2's estimand is not reconciled with the already-measured phase −1 intraday-alpha NO-GO | #208 | framing / estimand |
-| A5 | Engineering pins needed before pilot data is trustworthy: gate-input census, order-type pre-declaration, SIP-vs-IEX quote quality, loss-budget noise probability, identifiability back-of-envelope, batch-rotation churn diagnostic, active-path verification | #208 | measurement integrity |
+| A5 | Engineering pins needed before pilot data is trustworthy: gate-input census, order-type pre-declaration, SIP-vs-IEX quote quality, loss-budget noise **sensitivity scenario**, §9.4 **power-prereg requirements** (pilot variance, cluster unit, blinded re-estimation; underpowered ⇒ operator path = explicit risk acceptance), batch-rotation churn diagnostic, active-path verification | #208 | measurement integrity |
 | A6 | `strategy-104.md`'s hand-written production snapshot is stale (pre-dates the 06-23 XGB re-promotion) — the same premise rot that invalidated #210 R1 | umbrella | doc integrity |
 | A7 | The direction-decision's regeneration PR is the evidence base for the whole 105 direction, not merely Track A's first step; the known BEAR-only skill slice makes GO criterion (d) near-certain to fail — the criterion **stands as registered**, and the BEAR risk-switch becomes a **new hypothesis in a separate frozen prereg** (never a retroactive carve-out) | direction decision | evidence / prereg |
 
@@ -248,18 +256,33 @@ are what "clean" requires; each is cheap now and expensive to retrofit:
    the IEX feed at all. Amendment: §11's data-plane blocker becomes "SIP/consolidated feed
    subscription, **or** a recorded acceptance of quantified IEX bias for both the arrival quote and
    the synthetic batch reference."
-4. **State the loss-budget noise probability.** 1.5% of equity ≈ **$157**. One or two names at the
-   §10 deployment cap (~$1.5k notional) over 20 sessions accumulate ~$130–150 of one-sigma noise —
-   the canary halts on market beta with roughly coin-flip probability, independent of the timing
-   policy. Fine as a safety bound, but §9.3a should say so and pre-commit the response (halt →
-   re-authorize a fresh window is itself a §9.3a decision), so a noise-halt is not misread as an
-   economic verdict.
-5. **State the identifiability back-of-envelope now.** With σ(open→close) ≈ 150bps already measured,
-   detecting a 10bps IS difference at conventional power needs on the order of **~1,800 pairs** —
-   years at 1–2 names/day. §9.4 defers the design honestly, but the arithmetic is already knowable:
-   the deferred experiment will almost surely return "unidentifiable at this scale," making the
-   §9.3a **operator-decision path the realistic route** to any expansion. Saying this now sets the
-   operator's expectations before 20 sessions are spent.
+4. **Loss-budget noise sensitivity — a SCENARIO with stated assumptions, not a settled
+   probability (r3 rewording).** 1.5% of equity ≈ **$157**. Illustrative scenario: one or two
+   names at the §10 deployment cap (~$1.5k notional), i.i.d. daily returns at σ_daily ≈ 2%, no
+   beta adjustment, 20 sessions → cumulative one-sigma ≈ σ_daily × notional × √20 ≈ **$134** —
+   the same order as the budget, so a noise-driven halt is a **material** outcome under these
+   assumptions. The actual probability depends on cross-name/day clustering, market beta, and the
+   entry-trigger's conditioning, and is **not** computable before pilot data; the design point
+   survives every scenario: §9.3a should state that the loss budget is reachable by market noise
+   alone at this scale, and **pre-commit the response** (halt → re-authorizing a fresh window is
+   itself a recorded §9.3a decision), so a noise-halt is never misread as an economic verdict on
+   the timing policy.
+5. **Identifiability — pre-register the power machinery; name the honest fallback (r3
+   rewording).** Illustrative **upper-bound scenario**, formula and assumptions stated: with
+   independent pairs and the paired-difference σ bounded above by the measured σ(open→close) ≈
+   150bps, detecting a 10bps effect at two-sided α=0.05 / 80% power needs
+   N ≈ ((1.96+0.84)·150/10)² ≈ **1,800 pairs** — years at 1–2 names/day. This is a **scenario,
+   not a conclusion**: pairing, covariate adjustment, and trigger conditioning can cut the
+   residual σ substantially (that is what matched pairs are for), while cross-name/day
+   clustering and repeated names cut the **effective** N — the true requirement is unknowable
+   before pilot data, which is exactly why §9.4 defers it. The amendment is therefore a
+   **requirements list for §9.4's future prereg**, stated now: it must include (i) a pilot
+   variance/correlation estimate of the **actual paired timing residual** (not σ_oc), (ii) the
+   **cluster unit** (session / name / name×session), (iii) the target effect, (iv) α/power,
+   (v) an attrition/censoring allowance, and (vi) a **blinded sample-size re-estimation rule**.
+   And the honest fallback, stated now: **if the re-estimated design remains underpowered at this
+   account scale, the §9.3a operator path is explicitly RISK ACCEPTANCE — a recorded decision to
+   proceed without evidence of economic benefit — never re-labeled as evidence.**
 6. **Track the batch-rotation churn channel.** A name entered intraday on the T-1 signal faces the
    same evening's batch re-rank; the QP or the σ-blind panel-exit can rotate it out at T+1, and
    anti-churn then locks re-entry for 5 days — a systematic whipsaw-cost channel unique to the
@@ -332,7 +355,7 @@ forward: response maps live in an appendix section; the STATUS header states the
 | 4 | A3 governance convergence (two-path Final; Fix-3 fail-closed) | #210 §4/§6 | unblocks the operator's directive without reviving the stats loop |
 | 5 | A4 framing/estimand + A5.4–A5.7 | #208 §1/§9/§12 | honesty and diagnostics; no ordering pressure |
 | 6 | A6 snapshot generation | umbrella | separate repo, separate PR |
-| 7 | A7 regeneration PR + prereg carve-out | direction decision | evidence base for everything above |
+| 7 | A7 regeneration PR + the separate frozen BEAR-risk-switch preregistration | direction decision | evidence base for everything above |
 
 ## Open questions for the operator / Codex
 
@@ -345,8 +368,10 @@ forward: response maps live in an appendix section; the STATUS header states the
 3. **A3:** adopt the #208-style two-path authorization for #210's Final (ceiling as risk-policy
    constant by recorded decision), keeping Pillar 3 experiment-gated?
 4. **A5.3:** subscribe to the consolidated/SIP feed for the pilot, or record accepted IEX bias?
-5. **A5.5:** given the ~1,800-pair identifiability arithmetic, should §9.4 be re-scoped now to a
-   diagnostics-plus-operator-decision design instead of a powered non-inferiority test?
+5. **A5.5:** confirm the §9.4 power-prereg requirements list (pilot paired-residual
+   variance/correlation, cluster unit, target effect, α/power, attrition allowance, blinded
+   sample-size re-estimation) — and the explicit labeling rule that an underpowered design routes
+   any expansion through §9.3a as **recorded risk acceptance**, never as evidence.
 6. **A7:** should the separate frozen BEAR-risk-switch pre-registration be authored now (in
    parallel) or only after the Track-A verdict is rendered under the original criteria?
 
@@ -360,3 +385,14 @@ forward: response maps live in an appendix section; the STATUS header states the
 | 2 | **A7's carve-out is post-hoc, outcome-dependent relaxation of a pre-registered criterion.** Keep the original (a)–(e); a BEAR risk-switch is a new hypothesis needing its own frozen prereg (estimand, threshold, capital-weighted utility, untouched confirmation span) | **Accepted** — carve-out withdrawn; Track-A verdict renders under the original criteria; BEAR risk-switch re-scoped as a separate frozen pre-registration; the predictable-failure note retained only as expected-outcome statement | A7.2 |
 | 3 | **A1 must acknowledge the existing implementation** — #213 already has horizon-aware `label_observation_cutoff` compensation and `max_feature_anchor_date` provenance; the amendment is text alignment + per-recipe axis semantics, not a claim that nothing exists | **Accepted** — verified in `model_freshness_monitor.py` (umbrella #423 round-3 semantics: label-observation key, expected-lag threshold widening, feature-anchor provenance-only); A1 re-scoped to RFC-text alignment + per-recipe label-horizon declaration | A1 |
 | 4 | Required CI must be green before merge | **Acknowledged** — docs-only PR; CI status checked on this revision | — |
+
+## Appendix — response map: Codex review r2 (CHANGES_REQUESTED, 2026-07-02)
+
+Codex r2 **accepted** the r2 design fixes (superseded-PDT premise corrected; exits-always-allowed
+restored; Track-A prereg preserved; #213 horizon-aware monitor acknowledged) and raised two
+remaining blockers.
+
+| # | Codex point | Disposition | Where |
+|---|---|---|---|
+| 1 | **The committed progress record contradicts the revised design and does not satisfy the control schema** — its "Key findings" still carried the withdrawn r1 claims (A1 as unimplemented blocking split; A2 as legacy PDT / day-trade-budget-0; A7 carve-out); the amendment-order table still said "prereg carve-out"; the literal `STATUS:` / `WHAT:` / `WHY/DIR:` / `EVIDENCE:` / `NEXT:` fields were missing | **Accepted** — progress doc rewritten from scratch in the control schema with the CURRENT (r3) conclusions only; the r1 claims appear solely as withdrawn-history inside `REVISION:`; amendment-order item 7 renamed to "the separate frozen BEAR-risk-switch preregistration" | progress doc; amendment-order table |
+| 2 | **A5.4/A5.5 overstated assumption-only arithmetic as operational probability and identifiability** — the "coin-flip" halt claim and the ~1,800-pair figure rest on unstated independence/normality and on σ(open→close), not the actual paired timing residual; clustering, beta, trigger conditioning, and repeated names change effective N; pairing/covariates may reduce variance. Require a preregistered pilot variance/correlation estimate, cluster unit, target effect, α/power, attrition/censoring allowance, and a blinded sample-size re-estimation rule; if underpowered, label the operator path explicitly as risk acceptance | **Accepted** — A5.4 restated as a sensitivity scenario (formula + assumptions; "material outcome", no probability claim; pre-committed response to a noise-halt). A5.5 restated as an upper-bound scenario plus the required §9.4 prereg machinery (i–vi), with the explicit rule: underpowered ⇒ §9.3a expansion is **recorded RISK ACCEPTANCE, never evidence of economic benefit** | A5.4, A5.5, open question 5 |
