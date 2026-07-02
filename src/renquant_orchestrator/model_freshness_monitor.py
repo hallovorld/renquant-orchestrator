@@ -25,17 +25,22 @@ stamps TWO DISTINCT information-set fields (never conflated). This module's own
 round-2 fix keyed panel freshness on ``max_feature_anchor_date``; Codex's round-3
 review on #423 established that is WRONG, so the roles are swapped here:
 
-- ``label_observation_cutoff`` — the fwd_60d-clipped max FULLY-LABELED training
+- ``label_observation_cutoff`` — the fwd-label-clipped max FULLY-LABELED training
   row. THIS is the freshness axis: it is the latest information that actually
   affected fitting (weights/normalization/CV), and only moves when the labeled
-  training frame moves. Because the fwd_60d label horizon means even a same-day
-  retrain cannot show a label more recent than ~60 business days ago, the panel
+  training frame moves. Because the label horizon means even a same-day retrain
+  cannot show a label more recent than the model's OWN horizon ago, the panel
   fast-axis policy WIDENS its tiering thresholds by that EXPECTED lag (never
   subtracted from the reported age) so a genuinely fresh retrain reads HEALTHY,
-  not born-BREACH.
+  not born-BREACH. The prod XGB panel today trains on ``fwd_60d`` (~60 business
+  days), but the widening is derived from THIS ARTIFACT's own stamped
+  ``lookahead_days`` (#223 amendment A1), never a hardcoded 60 — a different
+  model family with a different label horizon (or an artifact that fails to
+  stamp its horizon) is never silently assumed to be fwd_60d.
 - ``max_feature_anchor_date`` — the RAW feature/data frontier (latest date with
   feature rows, BEFORE the fwd-label ``dropna`` clip; leads the label axis by
-  ~60 business days by construction). This is **data-pipeline-HEALTH provenance
+  the model's label horizon by construction — ~60 business days for the prod
+  XGB panel today). This is **data-pipeline-HEALTH provenance
   only** (proof the feed is current) — **NOT** a freshness axis. Those trailing
   rows carry no observable forward label, so the model's weights/CV never
   consumed them: keying freshness here would let fresh UNLABELED rows make a
@@ -149,6 +154,11 @@ _TRAINED_DATE_FIELD = "trained_date"
 # The freshness-axis field name, named so the EXPECTED fwd-label-horizon lag (below)
 # can be keyed on it without hardcoding the string in multiple places.
 _LABEL_OBSERVATION_FIELD = "label_observation_cutoff"
+# #223 amendment A1: the artifact's OWN declared label horizon (stamped by
+# ``hf_patchtst_scorer.py`` / ``train_production_model.py::build_artifact`` in the
+# RenQuant umbrella repo) — read per-artifact instead of assuming a single constant
+# horizon for every model family.
+_LOOKAHEAD_DAYS_FIELD = "lookahead_days"
 
 # PROVENANCE-only field: captured + echoed for context, NEVER used for tiering.
 # ``max_feature_anchor_date`` (umbrella #423) is the RAW feature/data frontier, ~60
@@ -159,12 +169,27 @@ _LABEL_OBSERVATION_FIELD = "label_observation_cutoff"
 # must never make a stale model read fresh (Codex #423 round-3 review).
 _FEATURE_ANCHOR_FIELD = "max_feature_anchor_date"
 
-# EXPECTED business-day lag inherent to a freshness axis, keyed by binding field name
-# (0 / absent for axes with no inherent horizon lag). ``label_observation_cutoff`` is
-# fwd_60d-clipped: even a same-day retrain cannot show a label more recent than ~60
-# business days ago (the label horizon is WHY the trailing rows are still unlabeled),
-# so its age must be measured against that EXPECTED frontier — never against ``now``
-# directly, or every fresh retrain would read born-BREACH.
+# Axes that carry an INHERENT horizon lag, mapped to the DOCUMENTED DEFAULT width
+# (absent / 0 for axes with none). ``label_observation_cutoff`` is fwd-label-clipped:
+# even a same-day retrain cannot show a label more recent than the model's OWN label
+# horizon ago (the horizon is WHY the trailing rows are still unlabeled), so its age
+# must be measured against that EXPECTED frontier — never against ``now`` directly,
+# or every fresh retrain would read born-BREACH.
+#
+# 2026-07-02 (#223 amendment A1: "each model family declares its label horizon in
+# its recipe ... not hardcoded to one constant"). This dict now serves ONLY to name
+# WHICH axes need compensation and the DIAGNOSTIC default shown when an artifact's
+# own horizon is unknown — it is NEVER used to widen a tier. The ACTUAL compensation
+# width is read PER-ARTIFACT from its own stamped ``lookahead_days`` field (stamped
+# by ``hf_patchtst_scorer.py`` / ``train_production_model.py::build_artifact`` in
+# the RenQuant umbrella repo) by ``_expected_lag_calendar_days`` below. This monitor
+# covers THREE populations — per-ticker tournament, prod XGB panel (fwd_60d today),
+# shadow PatchTST panel — and a future model family can have a genuinely different
+# label horizon; assuming this default for every artifact would mis-widen (or
+# under-widen) a different recipe's threshold. Per ``_expected_lag_calendar_days``, a
+# missing/invalid stamped horizon on an axis that needs compensation now fails
+# closed to ``TIER_UNKNOWN`` instead of silently certifying a tier under this
+# guessed default.
 _LABEL_OBSERVATION_LOOKAHEAD_BDAYS = 60
 _AXIS_EXPECTED_LAG_BDAYS: dict[str, int] = {
     _LABEL_OBSERVATION_FIELD: _LABEL_OBSERVATION_LOOKAHEAD_BDAYS,
@@ -259,7 +284,9 @@ def _subtract_business_days(base: date, n: int) -> date:
     return current
 
 
-def _expected_lag_calendar_days(binding_field: str | None, now: datetime) -> int:
+def _expected_lag_calendar_days(
+    binding_field: str | None, lookahead_bdays: object, now: datetime
+) -> tuple[int | None, int]:
     """Calendar-day width of ``binding_field``'s EXPECTED business-day lag as of
     ``now`` (0 for axes with no inherent horizon lag — every axis except
     ``label_observation_cutoff``). Used to WIDEN the tiering thresholds so a
@@ -267,12 +294,45 @@ def _expected_lag_calendar_days(binding_field: str | None, now: datetime) -> int
     round-3): a same-day retrain's ``label_observation_cutoff`` is ~60 business
     days behind ``now`` by construction, and that gap is expected, not staleness.
     ``age_days`` itself is never adjusted — only the ceilings it is compared
-    against."""
-    bdays = _AXIS_EXPECTED_LAG_BDAYS.get(binding_field or "", 0)
-    if not bdays:
-        return 0
-    expected_frontier = _subtract_business_days(now.date(), bdays)
-    return (now.date() - expected_frontier).days
+    against.
+
+    Returns ``(compensation_lag, diagnostic_lag)``:
+
+    - ``compensation_lag`` is the value :func:`read_artifact_freshness` may
+      actually use to widen a tiering threshold. It requires the artifact's
+      OWN stamped ``lookahead_days`` to be a genuine positive integer — this
+      monitor covers THREE populations (per-ticker tournament, prod XGB
+      panel, shadow PatchTST panel), and a future model family can have a
+      different label horizon (per-ticker tournament != fwd_60d panel != any
+      future short-horizon model, #223 amendment A1). Silently assuming the
+      documented ``_LABEL_OBSERVATION_LOOKAHEAD_BDAYS`` default for every
+      artifact would mis-widen (or under-widen) a different recipe's
+      threshold, and would let a genuinely unstamped/unknown horizon be
+      guessed into a certified tier — exactly the class of bug this module's
+      own "trained_date must never certify freshness" discipline exists to
+      prevent (see module docstring). ``None`` means "this axis needs
+      compensation but the artifact did not stamp a positive
+      ``lookahead_days``" — the caller must fail closed to ``TIER_UNKNOWN``,
+      never apply the default as a guess.
+    - ``diagnostic_lag`` is ALWAYS computed (using
+      ``_LABEL_OBSERVATION_LOOKAHEAD_BDAYS`` when the stamped value is
+      missing/invalid) purely for the ``detail`` string — "would have been Nd
+      if the documented 60-BD default were assumed" — troubleshooting only,
+      NEVER used to widen a tier when ``compensation_lag`` is ``None``.
+    """
+    bdays_default = _AXIS_EXPECTED_LAG_BDAYS.get(binding_field or "", 0)
+    if not bdays_default:
+        return 0, 0
+    try:
+        stamped_bdays = int(lookahead_bdays) if lookahead_bdays else 0
+    except (TypeError, ValueError):
+        stamped_bdays = 0
+    diagnostic_bdays = stamped_bdays if stamped_bdays > 0 else bdays_default
+    diagnostic_frontier = _subtract_business_days(now.date(), diagnostic_bdays)
+    diagnostic_lag = (now.date() - diagnostic_frontier).days
+    if stamped_bdays <= 0:
+        return None, diagnostic_lag
+    return diagnostic_lag, diagnostic_lag
 
 
 def parse_as_of(value: str | None) -> datetime | None:
@@ -390,6 +450,12 @@ class ArtifactFreshness:
     non_fresh: bool = False
     promotion_status: str | None = None
     promotion_receipt_path: str | None = None
+    # #223 amendment A1: the artifact's OWN stamped ``lookahead_days`` (the label
+    # horizon this recipe declares), parsed as a positive int. ``None`` when the
+    # binding axis needs horizon compensation but no valid value was stamped — the
+    # tier fails closed to ``unknown`` in that case (see ``read_artifact_freshness``).
+    # Always ``None`` for an axis that does not need compensation at all.
+    lookahead_days_stamped: int | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -398,10 +464,10 @@ class ArtifactFreshness:
             "binding_field": self.binding_field,
             "detail": self.detail,
             "label": self.label,
+            "lookahead_days_stamped": self.lookahead_days_stamped,
             "max_feature_anchor_date": self.max_feature_anchor_date,
             "non_fresh": self.non_fresh,
             "path": self.path,
-            "present": self.present,
             "promote_validated": self.promote_validated,
             "promotion_receipt_path": self.promotion_receipt_path,
             "promotion_status": self.promotion_status,
@@ -428,14 +494,18 @@ def read_artifact_freshness(
     - a cutoff **later than** ``now`` -> ``breach`` (look-ahead; a negative age must
       never read as ``healthy`` — PR #211 lesson, windows bounded on both sides).
 
-    The freshness axis for the panel is ``label_observation_cutoff`` (the fwd_60d-
+    The freshness axis for the panel is ``label_observation_cutoff`` (the fwd-label-
     clipped max LABELED row — the latest information that actually affected fitting,
-    umbrella #423 round-3); its EXPECTED ~60 BD label-horizon lag WIDENS the tiering
+    umbrella #423 round-3); its EXPECTED label-horizon lag WIDENS the tiering
     thresholds (never subtracted from the reported ``age_days``) so a genuinely fresh
-    retrain reads HEALTHY. ``max_feature_anchor_date`` (the raw feature/data frontier)
-    is captured as data-pipeline-health PROVENANCE only and is NEVER tiered — keying
-    freshness on it would let fresh unlabeled rows the model never trained on make a
-    frozen panel read fresh (round-3 Codex review on #423 rejected round-2's choice).
+    retrain reads HEALTHY. The lag width is read from THIS ARTIFACT's own stamped
+    ``lookahead_days`` (#223 amendment A1: per-recipe, not one hardcoded constant for
+    every model family) — a missing/invalid stamped horizon on this axis fails
+    closed to ``unknown`` rather than guessing the documented fwd_60d default.
+    ``max_feature_anchor_date`` (the raw feature/data frontier) is captured as
+    data-pipeline-health PROVENANCE only and is NEVER tiered — keying freshness on
+    it would let fresh unlabeled rows the model never trained on make a frozen
+    panel read fresh (round-3 Codex review on #423 rejected round-2's choice).
     The shadow promote gate (RFC #212 §3.2) is NOT applied here — it keys on a
     persisted, pin-bound RECEIPT and is layered on by ``apply_promotion_gate`` in the
     caller, so this reader stays a pure age function.
@@ -462,6 +532,14 @@ def read_artifact_freshness(
     result.max_feature_anchor_date = (
         raw[:10] if (raw := _text_or_none(data.get(_FEATURE_ANCHOR_FIELD))) else None
     )
+    # #223 amendment A1: this artifact's OWN declared label horizon, if any and
+    # valid (a positive int). Read here so it is available for BOTH the widening
+    # computation below and observability (``as_dict``) regardless of tier outcome.
+    try:
+        _lookahead_parsed = int(data.get(_LOOKAHEAD_DAYS_FIELD) or 0)
+    except (TypeError, ValueError):
+        _lookahead_parsed = 0
+    result.lookahead_days_stamped = _lookahead_parsed if _lookahead_parsed > 0 else None
 
     for field_name in DATA_CUTOFF_FIELDS:
         if _parse_date(data.get(field_name)) is not None:
@@ -500,12 +578,29 @@ def read_artifact_freshness(
         )
         return result
 
-    # ``label_observation_cutoff`` carries an EXPECTED ~60 BD fwd-label-horizon lag
-    # (#423 round-3): WIDEN the tiering thresholds by that lag so a genuinely fresh
+    # ``label_observation_cutoff`` carries an EXPECTED fwd-label-horizon lag (#423
+    # round-3): WIDEN the tiering thresholds by that lag so a genuinely fresh
     # retrain reads HEALTHY instead of born-BREACH. ``age_days`` stays the literal,
     # unadjusted calendar-day age (consistent meaning across every axis); only the
-    # ceilings it is compared against shift for a lagged axis.
-    lag_days = _expected_lag_calendar_days(result.binding_field, now)
+    # ceilings it is compared against shift for a lagged axis. #223 amendment A1:
+    # the lag WIDTH comes from THIS artifact's own stamped ``lookahead_days`` — a
+    # missing/invalid value on an axis that needs compensation fails closed to
+    # ``unknown`` rather than guessing the documented default (never certifies a
+    # tier under an assumed horizon).
+    lag_days, diagnostic_lag_days = _expected_lag_calendar_days(
+        result.binding_field, data.get(_LOOKAHEAD_DAYS_FIELD), now
+    )
+    if lag_days is None:
+        result.tier = TIER_UNKNOWN
+        result.detail = (
+            f"{result.binding_field}={result.binding_cutoff} age={age_days}d requires "
+            f"a stamped positive {_LOOKAHEAD_DAYS_FIELD!r} for horizon compensation "
+            f"but none was present/valid ({data.get(_LOOKAHEAD_DAYS_FIELD)!r}); not "
+            f"guessed at the documented {_LABEL_OBSERVATION_LOOKAHEAD_BDAYS}-BD "
+            f"default (diagnostic-only widened threshold would be "
+            f"+{diagnostic_lag_days}d) (fail-closed, #223 amendment A1)"
+        )
+        return result
     result.tier = tier_for_age(
         age_days,
         warn_days=policy.warn_days + lag_days,
@@ -515,8 +610,8 @@ def read_artifact_freshness(
     result.detail = f"{result.binding_field}={result.binding_cutoff} age={age_days}d"
     if lag_days:
         result.detail += (
-            f" (thresholds +{lag_days}d for the expected "
-            f"{_LABEL_OBSERVATION_LOOKAHEAD_BDAYS}-BD label horizon)"
+            f" (thresholds +{lag_days}d for this artifact's own "
+            f"{result.lookahead_days_stamped}-BD stamped label horizon)"
         )
     if result.max_feature_anchor_date:
         result.detail += (

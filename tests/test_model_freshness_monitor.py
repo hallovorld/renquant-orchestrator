@@ -710,6 +710,7 @@ def test_label_observation_cutoff_is_the_freshness_axis(tmp_path: Path) -> None:
             "trained_date": "2026-06-30",
             "label_observation_cutoff": "2026-04-07",  # freshness axis, 84d raw age
             "max_feature_anchor_date": "2026-06-27",   # data-pipeline-health provenance only
+            "lookahead_days": 60,  # #223 amendment A1: this artifact's OWN stamped horizon
         },
     )
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
@@ -717,6 +718,7 @@ def test_label_observation_cutoff_is_the_freshness_axis(tmp_path: Path) -> None:
     assert fresh.age_days == 84  # literal, unadjusted calendar-day age
     assert fresh.tier == mod.TIER_HEALTHY
     assert fresh.max_feature_anchor_date == "2026-06-27"
+    assert fresh.lookahead_days_stamped == 60
     assert "provenance" in fresh.detail  # feature anchor flagged, not read as freshness
     assert "label horizon" in fresh.detail  # threshold widening is surfaced
 
@@ -724,8 +726,12 @@ def test_label_observation_cutoff_is_the_freshness_axis(tmp_path: Path) -> None:
 def test_label_observation_cutoff_lag_threshold_boundary(tmp_path: Path) -> None:
     # The widened warn ceiling is EXACTLY 14 + 84 = 98 calendar days for AS_OF's
     # 60-BD lookahead: 98d reads healthy, 99d tips to warn.
-    healthy = _write_json(tmp_path / "h.json", {"label_observation_cutoff": "2026-03-24"})  # 98d
-    warn = _write_json(tmp_path / "w.json", {"label_observation_cutoff": "2026-03-23"})  # 99d
+    healthy = _write_json(
+        tmp_path / "h.json", {"label_observation_cutoff": "2026-03-24", "lookahead_days": 60}
+    )  # 98d
+    warn = _write_json(
+        tmp_path / "w.json", {"label_observation_cutoff": "2026-03-23", "lookahead_days": 60}
+    )  # 99d
     fresh_healthy = mod.read_artifact_freshness("prod-panel", healthy, AS_OF)
     fresh_warn = mod.read_artifact_freshness("prod-panel", warn, AS_OF)
     assert fresh_healthy.age_days == 98
@@ -738,11 +744,115 @@ def test_frozen_label_observation_cutoff_breaches_despite_lag_widening(tmp_path:
     # A globally frozen panel (label cutoff far older than even the widened ceiling)
     # must still BREACH -- the lag widening accounts for the EXPECTED horizon, it does
     # not launder genuine staleness.
-    art = _write_json(tmp_path / "frozen.json", {"label_observation_cutoff": "2025-05-01"})  # 425d
+    art = _write_json(
+        tmp_path / "frozen.json",
+        {"label_observation_cutoff": "2025-05-01", "lookahead_days": 60},  # 425d
+    )
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
     assert fresh.binding_field == "label_observation_cutoff"
     assert fresh.age_days == 425
     assert fresh.tier == mod.TIER_BREACH
+
+
+# --------------------------------------------------------------------------- #
+# #223 amendment A1 (2026-07-02): "each model family declares its label horizon
+# in its recipe ... not hardcoded to one constant". The lag-widening WIDTH is
+# read from THIS ARTIFACT's own stamped ``lookahead_days``, never a single
+# global constant assumed for every model family (per-ticker tournament !=
+# fwd_60d panel != any future short-horizon model). A missing/invalid stamped
+# horizon on the label-observation axis fails closed to ``unknown`` rather
+# than guessing the documented 60-BD default.
+# --------------------------------------------------------------------------- #
+def test_missing_lookahead_days_fails_closed_not_guessed(tmp_path: Path) -> None:
+    # Same fixture as test_label_observation_cutoff_is_the_freshness_axis MINUS
+    # lookahead_days -- previously this silently assumed the fwd_60d default and
+    # read HEALTHY; now it must fail closed to unknown rather than guess.
+    art = _write_json(
+        tmp_path / "panel.json",
+        {
+            "kind": "xgb",
+            "trained_date": "2026-06-30",
+            "label_observation_cutoff": "2026-04-07",  # 84d raw age
+            "max_feature_anchor_date": "2026-06-27",
+        },
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "label_observation_cutoff"
+    assert fresh.age_days == 84  # raw age still reported
+    assert fresh.tier == mod.TIER_UNKNOWN  # NOT healthy off a guessed 60-BD default
+    assert fresh.lookahead_days_stamped is None
+    assert "lookahead_days" in fresh.detail
+    assert "fail-closed" in fresh.detail
+    assert "#223" in fresh.detail
+
+
+def test_invalid_lookahead_days_fails_closed_not_guessed(tmp_path: Path) -> None:
+    # A non-positive / unparseable lookahead_days is treated the same as missing
+    # -- never silently coerced into "0 lag" (which would read born-BREACH) or
+    # the 60-BD default (which would read HEALTHY); both are guesses.
+    for bad_value in (0, -5, "not-a-number"):
+        art = _write_json(
+            tmp_path / f"panel_{bad_value}.json",
+            {"label_observation_cutoff": "2026-04-07", "lookahead_days": bad_value},
+        )
+        fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+        assert fresh.tier == mod.TIER_UNKNOWN, bad_value
+        assert fresh.lookahead_days_stamped is None, bad_value
+
+
+def test_per_recipe_lookahead_scales_the_widened_threshold(tmp_path: Path) -> None:
+    # A SHORTER label horizon (e.g. a future 20-BD model) must widen the
+    # threshold by ITS OWN lag, not the fwd_60d default -- proving the width is
+    # genuinely per-artifact, not a disguised single constant. 20 business days
+    # back from AS_OF (2026-06-30, Tuesday) = 2026-06-02 (28 calendar days).
+    art = _write_json(
+        tmp_path / "short_horizon.json",
+        {"label_observation_cutoff": "2026-06-02", "lookahead_days": 20},  # 28d raw age
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.lookahead_days_stamped == 20
+    # Widened warn ceiling for a 20-BD horizon is 14 + 28 = 42d (not 14+84=98d) --
+    # 28d raw age is comfortably inside it either way, so assert the DETAIL
+    # names the artifact's own 20-BD horizon, not the 60-BD default, and the
+    # threshold widening actually used is 28d (== this artifact's own lag), not 84d.
+    assert "20-BD stamped label horizon" in fresh.detail
+    assert "(thresholds +28d" in fresh.detail
+    assert fresh.tier == mod.TIER_HEALTHY
+
+    # The SAME raw cutoff, judged under the fwd_60d default (84d widening)
+    # instead, would still be healthy here too (28 < 98) -- so additionally
+    # prove the 20-BD lag is actually BINDING, not just present-but-unused, by
+    # picking a raw age that reads WARN under a 20-BD widening (42d ceiling)
+    # but would read HEALTHY under a 60-BD widening (98d ceiling).
+    art2 = _write_json(
+        tmp_path / "short_horizon_warn.json",
+        {"label_observation_cutoff": "2026-05-13", "lookahead_days": 20},  # 48d raw age
+    )
+    fresh2 = mod.read_artifact_freshness("prod-panel", art2, AS_OF)
+    assert fresh2.age_days == 48
+    assert fresh2.tier == mod.TIER_WARN  # 48d > 42d (14+28) widened warn ceiling for 20-BD
+    art3 = _write_json(
+        tmp_path / "long_horizon_healthy.json",
+        {"label_observation_cutoff": "2026-05-13", "lookahead_days": 60},  # same 48d raw age
+    )
+    fresh3 = mod.read_artifact_freshness("prod-panel", art3, AS_OF)
+    assert fresh3.tier == mod.TIER_HEALTHY  # 48d < 98d (14+84) widened warn ceiling for 60-BD
+
+
+def test_axis_without_inherent_lag_ignores_lookahead_days(tmp_path: Path) -> None:
+    # A binding field OTHER than label_observation_cutoff has no inherent
+    # horizon lag at all -- lookahead_days (present or absent) must not affect
+    # it, and its absence must NOT fail closed (only label_observation_cutoff
+    # needs a stamped horizon).
+    art = _write_json(
+        tmp_path / "train_cutoff.json",
+        {"effective_train_cutoff_date": "2026-06-20"},  # 10d raw age, no lookahead_days at all
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "effective_train_cutoff_date"
+    assert fresh.lookahead_days_stamped is None
+    assert fresh.tier == mod.TIER_HEALTHY  # unaffected by the missing lookahead_days
+    assert "thresholds +" not in fresh.detail  # no widening applied to this axis
 
 
 def test_feature_anchor_no_longer_binds_freshness(tmp_path: Path) -> None:
@@ -782,13 +892,21 @@ def test_fresh_unlabeled_rows_do_not_improve_panel_freshness(tmp_path: Path) -> 
     # IDENTICAL even though the raw frontier genuinely moved.
     frozen = _write_json(
         tmp_path / "frozen.json",
-        {"label_observation_cutoff": "2025-05-01", "max_feature_anchor_date": "2025-05-05"},
+        {
+            "label_observation_cutoff": "2025-05-01",
+            "max_feature_anchor_date": "2025-05-05",
+            "lookahead_days": 60,
+        },
     )
     extended = _write_json(
         tmp_path / "extended.json",
         # Simulates the data pipeline catching up to just before AS_OF with fresh,
         # not-yet-labelable rows -- same frozen label cutoff, much fresher frontier.
-        {"label_observation_cutoff": "2025-05-01", "max_feature_anchor_date": "2026-06-29"},
+        {
+            "label_observation_cutoff": "2025-05-01",
+            "max_feature_anchor_date": "2026-06-29",
+            "lookahead_days": 60,
+        },
     )
     fresh_frozen = mod.read_artifact_freshness("prod-panel", frozen, AS_OF)
     fresh_extended = mod.read_artifact_freshness("prod-panel", extended, AS_OF)
@@ -813,6 +931,7 @@ def test_main_cli_panel_fresh_on_label_cutoff_with_lag_accounted(tmp_path: Path,
             "trained_date": "2026-06-30",
             "label_observation_cutoff": "2026-04-07",
             "max_feature_anchor_date": "2026-06-27",
+            "lookahead_days": 60,
         },
     )
     argv = [
