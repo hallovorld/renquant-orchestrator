@@ -1,0 +1,718 @@
+{
+  "task": "C3 \u2014 regime-conditioned residual momentum (M-SIG frozen spec, first voting candidate)",
+  "spec": "doc/design/2026-07-02-m-sig-signal-stack-spec.md (merged PR #243) section 1.3 + 2a",
+  "adjudication_status": "UNADJUDICATED",
+  "adjudication_note": "gating_fwd60_spec_config.verdict.verdict is the MECHANICAL rule output computed on this run's substrate (production-chain-replayed regime labels + fixed-panel universe applied retrospectively over history) -- it does NOT stand as C3's formal GO/KILL/MISS vote, because that substrate is not point-in-time (see doc/research/2026-07-02-c3-residual-momentum.md sections 6-8 for the specific contamination mechanisms and the point-in-time-availability investigation). Treat this run as exploratory/sensitivity evidence only.",
+  "frozen_thresholds": {
+    "ic_threshold_conditioned_clean": 0.015,
+    "difference_must_exceed": 0.0,
+    "ci_level_one_sided": 0.9833333333333333,
+    "min_decision_dates": 600,
+    "conditioned_cell": [
+      "BULL_CALM",
+      "BULL_VOLATILE"
+    ],
+    "verdict_horizon": 60
+  },
+  "manifest": {
+    "generated_utc": "2026-07-02T19:47:56.738975+00:00",
+    "interpreter": "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+    "python": "3.10.20",
+    "numpy": "2.0.2",
+    "pandas": "2.3.3",
+    "worktree_head": "270b3aaaea861047f497d63515c5c940c1b79e7c",
+    "umbrella": "/Users/renhao/git/github/RenQuant",
+    "inputs_sha256": {
+      "pinned_strategy_config": "89cfd7f942697b1524e5b92f9853a45c5d5060f654bd436c42b97251ddd008e9",
+      "gmm_artifact": "cb643e003cec11ea897137c206713e6753746b1792ed39083b6a5319c851a07d",
+      "task_regime_py": "ae6fc160e89a23b5c3c7fcfcc67daf779ac85d8ad172f953272906844233d467",
+      "regime_py": "84149b544ecfb51a4a2d3e020d145cb03afc4d3e7b91c7d89a0d2905c2ac5407",
+      "universe_tickers": "3c32c7c099cd1965348112f42fef4058eb94546182eadbb2e9fc3ab8872d6800",
+      "close_panel_sha256": "89620117ffbf8a0ee596ab917766b75b6af648d4f3595d2d134479907edaa724",
+      "spy_close_sha256": "8a9ec90327bae77272dad7362c3630c6ad7d637176a1ef1a9524d3d676761ada",
+      "close_panel_shape": [
+        2638,
+        142
+      ],
+      "close_panel_columns_sorted": [
+        "AAPL",
+        "ABBV",
+        "ADBE",
+        "ADI",
+        "AEP",
+        "AFRM",
+        "AMAT",
+        "AMD",
+        "AMZN",
+        "ANET",
+        "APH",
+        "APP",
+        "ASML",
+        "ATI",
+        "AVGO",
+        "AXP",
+        "BA",
+        "BAC",
+        "BLK",
+        "BMY",
+        "BWXT",
+        "C",
+        "CAT",
+        "CME",
+        "CMG",
+        "COHR",
+        "COIN",
+        "COST",
+        "CRM",
+        "CRWD",
+        "CSCO",
+        "CVS",
+        "CVX",
+        "D",
+        "DDOG",
+        "DE",
+        "DELL",
+        "DLR",
+        "DUK",
+        "EME",
+        "EMR",
+        "EOG",
+        "EQIX",
+        "ETN",
+        "FDX",
+        "FTNT",
+        "GE",
+        "GILD",
+        "GLD",
+        "GLW",
+        "GM",
+        "GOOG",
+        "GRMN",
+        "GS",
+        "HD",
+        "HLT",
+        "HON",
+        "HPE",
+        "IBM",
+        "INTC",
+        "INTU",
+        "JNJ",
+        "JPM",
+        "KLAC",
+        "KMI",
+        "KO",
+        "LHX",
+        "LITE",
+        "LLY",
+        "LMT",
+        "LOW",
+        "LRCX",
+        "MA",
+        "MCD",
+        "MCHP",
+        "MDB",
+        "MDT",
+        "META",
+        "MMM",
+        "MO",
+        "MPWR",
+        "MRK",
+        "MRVL",
+        "MS",
+        "MSFT",
+        "MU",
+        "NEE",
+        "NEM",
+        "NET",
+        "NFLX",
+        "NOW",
+        "NVDA",
+        "ON",
+        "ORCL",
+        "OXY",
+        "PANW",
+        "PG",
+        "PH",
+        "PLTR",
+        "PM",
+        "PNC",
+        "PYPL",
+        "QCOM",
+        "RBLX",
+        "ROST",
+        "RTX",
+        "SCHW",
+        "SMCI",
+        "SNOW",
+        "SO",
+        "SOFI",
+        "SPG",
+        "SPOT",
+        "SPY",
+        "T",
+        "TEAM",
+        "TJX",
+        "TMO",
+        "TSLA",
+        "TSM",
+        "TXN",
+        "UNH",
+        "UNP",
+        "V",
+        "VLO",
+        "VRT",
+        "VTR",
+        "WDAY",
+        "WDC",
+        "WELL",
+        "WFC",
+        "WMB",
+        "WMT",
+        "XLE",
+        "XLF",
+        "XLI",
+        "XLK",
+        "XLU",
+        "XLY",
+        "XOM",
+        "ZM",
+        "ZS"
+      ],
+      "close_panel_date_range": [
+        "2016-01-04T00:00:00",
+        "2026-07-01T00:00:00"
+      ],
+      "spy_close_n_obs": 2638
+    },
+    "pinned_config_path": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json",
+    "gmm_artifact_path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
+    "gmm_trained_date": "2026-05-22",
+    "pipeline_src": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src",
+    "common_src": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-common/src",
+    "n_universe": 142,
+    "benchmark": "SPY"
+  },
+  "interpretations": [
+    "block=60 (NOT 13): the merged spec r2/r3 explicitly resolved the 'A1 convention block=13?' open question to block=60 = fwd_60d label horizon (spec section 1.3 and section 4 Q2); block=13 is reported as a labeled sensitivity only.",
+    "beta window 252d (spec-frozen residualization fit window, section 1.3); the dispatch-stated 120d beta is a labeled sensitivity.",
+    "decision-date cadence: DAILY (spec shared default, 'daily Spearman rank IC', with the n>=600 decision-date floor that stride-21 cannot meet); the dispatch-stated stride-21 grid is a labeled sensitivity.",
+    "n_boot=2000 with seeds {42,43,44} all reported (spec shared default); the dispatch-stated 5000/single-seed is used for its sensitivity bundle.",
+    "CI level: one-sided 98.33% (Bonferroni k=3, spec section 2a) for the frozen rule; two-sided 95% also reported for legibility.",
+    "residualization: per-date cross-sectional OLS of rank-z mom_12_1 on [const + sector dummies + trailing-beta] \u2014 the stated resolution of the spec 1.3 formula (sector factor = per-date sector mean; market factor = per-date premium on trailing beta).",
+    "labels: fwd_20d/fwd_60d PRICE-return excess vs SPY, clipped +/-0.5 (repo convention); verdict rendered on fwd_60d (strategy horizon), fwd_20d supporting only.",
+    "placebo: label shifted +horizon within ticker (fwd_h at t+h); placebo-clean = real_ic - placebo_ic per date, defined only where both exist (the clean series ends ~2*horizon before the last bar).",
+    "conditioned cell: POOLED BULL_CALM+BULL_VOLATILE (spec 1.3 'Regime pooling'); per-regime cuts reported as diagnostics only.",
+    "difference leg: paired \u2014 block-bootstrap resamples the FULL dated series and recomputes mean(in-cell) - mean(all) per resample (spec 1.3 leg (b)).",
+    "conditioned-cell-only CI (round-2 fix): blocks are drawn over the FULL dated series with the regime mask carried through per date, then only the in-cell values within each drawn block are averaged \u2014 NOT drawn over a pre-filtered in-cell-only subseries, which would splice together regime episodes separated by a calendar gap as if they were contiguous trading days. effective_block_coverage reports how many of the full non-overlapping blocks actually contain >=2 in-cell observations.",
+    "min 30 names per date for both the residualization (17 params) and each IC.",
+    "regime labels: TODAY'S pinned production chain (pinned pipeline code + pinned strategy config incl. the 2026-06-11 false-BEAR fix + GMM artifact trained 2026-05-22) replayed sequentially from a fresh RegimeState over the full SPY parquet \u2014 NOT the labels production actually emitted historically; the GMM is in-sample for dates before 2026-05-22.",
+    "substrate: the S5/S8 pick-table/ledger (spec design rule 1) has no multi-year history; per the measurement dispatch this run uses the durable committed umbrella OHLCV parquets + the 142-name transformer panel universe instead \u2014 a stated deviation, with survivorship of the panel listed as a limitation.",
+    "universe fixed at TODAY'S 142 panel tickers over the whole history (survivorship / selection bias: names are in the panel because they matter in 2026).",
+    "prices split-adjusted, dividends NOT included (price returns both legs)."
+  ],
+  "hygiene": {
+    "n_tickers_requested": 142,
+    "n_tickers_loaded": 142,
+    "tickers_missing_ohlcv": [],
+    "calendar_start": "2016-01-04",
+    "calendar_end": "2026-07-01",
+    "n_calendar_days": 2638,
+    "abs_daily_return_gt_40pct_events": 8,
+    "abs_daily_return_gt_40pct_by_ticker_top10": {
+      "AFRM": 1,
+      "AMD": 1,
+      "APP": 1,
+      "OXY": 1,
+      "RBLX": 1,
+      "SMCI": 1,
+      "SOFI": 1,
+      "ZM": 1
+    }
+  },
+  "regime_counts": {
+    "BULL_CALM": 1744,
+    "BEAR": 329,
+    "BULL_VOLATILE": 196,
+    "CHOPPY": 117
+  },
+  "gating_fwd60_spec_config": {
+    "config": {
+      "block": 60,
+      "n_boot": 2000,
+      "seeds": [
+        42,
+        43,
+        44
+      ],
+      "stride_days": 1,
+      "ci": "two-sided 95% + one-sided 98.33% (Bonferroni k=3, spec 2a)"
+    },
+    "n_dates_total": 2266,
+    "n_dates_conditioned": 1833,
+    "effective_block_coverage": {
+      "n_full_blocks": 37,
+      "n_blocks_with_ge2_in_cell": 37,
+      "n_blocks_total": 37
+    },
+    "mean_clean_conditioned": -0.0039910853287969655,
+    "mean_clean_unconditional": -0.012618615532945427,
+    "difference_conditioned_minus_unconditional": 0.008627530204148462,
+    "conditioned_bootstrap_by_seed": {
+      "42": {
+        "boot_se": 0.024816440519914496,
+        "ci95_two_sided": [
+          -0.05273495164832909,
+          0.04524171341315218
+        ],
+        "lb_one_sided_9833": -0.05694842823342221,
+        "ub_one_sided_9833": 0.04921823787834559,
+        "n_boot_effective": 2000
+      },
+      "43": {
+        "boot_se": 0.02418691249107421,
+        "ci95_two_sided": [
+          -0.04974183858373461,
+          0.04491390557485762
+        ],
+        "lb_one_sided_9833": -0.05457618943937824,
+        "ub_one_sided_9833": 0.04970007021681202,
+        "n_boot_effective": 2000
+      },
+      "44": {
+        "boot_se": 0.025694504819897778,
+        "ci95_two_sided": [
+          -0.05340399976983365,
+          0.04702712684825927
+        ],
+        "lb_one_sided_9833": -0.059600102243392857,
+        "ub_one_sided_9833": 0.050432422778960526,
+        "n_boot_effective": 2000
+      }
+    },
+    "difference_bootstrap_by_seed": {
+      "42": {
+        "boot_se": 0.006803766778851463,
+        "ci95_two_sided": [
+          -0.003051831958733206,
+          0.023492749869123423
+        ],
+        "lb_one_sided_9833": -0.0038828498456059983,
+        "ub_one_sided_9833": 0.024559555678442088,
+        "n_boot_effective": 2000
+      },
+      "43": {
+        "boot_se": 0.006866341312753749,
+        "ci95_two_sided": [
+          -0.0034677303084635538,
+          0.024430884585808593
+        ],
+        "lb_one_sided_9833": -0.004335085235087408,
+        "ub_one_sided_9833": 0.02602716605236397,
+        "n_boot_effective": 2000
+      },
+      "44": {
+        "boot_se": 0.00670409930059418,
+        "ci95_two_sided": [
+          -0.002753567067692308,
+          0.0231010388882499
+        ],
+        "lb_one_sided_9833": -0.0038491125448722884,
+        "ub_one_sided_9833": 0.024467432758886555,
+        "n_boot_effective": 2000
+      }
+    },
+    "cells": {
+      "unconditional": {
+        "n_dates_clean": 2266,
+        "n_dates_real": 2326,
+        "mean_real_ic": 0.021390867587588683,
+        "mean_placebo_ic": 0.03227692035622206,
+        "mean_clean_ic": -0.012618615532945427,
+        "median_clean_ic": 0.0021337190394226588,
+        "clean_hit_rate": 0.5039717563989409
+      },
+      "conditioned_BULL_CALM+BULL_VOLATILE": {
+        "n_dates_clean": 1833,
+        "n_dates_real": 1882,
+        "mean_real_ic": 0.025309583039983284,
+        "mean_placebo_ic": 0.027483744976281806,
+        "mean_clean_ic": -0.0039910853287969655,
+        "median_clean_ic": 0.013638920134983128,
+        "clean_hit_rate": 0.5308237861429351
+      },
+      "regime_BEAR": {
+        "n_dates_clean": 327,
+        "n_dates_real": 329,
+        "mean_real_ic": -0.0036796097237805723,
+        "mean_placebo_ic": 0.06731534423117948,
+        "mean_clean_ic": -0.07189261103586457,
+        "median_clean_ic": -0.0858832090972527,
+        "clean_hit_rate": 0.3425076452599388
+      },
+      "regime_BULL_CALM": {
+        "n_dates_clean": 1662,
+        "n_dates_real": 1696,
+        "mean_real_ic": 0.027052750427213758,
+        "mean_placebo_ic": 0.029253161410335467,
+        "mean_clean_ic": -0.003118470735418992,
+        "median_clean_ic": 0.014947645678380278,
+        "clean_hit_rate": 0.53309265944645
+      },
+      "regime_BULL_VOLATILE": {
+        "n_dates_clean": 171,
+        "n_dates_real": 186,
+        "mean_real_ic": 0.009414895466096786,
+        "mean_placebo_ic": 0.010286258933023477,
+        "mean_clean_ic": -0.012472286815312702,
+        "median_clean_ic": 0.0005692574296785602,
+        "clean_hit_rate": 0.5087719298245614
+      },
+      "regime_CHOPPY": {
+        "n_dates_clean": 106,
+        "n_dates_real": 115,
+        "mean_real_ic": 0.028983602840056865,
+        "mean_placebo_ic": 0.007072447378103296,
+        "mean_clean_ic": 0.02104490961092654,
+        "median_clean_ic": 0.013094569852894443,
+        "clean_hit_rate": 0.5377358490566038
+      }
+    },
+    "verdict": {
+      "spec_reading": {
+        "go": false,
+        "kill": false,
+        "rule": "98.33% one-sided CI LB(conditioned clean) > 0.015 AND CI LB(diff) > 0, all seeds"
+      },
+      "dispatch_reading": {
+        "pass": false,
+        "kill_conditioned_le_unconditioned": false,
+        "rule": "mean(conditioned clean) >= 0.015 AND diff > 0 with CI excluding 0; KILL iff cond <= uncond"
+      },
+      "sample_floor_n600_met": true,
+      "n_conditioned_clean_dates": 1833,
+      "verdict": "MISS"
+    }
+  },
+  "supporting_fwd20_spec_config": {
+    "config": {
+      "block": 20,
+      "n_boot": 2000,
+      "seeds": [
+        42,
+        43,
+        44
+      ],
+      "stride_days": 1,
+      "ci": "two-sided 95% + one-sided 98.33% (Bonferroni k=3, spec 2a)"
+    },
+    "n_dates_total": 2346,
+    "n_dates_conditioned": 1902,
+    "effective_block_coverage": {
+      "n_full_blocks": 117,
+      "n_blocks_with_ge2_in_cell": 111,
+      "n_blocks_total": 117
+    },
+    "mean_clean_conditioned": 0.0029212043024666387,
+    "mean_clean_unconditional": 0.00044058783103958723,
+    "difference_conditioned_minus_unconditional": 0.0024806164714270516,
+    "conditioned_bootstrap_by_seed": {
+      "42": {
+        "boot_se": 0.01724951366714519,
+        "ci95_two_sided": [
+          -0.0317484682927509,
+          0.03695982279842227
+        ],
+        "lb_one_sided_9833": -0.03470469933362969,
+        "ub_one_sided_9833": 0.03943045293693428,
+        "n_boot_effective": 2000
+      },
+      "43": {
+        "boot_se": 0.016596176988729,
+        "ci95_two_sided": [
+          -0.029912834083881283,
+          0.035602923425088355
+        ],
+        "lb_one_sided_9833": -0.033190153907136824,
+        "ub_one_sided_9833": 0.037992945213435166,
+        "n_boot_effective": 2000
+      },
+      "44": {
+        "boot_se": 0.01671022659390606,
+        "ci95_two_sided": [
+          -0.02787151883287816,
+          0.03637711781955539
+        ],
+        "lb_one_sided_9833": -0.03320661591393562,
+        "ub_one_sided_9833": 0.039016974975224286,
+        "n_boot_effective": 2000
+      }
+    },
+    "difference_bootstrap_by_seed": {
+      "42": {
+        "boot_se": 0.005095683706017674,
+        "ci95_two_sided": [
+          -0.007739456775412431,
+          0.012435017724818335
+        ],
+        "lb_one_sided_9833": -0.008826535686209846,
+        "ub_one_sided_9833": 0.012936265256452095,
+        "n_boot_effective": 2000
+      },
+      "43": {
+        "boot_se": 0.00487601310613015,
+        "ci95_two_sided": [
+          -0.006711314473491534,
+          0.012837368683741942
+        ],
+        "lb_one_sided_9833": -0.007404225794055246,
+        "ub_one_sided_9833": 0.013183211359535488,
+        "n_boot_effective": 2000
+      },
+      "44": {
+        "boot_se": 0.004923147248593416,
+        "ci95_two_sided": [
+          -0.007010295830516735,
+          0.012135440751307505
+        ],
+        "lb_one_sided_9833": -0.00789510758841887,
+        "ub_one_sided_9833": 0.013327585179317406,
+        "n_boot_effective": 2000
+      }
+    },
+    "cells": {
+      "unconditional": {
+        "n_dates_clean": 2346,
+        "n_dates_real": 2366,
+        "mean_real_ic": 0.018858121758622587,
+        "mean_placebo_ic": 0.01720827843995442,
+        "mean_clean_ic": 0.00044058783103958723,
+        "median_clean_ic": 0.010326689805789505,
+        "clean_hit_rate": 0.5166240409207161
+      },
+      "conditioned_BULL_CALM+BULL_VOLATILE": {
+        "n_dates_clean": 1902,
+        "n_dates_real": 1922,
+        "mean_real_ic": 0.023264808073009995,
+        "mean_placebo_ic": 0.018898398908456654,
+        "mean_clean_ic": 0.0029212043024666387,
+        "median_clean_ic": 0.014203313791438611,
+        "clean_hit_rate": 0.5252365930599369
+      },
+      "regime_BEAR": {
+        "n_dates_clean": 329,
+        "n_dates_real": 329,
+        "mean_real_ic": -0.0019416442540438803,
+        "mean_placebo_ic": 0.003813825569166804,
+        "mean_clean_ic": -0.005755469823210684,
+        "median_clean_ic": -0.0010986998718183483,
+        "clean_hit_rate": 0.49544072948328266
+      },
+      "regime_BULL_CALM": {
+        "n_dates_clean": 1706,
+        "n_dates_real": 1726,
+        "mean_real_ic": 0.02841154442711432,
+        "mean_placebo_ic": 0.01521927658750643,
+        "mean_clean_ic": 0.011641362258947381,
+        "median_clean_ic": 0.021685208419220305,
+        "clean_hit_rate": 0.5404454865181711
+      },
+      "regime_BULL_VOLATILE": {
+        "n_dates_clean": 196,
+        "n_dates_real": 196,
+        "mean_real_ic": -0.02205798247384747,
+        "mean_placebo_ic": 0.050921779926523365,
+        "mean_clean_ic": -0.07297976240037085,
+        "median_clean_ic": -0.07011567918327537,
+        "clean_hit_rate": 0.39285714285714285
+      },
+      "regime_CHOPPY": {
+        "n_dates_clean": 115,
+        "n_dates_real": 115,
+        "mean_real_ic": 0.004714399340489306,
+        "mean_placebo_ic": 0.02757493812167511,
+        "mean_clean_ic": -0.022860538781185796,
+        "median_clean_ic": -0.024426885181933464,
+        "clean_hit_rate": 0.43478260869565216
+      }
+    }
+  },
+  "sensitivities": {
+    "dispatch_bundle_beta120_stride21_block13_boot5000_seed42": {
+      "config": {
+        "block": 13,
+        "n_boot": 5000,
+        "seeds": [
+          42
+        ],
+        "stride_days": 21,
+        "ci": "two-sided 95% + one-sided 98.33% (Bonferroni k=3, spec 2a)"
+      },
+      "n_dates_total": 108,
+      "n_dates_conditioned": 89,
+      "effective_block_coverage": {
+        "n_full_blocks": 8,
+        "n_blocks_with_ge2_in_cell": 8,
+        "n_blocks_total": 8
+      },
+      "mean_clean_conditioned": -0.014099185517345292,
+      "mean_clean_unconditional": -0.013247197047531216,
+      "difference_conditioned_minus_unconditional": -0.0008519884698140762,
+      "conditioned_bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.017204244074554387,
+          "ci95_two_sided": [
+            -0.049454308588725994,
+            0.018982105391870365
+          ],
+          "lb_one_sided_9833": -0.05206502622148105,
+          "ub_one_sided_9833": 0.021256260493844506,
+          "n_boot_effective": 5000
+        }
+      },
+      "difference_bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.00608954060339764,
+          "ci95_two_sided": [
+            -0.011374410230045593,
+            0.01236198935019395
+          ],
+          "lb_one_sided_9833": -0.01224764837871156,
+          "ub_one_sided_9833": 0.013762760336356757,
+          "n_boot_effective": 5000
+        }
+      }
+    },
+    "block13_daily_spec_score_seed42": {
+      "config": {
+        "block": 13,
+        "n_boot": 2000,
+        "seeds": [
+          42
+        ],
+        "stride_days": 1,
+        "ci": "two-sided 95% + one-sided 98.33% (Bonferroni k=3, spec 2a)"
+      },
+      "n_dates_total": 2266,
+      "n_dates_conditioned": 1833,
+      "effective_block_coverage": {
+        "n_full_blocks": 174,
+        "n_blocks_with_ge2_in_cell": 161,
+        "n_blocks_total": 174
+      },
+      "mean_clean_conditioned": -0.0039910853287969655,
+      "mean_clean_unconditional": -0.012618615532945427,
+      "difference_conditioned_minus_unconditional": 0.008627530204148462,
+      "conditioned_bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.015860950068427592,
+          "ci95_two_sided": [
+            -0.03550530263869477,
+            0.027204179460251863
+          ],
+          "lb_one_sided_9833": -0.03795938041444717,
+          "ub_one_sided_9833": 0.029840979563839853,
+          "n_boot_effective": 2000
+        }
+      },
+      "difference_bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.004978096965516083,
+          "ci95_two_sided": [
+            -0.0010068782604795872,
+            0.019357568843008904
+          ],
+          "lb_one_sided_9833": -0.0019854232683461817,
+          "ub_one_sided_9833": 0.01997157842995316,
+          "n_boot_effective": 2000
+        }
+      }
+    },
+    "beta120_daily_block60": {
+      "config": {
+        "block": 60,
+        "n_boot": 2000,
+        "seeds": [
+          42,
+          43,
+          44
+        ],
+        "stride_days": 1,
+        "ci": "two-sided 95% + one-sided 98.33% (Bonferroni k=3, spec 2a)"
+      },
+      "n_dates_total": 2266,
+      "n_dates_conditioned": 1833,
+      "effective_block_coverage": {
+        "n_full_blocks": 37,
+        "n_blocks_with_ge2_in_cell": 37,
+        "n_blocks_total": 37
+      },
+      "mean_clean_conditioned": -0.0030094525451599555,
+      "mean_clean_unconditional": -0.011981486865945645,
+      "difference_conditioned_minus_unconditional": 0.00897203432078569,
+      "conditioned_bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.02496559376892717,
+          "ci95_two_sided": [
+            -0.05261172194635515,
+            0.04621571650011867
+          ],
+          "lb_one_sided_9833": -0.055565111528245725,
+          "ub_one_sided_9833": 0.05096062956891596,
+          "n_boot_effective": 2000
+        },
+        "43": {
+          "boot_se": 0.024236558573398726,
+          "ci95_two_sided": [
+            -0.048457646786762974,
+            0.045409057930013326
+          ],
+          "lb_one_sided_9833": -0.05495125877131575,
+          "ub_one_sided_9833": 0.04942430653713922,
+          "n_boot_effective": 2000
+        },
+        "44": {
+          "boot_se": 0.02573748743227772,
+          "ci95_two_sided": [
+            -0.053392488501655656,
+            0.04682703282801788
+          ],
+          "lb_one_sided_9833": -0.059551898439417654,
+          "ub_one_sided_9833": 0.05044035368051509,
+          "n_boot_effective": 2000
+        }
+      },
+      "difference_bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.006934321141051831,
+          "ci95_two_sided": [
+            -0.0031633848426012518,
+            0.024250356127664508
+          ],
+          "lb_one_sided_9833": -0.0038950260818699655,
+          "ub_one_sided_9833": 0.025217099004241277,
+          "n_boot_effective": 2000
+        },
+        "43": {
+          "boot_se": 0.007022451850767274,
+          "ci95_two_sided": [
+            -0.0032451465886521357,
+            0.02470257850993493
+          ],
+          "lb_one_sided_9833": -0.0044072930598130335,
+          "ub_one_sided_9833": 0.02669643113106092,
+          "n_boot_effective": 2000
+        },
+        "44": {
+          "boot_se": 0.006803282226416718,
+          "ci95_two_sided": [
+            -0.0024736890932587526,
+            0.0235957262561669
+          ],
+          "lb_one_sided_9833": -0.0034021519740766015,
+          "ub_one_sided_9833": 0.02520959658967883,
+          "n_boot_effective": 2000
+        }
+      }
+    }
+  }
+}
