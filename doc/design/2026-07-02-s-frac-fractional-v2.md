@@ -7,6 +7,12 @@ subrepo PRs closed 2026-06-30 with review threads preserved), NOT a rebuild-from
 The unified plan (`doc/design/2026-07-02-unified-107-master-plan.md`) currently has no
 fractional row; §8 of this doc proposes the exact S-FRAC row for its SHORT tier.
 DATE: 2026-07-02
+REVISION: r2 — Codex round-1 review (CHANGES_REQUESTED) asked for: (a) frozen comparison
+arms + cohort for integer vs A-3 vs fractional sizing, (b) the sizing-fidelity metric
+specified ahead of observation, (c) success criteria independent of PnL, (d) explicit
+stage-0 coverage for partial fills/cancel-replace/stop reconciliation/outage-window loss
+budget, (e) a quantified software-stop failure envelope + alert-to-recovery SLA. Addressed
+in §2.3, §3.4 (new), §7.5 (new), §7.6 (new).
 
 ---
 
@@ -161,6 +167,26 @@ Enumerated, all in the umbrella test suite (the repo that owns the runner):
   for merged-is-not-deployed / deployed-but-dark.
 - **Flag-off regression**: with the flag absent/false, byte-identical behavior
   (order dicts gain no new fields; whole-share truncation semantics preserved).
+- **Partial-fill and cancel-replace state coverage**: fixture tests drive `RunnerAdapter.commit`
+  through (a) a partial fractional fill (broker reports `filled_qty=0.20000` against a
+  submitted `qty=0.341052`, order remains `open`) → assert the commit path holds the
+  position at the exact partial float, does not round/truncate/zero it, and does not mark
+  the order terminal; (b) a cancel-replace sequence (original order canceled mid-fill, a
+  replacement submitted for the residual qty) → assert the accumulated filled quantity
+  across both legs float-sums (never overwrites), and cash/journal/live_state reflect the
+  union of both fills, not either leg alone.
+- **Stop-reconciliation-on-restart coverage**: a fixture restarts the commit path mid-session
+  with an existing fractional position already open (simulating a process restart) and
+  asserts `supports_broker_side_stops(symbol, qty)` is re-evaluated against the CURRENT
+  held quantity read from live_state (never a value cached from before the restart), and
+  that the fail-closed-entry invariant (§2.2.2) is re-derived from that reconciled state —
+  a restart must never assume a prior session's protection status still holds.
+- **Outage-window loss budget at stage 0, quantified by construction**: stage 0 makes
+  fractional BUY submission fail-closed absent stage 3's software-stop layer (§2.2.2), so
+  the outage-window loss budget for stage 0 alone is **$0** — no fractional position can
+  exist yet. This is the direct claim the fail-closed-entry audit test proves (a fractional
+  buy attempt with stage 3 absent must never reach the broker). The non-zero, quantified
+  budget that applies once stage 3 arms real positions is specified in §3.4, not here.
 
 Stage 0 merges **before any subrepo capability work restarts**. It is safe standalone: it
 only widens what the commit path can represent and fail-closes what it cannot protect.
@@ -222,6 +248,38 @@ evaluation cadence plus a machine-liveness dependency, in exchange for exact ris
 sizing; the unprotected-notional worst case is capped by config
 (`fractional_max_book_pct`, proposed default 10% of PV) and covered intraday by the
 optional DAY-stop belt.
+
+### 3.4 Quantified failure envelope + alert-to-recovery SLA (stage 3)
+
+Failure envelope (worst case, the "machine dead, market open" row of §3.3):
+
+- **Unprotected-notional cap**: `fractional_max_book_pct` (proposed default 10% of PV) —
+  the maximum aggregate fractional-position notional ever unprotected by a broker-resident
+  stop at any instant, regardless of how many fractional names are held.
+- **Worst-case single-session adverse-move assumption**: 20% (a deliberately conservative
+  single-name gap/halt-reopen magnitude for liquid large-caps — wider than a typical
+  overnight gap [most < 5%] to cover a news-shock/halt-reopen tail; this is a proposed,
+  reviewable assumption, not a measured one — see Open Question §9.2).
+- **Implied worst-case single-outage loss bound**: 10% PV × 20% = **2% of PV**, bounded by
+  the book-pct cap independent of position count. This is the number the operator is
+  actually accepting by enabling stage 3, stated explicitly rather than left as "a cap
+  exists."
+
+Alert-to-recovery SLA (stage 3 enablement precondition, ties to Open Question §9.3):
+
+- **Detection**: the sell-only loop's missed-pass condition is directly observable — a
+  pass that fails to run within its 12-minute cadence (`com.renquant.intraday104.plist`)
+  is the trigger; no new instrumentation is required beyond existing liveness alerting.
+- **Required SLA (proposed, for operator sign-off before stage-3 live-enable)**: a missed
+  pass must page within 15 minutes of the scheduled pass; the runbook response (operator
+  restores the process, or manually flattens/hedges any armed-fractional position) must
+  complete within 60 minutes of the page. This 75-minute worst-case detect-plus-respond
+  window is why §3.3 calls the loop-resident stop "near-parity" under ordinary intraday
+  drift — the genuinely non-parity tail is a liveness failure COINCIDING with a shock move
+  in that same window, which is exactly what the 2%-of-PV bound above caps.
+- Stage 3's kill/defer condition (§6) already requires a demonstrated page-on-missed-pass
+  test before enable; this SLA is the number that test is measured against, not "a page
+  fires eventually."
 
 ---
 
@@ -302,11 +360,16 @@ the commit contract regardless).
 ### Stage 0 — umbrella active-path contract + audit (the v1 lesson, first)
 
 - **What**: §2.2 (float-preserving commit, qty-aware stop routing + fail-closed entry,
-  machine-verifiable capability gate) + §2.3's four audit tests.
-- **AC**: all §2.3 tests green in the umbrella suite; flag-off byte-identical pin green;
-  a daily-full run bundle records `commit_path_fingerprint`; no behavior change live
-  (flag absent).
-- **Tests**: §2.3 enumeration.
+  machine-verifiable capability gate) + §2.3's seven audit tests (incl. partial-fill/
+  cancel-replace state coverage and restart stop-reconciliation).
+- **AC**: all §2.3 tests green in the umbrella suite, including the partial-fill/
+  cancel-replace and stop-reconciliation-on-restart tests; flag-off byte-identical pin
+  green; a daily-full run bundle records `commit_path_fingerprint`; no behavior change live
+  (flag absent); outage-window loss budget at stage 0 = $0 by construction, proven by the
+  fail-closed-entry test (§2.3).
+- **Tests**: §2.3 enumeration (seven tests: E2E commit path, truncation audit, active-path
+  liveness proof, flag-off regression, partial-fill/cancel-replace, stop-reconciliation-on-
+  restart, fail-closed-entry $0-budget proof).
 - **Flags**: none live; contract is inert until `fractional_shares.enabled`.
 - **Kill/defer**: if the commit-path diff cannot stay small/reviewable (the 06-30 "larger,
   higher-risk undertaking" concern re-materializes), STOP and re-scope — that outcome
@@ -443,6 +506,56 @@ Baselines already measurable today: whole-share BLK-class gap = 100% (drop) or �
 median_gap ≤ 1% for fractional-sized entries; n_size_insufficient_cash → 0 on
 fractionable names. The scorecard row is what makes "sizing fidelity" a standing metric
 of the plan's TC term rather than a one-off forensic.
+
+### 7.5 Comparison arms + frozen cohort (frozen as of this RFC, before any stage-3 shadow observation)
+
+Three sizing arms, mechanically distinguished by the `sizing_mode` ledger field (§7.4's
+schema, specified in stage 2 before any shadow data exists):
+
+| Arm | Definition | Evidence source |
+|---|---|---|
+| A — whole-share (status quo) | `int(target_notional/price)` truncation; no A-3, no fractional | Already measured: `size_insufficient_cash` drops (BLK 07-01, BLK+AVGO 07-02) |
+| B — A-3 one-share floor | `#156`, rounds a whole-share-zeroed name UP to exactly 1 share | `sizing_mode=one_share_floor` + `size_floor_reason` (§7.2), measured once #156 ships shadow or live |
+| C — fractional v2 | `#153`-derived 6dp-floored exact fractional qty | `sizing_mode=fractional`, stage-3 shadow (§6) |
+
+**Frozen cohort rule (mechanical, not cherry-picked):** the comparison population is every
+admitted name, across the stage-3 shadow's frozen session list (§6 stage 3 AC), for which
+the whole-share sizing stack would produce EITHER `size_insufficient_cash` (target < 1
+share) OR `sizing_mode=one_share_floor` (A-3 engaged) — i.e., exactly the set of names the
+existing gate logic already tags as a sizing-error case, determined by the sizing stack's
+own output, not by a human selecting "interesting" names after the fact. This membership
+rule, the three arms above, and the §7.4 `sizing_fidelity_gap` metric are frozen as of this
+RFC; none may be redefined after stage-3 shadow data is observed.
+
+Because Arm B (A-3) may live-enable before Arm C (stage 3) per §7.2, its ledger series
+becomes the running before/after baseline; Arm C's shadow packet compares against BOTH Arm
+A (historical, already measured) and Arm B (whichever is live/shadow at comparison time) —
+the frozen cohort rule applies identically to whichever arms are available for a given
+name/session.
+
+### 7.6 Success criteria — independent of PnL
+
+S-FRAC's mechanism is exclusively a TC-term (sizing fidelity) — it cannot move the model's
+selection/admission (§1.3, pinned by the stage-2 admission-invariance test) and therefore
+cannot be judged by book PnL, which is dominated by the separately-gated D1 model signal.
+The following constitute SUCCESS for this RFC's staged rollout regardless of concurrent
+book PnL, positive or negative:
+
+1. **Stage 2**: the admission-invariance test passes (name selection provably unchanged
+   across flag states) and `median_gap ≤ 1%` / `n_size_insufficient_cash → 0` hold on
+   fixture + shadow data (§7.4).
+2. **Stage 3**: the shadow packet AC (§6) is met in full — zero residual dust on exit, stop
+   coverage proven armed at entry for every shadow-fractional position, the rollback drill
+   passes (flag OFF with an existing holding remains fully exitable and stop-covered), and
+   the page-on-missed-pass test meets the §3.4 SLA.
+3. The frozen §7.5 comparison shows Arm C's `sizing_fidelity_gap` materially below both Arm
+   A and Arm B on the frozen cohort (the BLK/AVGO/OXY-class baselines already establish
+   what "materially below" means: ~100–190% down to the ≤1% target).
+
+None of these depend on realized PnL over the measurement window. A PnL swing during the
+shadow/live-enable window that is not explained by one of the per-stage kill conditions
+already enumerated (§6) is not evidence against S-FRAC — it is D1's signal doing what D1's
+signal does, and is explicitly out of scope for this RFC's acceptance (§1.3).
 
 ---
 

@@ -3,7 +3,14 @@
 STATUS:   design / RFC for review (docs only, no code). Operator formally REOPENED
           fractional 2026-07-02 ("fraction重新讨论设计和实现，计入短期计划") and slotted it
           into the SHORT tier; this PR is the v2 re-discussion design.
-REVISION: r1.
+REVISION: r2 — addressed Codex round-1 CHANGES_REQUESTED: added §7.5 (frozen comparison
+          arms A/B/C + mechanical frozen-cohort rule for integer vs A-3 vs fractional),
+          §7.6 (success criteria independent of PnL), expanded §2.3/§6 stage-0 coverage
+          (partial-fill/cancel-replace state, restart stop-reconciliation, $0
+          outage-window-loss-budget-by-construction proof), and §3.4 (quantified failure
+          envelope: 10% PV cap × 20% worst-case single-session move = 2% PV worst-case
+          loss bound; alert-to-recovery SLA: 15-min page + 60-min response = 75-min
+          worst-case detect+respond window).
 WHAT:     `doc/design/2026-07-02-s-frac-fractional-v2.md` — the fractional-shares v2
           design: narrowed scope (sizing fidelity + sliver sweep, NOT deployment/
           participation/alpha), active-path-first staging (stage 0 = umbrella
