@@ -114,12 +114,51 @@ git log --oneline main..origin/main | head -20 > "$backup_dir/incoming-commits.t
 **ABORT POINT 1 — verify the backup before trusting it.** Confirm `tracked-modified.patch`
 either matches an empty tree cleanly or is non-empty and parses (`git apply --check
 "$backup_dir/tracked-modified.patch"` against a scratch clone, or at minimum `patch
---dry-run`); confirm `untracked-files.tar.gz` extracts cleanly and its member count matches the
-NUL-delimited entry count (`tar -tzf "$backup_dir/untracked-files.tar.gz" | wc -l` must equal
-`tr -cd '\0' < "$backup_dir/untracked-file-list.nul" | wc -c` — count NUL bytes, not lines; the
-`.txt` companion is for human inspection only and under-counts if any filename contains a
-literal newline). If either check fails, STOP. Do not proceed to step 2 with an unverified
-backup — an unverified backup is not a backup.
+--dry-run`); confirm `untracked-files.tar.gz` round-trips CONTENT-EXACTLY, not just a member
+count (r5 fix — `tar -tzf | wc -l` is itself line-based and undercounts/miscounts if any
+archived filename contains a literal newline, contradicting the newline-safety this backup
+exists to guarantee). Extract to a scratch directory (never the live tree, never any path that
+could be confused with one) and compare a NUL-delimited inventory of what was actually
+extracted against the original NUL-delimited list:
+
+```bash
+scratch="$(mktemp -d)"
+tar --null -T "$backup_dir/untracked-file-list.nul" -xzf "$backup_dir/untracked-files.tar.gz" -C "$scratch"
+
+python3 - "$scratch" "$backup_dir/untracked-file-list.nul" <<'PYEOF'
+# NUL-safe by construction throughout — no sed/find-then-textprocess pipeline,
+# which cannot strip a per-record prefix from NUL-delimited (not newline-delimited)
+# input without mishandling every record after the first (sed operates on lines).
+import os, sys
+scratch, nul_list_path = sys.argv[1], sys.argv[2]
+
+expected = set(open(nul_list_path, "rb").read().split(b"\0"))
+expected.discard(b"")
+
+extracted = set()
+for root, _dirs, files in os.walk(scratch):
+    for name in files:
+        full = os.path.join(root, name)
+        rel = os.path.relpath(full, scratch)
+        extracted.add(rel.encode("utf-8", errors="surrogateescape"))
+
+if extracted != expected:
+    missing = sorted(expected - extracted)[:20]
+    extra = sorted(extracted - expected)[:20]
+    print(f"ABORT: extracted archive contents do not match the recorded untracked-file list.\n"
+          f"  expected but not extracted: {missing}\n"
+          f"  extracted but not expected: {extra}\n"
+          f"STOP — the backup is not trustworthy.", file=sys.stderr)
+    sys.exit(1)
+print(f"Archive verified: {len(extracted)} extracted files match the NUL-delimited file list exactly.")
+PYEOF
+rc=$?
+rm -rf "$scratch"
+if [ "$rc" -ne 0 ]; then exit 1; fi
+```
+
+If either check fails, STOP. Do not proceed to step 2 with an unverified backup — an unverified
+backup is not a backup.
 
 ## 2. Cross-check against the S11 inventory (the classification, not a fresh re-derivation)
 
@@ -172,51 +211,28 @@ or a non-PASS reconciliation means step 2's classification table below cannot be
 every path as "not in the inventory" (the STOP row) until a fresh, verified manifest exists.
 
 **2b. Cross-check the live tree's current paths against the freshly-regenerated manifest —
-concrete, enforced set-equality (r4 fix).** r3 said "diff current paths against it" without
-giving an actual command; this is not enforceable prose, it's a suggestion. Fix: re-run `git
-status --porcelain=v2` immediately after step 2a (closing the brief window between manifest
-generation and this check, in case anything mutated the tree in between — e.g. a concurrent
-process) and ASSERT the raw path set is IDENTICAL to the manifest's `paths[].path` set:
+concrete, enforced set-equality (r4 fix), via the SAME NUL-aware parser the classifier itself
+uses (r5 fix).** r3 said "diff current paths against it" without giving an actual command; r4's
+fix gave one, but as ad hoc text-mode line/space-split parsing embedded directly in this
+runbook — inconsistent with step 1's NUL-delimited backup (a filename containing a space, tab,
+or literal newline decodes differently here than in the manifest, and either false-aborts or
+silently compares the wrong path set), and a second, independently-maintained copy of parsing
+logic the classifier (`#241`) already has. Fix: `scripts/git_status_porcelain.py` — a single,
+shared, NUL-aware `git status --porcelain=v2 -z` parser (handles ordinary, untracked, AND
+rename/copy type-'2' records correctly; a `-z` type-'2' record is TWO NUL-terminated tokens for
+one logical entry — path, then a separate origPath token — an ad hoc parser that consumes only
+one token per record silently misparses every subsequent entry after the first rename) — is now
+used by BOTH the classifier and this step, via `scripts/s11_verify_set_equality.py`:
 
 ```bash
-python3 - "$manifest" <<'PYEOF'
-import json, subprocess, sys
-
-manifest_path = sys.argv[1]
-manifest = json.load(open(manifest_path))
-manifest_paths = {row["path"] for row in manifest["paths"]}
-
-out = subprocess.run(
-    ["git", "-C", "/Users/renhao/git/github/RenQuant", "status", "--porcelain=v2"],
-    capture_output=True, text=True, check=True,
-).stdout
-live_paths = set()
-for line in out.splitlines():
-    if not line:
-        continue
-    parts = line.split(" ")
-    # porcelain v2: '1'/'2' ordinary/rename entries carry the path in a fixed field position;
-    # '?' untracked entries are `? <path>`. Handle both without assuming a fixed column count
-    # for renames (which have two paths separated by a tab).
-    if line.startswith("?"):
-        live_paths.add(line.split(" ", 1)[1])
-    else:
-        path_field = line.split("\t")[0]
-        live_paths.add(path_field.split(" ")[-1])
-
-missing_from_manifest = live_paths - manifest_paths
-extra_in_manifest = manifest_paths - live_paths
-if missing_from_manifest or extra_in_manifest:
-    print(f"ABORT: live tree path set does not match the manifest generated moments ago.\n"
-          f"  paths on disk but not in manifest (tree mutated since generation): "
-          f"{sorted(missing_from_manifest)[:20]}\n"
-          f"  paths in manifest but not on disk (also tree mutation): "
-          f"{sorted(extra_in_manifest)[:20]}\n"
-          f"STOP — something changed the live tree between manifest generation and this check; "
-          f"re-run step 2a.", file=sys.stderr)
-    sys.exit(1)
-print(f"Set-equality OK: {len(live_paths)} paths match the manifest exactly.")
-PYEOF
+orch_repo="/Users/renhao/git/github/renquant-orchestrator"
+PYTHONPATH="$orch_repo/scripts" python3 "$orch_repo/scripts/s11_verify_set_equality.py" \
+  --manifest "$manifest" \
+  --live-tree /Users/renhao/git/github/RenQuant
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  exit 1   # the script's own stderr already explains what mutated and instructs re-running 2a
+fi
 ```
 
 **ABORT POINT 2b(i) — set-equality must hold exactly.** If the live tree changed between

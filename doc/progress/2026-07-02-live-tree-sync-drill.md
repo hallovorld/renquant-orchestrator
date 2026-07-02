@@ -142,3 +142,58 @@ actually triggers on classifier failure, not just in theory).
 
 Pure-doc change (plus a merge commit pulling in `#241`'s already-merged content), no new
 code/tests; progress-doc-schema CI gate re-verified.
+
+## r5 (Codex review): NUL-delimited path parsing, consistently
+
+**Finding.** r4 fixed the stale-manifest problem but introduced a NEW inconsistency: the
+backup-archive step (step 1, since r3) is genuinely NUL-safe (`git ls-files -z` +
+`tar --null`), but step 2b's set-equality check parsed `git status --porcelain=v2` (no `-z`)
+as TEXT — line-split, then last-space-field extraction. That breaks on any path containing a
+space, tab, backslash, or literal newline (rare in practice, but a live production tree with
+varied generated artifacts is exactly the kind of tree where "rare" isn't "never" — the same
+reasoning that motivated the archive step's own NUL-safety in r3). `#241`'s classifier
+(`scripts/s11_live_tree_inventory.py`, this step's actual manifest producer) had the identical
+defect — same non-`-z` porcelain parsing, plus it flatly REJECTED (raised) on any type-'2'
+rename/copy record rather than parsing it. And the archive verification in Abort Point 1
+counted `tar -tzf | wc -l` LINES against NUL-BYTE counts — itself line-based, contradicting the
+newline-safety it was supposed to confirm.
+
+**Fix.**
+- New `scripts/git_status_porcelain.py`: ONE shared, NUL-aware `git status --porcelain=v2 -z`
+  parser, reused by both the classifier and this runbook (not duplicated). Correctly handles
+  ordinary (`1`), untracked (`?`), and rename/copy (`2`) records — the `-z` format encodes a
+  type-'2' record as TWO consecutive NUL-terminated tokens for one logical entry (fields+newPath,
+  then a separate origPath token); consuming only one token per record — the bug in every prior
+  ad hoc parser here, including the one this fix replaces — silently misparses every rename
+  encountered as if its origPath token were the START of the NEXT record.
+- `scripts/s11_live_tree_inventory.py` (`#241`, already merged) updated to use the shared
+  parser instead of its own line-based one; genuinely classifies rename/copy entries (by their
+  new path) instead of raising. 3 new tests: a filename-with-spaces fixture (proves the full
+  path survives — a text-mode parser would truncate it), a real `git mv`-staged rename fixture
+  (proves the type-'2' two-token record is parsed correctly, not rejected or misparsed), and a
+  mixed ordinary+untracked fixture. 17/17 tests pass (was 14).
+- New `scripts/s11_verify_set_equality.py`: replaces step 2b's inline ad hoc Python with a real,
+  reusable script built on the shared parser. The runbook now calls this script instead of
+  embedding its own parsing logic.
+- Abort Point 1's archive verification: replaced the line-based `tar -tzf | wc -l` vs NUL-byte
+  count comparison with genuine round-trip verification — extract to a scratch directory
+  (never the live tree), then compare the actually-extracted file set against the recorded
+  NUL-delimited list via Python (`os.walk` + byte-level set comparison — NOT `find | sed`,
+  which was drafted first and then caught by direct testing: `sed` operates on newline-delimited
+  records, so piping NUL-delimited `find -print0` output through it only strips a per-record
+  prefix from the FIRST record, silently leaving every subsequent record's prefix untouched —
+  confirmed with `xxd` against a throwaway two-file fixture before discarding that approach).
+
+**Evidence:** all 3 new pieces (`git_status_porcelain.py`, `s11_verify_set_equality.py`, the
+archive-verification block) tested end-to-end against throwaway git repos/directories at
+session-scratchpad paths — never the real live tree. Confirmed: (a) a filename with a space
+survives the classifier's reconciliation intact; (b) a `git mv`-staged rename is parsed as
+`rename_copy` with the correct new/orig path pair, not rejected; (c) the set-equality script
+passes on a matching manifest and correctly aborts (exit 1, naming the specific mutated path)
+when the tree changes after manifest generation; (d) the corrected archive-verification script
+passes on a genuine tar round-trip of files with spaces in their names, including a nested
+file. 38/38 tests pass across `test_s11_live_tree_inventory.py` + `test_pit_snapshotter_scheduling.py`.
+
+**Follow-up note added to `doc/progress/2026-07-02-s11-live-tree-inventory.md`** (the `#241`
+progress doc, now merged) documenting that its classifier's parsing was corrected by this PR,
+since the fix touches content that PR introduced.

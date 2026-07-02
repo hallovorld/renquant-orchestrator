@@ -123,3 +123,15 @@ Commit: see PR history. Files: `scripts/s11_live_tree_inventory.py` (new),
 `doc/research/evidence/2026-07-02-s11-live-tree-inventory/manifest.json` (new),
 `doc/roadmap-backlog.json` (5 new items), `doc/research/2026-07-02-s11-live-tree-inventory.md`,
 this progress doc.
+
+## Follow-up (post-merge, via #242 r5)
+
+`scripts/s11_live_tree_inventory.py`'s `git status` parsing was NUL-unsafe (line/space-split
+text-mode porcelain, and flatly rejected any type-'2' rename/copy record) — the same defect
+class `#242`'s sync-drill runbook was independently found to have in its own step 2b. Both are
+now fixed together via a new shared `scripts/git_status_porcelain.py` parser (NUL-aware,
+correctly handles ordinary/untracked/rename-copy records), landed in `#242`'s r5 round since
+that PR already needed the exact same fix and reuse was the whole point of the review finding.
+This classifier's own reconciliation guarantee (raw path set == classified path set) is
+unaffected — the live tree has had zero renames in every run to date, so this was a latent
+correctness gap, not something that changed any PAST manifest's actual output.
