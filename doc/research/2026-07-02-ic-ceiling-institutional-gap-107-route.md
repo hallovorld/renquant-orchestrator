@@ -12,6 +12,69 @@ tier) and plan the development route; (3) record everything and file for discuss
 
 ---
 
+## 0. Evidence status: what is measured, what is provisional, what is unresolved
+
+**Addresses Codex review on this PR.** Two distinct evidence-quality issues run through this
+document; both must be visible to a reader before any number below, not discovered by grepping.
+
+**0.1 The BULL_CALM genuine-IC premise is UNRESOLVED, not settled.** §2.3 below cites "BULL_CALM
+(79% of live time) ≈ −0.003" — this was the figure from the original `/tmp`-scratch A1 audit.
+`hallovorld/RenQuant#431` (in flight, not merged) reproduced the leak-controlled decomposition
+against a now-durable table using the same manifest/artifact and got **BULL_CALM
+`aligned_real_ic` = +0.044** — positive, not the cited −0.003, and #431 explicitly declined to
+call its own reproduction equivalent to the deleted original methodology (see #431's own
+relabeling: it reports "the output of `analyze_manifest_sanity_placebo.py`'s `aligned_real_ic`
+metric," not "genuine/leak-controlled IC"). #431 froze a reconciliation protocol (pinned
+data/hash/window, both algorithms specified, injected null/leak fixtures, untouched adjudication
+slice) but has **not executed it**. Every place below that treats −0.003 / "BULL_CALM coin-flip"
+as a settled input (§2.3, §5's increment-2 framing, §8.1's S9 row) is flagged inline as
+provisional pending that reconciliation. **This document does not choose a number.**
+
+**0.2 POC-derived thresholds (§2.4, §7.1, §8) are provisional point estimates, not confirmed
+gates.** The four POCs in `doc/research/2026-07-02-roadmap-poc-verification.md`
+(`poc_effective_breadth.py`/A, `poc_conviction_deployability.py`/B,
+`poc_entry_timing_cost.py`/C, `poc_factor_orthogonality.py`/D) are read-only, single-run,
+reproducible measurements — real methodological improvements over the "reasoned" tier they
+replaced, but NOT yet validation-tier evidence. Known limits, stated once here rather than
+scattered:
+- **Selection**: these four POCs were chosen because they tested THIS document's own
+  load-bearing claims — they are not a blind/pre-registered battery, so a reader should not treat
+  "4/4 POCs ran" as evidence the four are representative of what a fuller audit would find.
+- **Sample size**: POC-B draws on 6 daily runs (state-dependent result, explicitly shown to vary
+  0%→95% across those 6 — small-N by construction, since it needs live daily gate state); POC-D's
+  correlation estimates are 36 month-end cross-sections (no CI reported on the ρ̄ estimates
+  themselves); POC-C's real-fill leg is N=41 (t≈1.0, explicitly not significant, per its own
+  writeup).
+- **Leakage**: POC-A/D use `fwd_60d_excess`/forward-looking labels to measure cross-sectional
+  STRUCTURE (breadth, correlation), not to predict — not the classic leakage failure mode, but
+  also not yet checked against an out-of-sample structural stability test (does BR_eff / ρ̄ hold
+  on a later, untouched window?). POC-C leg 2's top-quartile-momentum subset has a PIT caveat
+  the script itself flags but this document does not resolve.
+- **Untouched confirmation, required before any POC number becomes a gate**: none of the four
+  has yet been re-measured on a held-out span the original POC run never touched. Every gate in
+  §6/§8 that cites a POC number (G105/G106/G107 and their milestone rows) is provisional until
+  that re-measurement happens; this document treats them as planning inputs, not cleared gates.
+
+**0.3 Metric definitions (IC / TC / BR), stated once.** IC = cross-sectional Spearman rank
+correlation between model score and realized forward-excess-return label, per date, averaged
+across dates (see §2.1's fundamental-law decomposition). Unless stated otherwise in this
+document: **horizon** = 60 trading days (`fwd_60d_excess`, the panel's trained label); **universe**
+= the current 142-ticker wl142 watchlist (US large-cap); **costs** = an 11 bps round-trip proxy
+(the same figure `sighunt.py`/`robustness.py` use elsewhere in this repo) unless a cited figure
+states its own cost model (POC-C's are broker-fill-based, not the proxy); **multiplicity** = no
+formal multiple-comparisons correction is applied to the four-POC battery in §0.2 above (flagged
+as a limitation, not corrected); **availability timestamps** = point-in-time as constructed by
+each script (stated per-POC in the verification doc; not independently re-audited here);
+**cluster unit** = trading date (cross-sectional IC is one observation per date; BR/breadth
+figures use the date×ticker panel directly, stated per-POC). TC = the transfer coefficient
+(Clarke–de Silva–Thorley), the fraction of theoretically optimal exposure actually implemented
+after real-world constraints (whole-share rounding, position caps, gate vetoes); this document's
+TC figures (§2.4 point 3, §7.1) are engineering-judgment estimates from the constraint stack, not
+yet independently measured the way the four POCs measured IC/BR — flagged as the same
+"reasoned," not "measured," tier §1's evidence hierarchy names.
+
+---
+
 ## 1. The delegated-decision protocol (what the research standard means operationally)
 
 The delegation covers: parking-sleeve vehicle/beta, 105 canary envelope start, Track B structural
@@ -69,10 +132,15 @@ iTransformer v2 +0.018 (train_ic 0.135 = pure overfit) on identical data. Extern
 
 Naive numbers (E35 +0.066; 5-cut +0.039±0.046) carry three inflations — 60d label overlap, **61%
 cross-sectional persistence** (#256), the **~+0.04 embargo-leakage floor**. Leak-controlled: A1
-genuine IC ≈ 0.04 with **CI [−0.031, +0.129] ∋ 0**; BULL_CALM (79% of live time) ≈ −0.003.
-Cross-check: sim Sharpe 0.77 ≈ benchmark-period SPY; live flat ⇒ **active contribution ≈ 0,
-consistent with genuine IC ≈ 0.** Conclusion: ~0.03–0.04 of headroom exists to OUR ceiling; the
-ceiling itself moves only with the information set.
+genuine IC ≈ 0.04 with **CI [−0.031, +0.129] ∋ 0**; the original A1 audit's cited BULL_CALM
+(79% of live time) figure was ≈ −0.003 — **§0.1: this is UNRESOLVED.** `#431`'s reproduction of
+the same decomposition against a now-durable table gives BULL_CALM `aligned_real_ic` = +0.044,
+not −0.003; the reconciliation protocol #431 froze has not yet run. Read the rest of this
+paragraph's "consistent with genuine IC ≈ 0" framing as the ORIGINAL, now-disputed premise, not
+this document's own conclusion. Conclusion, held provisionally: on either figure the magnitude is
+small (both ≤ 0.044 in absolute value) — ~0.00–0.04 of headroom exists to OUR ceiling depending
+on which reconciled figure prevails; the ceiling itself moves only with the information set
+regardless.
 
 ### 2.4 How to approach the ceiling (four paths, by ROI)
 
@@ -146,11 +214,17 @@ net of fees, is mediocre. That is not cynicism; it is SPIVA.
 
 ---
 
-## 5. Verdict: can 107 reach it? YES — with a quantified path and honest probability
+## 5. Verdict: can 107 reach it? A quantified, PROVISIONAL path with an honest probability
 
-**Verdict: reaching ordinary-professional level by end-2028 is a realistic target with ~60–70%
-probability** (vs the 30–50% previously quoted for the HARDER "competent-pod active IR 0.8–1.0"
-bar — that answer stands for that bar; this is a different, lower bar).
+**Provisional read: reaching ordinary-professional level by end-2028 looks like a realistic
+target with an estimated ~60–70% probability** (vs the 30–50% previously quoted for the HARDER
+"competent-pod active IR 0.8–1.0" bar — that answer stands for that bar; this is a different,
+lower bar). **This is NOT yet a preregistered target** — per §0.3, the IC/TC/BR metric
+definitions this estimate depends on are stated here for the first time in this document, not
+independently frozen and reviewed, and no baseline measurement (what G106/G107's gates would
+read TODAY, measured the identical way) has been taken yet. It becomes an actual preregistered
+target only once both of those exist and are reviewed; until then, treat the 60–70% and every
+number in the increment stack below as this author's estimate, not a committed bar.
 
 The increment stack (each independently measurable, none requiring heroics):
 
@@ -195,7 +269,10 @@ day), FMP-full fundamentals, D3 executed (down-cap wave or new-data-only), the o
 tournament retired (R1), TC repaired to ~0.7 (lane A + R4 verified in the ledger).
 *Exit gate G106 (pre-registered):* ≥2 orthogonal signals each placebo-clean IC ≥ 0.015 measured
 on the S5/S8 substrate; combined ≥ 0.02; TC ≥ 0.6 measured; active IR contribution ≥ 0.2 in
-shadow. *Kill branch:* if by 2027-Q4 no combination clears 0.02, thesis review #3 defaults the
+shadow. **Per §0.2/§0.3: the 0.02 planning range and the POC-D orthogonality discount it's built
+on are provisional point estimates, not yet confirmed on an untouched span — this gate's
+threshold is itself subject to revision once that confirmation runs, not a frozen number today.**
+*Kill branch:* if by 2027-Q4 no combination clears 0.02, thesis review #3 defaults the
 book to benchmark-sleeve mode + PIT accrual continues + 107 is re-scoped to an execution-only
 product (this is the honest terminal branch, stated in advance).
 
@@ -287,7 +364,7 @@ unfavorable outcome executed cleanly is the process WORKING, not failing;** thos
 | S6 lane A | 0.80 (deployed ≥60% in 15 sessions, A+B combined) | **measured (POC-B)**: post-retrain runs have 17–20 names above the floor with a raw-Kelly ceiling of 93–95% — scarcity does NOT bind now; the binding constraints are the shrinkage stack (×≈0.43 observed ⇒ realistic lane-A ceiling ≈ 40–43%) and gate-state volatility (fail-closed days zero the ceiling) | lane B covers the ~20pp residual AND insures deployment against fail-closed states | none on the alpha track; deployment target met via A+B |
 | S7 lane B sleeve | 0.95 (mechanism is arithmetic) | sweep plumbing bugs; risk-appetite reversal | T-bill variant (β=0) or partial sleeve | floor uplift delayed; nothing else |
 | S8 regen table | 0.90 | artifact rot blocks faithful re-score | forward-collect OOS predictions from the live shadow path (3–6 months) | S9 slips a quarter; G106 timeline pressure |
-| S9 Track A verdict | outcome: P(GO)≈0.30 / P(NULL)≈0.70 (prior: BULL_CALM coin-flip) | — | NULL is pre-registered and lands on Track B — already the plan's expectation | on NULL, increment 1 loses its meta-label half: contribution +0.5–1.5%/yr → +0.3–0.8%/yr |
+| S9 Track A verdict | outcome: P(GO)≈0.30 / P(NULL)≈0.70 (prior: BULL_CALM coin-flip **— §0.1: this prior is itself unresolved pending #431's reconciliation; if the +0.044 reproduction holds instead, P(GO) should be re-derived, not assumed**) | — | NULL is pre-registered and lands on Track B — already the plan's expectation | on NULL, increment 1 loses its meta-label half: contribution +0.5–1.5%/yr → +0.3–0.8%/yr |
 | S10 IS prize memo | 0.85 execution; outcome: P(prize material) raised ≈ 0.50 → **≈ 0.65** on the POC-C point estimate | thin historical fill sample (N=41; open-vs-close +48.6bps mean/+58.1 median but SE 47.5 ⇒ t≈1.0 — **direction measured, significance pending**) | supplement with the N1 collector corpus (weeks) | if immaterial: **G105 kill branch** — Stage-2 descoped to risk-exit modernization; increment 1 halves; 107 re-scoped away from intraday-entry emphasis |
 | S11 hotfix PRs | 0.95 | none material | — | floor tier-2 stays leaky until done |
 | S12 shadow freshness | 0.80 | panel-refresh root cause is deep (label-join redesign) | serve shadow at the achievable frontier with a documented-lag caveat | champion–challenger reads carry vintage caveats; no other branch |
