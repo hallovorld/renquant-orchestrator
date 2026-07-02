@@ -237,7 +237,7 @@ def _stub_env(tmp_path: Path) -> dict:
 def test_wrapper_runs_when_lock_is_free(tmp_path):
     env_overrides, marker = _stub_env(tmp_path)
     env = {**os.environ, **env_overrides}
-    result = subprocess.run(["/bin/zsh", str(_WRAPPER)], env=env, capture_output=True, text=True)
+    result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
     assert result.returncode == 0
     assert marker.exists(), "stub python was never invoked — wrapper did not run the collector"
     assert not Path(env_overrides["PIT_SNAPSHOT_LOCK_DIR"]).exists(), "lock dir must be removed on exit"
@@ -248,7 +248,7 @@ def test_wrapper_skips_without_invoking_collector_when_lock_held(tmp_path):
     lock_dir = Path(env_overrides["PIT_SNAPSHOT_LOCK_DIR"])
     lock_dir.mkdir(parents=True)  # simulate a concurrent run already holding the lock
     env = {**os.environ, **env_overrides}
-    result = subprocess.run(["/bin/zsh", str(_WRAPPER)], env=env, capture_output=True, text=True)
+    result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
     assert result.returncode == 0, "a held lock must be a benign skip (exit 0), not a failure"
     assert not marker.exists(), "the collector must NOT have been invoked while the lock was held"
     assert lock_dir.exists(), "this process must not remove a lock it did not acquire"
@@ -264,10 +264,10 @@ def test_wrapper_concurrent_invocations_exactly_one_proceeds(tmp_path):
     # the mechanism, since a real concurrent subprocess race is inherently
     # timing-dependent and would make this test flaky).
     lock_dir.mkdir(parents=True)
-    loser = subprocess.run(["/bin/zsh", str(_WRAPPER)], env=env, capture_output=True, text=True)
+    loser = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
     assert loser.returncode == 0
     assert not marker.exists()
     lock_dir.rmdir()
-    winner = subprocess.run(["/bin/zsh", str(_WRAPPER)], env=env, capture_output=True, text=True)
+    winner = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
     assert winner.returncode == 0
     assert marker.exists()

@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 # PIT N2: daily forward snapshot of FMP analyst estimates/consensus/targets
 # (base-data #27 collector; #231 N2 — TIME-IRREVERSIBLE accrual; #205 design).
 # Writes ONLY the dedicated data/estimate_snapshots/<date>/ path (never canonical).

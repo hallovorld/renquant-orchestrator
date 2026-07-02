@@ -74,3 +74,13 @@ activation-gating pattern #232 landed (mechanical guard on merged prerequisite S
 bootstrap) does not apply here in the same way since N2 has no #224/#227-equivalent blocking
 prerequisite named in the roadmap — flagging this as worth a second look if `#229`'s dependency
 DAG is later extended to cover N2 explicitly.
+
+**Round 2 (CI fix, 2026-07-02):** the GitHub Actions Ubuntu runner has no `/bin/zsh` (macOS-only
+in practice), so the 3 concurrency tests that invoked the wrapper via a hardcoded `/bin/zsh` path
+failed CI with `FileNotFoundError: [Errno 2] No such file or directory: '/bin/zsh'` even though
+local runs (on macOS) passed. The wrapper script's own content has no zsh-specific syntax — it's
+portable POSIX/bash (`set -u`, `mkdir`/`trap`/`source`, standard `[ ]` tests) — so the fix is a
+straight portability correction, not a behavior change: shebang `#!/bin/zsh` → `#!/bin/bash`
+(available on both macOS and the Linux CI runner), the 3 test invocations updated to match, and
+the launchd plist's `ProgramArguments` updated for consistency (macOS ships both shells; bash is
+now the one actually declared everywhere). 18/18 tests still pass locally after the fix.
