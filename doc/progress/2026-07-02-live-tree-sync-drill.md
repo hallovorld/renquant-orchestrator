@@ -55,3 +55,38 @@ operation, rather than an independently-derived one — avoiding the two-conflic
 problem Codex flagged.
 
 Pure-doc change, no code/tests; verified this repo's progress-doc-schema CI gate passes.
+
+## Round 3 (Codex review — two operational blockers remained, 2026-07-02)
+
+**Finding.** r2 fixed the recovery-mechanism defects, but two operational blockers remained:
+(1) this runbook depended on `#241`'s inventory as an unconditionally-trusted classification
+oracle, while #241 was itself unmerged and under changes-requested review — an executable
+production runbook must not silently trust a disputed document; (2) stash creation was
+unvalidated — if `git stash push` reports "No local changes to save" or fails partially,
+resolving `stash@{0}` next can capture a PRE-EXISTING, unrelated stash rather than the one the
+procedure just tried to create; (3) the backup archive used line-delimited `ls-files`/`tar -T`,
+which silently mishandles any untracked filename containing a newline.
+
+**Fix.**
+- Added step **2a**: a runtime guard that verifies the #241 manifest (`doc/research/evidence/
+  2026-07-02-s11-live-tree-inventory/manifest.json`) actually exists, shows `reconciliation:
+  PASS`, and is fresh (age computed from the manifest file's own git commit date — the manifest
+  has no embedded generation timestamp, a real gap flagged explicitly rather than silently
+  worked around; >7 days old aborts). On any failure, every path is treated as "not in the
+  inventory" (the existing STOP row) rather than trusting a stale/missing/unmerged manifest.
+  This makes the #241 dependency explicit and verified at execution time, independent of
+  #241's actual merge status at any given moment.
+- Fixed stash creation (step 3): records a `git stash list` count BASELINE before `stash push`,
+  verifies the count actually increased after the push (aborting with a clear message if not —
+  covers both "no local changes" and partial-failure cases), and only THEN captures
+  `stash@{0}`'s OID — never resolving `stash@{0}` blind or later in the procedure.
+- Fixed the backup archive (step 1): `git ls-files -z` + `tar --null -T` throughout
+  (NUL-delimited), with a human-readable `.txt` companion listing explicitly marked as
+  NOT authoritative for restore/verify; ABORT POINT 1's member-count check now counts NUL
+  bytes, not lines, so it doesn't itself inherit the newline-filename bug it's meant to guard
+  against.
+- Renumbered abort points for clarity: 2a (manifest verification, new), 2b (was 2, clean-tree
+  precondition), 3a (stash-creation validation, new), 3b (was 3, tree-clean-before-merge).
+  Added 4 new "Never list" entries (§8) for the 3 new failure modes plus their case-law framing.
+
+Pure-doc change, no code/tests; re-verified progress-doc-schema CI gate passes.

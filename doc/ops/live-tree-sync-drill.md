@@ -3,13 +3,34 @@
 STATUS: ops runbook (R7's remaining slice; #231 Term PROCESS / floor tier-2). Executed by the
 OPERATOR/LANDER only — agents and automation never run git mutations in the live tree (hard
 rule; a sub-agent `reset --hard` near-miss and the 2026-06-25 clobber are the case law).
-DATE: 2026-07-02 (r2: corrected the stash-safety and snapshot-independence gaps a Codex review
+DATE: 2026-07-02 (r3: this runbook depends on #241's manifest as its classification oracle;
+#241 is not yet merged and was itself under changes-requested review when r2 landed, so r3
+adds a runtime guard — step 2 below — that verifies the manifest's existence, reconciliation
+status, and freshness at EXECUTION time rather than trusting it as unconditionally
+authoritative. r3 also fixes unvalidated stash creation and non-NUL-safe archiving — see
+"r2 → r3" below. r2: corrected the stash-safety and snapshot-independence gaps a Codex review
 found in r1; aligned with #241's revised recovery procedure so this repo publishes ONE
 recovery protocol, not two).
 CONTEXT: the live umbrella checkout is routinely BEHIND origin/main while carrying dirt that
 can OVERLAP unpulled commits (S11 inventory, 2026-07-02: runner.py residue whose fix is
 already upstream). A naive `git pull` conflicts; a naive `reset`/`checkout` reverts live
 hotfixes — that exact sequence caused 18 intraday FAILs on 2026-06-26.
+
+## r2 → r3: what Codex found and why this procedure changed again
+
+r2 fixed the stash-pop/snapshot/blanket-conflict defects, but two operational blockers
+remained: (1) this runbook treated `#241`'s inventory as unconditionally authoritative while
+`#241` was itself unmerged and under changes-requested review at the time — an executable
+production runbook must not trust a disputed document as a silent dependency; (2) stash
+creation was never validated — if `git stash push` reports "No local changes to save" or fails
+partially, blindly resolving `stash@{0}` can capture a PRE-EXISTING, unrelated stash rather
+than the one this procedure just tried to create. r3 fixes both: step 2 now VERIFIES the
+manifest (existence, `reconciliation: PASS`, freshness) at execution time and refuses to
+proceed on any dirt-classification step if that check fails, regardless of #241's merge
+status; step 3 now records a stash-list baseline, requires proof a NEW stash entry was
+created, and only then captures its OID — never re-resolving `stash@{0}` blind. The backup
+archive (step 1) also switched to NUL-delimited path handling, since a line-delimited
+`ls-files`/`tar -T` pipeline silently mishandles any untracked filename containing a newline.
 
 ## r1 → r2: what Codex found and why this procedure changed
 
@@ -54,9 +75,15 @@ git rev-parse HEAD                       > "$backup_dir/pre-sync-head.txt"
 git for-each-ref                         > "$backup_dir/pre-sync-refs.txt"
 cp subrepos.lock.json                      "$backup_dir/pre-sync-subrepos.lock.json"
 
-# untracked files: CONTENTS, not just a filename list — a name alone can't restore content
-git ls-files --others --exclude-standard > "$backup_dir/untracked-file-list.txt"
-tar -czf "$backup_dir/untracked-files.tar.gz" -T "$backup_dir/untracked-file-list.txt"
+# untracked files: CONTENTS, not just a filename list — a name alone can't restore content.
+# NUL-delimited throughout: a line-delimited `ls-files`/`tar -T` pipeline silently mishandles
+# any untracked filename containing a newline (rare, but a production tree with varied
+# generated artifacts is exactly the kind of tree where "rare" isn't "never" — r3 fix).
+git ls-files -z --others --exclude-standard > "$backup_dir/untracked-file-list.nul"
+tar --null -T "$backup_dir/untracked-file-list.nul" -czf "$backup_dir/untracked-files.tar.gz"
+# human-readable companion listing (NOT used for restore/verify — untracked-file-list.nul is
+# the authoritative, NUL-safe source of truth):
+tr '\0' '\n' < "$backup_dir/untracked-file-list.nul" > "$backup_dir/untracked-file-list.txt"
 
 git fetch origin main                    # updates refs only; touches no files
 git log --oneline main..origin/main | head -20 > "$backup_dir/incoming-commits.txt"
@@ -65,17 +92,65 @@ git log --oneline main..origin/main | head -20 > "$backup_dir/incoming-commits.t
 **ABORT POINT 1 — verify the backup before trusting it.** Confirm `tracked-modified.patch`
 either matches an empty tree cleanly or is non-empty and parses (`git apply --check
 "$backup_dir/tracked-modified.patch"` against a scratch clone, or at minimum `patch
---dry-run`); confirm `untracked-files.tar.gz` extracts cleanly and its member count matches
-`untracked-file-list.txt`'s line count (`tar -tzf "$backup_dir/untracked-files.tar.gz" | wc -l`).
-If either check fails, STOP. Do not proceed to step 2 with an unverified backup — an unverified
-backup is not a backup.
+--dry-run`); confirm `untracked-files.tar.gz` extracts cleanly and its member count matches the
+NUL-delimited entry count (`tar -tzf "$backup_dir/untracked-files.tar.gz" | wc -l` must equal
+`tr -cd '\0' < "$backup_dir/untracked-file-list.nul" | wc -c` — count NUL bytes, not lines; the
+`.txt` companion is for human inspection only and under-counts if any filename contains a
+literal newline). If either check fails, STOP. Do not proceed to step 2 with an unverified
+backup — an unverified backup is not a backup.
 
 ## 2. Cross-check against the S11 inventory (the classification, not a fresh re-derivation)
 
-Re-run `git status --porcelain=v2` / `git ls-files --others --exclude-standard` fresh (the tree
-is continuously mutating) and diff the current path set against `#241`'s last-published
-inventory (`doc/research/2026-07-02-s11-live-tree-inventory.md`). Every path must fall into one
-of that inventory's classes:
+**2a. Verify the manifest before trusting it as an oracle (r3 fix).** This step depends on
+`#241`'s machine-generated manifest as its classification source of truth. `#241` may not be
+merged, and its content is independently reviewed/changed on its own schedule — this runbook
+must not treat it as unconditionally authoritative just because it exists on disk. Verify it at
+EXECUTION time, every run, regardless of #241's merge status:
+
+```bash
+manifest="/Users/renhao/git/github/renquant-orchestrator/doc/research/evidence/2026-07-02-s11-live-tree-inventory/manifest.json"
+orch_repo="/Users/renhao/git/github/renquant-orchestrator"
+
+if [ ! -f "$manifest" ]; then
+  echo "ABORT: S11 manifest not found at $manifest — cannot classify live-tree dirt. STOP." >&2
+  exit 1
+fi
+
+reconciliation=$(python3 -c "import json; print(json.load(open('$manifest'))['reconciliation'])")
+case "$reconciliation" in
+  PASS*) : ;;
+  *) echo "ABORT: manifest reconciliation is '$reconciliation', not PASS — the manifest does
+not vouch for its own completeness. STOP, do not use it for classification." >&2; exit 1 ;;
+esac
+
+# Freshness: the manifest has no embedded generation timestamp (a real gap — flagged, not
+# silently worked around), so use the committing commit's date as a proxy. This is weaker than
+# an embedded timestamp (a manifest could in principle be regenerated with identical content
+# and no new commit) but still catches the common failure mode of a genuinely stale, un-rerun
+# manifest.
+manifest_date=$(git -C "$orch_repo" log -1 --format=%cI -- doc/research/evidence/2026-07-02-s11-live-tree-inventory/manifest.json)
+manifest_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${manifest_date%%+*}" +%s 2>/dev/null || date -d "$manifest_date" +%s)
+now_epoch=$(date +%s)
+age_days=$(( (now_epoch - manifest_epoch) / 86400 ))
+if [ "$age_days" -gt 7 ]; then
+  echo "ABORT: S11 manifest is $age_days days old ($manifest_date) — the live tree mutates
+continuously; re-run scripts/s11_live_tree_inventory.py (in the orchestrator repo, read-only
+against the live tree) to regenerate before trusting this classification. STOP." >&2
+  exit 1
+fi
+
+echo "Manifest OK: reconciliation=$reconciliation, age=${age_days}d"
+```
+
+**ABORT POINT 2a — do not proceed past this check on any failure.** A missing, non-PASS, or
+stale (>7 days) manifest means step 2's classification table below cannot be trusted — treat
+every path as "not in the inventory" (the STOP row) until a fresh, verified manifest exists.
+
+**2b. Cross-check the live tree's current paths against the verified manifest.** Re-run `git
+status --porcelain=v2` / `git ls-files --others --exclude-standard` fresh (the tree is
+continuously mutating) and diff the current path set against the verified manifest's
+`class_summary`/`paths` (human-readable summary: `doc/research/2026-07-02-s11-live-tree-
+inventory.md`). Every path must fall into one of that manifest's classes:
 
 | Class | Examples | Resolution during sync |
 |---|---|---|
@@ -90,7 +165,7 @@ until its PR lands or the inventory is refreshed. That is the whole lesson of 06
 exists nowhere else must become durable BEFORE any tree movement, and dirt that hasn't been
 classified must not be moved through blind.
 
-**ABORT POINT 2 — clean-tree precondition.** This step is classification only, no mutation yet;
+**ABORT POINT 2b — clean-tree precondition.** This step is classification only, no mutation yet;
 if anything is unclassifiable per the table above, STOP here, before step 3.
 
 ## 3. Stash — a convenience for the pull, NOT the recovery mechanism
@@ -99,16 +174,39 @@ The recovery mechanism is the external backup from step 1. The stash only exists
 `git merge --ff-only` a clean working tree to operate on.
 
 ```bash
+# Validate creation before trusting stash@{0} (r3 fix): if `stash push` reports "No local
+# changes to save" or fails partially, blindly resolving stash@{0} next could capture a
+# PRE-EXISTING, unrelated stash rather than the one this run just tried to create.
+stash_count_before=$(git stash list | wc -l)
+
 stash_out=$(git stash push --include-untracked -m "pre-sync-$ts")
+echo "$stash_out"
+
+stash_count_after=$(git stash list | wc -l)
+if [ "$stash_count_after" -le "$stash_count_before" ]; then
+  echo "ABORT: 'git stash push' did not create a new entry (before=$stash_count_before,
+after=$stash_count_after; output: $stash_out). Resolving stash@{0} now would risk capturing a
+pre-existing, unrelated stash. STOP — investigate why nothing was stashed before proceeding
+(e.g. the tree may already be clean, or the push may have failed partially)." >&2
+  exit 1
+fi
+
+# Only capture the OID immediately after a VERIFIED-successful push, before anything else
+# (another process, a later step) could push a stash and shift the index.
 stash_oid=$(git rev-parse stash@{0})
 echo "$stash_oid" | tee "$backup_dir/stash-oid.txt"
+echo "pre-sync-$ts" > "$backup_dir/stash-message.txt"
 ```
 
+**ABORT POINT 3a — a stash was actually created.** If the count check above fails, STOP before
+capturing any OID — see the abort message in the script.
+
 Record `$stash_oid` explicitly (a captured OID, not a `stash@{N}` index — the index shifts if
-anything else pushes a stash before this procedure finishes). The stash is a convenience
+anything else pushes a stash before this procedure finishes). Never re-resolve `stash@{0}`
+later in this procedure; always use the captured `$stash_oid`. The stash is a convenience
 buffer; it is explicitly NOT dropped automatically anywhere in this procedure — see step 6.
 
-**ABORT POINT 3 — confirm the tree is actually clean before merging.** Run `git status
+**ABORT POINT 3b — confirm the tree is actually clean before merging.** Run `git status
 --porcelain`. It must be EMPTY. If not, STOP — do not attempt `--ff-only` against a tree that
 isn't actually clean; investigate why the stash didn't fully clear it before proceeding.
 
@@ -191,6 +289,15 @@ a clean `make doctor` as sufficient; watch the actual first live tick.
   `/tmp` status/diff dump is not a recovery copy).
 - A blanket ours/theirs conflict resolution across multiple conflicting paths (r1's defect —
   always resolve path-by-path against the #241 inventory and the external backup).
+- Trusting the #241 manifest without verifying it at execution time (r3's defect — a missing,
+  non-PASS, or stale manifest must halt step 2, never be assumed authoritative because it
+  exists on disk).
+- Resolving `stash@{0}` without first proving `git stash push` created a NEW entry (r3's
+  defect — a "no local changes" or partially-failed push can leave `stash@{0}` pointing at a
+  pre-existing, unrelated stash).
+- Line-delimited (`ls-files` / `tar -T`) handling of untracked filenames (r3's defect — use
+  NUL-delimited (`-z`, `--null`) throughout; a filename containing a newline silently corrupts
+  a line-delimited pipeline).
 - Overwriting canonical prod inputs (`data/rawlabel.parquet`, 2026-06-17 incident).
 - Touching `runtime/.subrepo_runtime` (pinned runtime; pin moves go through promote_pin).
 - Running the drill during market hours or a scheduled-job window.
