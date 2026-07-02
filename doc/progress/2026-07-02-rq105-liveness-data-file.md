@@ -215,3 +215,31 @@ directly to confirm the actual 13:15 PT postclose-fire / 14:00 PT liveness-check
 number; every new test's fixture timestamp was checked against `_TIGHT_AGE_BOUND` to
 confirm it genuinely WOULD fail the old event-time check, proving the test exercises the
 real fix rather than passing coincidentally.]
+
+## Round 6 (additive extension for #247's exact-row provenance need)
+
+**Finding (from #247's own review, applicable here since #247's fix requires this file to
+expose it):** #247's `tail_read_sha256` provenance field hashed an arbitrary last-8KB tail
+read of a collector's data file — not the EXACT row `_last_complete_jsonl_row()` actually
+selected as the one that determined the liveness verdict. Codex: "Return the selected row
+or canonical row hash and freshness basis from the validator and record that exact
+evidence." The validator is this file; #247 can only record what it's given.
+
+**Fix.** `_data_output_fresh()` now returns `(ok, reason, selected_row)` (was `(ok,
+reason)`) — the exact `dict` `_last_complete_jsonl_row()` selected, or `None` when no row
+was ever selected (missing/empty file, no parseable complete row). `check_collector_data_
+outputs()` — the stable public interface — now additionally returns `row_content_sha256`
+(sha256 of the selected row's canonical sorted-key JSON) and `freshness_basis`
+(`"row_event_time"` | `"file_mtime"`) per collector. This is a purely ADDITIVE change to
+the public interface's return dict (existing `status`/`path`/`reason` keys unchanged) — no
+breaking change for any consumer already reading those three fields.
+
+Updated all 22 existing direct calls to `_data_output_fresh()` in the test file for the new
+3-tuple return (mechanical `sed`, verified each call site individually beforehand). Added 2
+new tests for `check_collector_data_outputs()` itself (not previously tested as a unit):
+same-status rows with different content produce different hashes (proves content-anchoring,
+not a status/path-only hash); identical content across two files produces identical hashes;
+a missing collector correctly reports `row_content_sha256: None`.
+
+**Evidence:** `python -m pytest tests/test_rq105_collector_scheduling.py -q` → 44 passed
+(was 42; +2 new), zero regressions.

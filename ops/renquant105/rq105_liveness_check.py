@@ -66,6 +66,7 @@ Checked (session days only):
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import subprocess
@@ -337,21 +338,30 @@ def _last_complete_jsonl_row(
         chunk = min(chunk * 2, _TAIL_CHUNK_MAX_BYTES)
 
 
-def _data_output_fresh(path: str, today_iso: str, extract_ts, freshness_basis: str) -> tuple[bool, str]:
+def _data_output_fresh(
+    path: str, today_iso: str, extract_ts, freshness_basis: str,
+) -> tuple[bool, str, dict | None]:
+    """Returns ``(ok, reason, selected_row)`` — ``selected_row`` is the exact
+    dict that determined the verdict (the same object ``_last_complete_
+    jsonl_row`` returned), or ``None`` if no row was ever selected (missing
+    file, empty file, or no parseable complete row at all). Exposing the
+    real selected row (not a generic tail-read blob) lets a caller compute
+    provenance evidence that is guaranteed to correspond to the row that
+    actually determined the liveness verdict."""
     if not os.path.exists(path):
-        return False, f"{path} missing"
+        return False, f"{path} missing", None
     if os.path.getsize(path) == 0:
-        return False, f"{path} EMPTY"
+        return False, f"{path} EMPTY", None
     row, tail_was_corrupt, has_timestamp = _last_complete_jsonl_row(
         path, extract_ts, freshness_basis=freshness_basis)
     if row is None:
         return False, (
             f"{path} no parseable complete row (date+ticker"
             f"{'' if freshness_basis == _FILE_MTIME else '+timestamp'}) found in tail "
-            "— corrupt/truncated/missing required field")
+            "— corrupt/truncated/missing required field"), None
     date_val = row["date"]
     if date_val != today_iso:
-        return False, f"{path} last complete row date={date_val!r} != today {today_iso!r} (stale)"
+        return False, f"{path} last complete row date={date_val!r} != today {today_iso!r} (stale)", row
     corrupt_note = " [most-recent physical line was truncated/corrupt; used prior complete row]" if tail_was_corrupt else ""
 
     if freshness_basis == _ROW_EVENT_TIME:
@@ -365,9 +375,9 @@ def _data_output_fresh(path: str, today_iso: str, extract_ts, freshness_basis: s
             return False, (
                 f"{path} last complete row timestamp is {-age} in the FUTURE, beyond the "
                 f"{_CLOCK_SKEW_TOLERANCE} clock-skew tolerance — treated as corrupt/clock "
-                f"issue, not freshness{corrupt_note}")
+                f"issue, not freshness{corrupt_note}"), row
         if age > _TIGHT_AGE_BOUND:
-            return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}"
+            return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}", row
     else:
         # POST-CLOSE ONE-SHOT batch collector (pairing / entry-timing):
         # the row's own timestamp (if any) is a market-event instant, not a
@@ -386,16 +396,16 @@ def _data_output_fresh(path: str, today_iso: str, extract_ts, freshness_basis: s
             return False, (
                 f"{path} file mtime is {-age} in the FUTURE, beyond the "
                 f"{_CLOCK_SKEW_TOLERANCE} clock-skew tolerance — treated as corrupt/clock "
-                f"issue{corrupt_note}{ts_note}")
+                f"issue{corrupt_note}{ts_note}"), row
         if age > _POSTCLOSE_COMPLETION_AGE_BOUND:
             return False, (
                 f"{path} file mtime age={age} exceeds the postclose-completion bound "
-                f"{_POSTCLOSE_COMPLETION_AGE_BOUND}{corrupt_note}{ts_note}")
+                f"{_POSTCLOSE_COMPLETION_AGE_BOUND}{corrupt_note}{ts_note}"), row
 
     if tail_was_corrupt:
         print(f"WARNING: {path} tail had a truncated/corrupt final line (writer likely mid-write); "
               f"prior complete row passed date+age freshness checks", file=sys.stderr)
-    return True, ""
+    return True, "", row
 
 
 def main() -> int:
@@ -446,15 +456,27 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
     function.
 
     Returns ``{collector_name: {"status": "ok" | "stale_or_missing",
-    "path": str, "reason": str | None}}`` — one entry per collector in
-    ``_data_outputs()``, independent of the others (a consumer can report
-    each collector separately or aggregate, its choice)."""
+    "path": str, "reason": str | None, "freshness_basis":
+    "row_event_time" | "file_mtime", "row_content_sha256": str | None}}`` —
+    one entry per collector in ``_data_outputs()``, independent of the
+    others (a consumer can report each collector separately or aggregate,
+    its choice). ``row_content_sha256`` is a sha256 of the EXACT selected
+    row's canonical JSON (sorted keys) that determined this verdict — not a
+    generic tail-read hash of arbitrary file bytes — so a caller recording
+    this as provenance evidence is provably anchored to the row the
+    validator actually used, and ``None`` only when no row was ever
+    selected (missing/empty file, or no parseable complete row at all)."""
     out: dict[str, dict] = {}
     today_iso = as_of.isoformat()
     for name, full_path, extract_ts, freshness_basis in _data_outputs(data_root):
-        ok, reason = _data_output_fresh(str(full_path), today_iso, extract_ts, freshness_basis)
+        ok, reason, row = _data_output_fresh(str(full_path), today_iso, extract_ts, freshness_basis)
+        row_hash = (
+            hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+            if row is not None else None)
         out[name] = {
             "status": "ok" if ok else "stale_or_missing",
+            "freshness_basis": "row_event_time" if freshness_basis == _ROW_EVENT_TIME else "file_mtime",
+            "row_content_sha256": row_hash,
             "path": str(full_path),
             "reason": reason if not ok else None,
         }
