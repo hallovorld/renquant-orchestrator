@@ -93,3 +93,51 @@ NEXT:     C3 remains OPEN — this run does not close it. Either (a) build genui
           alongside C4/C2, G106 needs 2 of 3 GO) is UNRESOLVED, not satisfied. Codex
           re-review of this round's fixes; do not treat the exploratory statistics above as
           having settled the underlying hypothesis.
+
+## Round 3 (Codex review: evidence-surface blockers)
+
+**Finding.** Round 2's substantive fixes (UNADJUDICATED reclassification, bootstrap fix)
+were confirmed correct, but two evidence-integrity gaps remained: (1) the input
+`sha256` manifest hashed config/GMM-artifact/regime-code/ticker-list but NOT the 142
+ticker OHLCV parquets or SPY parquet — the actual dominant numeric inputs feeding every
+signal/label/beta/regime feature — so the same commit+manifest could silently produce
+different evidence after a bar correction or data refresh; (2) the CLI's final printed
+output still led with `{"VERDICT": v["verdict"]}` (emitting the raw mechanical rule's
+`MISS`), a split surface from the doc's authoritative `UNADJUDICATED` status that could let
+an operator or downstream automation mistake this exploratory run for a formal vote.
+
+**Fix.**
+- New `canonical_panel_sha256()`: hashes the EXACT aligned `close`/`spy_close` panel
+  actually consumed by the computation (sorted columns, fixed 10-decimal float precision,
+  NaN-safe) rather than re-reading 143 files separately — records `close_panel_sha256`,
+  `spy_close_sha256`, shape, sorted column list, and date range in `manifest.inputs_sha256`.
+  4 new tests prove: a single mutated price in one ticker changes `close_panel_sha256` but
+  not `spy_close_sha256` (and vice versa for a mutated SPY price); identical panels hash
+  identically across independent calls.
+- CLI's final print now leads with `ADJUDICATION_STATUS` (mirroring
+  `results["adjudication_status"]`) as the headline; the old `VERDICT` key is renamed
+  `MECHANICAL_RULE_OUTPUT` and explicitly carries `"voting": false` plus a
+  `non_voting_reason` pointing back to the authoritative status. Searched the full doc,
+  progress doc, and committed evidence JSON for any remaining unqualified
+  `VERDICT=MISS`/`CLOSED` language — none found; every existing occurrence is already
+  qualified from round 2 (e.g. "VERDICT: UNADJUDICATED ... NOT MISS").
+- `worktree_head` resolution replaced: was a raw `.git/HEAD` file read (fragile in a linked
+  worktree, where `.git` is a file pointing at the main repo's git-dir, not a directory —
+  can fail or return a ref name instead of a commit SHA) with `git rev-parse HEAD` via
+  subprocess. New test asserts the resolved value is a genuine 40-char hex commit SHA in
+  THIS actual linked worktree (the exact environment class the old approach could break in).
+- 8/8 tests pass (4 from round 2 + 4 new this round).
+
+**Re-verified (2026-07-02, real read-only production stores, corrected provenance):**
+point estimates unchanged from round 2 (conditioned_mean_clean -0.00399, unconditional_mean
+-0.01262, difference +0.00863) — this round only strengthens evidence provenance and the
+CLI's authoritative-status surface, not the statistical methodology (already fixed round 2).
+Manifest now records `close_panel_sha256`/`spy_close_sha256` over the real 142x2638 panel
+(2016-01-04 to 2026-07-01) plus a properly-resolved `worktree_head`.
+
+[VERIFIED — re-ran `scripts/c3_residual_momentum.py` end-to-end against real read-only
+production stores after this round's fix; the printed CLI output was captured directly and
+confirmed `ADJUDICATION_STATUS: "UNADJUDICATED"` leads the JSON with `MECHANICAL_RULE_OUTPUT`
+carrying `voting: false`; the regenerated `doc/research/evidence/2026-07-02-c3/c3_results.json`
+was inspected directly for the new `inputs_sha256` fields, not read from memory.
+`tests/test_c3_residual_momentum.py` (8 tests) run and passing.]

@@ -41,6 +41,7 @@ import json
 import logging
 import math
 import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +83,61 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def resolve_worktree_head(repo_root: Path) -> str | None:
+    """Resolve the current commit SHA via `git rev-parse HEAD`, not a raw
+    read of .git/HEAD -- in a LINKED WORKTREE (used throughout this session's
+    fixes) .git is a FILE pointing at the main repo's git-dir, not a
+    directory, so a naive .git/HEAD read fails or returns a ref name instead
+    of a resolved commit SHA. `git rev-parse` handles both layouts."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
+        )
+        return out.stdout.strip() or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def canonical_panel_sha256(close: pd.DataFrame, spy_close: pd.Series) -> dict:
+    """Content hash of the EXACT aligned close/SPY panel actually consumed by
+    the computation -- the dominant numeric inputs (142 ticker OHLCV +
+    SPY parquet files) are mutable external data; hashing config/code/
+    ticker-list alone cannot prove which data VALUES produced this evidence,
+    since the same commit+config can silently produce different results
+    after a bar correction or refresh. Sorted columns, fixed-precision
+    floats, NaN-safe -- same canonicalization family as #430's
+    regen_oos_pick_table.output_content_sha256 / #247's
+    kpi_scorecard._canonical_content_hash."""
+    def _canon_frame(df: pd.DataFrame) -> str:
+        cols = sorted(df.columns)
+        ordered = df[cols].sort_index()
+        rows = []
+        for idx, row in ordered.iterrows():
+            vals = [
+                "NaN" if pd.isna(v) else f"{float(v):.10f}"
+                for v in row.to_numpy()
+            ]
+            rows.append(f"{idx.isoformat()}|" + ",".join(vals))
+        return "\n".join(rows)
+
+    close_blob = _canon_frame(close)
+    spy_blob = "\n".join(
+        f"{idx.isoformat()}|{'NaN' if pd.isna(v) else f'{float(v):.10f}'}"
+        for idx, v in spy_close.sort_index().items()
+    )
+    return {
+        "close_panel_sha256": hashlib.sha256(close_blob.encode("utf-8")).hexdigest(),
+        "spy_close_sha256": hashlib.sha256(spy_blob.encode("utf-8")).hexdigest(),
+        "close_panel_shape": list(close.shape),
+        "close_panel_columns_sorted": sorted(close.columns.tolist()),
+        "close_panel_date_range": [
+            close.index.min().isoformat(), close.index.max().isoformat(),
+        ] if len(close.index) else [None, None],
+        "spy_close_n_obs": int(spy_close.shape[0]),
+    }
 
 
 def _json_default(obj):
@@ -722,17 +778,8 @@ def main() -> None:
     )
 
     print("[7/7] writing evidence ...", flush=True)
-    worktree_head = None
-    try:
-        repo_root = Path(__file__).resolve().parents[1]
-        head = (repo_root / ".git" / "HEAD").read_text().strip()
-        if head.startswith("ref: "):
-            ref = repo_root / ".git" / head[5:]
-            worktree_head = ref.read_text().strip() if ref.exists() else head
-        else:
-            worktree_head = head
-    except OSError:
-        pass
+    repo_root = Path(__file__).resolve().parents[1]
+    worktree_head = resolve_worktree_head(repo_root)
 
     manifest = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -750,6 +797,11 @@ def main() -> None:
             ),
             "regime_py": sha256_file(pipeline_src / "renquant_pipeline" / "kernel" / "regime.py"),
             "universe_tickers": hashlib.sha256(",".join(tickers).encode()).hexdigest(),
+            # Dominant numeric inputs (142 ticker OHLCV parquets + SPY parquet):
+            # mutable external data, not fingerprinted by the config/code/
+            # ticker-list hashes above. Hash the exact aligned panel actually
+            # consumed by the computation instead of re-reading 143 files.
+            **canonical_panel_sha256(close, spy_close),
         },
         "pinned_config_path": str(pinned_config),
         "gmm_artifact_path": str(gmm_artifact),
@@ -851,8 +903,24 @@ def main() -> None:
     regimes.to_json(out_dir / "c3_regime_series.json", orient="records", date_format="iso", indent=1)
 
     v = gating["verdict"]
+    # ADJUDICATION_STATUS is the authoritative, headline status (matches
+    # results["adjudication_status"] above) -- printed FIRST so an operator
+    # or downstream automation reading only stdout cannot mistake this run
+    # for a formal vote. MECHANICAL_RULE_OUTPUT is the raw internal
+    # calculation only; it is explicitly marked non-voting because its
+    # substrate (production-chain-replayed regime labels + a fixed-panel
+    # universe applied retrospectively) is not point-in-time -- see
+    # results["adjudication_note"] for the full explanation.
     print(json.dumps({
-        "VERDICT": v["verdict"],
+        "ADJUDICATION_STATUS": results["adjudication_status"],
+        "MECHANICAL_RULE_OUTPUT": {
+            "verdict": v["verdict"],
+            "voting": False,
+            "non_voting_reason": (
+                "substrate is not point-in-time; see ADJUDICATION_STATUS / "
+                "adjudication_note in the written evidence"
+            ),
+        },
         "conditioned_mean_clean": gating["mean_clean_conditioned"],
         "unconditional_mean_clean": gating["mean_clean_unconditional"],
         "difference": gating["difference_conditioned_minus_unconditional"],

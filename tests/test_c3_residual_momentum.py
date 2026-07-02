@@ -128,3 +128,75 @@ def test_diff_bootstrap_already_correct_unaffected_by_fix():
     diffs = c3.block_bootstrap_diff(vals, in_cell, block=45, n_boot=500, seed=1)
     assert diffs is not None
     assert len(diffs) > 0
+
+
+# ------------------------------------------------------- provenance hashing
+
+
+def _synthetic_close_panel():
+    import pandas as pd
+
+    dates = pd.date_range("2024-01-02", periods=10, freq="B")
+    close = pd.DataFrame(
+        {
+            "AAA": np.linspace(100.0, 109.0, 10),
+            "BBB": np.linspace(50.0, 45.5, 10),
+        },
+        index=dates,
+    )
+    spy_close = pd.Series(np.linspace(400.0, 409.0, 10), index=dates)
+    return close, spy_close
+
+
+def test_canonical_panel_hash_changes_on_single_price_change():
+    """The provenance hash must be genuinely content-sensitive: changing
+    exactly one price observation in one ticker's series must change the
+    recorded hash, proving the mechanism would actually catch a silent
+    data change (e.g. a bar correction) rather than just looking plausible."""
+    close, spy_close = _synthetic_close_panel()
+    baseline = c3.canonical_panel_sha256(close, spy_close)
+
+    mutated = close.copy()
+    mutated.iloc[3, mutated.columns.get_loc("AAA")] += 0.01
+    mutated_hash = c3.canonical_panel_sha256(mutated, spy_close)
+
+    assert mutated_hash["close_panel_sha256"] != baseline["close_panel_sha256"]
+    # SPY-only fields must be unaffected by a ticker-panel-only change.
+    assert mutated_hash["spy_close_sha256"] == baseline["spy_close_sha256"]
+
+
+def test_canonical_panel_hash_changes_on_spy_price_change():
+    close, spy_close = _synthetic_close_panel()
+    baseline = c3.canonical_panel_sha256(close, spy_close)
+
+    mutated_spy = spy_close.copy()
+    mutated_spy.iloc[5] += 0.01
+    mutated_hash = c3.canonical_panel_sha256(close, mutated_spy)
+
+    assert mutated_hash["spy_close_sha256"] != baseline["spy_close_sha256"]
+    assert mutated_hash["close_panel_sha256"] == baseline["close_panel_sha256"]
+
+
+def test_canonical_panel_hash_stable_across_identical_reruns():
+    close, spy_close = _synthetic_close_panel()
+    h1 = c3.canonical_panel_sha256(close, spy_close)
+    h2 = c3.canonical_panel_sha256(close.copy(), spy_close.copy())
+    assert h1["close_panel_sha256"] == h2["close_panel_sha256"]
+    assert h1["spy_close_sha256"] == h2["spy_close_sha256"]
+
+
+def test_resolve_worktree_head_returns_full_commit_sha():
+    """git rev-parse HEAD must resolve to a 40-char commit SHA, not a ref
+    name -- proving the fix genuinely works in THIS worktree (a linked
+    worktree, exactly the environment the old .git/HEAD-read approach
+    could fail in)."""
+    import os as _os
+
+    repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    from pathlib import Path
+
+    head = c3.resolve_worktree_head(Path(repo_root))
+    assert head is not None
+    assert len(head) == 40
+    assert all(c in "0123456789abcdef" for c in head)
+    assert not head.startswith("ref:")
