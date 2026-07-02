@@ -141,7 +141,7 @@ def test_data_output_fresh_true_when_last_row_dated_today(tmp_path):
     p = tmp_path / "intraday_ticks.jsonl"
     _write_jsonl(p, [{"date": "2026-07-01", "ticker": "AAPL", "ts": now_iso},
                       {"date": today, "ticker": "AAPL", "ts": now_iso}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is True, reason
 
 
@@ -150,7 +150,7 @@ def test_data_output_fresh_false_when_last_row_is_stale(tmp_path):
     stale_ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=2)).isoformat()
     p = tmp_path / "paired_is.jsonl"
     _write_jsonl(p, [{"date": "2026-06-30", "ticker": "MSFT", "ts": stale_ts}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False
     assert "stale" in reason
 
@@ -163,7 +163,7 @@ def test_data_output_fresh_false_when_last_row_has_no_timestamp_field(tmp_path):
     today = dt.date.today().isoformat()
     p = tmp_path / "no_timestamp.jsonl"
     _write_jsonl(p, [{"date": today, "ticker": "AAPL"}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
     assert "timestamp" in reason
 
@@ -176,7 +176,7 @@ def test_data_output_fresh_false_when_row_timestamp_is_in_the_future(tmp_path):
     future_ts = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
     p = tmp_path / "future_ts.jsonl"
     _write_jsonl(p, [{"date": today, "ticker": "AAPL", "ts": future_ts}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
     assert "FUTURE" in reason
 
@@ -188,13 +188,13 @@ def test_data_output_fresh_true_within_small_clock_skew_tolerance(tmp_path):
     slightly_ahead = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=2)).isoformat()
     p = tmp_path / "small_skew.jsonl"
     _write_jsonl(p, [{"date": today, "ticker": "AAPL", "ts": slightly_ahead}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is True, reason
 
 
 def test_data_output_fresh_false_when_file_missing(tmp_path):
     p = tmp_path / "does_not_exist.jsonl"
-    ok, reason = liveness._data_output_fresh(str(p), "2026-07-02", liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), "2026-07-02", liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False
     assert "missing" in reason
 
@@ -202,7 +202,7 @@ def test_data_output_fresh_false_when_file_missing(tmp_path):
 def test_data_output_fresh_false_when_file_empty(tmp_path):
     p = tmp_path / "entry_timing_shadow.jsonl"
     p.write_text("")
-    ok, reason = liveness._data_output_fresh(str(p), "2026-07-02", liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), "2026-07-02", liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False
     assert "EMPTY" in reason
 
@@ -215,7 +215,7 @@ def test_data_output_fresh_false_when_last_row_missing_required_field(tmp_path):
     today = dt.date.today().isoformat()
     p = tmp_path / "no_date_field.jsonl"
     _write_jsonl(p, [{"ticker": "AAPL", "no_date_key_here": True}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
     assert "corrupt" in reason or "truncated" in reason
 
@@ -228,7 +228,7 @@ def test_data_output_fresh_false_when_final_line_is_corrupt_with_fresh_mtime(tmp
     today = dt.date.today().isoformat()
     p = tmp_path / "corrupt_tail_only.jsonl"
     p.write_text('{"date": "' + today + '", "ticker": "AAPL", "mid": 12.')  # truncated mid-write
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
 
 
@@ -236,7 +236,7 @@ def test_data_output_fresh_false_when_last_row_missing_date_value(tmp_path):
     today = dt.date.today().isoformat()
     p = tmp_path / "empty_date.jsonl"
     _write_jsonl(p, [{"date": "", "ticker": "AAPL"}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
 
 
@@ -251,7 +251,7 @@ def test_data_output_fresh_uses_prior_complete_row_when_tail_is_corrupt(tmp_path
     p = tmp_path / "mid_write.jsonl"
     good_row = json.dumps({"date": today, "ticker": "AAPL", "ts": now_iso})
     p.write_text(good_row + "\n" + '{"date": "' + today + '", "ticker": "MSFT", "ts": "')
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is True, reason
 
 
@@ -266,7 +266,7 @@ def test_data_output_fresh_false_when_prior_complete_row_is_stale_and_tail_corru
     p = tmp_path / "stale_then_corrupt.jsonl"
     stale_row = json.dumps({"date": stale, "ticker": "AAPL", "ts": f"{stale}T10:00:00+00:00"})
     p.write_text(stale_row + "\n" + '{"date": "' + today + '", "ticker": "MSFT", "mid": tru')
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
     assert "stale" in reason
 
@@ -280,7 +280,7 @@ def test_data_output_fresh_false_when_last_row_timestamp_exceeds_tight_age_bound
     stale_ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=3)).isoformat()
     p = tmp_path / "stale_ts_fresh_date.jsonl"
     _write_jsonl(p, [{"date": today, "ticker": "AAPL", "ts": stale_ts}])
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     assert ok is False, reason
     assert "exceeds" in reason
 
@@ -297,7 +297,7 @@ def test_data_output_fresh_handles_row_larger_than_fixed_tail_chunk(tmp_path, mo
     good_row = json.dumps({"date": today, "ticker": "AAPL", "ts": now_iso})
     oversized = json.dumps({"date": today, "ticker": "MSFT", "ts": now_iso, "pad": "x" * 2000})
     p.write_text(good_row + "\n" + oversized)
-    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, False)
+    ok, reason = liveness._data_output_fresh(str(p), today, liveness._row_timestamp_quote, liveness._ROW_EVENT_TIME)
     # The oversized final line's opening bytes are chopped by the 256-byte
     # tail seek, so it cannot parse; the scan must fall back to the earlier
     # complete, fresh row and report healthy through it.
@@ -349,9 +349,71 @@ def test_row_timestamp_pairing_reads_real_build_paired_record(tmp_path):
 
     p = tmp_path / "paired_is.jsonl"
     p.write_text(json.dumps(record) + "\n")
+    # freshness_basis=_FILE_MTIME (pairing is a POST-CLOSE ONE-SHOT batch
+    # collector, per the round-4 fix): the row's nested event timestamp is
+    # NOT the freshness signal — the just-written file's own mtime is.
     ok, reason = liveness._data_output_fresh(
-        str(p), "2026-07-02", liveness._row_timestamp_pairing, False)
+        str(p), "2026-07-02", liveness._row_timestamp_pairing, liveness._FILE_MTIME)
     assert ok is True, reason
+
+
+def test_postclose_healthy_run_with_morning_event_timestamps_reports_fresh(tmp_path):
+    """The exact scenario codex named: a HEALTHY post-close run, freshly
+    written (mtime ~now, e.g. right after the 13:15 PT fire), containing a
+    real pairing row whose event timestamps are from THIS MORNING (hours
+    before a 14:00 PT liveness check, near session open) — must report
+    fresh. Applying the quote feed's 10-minute event-time bound to this row
+    would incorrectly fail a perfectly healthy job; only the file's own
+    mtime (recorded moments ago by this write) may gate freshness here."""
+    morning_iso = "2026-07-02T06:35:00+00:00"  # ~09:35 ET, near session open
+    intraday_arm = _fresh_arm(morning_iso)
+    batch_arm = ArmObservation(arm="batch", eligible_ts=morning_iso,
+                                arrival_quote=QuoteRef(bid=99.9, ask=100.1, source_ts=morning_iso),
+                                fill=None)
+    record = build_paired_record(
+        date="2026-07-02", ticker="AAPL", side="buy",
+        batch_arm=batch_arm, intraday_arm=intraday_arm)
+    extracted = liveness._row_timestamp_pairing(record)
+    assert extracted is not None and extracted.isoformat().startswith(morning_iso[:19])
+    # Confirm this row genuinely WOULD fail a row_event_time/tight-bound
+    # check — proving the fix isn't accidentally passing for the wrong
+    # reason (e.g. because the row happens to also look fresh by event time).
+    hours_stale = dt.datetime.now(dt.timezone.utc) - extracted
+    assert hours_stale > liveness._TIGHT_AGE_BOUND, (
+        "test fixture's morning timestamp must actually be older than the "
+        "quote feed's 10min bound, or this test proves nothing")
+
+    p = tmp_path / "paired_is.jsonl"
+    p.write_text(json.dumps(record) + "\n")  # mtime is "now" — file just written
+    ok, reason = liveness._data_output_fresh(
+        str(p), "2026-07-02", liveness._row_timestamp_pairing, liveness._FILE_MTIME)
+    assert ok is True, reason
+
+
+def test_postclose_stale_run_with_todays_morning_rows_still_reports_stale(tmp_path):
+    """The inverse scenario codex named: an OLD file (yesterday's leftover,
+    or a job that silently stopped running) whose content HAPPENS to carry
+    today's morning event timestamps (a contrived-but-illustrative case,
+    e.g. a stale test fixture or copied file) must still report stale — the
+    check must genuinely be reading file mtime as the completion signal,
+    not accidentally passing because the row's date/event-time look
+    plausible."""
+    morning_iso = "2026-07-02T06:35:00+00:00"
+    intraday_arm = _fresh_arm(morning_iso)
+    batch_arm = ArmObservation(arm="batch", eligible_ts=morning_iso,
+                                arrival_quote=QuoteRef(bid=99.9, ask=100.1, source_ts=morning_iso),
+                                fill=None)
+    record = build_paired_record(
+        date="2026-07-02", ticker="AAPL", side="buy",
+        batch_arm=batch_arm, intraday_arm=intraday_arm)
+    p = tmp_path / "paired_is.jsonl"
+    p.write_text(json.dumps(record) + "\n")
+    old = dt.datetime.now().timestamp() - 3 * 3600  # file itself is 3h old, exceeds 90min bound
+    import os
+    os.utime(str(p), (old, old))
+    ok, reason = liveness._data_output_fresh(
+        str(p), "2026-07-02", liveness._row_timestamp_pairing, liveness._FILE_MTIME)
+    assert ok is False, reason
 
 
 def test_row_timestamp_entry_timing_reads_real_normal_entry_record(tmp_path):
@@ -370,8 +432,12 @@ def test_row_timestamp_entry_timing_reads_real_normal_entry_record(tmp_path):
 
     p = tmp_path / "entry_timing_shadow.jsonl"
     p.write_text(json.dumps(record) + "\n")
+    # freshness_basis=_FILE_MTIME applies UNCONDITIONALLY to entry-timing
+    # (round-4 fix), even for a NORMAL row that has a real entry_tick_time —
+    # that field is a market-event instant (often near session open), not a
+    # collector-completion signal, so it must not gate freshness here either.
     ok, reason = liveness._data_output_fresh(
-        str(p), "2026-07-02", liveness._row_timestamp_entry_timing, True)
+        str(p), "2026-07-02", liveness._row_timestamp_entry_timing, liveness._FILE_MTIME)
     assert ok is True, reason
 
 
@@ -380,7 +446,7 @@ def test_row_timestamp_entry_timing_censored_row_falls_back_to_file_mtime(tmp_pa
     other timestamp field (verified against the real record constructor).
     The old uniform rule would have rejected this as 'no parseable
     timestamp' even though it's a genuinely healthy censored outcome for a
-    post-close one-shot collector — allow_file_completion=True must accept
+    post-close one-shot collector — freshness_basis=_FILE_MTIME must accept
     it and use the file's own mtime as the collector-completion signal."""
     outcome = PolicyOutcome(policy="immediate", eligible=False, entry_tick=None,
                              censored_reason="no_eligible_tick")
@@ -393,13 +459,15 @@ def test_row_timestamp_entry_timing_censored_row_falls_back_to_file_mtime(tmp_pa
     p = tmp_path / "entry_timing_shadow.jsonl"
     p.write_text(json.dumps(record) + "\n")
     ok, reason = liveness._data_output_fresh(
-        str(p), "2026-07-02", liveness._row_timestamp_entry_timing, True)
+        str(p), "2026-07-02", liveness._row_timestamp_entry_timing, liveness._FILE_MTIME)
     assert ok is True, reason  # fresh file mtime (just written) carries it
 
 
 def test_row_timestamp_entry_timing_censored_row_fails_when_file_stale(tmp_path):
-    """A censored row's file-mtime fallback must still enforce the tight age
-    bound — an old file is stale even though the row content is valid."""
+    """A censored row's file-mtime basis must still enforce the postclose
+    completion age bound (90min, round-4 — wider than the quote feed's
+    10min since it's the completion signal for a once-daily batch job) —
+    an old file is stale even though the row content is valid."""
     outcome = PolicyOutcome(policy="immediate", eligible=False, entry_tick=None,
                              censored_reason="no_eligible_tick")
     name = AdmittedName(date="2026-07-02", ticker="AAPL")
@@ -407,25 +475,44 @@ def test_row_timestamp_entry_timing_censored_row_fails_when_file_stale(tmp_path)
 
     p = tmp_path / "entry_timing_shadow.jsonl"
     p.write_text(json.dumps(record) + "\n")
-    old = dt.datetime.now().timestamp() - 3600  # 1 hour ago, exceeds the 10-min bound
+    old = dt.datetime.now().timestamp() - 3 * 3600  # 3h ago, exceeds the 90-min postclose bound
     import os
     os.utime(str(p), (old, old))
     ok, reason = liveness._data_output_fresh(
-        str(p), "2026-07-02", liveness._row_timestamp_entry_timing, True)
+        str(p), "2026-07-02", liveness._row_timestamp_entry_timing, liveness._FILE_MTIME)
     assert ok is False, reason
 
 
-def test_row_timestamp_pairing_missing_timestamp_is_not_complete_without_file_fallback(tmp_path):
-    """The pairing collector is continuously-appended (allow_file_completion
-    =False) — unlike entry-timing, a pairing row with genuinely no
-    extractable timestamp anywhere must NOT fall back to file mtime; it is
-    treated as incomplete, same as a corrupt row."""
+def test_row_timestamp_pairing_missing_timestamp_falls_back_to_file_mtime(tmp_path):
+    """Round-4 correction: pairing is a POST-CLOSE ONE-SHOT batch collector
+    (freshness_basis=_FILE_MTIME), not continuously-appended — a pairing
+    row with genuinely no extractable timestamp anywhere (e.g. both arms
+    null/malformed) is STILL treated as complete via the file's own mtime,
+    the same as a censored entry-timing row. This is the OPPOSITE of the
+    prior round's behavior for this collector, corrected once codex traced
+    the real 13:15-PT-run / 14:00-PT-check schedule showing pairing's row
+    timestamps are market-event instants, not completion signals."""
     record = {"date": "2026-07-02", "ticker": "AAPL", "batch_arm": None, "intraday_arm": None}
     assert liveness._row_timestamp_pairing(record) is None
     p = tmp_path / "paired_is.jsonl"
     p.write_text(json.dumps(record) + "\n")
     ok, reason = liveness._data_output_fresh(
-        str(p), "2026-07-02", liveness._row_timestamp_pairing, False)
+        str(p), "2026-07-02", liveness._row_timestamp_pairing, liveness._FILE_MTIME)
+    assert ok is True, reason  # fresh file mtime (just written) carries it, like censored entry-timing
+
+
+def test_row_timestamp_pairing_missing_timestamp_fails_when_file_stale(tmp_path):
+    """The file-mtime fallback for a timestamp-less pairing row must still
+    enforce the postclose completion bound — an old file is stale even
+    though the row's date/ticker schema is otherwise valid."""
+    record = {"date": "2026-07-02", "ticker": "AAPL", "batch_arm": None, "intraday_arm": None}
+    p = tmp_path / "paired_is.jsonl"
+    p.write_text(json.dumps(record) + "\n")
+    old = dt.datetime.now().timestamp() - 3 * 3600  # 3h ago, exceeds the 90-min postclose bound
+    import os
+    os.utime(str(p), (old, old))
+    ok, reason = liveness._data_output_fresh(
+        str(p), "2026-07-02", liveness._row_timestamp_pairing, liveness._FILE_MTIME)
     assert ok is False, reason
 
 
@@ -434,7 +521,7 @@ def test_last_complete_jsonl_row_reads_the_final_valid_line_of_a_multiline_file(
     p = tmp_path / "multi.jsonl"
     _write_jsonl(p, [{"date": "2026-07-02", "ticker": f"T{i}", "ts": now_iso} for i in range(50)])
     row, tail_was_corrupt, has_ts = liveness._last_complete_jsonl_row(
-        str(p), liveness._row_timestamp_quote, allow_file_completion=False)
+        str(p), liveness._row_timestamp_quote, freshness_basis=liveness._ROW_EVENT_TIME)
     assert row == {"date": "2026-07-02", "ticker": "T49", "ts": now_iso}
     assert tail_was_corrupt is False
     assert has_ts is True
@@ -442,7 +529,7 @@ def test_last_complete_jsonl_row_reads_the_final_valid_line_of_a_multiline_file(
 
 def test_last_complete_jsonl_row_skips_rows_missing_timestamp_field(tmp_path):
     """A row missing its timestamp is not 'complete' for a continuously-
-    appended collector (allow_file_completion=False) — the true last line
+    appended collector (freshness_basis=liveness._ROW_EVENT_TIME) — the true last line
     fails the completeness check, so falling back to an earlier row counts
     as tail_was_corrupt=True (we did not use the file's actual last line)."""
     now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -452,7 +539,7 @@ def test_last_complete_jsonl_row_skips_rows_missing_timestamp_field(tmp_path):
         {"date": "2026-07-02", "ticker": "MSFT"},  # no timestamp — must be skipped
     ])
     row, tail_was_corrupt, has_ts = liveness._last_complete_jsonl_row(
-        str(p), liveness._row_timestamp_quote, allow_file_completion=False)
+        str(p), liveness._row_timestamp_quote, freshness_basis=liveness._ROW_EVENT_TIME)
     assert row == {"date": "2026-07-02", "ticker": "AAPL", "ts": now_iso}
     assert tail_was_corrupt is True
     assert has_ts is True
@@ -460,7 +547,7 @@ def test_last_complete_jsonl_row_skips_rows_missing_timestamp_field(tmp_path):
 
 def test_last_complete_jsonl_row_none_for_missing_file():
     row, tail_was_corrupt, has_ts = liveness._last_complete_jsonl_row(
-        "/nonexistent/path/x.jsonl", liveness._row_timestamp_quote, allow_file_completion=False)
+        "/nonexistent/path/x.jsonl", liveness._row_timestamp_quote, freshness_basis=liveness._ROW_EVENT_TIME)
     assert row is None
     assert tail_was_corrupt is False
     assert has_ts is False
@@ -479,7 +566,7 @@ def test_last_complete_jsonl_row_oversized_true_last_line_is_not_corrupt(tmp_pat
     oversized = json.dumps({"date": today, "ticker": "MSFT", "ts": now_iso, "pad": "x" * 2000})
     p.write_text(oversized)  # the ONLY line — no earlier row to fall back to
     row, tail_was_corrupt, has_ts = liveness._last_complete_jsonl_row(
-        str(p), liveness._row_timestamp_quote, allow_file_completion=False)
+        str(p), liveness._row_timestamp_quote, freshness_basis=liveness._ROW_EVENT_TIME)
     assert row is not None and row["ticker"] == "MSFT"
     assert tail_was_corrupt is False, (
         "the true last line parsed fine once expanded — it was never corrupt")

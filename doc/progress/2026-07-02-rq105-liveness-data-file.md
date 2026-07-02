@@ -155,3 +155,63 @@ tests/test_rq105_collector_scheduling.py tests/test_pit_snapshotter_scheduling.p
 `build_record()` directly in this round (not the round-3 approach of trusting a prior claim)
 before writing the extractors; every new test constructs its fixture via the actual
 production functions, not a hand-written dict guessing at field names.]
+
+## Round 5 (Codex review — event-time vs. completion-time: round-4's fields were right, the
+## freshness MEANING was still wrong for both post-close collectors)
+
+**Finding.** Round 4 correctly identified WHICH field each collector's timestamp lives in,
+but kept applying the quote feed's tight ≤10-minute *event-time* bound to all three.
+`intraday_pairing_logger` and `entry_timing_shadow` are POST-CLOSE ONE-SHOT batch jobs
+(`run_postclose_loggers.sh` fires once at 13:15 PT; `rq105_liveness_check` runs at 14:00 PT,
+~45min later, per the plists/README) whose row timestamps are MARKET-EVENT instants, often
+near session open — not proof the collector itself ran recently. A perfectly healthy
+post-close job that ran on schedule and correctly wrote today's real data would still fail
+round 4's check, since the events it reports happened hours before the post-close run.
+Round 4's `allow_file_completion=True` was also inconsistent — it only used file mtime on
+the branch where the row's own timestamp was ABSENT (the censored entry-timing case), so a
+NORMAL entry-timing row (with a real `entry_tick_time`) and every pairing row still used
+event-time with the 10-minute bound — meaning one collector's liveness MEANING silently
+changed based on policy outcome (censored vs. not).
+
+**Fix.**
+- Replaced the boolean `allow_file_completion` with an explicit `freshness_basis` of either
+  `_ROW_EVENT_TIME` (`intraday_quote_logger` — unchanged, correct: a continuous sampler's
+  last row is always recent) or `_FILE_MTIME` (`intraday_pairing_logger`,
+  `entry_timing_shadow` — the file's own mtime, applied UNCONDITIONALLY to every row from
+  these two collectors, not only timestamp-missing/censored ones).
+- New `_POSTCLOSE_COMPLETION_AGE_BOUND = 90min` for the `_FILE_MTIME` basis — covers the
+  45min postclose→liveness gap plus launchd scheduling jitter and normal runtime, while
+  remaining far tighter than "anywhere in today's ~6.5hr session." `_TIGHT_AGE_BOUND`
+  (10min) is now scoped explicitly to the quote feed only.
+- `_last_complete_jsonl_row`'s completeness rule updated to match: under `_FILE_MTIME`
+  basis, a schema-valid row is complete regardless of whether its own timestamp extracts
+  (the row's timestamp is diagnostic only, never gates completeness or freshness for these
+  two collectors) — reversing round 4's `intraday_pairing_logger` behavior specifically
+  (round 4 kept it event-time/incomplete-without-timestamp; that was itself wrong once the
+  postclose/batch nature of this collector was correctly understood).
+- Added `check_collector_data_outputs(data_root, as_of) -> dict[name, {status, path,
+  reason}]` — a STABLE PUBLIC interface encapsulating the per-collector extractor/basis
+  dispatch behind one call, so external consumers never need the internal tuple shape.
+  `renquant-orchestrator#247`'s KPI scorecard currently imports `_data_outputs`/
+  `_data_output_fresh` directly and will break against this round's internal signature
+  change (4-tuple → new basis semantics) — flagged as a required follow-up in #247, not
+  fixed here (out of scope for this file's own worktree; #247 needs its own PR to switch to
+  the new public function).
+
+**Evidence:** rewrote/added tests using the REAL `build_paired_record()`/`build_record()`
+constructors for every scenario, including the two codex named explicitly: a healthy
+post-close run whose row event-timestamps are from this morning (hours old) but whose FILE
+was freshly written — reports fresh; an old file (mtime 3h stale) containing today's morning
+event-timestamped rows — still reports stale, proving the check genuinely reads file mtime
+as the completion signal rather than being fooled by plausible-looking row content. Also
+added the paired positive/negative mtime-staleness tests for the pairing collector's
+no-timestamp case (round 4 only tested entry-timing's censored case).
+`/Users/renhao/git/github/RenQuant/.venv/bin/python -m pytest
+tests/test_rq105_collector_scheduling.py -q` → 42 passed (Python 3.10.20), zero regressions.
+
+[VERIFIED — read `ops/renquant105/README.md` and `com.renquant.rq105-postclose.plist`
+directly to confirm the actual 13:15 PT postclose-fire / 14:00 PT liveness-check schedule
+(the 45min gap) before choosing the 90-minute bound, rather than picking an arbitrary
+number; every new test's fixture timestamp was checked against `_TIGHT_AGE_BOUND` to
+confirm it genuinely WOULD fail the old event-time check, proving the test exercises the
+real fix rather than passing coincidentally.]

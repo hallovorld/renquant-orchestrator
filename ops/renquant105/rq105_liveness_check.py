@@ -19,28 +19,49 @@ Checked (session days only):
   collector data outputs  each collector's OWN ``default_*_path()`` resolver (not a hardcoded
                            path and not a glob) — verified by scanning the tail JSONL lines
                            BACKWARD for the most recent COMPLETE row with a valid "date"+"ticker"
-                           schema, using a PER-COLLECTOR timestamp extractor (the three
-                           collectors do NOT share one row schema — verified against their real
-                           record constructors, not assumed):
-                             intraday_quote_logger:    top-level ts/source_ts/tick_time
-                             intraday_pairing_logger:  nested in intraday_arm/batch_arm
-                                                        (eligible_ts, arrival_quote.source_ts)
-                             entry_timing_shadow:      top-level entry_tick_time — legitimately
-                                                        None on a censored/no-entry row; this
-                                                        collector is a POST-CLOSE ONE-SHOT batch
-                                                        write (not continuously appended), so a
-                                                        censored row's freshness falls back to
-                                                        the file's own mtime (the genuine
-                                                        collector-completion signal for a
-                                                        one-shot write), not a row event time
-                           A corrupt/truncated/missing-field last row is NEVER treated as
-                           evidence of liveness via a raw-mtime fallback for the two
-                           continuously-appended collectors (that was fail-open: a process
-                           appending garbage with a fresh mtime read as healthy). Where a
-                           row-level timestamp IS available, it must be within a tight
-                           <=10-minute bound of wall-clock now; a timestamp materially AHEAD of
-                           now (beyond a small clock-skew tolerance) is rejected as
-                           corrupt/clock-issue, not treated as "very fresh".
+                           schema.
+
+                           FRESHNESS BASIS IS SPLIT BY COLLECTOR KIND — this is not one shared
+                           row schema OR one shared freshness meaning (round-4 fix; round-3 got
+                           the per-collector FIELD right but still applied event-time age to all
+                           three, which is wrong for two of them):
+
+                             intraday_quote_logger (CONTINUOUS, self-loops all session):
+                               row_event_time basis — top-level ts/source_ts/tick_time, must be
+                               within a tight <=10-minute bound of wall-clock now. This IS the
+                               right signal here: a healthy sampler's last row is always recent.
+
+                             intraday_pairing_logger / entry_timing_shadow (POST-CLOSE ONE-SHOT
+                             BATCH — run_postclose_loggers.sh fires once at 13:15 PT, liveness
+                             checks at 14:00 PT, ~45min later per the plists/README):
+                               file_mtime basis — the row's own timestamp fields (nested
+                               intraday_arm/batch_arm.eligible_ts for pairing; top-level
+                               entry_tick_time for entry-timing, legitimately None on a censored
+                               row) are MARKET-EVENT instants, often near the session open —
+                               NOT a collector-completion signal. A healthy job that ran on
+                               schedule and wrote today's real data will have event timestamps
+                               hours old at 14:00 PT; applying the quote feed's 10-minute bound
+                               to them would fail a perfectly healthy post-close run. These two
+                               collectors instead use the file's own mtime (the genuine
+                               "when did this one-shot write happen" signal) against a wider,
+                               still-tight bound (90 minutes — covers the 45min postclose→
+                               liveness gap plus launchd scheduling jitter and runtime, while
+                               remaining far tighter than "anywhere in today's ~6.5hr session").
+                               Applied CONSISTENTLY to every row from these two collectors, not
+                               only censored/timestamp-missing ones — round-3's inconsistency
+                               (mtime only on the no-timestamp branch) meant a collector's
+                               liveness MEANING silently changed based on policy outcome.
+
+                           A corrupt/truncated/missing-required-field last row is NEVER treated
+                           as evidence of liveness via a raw-mtime fallback substituting for
+                           genuine schema validation (that was the original fail-open bug: a
+                           process appending garbage with a fresh mtime read as healthy) — mtime
+                           is only ever used as the FRESHNESS metric for the two collectors where
+                           it is the correct signal, never as a substitute for the date+ticker
+                           schema check itself. Where row_event_time IS the basis, a timestamp
+                           materially AHEAD of now (beyond a small clock-skew tolerance) is
+                           rejected as corrupt/clock-issue, not treated as "very fresh"; the same
+                           rejection applies to a file_mtime basis reading a future mtime.
 """
 from __future__ import annotations
 
@@ -78,24 +99,29 @@ def _session_calendar():
     return default_session_calendar()
 
 
-def _data_outputs(data_root: Path) -> list[tuple[str, Path, "TimestampExtractor", bool]]:
+_ROW_EVENT_TIME = "row_event_time"
+_FILE_MTIME = "file_mtime"
+
+
+def _data_outputs(data_root: Path) -> list[tuple[str, Path, "TimestampExtractor", str]]:
     """Exact per-collector data-output contract, resolved via each module's
     OWN path resolver (never a hardcoded/guessed relative path or a glob) —
     verifies against the collector's actual current contract, so this check
     cannot silently drift out of sync if a collector's output path ever
     changes.
 
-    Each entry is ``(name, path, timestamp_extractor, allow_file_completion)``.
+    Each entry is ``(name, path, timestamp_extractor, freshness_basis)``.
     The three collectors do NOT share one row schema (verified against their
     real record constructors, not assumed) — each gets its OWN
-    ``timestamp_extractor(row) -> datetime | None``.
-    ``allow_file_completion=True`` means: a schema-valid row whose extractor
-    returns ``None`` (no per-row timestamp available, e.g. a legitimately
-    censored entry-timing row) is still treated as a complete/healthy row,
-    with the file's own mtime used as the collector-completion signal
-    instead of a row-level event time — correct ONLY for a genuine
-    post-close one-shot batch writer, never for a continuously-appended
-    feed (where it would reintroduce the original fail-open mtime bug)."""
+    ``timestamp_extractor(row) -> datetime | None``. ``freshness_basis`` is
+    ``_ROW_EVENT_TIME`` (the row's own extracted timestamp is the age
+    signal, tight bound — correct for a continuously-sampled feed) or
+    ``_FILE_MTIME`` (the file's own mtime is the age signal, wider bound —
+    correct for a post-close one-shot batch writer, where the row's own
+    timestamp is a market-event instant, not a collector-completion time;
+    see module docstring). ``freshness_basis`` applies UNCONDITIONALLY to
+    every row from that collector, not only ones where the extractor
+    returns None."""
     _orch_src_on_path()
     from renquant_orchestrator.intraday_quote_logger import default_tick_feed_path
     from renquant_orchestrator.intraday_pairing_logger import (
@@ -107,11 +133,11 @@ def _data_outputs(data_root: Path) -> list[tuple[str, Path, "TimestampExtractor"
 
     return [
         ("intraday_quote_logger", default_tick_feed_path(data_root),
-         _row_timestamp_quote, False),
+         _row_timestamp_quote, _ROW_EVENT_TIME),
         ("intraday_pairing_logger", pairing_pilot_path(data_root),
-         _row_timestamp_pairing, False),
+         _row_timestamp_pairing, _FILE_MTIME),
         ("entry_timing_shadow", shadow_pilot_path(data_root),
-         _row_timestamp_entry_timing, True),
+         _row_timestamp_entry_timing, _FILE_MTIME),
     ]
 
 
@@ -143,12 +169,21 @@ _TAIL_CHUNK_BYTES = 8192
 _TAIL_CHUNK_MAX_BYTES = 8192 * 16  # cap the expanding read so a truly pathological
 # file (e.g. one enormous unparseable blob) cannot make this loop the whole file
 # into memory just to check freshness.
-# Tight bound for the "writer is mid-write, last physical line is truncated,
-# but an earlier complete row is fresh" case. All three collectors default to
-# a 60s sample cadence (intraday_quote_logger.DEFAULT_CADENCE_SEC); 10 minutes
-# is several missed cycles of slack for a transient hiccup while still being
-# far tighter than "anywhere in today" (the bug this replaces).
+# Tight bound for the CONTINUOUSLY-SAMPLED quote feed only (row_event_time
+# basis) — the "writer is mid-write, last physical line is truncated, but an
+# earlier complete row is fresh" case. intraday_quote_logger's default 60s
+# sample cadence (DEFAULT_CADENCE_SEC) means 10 minutes is several missed
+# cycles of slack for a transient hiccup, while still being far tighter than
+# "anywhere in today". Scoped to this ONE collector — the post-close batch
+# collectors have no sampling cadence at all (they run once per day) and use
+# _POSTCLOSE_COMPLETION_AGE_BOUND below instead.
 _TIGHT_AGE_BOUND = dt.timedelta(minutes=10)
+# Wider bound for the two POST-CLOSE ONE-SHOT batch collectors (file_mtime
+# basis) — covers the ~45min gap between run_postclose_loggers.sh's 13:15 PT
+# fire and rq105_liveness_check's own 14:00 PT fire (per the plists/README),
+# plus launchd scheduling jitter and normal script runtime, while remaining
+# far tighter than "anywhere in today's ~6.5hr session" (the bug this fixes).
+_POSTCLOSE_COMPLETION_AGE_BOUND = dt.timedelta(minutes=90)
 # A row's own timestamp materially AHEAD of wall-clock now is clock skew or
 # source corruption, not freshness — negative age must not read as "very
 # fresh". A few seconds covers genuine inter-machine clock drift; this is
@@ -206,9 +241,10 @@ def _row_timestamp_entry_timing(row: dict) -> dt.datetime | None:
     """entry_timing_shadow.build_record(): top-level ``entry_tick_time``,
     legitimately ``None`` on a censored/no-entry-eligible row (verified
     against the real record constructor — ``entry.tick_time if entry else
-    None``). A censored row has no OTHER timestamp field at all; callers
-    must use ``allow_file_completion=True`` for this collector (see
-    ``_data_outputs``) rather than treating a censored row as incomplete."""
+    None``). A censored row has no OTHER timestamp field at all; this
+    collector uses ``freshness_basis=_FILE_MTIME`` (see ``_data_outputs``)
+    precisely because a per-row event time cannot be relied on to exist at
+    all, let alone serve as a completion signal."""
     return _parse_iso(row.get("entry_tick_time"))
 
 
@@ -216,7 +252,7 @@ TimestampExtractor = "Callable[[dict], dt.datetime | None]"
 
 
 def _last_complete_jsonl_row(
-    path: str, extract_ts, *, allow_file_completion: bool,
+    path: str, extract_ts, *, freshness_basis: str,
 ) -> tuple[dict | None, bool, bool]:
     """Scan backward through the file's tail for the most recent COMPLETE,
     parseable JSON row with the required schema fields present. Starts with a
@@ -229,15 +265,17 @@ def _last_complete_jsonl_row(
     ``extract_ts`` is the collector-specific timestamp extractor (see
     ``_row_timestamp_quote``/``_row_timestamp_pairing``/
     ``_row_timestamp_entry_timing``). A row missing date/ticker, or failing
-    to parse as JSON, is never "complete" regardless of ``allow_file_
-    completion``. When ``extract_ts(row)`` is ``None`` on an otherwise
-    schema-valid row: if ``allow_file_completion`` is True (post-close
-    one-shot collectors only, e.g. a genuinely censored entry-timing row),
-    the row IS accepted as complete with no row-level timestamp, and the
-    caller falls back to file mtime; if False (continuously-appended
-    collectors), the row is treated as incomplete and the backward scan
-    continues — a missing timestamp on a feed that's supposed to always
-    carry one must never silently pass via a weaker date-only fallback.
+    to parse as JSON, is never "complete" regardless of ``freshness_basis``.
+    When ``freshness_basis`` is ``_FILE_MTIME`` (post-close one-shot
+    collectors): a schema-valid row is complete regardless of whether
+    ``extract_ts(row)`` returns a value — the row's own timestamp (if any)
+    is a market-event instant, not the freshness signal, so its absence
+    (e.g. a genuinely censored entry-timing row) does not disqualify the
+    row. When ``freshness_basis`` is ``_ROW_EVENT_TIME`` (the continuously-
+    sampled quote feed): a row is complete ONLY if ``extract_ts(row)`` also
+    returns a value — a missing timestamp on a feed that's supposed to
+    always carry one must never silently pass via a weaker date-only
+    fallback (the original fail-open bug this file exists to close).
 
     Returns ``(row_or_None, tail_was_corrupt, row_has_timestamp)``.
     ``tail_was_corrupt`` is True iff the row ultimately RETURNED is NOT the
@@ -274,7 +312,7 @@ def _last_complete_jsonl_row(
                 not isinstance(row.get(f), str) or not row.get(f) for f in _REQUIRED_ROW_FIELDS
             )
             has_timestamp = schema_ok and extract_ts(row) is not None
-            complete = schema_ok and (has_timestamp or allow_file_completion)
+            complete = schema_ok and (has_timestamp or freshness_basis == _FILE_MTIME)
             if not complete:
                 if is_true_last_line and not at_max_read:
                     # The true last line failed to parse in THIS read — it
@@ -299,24 +337,27 @@ def _last_complete_jsonl_row(
         chunk = min(chunk * 2, _TAIL_CHUNK_MAX_BYTES)
 
 
-def _data_output_fresh(path: str, today_iso: str, extract_ts, allow_file_completion: bool) -> tuple[bool, str]:
+def _data_output_fresh(path: str, today_iso: str, extract_ts, freshness_basis: str) -> tuple[bool, str]:
     if not os.path.exists(path):
         return False, f"{path} missing"
     if os.path.getsize(path) == 0:
         return False, f"{path} EMPTY"
     row, tail_was_corrupt, has_timestamp = _last_complete_jsonl_row(
-        path, extract_ts, allow_file_completion=allow_file_completion)
+        path, extract_ts, freshness_basis=freshness_basis)
     if row is None:
         return False, (
             f"{path} no parseable complete row (date+ticker"
-            f"{'' if allow_file_completion else '+timestamp'}) found in tail "
+            f"{'' if freshness_basis == _FILE_MTIME else '+timestamp'}) found in tail "
             "— corrupt/truncated/missing required field")
     date_val = row["date"]
     if date_val != today_iso:
         return False, f"{path} last complete row date={date_val!r} != today {today_iso!r} (stale)"
     corrupt_note = " [most-recent physical line was truncated/corrupt; used prior complete row]" if tail_was_corrupt else ""
 
-    if has_timestamp:
+    if freshness_basis == _ROW_EVENT_TIME:
+        # Continuously-sampled feed: the row's own event timestamp IS the
+        # freshness signal — a healthy sampler's last row is always recent.
+        assert has_timestamp  # _last_complete_jsonl_row only returns a row this basis if it has one
         ts_val = extract_ts(row)
         assert ts_val is not None
         age = dt.datetime.now(dt.timezone.utc) - ts_val
@@ -328,24 +369,28 @@ def _data_output_fresh(path: str, today_iso: str, extract_ts, allow_file_complet
         if age > _TIGHT_AGE_BOUND:
             return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}"
     else:
-        # allow_file_completion path only (e.g. a genuinely censored
-        # entry-timing row): no row-level event time exists at all for a
-        # post-close one-shot batch writer, so the file's own mtime IS the
-        # collector-completion signal — the write time on disk literally
-        # records when this one-shot job ran, unlike a continuously-appended
-        # feed where mtime alone is fail-open (the original bug this file's
-        # earlier round fixed).
+        # POST-CLOSE ONE-SHOT batch collector (pairing / entry-timing):
+        # the row's own timestamp (if any) is a market-event instant, not a
+        # collector-completion signal — applying the quote feed's tight
+        # bound to it would fail a perfectly healthy job whose real data
+        # simply describes an event from hours earlier in the session. The
+        # file's own mtime is the genuine "when did this one-shot write
+        # happen" signal, and is used UNCONDITIONALLY for every row from
+        # these collectors (has_timestamp or not) against the wider
+        # postclose bound — never the row's event time, and never the
+        # quote feed's 10-minute bound.
+        ts_note = "" if has_timestamp else " (row has no per-row event timestamp — censored/no-entry row)"
         mtime = dt.datetime.fromtimestamp(os.path.getmtime(path), tz=dt.timezone.utc)
         age = dt.datetime.now(dt.timezone.utc) - mtime
         if age < -_CLOCK_SKEW_TOLERANCE:
             return False, (
                 f"{path} file mtime is {-age} in the FUTURE, beyond the "
                 f"{_CLOCK_SKEW_TOLERANCE} clock-skew tolerance — treated as corrupt/clock "
-                f"issue{corrupt_note}")
-        if age > _TIGHT_AGE_BOUND:
+                f"issue{corrupt_note}{ts_note}")
+        if age > _POSTCLOSE_COMPLETION_AGE_BOUND:
             return False, (
-                f"{path} last row has no per-row timestamp (censored) and file mtime "
-                f"age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}")
+                f"{path} file mtime age={age} exceeds the postclose-completion bound "
+                f"{_POSTCLOSE_COMPLETION_AGE_BOUND}{corrupt_note}{ts_note}")
 
     if tail_was_corrupt:
         print(f"WARNING: {path} tail had a truncated/corrupt final line (writer likely mid-write); "
@@ -375,11 +420,9 @@ def main() -> int:
         # (default_tick_feed_path), never by the plumbing's chatter.
 
     data_root = Path(RQ)
-    for name, full_path, extract_ts, allow_file_completion in _data_outputs(data_root):
-        ok, reason = _data_output_fresh(
-            str(full_path), today_iso, extract_ts, allow_file_completion)
-        if not ok:
-            missing.append(f"{name}: {reason}")
+    for name, result in check_collector_data_outputs(data_root, today).items():
+        if result["status"] != "ok":
+            missing.append(f"{name}: {result['reason']}")
 
     if missing:
         _alert(f"rq105 LIVENESS: {len(missing)} issue(s) {today_iso}",
@@ -388,6 +431,34 @@ def main() -> int:
         return 1
     print(f"rq105 liveness OK {today_iso}")
     return 0
+
+
+def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, dict]:
+    """STABLE PUBLIC interface — the one function external consumers (e.g.
+    renquant-orchestrator#247's KPI scorecard) should call for per-collector
+    data-output liveness. Encapsulates the per-collector timestamp-extractor
+    and freshness-basis dispatch internals above (``_data_outputs``,
+    ``_data_output_fresh``, ``_row_timestamp_*``) behind one call so a
+    consumer never needs to know which of the three collectors uses
+    row-event-time vs. file-mtime freshness, or how many positional fields
+    ``_data_outputs()``'s tuples currently carry — that internal shape is
+    free to change in a future round without breaking callers of this
+    function.
+
+    Returns ``{collector_name: {"status": "ok" | "stale_or_missing",
+    "path": str, "reason": str | None}}`` — one entry per collector in
+    ``_data_outputs()``, independent of the others (a consumer can report
+    each collector separately or aggregate, its choice)."""
+    out: dict[str, dict] = {}
+    today_iso = as_of.isoformat()
+    for name, full_path, extract_ts, freshness_basis in _data_outputs(data_root):
+        ok, reason = _data_output_fresh(str(full_path), today_iso, extract_ts, freshness_basis)
+        out[name] = {
+            "status": "ok" if ok else "stale_or_missing",
+            "path": str(full_path),
+            "reason": reason if not ok else None,
+        }
+    return out
 
 
 if __name__ == "__main__":
