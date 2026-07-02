@@ -103,3 +103,55 @@ tests/test_rq105_collector_scheduling.py tests/test_pit_snapshotter_scheduling.p
 [VERIFIED — ran the exact commands above in this session; syntax-checked the modified
 module directly; re-read all three collectors' write code to confirm the
 ts/source_ts/tick_time-unconditional claim before relying on it, rather than assuming it.]
+
+## Round 4 (Codex review): the round-3 "unconditional" claim was itself wrong — per-collector schema mismatch
+
+**Finding.** Round 3's verification claim ("re-read all three collectors' write code") was
+incomplete — it apparently checked field NAMES existed somewhere in each module without
+tracing which are actually TOP-LEVEL on the emitted record. Codex traced the real record
+constructors and found: `intraday_pairing_logger.build_paired_record()` writes NO top-level
+timestamp field at all (timing lives nested in `batch_arm`/`intraday_arm` —
+`ArmObservation.eligible_ts`, `QuoteRef.source_ts`); `entry_timing_shadow.build_record()`
+writes top-level `entry_tick_time` (not `tick_time`), legitimately `None` on a
+censored/no-entry-eligible row. Round 3's mandatory-top-level-field rule would have
+REJECTED every real pairing row and every real censored entry-timing row as "corrupt" — a
+production-breaking false-liveness-failure regression the round-2/3 synthetic tests (quote-
+like rows only) could not catch, since they never exercised the actual pairing/entry-timing
+record shapes.
+
+**Fix.**
+- `_data_outputs()` now returns `(name, path, timestamp_extractor, allow_file_completion)` —
+  a per-collector extractor instead of one shared rule: `_row_timestamp_quote` (unchanged
+  top-level fallback), `_row_timestamp_pairing` (reads nested arm fields, intraday arm
+  preferred over batch), `_row_timestamp_entry_timing` (reads `entry_tick_time`).
+- `entry_timing_shadow` is a genuine POST-CLOSE ONE-SHOT batch writer (not continuously
+  appended) — a censored row's freshness now falls back to the file's own mtime
+  (`allow_file_completion=True`), the legitimate collector-completion signal for a
+  once-daily write. This differs in kind from the original round-2 mtime-alone bug: that
+  bug applied mtime-only trust to a CONTINUOUSLY-appended feed (where mtime cannot prove
+  recent CONTENT); here mtime genuinely IS "when this one-shot job ran."
+- `intraday_pairing_logger` stays `allow_file_completion=False` — it's continuously
+  appended, so a row with no extractable timestamp anywhere is still treated as incomplete,
+  same as a corrupt row (never a silent file-mtime fallback for this collector).
+- Fixed a secondary `tail_was_corrupt` diagnostic bug found while restructuring the scan:
+  an oversized true-last-line that needed a bigger read but ultimately parsed successfully
+  was being reported as `tail_was_corrupt=True` even though the returned row genuinely WAS
+  the file's actual last line (just needed more bytes) — corrected to reflect whether we
+  actually fell back to an EARLIER row, not a transient first-pass failure that resolved.
+- Module docstring, PR body corrected to remove the round-3 overclaim and describe the real
+  per-collector contract.
+
+**Evidence:** 6 new tests build rows via the REAL `build_paired_record()`/`build_record()`
+constructors (not synthetic quote-like dicts): a normal pairing row, a normal entry-timing
+row (`entry_tick_time` present), a censored entry-timing row (file-mtime fallback, both
+fresh-passes and stale-file-fails cases), and a pairing row with no extractable timestamp
+(correctly fails, no file-mtime escape hatch for this collector). Plus a direct test proving
+the oversized-true-last-line diagnostic fix.
+`/Users/renhao/git/github/RenQuant/.venv/bin/python -m pytest
+tests/test_rq105_collector_scheduling.py tests/test_pit_snapshotter_scheduling.py -q` →
+60 passed (Python 3.10.20), zero regressions.
+
+[VERIFIED — read `build_paired_record()`, `ArmObservation`/`QuoteRef` dataclasses, and
+`build_record()` directly in this round (not the round-3 approach of trusting a prior claim)
+before writing the extractors; every new test constructs its fixture via the actual
+production functions, not a hand-written dict guessing at field names.]
