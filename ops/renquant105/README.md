@@ -110,3 +110,21 @@ PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
 3. This package intentionally ships as REPO FILES + install doc: the loop that produced it
    advances direction only — installation on the machine is the landing step and stays with the
    operator/lander per the loop's charter.
+
+## Addendum (batch-scores export + shadow serving — resolves open item #1)
+
+| File | Role | Schedule (PT, weekdays) |
+|---|---|---|
+| `export_batch_scores.py` | export the FROZEN batch score vector (latest pre-session full run → `data/rq105/batch_scores_<date>.json` + meta) | 06:15 |
+| `run_shadow_serving.sh` | post-close replay of `shadow_realtime_serving` at 4 fixed ET checkpoints (10:00/12:00/14:00/15:30, DST-correct) against the frozen vector | 13:45 |
+| `com.renquant.rq105-{batch-scores-export,shadow-serving}.plist` | launchd jobs | as above |
+
+Install mirrors the main package:
+```bash
+for p in batch-scores-export shadow-serving; do
+  cp /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/com.renquant.rq105-$p.plist \
+     ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.renquant.rq105-$p.plist
+done
+```
+Fail-safety: no export → shadow serving SKIPS the day with an ntfy alert (never serves a
+stale vector silently); the exporter refuses runs with <40 scored names.

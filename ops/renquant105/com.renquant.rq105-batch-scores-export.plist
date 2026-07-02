@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.renquant.rq105-batch-scores-export</string>
+  <key>ProgramArguments</key><array><string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/export_batch_scores.py</string></array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq105/launchd_batch-scores-export.out</string>
+  <key>StandardErrorPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq105/launchd_batch-scores-export.err</string>
+</dict>
+</plist>
