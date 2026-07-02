@@ -9,8 +9,8 @@ no orders, positions, pins, gates, or canonical data paths.
 
 | File | Role | Schedule (PT, weekdays) |
 |---|---|---|
-| `run_estimate_snapshotter.sh` | daily snapshot via `renquant_base_data.fmp_estimate_revisions` | 14:30 |
-| `pit_liveness_check.py` | today's dated dir has parquet(s)+manifest, else ntfy | 15:00 |
+| `run_estimate_snapshotter.sh` | daily snapshot via `renquant_base_data.fmp_estimate_revisions`, non-blocking `mkdir`-lock guarded (macOS has no `flock(1)` CLI) | 14:30 |
+| `pit_liveness_check.py` | today's dated dir has ALL FOUR endpoint manifests published (`status=="ok"`, `as_of`==today, non-zero-byte parquet), NYSE-session-aware, else ntfy | 15:00 |
 | `com.renquant.pit-{estimate-snapshot,liveness}.plist` | launchd jobs | as above |
 
 ## Install (operator / lander)
@@ -20,14 +20,26 @@ no orders, positions, pins, gates, or canonical data paths.
 git clone --branch main https://github.com/hallovorld/renquant-base-data.git \
   /Users/renhao/git/github/renquant-base-data-run
 
-# 2. Install + load (assumes the orchestrator run checkout from ops/renquant105/README):
+# 2. Create the log directory BEFORE loading any plist — launchd resolves
+#    StandardOutPath/StandardErrorPath at job-spawn time and will NOT create
+#    a missing parent directory itself; the job fails to start if this is skipped.
+mkdir -p /Users/renhao/git/github/RenQuant/logs/pit_snapshots
+
+# 3. Install + bootstrap (assumes the orchestrator run checkout from ops/renquant105/README).
+#    Current-macOS launchctl verbs (load/unload are deprecated):
 chmod +x /Users/renhao/git/github/renquant-orchestrator-run/ops/pit/*.sh
 for p in estimate-snapshot liveness; do
   cp /Users/renhao/git/github/renquant-orchestrator-run/ops/pit/com.renquant.pit-$p.plist \
-     ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.renquant.pit-$p.plist
+     ~/Library/LaunchAgents/
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.renquant.pit-$p.plist
 done
+# Force-run once now to smoke-test end to end (bypasses the schedule):
+#   launchctl kickstart gui/$(id -u)/com.renquant.pit-estimate-snapshot
+# Uninstall:
+#   launchctl bootout gui/$(id -u)/com.renquant.pit-estimate-snapshot
+#   launchctl bootout gui/$(id -u)/com.renquant.pit-liveness
 
-# 3. Smoke (safe any time; --dry-run fetches nothing):
+# 4. Smoke (safe any time; --dry-run fetches nothing):
 PYTHONPATH=/Users/renhao/git/github/renquant-base-data-run/src \
   /Users/renhao/git/github/RenQuant/.venv/bin/python -m renquant_base_data.fmp_estimate_revisions \
   --env /Users/renhao/git/github/RenQuant/.env --dry-run
@@ -36,7 +48,8 @@ PYTHONPATH=/Users/renhao/git/github/renquant-base-data-run/src \
 ## Acceptance (N2 AC, #231 §1)
 
 3 consecutive daily appends with write-time `available_at`/`fetched_at` stamps + a missed-day
-alert test (rename a day dir, run the liveness check, restore).
+alert test (rename a day dir, run the liveness check, restore) + a concurrency test (two
+overlapping invocations, exactly one proceeds — see `tests/test_pit_snapshotter_scheduling.py`).
 
 ## Notes
 
