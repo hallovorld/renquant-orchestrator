@@ -14,18 +14,40 @@ standing measurement plan):
     inputs are the as-of date (override with KPI_AS_OF=YYYY-MM-DD) and file mtimes.
 
 Metrics (source of truth for definitions: doc/research/2026-07-02-rs6-kpi-scorecard.md):
-  1. deployed_fraction          — 1 - cash/portfolio_value, latest live pipeline_runs row
-  2. floor_gap_vs_spy           — realized idle-cash foregone-SPY attribution
+  1. deployed_fraction          — 1 - cash/portfolio_value, latest CANONICAL FULL live
+                                  pipeline_runs row (full-run status via candidate_scores
+                                  JOIN+count, never pipeline_runs.n_candidates, which is
+                                  unpopulated in production)
+  2. floor_gap_vs_spy           — realized idle-cash foregone-SPY attribution over the
+                                  same canonical FULL-run daily series
                                   (method family: doc/research/2026-07-02-rs1-parking-sleeve.md §1)
   3. gate_verdict_age           — wf_gate_metadata freshness on the serving artifact;
                                   no authoritative verdict => "mute since 2026-05-18"
   4. ledger_coverage            — % of aged live candidate_scores rows joinable to a
                                   non-null forward outcome (ticker_forward_returns.fwd_20d)
-  5. pit_accrual_days           — count of dated dirs in RenQuant/data/estimate_snapshots
-  6. collector_liveness         — newest-file mtimes under logs/rq105 + logs/renquant105_pilot
+  5. pit_accrual_days           — dated dirs under RenQuant/data/estimate_snapshots that
+                                  PASS ops/pit/pit_liveness_check.check_snapshot()'s full
+                                  4-endpoint publication contract (imported, NOT
+                                  re-implemented — single-impl rule); a directory that
+                                  merely exists but fails the contract is excluded, not
+                                  counted
+  6. collector_liveness         — ops/renquant105/rq105_liveness_check.py's own per-collector
+                                  path resolvers (_data_outputs) and content validator
+                                  (_data_output_fresh — last JSONL row's own date field,
+                                  NOT directory mtime), imported unchanged; every collector
+                                  reported independently
   7. calibrator_sign_laundered  — latest daily FULL run's counters_json counter
   8. buy_side_decision_tc       — scripts/poc_transfer_coefficient.py round-3 method
                                   (imported, NOT re-implemented — single-impl rule)
+
+Provenance: every DB-derived metric records the exact canonical run_id(s)/date(s) it read
+plus a content hash of the deterministic query extract that produced its value (NOT just
+the mutable runs.alpaca.db file's mtime+size, which cannot prove which rows were actually
+read nor distinguish two DB states that happen to share a size/mtime); pit_accrual_days
+records a hash of the validated manifests; collector_liveness records a hash of the
+specific row that determined freshness. output_content_sha256 (hash over the metrics
+payload) proves run-to-run output reproducibility but does NOT substitute for this
+per-metric source provenance.
 
 Reproduce:
   /Users/renhao/git/github/RenQuant/.venv/bin/python scripts/kpi_scorecard.py
@@ -171,10 +193,12 @@ def metric_deployed_fraction(con) -> dict:
             "cash": round(float(latest["cash"]), 2),
             "trailing_5_session_mean": round(float(trailing5["deployed"].mean()), 4),
             "trailing_5_sessions": trailing5["run_date"].tolist(),
+            "canonical_full_run_ids": canon["run_id"].tolist(),
+            "canonical_extract_sha256": _extract_hash(canon),
         },
-        "source": "runs.alpaca.db pipeline_runs (run_type='live', n_candidates >= "
-                  f"{MIN_FULL_RUN_CANDIDATES}), latest row by created_at among FULL runs "
-                  "only; trailing mean over the same canonical daily series",
+        "source": "runs.alpaca.db pipeline_runs (run_type='live') JOIN candidate_scores "
+                  f"count >= {MIN_FULL_RUN_CANDIDATES}, latest row by created_at among "
+                  "FULL runs only; trailing mean over the same canonical daily series",
         "method": "deployed = 1 - cash/portfolio_value, computed on the latest CANONICAL "
                   "FULL run (not the raw latest pipeline_runs row by created_at — an "
                   "intraday monitor pass can be more recent than the day's full run and "
@@ -209,8 +233,10 @@ def metric_floor_gap_vs_spy(con, as_of: dt.date) -> dict:
             "n_sessions": int(len(win)),
             "avg_cash_weight_pct": round(float(win["cash_weight"].mean()) * 100.0, 1),
             "spy_span_return_pct": round(spy_span, 1),
+            "canonical_full_run_ids": win["run_id"].tolist(),
+            "canonical_extract_sha256": _extract_hash(win[["run_id", "run_date", "cash", "portfolio_value"]]),
         },
-        "source": "runs.alpaca.db pipeline_runs (canonical daily live rows) + "
+        "source": "runs.alpaca.db pipeline_runs (canonical daily live FULL rows) + "
                   "data/ohlcv/SPY/1d.parquet close",
         "method": "for each canonical session t (last live row per run_date, trading days "
                   "only): foregone += cash_weight(t) * SPY close-to-close return t->t+1; "
@@ -293,6 +319,8 @@ def metric_ledger_coverage(con, as_of: dt.date) -> dict:
             "n_aged_rows": int(len(cov)),
             "joined_any_pct": round(float(cov["joined"].mean()) * 100.0, 1),
             "aged_cutoff_days": LEDGER_AGED_CUTOFF_DAYS,
+            "run_date_range": [cov["run_date"].min(), cov["run_date"].max()],
+            "extract_sha256": _extract_hash(cov),
         },
         "source": "runs.alpaca.db candidate_scores JOIN pipeline_runs (run_date) "
                   "LEFT JOIN ticker_forward_returns on (as_of_date, ticker)",
@@ -314,7 +342,7 @@ def metric_pit_accrual_days(as_of: dt.date) -> dict:
     day here cannot be corrected later — it has to be right the first time."""
     if not os.path.isdir(ESTIMATE_SNAPSHOTS):
         raise FileNotFoundError(ESTIMATE_SNAPSHOTS)
-    from pit_liveness_check import check_snapshot  # single-impl rule
+    from pit_liveness_check import ENDPOINTS, check_snapshot  # single-impl rule
 
     pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
     candidate_dirs = sorted(
@@ -322,12 +350,22 @@ def metric_pit_accrual_days(as_of: dt.date) -> dict:
         if pat.match(d) and os.path.isdir(os.path.join(ESTIMATE_SNAPSHOTS, d)))
     valid_days = []
     rejected = {}
+    day_manifest_hashes = {}
     for d in candidate_dirs:
         problems = check_snapshot(dt.date.fromisoformat(d))
         if problems:
             rejected[d] = problems
         else:
             valid_days.append(d)
+            # Hash the 4 validated manifests' own content — proves WHAT was
+            # actually read as "valid" for this day, not just that
+            # check_snapshot() returned no problems.
+            manifest_blobs = []
+            for endpoint in ENDPOINTS:
+                mpath = os.path.join(ESTIMATE_SNAPSHOTS, d, f"{endpoint}.manifest.json")
+                with open(mpath, "rb") as f:
+                    manifest_blobs.append(f.read())
+            day_manifest_hashes[d] = hashlib.sha256(b"".join(manifest_blobs)).hexdigest()
     latest = valid_days[-1] if valid_days else None
     stale = latest is None or \
         (as_of - dt.date.fromisoformat(latest)).days > 3  # weekend + 1 tolerance
@@ -343,6 +381,9 @@ def metric_pit_accrual_days(as_of: dt.date) -> dict:
             "n_dirs_scanned": len(candidate_dirs),
             "n_rejected_partial_or_invalid": len(rejected),
             "rejected_days": rejected,
+            "valid_day_manifest_sha256": day_manifest_hashes,
+            "accrual_extract_sha256": hashlib.sha256(
+                json.dumps(day_manifest_hashes, sort_keys=True).encode("utf-8")).hexdigest(),
         },
         "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing, "
                   "each day validated via ops/pit/pit_liveness_check.check_snapshot() "
@@ -384,10 +425,22 @@ def metric_collector_liveness(as_of: dt.date) -> dict:
     today_iso = as_of.isoformat()
     for name, full_path in _data_outputs(Path(RQ)):
         ok, reason = _data_output_fresh_reused(str(full_path), today_iso)
+        row_hash = None
+        if os.path.exists(str(full_path)) and os.path.getsize(str(full_path)) > 0:
+            # Content anchor for the SPECIFIC row that determined freshness —
+            # not just "it was fresh", but a hash of exactly what was read.
+            with open(str(full_path), "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                chunk = min(size, 8192)
+                f.seek(-chunk, os.SEEK_END)
+                tail = f.read()
+            row_hash = hashlib.sha256(tail).hexdigest()
         per[name] = {
             "status": "ok" if ok else "stale_or_missing",
             "path": str(full_path).replace(RQ + "/", "$RQ_ROOT/"),
             "reason": reason if not ok else None,
+            "tail_read_sha256": row_hash,
         }
     all_live = all(v["status"] == "ok" for v in per.values())
     return {
@@ -449,10 +502,12 @@ def metric_calibrator_sign_laundered(con) -> dict:
             "run_date": latest["run_date"],
             "n_scored": int(latest["n"]),
             "all_counters": counters,
+            "counters_json_sha256": hashlib.sha256(
+                latest["counters_json"].encode("utf-8")).hexdigest(),
         },
         "source": "runs.alpaca.db pipeline_runs.counters_json of the latest canonical "
-                  f"daily FULL run (>= {MIN_FULL_RUN_CANDIDATES} candidate_scores rows, "
-                  "last created_at per run_date)",
+                  f"daily FULL run (>= {MIN_FULL_RUN_CANDIDATES} candidate_scores rows via "
+                  "candidate_scores JOIN+count, last created_at per run_date)",
         "method": "parse counters_json['calibrator_sign_laundered']. M4 AC: single digits "
                   "(BL-1 recentering); 44/90 was the measured 2026-07-01 state.",
     }
@@ -493,6 +548,13 @@ def metric_buy_side_decision_tc(con) -> dict:
                  "n_survived_admission": r["n_survived_admission"]}
                 for r in results
             ],
+            "canonical_run_ids": canonical,
+            "per_run_extract_sha256": _extract_hash([
+                {"run_id": r["run_id"], "category": r["category"],
+                 "tc": r["buy_side_decision_tc"],
+                 "n_survived_admission": r["n_survived_admission"]}
+                for r in results
+            ]),
         },
         "source": "runs.alpaca.db candidate_scores + trades via "
                   "scripts/poc_transfer_coefficient.py (round-3 blocked_by taxonomy)",
@@ -553,6 +615,31 @@ def _canonical_content_hash(metrics: dict) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+def _extract_hash(rows) -> str:
+    """Content hash of a deterministic query-extract (a pandas DataFrame or
+    a list of row tuples/dicts) — proves WHAT DATA a metric actually read,
+    not just which run_id it picked. runs.alpaca.db is a mutable,
+    continuously-written file; stamping only its size+mtime cannot
+    distinguish two DB states that happen to share both, and cannot bind
+    the exact rows a metric consumed. Sorted, canonicalized JSON of the
+    extract's own content, same family as _canonical_content_hash."""
+    if hasattr(rows, "to_dict"):
+        rows = rows.to_dict(orient="records")
+
+    def _canon(obj):
+        if isinstance(obj, float):
+            return round(obj, 8)
+        if isinstance(obj, dict):
+            return {k: _canon(v) for k, v in sorted(obj.items())}
+        if isinstance(obj, (list, tuple)):
+            return [_canon(v) for v in obj]
+        return obj
+
+    canonical = [_canon(r) for r in rows]
+    blob = json.dumps(canonical, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
 def _atomic_write_json(path: str, payload: dict) -> None:
     """Temp file + fsync + rename in the SAME directory as the final path —
     atomic on POSIX filesystems (a reader sees the old complete file or the
@@ -609,6 +696,11 @@ def main() -> None:
                 "size_bytes": db_snapshot_stat.st_size,
                 "mtime": dt.datetime.fromtimestamp(
                     db_snapshot_stat.st_mtime).isoformat(timespec="seconds"),
+                "note": "size+mtime alone do NOT prove which rows were read from this "
+                        "mutable, continuously-written file, nor distinguish two DB "
+                        "states that happen to share both — see each DB-derived metric's "
+                        "own detail.*_extract_sha256/canonical_extract_sha256 field for "
+                        "the actual per-metric source-content provenance",
             } if db_snapshot_stat else None,
             "spy_parquet_sha256": (
                 hashlib.sha256(open(SPY_PARQUET, "rb").read()).hexdigest()

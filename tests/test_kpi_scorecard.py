@@ -236,3 +236,88 @@ def test_metric_deployed_fraction_uses_full_run_not_raw_latest(rq_root):
     # more-recent intraday partial row.
     assert result["value"] == pytest.approx(0.8, abs=1e-4)
     assert result["detail"]["latest_full_run_id"] == "full-run-1"
+
+
+# ------------------------------------------------------- DB provenance
+
+
+def test_extract_hash_distinguishes_same_size_same_mtime_different_content(rq_root):
+    """A mutable SQLite file's size+mtime alone cannot prove which rows were
+    read — two DB files that happen to share both must still be
+    distinguishable by their actual content hash."""
+    db_a = str(rq_root / "a.db")
+    db_b = str(rq_root / "b.db")
+    _make_pipeline_runs_db(db_a, [
+        ("run-1", "2026-06-01", "2026-06-01T13:55:00", 100000.0, 20000.0,
+         kpi.MIN_FULL_RUN_CANDIDATES),
+    ])
+    _make_pipeline_runs_db(db_b, [
+        # Same run_id/run_date/n_candidates shape, DIFFERENT cash value —
+        # a genuinely different DB state.
+        ("run-1", "2026-06-01", "2026-06-01T13:55:00", 100000.0, 45000.0,
+         kpi.MIN_FULL_RUN_CANDIDATES),
+    ])
+
+    # Force identical size and mtime on both files — the exact scenario
+    # where a size+mtime-only provenance stamp would be blind to the
+    # difference.
+    size_a, size_b = os.path.getsize(db_a), os.path.getsize(db_b)
+    target_size = max(size_a, size_b)
+    for p, size in ((db_a, size_a), (db_b, size_b)):
+        if size < target_size:
+            with open(p, "ab") as f:
+                f.write(b"\x00" * (target_size - size))
+    common_mtime = 1_800_000_000.0  # arbitrary fixed epoch time
+    os.utime(db_a, (common_mtime, common_mtime))
+    os.utime(db_b, (common_mtime, common_mtime))
+    assert os.path.getsize(db_a) == os.path.getsize(db_b)
+    assert os.path.getmtime(db_a) == os.path.getmtime(db_b)
+
+    con_a = sqlite3.connect(f"file:{db_a}?mode=ro", uri=True)
+    con_b = sqlite3.connect(f"file:{db_b}?mode=ro", uri=True)
+    canon_a = kpi._canonical_daily_live(con_a)
+    canon_b = kpi._canonical_daily_live(con_b)
+    hash_a = kpi._extract_hash(canon_a)
+    hash_b = kpi._extract_hash(canon_b)
+    assert hash_a != hash_b, (
+        "same size+mtime DB files with different row content must produce "
+        "different extract hashes — a size/mtime-only stamp would have "
+        "missed this")
+
+
+def test_pit_accrual_manifest_hash_changes_with_manifest_content(rq_root):
+    """Two otherwise-identical valid snapshot days with different manifest
+    byte content must produce different accrual_extract_sha256 values."""
+    snapshots = rq_root / "data" / "estimate_snapshots"
+    snapshots.mkdir(parents=True)
+
+    def _write_day(date_str, extra_field=None):
+        d = snapshots / date_str
+        d.mkdir(exist_ok=True)
+        for endpoint in (
+            "analyst_estimates", "grades_consensus",
+            "price_target_consensus", "price_target_summary",
+        ):
+            parquet_name = f"{endpoint}.parquet"
+            (d / parquet_name).write_bytes(b"not-empty")
+            manifest = {"status": "ok", "as_of": date_str, "output": parquet_name}
+            if extra_field:
+                manifest["note"] = extra_field
+            (d / f"{endpoint}.manifest.json").write_text(json.dumps(manifest))
+
+    kpi.ESTIMATE_SNAPSHOTS = str(snapshots)
+    sys.path.insert(0, os.path.join(REPO_ROOT, "ops", "pit"))
+    import pit_liveness_check
+    pit_liveness_check.ROOT = str(snapshots)
+
+    _write_day("2026-06-01")
+    result_a = kpi._run(kpi.metric_pit_accrual_days, dt.date(2026, 6, 2))
+    hash_a = result_a["detail"]["accrual_extract_sha256"]
+
+    for f in snapshots.glob("2026-06-01/*.manifest.json"):
+        f.unlink()
+    _write_day("2026-06-01", extra_field="differs")
+    result_b = kpi._run(kpi.metric_pit_accrual_days, dt.date(2026, 6, 2))
+    hash_b = result_b["detail"]["accrual_extract_sha256"]
+
+    assert hash_a != hash_b

@@ -127,3 +127,56 @@ touched sibling test files (`test_rq105_collector_scheduling.py`,
 `test_pit_snapshotter_scheduling.py`, `test_poc_transfer_coefficient.py`).
 
 Evidence JSON regenerated in place: `doc/research/evidence/kpi_scorecards/kpi_2026-07-02.json`.
+
+## Round 3 (Codex review: DB provenance + stale review surface)
+
+**Finding.** `runs.alpaca.db` is a mutable, continuously-written SQLite file; the round-2
+fix stamped only its size+mtime, which cannot prove which rows a metric actually read
+(two DB states can share size+mtime while differing in content) and doesn't bind the exact
+canonical run set used. `output_content_sha256` (over the metrics payload) proves
+run-to-run OUTPUT reproducibility but was being relied on as if it also proved source
+provenance, which it doesn't. `pit_accrual_days`/`collector_liveness` recorded that a check
+passed but not a content anchor for what was checked. The module docstring and PR body
+still described the pre-round-2 directory-mtime/plain-count logic and pre-round-2 values.
+
+**Fix.**
+- New `_extract_hash()` — canonical sorted-key/fixed-float hash of a pandas DataFrame or row
+  list, same family as `_canonical_content_hash`. Wired into every DB-derived metric:
+  `deployed_fraction`/`floor_gap_vs_spy` hash the canonical FULL-run extract and record the
+  full list of canonical run_ids used (not just the one picked); `ledger_coverage` hashes
+  its full ~5,199-row aged extract; `calibrator_sign_laundered` hashes the raw
+  `counters_json` string directly; `buy_side_decision_tc` hashes its `per_run` breakdown
+  plus records `canonical_run_ids`.
+- `pit_accrual_days` now hashes the actual byte content of each valid day's 4 validated
+  manifests (`valid_day_manifest_sha256` per day, `accrual_extract_sha256` overall) — proves
+  which manifest bytes were read as "valid," not just that `check_snapshot()` said so.
+- `collector_liveness` now reads and hashes the same 8KB tail each collector's freshness
+  check consumed (`tail_read_sha256`), correctly `null` only when the file is genuinely
+  missing/empty (nothing to hash) — verified against real production data: 2 of 3 covered
+  collectors show `null` (missing files), 1 shows a real hash.
+- `db_snapshot`'s size+mtime fields are kept (a cheap sanity signal) but now carry an
+  explicit `note` stating they do NOT prove row-level provenance — that's the per-metric
+  `*_extract_sha256`/`*_sha256` fields' job now.
+- Module docstring rewritten (was still describing the pre-round-2 mtime-scan/directory-count
+  logic); added a top-level "Provenance" paragraph explaining the source-vs-output hash
+  distinction.
+- PR body corrected to the round-2 regenerated values (`deployed_fraction` 0.2468,
+  `floor_gap_vs_spy` -1.11pp/10 sessions, `collector_liveness` stale) — was still showing
+  pre-fix numbers and "all 8 metrics ok / collectors live."
+
+**New tests (10 total, up from 8):**
+`test_extract_hash_distinguishes_same_size_same_mtime_different_content` — the exact case
+Codex named: two SQLite files forced to identical size (zero-padded) and identical mtime
+(`os.utime`) but different `cash` values in their one `pipeline_runs` row; asserts
+`_extract_hash` on the canonical extract produces different hashes for the two, proving the
+provenance mechanism is genuinely content-based, not a disguised size/mtime proxy.
+`test_pit_accrual_manifest_hash_changes_with_manifest_content` — same principle for the PIT
+manifest hash: two otherwise-identical valid days with one differing manifest field produce
+different `accrual_extract_sha256` values.
+
+**Re-verified end to end** against real read-only production stores
+(`RQ_ROOT=/Users/renhao/git/github/RenQuant`): all 8 metrics still `ok`, values unchanged
+from round 2 (0.2468 / -1.11pp / 86.2% / 1 / stale / 44 / 0.288), new hash fields genuinely
+populated in the regenerated `kpi_2026-07-02.json` (confirmed by direct inspection, not
+assumed). 10/10 new-file tests pass; 66/66 across this file plus the touched sibling test
+files.
