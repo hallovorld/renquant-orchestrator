@@ -3,7 +3,23 @@
 STATUS:   research + route design for review (docs only — no code/config/broker/risk/sizing
           change). Durable record of the 2026-07-02 strategy discussion; extends roadmap #229 to
           2028 and supersedes its §9 sign-off list per the operator's delegation grant.
-REVISION: r4 — Codex review: (1) the BULL_CALM ≈ −0.003 premise is UNRESOLVED pending
+REVISION: r5 — Codex review: the document still OVERSTATED `RenQuant#431`'s reconciliation
+          protocol as "frozen" (both algorithms specified, fixed adjudication slice) when #431's
+          own current text leaves Algorithm B deferred and the adjudication slice only an
+          example, not pinned dates — this weakens the exact anti-hindsight control the route
+          depends on. Fixed: (1) §0.1 rewritten to state the protocol is
+          PROPOSED/INCOMPLETE, not frozen, with the specific open items named (Algorithm B,
+          shift-window pinning, adjudication-slice dates); (2) new explicit ROUTE-GATE
+          REQUIREMENT added to §0.1 — every BULL_CALM-premise-dependent gate in this document is
+          satisfied on that axis only once a preregistration containing exact algorithms, shift
+          values, fixture seeds/tolerances, adjudication dates/exclusions, primary metric,
+          disagreement rule, and decision mapping is itself MERGED (not just drafted); (3) §2.3's
+          residual "the reconciliation protocol #431 froze" reference corrected to match; (4)
+          G107's exit-gate line corrected from "as pre-registered assessment" to "as a PROPOSED
+          assessment... not yet a preregistered one," consistent with §5's own pre-existing
+          honesty note about needing frozen metric definitions + an immutable baseline first
+          (this specific line had drifted out of sync with §5's language in the prior round).
+          Prior: r4 — Codex review: (1) the BULL_CALM ≈ −0.003 premise is UNRESOLVED pending
           `RenQuant#431`'s reconciliation (which found +0.044 on reproduction) — every citation
           of it in the route doc is now flagged inline, and neither figure is asserted as
           correct (new route-doc §0.1); (2) all four POC-derived thresholds are marked
@@ -109,6 +125,12 @@ EVIDENCE: measured tier — A1 genuine IC ≈ 0.04 CI [−0.031,+0.129]; the A1 
                          existing pair (−0.003 cited historically, +0.044 in #431's unmerged
                          reproduction), scope = "unresolved, tracked, not adjudicated here"
           ```
+          `[VERIFIED — r5: re-read RenQuant#431's own current text directly (not from memory) and
+          confirmed Algorithm B, the shift-window pinning, and the adjudication-slice dates are
+          each still open/example-only in that PR as of 2026-07-02 — grepped every "#431"/
+          "frozen"/"preregistered" occurrence in this document and corrected each one found to
+          overstate #431's status or this document's own end-2028 preregistration status; this
+          session]`
 NEXT:     Codex review; operator reads the verdict + route (notification per the delegation
           protocol). On merge: G105/G106/G107 gates and the kill branches become the standing
           assessment criteria cited by thesis reviews (M10/L7 of #229) — SUBJECT TO the §0.1

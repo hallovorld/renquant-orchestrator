@@ -24,11 +24,33 @@ against a now-durable table using the same manifest/artifact and got **BULL_CALM
 `aligned_real_ic` = +0.044** — positive, not the cited −0.003, and #431 explicitly declined to
 call its own reproduction equivalent to the deleted original methodology (see #431's own
 relabeling: it reports "the output of `analyze_manifest_sanity_placebo.py`'s `aligned_real_ic`
-metric," not "genuine/leak-controlled IC"). #431 froze a reconciliation protocol (pinned
-data/hash/window, both algorithms specified, injected null/leak fixtures, untouched adjudication
-slice) but has **not executed it**. Every place below that treats −0.003 / "BULL_CALM coin-flip"
-as a settled input (§2.3, §5's increment-2 framing, §8.1's S9 row) is flagged inline as
+metric," not "genuine/leak-controlled IC"). **Correction (Codex review): #431's reconciliation
+protocol is PROPOSED/INCOMPLETE, not frozen** — as of this writing #431's own text still leaves
+Algorithm B's exact procedure deferred to a future specification, the shift window described only
+as "chosen" rather than pinned, and the untouched adjudication slice stated only as an example
+("e.g. a contiguous trailing range, or a held-out regime slice"), not fixed dates. Calling an
+incomplete protocol "frozen" would weaken the exact anti-hindsight control this route depends on
+— those choices are still available to be made AFTER inspecting results, which is precisely what
+a frozen preregistration must foreclose. Every place below that treats −0.003 / "BULL_CALM
+coin-flip" as a settled input (§2.3, §5's increment-2 framing, §8.1's S9 row) is flagged inline as
 provisional pending that reconciliation. **This document does not choose a number.**
+
+**Route-gate requirement (this route's actual dependency on #431, made explicit and mechanical):**
+the BULL_CALM-premise-dependent gates in this document (§5's increment-2 framing, §8.1's S9 Track
+A row, and any downstream 106/107 milestone whose P(success) is conditioned on the BULL_CALM
+prior) are satisfied on this axis **only once a preregistration document is itself MERGED** (not
+merely drafted, not merely an open PR) containing ALL of: (a) both algorithms fully specified —
+Algorithm A (the already-run `analyze_manifest_sanity_placebo.py` decomposition) AND Algorithm B
+(a complete, non-deferred procedure — or, if the deleted original cannot be reconstructed, an
+explicit statement of that plus a freshly preregistered replacement, never an incomplete menu
+presented as settled); (b) the exact shift value(s) used, pinned as literal integers; (c) the
+exact synthetic null/leak fixture generation procedure, including random seeds and numerical
+tolerances; (d) the exact adjudication slice start/end dates and any exclusions, not a category
+example; (e) the single primary metric being compared; (f) a precise, numeric disagreement rule
+(an exact threshold, not "if they disagree"); and (g) the decision mapping — what each possible
+outcome (agree/disagree, which sign) means for the BULL_CALM premise and for this route. Until
+that preregistration merges, treat every BULL_CALM-premise-dependent probability in this document
+as resting on an open input, exactly as this section already states.
 
 **0.2 POC-derived thresholds (§2.4, §7.1, §8) are provisional point estimates, not confirmed
 gates.** The four POCs in `doc/research/2026-07-02-roadmap-poc-verification.md`
@@ -135,7 +157,8 @@ cross-sectional persistence** (#256), the **~+0.04 embargo-leakage floor**. Leak
 genuine IC ≈ 0.04 with **CI [−0.031, +0.129] ∋ 0**; the original A1 audit's cited BULL_CALM
 (79% of live time) figure was ≈ −0.003 — **§0.1: this is UNRESOLVED.** `#431`'s reproduction of
 the same decomposition against a now-durable table gives BULL_CALM `aligned_real_ic` = +0.044,
-not −0.003; the reconciliation protocol #431 froze has not yet run. Read the rest of this
+not −0.003; #431's reconciliation protocol is still proposed/incomplete (see §0.1) and has not
+yet run. Read the rest of this
 paragraph's "consistent with genuine IC ≈ 0" framing as the ORIGINAL, now-disputed premise, not
 this document's own conclusion. Conclusion, held provisionally: on either figure the magnitude is
 small (both ≤ 0.044 in absolute value) — ~0.00–0.04 of headroom exists to OUR ceiling depending
@@ -281,9 +304,13 @@ Capability: Stage-3 intraday-aware models where data scale genuinely supports se
 (the one place they have an advantage), event-driven re-decisioning, options-based risk shaping
 (protective structure on concentrated names, not speculation), full risk overlay, capacity
 decision (L6 — book scaling is what makes the 105/106 plumbing pay).
-*Exit gate G107 = §4's bar as pre-registered assessment (end-2028):* total Sharpe ≥ 0.7 (rolling,
-point estimate), net alpha ≥ 0, DD ≤ 15%, all process audits green — judged as LEADING indicators
-+ point estimates, with the statistical maturity date (2029–30) stated on the verdict.
+*Exit gate G107 = §4's bar as a PROPOSED assessment (end-2028), not yet a preregistered one* — per
+§5's own honesty note, this bar becomes an actual preregistered target only once its IC/TC/BR
+metric definitions are independently frozen and reviewed AND an immutable baseline measurement
+(what G106/G107's gates read TODAY, measured the identical way) exists; neither has happened yet.
+Until then: total Sharpe ≥ 0.7 (rolling, point estimate), net alpha ≥ 0, DD ≤ 15%, all process
+audits green — judged as LEADING indicators + point estimates, with the statistical maturity date
+(2029–30) stated on the verdict.
 
 **Timeline with probability bands:**
 
