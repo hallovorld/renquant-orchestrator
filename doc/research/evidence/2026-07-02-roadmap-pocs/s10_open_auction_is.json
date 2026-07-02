@@ -1,5 +1,5 @@
 {
-  "estimand": "per real filled buy: (fill \u2212 ref)/ref bps; ref \u2208 {open, day_vwap, close}",
+  "estimand": "per real filled buy: (fill \u2212 ref)/ref bps; ref \u2208 {open, day_vwap[true|proxy], close}",
   "ref_kind_counts": {
     "ohlc4_proxy": 21,
     "true_vwap_10min": 20
@@ -13,17 +13,8 @@
         7.8
       ],
       "n_fills": 41,
-      "n_days": 18
-    },
-    "fill_vs_vwap_bps": {
-      "mean": 40.1,
-      "median": 16.2,
-      "ci95": [
-        -15.6,
-        99.2
-      ],
-      "n_fills": 41,
-      "n_days": 18
+      "n_days": 18,
+      "reliable_ci": true
     },
     "fill_vs_close_bps": {
       "mean": 43.4,
@@ -33,20 +24,47 @@
         122.9
       ],
       "n_fills": 41,
-      "n_days": 18
+      "n_days": 18,
+      "reliable_ci": true
     }
   },
+  "vwap_cohorts": {
+    "true_vwap_10min": {
+      "mean": 80.0,
+      "median": 14.8,
+      "ci95": [
+        -14.8,
+        165.2
+      ],
+      "n_fills": 20,
+      "n_days": 10,
+      "reliable_ci": true
+    },
+    "ohlc4_proxy": {
+      "mean": 2.1,
+      "median": 21.3,
+      "ci95": [
+        -59.2,
+        52.0
+      ],
+      "n_fills": 21,
+      "n_days": 8,
+      "reliable_ci": true
+    }
+  },
+  "prospective_power_vs_vwap_true": {
+    "method": "cluster_robust_day_level_sd, powered against the 10.0bps materiality bar (NOT the observed point estimate)",
+    "day_level_sd_bps": 151.7,
+    "current_n_days": 10,
+    "required_n_days_80pct_power": 1804,
+    "z_alpha2": 1.96,
+    "z_beta_80pct_power": 0.84
+  },
   "verdict": {
-    "prize_point_estimate_bps": {
-      "vs_day_vwap": 40.1,
-      "vs_close": 43.4
-    },
-    "material_gt_10bps": true,
-    "ci_separated_from_zero": {
-      "vs_day_vwap": false,
-      "vs_close": false
-    },
-    "reading": "S10 verdict per #230 \u00a78: prize material if point>10bps; SIGNIFICANT only if the date-clustered CI excludes 0 \u2014 otherwise the verdict is 'material-but-unproven, collector corpus accrues N'"
+    "vs_day_vwap_true": "INCONCLUSIVE",
+    "vs_close": "INCONCLUSIVE",
+    "vwap_proxy_cohort_is_descriptive_only": true,
+    "reading": "S10 verdict per #230 \u00a78, R2 (frozen rule, decided before inspecting results): MATERIAL requires the date-clustered CI's LOWER bound to exceed 10.0bps; NOT_MATERIAL requires the CI's UPPER bound to stay below 10.0bps; otherwise INCONCLUSIVE. The primary estimand is the TRUE-10min-VWAP cohort only (n=20 fills / 10 days) \u2014 the OHLC4-proxy cohort (n=21 fills / 8 days) is reported for reference but never moves this verdict, since it uses a different, coarser reference with different bias/variance. G105 kill-branch status: neither GO nor KILL is triggered by an INCONCLUSIVE result \u2014 the branch remains UNRESOLVED pending a properly powered confirmatory sample (see prospective_power_vs_vwap_true)."
   },
   "fills": [
     {
