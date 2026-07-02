@@ -1,0 +1,419 @@
+{
+  "estimand": "per real filled buy: (fill \u2212 ref)/ref bps; ref \u2208 {open, day_vwap[true|proxy], close}",
+  "ref_kind_counts": {
+    "ohlc4_proxy": 21,
+    "true_vwap_10min": 20
+  },
+  "stats_date_clustered_bootstrap": {
+    "fill_vs_open_bps": {
+      "mean": -4.6,
+      "median": 0.0,
+      "ci95": [
+        -23.0,
+        7.8
+      ],
+      "n_fills": 41,
+      "n_days": 18,
+      "reliable_ci": true
+    },
+    "fill_vs_close_bps": {
+      "mean": 43.4,
+      "median": 27.4,
+      "ci95": [
+        -51.4,
+        122.9
+      ],
+      "n_fills": 41,
+      "n_days": 18,
+      "reliable_ci": true
+    }
+  },
+  "vwap_cohorts": {
+    "true_vwap_10min": {
+      "mean": 80.0,
+      "median": 14.8,
+      "ci95": [
+        -14.8,
+        165.2
+      ],
+      "n_fills": 20,
+      "n_days": 10,
+      "reliable_ci": true
+    },
+    "ohlc4_proxy": {
+      "mean": 2.1,
+      "median": 21.3,
+      "ci95": [
+        -59.2,
+        52.0
+      ],
+      "n_fills": 21,
+      "n_days": 8,
+      "reliable_ci": true
+    }
+  },
+  "prospective_power_vs_vwap_true": {
+    "method": "cluster_robust_day_level_sd, one-sided superiority test H0: mu<=10.0bps vs H1: mu>10.0bps; required n powered against (mu_alternative - materiality_bps), NOT materiality_bps alone (that would power a test against a null of zero, not the actual preregistered threshold); POST-HOC sensitivity table for planning \u2014 the alternatives grid was chosen after this cohort's result was observed, so a genuine confirmatory alternative/sample-size must be frozen prospectively on a new, non-overlapping cohort, not read off this table",
+    "assumptions": "day-level means are treated as independent draws (no day-to-day autocorrelation correction); if fill quality is autocorrelated across days this UNDERSTATES the true required sample size",
+    "day_level_sd_bps": 151.7,
+    "current_n_days": 10,
+    "materiality_bar_bps": 10.0,
+    "sensitivity_by_alternative": [
+      {
+        "mu_alternative_bps": 20.0,
+        "gap_vs_materiality_bar_bps": 10.0,
+        "required_n_days_80pct_power": 1422
+      },
+      {
+        "mu_alternative_bps": 30.0,
+        "gap_vs_materiality_bar_bps": 20.0,
+        "required_n_days_80pct_power": 356
+      },
+      {
+        "mu_alternative_bps": 50.0,
+        "gap_vs_materiality_bar_bps": 40.0,
+        "required_n_days_80pct_power": 89
+      }
+    ],
+    "alpha": 0.05,
+    "one_sided": true,
+    "z_alpha": 1.6449,
+    "z_beta_80pct_power": 0.8416
+  },
+  "verdict": {
+    "vs_day_vwap_true": "INCONCLUSIVE",
+    "vs_close": "INCONCLUSIVE",
+    "vwap_proxy_cohort_is_descriptive_only": true,
+    "reading": "S10 verdict per #230 \u00a78, R3 (frozen rule, applied RETROSPECTIVELY/DESCRIPTIVELY to the already-inspected 10-day cohort \u2014 the rule was introduced after earlier revisions exposed this data's point estimates, so this application cannot be called a prospective confirmatory test; a genuine confirmatory application of this same frozen rule requires a new, non-overlapping cohort collected going forward): MATERIAL requires the date-clustered CI's LOWER bound to exceed 10.0bps; NOT_MATERIAL requires the CI's UPPER bound to stay below 10.0bps; otherwise INCONCLUSIVE. The primary estimand is the TRUE-10min-VWAP cohort only (n=20 fills / 10 days) \u2014 the OHLC4-proxy cohort (n=21 fills / 8 days) is reported for reference but never moves this verdict, since it uses a different, coarser reference with different bias/variance. G105 kill-branch status: neither GO nor KILL is triggered by an INCONCLUSIVE result \u2014 the branch remains UNRESOLVED pending a properly powered, genuinely prospective confirmatory sample on new data (see prospective_power_vs_vwap_true)."
+  },
+  "fills": [
+    {
+      "symbol": "NEE",
+      "date": "2026-06-30",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 0.00013827629707918732,
+      "fill_vs_vwap_bps": 21.284584192904354,
+      "fill_vs_close_bps": 58.10679918419215
+    },
+    {
+      "symbol": "SOFI",
+      "date": "2026-06-30",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -16.574796042788662,
+      "fill_vs_vwap_bps": 40.980674744346416,
+      "fill_vs_close_bps": 78.08125624169992
+    },
+    {
+      "symbol": "CME",
+      "date": "2026-06-25",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -13.833966543594922,
+      "fill_vs_vwap_bps": 131.13450444086627,
+      "fill_vs_close_bps": 266.6666666666662
+    },
+    {
+      "symbol": "AMZN",
+      "date": "2026-06-25",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -1.2931761015610999,
+      "fill_vs_vwap_bps": 120.62374014933263,
+      "fill_vs_close_bps": 219.37384316416563
+    },
+    {
+      "symbol": "AVGO",
+      "date": "2026-06-24",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -9.311342448244941,
+      "fill_vs_vwap_bps": 69.40879423931622,
+      "fill_vs_close_bps": 109.66557425235557
+    },
+    {
+      "symbol": "CRWD",
+      "date": "2026-06-24",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 0.0001435087249035405,
+      "fill_vs_vwap_bps": 45.406824897817884,
+      "fill_vs_close_bps": 110.99195049135035
+    },
+    {
+      "symbol": "NFLX",
+      "date": "2026-06-24",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -9.630270883904668,
+      "fill_vs_vwap_bps": 30.040642247457505,
+      "fill_vs_close_bps": 108.57512553880566
+    },
+    {
+      "symbol": "CSCO",
+      "date": "2026-06-24",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -20.734817571286257,
+      "fill_vs_vwap_bps": -19.493202652806076,
+      "fill_vs_close_bps": 49.27725937729388
+    },
+    {
+      "symbol": "AMZN",
+      "date": "2026-06-24",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -14.96711970837783,
+      "fill_vs_vwap_bps": -100.58405958633942,
+      "fill_vs_close_bps": -32.86823999735788
+    },
+    {
+      "symbol": "PANW",
+      "date": "2026-06-24",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 23.133930464345198,
+      "fill_vs_vwap_bps": 95.63883549129403,
+      "fill_vs_close_bps": 176.3300169030968
+    },
+    {
+      "symbol": "GILD",
+      "date": "2026-06-01",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -50.75046386192938,
+      "fill_vs_vwap_bps": 68.54070017732195,
+      "fill_vs_close_bps": 168.57313452292243
+    },
+    {
+      "symbol": "ORCL",
+      "date": "2026-06-01",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 70.28199566160521,
+      "fill_vs_vwap_bps": -262.4016780283167,
+      "fill_vs_close_bps": -645.9800238065394
+    },
+    {
+      "symbol": "ORCL",
+      "date": "2026-06-01",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 70.28199566160521,
+      "fill_vs_vwap_bps": -262.4016780283167,
+      "fill_vs_close_bps": -645.9800238065394
+    },
+    {
+      "symbol": "HON",
+      "date": "2026-05-18",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 7.939815476336598,
+      "fill_vs_vwap_bps": -70.55069642960987,
+      "fill_vs_close_bps": -135.80057015878722
+    },
+    {
+      "symbol": "META",
+      "date": "2026-05-18",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 3.9404155933997487,
+      "fill_vs_vwap_bps": -9.018021757947192,
+      "fill_vs_close_bps": -30.431797676567783
+    },
+    {
+      "symbol": "EQIX",
+      "date": "2026-05-18",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -0.000368413345386287,
+      "fill_vs_vwap_bps": 11.779404516161218,
+      "fill_vs_close_bps": -21.926889460899268
+    },
+    {
+      "symbol": "TXN",
+      "date": "2026-05-15",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -8.065698331449767e-05,
+      "fill_vs_vwap_bps": -0.16517269295079906,
+      "fill_vs_close_bps": -1.3216722781383972
+    },
+    {
+      "symbol": "GE",
+      "date": "2026-05-14",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 17.286419103592632,
+      "fill_vs_vwap_bps": 73.79633574776446,
+      "fill_vs_close_bps": 137.20214508609496
+    },
+    {
+      "symbol": "VRT",
+      "date": "2026-05-13",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": 29.81069354747845,
+      "fill_vs_vwap_bps": 154.34160592153302,
+      "fill_vs_close_bps": 184.59985258786116
+    },
+    {
+      "symbol": "MCD",
+      "date": "2026-05-13",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -21.857923497268228,
+      "fill_vs_vwap_bps": -48.50402773597607,
+      "fill_vs_close_bps": -65.2887967839333
+    },
+    {
+      "symbol": "DOCU",
+      "date": "2026-05-13",
+      "ref_kind": "ohlc4_proxy",
+      "fill_vs_open_bps": -0.0003081891764011857,
+      "fill_vs_vwap_bps": -45.794782028485415,
+      "fill_vs_close_bps": -113.15724390448256
+    },
+    {
+      "symbol": "BA",
+      "date": "2026-05-01",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 38.55929370878197,
+      "fill_vs_vwap_bps": 86.11528715641192,
+      "fill_vs_close_bps": 171.88825020924003
+    },
+    {
+      "symbol": "BA",
+      "date": "2026-05-01",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 14.323181955633313,
+      "fill_vs_vwap_bps": 61.764360882772266,
+      "fill_vs_close_bps": 147.33024211667222
+    },
+    {
+      "symbol": "FTNT",
+      "date": "2026-04-30",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 11.747797249921366,
+      "fill_vs_vwap_bps": 139.3044418915257,
+      "fill_vs_close_bps": 107.93529447961525
+    },
+    {
+      "symbol": "NVDA",
+      "date": "2026-04-30",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -2.8577467667467715,
+      "fill_vs_vwap_bps": 406.85220588920544,
+      "fill_vs_close_bps": 516.1092497755959
+    },
+    {
+      "symbol": "NVDA",
+      "date": "2026-04-28",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -1.9096611826374676,
+      "fill_vs_vwap_bps": -83.27550880657509,
+      "fill_vs_close_bps": -174.50852375563096
+    },
+    {
+      "symbol": "SMCI",
+      "date": "2026-04-28",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 0.0,
+      "fill_vs_vwap_bps": -39.338105559864054,
+      "fill_vs_close_bps": -91.74311926605449
+    },
+    {
+      "symbol": "NVTS",
+      "date": "2026-04-28",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 5.8170248003031055,
+      "fill_vs_vwap_bps": 1115.0703109799886,
+      "fill_vs_close_bps": 1375.661461761979
+    },
+    {
+      "symbol": "MU",
+      "date": "2026-04-28",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 1.5885819144600966,
+      "fill_vs_vwap_bps": 13.504417639882416,
+      "fill_vs_close_bps": -13.286175287412494
+    },
+    {
+      "symbol": "FTNT",
+      "date": "2026-04-27",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 0.00018143625712951916,
+      "fill_vs_vwap_bps": -179.81747453993947,
+      "fill_vs_close_bps": -183.26114188180642
+    },
+    {
+      "symbol": "TSM",
+      "date": "2026-04-24",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 3.0288621983554087,
+      "fill_vs_vwap_bps": -156.16260794148795,
+      "fill_vs_close_bps": -154.05236760708374
+    },
+    {
+      "symbol": "XLU",
+      "date": "2026-04-21",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 3.323630703988556e-05,
+      "fill_vs_vwap_bps": 165.24436458901448,
+      "fill_vs_close_bps": 213.570460682182
+    },
+    {
+      "symbol": "GOOG",
+      "date": "2026-04-20",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -61.43660129941275,
+      "fill_vs_vwap_bps": -3.138089907204211,
+      "fill_vs_close_bps": 32.20054034493991
+    },
+    {
+      "symbol": "CAT",
+      "date": "2026-04-20",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 66.88551552209931,
+      "fill_vs_vwap_bps": 10.002536279924978,
+      "fill_vs_close_bps": -27.680665662358493
+    },
+    {
+      "symbol": "PLTR",
+      "date": "2026-04-17",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 86.09555362999899,
+      "fill_vs_vwap_bps": -16.80698264402647,
+      "fill_vs_close_bps": 12.029551956129758
+    },
+    {
+      "symbol": "NVDA",
+      "date": "2026-04-17",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -1.0001949522187026,
+      "fill_vs_vwap_bps": -42.83539215626298,
+      "fill_vs_close_bps": -89.24993758180565
+    },
+    {
+      "symbol": "AMD",
+      "date": "2026-04-17",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -97.5088967971538,
+      "fill_vs_vwap_bps": 16.152299863165798,
+      "fill_vs_close_bps": -4.670233901948873
+    },
+    {
+      "symbol": "BA",
+      "date": "2026-04-16",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -328.88888888888965,
+      "fill_vs_vwap_bps": -17.525668321327625,
+      "fill_vs_close_bps": -58.47975394087768
+    },
+    {
+      "symbol": "AMZN",
+      "date": "2026-04-16",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": 19.71773787756481,
+      "fill_vs_vwap_bps": 54.329236754289134,
+      "fill_vs_close_bps": -28.033518494086085
+    },
+    {
+      "symbol": "AMZN",
+      "date": "2026-04-15",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -2.8084252758275863,
+      "fill_vs_vwap_bps": 35.66113654923431,
+      "fill_vs_close_bps": 27.364185110663186
+    },
+    {
+      "symbol": "AMZN",
+      "date": "2026-04-15",
+      "ref_kind": "true_vwap_10min",
+      "fill_vs_open_bps": -2.8084252758275863,
+      "fill_vs_vwap_bps": 35.66113654923431,
+      "fill_vs_close_bps": 27.364185110663186
+    }
+  ]
+}
