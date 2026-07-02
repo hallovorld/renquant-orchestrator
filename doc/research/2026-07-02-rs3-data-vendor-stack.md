@@ -20,12 +20,12 @@ measurement; (c) survivorship-free small/mid membership + history for M7. (#231 
 |---|---|---|---|
 | (b) consolidated tape | **Alpaca Algo Trader Plus** — full SIP (CTA+UTP, 100% of volume) + OPRA options + 10k rpm — **conditional GO, pending entitlement verification** (§ "Alpaca ATP — required verification before spend" below) | **$99/mo** [probed: alpaca.markets/data, confirmed by Codex 2026-07-02] | Entitlement probe + A/B capture FIRST; subscription start aligned to the #224/#227-gated N1b live-activation date, not before |
 | (a) PIT fundamentals/estimates | **keep FMP on the existing key** (stable endpoints returned SOME data 2026-07-02 — coverage/cadence/PIT-semantics NOT yet established, see § below); upgrade to **Starter $29/mo** only per the explicit decision rule below | $0 now; +$29/mo conditional | decision falls out of N2's first real `--min-coverage` run |
-| (c) survivorship-free small/mid | **Norgate Data US (Platinum)** — delisted securities + historical index constituency (R2000/R3000 membership BY DATE, exposed as a per-security/date boolean via vendor plugins — see § below) — **trial/POC-first, NOT a purchase commitment for M7** | $476.50 for a 6-month term OR $833 for 12 months — **no monthly plan; fixed-term, non-cancellable** [corrected 2026-07-02 per Codex review against current official pricing] | POC + 3-week trial acceptance test BEFORE any term commitment — do not schedule a firm M7 purchase date until that passes |
+| (c) survivorship-free small/mid | **Norgate Data US (Platinum)** — delisted securities + historical index constituency (R2000/R3000 membership BY DATE, exposed as a per-security/date boolean via vendor plugins — see § below) — **trial/POC-first, NOT a purchase commitment for M7** | $346.50 for a 6-month term OR $630 for 12 months — **no monthly plan; fixed-term, non-cancellable** [corrected 2026-07-02 per Codex review against current official pricing] | POC + 3-week trial acceptance test BEFORE any term commitment — do not schedule a firm M7 purchase date until that passes |
 | (a-plus, conditional) | **Sharadar Core US bundle** (SEP prices + SF1 fundamentals, 14k+ tickers incl. dead) — a **separate fundamentals-axis candidate**, NOT a substitute for analyst-estimate-revision data (§ below) | ~$40–70/mo [unverified — not independently probed this session] | ONLY if FMP's coverage report shows quality-factor gaps, and only evaluated on the fundamentals axis |
 
 **Steady-state new spend if Alpaca ATP entitlement verification passes: $99/mo now; realistic
 ceiling ≈ $170–230/mo by August** if both conditionals trigger — Norgate's fixed-term cost is
-NOT a monthly recurring number and must be budgeted as a $476.50/$833 lump commitment, not
+NOT a monthly recurring number and must be budgeted as a $346.50/$630 lump commitment, not
 folded into the "$40-60/mo" steady-state figure the prior revision used. All within the
 authorized data budget, but the Norgate commitment size and non-cancellable term make the
 trial-first gate load-bearing, not a formality.
@@ -79,10 +79,21 @@ trial-first gate load-bearing, not a formality.
   what was checked in this session's authorized-budget scope. The honest path stays #233's
   forward accrual (which is why N2 is time-irreversible and outranks every purchase in this
   memo) — that conclusion does not depend on the categorical claim being softened.
-- **Norgate for M7 — pricing and integration reality corrected.** The prior revision's
-  "~$40–60/mo" figure was wrong: Norgate US Platinum has no monthly plan. The official package
-  is $476.50 for a 6-month term or $833 for 12 months, fixed-term and non-cancellable. It is
-  also NOT a simple API/download integration for this Python pipeline: Norgate stores data in
+- **Norgate for M7 — pricing and integration reality corrected (second pass).** The prior
+  revision's "~$40–60/mo" figure was wrong; a first correction (2026-07-02) replaced it with
+  "$476.50/6mo, $833/12mo," which Codex's direct check against the official US Platinum package
+  page (retrieved 2026-07-02) found was ALSO wrong. Current figures per that check: $346.50 for
+  a 6-month term or $630 for 12 months, no monthly plan, fixed-term and non-cancellable, quoted
+  in USD. **Pricing metadata:** retrieval date 2026-07-02 (Codex review-time check against the
+  official package page — this fork did not independently re-verify live pricing); confirm the
+  live figure before any actual purchase, since vendor pricing pages change without notice.
+  Tax treatment is unaddressed here (a business purchase may carry sales/use tax depending on
+  jurisdiction — confirm separately before committing). These figures do NOT include the
+  separate Windows/Windows-VM environment Norgate's proprietary database requires (see below) —
+  that implementation cost is not yet estimated and must be added to total cost of ownership
+  before a purchase decision (a small always-on cloud Windows VM is a reasonable placeholder to
+  price out, e.g. AWS/Azure Windows instance + storage, but no specific figure is committed
+  here). It is also NOT a simple API/download integration for this Python pipeline: Norgate stores data in
   a proprietary database that requires a Windows or Windows-VM environment, and historical
   index-constituency membership (the exact R2000/R3000-by-date feature this memo wants for
   M7's survivorship-clean panel spec) is exposed through supported plugins as a
@@ -94,7 +105,7 @@ trial-first gate load-bearing, not a formality.
   2. Explicit review of export/licensing constraints — can extracted data be persisted and
      used within this system's own stores, or is it query-only against Norgate's proprietary
      DB (this changes whether it can ever become a durable, auditable input to M7).
-  3. Treat the fixed-term, non-cancellable cost as a real $476.50–$833 commitment, not a
+  3. Treat the fixed-term, non-cancellable cost as a real $346.50–$630 commitment, not a
      trial — there is no monthly opt-out.
   4. A 3-week trial acceptance test, with defined pass/fail criteria, completed BEFORE
      committing to either term.
@@ -121,7 +132,7 @@ trial-first gate load-bearing, not a formality.
    decision rule above.
 3. **Norgate: schedule the Windows/VM + plugin integration POC and 3-week trial acceptance
    test, not a purchase.** A firm M7-kickoff purchase date is not authorized by this memo until
-   that POC/trial passes and the fixed-term commitment ($476.50/6mo or $833/12mo,
+   that POC/trial passes and the fixed-term commitment ($346.50/6mo or $630/12mo,
    non-cancellable) is explicitly accepted.
 4. Sharadar: evaluate only if/when FMP's coverage report shows a fundamentals-axis gap;
    pricing/access still need independent verification before any recommendation, not just at
@@ -133,6 +144,6 @@ Sources: [Alpaca market data plans](https://alpaca.markets/data) ·
 [Nasdaq Data Link SEP](https://data.nasdaq.com/databases/SEP) ·
 [Sharadar](https://www.sharadar.com/) — pricing pages not all directly probed; items marked
 [verify-at-checkout] or [unverified] get final confirmation before any purchase decision.
-Norgate pricing ($476.50/6mo, $833/12mo, no monthly plan) and integration model
+Norgate pricing ($346.50/6mo, $630/12mo, no monthly plan) and integration model
 (Windows/VM + per-security/date boolean plugin interface) corrected 2026-07-02 per Codex
 review against current official documentation — not independently re-probed in this fix.

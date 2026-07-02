@@ -31,7 +31,7 @@ NEXT:     Codex re-review; operator/lander executes the CORRECTED immediate acti
 ## Round 2 (Codex CHANGES_REQUESTED — pricing/integration errors + overstated claims)
 
 **Finding.** 5 issues: (1) Norgate priced as "~$40-60/mo" — wrong; official pricing is a
-fixed-term $476.50/6mo or $833/12mo, no monthly plan, and the data model requires a
+fixed-term $346.50/6mo or $630/12mo, no monthly plan, and the data model requires a
 Windows/VM + per-security/date boolean plugin interface, not downloadable constituent lists —
 this changes both the cost commitment and the integration shape. (2) Alpaca's "zero
 integration" claim was overstated — a subscription doesn't prove the collectors request
@@ -61,3 +61,15 @@ documentation per its stated check) — not independently re-probed in this roun
 **Scope:** the overall recommendation shape (Alpaca now, FMP hold, Norgate later, Sharadar
 conditional) is unchanged; what changed is that every claim now carries its actual evidentiary
 weight instead of being stated as settled.
+
+**Round 3 (second Norgate pricing correction, 2026-07-02).** Codex checked the r2 figures
+($476.50/6mo, $833/12mo) directly against the official US Platinum package page and found them
+also wrong; corrected to $346.50/6mo, $630/12mo (same no-monthly-plan, fixed-term,
+non-cancellable structure — only the dollar amounts changed). Added explicit pricing metadata
+per the review request: retrieval date (2026-07-02, Codex review-time check — not independently
+re-probed by this fork), currency (USD) and tax-treatment note (unaddressed, confirm before
+purchase), and a note that the Windows/VM environment Norgate's proprietary database requires is
+a separate, not-yet-estimated implementation cost on top of the subscription price. All other
+r2 content (trial/POC-first framing, no-constituent-history limitation, 4-point prerequisite
+list) unchanged. Searched for stray old figures across the doc and PR body — none found outside
+the one intentional historical reference in the new correction note.
