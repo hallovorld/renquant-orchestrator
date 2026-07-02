@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """S11 live-tree dirt inventory: machine-generated, mechanically reconciled.
 
-READ-ONLY. Runs `git status --porcelain=v2` against the live umbrella tree and
-classifies every reported path into exactly one class, then asserts the
-classified path set equals the raw path set (no omissions, no duplicates).
+READ-ONLY. Runs `git status --porcelain=v2 -z` against the live umbrella tree
+(via the shared NUL-aware parser in git_status_porcelain.py) and classifies
+every reported path into exactly one class, then asserts the classified path
+set equals the raw path set (no omissions, no duplicates).
 Never mutates the live tree (no checkout/reset/stash/pull/clean/rm/mv).
 
 Usage:
@@ -17,10 +18,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from git_status_porcelain import run_git_status_porcelain_v2_nul
 
 DEFAULT_LIVE_TREE = "/Users/renhao/git/github/RenQuant"
 
@@ -46,34 +48,37 @@ class ClassifiedPath:
 
 
 def run_git_status(live_tree: str) -> list[tuple[str, str, bool]]:
-    """Return [(path, xy, is_directory_entry)] from `git status --porcelain=v2`.
+    """Return [(path, xy, is_directory_entry)] from `git status --porcelain=v2 -z`.
+
+    Uses the shared NUL-aware parser (git_status_porcelain.py) so paths
+    containing spaces, tabs, or literal newlines are handled correctly, and
+    rename/copy (type '2') records are genuinely parsed rather than rejected.
 
     Directory-entry untracked paths (an entire untracked directory reported as
-    one line, because git does not recurse into a wholly-untracked directory)
-    end in '/'. Tracked-modified (type '1') paths are never directory entries.
+    one entry, because git does not recurse into a wholly-untracked directory)
+    end in '/'. Tracked-modified and rename/copy paths are never directory
+    entries. Rename/copy entries are classified by their NEW path (origPath
+    is available on the entry but not surfaced further here — the live tree
+    has had zero renames in every run to date; if that changes, origPath is
+    preserved in git_status_porcelain's PorcelainEntry for a future caller).
     """
-    proc = subprocess.run(
-        ["git", "-C", live_tree, "status", "--porcelain=v2"],
-        capture_output=True, text=True, check=True,
-    )
+    entries = run_git_status_porcelain_v2_nul(live_tree)
     out: list[tuple[str, str, bool]] = []
-    for line in proc.stdout.splitlines():
-        if not line:
-            continue
-        if line.startswith("1 "):
-            fields = line.split(" ", 8)
-            if len(fields) != 9:
-                raise ValueError(f"unexpected type-1 porcelain line (renames not handled): {line!r}")
-            xy, path = fields[1], fields[8]
-            out.append((path, xy, False))
-        elif line.startswith("2 "):
-            raise ValueError(f"unexpected rename/copy (type '2') porcelain line — script does not handle renames: {line!r}")
-        elif line.startswith("? "):
-            path = line[2:]
-            out.append((path, "??", path.endswith("/")))
-        elif line.startswith("u "):
-            raise ValueError(f"unexpected unmerged (type 'u') porcelain line: {line!r}")
-        # ignored '!' lines are not emitted by default porcelain and are skipped if present
+    for e in entries:
+        if e.kind == "ordinary":
+            out.append((e.path, e.xy, False))
+        elif e.kind == "rename_copy":
+            out.append((e.path, e.xy, False))
+        elif e.kind == "untracked":
+            out.append((e.path, e.xy, e.path.endswith("/")))
+        elif e.kind == "unmerged":
+            raise ValueError(
+                f"unexpected unmerged (type 'u') porcelain entry: {e.path!r} — the live "
+                f"tree has an active merge conflict; the inventory cannot proceed until "
+                f"that is resolved by hand (not something this read-only script should "
+                f"guess how to classify)"
+            )
+        # ignored ('!') entries are not emitted by default porcelain and are skipped if present
     return out
 
 

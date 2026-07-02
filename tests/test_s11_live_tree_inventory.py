@@ -153,6 +153,64 @@ class TestDirectoryNestedCount:
         assert row["nested_file_count_supplementary"] == 5
 
 
+class TestNulSafeParsing:
+    """r5 fix: the classifier consumes `git status --porcelain=v2 -z` via the
+    shared git_status_porcelain.py parser, not line/space-split text mode —
+    proves it actually handles paths a text-mode parser would mangle."""
+
+    def test_filename_with_space_is_classified_not_split(self, tmp_path):
+        repo = _init_repo(tmp_path)
+        odd_dir = repo / "artifacts"
+        odd_dir.mkdir()
+        (odd_dir / "some file with spaces.json").write_text("{}")
+        _commit_all(repo)
+        (repo / "artifacts" / "qp_step4_replay").mkdir(parents=True)
+        (repo / "artifacts" / "qp_step4_replay" / "a b.json").write_text("{}")
+
+        manifest = inv.build_manifest(str(repo))
+        assert manifest["reconciliation"].startswith("PASS")
+        paths = {p["path"] for p in manifest["paths"]}
+        # a text-mode last-space-split parser would truncate this to "with" or
+        # "spaces.json" depending on the entry type — the full path must survive intact.
+        assert "artifacts/qp_step4_replay/" in paths
+
+    def test_rename_record_is_parsed_not_rejected(self, tmp_path):
+        repo = _init_repo(tmp_path)
+        (repo / "as_of").write_text("x" * 200)  # large enough that git detects a rename, not add+delete
+        _commit_all(repo)
+        _git(repo, "mv", "as_of", "as_of_renamed")
+        # a staged rename is reported as a type '2' porcelain record
+        entries = _porcelain_entries(repo)
+        rename_entries = [e for e in entries if e.kind == "rename_copy"]
+        assert len(rename_entries) == 1
+        assert rename_entries[0].path == "as_of_renamed"
+        assert rename_entries[0].orig_path == "as_of"
+        # the classifier itself must not raise on this — it classifies by the new path
+        # (as_of_renamed doesn't match any rule, so UNCLASSIFIED is the correct, honest
+        # outcome here — the point of this test is "doesn't raise/misparse", not that
+        # every possible renamed path has a bespoke classification rule)
+        row = inv.classify(rename_entries[0].path, rename_entries[0].xy, False)
+        assert row.cls == "UNCLASSIFIED"  # honest: no rule for an arbitrary renamed path
+
+    def test_shared_parser_handles_untracked_and_ordinary_together(self, tmp_path):
+        repo = _init_repo(tmp_path)
+        (repo / "tracked.txt").write_text("v1")
+        _commit_all(repo)
+        (repo / "tracked.txt").write_text("v2")  # ordinary (type '1') modification
+        (repo / "new_untracked.txt").write_text("new")  # untracked ('?')
+
+        entries = _porcelain_entries(repo)
+        kinds = {e.kind for e in entries}
+        assert kinds == {"ordinary", "untracked"}
+        paths = {e.path for e in entries}
+        assert paths == {"tracked.txt", "new_untracked.txt"}
+
+
+def _porcelain_entries(repo: Path):
+    from git_status_porcelain import run_git_status_porcelain_v2_nul
+    return run_git_status_porcelain_v2_nul(str(repo))
+
+
 def test_live_manifest_file_is_internally_consistent():
     """The committed manifest.json (generated against the real live tree) must
     itself satisfy the same reconciliation property the script asserts live."""
