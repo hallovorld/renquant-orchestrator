@@ -131,3 +131,48 @@ upper bound `120` is accepted while `121` is rejected, pinning the boundary prec
 **Scope:** unchanged — observe-only, no model/pin/config change. The explicit-range bound (120
 business days) is itself a judgment call, not derived from any per-recipe contract (there isn't
 one yet); documented in-code as the reason and the natural upgrade path.
+
+## Round 3 (Codex CHANGES_REQUESTED — the range itself was still not validation)
+
+**Finding.** Round 2's `[1, 120]` range closed malformed/unbounded self-certification, but a
+broad "plausible" range is not validation against the recipe that actually produced the artifact:
+any artifact could still stamp e.g. `120` and receive roughly 2x the legitimate freshness
+allowance, entirely self-declared, with nothing checking it against that artifact's real recipe.
+Since every population this monitor currently covers (per-ticker tournament, prod XGB panel,
+shadow PatchTST panel) uses the documented fwd_60d convention, the only value that can actually
+be validated as legitimate right now is exactly `60` — not a range around it.
+
+**Fix.** `_validate_lookahead_days` now requires the value to equal `_EXPECTED_LOOKAHEAD_BDAYS`
+(= `_LABEL_OBSERVATION_LOOKAHEAD_BDAYS` = 60) exactly, on top of the existing strict-type check
+(bool/float/str still rejected outright). `_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS`/
+`_MAX_PLAUSIBLE_LOOKAHEAD_BDAYS` removed (no longer a range concept). `horizon_validated_against`
+now records `"exact_fwd60d_interim[60]bdays"`. Documented explicitly, in-code, as a TEMPORARY
+INTERIM with a named upgrade path: once this repo's artifacts carry a verified recipe/schema
+identifier (mirroring RenQuant PR #426's `provenance_schema_version`/`recipe_id` stamped at
+training time and bound into the artifact's own immutable fingerprint), replace the single
+hardcoded 60 with an explicit `_EXPECTED_HORIZON_BY_RECIPE` map keyed on that verified id.
+
+**Tests.** `test_lookahead_days_accepts_valid_in_range_int_and_records_validation_basis` narrowed
+to just the exact-60 acceptance case (the old 120/121 boundary assertions no longer apply — there
+is no boundary anymore). New `test_lookahead_days_non_exact_60_fails_closed_even_when_plausible`:
+every one of `61, 59, 1, 120, 20, 90` — values round 2's range would have accepted — now fails
+closed to `TIER_UNKNOWN` with `lookahead_days_stamped is None`. New
+`test_non_exact_60_lookahead_is_not_silently_widened`: proves the interim is actually BINDING on
+the widening computation (not just a separate flag) by picking a raw age (48d) that reads
+`TIER_WARN` under a genuine 60-BD widening but `TIER_UNKNOWN` when the artifact stamps a
+self-declared 20-BD horizon instead — same raw age, different stamped horizon, different (and
+correct) disposition. The old `test_per_recipe_lookahead_scales_the_widened_threshold` (which
+demonstrated a 20-BD artifact getting its own scaled widening) is superseded — that scaling
+capability is exactly what round 3 removes until real recipe-binding exists; the RenQuant #426
+fingerprint-bound pattern is where per-recipe scaling should return once this repo has it.
+
+**Evidence:** `PYTHONPATH=<sibling repos>:src uv-managed-python3.10 -m pytest
+tests/test_model_freshness_monitor.py -q` → 65 passed (was 64; net +1: one test narrowed to a
+strict subset, two new tests added, one obsoleted test replaced). `py_compile` clean. (Local
+verification required a scratch `uv venv --python 3.10` — the checked-out system `python3` is
+3.9, which cannot even import this repo's own `renquant_common` dependency chain due to `str |
+None` PEP 604 union syntax requiring 3.10+; this is a pre-existing environment fact, not
+introduced by this round — CI itself runs on a correctly-versioned interpreter and stays the
+authoritative check.)
+
+**Scope:** unchanged — observe-only, no model/pin/config change.

@@ -195,38 +195,46 @@ _AXIS_EXPECTED_LAG_BDAYS: dict[str, int] = {
     _LABEL_OBSERVATION_FIELD: _LABEL_OBSERVATION_LOOKAHEAD_BDAYS,
 }
 
-# 2026-07-02 (Codex #225 round 2): a self-declared ``lookahead_days`` is
-# NECESSARY but not SUFFICIENT — the round-1 fix accepted ANY value coerced
-# via ``int(...)``, which silently accepted ``True`` (== 1), floats (e.g.
-# ``60.9``), numeric strings (e.g. ``"60"``), and — critically — any
-# unboundedly large integer. A stale artifact could therefore certify
-# itself HEALTHY by stamping ``lookahead_days=6000``, widening every
-# threshold by ~6000 business days. This repo's artifacts carry no existing
-# recipe/model-kind identifier field to bind an expected horizon against
-# (all three populations this monitor covers — per-ticker tournament, prod
-# XGB panel, shadow PatchTST panel — currently use fwd_60d), so the
-# accepted value is bound to an EXPLICIT PLAUSIBLE RANGE instead: up to 2x
-# the documented fwd_60d convention — generous enough for a plausible
-# future shorter/longer-horizon model, but rejecting clearly-implausible or
-# corrupted values. If/when artifacts gain a real recipe/schema identifier,
-# replace this range check with a per-recipe expected-value lookup (mirrors
-# the training-side provenance-schema fix landing concurrently in
-# RenQuant's shadow_scoring.py — #426).
-_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS = 1
-_MAX_PLAUSIBLE_LOOKAHEAD_BDAYS = 2 * _LABEL_OBSERVATION_LOOKAHEAD_BDAYS
+# 2026-07-02 (Codex #225 round 3): round 2's "explicit plausible range"
+# (1..120 bdays, up to 2x the documented fwd_60d convention) was STILL not
+# validation against the recipe that actually produced the artifact — any
+# artifact could stamp up to 120 and receive roughly double the legitimate
+# freshness allowance, entirely self-declared, with nothing to check it
+# against. A broad "plausible" range is not a substitute for knowing the
+# artifact's real recipe.
+#
+# INTERIM (as of 2026-07-02): every population this monitor currently
+# covers — per-ticker tournament, prod XGB panel, shadow PatchTST panel —
+# uses the documented fwd_60d convention, so the ONLY value that can be
+# validated as legitimate right now is EXACTLY 60. Accepting any other
+# "plausible" value would let an artifact self-declare its own freshness
+# ceiling with no proof it is correct for that artifact's actual recipe.
+# This narrows further once artifact-side recipe/schema stamping exists —
+# see RenQuant's shadow_scoring.py fix (#426), which stamps
+# ``provenance_schema_version``/``recipe_id`` at TRAINING time and binds
+# them into the artifact's own immutable content fingerprint (XGB path) /
+# checkpoint training contract (HF/PatchTST path), then requires an EXACT
+# match at admission rather than inferring a recipe from whichever fields
+# happen to be present. Once this repo's artifacts carry an equivalent
+# verified recipe_id, replace the single hardcoded 60 below with an
+# explicit ``_EXPECTED_HORIZON_BY_RECIPE = {"<recipe_id>": <bdays>, ...}``
+# map keyed on that verified id — exactly the pattern #426 implements.
+_EXPECTED_LOOKAHEAD_BDAYS = _LABEL_OBSERVATION_LOOKAHEAD_BDAYS
 
 
 def _validate_lookahead_days(value: object) -> int | None:
     """Strictly validate a stamped ``lookahead_days`` value: must be an
     EXACT JSON integer — never a ``bool`` (``int(True) == 1`` would
     otherwise silently accept it), a ``float``, or a numeric string — AND
-    within the explicit plausible range (#225 round 2). Returns the
-    validated int, or ``None`` if the value fails any check; callers MUST
-    treat ``None`` exactly like a missing horizon (fail closed to
-    ``TIER_UNKNOWN``), never fall back to guessing a default from it."""
+    equal to the one documented, currently-supported horizon (#225 round 3
+    interim; see the module comment above for the upgrade path once
+    artifact-side recipe stamping lands). Returns the validated int, or
+    ``None`` if the value fails any check; callers MUST treat ``None``
+    exactly like a missing horizon (fail closed to ``TIER_UNKNOWN``), never
+    fall back to guessing a default from it."""
     if not isinstance(value, int) or isinstance(value, bool):
         return None
-    if not (_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS <= value <= _MAX_PLAUSIBLE_LOOKAHEAD_BDAYS):
+    if value != _EXPECTED_LOOKAHEAD_BDAYS:
         return None
     return value
 
@@ -571,16 +579,16 @@ def read_artifact_freshness(
     result.max_feature_anchor_date = (
         raw[:10] if (raw := _text_or_none(data.get(_FEATURE_ANCHOR_FIELD))) else None
     )
-    # #223 amendment A1 / #225 round 2: this artifact's OWN declared label
-    # horizon, strictly validated (exact JSON int, in-range — see
+    # #223 amendment A1 / #225 round 3: this artifact's OWN declared label
+    # horizon, strictly validated (exact JSON int, exactly the one
+    # currently-supported fwd_60d convention — see
     # ``_validate_lookahead_days``). Read here so it is available for BOTH the
     # widening computation below and observability (``as_dict``) regardless of
     # tier outcome.
     result.lookahead_days_stamped = _validate_lookahead_days(data.get(_LOOKAHEAD_DAYS_FIELD))
     if result.lookahead_days_stamped is not None:
         result.horizon_validated_against = (
-            f"explicit_range[{_MIN_PLAUSIBLE_LOOKAHEAD_BDAYS},"
-            f"{_MAX_PLAUSIBLE_LOOKAHEAD_BDAYS}]bdays"
+            f"exact_fwd60d_interim[{_EXPECTED_LOOKAHEAD_BDAYS}]bdays"
         )
 
     for field_name in DATA_CUTOFF_FIELDS:

@@ -812,7 +812,7 @@ def test_lookahead_days_rejects_non_int_types_and_implausible_magnitude(tmp_path
         60.9,             # float -- int(60.9) == 60 would have been silently truncated+accepted
         "60",              # numeric string -- int("60") == 60 would have been silently parsed
         6000,             # implausibly large in-type value -- no prior upper bound at all
-        -1,               # out of range (already covered for 0/-5, add a boundary case)
+        -1,               # out of range
     )
     for bad_value in bad_values:
         art = _write_json(
@@ -828,73 +828,74 @@ def test_lookahead_days_rejects_non_int_types_and_implausible_magnitude(tmp_path
 def test_lookahead_days_accepts_valid_in_range_int_and_records_validation_basis(
     tmp_path: Path,
 ) -> None:
-    # A genuine, in-range JSON integer still validates and widens the
-    # threshold correctly (regression against round-1 behavior), and the
-    # validated ArtifactFreshness now also records WHAT it was validated
-    # against (#225 round 2), not just a bare pass/fail.
+    # A genuine, correctly-typed JSON integer equal to the one documented
+    # fwd_60d convention still validates and widens the threshold correctly
+    # (regression against round-1/round-2 behavior), and the validated
+    # ArtifactFreshness records WHAT it was validated against (#225 round 2),
+    # now the exact-60 interim (#225 round 3), not a range.
     art = _write_json(
         tmp_path / "valid_horizon.json",
         {"label_observation_cutoff": "2026-04-08", "lookahead_days": 60},
     )
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
     assert fresh.lookahead_days_stamped == 60
-    assert fresh.horizon_validated_against == "explicit_range[1,120]bdays"
+    assert fresh.horizon_validated_against == "exact_fwd60d_interim[60]bdays"
     assert fresh.tier == mod.TIER_HEALTHY
 
-    # The upper bound itself (2x the documented fwd_60d convention) is still
-    # accepted -- only values STRICTLY beyond it are rejected.
-    at_bound = _write_json(
-        tmp_path / "at_upper_bound.json",
-        {"label_observation_cutoff": "2026-04-08", "lookahead_days": 120},
-    )
-    fresh_bound = mod.read_artifact_freshness("prod-panel", at_bound, AS_OF)
-    assert fresh_bound.lookahead_days_stamped == 120
-    just_over = _write_json(
-        tmp_path / "just_over_upper_bound.json",
-        {"label_observation_cutoff": "2026-04-08", "lookahead_days": 121},
-    )
-    fresh_over = mod.read_artifact_freshness("prod-panel", just_over, AS_OF)
-    assert fresh_over.lookahead_days_stamped is None
-    assert fresh_over.tier == mod.TIER_UNKNOWN
+
+def test_lookahead_days_non_exact_60_fails_closed_even_when_plausible(
+    tmp_path: Path,
+) -> None:
+    # #225 round 3 (Codex): round 2's "explicit plausible range" (1..120)
+    # still let an artifact self-declare its own freshness ceiling with
+    # nothing to check it against -- any value up to 120 got up to 2x the
+    # legitimate widening, entirely self-declared. Since NO artifact-side
+    # recipe/schema stamping exists yet to prove an artifact genuinely is a
+    # non-fwd_60d model, the interim accepts ONLY exactly 60 -- every one of
+    # these, despite being "plausible" numbers a real model might use, must
+    # now fail closed exactly like a missing horizon.
+    formerly_accepted_values = (61, 59, 1, 120, 20, 90)
+    for value in formerly_accepted_values:
+        art = _write_json(
+            tmp_path / f"panel_nonexact_{value}.json",
+            {"label_observation_cutoff": "2026-04-07", "lookahead_days": value},
+        )
+        fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+        assert fresh.tier == mod.TIER_UNKNOWN, value
+        assert fresh.lookahead_days_stamped is None, value
+        assert fresh.horizon_validated_against is None, value
 
 
-def test_per_recipe_lookahead_scales_the_widened_threshold(tmp_path: Path) -> None:
-    # A SHORTER label horizon (e.g. a future 20-BD model) must widen the
-    # threshold by ITS OWN lag, not the fwd_60d default -- proving the width is
-    # genuinely per-artifact, not a disguised single constant. 20 business days
-    # back from AS_OF (2026-06-30, Tuesday) = 2026-06-02 (28 calendar days).
-    art = _write_json(
-        tmp_path / "short_horizon.json",
-        {"label_observation_cutoff": "2026-06-02", "lookahead_days": 20},  # 28d raw age
-    )
-    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
-    assert fresh.lookahead_days_stamped == 20
-    # Widened warn ceiling for a 20-BD horizon is 14 + 28 = 42d (not 14+84=98d) --
-    # 28d raw age is comfortably inside it either way, so assert the DETAIL
-    # names the artifact's own 20-BD horizon, not the 60-BD default, and the
-    # threshold widening actually used is 28d (== this artifact's own lag), not 84d.
-    assert "20-BD stamped label horizon" in fresh.detail
-    assert "(thresholds +28d" in fresh.detail
-    assert fresh.tier == mod.TIER_HEALTHY
-
-    # The SAME raw cutoff, judged under the fwd_60d default (84d widening)
-    # instead, would still be healthy here too (28 < 98) -- so additionally
-    # prove the 20-BD lag is actually BINDING, not just present-but-unused, by
-    # picking a raw age that reads WARN under a 20-BD widening (42d ceiling)
-    # but would read HEALTHY under a 60-BD widening (98d ceiling).
-    art2 = _write_json(
-        tmp_path / "short_horizon_warn.json",
+def test_non_exact_60_lookahead_is_not_silently_widened(tmp_path: Path) -> None:
+    # Prove the exact-60 interim is actually BINDING on the widening
+    # computation, not just on a separate validation flag: an artifact
+    # stamping a self-declared 20-BD horizon must NOT get a 20-BD-scaled
+    # widening (as round-1/round-2's per-recipe scaling would have given it)
+    # -- it must be judged as UNKNOWN, full stop, exactly as if it had
+    # stamped nothing at all. Pick a raw age that would read WARN under a
+    # correct 60-BD widening (98d ceiling) so the two dispositions
+    # (UNKNOWN vs a widened tier) are unambiguously different outcomes, not
+    # coincidentally the same tier either way. 2026-05-13 -> AS_OF
+    # (2026-06-30) is 48 raw calendar days.
+    art_nonexact = _write_json(
+        tmp_path / "short_horizon_not_widened.json",
         {"label_observation_cutoff": "2026-05-13", "lookahead_days": 20},  # 48d raw age
     )
-    fresh2 = mod.read_artifact_freshness("prod-panel", art2, AS_OF)
-    assert fresh2.age_days == 48
-    assert fresh2.tier == mod.TIER_WARN  # 48d > 42d (14+28) widened warn ceiling for 20-BD
-    art3 = _write_json(
-        tmp_path / "long_horizon_healthy.json",
+    fresh_nonexact = mod.read_artifact_freshness("prod-panel", art_nonexact, AS_OF)
+    assert fresh_nonexact.age_days == 48
+    assert fresh_nonexact.tier == mod.TIER_UNKNOWN
+    assert fresh_nonexact.lookahead_days_stamped is None
+
+    # The SAME raw cutoff with the documented lookahead_days=60 stamped
+    # instead reads HEALTHY (48d < 98d widened ceiling) -- confirming the
+    # UNKNOWN result above is caused by the non-exact horizon, not by the
+    # raw age itself.
+    art_exact = _write_json(
+        tmp_path / "same_age_exact_60.json",
         {"label_observation_cutoff": "2026-05-13", "lookahead_days": 60},  # same 48d raw age
     )
-    fresh3 = mod.read_artifact_freshness("prod-panel", art3, AS_OF)
-    assert fresh3.tier == mod.TIER_HEALTHY  # 48d < 98d (14+84) widened warn ceiling for 60-BD
+    fresh_exact = mod.read_artifact_freshness("prod-panel", art_exact, AS_OF)
+    assert fresh_exact.tier == mod.TIER_HEALTHY  # 48d < 98d (14+84) widened warn ceiling for 60-BD
 
 
 def test_axis_without_inherent_lag_ignores_lookahead_days(tmp_path: Path) -> None:
