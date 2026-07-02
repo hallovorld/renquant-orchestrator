@@ -1,11 +1,18 @@
 {
   "as_of": "2026-07-02",
+  "generator_sha256": "883820f1b6461d0198bc5661b6a54ea0fda788e2e83a2b4ea8f004e31d62aead",
   "inputs": {
     "db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
     "db_open_mode": "mode=ro",
-    "rq_root": "/Users/renhao/git/github/RenQuant"
+    "db_snapshot": {
+      "mtime": "2026-07-02T09:00:37",
+      "size_bytes": 96137216
+    },
+    "rq_root": "/Users/renhao/git/github/RenQuant",
+    "serving_artifact_sha256": "366515356ebadf4babf7b2218e02349b3243184b9ff032d17575b289994ad794",
+    "spy_parquet_sha256": "50486d1e16954e35324ca65ff3ffe8689f86144260d5e132a4c030672d305841"
   },
-  "measured_at": "2026-07-02T08:37:13",
+  "measured_at": "2026-07-02T09:10:42",
   "metrics": {
     "buy_side_decision_tc": {
       "detail": {
@@ -61,7 +68,7 @@
         ],
         "se_measured": 0.167
       },
-      "measured_at": "2026-07-02T08:37:13",
+      "measured_at": "2026-07-02T09:10:42",
       "method": "imported unchanged from poc_transfer_coefficient.buy_side_decision_tc: eligible = candidates with mu >= 0.03; admission survivors classified by the round-3 blocked_by stage taxonomy; Pearson TC only over runs with real dispersion ('measured'); undefined cases categorized, never averaged in as 0. Caveats in doc/progress/2026-07-02-s-tc-measurement.md apply verbatim.",
       "source": "runs.alpaca.db candidate_scores + trades via scripts/poc_transfer_coefficient.py (round-3 blocked_by taxonomy)",
       "status": "ok",
@@ -90,7 +97,7 @@
         "run_date": "2026-07-01",
         "run_id": "2026-07-01-live-01c54b39"
       },
-      "measured_at": "2026-07-02T08:37:13",
+      "measured_at": "2026-07-02T09:10:42",
       "method": "parse counters_json['calibrator_sign_laundered']. M4 AC: single digits (BL-1 recentering); 44/90 was the measured 2026-07-01 state.",
       "source": "runs.alpaca.db pipeline_runs.counters_json of the latest canonical daily FULL run (>= 80 candidate_scores rows, last created_at per run_date)",
       "status": "ok",
@@ -99,66 +106,68 @@
     },
     "collector_liveness": {
       "detail": {
-        "renquant105_pilot_ticks": {
-          "age_hours": 0.01,
-          "mtime": "2026-07-02T08:36:55",
-          "newest_file": "intraday_ticks.jsonl.censored.jsonl",
-          "size_bytes": 487705,
-          "zero_byte_warning": false
+        "entry_timing_shadow": {
+          "path": "$RQ_ROOT/logs/renquant105_pilot/entry_timing_shadow.jsonl",
+          "reason": "/Users/renhao/git/github/RenQuant/logs/renquant105_pilot/entry_timing_shadow.jsonl missing",
+          "status": "stale_or_missing"
         },
-        "rq105_quote_logger": {
-          "age_hours": 0.42,
-          "mtime": "2026-07-02T08:11:49",
-          "newest_file": "quote_logger_2026-07-02.log",
-          "size_bytes": 0,
-          "zero_byte_warning": true
+        "intraday_pairing_logger": {
+          "path": "$RQ_ROOT/logs/renquant105_pilot/paired_is.jsonl",
+          "reason": "/Users/renhao/git/github/RenQuant/logs/renquant105_pilot/paired_is.jsonl missing",
+          "status": "stale_or_missing"
+        },
+        "intraday_quote_logger": {
+          "path": "$RQ_ROOT/logs/renquant105_pilot/intraday_ticks.jsonl",
+          "reason": null,
+          "status": "ok"
         }
       },
-      "measured_at": "2026-07-02T08:37:13",
-      "method": "newest-file mtime per collector dir; 'live' iff every collector wrote within 30h (covers the overnight gap, catches a dead launchd job by the next scorecard). Weekend runs will read 'stale' benignly \u2014 run the scorecard on a trading day. Zero-byte newest files are flagged but do not fail liveness (a fresh log can legitimately be empty at open).",
-      "source": "file mtimes under $RQ_ROOT/logs/rq105 and $RQ_ROOT/logs/renquant105_pilot",
+      "measured_at": "2026-07-02T09:10:42",
+      "method": "'live' iff EVERY collector's own data-output resolver path exists, is non-empty, and its last JSONL row's 'date' field equals as_of (mtime is only a fallback when the last row is unparseable, and that fallback is itself flagged in the reused function's reason string). Any single collector missing/stale/unavailable fails the aggregate \u2014 no generic directory activity can substitute for a real per-collector check.",
+      "source": "ops/renquant105/rq105_liveness_check.py's _data_outputs() path resolvers (per-collector default_*_path(), never hardcoded/guessed) and _data_output_fresh() content check (imported unchanged)",
       "status": "ok",
-      "unit": "all collectors' newest file within 30h",
-      "value": "live"
+      "unit": "every rq105 pilot/shadow collector's OWN data output independently fresh (last JSONL row's own date field == as_of), not directory mtime",
+      "value": "stale"
     },
     "deployed_fraction": {
       "detail": {
-        "cash": 8459.54,
-        "latest_live_run_created_at": "2026-07-02 15:36:36",
-        "latest_live_run_id": "2026-07-02-live-d5a30794",
-        "portfolio_value": 10760.35,
-        "trailing_5_session_mean": 0.2227,
+        "cash": 8139.65,
+        "latest_full_run_created_at": "2026-07-01 22:13:39",
+        "latest_full_run_date": "2026-07-01",
+        "latest_full_run_id": "2026-07-01-live-01c54b39",
+        "portfolio_value": 10806.35,
+        "trailing_5_session_mean": 0.2051,
         "trailing_5_sessions": [
+          "2026-06-23",
+          "2026-06-25",
           "2026-06-26",
-          "2026-06-29",
           "2026-06-30",
-          "2026-07-01",
-          "2026-07-02"
-        ]
-      },
-      "measured_at": "2026-07-02T08:37:13",
-      "method": "deployed = 1 - cash/portfolio_value. Counts long stock positions only; no parking sleeve exists yet (RS-1 not implemented), so idle cash is genuinely idle. Target (#231 \u00a70): >=95% incl. sleeve.",
-      "source": "runs.alpaca.db pipeline_runs (run_type='live'), latest row by created_at; trailing mean over the canonical daily series (last row per run_date)",
-      "status": "ok",
-      "unit": "fraction of book (1 - cash/portfolio_value)",
-      "value": 0.2138
-    },
-    "floor_gap_vs_spy": {
-      "detail": {
-        "avg_cash_weight_pct": 72.1,
-        "n_sessions": 46,
-        "spy_span_return_pct": 4.5,
-        "window": [
-          "2026-04-24",
           "2026-07-01"
         ]
       },
-      "measured_at": "2026-07-02T08:37:13",
+      "measured_at": "2026-07-02T09:10:42",
+      "method": "deployed = 1 - cash/portfolio_value, computed on the latest CANONICAL FULL run (not the raw latest pipeline_runs row by created_at \u2014 an intraday monitor pass can be more recent than the day's full run and must never silently supersede it for this metric). Counts long stock positions only; no parking sleeve exists yet (RS-1 not implemented), so idle cash is genuinely idle. Target (#231 \u00a70): >=95% incl. sleeve.",
+      "source": "runs.alpaca.db pipeline_runs (run_type='live', n_candidates >= 80), latest row by created_at among FULL runs only; trailing mean over the same canonical daily series",
+      "status": "ok",
+      "unit": "fraction of book (1 - cash/portfolio_value), latest CANONICAL FULL run",
+      "value": 0.2468
+    },
+    "floor_gap_vs_spy": {
+      "detail": {
+        "avg_cash_weight_pct": 76.1,
+        "n_sessions": 10,
+        "spy_span_return_pct": -1.5,
+        "window": [
+          "2026-06-04",
+          "2026-07-01"
+        ]
+      },
+      "measured_at": "2026-07-02T09:10:42",
       "method": "for each canonical session t (last live row per run_date, trading days only): foregone += cash_weight(t) * SPY close-to-close return t->t+1; cumulative simple sum in pp of book. Same method family as RS-1 \u00a71 (which reported 46 sessions / 75.5% avg cash / 2.88pp on this window); this implementation's canonical-row selection yields the same session count but slightly different weights \u2014 treat RS-1's exact figures as its own snapshot and THIS series as the standing weekly definition.",
       "source": "runs.alpaca.db pipeline_runs (canonical daily live rows) + data/ohlcv/SPY/1d.parquet close",
       "status": "ok",
-      "unit": "pp of book, cumulative realized foregone SPY return on idle cash (2026-04-24 -> 2026-07-01); DESCRIPTIVE, NOT annualized (RS-1 \u00a71)",
-      "value": 3.48
+      "unit": "pp of book, cumulative realized foregone SPY return on idle cash (2026-06-04 -> 2026-07-01); DESCRIPTIVE, NOT annualized (RS-1 \u00a71)",
+      "value": -1.11
     },
     "gate_verdict_age": {
       "detail": {
@@ -173,7 +182,7 @@
         },
         "serving_artifact": "$RQ_ROOT/backtesting/renquant_104/artifacts/panel-ltr.alpha158_fund.json"
       },
-      "measured_at": "2026-07-02T08:37:13",
+      "measured_at": "2026-07-02T09:10:42",
       "method": "authoritative verdict := wf_gate_metadata with diagnostic_only != true and a non-null passed field; report its age in days. Otherwise report 'mute since 2026-05-18' (operator-established date, #231 \u00a70) with the latest diagnostic stamp attached for context. Unmuting is S1-S4 of the master plan.",
       "source": "metadata.wf_gate_metadata stamped by RenQuant/scripts/run_wf_gate.py into the serving artifact; cross-checked against the (empty) runs.alpaca.db gate_verdicts table",
       "status": "ok",
@@ -186,7 +195,7 @@
         "joined_any_pct": 88.5,
         "n_aged_rows": 5199
       },
-      "measured_at": "2026-07-02T08:37:13",
+      "measured_at": "2026-07-02T09:10:42",
       "method": "aged := run_date at least 35 calendar days old (20 trading days for fwd_20d to resolve, plus buffer). Coverage = share of those decision rows whose (run_date, ticker) has a non-null fwd_20d. S5 AC: >=95%.",
       "source": "runs.alpaca.db candidate_scores JOIN pipeline_runs (run_date) LEFT JOIN ticker_forward_returns on (as_of_date, ticker)",
       "status": "ok",
@@ -197,16 +206,20 @@
       "detail": {
         "accrual_stale": false,
         "first": "2026-07-02",
-        "latest": "2026-07-02"
+        "latest": "2026-07-02",
+        "n_dirs_scanned": 1,
+        "n_rejected_partial_or_invalid": 0,
+        "rejected_days": {}
       },
-      "measured_at": "2026-07-02T08:37:13",
-      "method": "count directories named YYYY-MM-DD. accrual_stale flags a latest dir more than 3 calendar days old (missed-day alert is task N2's AC). M-SIG needs >=120 accrued days before D3.",
-      "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing",
+      "measured_at": "2026-07-02T09:10:42",
+      "method": "count directories named YYYY-MM-DD whose check_snapshot() returns zero problems (all 4 endpoint manifests present, status=='ok', as_of matching the directory date, referenced parquet present and non-empty). A partial or crashed publish is excluded, not counted. accrual_stale flags a latest VALID dir more than 3 calendar days old (missed-day alert is task N2's AC). M-SIG needs >=120 accrued (valid) days before D3.",
+      "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing, each day validated via ops/pit/pit_liveness_check.check_snapshot() (the same contract the daily liveness alert enforces for today)",
       "status": "ok",
-      "unit": "count of dated snapshot dirs (accrued PIT days; time-irreversible, cannot be backfilled)",
+      "unit": "count of dated snapshot dirs that PASS the N2 collector's own 4-endpoint publication contract (accrued PIT days; time-irreversible, cannot be backfilled)",
       "value": 1
     }
   },
+  "output_content_sha256": "7ced690e1e18fc872a7cd04f795c312544973969cf87047d02fc9279e6c8d400",
   "schema_version": 1,
   "scorecard": "RS-6 weekly KPI scorecard (#231 \u00a70 state vector)"
 }

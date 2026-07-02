@@ -61,3 +61,69 @@ NEXT:     Codex review. Then: run weekly on a trading day (candidate for the exi
           §4 monthly re-baseline reads the accumulated JSONs; when S4/S5/M4 land their ACs
           are read from THIS instrument; the zero-byte rq105 quote log wants a look at the
           next close; buy_side_decision_tc graduates to a per-run ledger series with S5.
+
+## Round 2 (Codex review: false-confidence metrics)
+
+**Finding.** `collector_liveness` scanned only two directories for the newest-mtime file —
+the committed r1 evidence called the system live from an empty quote-wrapper log and a
+censored intermediate ticks file, not each collector's actual canonical data output.
+`pit_accrual_days` counted dated directory NAMES without validating the 4-manifest
+publication contract, so a partial/crashed directory would have inflated an irreversible
+accrual count. The scorecard itself overwrote a same-date JSON non-atomically with no
+input/run/content hashes — not independently reproducible.
+
+**Fix.**
+- `collector_liveness` now imports `rq105_liveness_check`'s own `_data_outputs()` (exact
+  per-collector path resolvers, never hardcoded/guessed) and `_data_output_fresh()`
+  (validates the last JSONL row's own `date` field, not directory mtime) — single-impl
+  rule, same pattern as `buy_side_decision_tc`'s reuse of `poc_transfer_coefficient`. Every
+  collector is reported INDEPENDENTLY; the aggregate is `live` only if every one passes. A
+  non-session `as_of` is reported as its own state (`not_a_session_day`), never conflated
+  with live/stale.
+- `pit_accrual_days` now runs `pit_liveness_check.check_snapshot()` (imported unchanged)
+  against EVERY dated directory and only counts days that pass the full 4-endpoint
+  publication contract. Rejected (partial/invalid) days are listed by name with their
+  specific problems, not silently dropped.
+- `_canonical_daily_live` gained a full-run filter. **Round-2a correction**: my first pass
+  filtered on `pipeline_runs.n_candidates >= 80`, which looked right against the column
+  name but is WRONG — verified against `runs.alpaca.db` directly, `n_candidates` is 0 on
+  every one of 1441 real live rows, not a populated proxy for run size in this schema.
+  Fixed to join `candidate_scores` and count, the same way
+  `poc_transfer_coefficient._canonical_daily_runs()` already does (that script never used
+  `n_candidates` either — should have checked first). Caught by actually re-running the
+  script against real read-only production stores after the first pass, which surfaced
+  `deployed_fraction`/`floor_gap_vs_spy` going UNAVAILABLE ("no rows with n_candidates >=
+  80") even though real full runs obviously exist.
+- `metric_deployed_fraction`'s headline `value` now reads the latest CANONICAL FULL run
+  (via the corrected `_canonical_daily_live`), not the raw latest `pipeline_runs` row by
+  `created_at` — an intraday monitor pass can be more recent than the day's full run and
+  must never silently supersede it.
+- Reproducibility: `_generator_sha256()` (content hash of the script itself — a
+  self-referential `generator_commit` is a chicken-and-egg bug already hit once this
+  session, #430), `_canonical_content_hash()` (sorted-key, fixed-float-precision hash of
+  the metrics payload alone, excluding wall-clock `measured_at` — two runs against
+  identical underlying state now provably produce the identical hash), `_atomic_write_json`
+  (temp file + fsync + rename, same pattern as #236's batch-scores bundle fix), and
+  `inputs.db_snapshot`/`spy_parquet_sha256`/`serving_artifact_sha256` recording exactly
+  which source-artifact state fed this specific scorecard.
+- New `tests/test_kpi_scorecard.py` (8 tests): the 4 cases Codex named explicitly
+  (unrelated-newest-file false green, partial-PIT-dir exclusion, same-day-rerun content-hash
+  idempotency, full-run-supersedes-later-intraday-partial run-selection semantics) plus
+  atomicity and hash-stability checks.
+
+**Re-measured (2026-07-02, real read-only production stores, corrected methodology):**
+`deployed_fraction` 0.2468 (trailing-5 mean 0.2051 — differs from r1's 0.214/0.223 because
+the full-run filter now genuinely excludes intraday partial rows from the canonical series,
+not because of a data change) · `floor_gap_vs_spy` -1.11pp over 10 sessions (down from r1's
+46-session/+3.48pp figure — r1's `_canonical_daily_live` was NOT actually filtering to full
+runs at all despite its docstring's claim, so it was averaging in many intraday partial-run
+sessions; 10 sessions is the genuinely full-run-only canonical series) · `pit_accrual_days`
+1, contract-validated (down from r1's raw directory count — full production history for
+this metric is still thin, most of the visible dated dirs are pre-collector test artifacts
+that correctly fail the 4-manifest check) · `collector_liveness` now correctly reports
+`stale` (r1's directory-mtime scan had reported `live` from the unrelated files codex
+identified). All other metrics unchanged. 64/64 tests pass across this file plus the
+touched sibling test files (`test_rq105_collector_scheduling.py`,
+`test_pit_snapshotter_scheduling.py`, `test_poc_transfer_coefficient.py`).
+
+Evidence JSON regenerated in place: `doc/research/evidence/kpi_scorecards/kpi_2026-07-02.json`.

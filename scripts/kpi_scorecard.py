@@ -41,6 +41,7 @@ Output:
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -55,11 +56,17 @@ SPY_PARQUET = os.path.join(RQ, "data/ohlcv/SPY/1d.parquet")
 SERVING_ARTIFACT = os.path.join(
     RQ, "backtesting/renquant_104/artifacts/panel-ltr.alpha158_fund.json")
 ESTIMATE_SNAPSHOTS = os.path.join(RQ, "data/estimate_snapshots")
-COLLECTOR_DIRS = {
-    "rq105_quote_logger": os.path.join(RQ, "logs/rq105"),
-    "renquant105_pilot_ticks": os.path.join(RQ, "logs/renquant105_pilot"),
-}
 OUT_DIR = os.path.join(REPO_ROOT, "doc/research/evidence/kpi_scorecards")
+
+# Single-implementation rule (same as buy_side_decision_tc): these two ops/
+# scripts already carry reviewed, exact per-collector path resolvers and
+# publication-contract validators. Re-scanning directories by mtime here
+# would silently drift from those contracts and can false-green on an empty
+# or irrelevant file (measured incident: an empty quote-logger wrapper log
+# and a censored intermediate ticks file were both reported "live" under the
+# old directory-mtime scan). Import and reuse, never reimplement.
+sys.path.insert(0, os.path.join(REPO_ROOT, "ops", "renquant105"))
+sys.path.insert(0, os.path.join(REPO_ROOT, "ops", "pit"))
 
 # Operator-established fact (#231 §0 PROCESS row): no authoritative WF-gate verdict
 # on the live primary since this date. Used only when no authoritative verdict is found.
@@ -70,8 +77,6 @@ FLOOR_GAP_ANCHOR = "2026-04-24"
 MIN_FULL_RUN_CANDIDATES = 80
 # fwd_20d needs ~20 trading days ≈ 28-29 calendar days to resolve; +buffer.
 LEDGER_AGED_CUTOFF_DAYS = 35
-# A collector is "live" if its newest file is at most this old (covers the overnight gap).
-COLLECTOR_LIVE_MAX_AGE_HOURS = 30.0
 
 _DB_OPEN_MODE = None  # recorded into the scorecard for provenance
 
@@ -102,14 +107,36 @@ def _as_of() -> dt.date:
 
 
 def _canonical_daily_live(con):
-    """One pipeline_runs row per run_date for run_type='live': the row with the latest
-    created_at that day (the last completed run supersedes earlier same-day passes)."""
+    """One pipeline_runs row per run_date for run_type='live', restricted to
+    FULL runs: the row with the latest created_at that day AMONG rows whose
+    candidate_scores row count is >= MIN_FULL_RUN_CANDIDATES (the last
+    completed FULL run supersedes an earlier same-day FULL attempt; an
+    intraday monitor pass never wins this selection, even if its created_at
+    is later than the day's full run).
+
+    Full-run status is determined by JOINING candidate_scores and counting,
+    the same way poc_transfer_coefficient._canonical_daily_runs() does —
+    NOT via pipeline_runs.n_candidates, which is 0 on every real production
+    row (verified against runs.alpaca.db: 1441/1441 live rows have
+    n_candidates==0; it is not a populated proxy for run size in this
+    schema, despite the column name)."""
     import pandas as pd
+    counts = pd.read_sql(
+        "select run_id, count(*) n from candidate_scores "
+        "group by run_id having n >= ?", con, params=(MIN_FULL_RUN_CANDIDATES,))
+    if counts.empty:
+        raise ValueError(
+            f"no candidate_scores-backed runs with >= {MIN_FULL_RUN_CANDIDATES} rows "
+            "(full runs)")
     runs = pd.read_sql(
-        "select run_id, run_date, created_at, portfolio_value, cash, n_candidates "
-        "from pipeline_runs where run_type='live' order by created_at", con)
+        "select run_id, run_date, created_at, portfolio_value, cash "
+        "from pipeline_runs where run_type='live' and run_id in ({})".format(
+            ",".join("?" * len(counts))),
+        con, params=counts["run_id"].tolist())
     if runs.empty:
-        raise ValueError("no run_type='live' rows in pipeline_runs")
+        raise ValueError(
+            "candidate_scores has full runs but none match a run_type='live' "
+            "pipeline_runs row")
     runs["created_at"] = pd.to_datetime(runs["created_at"])
     idx = runs.groupby("run_date")["created_at"].idxmax()
     return runs.loc[idx].sort_values("run_date").reset_index(drop=True)
@@ -126,34 +153,34 @@ def _spy_close():
 
 
 def metric_deployed_fraction(con) -> dict:
-    row = con.execute(
-        "select run_id, run_date, created_at, portfolio_value, cash from pipeline_runs "
-        "where run_type='live' order by created_at desc limit 1").fetchone()
-    if row is None:
-        raise ValueError("no live pipeline_runs rows")
-    run_id, run_date, created_at, pv, cash = row
-    if not pv:
-        raise ValueError(f"portfolio_value empty on latest live row {run_id}")
-    canon = _canonical_daily_live(con)
+    canon = _canonical_daily_live(con)  # FULL runs only — see docstring
     canon = canon[canon["portfolio_value"] > 0].copy()
+    if canon.empty:
+        raise ValueError("no full-run canonical rows with positive portfolio_value")
     canon["deployed"] = 1.0 - canon["cash"] / canon["portfolio_value"]
+    latest = canon.iloc[-1]
     trailing5 = canon.tail(5)
     return {
-        "value": round(1.0 - cash / pv, 4),
-        "unit": "fraction of book (1 - cash/portfolio_value)",
+        "value": round(float(latest["deployed"]), 4),
+        "unit": "fraction of book (1 - cash/portfolio_value), latest CANONICAL FULL run",
         "detail": {
-            "latest_live_run_id": run_id,
-            "latest_live_run_created_at": created_at,
-            "portfolio_value": round(pv, 2),
-            "cash": round(cash, 2),
+            "latest_full_run_id": latest["run_id"],
+            "latest_full_run_date": latest["run_date"],
+            "latest_full_run_created_at": str(latest["created_at"]),
+            "portfolio_value": round(float(latest["portfolio_value"]), 2),
+            "cash": round(float(latest["cash"]), 2),
             "trailing_5_session_mean": round(float(trailing5["deployed"].mean()), 4),
             "trailing_5_sessions": trailing5["run_date"].tolist(),
         },
-        "source": "runs.alpaca.db pipeline_runs (run_type='live'), latest row by created_at; "
-                  "trailing mean over the canonical daily series (last row per run_date)",
-        "method": "deployed = 1 - cash/portfolio_value. Counts long stock positions only; "
-                  "no parking sleeve exists yet (RS-1 not implemented), so idle cash is "
-                  "genuinely idle. Target (#231 §0): >=95% incl. sleeve.",
+        "source": "runs.alpaca.db pipeline_runs (run_type='live', n_candidates >= "
+                  f"{MIN_FULL_RUN_CANDIDATES}), latest row by created_at among FULL runs "
+                  "only; trailing mean over the same canonical daily series",
+        "method": "deployed = 1 - cash/portfolio_value, computed on the latest CANONICAL "
+                  "FULL run (not the raw latest pipeline_runs row by created_at — an "
+                  "intraday monitor pass can be more recent than the day's full run and "
+                  "must never silently supersede it for this metric). Counts long stock "
+                  "positions only; no parking sleeve exists yet (RS-1 not implemented), so "
+                  "idle cash is genuinely idle. Target (#231 §0): >=95% incl. sleeve.",
     }
 
 
@@ -276,64 +303,119 @@ def metric_ledger_coverage(con, as_of: dt.date) -> dict:
 
 
 def metric_pit_accrual_days(as_of: dt.date) -> dict:
+    """Count only days whose snapshot genuinely passes the N2 collector's own
+    publication contract (all 4 endpoint manifests present, status=='ok',
+    as_of matching, referenced parquet present and non-empty) — reused
+    unchanged from ops/pit/pit_liveness_check.check_snapshot(), the same
+    validator the liveness alert uses for TODAY. A directory that merely
+    EXISTS (partial write, crashed mid-publish, leftover from a failed run)
+    must not inflate this count: pit_accrual_days feeds an irreversible,
+    never-backfillable gate (M-SIG D3's >=120-day bar), so a false-positive
+    day here cannot be corrected later — it has to be right the first time."""
     if not os.path.isdir(ESTIMATE_SNAPSHOTS):
         raise FileNotFoundError(ESTIMATE_SNAPSHOTS)
+    from pit_liveness_check import check_snapshot  # single-impl rule
+
     pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    days = sorted(d for d in os.listdir(ESTIMATE_SNAPSHOTS)
-                  if pat.match(d) and os.path.isdir(os.path.join(ESTIMATE_SNAPSHOTS, d)))
-    latest = days[-1] if days else None
+    candidate_dirs = sorted(
+        d for d in os.listdir(ESTIMATE_SNAPSHOTS)
+        if pat.match(d) and os.path.isdir(os.path.join(ESTIMATE_SNAPSHOTS, d)))
+    valid_days = []
+    rejected = {}
+    for d in candidate_dirs:
+        problems = check_snapshot(dt.date.fromisoformat(d))
+        if problems:
+            rejected[d] = problems
+        else:
+            valid_days.append(d)
+    latest = valid_days[-1] if valid_days else None
     stale = latest is None or \
         (as_of - dt.date.fromisoformat(latest)).days > 3  # weekend + 1 tolerance
     return {
-        "value": len(days),
-        "unit": "count of dated snapshot dirs (accrued PIT days; time-irreversible, "
-                "cannot be backfilled)",
-        "detail": {"first": days[0] if days else None, "latest": latest,
-                   "accrual_stale": bool(stale)},
-        "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing",
-        "method": "count directories named YYYY-MM-DD. accrual_stale flags a latest dir "
-                  "more than 3 calendar days old (missed-day alert is task N2's AC). "
-                  "M-SIG needs >=120 accrued days before D3.",
+        "value": len(valid_days),
+        "unit": "count of dated snapshot dirs that PASS the N2 collector's own 4-endpoint "
+                "publication contract (accrued PIT days; time-irreversible, cannot be "
+                "backfilled)",
+        "detail": {
+            "first": valid_days[0] if valid_days else None,
+            "latest": latest,
+            "accrual_stale": bool(stale),
+            "n_dirs_scanned": len(candidate_dirs),
+            "n_rejected_partial_or_invalid": len(rejected),
+            "rejected_days": rejected,
+        },
+        "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing, "
+                  "each day validated via ops/pit/pit_liveness_check.check_snapshot() "
+                  "(the same contract the daily liveness alert enforces for today)",
+        "method": "count directories named YYYY-MM-DD whose check_snapshot() returns zero "
+                  "problems (all 4 endpoint manifests present, status=='ok', as_of matching "
+                  "the directory date, referenced parquet present and non-empty). A partial "
+                  "or crashed publish is excluded, not counted. accrual_stale flags a latest "
+                  "VALID dir more than 3 calendar days old (missed-day alert is task N2's "
+                  "AC). M-SIG needs >=120 accrued (valid) days before D3.",
     }
 
 
-def metric_collector_liveness(measured_at: dt.datetime) -> dict:
-    per = {}
-    worst_age = 0.0
-    for name, d in COLLECTOR_DIRS.items():
-        if not os.path.isdir(d):
-            per[name] = {"status": "unavailable", "blocker": f"missing dir {d}"}
-            worst_age = float("inf")
-            continue
-        files = [os.path.join(d, f) for f in os.listdir(d)
-                 if os.path.isfile(os.path.join(d, f))]
-        if not files:
-            per[name] = {"status": "unavailable", "blocker": f"no files in {d}"}
-            worst_age = float("inf")
-            continue
-        newest = max(files, key=os.path.getmtime)
-        mtime = dt.datetime.fromtimestamp(os.path.getmtime(newest))
-        age_h = (measured_at - mtime).total_seconds() / 3600.0
-        worst_age = max(worst_age, age_h)
-        per[name] = {
-            "newest_file": os.path.basename(newest),
-            "mtime": mtime.isoformat(timespec="seconds"),
-            "age_hours": round(age_h, 2),
-            "size_bytes": os.path.getsize(newest),
-            "zero_byte_warning": os.path.getsize(newest) == 0,
+def metric_collector_liveness(as_of: dt.date) -> dict:
+    """Per-collector liveness via rq105_liveness_check's OWN path resolvers
+    and publication validator (single-impl rule) — never a generic
+    directory-mtime scan. Measured false-green under the old scan: an EMPTY
+    quote-logger wrapper log and a censored intermediate ticks file were both
+    reported 'live' from directory activity alone, without checking either
+    file's actual collector-contract content. Reports every expected
+    collector INDEPENDENTLY; the aggregate value is 'live' only if every one
+    of them individually passes."""
+    from rq105_liveness_check import _data_outputs, _is_session_day
+
+    if not _is_session_day(as_of):
+        return {
+            "value": "not_a_session_day",
+            "unit": "NYSE session-day gate (same calendar rq105_liveness_check uses)",
+            "detail": {"as_of": as_of.isoformat()},
+            "source": "renquant_orchestrator.intraday_quote_logger.default_session_calendar",
+            "method": "collector liveness is only evaluated on NYSE session days; a "
+                      "weekend/holiday as_of is reported as its own state, not "
+                      "conflated with 'live' or 'stale'.",
         }
-    live = worst_age <= COLLECTOR_LIVE_MAX_AGE_HOURS
+
+    per = {}
+    from pathlib import Path
+
+    today_iso = as_of.isoformat()
+    for name, full_path in _data_outputs(Path(RQ)):
+        ok, reason = _data_output_fresh_reused(str(full_path), today_iso)
+        per[name] = {
+            "status": "ok" if ok else "stale_or_missing",
+            "path": str(full_path).replace(RQ + "/", "$RQ_ROOT/"),
+            "reason": reason if not ok else None,
+        }
+    all_live = all(v["status"] == "ok" for v in per.values())
     return {
-        "value": "live" if live else "stale",
-        "unit": f"all collectors' newest file within {COLLECTOR_LIVE_MAX_AGE_HOURS:.0f}h",
+        "value": "live" if all_live else "stale",
+        "unit": "every rq105 pilot/shadow collector's OWN data output independently fresh "
+                "(last JSONL row's own date field == as_of), not directory mtime",
         "detail": per,
-        "source": "file mtimes under $RQ_ROOT/logs/rq105 and $RQ_ROOT/logs/renquant105_pilot",
-        "method": "newest-file mtime per collector dir; 'live' iff every collector wrote "
-                  "within 30h (covers the overnight gap, catches a dead launchd job by the "
-                  "next scorecard). Weekend runs will read 'stale' benignly — run the "
-                  "scorecard on a trading day. Zero-byte newest files are flagged but do "
-                  "not fail liveness (a fresh log can legitimately be empty at open).",
+        "source": "ops/renquant105/rq105_liveness_check.py's _data_outputs() path "
+                  "resolvers (per-collector default_*_path(), never hardcoded/guessed) "
+                  "and _data_output_fresh() content check (imported unchanged)",
+        "method": "'live' iff EVERY collector's own data-output resolver path exists, is "
+                  "non-empty, and its last JSONL row's 'date' field equals as_of (mtime is "
+                  "only a fallback when the last row is unparseable, and that fallback is "
+                  "itself flagged in the reused function's reason string). Any single "
+                  "collector missing/stale/unavailable fails the aggregate — no generic "
+                  "directory activity can substitute for a real per-collector check.",
     }
+
+
+def _data_output_fresh_reused(path: str, today_iso: str):
+    """Thin re-export of rq105_liveness_check._data_output_fresh — imported
+    inside the metric function (not at module scope) so kpi_scorecard.py's
+    own import order stays independent of ops/renquant105 being on sys.path
+    until the metric actually runs (matches the existing buy_side_decision_tc
+    lazy-import pattern in this same file)."""
+    from rq105_liveness_check import _data_output_fresh
+
+    return _data_output_fresh(path, today_iso)
 
 
 def metric_calibrator_sign_laundered(con) -> dict:
@@ -439,11 +521,59 @@ def _run(fn, *args) -> dict:
         }
 
 
+def _generator_sha256() -> str:
+    """Content hash of THIS script — a self-referential generator_commit (a
+    commit hash that predates the very commit adding this stamping logic) is
+    a chicken-and-egg bug already hit once this session (#430); a content
+    hash computed live has no such ordering dependency."""
+    with open(os.path.abspath(__file__), "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _canonical_content_hash(metrics: dict) -> str:
+    """Hash of the metrics payload ALONE (excludes measured_at/as_of/inputs,
+    which vary run-to-run even when the underlying data is identical) —
+    sorted-key JSON with a fixed float representation, same canonicalization
+    family as #430's regen_oos_pick_table.output_content_sha256. Two runs
+    against the same underlying DB/filesystem state must produce the same
+    hash; this is what makes 'reproducible' a checkable claim, not an
+    assertion in prose."""
+    def _canon(obj):
+        if isinstance(obj, float):
+            return round(obj, 8)
+        if isinstance(obj, dict):
+            return {k: _canon(v) for k, v in sorted(obj.items())
+                    if k != "measured_at"}  # wall-clock, not content
+        if isinstance(obj, list):
+            return [_canon(v) for v in obj]
+        return obj
+
+    canonical = _canon(metrics)
+    blob = json.dumps(canonical, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _atomic_write_json(path: str, payload: dict) -> None:
+    """Temp file + fsync + rename in the SAME directory as the final path —
+    atomic on POSIX filesystems (a reader sees the old complete file or the
+    new complete file, never a partial write); same pattern as #236's
+    batch_scores_bundle atomic-write fix."""
+    tmp_path = f"{path}.tmp-{os.getpid()}"
+    with open(tmp_path, "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True, default=str)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
+
+
 def main() -> None:
     as_of = _as_of()
     measured_at = dt.datetime.now()
+    db_snapshot_stat = None
     try:
         con = _connect_ro(DB)
+        db_snapshot_stat = os.stat(DB)
     except Exception as exc:  # every DB metric degrades together, others still run
         con = None
         db_blocker = f"{type(exc).__name__}: {exc}"
@@ -459,7 +589,7 @@ def main() -> None:
         "gate_verdict_age": db_metric(metric_gate_verdict_age, as_of),
         "ledger_coverage": db_metric(metric_ledger_coverage, as_of),
         "pit_accrual_days": _run(metric_pit_accrual_days, as_of),
-        "collector_liveness": _run(metric_collector_liveness, measured_at),
+        "collector_liveness": _run(metric_collector_liveness, as_of),
         "calibrator_sign_laundered": db_metric(metric_calibrator_sign_laundered),
         "buy_side_decision_tc": db_metric(metric_buy_side_decision_tc),
     }
@@ -475,14 +605,26 @@ def main() -> None:
             "rq_root": RQ,
             "db": DB,
             "db_open_mode": _DB_OPEN_MODE,
+            "db_snapshot": {
+                "size_bytes": db_snapshot_stat.st_size,
+                "mtime": dt.datetime.fromtimestamp(
+                    db_snapshot_stat.st_mtime).isoformat(timespec="seconds"),
+            } if db_snapshot_stat else None,
+            "spy_parquet_sha256": (
+                hashlib.sha256(open(SPY_PARQUET, "rb").read()).hexdigest()
+                if os.path.exists(SPY_PARQUET) else None),
+            "serving_artifact_sha256": (
+                hashlib.sha256(open(SERVING_ARTIFACT, "rb").read()).hexdigest()
+                if os.path.exists(SERVING_ARTIFACT) else None),
         },
+        "generator_sha256": _generator_sha256(),
         "metrics": metrics,
     }
+    scorecard["output_content_sha256"] = _canonical_content_hash(metrics)
+
     os.makedirs(OUT_DIR, exist_ok=True)
     out_path = os.path.join(OUT_DIR, f"kpi_{as_of.isoformat()}.json")
-    with open(out_path, "w") as f:
-        json.dump(scorecard, f, indent=2, sort_keys=True, default=str)
-        f.write("\n")
+    _atomic_write_json(out_path, scorecard)
 
     print(f"KPI scorecard  as_of={as_of}  ->  {os.path.relpath(out_path, REPO_ROOT)}")
     print(f"{'metric':<28} {'status':<12} value")
