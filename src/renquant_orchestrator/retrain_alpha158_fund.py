@@ -117,6 +117,11 @@ DEFAULT_RAWLABEL_MIN_FINITE_FRACTION = 0.10
 # downstream σ-head training ENFORCE it (refuse to consume an invalidated corpus).
 RAWLABEL_INVALID_SUFFIX = ".INVALID.json"
 RAWLABEL_PROVENANCE_SUFFIX = ".provenance.json"
+# Schema version stamped into every provenance sidecar. A consumer that only
+# understands an older/different schema must fail closed rather than guess at
+# unknown-shape fields (Codex #218/#427 review: "preferably schema/version").
+# Bump this whenever the provenance payload's field set or semantics change.
+RAWLABEL_PROVENANCE_SCHEMA_VERSION = 1
 
 
 GITHUB = default_github_root()
@@ -690,6 +695,45 @@ def _sha256_file(path: Path) -> str:
     return "sha256:" + h.hexdigest()
 
 
+def _fsync_file(path: Path) -> None:
+    """Force ``path``'s contents to durable storage.
+
+    Publication-ordering safety (Codex #218/#427 review): the corpus and its
+    provenance sidecar are two SEPARATE files, so a crash between writing one
+    and the other must never be able to make a stale/absent corpus look
+    validated. Flushing the corpus to disk (this) BEFORE the atomic rename
+    that publishes it, and flushing the provenance sidecar BEFORE its own
+    atomic rename, ensures neither file's on-disk bytes can regress after the
+    rename that exposes them — the rename is the only externally-visible
+    publish step, so it must always publish fully-durable bytes.
+    """
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    """fsync a directory so a preceding ``os.replace`` rename within it is
+    itself durable (POSIX does not guarantee a rename survives a crash until
+    the containing directory's own metadata is flushed). Best-effort: some
+    platforms/filesystems disallow opening or fsync-ing a directory, and this
+    is a durability hardening, not a correctness precondition (the atomic
+    rename itself is still what prevents a torn/partial publish).
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:  # pragma: no cover - platform without dir-fd support
+        return
+    try:
+        os.fsync(fd)
+    except OSError:  # pragma: no cover - filesystem disallows dir fsync
+        pass
+    finally:
+        os.close(fd)
+
+
 def _default_rawlabel_validate_fn(
     min_finite_fraction: float = DEFAULT_RAWLABEL_MIN_FINITE_FRACTION,
 ) -> "Callable[..., dict]":
@@ -711,7 +755,13 @@ def _default_rawlabel_validate_fn(
 
     On success it returns a provenance report (rows, tickers, finite fraction,
     horizon, source-panel sha256 digest + frontier) that the task stamps beside
-    the swapped corpus. Dependency-injected via ``RetrainContext.rawlabel_validate_fn``.
+    the swapped corpus. This report describes the STAGED (pre-swap) file; the
+    task itself adds ``rawlabel_sha256`` (the digest of the on-disk, PUBLISHED
+    corpus bytes, computed AFTER the atomic swap — see
+    ``RefreshSigmaHeadRawLabelTask``'s publication-ordering note) and
+    ``schema_version`` before stamping the provenance sidecar, since those two
+    fields describe the published artifact and its schema, not the staged
+    candidate. Dependency-injected via ``RetrainContext.rawlabel_validate_fn``.
     """
 
     def _validate(staging: Path, panel_in: Path, horizon: int) -> dict:
@@ -821,11 +871,30 @@ def _clear_invalidation_receipt(rawlabel_path: Path) -> None:
 
 
 def _write_rawlabel_provenance(rawlabel_path: Path, report: dict) -> Path:
+    """Stamp the provenance sidecar — MUST be called strictly AFTER the
+    corpus itself is durably published (see the publication-ordering note on
+    :class:`RefreshSigmaHeadRawLabelTask`). ``report`` is expected to already
+    carry ``rawlabel_sha256`` (the digest of the on-disk, post-swap corpus
+    bytes) alongside the pre-swap validator's ``source_panel_sha256`` /
+    ``horizon`` / coverage stats.
+
+    Written atomically (temp file + fsync + ``os.replace``) so a reader can
+    never observe a torn/partially-written provenance file: it either sees
+    the PRIOR sidecar (stale, but internally consistent — and, per the digest
+    binding, a consumer that checks ``rawlabel_sha256`` against the actual
+    corpus bytes will correctly reject a mismatch) or the fully-written new
+    one, never something in between.
+    """
     prov = rawlabel_provenance_path(rawlabel_path)
     payload = dict(report)
+    payload["schema_version"] = RAWLABEL_PROVENANCE_SCHEMA_VERSION
     payload["rawlabel"] = str(rawlabel_path)
     payload["built_at"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    prov.write_text(json.dumps(payload, indent=2))
+    tmp = prov.with_name(prov.name + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    _fsync_file(tmp)
+    os.replace(tmp, prov)  # atomic publish of the sidecar itself
+    _fsync_dir(prov.parent)
     return prov
 
 
@@ -839,14 +908,21 @@ def assert_rawlabel_admissible(rawlabel_path: Path) -> None:
     ``_rawlabel`` corpus exists and carries no invalidation receipt.
 
     This repo does not run real σ-head / QuantileHead training (CLAUDE.md hard
-    boundary), so this function is producer-side documentation of the contract,
-    not the enforcement point itself. The enforcement point is the actual
-    training entrypoint, ``scripts/train_ngboost_proper.py`` in the ``RenQuant``
-    umbrella repo, which reimplements this same check (receipt + provenance
-    horizon/digest match) by file-contract — see RenQuant PR #427. Until #427 is
-    merged, a swallowed refresh failure here is recorded (receipt + provenance
-    written correctly) but is NOT YET blocked at the training boundary — do not
-    claim end-to-end enforcement before that PR lands.
+    boundary), so this function is producer-side documentation of the RECEIPT
+    contract (missing / invalidated corpus), not the full enforcement point.
+    The full enforcement point — including binding the corpus to its exact
+    validated bytes — is the actual training entrypoint,
+    ``scripts/train_ngboost_proper.py`` in the ``RenQuant`` umbrella repo,
+    which reimplements this same receipt check by file-contract AND ALSO
+    verifies the provenance sidecar's ``source_panel_sha256`` (the INPUT the
+    corpus was built from) and ``rawlabel_sha256`` (the OUTPUT corpus itself,
+    added alongside ``schema_version`` in this PR) against what is live on
+    disk right now — see RenQuant PR #427. That digest binding is what
+    catches a corpus REPLACED OR EDITED after validation while its sidecar is
+    left intact — a receipt-only check (this function) cannot see that, since
+    the receipt is absent in that scenario. Do not claim end-to-end
+    tamper-detection from this function alone; it is the receipt half of the
+    contract, not the digest half.
     """
     if not rawlabel_path.exists():
         raise RawlabelStaleError(f"σ-head _rawlabel corpus is missing: {rawlabel_path}")
@@ -1138,10 +1214,38 @@ class RefreshSigmaHeadRawLabelTask(Task):
     leave a silently-stale corpus, every non-certified outcome (build failure,
     empty / rejected output, or a missing upstream panel) also writes a durable
     INVALIDATION RECEIPT beside the corpus. A successful, validated swap clears
-    the receipt and stamps a provenance sidecar (horizon, source-panel digest +
-    frontier, row/ticker counts, finite fraction). A missing upstream panel stays
-    a soft skip (no alert — the ranker path surfaces that itself) but still
-    records the receipt.
+    the receipt and stamps a provenance sidecar (schema_version, horizon,
+    source-panel digest + frontier, row/ticker counts, finite fraction, and —
+    critically — ``rawlabel_sha256``, the digest of the PUBLISHED corpus bytes
+    themselves) . A missing upstream panel stays a soft skip (no alert — the
+    ranker path surfaces that itself) but still records the receipt.
+
+    Publication ordering (Codex #218/#427 review — the corpus and its
+    provenance sidecar are two SEPARATE files, so a naive two-independent-
+    ``os.replace`` sequence has an observable window where one is fresh and
+    the other stale): this task (1) builds + validates to a ``.staging``
+    sibling, (2) fsyncs it, (3) ``os.replace``s it into the corpus path
+    (atomic — a reader never sees a partial file) and fsyncs the containing
+    directory, (4) computes ``rawlabel_sha256`` from the now-published,
+    on-disk corpus bytes, (5) writes the provenance sidecar LAST, atomically
+    (temp file + fsync + ``os.replace``), referencing that digest, and only
+    then (6) clears any prior invalidation receipt. Corpus-before-provenance
+    is the load-bearing ordering: it means the provenance sidecar's
+    ``rawlabel_sha256`` is always computed from bytes that are ALREADY
+    durably on disk, so a reader that verifies the digest can never be misled
+    by a sidecar that describes not-yet-written (or since-replaced) bytes. If
+    an exception is raised anywhere after the swap but before the sidecar is
+    stamped (e.g. a disk-full provenance write), the ``except`` clause below
+    still catches it and writes an INVALIDATION RECEIPT, so the corpus is
+    never left looking silently-valid with a provenance sidecar that doesn't
+    match it — either the digest matches (certified) or a receipt / digest
+    mismatch blocks admission (see ``assert_rawlabel_admissible``). A
+    full generation-directory / current-pointer scheme (write to a new
+    generation dir, then atomically flip a single pointer) would remove even
+    the sub-microsecond exception-propagation window between steps (3)-(6);
+    it was judged out of scope for this PR given the fixed-path file-contract
+    the umbrella consumer already reads by (RenQuant PR #427), but is a
+    natural follow-up if that window is ever shown to matter in practice.
 
     ``assert_rawlabel_admissible`` (below) is the enforcement CONTRACT this task
     writes for; this repo is producer-only (it does not run real σ-head training
@@ -1150,9 +1254,11 @@ class RefreshSigmaHeadRawLabelTask(Task):
     in the ``RenQuant`` umbrella repo — by a coordinated companion change,
     RenQuant PR #427 (which reimplements the same receipt/provenance check
     there by file-contract, not by cross-repo import, since RenQuant does not
-    depend on this package). Until #427 is merged, an INVALID receipt or a
-    stale/un-provenanced corpus is NOT yet blocked at that boundary — do not
-    claim end-to-end admission control before it lands.
+    depend on this package). #427 verifies BOTH ``source_panel_sha256`` (the
+    INPUT the corpus was built from) AND ``rawlabel_sha256`` (the OUTPUT
+    corpus itself) against what is live on disk — closing the gap where a
+    later replacement/edit of the corpus, with the sidecar left intact, would
+    otherwise be indistinguishable from the originally-validated bytes.
     """
 
     def run(self, ctx: RetrainContext) -> bool | None:
@@ -1205,8 +1311,17 @@ class RefreshSigmaHeadRawLabelTask(Task):
                 raise RuntimeError(f"σ-head rawlabel build produced no output: {staging}")
             # Validate the staged artifact BEFORE the swap; a failure raises and
             # falls to the except below (staging discarded, prior corpus kept).
-            report = validate_fn(staging, panel_in, ctx.rawlabel_horizon)
+            report = dict(validate_fn(staging, panel_in, ctx.rawlabel_horizon))
+            # Publication ordering (see class docstring): fsync the validated
+            # staging file, atomically publish it as the corpus, fsync the
+            # containing directory, THEN compute the digest from the now-durable
+            # on-disk bytes and stamp the provenance sidecar LAST — referencing
+            # bytes that are ALREADY published, never bytes that are merely
+            # about-to-be or used-to-be on disk.
+            _fsync_file(staging)
             os.replace(staging, rawlabel_out)  # atomic swap ONLY after validation passes
+            _fsync_dir(rawlabel_out.parent)
+            report["rawlabel_sha256"] = _sha256_file(rawlabel_out)
             provenance = _write_rawlabel_provenance(rawlabel_out, report)
             _clear_invalidation_receipt(rawlabel_out)  # corpus certified in-lockstep
             summary["status"] = "refreshed"

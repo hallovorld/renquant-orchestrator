@@ -113,7 +113,13 @@ def test_refresh_builds_to_staging_then_atomically_swaps(tmp_path) -> None:
     # a validated swap stamps provenance and leaves NO invalidation receipt
     prov = mod.rawlabel_provenance_path(final)
     assert prov.exists()
-    assert json.loads(prov.read_text())["n_rows"] == 3
+    prov_payload = json.loads(prov.read_text())
+    assert prov_payload["n_rows"] == 3
+    # the provenance binds the PUBLISHED corpus to its own digest — the fix
+    # for the Codex #218/#427 gap where only the INPUT (source_panel_sha256)
+    # was recorded, not the OUTPUT this task actually publishes.
+    assert prov_payload["rawlabel_sha256"] == mod._sha256_file(final)
+    assert prov_payload["schema_version"] == mod.RAWLABEL_PROVENANCE_SCHEMA_VERSION
     assert not mod.rawlabel_receipt_path(final).exists()
     assert mod.is_rawlabel_admissible(final) is True
 
@@ -562,6 +568,10 @@ def test_task_runs_default_build_and_validate_end_to_end(tmp_path, monkeypatch) 
     prov = json.loads(mod.rawlabel_provenance_path(final).read_text())
     assert prov["horizon"] == 2 and prov["n_tickers"] == 2
     assert prov["source_panel_sha256"].startswith("sha256:")
+    # the OUTPUT digest — closes the Codex #218/#427 gap (only the INPUT
+    # digest was previously recorded).
+    assert prov["rawlabel_sha256"] == mod._sha256_file(final)
+    assert prov["schema_version"] == mod.RAWLABEL_PROVENANCE_SCHEMA_VERSION
     assert not mod.rawlabel_receipt_path(final).exists()
     assert mod.is_rawlabel_admissible(final) is True
     assert not final.with_name(final.name + ".staging").exists()
@@ -614,6 +624,140 @@ def test_admission_helpers_gate_a_stale_corpus(tmp_path) -> None:
     assert mod.is_rawlabel_admissible(corpus) is False
     with pytest.raises(mod.RawlabelStaleError, match="build blew up"):
         mod.assert_rawlabel_admissible(corpus)
+
+
+# ────── rawlabel_sha256 / schema_version / publication-ordering safety ──────
+# Codex #218/#427 review: the success provenance recorded source_panel_sha256
+# (the INPUT) and horizon, but never a digest of the VALIDATED RAWLABEL
+# CORPUS itself (the OUTPUT this task publishes) — so a later replacement /
+# edit of the corpus with the sidecar left intact was indistinguishable from
+# the originally-validated bytes, and the #427 consumer would wrongly admit
+# it. These tests cover the producer half of the fix: the digest is present,
+# correct, and stamped only after the corpus is durably published.
+
+
+def test_provenance_records_rawlabel_sha256_of_published_bytes(tmp_path) -> None:
+    """The provenance sidecar's rawlabel_sha256 must be the digest of the
+    ACTUAL on-disk PUBLISHED corpus (post-swap), not merely echoed from
+    whatever the (possibly opaque/mocked) validator returned."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+
+    def fake_build(panel_in, panel_out, ohlcv_dir, horizon):
+        Path(panel_out).write_bytes(b"REAL-PUBLISHED-BYTES")
+
+    # the validator deliberately returns NO rawlabel_sha256 — the TASK must
+    # compute it itself from the published file, not trust an injected value.
+    ctx = _ctx(repo, rawlabel_build_fn=fake_build, rawlabel_validate_fn=_passthru_validate())
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    final = repo / "data" / mod.DEFAULT_RAWLABEL_FILENAME
+    assert final.read_bytes() == b"REAL-PUBLISHED-BYTES"
+    prov = json.loads(mod.rawlabel_provenance_path(final).read_text())
+    assert prov["rawlabel_sha256"] == mod._sha256_file(final)
+    # sanity: the digest genuinely reflects content, not a placeholder
+    import hashlib
+
+    assert prov["rawlabel_sha256"] == "sha256:" + hashlib.sha256(b"REAL-PUBLISHED-BYTES").hexdigest()
+    assert prov["schema_version"] == mod.RAWLABEL_PROVENANCE_SCHEMA_VERSION == 1
+
+
+def test_a_later_corpus_edit_is_detectable_via_digest_mismatch(tmp_path) -> None:
+    """Prove the fix actually closes the gap: after a validated refresh, if
+    the corpus bytes are later replaced/edited while the sidecar is left
+    intact, the sidecar's recorded rawlabel_sha256 no longer matches the
+    on-disk corpus — this is exactly the signal RenQuant PR #427's consumer
+    checks to fail closed. (The #427 admission gate itself lives in the
+    RenQuant repo; this proves the producer-side contract it depends on is
+    load-bearing, not merely present.)"""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+
+    def fake_build(panel_in, panel_out, ohlcv_dir, horizon):
+        Path(panel_out).write_bytes(b"ORIGINAL-VALIDATED-BYTES")
+
+    ctx = _ctx(repo, rawlabel_build_fn=fake_build, rawlabel_validate_fn=_passthru_validate())
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    final = repo / "data" / mod.DEFAULT_RAWLABEL_FILENAME
+    prov_path = mod.rawlabel_provenance_path(final)
+    recorded_digest = json.loads(prov_path.read_text())["rawlabel_sha256"]
+    assert recorded_digest == mod._sha256_file(final)
+
+    # Simulate a later out-of-band replacement of the corpus (bytes changed),
+    # sidecar left untouched — the exact tamper scenario the review flagged.
+    final.write_bytes(b"TAMPERED-BYTES-NEVER-VALIDATED")
+
+    still_recorded = json.loads(prov_path.read_text())["rawlabel_sha256"]
+    assert still_recorded == recorded_digest  # sidecar unchanged (as the review posits)
+    assert mod._sha256_file(final) != still_recorded  # but the actual bytes no longer match
+
+
+def test_provenance_write_failure_after_swap_still_invalidates(tmp_path, monkeypatch) -> None:
+    """Publication-ordering safety: the corpus swap (os.replace) and the
+    provenance stamp are two separate operations. If writing the provenance
+    sidecar itself fails (e.g. disk full) AFTER the corpus has already been
+    durably published, the corpus must not be left looking silently valid —
+    the existing exception handling must still catch it and write an
+    INVALIDATION RECEIPT, so admission fails closed rather than the reader
+    seeing a fresh corpus paired with a stale-or-absent sidecar."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    final = repo / "data" / mod.DEFAULT_RAWLABEL_FILENAME
+
+    def fake_build(panel_in, panel_out, ohlcv_dir, horizon):
+        Path(panel_out).write_bytes(b"NEW-CORPUS-BYTES")
+
+    def boom_write_provenance(rawlabel_path, report):
+        raise OSError("disk full while stamping provenance")
+
+    monkeypatch.setattr(mod, "_write_rawlabel_provenance", boom_write_provenance)
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+
+    ctx = _ctx(repo, rawlabel_build_fn=fake_build, rawlabel_validate_fn=_passthru_validate())
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    # the corpus WAS already swapped in (publication ordering: corpus first) ...
+    assert final.read_bytes() == b"NEW-CORPUS-BYTES"
+    # ... but since its provenance could not be stamped, the task must not
+    # report success and must invalidate it: no reader can be misled into
+    # trusting bytes that were never actually certified end-to-end.
+    assert ctx.rawlabel_refresh_summary["status"] == "failed"
+    assert ctx.rawlabel_refresh_summary["receipt_written"] is True
+    assert mod.is_rawlabel_admissible(final) is False
+    with pytest.raises(mod.RawlabelStaleError):
+        mod.assert_rawlabel_admissible(final)
+
+
+def test_provenance_sidecar_write_is_atomic_no_torn_file(tmp_path) -> None:
+    """The provenance sidecar is written via temp-file + fsync + os.replace,
+    not a direct in-place write — so a reader can never observe a
+    partially-written / truncated provenance JSON. This test asserts no
+    ``.tmp`` sibling is left behind after a successful stamp and the final
+    file is valid, complete JSON."""
+    repo = _repo(tmp_path)
+    final = repo / "data" / mod.DEFAULT_RAWLABEL_FILENAME
+    final.parent.mkdir(parents=True, exist_ok=True)
+    final.write_bytes(b"CORPUS-BYTES")
+
+    report = {
+        "n_rows": 5,
+        "n_tickers": 2,
+        "finite_fraction": 1.0,
+        "horizon": 60,
+        "source_panel_sha256": "sha256:" + "a" * 64,
+        "source_panel_frontier": "2026-06-01",
+        "rawlabel_sha256": mod._sha256_file(final),
+    }
+    prov_path = mod._write_rawlabel_provenance(final, report)
+
+    assert prov_path.exists()
+    tmp_sibling = prov_path.with_name(prov_path.name + ".tmp")
+    assert not tmp_sibling.exists()
+    payload = json.loads(prov_path.read_text())  # must parse cleanly (no torn write)
+    assert payload["n_rows"] == 5
+    assert payload["rawlabel_sha256"] == report["rawlabel_sha256"]
+    assert payload["schema_version"] == mod.RAWLABEL_PROVENANCE_SCHEMA_VERSION
 
 
 # ─────────── parity vs the canonical build_raw_fwd60d_label formula ──────────
