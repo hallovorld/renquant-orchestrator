@@ -93,6 +93,36 @@ DEFAULT_FRESHNESS_MAX_STALE_FRACTION = 0.0
 DEFAULT_EXCHANGE = "NYSE"
 DEFAULT_NTFY_TOPIC = "renquant"
 
+# σ-head (QuantileHead) RAW-label panel. ``alpha158_291_fundamental_dataset.parquet``
+# is the cross-sectionally z-scored ranker panel; ``build_raw_fwd60d_label.py``
+# derives a sibling ``*_rawlabel.parquet`` that swaps the z-scored fwd_60d_excess
+# for an UN-normalized (raw ticker return − SPY return) target so the QuantileHead
+# can recover σ on the return scale. That derived panel had NO retrain cadence, so
+# it drifted behind the ranker panel (fix #1 from the training-data investigation).
+DEFAULT_PANEL_FILENAME = "alpha158_291_fundamental_dataset.parquet"
+DEFAULT_RAWLABEL_FILENAME = "alpha158_291_fundamental_dataset_rawlabel.parquet"
+DEFAULT_RAWLABEL_HORIZON = 60  # match production fwd_60d
+# The un-normalized target ``build_raw_fwd60d_label.py`` derives (ticker fwd_60d
+# return − SPY fwd_60d return); the σ-head/QuantileHead trains on this column.
+RAWLABEL_COLUMN = "fwd_60d_excess_raw"
+# Pre-swap validation floor: a staged corpus whose finite-label fraction is below
+# this is treated as zero-row/all-NaN/corrupt and is REFUSED (never swapped). The
+# production panel is truncated behind the OHLCV frontier so the vast majority of
+# rows carry a realized fwd_60d return; 0.10 only trips on a broken build.
+DEFAULT_RAWLABEL_MIN_FINITE_FRACTION = 0.10
+# Sidecars next to the live corpus. The INVALID receipt is the durable
+# data-integrity guarantee (an ntfy alert is not): it is written whenever a
+# refresh does NOT certify the corpus in-lockstep with the current panel, and
+# is cleared only on a fully-validated swap. ``assert_rawlabel_admissible`` lets
+# downstream σ-head training ENFORCE it (refuse to consume an invalidated corpus).
+RAWLABEL_INVALID_SUFFIX = ".INVALID.json"
+RAWLABEL_PROVENANCE_SUFFIX = ".provenance.json"
+# Schema version stamped into every provenance sidecar. A consumer that only
+# understands an older/different schema must fail closed rather than guess at
+# unknown-shape fields (Codex #218/#427 review: "preferably schema/version").
+# Bump this whenever the provenance payload's field set or semantics change.
+RAWLABEL_PROVENANCE_SCHEMA_VERSION = 1
+
 
 GITHUB = default_github_root()
 DEFAULT_REPO_DIR = default_repo_root()
@@ -161,11 +191,35 @@ class RetrainContext:
     session_gap_fn: "Callable[[dt.date, dt.date], int] | None" = None
     ntfy_topic: str = DEFAULT_NTFY_TOPIC
     quiet: bool = False
+
+    # ── σ-head (QuantileHead) RAW-label refresh (lockstep with the panel) ────
+    # Regenerates ``alpha158_291_fundamental_dataset_rawlabel.parquet`` right
+    # after the fund-panel merge so the σ-head label never drifts behind the
+    # ranker panel. The σ-head is a SEPARATE downstream model, so a failure here
+    # alerts + logs but NEVER aborts the main XGB-ranker / calibrator retrain.
+    refresh_rawlabel: bool = True
+    # Dependency-injected raw-label build callable. Signature:
+    #   build(panel_in: Path, panel_out: Path, ohlcv_dir: Path, horizon: int) -> None
+    # When None it resolves to ``_default_rawlabel_build_fn`` (a path-parametrized
+    # port of scripts/build_raw_fwd60d_label.py). Injected in tests so no real
+    # build runs and no production ``_rawlabel`` parquet is ever written.
+    rawlabel_build_fn: "Callable[..., None] | None" = None
+    rawlabel_horizon: int = DEFAULT_RAWLABEL_HORIZON
+    # Dependency-injected pre-swap validator. Signature:
+    #   validate(staging: Path, panel_in: Path, horizon: int) -> dict  (report)
+    # It MUST raise on any integrity failure so the staged file is NOT swapped.
+    # When None it resolves to ``_default_rawlabel_validate_fn`` (schema / unique
+    # (ticker,date) / exact source-panel coverage / finite-label floor). Injected
+    # in wiring tests that use opaque staging bytes.
+    rawlabel_validate_fn: "Callable[..., dict] | None" = None
+    rawlabel_min_finite_fraction: float = DEFAULT_RAWLABEL_MIN_FINITE_FRACTION
+
     # Populated at runtime by the refresh / guard tasks (audit surface).
     ohlcv_max_dates: dict[str, "dt.date | None"] = field(default_factory=dict)
     ohlcv_refresh_summary: dict[str, int] = field(default_factory=dict)
     freshness_report: dict = field(default_factory=dict)
     panel_universe_provenance: dict = field(default_factory=dict)
+    rawlabel_refresh_summary: dict = field(default_factory=dict)
 
     @property
     def data_dir(self) -> Path:
@@ -174,6 +228,14 @@ class RetrainContext:
     @property
     def ohlcv_dir(self) -> Path:
         return self.data_dir / DEFAULT_OHLCV_DIRNAME
+
+    @property
+    def panel_path(self) -> Path:
+        return self.data_dir / DEFAULT_PANEL_FILENAME
+
+    @property
+    def rawlabel_path(self) -> Path:
+        return self.data_dir / DEFAULT_RAWLABEL_FILENAME
 
     @property
     def resolved_inventory_path(self) -> Path:
@@ -557,6 +619,326 @@ def _freshness_overrides(ctx: RetrainContext) -> dict:
     return overrides
 
 
+def _default_rawlabel_build_fn() -> "Callable[..., None]":
+    """Resolve the σ-head RAW-label builder.
+
+    This is a path-parametrized port of umbrella ``scripts/build_raw_fwd60d_label.py``:
+    for each ticker in the fresh fund panel it computes the UN-normalized
+    ``fwd_60d_excess_raw`` = (ticker fwd_60d return − SPY fwd_60d return) on the
+    return scale, then writes the panel (identical schema, with the raw label
+    column added) to ``panel_out``. It is dependency-injected via
+    ``RetrainContext.rawlabel_build_fn`` so the orchestrator task is unit-testable
+    without reading real panels / OHLCV or writing a production ``_rawlabel``
+    parquet. The caller (the task) points ``panel_out`` at a staging path and
+    atomically swaps on success, so this builder never mutates the live artifact.
+    """
+
+    def _build(panel_in: Path, panel_out: Path, ohlcv_dir: Path, horizon: int) -> None:
+        import numpy as np  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+
+        panel = pd.read_parquet(panel_in)
+        panel["date"] = pd.to_datetime(panel["date"])
+
+        spy = pd.read_parquet(ohlcv_dir / "SPY" / "1d.parquet")
+        spy.index = pd.to_datetime(spy.index)
+        spy_close = spy["close"].sort_index()
+        spy_fwd_ret = (spy_close.shift(-horizon) / spy_close - 1.0)
+
+        out_blocks = []
+        for tkr, g in panel.groupby("ticker"):
+            g = g.sort_values("date").reset_index(drop=True).copy()
+            ohlcv_p = ohlcv_dir / tkr / "1d.parquet"
+            if not ohlcv_p.exists():
+                g[RAWLABEL_COLUMN] = np.nan
+                out_blocks.append(g)
+                continue
+            ohlcv = pd.read_parquet(ohlcv_p)
+            ohlcv.index = pd.to_datetime(ohlcv.index)
+            close = ohlcv["close"].sort_index()
+            ticker_fwd_ret = (close.shift(-horizon) / close - 1.0)
+            g_dates = g["date"].values
+            excess = (
+                ticker_fwd_ret.reindex(g_dates).values
+                - spy_fwd_ret.reindex(g_dates).values
+            )
+            g[RAWLABEL_COLUMN] = excess
+            out_blocks.append(g)
+
+        out = pd.concat(out_blocks, ignore_index=True)
+        out.to_parquet(panel_out, index=False)
+
+    return _build
+
+
+class RawlabelValidationError(ValueError):
+    """A staged σ-head ``_rawlabel`` failed pre-swap integrity validation.
+
+    Raised BEFORE the atomic swap so a zero-row / corrupt / wrong-coverage /
+    all-NaN parquet can never replace the live corpus.
+    """
+
+
+class RawlabelStaleError(RuntimeError):
+    """Downstream admission tripwire: the on-disk σ-head ``_rawlabel`` corpus is
+    missing or carries an active invalidation receipt, so it must NOT be consumed
+    by σ-head / QuantileHead training."""
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib  # noqa: PLC0415
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def _fsync_file(path: Path) -> None:
+    """Force ``path``'s contents to durable storage.
+
+    Publication-ordering safety (Codex #218/#427 review): the corpus and its
+    provenance sidecar are two SEPARATE files, so a crash between writing one
+    and the other must never be able to make a stale/absent corpus look
+    validated. Flushing the corpus to disk (this) BEFORE the atomic rename
+    that publishes it, and flushing the provenance sidecar BEFORE its own
+    atomic rename, ensures neither file's on-disk bytes can regress after the
+    rename that exposes them — the rename is the only externally-visible
+    publish step, so it must always publish fully-durable bytes.
+    """
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    """fsync a directory so a preceding ``os.replace`` rename within it is
+    itself durable (POSIX does not guarantee a rename survives a crash until
+    the containing directory's own metadata is flushed). Best-effort: some
+    platforms/filesystems disallow opening or fsync-ing a directory, and this
+    is a durability hardening, not a correctness precondition (the atomic
+    rename itself is still what prevents a torn/partial publish).
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:  # pragma: no cover - platform without dir-fd support
+        return
+    try:
+        os.fsync(fd)
+    except OSError:  # pragma: no cover - filesystem disallows dir fsync
+        pass
+    finally:
+        os.close(fd)
+
+
+def _default_rawlabel_validate_fn(
+    min_finite_fraction: float = DEFAULT_RAWLABEL_MIN_FINITE_FRACTION,
+) -> "Callable[..., dict]":
+    """Resolve the pre-swap staged-``_rawlabel`` validator.
+
+    Merely checking that the staging file exists lets a zero-row / corrupt /
+    wrong-horizon / partial-coverage parquet replace the live corpus. This
+    validator reads the staged parquet + the source panel and REFUSES the swap
+    (raising ``RawlabelValidationError``) unless ALL hold:
+
+    - schema: ``ticker`` / ``date`` / ``fwd_60d_excess_raw`` all present;
+    - non-empty (``> 0`` rows);
+    - unique ``(ticker, date)`` keys (no duplicated panel rows);
+    - coverage: the staged ``(ticker, date)`` key-set EXACTLY equals the source
+      panel's — this both proves expected ticker/date coverage AND rules out any
+      future-dated / fabricated row absent from the panel (no-leakage);
+    - finite fraction: ``isfinite(label)`` fraction ``>= min_finite_fraction``
+      (``±inf`` counts as non-finite), catching an all-NaN / corrupt build.
+
+    On success it returns a provenance report (rows, tickers, finite fraction,
+    horizon, source-panel sha256 digest + frontier) that the task stamps beside
+    the swapped corpus. This report describes the STAGED (pre-swap) file; the
+    task itself adds ``rawlabel_sha256`` (the digest of the on-disk, PUBLISHED
+    corpus bytes, computed AFTER the atomic swap — see
+    ``RefreshSigmaHeadRawLabelTask``'s publication-ordering note) and
+    ``schema_version`` before stamping the provenance sidecar, since those two
+    fields describe the published artifact and its schema, not the staged
+    candidate. Dependency-injected via ``RetrainContext.rawlabel_validate_fn``.
+    """
+
+    def _validate(staging: Path, panel_in: Path, horizon: int) -> dict:
+        import numpy as np  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+
+        try:
+            staged = pd.read_parquet(staging)
+        except Exception as exc:  # corrupt / non-parquet staging
+            raise RawlabelValidationError(
+                f"staged _rawlabel is unreadable as parquet: {staging}: {exc}"
+            ) from exc
+
+        required = {"ticker", "date", RAWLABEL_COLUMN}
+        missing = required - set(map(str, staged.columns))
+        if missing:
+            raise RawlabelValidationError(
+                f"staged _rawlabel missing required columns {sorted(missing)}: {staging}"
+            )
+        if len(staged) == 0:
+            raise RawlabelValidationError(f"staged _rawlabel is empty (0 rows): {staging}")
+
+        staged = staged.copy()
+        staged["date"] = pd.to_datetime(staged["date"])
+        dup_mask = staged.duplicated(subset=["ticker", "date"])
+        if bool(dup_mask.any()):
+            raise RawlabelValidationError(
+                f"staged _rawlabel has {int(dup_mask.sum())} duplicate (ticker,date) rows: {staging}"
+            )
+
+        try:
+            panel = pd.read_parquet(panel_in, columns=["ticker", "date"])
+        except Exception as exc:
+            raise RawlabelValidationError(
+                f"source panel unreadable for coverage check: {panel_in}: {exc}"
+            ) from exc
+        panel = panel.copy()
+        panel["date"] = pd.to_datetime(panel["date"])
+        panel_keys = set(zip(panel["ticker"].astype(str), panel["date"]))
+        staged_keys = set(zip(staged["ticker"].astype(str), staged["date"]))
+        if staged_keys != panel_keys:
+            raise RawlabelValidationError(
+                "staged _rawlabel (ticker,date) coverage != source panel "
+                f"(staged-only={len(staged_keys - panel_keys)}, "
+                f"panel-only={len(panel_keys - staged_keys)}); a partial / wrong / "
+                f"future-dated corpus must not replace the live one: {staging}"
+            )
+
+        label = pd.to_numeric(staged[RAWLABEL_COLUMN], errors="coerce").to_numpy(dtype="float64")
+        finite = int(np.isfinite(label).sum())
+        finite_fraction = finite / len(staged)
+        if finite_fraction < min_finite_fraction:
+            raise RawlabelValidationError(
+                f"staged _rawlabel finite-label fraction {finite_fraction:.4f} < floor "
+                f"{min_finite_fraction:.4f} ({finite}/{len(staged)} finite); a zero-row / "
+                f"all-NaN / corrupt build must not replace the live corpus: {staging}"
+            )
+
+        return {
+            "n_rows": int(len(staged)),
+            "n_tickers": int(staged["ticker"].nunique()),
+            "finite_fraction": round(finite_fraction, 6),
+            "horizon": int(horizon),
+            "source_panel_sha256": _sha256_file(panel_in),
+            "source_panel_frontier": panel["date"].max().date().isoformat(),
+        }
+
+    return _validate
+
+
+def rawlabel_receipt_path(rawlabel_path: Path) -> Path:
+    """Path of the invalidation receipt sidecar for a ``_rawlabel`` corpus."""
+    return rawlabel_path.with_name(rawlabel_path.name + RAWLABEL_INVALID_SUFFIX)
+
+
+def rawlabel_provenance_path(rawlabel_path: Path) -> Path:
+    """Path of the provenance sidecar stamped beside a validated corpus."""
+    return rawlabel_path.with_name(rawlabel_path.name + RAWLABEL_PROVENANCE_SUFFIX)
+
+
+def _write_invalidation_receipt(
+    rawlabel_path: Path, *, reason: str, panel_in: Path, horizon: int
+) -> Path:
+    receipt = rawlabel_receipt_path(rawlabel_path)
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "rawlabel": str(rawlabel_path),
+                "panel": str(panel_in),
+                "horizon": int(horizon),
+                "reason": reason,
+                "invalidated_at": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            },
+            indent=2,
+        )
+    )
+    return receipt
+
+
+def _clear_invalidation_receipt(rawlabel_path: Path) -> None:
+    receipt = rawlabel_receipt_path(rawlabel_path)
+    try:
+        receipt.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _write_rawlabel_provenance(rawlabel_path: Path, report: dict) -> Path:
+    """Stamp the provenance sidecar — MUST be called strictly AFTER the
+    corpus itself is durably published (see the publication-ordering note on
+    :class:`RefreshSigmaHeadRawLabelTask`). ``report`` is expected to already
+    carry ``rawlabel_sha256`` (the digest of the on-disk, post-swap corpus
+    bytes) alongside the pre-swap validator's ``source_panel_sha256`` /
+    ``horizon`` / coverage stats.
+
+    Written atomically (temp file + fsync + ``os.replace``) so a reader can
+    never observe a torn/partially-written provenance file: it either sees
+    the PRIOR sidecar (stale, but internally consistent — and, per the digest
+    binding, a consumer that checks ``rawlabel_sha256`` against the actual
+    corpus bytes will correctly reject a mismatch) or the fully-written new
+    one, never something in between.
+    """
+    prov = rawlabel_provenance_path(rawlabel_path)
+    payload = dict(report)
+    payload["schema_version"] = RAWLABEL_PROVENANCE_SCHEMA_VERSION
+    payload["rawlabel"] = str(rawlabel_path)
+    payload["built_at"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    tmp = prov.with_name(prov.name + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    _fsync_file(tmp)
+    os.replace(tmp, prov)  # atomic publish of the sidecar itself
+    _fsync_dir(prov.parent)
+    return prov
+
+
+def is_rawlabel_admissible(rawlabel_path: Path) -> bool:
+    """True iff the corpus exists AND has no active invalidation receipt."""
+    return rawlabel_path.exists() and not rawlabel_receipt_path(rawlabel_path).exists()
+
+
+def assert_rawlabel_admissible(rawlabel_path: Path) -> None:
+    """Reference admission check: raise ``RawlabelStaleError`` unless the σ-head
+    ``_rawlabel`` corpus exists and carries no invalidation receipt.
+
+    This repo does not run real σ-head / QuantileHead training (CLAUDE.md hard
+    boundary), so this function is producer-side documentation of the RECEIPT
+    contract (missing / invalidated corpus), not the full enforcement point.
+    The full enforcement point — including binding the corpus to its exact
+    validated bytes — is the actual training entrypoint,
+    ``scripts/train_ngboost_proper.py`` in the ``RenQuant`` umbrella repo,
+    which reimplements this same receipt check by file-contract AND ALSO
+    verifies the provenance sidecar's ``source_panel_sha256`` (the INPUT the
+    corpus was built from) and ``rawlabel_sha256`` (the OUTPUT corpus itself,
+    added alongside ``schema_version`` in this PR) against what is live on
+    disk right now — see RenQuant PR #427. That digest binding is what
+    catches a corpus REPLACED OR EDITED after validation while its sidecar is
+    left intact — a receipt-only check (this function) cannot see that, since
+    the receipt is absent in that scenario. Do not claim end-to-end
+    tamper-detection from this function alone; it is the receipt half of the
+    contract, not the digest half.
+    """
+    if not rawlabel_path.exists():
+        raise RawlabelStaleError(f"σ-head _rawlabel corpus is missing: {rawlabel_path}")
+    receipt = rawlabel_receipt_path(rawlabel_path)
+    if receipt.exists():
+        try:
+            reason = json.loads(receipt.read_text()).get("reason", "unknown")
+        except (OSError, json.JSONDecodeError):
+            reason = "unreadable receipt"
+        raise RawlabelStaleError(
+            f"σ-head _rawlabel corpus is INVALIDATED ({receipt.name}: {reason}); "
+            f"a fresh, validated refresh must succeed before σ-head training may "
+            f"consume {rawlabel_path}."
+        )
+
+
 class RefreshFullUniverseOhlcvTask(Task):
     """Refresh daily OHLCV bars for the FULL panel training universe.
 
@@ -809,6 +1191,181 @@ class MergeFundFeaturesTask(Task):
         return True
 
 
+class RefreshSigmaHeadRawLabelTask(Task):
+    """Rebuild the σ-head (QuantileHead) RAW ``_rawlabel`` panel in lockstep with
+    the freshly-merged fund panel.
+
+    ROOT CAUSE (fix #1 from the training-data investigation): the derived
+    ``alpha158_291_fundamental_dataset_rawlabel.parquet`` sat at 2026-02-11 only
+    because ``build_raw_fwd60d_label.py`` had no retrain cadence — its source
+    (``alpha158_291_fundamental_dataset.parquet``) was already fresh once the
+    panel build ran. This task regenerates the RAW-label panel right after the
+    fund-panel merge so the σ-head label never drifts behind the ranker panel.
+
+    Non-destructive + validated: builds to a ``.staging`` sibling, VALIDATES it
+    (schema / unique (ticker,date) / exact source-panel coverage / finite-label
+    floor) and only then atomically swaps. A zero-row / corrupt / wrong-coverage
+    build is refused and never replaces the live corpus; the prior ``_rawlabel``
+    survives untouched.
+
+    Resilient but NOT fail-open: the σ-head is a SEPARATE downstream model, so any
+    failure here logs + emits a LOUD ntfy alert but NEVER aborts the main
+    XGB-ranker / calibrator retrain. Because a swallowed failure would otherwise
+    leave a silently-stale corpus, every non-certified outcome (build failure,
+    empty / rejected output, or a missing upstream panel) also writes a durable
+    INVALIDATION RECEIPT beside the corpus. A successful, validated swap clears
+    the receipt and stamps a provenance sidecar (schema_version, horizon,
+    source-panel digest + frontier, row/ticker counts, finite fraction, and —
+    critically — ``rawlabel_sha256``, the digest of the PUBLISHED corpus bytes
+    themselves) . A missing upstream panel stays a soft skip (no alert — the
+    ranker path surfaces that itself) but still records the receipt.
+
+    Publication ordering (Codex #218/#427 review — the corpus and its
+    provenance sidecar are two SEPARATE files, so a naive two-independent-
+    ``os.replace`` sequence has an observable window where one is fresh and
+    the other stale): this task (1) builds + validates to a ``.staging``
+    sibling, (2) fsyncs it, (3) ``os.replace``s it into the corpus path
+    (atomic — a reader never sees a partial file) and fsyncs the containing
+    directory, (4) computes ``rawlabel_sha256`` from the now-published,
+    on-disk corpus bytes, (5) writes the provenance sidecar LAST, atomically
+    (temp file + fsync + ``os.replace``), referencing that digest, and only
+    then (6) clears any prior invalidation receipt. Corpus-before-provenance
+    is the load-bearing ordering: it means the provenance sidecar's
+    ``rawlabel_sha256`` is always computed from bytes that are ALREADY
+    durably on disk, so a reader that verifies the digest can never be misled
+    by a sidecar that describes not-yet-written (or since-replaced) bytes. If
+    an exception is raised anywhere after the swap but before the sidecar is
+    stamped (e.g. a disk-full provenance write), the ``except`` clause below
+    still catches it and writes an INVALIDATION RECEIPT, so the corpus is
+    never left looking silently-valid with a provenance sidecar that doesn't
+    match it — either the digest matches (certified) or a receipt / digest
+    mismatch blocks admission (see ``assert_rawlabel_admissible``). A
+    full generation-directory / current-pointer scheme (write to a new
+    generation dir, then atomically flip a single pointer) would remove even
+    the sub-microsecond exception-propagation window between steps (3)-(6);
+    it was judged out of scope for this PR given the fixed-path file-contract
+    the umbrella consumer already reads by (RenQuant PR #427), but is a
+    natural follow-up if that window is ever shown to matter in practice.
+
+    ``assert_rawlabel_admissible`` (below) is the enforcement CONTRACT this task
+    writes for; this repo is producer-only (it does not run real σ-head training
+    — see CLAUDE.md hard boundaries). The contract is enforced, end to end, at
+    the ACTUAL σ-head training entrypoint — ``scripts/train_ngboost_proper.py``
+    in the ``RenQuant`` umbrella repo — by a coordinated companion change,
+    RenQuant PR #427 (which reimplements the same receipt/provenance check
+    there by file-contract, not by cross-repo import, since RenQuant does not
+    depend on this package). #427 verifies BOTH ``source_panel_sha256`` (the
+    INPUT the corpus was built from) AND ``rawlabel_sha256`` (the OUTPUT
+    corpus itself) against what is live on disk — closing the gap where a
+    later replacement/edit of the corpus, with the sidecar left intact, would
+    otherwise be indistinguishable from the originally-validated bytes.
+    """
+
+    def run(self, ctx: RetrainContext) -> bool | None:
+        panel_in = ctx.panel_path
+        rawlabel_out = ctx.rawlabel_path
+        summary: dict = {
+            "status": "skipped",
+            "panel": str(panel_in),
+            "rawlabel": str(rawlabel_out),
+            "receipt": str(rawlabel_receipt_path(rawlabel_out)),
+            "receipt_written": False,
+        }
+        ctx.rawlabel_refresh_summary = summary
+        if not ctx.refresh_rawlabel:
+            log.info("σ-head _rawlabel refresh disabled (refresh_rawlabel=False); skipping")
+            return True
+        if ctx.dry_run:
+            summary["status"] = "dry-run"
+            log.info("[dry-run] would rebuild σ-head _rawlabel %s from %s", rawlabel_out, panel_in)
+            return True
+
+        staging = rawlabel_out.with_name(rawlabel_out.name + ".staging")
+        try:
+            if not panel_in.exists():
+                summary["status"] = "skipped-no-panel"
+                # The corpus can no longer be certified in-lockstep with a (now
+                # missing) panel, so invalidate it — but do NOT alert: the ranker
+                # path surfaces the missing-panel failure on its own.
+                _write_invalidation_receipt(
+                    rawlabel_out,
+                    reason="upstream panel missing; σ-head corpus not certified fresh",
+                    panel_in=panel_in,
+                    horizon=ctx.rawlabel_horizon,
+                )
+                summary["receipt_written"] = True
+                log.warning(
+                    "σ-head _rawlabel refresh: panel %s not found; skipping + invalidating "
+                    "(upstream panel build produced no output)",
+                    panel_in,
+                )
+                return True
+            build_fn = ctx.rawlabel_build_fn or _default_rawlabel_build_fn()
+            validate_fn = ctx.rawlabel_validate_fn or _default_rawlabel_validate_fn(
+                ctx.rawlabel_min_finite_fraction
+            )
+            if staging.exists():
+                staging.unlink()
+            build_fn(panel_in, staging, ctx.ohlcv_dir, ctx.rawlabel_horizon)
+            if not staging.exists():
+                raise RuntimeError(f"σ-head rawlabel build produced no output: {staging}")
+            # Validate the staged artifact BEFORE the swap; a failure raises and
+            # falls to the except below (staging discarded, prior corpus kept).
+            report = dict(validate_fn(staging, panel_in, ctx.rawlabel_horizon))
+            # Publication ordering (see class docstring): fsync the validated
+            # staging file, atomically publish it as the corpus, fsync the
+            # containing directory, THEN compute the digest from the now-durable
+            # on-disk bytes and stamp the provenance sidecar LAST — referencing
+            # bytes that are ALREADY published, never bytes that are merely
+            # about-to-be or used-to-be on disk.
+            _fsync_file(staging)
+            os.replace(staging, rawlabel_out)  # atomic swap ONLY after validation passes
+            _fsync_dir(rawlabel_out.parent)
+            report["rawlabel_sha256"] = _sha256_file(rawlabel_out)
+            provenance = _write_rawlabel_provenance(rawlabel_out, report)
+            _clear_invalidation_receipt(rawlabel_out)  # corpus certified in-lockstep
+            summary["status"] = "refreshed"
+            summary["report"] = report
+            summary["provenance"] = str(provenance)
+            log.info(
+                "σ-head _rawlabel refreshed + validated: %s ← %s "
+                "(rows=%s tickers=%s finite=%.3f frontier=%s)",
+                rawlabel_out,
+                panel_in,
+                report.get("n_rows"),
+                report.get("n_tickers"),
+                report.get("finite_fraction", float("nan")),
+                report.get("source_panel_frontier"),
+            )
+        except Exception as exc:  # downstream model — NEVER abort the ranker retrain
+            summary["status"] = "failed"
+            summary["error"] = str(exc)
+            # A rejected / half-written staging must never linger as the next run's
+            # "stale staging"; the prior live corpus is left untouched (not swapped).
+            try:
+                if staging.exists():
+                    staging.unlink()
+            except OSError:  # pragma: no cover - defensive
+                pass
+            # Durable, enforceable invalidation — an ntfy alert is not a guarantee.
+            _write_invalidation_receipt(
+                rawlabel_out, reason=str(exc), panel_in=panel_in, horizon=ctx.rawlabel_horizon
+            )
+            summary["receipt_written"] = True
+            body = (
+                f"σ-head _rawlabel refresh FAILED ({exc}). The XGB-ranker retrain "
+                f"is UNAFFECTED, but the QuantileHead label is now stale relative to "
+                f"{panel_in}; an INVALIDATION RECEIPT was written. Once RenQuant PR #427 "
+                f"(consumer-side enforcement in scripts/train_ngboost_proper.py) is merged, "
+                f"this BLOCKS σ-head training until a validated build_raw_fwd60d_label "
+                f"refresh clears the receipt."
+            )
+            if not ctx.quiet:
+                post_ntfy("RenQuant retrain SIGMA-HEAD-RAWLABEL", body, ctx.ntfy_topic)
+            log.error("σ-head _rawlabel refresh failed (isolated, retrain continues): %s", exc)
+        return True
+
+
 class TrainGbdtScorerTask(Task):
     def run(self, ctx: RetrainContext) -> bool | None:
         cmd = [
@@ -859,6 +1416,7 @@ class RetrainJob(Job):
             PanelUniverseFreshnessGuardTask(),
             BuildAlpha158PanelTask(),
             MergeFundFeaturesTask(),
+            RefreshSigmaHeadRawLabelTask(),
             TrainGbdtScorerTask(),
             RefitCalibratorTask(),
         ]
@@ -964,6 +1522,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--ohlcv-timeout-sec", type=float, default=DEFAULT_OHLCV_TIMEOUT_SEC)
+    parser.add_argument(
+        "--refresh-rawlabel",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Rebuild the σ-head (QuantileHead) RAW _rawlabel panel in lockstep "
+            "with the fresh fund panel after the merge (fix #1: it had no retrain "
+            "cadence and drifted behind the ranker panel). Failure is isolated "
+            "(alerts + logs, never aborts the ranker retrain). --no-refresh-rawlabel skips."
+        ),
+    )
     parser.add_argument(
         "--panel-universe-file",
         type=Path,
@@ -1087,6 +1656,7 @@ def main(argv: list[str] | None = None) -> int:
         truncate_to_sec_max=args.truncate_to_sec_max,
         dry_run=args.dry_run,
         refresh_ohlcv=args.refresh_ohlcv,
+        refresh_rawlabel=args.refresh_rawlabel,
         panel_universe=panel_universe,
         inventory_path=inventory_path,
         ohlcv_timeout_sec=args.ohlcv_timeout_sec,
