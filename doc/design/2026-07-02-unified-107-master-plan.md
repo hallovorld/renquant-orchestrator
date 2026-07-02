@@ -1,9 +1,25 @@
 # Unified 107 master plan — goal-decomposed, evidence-tiered, POC-anchored
 
-STATUS: design / RFC for review (docs only). **Supersedes the task tables of PR #229** (the H2
-execution roadmap) — recommend closing #229 in favor of this document. **Companion to PR #230**
-(the route/evidence layer: IC ceiling, institutional gap, bounds, risk register, fallback ladder,
-POC verification — its gates and evidence are UNCHANGED and cited here, not restated).
+STATUS: **DRAFT — dependency-index, NOT an execution source of truth.** A unified master plan
+cannot be authoritative while its source plans and core IC evidence are unresolved or blocked
+(Codex review, 2026-07-02). This document is authoritative for STRUCTURE (which task moves which
+term, how tasks sequence, what a gate must specify) but NOT for the specific numeric thresholds it
+cites from #230's POCs or the BULL_CALM IC conclusion — those become fixed only once:
+- **#228** (capability program) and **#230** (IC ceiling / route) converge on non-provisional
+  language for their own POC-derived thresholds, and
+- **`hallovorld/RenQuant#430`** (durable OOS pick-table generator/manifest) and
+  **`hallovorld/RenQuant#431`** (genuine/leak-controlled IC reproduction — currently an
+  UNRESOLVED discrepancy: +0.044 vs the originally-cited −0.003 for BULL_CALM, reconciliation
+  protocol frozen but not yet executed) resolve.
+
+Until then, treat every number in §0's state vector and every POC-derived AC in §1 as
+**provisional**, subject to revision once the above converge. design / RFC for review (docs
+only). **Supersedes the task tables of PR #229** (the H2 execution roadmap) — recommend closing
+#229 in favor of this document, once this document itself is no longer draft. **Companion to PR
+#230** (the route/evidence layer: IC ceiling, institutional gap, bounds, risk register, fallback
+ladder, POC verification — its gates and evidence are UNCHANGED and cited here, not restated; this
+document inherits #230's own provisional/confirmed status for every cited number, it does not
+independently upgrade them).
 DATE: 2026-07-02
 OPERATOR DIRECTIVE (2026-07-02): apply the POC standard (every claim measured or theory-backed,
 reproducible) to ALL roadmap content; unify it; re-derive every short/mid/long-term task with one
@@ -32,7 +48,7 @@ Book = β(FLOOR: sleeve + ops discipline)
 
 | Term | Current (measured, 2026-07-02) | Target (2028) | Standing metric |
 |---|---|---|---|
-| IC_combined (placebo-clean) | **≈ 0** (A1: CI [−0.031,+0.129] ∋ 0; BULL_CALM −0.003) | **0.02–0.03** (POC-D-adjusted stacking: 3 signals ⇒ 0.028–0.033 at ρ≈0.2) | S5/S8 substrate, per-regime cuts |
+| IC_combined (placebo-clean) | **DISPUTED, not settled** — A1's original read: ≈0 (CI [−0.031,+0.129] ∋ 0; BULL_CALM −0.003, "coin flip"). `RenQuant#431` reproduced the same leak-controlled methodology against a now-durable table and got BULL_CALM **+0.044** — opposite sign. Reconciliation protocol frozen in #431, not yet executed. **Do not treat either figure as the current state until #431 resolves.** | **0.02–0.03** (POC-D-adjusted stacking: 3 signals ⇒ 0.028–0.033 at ρ≈0.2; #230's own provisional status applies) | S5/S8 substrate, per-regime cuts |
 | TC | **≈ 0.4 (reasoned — measurement is task S-TC)**; shrinkage stack ×0.43 measured (POC-B) | **≥ 0.6 measured** | corr(target weights, unconstrained Kelly weights) per run |
 | BR_eff | **131/yr point [77, 500] (POC-A)** | **≥ 300/yr measured** | POC-A method, quarterly |
 | EXEC leak | fills = open confirmed; **+23–49 bps/entry point est., t≈1.0, N=41 (POC-C)** | **< 10 bps/entry, CI-backed** | S10 + collector corpus |
@@ -78,7 +94,7 @@ IDs retain #229 numbering for traceability; NEW tasks are marked. Horizons: N �
 |---|---|---|---|---|---|---|
 | N1 | 105 collectors live + liveness | data for everything in this term | launchd per #212 pattern | 3 sessions of complete output + lapse-alert test-fire | 0.90 | manual invocation → day-for-day slip |
 | S10 | Full open-auction IS study | **POC-C anchor: +23–49 bps/entry point, t≈1.0** → CI the prize | extend POC-C to all history + collector corpus; liquidity splits | bps/entry with CI; feeds §9.4 prereg | 0.85; P(material) ≈ 0.65 | if immaterial: G105 kill branch — Stage-2 → risk-exit modernization; increment 1 halves |
-| S8 | Track A regeneration PR (durable OOS pick table) | evidence base for expectancy filter AND the 105 direction | `regen_oos_pick_table.py` → `data/exp/…parquet` | reproduces genuine_ic ±0.001; ~147k rows | 0.90 | forward-collect from shadow (3–6 mo) → S9 slips |
+| S8 | Track A regeneration PR (durable OOS pick table) | evidence base for expectancy filter AND the 105 direction | `regen_oos_pick_table.py` → `data/exp/…parquet`, manifest per protected-path contract (`RenQuant#430`) | table durably regenerated, row/date/window counts reconciled exactly against the original A1 audit (**done**, `RenQuant#430`); the ORIGINAL "reproduces genuine_ic ±0.001" bar is **not met as stated** — `RenQuant#431`'s reproduction disagrees with the cited genuine_ic (see IC_combined row, §0) — so this AC is revised to "table is durable and row/date-window-exact; genuine_ic reconciliation is a SEPARATE, still-open gate (#431), not implied by table regeneration alone" | 0.90 for table durability (met); IC reconciliation itself unscored, pending #431 | forward-collect from shadow (3–6 mo) → S9 slips; IC reconciliation stalls → S9 runs on provisional/flagged inputs only, never a silent GO |
 | S9 | Track A conditional test (criteria FROZEN) | meta-label expectancy: P(GO) ≈ 0.30 | run the direction-decision §4 spec unmodified | recorded GO or NULL, CIs, zero post-hoc edits | outcome | NULL pre-registered → increment 1 = execution-only (+0.3–0.8%/yr) |
 | M1 | 105 Stage-1 build → readonly K=5 | the intraday half of TC/EXEC | #208 §8 order + #223 pins (census, order type, intraday-margin envelope, exits-always-allowed) | per-repo ATs green; 5 readonly sessions, replay green, census complete | 0.75/quarter | orchestrator-readonly first → M2 slips a quarter |
 | M2 | Frozen canary (delegated start per #230 §1) | real paired fills within the #208 §9.3a envelope | 1–2 names, ≤20 sessions, 1.5% budget; **P(noise-halt) ≈ 0.4–0.5 — response pre-committed** | §9.3 ops acceptance every session; halt honored on exhaustion | 0.70 | halt → recorded re-authorization → G105 slips not dies |
@@ -119,6 +135,28 @@ IDs retain #229 numbering for traceability; NEW tasks are marked. Horizons: N �
 |---|---|---|---|---|---|---|
 | L6 | Book-scaling decision (delegated, §1 protocol) | at $10.8k the full ceiling ≈ $540/yr (#230 §7.1) — capability only pays at scale | scorecard: D1 verdicts flowing, deployment ≥60%, canary clean, thesis #1 not terminal | recorded decision + capability scorecard | — | stay small; capability retains option value |
 | M10/L7 | Thesis reviews #1/#2 (pre-registered criteria BEFORE evidence) | the macro kill/pivot forum | #230 §9.2 ladder is the decision space | signed reviews; next criteria dated | — | — |
+
+---
+
+## 1.5 Gate specifications
+
+Codex requirement: every true decision GATE (a point where continuing depends on a Y/N or
+threshold outcome, not just an engineering deliverable) states an immutable artifact/recipe link,
+its evidence tier, owner, input dependencies, stop rule, rollback, capital authority, and whether
+failure kills the branch or merely defers it. The task table in §1 already carries AC/P/Plan-B for
+every row; this section makes the seven rows that are actual GATES (not tasks) fully explicit.
+Ordinary engineering tasks (S1-S3, S5-S7, S10-S12, M1, M3-M9, N1-N3, R4, RS-1/2/3) are deliverables
+with acceptance criteria, not decision gates, and are not repeated here.
+
+| Gate | Immutable artifact/recipe | Evidence tier | Owner | Input dependencies | Stop rule | Rollback | Capital authority | Kill or defer |
+|---|---|---|---|---|---|---|---|---|
+| **D1 / S4** — first verdict on live primary since 05-18 | the repaired WF gate (S1-S3: Fix-1 path, Fix-2 parity, Fix-3 placebo-difference test) run against the live primary's current artifact; no committed corpus reference exists until S1-S3 land | validation → production once S1-S3 land (currently the gate itself is mid-repair) | backtesting/model repos (S1-S3 PRs) | S1-S3 must merge first | none — this task is designed to produce a recorded verdict regardless of outcome (pass/fail/inconclusive), it does not itself gate on a threshold | n/a — observational; if the repaired gate is later found buggy, the fix is further gate repair, not reverting this verdict | **none** — "information, not P&L" (stated in §1) | neither — routes downstream per outcome (FAIL ⇒ shrink-sized directive trading or #210 best-of-recent; PASS ⇒ primary confirmed) |
+| **Track A GO/NULL — S9** | `regen_oos_pick_table.py` output (S8, `RenQuant#430`) scored against the direction-decision doc §4's pre-registered (a)-(e) criteria (unmodified) | validation (pre-registered test on held-out window) — but its INPUT (genuine_ic) is currently disputed, see §0 | not yet assigned — TBD, whichever repo runs the direction-decision §4 spec | S8 (durable table, done) **and** `RenQuant#431`'s reconciliation (this test's read of "genuine_ic" must not proceed on a disputed number without flagging it explicitly in the result) | the direction-decision doc §4 (a)-(e) criteria, unmodified, zero post-hoc edits | n/a — observational test, no capital deployed by the test itself | **none** for the test; a GO unlocks BUILDING a meta-label filter (a further engineering decision), not capital deployment | **kill** (of this specific test spec) if NULL under the frozen criteria — the direction-decision doc §4 is explicit that this routes to "Track B is the only remaining path", not a retry of the same test; a genuinely NEW hypothesis (e.g. the BEAR risk-switch per #223 A7.2) would need its own separate frozen prereg, never a revival |
+| **Frozen canary — M2** | RFC #208 §9.3a envelope, once `renquant-orchestrator#224` (broker envelope) and `#227` (measurement pins) land | production (real fills, real capital, bounded) | execution + pipeline + orchestrator repos per RFC #208 §8's decomposition | #224, #227, and M1 (Stage-1 build, readonly K=5 sessions clean) must ALL land/pass first | duration cap (20 sessions) **or** loss budget (1.5% of equity) breached, with **no** recorded §9.3a authorizing decision → HARD halt (RFC #208 §9.3a, already frozen) | kill switch default-OFF, revert to the 盘后 batch path (RFC #208 §9.3a) | bounded strictly to the pre-declared canary envelope (1-2 names, ≤20 sessions, 1.5% loss budget); **any** expansion requires a SEPARATE, explicitly recorded §9.3a authorization — reaching this gate authorizes ONLY the frozen envelope, nothing more | **defer** — halt-on-exhaustion routes to "recorded re-authorization → G105 slips not dies" (§1), not a permanent kill |
+| **D3 / L1** — Track B structural decision | synthesis memo of S9 (Track A verdict) + M7 (down-cap MVP screen) + M8 (cluster-wave BR result) + ≥120 days of accrued PIT data (N2) | mixed: exploratory (M7) + validation (S9) + accruing production data (N2 ≥120d) — explicitly not a single-tier read | operator (delegated decision, #230 §1 protocol) | S9, M7, M8, N2 reaching ≥120 days accrued | n/a — this IS the decision point, not gated by a further threshold; its OUTCOME routes downstream | "hold + re-screen in 2 quarters" (already the stated Plan B) | the decision itself does not spend capital directly; a down-cap outcome authorizes STARTING a staged-migration RFC process (itself a future, separate spend/capital decision), not spend at this gate | **defer** — explicitly "hold + re-screen in 2 quarters" is a stable hold state, not a program kill |
+| **Book-scaling decision — L6** | the capability scorecard: D1 verdicts flowing + deployment ≥60% + canary (M2) clean + thesis review #1 (M10) not terminal | production (observed live operational metrics) | operator (delegated decision, #230 §1 protocol) | D1 (S4), S6/S7 (deployment ≥60%), M2 (canary clean), M10 (thesis #1 not terminal) | scorecard fails to clear → stay small (already the stated Plan B) | not addressed in this doc — reversing an already-authorized capital increase is a distinct, currently-unspecified operational question; flagged as **TBD**, not silently assumed | **explicit** — this is the clearest capital-authority gate in the plan: passing it is the operator authorizing additional capital into the book beyond the current ~$10.8k | **defer** — "stay small; capability retains option value" (§1) is a hold, not a kill of the program |
+| **Thesis reviews #1/#2 — M10/L7** | #230 §9.2's fallback ladder (cited, not restated) | mixed — a synthesis/judgment review across whatever evidence has accrued by that point, deliberately not pre-specified to one tier | operator ("the macro kill/pivot forum") | whatever has accrued via §9.2's ladder by the review date — intentionally not itemized further here | none pre-specified — "signed reviews; next criteria dated" (§1) means the review itself SETS the next checkpoint's criteria, it is a recurring judgment forum, not a single pass/fail test | n/a | **highest in this plan** — a thesis review can authorize killing or pivoting the entire program direction, not just an incremental scale-up (contrast with L6, which is incremental) | **either** — this is explicitly a kill-OR-pivot forum; both outcomes are live by design |
+| **M-SIG kill branch** (the 3-signal stack) | per-signal placebo-clean IC scripts on the S5/S8 substrate | validation (per-signal placebo-clean IC with CI), building toward production once combined and confirmed | model/pipeline repos (signal-build PRs, one at a time) | S5 (ledger wiring), S8 (durable table), N2/N3 (new cross-family data sources) | composite fails to reach ≥2 signals ≥0.015 individually AND combined ≥0.02 | n/a — a build/research task; nothing already live is rolled back if it fails | none directly (research/build only); the downstream G106 gate (2027-Q4, §2) is what would eventually authorize live use | **branch kill, not program kill** — explicitly "benchmark-sleeve default + PIT keeps accruing + 107 re-scoped execution-only" (§1): the alpha-stacking branch dies, the EXEC-only path continues |
 
 ---
 
