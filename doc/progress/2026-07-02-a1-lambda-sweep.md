@@ -1,19 +1,65 @@
-# A-1 λ dose-response sweep — research PR (valuable NULL)
+# A-1 λ dose-response sweep — research PR
 
-STATUS:   research evidence (read-only; script + JSON + memo).
-REVISION: r1.
+STATUS:   research evidence (read-only; script + JSON + memo). Round-1 "valuable NULL"
+          conclusion RETRACTED and reversed in round 2.
+REVISION: r2.
 WHAT:     pre-enable evidence for RS-2's A-1: drive the real pipeline QP solver on the
-          latest two full runs' (mu, σ) with cash_drag_lambda ∈ {0…0.10}. RESULT: solutions
-          IDENTICAL at every λ — turnover pinned at exactly the 0.30 cap; the turnover
-          constraint binds before the cash-drag penalty can act.
-WHY/DIR:  revises #231 S6's Δ-expectation: A-1's deployment contribution ≈ 0 (enable stays
-          harmless per RS-2); the deployment AC rests entirely on lane B. New design finding
-          flagged for the S6/S7 implementation PR: the QP turnover cap counts CASH-DEPLOYMENT
-          as churn, so a 75%-cash book needs multiple sessions to redeploy regardless of
-          conviction/top_n/λ — whether deployment legs should be cap-exempt is a risk-gate
-          design question (not decided here; the sleeve makes loosening unnecessary).
-EVIDENCE: committed JSON; one-command reproduce; caveats stated (w_current approximation,
-          simplified constraints; the flat-at-every-λ + cap-exactly-binding pattern is
-          structural).
-NEXT:     Codex review; the S6/S7 implementation PR cites the turnover-cap finding; the
-          in-pipeline shadow sweep (S6 AC) remains the decisive enable gate.
+          latest two full runs' (mu, σ) with cash_drag_lambda ∈ {0…0.10}.
+WHY/DIR:  round 1 concluded A-1's deployment contribution ≈ 0 because solutions were
+          identical at every λ. Round 2 (codex review) found this was an
+          experiment-harness artifact: the solver only adds the cash-drag objective
+          term when BOTH min_invested_pct > 0 AND cash_drag_lambda > 0
+          (qp_solver.py:468); round 1 never passed min_invested_pct, so the wrapper
+          default (0.0) disabled the mechanism entirely — identical solutions were
+          guaranteed by construction. Separately, live production
+          (strategy_config.json → rotation.joint_actions) has BOTH
+          qp_min_invested_pct=0 and qp_cash_drag_lambda=0 set explicitly, so A-1 as
+          literally scoped (λ alone) is mechanically a no-op right now — a fact, not
+          new evidence.
+EVIDENCE: re-ran with min_invested_pct=0.7 (this config's own pre-2026-05 value,
+          strategy_config.json.pre-meta-label-deploy) as a 2D sweep against
+          turnover_max ∈ {0.15,0.20,0.30,0.50}, plus a positive-control point (loose
+          turnover). Result: λ 0→0.05 (A-1's proposed target) adds ~16-19pp deployed
+          fraction at the CURRENT production turnover cap (0.15), consistently across
+          both runs and every turnover cap tested — λ has a large, real, monotonic
+          effect once the mechanism is genuinely enabled. w_current reconstructed from
+          each holding's most recent real trades.target_pct (13/13 held positions
+          across both runs resolved from real trade history, no equal-weight
+          approximation needed). Run selection now joins pipeline_runs
+          (run_date + created_at), not lexicographic run_id ordering.
+NEXT:     RS-2 (#238, merged) describes A-1 as touching only qp_cash_drag_lambda —
+          this needs a follow-up correction: A-1 as scoped is a no-op; a genuine
+          "un-disable the shipped mechanism" change requires BOTH parameters moving
+          together. Flagging as a NEW finding for whoever picks up A-1's S6
+          preregistered shadow sweep, not resolving it here (out of this PR's scope
+          — this PR is evidence, not a design decision). The S6 in-pipeline shadow
+          sweep remains the actual enable-gating AC.
+
+## Round 2 (2026-07-02) — codex review r4, all 6 findings addressed
+
+1. **Disabled-objective bug fixed** — script now passes `min_invested_pct` explicitly
+   on every solver call; confirmed the gate condition by reading `qp_solver.py:468`
+   directly rather than trusting the review text alone.
+2. **Production config recovery** — `min_invested_pct=0.7` (historical, real value
+   from this exact config file's own git history) and per-regime `turnover_max` values
+   (0.15 BULL_CALM, 0.20 global) pulled from the live `strategy_config.json`, not
+   invented placeholders.
+3. **State reconstruction fixed** — `w_current` now built from each held ticker's most
+   recent `trades.target_pct` as of the run date (real point-in-time weight signal),
+   not an equal-weight-of-cap approximation. All 13 held positions across both runs
+   resolved from genuine trade history.
+4. **Positive-control test added** — `tests/test_poc_lambda_sweep.py` proves λ changes
+   the solver's objective/solution at a deliberately non-binding turnover cap when
+   `min_invested_pct > 0`, and proves it does NOT change the solution when
+   `min_invested_pct = 0` (the production-reality mechanical-null case) — both
+   branches of the gate condition are directly tested.
+5. **2D sweep added** — λ × turnover_max at the un-disabled `min_invested_pct`,
+   separating "turnover cap limits the deployment ceiling" (real, confirmed) from
+   "λ has no effect" (false — λ moves the solution at every turnover cap tested).
+6. **Run selection fixed** — joins `pipeline_runs` on `run_date`/`created_at`,
+   selecting the latest run per calendar date for the most recent 2 distinct dates,
+   not lexicographic `run_id` ordering.
+
+Title and headline retracted ("valuable NULL" → "NOT a NULL — round-1 harness never
+enabled the mechanism"); "structural" and "lane-B-only consequences" framing removed
+from the research doc.
