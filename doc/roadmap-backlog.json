@@ -82,6 +82,56 @@
       "blocked_by": [],
       "consequential": true,
       "prompt": "OPERATOR DECISION. Evidence: 60d models all fail the placebo (slow 60d-label persistence IS the placebo); the 20d model passes it at the 2x-horizon shift. Switching to 20d re-architects the live horizon contract (QP mu horizon, calibrators). Decide: switch horizon, ensemble across horizons, or keep 60d. Collecting multi-seed 20d evidence in the meantime."
+    },
+    {
+      "id": "s11-staging-backup-retention-policy",
+      "title": "Define a retention/pruning policy for weekly-promote staging + rollback artifacts",
+      "category": "S11 live-tree inventory",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "S11's exhaustive live-tree inventory (renquant-orchestrator#241, scripts/s11_live_tree_inventory.py manifest) found 46 untracked promote-pipeline files with no visible pruning: 20 timestamped panel-ltr/panel-rank-calibration weekly staging files (~2.5 weeks, kernel/model_acceptance.py's pre-promote staging step), 21 weekly/monthly rollback snapshots (same pipeline's kept revert points), and 3 subrepos.lock.json.promote-bak.* backups (scripts/promote_pin.py). Define a retention window (e.g. keep last N or last 30 days per family) and add a pruning step to the writer(s). Not urgent/blocking; unbounded disk growth only."
+    },
+    {
+      "id": "s11-live-state-gitignore-mismatch",
+      "title": "Resolve live_state.*.json tracked-vs-gitignore mismatch",
+      "category": "S11 live-tree inventory",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "S11's inventory (renquant-orchestrator#241) found backtesting/renquant_104/live_state.{alpaca,alpaca_shadow}.json are tracked in git despite a .gitignore rule (backtesting/*/live_state.json) that appears intended to exclude live-state snapshots but does not match these actual broker-suffixed filenames. Confirm intent: if tracking these two files is deliberate (a durable state-snapshot record), fix or annotate the gitignore rule to make that explicit; if it's a gitignore gap, untrack them and align the rule. OPERATOR/OWNER decision needed on intent before either fix."
+    },
+    {
+      "id": "s11-qp-replay-origin",
+      "title": "Identify the producer of artifacts/qp_step4_replay/ or remove it",
+      "category": "S11 live-tree inventory",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked artifacts/qp_step4_replay/ directory in the live tree with no identifiable producer — repo-wide grep for 'qp_step4_replay' finds no writer script. Likely an ad hoc/manual QP-replay investigation's leftover. Confirm: if it's dead weight, remove it (live-tree operation, not this ticket's scope); if it's evidence for a specific investigation, move it to doc/research/evidence/ and commit it instead of leaving it untracked in the live tree."
+    },
+    {
+      "id": "s11-as-of-file-origin",
+      "title": "Identify or remove the untracked empty top-level as_of file",
+      "category": "S11 live-tree inventory",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked, 0-byte top-level /as_of file in the live tree (dated 2026-07-01) with no identifiable producer (repo-wide grep found no writer/reader). Check git history (git log -p -- as_of) for whether it was ever tracked, then remove as inert debris once confirmed safe, or document its purpose if one is found."
+    },
+    {
+      "id": "s11-universe-expansion-model-commit",
+      "title": "Track or document the commit cadence for new-ticker model artifacts",
+      "category": "S11 live-tree inventory",
+      "repo": "RenQuant",
+      "status": "pending",
+      "blocked_by": [],
+      "consequential": false,
+      "prompt": "S11's inventory (renquant-orchestrator#241) found 9 untracked new-ticker model-artifact directories (APH, ATI, BWXT, EME, GLW, GRMN, SPY, XLI, XLY under backtesting/renquant_104/models/) not yet committed, consistent with the normal lag between a ticker joining the watchlist/universe and its first model-state commit. This is currently self-resolving (the next commit of a universe expansion picks them up) with no dedicated tracked process. Low priority: either confirm the existing universe-expansion workflow already covers committing these, or add an explicit step/reminder so new-ticker model state doesn't silently linger untracked indefinitely."
     }
   ]
 }
