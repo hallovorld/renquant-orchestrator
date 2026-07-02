@@ -1,7 +1,20 @@
 # Design: Model Freshness Governance — 28-day ceiling, deferred best-of-recent fallback, reliable retrain cadence, and WF-promote repair
 
 STATUS: design for review (no implementation in this PR — describe → discuss → PR to Codex → then implement per-repo).
-REVISION: **R6 (round-6)** — addresses Codex's round-5 review (head `6bf6c2f4`), which **acknowledged R5 fixed the
+REVISION: **R6 + A3 amendment (2026-07-02)** — folds in amendment A3 from the independent design review
+`doc/design/2026-07-01-104-105-design-review-amendments.md` (umbrella PR #223, Codex-converged): (1) the §6 **Final**
+row is rewritten as **two-path authorization** (§5 experiment **or** a separately-recorded operator decision), mirroring
+the structure #208 §9.3a already adopted, so the operator's 2026-06-30 freshness directive is not hostage to an
+experiment that will likely need years of prospective logging to authorize; Pillar 3 (best-of-recent fallback) is
+**unchanged** — still fully §5-gated and DEFERRED; (2) **§4.3.1's Fix-3 (structural placebo floor) moves to the
+QUALITY/SUBSTANCE (fail-closed) class** until the not-yet-implemented placebo-clean difference test
+(`real_ic − placebo_ic > margin`) is implemented and validated — only then does it re-enter the infra/bypassable list,
+with the difference test itself as the classification predicate; (3) **§1 now names the document's expected terminal
+state up front** (repairing Fixes 1–3 most likely lets the gate finally speak and say the live primary has no
+demonstrated edge, per the chronic-June evidence already in §1B — every path in this governance framework then
+converges on a **recorded operator decision**, trade-by-directive or stop) instead of leaving it as an unresolved §8
+open question. See the "Response to the #223 amendment review" table immediately below for the point-by-point map.
+Prior history unchanged from R6: addresses Codex's round-5 review (head `6bf6c2f4`), which **acknowledged R5 fixed the
 point-in-time artifact-availability eligibility** (immutable `artifact_created_at` / `registry_available_at` / gate
 `observed_at` on every arm) and left **ONE** remaining experiment-design blocker: **the replay conditions on
 POLICY-SPECIFIC breach events, so the candidate thresholds are not evaluated on a COMMON sample.** A 21d / 28d / 35d / 45d
@@ -27,6 +40,17 @@ This is a discussion document. It proposes a governance contract and a phased
 rollout; it does **not** change any code, config, broker, risk-cap, or sizing
 behaviour. Cross-repo implementation happens in follow-up per-repo PRs **after**
 this design is agreed.
+
+## Response to the #223 amendment review (A3, 2026-07-02)
+
+`doc/design/2026-07-01-104-105-design-review-amendments.md` (umbrella PR #223, an independent review already
+Codex-converged) raised amendment A3 against this RFC's §4.3.1/§5/§6-Final. Folded in here:
+
+| A3 point | Resolution | Section |
+|---|---|---|
+| **A3.1** The Final phase ("flip `model_staleness_days` 60→28 only after §5 authorises") is hostage to an experiment that will, per §5.0's own audit, likely fail closed on the historical registry and need years of prospective logging (§5.6) to accrue enough independent 60d outcomes — indefinitely deferring the operator's recorded 2026-06-30 directive. #208 §9.3a already solved this shape of problem via two-path authorization | §6's **Final** row is rewritten as two-path: the 28d ceiling may be adopted via **either** (a) the §5 experiment's authorization **or** (b) a separate, explicitly recorded operator decision — a risk-policy constant (same epistemic class as "no entries in the last 30 minutes"), observe-only-monitor-guarded, reversible, with a pre-registered rollback trigger stated as part of that decision. **Pillar 3 (best-of-recent fallback) is untouched** — still fully §5-gated and DEFERRED; the causal claim ("a fresh rejected model is safer than a stale validated one") stays where it belongs, in the experiment | §6 |
+| **A3.2** §4.3.1 lists the structural placebo floor (Fix-3) as bypassable MECHANICAL/INFRASTRUCTURE "only while it remains an embargo artifact, not a real leakage signal" — but distinguishing the two is exactly what the not-yet-implemented Fix-3 difference test (`real_ic − placebo_ic > margin`) does; until it exists, an unattended fallback has no predicate to apply that qualifier with, and a genuinely leaky candidate fails the placebo ceiling the identical way | Fix-3 placebo-floor failures move to **QUALITY/SUBSTANCE (fail-closed, always)** in §4.3.1's taxonomy table. They re-enter the infra/bypassable list **only** once the difference test is implemented and validated, with the test itself as the classification predicate. Cross-referenced at every other Fix-3 mention (§1B's diagnostic table, the WF-gate REPAIR section) so none of them still imply placebo-floor failures are safely bypassable pre-difference-test | §1B, §4.3.1, WF-gate REPAIR |
+| **A3.3** Given the chronic-June evidence (structural placebo floor + sub-SPY substance across candidates) already in §1B, the likely outcome of repairing Fixes 1–3 is the gate finally speaking and saying the live primary has no demonstrated edge (Fix-4) — every path in this framework then terminates at a recorded operator decision. §8 Q5 previously treated this as an open edge case rather than the document's expected end state | §1 (end of subsection B) now states this expectation plainly, so a reader reaches it before the phased rollout / open-questions sections. §8 Q5 rewords to reference §1's statement as the documented expectation rather than posing it as unresolved | §1, §8 |
 
 ## Response to Codex round-6 review (per-point map)
 
@@ -173,17 +197,32 @@ tagging is what the fallback keys on:
 | (recipe-fp) | Recipe-fingerprint mismatch (candidate `f4596e33` ≠ manifest `ccc412d0`) | **infra** | Fingerprint hashed human-readable `feature_source_contract` prose that a refactor edited | **FIXED 05-27→06-04** (hash contract KEYS only; move `epochs`/`early_stopping`/`device` to execution-only params). Candidate + manifest now both hash `cfdd6cb8` — they MATCH. |
 | Fix-1 | **sim per-bar scorer artifact-not-found (rc=1)** — most frequent June failure | **infra** | Derived WF-eval config resolves per-bar scorers from `artifacts/sim/artifacts/walkforward_v2_20260602/<date>/panel-ltr.json` (does **not** exist), while the validated manifest is `artifacts/sim/walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json` → `walkforward_gbdt_prod_recipe_v2/<date>/panel-ltr.json` (**does** exist) → `FileNotFoundError` (`backtesting/renquant_104/adapters/sim.py:851` → `panel_scorer.py:201`) | Open — path inconsistency |
 | Fix-2 | **WF config scorer-kind parity** | **infra** | The WF-derived eval config must carry the **active primary's** kind (`xgb`) and point at the matching XGB `panel-ltr.json`; a kind↔artifact mismatch trips the parity guard. R1 described this as `hf_patchtst`-kind vs GBDT-artifact — that direction is **stale** now that the live kind is `xgb`; the **current** mismatch direction must be re-confirmed from a fresh gate run under the pinned `xgb` config (part of Action P0). | Open — re-confirm |
-| Fix-3 | **§5.2 placebo_ic floor is structurally unsatisfiable** | **infra (structural)** | Gate requires `placebo_ic < 0.5 × \|aligned_real_ic\|`, but the 60-day label carries a ~+0.04 embargo-leakage floor; even at a 120d (2×horizon) shift the placebo IC (+0.035→+0.053) exceeds the threshold (+0.030→+0.043). Independent of model quality. | Open — structural |
+| Fix-3 | **§5.2 placebo_ic floor is structurally unsatisfiable** | **quality/fail-closed** (reclassified — A3.2, #223 amendment: bypassable *only* once the difference test below is implemented and validated; see §4.3.1) | Gate requires `placebo_ic < 0.5 × \|aligned_real_ic\|`, but the 60-day label carries a ~+0.04 embargo-leakage floor; even at a 120d (2×horizon) shift the placebo IC (+0.035→+0.053) exceeds the threshold (+0.030→+0.043). Independent of model quality. | Open — structural |
 | Fix-4 | **Substance — XGB/GBDT did not beat SPY** | **quality** | Mean 3-cut Sharpe ~+0.356, **0 / 3** cuts beat SPY, ΔSharpe **−0.72**; failed trade-gate monotonicity in BULL_CALM | **Not a bug** — the gate correctly rejecting a weak model |
 
-The key reading (corrected): **Fixes 1–3 are mechanical/infra** (config-path +
-parity bugs plus a structural placebo floor) and block the gate from **rendering a
-verdict at all** on the live primary. **Fix-4 is the gate working correctly** — a
-substance verdict of *no demonstrated edge*. Repairing 1–3 lets the gate finally
-speak on the 05-18 primary; if it then still returns Fix-4, that is a **real
-signal that the current live primary has no standing edge**, which must escalate to
-the operator (the model is live only by directive), **not** be silently papered
-over by promoting a different substance-failing model.
+The key reading (corrected): **Fixes 1–3 block the gate from rendering a verdict
+at all** on the live primary — Fix-1/Fix-2 are mechanical/infra (config-path and
+parity bugs); Fix-3 is a structural placebo floor that is classified
+**quality/fail-closed until its difference test ships** (A3.2, §4.3.1), since
+nothing today can distinguish it from real leakage. **Fix-4 is the gate working
+correctly** — a substance verdict of *no demonstrated edge*. Repairing 1–3 lets
+the gate finally speak on the 05-18 primary; if it then still returns Fix-4, that
+is a **real signal that the current live primary has no standing edge**, which
+must escalate to the operator (the model is live only by directive), **not** be
+silently papered over by promoting a different substance-failing model.
+
+**Expected terminal state (A3.3, #223 amendment).** Given this chronic-June
+evidence — a structural placebo floor plus sub-SPY substance across every
+candidate examined so far — the **likely** outcome of repairing Fixes 1–3 is
+exactly the scenario above: the gate finally speaks and says the live primary
+(and its recent siblings) have **no demonstrated edge**. Best-of-recent selection
+among substance-failing candidates is still substance-failing — Pillar 3 cannot
+rescue this outcome, by construction (§4.3.3's independent OOS floor). **Every
+path through this governance framework therefore converges on a recorded
+operator decision** — trade the no-edge model by explicit directive, or stop —
+never a software auto-resolution. This is stated here as the document's
+*expected* end state, not deferred as an unresolved edge case (see §8 Q5, which
+now references this paragraph rather than posing the question as open).
 
 ## 2. What "freshness" must mean — PER-SOURCE SLA on the recipe's actually-used feeds
 
@@ -343,14 +382,27 @@ rejection is classified. The fallback may act on the first class **only**:
 - **MECHANICAL / INFRASTRUCTURE (enumerated, closed list):** phase/timeout
   (`ParallelTimeoutError`); config/artifact **path-not-found** (Fix-1);
   scorer-**kind parity** mismatch (Fix-2, once its current direction is
-  reconfirmed); the **structural placebo floor** (Fix-3) *only while it remains an
-  embargo artifact, not a real leakage signal*. These prove the software could not
-  produce a verdict — they say nothing about edge.
+  reconfirmed). These prove the software could not produce a verdict — they say
+  nothing about edge.
 - **QUALITY / SUBSTANCE (fail-closed, always):** sub-SPY / negative ΔSharpe
-  (Fix-4); leakage or placebo **contamination** (a placebo signal that is real,
-  not the embargo floor); **recipe-mismatch** (the candidate is not the model the
-  recipe claims); and any **unknown / unclassified** failure. These **never**
-  qualify for auto-promotion.
+  (Fix-4); the **structural placebo floor** (Fix-3, reclassified — A3.2, #223
+  amendment); leakage or placebo **contamination** (a placebo signal that is
+  real, not the embargo floor); **recipe-mismatch** (the candidate is not the
+  model the recipe claims); and any **unknown / unclassified** failure. These
+  **never** qualify for auto-promotion.
+
+  **Fix-3's reclassification (A3.2).** Distinguishing "a structural embargo
+  artifact" from "a real leakage signal" is exactly what the not-yet-implemented
+  Fix-3 difference test (`real_ic − placebo_ic > margin`, see WF-gate REPAIR
+  below) is supposed to do. Until that test exists **and is validated**, there is
+  no operational predicate an unattended fallback can apply the old
+  "only-while-it-remains-an-embargo-artifact" qualifier with — a genuinely leaky
+  candidate fails the same placebo ceiling the identical way a structural-floor
+  artifact does, and the fallback cannot tell them apart. Fix-3 placebo-ceiling
+  failures are therefore fail-closed (quality/substance) **by default**; the
+  *structural-floor* sub-case may re-enter the infra/bypassable list only once
+  the difference test is implemented and validated, at which point the
+  difference test itself becomes Fix-3's classification predicate.
 
 **4.3.2 Loadability is not edge.** Basic-integrity checks (loads; scores a smoke
 panel without NaN; not degenerate / all-one-sign; recipe loads) prove **software
@@ -417,7 +469,11 @@ with no standing WF evidence.
 - **Fix-3** — replace the absolute placebo **ceiling** with a placebo-clean
   **difference** test (`real_ic − placebo_ic > margin`), or widen the embargo so
   the placebo shift clears the 60d label window — so an embargo artifact stops
-  reading as a leakage failure.
+  reading as a leakage failure. **Until this test is implemented and validated,
+  Fix-3 placebo-ceiling failures classify as QUALITY/SUBSTANCE (fail-closed) per
+  §4.3.1 (A3.2, #223 amendment) — not bypassable infra.** The difference test
+  above, once it exists and is validated, is what lets the structural-floor
+  sub-case re-enter the infra/bypassable list.
 - **Fix-4** is **not** a code fix — it is the gate correctly rejecting a sub-SPY
   model. If, after Fixes 1–3, the live primary still returns Fix-4, **escalate to
   the operator** (the primary is live only by directive and has no demonstrated
@@ -692,7 +748,31 @@ from DEFERRED to shadow-first, then flag-enabled.
 | 3a | **Phase-0 replay-feasibility audit** (§5.0): date-by-date registry coverage / missingness by arm **and** failure class; fixed minimum independent-sample floor; **fail-closed** if the untouched confirmation window lacks enough complete, unbiased events | after Phase 2 | analysis |
 | 3b | **Point-in-time shadow experiment** (§5.1–§5.5) — **only if 3a PASSES**: on a **common, policy-independent decision calendar (§5.4a)**, simulate each COMPLETE policy (current-prod-hold vs newest vs best-recent vs rollback) from the same initial state over the same epochs (path-dependent — hold / cooldown / promote / rollback / costs / overlapping 60d outcomes); pre-registered candidate grid + **committed held-out confirmation** (nested / rolling = robustness only) + multiplicity control; **policy-level** metrics compared on the shared timeline (breach events = strata); per-source SLA policies evaluated (not one global age). **If 3a FAILS → prospective shadow logging first (§5.6); no authorization from historical replay** | after 3a passes (else §5.6) | analysis |
 | 4 | Best-of-recent fallback **shadow-first** (log-only), then flag-enabled — **only if** Phase 3 clears the gate | after Phase 3 clears | medium |
-| Final | Flip `model_staleness_days` 60 → 28 — only after Phases 1–4 and the §5 experiment authorise the tighter ceiling | last | low |
+| Final | Flip `model_staleness_days` 60 → 28 — **two-path** (A3.1, #223 amendment): **either** (a) Phases 1–4 + the §5 experiment authorise the tighter ceiling, **or** (b) a separate, explicitly RECORDED operator decision (see below) | last — ceiling only; **Pillar 3 (best-of-recent fallback) is unaffected and stays exactly as Phase 4 states it: fully §5-gated, DEFERRED** | low |
+
+**Two-path authorization for the Final ceiling flip (A3.1, #223 amendment).**
+The 60→28 ceiling and the best-of-recent fallback are **different epistemic
+claims** and must not share one gate. The ceiling is a **risk-policy constant** —
+the same class of judgment call as "no entries in the last 30 minutes": bounded,
+reversible, and safe to set by explicit operator decision without waiting on §5,
+because the **observe-only freshness monitor** (Phase 1, already shippable) is
+what actually enforces it day to day — a wrong ceiling just changes when the
+monitor pages, it does not by itself place a trade. The fallback's **best-of-
+recent auto-promotion**, by contrast, carries a genuine causal claim ("a fresh
+rejected model is safer than a stale validated one") that only the §5 experiment
+(or its §5.6 prospective-logging successor) can support — so it keeps the full
+gate, unchanged, exactly as Phase 3/4 above specify. Path (b), if taken, requires:
+a dated, attributed decision record (mirrors #208 §9.3a's "separately-recorded
+operator risk acceptance," not implied by any other PASS); the ceiling stays
+guarded by the Phase-1 monitor (never removes monitoring, only changes the
+threshold it pages on); and a pre-registered rollback trigger (e.g. revert to 60d
+on a realized-drawdown or coverage-collapse breach, mirroring the existing
+"Rollback trigger" operational-safety bullet below) stated as part of that same
+decision record. Path (b) never authorizes Phase 4 — the fallback still requires
+path (a) (or its own path-(b)-equivalent recorded acceptance, which #208 §9.3a
+already permits for that RFC's analogous case; this RFC does not extend that
+same option to Pillar 3, keeping it deliberately harder to trigger than the
+ceiling).
 
 ### Operational safety (applies to any promotion — fallback or normal)
 
@@ -768,9 +848,14 @@ independently recomputed OOS economic floor."** Why:
    independence of the 60d outcomes and must be **frozen before** the replay.
 4. **Per-ticker coverage floor** — what fraction of the 142 watchlist must be fresh
    to admit vs page?
-5. **Active-primary escalation** — if the repaired gate returns Fix-4 on the live
-   05-18 XGB primary, what is the operator's intended action (retrain-and-wait,
-   revert to PatchTST-primary, or accept-with-note)?
+5. **Active-primary escalation** — §1 (end of subsection B) now states that a
+   repaired gate returning Fix-4 on the live 05-18 XGB primary is the
+   **documented expected outcome**, not an open edge case (A3.3, #223
+   amendment): every path in this governance framework converges on a recorded
+   operator decision. What remains open here is only the **specific** action
+   within that decision — retrain-and-wait, revert to PatchTST-primary, or
+   accept-with-note — which is deliberately left to the operator at the time,
+   not pre-committed on paper now.
 6. **Panel admission on staleness** — should panel staleness also gate admission
    (today only the per-ticker tournament gates the universe)?
 7. **Per-source SLA reuse** — is adopting `P-FUND-FRESHNESS`'s
