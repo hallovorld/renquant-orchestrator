@@ -20,3 +20,12 @@ EVIDENCE: shadow_realtime_serving CLI verified (--batch-scores-json flat map +
           panel_score per full run; #232 merged (ops dir + install pattern established).
 NEXT:     Codex review; lander installs the two plists (README addendum); with all four
           collectors scheduled, the N1 AC clock covers the full Stage-1 corpus.
+
+ROUND 2 (CI fix, 2026-07-02): the batch-scores/shadow-serving install snippet added to the
+README's addendum section used the deprecated `launchctl load` verb, regressing
+`tests/test_rq105_collector_scheduling.py::test_readme_documents_mkdir_before_load_and_current_launchctl_verbs`
+— a repo-wide guard #232 added specifically to keep this shared README on the current-macOS
+`bootstrap`/`bootout` verbs (CI: "deprecated launchctl verb should not remain"). Fixed: the
+addendum's install loop now uses `launchctl bootstrap "gui/$UID_NUM" <plist>`, matching the
+main package's N1b section exactly, with the `bootout` unload equivalent noted alongside.
+23/23 tests pass.
