@@ -2,24 +2,26 @@
 
 STATUS: **DRAFT — dependency-index, NOT an execution source of truth, and NOT authoritative for
 anything — structure included — while its source plans and core IC evidence remain unresolved or
-blocked** (Codex review, 2026-07-02). This document INDEXES which task moves which term, how tasks
-sequence, and what a gate must specify — but it does not outrank or replace the documents it
-indexes, and none of that structure is fixed/authoritative until:
-- **#228** (capability program) and **#230** (IC ceiling / route) converge on non-provisional
-  language for their own POC-derived thresholds, and
+blocked** (Codex review, 2026-07-02; refreshed 2026-07-02 r4). **#228** (capability program) and
+**#230** (IC ceiling / route) have both MERGED to `main` as of this revision. What remains open:
 - **`hallovorld/RenQuant#430`** (durable OOS pick-table generator/manifest) and
   **`hallovorld/RenQuant#431`** (an audit reporting the output of the nearest committed proxy
   method, `analyze_manifest_sanity_placebo.py`'s `aligned_real_ic` decomposition — NOT verified
   equivalent to the deleted original injection-test methodology — currently an UNRESOLVED
-  discrepancy: the proxy's +0.044 vs the originally-cited −0.003 for BULL_CALM; a reconciliation
-  protocol is PROPOSED but still incomplete, not yet frozen or executed) resolve.
+  discrepancy: the proxy's +0.044 vs the originally-cited −0.003 for BULL_CALM; #431's own latest
+  round downgrades its reconciliation protocol further, to EXPLORATORY/RETROSPECTIVE — its
+  parameters were chosen after seeing the already-observed results on the same table, so even
+  fully "frozen" it cannot serve as a confirmatory test; a genuine confirmatory run needs either
+  future unobserved dates or a sealed historical partition, neither of which exists yet) remain
+  open and unresolved.
 
-Until then, treat every number in §0's state vector and every POC-derived AC in §1 as
-**provisional**, subject to revision once the above converge. design / RFC for review (docs
-only). **Does NOT supersede PR #229** (the H2 execution roadmap) — #229 remains the current
-execution plan; this document is a non-authoritative draft/index alongside it, not a replacement.
-Once #228/#230/`RenQuant#430`/`RenQuant#431` all converge/merge, this document should be
-republished as a clean, authoritative revision — reconciled against #229 at that point, not before.
+Until RenQuant#430/#431 resolve, treat every number in §0's state vector and every POC-derived AC
+in §1 that depends on the disputed BULL_CALM figure as **provisional**, even though #228/#230
+themselves are now merged. design / RFC for review (docs only). **Does NOT supersede PR #229**
+(the H2 execution roadmap) — #229 remains the current execution plan; this document is a
+non-authoritative draft/index alongside it, not a replacement. Once `RenQuant#430`/`RenQuant#431`
+resolve, this document should be republished as a clean, authoritative revision — reconciled
+against #229 at that point, not before.
 **Companion to PR
 #230** (the route/evidence layer: IC ceiling, institutional gap, bounds, risk register, fallback
 ladder, POC verification — its gates and evidence are UNCHANGED and cited here, not restated; this
@@ -34,7 +36,7 @@ explicit objective — **107 reaches ordinary-professional-institution level.**
 
 ## 0. The objective function and the measured state vector
 
-**Target G\* (end-2028, pre-registered in #230 §4, judged on point estimates + leading
+**Target G\* (end-2028, a PLANNING target per #230 §4 — NOT yet a preregistered target; it becomes one only once #230's own IC/TC/BR measurement contract is frozen and an immutable baseline measurement exists, per #230 §5 — judged on point estimates + leading
 indicators; statistical maturity 2029–30):**
 total book Sharpe ≥ 0.7 · net benchmark-relative alpha ≥ 0 · max DD ≤ 15% · institutional
 process (a gate that renders verdicts, full decision provenance, measured execution,

@@ -82,3 +82,21 @@ NEXT:     Codex review; #229 remains the current execution plan and is NOT close
           authoritative revision, reconciled against #229 at that point (not before). Until then,
           N1–N3/S1–S10/S6–S7 sequencing and the monthly state-vector addendum (2026-08-01) as
           described here are indicative, not a supersession of #229's own schedule.
+
+---
+ROUND r4 (Codex CHANGES_REQUESTED, 2026-07-02): two stale claims corrected.
+1. Target G* was still called "pre-registered in #230 §4" — #230's own current (merged) text
+   explicitly states this is NOT yet a preregistered target, only a planning target pending its
+   own measurement contract + immutable baseline. Matched that exact status here.
+2. Dependency state was stale: #228 and #230 have both MERGED to `main` since the prior round.
+   Narrowed the "blocked on #228/#230/RenQuant#430/RenQuant#431" list to reflect only
+   RenQuant#430/RenQuant#431 remain open — and folded in RenQuant#431's own latest finding (its
+   reconciliation protocol is EXPLORATORY/RETROSPECTIVE, not confirmatory, since its parameters
+   were chosen after seeing already-observed results).
+This document's own status is UNCHANGED by #228/#230 merging: still a non-authoritative
+draft/index, still does not supersede #229, republication as an authoritative revision still
+waits on RenQuant#430/#431.
+[VERIFIED — this round's own change: confirmed #228/#230 merged via `git log origin/main`;
+Target G* wording matched verbatim against #230's current merged text (`doc/research/
+2026-07-02-ic-ceiling-institutional-gap-107-route.md` §5); the "Does NOT supersede PR #229"
+line re-checked, unchanged, no regression.]
