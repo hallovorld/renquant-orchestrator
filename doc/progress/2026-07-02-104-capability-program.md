@@ -33,10 +33,30 @@ EVIDENCE: 2026-07-01 run `01c54b39` (PV/cash/funnel/OXY trade row: 7 sh @ $47.94
           (linear beats transformers; iTransformer overfit train 0.135/val 0.018; 103→816
           expansion dropped IC +0.032→+0.016, transfer-coefficient collapse);
           `transformer_v4_wl200_clean.parquet` measured 346,022 rows / 2,541 dates / 142
-          tickers (→ ~42 non-overlapping fwd_60d windows per ticker); A1/A2 audits (genuine IC
-          CI ∋ 0; BULL_CALM ≈ −0.003; combos dominated by regime-artifact momentum); #256 (GBDT
-          IC ~61% persistence); OXY forensics (thin conviction margin, top-3 elimination win,
-          sign_laundered 44/90).
+          tickers (→ ~42 non-overlapping fwd_60d windows per ticker); A2 combo audit (combos
+          dominated by regime-artifact momentum — durable, not disputed); A1 audit's cited
+          "genuine IC CI ∋ 0; BULL_CALM ≈ −0.003" is **UNRESOLVED**, not durable evidence — see
+          the §4(b) block below; #256 (GBDT IC ~61% persistence); OXY forensics (thin conviction
+          margin, top-3 elimination win, sign_laundered 44/90).
+
+          §4(b) evidence block (the disputed BULL_CALM claim only — every other citation above is
+          durable/committed and not in question):
+          ```
+          artifact:      hallovorld/RenQuant#431 (branch feat/genuine-ic-audit-regen, open,
+                         not merged) — doc/research/evidence/2026-07-02-genuine-ic-audit-regen/
+          prod or exp:   experiment (read-only re-audit; no prod path touched)
+          existing data: direction-decision doc (2026-06-28) cited genuine IC ≈ −0.003 from a
+                         DELETED /tmp scratch audit, never durable; #431 reproduced the best
+                         available committed proxy (`analyze_manifest_sanity_placebo.py`) against
+                         the same manifest/window and got +0.044 (aligned_real_ic, shift=60) —
+                         sign-disagreeing, not yet reconciled with the original figure
+          best-known?:   neither figure is confirmed best-known; #431 froze a reconciliation
+                         protocol (same table/hash/window, both algorithms specified, injected
+                         null/leak fixtures, untouched adjudication slice) not yet executed
+          scope:         this PR cites the DISPUTE itself as evidence (a data point, not a
+                         conclusion) — no alpha-route decision in this doc depends on which side
+                         of −0.003 vs +0.044 is correct; see §4's explicit blocking language
+          ```
 NEXT:     Codex + operator review of the priority table and the six open questions (lane-B risk
           choice; FMP/SIP spend; lane-A timing vs first gate verdict; R1 tournament-retirement
           appetite; down-cap screen authorization; P0–P3 ordering). On agreement: per-item PRs —

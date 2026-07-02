@@ -31,6 +31,14 @@ full deployment — the idleness is plumbing, not policy). Contributing causes, 
 | 4 | **Multiplicative sizing stack**: Kelly (7.3%) × conviction (0.50) × σ-mult (0.87) ≈ 3.1% vs the 12% BULL_CALM cap — three shrinkage factors compound with no floor | OXY trade row | design |
 | 5 | **Post-freeze backlog**: weeks of frozen universe (0 candidates) accumulated sell proceeds; the throttle (cause 1) then makes recovery take a month | tournament staleness episode, unfrozen 06-30 | transient |
 
+**Diagnosis vs. treatment — these five causes are RANKED CANDIDATE HYPOTHESES, not a confirmed
+root-cause attribution.** A single observed symptom (75% idle cash) is consistent with any one of,
+or some combination of, causes 1–5; the ranking reflects which mechanism looks most consistent
+with the 07-01 funnel evidence, not a proof of which throttle actually binds. Lane A's per-item
+isolated experiments below (§1.2) are how attribution actually gets tested — each cause's proposed
+fix is validated independently against its OWN acceptance gate, not assumed correct because it is
+ranked first.
+
 The honest constraint on ALL of this: the model has **no standing WF validation** (the gate cannot
 render a verdict until Fix-1/2/3 land), so "deploy more per name into single stocks" is not
 automatically +EV. The remediation therefore has three lanes with different risk profiles — lane A
@@ -40,28 +48,42 @@ lane C is the honest expectancy question.
 ### 1.2 Lane A — mechanical de-throttling (config-level experiments; no new contracts)
 
 Per the check-existing-contract rule, every item below tunes an EXISTING knob — nothing new is
-invented:
+invented. **Each item is tested in ISOLATION: one parameter change at a time, factorial design,
+against a FIXED admission universe held constant across every variant being compared — never
+bundled into one combined rollout, so any measured effect can be attributed to that specific
+change.** In addition to the item-specific acceptance criterion below, EVERY Lane A experiment is
+gated on non-degradation of: turnover/cost (round-trip count and realized cost proxy do not rise
+beyond a pre-registered tolerance), concentration (sector/single-name concentration caps still
+bind identically), and drawdown (no worse realized/measured drawdown than the baseline window) —
+deployed-fraction rising is necessary but never sufficient on its own.
 
 - **A-1. `qp_cash_drag_lambda` 0 → solver-default 0.05** (or a swept value). Experiment: shadow
-  replay N sessions (the #195 harness pattern) comparing target weights with λ ∈ {0, 0.02, 0.05};
-  acceptance = deployed fraction rises without forcing entries past conviction/veto gates (the QP
-  deploys only among ALREADY-admitted names — the gate stack is unchanged). This knob exists
-  precisely for this; someone set it to zero (recover the rationale from git blame before flipping).
+  replay N sessions (the #195 harness pattern) comparing target weights with λ ∈ {0, 0.02, 0.05}
+  ONE AT A TIME (A-2/A-3/A-4 held at their current values for this experiment); acceptance =
+  deployed fraction rises without forcing entries past conviction/veto gates (the QP deploys only
+  among ALREADY-admitted names — the gate stack is unchanged) AND turnover/cost, concentration,
+  and drawdown stay within tolerance. This knob exists precisely for this; someone set it to zero
+  (recover the rationale from git blame before flipping).
 - **A-2. `panel_buy_top_n` 3 → 5–6** (bounded by `max_positions_per_sector = 6` and the correlation
-  gate). Experiment: decision-ledger A/B over ≥20 sessions — count executable candidates blocked
-  purely by the window; acceptance = deploy-rate rises with no admission-quality decline (the same
-  gates still bind; only the *window* widens). Also directly reduces the "third-choice-by-default"
-  effective-bar collapse seen in the OXY case.
+  gate). Experiment: decision-ledger A/B over ≥20 sessions, A-1/A-3/A-4 held fixed — count
+  executable candidates blocked purely by the window; acceptance = deploy-rate rises with no
+  admission-quality decline (the same gates still bind; only the *window* widens) AND
+  turnover/cost, concentration, and drawdown stay within tolerance. Also directly reduces the
+  "third-choice-by-default" effective-bar collapse seen in the OXY case.
 - **A-3. Whole-share floor for high-price names**: allow a 1-share purchase when
   `share_price > target_notional` AND 1 share ≤ min(max_position_pct × PV, available headroom) —
   i.e., round UP to one share within caps instead of dropping the name. Removes the
   selection-by-share-price artifact (BLK vs OXY). `min_share_floor` machinery already exists in
   the QP for held names; this extends it to initiation. Fractional shares remain CLOSED per the
-  2026-06-30 operator decision — this is the cheap non-fractional subset.
+  2026-06-30 operator decision — this is the cheap non-fractional subset. Tested with A-1/A-2/A-4
+  held fixed; acceptance = the selection-by-share-price artifact measurably shrinks (BLK-class
+  names admitted at comparable rates to cheap names) AND turnover/cost, concentration, and
+  drawdown stay within tolerance.
 - **A-4. Sizing-stack floor**: introduce a floor on the compounded shrinkage (e.g., final target ≥
   max(2%, 0.4 × Kelly)) OR re-derive conviction scaling so it does not double-count σ (σ already
   divides Kelly AND multiplies again via sigma_mult). Needs a ledger study first (see C-1) — do
-  NOT hand-tune without evidence.
+  NOT hand-tune without evidence. When run, tested with A-1/A-2/A-3 held fixed, same
+  turnover/cost/concentration/drawdown non-degradation gate.
 
 ### 1.3 Lane B — benchmark parking sleeve (removes drag without needing edge)
 
@@ -106,7 +128,7 @@ structural; P3 = staged/downstream. Every item names its experiment and acceptan
 | **P0-2** | **FMP Starter subscription ($29/mo)** | Unlocks full fundamentals coverage + 5y history + 300/min (free tier is ~30% plan-locked); feeds P0-1 and A-track scans | operator (spend) | harvest coverage report ≥95% of watchlist |
 | **P0-3** | **WF-gate repair (Fix-1/2/3 of #210)** | sim artifact path unification; scorer-kind parity vs the active `xgb` primary; placebo **difference** test (`real − placebo > margin`) replacing the absolute ceiling | backtesting/model | the gate renders a verdict (pass or fail) on the live primary — first verdict since 05-18 |
 | **P0-4** | **Decision-ledger wiring (#133/#190)** | Persist per-(date,name) raw + mu + er + fwd outcomes from the live path; backfills the validation substrate for demean #145, momentum-guard #187, sizing-stack C-1, and every future config experiment | pipeline + orchestrator | ledger accrues daily; `decision_outcomes` queryable for any run |
-| **P1-1** | **Cash-drag lane A** (§1.2: λ, top_n, whole-share floor) | three config-level experiments, ledger/shadow validated | strategy-104 config + pipeline | deployed fraction ≥60% within 15 sessions of enable, gates unchanged |
+| **P1-1** | **Cash-drag lane A** (§1.2: λ, top_n, whole-share floor) | three SEPARATE, SEQUENTIAL, one-change-at-a-time config experiments (never enabled simultaneously) — see §1.2 for the isolation/factorial design and per-item gates | strategy-104 config + pipeline | each item's own acceptance (deployed fraction + turnover/cost + concentration + drawdown non-degradation, §1.2); no combined/bundled bar |
 | **P1-2** | **Cash-drag lane B** (§1.3 parking sleeve) | operator risk decision + 10-session shadow of sweep plumbing | strategy-104 + pipeline | idle cash ≤ reserve; sweep/fund round-trip clean |
 | **P1-3** | **Track A regeneration PR + conditional pick-quality test** | the committed OOS pick table (`regen_oos_pick_table.py` → `data/exp/oos_pick_table_recipe_v2.parquet`) then the pre-registered meta-label conditional test (direction-decision §4, criteria UNTOUCHED) | orchestrator + umbrella (read-only) | table committed + test verdict rendered (GO or NULL, either recorded) |
 | **P1-4** | **Retrospective open-auction IS measurement** | from the ledger's own historical fills: what did next-open entry cost vs same-day VWAP/close references? Sizes the 105 Stage-1/2 prize BEFORE more build | orchestrator (read-only) | a bps/trade estimate with CI; feeds the 105 §9.4 prereg |
@@ -178,10 +200,21 @@ neutralization, regime-split panel-exit (all settled NULLs — not re-pitched).
 ## 4. The alpha track, honestly framed
 
 The operator wants alpha. The evidence says: the current information set (142 US large-caps ×
-price-derived features × fwd_60d) is mined out — four honest NULLs this cycle, genuine IC ≈ 0 in
-the dominant regime, every combo dominated by a regime-artifact momentum factor, and architecture
-swaps change nothing (E27/E33). The alpha budget therefore goes to **changing the information
-set**, cheapest-first, each step MVP-screened before any build:
+price-derived features × fwd_60d) shows no robust edge under this cycle's diagnostic suite — four
+honest NULLs on independently-scanned single factors (momentum, regime-conditioned momentum,
+value/quality/growth, PEAD/minute — `sighunt.py`/`robustness.py`/`regimemom.py`/
+`fundamentals_scan.py`, durable committed evidence), every factor combo dominated by a
+regime-artifact momentum factor, and architecture swaps change nothing (E27/E33). **The live
+model's own directional skill in the dominant BULL_CALM regime is a SEPARATE, UNRESOLVED
+question, not part of the above.** The originally-cited "genuine (leak-controlled) IC ≈ −0.003"
+("a coin flip") has NOT been confirmed by a durable reproduction: `hallovorld/RenQuant#431`
+(open, unresolved) reproduces **+0.044** on the best-available committed proxy methodology instead
+— sign-disagreeing with the original figure — with a frozen-but-not-yet-executed reconciliation
+protocol to decide between them. Any alpha-route conclusion below that depends specifically on the
+model's own BULL_CALM skill (as opposed to the four independently-scanned factor NULLs, which
+stand on their own durable evidence regardless of #431's outcome) is **BLOCKED pending that
+reconciliation** — this program does not pick a side. The alpha budget therefore goes to
+**changing the information set**, cheapest-first, each step MVP-screened before any build:
 
 1. **P0-1/P0-2 (data substrate)**: PIT revisions + full fundamentals — the only inputs that accrue
    value with calendar time regardless of which path wins.
