@@ -31,11 +31,15 @@ Metrics (source of truth for definitions: doc/research/2026-07-02-rs6-kpi-scorec
                                   re-implemented — single-impl rule); a directory that
                                   merely exists but fails the contract is excluded, not
                                   counted
-  6. collector_liveness         — ops/renquant105/rq105_liveness_check.py's own per-collector
-                                  path resolvers (_data_outputs) and content validator
-                                  (_data_output_fresh — last JSONL row's own date field,
-                                  NOT directory mtime), imported unchanged; every collector
-                                  reported independently
+  6. collector_liveness         — ops/renquant105/rq105_liveness_check.py's own STABLE
+                                  PUBLIC interface, check_collector_data_outputs()
+                                  (imported unchanged, single-impl rule — this file never
+                                  re-derives per-collector freshness rules); each collector's
+                                  own freshness basis (continuous row-event-time for the
+                                  quote feed, post-close file-mtime completion proxy for the
+                                  pairing/entry-timing one-shots) is #248's responsibility,
+                                  never this file's own directory-mtime scanning; every
+                                  collector reported independently
   7. calibrator_sign_laundered  — latest daily FULL run's counters_json counter
   8. buy_side_decision_tc       — scripts/poc_transfer_coefficient.py round-3 method
                                   (imported, NOT re-implemented — single-impl rule)
@@ -47,7 +51,10 @@ read nor distinguish two DB states that happen to share a size/mtime); pit_accru
 records a hash of the validated manifests; collector_liveness records a hash of the
 specific row that determined freshness. output_content_sha256 (hash over the metrics
 payload) proves run-to-run output reproducibility but does NOT substitute for this
-per-metric source provenance.
+per-metric source provenance. All DB-derived metrics are computed inside ONE explicit
+read transaction (BEGIN before the first query, ROLLBACK after the last) so they
+represent one coherent point-in-time state vector, not several independent snapshots
+that could straddle a concurrent writer's commit.
 
 Reproduce:
   /Users/renhao/git/github/RenQuant/.venv/bin/python scripts/kpi_scorecard.py
@@ -398,15 +405,27 @@ def metric_pit_accrual_days(as_of: dt.date) -> dict:
 
 
 def metric_collector_liveness(as_of: dt.date) -> dict:
-    """Per-collector liveness via rq105_liveness_check's OWN path resolvers
-    and publication validator (single-impl rule) — never a generic
-    directory-mtime scan. Measured false-green under the old scan: an EMPTY
-    quote-logger wrapper log and a censored intermediate ticks file were both
-    reported 'live' from directory activity alone, without checking either
-    file's actual collector-contract content. Reports every expected
-    collector INDEPENDENTLY; the aggregate value is 'live' only if every one
-    of them individually passes."""
-    from rq105_liveness_check import _data_outputs, _is_session_day
+    """Per-collector liveness via rq105_liveness_check's STABLE PUBLIC
+    interface, check_collector_data_outputs() (single-impl rule) — never a
+    generic directory-mtime scan, and never this file re-deriving per-
+    collector freshness rules on its own. Measured false-green under the old
+    directory scan: an EMPTY quote-logger wrapper log and a censored
+    intermediate ticks file were both reported 'live' from directory
+    activity alone. Reports every expected collector INDEPENDENTLY; the
+    aggregate value is 'live' only if every one of them individually passes.
+
+    Calling the STABLE public function (not internal helpers like the old
+    _data_outputs/_data_output_fresh this metric previously called directly)
+    means this metric does not need to know or track which of the three
+    collectors uses row-event-time vs. file-mtime freshness, or how many
+    positional fields that file's internals carry — that dispatch logic is
+    #248's own responsibility and can change without breaking this
+    consumer, exactly the kind of cross-PR breakage a prior round hit when
+    #248's internal signatures changed underneath this file's direct calls
+    to them."""
+    from pathlib import Path
+
+    from rq105_liveness_check import _is_session_day, check_collector_data_outputs
 
     if not _is_session_day(as_of):
         return {
@@ -419,56 +438,29 @@ def metric_collector_liveness(as_of: dt.date) -> dict:
                       "conflated with 'live' or 'stale'.",
         }
 
-    per = {}
-    from pathlib import Path
-
-    today_iso = as_of.isoformat()
-    for name, full_path in _data_outputs(Path(RQ)):
-        ok, reason = _data_output_fresh_reused(str(full_path), today_iso)
-        row_hash = None
-        if os.path.exists(str(full_path)) and os.path.getsize(str(full_path)) > 0:
-            # Content anchor for the SPECIFIC row that determined freshness —
-            # not just "it was fresh", but a hash of exactly what was read.
-            with open(str(full_path), "rb") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                chunk = min(size, 8192)
-                f.seek(-chunk, os.SEEK_END)
-                tail = f.read()
-            row_hash = hashlib.sha256(tail).hexdigest()
-        per[name] = {
-            "status": "ok" if ok else "stale_or_missing",
-            "path": str(full_path).replace(RQ + "/", "$RQ_ROOT/"),
-            "reason": reason if not ok else None,
-            "tail_read_sha256": row_hash,
-        }
+    per = check_collector_data_outputs(Path(RQ), as_of)
+    for detail in per.values():
+        if detail.get("path"):
+            detail["path"] = detail["path"].replace(RQ + "/", "$RQ_ROOT/")
     all_live = all(v["status"] == "ok" for v in per.values())
     return {
         "value": "live" if all_live else "stale",
-        "unit": "every rq105 pilot/shadow collector's OWN data output independently fresh "
-                "(last JSONL row's own date field == as_of), not directory mtime",
+        "unit": "every rq105 pilot/shadow collector's OWN freshness contract "
+                "(row-event-time for the continuous quote feed, file-mtime completion "
+                "proxy for the post-close one-shot pairing/entry-timing collectors — "
+                "the exact rule per collector is #248's own responsibility, not "
+                "re-derived here), not directory mtime",
         "detail": per,
-        "source": "ops/renquant105/rq105_liveness_check.py's _data_outputs() path "
-                  "resolvers (per-collector default_*_path(), never hardcoded/guessed) "
-                  "and _data_output_fresh() content check (imported unchanged)",
-        "method": "'live' iff EVERY collector's own data-output resolver path exists, is "
-                  "non-empty, and its last JSONL row's 'date' field equals as_of (mtime is "
-                  "only a fallback when the last row is unparseable, and that fallback is "
-                  "itself flagged in the reused function's reason string). Any single "
-                  "collector missing/stale/unavailable fails the aggregate — no generic "
-                  "directory activity can substitute for a real per-collector check.",
+        "source": "ops/renquant105/rq105_liveness_check.py's check_collector_data_outputs() "
+                  "— the STABLE PUBLIC interface (imported unchanged, single-impl rule)",
+        "method": "'live' iff EVERY collector's own check_collector_data_outputs() entry "
+                  "reports status=='ok'. Each entry also carries row_content_sha256 (a hash "
+                  "of the EXACT row the validator selected as the one that determined the "
+                  "verdict, not an arbitrary tail-read blob) and freshness_basis "
+                  "('row_event_time' | 'file_mtime') for provenance. Any single collector "
+                  "missing/stale/unavailable fails the aggregate — no generic directory "
+                  "activity can substitute for a real per-collector check.",
     }
-
-
-def _data_output_fresh_reused(path: str, today_iso: str):
-    """Thin re-export of rq105_liveness_check._data_output_fresh — imported
-    inside the metric function (not at module scope) so kpi_scorecard.py's
-    own import order stays independent of ops/renquant105 being on sys.path
-    until the metric actually runs (matches the existing buy_side_decision_tc
-    lazy-import pattern in this same file)."""
-    from rq105_liveness_check import _data_output_fresh
-
-    return _data_output_fresh(path, today_iso)
 
 
 def metric_calibrator_sign_laundered(con) -> dict:
@@ -658,9 +650,26 @@ def main() -> None:
     as_of = _as_of()
     measured_at = dt.datetime.now()
     db_snapshot_stat = None
+    db_txn_open = False
     try:
         con = _connect_ro(DB)
         db_snapshot_stat = os.stat(DB)
+        # Pin ONE consistent read snapshot for every DB-derived metric in
+        # this run. python's sqlite3 module does NOT implicitly wrap
+        # SELECT-only work in a transaction (isolation_level="" only
+        # auto-BEGINs before DML) — without this, each metric's own
+        # independent SELECT could observe a DIFFERENT committed WAL state
+        # if a concurrent writer commits mid-run, so the scorecard's several
+        # metrics would not actually represent one coherent point-in-time
+        # state vector even though they're all read from "the same
+        # connection". An explicit BEGIN (DEFERRED, the sqlite3 default) on
+        # a mode=ro connection still establishes SQLite's standard WAL
+        # snapshot-isolation boundary at the first read within it — every
+        # subsequent SELECT in this transaction sees exactly that snapshot,
+        # regardless of what writers commit afterward. Proven by
+        # test_all_db_metrics_share_one_snapshot_despite_concurrent_writer.
+        con.execute("BEGIN")
+        db_txn_open = True
     except Exception as exc:  # every DB metric degrades together, others still run
         con = None
         db_blocker = f"{type(exc).__name__}: {exc}"
@@ -680,6 +689,10 @@ def main() -> None:
         "calibrator_sign_laundered": db_metric(metric_calibrator_sign_laundered),
         "buy_side_decision_tc": db_metric(metric_buy_side_decision_tc),
     }
+    if db_txn_open:
+        # Read-only transaction; nothing was written. ROLLBACK (not COMMIT)
+        # is the correct way to release it — there is no DML to persist.
+        con.execute("ROLLBACK")
     for m in metrics.values():
         m["measured_at"] = measured_at.isoformat(timespec="seconds")
 

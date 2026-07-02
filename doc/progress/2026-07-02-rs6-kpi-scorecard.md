@@ -180,3 +180,66 @@ from round 2 (0.2468 / -1.11pp / 86.2% / 1 / stale / 44 / 0.288), new hash field
 populated in the regenerated `kpi_2026-07-02.json` (confirmed by direct inspection, not
 assumed). 10/10 new-file tests pass; 66/66 across this file plus the touched sibling test
 files.
+
+## Round 4 (Codex review: cross-PR interface break, tail-hash inaccuracy, DB snapshot coherence)
+
+**Finding.** `metric_collector_liveness` called `_data_outputs()`/`_data_output_fresh()`
+directly with the OLD 2-field/2-arg assumption — `renquant-orchestrator#248` (a sibling PR,
+fixed in parallel this session) changed those internal functions' shapes while fixing its
+own review rounds, and this head would raise unpack/signature errors the moment #248 lands.
+`tail_read_sha256` hashed an arbitrary last-8KB tail read, not the exact row the scanner
+actually selected. Multiple independent `SELECT`s on one `mode=ro` connection are not
+implicitly wrapped in a transaction by python's `sqlite3` module, so the scorecard's several
+DB-derived metrics could observe different WAL states across a concurrent writer's commit —
+not genuinely one coherent point-in-time state vector despite reading "from the same
+connection."
+
+**Fix.**
+- `#248` (coordinated fix in its own worktree, commit `e021d907`) exposes an ADDITIVE
+  extension to its already-stable `check_collector_data_outputs()` public interface:
+  `row_content_sha256` (sha256 of the EXACT selected row's canonical JSON — the same dict
+  `_last_complete_jsonl_row()` returned, not a generic tail-read) and `freshness_basis`
+  (`"row_event_time"` | `"file_mtime"`) per collector. Existing `status`/`path`/`reason`
+  consumers are unaffected.
+- `metric_collector_liveness` now calls `check_collector_data_outputs()` — the STABLE
+  public interface — instead of the internal `_data_outputs`/`_data_output_fresh` functions
+  directly. This metric no longer needs to know how many positional fields those internals
+  carry or which collector uses which freshness rule; that dispatch is entirely #248's
+  responsibility now, closing the exact class of cross-PR breakage this round found.
+  `tail_read_sha256` (the inaccurate ad hoc hash) is gone; `row_content_sha256` and
+  `freshness_basis` (both sourced directly from the validator, not re-derived) take its
+  place.
+- `main()` now wraps every DB-derived metric in one explicit read transaction
+  (`con.execute("BEGIN")` before the first query, `"ROLLBACK"` after the last — a read-only
+  transaction has nothing to commit). Verified this genuinely delivers snapshot isolation
+  under the REAL production journal mode: `runs.alpaca.db` is confirmed WAL-mode
+  (`PRAGMA journal_mode` → `wal`, checked directly against the live file, matching
+  `_connect_ro`'s own docstring reference to the WAL `-shm` file) — WAL readers get a
+  consistent snapshot pinned at the transaction's first read regardless of what a
+  concurrent writer commits afterward; the default rollback-journal mode does NOT have this
+  property (confirmed the hard way — the first version of the new test used a non-WAL temp
+  DB and the simulated concurrent writer deadlocked against the open reader transaction
+  instead of committing invisibly, which is exactly the WRONG behavior; fixed by explicitly
+  setting `PRAGMA journal_mode=WAL` on the test DB to match production reality).
+- Module docstring's `collector_liveness` entry rewritten to describe the stable-interface
+  consumption pattern instead of the retired internal-function names.
+
+**New test (11 total, up from 10):**
+`test_all_db_metrics_share_one_snapshot_despite_concurrent_writer` — opens a real WAL-mode
+SQLite file, begins an explicit read transaction, has a SEPARATE connection commit a new row
+mid-transaction, and asserts a second query on the SAME open transaction still sees the
+PRE-commit row count — proving the snapshot guarantee is real, not just that the code
+compiles. Also asserts a genuinely NEW transaction afterward correctly sees the writer's
+row, proving the isolation is scoped to one transaction's lifetime, not a stale cache.
+
+**Verification note:** #248 is not yet merged to `main` as of this round, so its file
+(`ops/renquant105/rq105_liveness_check.py`) is not part of THIS PR's own diff — #247 only
+changes files it owns (`scripts/kpi_scorecard.py`, its tests, this progress doc). To confirm
+the integration genuinely works end-to-end before committing, #248's current worktree
+content was temporarily copied in, the scorecard was run for real against
+`RQ_ROOT=/Users/renhao/git/github/RenQuant` (regenerated `kpi_2026-07-02.json` shows real
+`row_content_sha256`/`freshness_basis` values, e.g. `intraday_quote_logger` genuinely
+hashed with `row_event_time` basis, the two missing pilot collectors correctly show
+`row_content_sha256: null`), then reverted (`git checkout --`) so this PR's diff stays
+scoped to its own files. All 8 metrics still `ok`, values match round 3 exactly.
+11/11 new-file tests pass.

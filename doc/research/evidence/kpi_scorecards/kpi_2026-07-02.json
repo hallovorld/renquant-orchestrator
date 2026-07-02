@@ -1,19 +1,19 @@
 {
   "as_of": "2026-07-02",
-  "generator_sha256": "513361964b24d597d3ccf8bd1addf403e76cd3abd9f66a99e817aa7ba672cd1b",
+  "generator_sha256": "f63953f47dabb989547b55eceeca950252b855375db71f6187740263245a47f6",
   "inputs": {
     "db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
     "db_open_mode": "mode=ro",
     "db_snapshot": {
-      "mtime": "2026-07-02T11:00:37",
+      "mtime": "2026-07-02T11:48:29",
       "note": "size+mtime alone do NOT prove which rows were read from this mutable, continuously-written file, nor distinguish two DB states that happen to share both \u2014 see each DB-derived metric's own detail.*_extract_sha256/canonical_extract_sha256 field for the actual per-metric source-content provenance",
-      "size_bytes": 96653312
+      "size_bytes": 96886784
     },
     "rq_root": "/Users/renhao/git/github/RenQuant",
     "serving_artifact_sha256": "366515356ebadf4babf7b2218e02349b3243184b9ff032d17575b289994ad794",
     "spy_parquet_sha256": "50486d1e16954e35324ca65ff3ffe8689f86144260d5e132a4c030672d305841"
   },
-  "measured_at": "2026-07-02T11:09:31",
+  "measured_at": "2026-07-02T11:54:14",
   "metrics": {
     "buy_side_decision_tc": {
       "detail": {
@@ -82,7 +82,7 @@
         "per_run_extract_sha256": "a7c7beeb264e6a8a2f42801c934f4e6ecd1df4e070b36eb1969fd032c171f67f",
         "se_measured": 0.167
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "imported unchanged from poc_transfer_coefficient.buy_side_decision_tc: eligible = candidates with mu >= 0.03; admission survivors classified by the round-3 blocked_by stage taxonomy; Pearson TC only over runs with real dispersion ('measured'); undefined cases categorized, never averaged in as 0. Caveats in doc/progress/2026-07-02-s-tc-measurement.md apply verbatim.",
       "source": "runs.alpaca.db candidate_scores + trades via scripts/poc_transfer_coefficient.py (round-3 blocked_by taxonomy)",
       "status": "ok",
@@ -112,7 +112,7 @@
         "run_date": "2026-07-01",
         "run_id": "2026-07-01-live-01c54b39"
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "parse counters_json['calibrator_sign_laundered']. M4 AC: single digits (BL-1 recentering); 44/90 was the measured 2026-07-01 state.",
       "source": "runs.alpaca.db pipeline_runs.counters_json of the latest canonical daily FULL run (>= 80 candidate_scores rows via candidate_scores JOIN+count, last created_at per run_date)",
       "status": "ok",
@@ -122,29 +122,32 @@
     "collector_liveness": {
       "detail": {
         "entry_timing_shadow": {
+          "freshness_basis": "file_mtime",
           "path": "$RQ_ROOT/logs/renquant105_pilot/entry_timing_shadow.jsonl",
           "reason": "/Users/renhao/git/github/RenQuant/logs/renquant105_pilot/entry_timing_shadow.jsonl missing",
-          "status": "stale_or_missing",
-          "tail_read_sha256": null
+          "row_content_sha256": null,
+          "status": "stale_or_missing"
         },
         "intraday_pairing_logger": {
+          "freshness_basis": "file_mtime",
           "path": "$RQ_ROOT/logs/renquant105_pilot/paired_is.jsonl",
           "reason": "/Users/renhao/git/github/RenQuant/logs/renquant105_pilot/paired_is.jsonl missing",
-          "status": "stale_or_missing",
-          "tail_read_sha256": null
+          "row_content_sha256": null,
+          "status": "stale_or_missing"
         },
         "intraday_quote_logger": {
+          "freshness_basis": "row_event_time",
           "path": "$RQ_ROOT/logs/renquant105_pilot/intraday_ticks.jsonl",
           "reason": null,
-          "status": "ok",
-          "tail_read_sha256": "ad299be0e48e6631be442223fe0c5e66df3de8540f1006dcfcf4beac87ae8aab"
+          "row_content_sha256": "2f623fa7c8e15b760770ffce5d8e26c7b55f40ec5969c69a28af5390174cc296",
+          "status": "ok"
         }
       },
-      "measured_at": "2026-07-02T11:09:31",
-      "method": "'live' iff EVERY collector's own data-output resolver path exists, is non-empty, and its last JSONL row's 'date' field equals as_of (mtime is only a fallback when the last row is unparseable, and that fallback is itself flagged in the reused function's reason string). Any single collector missing/stale/unavailable fails the aggregate \u2014 no generic directory activity can substitute for a real per-collector check.",
-      "source": "ops/renquant105/rq105_liveness_check.py's _data_outputs() path resolvers (per-collector default_*_path(), never hardcoded/guessed) and _data_output_fresh() content check (imported unchanged)",
+      "measured_at": "2026-07-02T11:54:14",
+      "method": "'live' iff EVERY collector's own check_collector_data_outputs() entry reports status=='ok'. Each entry also carries row_content_sha256 (a hash of the EXACT row the validator selected as the one that determined the verdict, not an arbitrary tail-read blob) and freshness_basis ('row_event_time' | 'file_mtime') for provenance. Any single collector missing/stale/unavailable fails the aggregate \u2014 no generic directory activity can substitute for a real per-collector check.",
+      "source": "ops/renquant105/rq105_liveness_check.py's check_collector_data_outputs() \u2014 the STABLE PUBLIC interface (imported unchanged, single-impl rule)",
       "status": "ok",
-      "unit": "every rq105 pilot/shadow collector's OWN data output independently fresh (last JSONL row's own date field == as_of), not directory mtime",
+      "unit": "every rq105 pilot/shadow collector's OWN freshness contract (row-event-time for the continuous quote feed, file-mtime completion proxy for the post-close one-shot pairing/entry-timing collectors \u2014 the exact rule per collector is #248's own responsibility, not re-derived here), not directory mtime",
       "value": "stale"
     },
     "deployed_fraction": {
@@ -176,7 +179,7 @@
           "2026-07-01"
         ]
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "deployed = 1 - cash/portfolio_value, computed on the latest CANONICAL FULL run (not the raw latest pipeline_runs row by created_at \u2014 an intraday monitor pass can be more recent than the day's full run and must never silently supersede it for this metric). Counts long stock positions only; no parking sleeve exists yet (RS-1 not implemented), so idle cash is genuinely idle. Target (#231 \u00a70): >=95% incl. sleeve.",
       "source": "runs.alpaca.db pipeline_runs (run_type='live') JOIN candidate_scores count >= 80, latest row by created_at among FULL runs only; trailing mean over the same canonical daily series",
       "status": "ok",
@@ -206,7 +209,7 @@
           "2026-07-01"
         ]
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "for each canonical session t (last live row per run_date, trading days only): foregone += cash_weight(t) * SPY close-to-close return t->t+1; cumulative simple sum in pp of book. Same method family as RS-1 \u00a71 (which reported 46 sessions / 75.5% avg cash / 2.88pp on this window); this implementation's canonical-row selection yields the same session count but slightly different weights \u2014 treat RS-1's exact figures as its own snapshot and THIS series as the standing weekly definition.",
       "source": "runs.alpaca.db pipeline_runs (canonical daily live FULL rows) + data/ohlcv/SPY/1d.parquet close",
       "status": "ok",
@@ -226,7 +229,7 @@
         },
         "serving_artifact": "$RQ_ROOT/backtesting/renquant_104/artifacts/panel-ltr.alpha158_fund.json"
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "authoritative verdict := wf_gate_metadata with diagnostic_only != true and a non-null passed field; report its age in days. Otherwise report 'mute since 2026-05-18' (operator-established date, #231 \u00a70) with the latest diagnostic stamp attached for context. Unmuting is S1-S4 of the master plan.",
       "source": "metadata.wf_gate_metadata stamped by RenQuant/scripts/run_wf_gate.py into the serving artifact; cross-checked against the (empty) runs.alpaca.db gate_verdicts table",
       "status": "ok",
@@ -244,7 +247,7 @@
           "2026-05-28"
         ]
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "aged := run_date at least 35 calendar days old (20 trading days for fwd_20d to resolve, plus buffer). Coverage = share of those decision rows whose (run_date, ticker) has a non-null fwd_20d. S5 AC: >=95%.",
       "source": "runs.alpaca.db candidate_scores JOIN pipeline_runs (run_date) LEFT JOIN ticker_forward_returns on (as_of_date, ticker)",
       "status": "ok",
@@ -264,7 +267,7 @@
           "2026-07-02": "0e68812680d36761824bdb34ea1df4e619882ced4b26c7ac40bc247d674bdf6b"
         }
       },
-      "measured_at": "2026-07-02T11:09:31",
+      "measured_at": "2026-07-02T11:54:14",
       "method": "count directories named YYYY-MM-DD whose check_snapshot() returns zero problems (all 4 endpoint manifests present, status=='ok', as_of matching the directory date, referenced parquet present and non-empty). A partial or crashed publish is excluded, not counted. accrual_stale flags a latest VALID dir more than 3 calendar days old (missed-day alert is task N2's AC). M-SIG needs >=120 accrued (valid) days before D3.",
       "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing, each day validated via ops/pit/pit_liveness_check.check_snapshot() (the same contract the daily liveness alert enforces for today)",
       "status": "ok",
@@ -272,7 +275,7 @@
       "value": 1
     }
   },
-  "output_content_sha256": "22a85ed280a24f9af6e4cd12bd4bd82f683060b8b37e4e65e6bd7b7268591bff",
+  "output_content_sha256": "b438b4d46a57a0f627e2ec3c9f4b151ae764392bcab1beb520b978bbcdd060ad",
   "schema_version": 1,
   "scorecard": "RS-6 weekly KPI scorecard (#231 \u00a70 state vector)"
 }

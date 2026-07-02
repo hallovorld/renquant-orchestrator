@@ -321,3 +321,68 @@ def test_pit_accrual_manifest_hash_changes_with_manifest_content(rq_root):
     hash_b = result_b["detail"]["accrual_extract_sha256"]
 
     assert hash_a != hash_b
+
+
+# ------------------------------------------------- DB read-snapshot consistency
+
+
+def test_all_db_metrics_share_one_snapshot_despite_concurrent_writer(tmp_path):
+    """The scorecard's DB-derived metrics must all observe the SAME
+    committed state, even if a concurrent writer commits new rows to
+    runs.alpaca.db mid-run. Without an explicit read transaction, python's
+    sqlite3 module does not implicitly pin a snapshot for SELECT-only work
+    — two independent SELECTs on the same read-only connection could
+    observe different WAL states across a concurrent commit, breaking the
+    scorecard's claim to be one coherent point-in-time state vector."""
+    db_path = str(tmp_path / "runs.alpaca.db")
+    setup = sqlite3.connect(db_path)
+    # Real runs.alpaca.db is WAL-mode (per _connect_ro's own docstring,
+    # which falls back to immutable=1 specifically for readers that cannot
+    # create the WAL -shm file) — WAL is what gives a reader snapshot
+    # isolation from a CONCURRENT writer without blocking either side; the
+    # default rollback-journal mode does not have this property (a writer
+    # can be blocked by an open reader transaction instead). Match
+    # production's actual journal mode so this test reflects reality.
+    setup.execute("PRAGMA journal_mode=WAL")
+    setup.execute("create table pipeline_runs (run_id text, run_date text)")
+    setup.execute("insert into pipeline_runs values ('run-1', '2026-06-01')")
+    setup.commit()
+    setup.close()
+
+    reader = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    reader.execute("BEGIN")
+    count_before = reader.execute("select count(*) from pipeline_runs").fetchone()[0]
+    assert count_before == 1
+
+    # A CONCURRENT WRITER commits a new row from a SEPARATE connection while
+    # the reader's transaction is still open — this is exactly the scenario
+    # that would corrupt an un-transacted scorecard's coherence.
+    writer = sqlite3.connect(db_path)
+    writer.execute("insert into pipeline_runs values ('run-2', '2026-06-02')")
+    writer.commit()
+    writer.close()
+
+    # A SECOND query on the SAME reader connection, still inside the ONE
+    # transaction opened above, must see the SAME snapshot as the first
+    # query — proving the explicit BEGIN genuinely pins one coherent
+    # point-in-time view for the whole run, not per-statement freshness.
+    count_after_concurrent_write = reader.execute(
+        "select count(*) from pipeline_runs").fetchone()[0]
+    assert count_after_concurrent_write == count_before == 1, (
+        "a second query within the same explicit transaction observed the "
+        "concurrent writer's commit — the snapshot is not actually pinned"
+    )
+
+    reader.execute("ROLLBACK")
+    reader.close()
+
+    # Sanity: a FRESH connection/transaction (as if this were the NEXT
+    # scorecard run) correctly sees the writer's committed row — proving
+    # the isolation is scoped to one transaction's lifetime, not a
+    # permanently stale cache.
+    fresh_reader = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    fresh_reader.execute("BEGIN")
+    count_fresh = fresh_reader.execute("select count(*) from pipeline_runs").fetchone()[0]
+    assert count_fresh == 2
+    fresh_reader.execute("ROLLBACK")
+    fresh_reader.close()
