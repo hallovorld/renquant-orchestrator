@@ -9,12 +9,14 @@ launchd would try to redirect stdout/stderr into it)."""
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import json
 import os
 import plistlib
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -204,23 +206,39 @@ def test_as_of_flag_overrides_today(tmp_path, monkeypatch, capsys):
     assert "2026-01-01" in out
 
 
-# ─────────────────────────── wrapper: mkdir concurrency lock ─────────────────
+# ───────────────── wrapper: kernel-released fcntl.flock concurrency lock ─────
+#
+# #233 round 3: the mkdir-based lock (round 2) was only released by a shell
+# `EXIT` trap, which does not fire on SIGKILL/host-crash/power-loss — a run
+# killed mid-flight left the lock directory on disk forever, silently
+# skipping every future scheduled run of this non-backfillable dataset. The
+# tests below replace the old sequential precreate/remove/run "concurrency"
+# test (which never actually raced two processes) with a genuine overlapping
+# race and a genuine kill -9 crash-recovery scenario.
 
 
 _WRAPPER = OPS_DIR / "run_estimate_snapshotter.sh"
+_LOCK_LAUNCHER = OPS_DIR / "run_with_lock.py"
 
 
-def _stub_env(tmp_path: Path) -> dict:
+def _stub_env(tmp_path: Path, *, sleep_seconds: float = 0) -> dict:
     """A fake RQ_ROOT/BD_RUN_ROOT tree with a stub `.venv/bin/python` standing
     in for the real venv, so the wrapper can be exercised without any real
-    project dependency or network access."""
+    project dependency or network access. The stub APPENDS one line per
+    invocation to `runs.log` (rather than just touching a marker) so tests
+    can assert the collector ran exactly N times, not merely "at least
+    once" -- important for the overlap test, where only one of two
+    concurrent wrapper invocations must reach the collector. `sleep_seconds`
+    lets a test hold the lock open long enough for a genuine race to land
+    inside that window instead of depending on process-startup jitter."""
     rq_root = tmp_path / "rq_root"
     (rq_root / ".venv" / "bin").mkdir(parents=True)
-    marker = rq_root / "ran.marker"
+    runs_log = rq_root / "runs.log"
     stub_python = rq_root / ".venv" / "bin" / "python"
     stub_python.write_text(
         "#!/bin/sh\n"
-        f"touch '{marker}'\n"
+        f"sleep {sleep_seconds}\n"
+        f"echo ran >> '{runs_log}'\n"
         "exit 0\n"
     )
     stub_python.chmod(stub_python.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
@@ -230,44 +248,131 @@ def _stub_env(tmp_path: Path) -> dict:
     return {
         "RQ_ROOT": str(rq_root),
         "BD_RUN_ROOT": str(tmp_path / "bd_root"),
-        "PIT_SNAPSHOT_LOCK_DIR": str(tmp_path / "lock.d"),
-    }, marker
+        "PIT_SNAPSHOT_LOCK_FILE": str(tmp_path / "snapshot.lock"),
+    }, runs_log
+
+
+def _run_count(runs_log: Path) -> int:
+    if not runs_log.exists():
+        return 0
+    return len([ln for ln in runs_log.read_text().splitlines() if ln.strip()])
+
+
+def _wrapper_log_path(env_overrides: dict) -> Path:
+    """The wrapper computes its own log path internally as
+    $RQ_ROOT/logs/pit_snapshots/estimate_snapshot_<today>.log -- reproduce
+    that here so tests can inspect what the wrapper itself wrote (its own
+    SKIP lines), as distinct from a test-controlled lock-holder's log."""
+    ts = dt.date.today().isoformat()
+    return Path(env_overrides["RQ_ROOT"]) / "logs" / "pit_snapshots" / f"estimate_snapshot_{ts}.log"
 
 
 def test_wrapper_runs_when_lock_is_free(tmp_path):
-    env_overrides, marker = _stub_env(tmp_path)
+    env_overrides, runs_log = _stub_env(tmp_path)
     env = {**os.environ, **env_overrides}
     result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
     assert result.returncode == 0
-    assert marker.exists(), "stub python was never invoked — wrapper did not run the collector"
-    assert not Path(env_overrides["PIT_SNAPSHOT_LOCK_DIR"]).exists(), "lock dir must be removed on exit"
+    assert _run_count(runs_log) == 1, "stub python was never invoked — wrapper did not run the collector"
+    # Unlike the old mkdir lock, the flock lock FILE is expected to persist on
+    # disk after use (the file itself is inert; only an active flock on it
+    # means anything) -- so there is no "lock removed on exit" assertion here.
+    assert Path(env_overrides["PIT_SNAPSHOT_LOCK_FILE"]).exists()
 
 
 def test_wrapper_skips_without_invoking_collector_when_lock_held(tmp_path):
-    env_overrides, marker = _stub_env(tmp_path)
-    lock_dir = Path(env_overrides["PIT_SNAPSHOT_LOCK_DIR"])
-    lock_dir.mkdir(parents=True)  # simulate a concurrent run already holding the lock
-    env = {**os.environ, **env_overrides}
-    result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
-    assert result.returncode == 0, "a held lock must be a benign skip (exit 0), not a failure"
-    assert not marker.exists(), "the collector must NOT have been invoked while the lock was held"
-    assert lock_dir.exists(), "this process must not remove a lock it did not acquire"
+    """A genuinely-held flock (not a precreated directory) blocks a second
+    wrapper invocation until the holder releases it."""
+    env_overrides, runs_log = _stub_env(tmp_path)
+    lock_file = env_overrides["PIT_SNAPSHOT_LOCK_FILE"]
+    holder_log = tmp_path / "holder.log"
+    # Hold the lock for real via the launcher itself, wrapping a long sleep.
+    holder = subprocess.Popen(
+        [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", lock_file,
+         "--log-file", str(holder_log), "--", "sleep", "5"],
+    )
+    try:
+        _wait_for_lock_held(lock_file, timeout=5)
+        env = {**os.environ, **env_overrides}
+        result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
+        assert result.returncode == 0, "a held lock must be a benign skip (exit 0), not a failure"
+        assert _run_count(runs_log) == 0, "the collector must NOT have been invoked while the lock was held"
+        assert "SKIP" in _wrapper_log_path(env_overrides).read_text()
+    finally:
+        holder.kill()
+        holder.wait(timeout=5)
+
+
+def _wait_for_lock_held(lock_file: str, timeout: float) -> None:
+    """Poll until some OTHER process holds an exclusive flock on lock_file,
+    by repeatedly attempting (and immediately releasing) our own
+    non-blocking lock -- once our attempt starts failing, the holder has it."""
+    deadline = time.monotonic() + timeout
+    fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        while time.monotonic() < deadline:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                return  # someone else holds it now
+            time.sleep(0.02)
+        raise TimeoutError(f"lock at {lock_file} was never acquired by the holder within {timeout}s")
+    finally:
+        os.close(fd)
 
 
 def test_wrapper_concurrent_invocations_exactly_one_proceeds(tmp_path):
-    """Two near-simultaneous invocations: exactly one acquires the lock and
-    runs the collector; the loser skips cleanly."""
-    env_overrides, marker = _stub_env(tmp_path)
-    lock_dir = Path(env_overrides["PIT_SNAPSHOT_LOCK_DIR"])
+    """Two REAL near-simultaneous wrapper invocations (both started before
+    either finishes, via subprocess.Popen with no wait in between): exactly
+    one acquires the lock and runs the collector; the loser skips cleanly.
+    The stub collector sleeps briefly so the race window is wide enough to
+    be non-flaky without depending on precise OS scheduling timing."""
+    env_overrides, runs_log = _stub_env(tmp_path, sleep_seconds=1)
     env = {**os.environ, **env_overrides}
-    # Pre-hold the lock (deterministic stand-in for a genuine race — proves
-    # the mechanism, since a real concurrent subprocess race is inherently
-    # timing-dependent and would make this test flaky).
-    lock_dir.mkdir(parents=True)
-    loser = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
-    assert loser.returncode == 0
-    assert not marker.exists()
-    lock_dir.rmdir()
-    winner = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
-    assert winner.returncode == 0
-    assert marker.exists()
+    proc_a = subprocess.Popen(["/bin/bash", str(_WRAPPER)], env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc_b = subprocess.Popen(["/bin/bash", str(_WRAPPER)], env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    rc_a = proc_a.wait(timeout=15)
+    rc_b = proc_b.wait(timeout=15)
+    assert rc_a == 0 and rc_b == 0, "both must exit 0 -- the loser's skip is not a failure"
+    assert _run_count(runs_log) == 1, "exactly one of the two overlapping invocations must reach the collector"
+
+
+def test_killed_lock_holder_does_not_block_the_next_run(tmp_path):
+    """Crash-recovery: a process holding the flock lock is killed with
+    SIGKILL (uncatchable -- exactly what a host crash or `kill -9` looks
+    like; no EXIT trap of any kind can run). A fresh invocation started
+    immediately after must acquire the lock right away, proving the kernel
+    released it automatically and no stale-lock state persists -- the
+    property the old mkdir+trap lock could not guarantee."""
+    lock_file = str(tmp_path / "crash.lock")
+    holder_log = tmp_path / "holder.log"
+    holder = subprocess.Popen(
+        [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", lock_file,
+         "--log-file", str(holder_log), "--", "sleep", "30"],
+    )
+    _wait_for_lock_held(lock_file, timeout=5)
+
+    holder.kill()  # SIGKILL -- uncatchable, no trap/finally in the holder can run
+    holder.wait(timeout=5)
+
+    env_overrides, runs_log = _stub_env(tmp_path)
+    env = {**os.environ, **env_overrides, "PIT_SNAPSHOT_LOCK_FILE": lock_file}
+    result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert _run_count(runs_log) == 1, (
+        "the lock must be immediately acquirable after the holder was SIGKILLed -- "
+        "a stale lock here would mean this dataset silently stops collecting forever"
+    )
+
+
+def test_run_with_lock_propagates_wrapped_command_exit_code(tmp_path):
+    lock_file = str(tmp_path / "rc.lock")
+    log_file = str(tmp_path / "rc.log")
+    result = subprocess.run(
+        [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", lock_file,
+         "--log-file", log_file, "--", "sh", "-c", "exit 7"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 7

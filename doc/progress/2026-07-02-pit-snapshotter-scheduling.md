@@ -18,7 +18,9 @@ EVIDENCE: base-data #27 MERGED (`fmp_estimate_revisions.py`, 693 lines + tests; 
           returns data on the existing key (probed 2026-07-02 — the v3 endpoint is
           legacy-deprecated); `--min-coverage` will surface plan-lock gaps, with the authorized
           N3 Starter upgrade as the remedy.
-NEXT:     Codex review; lander runs the README install; N2 AC clock starts at first successful
+NEXT:     Round 3 (below) replaced the mkdir/trap lock with a kernel-released fcntl.flock
+          launcher after codex flagged the trap as not SIGKILL/crash-safe; awaiting re-review.
+          Once approved: lander runs the README install; N2 AC clock starts at first successful
           dated snapshot; N3 coverage verdict falls out of the first real run's
           `--min-coverage` report.
 
@@ -84,3 +86,46 @@ straight portability correction, not a behavior change: shebang `#!/bin/zsh` →
 (available on both macOS and the Linux CI runner), the 3 test invocations updated to match, and
 the launchd plist's `ProgramArguments` updated for consistency (macOS ships both shells; bash is
 now the one actually declared everywhere). 18/18 tests still pass locally after the fix.
+
+**Round 3 (Codex CHANGES_REQUESTED — mkdir lock is not crash-safe):**
+
+**Finding.** The round-2 `mkdir`-based lock is released only by a shell `trap ... EXIT`, which
+does not fire on SIGKILL, a host crash, or power loss (uncatchable/unrunnable in all three
+cases). Any of those happening while the lock is held leaves `$LOCK_DIR` on disk forever; every
+subsequent scheduled run then sees the lock "held," logs a benign `SKIP` line, and exits 0 —
+silently and permanently halting this non-backfillable dataset with no alert, indistinguishable
+from a healthy day. Separately, the claimed "concurrency test" was sequential precreate-directory
+/ run / remove-directory, never two actually-overlapping processes — it could not have caught this
+class of bug even if it had existed.
+
+**Fix — kernel-released lock, not shell-released.**
+- New `ops/pit/run_with_lock.py`: a small stdlib-only Python launcher (`fcntl.flock(fd,
+  LOCK_EX|LOCK_NB)` on a fixed lock file). `flock` is bound to the OPEN FILE DESCRIPTOR, not to
+  shell control flow — the kernel releases it unconditionally the instant the process's file
+  descriptors close, on normal exit, an uncaught exception, or SIGKILL. There is no stale-lock
+  state to reclaim, because the lock literally cannot outlive the process holding it. Deliberately
+  depends on nothing outside the stdlib, so it runs under a plain `python3` on PATH — the locking
+  mechanism itself never needs the project venv/dependencies to be importable.
+- `ops/pit/run_estimate_snapshotter.sh`: delegates locking to the new launcher instead of doing
+  `mkdir`/`trap` itself (`PIT_SNAPSHOT_LOCK_FILE` replaces `PIT_SNAPSHOT_LOCK_DIR`; new
+  `PIT_LOCK_PYTHON` override, default `python3`). Log-dir creation, the date-stamped log file, the
+  ntfy-on-failure path, and the exit-code propagation are all unchanged — only the locking
+  primitive itself moved. No plist change was needed: `ProgramArguments` still points at the
+  `.sh` wrapper, which now shells out to the launcher internally.
+- `tests/test_pit_snapshotter_scheduling.py`: replaced the fake "concurrency" test with (a) a
+  genuine overlap test — two wrapper invocations started via `subprocess.Popen` with no wait
+  between them, against a stub collector that sleeps 1s (wide enough race window to be
+  non-flaky); asserts exactly one of the two reaches the collector and both still exit 0; (b) a
+  genuine crash-recovery test — a launcher process is started holding the lock (wrapping `sleep
+  30`), confirmed via a polling helper to actually hold the flock, then killed with real SIGKILL
+  (`Popen.kill()`); a fresh invocation started immediately after must acquire the lock right away.
+  Also added a direct exit-code-propagation test for the launcher. 20/20 tests pass.
+
+**Manual verification (beyond the automated test):** hand-ran the exact SIGKILL scenario outside
+pytest — spawned the launcher holding the lock, confirmed it alive, sent SIGKILL, reaped it (exit
+code -9), then immediately ran a second invocation: it acquired the lock and completed in 0.025s
+with no `SKIP` in its log. This is the core property the whole fix exists to guarantee, so it was
+checked by hand once rather than trusting the automated test alone.
+
+**Scope:** locking mechanism only; the four-endpoint publication-validation logic
+(`pit_liveness_check.py`) is unchanged from round 2, as codex's review noted could remain as-is.

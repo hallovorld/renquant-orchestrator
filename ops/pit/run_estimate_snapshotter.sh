@@ -7,30 +7,33 @@
 # Concurrency: renquant_base_data.fmp_estimate_revisions's own module docstring
 # REQUIRES the scheduler wrap it in a lock so two runs (a launchd fire racing a
 # manual invocation, or two launchd fires if a prior run overran) can't race the
-# same date-dir publish. macOS does not ship the `flock(1)` CLI by default (only
-# the `flock(2)` syscall), so this uses `mkdir` as the non-blocking atomic lock
-# primitive instead (mkdir is atomic on any POSIX filesystem — a second `mkdir`
-# on an existing dir fails immediately, no waiting, no external dependency).
+# same date-dir publish. Locking is delegated to run_with_lock.py, which takes a
+# kernel-released fcntl.flock on a fixed lock FILE (not a shell mkdir/trap
+# lock): the OS releases the lock the instant the launcher process's file
+# descriptors close, on ANY exit path including SIGKILL or a host crash — so a
+# run killed mid-flight can never leave a stale lock that silently skips every
+# later scheduled run (see run_with_lock.py's docstring for the full rationale;
+# this replaces #233 round 2's mkdir-based lock, which could not survive that).
 set -u
 RQ_ROOT="${RQ_ROOT:-/Users/renhao/git/github/RenQuant}"
 BD_RUN_ROOT="${BD_RUN_ROOT:-/Users/renhao/git/github/renquant-base-data-run}"
 LOG_DIR="$RQ_ROOT/logs/pit_snapshots"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
-LOCK_DIR="${PIT_SNAPSHOT_LOCK_DIR:-/tmp/snapshot_fmp_estimates.lockdir}"
-
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  echo "$(date -u +%FT%TZ) SKIP: lock held at $LOCK_DIR — another run is already in flight, not a failure" \
-    >> "$LOG_DIR/estimate_snapshot_$TS.log"
-  exit 0
-fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+LOCK_FILE="${PIT_SNAPSHOT_LOCK_FILE:-/tmp/snapshot_fmp_estimates.lock}"
+LOG_FILE="$LOG_DIR/estimate_snapshot_$TS.log"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The lock launcher is stdlib-only by design (see its docstring) and must run
+# under a plain interpreter on PATH, not the project venv, so the locking
+# mechanism itself never depends on project dependencies being importable.
+LOCK_PYTHON="${PIT_LOCK_PYTHON:-python3}"
 
 export PYTHONPATH="$BD_RUN_ROOT/src"
-"$RQ_ROOT/.venv/bin/python" -m renquant_base_data.fmp_estimate_revisions \
+"$LOCK_PYTHON" "$SCRIPT_DIR/run_with_lock.py" \
+  --lock-file "$LOCK_FILE" --log-file "$LOG_FILE" -- \
+  "$RQ_ROOT/.venv/bin/python" -m renquant_base_data.fmp_estimate_revisions \
   --env "$RQ_ROOT/.env" \
-  --out "$RQ_ROOT/data/estimate_snapshots" \
-  >> "$LOG_DIR/estimate_snapshot_$TS.log" 2>&1
+  --out "$RQ_ROOT/data/estimate_snapshots"
 RC=$?
 if [ $RC -ne 0 ]; then
   source "$RQ_ROOT/.env" 2>/dev/null || true

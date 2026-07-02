@@ -9,7 +9,7 @@ no orders, positions, pins, gates, or canonical data paths.
 
 | File | Role | Schedule (PT, weekdays) |
 |---|---|---|
-| `run_estimate_snapshotter.sh` | daily snapshot via `renquant_base_data.fmp_estimate_revisions`, non-blocking `mkdir`-lock guarded (macOS has no `flock(1)` CLI) | 14:30 |
+| `run_estimate_snapshotter.sh` | daily snapshot via `renquant_base_data.fmp_estimate_revisions`, guarded by `run_with_lock.py` (kernel-released `fcntl.flock`, non-blocking — survives SIGKILL/crash with no stale-lock state; macOS has no `flock(1)` CLI, so this is a small stdlib Python launcher instead) | 14:30 |
 | `pit_liveness_check.py` | today's dated dir has ALL FOUR endpoint manifests published (`status=="ok"`, `as_of`==today, non-zero-byte parquet), NYSE-session-aware, else ntfy | 15:00 |
 | `com.renquant.pit-{estimate-snapshot,liveness}.plist` | launchd jobs | as above |
 
@@ -53,6 +53,9 @@ overlapping invocations, exactly one proceeds — see `tests/test_pit_snapshotte
 
 ## Notes
 
+- The lock launcher (`run_with_lock.py`) requires a plain `python3` on PATH (stdlib only,
+  deliberately no project dependency) — override with `PIT_LOCK_PYTHON` if the host's `python3`
+  is unsuitable. This is independent of `RQ_ROOT/.venv`, which still runs the actual collector.
 - FMP: the existing key already returns data on the `stable` analyst-estimates endpoint
   (probed 2026-07-02); the collector's `--min-coverage` gate will surface any plan-lock gaps —
   if coverage fails, the authorized Starter upgrade (N3) is the fix, not a code change.
