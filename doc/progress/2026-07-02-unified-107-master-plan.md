@@ -1,12 +1,14 @@
 # Unified 107 master plan — design PR
 
-STATUS:   **DRAFT — dependency-index, not an execution source of truth** (Codex review,
-          2026-07-02: cannot be authoritative while source plans #228/#230 and core IC evidence
-          RenQuant#430/#431 are unresolved or blocked). Authoritative for STRUCTURE only (task
-          sequencing, gate specification per new §1.5) until those converge. Supersedes the task
-          tables of PR #229 once no longer draft (recommend closing #229 in its favor at that
-          point, not before); companion to PR #230 (route/evidence layer — gates, bounds, risk
-          register, fallback ladder, POC verification all inherited unchanged and NOT
+STATUS:   **DRAFT — dependency-index, not an execution source of truth, and NOT authoritative for
+          anything (structure included) while source plans #228/#230 and core IC evidence
+          RenQuant#430/#431 remain unresolved or blocked** (Codex review, 2026-07-02). Indexes task
+          sequencing and gate specification (new §1.5) without outranking the documents it
+          indexes. Does NOT supersede PR #229 — #229 remains the current execution plan; this doc
+          is a non-authoritative companion index. Once #228/#230/RenQuant#430/RenQuant#431 all
+          converge/merge, republish this as a clean authoritative revision, reconciled against
+          #229 at that point, not before. Companion to PR #230 (route/evidence layer — gates,
+          bounds, risk register, fallback ladder, POC verification all inherited unchanged and NOT
           independently upgraded by this doc).
 REVISION: r2 — addresses Codex round-1 review: STATUS reframed to draft/dependency-index; §0's
           BULL_CALM IC_combined cell corrected to flag the RenQuant#431 discrepancy instead of
@@ -64,16 +66,19 @@ EVIDENCE: POC-A/B/C/D (scripts + JSONs on the #230 branch, verification memo
                          originally stated (S8's genuine_ic reproduction), this doc says so rather
                          than presenting the more favorable of two readings
           scope:         this is a dependency-index/planning DRAFT, not a production or
-                         experiment result; it is authoritative for STRUCTURE (task sequencing,
-                         gate specification) only, per the STATUS header, until #228/#230/
-                         RenQuant#430/RenQuant#431 converge
+                         experiment result; it is NOT authoritative for anything — including
+                         structure/task-sequencing/gate-specification — per the STATUS header,
+                         until #228/#230/RenQuant#430/RenQuant#431 converge; it indexes those
+                         documents without outranking them
           ```
           [VERIFIED — this PR's own change: rebased onto post-#226 origin/main (no silent
           revert), every cited numeric claim traced to its source PR rather than re-measured,
           the one previously-overstated claim (BULL_CALM IC_combined) corrected in place. NOT
           independently verified: the underlying POC-A/B/C/D numbers themselves, which remain
           #230's claim to verify, not this PR's.]
-NEXT:     Codex review; on merge, #229 is closed as superseded and this document becomes the
-          single planning surface: N1–N3 execute immediately; July runs the PROCESS core
-          first (S1–S5), then evidence generation (S8–S10, S-TC), then FLOOR (S6–S7); the
-          monthly state-vector addendum starts 2026-08-01.
+NEXT:     Codex review; #229 remains the current execution plan and is NOT closed by this PR —
+          this document stays a non-authoritative companion index until #228/#230/RenQuant#430/
+          RenQuant#431 all converge/merge, at which point it should be republished as a clean
+          authoritative revision, reconciled against #229 at that point (not before). Until then,
+          N1–N3/S1–S10/S6–S7 sequencing and the monthly state-vector addendum (2026-08-01) as
+          described here are indicative, not a supersession of #229's own schedule.

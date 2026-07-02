@@ -1,21 +1,26 @@
 # Unified 107 master plan — goal-decomposed, evidence-tiered, POC-anchored
 
-STATUS: **DRAFT — dependency-index, NOT an execution source of truth.** A unified master plan
-cannot be authoritative while its source plans and core IC evidence are unresolved or blocked
-(Codex review, 2026-07-02). This document is authoritative for STRUCTURE (which task moves which
-term, how tasks sequence, what a gate must specify) but NOT for the specific numeric thresholds it
-cites from #230's POCs or the BULL_CALM IC conclusion — those become fixed only once:
+STATUS: **DRAFT — dependency-index, NOT an execution source of truth, and NOT authoritative for
+anything — structure included — while its source plans and core IC evidence remain unresolved or
+blocked** (Codex review, 2026-07-02). This document INDEXES which task moves which term, how tasks
+sequence, and what a gate must specify — but it does not outrank or replace the documents it
+indexes, and none of that structure is fixed/authoritative until:
 - **#228** (capability program) and **#230** (IC ceiling / route) converge on non-provisional
   language for their own POC-derived thresholds, and
 - **`hallovorld/RenQuant#430`** (durable OOS pick-table generator/manifest) and
-  **`hallovorld/RenQuant#431`** (genuine/leak-controlled IC reproduction — currently an
-  UNRESOLVED discrepancy: +0.044 vs the originally-cited −0.003 for BULL_CALM, reconciliation
-  protocol frozen but not yet executed) resolve.
+  **`hallovorld/RenQuant#431`** (an audit reporting the output of the nearest committed proxy
+  method, `analyze_manifest_sanity_placebo.py`'s `aligned_real_ic` decomposition — NOT verified
+  equivalent to the deleted original injection-test methodology — currently an UNRESOLVED
+  discrepancy: the proxy's +0.044 vs the originally-cited −0.003 for BULL_CALM; a reconciliation
+  protocol is PROPOSED but still incomplete, not yet frozen or executed) resolve.
 
 Until then, treat every number in §0's state vector and every POC-derived AC in §1 as
 **provisional**, subject to revision once the above converge. design / RFC for review (docs
-only). **Supersedes the task tables of PR #229** (the H2 execution roadmap) — recommend closing
-#229 in favor of this document, once this document itself is no longer draft. **Companion to PR
+only). **Does NOT supersede PR #229** (the H2 execution roadmap) — #229 remains the current
+execution plan; this document is a non-authoritative draft/index alongside it, not a replacement.
+Once #228/#230/`RenQuant#430`/`RenQuant#431` all converge/merge, this document should be
+republished as a clean, authoritative revision — reconciled against #229 at that point, not before.
+**Companion to PR
 #230** (the route/evidence layer: IC ceiling, institutional gap, bounds, risk register, fallback
 ladder, POC verification — its gates and evidence are UNCHANGED and cited here, not restated; this
 document inherits #230's own provisional/confirmed status for every cited number, it does not
@@ -48,7 +53,7 @@ Book = β(FLOOR: sleeve + ops discipline)
 
 | Term | Current (measured, 2026-07-02) | Target (2028) | Standing metric |
 |---|---|---|---|
-| IC_combined (placebo-clean) | **DISPUTED, not settled** — A1's original read: ≈0 (CI [−0.031,+0.129] ∋ 0; BULL_CALM −0.003, "coin flip"). `RenQuant#431` reproduced the same leak-controlled methodology against a now-durable table and got BULL_CALM **+0.044** — opposite sign. Reconciliation protocol frozen in #431, not yet executed. **Do not treat either figure as the current state until #431 resolves.** | **0.02–0.03** (POC-D-adjusted stacking: 3 signals ⇒ 0.028–0.033 at ρ≈0.2; #230's own provisional status applies) | S5/S8 substrate, per-regime cuts |
+| IC_combined (placebo-clean) | **DISPUTED, not settled** — A1's original read: ≈0 (CI [−0.031,+0.129] ∋ 0; BULL_CALM −0.003, "coin flip"). `RenQuant#431` ran the nearest COMMITTED PROXY method (`analyze_manifest_sanity_placebo.py`'s `aligned_real_ic` decomposition) against a now-durable table and got BULL_CALM **+0.044** — opposite sign — but this proxy is explicitly NOT verified equivalent to the deleted original injection-test methodology, so neither figure is "the" genuine/leak-controlled IC. A reconciliation protocol is PROPOSED in #431 but still incomplete (not yet frozen or executed). **Do not treat either figure as the current state until #431 resolves.** | **0.02–0.03** (POC-D-adjusted stacking: 3 signals ⇒ 0.028–0.033 at ρ≈0.2; #230's own provisional status applies) | S5/S8 substrate, per-regime cuts |
 | TC | **≈ 0.4 (reasoned — measurement is task S-TC)**; shrinkage stack ×0.43 measured (POC-B) | **≥ 0.6 measured** | corr(target weights, unconstrained Kelly weights) per run |
 | BR_eff | **131/yr point [77, 500] (POC-A)** | **≥ 300/yr measured** | POC-A method, quarterly |
 | EXEC leak | fills = open confirmed; **+23–49 bps/entry point est., t≈1.0, N=41 (POC-C)** | **< 10 bps/entry, CI-backed** | S10 + collector corpus |
