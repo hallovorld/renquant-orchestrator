@@ -346,6 +346,12 @@ def per_date_ic(
 # the SAME resamples).
 # ---------------------------------------------------------------------------
 def block_bootstrap_means(vals: np.ndarray, *, block: int, n_boot: int, seed: int):
+    """NAIVE block bootstrap over a caller-pre-filtered array. NOT used by the
+    main computation (round-2 review found this collapses calendar gaps when
+    the caller pre-filters to an in-cell-only subseries before calling this —
+    see block_bootstrap_conditional_mean for the fix). Kept only as the "old
+    buggy behavior" comparator for tests/test_c3_residual_momentum.py; do not
+    call this on a pre-filtered conditioned-cell array in new code."""
     a = np.asarray([v for v in vals if np.isfinite(v)], dtype=float)
     n = len(a)
     if n < 2 or block < 1 or n <= block:
@@ -388,6 +394,75 @@ def block_bootstrap_diff(
         diffs[i] = (av[cv].mean() - av.mean()) if n_in >= 2 else np.nan
     diffs = diffs[np.isfinite(diffs)]
     return diffs if len(diffs) else None
+
+
+def block_bootstrap_conditional_mean(
+    vals: np.ndarray, in_cell: np.ndarray, *, block: int, n_boot: int, seed: int
+):
+    """Conditioned-cell mean bootstrap: resample date-BLOCKS OF THE FULL SERIES
+    (never a pre-filtered in-cell-only array), then average only the in-cell
+    values that fall within each drawn block. This is the SAME carried-mask
+    pattern block_bootstrap_diff already uses correctly for the difference leg.
+
+    Bug this replaces (round-2 review): the prior version filtered to
+    `vals[in_cell]` BEFORE bootstrapping and drew 60-observation blocks from
+    that filtered array. If two regime episodes are separated by a calendar
+    gap (e.g. an intervening BEAR/CHOPPY stretch), the filtered array puts the
+    last in-cell date of the first episode directly adjacent, in ARRAY
+    POSITION, to the first in-cell date of the next episode — so a "60-day
+    block" drawn near that seam actually splices together dates that may be
+    months apart on the calendar, and no longer represents a genuine
+    60-trading-day dependence block. Drawing blocks from the FULL dated
+    series (as this function does) means a block can never span a regime-episode
+    gap in a way that misrepresents contiguity — the block's underlying dates
+    ARE contiguous trading days; it just may contain a mix of in-cell and
+    off-cell dates, of which only the in-cell ones are averaged.
+    """
+    mask_fin = np.isfinite(vals)
+    a = vals[mask_fin]
+    c = in_cell[mask_fin].astype(bool)
+    n = len(a)
+    if n < 2 or block < 1 or n <= block or c.sum() < 2:
+        return None
+    rng = np.random.default_rng(seed)
+    n_blocks = int(np.ceil(n / block))
+    max_start = n - block
+    means = np.empty(n_boot)
+    for i in range(n_boot):
+        starts = rng.integers(0, max_start + 1, size=n_blocks)
+        idx = (starts[:, None] + np.arange(block)[None, :]).ravel()[:n]
+        av = a[idx]
+        cv = c[idx]
+        n_in = cv.sum()
+        means[i] = av[cv].mean() if n_in >= 2 else np.nan
+    means = means[np.isfinite(means)]
+    return means if len(means) else None
+
+
+def effective_block_coverage(vals: np.ndarray, in_cell: np.ndarray, *, block: int) -> dict:
+    """Diagnostic (not a bootstrap draw): partitions the FULL finite-value series
+    into non-overlapping consecutive blocks of `block` trading days and reports
+    how many of those blocks contain at least 2 in-cell observations (i.e. are
+    usable for the conditioned-mean estimator) versus how many straddle a
+    regime-episode gap so thinly that fewer than 2 in-cell dates fall inside
+    them. Makes the true regime-episode structure the corrected bootstrap
+    operates over legible, rather than only reporting a raw date count."""
+    mask_fin = np.isfinite(vals)
+    c = in_cell[mask_fin].astype(bool)
+    n = len(c)
+    if n < block:
+        return {"n_full_blocks": 0, "n_blocks_with_ge2_in_cell": 0, "n_blocks_total": 0}
+    n_full_blocks = n // block
+    usable = 0
+    for i in range(n_full_blocks):
+        seg = c[i * block:(i + 1) * block]
+        if seg.sum() >= 2:
+            usable += 1
+    return {
+        "n_full_blocks": int(n_full_blocks),
+        "n_blocks_with_ge2_in_cell": int(usable),
+        "n_blocks_total": int(n_full_blocks),
+    }
 
 
 def summarize_boot(means: np.ndarray | None) -> dict | None:
@@ -583,8 +658,13 @@ def main() -> None:
         cond_vals = vals[in_cell]
         cond_boots, diff_boots = {}, {}
         for s in seeds:
+            # Round-2 fix: block_bootstrap_conditional_mean draws blocks from the
+            # FULL dated series with the regime mask carried through (never a
+            # pre-filtered in-cell-only array) — a block can no longer splice
+            # together two regime episodes separated by a calendar gap and
+            # misrepresent them as one contiguous 60-trading-day window.
             cond_boots[str(s)] = summarize_boot(
-                block_bootstrap_means(cond_vals, block=block, n_boot=n_boot, seed=s)
+                block_bootstrap_conditional_mean(vals, in_cell, block=block, n_boot=n_boot, seed=s)
             )
             diff_boots[str(s)] = summarize_boot(
                 block_bootstrap_diff(vals, in_cell, block=block, n_boot=n_boot, seed=s)
@@ -599,6 +679,7 @@ def main() -> None:
             },
             "n_dates_total": int(len(vals)),
             "n_dates_conditioned": int(in_cell.sum()),
+            "effective_block_coverage": effective_block_coverage(vals, in_cell, block=block),
             "mean_clean_conditioned": float(cond_vals.mean()) if len(cond_vals) else None,
             "mean_clean_unconditional": float(vals.mean()) if len(vals) else None,
             "difference_conditioned_minus_unconditional": (
@@ -704,8 +785,12 @@ def main() -> None:
         "per-regime cuts reported as diagnostics only.",
         "difference leg: paired — block-bootstrap resamples the FULL dated series and "
         "recomputes mean(in-cell) - mean(all) per resample (spec 1.3 leg (b)).",
-        "conditioned-cell-only CI: blocks drawn over the conditioned subseries in date order "
-        "(regime-sliced convention of this repo's research scripts).",
+        "conditioned-cell-only CI (round-2 fix): blocks are drawn over the FULL dated series "
+        "with the regime mask carried through per date, then only the in-cell values within "
+        "each drawn block are averaged — NOT drawn over a pre-filtered in-cell-only "
+        "subseries, which would splice together regime episodes separated by a calendar gap "
+        "as if they were contiguous trading days. effective_block_coverage reports how many "
+        "of the full non-overlapping blocks actually contain >=2 in-cell observations.",
         f"min {MIN_NAMES} names per date for both the residualization (17 params) and each IC.",
         "regime labels: TODAY'S pinned production chain (pinned pipeline code + pinned "
         "strategy config incl. the 2026-06-11 false-BEAR fix + GMM artifact trained "
@@ -724,6 +809,16 @@ def main() -> None:
     results = {
         "task": "C3 — regime-conditioned residual momentum (M-SIG frozen spec, first voting candidate)",
         "spec": "doc/design/2026-07-02-m-sig-signal-stack-spec.md (merged PR #243) section 1.3 + 2a",
+        "adjudication_status": "UNADJUDICATED",
+        "adjudication_note": (
+            "gating_fwd60_spec_config.verdict.verdict is the MECHANICAL rule output computed "
+            "on this run's substrate (production-chain-replayed regime labels + fixed-panel "
+            "universe applied retrospectively over history) -- it does NOT stand as C3's "
+            "formal GO/KILL/MISS vote, because that substrate is not point-in-time "
+            "(see doc/research/2026-07-02-c3-residual-momentum.md sections 6-8 for the "
+            "specific contamination mechanisms and the point-in-time-availability "
+            "investigation). Treat this run as exploratory/sensitivity evidence only."
+        ),
         "frozen_thresholds": {
             "ic_threshold_conditioned_clean": IC_THRESHOLD,
             "difference_must_exceed": 0.0,

@@ -1,20 +1,26 @@
-# C3 — regime-conditioned residual momentum: frozen-spec measurement — VERDICT: MISS
+# C3 — regime-conditioned residual momentum: exploratory measurement — VERDICT: UNADJUDICATED
 
-STATUS: research measurement (read-only on all production data; one committed script +
-committed JSON evidence). First formally-voting candidate of the merged M-SIG stack
-(`doc/design/2026-07-02-m-sig-signal-stack-spec.md`, PR #243) to be measured under its
-frozen thresholds.
+STATUS: EXPLORATORY/SENSITIVITY research measurement (read-only on all production data; one
+committed script + committed JSON evidence). Was originally submitted as C3, the first
+formally-voting candidate of the merged M-SIG stack (`doc/design/2026-07-02-m-sig-signal-stack-spec.md`,
+PR #243) — Codex review found this run's SUBSTRATE (regime labels + universe membership)
+carries future contamination that invalidates a formal confirmatory verdict; downgraded per
+that review (round 2). **This is no longer C3's formal vote.**
 
-**VERDICT: MISS — recorded and dropped per design rule 5. Not KILL.**
-The conditioned cell does no better than ~zero placebo-clean IC (−0.004 vs a frozen bar of
-+0.015), and the conditioned-minus-unconditioned improvement (+0.0086) has a CI that includes
-zero at every convention tested. C3 casts no GO vote toward G106. Because the conditioned
-cell is still point-wise BETTER than unconditional (the dispatch KILL trigger
-`conditioned <= unconditioned` does not fire) and the conditioned upper bound (+0.048) is not
-below the bar, the spec-vocabulary outcome is INCONCLUSIVE-not-GO with the n>=600 sample
-floor fully met (1,833 conditioned dates) — i.e. a genuine, adequately-sampled miss, not a
-data-starved one. Under design rule 5 ("a candidate that misses its bar is recorded and
-dropped") C3 is now closed; do not re-pitch without a new, materially different hypothesis.
+**VERDICT: UNADJUDICATED — substrate/provenance limitations, NOT a tested-and-failed MISS.**
+This run's regime labels and universe membership were NOT the ones knowable on each historical
+decision date (see §6/§7 for the two specific contamination mechanisms), and neither a
+production-emitted historical regime-label history nor point-in-time universe/delisting data
+exists anywhere in this codebase (searched; none found — see §8). Genuine point-in-time
+reconstruction is therefore not achievable within this fix's scope. A "MISS" implies the
+frozen hypothesis was validly tested on point-in-time inputs and failed its bar; that is NOT
+what happened here — the substrate itself is contaminated with hindsight, so the test that
+was run is not the confirmatory test the spec calls for. The computed statistics below
+(conditioned placebo-clean IC ≈ −0.004 vs. the +0.015 bar, conditioned-minus-unconditioned
+difference ≈ +0.0086 with a CI spanning zero on every seed) remain USEFUL EXPLORATORY EVIDENCE
+— they are simply not eligible to cast C3's formal GO/KILL vote. C3 does NOT close under this
+run; a genuinely point-in-time rerun (or an accepted substitute substrate) remains open future
+work, not a settled negative.
 
 ## 1. What was measured (frozen estimand, spec section 1.3)
 
@@ -30,7 +36,12 @@ Frozen decision rule applied exactly as merged (spec sections 1.3 + 2a):
   98.33% CI lower bound > 0 — on all seeds {42, 43, 44}.
 - KILL iff the conditioned 98.33% upper bound < 0.015 (spec), or conditioned <= unconditioned
   point-wise (measurement-dispatch frozen rule).
-- Otherwise MISS/INCONCLUSIVE — recorded, not re-argued. **This is the outcome.**
+- Otherwise MISS/INCONCLUSIVE (mechanical rule output — see below).
+
+**This mechanical rule, applied to THIS run's substrate-contaminated inputs, computes
+MISS/INCONCLUSIVE (§2). Per the header verdict, that mechanical output does NOT get to stand
+as C3's formal vote, because the inputs it was computed on are not the point-in-time inputs
+the rule presumes — the governing verdict for C3 is UNADJUDICATED, not MISS.**
 
 No threshold was altered. Where the measurement dispatch and the merged spec differed on
 non-threshold mechanics, the MERGED SPEC governs the verdict and the dispatch variant is
@@ -49,21 +60,38 @@ reported as a labeled sensitivity (section 4 below); the verdict is identical un
 
 Conditioned − unconditioned difference: **+0.0086**.
 
-Block-bootstrap CIs (block=60, n_boot=2000; all three seeds reported, none cherry-picked):
+Block-bootstrap CIs (block=60, n_boot=2000; all three seeds reported, none cherry-picked).
+**Round-2 correction**: the conditioned-cell bootstrap previously pre-filtered to an
+in-cell-only array before drawing blocks, which could splice together regime episodes
+separated by a calendar gap as if they were contiguous trading days (see §11). Recomputed
+below with `block_bootstrap_conditional_mean`, which draws blocks from the FULL dated series
+with the regime mask carried through — no single block can span a gap larger than its own
+length. Point estimates are unchanged (they don't depend on the bootstrap); CIs shift
+slightly:
 
 | Seed | Conditioned clean: 95% CI | 98.33% one-sided LB | Difference: 95% CI | 98.33% one-sided LB |
 |---|---|---:|---|---:|
-| 42 | [−0.0492, +0.0444] | −0.0549 | [−0.0031, +0.0235] | −0.0039 |
-| 43 | [−0.0476, +0.0435] | −0.0513 | [−0.0035, +0.0244] | −0.0043 |
-| 44 | [−0.0486, +0.0428] | −0.0530 | [−0.0028, +0.0231] | −0.0038 |
+| 42 | [−0.0527, +0.0452] | −0.0569 | [−0.0031, +0.0235] | −0.0039 |
+| 43 | [−0.0497, +0.0449] | −0.0546 | [−0.0035, +0.0244] | −0.0043 |
+| 44 | [−0.0534, +0.0470] | −0.0596 | [−0.0028, +0.0231] | −0.0038 |
+
+Effective block coverage (diagnostic, §11): 37 of 37 non-overlapping 60-day blocks over the
+gating series contain ≥2 conditioned-cell dates — the BULL_CALM+BULL_VOLATILE cell is dense
+enough (81.3% of all dates, §6) that this particular series happens not to exhibit the sparse
+long-gap pathology the fix targets; the fix is a genuine methodology correction regardless of
+whether this specific dataset was materially affected by the bug it closes.
 
 - Leg (a): FAILS decisively — the conditioned point estimate (−0.0040) is below zero, let
-  alone the +0.015 bar; every seed's 98.33% LB is ~−0.05.
+  alone the +0.015 bar; every seed's 98.33% LB is ~−0.05 to −0.06.
 - Leg (b): FAILS — the difference is positive (+0.0086) but every CI (95% two-sided AND
   98.33% one-sided) includes zero.
-- KILL triggers: none fire (conditioned > unconditioned point-wise; conditioned UB ~+0.048
+- KILL triggers: none fire (conditioned > unconditioned point-wise; conditioned UB ~+0.047
   is not < 0.015).
-- Sample floor: met (1,833 conditioned clean dates >= 600; ~31 effective 60-day blocks).
+- Sample floor: met (1,833 conditioned clean dates >= 600; 37 effective 60-day blocks, all
+  usable).
+
+**These statistics remain informative exploratory evidence (§ intro) — they do not, on their
+own, adjudicate C3 given the substrate contamination in §6/§7.**
 
 **Reading**: the raw real IC in the bull cell (+0.0253) would naively look promising — and is
 entirely explained by the placebo (+0.0275). Residual momentum's apparent bull-regime IC is
@@ -151,6 +179,21 @@ are stamped in the evidence manifest. Known fidelity gaps, stated honestly:
   CHOPPY 117 — the conditioned cell is 81.3% of dates, consistent with the known "~79% of
   live time" BULL_CALM-dominance prior.
 
+**Round-2 investigation: is a genuinely point-in-time rerun achievable?** Codex's review
+required checking before defaulting to a reclassification. Searched this codebase
+(`/Users/renhao/git/github/RenQuant`, including `.subrepo_runtime` sources and the
+`runs.alpaca.db` schema) for: (a) any historical, production-EMITTED regime-label history
+(i.e. regime classifications actually computed and recorded at the time, using only
+data available as of each historical date) — none found; no regime-label history table,
+file, or walk-forward-trained regime model exists; (b) point-in-time universe/delisting
+data (a historical record of tradeable-universe membership per date, including names
+later delisted/removed) — none found. Both searches returned zero results. Building either
+from scratch (a genuine walk-forward regime model retrained at each historical date, or a
+reconstructed historical universe with delisting records) is a materially larger effort than
+this fix's scope — it would be a new data-engineering task, not a bootstrap/verdict
+correction. **Conclusion: point-in-time reconstruction is NOT achievable within reasonable
+scope for this round; the honest verdict is UNADJUDICATED (see header), not a rerun.**
+
 ## 7. Substrate + survivorship limitation
 
 - **Substrate deviation, stated**: spec design rule 1 prescribes the S5/S8 durable
@@ -159,28 +202,50 @@ are stamped in the evidence manifest. Known fidelity gaps, stated honestly:
   durable committed umbrella OHLCV parquets (`data/ohlcv/<T>/1d.parquet`) over the 142
   unique tickers of `data/transformer_v4_wl200_clean.parquet`. This is committed, durable
   data (not an ad-hoc /tmp panel), but it is NOT the pick-table substrate.
-- **Survivorship**: the 142-name universe is fixed as of the 2026 panel and applied over the
-  full 2017–2026 window; names are in the panel partly because they survived and mattered in
-  2026. Momentum ICs measured on survivors are, if anything, OPTIMISTIC — which makes the
-  MISS conservative in direction (a bar the signal cannot clear even with survivorship help).
+- **Survivorship (round-2 correction: direction is NOT identified)**: the 142-name universe is
+  fixed as of the 2026 panel and applied over the full 2017–2026 window; names are in the
+  panel partly because they survived and mattered in 2026. The prior round of this doc claimed
+  "survivorship makes the result conservative" — that claim is UNSUPPORTED and has been
+  removed. Omitting delisted/removed names can raise OR lower momentum IC (surviving winners
+  bias momentum's cross-sectional dispersion upward in some regimes and downward in others
+  depending on which names would have been removed and when), can alter sector residuals (the
+  sector composition of survivors differs from the true historical universe), and can change
+  regime-conditioned differences in either direction (a regime's true conditioned effect could
+  be attenuated or amplified by which names happen to survive into the fixed panel). This
+  measurement does not identify the bias direction; it is a genuine, uncharacterized limitation
+  of the substrate, not a conservative one.
 - Prices are split-adjusted but not dividend-adjusted (price returns on both legs; the
   residual cross-sectional dividend-yield tilt is a stated, second-order limitation).
 - Data hygiene: 142/142 tickers loaded; 8 single-day |return|>40% events across 10.5 years
   (AFRM/AMD/APP/OXY/RBLX/SMCI/SOFI/ZM — all verified earnings/news gaps, no split seams;
   NFLX's 10:1 2025-11-17 split shows no price seam).
 
-## 8. Prospectivity affirmation (required by spec section 1.3)
+## 8. Prospectivity claim — CORRECTED (round 2): weaker than originally stated
 
-**Affirmed: no prior script in this repo's git history computed this exact
-residual×regime×block-bootstrap combination before 2026-07-02.** The two nearest prior
+**What can actually be affirmed: no prior script in this repo's git history computed this
+exact residual×regime×block-bootstrap combination before 2026-07-02.** The two nearest prior
 artifacts are materially different measurements: `scripts/experiments/2026-06-23-residual-audit.py`
 residualized the LABEL (fwd_60d_excess on sector+BETA60) to test an XGB retrain hypothesis —
 no momentum signal, no regime conditioning, no block bootstrap; `scripts/regimemom.py`
 conditioned RAW (un-residualized) mom_12_1 on a NON-production regime label (SPY 200-DMA
 trend × expanding vol terciles), horizons fwd_20d/fwd_5d, Newey-West t-stats — no
 residualization, no production BULL_CALM/BULL_VOLATILE labels, no block bootstrap, no fwd_60d.
-This result is therefore genuinely prospective/confirmatory under the freeze: the specific
-conditioned residual×regime cell had not been computed or inspected before this measurement.
+
+**What that does NOT establish (the prior round's claim was too strong and has been
+withdrawn): genuine prospectivity/confirmatory status.** "No identical prior script existed"
+only rules out this EXACT combination having been run before — it does not establish that the
+hypothesis, thresholds, transformations, universe, replay convention, or inspected outcomes
+were fixed BEFORE this specific run's results were observed. Two things weaken the claim
+further: (1) the merged spec (PR #243) and this result are BOTH dated 2026-07-02 — same-day
+sequencing does not by itself demonstrate the freeze preceded result access; (2) `scripts/
+experiments/2026-06-23-residual-audit.py` and `scripts/regimemom.py`, both acknowledged above,
+are PRIOR momentum-family audits in this same codebase — their existence means the author(s)
+of this measurement were not approaching momentum-family signals with a genuinely blank prior.
+A specific-combination novelty check is necessary but not sufficient for prospectivity; a real
+preregistration would additionally require a demonstrable timestamp for the frozen protocol
+that provably precedes any access to this run's results, which does not exist here. This
+measurement's evidentiary status is therefore EXPLORATORY, consistent with the corrected
+verdict in the header.
 
 ## 9. Reproduce
 
@@ -197,11 +262,56 @@ manifest, interpretations), `c3_per_date_ic_fwd60.json` (per-date real/placebo/c
 regime — sufficient to recompute every bootstrap independently), `c3_regime_series.json`
 (the full reconstructed regime series).
 
-## 10. Consequence for the M-SIG stack
+## 10. Consequence for the M-SIG stack — CORRECTED (round 2): C3 does NOT close here
 
-C3 resolves as a recorded MISS: no GO vote. Per spec section 2a's operational order the stack
-now rides on C4 (trend-scanning label, gated on S3 landing) and C2 (quality composite, gated
-on the N3 coverage verdict, 2026-Q4) — G106 GO still requires 2 of the 3 voting candidates to
-clear. C3 is closed under design rule 3/5: the residual×regime cell was the last untested
-momentum combination; momentum-family candidates should not be re-pitched absent a genuinely
-new instrument.
+**This run casts NO formal vote (neither GO nor a design-rule-5 recorded MISS) — the prior
+round's "C3 resolves as a recorded MISS... C3 is closed under design rule 3/5" language is
+withdrawn.** A substrate-contaminated measurement cannot close a candidate under a rule that
+presumes a valid confirmatory test was run. C3 remains OPEN pending either: (a) a rerun on
+genuinely point-in-time regime labels and universe membership (not currently buildable within
+reasonable scope — no historical regime-label history or point-in-time universe/delisting data
+exists anywhere in this codebase, per the search in §6/§7), or (b) an explicit operator/design
+decision to accept this substrate as a permanent limitation and re-adjudicate C3 under an
+amended, honestly-scoped protocol. Until one of those happens, the M-SIG stack's dependency on
+C3 (spec section 2a's operational order, alongside C4 and C2) is UNRESOLVED, not satisfied by
+a MISS — this is a real open item for the stack, not a closed one. The exploratory statistics
+in §2 (conditioned placebo-clean IC ≈ −0.004, difference ≈ +0.0086 with CI spanning zero) are
+informative context for whoever picks this up next, but should not be read as having settled
+the question.
+
+## 11. Conditioned-cell bootstrap fix (round 2)
+
+**Bug.** The conditioned-cell CI (§2's "Conditioned clean" columns) previously computed
+`cond_vals = vals[in_cell]` — filtering to ONLY in-regime dates — BEFORE drawing 60-day
+blocks from that filtered array via `block_bootstrap_means`. If two regime episodes are
+separated by a calendar gap (e.g. an intervening BEAR/CHOPPY stretch), the filtered array
+places the last in-cell date of one episode directly adjacent, in ARRAY POSITION, to the
+first in-cell date of the next episode — so a single drawn "60-day block" spanning that
+position could splice together dates that are actually months apart on the calendar, no
+longer representing a genuine 60-trading-day dependence block. The difference-leg bootstrap
+(`block_bootstrap_diff`) was already correct: it draws blocks from the FULL dated series with
+the in-cell mask carried through per date, never pre-filtering.
+
+**Fix.** New `block_bootstrap_conditional_mean` applies the SAME carried-mask pattern to the
+conditioned-cell mean: blocks are drawn from the full dated series (so every single block's
+underlying dates are genuinely contiguous trading days — a block can never silently collapse
+a calendar gap larger than its own length), and only the in-cell values within each drawn
+block are averaged. `effective_block_coverage` reports, as a diagnostic (not a bootstrap
+statistic), how many of the full non-overlapping blocks over the actual series contain ≥2
+in-cell observations — for this specific series, 37/37 (the BULL_CALM+BULL_VOLATILE cell is
+81.3% of dates, dense enough that this dataset doesn't exhibit the sparse-episode pathology
+severely, though the fix is a genuine correctness fix regardless of how much this particular
+run was affected).
+
+**Proof.** `tests/test_c3_residual_momentum.py` constructs a synthetic series with two
+30-observation regime episodes separated by a 170-observation off-regime gap and directly
+inspects single-block index spans (not aggregate resample means, which legitimately combine
+multiple independently-drawn blocks in any moving-block bootstrap and are not themselves a
+clean discriminator): every non-trivial single block drawn from the OLD pre-filtered approach
+splices both episodes together; NO single block drawn from the FIXED full-series approach can
+span both episodes, since a 45-length window cannot reach across a genuine 170-position gap.
+
+**Effect on this run's numbers**: point estimates are unchanged (they don't depend on the
+bootstrap); CIs shift by roughly 0.001-0.005 (e.g. seed 42's conditioned 98.33% LB moves from
+−0.0549 to −0.0569) — small for this dataset given the high block coverage, but the fix
+applies to every future run of this script regardless of episode density.

@@ -1,9 +1,12 @@
-# C3 regime-conditioned residual momentum — frozen-spec measurement (MISS)
+# C3 regime-conditioned residual momentum — exploratory measurement (UNADJUDICATED)
 
-STATUS:   research evidence (read-only measurement; one committed script + committed JSON
-          evidence + memo). First formally-voting M-SIG candidate measured under the merged
-          frozen spec (#243). VERDICT: MISS — recorded and dropped per design rule 5; not KILL.
-REVISION: r1.
+STATUS:   EXPLORATORY/SENSITIVITY research evidence (read-only measurement; one committed
+          script + committed JSON evidence + memo). Was submitted as C3, the first
+          formally-voting M-SIG candidate under the merged frozen spec (#243) — Codex round-2
+          review found this run's regime-label + universe substrate carries future
+          contamination, disqualifying it from casting a formal confirmatory vote.
+          VERDICT: UNADJUDICATED (substrate/provenance limitation), NOT MISS. C3 remains OPEN.
+REVISION: r2.
 WHAT:     `scripts/c3_residual_momentum.py` + `doc/research/evidence/2026-07-02-c3/*.json` +
           `doc/research/2026-07-02-c3-residual-momentum.md`. Measures spec section 1.3:
           mom_12_1 rank-z'd, per-date OLS-residualized to sector dummies + trailing-252d
@@ -14,10 +17,10 @@ WHAT:     `scripts/c3_residual_momentum.py` + `doc/research/evidence/2026-07-02-
           prod GMM artifact) replayed sequentially per the build_regime_series reference.
 WHY/DIR:  spec section 2a ordering — C3 is the cheapest/soonest-ready voting candidate (data
           exists now); its verdict is one of the >=2 GO votes G106 needs by 2027-Q4. The
-          conditioned residual×regime cell was the last untested momentum combination
-          (prospectivity affirmed in the memo section 8: no prior script computed this exact
-          combination — 2026-06-23-residual-audit residualized the LABEL, regimemom used raw
-          momentum on non-production regime labels).
+          conditioned residual×regime cell had not been computed by an identical prior script
+          (2026-06-23-residual-audit residualized the LABEL, regimemom used raw momentum on
+          non-production regime labels) — but per round-2 review, that novelty check alone
+          does not establish genuine prospectivity/preregistration (memo section 8, corrected).
 
 EVIDENCE:
 ```
@@ -29,24 +32,50 @@ existing data: umbrella data/ohlcv/<T>/1d.parquet (142 transformer-panel tickers
                2016-01-04..2026-07-01, split-adjusted, verified no split seams), pinned
                strategy_config.json sector_map/benchmark, prod spy-gmm-regime.json
                (trained 2026-05-22), pinned renquant-pipeline regime task chain
-best-known?:   best-available substrate — the spec's S5/S8 pick-table/ledger has no
-               multi-year history yet; deviation stated in memo section 7 with the
-               survivorship limitation (fixed 2026 universe => optimistic bias => the MISS
-               is conservative in direction)
-scope:         C3 ONLY (one candidate PR at a time, design rule 5); C4/C2 unaffected
-result:        conditioned placebo-clean IC -0.0040 (n=1833 daily dates, bar +0.015;
-               98.33% one-sided LB ~-0.053 all seeds) => leg (a) FAILS; conditioned-minus-
-               unconditioned +0.0086 but 95% CI [-0.0031,+0.0235] and 98.33% LB ~-0.004 all
-               seeds include 0 => leg (b) FAILS; KILL triggers do NOT fire (cond > uncond
-               point-wise; UB +0.048 not < 0.015) => MISS, sample floor met (1833 >= 600).
-               Raw real IC in the cell +0.0253 is fully explained by placebo +0.0275 —
-               apparent bull-regime momentum IC is label-persistence structure, not alpha.
-               Verdict convention-robust: dispatch bundle (beta120/stride-21/block13/5000/
-               seed42) reads diff -0.0009; block13-daily and beta120-daily agree. fwd_20d
-               supporting: cond +0.0029 vs uncond +0.0004 — same story. Per-regime: BEAR
-               -0.072 (momentum crash, excluded by the cell), CHOPPY +0.021 (106 dates,
-               diagnostic only).
+best-known?:   best-available EXPLORATORY substrate — the spec's S5/S8 pick-table/ledger has
+               no multi-year history yet; deviation stated in memo section 7. NOT best-known
+               for a CONFIRMATORY vote: two forms of future contamination disqualify it
+               (regime labels reconstructed with today's GMM+config replayed backward to
+               2016; universe fixed at today's 142-name panel applied retrospectively).
+               Searched this codebase for a point-in-time alternative (historical
+               production-emitted regime labels, point-in-time universe/delisting data) —
+               neither exists; genuine point-in-time reconstruction is out of this fix's
+               scope (see memo section 6 for the investigation).
+scope:         C3 ONLY (one candidate PR at a time, design rule 5); C4/C2 unaffected. Does
+               NOT close C3 — see NEXT.
+result (exploratory, not confirmatory):
+               conditioned placebo-clean IC -0.0040 (n=1833 daily dates, bar +0.015;
+               98.33% one-sided LB ~-0.05 to -0.06 across seeds after the round-2 bootstrap
+               fix) — leg (a) fails the bar on this exploratory run; conditioned-minus-
+               unconditioned +0.0086 but every CI (95% and 98.33%) includes 0 — leg (b) also
+               fails. KILL triggers do not fire (cond > uncond point-wise; UB ~+0.047 not
+               < 0.015). Raw real IC in the cell +0.0253 is fully explained by placebo
+               +0.0275 — apparent bull-regime momentum IC is label-persistence structure,
+               not alpha, in this run. Sensitivities (dispatch bundle, block13, beta120) all
+               agree in direction. None of this is eligible to cast C3's formal vote given
+               the substrate contamination above.
 ```
+
+Round-2 fixes applied (full detail in memo sections 6-11): (1) VERDICT changed MISS ->
+UNADJUDICATED, "C3 is CLOSED" language fully withdrawn — a substrate-contaminated run cannot
+close a candidate under design rule 5, which presumes a valid confirmatory test; (2) removed
+the unsupported "survivorship makes the result conservative" claim — bias direction is not
+identified; (3) weakened the prospectivity claim — "no identical prior script" does not
+establish genuine preregistration, especially with 2 acknowledged prior momentum-family
+audits and same-day spec+result dating; (4) fixed the conditioned-cell bootstrap
+(`block_bootstrap_conditional_mean` replaces pre-filtered `block_bootstrap_means` — the old
+version could splice regime episodes separated by a calendar gap into one artificial
+60-day block; new `tests/test_c3_residual_momentum.py`, 4 tests, proves the fix at the
+single-block level). Point estimates unchanged by the bootstrap fix; CIs shift slightly.
+
+[VERIFIED — searched `/Users/renhao/git/github/RenQuant` (including `.subrepo_runtime`
+sources and the `runs.alpaca.db` schema) directly for historical production-emitted regime
+labels and point-in-time universe/delisting data; both searches returned zero results,
+confirming the substrate contamination has no in-scope fix. Re-ran
+`scripts/c3_residual_momentum.py` end-to-end against real read-only production stores after
+the bootstrap fix (~4 min, umbrella venv); output numbers above are read directly from the
+regenerated `doc/research/evidence/2026-07-02-c3/c3_results.json`, not from memory.
+`tests/test_c3_residual_momentum.py` (4 tests) run and passing.]
 
 Interpretations resolved (full list stamped in c3_results.json + memo section 5): block=60
 NOT 13 (merged spec r3 section 4 Q2 explicitly resolved the "A1 convention block=13"
@@ -56,9 +85,11 @@ floor — it yields 89 conditioned dates); verdict on fwd_60d (strategy horizon)
 supporting; difference CI is PAIRED (blocks over the full series, mean(cell)-mean(all) per
 resample). No frozen threshold altered anywhere.
 
-NEXT:     C3 is CLOSED (recorded miss — do not re-pitch momentum-family candidates absent a
-          genuinely new instrument, design rules 3/5). Stack rides on C4 (trend-scan label,
-          after S3 lands) and C2 (quality composite, after the N3 coverage verdict, 2026-Q4);
-          G106 GO still needs 2 of 3. Codex review of this PR; the M-SIG spec's own tracking
-          should record C3 = MISS at its next revision (spec doc itself frozen, not touched
-          by this PR).
+NEXT:     C3 remains OPEN — this run does not close it. Either (a) build genuinely
+          point-in-time regime labels + universe membership and rerun (materially larger
+          effort, not attempted here), or (b) an explicit operator/design decision to accept
+          this substrate as a permanent limitation and re-adjudicate C3 under an amended,
+          honestly-scoped protocol. The M-SIG stack's dependency on C3 (spec section 2a,
+          alongside C4/C2, G106 needs 2 of 3 GO) is UNRESOLVED, not satisfied. Codex
+          re-review of this round's fixes; do not treat the exploratory statistics above as
+          having settled the underlying hypothesis.
