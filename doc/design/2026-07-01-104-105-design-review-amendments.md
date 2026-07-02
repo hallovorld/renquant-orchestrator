@@ -2,6 +2,19 @@
 
 STATUS: design / RFC for review (docs only — no code, config, broker, risk-cap, or sizing change).
 DATE: 2026-07-01
+REVISION: r2 (2026-07-02) — addresses the Codex review (CHANGES_REQUESTED). (1) **A2 rewritten on a
+verified premise**: the legacy PDT framing is superseded — FINRA's Intraday Margin Standards
+(effective 2026-06-04) replaced the four-trades/$25k PDT designation, and a read-only query of the
+actual live Alpaca account confirms the new regime; the unsafe "day-trade budget = 0 blocks
+same-session exits" control is **withdrawn** and replaced by intraday-margin / buying-power
+semantics with an explicit **exits-always-allowed** safety precedence. (2) **A7 corrected**: the
+proposed active-day carve-out was post-hoc, outcome-dependent relaxation of a pre-registered
+criterion — withdrawn; the original criterion stands, and the BEAR risk-switch becomes a **new
+hypothesis in a separate frozen prereg**. (3) **A1 re-scoped**: the shipped #213 monitor is already
+horizon-aware (`label_observation_cutoff` freshness key + expected-lag threshold widening +
+`max_feature_anchor_date` as provenance-only, per umbrella #423 round-3); the amendment is to align
+the merged **RFC text** with that implementation and require per-recipe axis semantics — not to
+imply no implementation exists. Response map in the appendix.
 SCOPE: an independent deep review of the four merged design documents —
 **#208** (`2026-06-30-renquant105-intraday-decisioning-architecture.md`, r12),
 **#210** (`2026-06-30-model-freshness-governance.md`, R6),
@@ -15,17 +28,17 @@ Verdict summary (severity-ordered):
 
 | # | Finding | Docs hit | Class |
 |---|---------|----------|-------|
-| A1 | The fast-axis freshness ceiling (21–45d grid; 35d shadow tier) is **structurally unsatisfiable** for models trained on `fwd_60d` labels — the freshness key must split the serving-feature axis from the training-label lag budget | #210, #212 | **blocking contradiction** |
-| A2 | **PDT / account-type / same-session round-trip** constraints are absent from the Stage-1 intraday design; intraday entries + the existing intraday risk exits generate day trades on a sub-$25k account | #208 | **blocking gap** |
+| A1 | The merged RFC **text** defines the fast-axis ceiling (21–45d grid; 35d shadow tier) in raw-age terms that are structurally unsatisfiable for `fwd_60d`-label models; the shipped #213 monitor is **already horizon-aware** — the amendment aligns the RFC text with the implementation and requires per-recipe axis semantics | #210, #212 | **text/impl divergence** |
+| A2 | The Stage-1 intraday design carries **no broker-regulatory / settlement envelope**. Verified (read-only account query, 2026-07-02): a margin account governed by FINRA's Intraday Margin Standards (effective 2026-06-04; PDT designation deprecated) — the envelope must bind on real-time intraday margin / buying-power semantics with **exits-always-allowed** precedence, not legacy PDT counting | #208 | **blocking gap** |
 | A3 | #210's Final phase has an **experiment-only authorization path** that will, with high probability, never complete — inconsistent with the two-path authorization #208 §9.3a already adopted; Fix-3 (placebo floor) is mis-classified as bypassable infra | #210 | governance |
 | A4 | Stage 1–2 framing ("catch the entry as it forms") does not match the frozen-signal mechanics; Stage-2's estimand is not reconciled with the already-measured phase −1 intraday-alpha NO-GO | #208 | framing / estimand |
 | A5 | Engineering pins needed before pilot data is trustworthy: gate-input census, order-type pre-declaration, SIP-vs-IEX quote quality, loss-budget noise probability, identifiability back-of-envelope, batch-rotation churn diagnostic, active-path verification | #208 | measurement integrity |
 | A6 | `strategy-104.md`'s hand-written production snapshot is stale (pre-dates the 06-23 XGB re-promotion) — the same premise rot that invalidated #210 R1 | umbrella | doc integrity |
-| A7 | The direction-decision's regeneration PR is the evidence base for the whole 105 direction, not merely Track A's first step; GO criterion (d) is near-certain to fail given the known BEAR-only skill slice | direction decision | evidence / prereg |
+| A7 | The direction-decision's regeneration PR is the evidence base for the whole 105 direction, not merely Track A's first step; the known BEAR-only skill slice makes GO criterion (d) near-certain to fail — the criterion **stands as registered**, and the BEAR risk-switch becomes a **new hypothesis in a separate frozen prereg** (never a retroactive carve-out) | direction decision | evidence / prereg |
 
 ---
 
-## A1. Label-horizon contradiction: split the freshness key (blocking; amends #210 §2/§3/§5.1 and #212 §3.2)
+## A1. Label-horizon contradiction: align the RFC text with the (already horizon-aware) implementation (amends #210 §2/§3/§5.1 and #212 §3.2 text)
 
 **The contradiction.** #210 §2 correctly keys freshness on the **data cutoff, never `trained_date`**,
 and its fast axis includes the "retrain-data cutoff". The §5.1 pre-registered grid for the fast-axis
@@ -49,7 +62,20 @@ Consequences as written:
   unsatisfiable gate (P-FUND-FRESHNESS 45d vs an ~88d-clipped feed) and a long silent no-buy state.
   #210/#212 as written rebuild that bug on paper.
 
-**Proposed amendment — two distinct freshness quantities, never one number:**
+**Implementation status (r2 correction — the divergence is in the TEXT, not the code).** The shipped
+#213 monitor (`src/renquant_orchestrator/model_freshness_monitor.py`, per umbrella #423 round-3)
+already implements the correct semantics: freshness keys on **`label_observation_cutoff`** (the
+fwd_60d-clipped max fully-labeled training row — the latest information that actually affected
+fitting), the tiering thresholds are **widened by the expected label-horizon lag** (so a genuinely
+fresh retrain reads HEALTHY, not born-BREACH), and **`max_feature_anchor_date`** (the raw feature
+frontier, ~60 business days ahead by construction) is captured as **data-pipeline-health provenance
+only, never a freshness axis** — keying on it would let fresh unlabeled rows make a frozen model
+read fresh. So the operational hole is closed. What remains open is that the merged **RFC text** of
+#210/#212 still specifies the raw-age semantics the implementation had to reject: a reader
+implementing from the RFCs (or pre-registering the §5.1 grid from them) would rebuild the
+contradiction. The amendment below is therefore a **text-alignment + generalization** amendment.
+
+**Proposed amendment — two distinct freshness quantities in the RFC text, never one number:**
 
 1. **Serving-feature-axis freshness** — the end date of the feature panel the model *scores* at
    inference. This axis has no label dependence and can and should be current (T-1). The operator's
@@ -60,11 +86,15 @@ Consequences as written:
    explicitly per model family (fwd_60d ⇒ frontier ≈ today − ~88 calendar days). A model is
    training-stale when it lags **what was trainable**, not when it lags today.
 
-Concretely: rewrite #210 §2's fast-axis definition to name both quantities; restate the §5.1 grid as
-a grid over frontier-distance `X` (plus the serving-axis ceiling as its own dimension); restate the
-Pillar-1 tier table and #212 §3.2's tier table in frontier-distance terms. `trained_date` re-enters
-only as the conjunction the operator's directive actually wants: **trained recently AND on data at
-the achievable frontier** — either alone is gameable (a fresh retrain on a stale panel, which #212 r2
+Concretely: rewrite #210 §2's fast-axis definition to name both quantities (adopting #213's
+`label_observation_cutoff` / `max_feature_anchor_date` vocabulary); restate the §5.1 grid as a grid
+over frontier-distance `X` (plus the serving-axis ceiling as its own dimension); restate the
+Pillar-1 tier table and #212 §3.2's tier table in frontier-distance terms. Additionally require
+**per-recipe axis semantics**: each model family declares its label horizon in its recipe so the
+expected-lag widening is derived per recipe (fwd_60d panel ≠ per-ticker tournament ≠ any future
+short-horizon model), not hardcoded to one constant. `trained_date` re-enters only as the
+conjunction the operator's directive actually wants: **trained recently AND on data at the
+achievable frontier** — either alone is gameable (a fresh retrain on a stale panel, which #212 r2
 already blocks; or an old artifact whose cutoff was once at-frontier).
 
 **#212 corollary.** §3.1/§4-step-1 say "refresh the panel to the current point-in-time" — for a
@@ -77,30 +107,51 @@ join) and the failure family has already bitten once.
 
 ---
 
-## A2. Intraday regulatory envelope: PDT / account type / same-session round trips (blocking; amends #208 §10/§11/§11b)
+## A2. Broker-regulatory / settlement envelope for intraday decisioning (blocking; amends #208 §7/§10/§11/§11b) — r2 REWRITE on a verified premise
 
-#208 nowhere mentions the pattern-day-trader rule, the account type, or settlement mechanics. On the
-current ~$10.5k account this is a hard, non-statistical constraint on Stage 1:
+**r1 of this review framed A2 as legacy PDT counting; that premise is superseded and the r1
+"day-trade budget = 0 blocks same-session exits" control was unsafe. Both are withdrawn.** What
+stands is the underlying gap: #208 designs an intraday order loop with **no broker-regulatory /
+settlement envelope at all** — and the envelope must be designed against the rules that actually
+govern the account **today**, verified, not remembered.
 
-- **Intraday entry + same-session risk exit = one day trade.** Stage 1 adds intraday entries while
-  the existing 12-min loop's risk exits keep running. In a **margin** account under $25k equity,
-  4+ day trades in 5 business days flags PDT and the broker restricts the account. In a **cash**
-  account, PDT does not apply but **good-faith-violation / settlement** rules do — and §7's
-  `reserved_cash` models unsettled *buys* only, not the unavailability of same-day *sale proceeds*.
-- The §10 envelope (3 entries/day) makes routine PDT breach entirely reachable in one bad week.
+**Verified account regime (read-only `GET /v2/account`, 2026-07-02):** the live Alpaca account is a
+**margin account**, `status=ACTIVE`, `pattern_day_trader=false` with `daytrade_count=0` (fields
+retained but **deprecated** per Alpaca's account docs), `daytrading_buying_power ≈ $37.5k` on
+~$10.8k equity (≈3.5× — impossible under the legacy sub-$25k PDT regime, confirming the account is
+governed by the new rules), with live `initial_margin` / `maintenance_margin` /
+`intraday_adjustments` fields. FINRA's **Intraday Margin Standards** (effective **2026-06-04**)
+replaced the four-trades-in-five-days PDT designation and the $25k minimum with risk-based intraday
+margin (refs: Alpaca account-plans + intraday-margin-rule docs; FINRA weekly archive 2026-01-07).
+Note the pinned strategy config already sizes against `non_marginable_buying_power` (~$8.3k)
+via `execution.buying_power_mode` — the intraday envelope must stay consistent with that choice.
 
 **Proposed amendments:**
 
-1. **§11 Stage-1 BLOCKER (new):** confirm the account type (margin vs cash) and record which
-   regulatory regime binds (PDT vs GFV/settlement). This is a fact to verify, not a design choice.
-2. **§10 envelope (new rows):** a **day-trade counter + budget** maintained per rolling 5 business
-   days. Proposed Stage-1 default: **routine day-trade budget = 0** — an intraday-entered name may
-   not be exited the same session by the ordinary risk rules; only the Tier-1 HARD-halt /
-   catastrophe path may close it same-session (and such an exit decrements the budget and alerts).
-   This preserves the multi-day-hold mandate, costs nothing Stage 1 needs, and makes the PDT
-   counter an invariant instead of a hope.
-3. **§7 cash accounting:** if the account is cash, extend `reserved_cash` semantics so same-day sale
-   proceeds are excluded from `available` until settled.
+1. **§11 Stage-1 BLOCKER (new): verified broker-rule regime, recorded per session.** Before the
+   first canary session, query and **record in the run bundle** the account's broker-effective rule
+   regime and the fields that bind (margin vs cash; which buying-power figure governs; the
+   intraday-margin fields the broker enforces). The envelope is designed against **those recorded
+   fields**, and a session aborts (no entries) if the recorded regime differs from the one the
+   envelope was designed for — rule regimes change (2026-06-04 proved it), so the contract is
+   *verify-then-bind*, never *hardcode*.
+2. **§10 envelope (new rows): real-time intraday margin / buying-power headroom.** Entries bind on
+   the broker's **live margin/buying-power semantics**: a new buy child must fit within a
+   pre-declared fraction of `non_marginable_buying_power` (consistent with the existing
+   `buying_power_mode`), an open/pending buy consumes headroom (consistent with §7
+   `reserved_cash`), and any broker-reported **intraday margin deficit / adjustment** is a Tier-1
+   condition (halt new entries, reconcile). No legacy day-trade counting.
+3. **Exits-always-allowed safety precedence (§10 interaction rule, new).** **No envelope,
+   regulatory, or budget constraint may ever block a protective exit.** Constraints bind
+   **entries only**: if a contemplated entry would create a position whose protective exit could
+   later be constrained (by margin, settlement, or halt rules), the **entry** is refused — the exit
+   side is unconditional. This inverts r1's unsafe proposal: same-session round trips are
+   permitted whenever the risk rules demand them; their cost/churn is a **ledger diagnostic**
+   (count + realized cost of same-session round trips), not a hard counter.
+4. **§7 settlement accounting (conditional).** The verified account is margin, so T+1
+   settled-funds gating does not bind today; the contract still states the cash-account variant
+   (same-day sale proceeds excluded from `available` until settled) so a future account-regime
+   change is a recorded config flip, not a redesign.
 
 ---
 
@@ -255,13 +306,19 @@ forward: response maps live in an appendix section; the STATUS header states the
    merely Track A's first step; it is the evidence base of the 105 direction itself, and should be
    prioritized as such. If the durable regeneration materially changes A1, the direction is
    re-opened — that is what falsifiable means.
-2. **GO criterion (d) is near-certain to fail as written.** The only skill slice A1 found is BEAR
-   (~10% of live time); any regime-keyed conditioning therefore cannot reach (d)'s ≥25% active-day
-   floor. If the intent is to force the search toward non-regime conditioners, say so explicitly;
-   otherwise add a carve-out for **low-frequency, high-value risk-switch filters** (a BEAR-only
-   filter judged on its contribution during its active slice, with the capital-weighted §4(a) gate
-   still binding). A pre-registered threshold that the already-known evidence guarantees to fail is
-   not a test; it is a foregone conclusion wearing a lab coat.
+2. **GO criterion (d) is near-certain to fail as written — and it must stand anyway (r2
+   correction).** The only skill slice A1 found is BEAR (~10% of live time); any regime-keyed
+   conditioning therefore cannot reach (d)'s ≥25% active-day floor. r1 of this review proposed a
+   carve-out for low-frequency risk-switch filters; that proposal is **withdrawn as post-hoc,
+   outcome-dependent relaxation** — loosening a pre-registered criterion after inspecting the
+   evidence that makes it fail is exactly what pre-registration exists to forbid. The amendment is
+   instead: (a) the Track-A verdict is rendered under the **original (a)–(e), untouched** — if no
+   conditioner clears them, Track A is NULL and is recorded as such; (b) the **BEAR risk-switch is
+   registered as a NEW hypothesis in a separate, frozen pre-registration** with its own estimand
+   (contribution during the active slice), its own capital-weighted utility threshold, and its own
+   untouched confirmation span — it competes on fresh terms and can never retroactively amend the
+   current GO rule; (c) the predictable-failure observation stays, as a *statement of expected
+   outcome* (so nobody is surprised by the NULL), not as grounds to move the bar.
 
 ---
 
@@ -269,8 +326,8 @@ forward: response maps live in an appendix section; the STATUS header states the
 
 | Order | Amendment | Doc(s) | Why first |
 |---|---|---|---|
-| 1 | A1 freshness-key split (serving axis vs frontier distance) | #210 §2/§3/§5.1, #212 §3.2 | every monitor tier and the §5 grid are defined on it; #213's observe-only monitor should adopt the corrected key before its numbers calcify |
-| 2 | A2 regulatory envelope (account-type blocker, day-trade budget, cash-settlement accounting) | #208 §7/§10/§11 | hard blocker for any live canary session |
+| 1 | A1 RFC-text alignment with the #213 implemented key (label-observation frontier + per-recipe axis semantics) | #210 §2/§3/§5.1, #212 §3.2 | the §5.1 grid and any future pre-registration read the RFC text; align it before anything is registered from it |
+| 2 | A2 regulatory envelope (verified-regime blocker, intraday-margin/buying-power headroom, exits-always-allowed precedence) | #208 §7/§10/§11 | hard blocker for any live canary session |
 | 3 | A5.1–A5.3 measurement pins (census, order type, quote feed) | #208 §6/§8/§10/§11 | must precede pilot data collection or the corpus is retroactively dirty |
 | 4 | A3 governance convergence (two-path Final; Fix-3 fail-closed) | #210 §4/§6 | unblocks the operator's directive without reviving the stats loop |
 | 5 | A4 framing/estimand + A5.4–A5.7 | #208 §1/§9/§12 | honesty and diagnostics; no ordering pressure |
@@ -279,14 +336,27 @@ forward: response maps live in an appendix section; the STATUS header states the
 
 ## Open questions for the operator / Codex
 
-1. **A1:** confirm the two-quantity freshness key (serving-feature axis + frontier-distance training
-   lag) as the amendment to #210 §2 — and what frontier slack `X` to pre-register per model family.
-2. **A2:** which account regime binds (margin/PDT vs cash/GFV)? Is the proposed Stage-1
-   **day-trade budget = 0** (no same-session exit of intraday entries except Tier-1 halt) acceptable?
+1. **A1:** confirm the RFC-text alignment to #213's implemented key (`label_observation_cutoff`
+   frontier + expected-lag widening; `max_feature_anchor_date` provenance-only) — and what frontier
+   slack `X` to pre-register **per model family** (per-recipe label horizon).
+2. **A2:** confirm the verify-then-bind contract (recorded broker-rule regime per session), the
+   intraday-margin/buying-power headroom rows, and the **exits-always-allowed** precedence rule as
+   the Stage-1 envelope amendment.
 3. **A3:** adopt the #208-style two-path authorization for #210's Final (ceiling as risk-policy
    constant by recorded decision), keeping Pillar 3 experiment-gated?
 4. **A5.3:** subscribe to the consolidated/SIP feed for the pilot, or record accepted IEX bias?
 5. **A5.5:** given the ~1,800-pair identifiability arithmetic, should §9.4 be re-scoped now to a
    diagnostics-plus-operator-decision design instead of a powered non-inferiority test?
-6. **A7:** is the (d) active-day floor intentional pressure toward non-regime conditioners, or
-   should the risk-switch carve-out be added before the Track-A test runs?
+6. **A7:** should the separate frozen BEAR-risk-switch pre-registration be authored now (in
+   parallel) or only after the Track-A verdict is rendered under the original criteria?
+
+---
+
+## Appendix — response map: Codex review r1 (CHANGES_REQUESTED, 2026-07-02)
+
+| # | Codex point | Disposition | Where |
+|---|---|---|---|
+| 1 | **A2 rests on a superseded broker/regulatory premise** (FINRA Intraday Margin Standards effective 2026-06-04 replaced PDT designation/$25k; Alpaca deprecated PDT fields) **and the day-trade-budget-0 control is unsafe** (must never block a required protective exit). Design against the actual account's current regime/fields, intraday margin deficit / buying-power semantics, T+1 cash settlement where applicable, exits-always-allowed precedence | **Accepted** — A2 rewritten: verified the live account read-only (margin, new-regime fields, `daytrading_buying_power` ≈ 3.5× equity), verify-then-bind blocker (regime recorded per session), envelope binds entries on live margin/buying-power headroom consistent with `non_marginable_buying_power`, **exits unconditionally allowed** (constraints bind entries only; same-session round trips become a ledger diagnostic), cash-settlement variant stated conditionally. r1 control withdrawn | A2 |
+| 2 | **A7's carve-out is post-hoc, outcome-dependent relaxation of a pre-registered criterion.** Keep the original (a)–(e); a BEAR risk-switch is a new hypothesis needing its own frozen prereg (estimand, threshold, capital-weighted utility, untouched confirmation span) | **Accepted** — carve-out withdrawn; Track-A verdict renders under the original criteria; BEAR risk-switch re-scoped as a separate frozen pre-registration; the predictable-failure note retained only as expected-outcome statement | A7.2 |
+| 3 | **A1 must acknowledge the existing implementation** — #213 already has horizon-aware `label_observation_cutoff` compensation and `max_feature_anchor_date` provenance; the amendment is text alignment + per-recipe axis semantics, not a claim that nothing exists | **Accepted** — verified in `model_freshness_monitor.py` (umbrella #423 round-3 semantics: label-observation key, expected-lag threshold widening, feature-anchor provenance-only); A1 re-scoped to RFC-text alignment + per-recipe label-horizon declaration | A1 |
+| 4 | Required CI must be green before merge | **Acknowledged** — docs-only PR; CI status checked on this revision | — |
