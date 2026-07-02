@@ -2,7 +2,16 @@
 
 STATUS:   design for review (docs only — no code/config/broker/risk/sizing change in this PR).
           The TIME-PHASED execution companion to the thematic capability program (PR #228).
-REVISION: r1.
+REVISION: r2 (2026-07-02) — addresses Codex CHANGES_REQUESTED: added an explicit dependency-DAG
+          table to §1 (RenQuant#431 IC reconciliation gates S9/Track A/D3/L1; RenQuant#430 gates
+          S9; #224+#227 gate N1/M1/M2; S1-S3 gates S4/M10); constrained §8's monthly re-baseline
+          to forecasts/estimates only, never silently touching a pre-registered estimand/
+          threshold/confirmation-data/stop-rule; added cost caps + vendor exit criteria to N3 and
+          RS-3; clarified M2's canary scope as operational/safety validation only, never economic
+          authorization; corrected S8's AC to reflect its actual (disputed, not clean-passed)
+          outcome per RenQuant#431 and hard-gated S9 on that reconciliation; added this §4(b)
+          evidence block. Also rebased onto current main to pick up #226 (A3)'s already-merged
+          changes to `model-freshness-governance.md`, which this branch had gone stale against.
 WHAT:     a NOW (≤72h) / SHORT (July) / MID (Aug–Sep) / LONG (Q4→H1'27) execution roadmap in
           which EVERY item carries concrete guidance (repos, scripts, order) and a measurable
           acceptance criterion; four dated decision gates (D1 first WF-gate verdict on the live
@@ -34,6 +43,27 @@ EVIDENCE: item IDs and rationale trace to PR #228 (capability program: P0–P3, 
           `panel_buy_top_n=3`), `portfolio_qp/tasks.py:2042` (solver default 0.05),
           failed-experiments E27/E33/E34, A1/A2 audits, #256 persistence decomposition,
           phase −1 NO-GO (PR #199), σ_oc ≈ 150bps (upper-bound scenario only).
+
+          §4(b) evidence block (`doc/AGENT-RETROSPECTIVE.md`), added per Codex review 2026-07-02:
+          ```
+          artifact:      doc/design/2026-07-02-h2-execution-roadmap.md (this PR — a scheduling/
+                         sequencing document, not a model or data artifact)
+          prod or exp:   n/a — this PR makes no model/data claim of its own; it is a scheduling
+                         layer over items whose OWN evidence blocks live in their source PRs
+                         (#228, #223, RenQuant#430/#431). Where this doc cites a measured fact
+                         (e.g. the 2026-07-01 `01c54b39` run, σ_oc≈150bps), the citation traces to
+                         that fact's own originating PR/doc, not to a new claim made here.
+          existing data: this is the first roadmap doc of its kind in this repo (no prior
+                         "H2 execution roadmap" to diff against); its dependency-gate content was
+                         cross-checked against the actual current state of the PRs it cites
+                         (RenQuant#430/#431's real findings, not assumed outcomes) as part of this
+                         revision
+          best-known?:   n/a (scheduling document, not a model variant)
+          scope:         this is a sequencing/dependency-gate document only; it asserts no IC,
+                         Sharpe, or other quantitative model claim itself — S8/S9's status section
+                         above is the one place it reports a measured outcome, and that section
+                         states the AC as UNRESOLVED/disputed rather than met, per RenQuant#431
+          ```
 NEXT:     Codex review of this roadmap; operator confirmation of the §9 sign-off list. On
           agreement: N1–N3 execute immediately (data spend already authorized); S1–S3 gate-repair
           PRs open in backtesting/model; RS-3 (data-vendor stack) and RS-2 (lane-A timing)

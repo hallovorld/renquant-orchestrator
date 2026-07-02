@@ -37,6 +37,18 @@ LONG (Q4–H1'27) : Track B structural decision (D3) · 105 §9.4 prereg → Sta
 - **D4 — 105 canary economic authorization** (#208 §9.3a): experiment-PASS or recorded operator
   risk acceptance. Never implied by operational cleanliness.
 
+**Dependency DAG (hard gates — these block START, not just scheduling order).** Codex review,
+2026-07-02: a horizon label (NOW/SHORT/MID/LONG) states WHEN an item is planned; it does not by
+itself say an item MAY start before its inputs exist. The following are hard gates — the
+downstream item literally cannot start (not merely "should wait") until the upstream one lands:
+
+| Upstream (must land first) | Downstream (blocked until then) | Why |
+|---|---|---|
+| `RenQuant#431` IC-method reconciliation (frozen protocol; not yet executed) | S9 (Track A conditional pick-quality test) and any Track A/Track B alpha-route commitment (D3, L1) | S8/S9's own AC below still cites the ORIGINALLY-committed `genuine_ic` (0.0417) as the faithfulness bar; #431 found the leak-controlled-IC reproduction against the durable table does not agree in sign with the direction-decision doc's cited BULL_CALM figure. Until #431's reconciliation protocol executes, neither figure is settled, and no alpha-route decision (Track A GO/STOP, D3, L1) may cite either one as ground truth. |
+| `RenQuant#430` durable generator/manifest (evidence-base prerequisite) | S9 (Track A test itself needs the durable table to run against) | already implied by S8→S9 ordering; stated here as an explicit hard gate, not just sequencing, because S9 has no valid input without S8's committed artifact. |
+| `renquant-orchestrator#224` (broker-regulatory envelope) AND `#227` (Stage-1 measurement pins), both folded into RFC #208 | N1 (105 collector deployment) and M1/M2 (105 Stage-1 build, canary) | #208 §11's verify-then-bind blocker and the gate-input census / order-type / quote-feed-quality pins are prerequisites for pilot data to be trustworthy at all — deploying collectors or starting Stage-1 build before these land risks a retroactively-dirty corpus. |
+| S1–S3 (WF-gate repair, Fixes 1–3) | S4 (first gate verdict, D1) and anything citing a primary-model verdict (thesis review M10) | the gate cannot render a verdict on the live primary until the mechanical/infra bugs blocking it are fixed; no verdict exists to cite before then. |
+
 **Weekly KPI dashboard** (added to the existing daily report; each KPI names its source):
 deployed fraction (live_state), gate-verdict age (wf_gate_metadata), ledger coverage %
 (decision_outcomes), PIT accrual days (#205 store), collector liveness (log mtimes),
@@ -67,6 +79,10 @@ pattern) across estimates / key-metrics / growth / income endpoints; extend to t
 tier unlocks.
 **AC:** coverage report ≥95% of watchlist on estimates + key-metrics; harvest job green on
 schedule; 402-plan-locked error count = 0.
+**Cost cap / exit criteria (Codex, 2026-07-02):** ceiling $29/mo — any tier upgrade beyond Starter
+requires a fresh recorded spend decision, not implied by this authorization. Exit: cancel if, after
+2 full harvest cycles, the coverage AC above is not met (plan-locked / stale data despite the paid
+tier) or if RS-3's broader vendor-stack recommendation supersedes this subscription.
 
 ---
 
@@ -119,18 +135,24 @@ of sweep/fund plumbing before enable.
 **AC:** shadow: 10 sessions, sweep and fund legs both exercised, reserve never breached; live:
 idle cash ≤ reserve + 1% at every close; a BEAR-regime sim test shows the sleeve exits.
 
-### S8. Track A regeneration PR (P1-3a)
+### S8. Track A regeneration PR (P1-3a) — IN FLIGHT, `RenQuant#430`/`#431`
 **Guidance:** commit `scripts/regen_oos_pick_table.py` (read-only re-score of the prod manifest
-`walkforward_manifest_gbdt_prod_recipe_v2.json` over the 508 OOS dates) → durable
-`data/exp/oos_pick_table_recipe_v2.parquet` with `{date,name,score,decile_rank,fwd_60d_excess,
-regime}`; never a canonical prod path.
-**AC:** reproduces the committed `genuine_ic` to ±0.001 (the A1 faithfulness bar: 0.0415 vs
-0.0417); ~147k rows / 508 dates; documented in doc/research.
+`walkforward_manifest_gbdt_prod_recipe_v2.json` over the 508 OOS dates) → durable evidence
+(manifest + regeneratable table, never a raw parquet committed to git — the protected-path gate
+rejects `data/*.parquet`) with `{date,name,score,decile_rank,fwd_60d_excess,regime}`.
+**AC (status, Codex 2026-07-02): row/date/window reproduction succeeded (147,066 rows / 508 dates,
+exact match), but the `genuine_ic` faithfulness bar as originally stated (±0.001 vs the committed
+0.0417) did NOT clean-reproduce — `RenQuant#431`'s leak-controlled-IC rerun found +0.076
+(overall) / +0.044 (BULL_CALM, leak-adjusted), disagreeing with the cited figures including SIGN
+for BULL_CALM. This AC is therefore UNRESOLVED, not met — see the Dependency DAG above and S9.**
 
-### S9. Track A conditional pick-quality test (P1-3b)
+### S9. Track A conditional pick-quality test (P1-3b) — BLOCKED on `RenQuant#431`
 **Guidance:** run the FROZEN spec (direction-decision §4) on the S8 table — conditioning variables
 1–3 verified, 4–5 only after their PIT checks; chronological 60/40 split, 60d embargo; original
-GO/STOP criteria (a)–(e) untouched.
+GO/STOP criteria (a)–(e) untouched. **Hard gate (Codex, 2026-07-02): do NOT start this item until
+`RenQuant#431`'s frozen reconciliation protocol has executed and produced a single trusted
+genuine-IC methodology.** Running S9 against a disputed input metric would produce a verdict that
+inherits the dispute.
 **AC:** a recorded verdict — GO (build the meta-label filter) or NULL (recorded, Track B becomes
 the only directional path); all five metrics with bootstrap CIs; zero post-hoc criterion edits.
 
@@ -170,8 +192,14 @@ envelope per the verified intraday-margin regime, exits-always-allowed.
 **readonly K=5 sessions**: decisions logged, nothing placed, four-class replay green every tick,
 census complete (any un-classified gate input = test failure).
 
-### M2. 105 frozen canary (needs D4 path only for EXPANSION — running the frozen envelope needs
-operational PASS + the pre-declared envelope)
+### M2. 105 frozen canary — operational/safety validation ONLY, never economic authorization
+**Scope note (Codex, 2026-07-02):** running the frozen canary requires ONLY #208 §9.3's operational
+acceptance (no-leak / idempotency / reconciliation / Tier-1 clean) + the pre-declared envelope
+below — it does NOT require D4. Completing the 20-session canary cleanly proves the order-emission
+plumbing is safe; it proves NOTHING about whether moving entries intraday is economically
+beneficial, and must never be read as implying that. D4 (experiment-PASS or recorded operator risk
+acceptance) is required ONLY to EXPAND beyond this frozen envelope (more names, higher cap, more
+sessions) or to go live generally — never to run the frozen canary itself.
 **Guidance:** 1–2 pre-declared names, pre-declared notional cap, ≤20 sessions, 1.5% loss budget,
 HARD-halt stop conditions (#208 §9.3a); paired data accrues to the ledger; the noise-halt response
 is pre-committed (halt → re-authorization is itself a recorded decision).
@@ -301,7 +329,7 @@ receives a recommendation, not a menu.
 |---|---|---|---|---|
 | RS-1 | **Parking-sleeve vehicle** (SPY β≈1 vs T-bill ETF carry vs split) | measure the book's realized benchmark shortfall attributable to idle cash from the ledger; compare sleeve variants' risk contribution at this book's drawdown tolerance; survey settlement/liquidity mechanics (SGOV/BIL spreads, T+1) | memo with ONE recommended vehicle + reserve size + the beta-risk statement the operator signs; AC: S7 implements the recommendation verbatim | before S7 enable (mid-July) |
 | RS-2 | **Lane-A timing** (run de-throttle before or after D1's first verdict) | quantify worst-case exposure delta of λ/top_n/one-share at current gates from ledger replay; compare against the D1 timeline | memo recommending enable order + any interim caps; AC: S6 sequencing follows it | with S6 (early July) |
-| RS-3 | **Data-vendor stack** (SPEND AUTHORIZED — what exactly to buy) | deep-research: FMP tier vs Polygon vs Alpaca SIP add-on vs Sharadar/Norgate for (a) full-fundamentals+estimates PIT, (b) consolidated tape for 105 IS, (c) small/mid-cap history WITH survivorship-free membership for M7; price the full stack monthly | memo with the exact subscription list + monthly total + which roadmap item each feeds; AC: N3/M7/105-pilot procurement follows it; every dataset has an `available_at`-stamped ingest plan | 1 week |
+| RS-3 | **Data-vendor stack** (SPEND AUTHORIZED — what exactly to buy) | deep-research: FMP tier vs Polygon vs Alpaca SIP add-on vs Sharadar/Norgate for (a) full-fundamentals+estimates PIT, (b) consolidated tape for 105 IS, (c) small/mid-cap history WITH survivorship-free membership for M7; price the full stack monthly | memo with the exact subscription list + monthly total + which roadmap item each feeds; AC: N3/M7/105-pilot procurement follows it; every dataset has an `available_at`-stamped ingest plan. **Cost cap (Codex, 2026-07-02): the memo must state an explicit monthly total ceiling before any subscription beyond N3's $29/mo is purchased — spend above that ceiling requires a fresh operator sign-off, "SPEND IS AUTHORIZED" (line 9) covers the vendors this memo recommends AT the priced total, not an open-ended budget.** Each recommended vendor gets a stated exit criterion (e.g. coverage/quality bar unmet after N cycles, or superseded by a cheaper/better source) so a subscription is never indefinite by default. | 1 week |
 | RS-4 | **R1 migration safety** (tournament retirement) | the M5 shadow delta report IS the research; additionally quantify what (if anything) the tournament uniquely contributes via ledger attribution | the M5 delta report doubles as the recommendation; AC: cutover PR cites it | with M5 |
 | RS-5 | **Down-cap panel construction** (survivorship-clean membership source, cost model 25–40bps validation, borrow/liquidity constraints at our size) | deep-research + vendor eval (feeds from RS-3); validate the cost assumption against published small-cap spread studies + our own broker fills where any exist | M7's panel spec + frozen thresholds; AC: M7 runs on it | before M7 (early Aug) |
 | RS-6 | **Benchmark + KPI definitions** (what the weekly scorecard measures — deployed fraction, drag decomposition, expectancy per admitted name) | define each KPI's exact query against the S5 ledger; document in the dashboard PR | KPI spec merged with the dashboard; AC: §1 dashboard ships to the daily report | with S5 |
@@ -318,7 +346,16 @@ universe expansion (E34); new factor scans on the current panel (four NULLs this
 - **Weekly:** ops review against the §1 KPI dashboard; any red KPI gets a dated note in the
   roadmap addendum.
 - **Monthly:** roadmap re-baseline — a dated addendum section to THIS doc (never silent edits);
-  items may move horizons only with a stated reason.
+  items may move horizons only with a stated reason. **Scope limit (Codex, 2026-07-02): a
+  re-baseline may update FORECASTS/ESTIMATES only** (expected dates, expected KPI values,
+  sequencing horizons). It may **never**, under any addendum, silently revise: a pre-registered
+  estimand (e.g. S9/Track A's conditional-pick-quality definition, #431's frozen reconciliation
+  protocol, L2's #223 A5.5 power-prereg requirements), a GO/STOP threshold (S9's (a)–(e) criteria,
+  M7's frozen thresholds, M8's wave pre-registered noise band), what counts as confirmation data
+  (S9's held-out test window, #431's untouched adjudication slice), or a stop rule (M2's HARD-halt
+  envelope, L2's underpowered-routes-to-§9.3a rule). Any of those may only change via a fresh,
+  explicitly-labeled amendment PR to the document that originally froze them — never via this
+  roadmap's own monthly addendum.
 - **Quarterly:** thesis review (M10 / L7) — the only forum that may change the program's
   DIRECTION (everything else is sequencing).
 - Every item lands via the normal control plane: design-via-PR where behavior changes, progress
