@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "prereg_id": "rs5-m7-downcap-panel-v1",
+  "spec_doc": "doc/design/2026-07-02-rs5-downcap-panel-spec.md",
+  "freeze_note": "This artifact's freeze point is the merge commit of the PR that introduces it. The scan PR must cite that merge commit SHA and merge timestamp as the demonstrable freeze point per this doc's §7. The eventual runner (scripts/m7_downcap_scan.py) must load and validate against this file at startup and REFUSE to run if any declared parameter below does not match what it is about to execute.",
+
+  "universe": {
+    "index_basis": "russell_2000_point_in_time",
+    "membership_source": "norgate_constituency_by_date_boolean",
+    "membership_timing": "daily_truth_monthly_floor_reevaluation",
+    "membership_reevaluation_rule": "last_session_of_month_applied_next_session",
+    "liquidity_floor_adv_usd": 5000000,
+    "liquidity_floor_window_sessions": 63,
+    "liquidity_floor_statistic": "median_dollar_volume",
+    "price_floor_usd": 5.0,
+    "minimum_history_sessions": 252,
+    "panel_window_start": "2014-01-01",
+    "panel_window_end": "scan_as_of_date",
+    "security_types_excluded": ["closed_end_fund", "spac", "unit", "warrant", "preferred", "secondary_share_class"],
+    "adrs_foreign_issuers": "excluded",
+    "reits_gics_60_sic_6798": "excluded_panel_wide",
+    "financials_non_reit": {
+      "price_family_factors": "retained",
+      "value_quality_factor_cross_sections": "excluded"
+    },
+    "biotech_binary_event_names": "retained_with_mandatory_ex_biotech_sensitivity_cut",
+    "target_panel_size_names_per_date": {"min": 800, "max": 1400, "hard_bounds": {"min": 500, "max": 1600}},
+    "hard_bounds_violation_action": "stop_build_amend_spec_before_any_factor_computed"
+  },
+
+  "survivorship_and_delisting": {
+    "primary_panel": "constituency_by_date_no_survivorship",
+    "fallback_panel_trigger": "norgate_procurement_slips_past_m7_early_aug_slot",
+    "fallback_panel_role": "pipeline_feasibility_and_exploratory_sensitivity_only",
+    "fallback_panel_may_gate_d3": false,
+    "fallback_panel_bias_direction": "not_identified",
+    "delisting_return_policy": {
+      "priority_1": "vendor_provided_delisting_proceeds_if_available_confirmed_during_norgate_trial",
+      "priority_2_reorg_merger_acquisition": "actual_deal_consideration_if_known_else_last_available_price",
+      "priority_2_bankruptcy_liquidation_delinquency": "minus_100_percent_terminal_return_from_last_trading_date",
+      "priority_3_if_neither_rigorous": "affected_forward_labels_inadmissible_coverage_loss_stated",
+      "mandatory_reporting": ["count_and_fraction_by_path", "sensitivity_of_verdict_to_minus_100_convention"]
+    }
+  },
+
+  "cost_model": {
+    "buckets": [
+      {"bucket": "A", "adv_min_usd": 25000000, "adv_max_usd": null, "round_trip_bps": 25},
+      {"bucket": "B", "adv_min_usd": 10000000, "adv_max_usd": 25000000, "round_trip_bps": 40},
+      {"bucket": "C", "adv_min_usd": 5000000, "adv_max_usd": 10000000, "round_trip_bps": 60}
+    ],
+    "charge_convention": "one_way_cost_equals_round_trip_over_2_per_side",
+    "cost_per_rebalance": "sum_abs_delta_weight_times_round_trip_over_2_bucket",
+    "borrow_fee_short_leg": "zero_stated_optimistic_diagnostic_only_not_gating",
+    "sensitivity_reporting": "plus_minus_10bps_per_bucket_report_only_never_regates"
+  },
+
+  "factor_families": {
+    "multiplicity_family": ["MOM", "REV", "VAL", "QUAL"],
+    "family_size_k": 4,
+    "headline_factors": {
+      "MOM": "mom_12_1",
+      "REV": "st_rev_21",
+      "VAL": "value_earnings_yield",
+      "QUAL": "quality_composite_or_quality_low_accruals_declared_before_ic_computed_based_on_coverage_only"
+    },
+    "diagnostic_only_factors": {
+      "MOM": ["mom_6_1", "ma200_dist", "pct_52w_high"],
+      "VAL": ["value_book_to_price", "value_fcf_yield"],
+      "QUAL": ["quality_roe", "quality_gross_margin"]
+    }
+  },
+
+  "estimand": {
+    "statistic": "daily_cross_sectional_spearman_rank_ic",
+    "target": "fwd_60d_excess_vs_spy",
+    "gating_horizon": "fwd_60d",
+    "supporting_horizon_never_gates": "fwd_20d",
+    "gating_quantity": "placebo_clean_difference",
+    "placebo_construction": "label_shifted_plus_horizon_within_ticker_defined_only_where_both_exist",
+    "secondary_scanner_native_placebo": "sighunt_within_date_shuffle_floor_n_perm_gte_200",
+    "regime_conditioning": "diagnostic_only_not_gating_round_2_correction",
+    "regime_label_source": "not_point_in_time_documented_limitation_see_admissibility",
+    "value_quality_lag_discipline": {
+      "primary": "acceptedDate_then_filingDate",
+      "period_date_fallback": "prohibited",
+      "fallback_join": "sec_edgar_available_date",
+      "no_timestamp_result": "inadmissible"
+    }
+  },
+
+  "bootstrap": {
+    "method": "moving_block_bootstrap",
+    "unit": "per_date_placebo_clean_ic_series",
+    "block_size_sessions": 60,
+    "n_boot": 2000,
+    "seeds": [42, 43, 44],
+    "seeds_role": "robustness_check_on_one_corrected_result_not_extra_looks",
+    "multiplicity_correction": "bonferroni",
+    "multiplicity_k": 4,
+    "per_family_one_sided_alpha": 0.0125,
+    "one_sided_ci_level": 0.9875
+  },
+
+  "admissibility": {
+    "primary_panel_required_for_gating": true,
+    "fallback_panel_gating": "never_admissible_pipeline_feasibility_only",
+    "regime_conditioned_checks": "diagnostic_only_not_admissible_for_gating_round_2_correction",
+    "vaL_qual_timestamp_coverage_floor_pct": 60,
+    "below_coverage_floor_status": "inconclusive_by_coverage_does_not_vote",
+    "sample_floors": {
+      "min_pooled_clean_decision_dates": 600,
+      "min_effective_60d_blocks": 10,
+      "min_names_per_date_cross_section": 200,
+      "panel_average_min_names_per_date": 500,
+      "per_regime_cell_min_dates_for_any_verdict": 150
+    }
+  },
+
+  "verdict_logic": {
+    "go_requires_all_of": ["gate_a", "gate_b", "gate_c2", "gate_c3", "gate_d"],
+    "go_scope": "at_least_one_family_headline_on_primary_panel_only",
+    "gate_a_net_relevant_placebo_clean_ic": {
+      "point_estimate_threshold": 0.02,
+      "ci_lower_bound_must_exceed": 0.0,
+      "ci_level": "one_sided_98.75_pct_bonferroni_k4",
+      "must_hold_on_all_seeds": [42, 43, 44]
+    },
+    "gate_b_net_return_round_2_corrected": {
+      "construction": "long_only_top_decile_minus_benchmark_spy",
+      "rebalance_sessions": 60,
+      "staggered_start_offsets": 3,
+      "cost_accounting": "realized_section3_buckets_at_realized_turnover_charged_once_here_only",
+      "annualized_net_sharpe_point_estimate_threshold": 0.5,
+      "ci_lower_bound_must_exceed": 0.0,
+      "ls_zero_borrow_fee_sharpe": "demoted_to_diagnostic_only_not_gating_round_2_correction"
+    },
+    "gate_c_regime_robustness_round_2_split": {
+      "c1_largest_regime_cell_removed": {"gates": false, "role": "exploratory_diagnostic_only", "reason": "inherits_c3_regime_label_contamination_not_point_in_time"},
+      "c2_two_half_stability": {"gates": true, "threshold": "placebo_clean_ic_gt_0_in_both_halves", "reason": "pure_time_split_regime_label_independent"},
+      "c3_yearly_breakdown": {"gates": true, "threshold": "placebo_clean_ic_gt_0_in_ge_60_pct_of_years_with_ge_100_clean_dates", "reason": "pure_calendar_time_split_regime_label_independent"}
+    },
+    "gate_d_minimum_sample_floors": "see_admissibility.sample_floors",
+    "kill_decisive_no_go": "every_family_headline_one_sided_98.75_pct_ci_upper_bound_lt_0.02",
+    "miss": "no_family_clears_a_through_d_and_kill_condition_does_not_fire",
+    "inconclusive_by_coverage_or_size": "gate_d_unmet_for_a_family_or_panel",
+    "d3_consequence": {
+      "go": "down_cap_option_live_for_staged_migration_rfc_future_separate_decision",
+      "no_go_or_miss": "d3_falls_to_new_data_only",
+      "fallback_panel_any_result": "never_authorizes_d3_pipeline_feasibility_and_procurement_gate_only"
+    }
+  },
+
+  "prospectivity": {
+    "novelty_affirmation_required": true,
+    "novelty_affirmation_sufficient_alone": false,
+    "note": "Per PR #249 section 8's correction: novelty (no identical prior script) is necessary but not sufficient for confirmatory status. This artifact's own merge commit SHA and timestamp are the demonstrable freeze point required for genuine prospectivity — the scan PR must cite them.",
+    "runner_must_reject_undeclared_deviation": true
+  }
+}
