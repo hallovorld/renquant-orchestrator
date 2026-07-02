@@ -8,8 +8,15 @@ asked — §1 of the merged route doc). Evidence tiers marked per claim; prices 
 integration" was overstated (entitlement verification now required before spend), the FMP
 upgrade trigger is now an explicit decision rule, the "no retail vendor" PIT claim is narrowed
 to this survey's actual scope, and Sharadar is reclassified as a separate fundamentals
-candidate rather than an estimates-axis substitute. No purchases have been made under either
-revision.
+candidate rather than an estimates-axis substitute. **r2 addendum: ATP deferred on operator
+cost review.** **r3 (2026-07-02): corrected per Codex review** — the r2 "official DAILY bars"
+claim for S10 was unsupported (verified: yfinance for daily open, Alpaca-IEX for
+intraday/true-VWAP — neither is SIP/official-tape); "observe-only = safe" conflated execution
+risk with decision risk (added an explicit valid/prohibited-metric list + required-evidence
+rule); the $50k re-trigger was arbitrary (replaced with M2-canary-OR-named-decision-clearing-
+a-budget-cap); the top-of-memo recommendation table and steady-state figures (which predated
+and contradicted the r2 deferral) are now corrected to match. No purchases have been made
+under any revision.
 DATE: 2026-07-02
 NEEDS SERVED: (a) PIT fundamentals/estimates for M-SIG; (b) consolidated tape for 105 IS
 measurement; (c) survivorship-free small/mid membership + history for M7. (#231 §1 Term IC/EXEC.)
@@ -18,17 +25,19 @@ measurement; (c) survivorship-free small/mid membership + history for M7. (#231 
 
 | Need | Recommendation | Cost | When |
 |---|---|---|---|
-| (b) consolidated tape | **Alpaca Algo Trader Plus** — full SIP (CTA+UTP, 100% of volume) + OPRA options + 10k rpm — **conditional GO, pending entitlement verification** (§ "Alpaca ATP — required verification before spend" below) | **$99/mo** [probed: alpaca.markets/data, confirmed by Codex 2026-07-02] | Entitlement probe + A/B capture FIRST; subscription start aligned to the #224/#227-gated N1b live-activation date, not before |
+| (b) consolidated tape | **Alpaca Algo Trader Plus** — full SIP (CTA+UTP, 100% of volume) + OPRA options + 10k rpm — **DEFERRED (r2/r3 addendum below): not needed now, $0/mo incremental spend; re-trigger is M2 canary go-live OR a named decision clearing a 5%/yr-of-book budget cap, not account size alone** | **$99/mo** [probed: alpaca.markets/data, confirmed by Codex 2026-07-02] | Not scheduled; see r2/r3 addendum for the corrected re-trigger conditions |
 | (a) PIT fundamentals/estimates | **keep FMP on the existing key** (stable endpoints returned SOME data 2026-07-02 — coverage/cadence/PIT-semantics NOT yet established, see § below); upgrade to **Starter $29/mo** only per the explicit decision rule below | $0 now; +$29/mo conditional | decision falls out of N2's first real `--min-coverage` run |
 | (c) survivorship-free small/mid | **Norgate Data US (Platinum)** — delisted securities + historical index constituency (R2000/R3000 membership BY DATE, exposed as a per-security/date boolean via vendor plugins — see § below) — **trial/POC-first, NOT a purchase commitment for M7** | $346.50 for a 6-month term OR $630 for 12 months — **no monthly plan; fixed-term, non-cancellable** [corrected 2026-07-02 per Codex review against current official pricing] | POC + 3-week trial acceptance test BEFORE any term commitment — do not schedule a firm M7 purchase date until that passes |
 | (a-plus, conditional) | **Sharadar Core US bundle** (SEP prices + SF1 fundamentals, 14k+ tickers incl. dead) — a **separate fundamentals-axis candidate**, NOT a substitute for analyst-estimate-revision data (§ below) | ~$40–70/mo [unverified — not independently probed this session] | ONLY if FMP's coverage report shows quality-factor gaps, and only evaluated on the fundamentals axis |
 
-**Steady-state new spend if Alpaca ATP entitlement verification passes: $99/mo now; realistic
-ceiling ≈ $170–230/mo by August** if both conditionals trigger — Norgate's fixed-term cost is
-NOT a monthly recurring number and must be budgeted as a $346.50/$630 lump commitment, not
-folded into the "$40-60/mo" steady-state figure the prior revision used. All within the
-authorized data budget, but the Norgate commitment size and non-cancellable term make the
-trial-first gate load-bearing, not a formality.
+**Steady-state new spend now: $0/mo (ATP deferred per r2/r3 addendum below — do not read
+this table as ATP being imminent).** If ATP's re-trigger fires (M2 canary go-live, or a named
+decision clearing the 5%/yr-of-book budget cap), spend becomes $99/mo; realistic ceiling ≈
+$170–230/mo by August if that AND the Sharadar conditional both trigger. Norgate's fixed-term
+cost is NOT a monthly recurring number and must be budgeted as a $346.50/$630 lump
+commitment, not folded into any steady-state monthly figure. All within the authorized data
+budget, but the Norgate commitment size and non-cancellable term make the trial-first gate
+load-bearing, not a formality.
 
 ## Why these and not the alternatives
 
@@ -123,11 +132,14 @@ trial-first gate load-bearing, not a formality.
 
 ## Immediate actions (post-notification)
 
-1. **Alpaca Algo Trader Plus — do NOT subscribe yet.** First: run the read-only entitlement
-   probe + SIP-vs-IEX A/B capture (§ above). Then align the actual subscription start with the
-   #224/#227-gated N1b live-activation date. Only after both: subscribe ($99/mo), and note the
-   switch date + feed identity in the collector meta so the IS corpus marks the feed-quality
-   regime change.
+1. **Alpaca Algo Trader Plus — DEFERRED, not a near-term step (r2/r3 addendum).** Do not
+   subscribe now. This item is superseded by the r2/r3 addendum below: $0/mo incremental
+   spend, subscription only if/when M2 canary go-live occurs OR a named decision is
+   identified that requires promoting an IEX-flagged metric to gate-worthy and clears the
+   5%/yr-of-book budget cap. If/when that trigger fires: run the read-only entitlement probe
+   + SIP-vs-IEX A/B capture (§ above) FIRST, align the subscription start with the
+   #224/#227-gated N1b live-activation date, subscribe, and note the switch date + feed
+   identity in the collector meta so the IS corpus marks the feed-quality regime change.
 2. N2 first run renders the FMP coverage verdict → Starter upgrade or not, per the explicit
    decision rule above.
 3. **Norgate: schedule the Windows/VM + plugin integration POC and 3-week trial acceptance
@@ -147,3 +159,82 @@ Sources: [Alpaca market data plans](https://alpaca.markets/data) ·
 Norgate pricing ($346.50/6mo, $630/12mo, no monthly plan) and integration model
 (Windows/VM + per-security/date boolean plugin interface) corrected 2026-07-02 per Codex
 review against current official documentation — not independently re-probed in this fix.
+
+---
+
+## r2 addendum (2026-07-02, operator cost review): ATP DEFERRED
+
+The operator challenged the $99/mo Alpaca ATP recommendation on cost. The challenge is
+CORRECT and the recommendation is revised:
+
+- **The arithmetic the r1 memo under-weighted**: $99/mo = ~$1,190/yr ≈ **11%/yr of the
+  current $10.8k book** — measurement-precision spend an order of magnitude out of
+  proportion to the book it measures.
+- **What ATP is NOT needed for now — feed provenance corrected (r3, Codex review)**: the r2
+  "official DAILY bars" framing was unsupported and is retracted. Verified directly against
+  the actual code this session: S10's daily-open reference (`data/ohlcv/<T>/1d.parquet`,
+  `scripts/s10_open_auction_is_study.py:120`) is written by **yfinance** — `scripts/
+  engineering/dual_source_price_audit.py`'s own docstring states plainly "Production prices
+  come from yfinance — an unofficial scraper API." S10's true-VWAP reference
+  (`data/intraday/<T>/10min.parquet`) is Alpaca-sourced via the same `StockBarsRequest`
+  path used elsewhere in this codebase (`renquant_pipeline/kernel/data.py:571`, comment:
+  "Force IEX feed — free tier can't query current-day SIP data") — **IEX, not SIP**. Neither
+  reference is an "official" consolidated-tape bar. This does not change the ATP-deferral
+  recommendation (S10 doesn't need live SIP to run), but the memo must not claim "no SIP
+  dependency" without stating what it actually depends on: **yfinance for daily open (known
+  to occasionally diverge from official closes — see `dual_source_price_audit.py`'s own
+  cross-check), IEX for intraday/VWAP (a documented ~2-3% US equity volume/quote-count
+  subset, biased toward retail-heavy names and away from dark-pool/off-exchange prints)**.
+  S10's own R2 correction already reports the true-VWAP vs. OHLC4-proxy cohort split with
+  wide CIs (±80bps, 10 days) — that width already partly reflects this feed's coarser
+  sampling; a future SIP-fed re-run is the natural way to quantify how much of the
+  dispersion is feed-driven vs. genuine fill variance, not something this memo can resolve
+  by assertion.
+- **Decision risk is separate from execution risk — observe-only does not neutralize it.**
+  Stage-1 collectors running observe-only removes ORDER-EXECUTION risk (no capital moves
+  during observation), but a biased NBBO/coverage diagnostic can still produce a WRONG
+  go/kill conclusion that later gates a real live-capital decision — "feed identity labeled"
+  (done, every collector row carries it) is necessary but not sufficient on its own.
+  Concretely, under IEX-only coverage:
+  - **Valid to compute and interpret**: fill-vs-open, fill-vs-close, fill-vs-daily-VWAP
+    (yfinance/proxy-derived) implementation-shortfall diagnostics — these don't depend on
+    true NBBO depth/spread, only on trade prints and daily bars already established above.
+  - **PROHIBITED from gating a live-capital decision while IEX-only**: any metric sensitive
+    to true NBBO spread, quoted depth, or full-tape quote counts (e.g. a "queue position" or
+    "spread-capture" diagnostic) — IEX's partial coverage systematically understates true
+    liquidity and can bias such a metric in either direction depending on the name's
+    exchange-routing mix. No such metric currently gates a decision in this pipeline; this
+    is a forward-looking constraint on what's addable before an ATP/SIP upgrade.
+  - **Required before promoting an IEX-flagged metric to gate-worthy**: either (a) an A/B
+    capture (SIP vs. IEX, same window, same names) quantifying the metric's actual IEX-bias
+    magnitude and showing it's within an acceptable tolerance, or (b) direct SIP-sourced
+    evidence for that specific metric. Neither exists yet for any metric in this pipeline.
+- **FMP Starter is NOT a substitute and was never the question**: FMP = fundamentals/
+  estimates (need (a), now CONFIRMED subscribed — key-metrics + 10-year estimate depth
+  verified 2026-07-02); ATP = real-time consolidated tape (need (b)). Different data;
+  deferring (b) does not touch (a).
+- **Re-trigger conditions (corrected, r3 — Codex review)**: the r2 "book ≥ $50k" trigger is
+  retracted as arbitrary — at exactly $50k, $99/mo ATP is still ~2.4%/yr of book, which the
+  r2 memo's own logic (11%/yr at $10.8k is "out of proportion") does not establish as
+  acceptable; account size alone doesn't demonstrate the marginal decision value clears the
+  cost. Corrected re-trigger, either of:
+  1. **M2 canary go-live** (real orders need honest arrival NBBO for execution-quality
+     measurement) — unchanged from r2, this trigger is valid and independent of account size.
+  2. **Expected marginal decision value clears a stated budget cap**: a SPECIFIC decision
+     this pipeline needs to make is identified where (a) an IEX-flagged metric from the
+     PROHIBITED list above would need to be promoted to gate-worthy, AND (b) the A/B or SIP
+     evidence to do so (per above) is estimated to cost less to obtain via ATP subscription
+     than the expected value of the decision it unblocks, AND (c) the resulting spend stays
+     under an explicit budget cap (proposed: 5%/yr of book, i.e. ATP becomes affordable
+     under this rule at book ≥ ~$24k, not $50k — restated as a real budget-fraction rule, not
+     a bare account-size number, so it scales correctly if ATP's price changes).
+  Trigger 1 (M2) can fire independent of book size; trigger 2 requires an actual named
+  decision, not just crossing a dollar threshold.
+
+Steady-state new spend drops to **$0/mo now** (FMP already active); Norgate stays at the
+M7 kickoff slot. **Corrects the top-of-memo recommendation table/steady-state figures above**
+(§ "Recommendation" line 21 and the "Steady-state new spend if entitlement verification
+passes: $99/mo now" paragraph) — those predate this r2/r3 deferral and describe ATP as
+imminent/conditional-GO; this addendum supersedes them. The correct current state is: ATP
+NOT subscribed, $0/mo incremental spend, re-trigger per the two conditions above — not a
+pending entitlement-verification step that resolves to $99/mo shortly.
