@@ -1,0 +1,58 @@
+{
+  "theory": "IR = TC * IC * sqrt(BR); TC = corr(w_actual, w* \u221d mu/sigma^2) (Clarke-de Silva-Thorley 2002)",
+  "buy_side_decision_tc_series": [
+    {
+      "run_id": "2026-06-09-live-70c90efc",
+      "n_eligible": 5,
+      "n_bought": 5,
+      "buy_side_decision_tc": 0.588
+    },
+    {
+      "run_id": "2026-06-09-live-b92892f6",
+      "n_eligible": 5,
+      "n_bought": 0,
+      "buy_side_decision_tc": 0.0
+    },
+    {
+      "run_id": "2026-06-10-live-c2bf522c",
+      "n_eligible": 5,
+      "n_bought": 5,
+      "buy_side_decision_tc": 0.566
+    },
+    {
+      "run_id": "2026-06-22-live-c26c0042",
+      "n_eligible": 9,
+      "n_bought": 5,
+      "buy_side_decision_tc": 0.0
+    },
+    {
+      "run_id": "2026-06-23-live-844746ad",
+      "n_eligible": 8,
+      "n_bought": 6,
+      "buy_side_decision_tc": 0.0
+    },
+    {
+      "run_id": "2026-06-30-live-b616357c",
+      "n_eligible": 14,
+      "n_bought": 0,
+      "buy_side_decision_tc": 0.0
+    },
+    {
+      "run_id": "2026-07-01-live-01c54b39",
+      "n_eligible": 14,
+      "n_bought": 1,
+      "buy_side_decision_tc": 0.0
+    }
+  ],
+  "buy_side_decision_tc_mean_recent": 0.094,
+  "full_book": {
+    "run_id": "2026-07-01-live-01c54b39",
+    "n_names": 89,
+    "book_pv": 10816.0,
+    "deployed_frac": 0.431,
+    "full_book_tc_pearson": 0.438,
+    "full_book_tc_spearman": 0.481,
+    "caveat": "actual weights are TODAY's broker positions vs the latest run's desired vector \u2014 a same-day pairing; historical full-book TC becomes routine once the S5 ledger persists per-run position values"
+  },
+  "state_vector_update": "replaces the reasoned '\u22480.4' in #231 \u00a70; the lane-A/R4 target is TC \u2265 0.6 on BOTH readouts"
+}

@@ -113,3 +113,30 @@ planning range is **0.028–0.033** for the G106 combined-IC target — the G106
 All five updates are applied to `doc/research/2026-07-02-ic-ceiling-institutional-gap-107-route.md`
 in the same revision. Scripts + JSON evidence are committed; every number above can be
 regenerated with one command per script.
+
+---
+
+## POC-S-TC — the transfer coefficient, measured (addendum, task S-TC of #231)
+
+**Claim tested** (#231 §0): TC ≈ 0.4 (the state vector's last reasoned-tier number).
+**Theory**: Clarke–de Silva–Thorley (2002): IR = TC·IC·√BR with TC = corr(actual active
+weights, unconstrained desired weights w* ∝ μ/σ² — the model's own `kelly_target_pct`).
+**Method** (`scripts/poc_transfer_coefficient.py`): (1) FULL-BOOK TC — today's broker
+positions (read-only /v2/positions) vs the latest full run's desired vector over all 89
+scored names; (2) BUY-SIDE DECISION-TC — per historical full run, corr between desired
+kelly and the actually-emitted buy target_pct among floor-clearing candidates.
+**Result**:
+- **Full-book TC = 0.438 Pearson / 0.481 Spearman** (n=89, deployed 43.1%) — the asserted
+  0.4 was accurate; now measured.
+- **Buy-side decision-TC ≈ 0.09 recent-mean, individual runs mostly 0.0** — even on runs
+  that DID buy (6/8 eligible bought on 06-23), order sizes carry essentially none of the
+  model's relative-conviction ordering: the top_n window + whole-share floor + uniformizing
+  shrinkage stack flatten desired sizes into near-constant orders. The full-book 0.44 is
+  inherited from historical position accumulation, not from the current decision path.
+**Verdict**: state vector updated (TC row → measured 0.44 full-book / **0.09 buy-side**);
+the buy-side number is the **strongest quantitative case for lane A + R4** yet: the
+constraint stack does not merely shrink deployment (POC-B), it destroys the cross-sectional
+ordering that IC is supposed to monetize — TC·IC is bounded by the SMALLER pipe.
+**Limitation**: full-book is a same-day single pairing until the S5 ledger persists per-run
+position values (then the series becomes routine). Target unchanged: **TC ≥ 0.6 on BOTH
+readouts** after lane A + R4.
