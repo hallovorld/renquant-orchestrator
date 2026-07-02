@@ -184,7 +184,8 @@ duplicate bug round 2 fixed):
    asserts `startup_recover`'s expiry-sweep frees the dangling PR lease so
    redelivery completes the coalesced event, never permanently stuck
    `applied`-without-execution
-   (`test_startup_recover_lets_coalesced_event_complete_after_holder_crash`);
+   (`test_startup_recover_lets_coalesced_event_complete_after_holder_crash`,
+   renamed + made redelivery-free in review round 4 below);
    (3) a coalesced event genuinely superseded by a newer head's equivalent
    transition correctly ends up applied — proving the fix does not over-correct
    into "never mark applied"
@@ -195,8 +196,83 @@ Evidence updated: `tests/test_agent_automation_poller.py` now 67 tests →
 tests/test_agent_automation_poller.py -q` → 67 passed; `git diff --check`
 clean.
 
+REVIEW ROUND 4 (Codex CHANGES_REQUESTED — round 3 stopped a coalesced event
+from being falsely marked `applied`, but nothing GUARANTEED it would ever
+actually run: `pending_rerun` was written, yet only an EXTERNAL redelivery
+re-examined it; if the source never redelivers, the event stays `processing`
+forever):
+
+1. **Durable inbox with the FULL event payload.** `processed_events` gained
+   `review_id`/`kind`/`state`/`body` columns, populated at claim time — the
+   ledger is no longer just an identity marker, it is a durable inbox that can
+   reconstruct and re-drive the event itself (`_event_from_inbox_row`,
+   `StateStore.list_processing_events`), independent of any redelivery ever
+   arriving.
+2. **Autonomous recovery/poll loop, not external redelivery.**
+   `AutomationPoller.recover_pending()` scans every still-`processing` inbox
+   row and claims + drives each one under a claim owner DELIBERATELY DISTINCT
+   from ordinary ingestion (`_recovery_owner`, `f"{owner}::recovery"`). A row
+   whose blocking PR-level lease has cleared is claimed and driven RIGHT
+   THERE — no external redelivery required. `_handle_lease_contention` now
+   also calls the new `StateStore.expire_processing_claim` on the
+   non-superseded (coalesced / same-key-race) path: nothing is actually in
+   flight for that event's OWN claim once the call returns, so it is made
+   immediately reclaimable instead of sitting live for its full TTL — this is
+   what lets recovery act the instant the blocker clears rather than waiting
+   out an unrelated timer. `startup_recover` now runs
+   `list_uncooperative_cancellations` → `reconcile_expired_leases` →
+   `recover_pending()`, in that order, and returns a `RecoverySummary`
+   (`reclaimed_leases`, `recovered_actions`) instead of a bare list, so a
+   caller/test can see exactly what the sweep autonomously drove.
+   `recover_pending()` is also exposed standalone for a future live poller's
+   periodic tick (no live GitHub polling loop exists yet in this PR, so there
+   is nothing to wire it into beyond `startup_recover` today).
+3. **Exactly-once is preserved across the new path, including under a real
+   race.** Both the external-delivery path (`ingest`) and the recovery path
+   (`recover_pending`) now funnel through one shared `_claim_and_process`
+   helper, so they compete for the SAME event id through the SAME
+   `StateStore.claim_event` CAS. Using a claim owner id distinct from
+   `config.owner` for recovery is what makes this safe: `claim_event`'s
+   same-owner reclaim bypass (documented as safe only because "one worker
+   drives its own deliveries serially") would otherwise let a genuine
+   external redelivery and an internal recovery pass BOTH reclaim and BOTH
+   drive — a real double execution. With distinct owner ids, only the
+   expiry-gated branch applies, and SQLite's `BEGIN IMMEDIATE` serialises the
+   two attempts to exactly one winner.
+4. **Why not NACK/retry at the ingest boundary instead.** This module
+   deliberately has no wired live transport yet (design docstring: "Live
+   GitHub polling is intentionally not wired in this PR") — there is no
+   ingest boundary connection to NACK against. The durable-inbox +
+   recovery/poll approach fits the store-centric design already in place
+   (leases, fencing, crash recovery all live in `StateStore`) and requires no
+   new transport-level contract; a future live feed can still NACK/retry on
+   top of it without conflicting, since redelivery and autonomous recovery
+   are now provably exactly-once with each other.
+5. Tests added (4, exactly the review's required scenarios): (1) the current
+   holder CRASHES while a coalesced event is pending and it is NEVER
+   externally redelivered — `startup_recover` alone autonomously completes it
+   (`test_startup_recover_autonomously_completes_coalesced_event_after_holder_crash`);
+   (2) the current holder COMPLETES NORMALLY (no crash, no expired lease) and
+   it is NEVER externally redelivered — a plain `recover_pending()` poll tick
+   alone autonomously completes it
+   (`test_poll_tick_autonomously_completes_coalesced_event_after_holder_releases`);
+   (3) a genuine external redelivery (`ingest`) and the recovery poll
+   (`recover_pending`) RACE for the same event id via a barrier-released
+   two-connection thread test — exactly one drives the fix round, the other
+   is refused, the row shows exactly one round
+   (`test_recovery_and_external_redelivery_race_is_exactly_once`); (4) the
+   existing crash-holder test now asserts `RecoverySummary.recovered_actions`
+   directly and that a later delivery (if one ever did arrive) sees a true
+   `duplicate`, never a second execution.
+
+Evidence updated: `tests/test_agent_automation_poller.py` now 69 tests →
+`/Users/renhao/git/github/RenQuant/.venv/bin/python -m pytest
+tests/test_agent_automation_poller.py -q` → 69 passed (repeated 20x on the
+threaded race test with no flakes); `git diff --check` clean.
+
 NEXT: (1) ephemeral OS/container/VM sandbox executor behind
 `run_fix_in_sandbox` (design §7.5) + Phase-0 escape/exfiltration suite; (2) live
-GitHub read-only event feed into `ingest`; (3) integrate the existing
-deterministic merge authority for ordinary-PR `MERGE_ELIGIBLE→MERGED` and the
-surface-to-human path for the §2.1 high-risk set.
+GitHub read-only event feed into `ingest`, wiring `recover_pending()` as its
+periodic poll tick; (3) integrate the existing deterministic merge authority
+for ordinary-PR `MERGE_ELIGIBLE→MERGED` and the surface-to-human path for the
+§2.1 high-risk set.

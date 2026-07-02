@@ -10,6 +10,13 @@ rollout). It is **Phase-0/1 control plane only**:
   * the state machine (§4/§6.3) with a hard **human-gate wall** — no
     automated edge ever reaches ``MERGED``;
   * a read-only event ingestion + poller loop that drives transitions;
+  * a **durable inbox + recovery/poll loop**: every claimed event's FULL
+    payload is persisted (``processed_events``), so a coalesced/pending event
+    never depends on an external source redelivering it — the very next
+    :meth:`AutomationPoller.recover_pending` pass (run from
+    :meth:`AutomationPoller.startup_recover` and/or a periodic poll tick)
+    autonomously claims and drives it once the blocking PR-level lease
+    releases or expires;
   * config-driven repo/PR allowlists and a ``--dry-run`` mode.
 
 What this module deliberately does **NOT** do (explicit follow-ups, per the
@@ -332,6 +339,17 @@ CREATE TABLE IF NOT EXISTS processed_events (
     repo         TEXT NOT NULL,
     pr_number    INTEGER NOT NULL,
     head_sha     TEXT,
+    -- ── durable inbox payload (design §6.3, review: no external redelivery
+    -- may ever be REQUIRED for eventual execution) ─────────────────────────
+    -- The FULL event, not just its identity, is persisted here at claim time
+    -- so a later recovery pass (:meth:`StateStore.list_processing_events` /
+    -- :meth:`AutomationPoller.recover_pending`) can reconstruct and drive the
+    -- event itself — it never depends on the original (or any external)
+    -- delivery arriving again.
+    review_id    TEXT,
+    kind         TEXT,
+    state        TEXT,
+    body         TEXT,
     -- 'processing' = claimed but the state mutation is not yet applied;
     -- 'applied'    = the driven transition committed. Only 'applied' is a
     -- true duplicate: a crash mid-flight leaves 'processing', which is
@@ -343,6 +361,11 @@ CREATE TABLE IF NOT EXISTS processed_events (
     -- over once this processing lease EXPIRES — so two owners can never both
     -- enter ``_process_claimed`` for one event. Distinct poller processes MUST
     -- use distinct ``owner`` ids (the same invariant as the work-item lease).
+    -- The INTERNAL recovery pass (:meth:`AutomationPoller.recover_pending`)
+    -- ALSO claims through this exact same CAS, under an owner id distinct from
+    -- ordinary ingestion (:meth:`AutomationPoller._recovery_owner`) — so a
+    -- genuine external redelivery racing the recovery pass is still resolved
+    -- to exactly one winner by this one atomic UPDATE, never both.
     owner        TEXT,
     lease_expiry REAL,
     -- the recorded terminal :class:`Action` (outcome/detail) for this event id,
@@ -462,10 +485,11 @@ class StateStore:
         with self._immediate() as db:
             cur = db.execute(
                 "INSERT OR IGNORE INTO processed_events "
-                "(event_id, repo, pr_number, head_sha, status, owner, lease_expiry, "
-                " processed_at) "
-                "VALUES (?,?,?,?, 'processing', ?, ?, ?)",
+                "(event_id, repo, pr_number, head_sha, review_id, kind, state, body, "
+                " status, owner, lease_expiry, processed_at) "
+                "VALUES (?,?,?,?,?,?,?,?, 'processing', ?, ?, ?)",
                 (event.event_id, event.repo, event.pr_number, event.head_sha,
+                 event.review_id, event.kind, event.state, event.body,
                  owner, now + ttl, now),
             )
             if cur.rowcount == 1:
@@ -526,6 +550,49 @@ class StateStore:
             (event_id,),
         )
         return cur.fetchone() is not None
+
+    def expire_processing_claim(self, event_id: str) -> None:
+        """Immediately expire a claimed-but-not-applied event's processing lease.
+
+        Called when an event was claimed but genuinely could not be driven this
+        tick because it coalesced behind a live PR-level lease held by a
+        DIFFERENT row (design §6.3, review: durable inbox / autonomous
+        recovery — no external redelivery may ever be REQUIRED). Once the
+        caller has returned the resulting ``"coalesced"`` :class:`Action`,
+        nothing is actually running against this claim any more — there is no
+        in-flight work left for the claim's TTL to protect. Leaving the claim
+        live for its full TTL would force EVERY future claimant (a genuine
+        external redelivery under a different owner id, or the internal
+        :meth:`AutomationPoller.recover_pending` pass) to wait out that TTL
+        even though the blocking PR-level lease may clear seconds later.
+        Expiring it now makes the event immediately reclaimable by
+        :meth:`claim_event` the instant the blocker releases/expires, without
+        weakening same-event exclusivity: a reclaim is still one atomic,
+        serialised CAS — whichever claimant's transaction commits first is the
+        only one that ever wins it.
+        """
+        now = self._clock()
+        self._db.execute(
+            "UPDATE processed_events SET lease_expiry=? "
+            "WHERE event_id=? AND status='processing'",
+            (now, event_id),
+        )
+
+    def list_processing_events(self) -> list[dict]:
+        """The durable inbox: every event claimed but not yet ``applied``.
+
+        This is what a recovery/poll pass scans (design §6.3, review: a
+        durable inbox holding the FULL event payload, not just a marker) — the
+        row carries everything :func:`Event` needs to be reconstructed and
+        driven WITHOUT depending on the original delivery (or any redelivery)
+        ever arriving again. Ordered by ``processed_at`` for a deterministic
+        recovery order.
+        """
+        cur = self._db.execute(
+            "SELECT event_id, repo, pr_number, head_sha, review_id, kind, state, body "
+            "FROM processed_events WHERE status='processing' ORDER BY processed_at"
+        )
+        return [dict(r) for r in cur]
 
     # ── lease acquire / release (§6.2) ─────────────────────────────────────
 
@@ -1190,6 +1257,44 @@ class Action:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class RecoverySummary:
+    """Result of a crash-recovery + durable-inbox sweep (:meth:`AutomationPoller.
+    startup_recover`) — design §6.3, review: no external redelivery may ever be
+    REQUIRED for eventual execution.
+
+    * ``reclaimed_leases`` — work-item rows whose dangling lease (from a
+      crashed holder) was cleared, so a future acquirer may re-acquire them.
+    * ``recovered_actions`` — the :class:`Action`\\ s the recovery pass itself
+      drove for every durable-inbox event it found still ``processing`` (see
+      :meth:`AutomationPoller.recover_pending`) — this is what makes a
+      coalesced event's eventual execution AUTONOMOUS rather than dependent on
+      an external source redelivering it.
+    """
+
+    reclaimed_leases: tuple[WorkKey, ...]
+    recovered_actions: tuple[Action, ...]
+
+
+def _event_from_inbox_row(row: dict) -> Event:
+    """Reconstruct the :class:`Event` a durable-inbox row was claimed from.
+
+    ``processed_events`` persists the FULL payload (design §6.3, review:
+    durable inbox) at claim time, so a recovery pass never depends on the
+    original — or any — redelivery arriving again.
+    """
+    return Event(
+        event_id=str(row["event_id"]),
+        repo=str(row["repo"]),
+        pr_number=int(row["pr_number"]),
+        head_sha=str(row["head_sha"] or ""),
+        kind=str(row["kind"] or ""),
+        state=row["state"],
+        review_id=str(row["review_id"] or ""),
+        body=str(row["body"] or ""),
+    )
+
+
 class AutomationPoller:
     """The deterministic control-plane loop (design §5/§6).
 
@@ -1249,10 +1354,23 @@ class AutomationPoller:
         if not self.config.is_tracked(event.repo, event.pr_number):
             return Action(event.event_id, event.repo, event.pr_number,
                           "ignored_untracked", "repo/PR not on allowlist")
+        return self._claim_and_process(event, self.config.owner)
 
-        claim = self.store.claim_event(
-            event, self.config.owner, self.config.lease_ttl_seconds
-        )
+    def _claim_and_process(self, event: Event, claim_owner: str) -> Action:
+        """EXCLUSIVELY claim ``event`` under ``claim_owner`` and drive it if won.
+
+        Shared by external delivery (:meth:`ingest`, ``claim_owner =
+        config.owner``) and the internal durable-inbox recovery pass
+        (:meth:`recover_pending`, a DELIBERATELY DISTINCT ``claim_owner`` — see
+        :meth:`_recovery_owner`). Both funnel through the SAME
+        :meth:`StateStore.claim_event` CAS, so if a genuine external
+        redelivery and a recovery poll ever race for the SAME event id,
+        SQLite's ``BEGIN IMMEDIATE`` serialises the two claim attempts and
+        exactly one of them proceeds to :meth:`_process_claimed` — the other
+        is refused (``in_progress``) or sees a true duplicate
+        (``applied``), never both.
+        """
+        claim = self.store.claim_event(event, claim_owner, self.config.lease_ttl_seconds)
         if not claim.proceed:
             if claim.disposition == "applied":
                 detail = "event id already applied"
@@ -1261,8 +1379,10 @@ class AutomationPoller:
                     detail += f" (recorded outcome: {recorded})"
                 return Action(event.event_id, event.repo, event.pr_number,
                               "duplicate", detail)
-            # a DIFFERENT owner holds a live processing lease — do NOT double
-            # drive; it will be redelivered and reclaimed after that lease ends.
+            # a DIFFERENT claimant holds a live processing lease — do NOT
+            # double drive; it will be reclaimed once that lease is released
+            # or expires (by a later delivery, OR autonomously by the next
+            # :meth:`recover_pending` pass — see :meth:`_handle_lease_contention`).
             return Action(event.event_id, event.repo, event.pr_number,
                           "in_progress", "another owner holds the processing claim")
 
@@ -1365,18 +1485,31 @@ class AutomationPoller:
           silently and PERMANENTLY drop the work (the bug this fixes: the
           coalesced/in-progress outcome is not itself proof that an
           equivalent transition happened). So the event is left un-applied —
-          it stays ``processing`` in the idempotency ledger (never
-          ``duplicate`` on redelivery) and the row keeps ``pending_rerun=1``
-          — so a LATER worker re-examines it: either the same owner's next
-          poll tick (an immediate reclaim, see :meth:`StateStore.
-          claim_event`), or, after the blocking holder crashes, once
-          :meth:`StateStore.reconcile_expired_leases` (driven from
-          :meth:`startup_recover`) clears its dangling lease so the retry's
-          ``acquire`` can finally succeed.
+          it stays ``processing`` in the durable-inbox ledger (never
+          ``duplicate`` on redelivery) and the row keeps ``pending_rerun=1``.
+
+          Nothing is actually in flight for THIS event's own processing claim
+          any more (this call is about to return), so its lease is
+          immediately EXPIRED (:meth:`StateStore.expire_processing_claim`)
+          rather than left live for its full TTL. That is what makes eventual
+          execution AUTONOMOUS instead of dependent on an external
+          redelivery (design §6.3, review: durable inbox + recovery/poll
+          loop): the very next :meth:`recover_pending` pass — run from
+          :meth:`startup_recover` and/or a periodic poll tick — scans the
+          durable inbox (:meth:`StateStore.list_processing_events`, which
+          carries the FULL event payload, not just a marker), reclaims this
+          event under its OWN distinct claim owner
+          (:meth:`_recovery_owner`), and drives it itself via
+          :meth:`_process_claimed` the moment the blocking PR-level lease is
+          released or expires — no external redelivery is ever required. A
+          genuine external redelivery racing that recovery pass is still
+          resolved to exactly one winner by the SAME :meth:`StateStore.
+          claim_event` CAS (see :meth:`_claim_and_process`).
         """
         if acq.reason.startswith("superseded"):
             return self._apply(event, Action(
                 event.event_id, event.repo, event.pr_number, "superseded", acq.reason))
+        self.store.expire_processing_claim(event.event_id)
         return Action(event.event_id, event.repo, event.pr_number, "coalesced", acq.reason)
 
     def _drive_merge_eligible(self, event: Event, key: WorkKey) -> Action:
@@ -1512,21 +1645,82 @@ class AutomationPoller:
         )
         return action
 
+    def _recovery_owner(self) -> str:
+        """A claim-owner id for the internal recovery pass, DELIBERATELY
+        distinct from ``config.owner`` (the id ordinary :meth:`ingest`
+        delivery claims under).
+
+        :meth:`StateStore.claim_event` lets the SAME owner id reclaim its own
+        stale claim at once (documented as safe because one worker drives its
+        own deliveries serially — it can never race itself). That invariant
+        would be VIOLATED if recovery reused ``config.owner``: a genuine
+        external redelivery and an internal recovery pass are NOT serialised
+        with each other, so both could reclaim and both could drive
+        :meth:`_process_claimed` — a real double-execution. Using a distinct
+        id forces the recovery claim through the expiry-gated branch of the
+        CAS instead of the same-owner bypass, so exactly one of {external
+        redelivery, recovery pass} ever wins a race for the same event id
+        (see :meth:`_claim_and_process`).
+        """
+        return f"{self.config.owner}::recovery"
+
+    def recover_pending(self) -> list[Action]:
+        """Durable-inbox recovery/poll pass (design §6.3, review: no external
+        redelivery may ever be REQUIRED for an event to eventually execute).
+
+        Scans every event still ``processing`` — claimed but not yet
+        ``applied`` — via :meth:`StateStore.list_processing_events`, which
+        carries the FULL event payload, and for each one attempts to claim +
+        drive it under this poller's DISTINCT :meth:`_recovery_owner` id:
+
+          * a row genuinely still in flight under a LIVE claim held by
+            another owner, or already ``applied``, is correctly refused by
+            :meth:`StateStore.claim_event` and left untouched — the recovery
+            pass never double-drives real in-flight work;
+          * a row whose blocking PR-level lease has been released or expired,
+            and whose own event-claim was left immediately reclaimable by
+            :meth:`_handle_lease_contention` (:meth:`StateStore.
+            expire_processing_claim`), is claimed and driven RIGHT HERE —
+            autonomously, with no external redelivery involved at all.
+
+        Call this from :meth:`startup_recover` (cold-start catch-up) AND from
+        a periodic poll tick in a live poller loop (so a coalesced event that
+        unblocks between ticks, without the process ever restarting, is still
+        picked up promptly rather than waiting out its own claim TTL).
+        """
+        owner = self._recovery_owner()
+        actions: list[Action] = []
+        for row in self.store.list_processing_events():
+            event = _event_from_inbox_row(row)
+            if not self.config.is_tracked(event.repo, event.pr_number):
+                # allowlist shrank since this event was claimed — leave it be,
+                # do not silently execute work outside the current allowlist.
+                continue
+            actions.append(self._claim_and_process(event, owner))
+        return actions
+
     def startup_recover(
         self, *, ground_truth: Optional[Callable[[WorkKey], bool]] = None
-    ) -> list[WorkKey]:
-        """Crash-recovery sweep to run on poller start (design §6.3, review
-        point 4).
+    ) -> RecoverySummary:
+        """Crash-recovery + durable-inbox sweep to run on poller start (design
+        §6.3, review point 4; review: durable inbox / autonomous recovery).
 
-        BEFORE reclaiming leases, hand every UNCOOPERATIVE cancellation — a run
-        whose cancellation was durably requested but whose retained lease
-        expired without acknowledgement — to the hard :class:`TerminationHook`.
-        A retained SQLite flag alone cannot stop untrusted work; the kill is a
-        DISTINCT, explicit mechanism. Then reconcile expired leases.
+        Order matters: (1) BEFORE reclaiming leases, hand every UNCOOPERATIVE
+        cancellation — a run whose cancellation was durably requested but
+        whose retained lease expired without acknowledgement — to the hard
+        :class:`TerminationHook` (a retained SQLite flag alone cannot stop
+        untrusted work; the kill is a DISTINCT, explicit mechanism); (2)
+        reconcile expired work-item leases, so a crashed blocker's dangling
+        PR-level lease is cleared; (3) THEN run :meth:`recover_pending` — with
+        the blocker's lease now clear, any durable-inbox event coalesced
+        behind it can actually be claimed and driven, autonomously, with no
+        external redelivery involved.
         """
         for key in self.store.list_uncooperative_cancellations():
             self.termination_hook.terminate(key)
-        return self.store.reconcile_expired_leases(ground_truth=ground_truth)
+        reclaimed = self.store.reconcile_expired_leases(ground_truth=ground_truth)
+        recovered = self.recover_pending()
+        return RecoverySummary(tuple(reclaimed), tuple(recovered))
 
 
 # ───────────────────────── offline replay harness ───────────────────────

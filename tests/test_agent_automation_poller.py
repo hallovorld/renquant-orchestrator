@@ -28,6 +28,7 @@ from renquant_orchestrator.agent_automation_poller import (
     IllegalTransition,
     NoopTerminationHook,
     PollerConfig,
+    RecoverySummary,
     State,
     StateStore,
     StubSandboxExecutor,
@@ -928,10 +929,13 @@ def test_coalesced_event_not_applied_and_redelivery_completes_it():
     assert store.get_row(key_b)["pending_rerun"] == 0  # cleared on acquire
 
 
-def test_startup_recover_lets_coalesced_event_complete_after_holder_crash():
+def test_startup_recover_autonomously_completes_coalesced_event_after_holder_crash():
     """(2) The CURRENT lease holder (A) crashes WHILE a coalesced event (B) is
-    pending: crash-recovery must re-surface B so it eventually completes, not
-    leave it permanently stuck 'applied'-without-execution."""
+    pending. B is NEVER externally redelivered — no external source, no
+    webhook retry, ever redelivers evt-b2 again. `startup_recover`'s
+    durable-inbox recovery pass must reclaim + AUTONOMOUSLY drive B itself the
+    instant A's dangling lease is reconciled; relying on 'a later redelivery'
+    is exactly the gap this closes."""
     clock = FakeClock()
     store = StateStore(clock=clock)
     poller = AutomationPoller(_config(), store)
@@ -956,20 +960,165 @@ def test_startup_recover_lets_coalesced_event_complete_after_holder_crash():
     assert b_first.outcome == "coalesced"
     assert store.event_applied("evt-b2") is False
     assert store.get_row(key_b)["pending_rerun"] == 1
+    # the durable inbox carries B's FULL payload — a recovery pass needs no
+    # external redelivery to reconstruct and drive it.
+    inbox = {r["event_id"]: r for r in store.list_processing_events()}
+    assert inbox["evt-b2"]["state"] == "CHANGES_REQUESTED"
+    assert inbox["evt-b2"]["review_id"] == "rev-b2"
 
     # A's lease TTL elapses without ever releasing (the crash).
     clock.advance(poller.config.lease_ttl_seconds + 1)
 
-    # Crash-recovery sweep on poller start reconciles A's dangling lease.
-    poller.startup_recover()
+    # Crash-recovery sweep on poller start — NO external redelivery of B is
+    # ever involved. startup_recover alone must autonomously complete it.
+    summary = poller.startup_recover()
+    assert isinstance(summary, RecoverySummary)
     assert store.get_row(key_a)["lease_owner"] is None
+    assert key_a in summary.reclaimed_leases
 
-    # Redelivering B must now actually execute its fix round.
-    b_retry = poller.ingest(evt_b)
-    assert b_retry.outcome == "escalated"
+    recovered_b = [a for a in summary.recovered_actions if a.event_id == "evt-b2"]
+    assert len(recovered_b) == 1
+    assert recovered_b[0].outcome == "escalated"
     assert store.event_applied("evt-b2") is True
     assert store.get_state(key_b) == State.ESCALATED
+    assert store.get_row(key_b)["attempt"] == 1       # the round DID run
+
+    # If a delivery ever DID arrive after the fact, it must see a true
+    # duplicate — never a second execution.
+    b_late = poller.ingest(evt_b)
+    assert b_late.outcome == "duplicate"
     assert store.get_row(key_b)["attempt"] == 1
+
+
+def test_poll_tick_autonomously_completes_coalesced_event_after_holder_releases():
+    """The blocking holder (A) COMPLETES NORMALLY — releases its lease, no
+    crash, no expiry — so there is nothing for a crash-only sweep to find. B
+    is, again, NEVER externally redelivered. A plain periodic poll tick
+    (`recover_pending`, not `startup_recover`) must alone autonomously
+    complete it the moment A's lease clears."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    evt_a = _event(event_id="evt-a7", head_sha="sha-a", review_id="rev-a7",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b7", head_sha="sha-a", review_id="rev-b7",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    key_b = evt_b.row_key
+
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+
+    b_first = poller.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+    assert store.event_applied("evt-b7") is False
+
+    # A completes normally: transitions out of FIXING and releases its
+    # PR-level lease. No time passes, nothing ever expires.
+    store.transition(key_a, State.AWAIT_REVIEW, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+    assert store.release(key_a, poller.config.owner, fence=acq_a.fence) is True
+    assert store.reconcile_expired_leases() == []  # nothing was expired
+
+    # A plain poll tick — NOT startup, NO external redelivery of B — must
+    # alone finish the job.
+    actions = poller.recover_pending()
+    recovered_b = [a for a in actions if a.event_id == "evt-b7"]
+    assert len(recovered_b) == 1
+    assert recovered_b[0].outcome == "escalated"
+    assert store.event_applied("evt-b7") is True
+    assert store.get_state(key_b) == State.ESCALATED
+    assert store.get_row(key_b)["attempt"] == 1
+
+
+def test_recovery_and_external_redelivery_race_is_exactly_once(tmp_path):
+    """Exactly-once under the NEW recovery path: once A's blocking lease
+    clears, race a GENUINE external redelivery of B (`ingest`) against this
+    poller's OWN autonomous recovery poll tick (`recover_pending`) —
+    two distinct connections/threads released together by a barrier so they
+    contend for the SAME event id at the SAME instant. Exactly one of them
+    must drive B's fix round to completion; the other must be refused
+    (`in_progress`/`duplicate`), never a double execution."""
+    import threading
+
+    db = str(tmp_path / "race-recovery.db")
+    cfg = _config(owner="poller-1")
+
+    setup_store = StateStore(db)
+    evt_a = _event(event_id="evt-a8", head_sha="sha-a", review_id="rev-a8",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b8", head_sha="sha-a", review_id="rev-b8",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    key_b = evt_b.row_key
+
+    # A holds the PR-level lease (simulating in-flight work).
+    setup_store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = setup_store.acquire(key_a, cfg.owner, cfg.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    setup_store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                            owner=cfg.owner, fence=acq_a.fence)
+
+    poller_setup = AutomationPoller(cfg, setup_store)
+    b_first = poller_setup.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+    assert setup_store.event_applied("evt-b8") is False
+
+    # A "completes" — releases its lease — WITHOUT B ever being redelivered
+    # through any normal channel up to this point.
+    assert setup_store.release(key_a, cfg.owner, fence=acq_a.fence) is True
+    setup_store.close()
+
+    # Race a genuine external redelivery of B against this poller's own
+    # recovery pass.
+    store_ext = StateStore(db)
+    store_rec = StateStore(db)
+    poller_ext = AutomationPoller(cfg, store_ext)  # simulates external redelivery -> ingest()
+    poller_rec = AutomationPoller(cfg, store_rec)  # simulates a poll tick -> recover_pending()
+
+    results: dict = {}
+    errors: list = []
+    barrier = threading.Barrier(2)
+
+    def redeliver():
+        try:
+            barrier.wait()
+            results["external"] = poller_ext.ingest(evt_b)
+        except Exception as exc:  # pragma: no cover - surfaced via assert
+            errors.append(exc)
+
+    def recover():
+        try:
+            barrier.wait()
+            actions = poller_rec.recover_pending()
+            results["recovery"] = next(
+                (a for a in actions if a.event_id == "evt-b8"), None
+            )
+        except Exception as exc:  # pragma: no cover - surfaced via assert
+            errors.append(exc)
+
+    t1 = threading.Thread(target=redeliver)
+    t2 = threading.Thread(target=recover)
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+    store_ext.close(); store_rec.close()
+
+    assert errors == []
+    outcomes = [r.outcome for r in results.values() if r is not None]
+    # exactly one of {external redelivery, recovery poll} drove B's fix round
+    # to a terminal escalation
+    assert outcomes.count("escalated") == 1
+    others = [o for o in outcomes if o != "escalated"]
+    assert all(o in ("in_progress", "duplicate") for o in others)
+
+    final = StateStore(db)
+    assert final.get_state(key_b) == State.ESCALATED
+    assert final.get_row(key_b)["attempt"] == 1   # exactly one fix round, never double
+    final.close()
 
 
 def test_coalesced_event_superseded_by_newer_head_ends_applied():
