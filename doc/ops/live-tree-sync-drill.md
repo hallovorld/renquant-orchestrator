@@ -3,18 +3,40 @@
 STATUS: ops runbook (R7's remaining slice; #231 Term PROCESS / floor tier-2). Executed by the
 OPERATOR/LANDER only — agents and automation never run git mutations in the live tree (hard
 rule; a sub-agent `reset --hard` near-miss and the 2026-06-25 clobber are the case law).
-DATE: 2026-07-02 (r3: this runbook depends on #241's manifest as its classification oracle;
-#241 is not yet merged and was itself under changes-requested review when r2 landed, so r3
-adds a runtime guard — step 2 below — that verifies the manifest's existence, reconciliation
-status, and freshness at EXECUTION time rather than trusting it as unconditionally
-authoritative. r3 also fixes unvalidated stash creation and non-NUL-safe archiving — see
-"r2 → r3" below. r2: corrected the stash-safety and snapshot-independence gaps a Codex review
-found in r1; aligned with #241's revised recovery procedure so this repo publishes ONE
-recovery protocol, not two).
+DATE: 2026-07-02 (r4: `#241` merged to `main` — `scripts/s11_live_tree_inventory.py` is now a
+real dependency, not a forward reference to an unmerged PR. r4 also replaces r3's age-based
+"trust a committed manifest under 7 days old" freshness proxy — which never actually proved the
+manifest matched the live tree's CURRENT state — with EXECUTION-TIME REGENERATION: step 2a now
+runs the classifier fresh every execution, and step 2b enforces exact set-equality between the
+freshly-regenerated manifest and the live tree's paths at that same moment, closing the window
+r3 left open. r3: this runbook depended on #241's manifest as its classification oracle while
+#241 was itself unmerged and under changes-requested review — r3 added a runtime guard that
+verified the manifest's existence, reconciliation status, and (age-based) freshness rather than
+trusting it as unconditionally authoritative; r3 also fixed unvalidated stash creation and
+non-NUL-safe archiving — see "r3 → r4" and "r2 → r3" below. r2: corrected the stash-safety and
+snapshot-independence gaps a Codex review found in r1; aligned with #241's revised recovery
+procedure so this repo publishes ONE recovery protocol, not two).
 CONTEXT: the live umbrella checkout is routinely BEHIND origin/main while carrying dirt that
 can OVERLAP unpulled commits (S11 inventory, 2026-07-02: runner.py residue whose fix is
 already upstream). A naive `git pull` conflicts; a naive `reset`/`checkout` reverts live
 hotfixes — that exact sequence caused 18 intraday FAILs on 2026-06-26.
+
+## r3 → r4: what Codex found and why this procedure changed again
+
+`#241` merged to `main` since r3 landed — `scripts/s11_live_tree_inventory.py` is a real,
+committed dependency now, not a forward reference to an in-flight PR. But r3's OWN freshness
+check was still wrong on its own terms: checking whether the COMMITTED manifest file's git
+commit date is under 7 days old does not prove the manifest matches the live tree's CURRENT
+state — the live tree mutates continuously (that is the entire premise of this runbook), so
+"recently committed" is not "generated right now," and a 6-day-old manifest could already be
+stale if the tree changed an hour after that commit. Fix: stop reading any committed manifest at
+all. Step 2a now RUNS the classifier fresh, every execution, writing its output into THIS run's
+external backup directory (never back into the orchestrator repo) — so the manifest used for
+classification is, by construction, generated from the live tree's actual state at the moment
+this step runs. Step 2b adds the concrete, enforced set-equality check r3 only described in
+prose ("diff current paths against it") — a literal script that asserts the live tree's path set
+exactly matches the freshly-regenerated manifest's path set, closing the residual window between
+manifest generation and use.
 
 ## r2 → r3: what Codex found and why this procedure changed again
 
@@ -101,18 +123,32 @@ backup — an unverified backup is not a backup.
 
 ## 2. Cross-check against the S11 inventory (the classification, not a fresh re-derivation)
 
-**2a. Verify the manifest before trusting it as an oracle (r3 fix).** This step depends on
-`#241`'s machine-generated manifest as its classification source of truth. `#241` may not be
-merged, and its content is independently reviewed/changed on its own schedule — this runbook
-must not treat it as unconditionally authoritative just because it exists on disk. Verify it at
-EXECUTION time, every run, regardless of #241's merge status:
+**2a. Regenerate the manifest fresh, at execution time — never trust a committed snapshot (r4
+fix).** `#241` merged `scripts/s11_live_tree_inventory.py` to `main` — a read-only,
+fail-closed classifier that raises `AssertionError` (non-zero exit) if any raw path fails to
+classify or reconciliation otherwise doesn't hold. r3's approach (checking a COMMITTED
+manifest's git-commit-date age as a freshness proxy) was still wrong: a commit date younger
+than 7 days does not prove the manifest matches the CONTINUOUSLY MUTATING live tree — the tree
+can (and does) change between the manifest's last commit and this run, and "recently committed"
+is not "generated right now." Fix: run the classifier FRESH, every execution, writing its
+output into THIS run's external backup directory (step 1) — never read a possibly-stale
+committed copy from the orchestrator repo:
 
 ```bash
-manifest="/Users/renhao/git/github/renquant-orchestrator/doc/research/evidence/2026-07-02-s11-live-tree-inventory/manifest.json"
 orch_repo="/Users/renhao/git/github/renquant-orchestrator"
+manifest="$backup_dir/s11-manifest-live.json"    # regenerated fresh, written to the external
+                                                  # backup dir from step 1 — not read from a
+                                                  # committed snapshot in $orch_repo
 
-if [ ! -f "$manifest" ]; then
-  echo "ABORT: S11 manifest not found at $manifest — cannot classify live-tree dirt. STOP." >&2
+python3 "$orch_repo/scripts/s11_live_tree_inventory.py" \
+  --live-tree /Users/renhao/git/github/RenQuant \
+  --out "$manifest"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "ABORT: scripts/s11_live_tree_inventory.py exited $rc — the live tree currently has a
+path the classifier cannot account for (reconciliation FAILED), or another error occurred.
+Do NOT proceed with classification against a manifest the script itself refused to certify.
+Investigate the classifier's stderr output above before re-running. STOP." >&2
   exit 1
 fi
 
@@ -123,34 +159,73 @@ case "$reconciliation" in
 not vouch for its own completeness. STOP, do not use it for classification." >&2; exit 1 ;;
 esac
 
-# Freshness: the manifest has no embedded generation timestamp (a real gap — flagged, not
-# silently worked around), so use the committing commit's date as a proxy. This is weaker than
-# an embedded timestamp (a manifest could in principle be regenerated with identical content
-# and no new commit) but still catches the common failure mode of a genuinely stale, un-rerun
-# manifest.
-manifest_date=$(git -C "$orch_repo" log -1 --format=%cI -- doc/research/evidence/2026-07-02-s11-live-tree-inventory/manifest.json)
-manifest_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${manifest_date%%+*}" +%s 2>/dev/null || date -d "$manifest_date" +%s)
-now_epoch=$(date +%s)
-age_days=$(( (now_epoch - manifest_epoch) / 86400 ))
-if [ "$age_days" -gt 7 ]; then
-  echo "ABORT: S11 manifest is $age_days days old ($manifest_date) — the live tree mutates
-continuously; re-run scripts/s11_live_tree_inventory.py (in the orchestrator repo, read-only
-against the live tree) to regenerate before trusting this classification. STOP." >&2
-  exit 1
-fi
-
-echo "Manifest OK: reconciliation=$reconciliation, age=${age_days}d"
+echo "Manifest regenerated fresh at $(date -u +%FT%TZ): reconciliation=$reconciliation"
 ```
 
-**ABORT POINT 2a — do not proceed past this check on any failure.** A missing, non-PASS, or
-stale (>7 days) manifest means step 2's classification table below cannot be trusted — treat
+This makes freshness a NON-ISSUE by construction — the manifest used for classification is
+generated from the live tree's actual state at the moment this step runs, not committed history
+from some earlier point. (`#241`'s committed manifest under `doc/research/evidence/...` remains
+useful as a periodic audit snapshot for that PR's own purposes; this runbook no longer reads it.)
+
+**ABORT POINT 2a — do not proceed past this check on any failure.** A classifier exit failure
+or a non-PASS reconciliation means step 2's classification table below cannot be trusted — treat
 every path as "not in the inventory" (the STOP row) until a fresh, verified manifest exists.
 
-**2b. Cross-check the live tree's current paths against the verified manifest.** Re-run `git
-status --porcelain=v2` / `git ls-files --others --exclude-standard` fresh (the tree is
-continuously mutating) and diff the current path set against the verified manifest's
-`class_summary`/`paths` (human-readable summary: `doc/research/2026-07-02-s11-live-tree-
-inventory.md`). Every path must fall into one of that manifest's classes:
+**2b. Cross-check the live tree's current paths against the freshly-regenerated manifest —
+concrete, enforced set-equality (r4 fix).** r3 said "diff current paths against it" without
+giving an actual command; this is not enforceable prose, it's a suggestion. Fix: re-run `git
+status --porcelain=v2` immediately after step 2a (closing the brief window between manifest
+generation and this check, in case anything mutated the tree in between — e.g. a concurrent
+process) and ASSERT the raw path set is IDENTICAL to the manifest's `paths[].path` set:
+
+```bash
+python3 - "$manifest" <<'PYEOF'
+import json, subprocess, sys
+
+manifest_path = sys.argv[1]
+manifest = json.load(open(manifest_path))
+manifest_paths = {row["path"] for row in manifest["paths"]}
+
+out = subprocess.run(
+    ["git", "-C", "/Users/renhao/git/github/RenQuant", "status", "--porcelain=v2"],
+    capture_output=True, text=True, check=True,
+).stdout
+live_paths = set()
+for line in out.splitlines():
+    if not line:
+        continue
+    parts = line.split(" ")
+    # porcelain v2: '1'/'2' ordinary/rename entries carry the path in a fixed field position;
+    # '?' untracked entries are `? <path>`. Handle both without assuming a fixed column count
+    # for renames (which have two paths separated by a tab).
+    if line.startswith("?"):
+        live_paths.add(line.split(" ", 1)[1])
+    else:
+        path_field = line.split("\t")[0]
+        live_paths.add(path_field.split(" ")[-1])
+
+missing_from_manifest = live_paths - manifest_paths
+extra_in_manifest = manifest_paths - live_paths
+if missing_from_manifest or extra_in_manifest:
+    print(f"ABORT: live tree path set does not match the manifest generated moments ago.\n"
+          f"  paths on disk but not in manifest (tree mutated since generation): "
+          f"{sorted(missing_from_manifest)[:20]}\n"
+          f"  paths in manifest but not on disk (also tree mutation): "
+          f"{sorted(extra_in_manifest)[:20]}\n"
+          f"STOP — something changed the live tree between manifest generation and this check; "
+          f"re-run step 2a.", file=sys.stderr)
+    sys.exit(1)
+print(f"Set-equality OK: {len(live_paths)} paths match the manifest exactly.")
+PYEOF
+```
+
+**ABORT POINT 2b(i) — set-equality must hold exactly.** If the live tree changed between
+manifest generation and this check (e.g. a concurrent process, a scheduled job firing), STOP and
+re-run step 2a — do not classify against a manifest that no longer matches the tree.
+
+Every path must fall into one of the manifest's classes (human-readable summary:
+`doc/research/2026-07-02-s11-live-tree-inventory.md`; canonical source: the `class`/
+`disposition` fields on each row in `$manifest`):
 
 | Class | Examples | Resolution during sync |
 |---|---|---|
@@ -165,8 +240,8 @@ until its PR lands or the inventory is refreshed. That is the whole lesson of 06
 exists nowhere else must become durable BEFORE any tree movement, and dirt that hasn't been
 classified must not be moved through blind.
 
-**ABORT POINT 2b — clean-tree precondition.** This step is classification only, no mutation yet;
-if anything is unclassifiable per the table above, STOP here, before step 3.
+**ABORT POINT 2b(ii) — clean-tree precondition.** This step is classification only, no mutation
+yet; if anything is unclassifiable per the table above, STOP here, before step 3.
 
 ## 3. Stash — a convenience for the pull, NOT the recovery mechanism
 
@@ -289,9 +364,13 @@ a clean `make doctor` as sufficient; watch the actual first live tick.
   `/tmp` status/diff dump is not a recovery copy).
 - A blanket ours/theirs conflict resolution across multiple conflicting paths (r1's defect —
   always resolve path-by-path against the #241 inventory and the external backup).
-- Trusting the #241 manifest without verifying it at execution time (r3's defect — a missing,
-  non-PASS, or stale manifest must halt step 2, never be assumed authoritative because it
-  exists on disk).
+- Classifying live-tree dirt against a COMMITTED manifest snapshot, however recently committed
+  (r3's residual defect, fixed in r4 — a commit-date-under-7-days check does not prove the
+  manifest matches the tree's CURRENT state; always regenerate the classifier fresh at
+  execution time, per step 2a, and never proceed past a missing/non-PASS/exit-failure result).
+- Proceeding to classification without re-verifying set-equality between the live tree and the
+  just-regenerated manifest (r4's defect — the tree can mutate in the window between manifest
+  generation and use; step 2b's set-equality check exists specifically to catch this).
 - Resolving `stash@{0}` without first proving `git stash push` created a NEW entry (r3's
   defect — a "no local changes" or partially-failed push can leave `stash@{0}` pointing at a
   pre-existing, unrelated stash).

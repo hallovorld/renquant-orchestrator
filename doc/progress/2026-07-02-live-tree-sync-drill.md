@@ -90,3 +90,55 @@ which silently mishandles any untracked filename containing a newline.
   Added 4 new "Never list" entries (§8) for the 3 new failure modes plus their case-law framing.
 
 Pure-doc change, no code/tests; re-verified progress-doc-schema CI gate passes.
+
+## Round 4 (Codex review r4): execution-time regeneration, not a stale-snapshot proxy
+
+**Finding.** `#241` merged to `main` in between rounds — `scripts/s11_live_tree_inventory.py`
+became a real dependency instead of a forward reference to an unmerged PR. But round 3's own
+freshness check was still wrong on its own terms: checking whether a COMMITTED manifest file's
+git commit date is under 7 days old does not prove the manifest matches the live tree's CURRENT
+state — the tree mutates continuously (the entire premise of this runbook), so "recently
+committed" is not "generated right now." Step 2b also only described "diff current paths against
+it" in prose, with no enforceable command.
+
+**Fix.**
+- Merged this branch onto current `main` so `scripts/s11_live_tree_inventory.py` is genuinely
+  present in this branch's history (not just referenced by name).
+- Step 2a (rewritten): stops reading any committed manifest snapshot entirely. Runs the
+  classifier FRESH, every execution, via
+  `python3 scripts/s11_live_tree_inventory.py --live-tree /Users/renhao/git/github/RenQuant
+  --out "$backup_dir/s11-manifest-live.json"` — writing output into THIS run's external backup
+  directory (established in step 1), never back into the orchestrator repo. Checks the script's
+  own exit code (it raises `AssertionError` and exits non-zero on any unclassifiable path —
+  verified this behavior directly against a throwaway test repo, confirming a non-zero exit
+  correctly triggers the abort path) and the `reconciliation` field for `PASS`. This makes
+  manifest freshness a non-issue by construction: the manifest used for classification is
+  generated from the live tree's actual state at the moment this step runs.
+- Step 2b (new): adds a concrete, literal Python script (embedded in the runbook, not prose)
+  that re-runs `git status --porcelain=v2` immediately after step 2a and asserts the raw path
+  set is IDENTICAL to the manifest's `paths[].path` set — catching the case where something
+  mutates the live tree in the brief window between manifest generation and use. Verified both
+  branches against a throwaway test repo (`/tmp`, never the real live tree): the happy path
+  (tree unchanged since manifest generation) reports "Set-equality OK"; the failure path
+  (a file added to the tree after manifest generation) correctly aborts with exit 1 and lists
+  the specific mismatched path.
+- Renumbered/added abort points: 2a (classifier regeneration + reconciliation, rewritten),
+  2b(i) (set-equality, new), 2b(ii) (was 2b, clean-tree precondition). Updated the "Never list"
+  (§8) to reflect the corrected failure modes (committed-snapshot trust, missing set-equality
+  re-check) instead of the now-superseded age-based-freshness entry.
+- Updated the PR title/body's DATE/STATUS header and added an "r3 → r4" narrative section
+  explaining the change, consistent with the doc's existing r1→r2/r2→r3 sections.
+- Updated the PR description (was still r1-era, advertising `stash push`+`pop` even though the
+  runbook has used `stash apply` since round 2) to accurately describe the current r4 state.
+
+**Evidence:** embedded Python block in step 2b verified to `compile()` cleanly; set-equality
+logic tested end-to-end against a throwaway git repo at a session-scratchpad path (never the
+real live tree) — confirmed both the pass case (3/3 paths match) and the fail case (mutation
+after manifest generation correctly detected and aborted, exit 1). The classifier's fail-closed
+exit-on-unclassifiable-path behavior was also independently confirmed against that same
+throwaway repo (generic filenames don't match RenQuant's real classification rules, so the
+script correctly raised `AssertionError` and exited non-zero — proving the abort path in step 2a
+actually triggers on classifier failure, not just in theory).
+
+Pure-doc change (plus a merge commit pulling in `#241`'s already-merged content), no new
+code/tests; progress-doc-schema CI gate re-verified.
