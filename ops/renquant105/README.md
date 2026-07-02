@@ -16,20 +16,39 @@ canonical prod path. This package makes the merged Stage-1 collectors (#215 pair
 
 ## Install (operator / lander — one command per step)
 
+Schedules below are evaluated in the launchd host's LOCAL system time zone (launchd
+`StartCalendarInterval` has no explicit-TZ field); the Hour/Minute values in the committed
+plists assume the host's local time zone is already Pacific — re-derive them if lander deploys
+to a host in a different zone.
+
 ```bash
 # 1. Pinned RUN checkout (never the working tree; never the live umbrella tree):
 git clone --branch main https://github.com/hallovorld/renquant-orchestrator.git \
   /Users/renhao/git/github/renquant-orchestrator-run
 # (subsequent syncs: git -C .../renquant-orchestrator-run pull --ff-only)
 
-# 2. Install + load the jobs:
+# 2. Create the log directories BEFORE loading any job — launchd itself needs
+#    StandardOutPath/StandardErrorPath's parent directory to exist on first
+#    launch (it will not create it), independent of each wrapper script's own
+#    runtime `mkdir -p` (which only helps once a job has already run once):
+mkdir -p /Users/renhao/git/github/RenQuant/logs/rq105
+mkdir -p /Users/renhao/git/github/RenQuant/logs/renquant105_pilot
+
+# 3. Install + load the jobs (current-macOS launchctl — `load`/`unload` are
+#    deprecated; use bootstrap/bootout against the per-user GUI domain):
 chmod +x /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/*.sh
+UID_NUM="$(id -u)"
 for p in quote-logger postclose liveness; do
   cp /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/com.renquant.rq105-$p.plist \
-     ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.renquant.rq105-$p.plist
+     ~/Library/LaunchAgents/
+  launchctl bootstrap "gui/$UID_NUM" ~/Library/LaunchAgents/com.renquant.rq105-$p.plist
 done
+# Unload (e.g. before re-installing an updated plist):
+#   launchctl bootout "gui/$UID_NUM/com.renquant.rq105-<p>"
+# Force-run once now, off-schedule, for a real end-to-end smoke test:
+#   launchctl kickstart "gui/$UID_NUM/com.renquant.rq105-<p>"
 
-# 3. Smoke (off-hours safe): one forced sample + a liveness dry-run
+# 4. Smoke (off-hours safe): one forced sample + a liveness dry-run
 PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
   /Users/renhao/git/github/RenQuant/.venv/bin/python -m renquant_orchestrator.intraday_quote_logger \
   --env-file /Users/renhao/git/github/RenQuant/.env --data-root /Users/renhao/git/github/RenQuant \
