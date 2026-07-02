@@ -12,6 +12,16 @@ REVISION: r2 (2026-07-02) — addresses Codex CHANGES_REQUESTED: added an explic
           outcome per RenQuant#431 and hard-gated S9 on that reconciliation; added this §4(b)
           evidence block. Also rebased onto current main to pick up #226 (A3)'s already-merged
           changes to `model-freshness-governance.md`, which this branch had gone stale against.
+REVISION: r3 (2026-07-02) — addresses Codex CHANGES_REQUESTED (execution-order self-contradiction):
+          split N1 into N1a (build/test the collector-scheduling mechanism — `#232`'s actual
+          scope — unblocked, execute now) and N1b (activate live collection — hard-BLOCKED until
+          #224 AND #227 both merge to main, per the Dependency DAG's own #224/#227→N1 gate);
+          updated the horizon-map header to show the split. Also corrected every "#431's frozen
+          reconciliation protocol" claim (DAG table, S9's hard-gate note, §8's re-baseline
+          exclusion list) to accurately state the protocol is PROPOSED/INCOMPLETE as of 2026-07-02
+          (Algorithm B's estimand, shift values, and the untouched adjudication slice are not yet
+          pinned) — a hard gate cannot cite an input as settled/frozen when it is still open to
+          researcher discretion.
 WHAT:     a NOW (≤72h) / SHORT (July) / MID (Aug–Sep) / LONG (Q4→H1'27) execution roadmap in
           which EVERY item carries concrete guidance (repos, scripts, order) and a measurable
           acceptance criterion; four dated decision gates (D1 first WF-gate verdict on the live

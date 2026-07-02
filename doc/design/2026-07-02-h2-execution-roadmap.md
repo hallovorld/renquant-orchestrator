@@ -17,7 +17,8 @@ profile changes (§9).
 ## 1. Horizon map, decision gates, KPIs
 
 ```
-NOW (≤72h)      : N1 collectors live · N2 PIT accrual starts · N3 FMP subscribed (SPEND OK)
+NOW (≤72h)      : N1a collectors built+tested (N1b live activation BLOCKED on #224/#227) ·
+                  N2 PIT accrual starts · N3 FMP subscribed (SPEND OK)
 SHORT (July)    : gate repair → FIRST VERDICT (D1) · ledger wiring · cash-drag lanes A/B ·
                   Track A table+test · open-auction IS prize · hotfix PRs · shadow freshness
 MID (Aug–Sep)   : 105 Stage-1 build → readonly → frozen canary · conviction haircut · BL-1 ·
@@ -44,7 +45,7 @@ downstream item literally cannot start (not merely "should wait") until the upst
 
 | Upstream (must land first) | Downstream (blocked until then) | Why |
 |---|---|---|
-| `RenQuant#431` IC-method reconciliation (frozen protocol; not yet executed) | S9 (Track A conditional pick-quality test) and any Track A/Track B alpha-route commitment (D3, L1) | S8/S9's own AC below still cites the ORIGINALLY-committed `genuine_ic` (0.0417) as the faithfulness bar; #431 found the leak-controlled-IC reproduction against the durable table does not agree in sign with the direction-decision doc's cited BULL_CALM figure. Until #431's reconciliation protocol executes, neither figure is settled, and no alpha-route decision (Track A GO/STOP, D3, L1) may cite either one as ground truth. |
+| `RenQuant#431` IC-method reconciliation (protocol PROPOSED/INCOMPLETE as of 2026-07-02 — Codex: Algorithm B's estimand, the shift values, and the untouched adjudication slice are not yet fixed; not yet executed) | S9 (Track A conditional pick-quality test) and any Track A/Track B alpha-route commitment (D3, L1) | S8/S9's own AC below still cites the ORIGINALLY-committed `genuine_ic` (0.0417) as the faithfulness bar; #431 found the leak-controlled-IC reproduction against the durable table does not agree in sign with the direction-decision doc's cited BULL_CALM figure. The gate here is stricter than "protocol executed": no alpha-route decision (Track A GO/STOP, D3, L1) may cite either figure as ground truth until #431's protocol is BOTH (a) actually frozen (every choice above pinned, no discretion left) AND (b) executed. |
 | `RenQuant#430` durable generator/manifest (evidence-base prerequisite) | S9 (Track A test itself needs the durable table to run against) | already implied by S8→S9 ordering; stated here as an explicit hard gate, not just sequencing, because S9 has no valid input without S8's committed artifact. |
 | `renquant-orchestrator#224` (broker-regulatory envelope) AND `#227` (Stage-1 measurement pins), both folded into RFC #208 | N1 (105 collector deployment) and M1/M2 (105 Stage-1 build, canary) | #208 §11's verify-then-bind blocker and the gate-input census / order-type / quote-feed-quality pins are prerequisites for pilot data to be trustworthy at all — deploying collectors or starting Stage-1 build before these land risks a retroactively-dirty corpus. |
 | S1–S3 (WF-gate repair, Fixes 1–3) | S4 (first gate verdict, D1) and anything citing a primary-model verdict (thesis review M10) | the gate cannot render a verdict on the live primary until the mechanical/infra bugs blocking it are fixed; no verdict exists to cite before then. |
@@ -58,13 +59,35 @@ deployed fraction (live_state), gate-verdict age (wf_gate_metadata), ledger cove
 
 ## 2. NOW — execute within 72 hours
 
-### N1. 105 collectors scheduled + liveness (P1-5)
-**Guidance:** install launchd jobs for the merged collectors (#215 paired-IS harness, #216 quote
-logger, #220 entry-timing shadow evaluator, #221 data plane) following the existing
-`com.renquant.*` plist pattern; each job gets a cadence-lapse ntfy alert per the #212 rule
-(liveness ≠ freshness); outputs land under their merged default paths, append-only.
-**AC:** 3 consecutive sessions with (a) quote-log rows for ≥90% of the watchlist, (b) a paired-IS
-row for every live buy, (c) entry-timing shadow rows present; one test-fired lapse alert received.
+### N1. 105 collectors scheduled + liveness (P1-5) — SPLIT: N1a unblocked now, N1b BLOCKED
+**Codex (2026-07-02):** the Dependency DAG above states #224+#227 as a hard gate on N1, but the
+original text below scheduled the WHOLE of N1 as a NOW/72h item and `renquant-orchestrator#232`
+already attempts that deployment while both prerequisites are open — a hard gate that does not
+change the schedule is not actually enforced. N1 is now split so the schedule matches the gate.
+
+**N1a (preparatory — unblocked, execute now; this is `renquant-orchestrator#232`'s actual scope).**
+Build and test the collector-scheduling MECHANISM itself: launchd job definitions, wrapper
+scripts, liveness checks, and plist configuration for the merged collectors (#215 paired-IS
+harness, #216 quote logger, #220 entry-timing shadow evaluator, #221 data plane), following the
+existing `com.renquant.*` plist pattern; each job gets a cadence-lapse ntfy alert per the #212
+rule (liveness ≠ freshness). Dry-run/staging validation of the mechanism (does launchd fire on
+the intended exchange-session schedule, does the liveness check correctly detect a simulated
+lapse) is fine now — none of this activates live collection or appends real session data to the
+pilot corpus.
+**N1a AC:** launchd plists installed and validated (bootstrap/kickstart succeed; schedule verified
+against an exchange-session calendar, not a naive weekday check); a simulated lapse is correctly
+flagged in a dry run; log directories created at install; no live collection activated.
+
+**N1b (BLOCKED — do not activate live collection).** Actually enabling the scheduled jobs against
+the LIVE machine — the point where they start appending real session data that would count toward
+the pilot corpus — is the hard-gated action per the Dependency DAG above:
+`renquant-orchestrator#224` (broker-regulatory envelope) AND `#227` (Stage-1 measurement pins)
+must both be merged to `main` first. Activating collection before then risks a retroactively-dirty
+corpus once the envelope/census requirements land — data collected under an unvetted contract
+cannot be retroactively certified clean. **N1b unlocks when #224 AND #227 are both merged.**
+**N1b AC (the original N1 AC below, now explicitly gated on the above):** once unlocked, 3
+consecutive LIVE sessions with (a) quote-log rows for ≥90% of the watchlist, (b) a paired-IS row
+for every live buy, (c) entry-timing shadow rows present; one test-fired lapse alert received.
 
 ### N2. PIT estimate-revision accrual starts (P0-1 — time-irreversible)
 **Guidance:** unblock #205: assign the snapshotter to base-data; schedule a daily post-close
@@ -150,9 +173,12 @@ for BULL_CALM. This AC is therefore UNRESOLVED, not met — see the Dependency D
 **Guidance:** run the FROZEN spec (direction-decision §4) on the S8 table — conditioning variables
 1–3 verified, 4–5 only after their PIT checks; chronological 60/40 split, 60d embargo; original
 GO/STOP criteria (a)–(e) untouched. **Hard gate (Codex, 2026-07-02): do NOT start this item until
-`RenQuant#431`'s frozen reconciliation protocol has executed and produced a single trusted
-genuine-IC methodology.** Running S9 against a disputed input metric would produce a verdict that
-inherits the dispute.
+`RenQuant#431`'s reconciliation protocol is BOTH actually frozen — as of 2026-07-02 it is still
+PROPOSED/INCOMPLETE: Algorithm B's exact estimand, the shift values, and the untouched
+adjudication slice remain open choices, not yet pinned — AND THEN executed, producing a single
+trusted genuine-IC methodology.** Running S9 against a disputed, still-mutable input metric would
+produce a verdict that inherits the dispute (and, worse, the input could still be tuned after the
+fact if the protocol isn't genuinely frozen first).
 **AC:** a recorded verdict — GO (build the meta-label filter) or NULL (recorded, Track B becomes
 the only directional path); all five metrics with bootstrap CIs; zero post-hoc criterion edits.
 
@@ -349,8 +375,10 @@ universe expansion (E34); new factor scans on the current panel (four NULLs this
   items may move horizons only with a stated reason. **Scope limit (Codex, 2026-07-02): a
   re-baseline may update FORECASTS/ESTIMATES only** (expected dates, expected KPI values,
   sequencing horizons). It may **never**, under any addendum, silently revise: a pre-registered
-  estimand (e.g. S9/Track A's conditional-pick-quality definition, #431's frozen reconciliation
-  protocol, L2's #223 A5.5 power-prereg requirements), a GO/STOP threshold (S9's (a)–(e) criteria,
+  estimand (e.g. S9/Track A's conditional-pick-quality definition, #431's reconciliation protocol
+  — PROPOSED/INCOMPLETE as of 2026-07-02, not yet frozen — once it IS frozen, only via a fresh
+  #431-equivalent review round, never a monthly re-baseline addendum, L2's #223 A5.5 power-prereg
+  requirements), a GO/STOP threshold (S9's (a)–(e) criteria,
   M7's frozen thresholds, M8's wave pre-registered noise band), what counts as confirmation data
   (S9's held-out test window, #431's untouched adjudication slice), or a stop rule (M2's HARD-halt
   envelope, L2's underpowered-routes-to-§9.3a rule). Any of those may only change via a fresh,
