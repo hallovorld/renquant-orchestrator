@@ -161,24 +161,115 @@ def test_data_output_fresh_false_when_file_empty(tmp_path):
     assert "EMPTY" in reason
 
 
-def test_data_output_fresh_falls_back_to_mtime_when_last_row_unparseable(tmp_path):
+def test_data_output_fresh_false_when_last_row_missing_required_field(tmp_path):
+    """A row missing the required 'date' field must FAIL liveness outright —
+    it must NEVER fall back to trusting the file's mtime alone (that was the
+    #248 review's fail-open bug: a process could append a corrupt/incomplete
+    row with a fresh mtime and be reported healthy)."""
     today = dt.date.today().isoformat()
     p = tmp_path / "no_date_field.jsonl"
     _write_jsonl(p, [{"ticker": "AAPL", "no_date_key_here": True}])
     ok, reason = liveness._data_output_fresh(str(p), today)
-    # mtime is "today" since the file was just written by this test.
+    assert ok is False, reason
+    assert "corrupt" in reason or "truncated" in reason
+
+
+def test_data_output_fresh_false_when_final_line_is_corrupt_with_fresh_mtime(tmp_path):
+    """Codex review case: last physical line is truncated JSON (a writer mid-
+    write, or a crash), mtime is fresh (file was just touched), and there is
+    NO earlier complete row to fall back to — must fail, not report healthy
+    off the fresh mtime alone."""
+    today = dt.date.today().isoformat()
+    p = tmp_path / "corrupt_tail_only.jsonl"
+    p.write_text('{"date": "' + today + '", "ticker": "AAPL", "mid": 12.')  # truncated mid-write
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is False, reason
+
+
+def test_data_output_fresh_false_when_last_row_missing_date_value(tmp_path):
+    today = dt.date.today().isoformat()
+    p = tmp_path / "empty_date.jsonl"
+    _write_jsonl(p, [{"date": "", "ticker": "AAPL"}])
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is False, reason
+
+
+def test_data_output_fresh_uses_prior_complete_row_when_tail_is_corrupt(tmp_path):
+    """A legitimate mid-write case: the last physical line is a truncated
+    write-in-progress, but a complete row immediately before it is FRESH
+    (within the tight age bound) and correctly dated today — must be
+    reported healthy via that prior row, with the corrupt tail as a
+    non-fatal diagnostic, not silently discarded and not fatal on its own."""
+    today = dt.date.today().isoformat()
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+    p = tmp_path / "mid_write.jsonl"
+    good_row = json.dumps({"date": today, "ticker": "AAPL", "ts": now_iso})
+    p.write_text(good_row + "\n" + '{"date": "' + today + '", "ticker": "MSFT", "ts": "')
+    ok, reason = liveness._data_output_fresh(str(p), today)
     assert ok is True, reason
 
 
-def test_last_jsonl_row_reads_the_final_line_of_a_multiline_file(tmp_path):
+def test_data_output_fresh_false_when_prior_complete_row_is_stale_and_tail_corrupt(tmp_path):
+    """Codex review case: a stale-but-valid row followed by a fresh-but-
+    corrupt row. The corrupt fresh row must NOT be used to fake freshness
+    (its mtime is fresh but it has no usable date/ticker); the fallback to
+    the prior row must correctly report it as STALE via its own real date,
+    not report healthy just because *some* row exists."""
+    today = dt.date.today().isoformat()
+    stale = (dt.date.today() - dt.timedelta(days=3)).isoformat()
+    p = tmp_path / "stale_then_corrupt.jsonl"
+    stale_row = json.dumps({"date": stale, "ticker": "AAPL", "ts": f"{stale}T10:00:00+00:00"})
+    p.write_text(stale_row + "\n" + '{"date": "' + today + '", "ticker": "MSFT", "mid": tru')
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is False, reason
+    assert "stale" in reason
+
+
+def test_data_output_fresh_false_when_last_row_timestamp_exceeds_tight_age_bound(tmp_path):
+    """A row correctly dated today but whose fine-grained timestamp is hours
+    old must fail the TIGHT age bound, not merely the coarse date==today
+    check (this is the actual fix beyond the corrupt-row case: 'today' alone
+    is too permissive a freshness bar for a collector sampling every 60s)."""
+    today = dt.date.today().isoformat()
+    stale_ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=3)).isoformat()
+    p = tmp_path / "stale_ts_fresh_date.jsonl"
+    _write_jsonl(p, [{"date": today, "ticker": "AAPL", "ts": stale_ts}])
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    assert ok is False, reason
+    assert "exceeds" in reason
+
+
+def test_data_output_fresh_handles_row_larger_than_fixed_tail_chunk(tmp_path, monkeypatch):
+    """A final row longer than the fixed tail-read chunk gets its opening
+    bytes cut off by the seek and correctly fails to parse as JSON on its
+    own — the backward scan must still find an earlier complete row rather
+    than crashing or silently reporting healthy off the mangled fragment."""
+    monkeypatch.setattr(liveness, "_TAIL_CHUNK_BYTES", 256)
+    today = dt.date.today().isoformat()
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+    p = tmp_path / "oversized_last_line.jsonl"
+    good_row = json.dumps({"date": today, "ticker": "AAPL", "ts": now_iso})
+    oversized = json.dumps({"date": today, "ticker": "MSFT", "ts": now_iso, "pad": "x" * 2000})
+    p.write_text(good_row + "\n" + oversized)
+    ok, reason = liveness._data_output_fresh(str(p), today)
+    # The oversized final line's opening bytes are chopped by the 256-byte
+    # tail seek, so it cannot parse; the scan must fall back to the earlier
+    # complete, fresh row and report healthy through it.
+    assert ok is True, reason
+
+
+def test_last_complete_jsonl_row_reads_the_final_valid_line_of_a_multiline_file(tmp_path):
     p = tmp_path / "multi.jsonl"
-    _write_jsonl(p, [{"n": i} for i in range(50)])
-    row = liveness._last_jsonl_row(str(p))
-    assert row == {"n": 49}
+    _write_jsonl(p, [{"date": "2026-07-02", "ticker": f"T{i}"} for i in range(50)])
+    row, tail_was_corrupt = liveness._last_complete_jsonl_row(str(p))
+    assert row == {"date": "2026-07-02", "ticker": "T49"}
+    assert tail_was_corrupt is False
 
 
-def test_last_jsonl_row_none_for_missing_file():
-    assert liveness._last_jsonl_row("/nonexistent/path/x.jsonl") is None
+def test_last_complete_jsonl_row_none_for_missing_file():
+    row, tail_was_corrupt = liveness._last_complete_jsonl_row("/nonexistent/path/x.jsonl")
+    assert row is None
+    assert tail_was_corrupt is False
 
 
 # ─────────────────────── N1b activation guard (#232 review r2) ───────────────

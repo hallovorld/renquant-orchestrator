@@ -17,9 +17,14 @@ so scheduled market holidays do not fire a false "collector lapsed" alert.
 Checked (session days only):
   wrapper stdout logs   logs/rq105/{quote_logger,intraday_pairing_logger,entry_timing_shadow}_<date>.log
   collector data outputs  each collector's OWN ``default_*_path()`` resolver (not a hardcoded
-                           path and not a glob) — verified by parsing the LAST JSONL line and
-                           checking its "date" field is today (falls back to file mtime if the
-                           last line has no parseable date).
+                           path and not a glob) — verified by scanning the tail JSONL lines
+                           BACKWARD for the most recent COMPLETE row with a valid "date"+"ticker"
+                           schema. A corrupt/truncated/missing-field last row is NEVER treated as
+                           evidence of liveness via a raw-mtime fallback (that was fail-open: a
+                           process appending garbage with a fresh mtime read as healthy). If the
+                           found row's own fine-grained timestamp (ts/source_ts/tick_time) is
+                           present, its age must also be within a tight bound (not merely "today")
+                           — a truncated tail with no usable timestamp fails liveness outright.
 """
 from __future__ import annotations
 
@@ -105,22 +110,91 @@ def _alert(title: str, body: str) -> None:
              f"ntfy.sh/{topic}"], capture_output=True)
 
 
-def _last_jsonl_row(path: str) -> dict | None:
-    """Best-effort last-line parse (tail-reads in 8KB chunks so a large pilot
-    file is not fully loaded into memory just to check freshness)."""
-    try:
-        with open(path, "rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            size = fh.tell()
-            chunk = min(size, 8192)
-            fh.seek(-chunk, os.SEEK_END)
-            tail = fh.read().decode("utf-8", errors="replace")
+_TAIL_CHUNK_BYTES = 8192
+_TAIL_CHUNK_MAX_BYTES = 8192 * 16  # cap the expanding read so a truly pathological
+# file (e.g. one enormous unparseable blob) cannot make this loop the whole file
+# into memory just to check freshness.
+# Tight bound for the "writer is mid-write, last physical line is truncated,
+# but an earlier complete row is fresh" case. All three collectors default to
+# a 60s sample cadence (intraday_quote_logger.DEFAULT_CADENCE_SEC); 10 minutes
+# is several missed cycles of slack for a transient hiccup while still being
+# far tighter than "anywhere in today" (the bug this replaces).
+_TIGHT_AGE_BOUND = dt.timedelta(minutes=10)
+_REQUIRED_ROW_FIELDS = ("date", "ticker")
+
+
+def _last_complete_jsonl_row(path: str) -> tuple[dict | None, bool]:
+    """Scan backward through the file's tail for the most recent COMPLETE,
+    parseable JSON row with the required schema fields present. Starts with a
+    fixed-size tail read and DOUBLES the read size (up to
+    ``_TAIL_CHUNK_MAX_BYTES``) if no complete row is found, so a legitimately
+    oversized final row does not make an earlier, perfectly valid row
+    unreachable by chopping it out of a single fixed-size window — while still
+    never loading an unbounded file fully into memory just to check freshness.
+
+    Returns ``(row_or_None, tail_was_corrupt)``. ``tail_was_corrupt`` is True
+    iff the LAST physical line (from the initial, smallest read) failed to
+    parse/validate (a truncated write in progress) even though an earlier
+    complete row was found further back — reported by the caller as a
+    diagnostic, not by itself a liveness failure. If the file's own last line
+    itself is legitimately just very long (not corrupt, just chopped by the
+    initial seek boundary), a later successful expanded read for a different
+    row does not retroactively mark it corrupt — only the FIRST read's last
+    line is used for that determination, matching "the physical last line
+    failed to parse in the smallest read" rather than any read.
+    """
+    tail_was_corrupt = False
+    checked_last_line = False
+    chunk = _TAIL_CHUNK_BYTES
+    while True:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                read_size = min(size, chunk)
+                fh.seek(-read_size, os.SEEK_END)
+                tail = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            return None, False
         lines = [ln for ln in tail.splitlines() if ln.strip()]
         if not lines:
-            return None
-        return json.loads(lines[-1])
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
+            return None, tail_was_corrupt
+        for i in range(len(lines) - 1, -1, -1):
+            try:
+                row = json.loads(lines[i])
+            except (ValueError, json.JSONDecodeError):
+                row = None
+            if not isinstance(row, dict) or any(
+                not isinstance(row.get(f), str) or not row.get(f) for f in _REQUIRED_ROW_FIELDS
+            ):
+                if not checked_last_line:
+                    tail_was_corrupt = True
+                    checked_last_line = True
+                continue
+            return row, tail_was_corrupt
+        checked_last_line = True
+        if read_size >= size or chunk >= _TAIL_CHUNK_MAX_BYTES:
+            return None, tail_was_corrupt
+        chunk = min(chunk * 2, _TAIL_CHUNK_MAX_BYTES)
+
+
+def _row_timestamp(row: dict) -> dt.datetime | None:
+    """Fine-grained timestamp for the tight-age-bound check, preferring the
+    most precise field each collector actually writes (mirrors the same
+    ts/source_ts/tick_time fallback chain entry_timing_shadow.py itself uses
+    when reading its own rows back)."""
+    for field in ("ts", "source_ts", "tick_time"):
+        val = row.get(field)
+        if not isinstance(val, str) or not val:
+            continue
+        try:
+            parsed = dt.datetime.fromisoformat(val)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed
+    return None
 
 
 def _data_output_fresh(path: str, today_iso: str) -> tuple[bool, str]:
@@ -128,17 +202,26 @@ def _data_output_fresh(path: str, today_iso: str) -> tuple[bool, str]:
         return False, f"{path} missing"
     if os.path.getsize(path) == 0:
         return False, f"{path} EMPTY"
-    row = _last_jsonl_row(path)
-    if row is not None and isinstance(row.get("date"), str):
-        if row["date"] == today_iso:
-            return True, ""
-        return False, f"{path} last row date={row['date']!r} != today {today_iso!r} (stale)"
-    # No parseable "date" field on the last row — fall back to mtime, and say so
-    # explicitly rather than silently trusting an unverified file.
-    mtime_date = dt.date.fromtimestamp(os.path.getmtime(path)).isoformat()
-    if mtime_date == today_iso:
-        return True, ""
-    return False, f"{path} last row unparseable and mtime date={mtime_date!r} != today (stale, fallback check)"
+    row, tail_was_corrupt = _last_complete_jsonl_row(path)
+    if row is None:
+        return False, f"{path} no parseable complete row (date+ticker) found in tail — corrupt/truncated"
+    date_val = row["date"]
+    if date_val != today_iso:
+        return False, f"{path} last complete row date={date_val!r} != today {today_iso!r} (stale)"
+    corrupt_note = " [most-recent physical line was truncated/corrupt; used prior complete row]" if tail_was_corrupt else ""
+    ts_val = _row_timestamp(row)
+    if ts_val is not None:
+        age = dt.datetime.now(dt.timezone.utc) - ts_val
+        if age > _TIGHT_AGE_BOUND:
+            return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}"
+    elif tail_was_corrupt:
+        # No fine-grained timestamp to bound against AND the tail is corrupt —
+        # the date-only match is not enough evidence of genuine freshness.
+        return False, f"{path} tail truncated/corrupt and no timestamp field to bound the fallback row's age"
+    if tail_was_corrupt:
+        print(f"WARNING: {path} tail had a truncated/corrupt final line (writer likely mid-write); "
+              f"prior complete row passed date+age freshness checks", file=sys.stderr)
+    return True, ""
 
 
 def main() -> int:
