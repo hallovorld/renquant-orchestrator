@@ -26,6 +26,54 @@ decision, until the fixes below are themselves validated against more data:
      admission-stage breakdown (counts by `blocked_by` reason) is reported
      separately from a sizing-stage TC computed ONLY over names that
      survived every admission gate (`blocked_by IS NULL`).
+
+2026-07-02 ROUND 3 (Codex CHANGES_REQUESTED — round 2's admission/sizing
+split itself misclassified `blocked_by`, producing an UNSUPPORTED "100%
+blocked before sizing" finding on every one of the 10 canonical daily runs;
+see doc/progress/2026-07-02-s-tc-measurement.md round-3 section for the full
+response map):
+
+  `blocked_by IS NULL` does NOT mean "survived admission" — it means "not
+  yet given ANY reason." Round 2 treated every non-null `blocked_by` as a
+  pre-selection admission failure, but `blocked_by` is also the field that
+  records SIZING-stage failures and even genuinely SELECTED/SUBMITTED
+  outcomes (e.g. `broker_pending_submitted` — a name whose order WAS
+  submitted to the broker but whose fill wasn't confirmed at trace-snapshot
+  time; see `RenQuant/backtesting/renquant_104/adapters/runner_trace.py`
+  `live_trace_selection_maps()`: "Trace filled buys as selected and pending
+  submissions as blocked."). Treating that the same as a true pre-selection
+  veto forced n_survived_admission=0 on every run — a classification bug,
+  not a real finding.
+
+  Fixed: an explicit taxonomy (`_REASON_TAXONOMY` below), derived directly
+  from the actual writer code (`renquant-pipeline`'s
+  `kernel/selection.py::run_selection_loop` — the true pre-selection greedy
+  slot-filling loop — and `kernel/pipeline/task_selection.py::SizeAndEmitTask`
+  — the sizing stage that runs strictly AFTER selection succeeds — plus
+  RenQuant's `adapters/runner_trace.py` for the live broker-submission
+  sweep), not guessed from the string values alone:
+    - PRE_SELECTION_BLOCKERS (never reached sizing):
+      wash_sale, sector, correlation, tier, defensive_non_bear,
+      candidate_not_selected (generic no-specific-reason fallback).
+    - SIZING_FAILURES (selected, but sizing failed to produce an order):
+      buy_blocked, skip_buys, size_bad_price, size_insufficient_cash,
+      size_cash_invariant, kelly_zero:capped_zero, bear_defensive_slot_cap,
+      bear_defensive_insufficient_cash.
+    - SELECTED_SUBMITTED (selected AND submitted — NOT a blocker; fill
+      confirmation status unknown at trace time): broker_pending_submitted.
+    - BROKER_OUTCOME (selected, submitted, then skipped at/after broker
+      submission): broker_skip:* (prefix).
+    - UNCLASSIFIED: any other value — reported in its own bucket, never
+      force-fit into pre-selection/sizing, per the review's explicit ask.
+
+  `n_survived_admission` (the sizing population) is now every eligible name
+  EXCEPT true PRE_SELECTION_BLOCKERS and UNCLASSIFIED (conservatively
+  excluded from both sides pending a real explanation). SELECTED_SUBMITTED
+  rows with no matching row in `trades` (fill unconfirmed) are counted in
+  the sizing population but EXCLUDED from the correlation itself — their
+  true delivered weight is unknown, not zero, and folding an unknown into
+  0.0 would be exactly the "undefined treated as a known value" error round
+  2 already fixed for the no-buy/zero-dispersion cases (see point 3 above).
   3. Runs with zero buys, or where every survivor was bought at the SAME
      target_pct (Pearson TC mathematically undefined — zero variance), no
      longer report `0.0` interchangeably with a genuine near-zero
@@ -98,6 +146,57 @@ OUT = os.environ.get(
 MU_FLOOR = 0.03
 MIN_FULL_RUN_CANDIDATES = 80
 
+# ROUND 3 taxonomy — derived from the actual writer code, not guessed:
+#   renquant-pipeline/src/renquant_pipeline/kernel/selection.py
+#     run_selection_loop(): block_counts keys "wash_sale", "sector",
+#     "correlation", "tier", "defensive_non_bear" — the greedy slot-filling
+#     loop that runs BEFORE sizing. `candidate_not_selected` is
+#     persistence.py's generic fallback when no specific reason was ever
+#     recorded (e.g. ran off the end of the ranked list before a slot
+#     opened) — also a true pre-selection non-event.
+#   renquant-pipeline/src/renquant_pipeline/kernel/pipeline/task_selection.py
+#     SizeAndEmitTask._block(): "buy_blocked", "skip_buys", "size_bad_price",
+#     "size_insufficient_cash", "size_cash_invariant",
+#     "kelly_zero:capped_zero", "bear_defensive_slot_cap",
+#     "bear_defensive_insufficient_cash" — this task only runs on names
+#     already in ctx._selected, so every reason it stamps is a SIZING
+#     failure, not an admission failure.
+#   RenQuant/backtesting/renquant_104/adapters/runner_trace.py
+#     live_trace_selection_maps(): pending (submitted, unconfirmed-fill)
+#     broker orders are swept into the SAME blocked_map via
+#     `out_blocked.setdefault(ticker, "broker_pending_submitted")` — this is
+#     a SELECTED+SUBMITTED outcome, not a blocker.
+#     live_execution_attempt_events(): `broker_skip:{reason}` — a
+#     post-selection broker-stage skip, distinct from a sizing failure.
+_PRE_SELECTION_BLOCKERS = frozenset({
+    "wash_sale", "sector", "correlation", "tier", "defensive_non_bear",
+    "candidate_not_selected",
+})
+_SIZING_FAILURES = frozenset({
+    "buy_blocked", "skip_buys", "size_bad_price", "size_insufficient_cash",
+    "size_cash_invariant", "kelly_zero:capped_zero", "bear_defensive_slot_cap",
+    "bear_defensive_insufficient_cash",
+})
+_SELECTED_SUBMITTED = frozenset({"broker_pending_submitted"})
+_BROKER_OUTCOME_PREFIX = "broker_skip:"
+
+
+def _classify_reason(reason: str) -> str:
+    """Map a raw `blocked_by` value to its pipeline stage.
+
+    Returns one of: "pre_selection_blocked", "sizing_failed",
+    "selected_submitted", "broker_outcome", "unclassified".
+    """
+    if reason in _PRE_SELECTION_BLOCKERS:
+        return "pre_selection_blocked"
+    if reason in _SIZING_FAILURES:
+        return "sizing_failed"
+    if reason in _SELECTED_SUBMITTED:
+        return "selected_submitted"
+    if reason.startswith(_BROKER_OUTCOME_PREFIX):
+        return "broker_outcome"
+    return "unclassified"
+
 
 def _canonical_daily_runs(con) -> list[str]:
     """One `pipeline_runs` row per `run_date` — the row with the LATEST
@@ -134,23 +233,40 @@ def buy_side_decision_tc(con, run_id: str) -> dict | None:
     if len(elig) < 4:
         return None
 
-    # ROUND 2 fix (point 2): split ADMISSION (blocked_by) from SIZING.
-    # blocked_by is NULL/empty for names that survived every upstream gate
-    # (regime / QP admission / rank floor / etc.) and reached sizing.
-    blocked_mask = elig["blocked_by"].notna() & (elig["blocked_by"].str.len() > 0)
+    # ROUND 3 fix: classify blocked_by by PIPELINE STAGE (see _classify_reason
+    # / the taxonomy comment above _PRE_SELECTION_BLOCKERS), not by
+    # "is it non-null." Round 2's `blocked_by IS NULL` test wrongly treated
+    # every non-null value (including genuinely selected+submitted names) as
+    # a pre-selection admission failure.
+    has_reason = elig["blocked_by"].notna() & (elig["blocked_by"].str.len() > 0)
+    elig = elig.copy()
+    elig["_stage"] = "selected_filled"  # blocked_by is null -> reached trades cleanly
+    elig.loc[has_reason, "_stage"] = elig.loc[has_reason, "blocked_by"].map(_classify_reason)
+
     admission_breakdown = (
-        elig.loc[blocked_mask, "blocked_by"].value_counts().to_dict()
+        elig.loc[has_reason, "blocked_by"].value_counts().to_dict()
     )
-    survived = elig.loc[~blocked_mask].copy()
+    stage_counts = elig["_stage"].value_counts().to_dict()
+
+    pre_selection_mask = elig["_stage"] == "pre_selection_blocked"
+    unclassified_mask = elig["_stage"] == "unclassified"
+    # sizing population = everyone except true pre-selection non-events and
+    # anything we can't confidently classify (never force-fit unclassified
+    # values into either bucket).
+    survived = elig.loc[~(pre_selection_mask | unclassified_mask)].copy()
     n_survived_admission = int(len(survived))
+    n_unclassified = int(unclassified_mask.sum())
     admission_breakdown["survived_admission"] = n_survived_admission
+    admission_breakdown["unclassified"] = n_unclassified
 
     if n_survived_admission < 4:
         return {
             "run_id": run_id,
             "n_eligible_by_mu": int(len(elig)),
             "admission_breakdown": admission_breakdown,
+            "admission_breakdown_by_stage": stage_counts,
             "n_survived_admission": n_survived_admission,
+            "n_unclassified": n_unclassified,
             "category": "insufficient_sizing_population",
             "buy_side_decision_tc": None,
             "exposure_transfer_ratio": None,
@@ -160,29 +276,47 @@ def buy_side_decision_tc(con, run_id: str) -> dict | None:
         "select ticker, target_pct from trades where run_id=? and action like 'buy%'",
         con, params=(run_id,))
     actual = dict(zip(tr["ticker"], tr["target_pct"]))
-    survived["w_actual"] = survived["ticker"].map(actual).fillna(0.0)
-    n_bought = int((survived["w_actual"] > 0).sum())
+    survived["w_actual"] = survived["ticker"].map(actual)
+    # ROUND 3: a `selected_submitted` name (broker_pending_submitted) with no
+    # matching `trades` row has an UNKNOWN delivered weight (fill status
+    # wasn't confirmed at trace time) — NOT a genuine zero. Folding that into
+    # 0.0 would repeat the exact "undefined treated as a known value" error
+    # round 2 already fixed for no_deployment/zero_dispersion. Exclude these
+    # from the correlation population; keep them in n_survived_admission
+    # (they did reach/pass sizing) and report their count separately.
+    pending_unconfirmed_mask = (
+        (survived["_stage"] == "selected_submitted") & survived["w_actual"].isna()
+    )
+    n_pending_unconfirmed = int(pending_unconfirmed_mask.sum())
+    survived["w_actual"] = survived["w_actual"].fillna(0.0)
+    corr_pop = survived.loc[~pending_unconfirmed_mask].copy()
+    n_bought = int((corr_pop["w_actual"] > 0).sum())
 
     # ROUND 2 fix (point 3): distinguish "genuinely undefined correlation"
     # cases from a real, computed near-zero correlation, and NEVER average
-    # an undefined case into the correlation series.
-    if n_bought == 0:
+    # an undefined case into the correlation series. ROUND 3: computed over
+    # corr_pop (survived, minus fill-unconfirmed pending submissions), not
+    # the raw sizing population.
+    if len(corr_pop) < 4:
+        category = "insufficient_corr_population"
+        tc_p = None
+    elif n_bought == 0:
         category = "no_deployment"
         tc_p = None
-    elif survived["w_actual"].std() == 0 or survived["kelly_target_pct"].std() == 0:
+    elif corr_pop["w_actual"].std() == 0 or corr_pop["kelly_target_pct"].std() == 0:
         category = "zero_dispersion"  # bought, but no size variation to correlate
         tc_p = None
     else:
         category = "measured"
-        tc_p = float(np.corrcoef(survived["kelly_target_pct"], survived["w_actual"])[0, 1])
+        tc_p = float(np.corrcoef(corr_pop["kelly_target_pct"], corr_pop["w_actual"])[0, 1])
 
     # ROUND 2 fix (point 5): a magnitude-sensitive companion metric —
     # regression-through-origin slope of actual onto desired. Computable
     # whenever the desired vector has any dispersion, independent of
     # whether w_actual has dispersion (unlike Pearson TC above).
-    denom = float(np.dot(survived["kelly_target_pct"], survived["kelly_target_pct"]))
+    denom = float(np.dot(corr_pop["kelly_target_pct"], corr_pop["kelly_target_pct"])) if len(corr_pop) else 0.0
     exposure_transfer_ratio = (
-        round(float(np.dot(survived["w_actual"], survived["kelly_target_pct"])) / denom, 3)
+        round(float(np.dot(corr_pop["w_actual"], corr_pop["kelly_target_pct"])) / denom, 3)
         if denom > 0 else None
     )
 
@@ -190,7 +324,11 @@ def buy_side_decision_tc(con, run_id: str) -> dict | None:
         "run_id": run_id,
         "n_eligible_by_mu": int(len(elig)),
         "admission_breakdown": admission_breakdown,
+        "admission_breakdown_by_stage": stage_counts,
         "n_survived_admission": n_survived_admission,
+        "n_unclassified": n_unclassified,
+        "n_pending_unconfirmed": n_pending_unconfirmed,
+        "n_corr_population": int(len(corr_pop)),
         "n_bought": n_bought,
         "category": category,
         "buy_side_decision_tc": round(tc_p, 3) if tc_p is not None else None,
@@ -275,11 +413,11 @@ def main() -> None:
     category_counts = {
         cat: sum(1 for r in all_results if r["category"] == cat)
         for cat in ("measured", "no_deployment", "zero_dispersion",
-                    "insufficient_sizing_population")
+                    "insufficient_sizing_population", "insufficient_corr_population")
     }
 
     out = {
-        "label": "EXPLORATORY DIAGNOSTIC — not measured-tier TC; see round-2 "
+        "label": "EXPLORATORY DIAGNOSTIC — not measured-tier TC; see round-3 "
                  "response map in doc/progress/2026-07-02-s-tc-measurement.md "
                  "before citing any number below as a decision input",
         "theory": "IR = TC * IC * sqrt(BR); TC = corr(w_actual, w* ∝ mu/sigma^2) "
@@ -300,9 +438,10 @@ def main() -> None:
             "EXPLORATORY diagnostic input candidate for the reasoned '≈0.4' "
             "in #231 §0 — NOT a validated replacement and NOT, by itself, "
             "justification for any lane/route decision (small, "
-            "non-independent-until-now sample; admission/sizing effects "
-            "were conflated until this round; see the progress doc's "
-            "round-2 section for the full caveat list)."
+            "non-independent-until-now sample; the admission/sizing split "
+            "itself was misclassified through round 2 — see the progress "
+            "doc's round-3 section for the corrected taxonomy and its "
+            "caveats before citing any number here)."
         ),
     }
     os.makedirs(OUT, exist_ok=True)

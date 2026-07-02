@@ -85,14 +85,17 @@ def _add_buy(con, run_id, ticker, target_pct):
 
 
 class TestAdmissionVsSizingSplit:
-    """Round-2 point 2: blocked_by breakdown separated from sizing TC."""
+    """Round-2 point 2 + round-3 correction: blocked_by breakdown separated
+    from sizing TC, using the REAL pipeline-stage taxonomy (round 2's
+    `blocked_by IS NULL` test misclassified selected/submitted and
+    sizing-failure names as pre-selection blockers — see _classify_reason)."""
 
     def test_blocked_candidates_excluded_from_sizing_population(self, con):
         run_id = "2026-01-05-live-aaa"
         _add_run(con, run_id, "2026-01-05", "2026-01-05 21:00:00")
-        # 3 blocked by upstream gates, 4 survive admission
-        _add_candidate(con, run_id, "BLOCKED1", 0.05, 0.02, blocked_by="veto:regime")
-        _add_candidate(con, run_id, "BLOCKED2", 0.06, 0.03, blocked_by="qp_admission_rank")
+        # 3 TRUE pre-selection blockers (real run_selection_loop reasons)
+        _add_candidate(con, run_id, "BLOCKED1", 0.05, 0.02, blocked_by="correlation")
+        _add_candidate(con, run_id, "BLOCKED2", 0.06, 0.03, blocked_by="sector")
         _add_candidate(con, run_id, "BLOCKED3", 0.04, 0.01, blocked_by="candidate_not_selected")
         _add_candidate(con, run_id, "SURV1", 0.10, 0.05, blocked_by=None)
         _add_candidate(con, run_id, "SURV2", 0.08, 0.04, blocked_by=None)
@@ -105,8 +108,8 @@ class TestAdmissionVsSizingSplit:
 
         result = poc.buy_side_decision_tc(con, run_id)
         assert result["n_eligible_by_mu"] == 7
-        assert result["admission_breakdown"]["veto:regime"] == 1
-        assert result["admission_breakdown"]["qp_admission_rank"] == 1
+        assert result["admission_breakdown"]["correlation"] == 1
+        assert result["admission_breakdown"]["sector"] == 1
         assert result["admission_breakdown"]["candidate_not_selected"] == 1
         assert result["admission_breakdown"]["survived_admission"] == 4
         assert result["n_survived_admission"] == 4
@@ -118,12 +121,76 @@ class TestAdmissionVsSizingSplit:
         run_id = "2026-01-06-live-bbb"
         _add_run(con, run_id, "2026-01-06", "2026-01-06 21:00:00")
         for i in range(5):
-            _add_candidate(con, run_id, f"BLK{i}", 0.05, 0.02, blocked_by="veto:regime")
+            _add_candidate(con, run_id, f"BLK{i}", 0.05, 0.02, blocked_by="correlation")
         result = poc.buy_side_decision_tc(con, run_id)
         assert result["n_survived_admission"] == 0
         assert result["category"] == "insufficient_sizing_population"
         assert result["buy_side_decision_tc"] is None
         assert result["exposure_transfer_ratio"] is None
+
+    def test_broker_pending_submitted_is_not_a_blocker(self, con):
+        """Round-3 regression: this is the exact misclassification bug —
+        `broker_pending_submitted` names WERE selected+submitted, they must
+        reach the sizing population, never the pre-selection-blocked bucket."""
+        run_id = "2026-01-13-live-ggg"
+        _add_run(con, run_id, "2026-01-13", "2026-01-13 21:00:00")
+        _add_candidate(con, run_id, "PENDING1", 0.10, 0.05, blocked_by="broker_pending_submitted")
+        _add_candidate(con, run_id, "SURV1", 0.08, 0.04, blocked_by=None)
+        _add_candidate(con, run_id, "SURV2", 0.06, 0.02, blocked_by=None)
+        _add_candidate(con, run_id, "SURV3", 0.04, 0.01, blocked_by=None)
+        _add_candidate(con, run_id, "SURV4", 0.05, 0.025, blocked_by=None)
+        _add_buy(con, run_id, "SURV1", 0.04)
+        _add_buy(con, run_id, "SURV2", 0.02)
+        _add_buy(con, run_id, "SURV3", 0.01)
+        _add_buy(con, run_id, "SURV4", 0.015)
+        # PENDING1 has NO row in trades (fill unconfirmed at trace time)
+
+        result = poc.buy_side_decision_tc(con, run_id)
+        # the pending name reaches the sizing population...
+        assert result["n_survived_admission"] == 5
+        assert result["admission_breakdown_by_stage"]["selected_submitted"] == 1
+        # ...but is excluded from the correlation itself (unknown, not zero)
+        assert result["n_pending_unconfirmed"] == 1
+        assert result["n_corr_population"] == 4
+        assert result["category"] == "measured"
+
+    def test_sizing_failure_reaches_sizing_population_as_a_zero(self, con):
+        """A real sizing-stage failure (SizeAndEmitTask._block) DID reach
+        sizing — it just failed there. It belongs in the population with a
+        genuine w_actual=0, unlike a fill-unconfirmed pending submission."""
+        run_id = "2026-01-14-live-hhh"
+        _add_run(con, run_id, "2026-01-14", "2026-01-14 21:00:00")
+        _add_candidate(con, run_id, "CASHBLOCK", 0.10, 0.05, blocked_by="size_insufficient_cash")
+        _add_candidate(con, run_id, "SURV1", 0.08, 0.04, blocked_by=None)
+        _add_candidate(con, run_id, "SURV2", 0.06, 0.02, blocked_by=None)
+        _add_candidate(con, run_id, "SURV3", 0.04, 0.01, blocked_by=None)
+        _add_buy(con, run_id, "SURV1", 0.04)
+        _add_buy(con, run_id, "SURV2", 0.02)
+        # SURV3 and CASHBLOCK both unbought -> genuine w_actual=0 for both
+
+        result = poc.buy_side_decision_tc(con, run_id)
+        assert result["n_survived_admission"] == 4
+        assert result["admission_breakdown_by_stage"]["sizing_failed"] == 1
+        assert result["n_pending_unconfirmed"] == 0
+        assert result["n_corr_population"] == 4  # CASHBLOCK counted, real zero
+
+    def test_unclassified_reason_excluded_from_both_buckets(self, con):
+        run_id = "2026-01-15-live-iii"
+        _add_run(con, run_id, "2026-01-15", "2026-01-15 21:00:00")
+        _add_candidate(con, run_id, "MYSTERY", 0.10, 0.05, blocked_by="some_future_reason_v99")
+        _add_candidate(con, run_id, "SURV1", 0.08, 0.04, blocked_by=None)
+        _add_candidate(con, run_id, "SURV2", 0.06, 0.02, blocked_by=None)
+        _add_candidate(con, run_id, "SURV3", 0.04, 0.01, blocked_by=None)
+        _add_buy(con, run_id, "SURV1", 0.04)
+        _add_buy(con, run_id, "SURV2", 0.02)
+
+        result = poc.buy_side_decision_tc(con, run_id)
+        assert result["n_unclassified"] == 1
+        assert "some_future_reason_v99" not in {
+            k for k in result["admission_breakdown_by_stage"]
+        } or result["admission_breakdown_by_stage"].get("unclassified") == 1
+        # MYSTERY is in neither the blocked count nor survived_admission
+        assert result["n_survived_admission"] == 3
 
 
 class TestUndefinedCorrelationCategorization:
