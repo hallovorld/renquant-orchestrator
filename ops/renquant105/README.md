@@ -119,9 +119,16 @@ PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
 | `run_shadow_serving.sh` | post-close replay of `shadow_realtime_serving` at 4 fixed ET checkpoints (10:00/12:00/14:00/15:30, DST-correct) against the frozen vector | 13:45 |
 | `com.renquant.rq105-{batch-scores-export,shadow-serving}.plist` | launchd jobs | as above |
 
+These two jobs are N1b (GATED) exactly like the main package — installing/bootstrapping them
+early risks the same retroactively-dirty pilot corpus #229's dependency DAG exists to prevent.
 Install mirrors the main package (current-macOS launchctl verbs — `load`/`unload` are
 deprecated, per the N1a/N1b section above):
 ```bash
+# 0. MANDATORY gate check — same guard as the main package, refuses (non-zero
+#    exit) if #224/#227 haven't landed on the pinned checkout's main:
+/Users/renhao/git/github/RenQuant/.venv/bin/python \
+  /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/check_activation_prereqs.py
+
 UID_NUM="$(id -u)"
 for p in batch-scores-export shadow-serving; do
   cp /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/com.renquant.rq105-$p.plist \
@@ -129,5 +136,7 @@ for p in batch-scores-export shadow-serving; do
 done
 # unload: launchctl bootout "gui/$UID_NUM/com.renquant.rq105-<p>"
 ```
-Fail-safety: no export → shadow serving SKIPS the day with an ntfy alert (never serves a
-stale vector silently); the exporter refuses runs with <40 scored names.
+Fail-safety: no export, a stale/hash-mismatched bundle, or coverage below the run's own
+90%-of-roster floor → shadow serving SKIPS the day with an ntfy alert (never serves a stale or
+unfingerprinted vector silently); the exporter requires a completed `pipeline_runs` row with a
+bound strategy/config/artifact fingerprint before it will export anything at all.

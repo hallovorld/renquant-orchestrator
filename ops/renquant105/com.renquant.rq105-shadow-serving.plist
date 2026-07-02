@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.renquant.rq105-shadow-serving</string>
-  <key>ProgramArguments</key><array><string>/bin/zsh</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_shadow_serving.sh</string></array>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_shadow_serving.sh</string></array>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>13</integer><key>Minute</key><integer>45</integer></dict>
