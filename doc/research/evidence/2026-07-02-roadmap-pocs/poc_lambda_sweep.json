@@ -1,0 +1,106 @@
+{
+  "scope": "sensitivity study on real run inputs with simplified constraints (per-name cap only); the S6 in-pipeline 10-session shadow sweep remains the enable-gating AC",
+  "lambdas": [
+    0.0,
+    0.01,
+    0.02,
+    0.05,
+    0.1
+  ],
+  "runs": [
+    {
+      "run_id": "2026-07-01-live-01c54b39",
+      "n_names": 20,
+      "n_held_approx": 6,
+      "sweep": [
+        {
+          "lambda": 0.0,
+          "status": "optimal",
+          "deployed_frac": 0.333,
+          "n_names_gt_1pct": 9,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.01,
+          "status": "optimal",
+          "deployed_frac": 0.333,
+          "n_names_gt_1pct": 9,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.02,
+          "status": "optimal",
+          "deployed_frac": 0.333,
+          "n_names_gt_1pct": 9,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.05,
+          "status": "optimal",
+          "deployed_frac": 0.333,
+          "n_names_gt_1pct": 9,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.1,
+          "status": "optimal",
+          "deployed_frac": 0.333,
+          "n_names_gt_1pct": 9,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        }
+      ]
+    },
+    {
+      "run_id": "2026-06-30-live-b616357c",
+      "n_names": 21,
+      "n_held_approx": 7,
+      "sweep": [
+        {
+          "lambda": 0.0,
+          "status": "optimal",
+          "deployed_frac": 0.422,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.01,
+          "status": "optimal",
+          "deployed_frac": 0.422,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.02,
+          "status": "optimal",
+          "deployed_frac": 0.422,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.05,
+          "status": "optimal",
+          "deployed_frac": 0.422,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.1,
+          "status": "optimal",
+          "deployed_frac": 0.422,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.08,
+          "turnover": 0.3
+        }
+      ]
+    }
+  ]
+}
