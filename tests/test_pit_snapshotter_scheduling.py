@@ -215,6 +215,19 @@ def test_as_of_flag_overrides_today(tmp_path, monkeypatch, capsys):
 # tests below replace the old sequential precreate/remove/run "concurrency"
 # test (which never actually raced two processes) with a genuine overlapping
 # race and a genuine kill -9 crash-recovery scenario.
+#
+# #233 round 4: round 3's launcher held the flock itself but ran the wrapped
+# command as a SEPARATE CHILD via `subprocess.run` — SIGKILL to the launcher
+# released the lock (correct) but never reached the child (SIGKILL cannot be
+# forwarded), so the child could become an orphan that keeps running while a
+# new invocation, seeing the lock free, starts a second overlapping run. The
+# fix execs the wrapped command IN PLACE of the launcher, so there is only
+# ever one process — killing it kills the actual protected work directly,
+# with nothing left behind to orphan. `test_exec_replaces_process_no_orphan_
+# possible` below proves this property directly (same PID before/after exec,
+# and nothing alive after SIGKILL); `test_killed_lock_holder_does_not_block_
+# the_next_run` is updated to also assert the killed work is genuinely gone,
+# not just that the lock was reacquirable.
 
 
 _WRAPPER = OPS_DIR / "run_estimate_snapshotter.sh"
@@ -345,17 +358,29 @@ def test_killed_lock_holder_does_not_block_the_next_run(tmp_path):
     like; no EXIT trap of any kind can run). A fresh invocation started
     immediately after must acquire the lock right away, proving the kernel
     released it automatically and no stale-lock state persists -- the
-    property the old mkdir+trap lock could not guarantee."""
+    property the old mkdir+trap lock could not guarantee. Also asserts the
+    killed holder's PID is genuinely dead (not merely that the lock was
+    reacquirable) -- round 3's equivalent test proved lock reacquisition but
+    not exclusivity of the protected work, which is what round 4's exec-based
+    fix (verified structurally by test_exec_replaces_process_no_orphan_
+    possible below) closes."""
     lock_file = str(tmp_path / "crash.lock")
     holder_log = tmp_path / "holder.log"
     holder = subprocess.Popen(
         [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", lock_file,
          "--log-file", str(holder_log), "--", "sleep", "30"],
     )
+    holder_pid = holder.pid
     _wait_for_lock_held(lock_file, timeout=5)
 
     holder.kill()  # SIGKILL -- uncatchable, no trap/finally in the holder can run
     holder.wait(timeout=5)
+
+    # Round 4: the launcher execs into `sleep 30` in place of itself, so
+    # holder_pid IS the protected work's own PID (not a distinct child) --
+    # killing it must leave nothing alive under that PID.
+    with pytest.raises(ProcessLookupError):
+        os.kill(holder_pid, 0)
 
     env_overrides, runs_log = _stub_env(tmp_path)
     env = {**os.environ, **env_overrides, "PIT_SNAPSHOT_LOCK_FILE": lock_file}
@@ -365,6 +390,60 @@ def test_killed_lock_holder_does_not_block_the_next_run(tmp_path):
         "the lock must be immediately acquirable after the holder was SIGKILLed -- "
         "a stale lock here would mean this dataset silently stops collecting forever"
     )
+
+
+def test_exec_replaces_process_no_orphan_possible(tmp_path):
+    """Round 4's core property, proven directly: the launcher execs the
+    wrapped command IN PLACE of itself (same PID before and after), rather
+    than spawning it as a separate child via subprocess.run. Round 3's
+    equivalent test only proved the LOCK was reacquirable after a SIGKILL --
+    it never asserted the wrapped command's own process was actually dead,
+    so it could not have caught an orphaned child continuing to run (and
+    writing to the protected dataset) after the launcher was killed.
+
+    Wraps a single-process, non-forking command (a bare `python3 -c
+    "time.sleep(...)"`, matching the real production shape -- the actual
+    wrapped command in run_estimate_snapshotter.sh is one direct
+    `$RQ_ROOT/.venv/bin/python -m renquant_base_data.fmp_estimate_revisions`
+    invocation, not a shell script). This distinction matters: an earlier
+    draft of this test wrapped `sh -c "cmd1; cmd2"` instead, and found that
+    exec-replacing the launcher with a *shell* does NOT fully close the
+    hole when the shell itself forks a further child to run the tail
+    command of a multi-statement `-c` script -- that grandchild inherits the
+    lock fd via fork() (independent of exec/close-on-exec, which only takes
+    effect at exec time) and can itself become an orphan one level down,
+    keeping the kernel flock held even after the shell (and thus the
+    launcher's original PID) is SIGKILLed. This launcher's guarantee is
+    therefore precise: the lock's lifetime matches the wrapped command's OWN
+    top-level process lifetime. That is sufficient for this PR's actual
+    non-forking wrapped command, and is asserted here against that same
+    shape; it would NOT be sufficient for a wrapped command that itself
+    forks additional children without exec'ing them (documented in
+    run_with_lock.py's own docstring for future callers of this launcher)."""
+    lock_file = str(tmp_path / "exec.lock")
+    log_file = str(tmp_path / "exec.log")
+
+    launcher = subprocess.Popen(
+        [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", lock_file,
+         "--log-file", log_file, "--", sys.executable, "-c",
+         "import time; time.sleep(30)"],
+    )
+    launcher_pid = launcher.pid
+    _wait_for_lock_held(lock_file, timeout=5)
+
+    launcher.kill()  # SIGKILL the single PID that is now the protected work itself
+    launcher.wait(timeout=5)
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(launcher_pid, 0)  # confirms the protected work is genuinely gone
+
+    # A second invocation must be immediately safe: nothing is left running
+    # under any PID that could race a fresh run's writes.
+    env_overrides, runs_log = _stub_env(tmp_path)
+    env = {**os.environ, **env_overrides, "PIT_SNAPSHOT_LOCK_FILE": lock_file}
+    result = subprocess.run(["/bin/bash", str(_WRAPPER)], env=env, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert _run_count(runs_log) == 1
 
 
 def test_run_with_lock_propagates_wrapped_command_exit_code(tmp_path):

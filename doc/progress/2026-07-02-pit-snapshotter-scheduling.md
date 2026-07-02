@@ -129,3 +129,57 @@ checked by hand once rather than trusting the automated test alone.
 
 **Scope:** locking mechanism only; the four-endpoint publication-validation logic
 (`pit_liveness_check.py`) is unchanged from round 2, as codex's review noted could remain as-is.
+
+**Round 4 (Codex CHANGES_REQUESTED — orphaned-child race in round 3's own fix):**
+
+**Finding.** Round 3's kernel-released flock correctly fixed the mkdir/trap problem, but the lock
+was held by the *launcher*, which ran the wrapped collector as a separate CHILD process via
+`subprocess.run`. SIGKILL is uncatchable and never forwarded to children: SIGKILLing the launcher
+released the launcher's own flock instantly (correct), but the already-spawned collector child kept
+running as an orphan with nothing protecting it. A new scheduled invocation would then see the lock
+free and start a second run overlapping the still-running orphan — reintroducing the exact
+same-date-publish race the lock exists to prevent, via a different path. Round 3's crash test wrapped
+`sleep` and killed only the launcher, but never asserted the wrapped work had actually died, so it
+proved lock reacquisition without proving exclusivity of the protected work.
+
+**Fix — make the lock's lifetime equal the protected work's lifetime, not just the launcher's.**
+`run_with_lock.py` now `os.execvp`s the wrapped command IN PLACE of itself after acquiring the lock,
+instead of `subprocess.run`-ing it as a child and waiting. There is only ever one process: it both
+holds the lock and does the work, so a SIGKILL to "the launcher" is by construction a SIGKILL to the
+actual protected command, with nothing left to orphan. Two things had to be gotten right: (1) PEP 446
+(Python 3.4+) makes `os.open()`'s fd close-on-exec by default, so the lock fd must have
+`os.set_inheritable(fd, True)` called on it before `execvp`, or the kernel would silently close (and
+release) the lock at the moment of exec, before the protected command ever ran — defeating the whole
+fix invisibly; (2) stdout/stderr must be `dup2`'d onto the log file BEFORE the exec, since there is no
+"after" on the wrapped command's own process to redirect output from once exec has replaced the
+process image. The wrapped command's own exit code becomes this process's exit code automatically
+(same observable behavior for launchd/the shell wrapper as before).
+
+**Residual limitation, documented rather than silently left implicit:** this guarantee is precise —
+the lock's lifetime matches the wrapped command's own TOP-LEVEL process lifetime, because exec makes
+them the same process. It does NOT protect against the wrapped command itself forking additional
+children that are never exec'd away (e.g. a shell running a multi-statement `-c` script, where the
+shell may fork a child for one statement and simply wait on it). Such a grandchild inherits the lock
+fd via `fork()` — independent of exec/close-on-exec, since close-on-exec only takes effect at exec
+time — and could itself become an orphan holding the flock even after the wrapped command's own
+top-level process is SIGKILLed. This was discovered empirically while writing the test below: an
+initial draft wrapped `sh -c "echo $$ > pidfile; sleep 30"` as the "protected work," and found the
+lock did NOT release after killing the shell, because `/bin/sh` on this system forks a child for the
+tail statement rather than tail-call-exec'ing into it. It does not apply to this PR's actual wrapped
+command (`$RQ_ROOT/.venv/bin/python -m renquant_base_data.fmp_estimate_revisions`, a single
+non-forking process, confirmed to release correctly under the identical test shape) — flagged in
+`run_with_lock.py`'s own docstring for any future caller who might wrap a multi-step shell script
+instead of a single process.
+
+**Tests.** `test_exec_replaces_process_no_orphan_possible` (new): wraps a single-process, non-forking
+command (`python3 -c "time.sleep(30)"`, matching the real production shape) via the launcher,
+SIGKILLs the launcher's PID, asserts `os.kill(pid, 0)` raises `ProcessLookupError` (the protected
+work is genuinely gone, not merely that the lock became reacquirable), then confirms a second
+overlapping invocation proceeds cleanly. `test_killed_lock_holder_does_not_block_the_next_run`
+(updated): now also asserts the killed holder's PID is dead, not just that the lock was
+reacquirable. 21/21 tests pass, 3 consecutive local runs with no flakiness.
+
+**Manual verification:** hand-ran the exec-replacement property outside pytest — spawned the
+launcher wrapping `sh -c 'echo $$ > pid; sleep 30'`, confirmed the reported `$$` equals the
+launcher's own PID (proving exec replaced the process image rather than spawning a child), SIGKILLed
+that single PID, and confirmed via `ps` that nothing remains alive under it.
