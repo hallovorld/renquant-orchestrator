@@ -19,3 +19,20 @@ EVIDENCE: launchctl list output, tick-file row counts, the snapshot directory li
           exporter's refusal message — all quoted in the record.
 NEXT:     ≥15:30 PT: execute the live-tree sync under the same grant; verify the exporter
           self-heals; then all seven collectors run unattended from 2026-07-03.
+
+ROUND 2 (Codex review — evidence identifiers, not prose): the r1 record's "7/7 live" /
+"564+ and growing" / exporter-failure claims were prose summaries with no captured
+identifiers a reviewer could independently check. Fixed: §2a adds per-job launchd
+evidence (exact label, plist sha256, install-timestamp proxy via mtime, and a live
+`launchctl list` snapshot captured fresh this round — not re-derived from the original
+operator's report); §2b replaces "564+ and growing" with a fixed-timestamp row count
+(1,731 as of 2026-07-02T15:26Z), feed identity (`alpaca-iex`), and a whole-file content
+hash; §2c reproduces the exporter's exact error byte-for-byte, names the run_id and the
+missing fingerprint field, and assigns a concrete follow-up owner (the live-tree sync
+item already enumerated in the same grant). Also fixed: the live-tree-sync authorization
+gap — row 9 of the batch table already explicitly included the sync in this SAME
+enumerated grant, so the ambiguity was resolvable by cross-reference rather than
+requiring a fresh ask; the record now states that authorization expires end-of-day
+2026-07-02, not indefinitely. Also fixed: §3 no longer cites #245's disputed IEX-bias/
+daily-bar/re-trigger claims as settled — #245 is still CHANGES_REQUESTED as of this
+round, and the record now says so explicitly rather than treating it as closed.
