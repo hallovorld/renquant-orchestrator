@@ -7,6 +7,7 @@ no-mutation collector invariants.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -191,6 +192,9 @@ def test_censored_rows_logged_with_batch_but_no_shadow(tmp_path: Path) -> None:
 
 
 def test_idempotent_append(tmp_path: Path) -> None:
+    """An EXACT retry — identical (as_of, ticker) AND identical provenance
+    (same scorer/artifact digest, same batch_run_id, same feature snapshot) — is
+    correctly a no-op (Codex #221 round 2, required test 1)."""
     out = tmp_path / "shadow.jsonl"
     snap = _snapshot([_row("AAPL", 150.0, QUOTE_OK)])
     kwargs = dict(
@@ -205,9 +209,95 @@ def test_idempotent_append(tmp_path: Path) -> None:
     first = run_shadow_serving(**kwargs)
     assert first["n_written"] == 1
     second = run_shadow_serving(**kwargs)
-    assert second["n_written"] == 0  # same (as_of, ticker) → no duplicate
+    # same (as_of, ticker) AND identical provenance → true no-op
+    assert second["n_written"] == 0
 
     assert len(_read_log(out)) == 1
+
+
+def test_rerun_with_changed_artifact_digest_is_not_silently_skipped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The SAME (as_of, ticker) re-scored by a CORRECTED model (a different
+    ``artifact_digest``) is a legitimate re-run with different provenance — it
+    must NOT be silently deduped away as if it were an exact retry (Codex #221
+    round 2, required test 2). It is appended as a new, distinct record and the
+    provenance conflict is surfaced loudly."""
+    out = tmp_path / "shadow.jsonl"
+    kwargs = dict(
+        snapshot=_snapshot([_row("AAPL", 150.0, QUOTE_OK)]),
+        batch_scores={"AAPL": 1.0},
+        batch_run_id=BATCH_RUN_ID,
+        out_path=out,
+        clock=FIXED_CLOCK,
+    )
+
+    first = run_shadow_serving(scorer=FakeScorer(artifact_digest=ARTIFACT_DIGEST), **kwargs)
+    assert first["n_written"] == 1
+
+    with caplog.at_level(
+        logging.WARNING, logger="renquant-orchestrator.shadow-realtime-serving"
+    ):
+        second = run_shadow_serving(
+            scorer=FakeScorer(artifact_digest="sha256:artifact-CORRECTED"), **kwargs
+        )
+
+    # NOT silently skipped: a second, differently-provenanced row is appended.
+    assert second["n_written"] == 1
+    assert any("provenance conflict" in r.message for r in caplog.records)
+
+    rows = _read_log(out)
+    assert len(rows) == 2
+    assert {r["as_of"] for r in rows} == {AS_OF}
+    assert {r["ticker"] for r in rows} == {"AAPL"}
+    assert {r["artifact_digest"] for r in rows} == {
+        ARTIFACT_DIGEST,
+        "sha256:artifact-CORRECTED",
+    }
+
+    # A THIRD run repeating the corrected provenance exactly IS a true no-op.
+    third = run_shadow_serving(
+        scorer=FakeScorer(artifact_digest="sha256:artifact-CORRECTED"), **kwargs
+    )
+    assert third["n_written"] == 0
+    assert len(_read_log(out)) == 2
+
+
+def test_rerun_with_changed_feature_snapshot_digest_is_not_silently_skipped(
+    tmp_path: Path,
+) -> None:
+    """The SAME (as_of, ticker) re-scored against a CORRECTED feature snapshot
+    (different ``feature_snapshot_digest``) is likewise a legitimate re-run with
+    different provenance, never a silently-dropped duplicate."""
+    out = tmp_path / "shadow.jsonl"
+    corrected_meta = dict(PROV_META, feature_snapshot_digest="sha256:feat-CORRECTED")
+
+    first = run_shadow_serving(
+        snapshot=_snapshot([_row("AAPL", 150.0, QUOTE_OK)]),
+        scorer=FakeScorer(),
+        batch_scores={"AAPL": 1.0},
+        batch_run_id=BATCH_RUN_ID,
+        out_path=out,
+        clock=FIXED_CLOCK,
+    )
+    assert first["n_written"] == 1
+
+    second = run_shadow_serving(
+        snapshot=_snapshot([_row("AAPL", 150.0, QUOTE_OK)], metadata=corrected_meta),
+        scorer=FakeScorer(),
+        batch_scores={"AAPL": 1.0},
+        batch_run_id=BATCH_RUN_ID,
+        out_path=out,
+        clock=FIXED_CLOCK,
+    )
+    assert second["n_written"] == 1  # different feature_snapshot_digest → new row
+
+    rows = _read_log(out)
+    assert len(rows) == 2
+    assert {r["feature_snapshot_digest"] for r in rows} == {
+        FEATURE_DIGEST,
+        "sha256:feat-CORRECTED",
+    }
 
 
 def test_concurrent_writers_do_not_duplicate_under_lock(tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +42,8 @@ from .realtime_data_plane import (
     default_tick_feed_path,
 )
 from .runtime_paths import default_data_root
+
+log = logging.getLogger("renquant-orchestrator.shadow-realtime-serving")
 
 STAGE = "renquant105-stage1-operations-only"
 RECORD_KIND = "shadow_realtime_score"
@@ -183,41 +186,78 @@ def _dense_rank(scores: Mapping[str, float]) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 # Idempotent append writer (mirrors the #216 tick-feed writer)
 # ---------------------------------------------------------------------------
-def _row_key(record: Mapping[str, Any]) -> tuple[str, str]:
-    """One shadow row per ``(as_of, ticker)`` — re-running the same snapshot is a
-    no-op, never a duplicate (idempotent append)."""
+def _row_key(record: Mapping[str, Any]) -> tuple[str, ...]:
+    """Durable idempotency key: ``(as_of, ticker)`` PLUS the immutable
+    :class:`RunProvenance` identity every row is already bound to (Codex #221
+    round 2).
+
+    ``(as_of, ticker)`` ALONE is too coarse for the provenance model this module
+    enforces: it would silently treat a corrected/replayed run for the SAME
+    session as a duplicate of an earlier one even when the artifact digest,
+    feature-snapshot digest, or batch/run identity differs — hiding a real
+    provenance conflict and leaving the ledger pointing at OBSOLETE ranks (e.g. a
+    later re-run with a corrected model producing different scores would be
+    wrongly dropped as "already seen"). Binding the key to the full provenance
+    identity means an EXACT retry (identical ``(as_of, ticker)`` AND identical
+    provenance) is still a true no-op, while a provenance-CHANGED re-run of the
+    same ``(as_of, ticker)`` gets its own key and is appended as a new, distinct,
+    fully-provenanced record — never silently dropped. See
+    :meth:`_ShadowLogWriter.append` for the loud conflict diagnostic logged when
+    that happens."""
+    return (str(record.get("as_of")), str(record.get("ticker"))) + tuple(
+        str(record.get(field, "")) for field in RunProvenance._REQUIRED
+    )
+
+
+def _session_key(record: Mapping[str, Any]) -> tuple[str, str]:
+    """The coarser ``(as_of, ticker)`` session identity — used ONLY to detect and
+    surface a provenance CONFLICT (same session, different full key); never used
+    to dedupe on its own (Codex #221 round 2)."""
     return (str(record.get("as_of")), str(record.get("ticker")))
 
 
 class _ShadowLogWriter:
-    """Append shadow rows to the accumulating JSONL, skipping any whose
-    ``(as_of, ticker)`` key is already present.
+    """Append shadow rows to the accumulating JSONL, skipping any whose full
+    ``(as_of, ticker, *provenance)`` key is already present.
 
     Codex #221: idempotency is enforced under a single-writer advisory lock
     (``flock`` on a sidecar ``.lock`` file). Each append (i) takes the exclusive
     lock, (ii) RE-READS the durable unique keys from the file *inside* the lock —
     so keys another collector appended after this writer was constructed are
     seen — then (iii) appends only unseen rows. Read-then-append is therefore
-    atomic across concurrent collectors and can no longer duplicate rows."""
+    atomic across concurrent collectors and can no longer duplicate rows.
+
+    Codex #221 round 2: the key is provenance-bound (see :func:`_row_key`), so a
+    same-session row whose provenance DIFFERS from one already on disk is never
+    silently deduped away as if it were an exact retry — it is appended as a new
+    record and the conflict is logged loudly (never silently skipped, never
+    silently overwritten) so the ledger carries both provenanced rows for
+    reconciliation rather than pointing at an obsolete rank."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._lock_path = self.path.with_name(self.path.name + ".lock")
 
-    def _load_keys(self) -> set[tuple[str, str]]:
-        keys: set[tuple[str, str]] = set()
+    def _load_keys(
+        self,
+    ) -> tuple[set[tuple[str, ...]], dict[tuple[str, str], set[tuple[str, ...]]]]:
+        keys: set[tuple[str, ...]] = set()
+        by_session: dict[tuple[str, str], set[tuple[str, ...]]] = {}
         if not self.path.exists():
-            return keys
+            return keys, by_session
         with self.path.open("r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    keys.add(_row_key(json.loads(line)))
+                    record = json.loads(line)
+                    key = _row_key(record)
                 except (json.JSONDecodeError, AttributeError):
                     continue
-        return keys
+                keys.add(key)
+                by_session.setdefault(_session_key(record), set()).add(key)
+        return keys, by_session
 
     def append(self, records: Iterable[Mapping[str, Any]]) -> int:
         records = list(records)
@@ -228,15 +268,36 @@ class _ShadowLogWriter:
         with self._lock_path.open("w", encoding="utf-8") as lock_fh:
             fcntl.flock(lock_fh, fcntl.LOCK_EX)  # single-writer; blocks concurrent collectors
             try:
-                seen = self._load_keys()  # durable unique keys, re-read INSIDE the lock
+                # durable unique keys + per-session key index, re-read INSIDE the lock
+                seen, by_session = self._load_keys()
                 with self.path.open("a", encoding="utf-8") as fh:
                     for record in records:
                         key = _row_key(record)
                         if key in seen:
-                            continue
+                            continue  # exact retry: identical provenance → true no-op
+                        session = _session_key(record)
+                        prior_for_session = by_session.get(session)
+                        if prior_for_session:
+                            # Same (as_of, ticker) already logged under DIFFERENT
+                            # provenance — a real conflict, not a duplicate. Surface
+                            # it loudly and append anyway: never silently skip the
+                            # new (possibly corrected) record, never silently
+                            # overwrite the earlier one.
+                            log.warning(
+                                "shadow-realtime-serving: provenance conflict for "
+                                "as_of=%s ticker=%s — %d row(s) already logged with "
+                                "different artifact/feature/batch identity; "
+                                "appending this record as a NEW, distinct row "
+                                "rather than silently deduping it (Codex #221 "
+                                "round 2 — reconcile manually)",
+                                session[0],
+                                session[1],
+                                len(prior_for_session),
+                            )
                         fh.write(json.dumps(record, sort_keys=True) + "\n")
                         fh.flush()
                         seen.add(key)
+                        by_session.setdefault(session, set()).add(key)
                         written += 1
             finally:
                 fcntl.flock(lock_fh, fcntl.LOCK_UN)
@@ -371,7 +432,11 @@ def run_shadow_serving(
 
     OBSERVE-ONLY: returns operational counts + coverage and logs a datum per name.
     It renders no verdict and mutates nothing but the append-only log file.
-    Idempotent — re-running the same ``(as_of, ticker)`` writes zero new rows.
+    Idempotent on EXACT retry — re-running the same ``(as_of, ticker)`` with
+    identical provenance writes zero new rows. A re-run of the same
+    ``(as_of, ticker)`` whose provenance differs (a corrected artifact, feature
+    snapshot, or batch run) is a distinct, fully-provenanced row, never a
+    silently-dropped duplicate (Codex #221 round 2; see :func:`_row_key`).
     """
     out = Path(out_path) if out_path else default_shadow_log_path(data_root)
     now = (clock or (lambda: datetime.now(timezone.utc)))()
