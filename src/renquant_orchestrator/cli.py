@@ -421,6 +421,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="for merge: allow PRs with no status checks; default fails closed",
     )
 
+    autoloop = sub.add_parser(
+        "agent-automation",
+        help="deterministic agent-automation control plane: replay events "
+             "through the atomic state/lease store + state machine (design #209 "
+             "Phase-0/1). No merge, no push, sandbox executor stubbed.",
+    )
+    autoloop.add_argument("--config", required=True,
+                          help="poller config JSON (tracked_repos/tracked_prs/…)")
+    autoloop.add_argument("--events", default=None,
+                          help="optional recorded-event JSON to replay (shadow harness)")
+    autoloop.add_argument("--db", default=":memory:",
+                          help="SQLite state-store path; default in-memory")
+    autoloop.add_argument("--dry-run", action="store_true",
+                          help="force dry-run: never invoke the (stubbed) sandbox executor")
+    autoloop.add_argument(
+        "--poll-interval-seconds", type=float, default=None,
+        help="run the live durable-inbox recovery loop (run_poll_loop): call "
+             "AutomationPoller.tick every N seconds, after any --events "
+             "replay, for as long as this process stays up. Unset = one-shot "
+             "(default). With --poll-max-iterations unset this blocks forever.",
+    )
+    autoloop.add_argument(
+        "--poll-max-iterations", type=int, default=None,
+        help="bound --poll-interval-seconds to N ticks and return (CI/tests); "
+             "default runs forever",
+    )
+
     identity = sub.add_parser(
         "agent-identity",
         help="verify Claude/Codex gh tokens resolve to distinct GitHub actors",
@@ -782,6 +809,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 1 if plan.get("merge_blocked") else 0
+    if args.command == "agent-automation":
+        from .agent_automation_poller import run_cli
+
+        summary = run_cli(
+            config_path=args.config,
+            events_path=args.events,
+            db_path=args.db,
+            dry_run=args.dry_run,
+            poll_interval_seconds=args.poll_interval_seconds,
+            poll_max_iterations=args.poll_max_iterations,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0 if summary.get("human_gate_wall_ok") else 1
     if args.command == "agent-identity":
         from .agent_workflows import agent_identity_health
 
