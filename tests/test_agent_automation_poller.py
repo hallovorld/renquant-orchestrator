@@ -1836,6 +1836,58 @@ def test_poll_loop_autonomously_recovers_coalesced_event_across_iterations():
     assert store.event_applied("evt-b-loop") is True
 
 
+def test_poll_loop_unbounded_mode_does_not_retain_actions_in_memory():
+    """Review r7 finding 1: run_poll_loop's REAL production mode is
+    max_iterations=None (never returns) — accumulating every tick's actions
+    into the return value there is an unbounded memory leak whenever a
+    durable-inbox event stays blocked/coalesced tick after tick (a realistic,
+    not hypothetical, case — see the two tests above). Build EXACTLY that
+    permanently-blocked case (clock never advances, so A's lease never
+    expires and B re-coalesces every tick, forever) and prove the returned
+    list does NOT grow with tick count in unbounded mode, while `on_tick` —
+    the sanctioned sink for that mode — genuinely observes every one of
+    them."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    evt_a = _event(event_id="evt-a-mem", head_sha="sha-a", review_id="rev-a-mem",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b-mem", head_sha="sha-a", review_id="rev-b-mem",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+    assert poller.ingest(evt_b).outcome == "coalesced"
+
+    seen_via_callback = []
+    n_target = 200
+    calls = {"n": 0}
+
+    def stop():
+        return calls["n"] >= n_target
+
+    def count_sleep(seconds):
+        calls["n"] += 1
+
+    # NOTE: max_iterations is deliberately NOT passed — this is the
+    # unbounded/production code path; only `stop` (a test-only affordance)
+    # ends the loop, exactly as review r7 required this scenario be proven.
+    result = run_poll_loop(
+        poller, interval_seconds=1.0, stop=stop,
+        sleep=count_sleep, on_tick=seen_via_callback.append,
+    )
+    assert result == []  # unbounded: never accumulates, however many ticks ran
+    assert len(seen_via_callback) == n_target
+    assert all(
+        a.event_id == "evt-b-mem" and a.outcome == "coalesced"
+        for tick_actions in seen_via_callback
+        for a in tick_actions
+    )
+
+
 # ─────────────────────────── replay harness ─────────────────────────────
 
 
@@ -1883,3 +1935,71 @@ def test_run_replay_poll_interval_folds_tick_actions_into_summary():
     # further outcomes — but the loop still ran, proving the wiring fires.
     assert outcomes == ["merge_eligible"]
     assert sleeps == [7.0]  # 2 ticks → 1 sleep between them, none after
+
+
+def test_run_replay_wires_startup_recover_before_ingest_and_poll(tmp_path):
+    """Review r7 finding 2: ``run_cli -> run_replay`` constructed
+    ``AutomationPoller`` and went straight to ``ingest_all``/``run_poll_loop``,
+    NEVER calling :meth:`AutomationPoller.startup_recover` — so on a genuine
+    process restart against a PERSISTENT db, an uncooperative cancellation
+    was never hard-terminated, a plain crashed lease was never reconciled,
+    and a coalesced durable-inbox event was never autonomously recovered
+    before new work started.
+
+    Build exactly that persisted state with a real poller, close the store
+    (the crash/restart boundary), then drive the SAME db file through
+    ``run_replay`` — the CLI's actual entry point, not ``poller.
+    startup_recover()`` called directly by test code — and prove the
+    cold-start recovery contract now runs there too, with its actions folded
+    into the returned summary."""
+    db = str(tmp_path / "cold-start.db")
+    clock = FakeClock()
+    store = StateStore(db, clock=clock)
+    poller = AutomationPoller(_config(), store, termination_hook=NoopTerminationHook())
+
+    # (a) an uncooperative cancellation: a FIXING run superseded by a newer
+    # head, whose dangling lease expires with the (dead) executor never
+    # acknowledging.
+    key_uncoop = WorkKey("hallovorld/renquant-orchestrator", 91, "sha-old", "rev-uncoop")
+    store.ensure_row(key_uncoop, State.FIXING)
+    store.acquire(key_uncoop, "dead-owner-uncoop", ttl=100.0)
+    store.supersede_stale("hallovorld/renquant-orchestrator", 91, "sha-new")
+    clock.advance(101.0)
+
+    # (b)+(c): A holds the PR-42 lease and "crashes" without ever releasing;
+    # B coalesces behind it — a pending durable-inbox row with no external
+    # redelivery, and A's own dangling lease is a second, independent
+    # plain-expired-lease case.
+    evt_a = _event(event_id="evt-a-cold", head_sha="sha-a", review_id="rev-a-cold",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b-cold", head_sha="sha-a", review_id="rev-b-cold",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+    assert poller.ingest(evt_b).outcome == "coalesced"
+    clock.advance(poller.config.lease_ttl_seconds + 1)  # A's lease TTL elapses; no release
+
+    store.close()  # the crash / process exit — nothing more happens to this file
+    # until a NEW process (run_replay below, with its own fresh StateStore)
+    # opens it — exactly the cold-start scenario startup_recover exists for.
+
+    summary = run_replay(_config(), [], db_path=db)
+
+    outcomes_by_event = {a["event_id"]: a["outcome"] for a in summary["actions"]}
+    # B was autonomously recovered as part of run_replay's now-wired cold-
+    # start pass — never redelivered as an `events` item, never driven by
+    # test code calling startup_recover/tick directly.
+    assert outcomes_by_event.get("evt-b-cold") == "escalated"
+
+    # Observable side effects confirm the FULL documented ordering ran (hard-
+    # terminate uncooperative -> reconcile expired leases -> recover_pending),
+    # not just the recovery half: both dangling leases were reconciled.
+    reopened = StateStore(db)
+    assert reopened.get_row(key_a)["lease_owner"] is None
+    assert reopened.get_row(key_uncoop)["lease_owner"] is None
+    assert reopened.event_applied("evt-b-cold") is True
+    reopened.close()

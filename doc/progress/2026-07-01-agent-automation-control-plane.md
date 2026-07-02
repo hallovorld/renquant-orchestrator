@@ -382,6 +382,57 @@ a regression: the 2 CLI tests that fail need `renquant_execution` for an
 unrelated `daily-contract` fixture, untouched by this change; confirmed via
 targeted `tests/test_cli.py` run (92 passed, 2 pre-existing env-gap failures).
 
+REVIEW ROUND 7 (Codex CHANGES_REQUESTED — CI green, round 6's two fixes
+accepted, but the new long-lived path had two operational defects):
+
+1. **The advertised unbounded deployment mode leaked memory forever.**
+   `run_poll_loop` unconditionally accumulated every tick's actions into
+   `all_actions`, including a durable-inbox row that stays blocked/coalesced
+   tick after tick — in unbounded mode (`max_iterations=None`, the real
+   deployment case, never returns) that list grows for the ENTIRE process
+   lifetime. FIX: two distinct outputs, only one scales with tick count —
+   `on_tick`, a new callback invoked with EVERY tick's actions (constant
+   memory, the sanctioned sink for unbounded/production use), and the return
+   value, which now only accumulates when `max_iterations` is given
+   (explicitly bounded — tests/CI/one-shot). Unbounded mode always returns
+   `[]`, by construction, not by caller discipline. `run_cli` also gained a
+   default `on_tick` (`_print_tick_actions_jsonl`, one JSON line per action
+   to stdout) for a genuinely unbounded `--poll-interval-seconds` invocation
+   with no `--poll-max-iterations` — otherwise a real deployment's every tick
+   outcome would be silently discarded into nothing, contradicting this
+   module's own "log/emit each tick's actions as it goes" promise.
+2. **The CLI loop bypassed the complete cold-start recovery contract.**
+   `run_cli -> run_replay` constructed `AutomationPoller` and went straight
+   to `ingest_all`/`run_poll_loop`; neither ever called `startup_recover()`,
+   so on a REAL process restart against a persistent db, an uncooperative
+   cancellation's hard-termination, a plain crashed lease's reconciliation,
+   and a coalesced durable-inbox event's autonomous recovery never ran
+   before new work started — despite `startup_recover`'s own docstring
+   documenting that ordering as required. FIX: `run_replay` now calls
+   `poller.startup_recover()` exactly once, unconditionally, right after
+   construction (a no-op on a fresh/`:memory:` store) and folds its
+   `RecoverySummary.recovered_actions` into the front of the returned
+   `"actions"`.
+3. Tests added (3): `run_poll_loop`'s unbounded mode proven to retain zero
+   actions across 200 ticks of a PERMANENTLY blocked/coalesced event (clock
+   frozen so the blocking lease never expires) while `on_tick` genuinely
+   observes all 200
+   (`test_poll_loop_unbounded_mode_does_not_retain_actions_in_memory`); a
+   full cold-start scenario — uncooperative cancellation + a separately
+   crashed plain lease + a coalesced pending inbox row — built with a real
+   poller against a PERSISTENT tmp_path db, the store closed (the crash/
+   restart boundary), then driven through `run_replay` (not
+   `poller.startup_recover()` called directly by test code) proving all
+   three legs of the cold-start contract now fire there too, with the
+   recovered event's outcome folded into the summary
+   (`test_run_replay_wires_startup_recover_before_ingest_and_poll`).
+
+Evidence: `tests/test_agent_automation_poller.py` → 84 tests, all passing
+(`python3 -m pytest tests/test_agent_automation_poller.py -q` → 84 passed);
+`python3 -m py_compile` clean. `tests/test_cli.py` run alongside: 94 passed,
+same 2 pre-existing env-gap failures as round 6 (missing `renquant_execution`
+for an unrelated `daily-contract` fixture, untouched by this change).
+
 NEXT: (1) ephemeral OS/container/VM sandbox executor behind
 `run_fix_in_sandbox` (design §7.5) + Phase-0 escape/exfiltration suite; (2) live
 GitHub read-only event feed into `ingest`, with a real deployment wiring

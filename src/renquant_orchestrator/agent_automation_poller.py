@@ -2045,6 +2045,7 @@ def run_poll_loop(
     max_iterations: Optional[int] = None,
     stop: Optional[Callable[[], bool]] = None,
     sleep: Callable[[float], None] = time.sleep,
+    on_tick: Optional[Callable[[list[Action]], None]] = None,
 ) -> list[Action]:
     """The actual periodic-loop MECHANISM :meth:`AutomationPoller.tick`
     needs to matter for a live, staying-up process (design §6.3, review r6:
@@ -2070,22 +2071,39 @@ def run_poll_loop(
     drive many iterations instantly and assert on the recorded intervals
     instead of the wall clock.
 
-    Returns the concatenation of every tick's :class:`Action`\\ s — useful
-    for tests/observability on a bounded run. An unbounded deployment should
-    not rely on this return (it grows for the whole process lifetime);
-    instead have the caller log/emit each tick's actions via ``poller.tick``
-    itself, or wrap this loop with its own per-iteration hook.
+    Review r7 correction: an earlier revision of this function unconditionally
+    accumulated every tick's actions into the returned list, including a
+    durable-inbox row that stays blocked/coalesced tick after tick — in
+    unbounded mode (the real deployment case, ``max_iterations=None``) that
+    list grows for the ENTIRE process lifetime, an unbounded memory leak. Two
+    distinct outputs now, and only one scales with tick count:
+
+      * ``on_tick``, if given, is called with EVERY iteration's actions —
+        constant memory regardless of how long the loop runs; this is the
+        sanctioned sink for unbounded/production use (log it, push it to a
+        queue, whatever the deployment needs) — see ``run_cli``'s CLI wiring
+        for the default stdout-JSONL sink;
+      * the RETURN VALUE only accumulates when ``max_iterations`` is given —
+        an explicitly bounded run (tests / CI / a one-shot CLI invocation)
+        where the caller asked for a finite, boundedly-sized result. In
+        unbounded mode the return is always ``[]`` — nothing is retained, by
+        construction, not by caller discipline.
     """
     if max_iterations is not None and max_iterations < 1:
         raise ValueError("max_iterations must be >= 1 when given")
+    bounded = max_iterations is not None
     all_actions: list[Action] = []
     iterations = 0
     while True:
         if stop is not None and stop():
             break
-        all_actions.extend(poller.tick())
+        tick_actions = poller.tick()
+        if on_tick is not None:
+            on_tick(tick_actions)
+        if bounded:
+            all_actions.extend(tick_actions)
         iterations += 1
-        if max_iterations is not None and iterations >= max_iterations:
+        if bounded and iterations >= max_iterations:
             break
         sleep(interval_seconds)
     return all_actions
@@ -2100,19 +2118,41 @@ def run_replay(
     poll_max_iterations: Optional[int] = None,
     poll_stop: Optional[Callable[[], bool]] = None,
     poll_sleep: Callable[[float], None] = time.sleep,
+    on_tick: Optional[Callable[[list[Action]], None]] = None,
 ) -> dict:
     """Replay ``events`` through a fresh poller; return a JSON-ready summary.
 
-    ``poll_interval_seconds``, if given, runs :func:`run_poll_loop` AFTER the
-    one-shot replay of ``events`` — the live-loop wiring #214 review r6
-    required (see :meth:`AutomationPoller.tick`) — and folds its recovered
-    :class:`Action`\\ s into the returned ``"actions"``. Unset (the default),
-    behavior is unchanged: a pure one-shot replay.
+    Review r7 correction: an earlier revision went straight from constructing
+    the poller to ``ingest_all``/``run_poll_loop``, never calling
+    :meth:`AutomationPoller.startup_recover` — so against a PERSISTENT
+    ``db_path`` (the real deployment case: a process restarting on top of
+    state a PREVIOUS process left behind), the documented cold-start ordering
+    (hard-terminate uncooperative cancellations → reconcile expired leases →
+    autonomously recover the durable inbox) never ran before new work
+    started. ``startup_recover()`` now runs exactly once, unconditionally,
+    right after construction — a fresh/``:memory:`` store has nothing to
+    recover so this is a true no-op there — and its
+    :class:`RecoverySummary`.\\ ``recovered_actions`` are folded into the
+    front of the returned ``"actions"`` (reclaimed leases are a store-level
+    side effect with no ``Action`` of their own to report).
+
+    ``poll_interval_seconds``, if given, runs :func:`run_poll_loop` AFTER
+    ``startup_recover`` + the one-shot replay of ``events`` — the live-loop
+    wiring #214 review r6 required (see :meth:`AutomationPoller.tick`) — and
+    folds any BOUNDED tick actions (``poll_max_iterations`` given) into the
+    same ``"actions"``; unbounded (``poll_max_iterations=None``) never
+    returns and contributes nothing here — use ``on_tick`` for observability
+    in that mode (see :func:`run_poll_loop`). Both ``poll_interval_seconds``
+    and ``on_tick`` unset (the default) leaves behavior unchanged from
+    before this correction, aside from the now-always-run
+    ``startup_recover``.
     """
     store = StateStore(db_path)
     try:
         poller = AutomationPoller(config, store)
-        actions = list(poller.ingest_all(events))
+        recovery = poller.startup_recover()
+        actions = list(recovery.recovered_actions)
+        actions.extend(poller.ingest_all(events))
         if poll_interval_seconds is not None:
             actions.extend(
                 run_poll_loop(
@@ -2121,6 +2161,7 @@ def run_replay(
                     max_iterations=poll_max_iterations,
                     stop=poll_stop,
                     sleep=poll_sleep,
+                    on_tick=on_tick,
                 )
             )
         rows = store.snapshot()
@@ -2158,6 +2199,23 @@ def run_replay(
     }
 
 
+def _print_tick_actions_jsonl(actions: list[Action]) -> None:
+    """Default ``on_tick`` sink for a REAL (unbounded) ``--poll-interval-
+    seconds`` CLI run: one JSON line per action to stdout as it happens.
+    Review r7: unbounded mode retains nothing in memory (see
+    :func:`run_poll_loop`), so without a sink an unattended live loop would
+    be completely silent — this is what actually delivers on that mode's own
+    promise to "log/emit each tick's actions as it goes"."""
+    for action in actions:
+        print(json.dumps({
+            "event_id": action.event_id,
+            "repo": action.repo,
+            "pr_number": action.pr_number,
+            "outcome": action.outcome,
+            "detail": action.detail,
+        }))
+
+
 def run_cli(
     *,
     config_path: str,
@@ -2166,17 +2224,30 @@ def run_cli(
     dry_run: bool = False,
     poll_interval_seconds: Optional[float] = None,
     poll_max_iterations: Optional[int] = None,
+    on_tick: Optional[Callable[[list[Action]], None]] = None,
 ) -> dict:
     """Entry point used by the ``agent-automation`` CLI command.
 
     ``poll_interval_seconds``, if given, puts this call into the live
-    recovery loop (:func:`run_poll_loop`) after any one-shot ``events_path``
-    replay — see :meth:`AutomationPoller.tick` / :func:`run_poll_loop` for
-    what this wires in and why (#214 review r6). It works with or without
-    ``events_path``: a bare ``--poll-interval-seconds`` against a persistent
-    ``--db`` runs pure durable-inbox recovery with no new events ingested
-    this invocation. Unset (the default), behavior is unchanged.
+    recovery loop (:func:`run_poll_loop`) after :meth:`AutomationPoller.
+    startup_recover` and any one-shot ``events_path`` replay — see
+    :meth:`AutomationPoller.tick` / :func:`run_poll_loop` for what this wires
+    in and why (#214 review r6/r7). It works with or without ``events_path``:
+    a bare ``--poll-interval-seconds`` against a persistent ``--db`` runs
+    pure durable-inbox recovery with no new events ingested this invocation.
+
+    In UNBOUNDED mode (``poll_max_iterations`` unset — the real long-lived
+    deployment) this call never returns, and per :func:`run_poll_loop`
+    retains no per-tick actions in memory; ``on_tick`` defaults to
+    :func:`_print_tick_actions_jsonl` in that case specifically, so a real
+    invocation is not silently discarding every tick's outcomes into
+    nothing. Pass ``on_tick`` explicitly (or a no-op) to override. In BOUNDED
+    mode (``poll_max_iterations`` given — tests/CI) or with no polling at
+    all, ``on_tick`` defaults to ``None`` (unchanged prior behavior): the
+    bounded/one-shot actions are already returned in the summary.
     """
+    if on_tick is None and poll_interval_seconds is not None and poll_max_iterations is None:
+        on_tick = _print_tick_actions_jsonl
     config = PollerConfig.from_json_file(config_path)
     if dry_run and not config.dry_run:
         config = replace(config, dry_run=True)
@@ -2200,4 +2271,5 @@ def run_cli(
         db_path=db_path,
         poll_interval_seconds=poll_interval_seconds,
         poll_max_iterations=poll_max_iterations,
+        on_tick=on_tick,
     )
