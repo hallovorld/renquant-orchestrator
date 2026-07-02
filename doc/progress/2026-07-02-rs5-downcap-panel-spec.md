@@ -150,3 +150,44 @@ no other `§7`/`§6.1`-style cross-reference in the spec doc broke from the sect
 [VERIFIED — every C3 citation in this round was re-read from PR #249's current branch content
 directly (not from the earlier round's since-corrected claims); the JSON artifact was
 parse-validated; the full doc was greped for stale cross-references after every edit.]
+
+## Round 3 (Codex review: stale Section 5 contradiction + parity gap)
+
+**Finding.** Section 5's primary-panel gate paragraph still carried the OLD, pre-round-2
+asymmetric fallback rule ("a fallback GO is never decision-grade... only a fallback NO-GO is
+decision-grade") — a leftover the prior round's fix to §2/D3 never reached, since it lives in
+a different section of the same prose doc. This directly contradicted §2's already-corrected
+rule (neither GO nor NO-GO from the fallback panel has D3 authority). The PR body was also
+still describing the pre-round-2 contract entirely (settled C3 MISS, fallback asymmetry, L/S
+gating, regime gating, cost-conversion rationale), and `prereg_contract.json` had no test
+proving it actually agrees with the prose it's supposed to freeze.
+
+**Fix.**
+- §5's stale asymmetric sentence rewritten to match §2 exactly: "NEITHER a GO NOR a NO-GO
+  computed on the fallback panel is decision-grade, and NEITHER may feed D3 under any
+  circumstance."
+- Full end-to-end re-read of the doc for any other section carrying pre-round-2 language
+  (C3-as-settled, L/S-as-primary-gate, regime-as-gating, cost-double-penalization) — found
+  none outstanding; every other reference already correctly reflects the round-2 corrections.
+- New `tests/test_rs5_downcap_panel_spec.py` (12 tests): a direct regression guard against
+  the exact bug found this round (asserts the stale asymmetric phrase is absent and the
+  corrected symmetric rule is present in the prose), plus prose-vs-`prereg_contract.json`
+  parity assertions for every binding choice Codex named explicitly — fallback authority,
+  long-only economic gate, non-gating regime diagnostics, delisting policy enum +
+  sensitivity-reporting requirement, multiplicity/factor family (k=4, Bonferroni), bootstrap
+  methodology (moving-block, 60-session, 3 seeds), frozen thresholds (IC≥0.02, Sharpe>0.5),
+  admissibility/sample floors, and D3 authority mapping. Confirmed the stale text was present
+  in the pre-fix commit — this test suite would have caught the exact contradiction this
+  review found.
+- Confirmed `prereg_contract.json` is genuinely tracked in the PR diff (not untracked-on-disk)
+  and revalidated as parseable JSON with every field the review named present with a
+  non-placeholder value.
+- Rewrote the PR body to describe the current, fully round-2-corrected contract.
+
+**Evidence:** `python3 -m pytest tests/test_rs5_downcap_panel_spec.py -v` → 12/12 passed.
+`git diff --stat origin/main..HEAD` confirms `prereg_contract.json` is a tracked addition.
+
+[VERIFIED — ran the new test suite locally (12/12 pass); confirmed the stale phrase was
+present in the immediately-prior commit before this fix, proving the test is a genuine
+regression guard and not a tautology; re-read the entire spec doc end to end after editing to
+confirm no other stale cross-reference survived.]

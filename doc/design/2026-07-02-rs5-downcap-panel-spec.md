@@ -283,10 +283,11 @@ prospective.
 
 **GO requires (a)+(b)+(c2)+(c3)+(d) simultaneously on at least ONE family headline, on the
 PRIMARY (constituency-by-date) panel** (round-2 correction: (c1) is exploratory-only and does
-not gate — see (c)'s entry). **A GO computed on the fallback panel is NEVER decision-grade and
-may not feed D3 under any circumstance — only a fallback NO-GO is decision-grade** (§2's
-asymmetry: survivorship bias direction is not identified for this measurement, so a fallback
-GO cannot be trusted in either direction).
+not gate — see (c)'s entry). **NEITHER a GO NOR a NO-GO computed on the fallback panel is
+decision-grade, and NEITHER may feed D3 under any circumstance** (§2: survivorship bias
+direction is not identified for this measurement, so a fallback result cannot be trusted in
+either direction — this is not an asymmetric rule; a fallback panel run has no D3 authority
+at all, in either direction).
 
 | # | Gate | Frozen value |
 |---|---|---|
