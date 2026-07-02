@@ -15,9 +15,10 @@ rollout). It is **Phase-0/1 control plane only**:
     never depends on an external source redelivering it — the very next
     :meth:`AutomationPoller.recover_pending` pass (run from
     :meth:`AutomationPoller.startup_recover` at cold start AND from
-    :meth:`AutomationPoller.tick` — the callable a live poller loop calls on
-    every interval, not just at process start) autonomously claims and drives
-    it once the blocking PR-level lease releases or expires;
+    :meth:`AutomationPoller.tick`, which :func:`run_poll_loop` invokes on a
+    configured interval for as long as the process stays up — not just at
+    process start) autonomously claims and drives it once the blocking
+    PR-level lease releases or expires;
   * an **upgrade-safe schema**: opening a SQLite file created by an EARLIER
     revision of this module — one whose ``work_items``/``processed_events``
     tables are missing columns this revision writes — idempotently migrates
@@ -435,28 +436,44 @@ _WORK_ITEMS_MIGRATIONS: tuple[tuple[str, str], ...] = (
     ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
 )
 _PROCESSED_EVENTS_MIGRATIONS: tuple[tuple[str, str], ...] = (
-    # bare "seen" marker (059c5652) → 47c83e69: claim/apply ledger. A row
-    # that predates this column was, under THAT revision's own semantics
-    # (``record_event`` / ``event_seen``), fully recorded the instant it was
-    # inserted — there was no separate in-flight "processing" concept at
-    # all — so backfilling it as already 'applied' is not a guess, it is
-    # that revision's actual meaning. This is what makes an already-applied
-    # legacy row still correctly recognized as a duplicate/no-op after
-    # migration (never re-driven, never a hard crash).
-    ("status", "TEXT NOT NULL DEFAULT 'applied'"),
+    # bare "seen" marker (059c5652) → 47c83e69: claim/apply ledger. Review r6
+    # correction: an EARLIER version of this comment defaulted this column to
+    # 'applied' on the theory that a v0 row's mere presence meant the work
+    # was fully done. That is backwards — it is exactly the bug the FIRST
+    # #214 review flagged: 059c5652's ``record_event`` committed the delivery
+    # id BEFORE ``ensure_row``/the state transition ran, so a crash between
+    # those two steps left a "seen" row whose real work was never applied.
+    # 47c83e69 fixed that ordering for everything written FROM THEN ON, but
+    # it cannot retroactively tell us which of the two a pre-existing v0 row
+    # represents — defaulting it to 'applied' would silently guess the
+    # optimistic case and could drop real, never-applied work. Default to
+    # 'processing' instead: ``StateStore.list_processing_events`` then
+    # surfaces it to :meth:`AutomationPoller.recover_pending`, which (since
+    # ``kind IS NULL`` for every v0 row — those columns don't exist until
+    # 945ce844, see below) routes it through the SAME fail-closed
+    # :meth:`AutomationPoller._flag_legacy_unrecoverable` path as any other
+    # pre-durable-inbox row, rather than a bespoke, unaudited "guessed
+    # applied" default.
+    ("status", "TEXT NOT NULL DEFAULT 'processing'"),
     ("applied_at", "REAL"),
     # 47c83e69 → b6b7c03f: exclusive processing claim (owner + lease) and
-    # the recorded terminal result for a true duplicate.
+    # the recorded terminal result for a true duplicate. A row migrated by
+    # the ``status`` default above also has no ``owner``/``lease_expiry`` —
+    # both stay NULL here, which ``list_processing_events`` / ``claim_event``
+    # already treat as an immediately-reclaimable processing row (no live
+    # claim to respect), so it flows into recovery on the very next tick
+    # instead of waiting out a lease TTL that was never actually set.
     ("owner", "TEXT"),
     ("lease_expiry", "REAL"),
     ("result_json", "TEXT"),
     # b6b7c03f → 945ce844 ("durable inbox" round, PR #214 review): the FULL
     # event payload, so a recovery pass never depends on external
-    # redelivery. THESE FOUR ARE THE ONES THE REVIEW FLAGGED: a row still
-    # 'processing' when it was written under a revision that lacked them
-    # cannot be backfilled (the data never existed) — see
-    # ``AutomationPoller._flag_legacy_unrecoverable`` for the fail-closed
-    # disposition applied to that specific case.
+    # redelivery. A row still 'processing' when it was written under a
+    # revision that lacked these four — either a genuine b6b7c03f..945ce844
+    # in-flight row, OR a v0 row migrated straight to 'processing' by the
+    # default above — cannot be backfilled (the data never existed) — see
+    # ``AutomationPoller._flag_legacy_unrecoverable`` for the ONE fail-closed
+    # disposition applied uniformly to both cases via ``kind IS NULL``.
     ("review_id", "TEXT"),
     ("kind", "TEXT"),
     ("state", "TEXT"),
@@ -1952,12 +1969,20 @@ class AutomationPoller:
         work only; a real live poller would also, each tick, ingest any
         newly-arrived review/comment events (not implemented in this PR — no
         live GitHub polling loop exists yet, see the module docstring).
-        Actually invoking ``tick`` on a schedule (cron, a systemd timer, an
-        asyncio/threading loop with a sleep interval, …) is a deployment
-        concern outside this PR's scope; what this PR guarantees is that the
-        CALLABLE tick mechanism itself exists, is idempotent/safe to call
-        repeatedly (including with nothing pending — a no-op empty list),
-        and actually performs the recovery pass the review requires.
+
+        Review r6 correction: an EARLIER version of this docstring claimed
+        "actually invoking tick on a schedule ... is a deployment concern
+        outside this PR's scope" and treated the existence of this callable
+        as sufficient wiring. It is not — "a method that callers might
+        invoke later is not wiring" (review). :func:`run_poll_loop` IS that
+        wiring, provided by this PR: a bounded/interruptible loop that calls
+        this method every ``interval_seconds`` while the process stays up,
+        so a durable-inbox event that coalesces behind a since-cleared
+        blocker is picked up on the very next tick rather than waiting for a
+        restart. A live deployment's main loop should call
+        :func:`run_poll_loop` (or an equivalent asyncio/threading scheduler
+        invoking ``tick`` on the same cadence) — not just hold this method
+        in reserve.
         """
         return self.recover_pending()
 
@@ -2013,17 +2038,91 @@ def load_events_file(path: str) -> list[Event]:
     return [event_from_dict(row) for row in rows]
 
 
+def run_poll_loop(
+    poller: "AutomationPoller",
+    *,
+    interval_seconds: float,
+    max_iterations: Optional[int] = None,
+    stop: Optional[Callable[[], bool]] = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[Action]:
+    """The actual periodic-loop MECHANISM :meth:`AutomationPoller.tick`
+    needs to matter for a live, staying-up process (design §6.3, review r6:
+    "wire recover_pending into an actual periodic tick before claiming
+    long-lived autonomous recovery; startup-only invocation is insufficient
+    for coalescing that resolves while the process stays up" — and "a
+    method that callers might invoke later is not wiring").
+
+    Calls ``poller.tick()`` every ``interval_seconds`` for as long as the
+    caller lets it run:
+
+      * ``max_iterations`` bounds it to a fixed number of ticks and returns
+        (tests / CI / a one-shot CLI invocation); must be >= 1 when given;
+      * ``stop`` is a zero-arg predicate polled at the TOP of every
+        iteration, BEFORE that iteration's ``tick()`` runs — e.g.
+        ``threading.Event().is_set`` — so a supervised process can request
+        graceful shutdown between ticks without killing the thread mid-tick;
+      * with BOTH unset (the real long-lived-deployment case) this call
+        never returns — the caller runs it in its own thread/process and
+        owns that lifecycle (e.g. a daemon thread it joins on shutdown).
+
+    ``sleep`` is injectable (default :func:`time.sleep`) purely so tests can
+    drive many iterations instantly and assert on the recorded intervals
+    instead of the wall clock.
+
+    Returns the concatenation of every tick's :class:`Action`\\ s — useful
+    for tests/observability on a bounded run. An unbounded deployment should
+    not rely on this return (it grows for the whole process lifetime);
+    instead have the caller log/emit each tick's actions via ``poller.tick``
+    itself, or wrap this loop with its own per-iteration hook.
+    """
+    if max_iterations is not None and max_iterations < 1:
+        raise ValueError("max_iterations must be >= 1 when given")
+    all_actions: list[Action] = []
+    iterations = 0
+    while True:
+        if stop is not None and stop():
+            break
+        all_actions.extend(poller.tick())
+        iterations += 1
+        if max_iterations is not None and iterations >= max_iterations:
+            break
+        sleep(interval_seconds)
+    return all_actions
+
+
 def run_replay(
     config: PollerConfig,
     events: Sequence[Event],
     *,
     db_path: str = ":memory:",
+    poll_interval_seconds: Optional[float] = None,
+    poll_max_iterations: Optional[int] = None,
+    poll_stop: Optional[Callable[[], bool]] = None,
+    poll_sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
-    """Replay ``events`` through a fresh poller; return a JSON-ready summary."""
+    """Replay ``events`` through a fresh poller; return a JSON-ready summary.
+
+    ``poll_interval_seconds``, if given, runs :func:`run_poll_loop` AFTER the
+    one-shot replay of ``events`` — the live-loop wiring #214 review r6
+    required (see :meth:`AutomationPoller.tick`) — and folds its recovered
+    :class:`Action`\\ s into the returned ``"actions"``. Unset (the default),
+    behavior is unchanged: a pure one-shot replay.
+    """
     store = StateStore(db_path)
     try:
         poller = AutomationPoller(config, store)
-        actions = poller.ingest_all(events)
+        actions = list(poller.ingest_all(events))
+        if poll_interval_seconds is not None:
+            actions.extend(
+                run_poll_loop(
+                    poller,
+                    interval_seconds=poll_interval_seconds,
+                    max_iterations=poll_max_iterations,
+                    stop=poll_stop,
+                    sleep=poll_sleep,
+                )
+            )
         rows = store.snapshot()
     finally:
         store.close()
@@ -2065,13 +2164,25 @@ def run_cli(
     events_path: Optional[str] = None,
     db_path: str = ":memory:",
     dry_run: bool = False,
+    poll_interval_seconds: Optional[float] = None,
+    poll_max_iterations: Optional[int] = None,
 ) -> dict:
-    """Entry point used by the ``agent-automation`` CLI command."""
+    """Entry point used by the ``agent-automation`` CLI command.
+
+    ``poll_interval_seconds``, if given, puts this call into the live
+    recovery loop (:func:`run_poll_loop`) after any one-shot ``events_path``
+    replay — see :meth:`AutomationPoller.tick` / :func:`run_poll_loop` for
+    what this wires in and why (#214 review r6). It works with or without
+    ``events_path``: a bare ``--poll-interval-seconds`` against a persistent
+    ``--db`` runs pure durable-inbox recovery with no new events ingested
+    this invocation. Unset (the default), behavior is unchanged.
+    """
     config = PollerConfig.from_json_file(config_path)
     if dry_run and not config.dry_run:
         config = replace(config, dry_run=True)
-    if events_path is None:
-        # No replay corpus: just validate config + report the allowlist/wall.
+    if events_path is None and poll_interval_seconds is None:
+        # No replay corpus and no live loop requested: just validate config +
+        # report the allowlist/wall.
         return {
             "dry_run": config.dry_run,
             "tracked_repos": list(config.tracked_repos),
@@ -2082,4 +2193,11 @@ def run_cli(
             "actions": [],
             "work_items": [],
         }
-    return run_replay(config, load_events_file(events_path), db_path=db_path)
+    events = load_events_file(events_path) if events_path is not None else []
+    return run_replay(
+        config,
+        events,
+        db_path=db_path,
+        poll_interval_seconds=poll_interval_seconds,
+        poll_max_iterations=poll_max_iterations,
+    )

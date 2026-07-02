@@ -39,6 +39,7 @@ from renquant_orchestrator.agent_automation_poller import (
     classify_merge_risk,
     is_high_risk,
     merged_is_wall_protected,
+    run_poll_loop,
     run_replay,
     transition_allowed,
 )
@@ -1445,9 +1446,14 @@ def test_migration_adds_missing_columns_without_dropping_existing_rows(tmp_path)
 def test_migration_handles_oldest_v1_schema_too(tmp_path):
     """The introspection-based migration is not special-cased to just the
     immediately-prior revision: it also opens the ORIGINAL (git rev
-    059c5652) shape cleanly, and a v1 "seen" row is correctly treated as
-    already-applied (matching v1's own semantics: presence = fully
-    recorded, there was no separate in-flight concept at all)."""
+    059c5652) shape cleanly. Review r6 correction: a v1 "seen" row must NOT
+    be guessed as already-applied — 059c5652's own ``record_event`` committed
+    the delivery id BEFORE the real state transition ran, so presence alone
+    never proved the work was done (that ordering bug is exactly what the
+    FIRST #214 review flagged). It migrates to 'processing' instead, and
+    a recovery pass flags it fail-closed (see
+    ``test_legacy_v1_row_flagged_fail_closed_regardless_of_downstream_work_state``
+    for both the "work actually happened" and "work never happened" cases)."""
     db = str(tmp_path / "v1-legacy.db")
     _write_oldest_v1_db(db)
     conn = sqlite3.connect(db)
@@ -1466,11 +1472,68 @@ def test_migration_handles_oldest_v1_schema_too(tmp_path):
     assert {"fence", "cancel_requested"} <= wi_cols
 
     assert store.event_seen("evt-v1-1") is True
-    assert store.event_applied("evt-v1-1") is True       # backfilled 'applied'
+    # NOT guessed as applied — the migration cannot tell whether v1's own
+    # crash window means this row's real work ran or not.
+    assert store.event_applied("evt-v1-1") is False
+    row = store.event_row("evt-v1-1")
+    assert row["status"] == "processing"
+
+    poller = AutomationPoller(_config(), store)
+    actions = poller.recover_pending()
+    flagged = [a for a in actions if a.event_id == "evt-v1-1"]
+    assert len(flagged) == 1
+    assert flagged[0].outcome == "legacy_unrecoverable"
+    assert store.event_legacy_unrecoverable("evt-v1-1") is True
+
     evt = _event(event_id="evt-v1-1")
     dup = store.claim_event(evt, owner="poller-1", ttl=100.0)
-    assert dup.proceed is False and dup.disposition == "applied"
+    assert dup.proceed is False and dup.disposition == "legacy_unrecoverable"
     store.close()
+
+
+def test_legacy_v1_row_flagged_fail_closed_regardless_of_downstream_work_state(tmp_path):
+    """Review r6 requirement: "Add fixtures for both an old row with and
+    without corresponding durable work state and prove neither is guessed as
+    applied." A v1 ``processed_events`` row predates ``review_id`` entirely,
+    so a recovery pass structurally cannot even look up a matching
+    ``work_items`` row to decide — it must flag EVERY v1 row
+    'legacy_unrecoverable' uniformly, whether or not the associated work
+    happened to actually complete."""
+    for label, work_item_state in (
+        ("work_completed", State.MERGE_ELIGIBLE.value),
+        ("work_never_ran", None),
+    ):
+        db = str(tmp_path / f"v1-legacy-{label}.db")
+        _write_oldest_v1_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO processed_events (event_id, repo, pr_number, head_sha, processed_at) "
+            f"VALUES ('evt-v1-{label}','hallovorld/renquant-orchestrator',42,'sha-a', 1000.0)"
+        )
+        if work_item_state is not None:
+            # Simulate "the work really did complete downstream" — a
+            # terminal-ish work_items row exists for this repo/pr/head_sha
+            # (under SOME review_id the legacy ledger row cannot name).
+            conn.execute(
+                "INSERT INTO work_items (repo, pr_number, head_sha, review_id, "
+                "state, attempt, superseded, pending_rerun, created_at, updated_at) "
+                "VALUES ('hallovorld/renquant-orchestrator',42,'sha-a','rev-unknown',"
+                f"'{work_item_state}',1,0,0,900.0,950.0)"
+            )
+        conn.commit()
+        conn.close()
+
+        store = StateStore(db)
+        poller = AutomationPoller(_config(), store)
+        actions = poller.recover_pending()
+        flagged = [a for a in actions if a.event_id == f"evt-v1-{label}"]
+        assert len(flagged) == 1, label
+        assert flagged[0].outcome == "legacy_unrecoverable", label
+        # never guessed 'applied' in either scenario, regardless of whether
+        # downstream work state looks complete.
+        assert store.event_applied(f"evt-v1-{label}") is False, label
+        assert store.event_legacy_unrecoverable(f"evt-v1-{label}") is True, label
+        store.close()
 
 
 def test_legacy_applied_row_remains_a_recognized_duplicate_after_migration(tmp_path):
@@ -1675,6 +1738,104 @@ def test_tick_is_a_safe_noop_with_nothing_pending():
     assert store.snapshot() == []
 
 
+# ────────────────────────── run_poll_loop wiring ─────────────────────────
+#
+# Review r6, finding 2: "tick() is a callable wrapper around recover_pending,
+# but neither run_cli nor any service/loop invokes it repeatedly ... a
+# long-lived process in this PR still has no periodic recovery behavior."
+# run_poll_loop is the actual periodic-loop mechanism; these tests prove it
+# calls tick() on a cadence, is bounded/interruptible, and genuinely
+# recovers a coalesced event WHILE staying up (no restart, no test code
+# calling tick() by hand between iterations).
+
+
+def test_poll_loop_bounded_by_max_iterations_and_sleeps_between_ticks():
+    store = StateStore(clock=FakeClock())
+    poller = AutomationPoller(_config(), store)
+    sleeps = []
+    actions = run_poll_loop(
+        poller, interval_seconds=5.0, max_iterations=3, sleep=sleeps.append
+    )
+    assert actions == []  # nothing pending on any of the 3 ticks
+    # 3 ticks, only 2 sleeps — never sleeps after the LAST iteration.
+    assert sleeps == [5.0, 5.0]
+
+
+def test_poll_loop_rejects_non_positive_max_iterations():
+    store = StateStore(clock=FakeClock())
+    poller = AutomationPoller(_config(), store)
+    with pytest.raises(ValueError):
+        run_poll_loop(poller, interval_seconds=1.0, max_iterations=0)
+
+
+def test_poll_loop_stop_predicate_halts_before_next_tick():
+    """``stop`` is checked at the TOP of every iteration (before that
+    iteration's tick), so a supervised process can request shutdown between
+    ticks without killing one mid-flight."""
+    store = StateStore(clock=FakeClock())
+    poller = AutomationPoller(_config(), store)
+    tick_calls = []
+    poller.tick = lambda: (tick_calls.append(1) or [])
+
+    stop_calls = []
+
+    def stop():
+        stop_calls.append(1)
+        return len(stop_calls) > 2  # let 2 ticks run, then halt
+
+    sleeps = []
+    result = run_poll_loop(poller, interval_seconds=1.0, stop=stop, sleep=sleeps.append)
+    assert result == []
+    assert len(tick_calls) == 2
+    assert len(stop_calls) == 3  # the 3rd check is the one that halts it
+    assert sleeps == [1.0, 1.0]
+
+
+def test_poll_loop_autonomously_recovers_coalesced_event_across_iterations():
+    """The actual periodic-loop mechanism review r6 required: a coalesced
+    event whose blocker clears WHILE run_poll_loop keeps ticking — no
+    restart, no external redelivery, and no test code calling tick() or
+    recover_pending() directly between iterations — is recovered on a LATER
+    iteration of the SAME run_poll_loop call."""
+    clock = FakeClock()
+    store = StateStore(clock=clock)
+    poller = AutomationPoller(_config(), store)
+
+    evt_a = _event(event_id="evt-a-loop", head_sha="sha-a", review_id="rev-a-loop",
+                    state="CHANGES_REQUESTED")
+    evt_b = _event(event_id="evt-b-loop", head_sha="sha-a", review_id="rev-b-loop",
+                    state="CHANGES_REQUESTED")
+    key_a = evt_a.row_key
+    key_b = evt_b.row_key
+
+    store.ensure_row(key_a, State.AWAIT_REVIEW)
+    acq_a = store.acquire(key_a, poller.config.owner, poller.config.lease_ttl_seconds)
+    assert acq_a.acquired is True
+    store.transition(key_a, State.FIXING, actor=Actor.POLLER,
+                      owner=poller.config.owner, fence=acq_a.fence)
+
+    b_first = poller.ingest(evt_b)
+    assert b_first.outcome == "coalesced"
+
+    def release_a_then_sleep(seconds):
+        # Simulate A's blocking lease clearing WHILE the process stays up,
+        # between two ticks of the SAME run_poll_loop call — exactly the gap
+        # the review flagged (startup-only recovery would never see this).
+        store.transition(key_a, State.AWAIT_REVIEW, actor=Actor.POLLER,
+                          owner=poller.config.owner, fence=acq_a.fence)
+        store.release(key_a, poller.config.owner, fence=acq_a.fence)
+
+    actions = run_poll_loop(
+        poller, interval_seconds=10.0, max_iterations=2, sleep=release_a_then_sleep
+    )
+    b_actions = [a for a in actions if a.event_id == "evt-b-loop"]
+    # tick 1: still blocked (A live) → "coalesced" again; tick 2 (after A's
+    # lease clears mid-sleep): actually driven → "escalated".
+    assert [a.outcome for a in b_actions] == ["coalesced", "escalated"]
+    assert store.get_state(key_b) == State.ESCALATED
+    assert store.event_applied("evt-b-loop") is True
+
+
 # ─────────────────────────── replay harness ─────────────────────────────
 
 
@@ -1698,3 +1859,27 @@ def test_run_replay_summary_is_deterministic_and_wall_safe():
         w["state"] not in (State.MERGED.value, State.HUMAN_GATE.value)
         for w in summary["work_items"]
     )
+
+
+def test_run_replay_poll_interval_folds_tick_actions_into_summary():
+    """``run_replay``/``run_cli``'s opt-in wiring to :func:`run_poll_loop`
+    (review r6): with ``poll_interval_seconds`` set, the one-shot replay's
+    actions are followed by however many bounded ticks were requested, all
+    folded into the same ``"actions"`` list — the CLI's real entry point
+    into the live recovery loop."""
+    cfg = _config()
+    events = [
+        Event("e1", "hallovorld/renquant-orchestrator", 1, "s1", "review",
+              "APPROVED", "r1", "lgtm"),
+    ]
+    sleeps = []
+    summary = run_replay(
+        cfg, events,
+        poll_interval_seconds=7.0, poll_max_iterations=2, poll_sleep=sleeps.append,
+    )
+    outcomes = [a["outcome"] for a in summary["actions"]]
+    # the one-shot replay action, then 2 empty ticks (nothing pending after
+    # the single event above already reached a terminal state) contribute no
+    # further outcomes — but the loop still ran, proving the wiring fires.
+    assert outcomes == ["merge_eligible"]
+    assert sleeps == [7.0]  # 2 ticks → 1 sleep between them, none after

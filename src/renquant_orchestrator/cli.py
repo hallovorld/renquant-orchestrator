@@ -435,6 +435,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                           help="SQLite state-store path; default in-memory")
     autoloop.add_argument("--dry-run", action="store_true",
                           help="force dry-run: never invoke the (stubbed) sandbox executor")
+    autoloop.add_argument(
+        "--poll-interval-seconds", type=float, default=None,
+        help="run the live durable-inbox recovery loop (run_poll_loop): call "
+             "AutomationPoller.tick every N seconds, after any --events "
+             "replay, for as long as this process stays up. Unset = one-shot "
+             "(default). With --poll-max-iterations unset this blocks forever.",
+    )
+    autoloop.add_argument(
+        "--poll-max-iterations", type=int, default=None,
+        help="bound --poll-interval-seconds to N ticks and return (CI/tests); "
+             "default runs forever",
+    )
 
     identity = sub.add_parser(
         "agent-identity",
@@ -805,6 +817,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             events_path=args.events,
             db_path=args.db,
             dry_run=args.dry_run,
+            poll_interval_seconds=args.poll_interval_seconds,
+            poll_max_iterations=args.poll_max_iterations,
         )
         print(json.dumps(summary, indent=2, sort_keys=True))
         return 0 if summary.get("human_gate_wall_ok") else 1

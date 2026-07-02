@@ -270,9 +270,122 @@ Evidence updated: `tests/test_agent_automation_poller.py` now 69 tests →
 tests/test_agent_automation_poller.py -q` → 69 passed (repeated 20x on the
 threaded race test with no flakes); `git diff --check` clean.
 
+REVIEW ROUND 5 (Codex CHANGES_REQUESTED — the durable-inbox round passed its
+own suite, but the schema change was not upgrade-safe, and `recover_pending`
+was still cold-start-only):
+
+1. **`CREATE TABLE IF NOT EXISTS` is not upgrade-safe.** It only creates a
+   table that does not exist at all — it silently does nothing to a
+   `processed_events`/`work_items` table an EARLIER revision of this module
+   already created with fewer columns, so opening a database from any prior
+   revision would crash `claim_event`'s INSERT with `sqlite3.OperationalError:
+   no column named review_id` on exactly the persisted state this control
+   plane exists to recover across a restart. FIX: `_migrate_schema`, a
+   `PRAGMA table_info`-driven idempotent migration — `_WORK_ITEMS_MIGRATIONS`
+   / `_PROCESSED_EVENTS_MIGRATIONS` list every column ever added, in
+   introduction order, and only `ALTER TABLE ... ADD COLUMN` what is actually
+   missing; a no-op on an already-current (including brand-new) db. A legacy
+   row already `'applied'` stays a recognized duplicate; a legacy row still
+   `'processing'` (predates `review_id`/`kind`/`state`/`body`, so it cannot be
+   reconstructed without guessing) is durably flagged `'legacy_unrecoverable'`
+   via `AutomationPoller._flag_legacy_unrecoverable` — a status distinct from
+   `'applied'` so an operator can audit "actually ran" vs "flagged, needs a
+   human", never silently dropped or silently guessed at.
+2. **`recover_pending` only ran at cold start.** A coalesced event whose
+   blocker cleared WHILE a live process stayed up (no restart) had no
+   mechanism to be picked up until the next restart. FIX: `AutomationPoller.
+   tick()` — the callable a live poller loop calls every interval, not just
+   at `startup_recover` — added as a thin wrapper over `recover_pending()`.
+3. Tests added: schema-migration coverage for BOTH the immediately-prior
+   shape and the ORIGINAL (git rev 059c5652) shape (`test_migration_adds_
+   missing_columns_without_dropping_existing_rows`,
+   `test_migration_handles_oldest_v1_schema_too`), the legacy-applied and
+   legacy-processing dispositions after migration
+   (`test_legacy_applied_row_remains_a_recognized_duplicate_after_migration`,
+   `test_legacy_processing_row_is_flagged_fail_closed_not_guessed_or_dropped`),
+   full-payload recovery of NEW events post-migration
+   (`test_new_events_after_migration_recover_autonomously_via_full_payload`),
+   and `tick()` autonomously completing a coalesced event without a process
+   restart plus a safe no-op with nothing pending
+   (`test_tick_autonomously_completes_coalesced_event_without_process_restart`,
+   `test_tick_is_a_safe_noop_with_nothing_pending`).
+
+Evidence: `tests/test_agent_automation_poller.py` → 76 tests, all passing
+(landed in commit `dc54f4eb`, "upgrade-safe schema migration + periodic
+recovery tick (#214 review r5)"). NOTE: this round's progress-doc entry was
+missed at the time and is being added retroactively now, in round 6, since
+it documents work already on `main`'s PR branch.
+
+REVIEW ROUND 6 (Codex CHANGES_REQUESTED — round 5's migration and `tick()`
+passed the suite, but two correctness/completeness gaps remained):
+
+1. **Oldest-schema rows were migrated to the WRONG disposition.**
+   `_PROCESSED_EVENTS_MIGRATIONS` defaulted the newly-added `status` column to
+   `'applied'` for any pre-existing row, on the theory that a v0 "seen" row's
+   mere presence meant the work was fully done. That is backwards, and
+   contradicts round 1's OWN finding: v0's `record_event` committed the
+   delivery id BEFORE `ensure_row`/the state transition ran, so a crash
+   between those two steps left a "seen" row whose real work was never
+   applied — v0 presence never proved completion, even under v0's own
+   semantics. Defaulting to `'applied'` silently guessed the optimistic case
+   and could permanently drop real, never-applied work with no audit trail.
+   FIX: default the migrated `status` column to `'processing'` instead of
+   `'applied'`. `StateStore.list_processing_events` then surfaces every such
+   row to `AutomationPoller.recover_pending`, which — since `kind IS NULL` for
+   every v0 row (those columns don't exist until the round-4 migration step) —
+   routes it through the SAME fail-closed `_flag_legacy_unrecoverable` path
+   already used for round-4-vintage legacy rows, rather than a bespoke,
+   unaudited "guessed applied" default. `owner`/`lease_expiry` stay NULL for
+   these migrated rows too, which `claim_event` already treats as immediately
+   reclaimable (no live lease to respect), so they flow into recovery on the
+   very next tick.
+2. **Periodic recovery still was not wired into an actual loop.** `tick()`
+   was a real callable, but nothing in this PR invoked it repeatedly — its own
+   docstring explicitly deferred that to "a deployment concern outside this
+   PR's scope". A method callers might invoke later is not wiring: a
+   long-lived process built from this PR alone still had no periodic recovery
+   behavior. FIX: `run_poll_loop(poller, interval_seconds=..., max_iterations=
+   None, stop=None, sleep=time.sleep)` — calls `poller.tick()` on a configured
+   interval for as long as the process stays up; bounded via `max_iterations`
+   (tests/CI) and/or interruptible via a `stop` predicate polled before each
+   iteration (e.g. `threading.Event().is_set`, for graceful shutdown between
+   ticks); with both unset it runs forever, the real deployment case. Wired
+   additively into `run_replay`/`run_cli` via new optional
+   `poll_interval_seconds`/`poll_max_iterations` kwargs (default `None` = old
+   one-shot behavior, unchanged) and a new `agent-automation
+   --poll-interval-seconds/--poll-max-iterations` CLI flag pair.
+3. Tests added (6): both migration-default fixture shapes proving `status`
+   is never guessed `'applied'` — one where downstream `work_items` state
+   looks completed, one where it does not, both still fail-closed to
+   `'legacy_unrecoverable'`
+   (`test_legacy_v1_row_flagged_fail_closed_regardless_of_downstream_work_state`,
+   Codex's explicit "with and without corresponding durable work state" ask);
+   `run_poll_loop` bounded by `max_iterations` with correct sleep-between-ticks
+   count, rejecting `max_iterations < 1`, honoring a `stop` predicate checked
+   before each iteration, and — the core claim — autonomously recovering a
+   coalesced event across TWO iterations of the SAME loop call with no test
+   code calling `tick`/`recover_pending` by hand between them
+   (`test_poll_loop_bounded_by_max_iterations_and_sleeps_between_ticks`,
+   `test_poll_loop_rejects_non_positive_max_iterations`,
+   `test_poll_loop_stop_predicate_halts_before_next_tick`,
+   `test_poll_loop_autonomously_recovers_coalesced_event_across_iterations`);
+   `run_replay`'s `poll_interval_seconds` wiring folds bounded tick actions
+   into the same `"actions"` summary
+   (`test_run_replay_poll_interval_folds_tick_actions_into_summary`).
+
+Evidence: `tests/test_agent_automation_poller.py` → 82 tests, all passing
+(`python3 -m pytest tests/test_agent_automation_poller.py -q` → 82 passed);
+`python3 -m py_compile` clean on all three changed files. Full-suite run
+blocked in this sandbox by missing sibling-repo deps (`pydantic`,
+`renquant_execution` not installed here) — pre-existing environment gap, not
+a regression: the 2 CLI tests that fail need `renquant_execution` for an
+unrelated `daily-contract` fixture, untouched by this change; confirmed via
+targeted `tests/test_cli.py` run (92 passed, 2 pre-existing env-gap failures).
+
 NEXT: (1) ephemeral OS/container/VM sandbox executor behind
 `run_fix_in_sandbox` (design §7.5) + Phase-0 escape/exfiltration suite; (2) live
-GitHub read-only event feed into `ingest`, wiring `recover_pending()` as its
-periodic poll tick; (3) integrate the existing deterministic merge authority
-for ordinary-PR `MERGE_ELIGIBLE→MERGED` and the surface-to-human path for the
-§2.1 high-risk set.
+GitHub read-only event feed into `ingest`, with a real deployment wiring
+`run_poll_loop` (this PR only proves the loop mechanism itself — no live
+GitHub polling loop exists yet, see module docstring); (3) integrate the
+existing deterministic merge authority for ordinary-PR `MERGE_ELIGIBLE→MERGED`
+and the surface-to-human path for the §2.1 high-risk set.
