@@ -1,0 +1,27 @@
+{
+ "n_floor_clearing": 430,
+ "n_floor_clearing_with_se": 301,
+ "n_dates": 23,
+ "thin_margin_share_current": 0.3953488372093023,
+ "margin_over_se_quantiles": {
+  "p10": 0.13651818294408252,
+  "p25": 0.33521566506587586,
+  "p50": 1.2787445983958312,
+  "p75": 1.983882223904231,
+  "p90": 10.967508469872678
+ },
+ "per_k": {
+  "0.5": {
+   "n_admitted": 211,
+   "admitted_share_of_with_se": 0.7009966777408638,
+   "n_thin_margin_admitted": 50,
+   "thin_margin_share_admitted": 0.23696682464454977
+  },
+  "1.0": {
+   "n_admitted": 180,
+   "admitted_share_of_with_se": 0.5980066445182725,
+   "n_thin_margin_admitted": 36,
+   "thin_margin_share_admitted": 0.2
+  }
+ }
+}

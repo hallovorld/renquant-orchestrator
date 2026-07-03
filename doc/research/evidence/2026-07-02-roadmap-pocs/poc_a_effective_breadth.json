@@ -1,0 +1,30 @@
+{
+  "fwd60_stride60": {
+    "n_names_used": 142,
+    "n_nonoverlap_dates": 43,
+    "q_names_over_dates": 3.3,
+    "avg_pairwise_corr": 0.0014,
+    "n_eff_participation_ratio": 18.4,
+    "n_eff_naive_equicorr": 119.0,
+    "caveat": "q>1: rank-deficient corr matrix; participation ratio is a noise-biased LOWER bound; naive equicorr is the upper bound"
+  },
+  "fwd5_stride5_proxy": {
+    "n_names_used": 142,
+    "n_nonoverlap_dates": 509,
+    "q_names_over_dates": 0.28,
+    "avg_pairwise_corr": 0.0007,
+    "n_eff_participation_ratio": 31.2,
+    "n_eff_naive_equicorr": 129.4,
+    "role": "well-conditioned estimate of the cross-sectional dependence structure; horizon-independent to first order"
+  },
+  "conclusion": {
+    "independent_periods_per_yr_60d": 4.2,
+    "BR_nominal_per_yr": 596.0,
+    "BR_eff_point_per_yr": 131.0,
+    "BR_eff_interval_per_yr": [
+      77.0,
+      500.0
+    ],
+    "note": "excess labels remove the market mode; residual factor structure (sectors/styles) is what cuts N_eff below N. sqrt(BR_eff) is the IR multiplier in IR = TC*IC*sqrt(BR)"
+  }
+}
