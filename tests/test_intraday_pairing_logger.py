@@ -25,14 +25,17 @@ from renquant_orchestrator.intraday_pairing_logger import (
     build_paired_record,
     collect,
     decompose,
+    derive_frozen_window,
     execution_shortfall,
     existing_pair_keys,
     load_admitted,
     load_batch_arrivals,
     load_batch_fills,
     load_intraday_ticks,
+    load_submitted_entries,
     pair_key,
     pair_records,
+    resolve_admitting_run_date,
     select_first_eligible_tick,
     summarize,
     timing_component,
@@ -747,6 +750,253 @@ def test_load_batch_arrivals_first_wins(tmp_path):
 
 def test_load_batch_arrivals_missing_file_is_empty(tmp_path):
     assert load_batch_arrivals(tmp_path / "absent.jsonl", DATE) == {}
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION: 2026-07-02 first scheduled run produced ALL-ZERO output (sessions 0,
+# admitted pairs 0) against a real session. Root causes, reproduced here against a
+# DB shaped like the CURRENT live schema:
+#   (a) load_admitted requires candidate_scores.selected = 1, which the live
+#       pipeline stopped stamping after 2026-05-22 — a submitted entry is now
+#       selected = 0 / blocked_by = 'broker_pending_submitted' plus a trades row
+#       action='buy_pending' / order_type='NEW_BUY';
+#   (b) --date used one date for BOTH the admitting run_date and the tick-file
+#       session, but the admitting batch runs post-close on the PREVIOUS session;
+#   (c) the real #216 tick lines stamp session_open/session_close but never
+#       eligible_after, so no tick was ever selectable.
+# ---------------------------------------------------------------------------
+SESSION = "2026-07-02"          # fill session T (ticks are stamped with this date)
+ADMIT_DATE = "2026-07-01"       # the post-close batch that placed the entry
+ADMIT_RUN = "2026-07-01-live-01c54b39"
+SESSION_OPEN = "2026-07-02T09:30:00-04:00"
+SESSION_CLOSE = "2026-07-02T16:00:00-04:00"
+
+
+def _seed_current_live_schema_db(path) -> None:
+    """A runs DB shaped like the CURRENT live pipeline output (2026-07 vintage):
+    no selected=1 anywhere, entry recorded as a buy_pending/NEW_BUY submission on
+    the previous session's run, and NO fill-confirmation ('buy') row."""
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE pipeline_runs (
+            run_id TEXT PRIMARY KEY, run_date DATE, run_type TEXT
+        );
+        CREATE TABLE candidate_scores (
+            run_id TEXT, ticker TEXT, role TEXT, selected INTEGER, blocked_by TEXT
+        );
+        CREATE TABLE trades (
+            run_id TEXT, ticker TEXT, action TEXT, price REAL, trade_date DATE,
+            order_type TEXT
+        );
+        """
+    )
+    conn.executemany(
+        "INSERT INTO pipeline_runs VALUES (?,?,?)",
+        [
+            (ADMIT_RUN, ADMIT_DATE, "live"),
+            ("2026-07-02-live-intraday1", SESSION, "live"),  # session-T liveness run
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO candidate_scores VALUES (?,?,?,?,?)",
+        [
+            # The submitted entry itself is selected=0 on the current live path.
+            (ADMIT_RUN, "OXY", "candidate", 0, "broker_pending_submitted"),
+            (ADMIT_RUN, "AAPL", "candidate", 0, "veto:rank_score_below_floor"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO trades VALUES (?,?,?,?,?,?)",
+        [
+            # The entry submission (reference price at submit — NOT a fill).
+            (ADMIT_RUN, "OXY", "buy_pending", 47.94, ADMIT_DATE, "NEW_BUY"),
+            # A sell and a QP_BUY must not be treated as batch entries here.
+            (ADMIT_RUN, "NEE", "sell_pending", 87.5, ADMIT_DATE, "EXIT"),
+            (ADMIT_RUN, "WFC", "buy", 76.4, ADMIT_DATE, "QP_BUY"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
+def _real_shape_tick(ticker, source_ts, bid, ask):
+    """A tick line shaped like the real #216 quote logger output: session bounds
+    stamped, NO eligible_after field."""
+    return {
+        "date": SESSION,
+        "ticker": ticker,
+        "source_ts": source_ts,
+        "bid": bid,
+        "ask": ask,
+        "mid": (bid + ask) / 2.0,
+        "session_open": SESSION_OPEN,
+        "session_close": SESSION_CLOSE,
+        "status": "ok",
+    }
+
+
+def test_collect_current_live_schema_pairs_submitted_entry(tmp_path):
+    """THE zero-session regression: a current-live-schema DB plus real-shape ticks
+    must yield the admitted pair (censored on the missing fill), not zero rows."""
+    db = tmp_path / "runs.db"
+    _seed_current_live_schema_db(db)
+    ticks = tmp_path / "ticks.jsonl"
+    ticks.write_text(
+        "\n".join(
+            json.dumps(t)
+            for t in [
+                # Before open+5min: must NOT be selected (frozen window).
+                _real_shape_tick("OXY", "2026-07-02T09:31:00-04:00", 48.00, 48.02),
+                # First eligible tick at/after 09:35 — the arrival quote.
+                _real_shape_tick("OXY", "2026-07-02T09:36:10-04:00", 48.55, 48.57),
+                # Later, more favorable tick: must be ignored.
+                _real_shape_tick("OXY", "2026-07-02T11:00:00-04:00", 47.10, 47.12),
+            ]
+        )
+        + "\n"
+    )
+
+    recs = collect(date=SESSION, runs_db=db, tick_source=ticks)
+
+    assert len(recs) == 1  # was 0 before the fix
+    rec = recs[0]
+    assert rec["ticker"] == "OXY"
+    assert rec["date"] == SESSION  # the FILL session, not the admit date
+    assert rec["signal_version"] == ADMIT_RUN  # admitting run id preserved
+    # Intraday arm: first eligible tick under the DERIVED frozen window.
+    assert rec["intraday_arm"]["arrival_quote"]["source_ts"] == (
+        "2026-07-02T09:36:10-04:00"
+    )
+    assert rec["intraday_arm"]["arrival_quote"]["mid"] == pytest.approx(48.56)
+    # No fill-confirmation row exists on the live path (and the broker canceled
+    # this very order pre-open on the real 2026-07-02): censored, never imputed —
+    # in particular the buy_pending submit reference price must NOT become a fill.
+    assert rec["filled"] is False
+    assert "no_batch_fill" in rec["censored_reason"]
+    assert rec["batch_arm"]["fill"] is None
+
+    s = summarize(recs)
+    assert s["n_sessions"] == 1  # was 0
+    assert s["n_admitted_pairs"] == 1
+    assert s["n_with_intraday_tick"] == 1  # was 0 despite valid ticks
+    assert s["n_with_batch_fill"] == 0  # honest: no fill confirmation in the DB
+
+
+def test_resolve_admitting_run_date_previous_session(tmp_path):
+    db = sqlite3.connect(":memory:")
+    db.executescript(
+        "CREATE TABLE pipeline_runs (run_id TEXT, run_date DATE, run_type TEXT);"
+    )
+    db.executemany(
+        "INSERT INTO pipeline_runs VALUES (?,?,?)",
+        [
+            ("r-fri", "2026-06-26", "live"),
+            ("r-fri-sim", "2026-06-29", "sim"),  # wrong run_type — ignored
+            ("r-mon", "2026-06-29", "live"),
+        ],
+    )
+    # Monday session pairs Friday's batch when Monday is the earliest live run...
+    assert resolve_admitting_run_date(db, "2026-06-29") == "2026-06-26"
+    # ...and a Tuesday session pairs Monday's batch.
+    assert resolve_admitting_run_date(db, "2026-06-30") == "2026-06-29"
+    # No earlier run at all -> None (collect then falls back to legacy admits only).
+    assert resolve_admitting_run_date(db, "2026-06-26") is None
+
+
+def test_load_submitted_entries_filters_and_session_date(tmp_path):
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript(
+        """
+        CREATE TABLE pipeline_runs (run_id TEXT, run_date DATE, run_type TEXT);
+        CREATE TABLE trades (
+            run_id TEXT, ticker TEXT, action TEXT, price REAL, trade_date DATE,
+            order_type TEXT
+        );
+        """
+    )
+    db.execute("INSERT INTO pipeline_runs VALUES ('r1', ?, 'live')", (ADMIT_DATE,))
+    db.executemany(
+        "INSERT INTO trades VALUES (?,?,?,?,?,?)",
+        [
+            ("r1", "OXY", "buy_pending", 47.94, ADMIT_DATE, "NEW_BUY"),
+            ("r1", "MU", "buy_pending", 1062.0, ADMIT_DATE, "TOP_UP"),  # top-up entry
+            ("r1", "NEE", "sell_pending", 87.5, ADMIT_DATE, "EXIT"),  # not an entry
+            ("r1", "WFC", "buy", 76.4, ADMIT_DATE, "QP_BUY"),  # legacy path only
+        ],
+    )
+    names = load_submitted_entries(db, ADMIT_DATE, session_date=SESSION)
+    assert sorted(n.ticker for n in names) == ["MU", "OXY"]
+    assert all(n.date == SESSION for n in names)  # ticks key on the FILL session
+    assert all(n.signal_version == "r1" for n in names)
+    assert all(n.side == "buy" for n in names)
+
+
+def test_load_submitted_entries_schema_without_order_type_column():
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript(
+        """
+        CREATE TABLE pipeline_runs (run_id TEXT, run_date DATE, run_type TEXT);
+        CREATE TABLE trades (run_id TEXT, ticker TEXT, action TEXT, price REAL);
+        """
+    )
+    db.execute("INSERT INTO pipeline_runs VALUES ('r1', ?, 'live')", (ADMIT_DATE,))
+    db.execute("INSERT INTO trades VALUES ('r1', 'OXY', 'buy_pending', 47.94)")
+    db.execute("INSERT INTO trades VALUES ('r1', 'NVDA', 'buy', 102.0)")  # ambiguous
+    names = load_submitted_entries(db, ADMIT_DATE, session_date=SESSION)
+    # Without order_type only the unambiguous buy_pending submissions qualify.
+    assert [n.ticker for n in names] == ["OXY"]
+
+
+def test_derive_frozen_window_from_session_stamps():
+    ticks = [_real_shape_tick("OXY", "2026-07-02T09:31:00-04:00", 48.0, 48.02)]
+    eligible_after, not_after = derive_frozen_window(ticks)
+    # open 09:30 + 5min and close 16:00 - 30min, as true instants (UTC encoding ok).
+    from renquant_orchestrator.intraday_pairing_logger import _parse_instant
+
+    assert _parse_instant(eligible_after) == _parse_instant("2026-07-02T09:35:00-04:00")
+    assert _parse_instant(not_after) == _parse_instant("2026-07-02T15:30:00-04:00")
+
+
+def test_derive_frozen_window_missing_or_naive_stamps_is_none():
+    assert derive_frozen_window([]) == (None, None)
+    assert derive_frozen_window([{"source_ts": TICK_TS, "mid": 1.0}]) == (None, None)
+    naive = {"session_open": "2026-07-02T09:30:00", "session_close": SESSION_CLOSE}
+    assert derive_frozen_window([naive]) == (None, None)
+
+
+def test_pair_records_derived_cutoff_censors_late_only_ticks():
+    # Real-shape ticks (no eligible_after) whose only quotes fall INSIDE the last
+    # 30 minutes: the derived close-30min cutoff must censor the pair.
+    admitted = [AdmittedName(SESSION, "OXY", "buy", ADMIT_RUN)]
+    ticks = {
+        (SESSION, "OXY"): [
+            _real_shape_tick("OXY", "2026-07-02T15:45:00-04:00", 48.0, 48.02),
+        ]
+    }
+    rec = pair_records(admitted, {}, ticks)[0]
+    assert "no_intraday_tick" in rec["censored_reason"]
+    assert rec["intraday_arm"]["arrival_quote"] is None
+
+
+def test_pair_records_explicit_eligibility_still_beats_derived_window():
+    # Precedence: an explicit per-name eligibility instant overrides the derived
+    # open+5min (here it admits an earlier tick the derived window would skip).
+    admitted = [AdmittedName(SESSION, "OXY", "buy", ADMIT_RUN)]
+    ticks = {
+        (SESSION, "OXY"): [
+            _real_shape_tick("OXY", "2026-07-02T09:31:00-04:00", 48.0, 48.02),
+        ]
+    }
+    rec = pair_records(
+        admitted, {}, ticks,
+        eligibility={(SESSION, "OXY"): "2026-07-02T09:30:30-04:00"},
+    )[0]
+    assert rec["intraday_arm"]["arrival_quote"]["source_ts"] == (
+        "2026-07-02T09:31:00-04:00"
+    )
 
 
 def test_collect_end_to_end(tmp_path):
