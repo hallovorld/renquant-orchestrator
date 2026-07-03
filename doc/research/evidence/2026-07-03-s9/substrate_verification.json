@@ -1,0 +1,38 @@
+{
+  "verify_pick_table": {
+    "content_sha256": "ba964b407ec1e0a5a25b5f733c91588822e24c3e56b8f53c71096c2cc57b0125",
+    "content_verified": true,
+    "counts_verified": true,
+    "parquet_sha256": "0cdadd9e34e164fe02a7a693183a60a848f1ed7beda3259f7c8d1b105d55f20c",
+    "parquet_transport_match": true
+  },
+  "sidecar_recipe": {
+    "contract_module": "renquant_backtesting/analysis/pick_table.py",
+    "contract_module_sha256": "4a4ce1dc44ed35ea50344ad5c96bc7de7583f9c50b3e9563073e478cc352a5f3",
+    "generator": "renquant_backtesting/analysis/analyze_manifest_sanity_placebo.py",
+    "generator_commit": "68b222e9f1d8a41bc869cb09312ae4d2197b6ef8",
+    "generator_commit_note": "best-effort `git rev-parse HEAD` at generation time \u2014 informational only, NOT the provenance anchor; generator_sha256 above is a content hash of the generator's own bytes and is self-consistent regardless of git history",
+    "generator_sha256": "9e0c2ac699892a02ffadb35c6c01f9b8715cdf70b099d6544b216ffcb6df2fb0",
+    "label": "fwd_60d_excess",
+    "manifest_input": "backtesting/renquant_104/artifacts/sim/walkforward_manifest_gbdt_prod_recipe_v2.json",
+    "manifest_input_sha256": "ee7684a6240825dc5c50f84cfc43ef007e45b6963b0f25ba4d2f18682f2b5e8b",
+    "reference_artifact": "backtesting/renquant_104/artifacts/walkforward_gbdt_prod_recipe_v2/2026-03-02/panel-ltr.json",
+    "reference_artifact_sha256": "8fd7d51e517d38728845ebb7a085394f2e1806c138c118bfcfb4702795512351",
+    "val_cut": "2024-02-01",
+    "val_end": "2026-02-11",
+    "val_start": "2024-02-02"
+  },
+  "sidecar_counts": {
+    "n_dates": 508,
+    "n_names": 292,
+    "n_rows": 147066
+  },
+  "table_label_is_standardized": {
+    "per_date_mean_of_means": -6.151409360130715e-19,
+    "per_date_mean_of_stds": 0.9999999999940337
+  },
+  "raw_label_join": {
+    "missing_rows": 0,
+    "max_std_label_abs_diff": 0.0
+  }
+}
