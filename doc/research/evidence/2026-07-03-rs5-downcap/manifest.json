@@ -1,0 +1,177 @@
+{
+ "runner": "scripts/rs5_downcap_measurement.py",
+ "panel_mode": "FALLBACK (spec \u00a72 protocol; Norgate primary unavailable \u2014 trial/POC not yet run per RS-3 r2/r3)",
+ "spec_doc": "doc/design/2026-07-02-rs5-downcap-panel-spec.md",
+ "prereg_contract_sha256": "fca9a38942782526626ec5331074089ead084b1ae3a67a593874ea60dd98cfde",
+ "freeze_point": {
+  "merge_commit": "23dc9ff37ff1f1747e55c94363bc2794d167f482",
+  "merged_at": "2026-07-02T14:14:07-07:00",
+  "pr": 250
+ },
+ "code_commit": "828edbe2836258cc9784fe856054e6885bc20de2",
+ "run_at_utc": "2026-07-03T15:51:37Z",
+ "inputs": {
+  "membership_snapshot": {
+   "file": "inputs/vtwo_membership_snapshot.json",
+   "sha256": "074d4a1614e3dbee82b9e51ee729f0ba51667e8e9d1855e17bbb257fb6092bfa",
+   "source": "vanguard_vtwo_portfolio_holding_api (Vanguard Russell 2000 ETF \u2014 free current-day R2000 constituent list per spec \u00a72 fallback)",
+   "as_of": "2026-05-31",
+   "n_tickers": 1938
+  },
+  "profiles_snapshot": {
+   "file": "inputs/fmp_profiles_snapshot.json",
+   "sha256": "d61009e342d4a8ceaaf822520de84acf55c182a920cb251c5eeacf1acc3f6e12"
+  },
+  "bar_store": {
+   "path": "/Users/renhao/git/github/RenQuant/data/ohlcv",
+   "n_files_loaded": 1675,
+   "combined_fingerprint_sha256": "1045a3b7d7acf8b73b41167dc4febc9ef8e7fdd3d5435b865ce5ec6c90dd2ca0",
+   "spy_file_sha256": "8b1cf5a91b939730338a5a951aaf1effc2b42dda4319ee6ed50689e4b1291a39"
+  }
+ },
+ "panel_stats": {
+  "dates_with_any_members": 2868,
+  "panel_size_mean": 590.6635285913528,
+  "panel_size_min": 328,
+  "panel_size_max": 1008,
+  "target": [
+   800,
+   1400
+  ],
+  "hard_bounds": [
+   500,
+   1600
+  ],
+  "within_hard_bounds": false
+ },
+ "exclusion_counts": {
+  "fund_or_etf": 20,
+  "adr_or_foreign": 93,
+  "reit": 108,
+  "no_profile": 2,
+  "non_alpha_ticker": 3
+ },
+ "secondary_class_dedup_dropped": 4,
+ "missing_from_store": {
+  "n": 37,
+  "tickers": [
+   "AGNT",
+   "ALMR",
+   "APC",
+   "ARAI",
+   "ARXS",
+   "AVEX",
+   "AVLN",
+   "BOBS",
+   "CDE",
+   "COAG",
+   "EIKN",
+   "ELMT",
+   "EROK",
+   "FLD",
+   "FLYX",
+   "FPS",
+   "FRVO",
+   "GMRS",
+   "HAWK",
+   "HMH",
+   "KLRA",
+   "KWY",
+   "LCLN",
+   "MAIR",
+   "MANE",
+   "MOBI",
+   "ODTX",
+   "OFRM",
+   "PMI",
+   "REA",
+   "RWAY",
+   "SBMT",
+   "SGP",
+   "SPTX",
+   "SUJA",
+   "XE",
+   "YSWY"
+  ]
+ },
+ "biotech_tagged": 203,
+ "delisting_return_paths": {
+  "vendor_proceeds": 0,
+  "disclosed_consideration": 0,
+  "minus_100_convention": 0,
+  "note": "fallback panel is current-membership (survivor-conditioned) by construction \u2014 no delisted names exist in it; the frozen \u00a72 delisting-return machinery is exercisable only on the primary panel"
+ },
+ "evidence_boundary": {
+  "panel_window": [
+   "2014-01-01",
+   "2026-05-29"
+  ],
+  "scored_dates": [
+   "2015-01-02",
+   "2026-05-29"
+  ],
+  "n_scored_dates": 2868,
+  "resolved_outcome_era_ends": "2026-05-29",
+  "spy_history_starts": "2016-01-04",
+  "n_per_regime": {
+   "BULL_CALM": 1841,
+   "BEAR": 327,
+   "BULL_VOLATILE": 171,
+   "CHOPPY": 114
+  },
+  "bar_store_stale_note": "broad store bars end 2026-05-08 (spec \u00a72's own staleness note); no refresh performed this run"
+ },
+ "multiple_comparisons_frame": {
+  "family": "k=4 (MOM/REV/VAL/QUAL) Bonferroni, one-sided alpha 0.0125 (98.75% CI) \u2014 held at k=4 even though VAL/QUAL are INCONCLUSIVE-by-coverage (conservative, frozen)",
+  "seeds": [
+   42,
+   43,
+   44
+  ],
+  "seeds_role": "robustness check on one corrected result, not extra looks"
+ },
+ "parameters": {
+  "horizon_gate": 60,
+  "horizon_support": 20,
+  "label_clip": 0.5,
+  "block": 60,
+  "n_boot": 2000,
+  "seeds": [
+   42,
+   43,
+   44
+  ],
+  "alpha_onesided": 0.0125,
+  "gate_a_ic": 0.02,
+  "gate_b_sharpe": 0.5,
+  "rebalance": 60,
+  "offsets": [
+   0,
+   20,
+   40
+  ],
+  "n_perm_shuffle": 200,
+  "positive_control_noise_sd": 9.95,
+  "quick_mode": false
+ },
+ "deviations_disclosed": [
+  "D1 PANEL: fallback panel (local survivor-conditioned store x current VTWO membership), not the primary Norgate constituency-by-date panel \u2014 the spec-native branch when procurement has not run; verdict is INCONCLUSIVE and nothing here feeds D3",
+  "D2 NAMING: runner file is scripts/rs5_downcap_measurement.py (dispatch-directed deliverable name) not spec \u00a76's scripts/m7_downcap_scan.py; all \u00a76-item-3 duties (contract load + refuse-on-deviation) are implemented",
+  "D3 MEMBERSHIP: free current-day list = Vanguard VTWO holdings as-of 2026-05-31 (R2000 proxy, ~1 month stale vs run date)",
+  "D4 EXCLUSIONS: REIT/security-type/ADR screens from FMP profile sector/industry/isAdr/isFund/isEtf flags, not GICS 60 / SIC 6798 codes",
+  "D5 BIOTECH: ex-biotech cut keys on FMP industry containing 'biotech'",
+  "D6 SPY: local SPY history starts 2016-01-04, so clean scored dates start 2016 (not ~2015-01); n still well above the 600 floor",
+  "D7 PANEL PERSISTENCE: panel intermediates live in the session scratchpad, not umbrella data/exp (hard rule: no writes outside scratchpad this run); input hashes recorded here instead",
+  "D8 STALE BARS: no bar refresh performed (machine-landing actions are ask-first); resolved-outcome era ends 2026-05-08",
+  "D9 VAL/QUAL: no admissible-timestamp small-cap fundamentals exist locally and the FMP Starter 5y cap bounds attainable coverage at ~40% < 60% floor => INCONCLUSIVE-by-coverage, declared before any IC computation",
+  "D10 SHARE CLASSES: secondary-class dedup via companyName + higher-ADV heuristic",
+  "D11 LABEL CLIP: +/-0.5 label clip inherited from the C3/repo convention (not an explicit contract field)",
+  "D12 SHUFFLE FLOOR: computed on stride-60 non-overlapping dates (sighunt-native geometry)"
+ ],
+ "reopening_conditions": [
+  "R1 (required next step, not optional): Norgate trial/POC passes its 4 acceptance criteria (spec \u00a76 item 1) => build the PRIMARY constituency-by-date panel and re-measure under THIS SAME spec and thresholds (no re-freeze); that run, not this one, renders M7's decision-grade verdict",
+  "R2: a fundamentals source with >=60% admissible-timestamp coverage of the panel x date grid => VAL/QUAL families run (INCONCLUSIVE-by-coverage does not vote and re-running after fixing coverage is not a re-pitch, spec \u00a75)",
+  "R3: bar-store refresh extends the resolved-outcome era past 2026-05-08"
+ ],
+ "prospectivity_affirmation": "No prior script in this repo's history has computed these factor x down-cap-panel combinations (every committed scan ran on the 104/142-name large-cap watchlist). Per spec \u00a74 this is necessary but NOT sufficient; the sufficient freeze mechanism is the prereg contract merged at 23dc9ff37ff1f1747e55c94363bc2794d167f482 (2026-07-02T14:14:07-07:00), which this runner loaded and validated against at startup (0 deviations)."
+}
