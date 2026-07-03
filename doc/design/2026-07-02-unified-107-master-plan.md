@@ -244,7 +244,9 @@ agent burst.
 
 ### State-vector deltas recorded today (feed the 2026-08-01 re-measurement)
 
-C3 = MISS (G106 now 2-of-3: C1/C2/C4; composite ≈0.35–0.45) · S-TC buy-side number retracted in
+C3 = MISS (G106 now 2-of-3: C1/C2/C4; composite ≈0.35–0.45) **[CORRECTED — see the 2026-07-03
+dated addendum below (S-REL V4): the governing memo's verdict is UNADJUDICATED, not MISS; G106
+composition and composite restored]** · S-TC buy-side number retracted in
 review (exploratory diagnostic; n=4) · ledger coverage 86.2% → 97–98% measured post-#60 · the
 OXY order was CANCELED pre-open (never filled) — the #253 pairing fix records such cases as
 censored observations · sizing-fidelity KPI defined (S-FRAC §7): |realized−target|/target,
@@ -255,3 +257,103 @@ baselines 100% drop / ≈190% A-3 overshoot / ≈11% undershoot.
 S-FRAC (fractional v2, operator-reopened 2026-07-02) enters the SHORT tier: stage 0 active-path
 contract (the `runner.py:1372` int() truncation is a live pre-existing defect) → stages 1–3 per
 the merged design PR. Supersedes A-3's round-up when enabled; A-3 remains fallback.
+
+---
+
+## Dated addendum — 2026-07-03: V4 correction — C3 is UNADJUDICATED, not MISS; G106 composition and composite restored
+
+Per §4's re-baseline rule (dated addendum, stated reasons, never silent edits). This is the
+S-REL V4 reconciliation (a reconciliation of recorded adjudications, NOT a recompute — the C3
+numbers were already recomputed twice under Codex review and are not in dispute).
+
+### The conflict
+
+The 2026-07-02 addendum above recorded, in its state-vector deltas:
+
+> C3 = MISS (G106 now 2-of-3: C1/C2/C4; composite ≈0.35–0.45)
+
+The governing measurement memo (`doc/research/2026-07-02-c3-residual-momentum.md`) records the
+opposite adjudication, in its title and verdict block:
+
+> VERDICT: UNADJUDICATED — substrate/provenance limitations, NOT a tested-and-failed MISS.
+
+and, in its §10 consequence section:
+
+> This run casts NO formal vote (neither GO nor a design-rule-5 recorded MISS) … C3 remains
+> OPEN pending either: (a) a rerun on genuinely point-in-time regime labels and universe
+> membership … or (b) an explicit operator/design decision to accept this substrate as a
+> permanent limitation and re-adjudicate C3 under an amended, honestly-scoped protocol.
+
+### The ruling: the memo governs
+
+The memo is the evidence source of truth; this plan is a consumer of verdicts, never their
+origin. The memo did not declare the mechanical MISS binding — it explicitly withdrew it
+("the prior round's 'C3 resolves as a recorded MISS' language is withdrawn", §10): the
+mechanical rule output was computed on a substrate (replayed regime labels + a fixed 2026
+survivorship universe) that is not point-in-time, so the confirmatory test the M-SIG spec
+calls for was never actually run. A MISS presumes a validly-run test that failed its bar;
+that is not what happened. **The honest recorded state is UNADJUDICATED-pending-clean-
+substrate. The 2026-07-02 delta line is corrected accordingly (marked in place above).**
+
+### Corrected G106 composition
+
+- **C3 is OPEN (unadjudicated), not dead.** The #230 §8.3 probability calculus returns to its
+  published basis: **≥2-of-4 candidates** (revisions, quality, residual-momentum,
+  down-cap-derived) at individual P ≈ 0.4–0.5 each with the correlated-failure haircut — NOT
+  2-of-3 with C3 removed.
+- **The M-SIG Bonferroni family is unchanged on either reading**: per the spec (§2a), the
+  voting family is {C2, C3, C4} at k=3, frozen at spec time; per-candidate α = 0.05/3 is
+  spent per candidate and is not re-derived when a candidate resolves.
+- **The corrected line also removes a second error**: the 07-02 delta named the surviving
+  vote as "2-of-3: C1/C2/C4". C1 never votes (M-SIG spec §1.1/§2a/§3 — informative-only,
+  excluded from the stack vote). Had C3 truly been a MISS, the stack vote would have fallen
+  to **2-of-2 on C2/C4** — a strictly harsher composition than the one recorded. The line
+  was wrong in both directions at once: too pessimistic on C3, too optimistic on the
+  remaining family.
+
+### Corrected composite (recomputed from the plan's own per-channel priors)
+
+Basis: #230 §8.3's stated per-channel prior — individual P ≈ 0.4–0.5 per candidate, ≥2-of-4,
+correlated-failure haircut. Simple independent binomial, haircut applied after:
+
+- **All four live (C3 pending, the corrected state)**: P(≥2 of 4) = 1 − (1−p)⁴ − 4p(1−p)³
+  = 0.52 (p=0.4) to 0.69 (p=0.5); with the same-market correlated-failure haircut → the
+  plan's published **≈0.45–0.50. RESTORED.**
+- **Had C3 been dead (the 07-02 premise)**: P(≥2 of 3) = 1 − (1−p)³ − 3p(1−p)²
+  = 0.35 (p=0.4) to 0.50 (p=0.5); haircut → ≈0.35–0.45 — i.e. the 07-02 arithmetic was
+  internally consistent; only its premise (C3 = MISS) was unfaithful to the evidence.
+- **Qualifier (stated, not priced)**: C3's individual prior now carries adjudication-
+  feasibility risk on top of signal risk (see disposition below), so the honest read sits at
+  the lower edge of the restored 0.45–0.50 band. No new number is invented here; the
+  published band stands.
+
+### C3 disposition (what would adjudicate it)
+
+Per the memo's §10, either path casts C3's formal vote:
+
+- **(a) A genuinely point-in-time rerun** — PIT regime-label history + PIT universe/delisting
+  membership. Neither exists anywhere in this codebase (memo §6/§7 search: no
+  production-emitted regime-label history, no PIT universe/delisting data); building them is
+  a materially larger data-engineering task (a walk-forward regime model retrained per
+  historical date + a reconstructed historical universe), not a quick fix.
+- **(b) An explicit operator/design decision** to accept the current substrate as a permanent
+  limitation and re-adjudicate under an amended, honestly-scoped protocol.
+
+**V4 decision on scoping the PIT rerun: NOT worth a dedicated near-term task.** The
+exploratory read is discouraging — conditioned placebo-clean IC ≈ −0.0040 vs the +0.015 bar
+(the naive +0.0253 bull-cell IC is entirely explained by its +0.0275 placebo), and the only
+positive lever (conditioned-minus-unconditioned +0.0086) has every CI spanning zero. Spending
+a large data-engineering budget to confirmatorily adjudicate a candidate whose best
+exploratory point estimate is below zero has poor expected value. The S5/S8 ledger (the
+spec's intended substrate) accrues PIT-quality data by construction, but it began collecting
+June 2026 and cannot reach the n≥600 daily-decision-date floor by 2027-Q3 — per M-SIG §3's
+missing-data rule, C3 then resolves **INCONCLUSIVE** (excluded from the stack denominator;
+not a KILL, and not a MISS) unless path (a) or (b) happens first. Planning consequence,
+stated honestly: absent an operator path-(b) decision, the likely 2027-Q4 stack vote is over
+C2/C4 needing 2-of-2 — the plan should anticipate that harsher composition rather than the
+mis-recorded "2-of-3 with C1 voting".
+
+### Ledger
+
+`doc/research/VERDICTS.md` (S-REL PR #265, unmerged at this writing) carries the C3 row that
+flagged this conflict; its V4 pointer resolves to this addendum on rebase.
