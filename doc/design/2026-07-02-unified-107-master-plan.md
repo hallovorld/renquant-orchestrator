@@ -357,3 +357,61 @@ mis-recorded "2-of-3 with C1 voting".
 
 `doc/research/VERDICTS.md` (S-REL PR #265, unmerged at this writing) carries the C3 row that
 flagged this conflict; its V4 pointer resolves to this addendum on rebase.
+
+---
+
+## Dated addendum — 2026-07-03 (dawn): the alpha-frontier synthesis after the measurement burst
+
+Per §4 (dated, reasons stated, no silent edits). This addendum records what the 2026-07-02/03
+measurement burst — 6 pre-registered verdicts + 6 adversarial verifications (S-REL) — did to
+the plan's strategic geometry. Every input below is a merged-or-open PR with committed evidence.
+
+### The evidence table (all S-REL-audited or S-REL-native)
+
+| Channel | Verdict | Verification | Net position |
+|---|---|---|---|
+| Track A (conditional picking, S9) | NULL — 0/3 candidates pass the frozen 5-gate | UPHELD (#263, exact reproduction; kill distance 9.5pp) | DEAD on this corpus |
+| Breadth waves (M8) | NO-GO, decisive (−0.048 vs −0.010 band) | UPHELD (#264) + interpretive correction: dilution is similarity-specific, random waves near-pass | waves STOP; BR only via D3 |
+| M-SIG C2 (quality) | NON-VOTING (precondition unmet by −0.02% vs +20% bar; clean IC ≈ −0.0005) | S-REL-native (3 positive controls) | dead + its only reopening route measured-closed (#275) |
+| M-SIG C3 (residual momentum) | UNADJUDICATED (non-PIT substrate) | V4 reconciliation (#268) fixed the ledger's double error | open, low-priority (exploratory read negative) |
+| M-SIG C4 (trend-scan) | INCONCLUSIVE ×3 seeds; deployment-era edge ≈ nil; BULL_VOLATILE mechanical KILL | S-REL-native (GO and KILL branches both proven live) | open but power-limited; not fundable at current n (#278) |
+| M-SIG C1 (revision drift) | pending by design | — | the PIT clock matures ~2027-01 (started 2026-07-02) |
+| M3 haircut | AC FAIL → V3: strong claim OVERTURNED as statistics, weak claim UPHELD | WEAKENED (#269) | config change stays blocked; per-name uncertainty band is the true prerequisite |
+
+G106 arithmetic after this burst (V4-corrected 2-of-4 family): resolved GO = 0; the #278 memo
+estimates P(≥2 GO by 2027-Q4) ≈ 0.01–0.03 under current protocols. G106 tracks its kill branch
+unless a pre-registered reopening lands (4 routes stand in the M-SIG spec §13).
+
+### What this does NOT mean
+
+Not "the program failed" — the program did exactly what it was built to do: it measured the
+alpha hypotheses honestly and they came back empty ON THIS DATA at THIS breadth/cost scale.
+The #230 route analysis anticipated this branch explicitly (§9.2's ladder). The distinction
+matters: an unmeasured belief in alpha would have kept burning capital on thin-margin
+contrarian picks (the OXY class); a measured empty is an asset.
+
+### The re-weighted frontier (where marginal effort now goes)
+
+1. **EXEC lane (the controllable win)** — S10's true-VWAP cohort accumulating; the Phase-−1
+   finding stands (returns accrue overnight; cut the entry leak, don't chase intraday alpha);
+   105 Stage-1 shipped across all three repos — the shadow-session clock (§9.3 K=5) starts on
+   install. This lane's wins are engineering-certain, not hypothesis-contingent.
+2. **PROCESS lane** — the 07-03 P1 incident (silent scorer rollback, #274/#437/#277) is the
+   argument from reality: a 0.05-IC model gains nothing while the machine can silently run
+   the wrong booster for 7 days. Identity monitoring, fingerprint unification (M6 stage-0/2),
+   S-REL verification discipline: these compound.
+3. **D3 down-cap (Term BR, the one live model decision)** — M8's verified verdict + the
+   random-wave near-pass hint make the D3 synthesis memo the next model-side deliverable;
+   its decision space now includes "shrink to the high-separability core" with real evidence.
+4. **C1 + calendar patience** — the only alpha channel with an untested, theoretically-sound
+   mechanism; its clock runs regardless. No new alpha hunts are funded before C1 resolves or
+   a pre-registered reopening triggers (the discipline that killed re-pitching).
+5. **Sleeve (deployment)** — S7 shipped; the cash-drag fix does not depend on any alpha
+   hypothesis. Enable path per RS-1 §4.
+
+### Fallback-ladder position (honest)
+
+On today's evidence the book is one rung above "execution-only + benchmark-sleeve" (#230
+§9.2). The rung above (full 107 with in-house alpha) requires C1 or a D3-core showing
+genuine separability. This is the position to hold with patience, not to escape with
+unfunded hypothesis hunts: the ladder was pre-registered for exactly this reading.
