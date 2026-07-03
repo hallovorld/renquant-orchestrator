@@ -1,0 +1,104 @@
+{
+  "same_filing_derivation_assumption": "key_metrics/ratios/financial_growth rows for fiscal year y are FMP-derived from that year's filed statements; availability therefore equals the statement filing's acceptance. Spot-checked by recomputing derived ratios from the income statement per ticker below (agreement => same filing).",
+  "spot_checks": [
+    {
+      "symbol": "AAPL",
+      "n_periods": 10,
+      "max_abs_diff_grossProfitMargin_vs_income_recompute": 0.0,
+      "max_abs_diff_netProfitMargin_vs_income_recompute": 0.0,
+      "max_period_end_label_drift_days": 0,
+      "accepted_minus_period_end_days_median": 33.0
+    },
+    {
+      "symbol": "NVDA",
+      "n_periods": 10,
+      "max_abs_diff_grossProfitMargin_vs_income_recompute": 0.0,
+      "max_abs_diff_netProfitMargin_vs_income_recompute": 0.0,
+      "max_period_end_label_drift_days": 0,
+      "accepted_minus_period_end_days_median": 28.5
+    },
+    {
+      "symbol": "MDT",
+      "n_periods": 10,
+      "max_abs_diff_grossProfitMargin_vs_income_recompute": 0.0,
+      "max_abs_diff_netProfitMargin_vs_income_recompute": 0.0,
+      "max_period_end_label_drift_days": 6,
+      "accepted_minus_period_end_days_median": 53.0
+    },
+    {
+      "symbol": "ADI",
+      "n_periods": 10,
+      "max_abs_diff_grossProfitMargin_vs_income_recompute": 0.0,
+      "max_abs_diff_netProfitMargin_vs_income_recompute": 0.0,
+      "max_period_end_label_drift_days": 364,
+      "accepted_minus_period_end_days_median": 24.0
+    },
+    {
+      "symbol": "JPM",
+      "n_periods": 10,
+      "max_abs_diff_grossProfitMargin_vs_income_recompute": 0.0,
+      "max_abs_diff_netProfitMargin_vs_income_recompute": 0.0,
+      "max_period_end_label_drift_days": 0,
+      "accepted_minus_period_end_days_median": 53.5
+    }
+  ],
+  "availability_stats_new": {
+    "avail_field_counts": {
+      "acceptedDate": 1263,
+      "INADMISSIBLE_accepted_on_or_before_period_end": 61
+    },
+    "edgar_fallback_used": 0,
+    "accept_lag_days_after_period_end": {
+      "min": 18.0,
+      "p5": 29.0,
+      "median": 49.0,
+      "p95": 60.0,
+      "max": 685.0
+    },
+    "n_anomalous_inadmissible": 61
+  },
+  "availability_stats_old_baseline": {
+    "avail_field_counts": {
+      "acceptedDate": 2264,
+      "INADMISSIBLE_accepted_on_or_before_period_end": 197
+    },
+    "edgar_fallback_used": 0,
+    "accept_lag_days_after_period_end": {
+      "min": 14.0,
+      "p5": 30.0,
+      "median": 52.0,
+      "p95": 61.0,
+      "max": 685.0
+    },
+    "n_anomalous_inadmissible": 197
+  },
+  "load_stats_new": {
+    "panel": "fmp_harvest_5y (Starter)",
+    "rows": 1324,
+    "join_timestamps": {
+      "joined_exact_symbol_date": 1317,
+      "joined_fallback_symbol_fiscalyear": 7,
+      "unjoined": 0
+    },
+    "join_financial_growth": {
+      "joined_exact_symbol_date": 1317,
+      "joined_fallback_symbol_fiscalyear": 7,
+      "unjoined": 0
+    },
+    "asset_turnover_nonpositive_rows": 3
+  },
+  "load_stats_old_baseline": {
+    "panel": "fmp_harvest (free tier, fundamentals_scan baseline)",
+    "rows": 2461,
+    "join_balance": {
+      "joined_exact_symbol_date": 2427,
+      "joined_fallback_symbol_fiscalyear": 13,
+      "unjoined": 21
+    },
+    "join_cashflow": {
+      "joined_exact_symbol_date": 2437,
+      "joined_fallback_symbol_fiscalyear": 18,
+      "unjoined": 6
+    }
+  }
+}
