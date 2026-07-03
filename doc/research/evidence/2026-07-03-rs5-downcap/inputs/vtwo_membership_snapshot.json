@@ -1,0 +1,7760 @@
+{
+"as_of": "2026-05-31",
+"n_holdings": 1939,
+"source": "vanguard_vtwo_portfolio_holding_api (Vanguard Russell 2000 ETF \u2014 free current-day R2000 constituent list per spec \u00a72 fallback)",
+"tickers": {
+"AAMI": {
+"name": "Brightsphere Investment Group Inc.",
+"weight_pct": "0.06"
+},
+"AAOI": {
+"name": "Applied Optoelectronics Inc.",
+"weight_pct": "0.30"
+},
+"AAP": {
+"name": "Advance Auto Parts Inc.",
+"weight_pct": "0.10"
+},
+"AARD": {
+"name": "Aardvark Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"AAT": {
+"name": "American Assets Trust Inc.",
+"weight_pct": "0.03"
+},
+"ABAT": {
+"name": "American Battery Technology Co.",
+"weight_pct": "0.01"
+},
+"ABCB": {
+"name": "Ameris Bancorp",
+"weight_pct": "0.16"
+},
+"ABEO": {
+"name": "Abeona Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"ABG": {
+"name": "Asbury Automotive Group Inc.",
+"weight_pct": "0.10"
+},
+"ABM": {
+"name": "ABM Industries Inc.",
+"weight_pct": "0.07"
+},
+"ABR": {
+"name": "Arbor Realty Trust Inc.",
+"weight_pct": "0.03"
+},
+"ABSI": {
+"name": "Absci Corp.",
+"weight_pct": "0.03"
+},
+"ABUS": {
+"name": "Arbutus Biopharma Corp.",
+"weight_pct": "0.02"
+},
+"ABX": {
+"name": "Abacus Global Management Inc.",
+"weight_pct": "0.01"
+},
+"ACA": {
+"name": "Arcosa Inc.",
+"weight_pct": "0.18"
+},
+"ACAD": {
+"name": "ACADIA Pharmaceuticals Inc.",
+"weight_pct": "0.08"
+},
+"ACCO": {
+"name": "ACCO Brands Corp.",
+"weight_pct": "0.01"
+},
+"ACDC": {
+"name": "ProFrac Holding Corp. Class A",
+"weight_pct": "0.01"
+},
+"ACEL": {
+"name": "Accel Entertainment Inc.",
+"weight_pct": "0.02"
+},
+"ACH": {
+"name": "Owens & Minor Inc.",
+"weight_pct": "0.01"
+},
+"ACHR": {
+"name": "Archer Aviation Inc. Class A",
+"weight_pct": "0.12"
+},
+"ACIC": {
+"name": "United Insurance Holdings Corp.",
+"weight_pct": "0.01"
+},
+"ACIW": {
+"name": "ACI Worldwide Inc.",
+"weight_pct": "0.13"
+},
+"ACLS": {
+"name": "Axcelis Technologies Inc.",
+"weight_pct": "0.13"
+},
+"ACMR": {
+"name": "ACM Research Inc. Class A",
+"weight_pct": "0.13"
+},
+"ACNB": {
+"name": "ACNB Corp.",
+"weight_pct": "0.02"
+},
+"ACNT": {
+"name": "Synalloy Corp.",
+"weight_pct": "0.00"
+},
+"ACR": {
+"name": "ACRES Commercial Realty Corp.",
+"weight_pct": "0.00"
+},
+"ACRE": {
+"name": "Ares Commercial Real Estate Corp.",
+"weight_pct": "0.01"
+},
+"ACRS": {
+"name": "Aclaris Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"ACT": {
+"name": "Enact Holdings Inc.",
+"weight_pct": "0.03"
+},
+"ACTG": {
+"name": "Acacia Research Corp.",
+"weight_pct": "0.00"
+},
+"ACTU": {
+"name": "Actuate Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"ACU": {
+"name": "Acme United Corp.",
+"weight_pct": "0.00"
+},
+"ACVA": {
+"name": "ACV Auctions Inc. Class A",
+"weight_pct": "0.03"
+},
+"ADAM": {
+"name": "Adamas Trust Inc.",
+"weight_pct": "0.02"
+},
+"ADCT": {
+"name": "ADC Therapeutics SA",
+"weight_pct": "0.01"
+},
+"ADEA": {
+"name": "Adeia Inc.",
+"weight_pct": "0.08"
+},
+"ADMA": {
+"name": "ADMA Biologics Inc.",
+"weight_pct": "0.05"
+},
+"ADNT": {
+"name": "Adient plc",
+"weight_pct": "0.05"
+},
+"ADPT": {
+"name": "Adaptive Biotechnologies Corp.",
+"weight_pct": "0.06"
+},
+"ADTN": {
+"name": "ADTRAN Holdings Inc.",
+"weight_pct": "0.04"
+},
+"ADUS": {
+"name": "Addus HomeCare Corp.",
+"weight_pct": "0.05"
+},
+"ADV": {
+"name": "Advantage Solutions Inc.",
+"weight_pct": "0.00"
+},
+"AEBI": {
+"name": "Aebi Schmidt Holding AG",
+"weight_pct": "0.01"
+},
+"AEHR": {
+"name": "Aehr Test Systems",
+"weight_pct": "0.08"
+},
+"AEIS": {
+"name": "Advanced Energy Industries Inc.",
+"weight_pct": "0.33"
+},
+"AEO": {
+"name": "American Eagle Outfitters Inc.",
+"weight_pct": "0.07"
+},
+"AESI": {
+"name": "Atlas Energy Solutions Inc.",
+"weight_pct": "0.04"
+},
+"AEVA": {
+"name": "Aeva Technologies Inc.",
+"weight_pct": "0.03"
+},
+"AEYE": {
+"name": "AudioEye Inc.",
+"weight_pct": "0.00"
+},
+"AFRI": {
+"name": "Forafric Global plc",
+"weight_pct": "0.00"
+},
+"AGIO": {
+"name": "Agios Pharmaceuticals Inc.",
+"weight_pct": "0.05"
+},
+"AGL": {
+"name": "agilon health Inc.",
+"weight_pct": "0.03"
+},
+"AGM": {
+"name": "Federal Agricultural Mortgage Corp.",
+"weight_pct": "0.05"
+},
+"AGNT": {
+"name": "eXp World Holdings Inc.",
+"weight_pct": "0.01"
+},
+"AGX": {
+"name": "Argan Inc.",
+"weight_pct": "0.26"
+},
+"AGYS": {
+"name": "Agilysys Inc.",
+"weight_pct": "0.06"
+},
+"AHCO": {
+"name": "AdaptHealth Corp.",
+"weight_pct": "0.03"
+},
+"AHR": {
+"name": "American Healthcare REIT Inc.",
+"weight_pct": "0.25"
+},
+"AHRT": {
+"name": "Armada Hoffler Properties Inc.",
+"weight_pct": "0.02"
+},
+"AI": {
+"name": "C3.ai Inc. Class A",
+"weight_pct": "0.04"
+},
+"AII": {
+"name": "American Integrity Insurance Group Inc.",
+"weight_pct": "0.01"
+},
+"AIN": {
+"name": "Albany International Corp. Class A",
+"weight_pct": "0.05"
+},
+"AIOT": {
+"name": "Powerfleet Inc.",
+"weight_pct": "0.01"
+},
+"AIP": {
+"name": "Arteris Inc.",
+"weight_pct": "0.03"
+},
+"AIR": {
+"name": "AAR Corp.",
+"weight_pct": "0.13"
+},
+"AIRJ": {
+"name": "AirJoule Technologies Corp. Class A",
+"weight_pct": "0.00"
+},
+"AIRO": {
+"name": "AIRO Group Holdings Inc.",
+"weight_pct": "0.01"
+},
+"AIRS": {
+"name": "AirSculpt Technologies Inc.",
+"weight_pct": "0.00"
+},
+"AISP": {
+"name": "Airship AI Holdings Inc.",
+"weight_pct": "0.00"
+},
+"AKBA": {
+"name": "Akebia Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"AKR": {
+"name": "Acadia Realty Trust",
+"weight_pct": "0.08"
+},
+"AKTS": {
+"name": "Aktis Oncology Inc.",
+"weight_pct": "0.01"
+},
+"ALCO": {
+"name": "Alico Inc.",
+"weight_pct": "0.01"
+},
+"ALDX": {
+"name": "Aldeyra Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"ALEC": {
+"name": "Alector Inc.",
+"weight_pct": "0.01"
+},
+"ALG": {
+"name": "Alamo Group Inc.",
+"weight_pct": "0.04"
+},
+"ALGT": {
+"name": "Allegiant Travel Co. Class A",
+"weight_pct": "0.06"
+},
+"ALH": {
+"name": "Alliance Laundry Holdings Inc.",
+"weight_pct": "0.03"
+},
+"ALHC": {
+"name": "Alignment Healthcare Inc.",
+"weight_pct": "0.09"
+},
+"ALIT": {
+"name": "Alight Inc. Class A",
+"weight_pct": "0.01"
+},
+"ALKS": {
+"name": "Alkermes plc",
+"weight_pct": "0.20"
+},
+"ALKT": {
+"name": "Alkami Technology Inc.",
+"weight_pct": "0.04"
+},
+"ALLO": {
+"name": "Allogene Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"ALMR": {
+"name": "Alamar Biosciences Inc.",
+"weight_pct": "0.00"
+},
+"ALMS": {
+"name": "Alumis Inc.",
+"weight_pct": "0.04"
+},
+"ALMU": {
+"name": "Aeluma Inc.",
+"weight_pct": "0.01"
+},
+"ALNT": {
+"name": "Allied Motion Technologies Inc.",
+"weight_pct": "0.03"
+},
+"ALRM": {
+"name": "Alarm.com Holdings Inc.",
+"weight_pct": "0.06"
+},
+"ALRS": {
+"name": "Alerus Financial Corp.",
+"weight_pct": "0.02"
+},
+"ALT": {
+"name": "Altimmune Inc.",
+"weight_pct": "0.01"
+},
+"ALTG": {
+"name": "Alta Equipment Group Inc.",
+"weight_pct": "0.00"
+},
+"ALTI": {
+"name": "AlTi Global Inc.",
+"weight_pct": "0.00"
+},
+"ALX": {
+"name": "Alexander's Inc.",
+"weight_pct": "0.02"
+},
+"AMAL": {
+"name": "Amalgamated Bank Class A",
+"weight_pct": "0.03"
+},
+"AMBA": {
+"name": "Ambarella Inc.",
+"weight_pct": "0.09"
+},
+"AMBP": {
+"name": "Ardagh Metal Packaging SA",
+"weight_pct": "0.02"
+},
+"AMBQ": {
+"name": "Ambiq Micro Inc.",
+"weight_pct": "0.04"
+},
+"AMC": {
+"name": "AMC Entertainment Holdings Inc. Class A",
+"weight_pct": "0.03"
+},
+"AMCX": {
+"name": "AMC Networks Inc. Class A",
+"weight_pct": "0.01"
+},
+"AMLX": {
+"name": "Amylyx Pharmaceuticals Inc.",
+"weight_pct": "0.04"
+},
+"AMN": {
+"name": "AMN Healthcare Services Inc.",
+"weight_pct": "0.03"
+},
+"AMPH": {
+"name": "Amphastar Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"AMPL": {
+"name": "Amplitude Inc. Class A",
+"weight_pct": "0.02"
+},
+"AMPX": {
+"name": "Amprius Technologies Inc.",
+"weight_pct": "0.07"
+},
+"AMR": {
+"name": "Alpha Metallurgical Resources Inc.",
+"weight_pct": "0.07"
+},
+"AMRC": {
+"name": "Ameresco Inc. Class A",
+"weight_pct": "0.03"
+},
+"AMRX": {
+"name": "Amneal Pharmaceuticals Inc.",
+"weight_pct": "0.06"
+},
+"AMSC": {
+"name": "American Superconductor Corp.",
+"weight_pct": "0.07"
+},
+"AMSF": {
+"name": "AMERISAFE Inc.",
+"weight_pct": "0.02"
+},
+"AMTB": {
+"name": "Amerant Bancorp Inc. Class A",
+"weight_pct": "0.02"
+},
+"ANAB": {
+"name": "AnaptysBio Inc.",
+"weight_pct": "0.03"
+},
+"ANDE": {
+"name": "Andersons Inc.",
+"weight_pct": "0.07"
+},
+"ANF": {
+"name": "Abercrombie & Fitch Co.",
+"weight_pct": "0.10"
+},
+"ANGI": {
+"name": "Angi Inc. Class A",
+"weight_pct": "0.01"
+},
+"ANGO": {
+"name": "AngioDynamics Inc.",
+"weight_pct": "0.01"
+},
+"ANIK": {
+"name": "Anika Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"ANIP": {
+"name": "ANI Pharmaceuticals Inc.",
+"weight_pct": "0.04"
+},
+"ANNX": {
+"name": "Annexon Inc.",
+"weight_pct": "0.02"
+},
+"AOMR": {
+"name": "Angel Oak Mortgage REIT Inc.",
+"weight_pct": "0.00"
+},
+"AORT": {
+"name": "CryoLife Inc.",
+"weight_pct": "0.03"
+},
+"AOSL": {
+"name": "Alpha & Omega Semiconductor Ltd.",
+"weight_pct": "0.03"
+},
+"AOUT": {
+"name": "American Outdoor Brands Inc.",
+"weight_pct": "0.00"
+},
+"APAM": {
+"name": "Artisan Partners Asset Management Inc. Class A",
+"weight_pct": "0.07"
+},
+"APC": {
+"name": "ARKO Petroleum Corp.",
+"weight_pct": "0.00"
+},
+"APEI": {
+"name": "American Public Education Inc.",
+"weight_pct": "0.02"
+},
+"APGE": {
+"name": "Apogee Therapeutics Inc.",
+"weight_pct": "0.10"
+},
+"APLD": {
+"name": "Applied Digital Corp.",
+"weight_pct": "0.32"
+},
+"APLE": {
+"name": "Apple Hospitality REIT Inc.",
+"weight_pct": "0.09"
+},
+"APOG": {
+"name": "Apogee Enterprises Inc.",
+"weight_pct": "0.02"
+},
+"APPN": {
+"name": "Appian Corp. Class A",
+"weight_pct": "0.03"
+},
+"APPS": {
+"name": "Digital Turbine Inc.",
+"weight_pct": "0.03"
+},
+"AQST": {
+"name": "Aquestive Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"ARAI": {
+"name": "Arrive AI Inc.",
+"weight_pct": "0.00"
+},
+"ARAY": {
+"name": "Accuray Inc.",
+"weight_pct": "0.00"
+},
+"ARCB": {
+"name": "ArcBest Corp.",
+"weight_pct": "0.09"
+},
+"ARCT": {
+"name": "Arcturus Therapeutics Holdings Inc.",
+"weight_pct": "0.01"
+},
+"ARDT": {
+"name": "Ardent Health Inc.",
+"weight_pct": "0.01"
+},
+"ARDX": {
+"name": "Ardelyx Inc.",
+"weight_pct": "0.04"
+},
+"AREN": {
+"name": "Arena Group Holdings Inc.",
+"weight_pct": "0.00"
+},
+"ARHS": {
+"name": "Arhaus Inc. Class A",
+"weight_pct": "0.01"
+},
+"ARI": {
+"name": "Apollo Commercial Real Estate Finance Inc.",
+"weight_pct": "0.04"
+},
+"ARKO": {
+"name": "Arko Corp.",
+"weight_pct": "0.02"
+},
+"ARL": {
+"name": "American Realty Investors Inc.",
+"weight_pct": "0.00"
+},
+"ARLO": {
+"name": "Arlo Technologies Inc.",
+"weight_pct": "0.04"
+},
+"AROC": {
+"name": "Archrock Inc.",
+"weight_pct": "0.17"
+},
+"AROW": {
+"name": "Arrow Financial Corp.",
+"weight_pct": "0.02"
+},
+"ARQ": {
+"name": "Advanced Emissions Solutions Inc.",
+"weight_pct": "0.00"
+},
+"ARQT": {
+"name": "Arcutis Biotherapeutics Inc.",
+"weight_pct": "0.07"
+},
+"ARR": {
+"name": "ARMOUR Residential REIT Inc.",
+"weight_pct": "0.06"
+},
+"ARRY": {
+"name": "Array Technologies Inc.",
+"weight_pct": "0.04"
+},
+"ARVN": {
+"name": "Arvinas Inc.",
+"weight_pct": "0.01"
+},
+"ARWR": {
+"name": "Arrowhead Pharmaceuticals Inc.",
+"weight_pct": "0.30"
+},
+"ARXS": {
+"name": "Arxis Inc. Class A",
+"weight_pct": "0.00"
+},
+"ASAN": {
+"name": "Asana Inc.",
+"weight_pct": "0.02"
+},
+"ASB": {
+"name": "Associated Banc-Corp",
+"weight_pct": "0.13"
+},
+"ASC": {
+"name": "Ardmore Shipping Corp.",
+"weight_pct": "0.02"
+},
+"ASIC": {
+"name": "Ategrity Specialty Holdings LLC",
+"weight_pct": "0.01"
+},
+"ASIX": {
+"name": "AdvanSix Inc.",
+"weight_pct": "0.02"
+},
+"ASLE": {
+"name": "AerSale Corp.",
+"weight_pct": "0.01"
+},
+"ASO": {
+"name": "Academy Sports & Outdoors Inc.",
+"weight_pct": "0.10"
+},
+"ASPI": {
+"name": "ASP Isotopes Inc.",
+"weight_pct": "0.03"
+},
+"ASPN": {
+"name": "Aspen Aerogels Inc.",
+"weight_pct": "0.01"
+},
+"ASST": {
+"name": "Strive Inc. Class A",
+"weight_pct": "0.03"
+},
+"ASTE": {
+"name": "Astec Industries Inc.",
+"weight_pct": "0.03"
+},
+"ASTH": {
+"name": "Apollo Medical Holdings Inc.",
+"weight_pct": "0.04"
+},
+"ASUR": {
+"name": "Asure Software Inc.",
+"weight_pct": "0.01"
+},
+"ATEC": {
+"name": "Alphatec Holdings Inc.",
+"weight_pct": "0.03"
+},
+"ATEN": {
+"name": "A10 Networks Inc.",
+"weight_pct": "0.06"
+},
+"ATEX": {
+"name": "Anterix Inc.",
+"weight_pct": "0.02"
+},
+"ATKR": {
+"name": "Atkore International Group Inc.",
+"weight_pct": "0.08"
+},
+"ATLC": {
+"name": "Atlanticus Holdings Corp.",
+"weight_pct": "0.01"
+},
+"ATLN": {
+"name": "Atlantic International Corp.",
+"weight_pct": "0.00"
+},
+"ATLO": {
+"name": "Ames National Corp.",
+"weight_pct": "0.01"
+},
+"ATMU": {
+"name": "Atmus Filtration Technologies Inc.",
+"weight_pct": "0.11"
+},
+"ATNI": {
+"name": "ATN International Inc.",
+"weight_pct": "0.01"
+},
+"ATOM": {
+"name": "Atomera Inc.",
+"weight_pct": "0.01"
+},
+"ATRC": {
+"name": "AtriCure Inc.",
+"weight_pct": "0.04"
+},
+"ATRO": {
+"name": "Astronics Corp.",
+"weight_pct": "0.08"
+},
+"ATYR": {
+"name": "aTyr Pharma Inc.",
+"weight_pct": "0.00"
+},
+"AUB": {
+"name": "Atlantic Union Bankshares Corp.",
+"weight_pct": "0.15"
+},
+"AUPH": {
+"name": "Aurinia Pharmaceuticals Inc.",
+"weight_pct": "0.05"
+},
+"AURA": {
+"name": "Aura Biosciences Inc.",
+"weight_pct": "0.01"
+},
+"AVA": {
+"name": "Avista Corp.",
+"weight_pct": "0.10"
+},
+"AVAH": {
+"name": "Aveanna Healthcare Holdings Inc.",
+"weight_pct": "0.01"
+},
+"AVAV": {
+"name": "AeroVironment Inc.",
+"weight_pct": "0.22"
+},
+"AVBH": {
+"name": "Avidbank Holdings Inc.",
+"weight_pct": "0.00"
+},
+"AVBP": {
+"name": "ArriVent Biopharma Inc.",
+"weight_pct": "0.03"
+},
+"AVD": {
+"name": "American Vanguard Corp.",
+"weight_pct": "0.00"
+},
+"AVEX": {
+"name": "Aevex Corp. Class A",
+"weight_pct": "0.00"
+},
+"AVIR": {
+"name": "Atea Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"AVLN": {
+"name": "Avalyn Pharma Inc.",
+"weight_pct": "0.00"
+},
+"AVNS": {
+"name": "Avanos Medical Inc.",
+"weight_pct": "0.03"
+},
+"AVNT": {
+"name": "Avient Corp.",
+"weight_pct": "0.09"
+},
+"AVNW": {
+"name": "Aviat Networks Inc.",
+"weight_pct": "0.01"
+},
+"AVO": {
+"name": "Mission Produce Inc.",
+"weight_pct": "0.02"
+},
+"AVPT": {
+"name": "AvePoint Inc.",
+"weight_pct": "0.05"
+},
+"AVR": {
+"name": "Anteris Technologies Global Corp.",
+"weight_pct": "0.02"
+},
+"AVXL": {
+"name": "Anavex Life Sciences Corp.",
+"weight_pct": "0.01"
+},
+"AWR": {
+"name": "American States Water Co.",
+"weight_pct": "0.09"
+},
+"AX": {
+"name": "Axos Financial Inc.",
+"weight_pct": "0.14"
+},
+"AXGN": {
+"name": "Axogen Inc.",
+"weight_pct": "0.05"
+},
+"AXSM": {
+"name": "Axsome Therapeutics Inc.",
+"weight_pct": "0.28"
+},
+"AZTA": {
+"name": "Brooks Automation Inc.",
+"weight_pct": "0.03"
+},
+"AZZ": {
+"name": "AZZ Inc.",
+"weight_pct": "0.12"
+},
+"BALY": {
+"name": "Bally's Corp.",
+"weight_pct": "0.00"
+},
+"BANC": {
+"name": "Banc of California Inc.",
+"weight_pct": "0.07"
+},
+"BAND": {
+"name": "Bandwidth Inc. Class A",
+"weight_pct": "0.05"
+},
+"BANF": {
+"name": "BancFirst Corp.",
+"weight_pct": "0.07"
+},
+"BANR": {
+"name": "Banner Corp.",
+"weight_pct": "0.06"
+},
+"BARK": {
+"name": "BARK Inc.",
+"weight_pct": "0.00"
+},
+"BATRA": {
+"name": "Atlanta Braves Holdings Inc.",
+"weight_pct": "0.01"
+},
+"BATRK": {
+"name": "Atlanta Braves Holdings Inc.",
+"weight_pct": "0.07"
+},
+"BBAI": {
+"name": "BigBear.ai Holdings Inc.",
+"weight_pct": "0.06"
+},
+"BBBY": {
+"name": "Bed Bath & Beyond Inc.",
+"weight_pct": "0.01"
+},
+"BBCP": {
+"name": "Concrete Pumping Holdings Inc.",
+"weight_pct": "0.00"
+},
+"BBIO": {
+"name": "Bridgebio Pharma Inc.",
+"weight_pct": "0.30"
+},
+"BBNX": {
+"name": "Beta Bionics Inc.",
+"weight_pct": "0.01"
+},
+"BBSI": {
+"name": "Barrett Business Services Inc.",
+"weight_pct": "0.02"
+},
+"BBT": {
+"name": "Berkshire Hills Bancorp Inc.",
+"weight_pct": "0.07"
+},
+"BBUC": {
+"name": "Brookfield Business Corp.",
+"weight_pct": "0.02"
+},
+"BBW": {
+"name": "Build-A-Bear Workshop Inc.",
+"weight_pct": "0.01"
+},
+"BCAL": {
+"name": "California BanCorp",
+"weight_pct": "0.01"
+},
+"BCAX": {
+"name": "Bicara Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"BCBP": {
+"name": "BCB Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"BCC": {
+"name": "Boise Cascade Co.",
+"weight_pct": "0.07"
+},
+"BCML": {
+"name": "Baycom Corp.",
+"weight_pct": "0.01"
+},
+"BCO": {
+"name": "Brink's Co.",
+"weight_pct": "0.12"
+},
+"BCPC": {
+"name": "Balchem Corp.",
+"weight_pct": "0.15"
+},
+"BCRX": {
+"name": "BioCryst Pharmaceuticals Inc.",
+"weight_pct": "0.06"
+},
+"BDC": {
+"name": "Belden Inc.",
+"weight_pct": "0.12"
+},
+"BDN": {
+"name": "Brandywine Realty Trust",
+"weight_pct": "0.02"
+},
+"BE": {
+"name": "Bloom Energy Corp. Class A",
+"weight_pct": "1.79"
+},
+"BEAM": {
+"name": "Beam Therapeutics Inc.",
+"weight_pct": "0.09"
+},
+"BEEP": {
+"name": "Mobile Infrastructure Corp.",
+"weight_pct": "0.00"
+},
+"BELFA": {
+"name": "Bel Fuse Inc. Class A",
+"weight_pct": "0.01"
+},
+"BELFB": {
+"name": "Bel Fuse Inc. Class B",
+"weight_pct": "0.09"
+},
+"BETA": {
+"name": "Beta Technologies Inc.",
+"weight_pct": "0.02"
+},
+"BETR": {
+"name": "Better Home & Finance Holding Co. Class A",
+"weight_pct": "0.00"
+},
+"BFC": {
+"name": "Bank First Corp.",
+"weight_pct": "0.04"
+},
+"BFH": {
+"name": "Alliance Data Systems Corp.",
+"weight_pct": "0.12"
+},
+"BFLY": {
+"name": "Butterfly Network Inc. Class A",
+"weight_pct": "0.03"
+},
+"BFS": {
+"name": "Saul Centers Inc.",
+"weight_pct": "0.01"
+},
+"BFST": {
+"name": "Business First Bancshares Inc.",
+"weight_pct": "0.03"
+},
+"BGC": {
+"name": "BGC Group Inc. Class A",
+"weight_pct": "0.11"
+},
+"BGS": {
+"name": "B&G Foods Inc.",
+"weight_pct": "0.01"
+},
+"BH": {
+"name": "Biglari Holdings Inc. Class B",
+"weight_pct": "0.01"
+},
+"BHB": {
+"name": "Bar Harbor Bankshares",
+"weight_pct": "0.02"
+},
+"BHE": {
+"name": "Benchmark Electronics Inc.",
+"weight_pct": "0.09"
+},
+"BHR": {
+"name": "Braemar Hotels & Resorts Inc.",
+"weight_pct": "0.00"
+},
+"BHRB": {
+"name": "Burke & Herbert Financial Services Corp.",
+"weight_pct": "0.03"
+},
+"BHVN": {
+"name": "Biohaven Ltd.",
+"weight_pct": "0.04"
+},
+"BIOA": {
+"name": "BioAge Labs Inc.",
+"weight_pct": "0.01"
+},
+"BIPC": {
+"name": "Brookfield Infrastructure Corp.",
+"weight_pct": "0.14"
+},
+"BJRI": {
+"name": "BJ's Restaurants Inc.",
+"weight_pct": "0.03"
+},
+"BKD": {
+"name": "Brookdale Senior Living Inc.",
+"weight_pct": "0.09"
+},
+"BKE": {
+"name": "Buckle Inc.",
+"weight_pct": "0.04"
+},
+"BKH": {
+"name": "Black Hills Corp.",
+"weight_pct": "0.16"
+},
+"BKKT": {
+"name": "Bakkt Inc. Class A",
+"weight_pct": "0.01"
+},
+"BKSY": {
+"name": "BlackSky Technology Inc. Class A",
+"weight_pct": "0.04"
+},
+"BKTI": {
+"name": "BK Technologies Corp.",
+"weight_pct": "0.01"
+},
+"BKU": {
+"name": "BankUnited Inc.",
+"weight_pct": "0.10"
+},
+"BKV": {
+"name": "BKV Corp.",
+"weight_pct": "0.02"
+},
+"BL": {
+"name": "Blackline Inc.",
+"weight_pct": "0.04"
+},
+"BLBD": {
+"name": "Blue Bird Corp.",
+"weight_pct": "0.06"
+},
+"BLFS": {
+"name": "BioLife Solutions Inc.",
+"weight_pct": "0.03"
+},
+"BLKB": {
+"name": "Blackbaud Inc.",
+"weight_pct": "0.03"
+},
+"BLMN": {
+"name": "Bloomin' Brands Inc.",
+"weight_pct": "0.02"
+},
+"BLND": {
+"name": "Blend Labs Inc. Class A",
+"weight_pct": "0.01"
+},
+"BLX": {
+"name": "Banco Latinoamericano de Comercio Exterior SA",
+"weight_pct": "0.05"
+},
+"BLZE": {
+"name": "Backblaze Inc. Class A",
+"weight_pct": "0.01"
+},
+"BMBL": {
+"name": "Bumble Inc. Class A",
+"weight_pct": "0.01"
+},
+"BMI": {
+"name": "Badger Meter Inc.",
+"weight_pct": "0.11"
+},
+"BMRC": {
+"name": "Bank of Marin Bancorp",
+"weight_pct": "0.01"
+},
+"BNED": {
+"name": "Barnes & Noble Education Inc.",
+"weight_pct": "0.00"
+},
+"BNL": {
+"name": "Broadstone Net Lease Inc.",
+"weight_pct": "0.11"
+},
+"BNTC": {
+"name": "Benitec Biopharma Inc.",
+"weight_pct": "0.01"
+},
+"BOBS": {
+"name": "Bob's Discount Furniture Inc.",
+"weight_pct": "0.00"
+},
+"BOC": {
+"name": "Boston Omaha Corp. Class A",
+"weight_pct": "0.01"
+},
+"BOH": {
+"name": "Bank of Hawaii Corp.",
+"weight_pct": "0.09"
+},
+"BOOM": {
+"name": "DMC Global Inc.",
+"weight_pct": "0.00"
+},
+"BOOT": {
+"name": "Boot Barn Holdings Inc.",
+"weight_pct": "0.15"
+},
+"BORR": {
+"name": "Borr Drilling Ltd.",
+"weight_pct": "0.04"
+},
+"BOW": {
+"name": "Bowhead Specialty Holdings Inc.",
+"weight_pct": "0.01"
+},
+"BOX": {
+"name": "Box Inc.",
+"weight_pct": "0.11"
+},
+"BPRN": {
+"name": "Princeton Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"BRBS": {
+"name": "Blue Ridge Bankshares Inc.",
+"weight_pct": "0.01"
+},
+"BRCB": {
+"name": "Black Rock Coffee Bar Inc. Class A",
+"weight_pct": "0.00"
+},
+"BRCC": {
+"name": "BRC Inc. Class A",
+"weight_pct": "0.00"
+},
+"BRSL": {
+"name": "International Game Technology plc",
+"weight_pct": "0.03"
+},
+"BRSP": {
+"name": "BrightSpire Capital Inc. Class A",
+"weight_pct": "0.02"
+},
+"BRT": {
+"name": "BRT Apartments Corp.",
+"weight_pct": "0.00"
+},
+"BRZE": {
+"name": "Braze Inc. Class A",
+"weight_pct": "0.06"
+},
+"BSET": {
+"name": "Bassett Furniture Industries Inc.",
+"weight_pct": "0.00"
+},
+"BSRR": {
+"name": "Sierra Bancorp",
+"weight_pct": "0.01"
+},
+"BSVN": {
+"name": "Bank7 Corp.",
+"weight_pct": "0.01"
+},
+"BTBT": {
+"name": "Bit Digital Inc.",
+"weight_pct": "0.02"
+},
+"BTDR": {
+"name": "Bitdeer Technologies Group Class A",
+"weight_pct": "0.06"
+},
+"BTMD": {
+"name": "Biote Corp. Class A",
+"weight_pct": "0.00"
+},
+"BTSG": {
+"name": "BrightSpring Health Services Inc.",
+"weight_pct": "0.23"
+},
+"BTU": {
+"name": "Peabody Energy Corp.",
+"weight_pct": "0.09"
+},
+"BULL": {
+"name": "Webull Corp.",
+"weight_pct": "0.05"
+},
+"BUR": {
+"name": "Burford Capital Ltd.",
+"weight_pct": "0.03"
+},
+"BUSE": {
+"name": "First Busey Corp.",
+"weight_pct": "0.07"
+},
+"BV": {
+"name": "BrightView Holdings Inc.",
+"weight_pct": "0.03"
+},
+"BVFL": {
+"name": "BV Financial Inc.",
+"weight_pct": "0.00"
+},
+"BVS": {
+"name": "Bioventus Inc.",
+"weight_pct": "0.01"
+},
+"BWB": {
+"name": "Bridgewater Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"BWFG": {
+"name": "Bankwell Financial Group Inc.",
+"weight_pct": "0.01"
+},
+"BWIN": {
+"name": "BRP Group Inc. Class A",
+"weight_pct": "0.05"
+},
+"BWMN": {
+"name": "Bowman Consulting Group Ltd.",
+"weight_pct": "0.01"
+},
+"BXC": {
+"name": "BlueLinx Holdings Inc.",
+"weight_pct": "0.01"
+},
+"BXMT": {
+"name": "Blackstone Mortgage Trust Inc. Class A",
+"weight_pct": "0.08"
+},
+"BY": {
+"name": "Byline Bancorp Inc.",
+"weight_pct": "0.03"
+},
+"BYND": {
+"name": "Beyond Meat Inc.",
+"weight_pct": "0.01"
+},
+"BYRN": {
+"name": "Byrna Technologies Inc.",
+"weight_pct": "0.00"
+},
+"BZAI": {
+"name": "Blaize Holdings Inc.",
+"weight_pct": "0.00"
+},
+"BZH": {
+"name": "Beazer Homes USA Inc.",
+"weight_pct": "0.02"
+},
+"CABO": {
+"name": "Cable One Inc.",
+"weight_pct": "0.01"
+},
+"CAC": {
+"name": "Camden National Corp.",
+"weight_pct": "0.02"
+},
+"CADL": {
+"name": "Candel Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"CAKE": {
+"name": "Cheesecake Factory Inc.",
+"weight_pct": "0.09"
+},
+"CAL": {
+"name": "Caleres Inc.",
+"weight_pct": "0.01"
+},
+"CALM": {
+"name": "Cal-Maine Foods Inc.",
+"weight_pct": "0.09"
+},
+"CALX": {
+"name": "Calix Inc.",
+"weight_pct": "0.07"
+},
+"CALY": {
+"name": "Callaway Golf Co.",
+"weight_pct": "0.06"
+},
+"CAPR": {
+"name": "Capricor Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"CARE": {
+"name": "Carter Bankshares Inc.",
+"weight_pct": "0.02"
+},
+"CARG": {
+"name": "Cargurus Inc.",
+"weight_pct": "0.07"
+},
+"CARL": {
+"name": "Carlsmed Inc.",
+"weight_pct": "0.00"
+},
+"CARS": {
+"name": "Cars.com Inc.",
+"weight_pct": "0.02"
+},
+"CASH": {
+"name": "Meta Financial Group Inc.",
+"weight_pct": "0.05"
+},
+"CASS": {
+"name": "Cass Information Systems Inc.",
+"weight_pct": "0.02"
+},
+"CATX": {
+"name": "Perspective Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"CATY": {
+"name": "Cathay General Bancorp",
+"weight_pct": "0.11"
+},
+"CBAN": {
+"name": "Colony Bankcorp Inc.",
+"weight_pct": "0.01"
+},
+"CBFV": {
+"name": "CB Financial Services Inc.",
+"weight_pct": "0.00"
+},
+"CBK": {
+"name": "Commercial Bancgroup Inc.",
+"weight_pct": "0.01"
+},
+"CBL": {
+"name": "CBL & Associates Properties Inc.",
+"weight_pct": "0.03"
+},
+"CBLL": {
+"name": "Ceribell Inc.",
+"weight_pct": "0.01"
+},
+"CBNA": {
+"name": "Chain Bridge Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"CBNK": {
+"name": "Capital Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"CBRL": {
+"name": "Cracker Barrel Old Country Store Inc.",
+"weight_pct": "0.02"
+},
+"CBT": {
+"name": "Cabot Corp.",
+"weight_pct": "0.13"
+},
+"CBU": {
+"name": "Community Bank System Inc.",
+"weight_pct": "0.10"
+},
+"CBZ": {
+"name": "CBIZ Inc.",
+"weight_pct": "0.05"
+},
+"CC": {
+"name": "Chemours Co.",
+"weight_pct": "0.10"
+},
+"CCB": {
+"name": "Coastal Financial Corp./WA",
+"weight_pct": "0.03"
+},
+"CCBG": {
+"name": "Capital City Bank Group Inc.",
+"weight_pct": "0.02"
+},
+"CCNE": {
+"name": "CNB Financial Corp./PA",
+"weight_pct": "0.03"
+},
+"CCOI": {
+"name": "Cogent Communications Holdings Inc.",
+"weight_pct": "0.02"
+},
+"CCRN": {
+"name": "Cross Country Healthcare Inc.",
+"weight_pct": "0.01"
+},
+"CCS": {
+"name": "Century Communities Inc.",
+"weight_pct": "0.04"
+},
+"CCSI": {
+"name": "Consensus Cloud Solutions Inc.",
+"weight_pct": "0.02"
+},
+"CD": {
+"name": "Chaince Digital Holdings Inc.",
+"weight_pct": "0.01"
+},
+"CDE": {
+"name": "Coeur Mining Inc.",
+"weight_pct": "0.57"
+},
+"CDNA": {
+"name": "CareDx Inc.",
+"weight_pct": "0.03"
+},
+"CDNL": {
+"name": "Cardinal Infrastructure Group Inc. Class A",
+"weight_pct": "0.02"
+},
+"CDP": {
+"name": "Corporate Office Properties Trust",
+"weight_pct": "0.10"
+},
+"CDRE": {
+"name": "Cadre Holdings Inc.",
+"weight_pct": "0.03"
+},
+"CDXS": {
+"name": "Codexis Inc.",
+"weight_pct": "0.01"
+},
+"CDZI": {
+"name": "Cadiz Inc.",
+"weight_pct": "0.01"
+},
+"CECO": {
+"name": "CECO Environmental Corp.",
+"weight_pct": "0.06"
+},
+"CELC": {
+"name": "Celcuity Inc.",
+"weight_pct": "0.13"
+},
+"CENT": {
+"name": "Central Garden & Pet Co. Class A",
+"weight_pct": "0.01"
+},
+"CENTA": {
+"name": "Central Garden & Pet Co. Class A",
+"weight_pct": "0.05"
+},
+"CENX": {
+"name": "Century Aluminum Co.",
+"weight_pct": "0.11"
+},
+"CERS": {
+"name": "Cerus Corp.",
+"weight_pct": "0.02"
+},
+"CEVA": {
+"name": "CEVA Inc.",
+"weight_pct": "0.03"
+},
+"CFBK": {
+"name": "CF Bankshares Inc.",
+"weight_pct": "0.00"
+},
+"CFFI": {
+"name": "C&F Financial Corp.",
+"weight_pct": "0.01"
+},
+"CFFN": {
+"name": "Capitol Federal Financial Inc.",
+"weight_pct": "0.03"
+},
+"CGEM": {
+"name": "Cullinan Therapeutics Inc.",
+"weight_pct": "0.03"
+},
+"CGON": {
+"name": "CG oncology Inc.",
+"weight_pct": "0.11"
+},
+"CHCO": {
+"name": "City Holding Co.",
+"weight_pct": "0.05"
+},
+"CHCT": {
+"name": "Community Healthcare Trust Inc.",
+"weight_pct": "0.01"
+},
+"CHEF": {
+"name": "Chefs' Warehouse Inc.",
+"weight_pct": "0.08"
+},
+"CHMG": {
+"name": "Chemung Financial Corp.",
+"weight_pct": "0.01"
+},
+"CHRS": {
+"name": "Coherus Biosciences Inc.",
+"weight_pct": "0.00"
+},
+"CIA": {
+"name": "Citizens Inc./TX Class A",
+"weight_pct": "0.01"
+},
+"CIFR": {
+"name": "Cipher Digital Inc.",
+"weight_pct": "0.22"
+},
+"CIM": {
+"name": "Chimera Investment Corp.",
+"weight_pct": "0.03"
+},
+"CIVB": {
+"name": "Civista Bancshares Inc.",
+"weight_pct": "0.02"
+},
+"CIX": {
+"name": "CompX International Inc.",
+"weight_pct": "0.00"
+},
+"CLAR": {
+"name": "Clarus Corp.",
+"weight_pct": "0.00"
+},
+"CLB": {
+"name": "Core Laboratories Inc.",
+"weight_pct": "0.02"
+},
+"CLBK": {
+"name": "Columbia Financial Inc.",
+"weight_pct": "0.02"
+},
+"CLDT": {
+"name": "Chatham Lodging Trust",
+"weight_pct": "0.01"
+},
+"CLDX": {
+"name": "Celldex Therapeutics Inc.",
+"weight_pct": "0.07"
+},
+"CLFD": {
+"name": "Clearfield Inc.",
+"weight_pct": "0.02"
+},
+"CLMB": {
+"name": "Wayside Technology Group Inc.",
+"weight_pct": "0.01"
+},
+"CLMT": {
+"name": "Calumet Inc.",
+"weight_pct": "0.07"
+},
+"CLNE": {
+"name": "Clean Energy Fuels Corp.",
+"weight_pct": "0.01"
+},
+"CLOV": {
+"name": "Clover Health Investments Corp. Class A",
+"weight_pct": "0.05"
+},
+"CLPR": {
+"name": "Clipper Realty Inc.",
+"weight_pct": "0.00"
+},
+"CLPT": {
+"name": "ClearPoint Neuro Inc.",
+"weight_pct": "0.01"
+},
+"CLSK": {
+"name": "Cleanspark Inc.",
+"weight_pct": "0.13"
+},
+"CLW": {
+"name": "Clearwater Paper Corp.",
+"weight_pct": "0.01"
+},
+"CMC": {
+"name": "Commercial Metals Co.",
+"weight_pct": "0.24"
+},
+"CMCL": {
+"name": "Caledonia Mining Corp. plc",
+"weight_pct": "0.01"
+},
+"CMCO": {
+"name": "Columbus McKinnon Corp./NY",
+"weight_pct": "0.01"
+},
+"CMDB": {
+"name": "Costamare Bulkers Holdings Ltd.",
+"weight_pct": "0.00"
+},
+"CMP": {
+"name": "Compass Minerals International Inc.",
+"weight_pct": "0.03"
+},
+"CMPR": {
+"name": "Cimpress plc",
+"weight_pct": "0.05"
+},
+"CMPX": {
+"name": "Compass Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"CMRC": {
+"name": "Commerce.com Inc.",
+"weight_pct": "0.01"
+},
+"CMRE": {
+"name": "Costamare Inc.",
+"weight_pct": "0.02"
+},
+"CMT": {
+"name": "Core Molding Technologies Inc.",
+"weight_pct": "0.01"
+},
+"CMTG": {
+"name": "Claros Mortgage Trust Inc.",
+"weight_pct": "0.01"
+},
+"CNDT": {
+"name": "Conduent Inc.",
+"weight_pct": "0.01"
+},
+"CNK": {
+"name": "Cinemark Holdings Inc.",
+"weight_pct": "0.09"
+},
+"CNMD": {
+"name": "CONMED Corp.",
+"weight_pct": "0.03"
+},
+"CNNE": {
+"name": "Cannae Holdings Inc.",
+"weight_pct": "0.02"
+},
+"CNO": {
+"name": "CNO Financial Group Inc.",
+"weight_pct": "0.12"
+},
+"CNOB": {
+"name": "ConnectOne Bancorp Inc.",
+"weight_pct": "0.04"
+},
+"CNR": {
+"name": "Core Natural Resources Inc.",
+"weight_pct": "0.13"
+},
+"CNS": {
+"name": "Cohen & Steers Inc.",
+"weight_pct": "0.06"
+},
+"CNX": {
+"name": "CNX Resources Corp.",
+"weight_pct": "0.13"
+},
+"CNXN": {
+"name": "PC Connection Inc.",
+"weight_pct": "0.02"
+},
+"COAG": {
+"name": "Hemab Therapeutics Holdings Inc.",
+"weight_pct": "0.00"
+},
+"COCO": {
+"name": "Vita Coco Co. Inc.",
+"weight_pct": "0.10"
+},
+"CODI": {
+"name": "Compass Diversified Holdings",
+"weight_pct": "0.02"
+},
+"COFS": {
+"name": "ChoiceOne Financial Services Inc.",
+"weight_pct": "0.01"
+},
+"COGT": {
+"name": "Cogent Biosciences Inc.",
+"weight_pct": "0.14"
+},
+"COHU": {
+"name": "Cohu Inc.",
+"weight_pct": "0.07"
+},
+"COLL": {
+"name": "Collegium Pharmaceutical Inc.",
+"weight_pct": "0.03"
+},
+"COMP": {
+"name": "Compass Inc.",
+"weight_pct": "0.15"
+},
+"CON": {
+"name": "Concentra Group Holdings Parent Inc.",
+"weight_pct": "0.08"
+},
+"COOK": {
+"name": "Traeger Inc.",
+"weight_pct": "0.00"
+},
+"CORZ": {
+"name": "Core Scientific Inc.",
+"weight_pct": "0.22"
+},
+"COSO": {
+"name": "CoastalSouth Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"COUR": {
+"name": "Coursera Inc.",
+"weight_pct": "0.03"
+},
+"CPF": {
+"name": "Central Pacific Financial Corp.",
+"weight_pct": "0.03"
+},
+"CPK": {
+"name": "Chesapeake Utilities Corp.",
+"weight_pct": "0.08"
+},
+"CPRI": {
+"name": "Capri Holdings Ltd.",
+"weight_pct": "0.06"
+},
+"CPRX": {
+"name": "Catalyst Pharmaceuticals Inc.",
+"weight_pct": "0.10"
+},
+"CPS": {
+"name": "Cooper-Standard Holdings Inc.",
+"weight_pct": "0.01"
+},
+"CPSS": {
+"name": "Consumer Portfolio Services Inc.",
+"weight_pct": "0.00"
+},
+"CRAI": {
+"name": "CRA International Inc.",
+"weight_pct": "0.03"
+},
+"CRC": {
+"name": "California Resources Corp.",
+"weight_pct": "0.12"
+},
+"CRCT": {
+"name": "Cricut Inc.",
+"weight_pct": "0.01"
+},
+"CRD.A": {
+"name": "Crawford & Co. Class A",
+"weight_pct": "0.00"
+},
+"CRDF": {
+"name": "Cardiff Oncology Inc.",
+"weight_pct": "0.00"
+},
+"CRDO": {
+"name": "Credo Technology Group Holding Ltd.",
+"weight_pct": "1.09"
+},
+"CRGY": {
+"name": "Crescent Energy Co. Class A",
+"weight_pct": "0.09"
+},
+"CRI": {
+"name": "Carter's Inc.",
+"weight_pct": "0.04"
+},
+"CRK": {
+"name": "Comstock Resources Inc.",
+"weight_pct": "0.03"
+},
+"CRMD": {
+"name": "CorMedix Inc.",
+"weight_pct": "0.02"
+},
+"CRML": {
+"name": "Critical Metals Corp.",
+"weight_pct": "0.02"
+},
+"CRMT": {
+"name": "America's Car-Mart Inc./TX",
+"weight_pct": "0.00"
+},
+"CRNC": {
+"name": "Cerence Inc.",
+"weight_pct": "0.02"
+},
+"CRNX": {
+"name": "Crinetics Pharmaceuticals Inc.",
+"weight_pct": "0.10"
+},
+"CRSP": {
+"name": "CRISPR Therapeutics AG",
+"weight_pct": "0.15"
+},
+"CRSR": {
+"name": "Corsair Gaming Inc.",
+"weight_pct": "0.02"
+},
+"CRVL": {
+"name": "CorVel Corp.",
+"weight_pct": "0.05"
+},
+"CRVS": {
+"name": "Corvus Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"CSPI": {
+"name": "CSP Inc.",
+"weight_pct": "0.00"
+},
+"CSR": {
+"name": "Centerspace",
+"weight_pct": "0.03"
+},
+"CSTL": {
+"name": "Castle Biosciences Inc.",
+"weight_pct": "0.02"
+},
+"CSTM": {
+"name": "Constellium SE Class A",
+"weight_pct": "0.13"
+},
+"CSV": {
+"name": "Carriage Services Inc. Class A",
+"weight_pct": "0.02"
+},
+"CSW": {
+"name": "CSW Industrials Inc.",
+"weight_pct": "0.13"
+},
+"CTBI": {
+"name": "Community Trust Bancorp Inc.",
+"weight_pct": "0.03"
+},
+"CTEV": {
+"name": "Claritev Corp. Class A",
+"weight_pct": "0.01"
+},
+"CTGO": {
+"name": "Contango Silver & Gold Inc.",
+"weight_pct": "0.01"
+},
+"CTKB": {
+"name": "Cytek Biosciences Inc.",
+"weight_pct": "0.01"
+},
+"CTO": {
+"name": "CTO Realty Growth Inc.",
+"weight_pct": "0.02"
+},
+"CTOS": {
+"name": "Custom Truck One Source Inc.",
+"weight_pct": "0.02"
+},
+"CTRE": {
+"name": "CareTrust REIT Inc.",
+"weight_pct": "0.26"
+},
+"CTRI": {
+"name": "Centuri Holdings Inc.",
+"weight_pct": "0.08"
+},
+"CTRN": {
+"name": "Citi Trends Inc.",
+"weight_pct": "0.01"
+},
+"CTS": {
+"name": "CTS Corp.",
+"weight_pct": "0.05"
+},
+"CUBI": {
+"name": "Customers Bancorp Inc.",
+"weight_pct": "0.07"
+},
+"CURB": {
+"name": "Curbline Properties Corp.",
+"weight_pct": "0.08"
+},
+"CURI": {
+"name": "CuriosityStream Inc.",
+"weight_pct": "0.00"
+},
+"CURV": {
+"name": "Torrid Holdings Inc.",
+"weight_pct": "0.00"
+},
+"CV": {
+"name": "CapsoVision Inc.",
+"weight_pct": "0.01"
+},
+"CVBF": {
+"name": "CVB Financial Corp.",
+"weight_pct": "0.10"
+},
+"CVCO": {
+"name": "Cavco Industries Inc.",
+"weight_pct": "0.12"
+},
+"CVI": {
+"name": "CVR Energy Inc.",
+"weight_pct": "0.03"
+},
+"CVLG": {
+"name": "Covenant Logistics Group Inc. Class A",
+"weight_pct": "0.02"
+},
+"CVLT": {
+"name": "CommVault Systems Inc.",
+"weight_pct": "0.15"
+},
+"CVRX": {
+"name": "CVRx Inc.",
+"weight_pct": "0.00"
+},
+"CVSA": {
+"name": "Adtalem Global Education Inc.",
+"weight_pct": "0.12"
+},
+"CWAN": {
+"name": "Clearwater Analytics Holdings Inc. Class A",
+"weight_pct": "0.19"
+},
+"CWBC": {
+"name": "Community West Bancshares",
+"weight_pct": "0.02"
+},
+"CWCO": {
+"name": "Consolidated Water Co. Ltd.",
+"weight_pct": "0.01"
+},
+"CWH": {
+"name": "Camping World Holdings Inc. Class A",
+"weight_pct": "0.01"
+},
+"CWK": {
+"name": "Cushman & Wakefield UK Holdco London Ltd.",
+"weight_pct": "0.08"
+},
+"CWST": {
+"name": "Casella Waste Systems Inc. Class A",
+"weight_pct": "0.15"
+},
+"CWT": {
+"name": "California Water Service Group",
+"weight_pct": "0.08"
+},
+"CXDO": {
+"name": "Crexendo Inc.",
+"weight_pct": "0.00"
+},
+"CXM": {
+"name": "Sprinklr Inc. Class A",
+"weight_pct": "0.02"
+},
+"CXW": {
+"name": "CoreCivic Inc.",
+"weight_pct": "0.06"
+},
+"CYH": {
+"name": "Community Health Systems Inc.",
+"weight_pct": "0.01"
+},
+"CYRX": {
+"name": "CryoPort Inc.",
+"weight_pct": "0.02"
+},
+"CYTK": {
+"name": "Cytokinetics Inc.",
+"weight_pct": "0.28"
+},
+"CZFS": {
+"name": "Citizens Financial Services Inc.",
+"weight_pct": "0.01"
+},
+"CZNC": {
+"name": "Citizens & Northern Corp.",
+"weight_pct": "0.01"
+},
+"CZWI": {
+"name": "Citizens Community Bancorp Inc./WI",
+"weight_pct": "0.01"
+},
+"DAKT": {
+"name": "Daktronics Inc.",
+"weight_pct": "0.02"
+},
+"DAN": {
+"name": "Dana Inc.",
+"weight_pct": "0.11"
+},
+"DAVE": {
+"name": "Dave Inc.",
+"weight_pct": "0.08"
+},
+"DBD": {
+"name": "Diebold Nixdorf Inc.",
+"weight_pct": "0.06"
+},
+"DBI": {
+"name": "Designer Brands Inc. Class A",
+"weight_pct": "0.01"
+},
+"DBRG": {
+"name": "DigitalBridge Group Inc.",
+"weight_pct": "0.08"
+},
+"DC": {
+"name": "Dakota Gold Corp.",
+"weight_pct": "0.01"
+},
+"DCGO": {
+"name": "DocGo Inc.",
+"weight_pct": "0.00"
+},
+"DCH": {
+"name": "American Axle & Manufacturing Holdings Inc.",
+"weight_pct": "0.04"
+},
+"DCO": {
+"name": "Ducommun Inc.",
+"weight_pct": "0.06"
+},
+"DCOM": {
+"name": "Dime Community Bancshares Inc.",
+"weight_pct": "0.04"
+},
+"DCTH": {
+"name": "Delcath Systems Inc.",
+"weight_pct": "0.01"
+},
+"DDD": {
+"name": "3D Systems Corp.",
+"weight_pct": "0.01"
+},
+"DEA": {
+"name": "Easterly Government Properties Inc. Class A",
+"weight_pct": "0.03"
+},
+"DEC": {
+"name": "Diversified Energy Co.",
+"weight_pct": "0.03"
+},
+"DEI": {
+"name": "Douglas Emmett Inc.",
+"weight_pct": "0.05"
+},
+"DERM": {
+"name": "Journey Medical Corp.",
+"weight_pct": "0.00"
+},
+"DFH": {
+"name": "Dream Finders Homes Inc. Class A",
+"weight_pct": "0.01"
+},
+"DFIN": {
+"name": "Donnelley Financial Solutions Inc.",
+"weight_pct": "0.03"
+},
+"DFTX": {
+"name": "Definium Therapeutics Inc.",
+"weight_pct": "0.07"
+},
+"DGICA": {
+"name": "Donegal Group Inc. Class A",
+"weight_pct": "0.01"
+},
+"DGII": {
+"name": "Digi International Inc.",
+"weight_pct": "0.07"
+},
+"DH": {
+"name": "Definitive Healthcare Corp. Class A",
+"weight_pct": "0.00"
+},
+"DHC": {
+"name": "Diversified Healthcare Trust",
+"weight_pct": "0.05"
+},
+"DHT": {
+"name": "DHT Holdings Inc.",
+"weight_pct": "0.06"
+},
+"DIN": {
+"name": "Dine Brands Global Inc.",
+"weight_pct": "0.01"
+},
+"DIOD": {
+"name": "Diodes Inc.",
+"weight_pct": "0.14"
+},
+"DJCO": {
+"name": "Daily Journal Corp.",
+"weight_pct": "0.02"
+},
+"DK": {
+"name": "Delek US Holdings Inc.",
+"weight_pct": "0.08"
+},
+"DLX": {
+"name": "Deluxe Corp.",
+"weight_pct": "0.03"
+},
+"DMAC": {
+"name": "DiaMedica Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"DMRC": {
+"name": "Digimarc Corp.",
+"weight_pct": "0.01"
+},
+"DNA": {
+"name": "Ginkgo Bioworks Holdings Inc.",
+"weight_pct": "0.01"
+},
+"DNLI": {
+"name": "Denali Therapeutics Inc.",
+"weight_pct": "0.09"
+},
+"DNOW": {
+"name": "NOW Inc.",
+"weight_pct": "0.07"
+},
+"DNTH": {
+"name": "Dianthus Therapeutics Inc.",
+"weight_pct": "0.10"
+},
+"DNUT": {
+"name": "Krispy Kreme Inc.",
+"weight_pct": "0.01"
+},
+"DOCN": {
+"name": "DigitalOcean Holdings Inc.",
+"weight_pct": "0.34"
+},
+"DOLE": {
+"name": "Dole plc",
+"weight_pct": "0.03"
+},
+"DOMO": {
+"name": "Domo Inc.",
+"weight_pct": "0.00"
+},
+"DORM": {
+"name": "Dorman Products Inc.",
+"weight_pct": "0.10"
+},
+"DOUG": {
+"name": "Douglas Elliman Inc.",
+"weight_pct": "0.00"
+},
+"DRH": {
+"name": "DiamondRock Hospitality Co.",
+"weight_pct": "0.06"
+},
+"DRUG": {
+"name": "Bright Minds Biosciences Inc.",
+"weight_pct": "0.02"
+},
+"DRVN": {
+"name": "Driven Brands Holdings Inc.",
+"weight_pct": "0.02"
+},
+"DSGN": {
+"name": "Design Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"DSGR": {
+"name": "Lawson Products Inc./DE",
+"weight_pct": "0.01"
+},
+"DSP": {
+"name": "Viant Technology Inc. Class A",
+"weight_pct": "0.01"
+},
+"DX": {
+"name": "Dynex Capital Inc.",
+"weight_pct": "0.07"
+},
+"DXPE": {
+"name": "DXP Enterprises Inc./TX",
+"weight_pct": "0.05"
+},
+"DY": {
+"name": "Dycom Industries Inc.",
+"weight_pct": "0.43"
+},
+"DYN": {
+"name": "Dyne Therapeutics Inc.",
+"weight_pct": "0.07"
+},
+"EAT": {
+"name": "Brinker International Inc.",
+"weight_pct": "0.18"
+},
+"EBC": {
+"name": "Eastern Bankshares Inc.",
+"weight_pct": "0.12"
+},
+"EBF": {
+"name": "Ennis Inc.",
+"weight_pct": "0.01"
+},
+"EBMT": {
+"name": "Eagle Bancorp Montana Inc.",
+"weight_pct": "0.00"
+},
+"EBS": {
+"name": "Emergent BioSolutions Inc.",
+"weight_pct": "0.01"
+},
+"ECBK": {
+"name": "ECB Bancorp Inc./MD",
+"weight_pct": "0.00"
+},
+"ECPG": {
+"name": "Encore Capital Group Inc.",
+"weight_pct": "0.05"
+},
+"ECVT": {
+"name": "Ecovyst Inc.",
+"weight_pct": "0.04"
+},
+"EDIT": {
+"name": "Editas Medicine Inc.",
+"weight_pct": "0.01"
+},
+"EE": {
+"name": "Excelerate Energy Inc. Class A",
+"weight_pct": "0.02"
+},
+"EEX": {
+"name": "Emerald Holding Inc.",
+"weight_pct": "0.00"
+},
+"EFC": {
+"name": "Ellington Financial Inc.",
+"weight_pct": "0.05"
+},
+"EFOR": {
+"name": "ASGN Inc.",
+"weight_pct": "0.03"
+},
+"EFSC": {
+"name": "Enterprise Financial Services Corp.",
+"weight_pct": "0.06"
+},
+"EFSI": {
+"name": "Eagle Financial Services Inc.",
+"weight_pct": "0.01"
+},
+"EGAN": {
+"name": "eGain Corp.",
+"weight_pct": "0.00"
+},
+"EGBN": {
+"name": "Eagle Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"EGHT": {
+"name": "8x8 Inc.",
+"weight_pct": "0.01"
+},
+"EGY": {
+"name": "VAALCO Energy Inc.",
+"weight_pct": "0.02"
+},
+"EHTH": {
+"name": "eHealth Inc.",
+"weight_pct": "0.00"
+},
+"EIG": {
+"name": "Employers Holdings Inc.",
+"weight_pct": "0.03"
+},
+"EIKN": {
+"name": "Eikon Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"ELA": {
+"name": "Envela Corp.",
+"weight_pct": "0.00"
+},
+"ELDN": {
+"name": "Eledon Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"ELMD": {
+"name": "Electromed Inc.",
+"weight_pct": "0.01"
+},
+"ELMT": {
+"name": "Elmet Group Co.",
+"weight_pct": "0.00"
+},
+"ELVN": {
+"name": "Enliven Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"EMBC": {
+"name": "Embecta Corp.",
+"weight_pct": "0.01"
+},
+"EML": {
+"name": "Eastern Co.",
+"weight_pct": "0.00"
+},
+"ENOV": {
+"name": "Enovis Corp.",
+"weight_pct": "0.04"
+},
+"ENR": {
+"name": "Energizer Holdings Inc.",
+"weight_pct": "0.03"
+},
+"ENS": {
+"name": "EnerSys",
+"weight_pct": "0.24"
+},
+"ENSG": {
+"name": "Ensign Group Inc.",
+"weight_pct": "0.27"
+},
+"ENTA": {
+"name": "Enanta Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"ENVA": {
+"name": "Enova International Inc.",
+"weight_pct": "0.11"
+},
+"ENVX": {
+"name": "Enovix Corp.",
+"weight_pct": "0.04"
+},
+"EOLS": {
+"name": "Evolus Inc.",
+"weight_pct": "0.01"
+},
+"EOSE": {
+"name": "Eos Energy Enterprises Inc.",
+"weight_pct": "0.07"
+},
+"EP": {
+"name": "Empire Petroleum Corp.",
+"weight_pct": "0.00"
+},
+"EPAC": {
+"name": "Enerpac Tool Group Corp. Class A",
+"weight_pct": "0.05"
+},
+"EPC": {
+"name": "Edgewell Personal Care Co.",
+"weight_pct": "0.02"
+},
+"EPM": {
+"name": "Evolution Petroleum Corp.",
+"weight_pct": "0.00"
+},
+"EPRT": {
+"name": "Essential Properties Realty Trust Inc.",
+"weight_pct": "0.17"
+},
+"EPSN": {
+"name": "Epsilon Energy Ltd.",
+"weight_pct": "0.00"
+},
+"EQBK": {
+"name": "Equity Bancshares Inc. Class A",
+"weight_pct": "0.02"
+},
+"ERAS": {
+"name": "Erasca Inc.",
+"weight_pct": "0.07"
+},
+"ERII": {
+"name": "Energy Recovery Inc.",
+"weight_pct": "0.01"
+},
+"EROK": {
+"name": "EagleRock Land LLC Class A",
+"weight_pct": "0.00"
+},
+"ESCA": {
+"name": "Escalade Inc.",
+"weight_pct": "0.01"
+},
+"ESE": {
+"name": "ESCO Technologies Inc.",
+"weight_pct": "0.22"
+},
+"ESNT": {
+"name": "Essent Group Ltd.",
+"weight_pct": "0.15"
+},
+"ESOA": {
+"name": "Energy Services of America Corp.",
+"weight_pct": "0.01"
+},
+"ESPR": {
+"name": "Esperion Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"ESQ": {
+"name": "Esquire Financial Holdings Inc.",
+"weight_pct": "0.02"
+},
+"ESRT": {
+"name": "Empire State Realty Trust Inc.",
+"weight_pct": "0.02"
+},
+"ETD": {
+"name": "Ethan Allen Interiors Inc.",
+"weight_pct": "0.01"
+},
+"ETON": {
+"name": "Eton Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"EU": {
+"name": "Encore Energy Corp.",
+"weight_pct": "0.01"
+},
+"EVC": {
+"name": "Entravision Communications Corp. Class A",
+"weight_pct": "0.02"
+},
+"EVCM": {
+"name": "EverCommerce Inc.",
+"weight_pct": "0.00"
+},
+"EVER": {
+"name": "EverQuote Inc. Class A",
+"weight_pct": "0.02"
+},
+"EVEX": {
+"name": "Eve Holding Inc.",
+"weight_pct": "0.01"
+},
+"EVGO": {
+"name": "EVgo Inc. Class A",
+"weight_pct": "0.01"
+},
+"EVH": {
+"name": "Evolent Health Inc. Class A",
+"weight_pct": "0.01"
+},
+"EVI": {
+"name": "EVI Industries Inc.",
+"weight_pct": "0.00"
+},
+"EVLV": {
+"name": "Evolv Technologies Holdings Inc.",
+"weight_pct": "0.03"
+},
+"EVMN": {
+"name": "Evommune Inc.",
+"weight_pct": "0.01"
+},
+"EVTC": {
+"name": "EVERTEC Inc.",
+"weight_pct": "0.05"
+},
+"EWTX": {
+"name": "Edgewise Therapeutics Inc.",
+"weight_pct": "0.07"
+},
+"EXFY": {
+"name": "Expensify Inc. Class A",
+"weight_pct": "0.00"
+},
+"EXPO": {
+"name": "Exponent Inc.",
+"weight_pct": "0.08"
+},
+"EXTR": {
+"name": "Extreme Networks Inc.",
+"weight_pct": "0.10"
+},
+"EYE": {
+"name": "National Vision Holdings Inc.",
+"weight_pct": "0.04"
+},
+"EYPT": {
+"name": "EyePoint Inc.",
+"weight_pct": "0.03"
+},
+"FA": {
+"name": "First Advantage Corp.",
+"weight_pct": "0.04"
+},
+"FATE": {
+"name": "Fate Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"FBIZ": {
+"name": "First Business Financial Services Inc.",
+"weight_pct": "0.01"
+},
+"FBK": {
+"name": "FB Financial Corp.",
+"weight_pct": "0.07"
+},
+"FBLA": {
+"name": "FB Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"FBNC": {
+"name": "First Bancorp/Southern Pines NC",
+"weight_pct": "0.07"
+},
+"FBP": {
+"name": "First BanCorp/Puerto Rico",
+"weight_pct": "0.08"
+},
+"FBRT": {
+"name": "Franklin BSP Realty Trust Inc.",
+"weight_pct": "0.02"
+},
+"FBYD": {
+"name": "Falcon's Beyond Global Inc.",
+"weight_pct": "0.01"
+},
+"FC": {
+"name": "Franklin Covey Co.",
+"weight_pct": "0.01"
+},
+"FCAP": {
+"name": "First Capital Inc.",
+"weight_pct": "0.01"
+},
+"FCBC": {
+"name": "First Community Bankshares Inc.",
+"weight_pct": "0.02"
+},
+"FCCO": {
+"name": "First Community Corp./SC",
+"weight_pct": "0.01"
+},
+"FCF": {
+"name": "First Commonwealth Financial Corp.",
+"weight_pct": "0.06"
+},
+"FCFS": {
+"name": "FirstCash Holdings Inc.",
+"weight_pct": "0.25"
+},
+"FCPT": {
+"name": "Four Corners Property Trust Inc.",
+"weight_pct": "0.08"
+},
+"FDBC": {
+"name": "Fidelity D&D Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"FDMT": {
+"name": "4D Molecular Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"FDP": {
+"name": "Fresh Del Monte Produce Inc.",
+"weight_pct": "0.03"
+},
+"FEIM": {
+"name": "Frequency Electronics Inc.",
+"weight_pct": "0.01"
+},
+"FELE": {
+"name": "Franklin Electric Co. Inc.",
+"weight_pct": "0.11"
+},
+"FENC": {
+"name": "Fennec Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"FET": {
+"name": "Forum Energy Technologies Inc.",
+"weight_pct": "0.02"
+},
+"FF": {
+"name": "FutureFuel Corp.",
+"weight_pct": "0.00"
+},
+"FFAI": {
+"name": "Faraday Future Intelligent Electric Inc.",
+"weight_pct": "0.00"
+},
+"FFBC": {
+"name": "First Financial Bancorp",
+"weight_pct": "0.09"
+},
+"FFIC": {
+"name": "Flushing Financial Corp.",
+"weight_pct": "0.01"
+},
+"FFIN": {
+"name": "First Financial Bankshares Inc.",
+"weight_pct": "0.13"
+},
+"FG": {
+"name": "F&G Annuities & Life Inc.",
+"weight_pct": "0.03"
+},
+"FHTX": {
+"name": "Foghorn Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"FIBK": {
+"name": "First Interstate BancSystem Inc. Class A",
+"weight_pct": "0.09"
+},
+"FIGS": {
+"name": "Figs Inc. Class A",
+"weight_pct": "0.03"
+},
+"FINW": {
+"name": "Finwise Bancorp",
+"weight_pct": "0.00"
+},
+"FIP": {
+"name": "FTAI Infrastructure Inc.",
+"weight_pct": "0.01"
+},
+"FISI": {
+"name": "Financial Institutions Inc.",
+"weight_pct": "0.02"
+},
+"FIVN": {
+"name": "Five9 Inc.",
+"weight_pct": "0.05"
+},
+"FIZZ": {
+"name": "National Beverage Corp.",
+"weight_pct": "0.03"
+},
+"FLD": {
+"name": "Fold Holdings Inc.",
+"weight_pct": "0.00"
+},
+"FLG": {
+"name": "Flagstar Bank NA",
+"weight_pct": "0.12"
+},
+"FLGT": {
+"name": "Fulgent Genetics Inc.",
+"weight_pct": "0.01"
+},
+"FLNC": {
+"name": "Fluence Energy Inc. Class A",
+"weight_pct": "0.05"
+},
+"FLNG": {
+"name": "FLEX LNG Ltd.",
+"weight_pct": "0.03"
+},
+"FLOC": {
+"name": "Flowco Holdings Inc. Class A",
+"weight_pct": "0.01"
+},
+"FLR": {
+"name": "Fluor Corp.",
+"weight_pct": "0.21"
+},
+"FLWS": {
+"name": "1-800-Flowers.com Inc. Class A",
+"weight_pct": "0.00"
+},
+"FLXS": {
+"name": "Flexsteel Industries Inc.",
+"weight_pct": "0.01"
+},
+"FLY": {
+"name": "Firefly Aerospace Inc.",
+"weight_pct": "0.03"
+},
+"FLYW": {
+"name": "Flywire Corp.",
+"weight_pct": "0.05"
+},
+"FLYX": {
+"name": "flyExclusive Inc.",
+"weight_pct": "0.00"
+},
+"FMAO": {
+"name": "Farmers & Merchants Bancorp Inc./Archbold OH",
+"weight_pct": "0.01"
+},
+"FMBH": {
+"name": "First Mid Bancshares Inc.",
+"weight_pct": "0.03"
+},
+"FMNB": {
+"name": "Farmers National Banc Corp.",
+"weight_pct": "0.02"
+},
+"FN": {
+"name": "Fabrinet",
+"weight_pct": "0.68"
+},
+"FNKO": {
+"name": "Funko Inc. Class A",
+"weight_pct": "0.01"
+},
+"FNLC": {
+"name": "First Bancorp Inc./ME",
+"weight_pct": "0.01"
+},
+"FNWD": {
+"name": "Finward Bancorp",
+"weight_pct": "0.00"
+},
+"FOA": {
+"name": "Finance Of America Cos. Inc. Class A",
+"weight_pct": "0.00"
+},
+"FOR": {
+"name": "Forestar Group Inc.",
+"weight_pct": "0.02"
+},
+"FORM": {
+"name": "FormFactor Inc.",
+"weight_pct": "0.28"
+},
+"FORR": {
+"name": "Forrester Research Inc.",
+"weight_pct": "0.00"
+},
+"FOXF": {
+"name": "Fox Factory Holding Corp.",
+"weight_pct": "0.02"
+},
+"FPI": {
+"name": "Farmland Partners Inc.",
+"weight_pct": "0.01"
+},
+"FPS": {
+"name": "Forgent Power Solutions Inc. Class A",
+"weight_pct": "0.01"
+},
+"FRAF": {
+"name": "Franklin Financial Services Corp.",
+"weight_pct": "0.01"
+},
+"FRBA": {
+"name": "First Bank/Hamilton NJ",
+"weight_pct": "0.01"
+},
+"FRD": {
+"name": "Friedman Industries Inc.",
+"weight_pct": "0.00"
+},
+"FRME": {
+"name": "First Merchants Corp.",
+"weight_pct": "0.07"
+},
+"FRPH": {
+"name": "FRP Holdings Inc.",
+"weight_pct": "0.01"
+},
+"FRSH": {
+"name": "Freshworks Inc. Class A",
+"weight_pct": "0.06"
+},
+"FRST": {
+"name": "Primis Financial Corp.",
+"weight_pct": "0.01"
+},
+"FRVO": {
+"name": "Fervo Energy Co. Class A",
+"weight_pct": "0.00"
+},
+"FSBC": {
+"name": "Five Star Bancorp",
+"weight_pct": "0.02"
+},
+"FSBW": {
+"name": "FS Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"FSLY": {
+"name": "Fastly Inc. Class A",
+"weight_pct": "0.07"
+},
+"FSP": {
+"name": "Franklin Street Properties Corp.",
+"weight_pct": "0.00"
+},
+"FSS": {
+"name": "Federal Signal Corp.",
+"weight_pct": "0.18"
+},
+"FSTR": {
+"name": "LB Foster Co. Class A",
+"weight_pct": "0.01"
+},
+"FSUN": {
+"name": "Firstsun Capital Bancorp",
+"weight_pct": "0.02"
+},
+"FTDR": {
+"name": "frontdoor Inc.",
+"weight_pct": "0.13"
+},
+"FTK": {
+"name": "Flotek Industries Inc.",
+"weight_pct": "0.01"
+},
+"FTLF": {
+"name": "FitLife Brands Inc.",
+"weight_pct": "0.00"
+},
+"FTRE": {
+"name": "Fortrea Holdings Inc.",
+"weight_pct": "0.04"
+},
+"FUBO": {
+"name": "fuboTV Inc. Class A",
+"weight_pct": "0.01"
+},
+"FUL": {
+"name": "HB Fuller Co.",
+"weight_pct": "0.10"
+},
+"FULC": {
+"name": "Fulcrum Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"FULT": {
+"name": "Fulton Financial Corp.",
+"weight_pct": "0.12"
+},
+"FUN": {
+"name": "Six Flags Entertainment Corp.",
+"weight_pct": "0.06"
+},
+"FUNC": {
+"name": "First United Corp.",
+"weight_pct": "0.01"
+},
+"FVCB": {
+"name": "FVCBankcorp Inc.",
+"weight_pct": "0.01"
+},
+"FVR": {
+"name": "FrontView REIT Inc.",
+"weight_pct": "0.01"
+},
+"FWRD": {
+"name": "Forward Air Corp.",
+"weight_pct": "0.01"
+},
+"FWRG": {
+"name": "First Watch Restaurant Group Inc.",
+"weight_pct": "0.02"
+},
+"FXNC": {
+"name": "First National Corp./VA",
+"weight_pct": "0.01"
+},
+"GABC": {
+"name": "German American Bancorp Inc.",
+"weight_pct": "0.05"
+},
+"GAIA": {
+"name": "Gaia Inc. Class A",
+"weight_pct": "0.00"
+},
+"GAMB": {
+"name": "Gambling.com Group Ltd.",
+"weight_pct": "0.00"
+},
+"GATX": {
+"name": "GATX Corp.",
+"weight_pct": "0.17"
+},
+"GBCI": {
+"name": "Glacier Bancorp Inc.",
+"weight_pct": "0.17"
+},
+"GBFH": {
+"name": "GBank Financial Holdings Inc.",
+"weight_pct": "0.01"
+},
+"GBTG": {
+"name": "Global Business Travel Group I",
+"weight_pct": "0.03"
+},
+"GBX": {
+"name": "Greenbrier Cos. Inc.",
+"weight_pct": "0.04"
+},
+"GCBC": {
+"name": "Greene County Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"GCMG": {
+"name": "GCM Grosvenor Inc. Class A",
+"weight_pct": "0.02"
+},
+"GCO": {
+"name": "Genesco Inc.",
+"weight_pct": "0.01"
+},
+"GCT": {
+"name": "GigaCloud Technology Inc. Class A",
+"weight_pct": "0.02"
+},
+"GDOT": {
+"name": "Green Dot Corp. Class A",
+"weight_pct": "0.02"
+},
+"GDYN": {
+"name": "Grid Dynamics Holdings Inc.",
+"weight_pct": "0.01"
+},
+"GEF": {
+"name": "Greif Inc. Class A",
+"weight_pct": "0.04"
+},
+"GEF.B": {
+"name": "Greif Inc. Class B",
+"weight_pct": "0.01"
+},
+"GENC": {
+"name": "Gencor Industries Inc.",
+"weight_pct": "0.00"
+},
+"GENI": {
+"name": "Genius Sports Ltd.",
+"weight_pct": "0.04"
+},
+"GEO": {
+"name": "GEO Group Inc.",
+"weight_pct": "0.09"
+},
+"GERN": {
+"name": "Geron Corp.",
+"weight_pct": "0.02"
+},
+"GETY": {
+"name": "Getty Images Holdings Inc.",
+"weight_pct": "0.00"
+},
+"GEVO": {
+"name": "Gevo Inc.",
+"weight_pct": "0.01"
+},
+"GFF": {
+"name": "Griffon Corp.",
+"weight_pct": "0.10"
+},
+"GH": {
+"name": "Guardant Health Inc.",
+"weight_pct": "0.46"
+},
+"GHC": {
+"name": "Graham Holdings Co. Class B",
+"weight_pct": "0.10"
+},
+"GHM": {
+"name": "Graham Corp.",
+"weight_pct": "0.03"
+},
+"GIC": {
+"name": "Global Industrial Co.",
+"weight_pct": "0.01"
+},
+"GIII": {
+"name": "G-III Apparel Group Ltd.",
+"weight_pct": "0.03"
+},
+"GKOS": {
+"name": "Glaukos Corp.",
+"weight_pct": "0.17"
+},
+"GLNG": {
+"name": "Golar LNG Ltd.",
+"weight_pct": "0.14"
+},
+"GLRE": {
+"name": "Greenlight Capital Re Ltd. Class A",
+"weight_pct": "0.01"
+},
+"GLSI": {
+"name": "Greenwich Lifesciences Inc.",
+"weight_pct": "0.00"
+},
+"GLUE": {
+"name": "Monte Rosa Therapeutics Inc.",
+"weight_pct": "0.03"
+},
+"GMRS": {
+"name": "GMR Solutions Inc.",
+"weight_pct": "0.00"
+},
+"GNE": {
+"name": "Genie Energy Ltd. Class B",
+"weight_pct": "0.01"
+},
+"GNK": {
+"name": "Genco Shipping & Trading Ltd.",
+"weight_pct": "0.02"
+},
+"GNL": {
+"name": "Global Net Lease Inc.",
+"weight_pct": "0.05"
+},
+"GNW": {
+"name": "Genworth Financial Inc. Class A",
+"weight_pct": "0.10"
+},
+"GO": {
+"name": "Grocery Outlet Holding Corp.",
+"weight_pct": "0.02"
+},
+"GOCO": {
+"name": "GoHealth Inc. Class A",
+"weight_pct": "0.00"
+},
+"GOGO": {
+"name": "Gogo Inc.",
+"weight_pct": "0.01"
+},
+"GOLD": {
+"name": "A-Mark Precious Metals Inc.",
+"weight_pct": "0.02"
+},
+"GOLF": {
+"name": "Acushnet Holdings Corp.",
+"weight_pct": "0.07"
+},
+"GOOD": {
+"name": "Gladstone Commercial Corp.",
+"weight_pct": "0.02"
+},
+"GOSS": {
+"name": "Gossamer Bio Inc.",
+"weight_pct": "0.00"
+},
+"GPGI": {
+"name": "GPGI Inc. Class A",
+"weight_pct": "0.06"
+},
+"GPI": {
+"name": "Group 1 Automotive Inc.",
+"weight_pct": "0.11"
+},
+"GPOR": {
+"name": "Gulfport Energy Corp.",
+"weight_pct": "0.08"
+},
+"GPRE": {
+"name": "Green Plains Inc.",
+"weight_pct": "0.03"
+},
+"GRAL": {
+"name": "GRAIL Inc.",
+"weight_pct": "0.07"
+},
+"GRBK": {
+"name": "Green Brick Partners Inc.",
+"weight_pct": "0.06"
+},
+"GRC": {
+"name": "Gorman-Rupp Co.",
+"weight_pct": "0.04"
+},
+"GRDN": {
+"name": "Guardian Pharmacy Services Inc. Class A",
+"weight_pct": "0.03"
+},
+"GRND": {
+"name": "Grindr Inc.",
+"weight_pct": "0.01"
+},
+"GRNT": {
+"name": "Granite Ridge Resources Inc.",
+"weight_pct": "0.01"
+},
+"GRPN": {
+"name": "Groupon Inc. Class A",
+"weight_pct": "0.01"
+},
+"GSAT": {
+"name": "Globalstar Inc.",
+"weight_pct": "0.12"
+},
+"GSBC": {
+"name": "Great Southern Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"GSHD": {
+"name": "Goosehead Insurance Inc. Class A",
+"weight_pct": "0.02"
+},
+"GSM": {
+"name": "Ferroglobe plc",
+"weight_pct": "0.01"
+},
+"GT": {
+"name": "Goodyear Tire & Rubber Co.",
+"weight_pct": "0.05"
+},
+"GTLS": {
+"name": "Chart Industries Inc.",
+"weight_pct": "0.27"
+},
+"GTN": {
+"name": "Gray Television Inc.",
+"weight_pct": "0.01"
+},
+"GTX": {
+"name": "Garrett Motion Inc.",
+"weight_pct": "0.17"
+},
+"GTY": {
+"name": "Getty Realty Corp.",
+"weight_pct": "0.05"
+},
+"GVA": {
+"name": "Granite Construction Inc.",
+"weight_pct": "0.17"
+},
+"GWRS": {
+"name": "Global Water Resources Inc.",
+"weight_pct": "0.00"
+},
+"GYRE": {
+"name": "Gyre Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"HAE": {
+"name": "Haemonetics Corp.",
+"weight_pct": "0.09"
+},
+"HAFC": {
+"name": "Hanmi Financial Corp.",
+"weight_pct": "0.03"
+},
+"HAIN": {
+"name": "Hain Celestial Group Inc.",
+"weight_pct": "0.00"
+},
+"HASI": {
+"name": "Hannon Armstrong Sustainable Infrastructure Capital Inc.",
+"weight_pct": "0.15"
+},
+"HAWK": {
+"name": "Hawkeye 360 Inc.",
+"weight_pct": "0.00"
+},
+"HBB": {
+"name": "Hamilton Beach Brands Holding Co. Class A",
+"weight_pct": "0.00"
+},
+"HBCP": {
+"name": "Home Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"HBNC": {
+"name": "Horizon Bancorp Inc./IN",
+"weight_pct": "0.03"
+},
+"HBT": {
+"name": "HBT Financial Inc.",
+"weight_pct": "0.01"
+},
+"HCAT": {
+"name": "Health Catalyst Inc.",
+"weight_pct": "0.00"
+},
+"HCC": {
+"name": "Warrior Met Coal Inc.",
+"weight_pct": "0.14"
+},
+"HCI": {
+"name": "HCI Group Inc.",
+"weight_pct": "0.05"
+},
+"HCKT": {
+"name": "Hackett Group Inc.",
+"weight_pct": "0.01"
+},
+"HCSG": {
+"name": "Healthcare Services Group Inc.",
+"weight_pct": "0.04"
+},
+"HDSN": {
+"name": "Hudson Technologies Inc.",
+"weight_pct": "0.01"
+},
+"HE": {
+"name": "Hawaiian Electric Industries Inc.",
+"weight_pct": "0.06"
+},
+"HELE": {
+"name": "Helen of Troy Ltd.",
+"weight_pct": "0.02"
+},
+"HFFG": {
+"name": "HF Foods Group Inc.",
+"weight_pct": "0.00"
+},
+"HFWA": {
+"name": "Heritage Financial Corp./WA",
+"weight_pct": "0.03"
+},
+"HG": {
+"name": "Hamilton Insurance Group Ltd. Class B",
+"weight_pct": "0.04"
+},
+"HGV": {
+"name": "Hilton Grand Vacations Inc.",
+"weight_pct": "0.09"
+},
+"HIFS": {
+"name": "Hingham Institution for Savings",
+"weight_pct": "0.01"
+},
+"HIMS": {
+"name": "Hims & Hers Health Inc.",
+"weight_pct": "0.15"
+},
+"HIPO": {
+"name": "Hippo Holdings Inc.",
+"weight_pct": "0.01"
+},
+"HL": {
+"name": "Hecla Mining Co.",
+"weight_pct": "0.32"
+},
+"HLF": {
+"name": "Herbalife Nutrition Ltd.",
+"weight_pct": "0.04"
+},
+"HLIO": {
+"name": "Helios Technologies Inc.",
+"weight_pct": "0.08"
+},
+"HLIT": {
+"name": "Harmonic Inc.",
+"weight_pct": "0.05"
+},
+"HLLY": {
+"name": "Holley Inc.",
+"weight_pct": "0.01"
+},
+"HLMN": {
+"name": "Hillman Solutions Corp.",
+"weight_pct": "0.04"
+},
+"HLX": {
+"name": "Helix Energy Solutions Group Inc.",
+"weight_pct": "0.04"
+},
+"HMH": {
+"name": "HMH Holding Inc.",
+"weight_pct": "0.00"
+},
+"HMN": {
+"name": "Horace Mann Educators Corp.",
+"weight_pct": "0.05"
+},
+"HNI": {
+"name": "HNI Corp.",
+"weight_pct": "0.06"
+},
+"HNRG": {
+"name": "Hallador Energy Co.",
+"weight_pct": "0.02"
+},
+"HNST": {
+"name": "Honest Co. Inc.",
+"weight_pct": "0.01"
+},
+"HNVR": {
+"name": "Hanover Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"HOMB": {
+"name": "Home BancShares Inc./AR",
+"weight_pct": "0.14"
+},
+"HOPE": {
+"name": "Hope Bancorp Inc.",
+"weight_pct": "0.04"
+},
+"HOV": {
+"name": "Hovnanian Enterprises Inc. Class A",
+"weight_pct": "0.02"
+},
+"HP": {
+"name": "Helmerich & Payne Inc.",
+"weight_pct": "0.11"
+},
+"HPK": {
+"name": "HighPeak Energy Inc.",
+"weight_pct": "0.00"
+},
+"HPP": {
+"name": "Hudson Pacific Properties Inc.",
+"weight_pct": "0.02"
+},
+"HQI": {
+"name": "HireQuest Inc.",
+"weight_pct": "0.00"
+},
+"HQY": {
+"name": "HealthEquity Inc.",
+"weight_pct": "0.21"
+},
+"HRI": {
+"name": "Herc Holdings Inc.",
+"weight_pct": "0.12"
+},
+"HRMY": {
+"name": "Harmony Biosciences Holdings Inc.",
+"weight_pct": "0.04"
+},
+"HROW": {
+"name": "Harrow Inc.",
+"weight_pct": "0.03"
+},
+"HRTG": {
+"name": "Heritage Insurance Holdings Inc.",
+"weight_pct": "0.02"
+},
+"HRTX": {
+"name": "Heron Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"HSHP": {
+"name": "Himalaya Shipping Ltd.",
+"weight_pct": "0.01"
+},
+"HSTM": {
+"name": "HealthStream Inc.",
+"weight_pct": "0.02"
+},
+"HTB": {
+"name": "HomeTrust Bancshares Inc.",
+"weight_pct": "0.02"
+},
+"HTFL": {
+"name": "HeartFlow Inc.",
+"weight_pct": "0.02"
+},
+"HTH": {
+"name": "Hilltop Holdings Inc.",
+"weight_pct": "0.05"
+},
+"HTLD": {
+"name": "Heartland Express Inc.",
+"weight_pct": "0.02"
+},
+"HTO": {
+"name": "H2O America",
+"weight_pct": "0.06"
+},
+"HTZ": {
+"name": "Hertz Global Holdings Inc.",
+"weight_pct": "0.02"
+},
+"HUBG": {
+"name": "Hub Group Inc. Class A",
+"weight_pct": "0.07"
+},
+"HUMA": {
+"name": "Humacyte Inc.",
+"weight_pct": "0.01"
+},
+"HURA": {
+"name": "TuHURA Biosciences Inc.",
+"weight_pct": "0.00"
+},
+"HURN": {
+"name": "Huron Consulting Group Inc.",
+"weight_pct": "0.05"
+},
+"HUT": {
+"name": "Hut 8 Corp.",
+"weight_pct": "0.35"
+},
+"HVT": {
+"name": "Haverty Furniture Cos. Inc.",
+"weight_pct": "0.01"
+},
+"HWBK": {
+"name": "Hawthorn Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"HWC": {
+"name": "Hancock Whitney Corp.",
+"weight_pct": "0.16"
+},
+"HWKN": {
+"name": "Hawkins Inc.",
+"weight_pct": "0.09"
+},
+"HY": {
+"name": "Hyster-Yale Materials Handling Inc.",
+"weight_pct": "0.01"
+},
+"HYLN": {
+"name": "Hyliion Holdings Corp.",
+"weight_pct": "0.02"
+},
+"HZO": {
+"name": "MarineMax Inc.",
+"weight_pct": "0.02"
+},
+"IART": {
+"name": "Integra LifeSciences Holdings Corp.",
+"weight_pct": "0.03"
+},
+"IBCP": {
+"name": "Independent Bank Corp./MI",
+"weight_pct": "0.02"
+},
+"IBEX": {
+"name": "IBEX Holdings Ltd.",
+"weight_pct": "0.01"
+},
+"IBOC": {
+"name": "International Bancshares Corp.",
+"weight_pct": "0.11"
+},
+"IBP": {
+"name": "Installed Building Products Inc.",
+"weight_pct": "0.14"
+},
+"IBRX": {
+"name": "ImmunityBio Inc.",
+"weight_pct": "0.06"
+},
+"IBTA": {
+"name": "Ibotta Inc. Class A",
+"weight_pct": "0.01"
+},
+"ICFI": {
+"name": "ICF International Inc.",
+"weight_pct": "0.04"
+},
+"ICHR": {
+"name": "Ichor Holdings Ltd.",
+"weight_pct": "0.07"
+},
+"ICUI": {
+"name": "ICU Medical Inc.",
+"weight_pct": "0.09"
+},
+"IDCC": {
+"name": "InterDigital Inc.",
+"weight_pct": "0.19"
+},
+"IDR": {
+"name": "Idaho Strategic Resources Inc.",
+"weight_pct": "0.02"
+},
+"IDT": {
+"name": "IDT Corp. Class B",
+"weight_pct": "0.03"
+},
+"IDYA": {
+"name": "Ideaya Biosciences Inc.",
+"weight_pct": "0.07"
+},
+"IE": {
+"name": "Ivanhoe Electric Inc. / US",
+"weight_pct": "0.04"
+},
+"IESC": {
+"name": "IES Holdings Inc.",
+"weight_pct": "0.18"
+},
+"IHRT": {
+"name": "iHeartMedia Inc. Class A",
+"weight_pct": "0.02"
+},
+"III": {
+"name": "Information Services Group Inc.",
+"weight_pct": "0.00"
+},
+"IIIN": {
+"name": "Insteel Industries Inc.",
+"weight_pct": "0.01"
+},
+"IIIV": {
+"name": "I3 Verticals Inc. Class A",
+"weight_pct": "0.01"
+},
+"IIPR": {
+"name": "Innovative Industrial Properties Inc.",
+"weight_pct": "0.05"
+},
+"IKT": {
+"name": "Inhibikase Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"ILPT": {
+"name": "Industrial Logistics Properties Trust",
+"weight_pct": "0.01"
+},
+"IMAX": {
+"name": "IMAX Corp.",
+"weight_pct": "0.05"
+},
+"IMKTA": {
+"name": "Ingles Markets Inc. Class A",
+"weight_pct": "0.04"
+},
+"IMMR": {
+"name": "Immersion Corp.",
+"weight_pct": "0.01"
+},
+"IMNM": {
+"name": "Immunome Inc.",
+"weight_pct": "0.06"
+},
+"IMVT": {
+"name": "Immunovant Inc.",
+"weight_pct": "0.08"
+},
+"IMXI": {
+"name": "International Money Express Inc.",
+"weight_pct": "0.01"
+},
+"INBK": {
+"name": "First Internet Bancorp",
+"weight_pct": "0.01"
+},
+"INBX": {
+"name": "Inhibrx Biosciences Inc.",
+"weight_pct": "0.03"
+},
+"INDB": {
+"name": "Independent Bank Corp.",
+"weight_pct": "0.11"
+},
+"INDI": {
+"name": "indie Semiconductor Inc. Class A",
+"weight_pct": "0.03"
+},
+"INDV": {
+"name": "Indivior Pharmaceuticals Inc.",
+"weight_pct": "0.13"
+},
+"INGN": {
+"name": "Inogen Inc.",
+"weight_pct": "0.00"
+},
+"INMB": {
+"name": "Inmune Bio Inc.",
+"weight_pct": "0.00"
+},
+"INN": {
+"name": "Summit Hotel Properties Inc.",
+"weight_pct": "0.02"
+},
+"INNV": {
+"name": "Innovage Holding Corp.",
+"weight_pct": "0.00"
+},
+"INOD": {
+"name": "Innodata Inc.",
+"weight_pct": "0.09"
+},
+"INR": {
+"name": "Infinity Natural Resources Inc. Class A",
+"weight_pct": "0.01"
+},
+"INSE": {
+"name": "Inspired Entertainment Inc.",
+"weight_pct": "0.01"
+},
+"INSG": {
+"name": "Inseego Corp.",
+"weight_pct": "0.00"
+},
+"INSW": {
+"name": "International Seaways Inc.",
+"weight_pct": "0.09"
+},
+"INTA": {
+"name": "Intapp Inc.",
+"weight_pct": "0.04"
+},
+"INV": {
+"name": "Innventure Inc.",
+"weight_pct": "0.01"
+},
+"INVA": {
+"name": "Innoviva Inc.",
+"weight_pct": "0.05"
+},
+"INVX": {
+"name": "Innovex International Inc.",
+"weight_pct": "0.03"
+},
+"IONQ": {
+"name": "IonQ Inc.",
+"weight_pct": "0.61"
+},
+"IOSP": {
+"name": "Innospec Inc.",
+"weight_pct": "0.06"
+},
+"IOVA": {
+"name": "Iovance Biotherapeutics Inc.",
+"weight_pct": "0.04"
+},
+"IPAR": {
+"name": "Inter Parfums Inc.",
+"weight_pct": "0.05"
+},
+"IPI": {
+"name": "Intrepid Potash Inc.",
+"weight_pct": "0.01"
+},
+"IRMD": {
+"name": "iRadimed Corp.",
+"weight_pct": "0.02"
+},
+"IRON": {
+"name": "Disc Medicine Inc.",
+"weight_pct": "0.05"
+},
+"IRT": {
+"name": "Independence Realty Trust Inc.",
+"weight_pct": "0.11"
+},
+"IRTC": {
+"name": "iRhythm Technologies Inc.",
+"weight_pct": "0.10"
+},
+"IRWD": {
+"name": "Ironwood Pharmaceuticals Inc. Class A",
+"weight_pct": "0.02"
+},
+"ISPR": {
+"name": "Ispire Technology Inc.",
+"weight_pct": "0.00"
+},
+"ISTR": {
+"name": "Investar Holding Corp.",
+"weight_pct": "0.01"
+},
+"ITGR": {
+"name": "Integer Holdings Corp.",
+"weight_pct": "0.09"
+},
+"ITIC": {
+"name": "Investors Title Co.",
+"weight_pct": "0.01"
+},
+"ITRI": {
+"name": "Itron Inc.",
+"weight_pct": "0.11"
+},
+"IVR": {
+"name": "Invesco Mortgage Capital Inc.",
+"weight_pct": "0.02"
+},
+"IVT": {
+"name": "InvenTrust Properties Corp.",
+"weight_pct": "0.07"
+},
+"JACK": {
+"name": "Jack in the Box Inc.",
+"weight_pct": "0.01"
+},
+"JAKK": {
+"name": "JAKKS Pacific Inc.",
+"weight_pct": "0.01"
+},
+"JAN": {
+"name": "Janus Living Inc.",
+"weight_pct": "0.00"
+},
+"JANX": {
+"name": "Janux Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"JBGS": {
+"name": "JBG SMITH Properties",
+"weight_pct": "0.03"
+},
+"JBI": {
+"name": "Janus International Group Inc.",
+"weight_pct": "0.02"
+},
+"JBIO": {
+"name": "Jade Biosciences Inc.",
+"weight_pct": "0.02"
+},
+"JBLU": {
+"name": "JetBlue Airways Corp.",
+"weight_pct": "0.05"
+},
+"JBSS": {
+"name": "John B Sanfilippo & Son Inc.",
+"weight_pct": "0.02"
+},
+"JBTM": {
+"name": "John Bean Technologies Corp.",
+"weight_pct": "0.20"
+},
+"JCAP": {
+"name": "Jefferson Capital Inc.",
+"weight_pct": "0.01"
+},
+"JELD": {
+"name": "JELD-WEN Holding Inc.",
+"weight_pct": "0.01"
+},
+"JILL": {
+"name": "J Jill Inc.",
+"weight_pct": "0.00"
+},
+"JJSF": {
+"name": "J&J Snack Foods Corp.",
+"weight_pct": "0.03"
+},
+"JMSB": {
+"name": "John Marshall Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"JOBY": {
+"name": "Joby Aviation Inc.",
+"weight_pct": "0.20"
+},
+"JOE": {
+"name": "St. Joe Co.",
+"weight_pct": "0.07"
+},
+"JOUT": {
+"name": "Johnson Outdoors Inc. Class A",
+"weight_pct": "0.01"
+},
+"JRVR": {
+"name": "James River Group Holdings Inc.",
+"weight_pct": "0.00"
+},
+"JXN": {
+"name": "Jackson Financial Inc. Class A",
+"weight_pct": "0.20"
+},
+"JYNT": {
+"name": "Joint Corp.",
+"weight_pct": "0.00"
+},
+"KAI": {
+"name": "Kadant Inc.",
+"weight_pct": "0.11"
+},
+"KALU": {
+"name": "Kaiser Aluminum Corp.",
+"weight_pct": "0.08"
+},
+"KALV": {
+"name": "KalVista Pharmaceuticals Inc.",
+"weight_pct": "0.03"
+},
+"KBH": {
+"name": "KB Home",
+"weight_pct": "0.09"
+},
+"KE": {
+"name": "Kimball Electronics Inc.",
+"weight_pct": "0.02"
+},
+"KELYA": {
+"name": "Kelly Services Inc. Class A",
+"weight_pct": "0.01"
+},
+"KFRC": {
+"name": "Kforce Inc.",
+"weight_pct": "0.02"
+},
+"KFY": {
+"name": "Korn Ferry",
+"weight_pct": "0.11"
+},
+"KG": {
+"name": "Kestrel Group Ltd.",
+"weight_pct": "0.00"
+},
+"KGEI": {
+"name": "Kolibri Global Energy Inc.",
+"weight_pct": "0.00"
+},
+"KGS": {
+"name": "Kodiak Gas Services Inc.",
+"weight_pct": "0.18"
+},
+"KIDS": {
+"name": "OrthoPediatrics Corp.",
+"weight_pct": "0.01"
+},
+"KINS": {
+"name": "Kingstone Cos. Inc.",
+"weight_pct": "0.00"
+},
+"KLC": {
+"name": "KinderCare Learning Cos. Inc.",
+"weight_pct": "0.00"
+},
+"KLIC": {
+"name": "Kulicke & Soffa Industries Inc.",
+"weight_pct": "0.15"
+},
+"KLRA": {
+"name": "Kailera Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"KLTR": {
+"name": "Kaltura Inc.",
+"weight_pct": "0.00"
+},
+"KMT": {
+"name": "Kennametal Inc.",
+"weight_pct": "0.07"
+},
+"KMTS": {
+"name": "Kestra Medical Technologies Ltd.",
+"weight_pct": "0.02"
+},
+"KN": {
+"name": "Knowles Corp.",
+"weight_pct": "0.09"
+},
+"KNF": {
+"name": "Knife River Corp.",
+"weight_pct": "0.13"
+},
+"KNTK": {
+"name": "Kinetik Holdings Inc. Class A",
+"weight_pct": "0.06"
+},
+"KOD": {
+"name": "Kodiak Sciences Inc.",
+"weight_pct": "0.04"
+},
+"KODK": {
+"name": "Eastman Kodak Co.",
+"weight_pct": "0.02"
+},
+"KOP": {
+"name": "Koppers Holdings Inc.",
+"weight_pct": "0.02"
+},
+"KOPN": {
+"name": "Kopin Corp.",
+"weight_pct": "0.03"
+},
+"KOS": {
+"name": "Kosmos Energy Ltd.",
+"weight_pct": "0.04"
+},
+"KREF": {
+"name": "KKR Real Estate Finance Trust Inc.",
+"weight_pct": "0.01"
+},
+"KRG": {
+"name": "Kite Realty Group Trust",
+"weight_pct": "0.17"
+},
+"KRMD": {
+"name": "Repro-Med Systems Inc.",
+"weight_pct": "0.01"
+},
+"KRNY": {
+"name": "Kearny Financial Corp./MD",
+"weight_pct": "0.01"
+},
+"KRO": {
+"name": "Kronos Worldwide Inc.",
+"weight_pct": "0.00"
+},
+"KROS": {
+"name": "Keros Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"KRRO": {
+"name": "Korro Bio Inc.",
+"weight_pct": "0.00"
+},
+"KRT": {
+"name": "Karat Packaging Inc.",
+"weight_pct": "0.01"
+},
+"KRUS": {
+"name": "Kura Sushi USA Inc. Class A",
+"weight_pct": "0.01"
+},
+"KRYS": {
+"name": "Krystal Biotech Inc.",
+"weight_pct": "0.22"
+},
+"KSS": {
+"name": "Kohl's Corp.",
+"weight_pct": "0.04"
+},
+"KTB": {
+"name": "Kontoor Brands Inc.",
+"weight_pct": "0.11"
+},
+"KTOS": {
+"name": "Kratos Defense & Security Solutions Inc.",
+"weight_pct": "0.33"
+},
+"KULR": {
+"name": "KULR Technology Group Inc.",
+"weight_pct": "0.01"
+},
+"KURA": {
+"name": "Kura Oncology Inc.",
+"weight_pct": "0.02"
+},
+"KW": {
+"name": "Kennedy-Wilson Holdings Inc.",
+"weight_pct": "0.04"
+},
+"KWR": {
+"name": "Quaker Chemical Corp.",
+"weight_pct": "0.06"
+},
+"KWY": {
+"name": "Kingsway Financial Services Inc.",
+"weight_pct": "0.01"
+},
+"KYMR": {
+"name": "Kymera Therapeutics Inc.",
+"weight_pct": "0.13"
+},
+"LAB": {
+"name": "Fluidigm Corp.",
+"weight_pct": "0.01"
+},
+"LADR": {
+"name": "Ladder Capital Corp. Class A",
+"weight_pct": "0.03"
+},
+"LAKE": {
+"name": "Lakeland Industries Inc.",
+"weight_pct": "0.00"
+},
+"LAND": {
+"name": "Gladstone Land Corp.",
+"weight_pct": "0.01"
+},
+"LARK": {
+"name": "Landmark Bancorp Inc./Manhattan KS",
+"weight_pct": "0.00"
+},
+"LASR": {
+"name": "nLight Inc.",
+"weight_pct": "0.10"
+},
+"LAUR": {
+"name": "Laureate Education Inc. Class A",
+"weight_pct": "0.12"
+},
+"LAW": {
+"name": "CS Disco Inc.",
+"weight_pct": "0.00"
+},
+"LBRT": {
+"name": "Liberty Oilfield Services Inc. Class A",
+"weight_pct": "0.13"
+},
+"LBRX": {
+"name": "LB Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"LC": {
+"name": "LendingClub Corp.",
+"weight_pct": "0.06"
+},
+"LCII": {
+"name": "LCI Industries",
+"weight_pct": "0.07"
+},
+"LCLN": {
+"name": "Lincoln International Inc.",
+"weight_pct": "0.00"
+},
+"LCNB": {
+"name": "LCNB Corp.",
+"weight_pct": "0.01"
+},
+"LDI": {
+"name": "loanDepot Inc. Class A",
+"weight_pct": "0.00"
+},
+"LE": {
+"name": "Lands' End Inc.",
+"weight_pct": "0.00"
+},
+"LEG": {
+"name": "Leggett & Platt Inc.",
+"weight_pct": "0.04"
+},
+"LEGH": {
+"name": "Legacy Housing Corp.",
+"weight_pct": "0.01"
+},
+"LENZ": {
+"name": "LENZ Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"LEU": {
+"name": "Centrus Energy Corp. Class A",
+"weight_pct": "0.09"
+},
+"LFCR": {
+"name": "Landec Corp.",
+"weight_pct": "0.00"
+},
+"LFMD": {
+"name": "LifeMD Inc.",
+"weight_pct": "0.00"
+},
+"LFST": {
+"name": "LifeStance Health Group Inc.",
+"weight_pct": "0.04"
+},
+"LFT": {
+"name": "Lument Finance Trust Inc.",
+"weight_pct": "0.00"
+},
+"LFVN": {
+"name": "Lifevantage Corp.",
+"weight_pct": "0.00"
+},
+"LGIH": {
+"name": "LGI Homes Inc.",
+"weight_pct": "0.03"
+},
+"LGN": {
+"name": "Legence Corp. Class A",
+"weight_pct": "0.12"
+},
+"LGND": {
+"name": "Ligand Pharmaceuticals Inc.",
+"weight_pct": "0.13"
+},
+"LIF": {
+"name": "Life360 Inc.",
+"weight_pct": "0.03"
+},
+"LILA": {
+"name": "Liberty Latin America Ltd. Class A",
+"weight_pct": "0.01"
+},
+"LILAK": {
+"name": "Liberty Latin America Ltd.",
+"weight_pct": "0.03"
+},
+"LINC": {
+"name": "Lincoln Educational Services Corp.",
+"weight_pct": "0.04"
+},
+"LIND": {
+"name": "Lindblad Expeditions Holdings Inc.",
+"weight_pct": "0.03"
+},
+"LION": {
+"name": "Lionsgate Studios Corp.",
+"weight_pct": "0.08"
+},
+"LIVN": {
+"name": "LivaNova plc",
+"weight_pct": "0.12"
+},
+"LKFN": {
+"name": "Lakeland Financial Corp.",
+"weight_pct": "0.04"
+},
+"LMAT": {
+"name": "LeMaitre Vascular Inc.",
+"weight_pct": "0.06"
+},
+"LMB": {
+"name": "Limbach Holdings Inc.",
+"weight_pct": "0.02"
+},
+"LMND": {
+"name": "Lemonade Inc.",
+"weight_pct": "0.10"
+},
+"LMNR": {
+"name": "Limoneira Co.",
+"weight_pct": "0.01"
+},
+"LMRI": {
+"name": "Lumexa Imaging Holdings Inc.",
+"weight_pct": "0.01"
+},
+"LNN": {
+"name": "Lindsay Corp.",
+"weight_pct": "0.03"
+},
+"LNSR": {
+"name": "LENSAR Inc.",
+"weight_pct": "0.00"
+},
+"LNTH": {
+"name": "Lantheus Holdings Inc.",
+"weight_pct": "0.19"
+},
+"LOB": {
+"name": "Live Oak Bancshares Inc.",
+"weight_pct": "0.04"
+},
+"LOCO": {
+"name": "El Pollo Loco Holdings Inc.",
+"weight_pct": "0.01"
+},
+"LOVE": {
+"name": "Lovesac Co.",
+"weight_pct": "0.01"
+},
+"LPA": {
+"name": "Logistic Properties Of The Americas",
+"weight_pct": "0.00"
+},
+"LPG": {
+"name": "Dorian LPG Ltd.",
+"weight_pct": "0.04"
+},
+"LPRO": {
+"name": "Open Lending Corp.",
+"weight_pct": "0.01"
+},
+"LQDA": {
+"name": "Liquidia Technologies Inc.",
+"weight_pct": "0.12"
+},
+"LQDT": {
+"name": "Liquidity Services Inc.",
+"weight_pct": "0.02"
+},
+"LRMR": {
+"name": "Larimar Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"LRN": {
+"name": "Stride Inc.",
+"weight_pct": "0.11"
+},
+"LTBR": {
+"name": "Lightbridge Corp.",
+"weight_pct": "0.01"
+},
+"LTC": {
+"name": "LTC Properties Inc.",
+"weight_pct": "0.05"
+},
+"LTH": {
+"name": "Life Time Group Holdings Inc.",
+"weight_pct": "0.14"
+},
+"LUCD": {
+"name": "Lucid Diagnostics Inc.",
+"weight_pct": "0.00"
+},
+"LUMN": {
+"name": "Lumen Technologies Inc.",
+"weight_pct": "0.30"
+},
+"LUNG": {
+"name": "Pulmonx Corp.",
+"weight_pct": "0.00"
+},
+"LUNR": {
+"name": "Intuitive Machines Inc. Class A",
+"weight_pct": "0.14"
+},
+"LVWR": {
+"name": "Livewire Group Inc.",
+"weight_pct": "0.00"
+},
+"LWAY": {
+"name": "Lifeway Foods Inc.",
+"weight_pct": "0.00"
+},
+"LXEO": {
+"name": "Lexeo Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"LXFR": {
+"name": "Luxfer Holdings plc",
+"weight_pct": "0.01"
+},
+"LXP": {
+"name": "LXP Industrial Trust",
+"weight_pct": "0.09"
+},
+"LXU": {
+"name": "LSB Industries Inc.",
+"weight_pct": "0.02"
+},
+"LYTS": {
+"name": "LSI Industries Inc.",
+"weight_pct": "0.02"
+},
+"LZ": {
+"name": "Legalzoom.com Inc.",
+"weight_pct": "0.02"
+},
+"LZB": {
+"name": "La-Z-Boy Inc.",
+"weight_pct": "0.04"
+},
+"LZM": {
+"name": "Lifezone Metals Ltd.",
+"weight_pct": "0.00"
+},
+"MAC": {
+"name": "Macerich Co.",
+"weight_pct": "0.18"
+},
+"MAGN": {
+"name": "Magnera Corp.",
+"weight_pct": "0.01"
+},
+"MAIR": {
+"name": "Madison Air Solutions Corp. Class A",
+"weight_pct": "0.01"
+},
+"MAMA": {
+"name": "Mama's Creations Inc.",
+"weight_pct": "0.01"
+},
+"MANE": {
+"name": "VeraDermics Inc.",
+"weight_pct": "0.00"
+},
+"MARA": {
+"name": "MARA Holdings Inc.",
+"weight_pct": "0.16"
+},
+"MASS": {
+"name": "908 Devices Inc.",
+"weight_pct": "0.01"
+},
+"MATV": {
+"name": "Schweitzer-Mauduit International Inc.",
+"weight_pct": "0.01"
+},
+"MATW": {
+"name": "Matthews International Corp. Class A",
+"weight_pct": "0.02"
+},
+"MATX": {
+"name": "Matson Inc.",
+"weight_pct": "0.16"
+},
+"MAX": {
+"name": "MediaAlpha Inc. Class A",
+"weight_pct": "0.01"
+},
+"MAZE": {
+"name": "Maze Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"MBC": {
+"name": "Masterbrand Inc.",
+"weight_pct": "0.05"
+},
+"MBI": {
+"name": "MBIA Inc.",
+"weight_pct": "0.01"
+},
+"MBIN": {
+"name": "Merchants Bancorp/IN",
+"weight_pct": "0.04"
+},
+"MBUU": {
+"name": "Malibu Boats Inc. Class A",
+"weight_pct": "0.01"
+},
+"MBWM": {
+"name": "Mercantile Bank Corp.",
+"weight_pct": "0.03"
+},
+"MBX": {
+"name": "MBX Biosciences Inc.",
+"weight_pct": "0.03"
+},
+"MC": {
+"name": "Moelis & Co. Class A",
+"weight_pct": "0.14"
+},
+"MCB": {
+"name": "Metropolitan Bank Holding Corp.",
+"weight_pct": "0.02"
+},
+"MCBS": {
+"name": "Metrocity Bankshares Inc.",
+"weight_pct": "0.02"
+},
+"MCFT": {
+"name": "MasterCraft Boat Holdings Inc.",
+"weight_pct": "0.01"
+},
+"MCHB": {
+"name": "HomeStreet Inc.",
+"weight_pct": "0.02"
+},
+"MCRI": {
+"name": "Monarch Casino & Resort Inc.",
+"weight_pct": "0.04"
+},
+"MCS": {
+"name": "Marcus Corp.",
+"weight_pct": "0.01"
+},
+"MCY": {
+"name": "Mercury General Corp.",
+"weight_pct": "0.08"
+},
+"MD": {
+"name": "MEDNAX Inc.",
+"weight_pct": "0.05"
+},
+"MDGL": {
+"name": "Madrigal Pharmaceuticals Inc.",
+"weight_pct": "0.24"
+},
+"MDV": {
+"name": "Modiv Industrial Inc.",
+"weight_pct": "0.00"
+},
+"MDWD": {
+"name": "MediWound Ltd.",
+"weight_pct": "0.00"
+},
+"MDXG": {
+"name": "MiMedx Group Inc.",
+"weight_pct": "0.01"
+},
+"MEC": {
+"name": "Mayville Engineering Co. Inc.",
+"weight_pct": "0.01"
+},
+"MED": {
+"name": "Medifast Inc.",
+"weight_pct": "0.00"
+},
+"MEI": {
+"name": "Methode Electronics Inc.",
+"weight_pct": "0.01"
+},
+"METC": {
+"name": "Ramaco Resources Inc. Class A",
+"weight_pct": "0.02"
+},
+"MFA": {
+"name": "MFA Financial Inc.",
+"weight_pct": "0.03"
+},
+"MFIN": {
+"name": "Medallion Financial Corp.",
+"weight_pct": "0.00"
+},
+"MG": {
+"name": "Mistras Group Inc.",
+"weight_pct": "0.01"
+},
+"MGEE": {
+"name": "MGE Energy Inc.",
+"weight_pct": "0.08"
+},
+"MGNI": {
+"name": "Magnite Inc.",
+"weight_pct": "0.06"
+},
+"MGPI": {
+"name": "MGP Ingredients Inc.",
+"weight_pct": "0.01"
+},
+"MGRC": {
+"name": "McGrath RentCorp",
+"weight_pct": "0.08"
+},
+"MGTX": {
+"name": "MeiraGTx Holdings plc",
+"weight_pct": "0.01"
+},
+"MGY": {
+"name": "Magnolia Oil & Gas Corp. Class A",
+"weight_pct": "0.14"
+},
+"MH": {
+"name": "McGraw Hill Inc.",
+"weight_pct": "0.01"
+},
+"MHO": {
+"name": "M/I Homes Inc.",
+"weight_pct": "0.10"
+},
+"MIAX": {
+"name": "Miami International Holdings Inc.",
+"weight_pct": "0.03"
+},
+"MIR": {
+"name": "Mirion Technologies Inc. Class A",
+"weight_pct": "0.13"
+},
+"MIRM": {
+"name": "Mirum Pharmaceuticals Inc.",
+"weight_pct": "0.12"
+},
+"MITK": {
+"name": "Mitek Systems Inc.",
+"weight_pct": "0.02"
+},
+"MITT": {
+"name": "TPG Mortgage Investment Trust Inc.",
+"weight_pct": "0.01"
+},
+"MKTW": {
+"name": "MarketWise Inc.",
+"weight_pct": "0.00"
+},
+"MLAB": {
+"name": "Mesa Laboratories Inc.",
+"weight_pct": "0.02"
+},
+"MLKN": {
+"name": "Herman Miller Inc.",
+"weight_pct": "0.03"
+},
+"MLP": {
+"name": "Maui Land & Pineapple Co. Inc.",
+"weight_pct": "0.00"
+},
+"MLR": {
+"name": "Miller Industries Inc./TN",
+"weight_pct": "0.02"
+},
+"MLYS": {
+"name": "Mineralys Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"MMI": {
+"name": "Marcus & Millichap Inc.",
+"weight_pct": "0.02"
+},
+"MMS": {
+"name": "MAXIMUS Inc.",
+"weight_pct": "0.10"
+},
+"MMSI": {
+"name": "Merit Medical Systems Inc.",
+"weight_pct": "0.11"
+},
+"MNKD": {
+"name": "MannKind Corp.",
+"weight_pct": "0.03"
+},
+"MNPR": {
+"name": "Monopar Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"MNRO": {
+"name": "Monro Inc.",
+"weight_pct": "0.01"
+},
+"MNSB": {
+"name": "MainStreet Bancshares Inc.",
+"weight_pct": "0.00"
+},
+"MNTK": {
+"name": "Montauk Renewables Inc.",
+"weight_pct": "0.00"
+},
+"MOBI": {
+"name": "Mobia Medical Inc.",
+"weight_pct": "0.00"
+},
+"MOD": {
+"name": "Modine Manufacturing Co.",
+"weight_pct": "0.42"
+},
+"MOG.A": {
+"name": "Moog Inc. Class A",
+"weight_pct": "0.29"
+},
+"MOV": {
+"name": "Movado Group Inc.",
+"weight_pct": "0.02"
+},
+"MPAA": {
+"name": "Motorcar Parts of America Inc.",
+"weight_pct": "0.00"
+},
+"MPB": {
+"name": "Mid Penn Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"MPLT": {
+"name": "MapLight Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"MPTI": {
+"name": "M-Tron Industries Inc.",
+"weight_pct": "0.01"
+},
+"MQ": {
+"name": "Marqeta Inc. Class A",
+"weight_pct": "0.04"
+},
+"MRBK": {
+"name": "Meridian Corp.",
+"weight_pct": "0.00"
+},
+"MRCY": {
+"name": "Mercury Systems Inc.",
+"weight_pct": "0.17"
+},
+"MRDN": {
+"name": "Meridian Holdings Inc.",
+"weight_pct": "0.00"
+},
+"MRTN": {
+"name": "Marten Transport Ltd.",
+"weight_pct": "0.03"
+},
+"MRVI": {
+"name": "Maravai LifeSciences Holdings Inc. Class A",
+"weight_pct": "0.02"
+},
+"MRX": {
+"name": "Marex Group plc",
+"weight_pct": "0.08"
+},
+"MSBI": {
+"name": "Midland States Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"MSEX": {
+"name": "Middlesex Water Co.",
+"weight_pct": "0.03"
+},
+"MSGE": {
+"name": "Madison Square Garden Entertainment Corp. Class A",
+"weight_pct": "0.08"
+},
+"MTH": {
+"name": "Meritage Homes Corp.",
+"weight_pct": "0.13"
+},
+"MTRN": {
+"name": "Materion Corp.",
+"weight_pct": "0.13"
+},
+"MTRX": {
+"name": "Matrix Service Co.",
+"weight_pct": "0.01"
+},
+"MTUS": {
+"name": "TimkenSteel Corp.",
+"weight_pct": "0.02"
+},
+"MTW": {
+"name": "Manitowoc Co. Inc.",
+"weight_pct": "0.01"
+},
+"MTX": {
+"name": "Minerals Technologies Inc.",
+"weight_pct": "0.07"
+},
+"MUR": {
+"name": "Murphy Oil Corp.",
+"weight_pct": "0.14"
+},
+"MVBF": {
+"name": "MVB Financial Corp.",
+"weight_pct": "0.01"
+},
+"MVIS": {
+"name": "MicroVision Inc.",
+"weight_pct": "0.01"
+},
+"MVST": {
+"name": "Microvast Holdings Inc.",
+"weight_pct": "0.01"
+},
+"MWA": {
+"name": "Mueller Water Products Inc. Class A",
+"weight_pct": "0.11"
+},
+"MWH": {
+"name": "Solv Energy Inc. Class A",
+"weight_pct": "0.00"
+},
+"MXCT": {
+"name": "MaxCyte Inc.",
+"weight_pct": "0.00"
+},
+"MXL": {
+"name": "MaxLinear Inc.",
+"weight_pct": "0.22"
+},
+"MYE": {
+"name": "Myers Industries Inc.",
+"weight_pct": "0.02"
+},
+"MYFW": {
+"name": "First Western Financial Inc.",
+"weight_pct": "0.01"
+},
+"MYGN": {
+"name": "Myriad Genetics Inc.",
+"weight_pct": "0.01"
+},
+"MYO": {
+"name": "Myomo Inc.",
+"weight_pct": "0.00"
+},
+"MYPS": {
+"name": "Playstudios Inc.",
+"weight_pct": "0.00"
+},
+"MYRG": {
+"name": "MYR Group Inc.",
+"weight_pct": "0.21"
+},
+"MZTI": {
+"name": "Lancaster Colony Corp.",
+"weight_pct": "0.06"
+},
+"NABL": {
+"name": "N-able Inc./US",
+"weight_pct": "0.01"
+},
+"NAGE": {
+"name": "ChromaDex Corp.",
+"weight_pct": "0.01"
+},
+"NAT": {
+"name": "Nordic American Tankers Ltd.",
+"weight_pct": "0.03"
+},
+"NATH": {
+"name": "Nathan's Famous Inc.",
+"weight_pct": "0.01"
+},
+"NATL": {
+"name": "NCR Atleos Corp.",
+"weight_pct": "0.09"
+},
+"NATR": {
+"name": "Nature's Sunshine Products Inc.",
+"weight_pct": "0.01"
+},
+"NAVI": {
+"name": "Navient Corp.",
+"weight_pct": "0.02"
+},
+"NAVN": {
+"name": "Navan Inc. Class A",
+"weight_pct": "0.02"
+},
+"NB": {
+"name": "NioCorp Developments Ltd.",
+"weight_pct": "0.02"
+},
+"NBBK": {
+"name": "NB Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"NBHC": {
+"name": "National Bank Holdings Corp. Class A",
+"weight_pct": "0.05"
+},
+"NBN": {
+"name": "Northeast Bank",
+"weight_pct": "0.03"
+},
+"NBR": {
+"name": "Nabors Industries Ltd.",
+"weight_pct": "0.04"
+},
+"NBTB": {
+"name": "NBT Bancorp Inc.",
+"weight_pct": "0.07"
+},
+"NC": {
+"name": "NACCO Industries Inc. Class A",
+"weight_pct": "0.01"
+},
+"NCMI": {
+"name": "National CineMedia Inc.",
+"weight_pct": "0.01"
+},
+"NE": {
+"name": "Noble Corp. plc",
+"weight_pct": "0.17"
+},
+"NECB": {
+"name": "Northeast Community Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"NEO": {
+"name": "NeoGenomics Inc.",
+"weight_pct": "0.04"
+},
+"NEOG": {
+"name": "Neogen Corp.",
+"weight_pct": "0.06"
+},
+"NEON": {
+"name": "Neonode Inc.",
+"weight_pct": "0.00"
+},
+"NESR": {
+"name": "National Energy Services Reunited Corp.",
+"weight_pct": "0.05"
+},
+"NEWT": {
+"name": "NewtekOne Inc.",
+"weight_pct": "0.01"
+},
+"NEXN": {
+"name": "Nexxen International Ltd.",
+"weight_pct": "0.01"
+},
+"NEXT": {
+"name": "NextDecade Corp.",
+"weight_pct": "0.04"
+},
+"NFBK": {
+"name": "Northfield Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"NFE": {
+"name": "New Fortress Energy LLC",
+"weight_pct": "0.00"
+},
+"NG": {
+"name": "Novagold Resources Inc.",
+"weight_pct": "0.07"
+},
+"NGNE": {
+"name": "Neurogene Inc.",
+"weight_pct": "0.01"
+},
+"NGS": {
+"name": "Natural Gas Services Group Inc.",
+"weight_pct": "0.01"
+},
+"NGVC": {
+"name": "Natural Grocers by Vitamin Cottage Inc.",
+"weight_pct": "0.01"
+},
+"NGVT": {
+"name": "Ingevity Corp.",
+"weight_pct": "0.07"
+},
+"NHC": {
+"name": "National HealthCare Corp.",
+"weight_pct": "0.07"
+},
+"NHI": {
+"name": "National Health Investors Inc.",
+"weight_pct": "0.10"
+},
+"NHP": {
+"name": "National Healthcare Properties Inc.",
+"weight_pct": "0.00"
+},
+"NIC": {
+"name": "Nicolet Bankshares Inc.",
+"weight_pct": "0.07"
+},
+"NJR": {
+"name": "New Jersey Resources Corp.",
+"weight_pct": "0.16"
+},
+"NKSH": {
+"name": "National Bankshares Inc.",
+"weight_pct": "0.01"
+},
+"NKTX": {
+"name": "Nkarta Inc.",
+"weight_pct": "0.00"
+},
+"NL": {
+"name": "NL Industries Inc.",
+"weight_pct": "0.00"
+},
+"NLOP": {
+"name": "NET Lease Office Properties",
+"weight_pct": "0.01"
+},
+"NMAX": {
+"name": "Newsmax Inc.",
+"weight_pct": "0.01"
+},
+"NMIH": {
+"name": "NMI Holdings Inc. Class A",
+"weight_pct": "0.08"
+},
+"NMRK": {
+"name": "Newmark Group Inc. Class A",
+"weight_pct": "0.06"
+},
+"NN": {
+"name": "NextNav Inc.",
+"weight_pct": "0.06"
+},
+"NNE": {
+"name": "NANO Nuclear Energy Inc.",
+"weight_pct": "0.03"
+},
+"NNI": {
+"name": "Nelnet Inc. Class A",
+"weight_pct": "0.05"
+},
+"NNOX": {
+"name": "Nano-X Imaging Ltd.",
+"weight_pct": "0.00"
+},
+"NODK": {
+"name": "NI Holdings Inc.",
+"weight_pct": "0.00"
+},
+"NOG": {
+"name": "Northern Oil & Gas Inc.",
+"weight_pct": "0.06"
+},
+"NOVT": {
+"name": "Novanta Inc.",
+"weight_pct": "0.16"
+},
+"NPB": {
+"name": "Northpointe Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"NPCE": {
+"name": "NeuroPace Inc.",
+"weight_pct": "0.01"
+},
+"NPK": {
+"name": "National Presto Industries Inc.",
+"weight_pct": "0.02"
+},
+"NPKI": {
+"name": "Newpark Resources Inc.",
+"weight_pct": "0.03"
+},
+"NPO": {
+"name": "EnPro Industries Inc.",
+"weight_pct": "0.19"
+},
+"NPWR": {
+"name": "Net Power Inc.",
+"weight_pct": "0.00"
+},
+"NRC": {
+"name": "National Research Corp.",
+"weight_pct": "0.01"
+},
+"NRDS": {
+"name": "NerdWallet Inc. Class A",
+"weight_pct": "0.01"
+},
+"NRDY": {
+"name": "Nerdy Inc.",
+"weight_pct": "0.00"
+},
+"NREF": {
+"name": "Nexpoint Real Estate Finance Inc.",
+"weight_pct": "0.00"
+},
+"NRIM": {
+"name": "Northrim BanCorp Inc.",
+"weight_pct": "0.02"
+},
+"NRIX": {
+"name": "Nurix Therapeutics Inc.",
+"weight_pct": "0.05"
+},
+"NSIT": {
+"name": "Insight Enterprises Inc.",
+"weight_pct": "0.09"
+},
+"NSP": {
+"name": "Insperity Inc.",
+"weight_pct": "0.04"
+},
+"NSSC": {
+"name": "Napco Security Technologies Inc.",
+"weight_pct": "0.04"
+},
+"NTB": {
+"name": "Bank of NT Butterfield & Son Ltd.",
+"weight_pct": "0.07"
+},
+"NTCT": {
+"name": "NetScout Systems Inc.",
+"weight_pct": "0.08"
+},
+"NTGR": {
+"name": "NETGEAR Inc.",
+"weight_pct": "0.02"
+},
+"NTLA": {
+"name": "Intellia Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"NTST": {
+"name": "NETSTREIT Corp.",
+"weight_pct": "0.05"
+},
+"NUS": {
+"name": "Nu Skin Enterprises Inc. Class A",
+"weight_pct": "0.01"
+},
+"NUTX": {
+"name": "Nutex Health Inc.",
+"weight_pct": "0.02"
+},
+"NUVB": {
+"name": "Nuvation Bio Inc.",
+"weight_pct": "0.03"
+},
+"NUVL": {
+"name": "Nuvalent Inc. Class A",
+"weight_pct": "0.16"
+},
+"NVAX": {
+"name": "Novavax Inc.",
+"weight_pct": "0.05"
+},
+"NVCR": {
+"name": "Novocure Ltd.",
+"weight_pct": "0.05"
+},
+"NVCT": {
+"name": "Nuvectis Pharma Inc.",
+"weight_pct": "0.00"
+},
+"NVEC": {
+"name": "NVE Corp.",
+"weight_pct": "0.01"
+},
+"NVGS": {
+"name": "Navigator Holdings Ltd.",
+"weight_pct": "0.02"
+},
+"NVRI": {
+"name": "Harsco Corp.",
+"weight_pct": "0.05"
+},
+"NVTS": {
+"name": "Navitas Semiconductor Corp. Class A",
+"weight_pct": "0.15"
+},
+"NWBI": {
+"name": "Northwest Bancshares Inc.",
+"weight_pct": "0.06"
+},
+"NWE": {
+"name": "Northwestern Energy Group Inc.",
+"weight_pct": "0.12"
+},
+"NWFL": {
+"name": "Norwood Financial Corp.",
+"weight_pct": "0.01"
+},
+"NWN": {
+"name": "Northwest Natural Holding Co.",
+"weight_pct": "0.06"
+},
+"NWPX": {
+"name": "Northwest Pipe Co.",
+"weight_pct": "0.03"
+},
+"NX": {
+"name": "Quanex Building Products Corp.",
+"weight_pct": "0.02"
+},
+"NXDR": {
+"name": "Nextdoor Holdings Inc.",
+"weight_pct": "0.01"
+},
+"NXDT": {
+"name": "NexPoint Diversified Real Estate Trust",
+"weight_pct": "0.01"
+},
+"NXRT": {
+"name": "NexPoint Residential Trust Inc.",
+"weight_pct": "0.02"
+},
+"NXT": {
+"name": "Nextpower Inc. Class A",
+"weight_pct": "0.65"
+},
+"NXXT": {
+"name": "NextNRG Inc.",
+"weight_pct": "0.00"
+},
+"OABI": {
+"name": "OmniAb Inc.",
+"weight_pct": "0.01"
+},
+"OBK": {
+"name": "Origin Bancorp Inc.",
+"weight_pct": "0.04"
+},
+"OBT": {
+"name": "Orange County Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"OCFC": {
+"name": "OceanFirst Financial Corp.",
+"weight_pct": "0.03"
+},
+"OCUL": {
+"name": "Ocular Therapeutix Inc.",
+"weight_pct": "0.05"
+},
+"ODC": {
+"name": "Oil-Dri Corp. of America",
+"weight_pct": "0.02"
+},
+"ODTX": {
+"name": "Odyssey Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"OEC": {
+"name": "Orion Engineered Carbons SA",
+"weight_pct": "0.01"
+},
+"OFG": {
+"name": "OFG Bancorp",
+"weight_pct": "0.06"
+},
+"OFIX": {
+"name": "Orthofix Medical Inc.",
+"weight_pct": "0.01"
+},
+"OFLX": {
+"name": "Omega Flex Inc.",
+"weight_pct": "0.00"
+},
+"OFRM": {
+"name": "Once Upon a Farm PBC",
+"weight_pct": "0.00"
+},
+"OGS": {
+"name": "ONE Gas Inc.",
+"weight_pct": "0.13"
+},
+"OI": {
+"name": "O-I Glass Inc.",
+"weight_pct": "0.04"
+},
+"OII": {
+"name": "Oceaneering International Inc.",
+"weight_pct": "0.11"
+},
+"OIS": {
+"name": "Oil States International Inc.",
+"weight_pct": "0.01"
+},
+"OKLO": {
+"name": "Oklo Inc. Class A",
+"weight_pct": "0.23"
+},
+"OLMA": {
+"name": "Olema Pharmaceuticals Inc.",
+"weight_pct": "0.03"
+},
+"OLP": {
+"name": "One Liberty Properties Inc.",
+"weight_pct": "0.01"
+},
+"OLPX": {
+"name": "Olaplex Holdings Inc.",
+"weight_pct": "0.01"
+},
+"OM": {
+"name": "Outset Medical Inc.",
+"weight_pct": "0.00"
+},
+"OMCL": {
+"name": "Omnicell Inc.",
+"weight_pct": "0.06"
+},
+"OMDA": {
+"name": "Omada Health Inc.",
+"weight_pct": "0.02"
+},
+"OMER": {
+"name": "Omeros Corp.",
+"weight_pct": "0.02"
+},
+"ONB": {
+"name": "Old National Bancorp/IN",
+"weight_pct": "0.24"
+},
+"ONEW": {
+"name": "OneWater Marine Inc. Class A",
+"weight_pct": "0.00"
+},
+"ONIT": {
+"name": "Onity Group Inc.",
+"weight_pct": "0.01"
+},
+"ONT": {
+"name": "Onterris Inc.",
+"weight_pct": "0.02"
+},
+"OOMA": {
+"name": "Ooma Inc.",
+"weight_pct": "0.01"
+},
+"OPAL": {
+"name": "OPAL Fuels Inc. Class A",
+"weight_pct": "0.00"
+},
+"OPBK": {
+"name": "OP Bancorp",
+"weight_pct": "0.00"
+},
+"OPCH": {
+"name": "Option Care Health Inc.",
+"weight_pct": "0.10"
+},
+"OPFI": {
+"name": "OppFi Inc.",
+"weight_pct": "0.01"
+},
+"OPK": {
+"name": "OPKO Health Inc.",
+"weight_pct": "0.02"
+},
+"OPLN": {
+"name": "KAR Auction Services Inc.",
+"weight_pct": "0.11"
+},
+"OPRT": {
+"name": "Oportun Financial Corp.",
+"weight_pct": "0.01"
+},
+"OPRX": {
+"name": "OptimizeRx Corp.",
+"weight_pct": "0.00"
+},
+"OPTU": {
+"name": "Altice USA Inc. Class A",
+"weight_pct": "0.00"
+},
+"ORA": {
+"name": "Ormat Technologies Inc.",
+"weight_pct": "0.24"
+},
+"ORC": {
+"name": "Orchid Island Capital Inc.",
+"weight_pct": "0.04"
+},
+"ORGO": {
+"name": "Organogenesis Holdings Inc. Class A",
+"weight_pct": "0.01"
+},
+"ORIC": {
+"name": "ORIC Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"ORKA": {
+"name": "Oruka Therapeutics Inc.",
+"weight_pct": "0.08"
+},
+"ORN": {
+"name": "Orion Group Holdings Inc.",
+"weight_pct": "0.01"
+},
+"ORRF": {
+"name": "Orrstown Financial Services Inc.",
+"weight_pct": "0.02"
+},
+"OSBC": {
+"name": "Old Second Bancorp Inc.",
+"weight_pct": "0.03"
+},
+"OSCR": {
+"name": "Oscar Health Inc. Class A",
+"weight_pct": "0.13"
+},
+"OSG": {
+"name": "Octave Specialty Group Inc.",
+"weight_pct": "0.01"
+},
+"OSIS": {
+"name": "OSI Systems Inc.",
+"weight_pct": "0.10"
+},
+"OSPN": {
+"name": "OneSpan Inc.",
+"weight_pct": "0.02"
+},
+"OSUR": {
+"name": "OraSure Technologies Inc.",
+"weight_pct": "0.01"
+},
+"OSW": {
+"name": "OneSpaWorld Holdings Ltd.",
+"weight_pct": "0.07"
+},
+"OTTR": {
+"name": "Otter Tail Corp.",
+"weight_pct": "0.10"
+},
+"OUST": {
+"name": "Ouster Inc.",
+"weight_pct": "0.07"
+},
+"OUT": {
+"name": "Outfront Media Inc.",
+"weight_pct": "0.14"
+},
+"OVBC": {
+"name": "Ohio Valley Banc Corp.",
+"weight_pct": "0.01"
+},
+"OVLY": {
+"name": "Oak Valley Bancorp",
+"weight_pct": "0.01"
+},
+"OXM": {
+"name": "Oxford Industries Inc.",
+"weight_pct": "0.02"
+},
+"PACB": {
+"name": "Pacific Biosciences of California Inc.",
+"weight_pct": "0.01"
+},
+"PACK": {
+"name": "Ranpak Holdings Corp. Class A",
+"weight_pct": "0.01"
+},
+"PACS": {
+"name": "PACS Group Inc.",
+"weight_pct": "0.05"
+},
+"PAGS": {
+"name": "Pagseguro Digital Ltd. Class A",
+"weight_pct": "0.05"
+},
+"PAHC": {
+"name": "Phibro Animal Health Corp. Class A",
+"weight_pct": "0.02"
+},
+"PAL": {
+"name": "Proficient Auto Logistics Inc.",
+"weight_pct": "0.00"
+},
+"PAMT": {
+"name": "PAM Transportation Services Inc.",
+"weight_pct": "0.00"
+},
+"PANL": {
+"name": "Pangaea Logistics Solutions Ltd.",
+"weight_pct": "0.01"
+},
+"PAR": {
+"name": "PAR Technology Corp.",
+"weight_pct": "0.02"
+},
+"PARR": {
+"name": "Par Pacific Holdings Inc.",
+"weight_pct": "0.08"
+},
+"PATK": {
+"name": "Patrick Industries Inc.",
+"weight_pct": "0.08"
+},
+"PAX": {
+"name": "Patria Investments Ltd. Class A",
+"weight_pct": "0.02"
+},
+"PAYO": {
+"name": "Payoneer Global Inc.",
+"weight_pct": "0.04"
+},
+"PAYS": {
+"name": "Paysign Inc.",
+"weight_pct": "0.01"
+},
+"PBF": {
+"name": "PBF Energy Inc. Class A",
+"weight_pct": "0.10"
+},
+"PBFS": {
+"name": "Pioneer Bancorp Inc./NY",
+"weight_pct": "0.00"
+},
+"PBH": {
+"name": "Prestige Consumer Healthcare Inc.",
+"weight_pct": "0.07"
+},
+"PBI": {
+"name": "Pitney Bowes Inc.",
+"weight_pct": "0.07"
+},
+"PBYI": {
+"name": "Puma Biotechnology Inc.",
+"weight_pct": "0.01"
+},
+"PCB": {
+"name": "PCB Bancorp",
+"weight_pct": "0.01"
+},
+"PCRX": {
+"name": "Pacira BioSciences Inc.",
+"weight_pct": "0.03"
+},
+"PCT": {
+"name": "PureCycle Technologies Inc.",
+"weight_pct": "0.05"
+},
+"PCVX": {
+"name": "Vaxcyte Inc.",
+"weight_pct": "0.18"
+},
+"PCYO": {
+"name": "Pure Cycle Corp.",
+"weight_pct": "0.01"
+},
+"PD": {
+"name": "PagerDuty Inc.",
+"weight_pct": "0.03"
+},
+"PDEX": {
+"name": "Pro-Dex Inc.",
+"weight_pct": "0.00"
+},
+"PDFS": {
+"name": "PDF Solutions Inc.",
+"weight_pct": "0.04"
+},
+"PDLB": {
+"name": "Ponce Financial Group Inc.",
+"weight_pct": "0.01"
+},
+"PDM": {
+"name": "Piedmont Office Realty Trust Inc. Class A",
+"weight_pct": "0.03"
+},
+"PDYN": {
+"name": "Palladyne AI Corp.",
+"weight_pct": "0.01"
+},
+"PEB": {
+"name": "Pebblebrook Hotel Trust",
+"weight_pct": "0.05"
+},
+"PEBK": {
+"name": "Peoples Bancorp of North Carolina Inc.",
+"weight_pct": "0.01"
+},
+"PEBO": {
+"name": "Peoples Bancorp Inc./OH",
+"weight_pct": "0.03"
+},
+"PECO": {
+"name": "Phillips Edison & Co. Inc.",
+"weight_pct": "0.15"
+},
+"PENG": {
+"name": "Penguin Solutions Inc.",
+"weight_pct": "0.08"
+},
+"PESI": {
+"name": "Perma-Fix Environmental Services",
+"weight_pct": "0.00"
+},
+"PFBC": {
+"name": "Preferred Bank/Los Angeles CA",
+"weight_pct": "0.03"
+},
+"PFIS": {
+"name": "Peoples Financial Services Corp.",
+"weight_pct": "0.02"
+},
+"PFS": {
+"name": "Provident Financial Services Inc.",
+"weight_pct": "0.08"
+},
+"PFSI": {
+"name": "PennyMac Financial Services Inc.",
+"weight_pct": "0.07"
+},
+"PGC": {
+"name": "Peapack Gladstone Financial Corp.",
+"weight_pct": "0.02"
+},
+"PGEN": {
+"name": "Precigen Inc.",
+"weight_pct": "0.02"
+},
+"PGNY": {
+"name": "Progyny Inc.",
+"weight_pct": "0.06"
+},
+"PGY": {
+"name": "Pagaya Technologies Ltd. Class A",
+"weight_pct": "0.03"
+},
+"PHAT": {
+"name": "Phathom Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"PHIN": {
+"name": "Phinia Inc.",
+"weight_pct": "0.08"
+},
+"PHR": {
+"name": "Phreesia Inc.",
+"weight_pct": "0.02"
+},
+"PI": {
+"name": "Impinj Inc.",
+"weight_pct": "0.12"
+},
+"PII": {
+"name": "Polaris Inc.",
+"weight_pct": "0.11"
+},
+"PINE": {
+"name": "Alpine Income Property Trust Inc.",
+"weight_pct": "0.01"
+},
+"PIPR": {
+"name": "Piper Sandler Cos.",
+"weight_pct": "0.16"
+},
+"PJT": {
+"name": "PJT Partners Inc.",
+"weight_pct": "0.10"
+},
+"PKBK": {
+"name": "Parke Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"PKE": {
+"name": "Park Aerospace Corp.",
+"weight_pct": "0.02"
+},
+"PKOH": {
+"name": "Park-Ohio Holdings Corp.",
+"weight_pct": "0.01"
+},
+"PL": {
+"name": "Planet Labs PBC",
+"weight_pct": "0.40"
+},
+"PLAB": {
+"name": "Photronics Inc.",
+"weight_pct": "0.05"
+},
+"PLAY": {
+"name": "Dave & Buster's Entertainment Inc.",
+"weight_pct": "0.01"
+},
+"PLBC": {
+"name": "Plumas Bancorp",
+"weight_pct": "0.01"
+},
+"PLGO": {
+"name": "Pelagos Insurance Capital Ltd.",
+"weight_pct": "0.03"
+},
+"PLMR": {
+"name": "Palomar Holdings Inc. Class A",
+"weight_pct": "0.08"
+},
+"PLOW": {
+"name": "Douglas Dynamics Inc.",
+"weight_pct": "0.03"
+},
+"PLPC": {
+"name": "Preformed Line Products Co.",
+"weight_pct": "0.03"
+},
+"PLSE": {
+"name": "Pulse Biosciences Inc.",
+"weight_pct": "0.01"
+},
+"PLTK": {
+"name": "Playtika Holding Corp.",
+"weight_pct": "0.01"
+},
+"PLUG": {
+"name": "Plug Power Inc.",
+"weight_pct": "0.15"
+},
+"PLUS": {
+"name": "ePlus Inc.",
+"weight_pct": "0.06"
+},
+"PLX": {
+"name": "Protalix BioTherapeutics Inc.",
+"weight_pct": "0.00"
+},
+"PLXS": {
+"name": "Plexus Corp.",
+"weight_pct": "0.20"
+},
+"PMI": {
+"name": "Picard Medical Inc.",
+"weight_pct": "0.00"
+},
+"PMT": {
+"name": "PennyMac Mortgage Investment Trust",
+"weight_pct": "0.03"
+},
+"PMTS": {
+"name": "CPI Card Group Inc.",
+"weight_pct": "0.00"
+},
+"PNBK": {
+"name": "Patriot National Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"PNRG": {
+"name": "PrimeEnergy Resources Corp.",
+"weight_pct": "0.00"
+},
+"PNTG": {
+"name": "Pennant Group Inc.",
+"weight_pct": "0.03"
+},
+"POR": {
+"name": "Portland General Electric Co.",
+"weight_pct": "0.16"
+},
+"POWI": {
+"name": "Power Integrations Inc.",
+"weight_pct": "0.13"
+},
+"POWL": {
+"name": "Powell Industries Inc.",
+"weight_pct": "0.23"
+},
+"POWW": {
+"name": "Outdoor Holding Co.",
+"weight_pct": "0.01"
+},
+"PPHC": {
+"name": "Public Policy Holding Co. Inc.",
+"weight_pct": "0.00"
+},
+"PPTA": {
+"name": "Perpetua Resources Corp.",
+"weight_pct": "0.07"
+},
+"PRA": {
+"name": "ProAssurance Corp.",
+"weight_pct": "0.04"
+},
+"PRAA": {
+"name": "PRA Group Inc.",
+"weight_pct": "0.02"
+},
+"PRAX": {
+"name": "Praxis Precision Medicines Inc.",
+"weight_pct": "0.26"
+},
+"PRCH": {
+"name": "Porch Group Inc.",
+"weight_pct": "0.03"
+},
+"PRCT": {
+"name": "Procept Biorobotics Corp.",
+"weight_pct": "0.04"
+},
+"PRDO": {
+"name": "Perdoceo Education Corp.",
+"weight_pct": "0.06"
+},
+"PRG": {
+"name": "PROG Holdings Inc.",
+"weight_pct": "0.04"
+},
+"PRGS": {
+"name": "Progress Software Corp.",
+"weight_pct": "0.04"
+},
+"PRIM": {
+"name": "Primoris Services Corp.",
+"weight_pct": "0.20"
+},
+"PRK": {
+"name": "Park National Corp.",
+"weight_pct": "0.07"
+},
+"PRKS": {
+"name": "SeaWorld Entertainment Inc.",
+"weight_pct": "0.03"
+},
+"PRLB": {
+"name": "Proto Labs Inc.",
+"weight_pct": "0.05"
+},
+"PRM": {
+"name": "Perimeter Solutions Inc.",
+"weight_pct": "0.13"
+},
+"PRME": {
+"name": "Prime Medicine Inc.",
+"weight_pct": "0.01"
+},
+"PROP": {
+"name": "Prairie Operating Co.",
+"weight_pct": "0.00"
+},
+"PRSU": {
+"name": "Viad Corp.",
+"weight_pct": "0.03"
+},
+"PRTA": {
+"name": "Prothena Corp. plc",
+"weight_pct": "0.01"
+},
+"PRTH": {
+"name": "Priority Technology Holdings Inc.",
+"weight_pct": "0.01"
+},
+"PRVA": {
+"name": "Privia Health Group Inc.",
+"weight_pct": "0.07"
+},
+"PSFE": {
+"name": "Paysafe Ltd.",
+"weight_pct": "0.01"
+},
+"PSIX": {
+"name": "Power Solutions International Inc.",
+"weight_pct": "0.01"
+},
+"PSMT": {
+"name": "PriceSmart Inc.",
+"weight_pct": "0.13"
+},
+"PSNL": {
+"name": "Personalis Inc.",
+"weight_pct": "0.02"
+},
+"PSTL": {
+"name": "Postal Realty Trust Inc. Class A",
+"weight_pct": "0.02"
+},
+"PTCT": {
+"name": "PTC Therapeutics Inc.",
+"weight_pct": "0.17"
+},
+"PTEN": {
+"name": "Patterson-UTI Energy Inc.",
+"weight_pct": "0.11"
+},
+"PTGX": {
+"name": "Protagonist Therapeutics Inc.",
+"weight_pct": "0.17"
+},
+"PTLO": {
+"name": "Portillo's Inc. Class A",
+"weight_pct": "0.01"
+},
+"PTON": {
+"name": "Peloton Interactive Inc. Class A",
+"weight_pct": "0.07"
+},
+"PUBM": {
+"name": "PubMatic Inc. Class A",
+"weight_pct": "0.01"
+},
+"PUMP": {
+"name": "ProPetro Holding Corp.",
+"weight_pct": "0.04"
+},
+"PVLA": {
+"name": "Palvella Therapeutics Inc.",
+"weight_pct": "0.03"
+},
+"PWP": {
+"name": "Perella Weinberg Partners Class A",
+"weight_pct": "0.03"
+},
+"PXED": {
+"name": "Phoenix Education Partners Inc.",
+"weight_pct": "0.00"
+},
+"PZZA": {
+"name": "Papa John's International Inc.",
+"weight_pct": "0.03"
+},
+"QBTS": {
+"name": "D-Wave Quantum Inc.",
+"weight_pct": "0.32"
+},
+"QCRH": {
+"name": "QCR Holdings Inc.",
+"weight_pct": "0.04"
+},
+"QDEL": {
+"name": "QuidelOrtho Corp.",
+"weight_pct": "0.03"
+},
+"QLYS": {
+"name": "Qualys Inc.",
+"weight_pct": "0.11"
+},
+"QNST": {
+"name": "QuinStreet Inc.",
+"weight_pct": "0.02"
+},
+"QSI": {
+"name": "Quantum-Si Inc.",
+"weight_pct": "0.01"
+},
+"QTRX": {
+"name": "Quanterix Corp.",
+"weight_pct": "0.00"
+},
+"QTWO": {
+"name": "Q2 Holdings Inc.",
+"weight_pct": "0.08"
+},
+"QUAD": {
+"name": "Quad/Graphics Inc.",
+"weight_pct": "0.01"
+},
+"QUBT": {
+"name": "Quantum Computing Inc.",
+"weight_pct": "0.07"
+},
+"RAMP": {
+"name": "LiveRamp Holdings Inc.",
+"weight_pct": "0.07"
+},
+"RAPP": {
+"name": "Rapport Therapeutics Inc.",
+"weight_pct": "0.03"
+},
+"RBB": {
+"name": "RBB Bancorp",
+"weight_pct": "0.01"
+},
+"RBBN": {
+"name": "Ribbon Communications Inc.",
+"weight_pct": "0.01"
+},
+"RBCAA": {
+"name": "Republic Bancorp Inc./KY Class A",
+"weight_pct": "0.02"
+},
+"RBKB": {
+"name": "Rhinebeck Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"RC": {
+"name": "Ready Capital Corp.",
+"weight_pct": "0.01"
+},
+"RCAT": {
+"name": "Red Cat Holdings Inc.",
+"weight_pct": "0.04"
+},
+"RCEL": {
+"name": "Avita Medical Inc.",
+"weight_pct": "0.00"
+},
+"RCKT": {
+"name": "Rocket Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"RCKY": {
+"name": "Rocky Brands Inc.",
+"weight_pct": "0.01"
+},
+"RCMT": {
+"name": "RCM Technologies Inc.",
+"weight_pct": "0.00"
+},
+"RCUS": {
+"name": "Arcus Biosciences Inc.",
+"weight_pct": "0.06"
+},
+"RDN": {
+"name": "Radian Group Inc.",
+"weight_pct": "0.13"
+},
+"RDNT": {
+"name": "RadNet Inc.",
+"weight_pct": "0.11"
+},
+"RDVT": {
+"name": "Red Violet Inc.",
+"weight_pct": "0.02"
+},
+"RDW": {
+"name": "Redwire Corp.",
+"weight_pct": "0.07"
+},
+"REA": {
+"name": "Rare Earths Americas Inc.",
+"weight_pct": "0.00"
+},
+"REAL": {
+"name": "RealReal Inc.",
+"weight_pct": "0.03"
+},
+"REAX": {
+"name": "Real Brokerage Inc.",
+"weight_pct": "0.01"
+},
+"REFI": {
+"name": "Chicago Atlantic Real Estate Finance Inc.",
+"weight_pct": "0.01"
+},
+"RELL": {
+"name": "Richardson Electronics Ltd./United States",
+"weight_pct": "0.01"
+},
+"RELY": {
+"name": "Remitly Global Inc.",
+"weight_pct": "0.10"
+},
+"REPL": {
+"name": "Replimune Group Inc.",
+"weight_pct": "0.02"
+},
+"REPX": {
+"name": "Riley Exploration Permian Inc.",
+"weight_pct": "0.01"
+},
+"RES": {
+"name": "RPC Inc.",
+"weight_pct": "0.02"
+},
+"REX": {
+"name": "REX American Resources Corp.",
+"weight_pct": "0.04"
+},
+"REZI": {
+"name": "Resideo Technologies Inc.",
+"weight_pct": "0.12"
+},
+"RGCO": {
+"name": "RGC Resources Inc.",
+"weight_pct": "0.01"
+},
+"RGNX": {
+"name": "REGENXBIO Inc.",
+"weight_pct": "0.01"
+},
+"RGP": {
+"name": "Resources Connection Inc.",
+"weight_pct": "0.00"
+},
+"RGR": {
+"name": "Sturm Ruger & Co. Inc.",
+"weight_pct": "0.02"
+},
+"RGTI": {
+"name": "Rigetti Computing Inc.",
+"weight_pct": "0.24"
+},
+"RHLD": {
+"name": "Resolute Holdings Management Inc.",
+"weight_pct": "0.01"
+},
+"RHP": {
+"name": "Ryman Hospitality Properties Inc.",
+"weight_pct": "0.20"
+},
+"RICK": {
+"name": "RCI Hospitality Holdings Inc.",
+"weight_pct": "0.01"
+},
+"RIG": {
+"name": "Transocean Ltd.",
+"weight_pct": "0.16"
+},
+"RIGL": {
+"name": "Rigel Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"RIOT": {
+"name": "Riot Blockchain Inc.",
+"weight_pct": "0.27"
+},
+"RLAY": {
+"name": "Relay Therapeutics Inc.",
+"weight_pct": "0.06"
+},
+"RLGT": {
+"name": "Radiant Logistics Inc.",
+"weight_pct": "0.01"
+},
+"RLJ": {
+"name": "RLJ Lodging Trust",
+"weight_pct": "0.03"
+},
+"RM": {
+"name": "Regional Management Corp.",
+"weight_pct": "0.01"
+},
+"RMAX": {
+"name": "RE/MAX Holdings Inc. Class A",
+"weight_pct": "0.01"
+},
+"RMBI": {
+"name": "Richmond Mutual Bancorporation Inc.",
+"weight_pct": "0.00"
+},
+"RMBS": {
+"name": "Rambus Inc.",
+"weight_pct": "0.45"
+},
+"RMNI": {
+"name": "Rimini Street Inc.",
+"weight_pct": "0.01"
+},
+"RMR": {
+"name": "RMR Group Inc. Class A",
+"weight_pct": "0.01"
+},
+"RNA": {
+"name": "Atrium Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"RNAC": {
+"name": "Cartesian Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"RNGR": {
+"name": "Ranger Energy Services Inc.",
+"weight_pct": "0.01"
+},
+"RNST": {
+"name": "Renasant Corp.",
+"weight_pct": "0.11"
+},
+"ROAD": {
+"name": "Construction Partners Inc. Class A",
+"weight_pct": "0.16"
+},
+"ROCK": {
+"name": "Gibraltar Industries Inc.",
+"weight_pct": "0.03"
+},
+"ROG": {
+"name": "Rogers Corp.",
+"weight_pct": "0.07"
+},
+"ROOT": {
+"name": "Root Inc./OH Class A",
+"weight_pct": "0.02"
+},
+"RPAY": {
+"name": "Repay Holdings Corp.",
+"weight_pct": "0.01"
+},
+"RPC": {
+"name": "Ridgepost Capital Inc. Class A",
+"weight_pct": "0.01"
+},
+"RPD": {
+"name": "Rapid7 Inc.",
+"weight_pct": "0.02"
+},
+"RPT": {
+"name": "Rithm Property Trust Inc.",
+"weight_pct": "0.00"
+},
+"RR": {
+"name": "Richtech Robotics Inc. Class B",
+"weight_pct": "0.01"
+},
+"RRBI": {
+"name": "Red River Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"RRR": {
+"name": "Red Rock Resorts Inc. Class A",
+"weight_pct": "0.08"
+},
+"RSI": {
+"name": "Rush Street Interactive Inc. Class A",
+"weight_pct": "0.07"
+},
+"RSVR": {
+"name": "Reservoir Media Inc.",
+"weight_pct": "0.01"
+},
+"RUM": {
+"name": "Rumble Inc.",
+"weight_pct": "0.03"
+},
+"RUN": {
+"name": "Sunrun Inc.",
+"weight_pct": "0.11"
+},
+"RUSHA": {
+"name": "Rush Enterprises Inc. Class A",
+"weight_pct": "0.12"
+},
+"RUSHB": {
+"name": "Rush Enterprises Inc. Class B",
+"weight_pct": "0.02"
+},
+"RVLV": {
+"name": "Revolve Group Inc.",
+"weight_pct": "0.02"
+},
+"RVSB": {
+"name": "Riverview Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"RWAY": {
+"name": "Runway Growth Finance Corp.",
+"weight_pct": "0.00"
+},
+"RWT": {
+"name": "Redwood Trust Inc.",
+"weight_pct": "0.02"
+},
+"RXO": {
+"name": "RXO Inc.",
+"weight_pct": "0.12"
+},
+"RXRX": {
+"name": "Recursion Pharmaceuticals Inc. Class A",
+"weight_pct": "0.05"
+},
+"RXST": {
+"name": "RxSight Inc.",
+"weight_pct": "0.01"
+},
+"RXT": {
+"name": "Rackspace Technology Inc.",
+"weight_pct": "0.01"
+},
+"RYAM": {
+"name": "Rayonier Advanced Materials Inc.",
+"weight_pct": "0.02"
+},
+"RYTM": {
+"name": "Rhythm Pharmaceuticals Inc.",
+"weight_pct": "0.13"
+},
+"RYZ": {
+"name": "Ryerson Holding Corp.",
+"weight_pct": "0.04"
+},
+"RZLT": {
+"name": "Rezolute Inc.",
+"weight_pct": "0.01"
+},
+"RZLV": {
+"name": "Rezolve AI plc",
+"weight_pct": "0.02"
+},
+"SABR": {
+"name": "Sabre Corp.",
+"weight_pct": "0.02"
+},
+"SAFE": {
+"name": "Safehold Inc.",
+"weight_pct": "0.02"
+},
+"SAFT": {
+"name": "Safety Insurance Group Inc.",
+"weight_pct": "0.03"
+},
+"SAFX": {
+"name": "XCF Global Inc. Class A",
+"weight_pct": "0.00"
+},
+"SAH": {
+"name": "Sonic Automotive Inc. Class A",
+"weight_pct": "0.04"
+},
+"SAMG": {
+"name": "Silvercrest Asset Management Group Inc. Class A",
+"weight_pct": "0.00"
+},
+"SANA": {
+"name": "Sana Biotechnology Inc.",
+"weight_pct": "0.02"
+},
+"SANM": {
+"name": "Sanmina Corp.",
+"weight_pct": "0.40"
+},
+"SATL": {
+"name": "Satellogic Inc. Class A",
+"weight_pct": "0.02"
+},
+"SATS": {
+"name": "EchoStar Corp. Class A",
+"weight_pct": "0.50"
+},
+"SB": {
+"name": "Safe Bulkers Inc.",
+"weight_pct": "0.01"
+},
+"SBC": {
+"name": "SBC Medical Group Holdings Inc.",
+"weight_pct": "0.00"
+},
+"SBCF": {
+"name": "Seacoast Banking Corp. of Florida",
+"weight_pct": "0.08"
+},
+"SBFG": {
+"name": "SB Financial Group Inc.",
+"weight_pct": "0.00"
+},
+"SBGI": {
+"name": "Sinclair Inc.",
+"weight_pct": "0.02"
+},
+"SBH": {
+"name": "Sally Beauty Holdings Inc.",
+"weight_pct": "0.04"
+},
+"SBMT": {
+"name": "Silver Bow Mining Corp.",
+"weight_pct": "0.00"
+},
+"SBRA": {
+"name": "Sabra Health Care REIT Inc.",
+"weight_pct": "0.14"
+},
+"SBSI": {
+"name": "Southside Bancshares Inc.",
+"weight_pct": "0.03"
+},
+"SBT": {
+"name": "Sterling Bancorp Inc./MI",
+"weight_pct": "0.00"
+},
+"SCHL": {
+"name": "Scholastic Corp.",
+"weight_pct": "0.02"
+},
+"SCL": {
+"name": "Stepan Co.",
+"weight_pct": "0.03"
+},
+"SCSC": {
+"name": "ScanSource Inc.",
+"weight_pct": "0.03"
+},
+"SCVL": {
+"name": "Shoe Carnival Inc.",
+"weight_pct": "0.01"
+},
+"SD": {
+"name": "SandRidge Energy Inc.",
+"weight_pct": "0.01"
+},
+"SDGR": {
+"name": "Schrodinger Inc./United States",
+"weight_pct": "0.02"
+},
+"SDRL": {
+"name": "Seadrill Ltd.",
+"weight_pct": "0.08"
+},
+"SEAT": {
+"name": "Vivid Seats Inc. Class A",
+"weight_pct": "0.00"
+},
+"SEG": {
+"name": "Seaport Entertainment Group Inc.",
+"weight_pct": "0.01"
+},
+"SEI": {
+"name": "Solaris Oilfield Infrastructure Inc. Class A",
+"weight_pct": "0.09"
+},
+"SEM": {
+"name": "Select Medical Holdings Corp.",
+"weight_pct": "0.05"
+},
+"SENEA": {
+"name": "Seneca Foods Corp. Class A",
+"weight_pct": "0.02"
+},
+"SEPN": {
+"name": "Septerna Inc.",
+"weight_pct": "0.02"
+},
+"SERV": {
+"name": "Serve Robotics Inc.",
+"weight_pct": "0.02"
+},
+"SEVN": {
+"name": "Seven Hills Realty Trust",
+"weight_pct": "0.01"
+},
+"SEZL": {
+"name": "Sezzle Inc.",
+"weight_pct": "0.06"
+},
+"SFBC": {
+"name": "Sound Financial Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"SFBS": {
+"name": "ServisFirst Bancshares Inc.",
+"weight_pct": "0.12"
+},
+"SFIX": {
+"name": "Stitch Fix Inc. Class A",
+"weight_pct": "0.01"
+},
+"SFL": {
+"name": "SFL Corp. Ltd. Class B",
+"weight_pct": "0.04"
+},
+"SFNC": {
+"name": "Simmons First National Corp. Class A",
+"weight_pct": "0.09"
+},
+"SFST": {
+"name": "Southern First Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"SG": {
+"name": "Sweetgreen Inc. Class A",
+"weight_pct": "0.03"
+},
+"SGC": {
+"name": "Superior Group of Cos. Inc.",
+"weight_pct": "0.00"
+},
+"SGHC": {
+"name": "Super Group SGHC Ltd.",
+"weight_pct": "0.06"
+},
+"SGHT": {
+"name": "Sight Sciences Inc.",
+"weight_pct": "0.01"
+},
+"SGP": {
+"name": "SpyGlass Pharma Inc.",
+"weight_pct": "0.00"
+},
+"SGRY": {
+"name": "Surgery Partners Inc.",
+"weight_pct": "0.03"
+},
+"SHAK": {
+"name": "Shake Shack Inc. Class A",
+"weight_pct": "0.07"
+},
+"SHBI": {
+"name": "Shore Bancshares Inc.",
+"weight_pct": "0.02"
+},
+"SHEN": {
+"name": "Shenandoah Telecommunications Co.",
+"weight_pct": "0.02"
+},
+"SHLS": {
+"name": "Shoals Technologies Group Inc. Class A",
+"weight_pct": "0.06"
+},
+"SHO": {
+"name": "Sunstone Hotel Investors Inc.",
+"weight_pct": "0.06"
+},
+"SHOO": {
+"name": "Steven Madden Ltd.",
+"weight_pct": "0.09"
+},
+"SI": {
+"name": "Shoulder Innovations Inc.",
+"weight_pct": "0.00"
+},
+"SIBN": {
+"name": "SI-BONE Inc.",
+"weight_pct": "0.02"
+},
+"SIEB": {
+"name": "Siebert Financial Corp.",
+"weight_pct": "0.00"
+},
+"SIG": {
+"name": "Signet Jewelers Ltd.",
+"weight_pct": "0.10"
+},
+"SIGA": {
+"name": "SIGA Technologies Inc.",
+"weight_pct": "0.01"
+},
+"SIGI": {
+"name": "Selective Insurance Group Inc.",
+"weight_pct": "0.15"
+},
+"SILA": {
+"name": "Sila Realty Trust Inc.",
+"weight_pct": "0.05"
+},
+"SION": {
+"name": "Sionna Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"SITC": {
+"name": "SITE Centers Corp.",
+"weight_pct": "0.01"
+},
+"SITM": {
+"name": "SiTime Corp.",
+"weight_pct": "0.46"
+},
+"SKIL": {
+"name": "Skillsoft Corp.",
+"weight_pct": "0.00"
+},
+"SKIN": {
+"name": "SkinHealth Systems Inc.",
+"weight_pct": "0.00"
+},
+"SKT": {
+"name": "Tanger Factory Outlet Centers Inc.",
+"weight_pct": "0.12"
+},
+"SKWD": {
+"name": "Skyward Specialty Insurance Group Inc.",
+"weight_pct": "0.05"
+},
+"SKY": {
+"name": "Skyline Champion Corp.",
+"weight_pct": "0.12"
+},
+"SKYH": {
+"name": "Sky Harbour Group Corp. Class A",
+"weight_pct": "0.01"
+},
+"SKYT": {
+"name": "SkyWater Technology Inc.",
+"weight_pct": "0.04"
+},
+"SKYW": {
+"name": "SkyWest Inc.",
+"weight_pct": "0.10"
+},
+"SKYX": {
+"name": "SKYX Platforms Corp.",
+"weight_pct": "0.00"
+},
+"SLAB": {
+"name": "Silicon Laboratories Inc.",
+"weight_pct": "0.20"
+},
+"SLDB": {
+"name": "Solid Biosciences Inc.",
+"weight_pct": "0.01"
+},
+"SLDE": {
+"name": "Slide Insurance Holdings Inc.",
+"weight_pct": "0.04"
+},
+"SLDP": {
+"name": "Solid Power Inc.",
+"weight_pct": "0.02"
+},
+"SLG": {
+"name": "SL Green Realty Corp.",
+"weight_pct": "0.09"
+},
+"SLND": {
+"name": "Southland Holdings Inc.",
+"weight_pct": "0.00"
+},
+"SLP": {
+"name": "Simulations Plus Inc.",
+"weight_pct": "0.01"
+},
+"SLQT": {
+"name": "Selectquote Inc.",
+"weight_pct": "0.00"
+},
+"SLS": {
+"name": "SELLAS Life Sciences Group Inc.",
+"weight_pct": "0.05"
+},
+"SLSN": {
+"name": "Solesence Inc.",
+"weight_pct": "0.00"
+},
+"SLVM": {
+"name": "Sylvamo Corp.",
+"weight_pct": "0.04"
+},
+"SM": {
+"name": "SM Energy Co.",
+"weight_pct": "0.22"
+},
+"SMA": {
+"name": "Smartstop Self Storage REIT Inc.",
+"weight_pct": "0.05"
+},
+"SMBC": {
+"name": "Southern Missouri Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"SMBK": {
+"name": "SmartFinancial Inc.",
+"weight_pct": "0.02"
+},
+"SMC": {
+"name": "Summit Midstream Corp.",
+"weight_pct": "0.01"
+},
+"SMHI": {
+"name": "SEACOR Marine Holdings Inc.",
+"weight_pct": "0.00"
+},
+"SMID": {
+"name": "Smith-Midland Corp.",
+"weight_pct": "0.00"
+},
+"SMP": {
+"name": "Standard Motor Products Inc.",
+"weight_pct": "0.02"
+},
+"SMPL": {
+"name": "Simply Good Foods Co.",
+"weight_pct": "0.03"
+},
+"SMR": {
+"name": "NuScale Power Corp.",
+"weight_pct": "0.06"
+},
+"SMTC": {
+"name": "Semtech Corp.",
+"weight_pct": "0.41"
+},
+"SMTI": {
+"name": "Sanara Medtech Inc.",
+"weight_pct": "0.00"
+},
+"SNBR": {
+"name": "Sleep Number Corp.",
+"weight_pct": "0.00"
+},
+"SNDA": {
+"name": "Sonida Senior Living Inc.",
+"weight_pct": "0.01"
+},
+"SNDX": {
+"name": "Syndax Pharmaceuticals Inc.",
+"weight_pct": "0.05"
+},
+"SNEX": {
+"name": "StoneX Group Inc.",
+"weight_pct": "0.24"
+},
+"SNFCA": {
+"name": "Security National Financial Corp. Class A",
+"weight_pct": "0.00"
+},
+"SNWV": {
+"name": "SANUWAVE Health Inc.",
+"weight_pct": "0.00"
+},
+"SOC": {
+"name": "Sable Offshore Corp.",
+"weight_pct": "0.05"
+},
+"SONO": {
+"name": "Sonos Inc.",
+"weight_pct": "0.05"
+},
+"SOUN": {
+"name": "SoundHound AI Inc. Class A",
+"weight_pct": "0.10"
+},
+"SPB": {
+"name": "Spectrum Brands Holdings Inc.",
+"weight_pct": "0.05"
+},
+"SPFI": {
+"name": "South Plains Financial Inc.",
+"weight_pct": "0.01"
+},
+"SPHR": {
+"name": "Sphere Entertainment Co.",
+"weight_pct": "0.11"
+},
+"SPIR": {
+"name": "Spire Global Inc. Class A",
+"weight_pct": "0.02"
+},
+"SPNT": {
+"name": "SiriusPoint Ltd.",
+"weight_pct": "0.06"
+},
+"SPOK": {
+"name": "Spok Holdings Inc.",
+"weight_pct": "0.01"
+},
+"SPRY": {
+"name": "ARS Pharmaceuticals Inc.",
+"weight_pct": "0.02"
+},
+"SPSC": {
+"name": "SPS Commerce Inc.",
+"weight_pct": "0.06"
+},
+"SPT": {
+"name": "Sprout Social Inc. Class A",
+"weight_pct": "0.01"
+},
+"SPTX": {
+"name": "Seaport Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"SPWR": {
+"name": "SunPower Inc.",
+"weight_pct": "0.00"
+},
+"SPXC": {
+"name": "SPX Technologies Inc.",
+"weight_pct": "0.30"
+},
+"SR": {
+"name": "Spire Inc.",
+"weight_pct": "0.14"
+},
+"SRBK": {
+"name": "SR Bancorp Inc.",
+"weight_pct": "0.00"
+},
+"SRCE": {
+"name": "1st Source Corp.",
+"weight_pct": "0.04"
+},
+"SRRK": {
+"name": "Scholar Rock Holding Corp.",
+"weight_pct": "0.12"
+},
+"SRTA": {
+"name": "Strata Critical Medical Inc.",
+"weight_pct": "0.01"
+},
+"SSP": {
+"name": "EW Scripps Co. Class A",
+"weight_pct": "0.01"
+},
+"SSRM": {
+"name": "SSR Mining Inc.",
+"weight_pct": "0.18"
+},
+"SSTI": {
+"name": "ShotSpotter Inc.",
+"weight_pct": "0.00"
+},
+"SSTK": {
+"name": "Shutterstock Inc.",
+"weight_pct": "0.01"
+},
+"STAA": {
+"name": "STAAR Surgical Co.",
+"weight_pct": "0.03"
+},
+"STBA": {
+"name": "S&T Bancorp Inc.",
+"weight_pct": "0.05"
+},
+"STC": {
+"name": "Stewart Information Services Corp.",
+"weight_pct": "0.06"
+},
+"STEL": {
+"name": "Stellar Bancorp Inc.",
+"weight_pct": "0.05"
+},
+"STEP": {
+"name": "StepStone Group Inc. Class A",
+"weight_pct": "0.10"
+},
+"STGW": {
+"name": "Stagwell Inc. Class A",
+"weight_pct": "0.02"
+},
+"STIM": {
+"name": "Neuronetics Inc.",
+"weight_pct": "0.00"
+},
+"STNE": {
+"name": "StoneCo Ltd. Class A",
+"weight_pct": "0.08"
+},
+"STNG": {
+"name": "Scorpio Tankers Inc.",
+"weight_pct": "0.10"
+},
+"STOK": {
+"name": "Stoke Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"STRA": {
+"name": "Strategic Education Inc.",
+"weight_pct": "0.05"
+},
+"STRL": {
+"name": "Sterling Construction Co. Inc.",
+"weight_pct": "0.74"
+},
+"STRS": {
+"name": "Stratus Properties Inc.",
+"weight_pct": "0.01"
+},
+"STRT": {
+"name": "Strattec Security Corp.",
+"weight_pct": "0.01"
+},
+"STRW": {
+"name": "Strawberry Fields REIT Inc.",
+"weight_pct": "0.00"
+},
+"STRZ": {
+"name": "Starz Entertainment Corp.",
+"weight_pct": "0.01"
+},
+"STXS": {
+"name": "Stereotaxis Inc.",
+"weight_pct": "0.00"
+},
+"SUJA": {
+"name": "Suja Life Inc.",
+"weight_pct": "0.00"
+},
+"SUNS": {
+"name": "Sunrise Realty Trust Inc.",
+"weight_pct": "0.00"
+},
+"SUPN": {
+"name": "Supernus Pharmaceuticals Inc.",
+"weight_pct": "0.07"
+},
+"SVC": {
+"name": "Service Properties Trust",
+"weight_pct": "0.03"
+},
+"SVCO": {
+"name": "Silvaco Group Inc.",
+"weight_pct": "0.00"
+},
+"SVRA": {
+"name": "Savara Inc.",
+"weight_pct": "0.02"
+},
+"SVV": {
+"name": "Savers Value Village Inc.",
+"weight_pct": "0.01"
+},
+"SWBI": {
+"name": "Smith & Wesson Brands Inc.",
+"weight_pct": "0.02"
+},
+"SWIM": {
+"name": "Latham Group Inc.",
+"weight_pct": "0.01"
+},
+"SWX": {
+"name": "Southwest Gas Holdings Inc.",
+"weight_pct": "0.17"
+},
+"SXC": {
+"name": "SunCoke Energy Inc.",
+"weight_pct": "0.02"
+},
+"SXI": {
+"name": "Standex International Corp.",
+"weight_pct": "0.10"
+},
+"SXT": {
+"name": "Sensient Technologies Corp.",
+"weight_pct": "0.14"
+},
+"SYBT": {
+"name": "Stock Yards Bancorp Inc.",
+"weight_pct": "0.05"
+},
+"SYNA": {
+"name": "Synaptics Inc.",
+"weight_pct": "0.15"
+},
+"SYRE": {
+"name": "Spyre Therapeutics Inc.",
+"weight_pct": "0.16"
+},
+"TALK": {
+"name": "Talkspace Inc.",
+"weight_pct": "0.02"
+},
+"TALO": {
+"name": "Talos Energy Inc.",
+"weight_pct": "0.05"
+},
+"TARA": {
+"name": "Protara Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"TARS": {
+"name": "Tarsus Pharmaceuticals Inc.",
+"weight_pct": "0.07"
+},
+"TBBK": {
+"name": "Bancorp Inc.",
+"weight_pct": "0.07"
+},
+"TBCH": {
+"name": "Turtle Beach Corp.",
+"weight_pct": "0.01"
+},
+"TBI": {
+"name": "TrueBlue Inc.",
+"weight_pct": "0.01"
+},
+"TBPH": {
+"name": "Theravance Biopharma Inc.",
+"weight_pct": "0.02"
+},
+"TBRG": {
+"name": "Computer Programs & Systems Inc.",
+"weight_pct": "0.01"
+},
+"TCBI": {
+"name": "Texas Capital Bancshares Inc.",
+"weight_pct": "0.13"
+},
+"TCBK": {
+"name": "TriCo Bancshares",
+"weight_pct": "0.04"
+},
+"TCBX": {
+"name": "Third Coast Bancshares Inc.",
+"weight_pct": "0.01"
+},
+"TCI": {
+"name": "Transcontinental Realty Investors Inc.",
+"weight_pct": "0.00"
+},
+"TCMD": {
+"name": "Tactile Systems Technology Inc.",
+"weight_pct": "0.02"
+},
+"TCX": {
+"name": "Tucows Inc. Class A",
+"weight_pct": "0.00"
+},
+"TDAY": {
+"name": "Gannett Co. Inc.",
+"weight_pct": "0.03"
+},
+"TDOC": {
+"name": "Teladoc Health Inc.",
+"weight_pct": "0.04"
+},
+"TDS": {
+"name": "Telephone & Data Systems Inc.",
+"weight_pct": "0.11"
+},
+"TDUP": {
+"name": "ThredUp Inc. Class A",
+"weight_pct": "0.01"
+},
+"TDW": {
+"name": "Tidewater Inc.",
+"weight_pct": "0.10"
+},
+"TE": {
+"name": "T1 Energy Inc.",
+"weight_pct": "0.06"
+},
+"TEAD": {
+"name": "Teads Holding Co.",
+"weight_pct": "0.00"
+},
+"TECX": {
+"name": "Tectonic Therapeutic Inc.",
+"weight_pct": "0.01"
+},
+"TENB": {
+"name": "Tenable Holdings Inc.",
+"weight_pct": "0.10"
+},
+"TEX": {
+"name": "Terex Corp.",
+"weight_pct": "0.19"
+},
+"TFIN": {
+"name": "Triumph Financial Inc.",
+"weight_pct": "0.05"
+},
+"TG": {
+"name": "Tredegar Corp.",
+"weight_pct": "0.01"
+},
+"TGLS": {
+"name": "Tecnoglass Inc.",
+"weight_pct": "0.03"
+},
+"TGTX": {
+"name": "TG Therapeutics Inc.",
+"weight_pct": "0.16"
+},
+"TH": {
+"name": "Target Hospitality Corp.",
+"weight_pct": "0.02"
+},
+"THFF": {
+"name": "First Financial Corp./IN",
+"weight_pct": "0.02"
+},
+"THR": {
+"name": "Thermon Group Holdings Inc.",
+"weight_pct": "0.06"
+},
+"THRD": {
+"name": "Third Harmonic Bio Inc.",
+"weight_pct": "0.00"
+},
+"THRM": {
+"name": "Gentherm Inc.",
+"weight_pct": "0.03"
+},
+"THRY": {
+"name": "Thryv Holdings Inc.",
+"weight_pct": "0.00"
+},
+"TIC": {
+"name": "TIC Solutions Inc.",
+"weight_pct": "0.05"
+},
+"TILE": {
+"name": "Interface Inc. Class A",
+"weight_pct": "0.05"
+},
+"TIPT": {
+"name": "Tiptree Inc.",
+"weight_pct": "0.01"
+},
+"TITN": {
+"name": "Titan Machinery Inc.",
+"weight_pct": "0.01"
+},
+"TK": {
+"name": "Teekay Corp. Ltd.",
+"weight_pct": "0.02"
+},
+"TKNO": {
+"name": "Alpha Teknova Inc.",
+"weight_pct": "0.00"
+},
+"TLS": {
+"name": "Telos Corp.",
+"weight_pct": "0.01"
+},
+"TLSI": {
+"name": "TriSalus Life Sciences Inc.",
+"weight_pct": "0.00"
+},
+"TMCI": {
+"name": "Treace Medical Concepts Inc.",
+"weight_pct": "0.00"
+},
+"TMDX": {
+"name": "TransMedics Group Inc.",
+"weight_pct": "0.06"
+},
+"TMHC": {
+"name": "Taylor Morrison Home Corp. Class A",
+"weight_pct": "0.16"
+},
+"TMP": {
+"name": "Tompkins Financial Corp.",
+"weight_pct": "0.03"
+},
+"TNC": {
+"name": "Tennant Co.",
+"weight_pct": "0.04"
+},
+"TNDM": {
+"name": "Tandem Diabetes Care Inc.",
+"weight_pct": "0.03"
+},
+"TNET": {
+"name": "TriNet Group Inc.",
+"weight_pct": "0.04"
+},
+"TNGX": {
+"name": "Tango Therapeutics Inc.",
+"weight_pct": "0.07"
+},
+"TNK": {
+"name": "Teekay Tankers Ltd. Class A",
+"weight_pct": "0.05"
+},
+"TNXP": {
+"name": "Tonix Pharmaceuticals Holding Corp.",
+"weight_pct": "0.00"
+},
+"TOI": {
+"name": "Oncology Institute Inc.",
+"weight_pct": "0.01"
+},
+"TOWN": {
+"name": "Towne Bank/Portsmouth VA",
+"weight_pct": "0.08"
+},
+"TPB": {
+"name": "Turning Point Brands Inc.",
+"weight_pct": "0.04"
+},
+"TPC": {
+"name": "Tutor Perini Corp.",
+"weight_pct": "0.09"
+},
+"TR": {
+"name": "Tootsie Roll Industries Inc.",
+"weight_pct": "0.02"
+},
+"TRAK": {
+"name": "Park City Group Inc.",
+"weight_pct": "0.00"
+},
+"TRAX": {
+"name": "First Tracks Biotherapeutics Inc.",
+"weight_pct": "0.01"
+},
+"TRC": {
+"name": "Tejon Ranch Co.",
+"weight_pct": "0.01"
+},
+"TRDA": {
+"name": "Entrada Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"TREE": {
+"name": "LendingTree Inc.",
+"weight_pct": "0.01"
+},
+"TRIP": {
+"name": "TripAdvisor Inc.",
+"weight_pct": "0.04"
+},
+"TRMK": {
+"name": "Trustmark Corp.",
+"weight_pct": "0.07"
+},
+"TRN": {
+"name": "Trinity Industries Inc.",
+"weight_pct": "0.07"
+},
+"TRNO": {
+"name": "Terreno Realty Corp.",
+"weight_pct": "0.19"
+},
+"TRNS": {
+"name": "Transcat Inc.",
+"weight_pct": "0.02"
+},
+"TROX": {
+"name": "Tronox Holdings plc Class A",
+"weight_pct": "0.03"
+},
+"TRS": {
+"name": "TriMas Corp.",
+"weight_pct": "0.04"
+},
+"TRST": {
+"name": "TrustCo Bank Corp. NY",
+"weight_pct": "0.03"
+},
+"TRTX": {
+"name": "TPG RE Finance Trust Inc.",
+"weight_pct": "0.02"
+},
+"TRUP": {
+"name": "Trupanion Inc.",
+"weight_pct": "0.02"
+},
+"TRVI": {
+"name": "Trevi Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"TSBK": {
+"name": "Timberland Bancorp Inc./WA",
+"weight_pct": "0.01"
+},
+"TSEOQ": {
+"name": "Trinseo plc",
+"weight_pct": "0.00"
+},
+"TSHA": {
+"name": "Taysha Gene Therapies Inc.",
+"weight_pct": "0.04"
+},
+"TSSI": {
+"name": "TSS Inc./MD",
+"weight_pct": "0.01"
+},
+"TTAM": {
+"name": "Titan America SA",
+"weight_pct": "0.01"
+},
+"TTEC": {
+"name": "TTEC Holdings Inc.",
+"weight_pct": "0.00"
+},
+"TTGT": {
+"name": "TechTarget Inc.",
+"weight_pct": "0.00"
+},
+"TTI": {
+"name": "TETRA Technologies Inc.",
+"weight_pct": "0.04"
+},
+"TTMI": {
+"name": "TTM Technologies Inc.",
+"weight_pct": "0.51"
+},
+"TUSK": {
+"name": "Mammoth Energy Services Inc.",
+"weight_pct": "0.00"
+},
+"TVGN": {
+"name": "Tevogen Bio Holdings Inc.",
+"weight_pct": "0.00"
+},
+"TVRD": {
+"name": "Tvardi Therapeutics Inc.",
+"weight_pct": "0.00"
+},
+"TVTX": {
+"name": "Travere Therapeutics Inc.",
+"weight_pct": "0.11"
+},
+"TWI": {
+"name": "Titan International Inc.",
+"weight_pct": "0.01"
+},
+"TWO": {
+"name": "Two Harbors Investment Corp.",
+"weight_pct": "0.04"
+},
+"TWST": {
+"name": "Twist Bioscience Corp.",
+"weight_pct": "0.12"
+},
+"TXG": {
+"name": "10X Genomics Inc. Class A",
+"weight_pct": "0.09"
+},
+"TXNM": {
+"name": "PNM Resources Inc.",
+"weight_pct": "0.17"
+},
+"TYRA": {
+"name": "Tyra Biosciences Inc.",
+"weight_pct": "0.02"
+},
+"TZOO": {
+"name": "Travelzoo",
+"weight_pct": "0.00"
+},
+"UAMY": {
+"name": "US Antimony Corp.",
+"weight_pct": "0.03"
+},
+"UBSI": {
+"name": "United Bankshares Inc./WV",
+"weight_pct": "0.17"
+},
+"UCB": {
+"name": "United Community Banks Inc./GA",
+"weight_pct": "0.12"
+},
+"UCTT": {
+"name": "Ultra Clean Holdings Inc.",
+"weight_pct": "0.11"
+},
+"UE": {
+"name": "Urban Edge Properties",
+"weight_pct": "0.08"
+},
+"UEC": {
+"name": "Uranium Energy Corp.",
+"weight_pct": "0.19"
+},
+"UFCS": {
+"name": "United Fire Group Inc.",
+"weight_pct": "0.03"
+},
+"UFPI": {
+"name": "UFP Industries Inc.",
+"weight_pct": "0.14"
+},
+"UFPT": {
+"name": "UFP Technologies Inc.",
+"weight_pct": "0.05"
+},
+"UHT": {
+"name": "Universal Health Realty Income Trust",
+"weight_pct": "0.02"
+},
+"UIS": {
+"name": "Unisys Corp.",
+"weight_pct": "0.01"
+},
+"ULCC": {
+"name": "Frontier Group Holdings Inc.",
+"weight_pct": "0.01"
+},
+"ULH": {
+"name": "Universal Logistics Holdings Inc.",
+"weight_pct": "0.00"
+},
+"UMBF": {
+"name": "UMB Financial Corp.",
+"weight_pct": "0.27"
+},
+"UMH": {
+"name": "UMH Properties Inc.",
+"weight_pct": "0.03"
+},
+"UNB": {
+"name": "Union Bankshares Inc./Morrisville VT",
+"weight_pct": "0.00"
+},
+"UNF": {
+"name": "UniFirst Corp./MA",
+"weight_pct": "0.11"
+},
+"UNFI": {
+"name": "United Natural Foods Inc.",
+"weight_pct": "0.09"
+},
+"UNIT": {
+"name": "Uniti Group Inc.",
+"weight_pct": "0.05"
+},
+"UNTY": {
+"name": "Unity Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"UPB": {
+"name": "Upstream Bio Inc.",
+"weight_pct": "0.01"
+},
+"UPBD": {
+"name": "Rent-A-Center Inc./TX",
+"weight_pct": "0.03"
+},
+"UPST": {
+"name": "Upstart Holdings Inc.",
+"weight_pct": "0.08"
+},
+"UPWK": {
+"name": "Upwork Inc.",
+"weight_pct": "0.03"
+},
+"URBN": {
+"name": "Urban Outfitters Inc.",
+"weight_pct": "0.14"
+},
+"URGN": {
+"name": "UroGen Pharma Ltd.",
+"weight_pct": "0.03"
+},
+"USAR": {
+"name": "USA Rare Earth Inc.",
+"weight_pct": "0.15"
+},
+"USAU": {
+"name": "US Gold Corp.",
+"weight_pct": "0.01"
+},
+"USCB": {
+"name": "USCB Financial Holdings Inc.",
+"weight_pct": "0.01"
+},
+"USGO": {
+"name": "US Goldmining Inc.",
+"weight_pct": "0.00"
+},
+"USLM": {
+"name": "United States Lime & Minerals Inc.",
+"weight_pct": "0.04"
+},
+"USNA": {
+"name": "USANA Health Sciences Inc.",
+"weight_pct": "0.01"
+},
+"USPH": {
+"name": "US Physical Therapy Inc.",
+"weight_pct": "0.03"
+},
+"UTI": {
+"name": "Universal Technical Institute Inc.",
+"weight_pct": "0.05"
+},
+"UTL": {
+"name": "Unitil Corp.",
+"weight_pct": "0.03"
+},
+"UTMD": {
+"name": "Utah Medical Products Inc.",
+"weight_pct": "0.01"
+},
+"UTZ": {
+"name": "Utz Brands Inc.",
+"weight_pct": "0.02"
+},
+"UUUU": {
+"name": "Energy Fuels Inc./Canada",
+"weight_pct": "0.12"
+},
+"UVE": {
+"name": "Universal Insurance Holdings Inc.",
+"weight_pct": "0.03"
+},
+"UVSP": {
+"name": "Univest Financial Corp.",
+"weight_pct": "0.03"
+},
+"UVV": {
+"name": "Universal Corp./VA",
+"weight_pct": "0.04"
+},
+"VABK": {
+"name": "Virginia National Bankshares Corp.",
+"weight_pct": "0.01"
+},
+"VAC": {
+"name": "Marriott Vacations Worldwide Corp.",
+"weight_pct": "0.07"
+},
+"VAL": {
+"name": "Valaris Ltd.",
+"weight_pct": "0.17"
+},
+"VALU": {
+"name": "Value Line Inc.",
+"weight_pct": "0.00"
+},
+"VC": {
+"name": "Visteon Corp.",
+"weight_pct": "0.09"
+},
+"VCEL": {
+"name": "Vericel Corp.",
+"weight_pct": "0.05"
+},
+"VCTR": {
+"name": "Victory Capital Holdings Inc. Class A",
+"weight_pct": "0.11"
+},
+"VCYT": {
+"name": "Veracyte Inc.",
+"weight_pct": "0.10"
+},
+"VECO": {
+"name": "Veeco Instruments Inc.",
+"weight_pct": "0.10"
+},
+"VEL": {
+"name": "Velocity Financial Inc.",
+"weight_pct": "0.01"
+},
+"VERA": {
+"name": "Vera Therapeutics Inc. Class A",
+"weight_pct": "0.06"
+},
+"VERX": {
+"name": "Vertex Inc. Class A",
+"weight_pct": "0.03"
+},
+"VGAS": {
+"name": "Verde Clean Fuels Inc.",
+"weight_pct": "0.00"
+},
+"VHI": {
+"name": "Valhi Inc.",
+"weight_pct": "0.00"
+},
+"VIA": {
+"name": "Via Transportation Inc. Class A",
+"weight_pct": "0.00"
+},
+"VIAV": {
+"name": "Viavi Solutions Inc.",
+"weight_pct": "0.32"
+},
+"VICR": {
+"name": "Vicor Corp.",
+"weight_pct": "0.22"
+},
+"VIR": {
+"name": "Vir Biotechnology Inc.",
+"weight_pct": "0.03"
+},
+"VIRC": {
+"name": "Virco Manufacturing Corp.",
+"weight_pct": "0.00"
+},
+"VISN": {
+"name": "CommScope Holding Co. Inc.",
+"weight_pct": "0.08"
+},
+"VITL": {
+"name": "Vital Farms Inc.",
+"weight_pct": "0.01"
+},
+"VLGEA": {
+"name": "Village Super Market Inc. Class A",
+"weight_pct": "0.01"
+},
+"VLY": {
+"name": "Valley National Bancorp",
+"weight_pct": "0.19"
+},
+"VMD": {
+"name": "Viemed Healthcare Inc.",
+"weight_pct": "0.01"
+},
+"VNDA": {
+"name": "Vanda Pharmaceuticals Inc.",
+"weight_pct": "0.01"
+},
+"VOXR": {
+"name": "Vox Royalty Corp.",
+"weight_pct": "0.01"
+},
+"VOYG": {
+"name": "Voyager Technologies Inc. Class A",
+"weight_pct": "0.07"
+},
+"VPG": {
+"name": "Vishay Precision Group Inc.",
+"weight_pct": "0.04"
+},
+"VRDN": {
+"name": "Viridian Therapeutics Inc.",
+"weight_pct": "0.04"
+},
+"VREX": {
+"name": "Varex Imaging Corp.",
+"weight_pct": "0.01"
+},
+"VRM": {
+"name": "Vroom Inc.",
+"weight_pct": "0.00"
+},
+"VRNS": {
+"name": "Varonis Systems Inc.",
+"weight_pct": "0.11"
+},
+"VRRM": {
+"name": "Verra Mobility Corp. Class A",
+"weight_pct": "0.02"
+},
+"VRTS": {
+"name": "Virtus Investment Partners Inc.",
+"weight_pct": "0.03"
+},
+"VSAT": {
+"name": "ViaSat Inc.",
+"weight_pct": "0.29"
+},
+"VSCO": {
+"name": "Victoria's Secret & Co.",
+"weight_pct": "0.11"
+},
+"VSEC": {
+"name": "VSE Corp.",
+"weight_pct": "0.14"
+},
+"VSH": {
+"name": "Vishay Intertechnology Inc.",
+"weight_pct": "0.18"
+},
+"VSTM": {
+"name": "Verastem Inc.",
+"weight_pct": "0.01"
+},
+"VSTS": {
+"name": "Vestis Corp.",
+"weight_pct": "0.03"
+},
+"VTEX": {
+"name": "VTEX Class A",
+"weight_pct": "0.01"
+},
+"VTOL": {
+"name": "Bristow Group Inc.",
+"weight_pct": "0.03"
+},
+"VTS": {
+"name": "Vitesse Energy Inc.",
+"weight_pct": "0.01"
+},
+"VUZI": {
+"name": "Vuzix Corp.",
+"weight_pct": "0.01"
+},
+"VVX": {
+"name": "Vectrus Inc.",
+"weight_pct": "0.06"
+},
+"VYGR": {
+"name": "Voyager Therapeutics Inc.",
+"weight_pct": "0.01"
+},
+"VYX": {
+"name": "NCR Corp.",
+"weight_pct": "0.03"
+},
+"WABC": {
+"name": "Westamerica Bancorporation",
+"weight_pct": "0.04"
+},
+"WAFD": {
+"name": "Washington Federal Inc.",
+"weight_pct": "0.08"
+},
+"WALD": {
+"name": "Waldencast plc Class A",
+"weight_pct": "0.00"
+},
+"WASH": {
+"name": "Washington Trust Bancorp Inc.",
+"weight_pct": "0.02"
+},
+"WAY": {
+"name": "Waystar Holding Corp.",
+"weight_pct": "0.06"
+},
+"WBTN": {
+"name": "Webtoon Entertainment Inc.",
+"weight_pct": "0.01"
+},
+"WD": {
+"name": "Walker & Dunlop Inc.",
+"weight_pct": "0.05"
+},
+"WDFC": {
+"name": "WD-40 Co.",
+"weight_pct": "0.08"
+},
+"WEAV": {
+"name": "Weave Communications Inc.",
+"weight_pct": "0.01"
+},
+"WERN": {
+"name": "Werner Enterprises Inc.",
+"weight_pct": "0.07"
+},
+"WEST": {
+"name": "Westrock Coffee Co.",
+"weight_pct": "0.01"
+},
+"WEYS": {
+"name": "Weyco Group Inc.",
+"weight_pct": "0.01"
+},
+"WGO": {
+"name": "Winnebago Industries Inc.",
+"weight_pct": "0.02"
+},
+"WGS": {
+"name": "GeneDx Holdings Corp. Class A",
+"weight_pct": "0.03"
+},
+"WHD": {
+"name": "Cactus Inc. Class A",
+"weight_pct": "0.11"
+},
+"WHG": {
+"name": "Westwood Holdings Group Inc.",
+"weight_pct": "0.00"
+},
+"WINA": {
+"name": "Winmark Corp.",
+"weight_pct": "0.03"
+},
+"WK": {
+"name": "Workiva Inc. Class A",
+"weight_pct": "0.07"
+},
+"WKC": {
+"name": "World Fuel Services Corp.",
+"weight_pct": "0.04"
+},
+"WLDN": {
+"name": "Willdan Group Inc.",
+"weight_pct": "0.04"
+},
+"WLFC": {
+"name": "Willis Lease Finance Corp.",
+"weight_pct": "0.01"
+},
+"WLTH": {
+"name": "Wealthfront Corp.",
+"weight_pct": "0.01"
+},
+"WLY": {
+"name": "John Wiley & Sons Inc. Class A",
+"weight_pct": "0.05"
+},
+"WMK": {
+"name": "Weis Markets Inc.",
+"weight_pct": "0.03"
+},
+"WNC": {
+"name": "Wabash National Corp.",
+"weight_pct": "0.01"
+},
+"WNEB": {
+"name": "Western New England Bancorp Inc.",
+"weight_pct": "0.01"
+},
+"WOOF": {
+"name": "Petco Health & Wellness Co. Inc. Class A",
+"weight_pct": "0.01"
+},
+"WOR": {
+"name": "Worthington Industries Inc.",
+"weight_pct": "0.05"
+},
+"WRBY": {
+"name": "Warby Parker Inc. Class A",
+"weight_pct": "0.07"
+},
+"WRLD": {
+"name": "World Acceptance Corp.",
+"weight_pct": "0.01"
+},
+"WS": {
+"name": "Worthington Steel Inc.",
+"weight_pct": "0.04"
+},
+"WSBC": {
+"name": "WesBanco Inc.",
+"weight_pct": "0.09"
+},
+"WSBF": {
+"name": "Waterstone Financial Inc.",
+"weight_pct": "0.01"
+},
+"WSFS": {
+"name": "WSFS Financial Corp.",
+"weight_pct": "0.11"
+},
+"WSR": {
+"name": "Whitestone REIT",
+"weight_pct": "0.02"
+},
+"WT": {
+"name": "WisdomTree Inc.",
+"weight_pct": "0.07"
+},
+"WTBA": {
+"name": "West Bancorporation Inc.",
+"weight_pct": "0.01"
+},
+"WTI": {
+"name": "W&T Offshore Inc.",
+"weight_pct": "0.01"
+},
+"WTS": {
+"name": "Watts Water Technologies Inc. Class A",
+"weight_pct": "0.24"
+},
+"WTTR": {
+"name": "Select Energy Services Inc. Class A",
+"weight_pct": "0.05"
+},
+"WULF": {
+"name": "Terawulf Inc.",
+"weight_pct": "0.25"
+},
+"WVE": {
+"name": "WaVe Life Sciences Ltd.",
+"weight_pct": "0.03"
+},
+"WWW": {
+"name": "Wolverine World Wide Inc.",
+"weight_pct": "0.04"
+},
+"WYFI": {
+"name": "Whitefiber Inc.",
+"weight_pct": "0.01"
+},
+"XE": {
+"name": "X-Energy Inc.",
+"weight_pct": "0.00"
+},
+"XENE": {
+"name": "Xenon Pharmaceuticals Inc.",
+"weight_pct": "0.14"
+},
+"XERS": {
+"name": "Xeris Biopharma Holdings Inc.",
+"weight_pct": "0.03"
+},
+"XHR": {
+"name": "Xenia Hotels & Resorts Inc.",
+"weight_pct": "0.05"
+},
+"XMTR": {
+"name": "Xometry Inc. Class A",
+"weight_pct": "0.12"
+},
+"XNCR": {
+"name": "Xencor Inc.",
+"weight_pct": "0.02"
+},
+"XOMA": {
+"name": "XOMA Corp.",
+"weight_pct": "0.01"
+},
+"XPEL": {
+"name": "XPEL Inc.",
+"weight_pct": "0.03"
+},
+"XPER": {
+"name": "Xperi Inc.",
+"weight_pct": "0.01"
+},
+"XPOF": {
+"name": "Xponential Fitness Inc. Class A",
+"weight_pct": "0.00"
+},
+"XPRO": {
+"name": "Expro Group Holdings NV",
+"weight_pct": "0.03"
+},
+"XRN": {
+"name": "Chiron Real Estate Inc.",
+"weight_pct": "0.01"
+},
+"XRX": {
+"name": "Xerox Holdings Corp.",
+"weight_pct": "0.01"
+},
+"XZO": {
+"name": "Exzeo Group Inc.",
+"weight_pct": "0.00"
+},
+"YELP": {
+"name": "Yelp Inc. Class A",
+"weight_pct": "0.04"
+},
+"YEXT": {
+"name": "Yext Inc.",
+"weight_pct": "0.01"
+},
+"YORW": {
+"name": "York Water Co.",
+"weight_pct": "0.01"
+},
+"YOU": {
+"name": "Clear Secure Inc. Class A",
+"weight_pct": "0.14"
+},
+"YSS": {
+"name": "York Space Systems Inc.",
+"weight_pct": "0.02"
+},
+"YSWY": {
+"name": "Yesway Inc. Class A",
+"weight_pct": "0.00"
+},
+"ZBIO": {
+"name": "Zenas Biopharma Inc.",
+"weight_pct": "0.01"
+},
+"ZD": {
+"name": "j2 Global Inc.",
+"weight_pct": "0.05"
+},
+"ZETA": {
+"name": "Zeta Global Holdings Corp. Class A",
+"weight_pct": "0.14"
+},
+"ZGN": {
+"name": "Ermenegildo Zegna NV",
+"weight_pct": "0.03"
+},
+"ZIP": {
+"name": "ZipRecruiter Inc.",
+"weight_pct": "0.01"
+},
+"ZUMZ": {
+"name": "Zumiez Inc.",
+"weight_pct": "0.01"
+},
+"ZVIA": {
+"name": "Zevia PBC Class A",
+"weight_pct": "0.00"
+},
+"ZVRA": {
+"name": "Zevra Therapeutics Inc.",
+"weight_pct": "0.02"
+},
+"ZWS": {
+"name": "Zurn Elkay Water Solutions Corp.",
+"weight_pct": "0.20"
+},
+"ZYME": {
+"name": "Zymeworks Inc.",
+"weight_pct": "0.04"
+}
+},
+"url": "https://investor.vanguard.com/investment-products/etfs/profile/api/VTWO/portfolio-holding/stock"
+}
