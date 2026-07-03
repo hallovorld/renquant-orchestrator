@@ -2,7 +2,30 @@
 
 STATUS: design / RFC — the ENGINEERING DESIGN is the prerequisite; build is staged after review. Design first, do not rush to build.
 DATE: 2026-06-30
-REVISION: r12 (2026-06-30) — **rollout-boundary fix (Codex r11 review): freeze Stage-1 live exposure at the pre-declared canary envelope, solely for data collection.** Operational correctness (orders emitted safely) gates whether the canary may **run at all**; it does **NOT** authorize **expansion** or general **go-live**, because moving entries intraday can be operationally clean yet economically unacceptable — expanding the canary would deploy an unvalidated timing policy to more capital, not merely collect bounded pilot data. So the "expand cautiously on continued clean ops" language is **removed**: Stage-1 live exposure is **FROZEN** at the pre-declared allowlist + notional cap; **NO expansion** beyond that envelope and **NO general go-live** until EITHER the deferred simplified experiment-prereg PR (§9.4) uses the collected pilot data to supply an **EXPLICIT AUTHORIZING decision**, OR the operator explicitly **accepts the economic risk in a SEPARATE RECORDED decision**. The canary envelope is now bounded explicitly — a maximum **DURATION**, a cumulative **LOSS BUDGET**, and a **STOP CONDITION** — so "extend to collect data" cannot become indefinite production by inertia: hitting the duration/loss-budget without an authorizing decision → **HARD halt (revert to 盘后 batch)**, never silent continuation. Response map in **§21**. Prior: r11 (2026-06-30) — **convergence: split out the Stage-1 statistics; Stage-1 downgraded to operations-only** per an agreed decision between the operator, this author, and Codex to STOP the statistics-patch loop (r6->r10, all on the Stage-1 synthetic-baseline non-inferiority protocol). The agreement: the synthetic batch fill is a **diagnostic reference, not a real control group**; there are **not yet enough independent trading sessions** to estimate the paired variance; and the **10-bps threshold / required sample size cannot be settled on paper before data exists**. So this RFC now keeps ONLY the settled **ENGINEERING** — the 盘中 real-time decision loop, real-time data plane, live model serving, real-time state/gate consistency, entry-timing logic, and the **SAFETY envelope** (idempotency, reconciliation, quantity accounting, kill-switch). The over-designed statistical protocol is **removed**: the separate pre-registration file `doc/design/2026-06-30-stage1-synthetic-baseline-prereg.md` is **deleted from this PR** (git history preserves it) and will be re-submitted later as a **separate, SIMPLIFIED experiment-prereg PR finalized against real pilot data**. Stage-1 now runs **SHADOW / READONLY, operations-only**, to accumulate real paired-session execution data; it **may not claim an execution-quality PASS**; the synthetic baseline is a **diagnostic reference only, never the sole causal evidence for going live**; and go-live / rollout criteria **do not depend on any paper-designed statistical gate**. The bootstrap / power / variance machinery is **not carried in this RFC** — it is deferred to the future simplified experiment-prereg PR that will use REAL pilot variance. Convergence map in **§20**; split-out record in **§19**. Prior revisions: r1–r3 settled the engineering contract (§16–§18 maps); r4–r10 iterated the now-split-out Stage-1 statistical protocol — preserved in git history, summarized in §19.
+REVISION: r13 (2026-07-02) — **folds in amendment A2 from the independent design review**
+(`doc/design/2026-07-01-104-105-design-review-amendments.md`, PR #223, Codex-accepted r2): this RFC
+designed an intraday order loop with **no broker-regulatory / settlement envelope at all**. A
+read-only query of the live Alpaca account (verified 2026-07-02; re-verify before relying on this —
+account state changes and is NOT reproduced here since specific balances go stale immediately and
+do not belong in a durable, widely-read design doc) confirmed it is a **margin account** governed by
+FINRA's **Intraday Margin Standards** (effective 2026-06-04, which replaced the legacy
+four-trades/$25k PDT designation). The verification found `daytrading_buying_power` materially
+exceeding what the legacy sub-$25k PDT regime would permit relative to account equity — confirming
+the new rules govern, not the old ones. Exact balances/ratios are recorded in the protected run
+bundle for that verification date, not in this RFC. Four amendments
+folded in as genuine RFC content (not a pointer to the amendments doc): (1) a new **§11 Stage-1
+BLOCKER** — verify-then-bind the account's broker-effective rule regime, recorded per session,
+session aborts (no entries) if the recorded regime differs from what the envelope was designed for;
+(2) new **§10 envelope rows** binding entries to real-time intraday margin / buying-power headroom
+consistent with `non_marginable_buying_power` / `execution.buying_power_mode`, with any
+broker-reported intraday margin deficit as a Tier-1 halt condition; (3) a new **§10 interaction
+rule — exits-always-allowed**: no envelope, regulatory, or budget constraint may ever block a
+protective exit, constraints bind entries only, same-session round trips become a ledger diagnostic
+rather than a hard counter (this **withdraws and inverts** an earlier, unsafe "day-trade budget = 0
+blocks same-session exits" proposal that never shipped in this RFC — see the amendments doc's own
+r1→r2 self-correction); (4) a conditional **§7 settlement-accounting note** for a future cash-account
+regime change (the account is margin today, so T+1 settled-funds gating does not currently bind).
+Response/integration map in **§22**. Prior: r12 (2026-06-30) — **rollout-boundary fix (Codex r11 review): freeze Stage-1 live exposure at the pre-declared canary envelope, solely for data collection.** Operational correctness (orders emitted safely) gates whether the canary may **run at all**; it does **NOT** authorize **expansion** or general **go-live**, because moving entries intraday can be operationally clean yet economically unacceptable — expanding the canary would deploy an unvalidated timing policy to more capital, not merely collect bounded pilot data. So the "expand cautiously on continued clean ops" language is **removed**: Stage-1 live exposure is **FROZEN** at the pre-declared allowlist + notional cap; **NO expansion** beyond that envelope and **NO general go-live** until EITHER the deferred simplified experiment-prereg PR (§9.4) uses the collected pilot data to supply an **EXPLICIT AUTHORIZING decision**, OR the operator explicitly **accepts the economic risk in a SEPARATE RECORDED decision**. The canary envelope is now bounded explicitly — a maximum **DURATION**, a cumulative **LOSS BUDGET**, and a **STOP CONDITION** — so "extend to collect data" cannot become indefinite production by inertia: hitting the duration/loss-budget without an authorizing decision → **HARD halt (revert to 盘后 batch)**, never silent continuation. Response map in **§21**. Prior: r11 (2026-06-30) — **convergence: split out the Stage-1 statistics; Stage-1 downgraded to operations-only** per an agreed decision between the operator, this author, and Codex to STOP the statistics-patch loop (r6->r10, all on the Stage-1 synthetic-baseline non-inferiority protocol). The agreement: the synthetic batch fill is a **diagnostic reference, not a real control group**; there are **not yet enough independent trading sessions** to estimate the paired variance; and the **10-bps threshold / required sample size cannot be settled on paper before data exists**. So this RFC now keeps ONLY the settled **ENGINEERING** — the 盘中 real-time decision loop, real-time data plane, live model serving, real-time state/gate consistency, entry-timing logic, and the **SAFETY envelope** (idempotency, reconciliation, quantity accounting, kill-switch). The over-designed statistical protocol is **removed**: the separate pre-registration file `doc/design/2026-06-30-stage1-synthetic-baseline-prereg.md` is **deleted from this PR** (git history preserves it) and will be re-submitted later as a **separate, SIMPLIFIED experiment-prereg PR finalized against real pilot data**. Stage-1 now runs **SHADOW / READONLY, operations-only**, to accumulate real paired-session execution data; it **may not claim an execution-quality PASS**; the synthetic baseline is a **diagnostic reference only, never the sole causal evidence for going live**; and go-live / rollout criteria **do not depend on any paper-designed statistical gate**. The bootstrap / power / variance machinery is **not carried in this RFC** — it is deferred to the future simplified experiment-prereg PR that will use REAL pilot variance. Convergence map in **§20**; split-out record in **§19**. Prior revisions: r1–r3 settled the engineering contract (§16–§18 maps); r4–r10 iterated the now-split-out Stage-1 statistical protocol — preserved in git history, summarized in §19.
 SCOPE: orchestrator-owned control-plane design that *coordinates* a cross-repo build. The runtime decision logic (pipeline) and broker order lifecycle (execution) live in their own repos per the operating model — this RFC defines the contracts and merge order, it does NOT authorize cross-repo behavior changes from orchestrator alone (§8). Model rework is explicitly downstream (§14).
 
 ---
@@ -129,6 +152,16 @@ NONE → INTENDED → SUBMITTED → ACCEPTED → PARTIALLY_FILLED → FILLED
 - **Partial fills:** if conviction/gates have dropped, **cancel the open child** (no remainder chase; the canceled remainder stays eligible only under the canceled-remainder policy above); else, once the prior child is no longer OPEN, the next tick opens a new remainder child (`attempt_n+1`) sized to `remaining_unsubmitted = target_qty − cum_filled − open_qty`.
 - **Duplicate prevention across overlapping ticks / restarts:** the intraday run-lock guarantees at-most-one tick in flight; on process restart the loop **rebuilds the in-flight set from broker open-orders + the ledger and reconciles BEFORE any emit** (reconcile-before-emit). Dedup is on `parent_intent_id` (no second open child); each `child_order_id` is unique so a double-fire cannot double-submit the same child.
 - **Reconciliation mismatch** (broker open-orders ≠ ledger) → halt new entries for the session, alert, exits still allowed.
+- **Settlement accounting (§22 / amendment A2, conditional — margin account today).** `available`
+  (§7's sizing basis, above) is computed against whatever funds figure the **verified broker-rule
+  regime** (§11 BLOCKER) actually governs. The live account is currently **margin**, so T+1
+  settled-funds gating does **not** bind: `available` derives from `non_marginable_buying_power`
+  (consistent with the pinned `execution.buying_power_mode`), not from settled cash. The contract
+  still states the **cash-account variant** here so a future account-regime change is a recorded
+  config flip, not a redesign: under a cash account, same-day sale proceeds are excluded from
+  `available` until settled (typically T+1), and `reserved_cash` must additionally reserve against
+  unsettled-proceeds exposure. Which variant is live is decided by the §11 verify-then-bind check,
+  never hardcoded.
 
 ---
 
@@ -223,12 +256,16 @@ Starting values, debatable, but no longer blank — so the first build PR cannot
 | Max pending-order age | **10 min**, **timer-driven** (not next-tick) | < the 12-min cadence, so a watchdog timer cancels+reconciles *between* ticks; a tick must never inherit an already-overdue order |
 | Intraday daily-loss breaker | **reuse 104's threshold** → halts NEW entries for the session; exits allowed | reuse existing guard |
 | Global kill switch | env flag `RENQUANT_INTRADAY_DECISIONING` default **off**; canary allowlist required | nothing live until explicitly enabled |
+| **Intraday margin / buying-power headroom** *(§22 / amendment A2, new)* | a new buy child must fit within a **pre-declared fraction of `non_marginable_buying_power`**, consistent with the pinned `execution.buying_power_mode` | binds entries on the broker's **live** margin/buying-power semantics, not a static cash figure — verified account is margin (FINRA Intraday Margin Standards, eff. 2026-06-04), not legacy PDT |
+| **Broker-reported intraday margin deficit / adjustment** *(§22 / amendment A2, new — Tier-1)* | **any** broker-reported intraday margin deficit or adjustment → **halt new entries, reconcile** | a Tier-1 condition, same severity class as the existing critical-reject halt (§9.3) — margin state the broker itself flags as deficient is not a soft warning |
 
 **Interaction rules (which limit binds, and how the counters move) — answers Codex r2#6:**
-- **Most-restrictive-wins:** an entry is blocked the moment *any* of {entries-count, deployment-notional, turnover} would be exceeded; they are not additive.
+- **Most-restrictive-wins:** an entry is blocked the moment *any* of {entries-count, deployment-notional, turnover, intraday margin/buying-power headroom} would be exceeded; they are not additive.
 - **Deployment** (the 15% cap) counts **net new long notional including open/pending buy children** (a pending buy already consumes deployment headroom, consistent with `reserved_cash`). A partial fill keeps its **unfilled remainder reserved** against deployment until the child fills or is canceled.
 - **Turnover** (the 25% cap) counts **gross** buys **and** sells; **sells consume turnover but not deployment** (a sell frees, not uses, long exposure).
 - **Timer-driven pending cancel:** the max-pending-age (10 min) is enforced by a watchdog independent of the 12-min decision tick, so an overdue order is canceled+reconciled before the next tick reads state (otherwise the next tick would see an already-stale pending). On cancel, the unfilled remainder's reservation is released.
+- **Intraday margin / buying-power headroom** *(§22 / amendment A2, new):* an open/pending buy consumes headroom the same way it consumes `reserved_cash` (§7) — a pending buy's notional is reserved against **both** the deployment cap and the margin/buying-power headroom simultaneously, not independently re-derived. Released the same way (fill or cancel).
+- **Exits-always-allowed** *(§22 / amendment A2, new — safety precedence, supersedes every other rule in this list for the exit side):* **no envelope, regulatory, or budget constraint above may ever block a protective exit.** Every constraint in this section binds **entries only**. If a contemplated entry would create a position whose protective exit could later be constrained (by margin, settlement, or halt rules), the **entry** is refused up front — the exit side, once a position exists, is unconditional. Same-session round trips forced by this rule are **permitted** whenever the risk rules demand them; their cost/churn is tracked as a **ledger diagnostic** (count + realized cost of same-session round trips per §9's denominators), never a hard counter that could itself block an exit.
 
 ---
 
@@ -240,6 +277,19 @@ Starting values, debatable, but no longer blank — so the first build PR cannot
 - **Live-quote data plane** — Alpaca live quote/last-trade entitlement + rate-limit headroom for per-tick reads across the watchlist.
 - **Broker open-orders API** — required for §7 dedup-vs-pending and reconcile-before-emit.
 - **Intraday decision-ledger cadence** — the ledger must accept intraday-cadence rows (schema unchanged) for the §9 A/B + daily retrospective.
+- **Verified broker-rule regime, recorded per session** *(§22 / amendment A2, new).* Before the
+  **first** canary session — and at the start of every subsequent one — query and **record in the
+  run bundle** the account's broker-effective rule regime and the fields that bind: margin vs cash;
+  which buying-power figure governs (currently `non_marginable_buying_power`, consistent with the
+  pinned `execution.buying_power_mode`); the live intraday-margin fields the broker enforces
+  (`initial_margin` / `maintenance_margin` / `intraday_adjustments`). The §10 envelope is designed
+  against **those recorded fields**. If the recorded regime differs from the one the envelope was
+  designed for (rule regimes change — FINRA's 2026-06-04 Intraday Margin Standards replacing the
+  legacy PDT designation is exactly this happening once already), the session **aborts: no
+  entries**, exits still allowed. The contract is *verify-then-bind*, never *hardcode* — this
+  BLOCKER exists precisely because §10's envelope defaults below were sized against a regime
+  verified at RFC-amendment time (2026-07-02), which is not guaranteed to still be the regime in
+  force whenever the canary actually first runs.
 
 **Deferred dependencies (not Stage-1 blockers):**
 - **Fractional shares — Stage-2 dependency, NOT a Stage-1 blocker.** Stage 1 sizes in **whole shares + the existing min-notional guard**, so the fractional chain does not gate Stage 1. It *is* needed for Stage 2; that chain is currently un-mergeable (per Codex 2026-06-30: execution **#19** red CI + broker stop/classification hazards; pipeline **#153** lacks fractional lifecycle / sim parity; strategy **#36** blocked behind both). Tracked as a Stage-2 prerequisite, to verify independently before Stage 2 — not assumed available.
@@ -378,3 +428,36 @@ Codex's r11 review acknowledged the r11 convergence (statistics split out, Stage
 This keeps the engineering RFC separable from the (deferred) statistics without reviving the stats loop.
 
 *DESIGN docs only, no code. Not merged / not approved — re-request review from `haorensjtu-dev`.*
+
+---
+
+## 22. Amendment integration — #223 amendment A2 (broker-regulatory / settlement envelope)
+
+An independent design review (`doc/design/2026-07-01-104-105-design-review-amendments.md`, PR #223)
+found this RFC designed an intraday order loop with **no broker-regulatory / settlement envelope at
+all** — nothing in §7/§10/§11 bound entries to the account's actual margin/regulatory state. That
+review's amendment A2 went through its own r1→r2 Codex round (r1's premise — legacy PDT trade
+counting — was superseded and its proposed "day-trade budget = 0 blocks same-session exits" control
+was itself unsafe; both were withdrawn in r2 on a **verified** account regime instead of a remembered
+one) and was **accepted** by Codex. This section records that the r2-converged text has been folded
+into this RFC as genuine content (§7, §10, §11 above), not merely referenced, so a future implementer
+building the execution/pipeline pieces per §8's decomposition needs to read only this RFC.
+
+| # | A2 point (from #223, r2-converged) | Disposition | Where |
+|---|---|---|---|
+| 1 | Verify the account's actual broker-regulatory regime before designing against it — a read-only `GET /v2/account` query (2026-07-02) found a **margin account** under FINRA's Intraday Margin Standards (effective 2026-06-04), not the legacy PDT designation the r1 draft assumed. | **Accepted** — verified-regime facts (margin account, `daytrading_buying_power` consistent with the new regime rather than legacy sub-$25k PDT, deprecated PDT fields present-but-unused) recorded in the REVISION header and this section; specific dollar balances/ratios deliberately NOT reproduced here (stale immediately, belong in the protected run bundle for the verification date, not this durable doc). | REVISION header, §22 |
+| 2 | Add a Stage-1 BLOCKER: verify-then-bind the broker-rule regime, recorded per session in the run bundle; abort (no entries) if the recorded regime diverges from what the envelope was designed for. | **Accepted** — new §11 BLOCKER. | §11 |
+| 3 | Add §10 envelope rows binding entries to real-time intraday margin / buying-power headroom (consistent with `non_marginable_buying_power` / `execution.buying_power_mode`), with a broker-reported intraday margin deficit as a Tier-1 halt condition. | **Accepted** — two new §10 table rows + a new interaction-rule bullet. | §10 |
+| 4 | Add an exits-always-allowed safety precedence: no envelope/regulatory/budget constraint may ever block a protective exit; constraints bind entries only; same-session round trips become a ledger diagnostic, not a hard counter. This **inverts** the withdrawn r1 "day-trade budget = 0" control, which would have unsafely blocked same-session exits. | **Accepted** — new §10 interaction-rule bullet, stated as superseding every other §10 rule for the exit side. | §10 |
+| 5 | State the cash-account settlement variant conditionally (the account is margin today, so T+1 gating does not currently bind) so a future account-regime change is a recorded config flip, not a redesign. | **Accepted** — new §7 bullet. | §7 |
+
+No code, config, broker call, or risk-cap value changes in this integration — it is a documentation
+fold-in of already-reviewed, already-accepted RFC text, consistent with amendment A2's own stated
+scope ("docs only — no code, config, broker, risk-cap, or sizing change"). The actual runtime
+enforcement of this envelope does not exist yet: per §8's repo decomposition, the order-lifecycle
+state machine belongs to the (not yet built) **execution** repo and the envelope interaction rules
+belong to the (not yet built) **pipeline** repo — this RFC is now the spec those future PRs build
+against, not itself a code change.
+
+*DESIGN docs only, no code. Amendment fold-in — not itself a fresh Codex review round; re-request
+review from `haorensjtu-dev` on the next substantive change to this RFC.*
