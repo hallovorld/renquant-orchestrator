@@ -301,9 +301,11 @@ def cmd_select(_args) -> None:
         g = g.drop_duplicates(subset="ticker").set_index("ticker")
         ranks = g[feat_cols].rank(pct=True).to_numpy(dtype=np.float64)
         # standardize each ticker's 158-dim rank vector (row-wise) for Pearson
-        mu = np.nanmean(ranks, axis=1, keepdims=True)
-        sd = np.nanstd(ranks, axis=1, keepdims=True) + 1e-12
-        z = np.nan_to_num((ranks - mu) / sd)
+        with np.errstate(all="ignore"):
+            mu = np.nanmean(ranks, axis=1, keepdims=True)
+            sd = np.nanstd(ranks, axis=1, keepdims=True) + 1e-12
+            z = (ranks - mu) / sd
+        z[~np.isfinite(z)] = 0.0
         k = z.shape[1]
         tickers_here = list(g.index)
         c_rows = [i for i, t in enumerate(tickers_here) if t in cand_idx]
