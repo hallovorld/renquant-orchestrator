@@ -1,0 +1,493 @@
+{
+  "generated_utc": "2026-07-03T08:58:16.608937+00:00",
+  "verifies": "PR #261 M8 cluster wave-1 NO-GO (doc/research/2026-07-03-m8-cluster-wave1.md)",
+  "independent_implementation": "IC via pandas ranks + np.corrcoef; groups via groupby(date).size(); sort by (date,ticker); zero-std guard instead of +1e-9 \u2014 written without reusing scripts/m8_cluster_wave1.py code",
+  "check2_arithmetic": {
+    "noise_band": 0.01,
+    "qualifying_cuts": [
+      5,
+      6,
+      7
+    ],
+    "fwd_60d_excess": {
+      "per_cut_delta": [
+        {
+          "cut": 1,
+          "delta": -0.008597
+        },
+        {
+          "cut": 2,
+          "delta": 0.034161
+        },
+        {
+          "cut": 3,
+          "delta": -0.032012
+        },
+        {
+          "cut": 4,
+          "delta": 0.021035
+        },
+        {
+          "cut": 5,
+          "delta": -0.076422
+        },
+        {
+          "cut": 6,
+          "delta": 0.015944
+        },
+        {
+          "cut": 7,
+          "delta": -0.08252
+        }
+      ],
+      "mean_delta_qualifying": -0.047666,
+      "mean_delta_all_cuts": -0.018344,
+      "placebo_clean_mean_delta_qualifying": -0.032768,
+      "wins_qualifying": 1,
+      "pooled_date_level_mean_delta": -0.047574,
+      "pooled_date_level_naive_se": 0.00374,
+      "pooled_n_dates": 691
+    },
+    "fwd_20d_excess": {
+      "per_cut_delta": [
+        {
+          "cut": 1,
+          "delta": -0.021922
+        },
+        {
+          "cut": 2,
+          "delta": 0.004251
+        },
+        {
+          "cut": 3,
+          "delta": -0.04598
+        },
+        {
+          "cut": 4,
+          "delta": 0.003622
+        },
+        {
+          "cut": 5,
+          "delta": -0.055034
+        },
+        {
+          "cut": 6,
+          "delta": 0.003821
+        },
+        {
+          "cut": 7,
+          "delta": -5.6e-05
+        }
+      ],
+      "mean_delta_qualifying": -0.01709,
+      "mean_delta_all_cuts": -0.0159,
+      "placebo_clean_mean_delta_qualifying": -0.028829,
+      "wins_qualifying": 1,
+      "pooled_date_level_mean_delta": -0.017059,
+      "pooled_date_level_naive_se": 0.006447,
+      "pooled_n_dates": 691
+    },
+    "evidence_internal_consistency": {
+      "runs_cross_checked": 40,
+      "max_abs_ic_mean_discrepancy": 4.9e-07,
+      "mismatches": []
+    },
+    "gate_recheck": {
+      "gate": "PASS iff mean qualifying delta >= -0.01 on fwd_60d_excess",
+      "recomputed_mean_delta": -0.047666,
+      "verdict_implied": "NO-GO",
+      "matches_their_verdict": true
+    }
+  },
+  "universe": {
+    "n_incumbents": 133,
+    "n_candidates": 683,
+    "n_wave": 100,
+    "n_eligible_candidates": 682
+  },
+  "check4_coverage": {
+    "n_candidates": 683,
+    "modal_candidate_start_date": "2021-05-03",
+    "n_candidates_at_modal_start": 512,
+    "claim_512_of_683_start_2021_05_03": true,
+    "per_cut_wave_coverage": [
+      {
+        "cut": 1,
+        "covered": 26,
+        "fraction": 0.26
+      },
+      {
+        "cut": 2,
+        "covered": 28,
+        "fraction": 0.28
+      },
+      {
+        "cut": 3,
+        "covered": 28,
+        "fraction": 0.28
+      },
+      {
+        "cut": 4,
+        "covered": 29,
+        "fraction": 0.29
+      },
+      {
+        "cut": 5,
+        "covered": 100,
+        "fraction": 1.0
+      },
+      {
+        "cut": 6,
+        "covered": 100,
+        "fraction": 1.0
+      },
+      {
+        "cut": 7,
+        "covered": 100,
+        "fraction": 1.0
+      }
+    ],
+    "qualifying_cuts_recomputed": [
+      5,
+      6,
+      7
+    ],
+    "matches_their_qualifying_cuts": true,
+    "gate_sensitivity": {
+      "frozen_rule_cuts_5_6_7": {
+        "cuts": [
+          5,
+          6,
+          7
+        ],
+        "mean_delta": -0.047666,
+        "passes_band": false
+      },
+      "all_7_cuts": {
+        "cuts": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "mean_delta": -0.018344,
+        "passes_band": false
+      },
+      "coverage_ge_25pct_all_7_here": {
+        "cuts": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "mean_delta": -0.018344,
+        "passes_band": false
+      },
+      "cuts_4_7": {
+        "cuts": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "mean_delta": -0.030491,
+        "passes_band": false
+      },
+      "leave_out_cut5": {
+        "cuts": [
+          6,
+          7
+        ],
+        "mean_delta": -0.033288,
+        "passes_band": false
+      },
+      "leave_out_cut6": {
+        "cuts": [
+          5,
+          7
+        ],
+        "mean_delta": -0.079471,
+        "passes_band": false
+      },
+      "leave_out_cut7": {
+        "cuts": [
+          5,
+          6
+        ],
+        "mean_delta": -0.030239,
+        "passes_band": false
+      }
+    }
+  },
+  "check5_parity": {
+    "xgb_params": {
+      "production_PANEL_LTR_PARAMS": {
+        "objective": "rank:pairwise",
+        "eta": 0.05,
+        "max_depth": 5,
+        "min_child_weight": 50,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "verbosity": 0,
+        "seed": 42
+      },
+      "their_XGB_PARAMS_extra_keys": {
+        "nthread": 8
+      },
+      "core_params_match": true,
+      "n_rounds_match": true,
+      "default_label_match": true
+    },
+    "cuts_match_umbrella_wf_extended": true,
+    "single_train_fn_both_arms": true,
+    "feature_audit": {
+      "n_features": 158,
+      "forward_looking_feature_names": []
+    }
+  },
+  "check1_dilution": {
+    "cuts": {
+      "5": {
+        "n_train_baseline": 98391,
+        "n_train_augmented": 149826,
+        "their_n_train_baseline": 98391,
+        "their_n_train_augmented": 149826,
+        "their_baseline_ic": 0.139812,
+        "their_augmented_ic_full": 0.06339,
+        "their_augmented_ic_incumbent_subset": 0.066329,
+        "per_seed": [
+          {
+            "seed": 42,
+            "baseline_ic": 0.139812,
+            "augmented_ic_full": 0.06339,
+            "augmented_ic_incumbent_subset": 0.066329,
+            "seconds": 3.3
+          },
+          {
+            "seed": 7,
+            "baseline_ic": 0.10828,
+            "augmented_ic_full": 0.089341,
+            "augmented_ic_incumbent_subset": 0.099216,
+            "seconds": 2.7
+          },
+          {
+            "seed": 2026,
+            "baseline_ic": 0.109763,
+            "augmented_ic_full": 0.070058,
+            "augmented_ic_incumbent_subset": 0.070725,
+            "seconds": 2.7
+          }
+        ],
+        "incumbent_dilution_baseline_minus_auginc": [
+          0.073483,
+          0.009064,
+          0.039038
+        ],
+        "dilution_positive_all_seeds": true
+      },
+      "6": {
+        "n_train_baseline": 99876,
+        "n_train_augmented": 169027,
+        "their_n_train_baseline": 99876,
+        "their_n_train_augmented": 169027,
+        "their_baseline_ic": 0.005424,
+        "their_augmented_ic_full": 0.021368,
+        "their_augmented_ic_incumbent_subset": 0.024978,
+        "per_seed": [
+          {
+            "seed": 42,
+            "baseline_ic": 0.006801,
+            "augmented_ic_full": 0.021368,
+            "augmented_ic_incumbent_subset": 0.024978,
+            "seconds": 3.0
+          },
+          {
+            "seed": 7,
+            "baseline_ic": 0.009027,
+            "augmented_ic_full": 0.012427,
+            "augmented_ic_incumbent_subset": 0.010381,
+            "seconds": 2.9
+          },
+          {
+            "seed": 2026,
+            "baseline_ic": 0.005868,
+            "augmented_ic_full": -0.01903,
+            "augmented_ic_incumbent_subset": -0.017686,
+            "seconds": 3.0
+          }
+        ],
+        "incumbent_dilution_baseline_minus_auginc": [
+          -0.018177,
+          -0.001354,
+          0.023554
+        ],
+        "dilution_positive_all_seeds": false
+      },
+      "7": {
+        "n_train_baseline": 100149,
+        "n_train_augmented": 175449,
+        "their_n_train_baseline": 100149,
+        "their_n_train_augmented": 175449,
+        "their_baseline_ic": 0.12762,
+        "their_augmented_ic_full": 0.0451,
+        "their_augmented_ic_incumbent_subset": 0.061481,
+        "per_seed": [
+          {
+            "seed": 42,
+            "baseline_ic": 0.143125,
+            "augmented_ic_full": 0.053056,
+            "augmented_ic_incumbent_subset": 0.073655,
+            "seconds": 3.0
+          },
+          {
+            "seed": 7,
+            "baseline_ic": 0.115999,
+            "augmented_ic_full": 0.083934,
+            "augmented_ic_incumbent_subset": 0.105028,
+            "seconds": 3.0
+          },
+          {
+            "seed": 2026,
+            "baseline_ic": 0.131937,
+            "augmented_ic_full": 0.061054,
+            "augmented_ic_incumbent_subset": 0.076233,
+            "seconds": 3.2
+          }
+        ],
+        "incumbent_dilution_baseline_minus_auginc": [
+          0.06947,
+          0.010971,
+          0.055704
+        ],
+        "dilution_positive_all_seeds": true
+      }
+    },
+    "random_wave_control": {
+      "draw0": {
+        "cuts": {
+          "5": {
+            "augmented_ic_full": 0.029897,
+            "augmented_ic_incumbent_subset": 0.051755,
+            "delta_full_vs_seed42_baseline": -0.109915
+          },
+          "6": {
+            "augmented_ic_full": 0.039477,
+            "augmented_ic_incumbent_subset": 0.037948,
+            "delta_full_vs_seed42_baseline": 0.032676
+          },
+          "7": {
+            "augmented_ic_full": 0.123967,
+            "augmented_ic_incumbent_subset": 0.170893,
+            "delta_full_vs_seed42_baseline": -0.019158
+          }
+        },
+        "gate_mean_delta_vs_seed42_baseline": -0.032132,
+        "passes_band": false
+      },
+      "draw1": {
+        "cuts": {
+          "5": {
+            "augmented_ic_full": 0.089336,
+            "augmented_ic_incumbent_subset": 0.126205,
+            "delta_full_vs_seed42_baseline": -0.050476
+          },
+          "6": {
+            "augmented_ic_full": 0.015824,
+            "augmented_ic_incumbent_subset": 0.021473,
+            "delta_full_vs_seed42_baseline": 0.009023
+          },
+          "7": {
+            "augmented_ic_full": 0.141508,
+            "augmented_ic_incumbent_subset": 0.207063,
+            "delta_full_vs_seed42_baseline": -0.001617
+          }
+        },
+        "gate_mean_delta_vs_seed42_baseline": -0.014357,
+        "passes_band": false
+      },
+      "draw2": {
+        "cuts": {
+          "5": {
+            "augmented_ic_full": 0.093876,
+            "augmented_ic_incumbent_subset": 0.14582,
+            "delta_full_vs_seed42_baseline": -0.045936
+          },
+          "6": {
+            "augmented_ic_full": 0.020468,
+            "augmented_ic_incumbent_subset": 0.028765,
+            "delta_full_vs_seed42_baseline": 0.013667
+          },
+          "7": {
+            "augmented_ic_full": 0.148143,
+            "augmented_ic_incumbent_subset": 0.208146,
+            "delta_full_vs_seed42_baseline": 0.005018
+          }
+        },
+        "gate_mean_delta_vs_seed42_baseline": -0.009084,
+        "passes_band": true
+      }
+    },
+    "frozen_gate_per_seed": [
+      {
+        "seed": 42,
+        "per_cut_delta": [
+          -0.076422,
+          0.014567,
+          -0.090069
+        ],
+        "mean_delta_qualifying": -0.050641,
+        "passes_band": false
+      },
+      {
+        "seed": 7,
+        "per_cut_delta": [
+          -0.018939,
+          0.0034,
+          -0.032065
+        ],
+        "mean_delta_qualifying": -0.015868,
+        "passes_band": false
+      },
+      {
+        "seed": 2026,
+        "per_cut_delta": [
+          -0.039705,
+          -0.024898,
+          -0.070883
+        ],
+        "mean_delta_qualifying": -0.045162,
+        "passes_band": false
+      }
+    ],
+    "no_go_robust_across_seeds": true
+  },
+  "their_impl_reproduction": {
+    "cut5_baseline": {
+      "their_committed_ic": 0.139812,
+      "their_impl_rerun_ic": 0.139812,
+      "abs_diff": 0.0,
+      "min_train_feature_stds": [
+        4.769e-05,
+        5.784e-05,
+        6.585e-05
+      ]
+    },
+    "cut7_baseline": {
+      "their_committed_ic": 0.12762,
+      "their_impl_rerun_ic": 0.12762,
+      "abs_diff": 0.0,
+      "min_train_feature_stds": [
+        4.747e-17,
+        4.755e-17,
+        4.836e-17
+      ]
+    }
+  },
+  "runtime_seconds": 49.4
+}
