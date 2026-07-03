@@ -59,7 +59,18 @@ research** (a memo whose output is GO/NO-GO/NULL/PASS/FAIL/REJECTED against a fr
 Ordinary engineering PRs, ops records, and exploratory scans that do not claim a verdict are
 out of scope.
 
-### 1.1 Rule R1 — D-gate-feeding and direction-closing verdicts are PROVISIONAL until adversarially verified
+### 1.1 Rule R1 — D-gate-feeding and direction-closing verdicts are PROVISIONAL until adversarially rechecked
+
+**What this is, honestly.** This is **adversarial reimplementation/recheck**, not independent
+institutional approval. In a one-operator workflow the same operator, the same repo context,
+and the same evidence base govern both the original verdict and the recheck — there is no
+second organization, no separate incentive structure, no genuinely independent judgment. What
+this contract *does* reliably provide — proven by every precedent in §0 — is a **fresh
+reimplementation from the frozen spec, adversarially postured to break the verdict**, which
+catches implementation bugs, spec deviations, unit/label mismatches, and fragile or
+cherry-picked choices that re-running the author's own script cannot catch (it would only
+prove determinism). Treat "UPHELD" as "a fresh, hostile reimplementation could not break it" —
+not as "an independent institution approved it."
 
 **Scope.** A verdict is in R1 scope iff it (i) feeds a master-plan decision gate (§1.5 of the
 unified plan: D1, S9/Track-A, M2 canary, D3/L1, L6, M10/L7, M-SIG kill branch) — i.e. its
@@ -69,7 +80,7 @@ alpha dead; M3 AC-FAIL ⇒ haircut not shipped). Low-load exploratory NULLs are 
 (§4).
 
 **States.** Every in-scope verdict is **PROVISIONAL** at publication and stays PROVISIONAL
-until an independent adversarial re-verification returns **UPHELD**. The other outcomes:
+until an adversarial reimplementation/recheck returns **UPHELD**. The other outcomes:
 
 - **UPHELD** — every load-bearing number reproduced within its stated tolerance from the
   committed inputs, AND no mechanism-off / contamination / arm-parity finding. Verdict becomes
@@ -81,13 +92,16 @@ until an independent adversarial re-verification returns **UPHELD**. The other o
   evidence boundary (e.g. a sub-window result doesn't hold, a sensitivity was mislabeled). The
   verdict stands with an amended evidence-boundary block; the ledger row records the weakening.
 
-**The verification protocol (what "independent adversarial re-verification" means).**
+**The recheck protocol (what "adversarial reimplementation/recheck" means).**
 
 1. **Different implementation** — the verifier writes fresh code from the frozen spec and the
    committed inputs. Re-running the author's script proves only determinism; it would not have
    caught λ-round-1 (the bug reproduced perfectly).
-2. **Different party** — not the author agent/session. Codex-adversarial review per the
-   standing agent control-plane is the default verifier.
+2. **Different reviewing pass, not a different institution** — the recheck is performed by
+   Codex-adversarial review per the standing agent control-plane (a genuinely separate review
+   pass with a try-to-break brief), or by a fresh agent session with no memory of the original
+   implementation. This is real friction against author-blind-spots and copy-paste bugs; it is
+   NOT organizational independence, and the doc makes no claim that it is.
 3. **Recompute the load-bearing numbers** — all of them (defined below), from the committed
    evidence inputs, and check the verdict re-derives through the frozen rule.
 4. **Try-to-OVERTURN framing** — the verifier's explicit brief is to break the verdict, not to
@@ -122,28 +136,58 @@ retroactively for the standing verdicts).
   conservative direction never waits on verification; only the *irreversible* consumption of
   the verdict does.
 
-### 1.2 Rule R2 — positive controls mandatory in every negative-result harness
+### 1.2 Rule R2 — positive controls where the mechanism can be armed; a defined fallback where it cannot
 
-**Mechanical requirement.** Any harness whose output can be a NULL / NO-GO / FAIL verdict MUST
-include at least one **positive-control fixture**: an input in which the mechanism or effect
-under test is deliberately PLANTED — a synthetic injection of a known-size effect, or a
-configuration in which the mechanism is provably active — and the harness's detection path
-MUST fire on it. The control is **committed as a test** (pytest, runs with the repo suite)
-alongside the harness script — not a one-off note in the memo.
+**R2 does not apply uniformly to every negative-result harness.** It splits on whether the
+harness has an actual, arm-able MECHANISM or is an OBSERVATIONAL / cross-sectional panel
+study — conflating the two is exactly the overreach this rule must avoid. Requiring every
+empirical study to "plant a realistic decision-scale effect" would itself be model-laden: for
+an observational panel, the planted effect's *shape* is a modeling choice, and picking one
+already presupposes an answer to the question the study is asking — that is a box-checking
+ceremony, not validation.
 
+**Class A — mechanism tests (positive control MANDATORY).** The harness tests a specific,
+code-level, ON/OFF mechanism that can be deliberately armed or disarmed independent of the
+input data (a solver flag, a config gate, a feature-computation branch). The λ-round-1
+precedent (`qp_solver.py:468`'s dual-condition gate) is the canonical case, and is exactly why
+this rule exists.
+
+- **Mechanical requirement.** Include at least one **positive-control fixture**: an input in
+  which the mechanism is deliberately PLANTED/armed, and the harness's detection path MUST
+  fire on it. Committed as a test (pytest, runs with the repo suite), not a one-off memo note.
 - **Sensitivity at decision scale.** The planted effect must be at or near the frozen decision
-  threshold, not 10× it. For an M8-style gate at −0.010, plant a ~0.02 IC degradation and show
-  the paired WF detects it; for an S9-style expectancy gate at +5 bps/60d, plant an
-  enrichment of that order. A harness that only detects huge effects has not demonstrated the
+  threshold, not 10× it — a harness that only detects huge effects hasn't demonstrated the
   sensitivity the gate assumes.
-- **Admissibility rule.** A negative verdict from a harness with no passing positive control
-  is **inadmissible as a verdict** — it may be reported only as "harness ran; sensitivity
-  unproven", and it cannot close a direction or feed a D-gate.
-- **Negative controls (placebo) are unchanged** — the placebo-clean-differences house rule
-  stands; R2 adds the symmetric requirement that was missing.
-- **Precedents already in the corpus** (this is codification, not invention): λ-sweep round
-  3's scenario 3 (non-binding turnover + mechanism armed → λ effect detected); the master
-  plan's S1–S3 AC "fixture: passes known-clean, fails known-leaked".
+- **Admissibility rule.** A negative verdict from a Class-A harness with no passing positive
+  control is **inadmissible** — reportable only as "harness ran; sensitivity unproven"; it
+  cannot close a direction or feed a D-gate.
+
+**Class B — observational / cross-sectional panel studies (positive control NOT required;
+fallback standard applies instead).** The harness measures a real-world empirical relationship
+over historical/live data with no arm-able code-level switch (S9's pick-quality conditional,
+M8's cluster-wave WF comparison, M3's haircut replay). For these:
+
+- **Shuffle/placebo-detection fallback, MANDATORY instead.** Prove the harness's NULL path
+  itself is sensitive, not that a hypothetical positive effect would be caught: run the
+  harness on label-shuffled or time-shifted (placebo) data and confirm it correctly reports
+  NULL/no-signal there too — i.e. the harness isn't structurally guaranteed to say NULL
+  regardless of input (the λ-round-1 failure mode, restated for the no-mechanism-to-arm case).
+  This is the placebo-clean-differences house rule already in use (M3, M8, S9 all already run
+  a placebo leg) — R2 for Class B makes it MANDATORY and explicit, not a bonus.
+- **Explicit no-positive-control acknowledgment.** The memo MUST state, in the evidence
+  boundary (R3), that no positive control was run and why (the effect's "planted shape" would
+  be a modeling assumption, not a validation) — an honest gap, not a silent one.
+- **Admissibility rule.** A Class-B negative verdict with a passing shuffle/placebo check and
+  an explicit no-positive-control acknowledgment IS admissible and may close a direction/feed a
+  D-gate — Class B does not carry Class A's inadmissibility bar.
+
+**Negative controls (placebo) are unchanged and apply to both classes** — R2 adds the
+positive-control (Class A) / shuffle-fallback (Class B) requirement that was missing.
+
+**Precedents already in the corpus** (codification, not invention): λ-sweep round 3's scenario
+3 (Class A — non-binding turnover + mechanism armed → λ effect detected); the master plan's
+S1–S3 AC "fixture: passes known-clean, fails known-leaked" (Class A); M3/M8/S9's existing
+placebo legs (Class B fallback, already in practice).
 
 **Applies to:** every NEW harness from this design forward, plus the retrospective queue's
 verification reruns (§2). NOT a mass retrofit of merged low-load NULLs (§4).
@@ -193,22 +237,37 @@ S9 ("a genuinely NEW hypothesis needs its own separate frozen prereg, never a re
 
 ## 2. The retrospective audit queue
 
-Standing verdicts, ordered by **load** = (feeds a D-gate or closed a direction) × (substrate
-fragility). Each item lists the load-bearing numbers the verifier must recompute and what
-would flip the verdict. Verification results land as
-`doc/research/<date>-<id>-verification.md` + a ledger-row update (§3.2).
+**Capacity bound (hard limit, per codex review 2026-07-03): at most 2 items in flight at
+once.** A new item may only be dispatched once an in-flight item lands (UPHELD / OVERTURNED /
+WEAKENED). This is a queue depth limit, not a wishlist — S-REL is reliability infrastructure,
+not a second research program competing with alpha work for the same operator's attention.
 
-| # | ID | Verdict under audit | Priority | Status |
+**Sequencing: only V1–V3 are active now.** They are the queue's 3 highest-load items (feed a
+D-gate or close a direction, per §1.1's scope test) and are, as of this writing, already the
+smallest set that has exercised and validated the R1/R2 contract end to end:
+
+| # | ID | Verdict under audit | Tier | Status |
 |---|---|---|---|---|
-| V1 | S9 Track A conditional (#262) | NULL | P0 | verification **IN FLIGHT** |
-| V2 | M8 cluster wave-1 (#261) | NO-GO | P0 | verification **IN FLIGHT** |
-| V3 | M3 haircut replay (merged) | AC FAIL | P1 | **NEXT** — first S-REL dispatch |
-| V4 | C3 adjudication status | UNADJUDICATED vs "MISS" | P1 | queued (reconciliation, not recompute) |
-| V5 | M4 intercept finding (pipeline #162) | FINDING (M4-b's premise) | P1 | queued |
-| V6 | Phase −1 intraday alpha (PR #199) | NO-GO (soft) | P2 | queued — **durability first** |
-| V7 | Low-load NULL batch (trend-scan, fundmom, analyst/minute/PEAD scans, price-trend) | NULL/REJECTED ×n | P3 | NOT dispatched — verify-on-reopen only |
+| V1 | S9 Track A conditional (#262) | NULL | **ACTIVE** | recheck **UPHELD** (#263, merged) |
+| V2 | M8 cluster wave-1 (#261) | NO-GO | **ACTIVE** | recheck **UPHELD** (#264, merged) |
+| V3 | M3 haircut replay (merged) | AC FAIL | **ACTIVE** | recheck **WEAKENED** (#269, landing) |
+| V4 | C3 adjudication status | UNADJUDICATED vs "MISS" | DEFERRED | not dispatched — see below |
+| V5 | M4 intercept finding (pipeline #162) | FINDING (M4-b's premise) | DEFERRED | not dispatched — see below |
+| V6 | Phase −1 intraday alpha (PR #199) | NO-GO (soft) | DEFERRED | not dispatched — see below |
+| V7 | Low-load NULL batch (trend-scan, fundmom, analyst/minute/PEAD scans, price-trend) | NULL/REJECTED ×n | DEFERRED | verify-on-reopen only (§4) |
 
-### V1 — S9 Track A conditional NULL (P0, in flight)
+**V1–V3 are done or landing, which is the evidence this program needed before expanding.**
+V1 and V2 UPHELD on first pass with no bug found; V3 WEAKENED (a real fragility, not a flip) —
+between them they demonstrate the R1/R2 contract at work on the program's 3 highest-load
+verdicts, at the minimum scope that would have caught the founding λ-round-1 failure class
+(§0). **V4, V5, V6, and V7 are explicitly DEFERRED, not queued** — re-litigating them in the
+same P0 wave as V1–V3 was exactly the "reliability theater" risk codex flagged. Each is
+re-tiered below with its own reopening condition; none is dispatched by this design. Promoting
+any of V4–V7 out of DEFERRED requires: (a) an open capacity slot under the 2-in-flight bound,
+and (b) an explicit, separate operator or design decision to promote it — not automatic
+inheritance of V1–V3's momentum.
+
+### V1 — S9 Track A conditional NULL (ACTIVE — recheck UPHELD, #263)
 
 Closed a direction (Track A dead; Track B only remaining directional path for renquant105) and
 feeds D3. Doc: `doc/research/2026-07-03-s9-track-a-conditional.md`.
@@ -232,7 +291,7 @@ error invalidates (not flips) everything. Note the memo's own honest flag: even 
 not selectable ex ante (train sign disagrees) — the verifier must rule on the frozen §4 "any
 conditioning clears all gates" wording, which is the GENEROUS direction.
 
-### V2 — M8 cluster wave-1 NO-GO (P0, in flight)
+### V2 — M8 cluster wave-1 NO-GO (ACTIVE — recheck UPHELD, #264)
 
 Closed a direction (waves stop; Term BR now rides on D3 down-cap alone). Doc:
 `doc/research/2026-07-03-m8-cluster-wave1.md`.
@@ -257,7 +316,7 @@ Closed a direction (waves stop; Term BR now rides on D3 down-cap alone). Doc:
 and Term BR regains its second path. The most plausible route to that is an arm-parity bug;
 the survivorship direction is already argued conservative in the memo (bias favors the wave).
 
-### V3 — M3 haircut replay AC-FAIL (P1, next — the first new S-REL dispatch)
+### V3 — M3 haircut replay AC-FAIL (ACTIVE — recheck WEAKENED, #269)
 
 Feeds Term TC (killed the haircut config change; routed to observe-only alert). Doc:
 `doc/research/2026-07-02-m3-haircut-replay.md`. **Why it is the queue's most fragile item**
@@ -288,7 +347,12 @@ reopens. Independently: fwd_60d outcomes aging in via S5 could legitimately reve
 fwd_20d read — that is V3's *reopening condition* (already recorded in the memo), not a
 verification finding.
 
-### V4 — C3 adjudication status: UNADJUDICATED vs "MISS" (P1 — reconciliation, not recompute)
+### V4 — C3 adjudication status: UNADJUDICATED vs "MISS" (DEFERRED — reconciliation, not recompute)
+
+**Reopening condition (promotes out of DEFERRED):** an open capacity slot under the 2-in-flight
+bound, AND an explicit decision that the G106 composition question is live enough to need the
+reconciliation now (it is a documentation/bookkeeping fix, not a recompute — lower urgency than
+V1–V3 by construction).
 
 The numbers were already recomputed twice under Codex review (rounds 1–2); a third recompute
 is exactly the verification-of-verifications regress §4 bars. The open reliability problem is
@@ -315,7 +379,12 @@ the memo's own §6/§8 search results, not a quick fix.
 placebo-clean −0.0040 vs the +0.015 bar; conditioned-minus-unconditioned +0.0086 with every CI
 spanning zero; 98.33% one-sided LBs ≈ −0.055 on all seeds.
 
-### V5 — M4 intercept finding, pipeline #162 (P1)
+### V5 — M4 intercept finding, pipeline #162 (DEFERRED)
+
+**Reopening condition (promotes out of DEFERRED):** an open capacity slot under the
+2-in-flight bound, AND M4-b (orchestrator #260) reaching its own promotion decision point —
+this finding is the premise M4-b is designed around, so it should verify alongside that
+decision, not ahead of it on a separate clock.
 
 Not a closure — a live FINDING that is the entire premise of the M4-b redesign (orchestrator
 PR #260) and of the "floor must become relative" route. If it is wrong, M4-b is redesigning
@@ -339,7 +408,12 @@ around an artifact. Source: pipeline #162 PR body + `shadow_replay_bl1_recenter.
 "recentering zeroes laundering" and/or "the floor admits ~0–1" collapse — weakening or
 voiding M4-b's premise and reinstating the +2–3% intercept as the open question.
 
-### V6 — Phase −1 intraday directional alpha NO-GO (P2 — durability FIRST, then verify)
+### V6 — Phase −1 intraday directional alpha NO-GO (DEFERRED — durability FIRST, then verify)
+
+**Reopening condition (promotes out of DEFERRED):** an open capacity slot under the
+2-in-flight bound. Durability (recommitting PR #199's evidence) is cheap infrastructure work
+and may proceed independent of the capacity bound since it is archival, not a verification
+dispatch — but the verification step itself (below) waits its turn like V4/V5.
 
 Killed a direction (intraday directional alpha), and merged plans actively rely on it: the H2
 roadmap's non-goals, the unified plan's L3 row ("phase −1 NO-GO not re-litigated"), and the
@@ -360,7 +434,7 @@ as a docs/evidence PR (no re-litigation — archival), so the verdict has a cita
   P0. The honest reopening condition: a measured cost below breakeven or an evidenced IC claim
   far above the 0.03–0.05 band — either is a NEW prereg per R4.
 
-### V7 — Low-load NULL batch (P3 — no dispatch, verify-on-reopen only)
+### V7 — Low-load NULL batch (DEFERRED — no dispatch, verify-on-reopen only)
 
 Trend-scan label evidence (now superseded as M-SIG C4's frozen candidate with its retrospective
 status honestly labeled), fundamental momentum REJECTED (#177 — successor test is M-SIG C2 on
@@ -433,7 +507,8 @@ verdicts (see the file). Update discipline:
 CI-checkable memo-template compliance (a linter for R3 blocks and ledger rows), automated
 manifest generation helpers, and any evidence-database tooling are **FUTURE niceties — not
 now**. The program must prove its value on the queue in §2 with zero new tooling beyond the
-JSON convention and one markdown file. Revisit only after the P0/P1 queue items resolve.
+JSON convention and one markdown file. Revisit only after the ACTIVE queue items (V1–V3)
+resolve.
 
 ---
 
@@ -473,6 +548,11 @@ JSON convention and one markdown file. Revisit only after the P0/P1 queue items 
   exists and asserts detection).
 - **AC5**: every NEW verdict memo carries the R3 evidence-boundary block and an R4 reopening
   condition — enforced at PR review.
-- **Program failure mode, stated**: if the P0/P1 verifications all return UPHELD with zero
-  WEAKENED findings, S-REL's marginal value was low and the program shrinks to rules R1–R4 at
-  PR-review time (no standing audit activity) — that outcome is recorded, not hidden.
+- **Program failure mode, stated**: if the ACTIVE-tier (V1–V3) verifications all returned
+  UPHELD with zero WEAKENED findings, S-REL's marginal value would be low and the program
+  would shrink to rules R1–R4 at PR-review time (no standing audit activity). **That did not
+  happen**: V1/V2 UPHELD, but V3 returned WEAKENED (#269) — a real fragility surfaced on the
+  program's first three dispatches. This is itself the evidence that keeping V4–V7 DEFERRED
+  (§2) rather than dispatching them immediately is the right call: the program has already
+  demonstrated marginal value at the smallest scope tried: no need to expand scope to prove
+  the point further before V4–V7 earn their own capacity slot.
