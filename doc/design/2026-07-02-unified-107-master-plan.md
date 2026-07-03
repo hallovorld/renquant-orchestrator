@@ -211,3 +211,47 @@ IC_combined (S5/S8 substrate, per-regime) · TC (S-TC series) · BR_eff (POC-A m
 The POC scripts are the standing instruments — they are already committed and re-runnable.
 Monthly re-baseline may move tasks between horizons with a stated reason; only thesis reviews
 may change direction (#229 cadence rules carry over).
+
+---
+
+## Dated addendum — 2026-07-02 (evening): SHORT-tier closure audit + forward-pull re-baseline
+
+Per §4's re-baseline rule (dated addendum, stated reasons, never silent edits). Operator standing
+instruction (2026-07-02): when a tier completes, adjust the plan autonomously and keep advancing
+toward G*.
+
+### SHORT-tier audit (one day in)
+
+DONE (merged or collecting): N1/N2/N3 (7 launchd jobs; PIT day-1; FMP verified — quarterly
+plan-locked above Starter, annual suffices) · S1/S2 (Codex) · S10 (material-but-unproven; true-VWAP
+cohort) · S11 · S-TC (exploratory) · RS-1/2/3/5/6 · S6 as re-scoped (A-1 = production no-op
+confirmed mechanically; A-2 deferred by design; A-3 built flag-off #156) · S7 built (#157 + config
+#39; shadow AC pending enable).
+IN REVIEW: S3 (#61, D1 chain ready: common#21 → caps #63/#30/#11 → #61) · S5 coverage (bt#60,
+97–98% measured) · S8 front half (#59).
+REMAINING EXECUTABLE GAPS (all dispatched this evening): S8 driver (run-gated pre-build) · S12
+panel-refresh diagnosis · S4/D1 (gate run after the chain merges + pin-align — the unblock clause
+covers a verdict-only run) · S9 (gated on S8).
+
+### Forward-pulled from MID (reasons)
+
+M1 slice 1 (the #208 §7 execution state machine) — the largest MID build, zero dependency on the
+review queue, pulled to now. M3/M4/M5 dispatched same evening (ledger substrate matured; the
+−0.29 calibrator-neutral warning made M4's evidence live; M5 is observe-only). M6 stage-2
+(pipeline fingerprint migration + re-stamp plan) queued next — its prerequisite (0.9.1 shims)
+shipped today. M7 awaits Norgate at kickoff (unchanged). M8 wave-1 queued behind the current
+agent burst.
+
+### State-vector deltas recorded today (feed the 2026-08-01 re-measurement)
+
+C3 = MISS (G106 now 2-of-3: C1/C2/C4; composite ≈0.35–0.45) · S-TC buy-side number retracted in
+review (exploratory diagnostic; n=4) · ledger coverage 86.2% → 97–98% measured post-#60 · the
+OXY order was CANCELED pre-open (never filled) — the #253 pairing fix records such cases as
+censored observations · sizing-fidelity KPI defined (S-FRAC §7): |realized−target|/target,
+baselines 100% drop / ≈190% A-3 overshoot / ≈11% undershoot.
+
+### New standing item
+
+S-FRAC (fractional v2, operator-reopened 2026-07-02) enters the SHORT tier: stage 0 active-path
+contract (the `runner.py:1372` int() truncation is a live pre-existing defect) → stages 1–3 per
+the merged design PR. Supersedes A-3's round-up when enabled; A-3 remains fallback.
