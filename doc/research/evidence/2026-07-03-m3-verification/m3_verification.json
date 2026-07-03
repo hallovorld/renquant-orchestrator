@@ -1,0 +1,1006 @@
+{
+ "study": "M3 independent adversarial verification",
+ "date": "2026-07-03",
+ "read_only": true,
+ "c1_reproduction_fwd20_k1": {
+  "n_universe": 191,
+  "n_dates": 8,
+  "n_removed": 50,
+  "winners_removed": 28,
+  "losers_removed": 22,
+  "removed_mean_excess": 0.05894007346045726,
+  "kept_mean_excess": 0.03941963733246302,
+  "universe_mean_excess": 0.04452969914607409,
+  "universe_winner_rate": 0.5340314136125655,
+  "removed_winner_rate": 0.56,
+  "delta_pp": -0.51,
+  "exact_block5": {
+   "exact": true,
+   "n_dates": 8,
+   "block_len": 5,
+   "n_tuples": 64,
+   "n_skipped_empty": 0,
+   "delta_min": -0.009146777170975291,
+   "delta_max": 0.0006102677876492837,
+   "ci95_lower_interp": -0.008676702132771325,
+   "ci95_upper_interp": -0.000875610473872131,
+   "p_ge_0": 0.015625,
+   "p_le_0": 0.984375,
+   "two_sided_p": 0.03125,
+   "ci_excludes_0_upper": true,
+   "ci_excludes_0_lower": false,
+   "n_atoms_ge_0": 1
+  },
+  "universe_dates": [
+   "2026-05-09",
+   "2026-05-18",
+   "2026-05-19",
+   "2026-05-20",
+   "2026-05-21",
+   "2026-05-22",
+   "2026-06-02",
+   "2026-06-03"
+  ],
+  "orig_mc_block5_reimpl": {
+   "ci95_their_indexing": [
+    -0.008871221918969711,
+    -0.00011327369516760805
+   ],
+   "p_ge_0": 0.0142
+  },
+  "mc_block5_seeds": [
+   {
+    "seed": 11,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.0186
+   },
+   {
+    "seed": 12,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.0174
+   },
+   {
+    "seed": 13,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.012
+   },
+   {
+    "seed": 14,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.014
+   },
+   {
+    "seed": 15,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.018
+   },
+   {
+    "seed": 16,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.014
+   },
+   {
+    "seed": 17,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.0148
+   },
+   {
+    "seed": 18,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.0172
+   },
+   {
+    "seed": 19,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.0152
+   },
+   {
+    "seed": 20,
+    "block_len": 5,
+    "n_dates": 8,
+    "ci95": [
+     -0.008871221918969711,
+     -0.00011327369516760805
+    ],
+    "p_ge_0": 0.0174
+   }
+  ],
+  "mc_block1_seeds": [
+   {
+    "seed": 11,
+    "block_len": 1,
+    "n_dates": 8,
+    "ci95": [
+     -0.013996952600409786,
+     0.0025960469185709496
+    ],
+    "p_ge_0": 0.102
+   },
+   {
+    "seed": 12,
+    "block_len": 1,
+    "n_dates": 8,
+    "ci95": [
+     -0.013670793635539642,
+     0.0023770637544414056
+    ],
+    "p_ge_0": 0.0992
+   },
+   {
+    "seed": 13,
+    "block_len": 1,
+    "n_dates": 8,
+    "ci95": [
+     -0.014198337593741478,
+     0.0026922984279984952
+    ],
+    "p_ge_0": 0.1054
+   },
+   {
+    "seed": 14,
+    "block_len": 1,
+    "n_dates": 8,
+    "ci95": [
+     -0.013708480568668894,
+     0.002494598959818857
+    ],
+    "p_ge_0": 0.1012
+   },
+   {
+    "seed": 15,
+    "block_len": 1,
+    "n_dates": 8,
+    "ci95": [
+     -0.014103781528619061,
+     0.0028119337930728183
+    ],
+    "p_ge_0": 0.1002
+   }
+  ],
+  "exact_block4": {
+   "exact": true,
+   "n_dates": 8,
+   "block_len": 4,
+   "n_tuples": 64,
+   "n_skipped_empty": 0,
+   "delta_min": -0.010885839607549838,
+   "delta_max": 0.00035444352861817296,
+   "ci95_lower_interp": -0.008871221918969711,
+   "ci95_upper_interp": -0.0003743506792729251,
+   "p_ge_0": 0.015625,
+   "p_le_0": 0.984375,
+   "two_sided_p": 0.03125,
+   "ci_excludes_0_upper": true,
+   "ci_excludes_0_lower": false,
+   "n_atoms_ge_0": 1
+  },
+  "exact_block3": {
+   "exact": true,
+   "n_dates": 8,
+   "block_len": 3,
+   "n_tuples": 512,
+   "n_skipped_empty": 0,
+   "delta_min": -0.012831888630212382,
+   "delta_max": 0.0022695293486664977,
+   "ci95_lower_interp": -0.009578011046762702,
+   "ci95_upper_interp": -0.00011327369516760649,
+   "p_ge_0": 0.021484375,
+   "p_le_0": 0.978515625,
+   "two_sided_p": 0.04296875,
+   "ci_excludes_0_upper": true,
+   "ci_excludes_0_lower": false,
+   "n_atoms_ge_0": 11
+  },
+  "jackknife_loo_dates": [
+   {
+    "left_out": "2026-05-09",
+    "delta_pp": -0.27
+   },
+   {
+    "left_out": "2026-05-18",
+    "delta_pp": -0.69
+   },
+   {
+    "left_out": "2026-05-19",
+    "delta_pp": -0.33
+   },
+   {
+    "left_out": "2026-05-20",
+    "delta_pp": -0.44
+   },
+   {
+    "left_out": "2026-05-21",
+    "delta_pp": -0.65
+   },
+   {
+    "left_out": "2026-05-22",
+    "delta_pp": -0.46
+   },
+   {
+    "left_out": "2026-06-02",
+    "delta_pp": -0.52
+   },
+   {
+    "left_out": "2026-06-03",
+    "delta_pp": -0.72
+   }
+  ],
+  "ticker_cluster_bootstrap": {
+   "n_tickers": 58,
+   "ci95": [
+    -0.019187606462208524,
+    0.006905428199090659
+   ],
+   "p_ge_0": 0.2385
+  },
+  "iid_anchor": {
+   "kept_minus_removed_gap_pp": -1.95,
+   "pooled_row_std_pp": 13.6,
+   "iid_se_of_gap_pp": 2.24,
+   "iid_t": -0.87,
+   "note": "clustering by date/ticker only shrinks effective n; |t|<1 under the MOST favorable independence assumption"
+  },
+  "permutation_test": {
+   "n_perm": 20000,
+   "observed_delta_pp": -0.51,
+   "p_one_sided_le_obs": 0.3065,
+   "p_two_sided": 0.3225,
+   "perm_delta_std_pp": 0.42
+  },
+  "removed_distinct_tickers": 39,
+  "removed_ticker_date_counts": {
+   "AAPL": 1,
+   "AEP": 1,
+   "AFRM": 1,
+   "AMAT": 4,
+   "AMZN": 1,
+   "BAC": 1,
+   "BLK": 2,
+   "CRWD": 1,
+   "CSCO": 1,
+   "CVS": 1,
+   "D": 1,
+   "DLR": 1,
+   "EOG": 1,
+   "FDX": 1,
+   "GLD": 1,
+   "GM": 1,
+   "HPE": 2,
+   "IBM": 2,
+   "JNJ": 1,
+   "JPM": 2,
+   "KLAC": 1,
+   "KMI": 1,
+   "LHX": 1,
+   "MCD": 1,
+   "META": 1,
+   "MO": 2,
+   "MPWR": 2,
+   "MRK": 3,
+   "MSFT": 1,
+   "PM": 1,
+   "PYPL": 1,
+   "SPG": 1,
+   "T": 1,
+   "TXN": 1,
+   "UNH": 1,
+   "V": 1,
+   "WFC": 1,
+   "XLK": 1,
+   "ZM": 1
+  },
+  "removed_winner_distinct_tickers": 21,
+  "removed_WL_by_cost_bps": {
+   "0": {
+    "W": 32,
+    "L": 18
+   },
+   "11": {
+    "W": 28,
+    "L": 22
+   },
+   "25": {
+    "W": 28,
+    "L": 22
+   },
+   "50": {
+    "W": 28,
+    "L": 22
+   }
+  },
+  "removed_top_contributors": [
+   {
+    "ticker": "HPE",
+    "run_date": "2026-05-09",
+    "excess_pp": 58.86
+   },
+   {
+    "ticker": "AMAT",
+    "run_date": "2026-05-19",
+    "excess_pp": 44.73
+   },
+   {
+    "ticker": "AMAT",
+    "run_date": "2026-05-20",
+    "excess_pp": 43.83
+   },
+   {
+    "ticker": "AMAT",
+    "run_date": "2026-06-02",
+    "excess_pp": 34.64
+   },
+   {
+    "ticker": "HPE",
+    "run_date": "2026-05-22",
+    "excess_pp": 31.79
+   },
+   {
+    "ticker": "CSCO",
+    "run_date": "2026-05-09",
+    "excess_pp": 28.34
+   },
+   {
+    "ticker": "IBM",
+    "run_date": "2026-05-19",
+    "excess_pp": 17.01
+   },
+   {
+    "ticker": "BAC",
+    "run_date": "2026-05-22",
+    "excess_pp": 13.41
+   }
+  ],
+  "removed_mean_top5_ticker_share": 1.0025001357965362,
+  "removed_top5_tickers": [
+   {
+    "ticker": "AMAT",
+    "sum_excess_pp": 136.01
+   },
+   {
+    "ticker": "HPE",
+    "sum_excess_pp": 90.65
+   },
+   {
+    "ticker": "CSCO",
+    "sum_excess_pp": 28.34
+   },
+   {
+    "ticker": "IBM",
+    "sum_excess_pp": 26.99
+   },
+   {
+    "ticker": "JPM",
+    "sum_excess_pp": 13.44
+   }
+  ]
+ },
+ "c1_sensitivity_grid_fwd20_k1": {
+  "V01_ddof0": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 21,
+   "delta_pp": -0.57,
+   "removed_mean_excess": 0.06095031953356636,
+   "kept_mean_excess": 0.03886342873067182,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V02_exclude_current": {
+   "n_universe": 134,
+   "n_dates": 6,
+   "winners_removed": 12,
+   "losers_removed": 9,
+   "delta_pp": -0.38,
+   "removed_mean_excess": 0.06965549334509943,
+   "kept_mean_excess": 0.04544456261422049,
+   "exact_p_ge_0": 0.05555555555555555,
+   "ci_excludes_0": false,
+   "universe_dates": [
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-03"
+   ]
+  },
+  "V03_era_none": {
+   "n_universe": 207,
+   "n_dates": 9,
+   "winners_removed": 53,
+   "losers_removed": 39,
+   "delta_pp": -0.41,
+   "removed_mean_excess": 0.049147408704025605,
+   "kept_mean_excess": 0.03995918458274456,
+   "exact_p_ge_0": 0.1728395061728395,
+   "ci_excludes_0": false,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-01",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V04_era_fine": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05894007346045726,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V05_min_obs4": {
+   "n_universe": 134,
+   "n_dates": 6,
+   "winners_removed": 17,
+   "losers_removed": 13,
+   "delta_pp": -0.11,
+   "removed_mean_excess": 0.0530198759581844,
+   "kept_mean_excess": 0.048148121701043,
+   "exact_p_ge_0": 0.3611111111111111,
+   "ci_excludes_0": false,
+   "universe_dates": [
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-03"
+   ]
+  },
+  "V06_min_obs5": {
+   "n_universe": 67,
+   "n_dates": 4,
+   "winners_removed": 13,
+   "losers_removed": 8,
+   "delta_pp": -0.98,
+   "removed_mean_excess": 0.08840654537993745,
+   "kept_mean_excess": 0.057048199268123934,
+   "exact_p_ge_0": 0.0,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22"
+   ]
+  },
+  "V07_window5": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05894007346045726,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V08_dedup_latest_mu": {
+   "n_universe": 192,
+   "n_dates": 8,
+   "winners_removed": 29,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05871566738675678,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V09_dedup_eff_latest_mu": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05894007346045726,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-08",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V10_thr30": {
+   "n_universe": 207,
+   "n_dates": 9,
+   "winners_removed": 35,
+   "losers_removed": 23,
+   "delta_pp": -0.77,
+   "removed_mean_excess": 0.0645075620226586,
+   "kept_mean_excess": 0.036921645299055325,
+   "exact_p_ge_0": 0.0,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-17",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V11_outcomes_parquet": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05894007346045726,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V12_outcomes_parquet_extended": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05894007346045726,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V13_dedup_mu_and_parquet_extended": {
+   "n_universe": 192,
+   "n_dates": 8,
+   "winners_removed": 29,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05871566738675678,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V14_eff_dedup_parquet_extended": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "removed_mean_excess": 0.05894007346045726,
+   "kept_mean_excess": 0.03941963733246302,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-08",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  },
+  "V15_outcomes_total_return": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 31,
+   "losers_removed": 19,
+   "delta_pp": -0.52,
+   "removed_mean_excess": 0.059781260096337815,
+   "kept_mean_excess": 0.039828856977968126,
+   "exact_p_ge_0": 0.015625,
+   "ci_excludes_0": true,
+   "universe_dates": [
+    "2026-05-09",
+    "2026-05-18",
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-06-02",
+    "2026-06-03"
+   ]
+  }
+ },
+ "outcome_source_agreement_fwd20": {
+  "n_compared": 191,
+  "max_abs_diff": 0.0,
+  "corr": 0.9999999999999998,
+  "winner_label_flips": 0
+ },
+ "c2_mechanism": {
+  "removed_mean_excess": 0.05894007346045726,
+  "kept_mean_excess": 0.03941963733246302,
+  "removed_winner_rate": 0.56,
+  "universe_winner_rate": 0.5340314136125655,
+  "removed_distinct_tickers": 39,
+  "removed_winner_distinct_tickers": 21,
+  "removed_WL_by_cost_bps": {
+   "0": {
+    "W": 32,
+    "L": 18
+   },
+   "11": {
+    "W": 28,
+    "L": 22
+   },
+   "25": {
+    "W": 28,
+    "L": 22
+   },
+   "50": {
+    "W": 28,
+    "L": 22
+   }
+  },
+  "removed_top_contributors": [
+   {
+    "ticker": "HPE",
+    "run_date": "2026-05-09",
+    "excess_pp": 58.86
+   },
+   {
+    "ticker": "AMAT",
+    "run_date": "2026-05-19",
+    "excess_pp": 44.73
+   },
+   {
+    "ticker": "AMAT",
+    "run_date": "2026-05-20",
+    "excess_pp": 43.83
+   },
+   {
+    "ticker": "AMAT",
+    "run_date": "2026-06-02",
+    "excess_pp": 34.64
+   },
+   {
+    "ticker": "HPE",
+    "run_date": "2026-05-22",
+    "excess_pp": 31.79
+   },
+   {
+    "ticker": "CSCO",
+    "run_date": "2026-05-09",
+    "excess_pp": 28.34
+   },
+   {
+    "ticker": "IBM",
+    "run_date": "2026-05-19",
+    "excess_pp": 17.01
+   },
+   {
+    "ticker": "BAC",
+    "run_date": "2026-05-22",
+    "excess_pp": 13.41
+   }
+  ],
+  "removed_mean_top5_ticker_share": 1.0025001357965362,
+  "removed_top5_tickers": [
+   {
+    "ticker": "AMAT",
+    "sum_excess_pp": 136.01
+   },
+   {
+    "ticker": "HPE",
+    "sum_excess_pp": 90.65
+   },
+   {
+    "ticker": "CSCO",
+    "sum_excess_pp": 28.34
+   },
+   {
+    "ticker": "IBM",
+    "sum_excess_pp": 26.99
+   },
+   {
+    "ticker": "JPM",
+    "sum_excess_pp": 13.44
+   }
+  ],
+  "ticker_cluster_bootstrap": {
+   "n_tickers": 58,
+   "ci95": [
+    -0.019187606462208524,
+    0.006905428199090659
+   ],
+   "p_ge_0": 0.2385
+  },
+  "iid_anchor": {
+   "kept_minus_removed_gap_pp": -1.95,
+   "pooled_row_std_pp": 13.6,
+   "iid_se_of_gap_pp": 2.24,
+   "iid_t": -0.87,
+   "note": "clustering by date/ticker only shrinks effective n; |t|<1 under the MOST favorable independence assumption"
+  },
+  "permutation_test": {
+   "n_perm": 20000,
+   "observed_delta_pp": -0.51,
+   "p_one_sided_le_obs": 0.3065,
+   "p_two_sided": 0.3225,
+   "perm_delta_std_pp": 0.42
+  }
+ },
+ "c3_positive_control": {
+  "design": "synth excess = 0.04 - slope*(rank(haircut deficit k*SE-margin) - mean) + date shock + idio noise; slope calibrated so E[kept-removed] hits the target gap; noise scales estimated from the real universe; same SE, same removal sets as the real replay",
+  "gap_200bps": {
+   "target_kept_minus_removed_gap_pp": 2.0,
+   "planting_rank_gap_removed_minus_kept": 0.503,
+   "slope_pp": 3.98,
+   "noise": {
+    "sigma_idio_pp": 13.43,
+    "sigma_date_pp": 1.88
+   },
+   "n_reps": 500,
+   "mean_delta_pp": 0.54,
+   "power_exact_block5_ci": 0.356,
+   "power_permutation_test_a05": 0.13
+  },
+  "gap_400bps": {
+   "target_kept_minus_removed_gap_pp": 4.0,
+   "planting_rank_gap_removed_minus_kept": 0.503,
+   "slope_pp": 7.96,
+   "noise": {
+    "sigma_idio_pp": 13.43,
+    "sigma_date_pp": 1.88
+   },
+   "n_reps": 500,
+   "mean_delta_pp": 1.03,
+   "power_exact_block5_ci": 0.574,
+   "power_permutation_test_a05": 0.266
+  },
+  "gap_800bps": {
+   "target_kept_minus_removed_gap_pp": 8.0,
+   "planting_rank_gap_removed_minus_kept": 0.503,
+   "slope_pp": 15.92,
+   "noise": {
+    "sigma_idio_pp": 13.43,
+    "sigma_date_pp": 1.88
+   },
+   "n_reps": 500,
+   "mean_delta_pp": 2.09,
+   "power_exact_block5_ci": 0.886,
+   "power_permutation_test_a05": 0.64
+  }
+ },
+ "c3_null_control": {
+  "n_reps": 500,
+  "false_positive_rate": 0.3,
+  "false_positive_rate_harm_side": 0.284,
+  "false_positive_rate_help_side": 0.016,
+  "k": 1.0,
+  "nominal": 0.05,
+  "nominal_per_side": 0.025
+ },
+ "c4_composition": {
+  "n_floor_clearing": 430,
+  "n_with_se": 301,
+  "thin_share_current": 0.3953488372093023,
+  "margin_over_se_quantiles": {
+   "p10": 0.13651818294408252,
+   "p25": 0.33521566506587586,
+   "p50": 1.2787445983958312,
+   "p75": 1.983882223904231,
+   "p90": 10.967508469872676
+  },
+  "corr_margin_se_spearman": 0.31320112390693705,
+  "per_k": {
+   "0.5": {
+    "n_admitted": 211,
+    "thin_share_admitted": 0.23696682464454977
+   },
+   "1.0": {
+    "n_admitted": 180,
+    "thin_share_admitted": 0.2
+   }
+  }
+ },
+ "c5_all_cells": {
+  "fwd_20d_k0.5": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 18,
+   "losers_removed": 15,
+   "delta_pp": 0.14,
+   "exact_p_ge_0": 0.765625,
+   "exact_p_le_0": 0.234375,
+   "exact_two_sided_p": 0.46875,
+   "exact_ci_excludes_0": false,
+   "exact_enum_n_tuples": 64
+  },
+  "fwd_20d_k1.0": {
+   "n_universe": 191,
+   "n_dates": 8,
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "delta_pp": -0.51,
+   "exact_p_ge_0": 0.015625,
+   "exact_p_le_0": 0.984375,
+   "exact_two_sided_p": 0.03125,
+   "exact_ci_excludes_0": true,
+   "exact_enum_n_tuples": 64
+  },
+  "fwd_10d_k0.5": {
+   "n_universe": 214,
+   "n_dates": 11,
+   "winners_removed": 17,
+   "losers_removed": 19,
+   "delta_pp": 0.11,
+   "exact_p_ge_0": 0.7077385424492862,
+   "exact_p_le_0": 0.29226145755071375,
+   "exact_two_sided_p": 0.5845229151014275,
+   "exact_ci_excludes_0": false,
+   "exact_enum_n_tuples": 1331
+  },
+  "fwd_10d_k1.0": {
+   "n_universe": 214,
+   "n_dates": 11,
+   "winners_removed": 29,
+   "losers_removed": 26,
+   "delta_pp": -0.13,
+   "exact_p_ge_0": 0.33884297520661155,
+   "exact_p_le_0": 0.6611570247933884,
+   "exact_two_sided_p": 0.6776859504132231,
+   "exact_ci_excludes_0": false,
+   "exact_enum_n_tuples": 1331
+  },
+  "fwd_5d_k0.5": {
+   "n_universe": 223,
+   "n_dates": 13,
+   "winners_removed": 15,
+   "losers_removed": 25,
+   "delta_pp": 0.14,
+   "exact_p_ge_0": 0.7669549385525717,
+   "exact_p_le_0": 0.23304506144742831,
+   "exact_two_sided_p": 0.46609012289485663,
+   "exact_ci_excludes_0": false,
+   "exact_enum_n_tuples": 2197
+  },
+  "fwd_5d_k1.0": {
+   "n_universe": 223,
+   "n_dates": 13,
+   "winners_removed": 29,
+   "losers_removed": 32,
+   "delta_pp": -0.11,
+   "exact_p_ge_0": 0.30086481565771506,
+   "exact_p_le_0": 0.6991351843422849,
+   "exact_two_sided_p": 0.6017296313154301,
+   "exact_ci_excludes_0": false,
+   "exact_enum_n_tuples": 2197
+  }
+ },
+ "c5_multiplicity": {
+  "n_cells": 6,
+  "n_nominally_significant_2sided_05": 1,
+  "bonferroni_threshold": 0.008333333333333333,
+  "sidak_familywise_alpha_note": "6 correlated tests at alpha=.05: familywise false-positive probability up to 1-(0.95^6)=26.5% if independent; the cells share data so the effective number is lower, but 1-of-6 at the boundary is unremarkable under the null"
+ }
+}
