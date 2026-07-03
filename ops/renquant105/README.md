@@ -140,3 +140,37 @@ Fail-safety: no export, a stale/hash-mismatched bundle, or coverage below the ru
 90%-of-roster floor → shadow serving SKIPS the day with an ntfy alert (never serves a stale or
 unfingerprinted vector silently); the exporter requires a completed `pipeline_runs` row with a
 bound strategy/config/artifact fingerprint before it will export anything at all.
+
+## Addendum 2 (Stage-1 SHADOW session scheduler — M1 slice 3, #208 §8 row 3)
+
+| File | Role | Schedule (PT, weekdays) |
+|---|---|---|
+| `run_session_scheduler.sh` | shadow-only intraday decision scheduler (`intraday_session_scheduler`, self-loops on the config tick cadence with an internal NYSE session gate; §11b windows) | 06:25 start |
+| `com.renquant.rq105-session-scheduler.plist` | launchd job for the above | as above |
+
+This job is **shadow-only and default-OFF behind a TRIPLE gate**: (1) the pinned strategy
+config must set `intraday_decisioning.enabled: true`, (2) the env flag
+`RENQUANT_INTRADAY_DECISIONING=1` must be set (the wrapper ships with it commented out),
+(3) the kill-switch file `data/rq105/intraday_decisioning.KILL` must be absent — touching it
+mid-session halts the loop before the next tick. Shadow mode is RUNTIME-ASSERTED in the
+module (`assert_shadow_never_submits`): it logs decision intents to
+`logs/renquant105_pilot/intraday_decisions_shadow.jsonl` + a per-session manifest and can
+never place anything; `mode: "live"` in config downgrades to shadow with a counted warning
+(Stage-2 authorization is a separate §9.3a decision).
+
+Activation is gated HARDER than N1b: in addition to the #224/#227 prereq check, the real
+pipeline tick requires **renquant-pipeline #163 (slice 2) merged AND pinned** — until then the
+scheduler fails closed at startup (`renquant_pipeline.intraday_decisioning` not importable)
+rather than inventing a local decision path. Do NOT bootstrap this plist until an operator
+has recorded that authorization; installing the files is a landing step (ask first).
+
+Replay/audit (run any time, read-only): verifies a recorded session reproduces byte-for-byte
+from its frozen inputs and that the §6 four-class invariants held (see #208 §6/§9):
+```bash
+PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
+  /Users/renhao/git/github/RenQuant/.venv/bin/python -m renquant_orchestrator.intraday_replay_audit \
+  --manifest /Users/renhao/git/github/RenQuant/logs/renquant105_pilot/intraday_session_manifest_<date>.json \
+  --shadow-log /Users/renhao/git/github/RenQuant/logs/renquant105_pilot/intraday_decisions_shadow.jsonl \
+  --strategy-config <pinned strategy_config.json> \
+  --data-manifest <data_manifest.json> --artifact-manifest <artifact_manifest.json> --json
+```
