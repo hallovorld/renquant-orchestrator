@@ -1,0 +1,98 @@
+{
+  "candidate": "C4 — trend-scanning label (model-side lever)",
+  "governing_spec": "doc/design/2026-07-02-m-sig-signal-stack-spec.md (#243 r4), section 1.4 + section 2/2a/3",
+  "committed_before_any_measurement_ran": true,
+  "purpose": "Freeze-first addendum (M8 three-commit pattern, C2 #275 precedent): every interpretation the spec's C4 row leaves open is pinned HERE, in this commit, before the harness produces a single number. Nothing in this file may be edited after results exist; deviations discovered at run time are disclosed as deviations in the memo, never patched here.",
+
+  "frozen_by_spec_verbatim": {
+    "estimand": "retrain target = signed t-stat of the strongest forward trend window (Lopez de Prado trend-scanning label), compared against the raw fwd_60d label, on the PROPER (repaired) WF gate",
+    "substrate": "alpha158 multi-horizon panel (exists) + the repaired WF gate (S1-S3; S1/S2 merged, S3 pending as of this freeze)",
+    "margin": 0.02,
+    "margin_status_per_spec": "ARBITRARY, not derived from a paired-noise argument (spec r3's own honest label); frozen, may not move after seeing results",
+    "margin_sensitivity_bracket": [0.015, 0.02, 0.025],
+    "decision_rule": "GO iff placebo-difference (trend-scan minus raw, on the S3-repaired gate) block-bootstrap 98.33% CI lower bound > 0.02, evaluated on production WF; sim non-inferiority (sim Sharpe does not fall by more than 0.1 versus the raw-label sim Sharpe over the same window) is a required secondary condition",
+    "ci_convention": "moving-block bootstrap, block=60, n_boot=2000, seeds {42,43,44} all run and reported, n>=600 decision dates",
+    "alpha": "one-sided 0.05/3 ~= 0.01667 (Bonferroni k=3 over {C2,C3,C4}, spec section 2a) => one-sided 98.33% CI",
+    "kill_rule": "KILL iff the same-level CI upper bound is below the threshold; else INCONCLUSIVE (spec section 0 shared deterministic rule)",
+    "earliest_test": "2026-Q3, strictly after S3 lands (S3 = renquant-backtesting#61, merged 2026-07-03T09:21Z; this run starts after that merge)",
+    "prior_evidence_status": "#176 BULL_CALM placebo-clean beats raw 3/3 seeds mean +0.0149 is RETROSPECTIVE (pre-repair gate) and may not be re-cited as the frozen-gate outcome"
+  },
+
+  "pinned_interpretations": {
+    "estimand_operationalization": {
+      "definition": "delta_genuine = genuine_ic(trendscan arm) - genuine_ic(raw arm), where genuine_ic = aligned_real_ic - placebo_ic per the S2/S3-merged repaired-gate semantics",
+      "semantics_source": [
+        "renquant-backtesting src/renquant_backtesting/wf_gate/runner.py (S3, #61): genuine_ic = aligned_real_ic - placebo_ic; gate placebo shift = 2 x label_horizon (runner.py:2354: _gate_shift_days = 2 * _label_horizon) = 120 sessions for the fwd_60d label",
+        "renquant-backtesting src/renquant_backtesting/analysis/analyze_manifest_sanity_placebo.py::shift_diagnostics: placebo leg = the SAME frozen model score evaluated against the label shifted -shift sessions per ticker (clipped to +/-0.5); aligned_real_ic = same score vs the real (unclipped) label restricted to rows where the shifted label exists; per-date cross-sectional Spearman, min 5 names per date-cell"
+      ],
+      "note": "The 2026-06-23 #176 harness instead RETRAINED a placebo model on the shifted label at 1x shift. The repaired-gate (S2/S3) semantics do NOT retrain: one model per arm, two label legs (real + 2x-shifted), difference cancels the shared floor. This run follows the repaired-gate semantics, as the spec's C4 row directs ('on the S3-repaired gate')."
+    },
+    "gating_regime_cell": {
+      "cell": "BULL_CALM",
+      "why": "spec section 2 design rule 2: 'Per-regime cuts mandatory; BULL_CALM is the binding cell (79% of live time)'; and C4's own prior-evidence lineage (#176) is a BULL_CALM number. The C4 row itself does not name a cell — this ambiguity is resolved HERE, before results.",
+      "also_reported": ["ALL (pooled)", "BEAR", "BULL_VOLATILE"],
+      "pooled_verdict_reported_as_sensitivity": true
+    },
+    "seed_aggregation_rule": "Per training seed s in {42,43,44} (XGB seed = s AND that seed's bootstrap RNG seed = s): final verdict GO iff all 3 seeds' one-sided 98.33% lower bounds > margin; KILL iff all 3 seeds' upper bounds < margin; else INCONCLUSIVE. All three seeds reported; no cherry-picking (spec section 0 seed convention).",
+    "bootstrap_machinery": "Carried-mask moving-block bootstrap over the FULL contiguous trading-date axis (blocks never splice across calendar gaps): adapted verbatim from scripts/c3_residual_momentum.py::block_bootstrap_conditional_mean (the C3 round-2 corrected pattern). vals = per-date delta_genuine on the panel's full trading-date axis; in_cell = date has a defined value in the regime cell.",
+    "wf_cuts_embargo_repaired": {
+      "why_not_the_0623_cuts": "#176's cuts used a ~1-month train->test gap on a 60-session forward label (~30 sessions of training-label overlap into the test window) — the embargo bug #176 itself flagged ('embargo >= label horizon' was its own repair recommendation). The repaired run enforces embargo = 65 sessions (> 60-session label horizon + buffer), computed on the panel's own trading-date axis.",
+      "cuts": [
+        {"train": ["2016-01-04", "2017-12-31"], "test_year": 2018},
+        {"train": ["2016-01-04", "2018-12-31"], "test_year": 2019},
+        {"train": ["2017-01-01", "2019-12-31"], "test_year": 2020},
+        {"train": ["2018-01-01", "2020-12-31"], "test_year": 2021},
+        {"train": ["2019-01-01", "2021-12-31"], "test_year": 2022},
+        {"train": ["2020-01-01", "2022-12-31"], "test_year": 2023},
+        {"train": ["2021-01-01", "2023-12-31"], "test_year": 2024},
+        {"train": ["2022-01-01", "2024-12-31"], "test_year": 2025}
+      ],
+      "test_window_rule": "test starts at the first panel trading date >= 65 sessions after the last train date, ends at the test year's last panel date; rows lacking a resolved real label or a defined 2x-shifted placebo label drop out of the aligned set (this truncates late-2025).",
+      "note": "3-year rolling train preserved from the #176 lineage; first two cuts are shorter (panel begins 2016-01-04; regime labels begin 2016-11-02 and the regime merge is inner, so cut-1 trains on ~14 months). Test years 2018 and 2019 were NEVER inspected in the 06-23 work — they are genuinely fresh cells."
+    },
+    "label_construction_verbatim_0623": "signed OLS slope t-stat of the most significant forward-trend window: window A h={0,5,10,20}, window B h={0,5,10,20,60}, from fwd_{5,10,20,60}d_excess_raw with R(0)=0; label = t-stat of the window with larger |t|; rows missing any horizon get NaN. Identical to scripts/experiments/2026-06-23-trendscan-wf-gate.py::build_trendscan_label.",
+    "model": "XGB rank:pairwise, eta=0.05, max_depth=5, min_child_weight=50, subsample=0.7, colsample_bytree=0.7, 100 rounds — production params, identical for both arms (only the training label differs). Training label winsorized at 1/99 pct (the 0623 convention). Features: all panel columns except {ticker, date, split_label, regime, trendscan label, all fwd_* columns}.",
+    "economic_target": "IC is always measured against RAW fwd_60d_excess (both arms) — the trendscan label is a TRAINING target only, never the evaluation target.",
+    "n_floor": "n >= 600 decision dates in the GATING cell (BULL_CALM aligned dates); if not met, the verdict is INCONCLUSIVE per spec section 3, not KILL.",
+    "sim_non_inferiority": {
+      "status": "The production sim is NOT run in this measurement (it requires per-cut published artifacts through the production sim harness). PINNED CONSEQUENCE: if the primary rule reads GO, C4 is NOT recorded as GO — it is recorded as 'primary-GO pending the required sim secondary condition', and the production sim run becomes a mandatory follow-up before any GO enters the G106 vote. A cheap top-minus-bottom-quintile fwd_60d spread per arm is reported as a diagnostic proxy only; it can never satisfy the frozen secondary condition.",
+      "frozen_secondary": "sim Sharpe(trendscan) >= sim Sharpe(raw) - 0.1 over the same window"
+    },
+    "window_artifact_check": "Per-calendar-year delta_genuine means (2018..2025) + pre-2021 vs 2021+ split, gating cell and pooled. Motivated by the canonical price-trend NULL (memory: canonical-price-trend-no-multiday-edge — the mom_12_1 5y/h20 'edge' was a 2021-26 window artifact that collapsed at 8y). The panel allows 8 OOS test years (2018-2025), which brackets the artifact window; if the trend-scan advantage concentrates in 2021+ and vanishes pre-2021, that must be reported as the same artifact pattern."
+  },
+
+  "positive_controls_frozen": {
+    "level": "score-level (planting a calibrated effect through XGB training is not reliably calibratable to a 2x-bar effect size; the machinery under validation is the aligned/placebo IC computation + paired difference + carried-mask block bootstrap + verdict rule, which is exactly what the score-level plant exercises). DISCLOSED as a deviation from a full training-level control.",
+    "pc_a_planted_detection": {
+      "construction": "pc_score(i,t) = zscore_cs(rank_cs(score_raw_seed42(i,t))) + w * zscore_cs(rank_cs(y_real(i,t))); w swept over a fixed grid {0.02,0.04,...,0.40}, choosing the w whose BULL_CALM delta_genuine point estimate is closest to +0.04 (2x the frozen margin); the sweep calibrates the PLANT SIZE only, never the verdict.",
+      "acceptance": "verdict machinery must read GO (all 3 bootstrap seeds' 98.33% lower bounds > 0.02) on the planted arm vs the raw arm"
+    },
+    "pc_b_permuted_candidate": {
+      "construction": "trendscan-arm seed-42 scores permuted within date (RNG seed 7); delta_genuine(permuted vs raw) must NOT read GO",
+      "acceptance": "not GO"
+    },
+    "pc_c_both_permuted": {
+      "construction": "BOTH arms' seed-42 scores independently permuted within date (RNG seeds 7, 8); delta_genuine ~= 0",
+      "acceptance": "not GO (a mechanical KILL against the +0.02 margin is the expected, correct reading for a true-zero effect)"
+    }
+  },
+
+  "multiplicity_frame": "M-SIG voting family {C2,C3,C4}, k=3, one-sided alpha=0.05/3, frozen at spec time (#243 r4 section 2a; #268 V4 confirms the family is unchanged). Channels measured to date: C3 (UNADJUDICATED, open — #268), C2 (coverage precondition failed, non-voting, open — #275). C4 = this run. Within-run margin-sensitivity bracket and per-regime diagnostics are REPORTED, never voted; the seed check is a robustness check on one corrected result, not an additional look.",
+
+  "disclosed_deviations_known_upfront": [
+    "D1: the production wf_gate runner itself is not executed (it scores per-cut published artifact manifests, which do not exist for a hypothetical trendscan-label model family); its S2/S3 placebo semantics are mirrored exactly and cited line-by-line instead. The spec's own C2/C3 precedent (#275/#268) used spec-named harnesses the same way.",
+    "D2: spec design rule 1 says every candidate runs on the S5/S8 pick-table/ledger substrate; C4's own row names the alpha158 multi-horizon panel + repaired WF gate as its substrate (a retrain-target candidate needs multi-horizon forward returns the pick table does not carry). The C4 row governs; this tension is disclosed rather than silently resolved.",
+    "D3: the required sim non-inferiority secondary condition is not runnable here — see pinned_interpretations.sim_non_inferiority for the fail-closed consequence.",
+    "D4: positive controls are score-level, not training-level (see positive_controls_frozen.level).",
+    "D5: the same alpha158 panel underlies the retrospective #176 numbers — full data-freshness is impossible for C4 by construction (no second panel exists). Fresh elements: the repaired-gate estimand (2x-shift score-placebo difference — never previously computed in this repo for trendscan), the embargo-repaired cuts, test years 2018/2019 (never previously inspected), and the block-bootstrap/Bonferroni decision discipline. The memo carries the affirmative prospectivity statement with this exact scope."
+  ],
+
+  "inputs": {
+    "panel": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fundamental_dataset_multih.parquet (read-only; sha256 recorded in results manifest at run time)",
+    "regime": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fund_regime_dataset.parquet (read-only; sha256 recorded in results manifest at run time)",
+    "regime_assignment": "argmax over {regime_p_bull_calm, regime_p_bear, regime_p_bull_volatile} per (ticker,date), inner-merged — identical to the 0623 harness"
+  },
+
+  "frozen_date": "2026-07-03",
+  "spec_freeze_date": "2026-07-02"
+}
