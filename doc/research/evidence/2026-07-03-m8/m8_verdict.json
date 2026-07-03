@@ -1,0 +1,177 @@
+{
+  "generated_utc": "2026-07-03T08:39:18.981865+00:00",
+  "qualifying_cuts": [
+    5,
+    6,
+    7
+  ],
+  "noise_band": 0.01,
+  "fwd_60d_excess": {
+    "per_cut": [
+      {
+        "cut": 1,
+        "baseline_ic": 0.030999,
+        "augmented_ic": 0.022402,
+        "delta": -0.008597,
+        "qualifying": false
+      },
+      {
+        "cut": 2,
+        "baseline_ic": 0.172549,
+        "augmented_ic": 0.20671,
+        "delta": 0.034161,
+        "qualifying": false
+      },
+      {
+        "cut": 3,
+        "baseline_ic": -0.052513,
+        "augmented_ic": -0.084525,
+        "delta": -0.032012,
+        "qualifying": false
+      },
+      {
+        "cut": 4,
+        "baseline_ic": -0.03875,
+        "augmented_ic": -0.017715,
+        "delta": 0.021035,
+        "qualifying": false
+      },
+      {
+        "cut": 5,
+        "baseline_ic": 0.139812,
+        "augmented_ic": 0.06339,
+        "delta": -0.076422,
+        "qualifying": true
+      },
+      {
+        "cut": 6,
+        "baseline_ic": 0.005424,
+        "augmented_ic": 0.021368,
+        "delta": 0.015944,
+        "qualifying": true
+      },
+      {
+        "cut": 7,
+        "baseline_ic": 0.12762,
+        "augmented_ic": 0.0451,
+        "delta": -0.08252,
+        "qualifying": true
+      }
+    ],
+    "mean_delta_qualifying": -0.047666,
+    "mean_delta_all_cuts": -0.018344,
+    "placebo_clean_mean_delta_qualifying": -0.032768,
+    "wins_qualifying": 1,
+    "n_qualifying": 3
+  },
+  "fwd_20d_excess": {
+    "per_cut": [
+      {
+        "cut": 1,
+        "baseline_ic": 0.096468,
+        "augmented_ic": 0.074546,
+        "delta": -0.021922,
+        "qualifying": false
+      },
+      {
+        "cut": 2,
+        "baseline_ic": 0.108813,
+        "augmented_ic": 0.113064,
+        "delta": 0.004251,
+        "qualifying": false
+      },
+      {
+        "cut": 3,
+        "baseline_ic": -0.023126,
+        "augmented_ic": -0.069106,
+        "delta": -0.04598,
+        "qualifying": false
+      },
+      {
+        "cut": 4,
+        "baseline_ic": -0.042533,
+        "augmented_ic": -0.038911,
+        "delta": 0.003622,
+        "qualifying": false
+      },
+      {
+        "cut": 5,
+        "baseline_ic": 0.073873,
+        "augmented_ic": 0.018839,
+        "delta": -0.055034,
+        "qualifying": true
+      },
+      {
+        "cut": 6,
+        "baseline_ic": 0.010991,
+        "augmented_ic": 0.014812,
+        "delta": 0.003821,
+        "qualifying": true
+      },
+      {
+        "cut": 7,
+        "baseline_ic": 0.085216,
+        "augmented_ic": 0.08516,
+        "delta": -5.6e-05,
+        "qualifying": true
+      }
+    ],
+    "mean_delta_qualifying": -0.01709,
+    "mean_delta_all_cuts": -0.0159,
+    "placebo_clean_mean_delta_qualifying": -0.028829,
+    "wins_qualifying": 1,
+    "n_qualifying": 3
+  },
+  "verdict": "NO-GO",
+  "reason": "frozen gate FAILED: mean paired delta over qualifying cuts -0.0477 < -0.01 on fwd_60d_excess; waves STOP (BR via D3 down-cap only)",
+  "diagnostics": {
+    "fwd_60d_excess": {
+      "pooled_date_level_mean_delta": -0.047574,
+      "pooled_date_level_naive_se": 0.00374,
+      "naive_se_caveat": "iid SE; fwd-label overlap autocorrelation biases it low",
+      "n_dates": 691,
+      "per_regime_mean_delta_EXPLORATORY": {
+        "BEAR": {
+          "mean_delta": -0.005993,
+          "n_dates": 58
+        },
+        "BULL_CALM": {
+          "mean_delta": -0.051907,
+          "n_dates": 530
+        },
+        "BULL_VOLATILE": {
+          "mean_delta": -0.0562,
+          "n_dates": 64
+        },
+        "CHOPPY": {
+          "mean_delta": -0.036378,
+          "n_dates": 39
+        }
+      }
+    },
+    "fwd_20d_excess": {
+      "pooled_date_level_mean_delta": -0.017059,
+      "pooled_date_level_naive_se": 0.006447,
+      "naive_se_caveat": "iid SE; fwd-label overlap autocorrelation biases it low",
+      "n_dates": 691,
+      "per_regime_mean_delta_EXPLORATORY": {
+        "BEAR": {
+          "mean_delta": 0.006449,
+          "n_dates": 58
+        },
+        "BULL_CALM": {
+          "mean_delta": -0.028753,
+          "n_dates": 530
+        },
+        "BULL_VOLATILE": {
+          "mean_delta": 0.020402,
+          "n_dates": 64
+        },
+        "CHOPPY": {
+          "mean_delta": 0.045426,
+          "n_dates": 39
+        }
+      }
+    }
+  }
+}

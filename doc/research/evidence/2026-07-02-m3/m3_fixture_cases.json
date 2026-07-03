@@ -1,0 +1,57 @@
+{
+ "note": "RS-2/POC-B forensic fixtures; outcomes forward-unresolved on these dates - admission verdicts only",
+ "cases": [
+  {
+   "ticker": "GRMN",
+   "run_date": "2026-06-30",
+   "mu": 0.03748146946188359,
+   "se": null,
+   "n_obs": 1,
+   "era": "panel_ltr_xgboost",
+   "clears_floor": true,
+   "thin_margin": true,
+   "blocked_by": "candidate_not_selected",
+   "haircut_admits_k0.5": null,
+   "haircut_admits_k1.0": null
+  },
+  {
+   "ticker": "OXY",
+   "run_date": "2026-06-30",
+   "mu": 0.038118365059592964,
+   "se": null,
+   "n_obs": 1,
+   "era": "panel_ltr_xgboost",
+   "clears_floor": true,
+   "thin_margin": false,
+   "blocked_by": "candidate_not_selected",
+   "haircut_admits_k0.5": null,
+   "haircut_admits_k1.0": null
+  },
+  {
+   "ticker": "GRMN",
+   "run_date": "2026-07-01",
+   "mu": 0.03572832646966421,
+   "se": null,
+   "n_obs": 2,
+   "era": "panel_ltr_xgboost",
+   "clears_floor": true,
+   "thin_margin": true,
+   "blocked_by": "candidate_not_selected",
+   "haircut_admits_k0.5": null,
+   "haircut_admits_k1.0": null
+  },
+  {
+   "ticker": "OXY",
+   "run_date": "2026-07-01",
+   "mu": 0.037209141475166074,
+   "se": null,
+   "n_obs": 2,
+   "era": "panel_ltr_xgboost",
+   "clears_floor": true,
+   "thin_margin": true,
+   "blocked_by": "broker_pending_submitted",
+   "haircut_admits_k0.5": null,
+   "haircut_admits_k1.0": null
+  }
+ ]
+}
