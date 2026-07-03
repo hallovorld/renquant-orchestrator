@@ -1,0 +1,332 @@
+{
+  "generated_utc": "2026-07-03T16:17:35.757536+00:00",
+  "n_pick_table_rows": 147066,
+  "n_equity_incumbent_rows": 68240,
+  "raw_label_join_rate": 1.0,
+  "label_col_used": "fwd_60d_excess_raw",
+  "fallback_to_standardized": false,
+  "n_dates": 508,
+  "members": {
+    "LIQ-60": {
+      "n_dates": 508,
+      "pooled_delta": -0.00935,
+      "per_seed_bounds": {
+        "42": {
+          "lb": -0.038023,
+          "ub": 0.031511
+        },
+        "43": {
+          "lb": -0.038858,
+          "ub": 0.03058
+        },
+        "44": {
+          "lb": -0.039032,
+          "ub": 0.029091
+        }
+      },
+      "read": "NULL",
+      "n_core_names_in_book": 60
+    },
+    "LIQ-90": {
+      "n_dates": 508,
+      "pooled_delta": -0.023809,
+      "per_seed_bounds": {
+        "42": {
+          "lb": -0.065305,
+          "ub": 0.025028
+        },
+        "43": {
+          "lb": -0.063207,
+          "ub": 0.021898
+        },
+        "44": {
+          "lb": -0.06233,
+          "ub": 0.02182
+        }
+      },
+      "read": "NULL",
+      "n_core_names_in_book": 90
+    },
+    "SEP-60": {
+      "n_dates": 508,
+      "pooled_delta": -0.025279,
+      "per_seed_bounds": {
+        "42": {
+          "lb": -0.103653,
+          "ub": 0.050638
+        },
+        "43": {
+          "lb": -0.09626,
+          "ub": 0.046503
+        },
+        "44": {
+          "lb": -0.0969,
+          "ub": 0.049704
+        }
+      },
+      "read": "NULL",
+      "n_core_names_in_book": 60
+    },
+    "SEP-90": {
+      "n_dates": 508,
+      "pooled_delta": -0.041039,
+      "per_seed_bounds": {
+        "42": {
+          "lb": -0.110087,
+          "ub": 0.006651
+        },
+        "43": {
+          "lb": -0.098694,
+          "ub": 0.00642
+        },
+        "44": {
+          "lb": -0.103327,
+          "ub": 0.007251
+        }
+      },
+      "read": "NULL",
+      "n_core_names_in_book": 90
+    },
+    "SECBAL-60": {
+      "n_dates": 508,
+      "pooled_delta": -0.033379,
+      "per_seed_bounds": {
+        "42": {
+          "lb": -0.09871,
+          "ub": 0.032935
+        },
+        "43": {
+          "lb": -0.089787,
+          "ub": 0.030598
+        },
+        "44": {
+          "lb": -0.093219,
+          "ub": 0.030087
+        }
+      },
+      "read": "NULL",
+      "n_core_names_in_book": 60
+    },
+    "SECBAL-90": {
+      "n_dates": 508,
+      "pooled_delta": -0.041073,
+      "per_seed_bounds": {
+        "42": {
+          "lb": -0.109333,
+          "ub": 0.00349
+        },
+        "43": {
+          "lb": -0.099583,
+          "ub": 0.005274
+        },
+        "44": {
+          "lb": -0.102464,
+          "ub": 0.004329
+        }
+      },
+      "read": "NULL",
+      "n_core_names_in_book": 90
+    }
+  },
+  "controls": {
+    "oracle_core": {
+      "n_dates": 508,
+      "pooled_delta": 0.066222,
+      "per_seed_bounds": {
+        "42": {
+          "lb": 0.018736,
+          "ub": 0.11954
+        },
+        "43": {
+          "lb": 0.019873,
+          "ub": 0.119184
+        },
+        "44": {
+          "lb": 0.018107,
+          "ub": 0.116717
+        }
+      },
+      "read": "SUPPORTIVE-POS",
+      "names": [
+        "ADI",
+        "AFRM",
+        "AMAT",
+        "AMD",
+        "ANET",
+        "APH",
+        "APP",
+        "ASML",
+        "ATI",
+        "AVGO",
+        "BWXT",
+        "C",
+        "CAT",
+        "COHR",
+        "CSCO",
+        "DELL",
+        "EME",
+        "GE",
+        "GILD",
+        "GLD",
+        "GLW",
+        "GM",
+        "GOOG",
+        "GRMN",
+        "GS",
+        "HPE",
+        "INTC",
+        "JPM",
+        "KLAC",
+        "KMI",
+        "LHX",
+        "LITE",
+        "LRCX",
+        "MMM",
+        "MPWR",
+        "MRVL",
+        "MS",
+        "MU",
+        "NEM",
+        "NET",
+        "NFLX",
+        "NVDA",
+        "ORCL",
+        "PH",
+        "PLTR",
+        "PM",
+        "RBLX",
+        "RTX",
+        "SOFI",
+        "SPOT",
+        "T",
+        "TJX",
+        "TSLA",
+        "TSM",
+        "VRT",
+        "VTR",
+        "WDC",
+        "WELL",
+        "WMB",
+        "WMT"
+      ],
+      "control_passes": true
+    },
+    "random_null_cores": {
+      "S8RAND1-60": {
+        "n_dates": 508,
+        "pooled_delta": 0.029896,
+        "per_seed_bounds": {
+          "42": {
+            "lb": -0.036821,
+            "ub": 0.131134
+          },
+          "43": {
+            "lb": -0.042541,
+            "ub": 0.113681
+          },
+          "44": {
+            "lb": -0.042508,
+            "ub": 0.127853
+          }
+        },
+        "read": "NULL"
+      },
+      "S8RAND2-60": {
+        "n_dates": 508,
+        "pooled_delta": -0.023366,
+        "per_seed_bounds": {
+          "42": {
+            "lb": -0.062022,
+            "ub": 0.015881
+          },
+          "43": {
+            "lb": -0.056553,
+            "ub": 0.016219
+          },
+          "44": {
+            "lb": -0.058623,
+            "ub": 0.017333
+          }
+        },
+        "read": "NULL"
+      },
+      "S8RAND3-60": {
+        "n_dates": 508,
+        "pooled_delta": 0.02067,
+        "per_seed_bounds": {
+          "42": {
+            "lb": -0.025891,
+            "ub": 0.09154
+          },
+          "43": {
+            "lb": -0.025986,
+            "ub": 0.07799
+          },
+          "44": {
+            "lb": -0.025377,
+            "ub": 0.084956
+          }
+        },
+        "read": "NULL"
+      },
+      "S8RAND1-90": {
+        "n_dates": 508,
+        "pooled_delta": -0.002967,
+        "per_seed_bounds": {
+          "42": {
+            "lb": -0.023949,
+            "ub": 0.022678
+          },
+          "43": {
+            "lb": -0.021691,
+            "ub": 0.023474
+          },
+          "44": {
+            "lb": -0.022414,
+            "ub": 0.021762
+          }
+        },
+        "read": "NULL"
+      },
+      "S8RAND2-90": {
+        "n_dates": 508,
+        "pooled_delta": -0.010551,
+        "per_seed_bounds": {
+          "42": {
+            "lb": -0.079498,
+            "ub": 0.057128
+          },
+          "43": {
+            "lb": -0.080458,
+            "ub": 0.047398
+          },
+          "44": {
+            "lb": -0.076649,
+            "ub": 0.053154
+          }
+        },
+        "read": "NULL"
+      },
+      "S8RAND3-90": {
+        "n_dates": 508,
+        "pooled_delta": 0.006775,
+        "per_seed_bounds": {
+          "42": {
+            "lb": -0.031086,
+            "ub": 0.039269
+          },
+          "43": {
+            "lb": -0.028095,
+            "ub": 0.039715
+          },
+          "44": {
+            "lb": -0.028849,
+            "ub": 0.041423
+          }
+        },
+        "read": "NULL"
+      }
+    },
+    "random_null_passes": true
+  }
+}
