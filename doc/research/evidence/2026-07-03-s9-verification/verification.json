@@ -1,0 +1,449 @@
+{
+  "task": "S9 verification \u2014 independent adversarial recomputation",
+  "verifies": "doc/research/2026-07-03-s9-track-a-conditional.md (PR #262)",
+  "independent_choices": {
+    "bootstrap": {
+      "n": 4000,
+      "seed": 71,
+      "block": 13
+    },
+    "logistic": "own numpy IRLS (L2 alpha=1, unpenalized intercept)",
+    "C3": "recomputed from within-date score median directly"
+  },
+  "check1_units_and_join": {
+    "n_rows": 147066,
+    "n_dates": 508,
+    "n_names": 292,
+    "regime_constant_within_date": true,
+    "decile9_is_top": true,
+    "table_label_per_date_mean_absmax": 6.48263786639004e-17,
+    "table_label_per_date_std_dev_from_1_absmax": 8.878342505624914e-12,
+    "n_top_decile_rows": 15109,
+    "panel_duplicate_date_name_keys": 0,
+    "panel_nan_raw_label_rows": 0,
+    "merge_row_count_stable": true,
+    "picks_missing_raw_label": 0,
+    "picks_nan_z_panel": 0,
+    "max_abs_diff_table_z_vs_panel_z": 0.0,
+    "raw_label_std": 0.2685917475949006,
+    "raw_label_abs_median": 0.13973887369615312,
+    "label_semantics_probe": {
+      "n_probes": 72,
+      "per_date_residual_spread_max": 0.0,
+      "per_date_residual_means": {
+        "2024-08-06": -0.11081103638076217,
+        "2025-01-14": 0.09895392416560878,
+        "2025-02-26": 0.01925850505438742,
+        "2025-02-27": 0.010152982762745122,
+        "2025-08-18": -0.061713062273223374,
+        "2025-12-30": 0.07702942047119521
+      },
+      "interpretation": "residual = label - own 60-session fwd return; a per-date constant (spread ~0) proves the label is a 60-trading-session forward return in RETURN units net of a common per-date benchmark"
+    }
+  },
+  "check2_split": {
+    "n_oos_dates": 508,
+    "n_train_dates": 305,
+    "n_embargo_dates": 60,
+    "n_test_dates": 143,
+    "train_window": [
+      "2024-02-02",
+      "2025-04-22"
+    ],
+    "embargo_window": [
+      "2025-04-23",
+      "2025-07-18"
+    ],
+    "test_window": [
+      "2025-07-21",
+      "2026-02-11"
+    ],
+    "test_regime_dates": {
+      "BEAR": 1,
+      "BULL_CALM": 118,
+      "BULL_VOLATILE": 8,
+      "CHOPPY": 16
+    },
+    "test_regime_picks": {
+      "BULL_CALM": 3485,
+      "CHOPPY": 404,
+      "BULL_VOLATILE": 240,
+      "BEAR": 30
+    },
+    "train_regime_dates": {
+      "BEAR": 38,
+      "BULL_CALM": 232,
+      "BULL_VOLATILE": 11,
+      "CHOPPY": 24
+    },
+    "embargo_leak_check": {
+      "pick_grid_max_gap_days": 4,
+      "pick_grid_is_daily_trading": true,
+      "train_end": "2025-04-22",
+      "last_train_label_window_end": "2025-07-18",
+      "test_start": "2025-07-21",
+      "train_label_overlaps_test": false,
+      "sessions_between_label_end_and_test_start": 1
+    }
+  },
+  "check3_candidates": {
+    "C1_logit_all": {
+      "train": {
+        "n_picks_baseline": 9150,
+        "n_picks_conditioned": 4575,
+        "capital_fraction": 0.5,
+        "active_day_fraction": 0.9540983606557377,
+        "baseline_hit_rate": 0.5227322404371585,
+        "conditioned_hit_rate": 0.5908196721311475,
+        "hit_rate_lift": 0.06808743169398901,
+        "hit_rate_lift_ci95": [
+          0.03188383512303161,
+          0.1060953870507444
+        ],
+        "per_pick_lift": 0.028234649872248378,
+        "per_pick_lift_ci95": [
+          0.008311077704603485,
+          0.04798682461702176
+        ],
+        "book_lift_annualized": 0.0592927647317216,
+        "book_lift_annualized_ci95": [
+          0.01722619352728533,
+          0.10136403572214264
+        ],
+        "baseline_winners": 4783,
+        "kept_winners": 2703,
+        "dropped_winners": 2080,
+        "winner_drop_fraction": 0.4348735103491532,
+        "turnover_baseline": 2652,
+        "turnover_conditioned": 2065,
+        "turnover_multiple": 0.778657616892911,
+        "bootstrap_resamples_dropped_empty": 0,
+        "gates": {
+          "a": true,
+          "b": true,
+          "c": true,
+          "d": true,
+          "e": false
+        },
+        "all_gates_pass": false
+      },
+      "test": {
+        "n_picks_baseline": 4159,
+        "n_picks_conditioned": 2356,
+        "capital_fraction": 0.5664823274825679,
+        "active_day_fraction": 0.9090909090909091,
+        "baseline_hit_rate": 0.49963933637893726,
+        "conditioned_hit_rate": 0.4932088285229202,
+        "hit_rate_lift": -0.006430507856017065,
+        "hit_rate_lift_ci95": [
+          -0.041758962270661656,
+          0.03664598492706666
+        ],
+        "per_pick_lift": -0.02679939877675415,
+        "per_pick_lift_ci95": [
+          -0.054335482878115446,
+          0.003935705411950621
+        ],
+        "book_lift_annualized": -0.06376182033559454,
+        "book_lift_annualized_ci95": [
+          -0.13157939223738374,
+          0.008753881061771784
+        ],
+        "baseline_winners": 2078,
+        "kept_winners": 1162,
+        "dropped_winners": 916,
+        "winner_drop_fraction": 0.4408084696823869,
+        "turnover_baseline": 1217,
+        "turnover_conditioned": 1045,
+        "turnover_multiple": 0.8586688578471652,
+        "bootstrap_resamples_dropped_empty": 0,
+        "gates": {
+          "a": false,
+          "b": false,
+          "c": false,
+          "d": true,
+          "e": false
+        },
+        "all_gates_pass": false
+      },
+      "tau": 0.5106572851352257,
+      "coef": {
+        "dispersion": -0.09375962237430553,
+        "margin": 0.05040266653802586,
+        "vol60": -0.12304109180329055,
+        "adv_rank": -0.07666522657455803,
+        "regime_BEAR": 0.3162491982495954,
+        "regime_BULL_CALM": 0.022221740414585866,
+        "regime_BULL_VOLATILE": -0.01666268307549095,
+        "intercept": 0.09599626319493015
+      }
+    },
+    "C2_regime_whitelist": {
+      "train": {
+        "n_picks_baseline": 9150,
+        "n_picks_conditioned": 1140,
+        "capital_fraction": 0.12459016393442623,
+        "active_day_fraction": 0.12459016393442623,
+        "baseline_hit_rate": 0.5227322404371585,
+        "conditioned_hit_rate": 0.6894736842105263,
+        "hit_rate_lift": 0.16674144377336786,
+        "hit_rate_lift_ci95": [
+          0.08587681623931614,
+          0.22579234972677598
+        ],
+        "per_pick_lift": 0.10545637326253962,
+        "per_pick_lift_ci95": [
+          0.03448109693386852,
+          0.16179058133160307
+        ],
+        "book_lift_annualized": 0.05518307269738139,
+        "book_lift_annualized_ci95": [
+          0.006554855908865516,
+          0.11586182407529988
+        ],
+        "baseline_winners": 4783,
+        "kept_winners": 786,
+        "dropped_winners": 3997,
+        "winner_drop_fraction": 0.8356679908007527,
+        "turnover_baseline": 2652,
+        "turnover_conditioned": 762,
+        "turnover_multiple": 0.2873303167420814,
+        "bootstrap_resamples_dropped_empty": 0,
+        "gates": {
+          "a": true,
+          "b": true,
+          "c": true,
+          "d": false,
+          "e": false
+        },
+        "all_gates_pass": false
+      },
+      "test": {
+        "n_picks_baseline": 4159,
+        "n_picks_conditioned": 30,
+        "capital_fraction": 0.0072132724212551095,
+        "active_day_fraction": 0.006993006993006993,
+        "baseline_hit_rate": 0.49963933637893726,
+        "conditioned_hit_rate": 0.5666666666666667,
+        "hit_rate_lift": 0.06702733028772939,
+        "hit_rate_lift_ci95": [
+          0.029775267127064933,
+          0.08938847479362022
+        ],
+        "per_pick_lift": -0.007578167325910781,
+        "per_pick_lift_ci95": [
+          -0.023919054125851373,
+          0.006273979013635781
+        ],
+        "book_lift_annualized": -0.00022958621857772506,
+        "book_lift_annualized_ci95": [
+          -0.0017529388299131782,
+          0.00024743596716381665
+        ],
+        "baseline_winners": 2078,
+        "kept_winners": 17,
+        "dropped_winners": 2061,
+        "winner_drop_fraction": 0.9918190567853705,
+        "turnover_baseline": 1217,
+        "turnover_conditioned": 60,
+        "turnover_multiple": 0.049301561216105176,
+        "bootstrap_resamples_dropped_empty": 1355,
+        "gates": {
+          "a": false,
+          "b": false,
+          "c": true,
+          "d": false,
+          "e": false
+        },
+        "all_gates_pass": false
+      },
+      "whitelist": [
+        "BEAR"
+      ],
+      "train_regime_hit_rates": {
+        "BEAR": 0.6894736842105263,
+        "BULL_CALM": 0.5024425287356322,
+        "BULL_VOLATILE": 0.4484848484848485,
+        "CHOPPY": 0.4888888888888889
+      }
+    },
+    "C3_margin_top_half": {
+      "train": {
+        "n_picks_baseline": 9150,
+        "n_picks_conditioned": 4575,
+        "capital_fraction": 0.5,
+        "active_day_fraction": 1.0,
+        "baseline_hit_rate": 0.5227322404371585,
+        "conditioned_hit_rate": 0.5197814207650273,
+        "hit_rate_lift": -0.0029508196721311775,
+        "hit_rate_lift_ci95": [
+          -0.02516973814501039,
+          0.01913020317600024
+        ],
+        "per_pick_lift": 0.004902701201280224,
+        "per_pick_lift_ci95": [
+          -0.006568422676563761,
+          0.017089636790075354
+        ],
+        "book_lift_annualized": 0.010295672522688471,
+        "book_lift_annualized_ci95": [
+          -0.013793687620783899,
+          0.03588823725915825
+        ],
+        "baseline_winners": 4783,
+        "kept_winners": 2378,
+        "dropped_winners": 2405,
+        "winner_drop_fraction": 0.5028224963412085,
+        "turnover_baseline": 2652,
+        "turnover_conditioned": 1758,
+        "turnover_multiple": 0.6628959276018099,
+        "bootstrap_resamples_dropped_empty": 0,
+        "gates": {
+          "a": false,
+          "b": false,
+          "c": false,
+          "d": true,
+          "e": false
+        },
+        "all_gates_pass": false
+      },
+      "test": {
+        "n_picks_baseline": 4159,
+        "n_picks_conditioned": 2084,
+        "capital_fraction": 0.5010819908631883,
+        "active_day_fraction": 1.0,
+        "baseline_hit_rate": 0.49963933637893726,
+        "conditioned_hit_rate": 0.5695777351247601,
+        "hit_rate_lift": 0.0699383987458228,
+        "hit_rate_lift_ci95": [
+          0.03372209538113654,
+          0.1044289044289044
+        ],
+        "per_pick_lift": 0.05503944984403821,
+        "per_pick_lift_ci95": [
+          0.02846706615334685,
+          0.08057515093012539
+        ],
+        "book_lift_annualized": 0.11583296383623412,
+        "book_lift_annualized_ci95": [
+          0.05979697795853747,
+          0.16989176366138936
+        ],
+        "baseline_winners": 2078,
+        "kept_winners": 1187,
+        "dropped_winners": 891,
+        "winner_drop_fraction": 0.4287776708373436,
+        "turnover_baseline": 1217,
+        "turnover_conditioned": 657,
+        "turnover_multiple": 0.5398520953163517,
+        "bootstrap_resamples_dropped_empty": 0,
+        "gates": {
+          "a": true,
+          "b": true,
+          "c": true,
+          "d": true,
+          "e": false
+        },
+        "all_gates_pass": false
+      }
+    }
+  },
+  "check6_fragility_variants": {
+    "floor_split_train304": {
+      "split": {
+        "n_train_dates": 304,
+        "n_test_dates": 144,
+        "test_window": [
+          "2025-07-18",
+          "2026-02-11"
+        ]
+      },
+      "C3_test": {
+        "n_picks_baseline": 4189,
+        "n_picks_conditioned": 2099,
+        "capital_fraction": 0.5010742420625448,
+        "active_day_fraction": 1.0,
+        "baseline_hit_rate": 0.500358080687515,
+        "conditioned_hit_rate": 0.570271557884707,
+        "hit_rate_lift": 0.06991347719719199,
+        "hit_rate_lift_ci95": [
+          0.02963233004380311,
+          0.10561110054101365
+        ],
+        "per_pick_lift": 0.054896988746212745,
+        "per_pick_lift_ci95": [
+          0.027070875108458774,
+          0.08187448918742687
+        ],
+        "book_lift_annualized": 0.11553136151560334,
+        "book_lift_annualized_ci95": [
+          0.05684955805556226,
+          0.1726779520342035
+        ],
+        "baseline_winners": 2096,
+        "kept_winners": 1197,
+        "dropped_winners": 899,
+        "winner_drop_fraction": 0.428912213740458,
+        "turnover_baseline": 1223,
+        "turnover_conditioned": 663,
+        "turnover_multiple": 0.5421095666394112,
+        "bootstrap_resamples_dropped_empty": 0,
+        "gates": {
+          "a": true,
+          "b": true,
+          "c": true,
+          "d": true,
+          "e": false
+        },
+        "all_gates_pass": false
+      },
+      "C2_test_active_frac": 0.006944444444444444
+    },
+    "C3_strict_gt_median_test": {
+      "n_picks_baseline": 4159,
+      "n_picks_conditioned": 2075,
+      "capital_fraction": 0.4989180091368117,
+      "active_day_fraction": 1.0,
+      "baseline_hit_rate": 0.49963933637893726,
+      "conditioned_hit_rate": 0.5701204819277108,
+      "hit_rate_lift": 0.07048114554877355,
+      "hit_rate_lift_ci95": [
+        0.032651071706880336,
+        0.1048952275860273
+      ],
+      "per_pick_lift": 0.055379745318554614,
+      "per_pick_lift_ci95": [
+        0.029111974553847494,
+        0.08091546785444025
+      ],
+      "book_lift_annualized": 0.11604579957951514,
+      "book_lift_annualized_ci95": [
+        0.06113097991931612,
+        0.16923913433586502
+      ],
+      "baseline_winners": 2078,
+      "kept_winners": 1183,
+      "dropped_winners": 895,
+      "winner_drop_fraction": 0.4307025986525505,
+      "turnover_baseline": 1217,
+      "turnover_conditioned": 650,
+      "turnover_multiple": 0.5341002465078061,
+      "bootstrap_resamples_dropped_empty": 0,
+      "gates": {
+        "a": true,
+        "b": true,
+        "c": true,
+        "d": true,
+        "e": false
+      },
+      "all_gates_pass": false
+    },
+    "C3_literal_z_label_test": {
+      "winner_drop_fraction": 0.42502532928064846,
+      "hit_rate_lift": 0.06999239445108746,
+      "note": "y = (standardized fwd_60d_excess > 0.0011); gates (a)/(b) are return-unit-denominated and are NOT meaningful under this label"
+    }
+  },
+  "recomputed_verdict": "NULL",
+  "candidates_passing_all_gates": []
+}
