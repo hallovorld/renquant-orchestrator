@@ -1,0 +1,608 @@
+{
+  "generated_utc": "2026-07-03T08:37:17.432155+00:00",
+  "n_incumbents_in_dataset": 133,
+  "n_candidates_raw": 683,
+  "n_dropped_short_history": 1,
+  "n_dropped_no_sector_peers": 48,
+  "dropped_no_sector_peers": [
+    "AA",
+    "ALB",
+    "APD",
+    "ASH",
+    "ATR",
+    "AVY",
+    "AXTA",
+    "BALL",
+    "CCK",
+    "CE",
+    "CF",
+    "CLF",
+    "CRH",
+    "CTVA",
+    "DD",
+    "DOW",
+    "ECL",
+    "EMN",
+    "ESI",
+    "EXP",
+    "FCX",
+    "FMC",
+    "IFF",
+    "IP",
+    "JHX",
+    "LIN",
+    "LPX",
+    "LYB",
+    "MLM",
+    "MOS",
+    "MP",
+    "NEU",
+    "NUE",
+    "OLN",
+    "PKG",
+    "PPG",
+    "RGLD",
+    "RPM",
+    "RS",
+    "SCCO",
+    "SHW",
+    "SLGN",
+    "SMG",
+    "SON",
+    "STLD",
+    "SW",
+    "VMC",
+    "WLK"
+  ],
+  "n_dropped_thin_similarity": 0,
+  "n_scored": 634,
+  "n_similarity_dates": 101,
+  "incumbent_gics_mix": {
+    "tech": 46,
+    "healthcare": 10,
+    "utility": 5,
+    "finance": 17,
+    "consumer_disc": 11,
+    "industrial": 19,
+    "consumer_staples": 6,
+    "energy": 7,
+    "reit": 5,
+    "comm": 6,
+    "materials": 1
+  },
+  "sector_slots": {
+    "tech": 35,
+    "healthcare": 8,
+    "utility": 4,
+    "finance": 13,
+    "consumer_disc": 8,
+    "industrial": 14,
+    "consumer_staples": 4,
+    "energy": 5,
+    "reit": 4,
+    "comm": 4,
+    "materials": 1
+  },
+  "slots_released_to_global_rank": 1,
+  "wave1_sector_counts": {
+    "tech": 35,
+    "industrial": 14,
+    "finance": 13,
+    "healthcare": 8,
+    "consumer_disc": 8,
+    "utility": 5,
+    "energy": 5,
+    "consumer_staples": 4,
+    "reit": 4,
+    "comm": 4
+  },
+  "wave1": [
+    {
+      "ticker": "ABT",
+      "gics": "healthcare",
+      "similarity": 0.187383
+    },
+    {
+      "ticker": "ADSK",
+      "gics": "tech",
+      "similarity": 0.1732
+    },
+    {
+      "ticker": "AMGN",
+      "gics": "healthcare",
+      "similarity": 0.213336
+    },
+    {
+      "ticker": "AMKR",
+      "gics": "tech",
+      "similarity": 0.163785
+    },
+    {
+      "ticker": "AMP",
+      "gics": "finance",
+      "similarity": 0.163459
+    },
+    {
+      "ticker": "APPF",
+      "gics": "tech",
+      "similarity": 0.102817
+    },
+    {
+      "ticker": "AZO",
+      "gics": "consumer_disc",
+      "similarity": 0.057339
+    },
+    {
+      "ticker": "BDX",
+      "gics": "healthcare",
+      "similarity": 0.193544
+    },
+    {
+      "ticker": "BK",
+      "gics": "finance",
+      "similarity": 0.166672
+    },
+    {
+      "ticker": "BKNG",
+      "gics": "consumer_disc",
+      "similarity": 0.09297
+    },
+    {
+      "ticker": "CARR",
+      "gics": "industrial",
+      "similarity": 0.076316
+    },
+    {
+      "ticker": "CHD",
+      "gics": "consumer_staples",
+      "similarity": 0.257437
+    },
+    {
+      "ticker": "CIEN",
+      "gics": "tech",
+      "similarity": 0.08705
+    },
+    {
+      "ticker": "CL",
+      "gics": "consumer_staples",
+      "similarity": 0.331769
+    },
+    {
+      "ticker": "CMS",
+      "gics": "utility",
+      "similarity": 0.500627
+    },
+    {
+      "ticker": "CNC",
+      "gics": "healthcare",
+      "similarity": 0.176891
+    },
+    {
+      "ticker": "COF",
+      "gics": "finance",
+      "similarity": 0.18268
+    },
+    {
+      "ticker": "COP",
+      "gics": "energy",
+      "similarity": 0.44475
+    },
+    {
+      "ticker": "CRUS",
+      "gics": "tech",
+      "similarity": 0.091542
+    },
+    {
+      "ticker": "CSL",
+      "gics": "industrial",
+      "similarity": 0.0798
+    },
+    {
+      "ticker": "CTRA",
+      "gics": "energy",
+      "similarity": 0.385834
+    },
+    {
+      "ticker": "CW",
+      "gics": "industrial",
+      "similarity": 0.091757
+    },
+    {
+      "ticker": "DECK",
+      "gics": "consumer_disc",
+      "similarity": 0.07078
+    },
+    {
+      "ticker": "DOCU",
+      "gics": "tech",
+      "similarity": 0.094618
+    },
+    {
+      "ticker": "DRI",
+      "gics": "consumer_disc",
+      "similarity": 0.055944
+    },
+    {
+      "ticker": "DVN",
+      "gics": "energy",
+      "similarity": 0.418993
+    },
+    {
+      "ticker": "ED",
+      "gics": "utility",
+      "similarity": 0.520461
+    },
+    {
+      "ticker": "ELS",
+      "gics": "reit",
+      "similarity": 0.191824
+    },
+    {
+      "ticker": "ELV",
+      "gics": "healthcare",
+      "similarity": 0.192851
+    },
+    {
+      "ticker": "ENTG",
+      "gics": "tech",
+      "similarity": 0.211234
+    },
+    {
+      "ticker": "ESTC",
+      "gics": "tech",
+      "similarity": 0.163206
+    },
+    {
+      "ticker": "FANG",
+      "gics": "energy",
+      "similarity": 0.425461
+    },
+    {
+      "ticker": "FICO",
+      "gics": "tech",
+      "similarity": 0.104697
+    },
+    {
+      "ticker": "FITB",
+      "gics": "finance",
+      "similarity": 0.173188
+    },
+    {
+      "ticker": "FIX",
+      "gics": "industrial",
+      "similarity": 0.076833
+    },
+    {
+      "ticker": "FLEX",
+      "gics": "tech",
+      "similarity": 0.107288
+    },
+    {
+      "ticker": "FRT",
+      "gics": "reit",
+      "similarity": 0.191288
+    },
+    {
+      "ticker": "GD",
+      "gics": "industrial",
+      "similarity": 0.079546
+    },
+    {
+      "ticker": "GLOB",
+      "gics": "tech",
+      "similarity": 0.101768
+    },
+    {
+      "ticker": "GOOGL",
+      "gics": "comm",
+      "similarity": 0.276617
+    },
+    {
+      "ticker": "GTLB",
+      "gics": "tech",
+      "similarity": 0.153421
+    },
+    {
+      "ticker": "GWRE",
+      "gics": "tech",
+      "similarity": 0.093082
+    },
+    {
+      "ticker": "HBAN",
+      "gics": "finance",
+      "similarity": 0.155822
+    },
+    {
+      "ticker": "HUBB",
+      "gics": "industrial",
+      "similarity": 0.082092
+    },
+    {
+      "ticker": "HUBS",
+      "gics": "tech",
+      "similarity": 0.133885
+    },
+    {
+      "ticker": "HWM",
+      "gics": "industrial",
+      "similarity": 0.090629
+    },
+    {
+      "ticker": "IOT",
+      "gics": "tech",
+      "similarity": 0.138814
+    },
+    {
+      "ticker": "IR",
+      "gics": "industrial",
+      "similarity": 0.097644
+    },
+    {
+      "ticker": "JCI",
+      "gics": "industrial",
+      "similarity": 0.071581
+    },
+    {
+      "ticker": "KEY",
+      "gics": "finance",
+      "similarity": 0.159526
+    },
+    {
+      "ticker": "KEYS",
+      "gics": "tech",
+      "similarity": 0.094685
+    },
+    {
+      "ticker": "KIM",
+      "gics": "reit",
+      "similarity": 0.19755
+    },
+    {
+      "ticker": "KMB",
+      "gics": "consumer_staples",
+      "similarity": 0.31209
+    },
+    {
+      "ticker": "LNT",
+      "gics": "utility",
+      "similarity": 0.50349
+    },
+    {
+      "ticker": "LSCC",
+      "gics": "tech",
+      "similarity": 0.147975
+    },
+    {
+      "ticker": "MAR",
+      "gics": "consumer_disc",
+      "similarity": 0.114092
+    },
+    {
+      "ticker": "MKSI",
+      "gics": "tech",
+      "similarity": 0.152055
+    },
+    {
+      "ticker": "MTB",
+      "gics": "finance",
+      "similarity": 0.153516
+    },
+    {
+      "ticker": "MTSI",
+      "gics": "tech",
+      "similarity": 0.154247
+    },
+    {
+      "ticker": "NTAP",
+      "gics": "tech",
+      "similarity": 0.119532
+    },
+    {
+      "ticker": "NTNX",
+      "gics": "tech",
+      "similarity": 0.152078
+    },
+    {
+      "ticker": "NTRS",
+      "gics": "finance",
+      "similarity": 0.150352
+    },
+    {
+      "ticker": "NVR",
+      "gics": "consumer_disc",
+      "similarity": 0.07056
+    },
+    {
+      "ticker": "OKTA",
+      "gics": "tech",
+      "similarity": 0.128737
+    },
+    {
+      "ticker": "OLED",
+      "gics": "tech",
+      "similarity": 0.136939
+    },
+    {
+      "ticker": "ONTO",
+      "gics": "tech",
+      "similarity": 0.211112
+    },
+    {
+      "ticker": "ORLY",
+      "gics": "consumer_disc",
+      "similarity": 0.099924
+    },
+    {
+      "ticker": "OTIS",
+      "gics": "industrial",
+      "similarity": 0.07604
+    },
+    {
+      "ticker": "OVV",
+      "gics": "energy",
+      "similarity": 0.366393
+    },
+    {
+      "ticker": "P",
+      "gics": "tech",
+      "similarity": 0.200634
+    },
+    {
+      "ticker": "PATH",
+      "gics": "tech",
+      "similarity": 0.166764
+    },
+    {
+      "ticker": "PCOR",
+      "gics": "tech",
+      "similarity": 0.132048
+    },
+    {
+      "ticker": "PEP",
+      "gics": "consumer_staples",
+      "similarity": 0.267082
+    },
+    {
+      "ticker": "PFE",
+      "gics": "healthcare",
+      "similarity": 0.202758
+    },
+    {
+      "ticker": "PINS",
+      "gics": "comm",
+      "similarity": 0.135306
+    },
+    {
+      "ticker": "PPL",
+      "gics": "utility",
+      "similarity": 0.507318
+    },
+    {
+      "ticker": "PTC",
+      "gics": "tech",
+      "similarity": 0.0994
+    },
+    {
+      "ticker": "PWR",
+      "gics": "industrial",
+      "similarity": 0.080856
+    },
+    {
+      "ticker": "QRVO",
+      "gics": "tech",
+      "similarity": 0.128381
+    },
+    {
+      "ticker": "RCL",
+      "gics": "consumer_disc",
+      "similarity": 0.055985
+    },
+    {
+      "ticker": "REG",
+      "gics": "reit",
+      "similarity": 0.238882
+    },
+    {
+      "ticker": "REGN",
+      "gics": "healthcare",
+      "similarity": 0.175321
+    },
+    {
+      "ticker": "RJF",
+      "gics": "finance",
+      "similarity": 0.150394
+    },
+    {
+      "ticker": "RNG",
+      "gics": "tech",
+      "similarity": 0.097034
+    },
+    {
+      "ticker": "RPRX",
+      "gics": "healthcare",
+      "similarity": 0.175664
+    },
+    {
+      "ticker": "S",
+      "gics": "tech",
+      "similarity": 0.131027
+    },
+    {
+      "ticker": "SNPS",
+      "gics": "tech",
+      "similarity": 0.230349
+    },
+    {
+      "ticker": "SWKS",
+      "gics": "tech",
+      "similarity": 0.123735
+    },
+    {
+      "ticker": "SYF",
+      "gics": "finance",
+      "similarity": 0.156223
+    },
+    {
+      "ticker": "TER",
+      "gics": "tech",
+      "similarity": 0.185705
+    },
+    {
+      "ticker": "TFC",
+      "gics": "finance",
+      "similarity": 0.158478
+    },
+    {
+      "ticker": "TTD",
+      "gics": "comm",
+      "similarity": 0.188318
+    },
+    {
+      "ticker": "TTWO",
+      "gics": "comm",
+      "similarity": 0.154723
+    },
+    {
+      "ticker": "TWLO",
+      "gics": "tech",
+      "similarity": 0.113254
+    },
+    {
+      "ticker": "TXT",
+      "gics": "industrial",
+      "similarity": 0.070796
+    },
+    {
+      "ticker": "URI",
+      "gics": "industrial",
+      "similarity": 0.080817
+    },
+    {
+      "ticker": "USB",
+      "gics": "finance",
+      "similarity": 0.160641
+    },
+    {
+      "ticker": "WAB",
+      "gics": "industrial",
+      "similarity": 0.09565
+    },
+    {
+      "ticker": "WEC",
+      "gics": "utility",
+      "similarity": 0.516547
+    },
+    {
+      "ticker": "WTFC",
+      "gics": "finance",
+      "similarity": 0.148469
+    }
+  ],
+  "score_distribution_all_candidates": {
+    "min": -0.1215,
+    "p25": 0.011,
+    "median": 0.0551,
+    "p75": 0.1218,
+    "max": 0.5205
+  }
+}
