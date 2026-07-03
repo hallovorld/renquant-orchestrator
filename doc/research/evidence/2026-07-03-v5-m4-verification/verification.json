@@ -1,0 +1,944 @@
+{
+  "as_of": "2026-07-02",
+  "code_sha256_self": "6e7e0eaddbd7d3781724ebb6a959f9c04e88f0ba623a32fab8c1e155c52af805",
+  "committed_evidence_sha256": "f81eb7c575c272384b772a8518ac7496e4abdbe6f7bfa49f4570ab00ce8797a0",
+  "comparison_vs_committed_evidence": [
+    {
+      "admitted_after": {
+        "match": true,
+        "mine": 1,
+        "theirs": 1
+      },
+      "admitted_before": {
+        "match": true,
+        "mine": 22,
+        "theirs": 22
+      },
+      "center_median": {
+        "abs_diff": 0.0,
+        "mine": -0.03618967905640602,
+        "theirs": -0.03618967905640602
+      },
+      "fidelity_max_abs_diff": {
+        "abs_diff": 1.734723475976807e-18,
+        "mine": 1.734723475976807e-18,
+        "theirs": 0.0
+      },
+      "in_committed": true,
+      "laundered_before": {
+        "match": true,
+        "mine": 45,
+        "theirs": 45
+      },
+      "run_id": "2026-07-02-live-85496d1c"
+    },
+    {
+      "admitted_after": {
+        "match": true,
+        "mine": 1,
+        "theirs": 1
+      },
+      "admitted_before": {
+        "match": true,
+        "mine": 17,
+        "theirs": 17
+      },
+      "center_median": {
+        "abs_diff": 0.0,
+        "mine": -0.05285589396953583,
+        "theirs": -0.05285589396953583
+      },
+      "fidelity_max_abs_diff": {
+        "abs_diff": 3.469446951953614e-18,
+        "mine": 3.469446951953614e-18,
+        "theirs": 0.0
+      },
+      "in_committed": true,
+      "laundered_before": {
+        "match": true,
+        "mine": 44,
+        "theirs": 44
+      },
+      "run_id": "2026-07-01-live-01c54b39"
+    },
+    {
+      "admitted_after": {
+        "match": true,
+        "mine": 1,
+        "theirs": 1
+      },
+      "admitted_before": {
+        "match": true,
+        "mine": 18,
+        "theirs": 18
+      },
+      "center_median": {
+        "abs_diff": 0.0,
+        "mine": -0.046418365091085434,
+        "theirs": -0.046418365091085434
+      },
+      "fidelity_max_abs_diff": {
+        "abs_diff": 0.0,
+        "mine": 0.0019753605060277707,
+        "theirs": 0.0019753605060277707
+      },
+      "in_committed": true,
+      "laundered_before": {
+        "match": true,
+        "mine": 43,
+        "theirs": 43
+      },
+      "run_id": "2026-06-30-live-b616357c"
+    },
+    {
+      "admitted_after": {
+        "match": true,
+        "mine": 0,
+        "theirs": 0
+      },
+      "admitted_before": {
+        "match": true,
+        "mine": 18,
+        "theirs": 18
+      },
+      "center_median": {
+        "abs_diff": 0.0,
+        "mine": -0.04734288156032562,
+        "theirs": -0.04734288156032562
+      },
+      "fidelity_max_abs_diff": {
+        "abs_diff": 0.0,
+        "mine": 0.0018462995146944355,
+        "theirs": 0.0018462995146944355
+      },
+      "in_committed": true,
+      "laundered_before": {
+        "match": true,
+        "mine": 46,
+        "theirs": 46
+      },
+      "run_id": "2026-06-26-live-3d74ce5c"
+    },
+    {
+      "admitted_after": {
+        "match": true,
+        "mine": 6,
+        "theirs": 6
+      },
+      "admitted_before": {
+        "match": true,
+        "mine": 5,
+        "theirs": 5
+      },
+      "center_median": {
+        "abs_diff": 0.0,
+        "mine": -0.2973184436559677,
+        "theirs": -0.2973184436559677
+      },
+      "fidelity_max_abs_diff": {
+        "abs_diff": 0.0,
+        "mine": 0.003329071281141665,
+        "theirs": 0.003329071281141665
+      },
+      "in_committed": true,
+      "laundered_before": {
+        "match": true,
+        "mine": 26,
+        "theirs": 26
+      },
+      "run_id": "2026-06-25-live-6c3aa3fa"
+    },
+    {
+      "admitted_after": {
+        "match": true,
+        "mine": 3,
+        "theirs": 3
+      },
+      "admitted_before": {
+        "match": true,
+        "mine": 3,
+        "theirs": 3
+      },
+      "center_median": {
+        "abs_diff": 0.0,
+        "mine": -0.28170284628868103,
+        "theirs": -0.28170284628868103
+      },
+      "fidelity_max_abs_diff": {
+        "abs_diff": 0.0,
+        "mine": 0.00347530632336944,
+        "theirs": 0.00347530632336944
+      },
+      "in_committed": true,
+      "laundered_before": {
+        "match": true,
+        "mine": 23,
+        "theirs": 23
+      },
+      "run_id": "2026-06-24-live-710e3805"
+    }
+  ],
+  "expected_run_ids_from_committed_evidence": [
+    "2026-07-02-live-85496d1c",
+    "2026-07-01-live-01c54b39",
+    "2026-06-30-live-b616357c",
+    "2026-06-26-live-3d74ce5c",
+    "2026-06-25-live-6c3aa3fa",
+    "2026-06-24-live-710e3805"
+  ],
+  "generated_at": "2026-07-03T09:33:35+00:00",
+  "inputs": {
+    "calibrator": {
+      "er_knots": 100,
+      "er_knots_clipped_at_load": false,
+      "native_lookahead_days": 60,
+      "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-rank-calibration.json",
+      "sha256": "cab0904424b06154e70d23b5a4f7c6974517165a1b87c590fa07f180f1747b06",
+      "trained_date": "2026-07-01"
+    },
+    "db": {
+      "mtime_utc": "2026-07-02T21:07:28+00:00",
+      "note": "mutable prod DB \u2014 hash pins the exact bytes verified",
+      "path": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
+      "sha256": "0630ffb5fd6de9ed7543e35d09433004e47a5483ee541cc35d896f67b41a2af1",
+      "size_bytes": 97280000
+    }
+  },
+  "mu_floor": 0.03,
+  "purpose": "S-REL V5 independent verification of the M4 intercept finding (renquant-pipeline PR #162 shadow replay) \u2014 no pipeline imports",
+  "recomputed_neutral_raw": -0.29021485236669337,
+  "regime_timeline_since_2026-05-15": [
+    {
+      "date": "2026-05-15",
+      "mean_stored_mu": null,
+      "median_raw": 0.5807152390480042,
+      "median_stored_mu": null,
+      "n_candidate_rows": 33
+    },
+    {
+      "date": "2026-05-17",
+      "mean_stored_mu": 0.026150921318272614,
+      "median_raw": 0.5817869901657104,
+      "median_stored_mu": -0.013272979448603952,
+      "n_candidate_rows": 31
+    },
+    {
+      "date": "2026-05-18",
+      "mean_stored_mu": 0.07936663195672455,
+      "median_raw": -0.11890100687742233,
+      "median_stored_mu": 0.08629519457927651,
+      "n_candidate_rows": 69
+    },
+    {
+      "date": "2026-05-19",
+      "mean_stored_mu": 0.07774348914064243,
+      "median_raw": -0.12792346626520157,
+      "median_stored_mu": 0.07915912456416449,
+      "n_candidate_rows": 68
+    },
+    {
+      "date": "2026-05-20",
+      "mean_stored_mu": 0.07734934723921064,
+      "median_raw": -0.13048215955495834,
+      "median_stored_mu": 0.07713539537036695,
+      "n_candidate_rows": 210
+    },
+    {
+      "date": "2026-05-21",
+      "mean_stored_mu": 0.09026091128333241,
+      "median_raw": -0.10700264573097229,
+      "median_stored_mu": 0.09570588123985174,
+      "n_candidate_rows": 69
+    },
+    {
+      "date": "2026-05-22",
+      "mean_stored_mu": 0.04319248977435113,
+      "median_raw": 0.20325572788715363,
+      "median_stored_mu": 0.042977483603906706,
+      "n_candidate_rows": 11
+    },
+    {
+      "date": "2026-05-30",
+      "mean_stored_mu": 0.01574139496288878,
+      "median_raw": -0.14419110119342804,
+      "median_stored_mu": 0.012392506256313609,
+      "n_candidate_rows": 709
+    },
+    {
+      "date": "2026-06-01",
+      "mean_stored_mu": 0.016646258627182754,
+      "median_raw": -0.12402226030826569,
+      "median_stored_mu": 0.014198529319350478,
+      "n_candidate_rows": 574
+    },
+    {
+      "date": "2026-06-02",
+      "mean_stored_mu": 0.017397272352623505,
+      "median_raw": -0.10568573325872421,
+      "median_stored_mu": 0.015838353085653047,
+      "n_candidate_rows": 74
+    },
+    {
+      "date": "2026-06-03",
+      "mean_stored_mu": 0.017269644145081715,
+      "median_raw": -0.09872674569487572,
+      "median_stored_mu": 0.01645969250390244,
+      "n_candidate_rows": 76
+    },
+    {
+      "date": "2026-06-04",
+      "mean_stored_mu": 0.017319822613149658,
+      "median_raw": -0.06542114913463593,
+      "median_stored_mu": 0.01943157252169821,
+      "n_candidate_rows": 77
+    },
+    {
+      "date": "2026-06-09",
+      "mean_stored_mu": 0.00013795716072180492,
+      "median_raw": -0.19445053488016129,
+      "median_stored_mu": 0.0017725512993967344,
+      "n_candidate_rows": 168
+    },
+    {
+      "date": "2026-06-10",
+      "mean_stored_mu": 0.00013795716072180486,
+      "median_raw": -0.19445053488016129,
+      "median_stored_mu": 0.0017725512993967344,
+      "n_candidate_rows": 84
+    },
+    {
+      "date": "2026-06-11",
+      "mean_stored_mu": 0.003601595935863201,
+      "median_raw": -0.1921001821756363,
+      "median_stored_mu": 0.002914469900207635,
+      "n_candidate_rows": 83
+    },
+    {
+      "date": "2026-06-22",
+      "mean_stored_mu": 0.004282347532065184,
+      "median_raw": -0.2928873598575592,
+      "median_stored_mu": -0.0021902857427450193,
+      "n_candidate_rows": 81
+    },
+    {
+      "date": "2026-06-23",
+      "mean_stored_mu": 0.004502944446081807,
+      "median_raw": -0.2818315774202347,
+      "median_stored_mu": -0.0011708750044082312,
+      "n_candidate_rows": 158
+    },
+    {
+      "date": "2026-06-24",
+      "mean_stored_mu": 0.0031579814845690084,
+      "median_raw": -0.28170284628868103,
+      "median_stored_mu": -0.0011590170383966349,
+      "n_candidate_rows": 73
+    },
+    {
+      "date": "2026-06-25",
+      "mean_stored_mu": 0.0025586826680623342,
+      "median_raw": -0.2973184436559677,
+      "median_stored_mu": -0.0025988319607515385,
+      "n_candidate_rows": 76
+    },
+    {
+      "date": "2026-06-26",
+      "mean_stored_mu": 0.02013317758634907,
+      "median_raw": -0.04734288156032562,
+      "median_stored_mu": 0.02104081813368816,
+      "n_candidate_rows": 79
+    },
+    {
+      "date": "2026-06-29",
+      "mean_stored_mu": 0.02127600430130241,
+      "median_raw": -0.0430862158536911,
+      "median_stored_mu": 0.021419461620037248,
+      "n_candidate_rows": 129
+    },
+    {
+      "date": "2026-06-30",
+      "mean_stored_mu": 0.018495790280413264,
+      "median_raw": -0.046418365091085434,
+      "median_stored_mu": 0.0211230642267808,
+      "n_candidate_rows": 83
+    },
+    {
+      "date": "2026-07-01",
+      "mean_stored_mu": 0.018183397720868164,
+      "median_raw": -0.05285589396953583,
+      "median_stored_mu": 0.02018048026488111,
+      "n_candidate_rows": 83
+    },
+    {
+      "date": "2026-07-02",
+      "mean_stored_mu": 0.01891149562989182,
+      "median_raw": -0.03618967905640602,
+      "median_stored_mu": 0.02158676334587726,
+      "n_candidate_rows": 83
+    }
+  ],
+  "run_selection_matches_committed_evidence": true,
+  "runs": [
+    {
+      "check1_fidelity": {
+        "max_abs_diff_recomputed_er_vs_stored_mu": 1.734723475976807e-18,
+        "n_rows_with_stored_mu": 83
+      },
+      "check2_laundering": {
+        "live_bl2_counter_from_pipeline_runs": 45,
+        "raw_neg_mu_pos": 45,
+        "raw_pos_mu_neg": 0,
+        "recomputed_total_sign_disagree": 45,
+        "sign_disagree_vs_stored_prod_mu": 45
+      },
+      "check3_admission": {
+        "admitted_after_by_center": {
+          "mean_cand_plus_holdings": 1,
+          "mean_candidates": 1,
+          "median_cand_plus_holdings": 1,
+          "median_candidates": 1
+        },
+        "admitted_before": 22,
+        "centers": {
+          "mean_cand_plus_holdings": -0.05662447405814997,
+          "mean_candidates": -0.06689612380178443,
+          "median_cand_plus_holdings": -0.03229901008307934,
+          "median_candidates": -0.03618967905640602
+        },
+        "gained": [],
+        "laundered_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "lost": [
+          "ABBV",
+          "AEP",
+          "AVGO",
+          "BAC",
+          "BLK",
+          "CVS",
+          "D",
+          "EME",
+          "EOG",
+          "ETN",
+          "GM",
+          "GRMN",
+          "GS",
+          "JPM",
+          "MCHP",
+          "MRK",
+          "MS",
+          "OXY",
+          "WFC",
+          "WMT",
+          "ZM"
+        ],
+        "mu_floor": 0.03
+      },
+      "check4_intercept": {
+        "admitted_after_at_adjusted_floor": 23,
+        "floor_minus_median_mu_after_in_sigma": 2.3120892975896545,
+        "floor_minus_median_mu_before": 0.00841323665412274,
+        "floor_minus_median_mu_before_in_sigma": 0.6328923659975053,
+        "intercept_adjusted_floor": 0.008413236654122738,
+        "mu_after_median_center": {
+          "max": 0.03039102037556922,
+          "mean": -0.0023608087225546214,
+          "median": -1.5178830414797062e-18,
+          "min": -0.02272037380023896,
+          "n": 83,
+          "p10": -0.020718153574205367,
+          "p90": 0.012936072714277557,
+          "std": 0.012975277395762742
+        },
+        "mu_before": {
+          "max": 0.051138981997518256,
+          "mean": 0.01891149562989182,
+          "median": 0.02158676334587726,
+          "min": -0.008282503327025388,
+          "n": 83,
+          "p10": 0.0008784978511323876,
+          "p90": 0.0342835796411396,
+          "std": 0.01329331353343564
+        },
+        "removed_shift_per_name": {
+          "max": 0.021650014515149085,
+          "mean": 0.02127230435244644,
+          "median": 0.021565955251589636,
+          "min": 0.014437870473213573,
+          "n": 83,
+          "p10": 0.021313503332542786,
+          "p90": 0.021643909235776942,
+          "std": 0.001137726437508674
+        }
+      },
+      "date": "2026-07-02",
+      "n_candidates": 83,
+      "n_holdings_rows": 5,
+      "run_id": "2026-07-02-live-85496d1c"
+    },
+    {
+      "check1_fidelity": {
+        "max_abs_diff_recomputed_er_vs_stored_mu": 3.469446951953614e-18,
+        "n_rows_with_stored_mu": 83
+      },
+      "check2_laundering": {
+        "live_bl2_counter_from_pipeline_runs": 44,
+        "raw_neg_mu_pos": 44,
+        "raw_pos_mu_neg": 0,
+        "recomputed_total_sign_disagree": 44,
+        "sign_disagree_vs_stored_prod_mu": 44
+      },
+      "check3_admission": {
+        "admitted_after_by_center": {
+          "mean_cand_plus_holdings": 1,
+          "mean_candidates": 1,
+          "median_cand_plus_holdings": 1,
+          "median_candidates": 1
+        },
+        "admitted_before": 17,
+        "centers": {
+          "mean_cand_plus_holdings": -0.06269191827080893,
+          "mean_candidates": -0.0755640861567065,
+          "median_cand_plus_holdings": -0.04263225942850113,
+          "median_candidates": -0.05285589396953583
+        },
+        "gained": [],
+        "laundered_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "lost": [
+          "AAPL",
+          "AEP",
+          "AVGO",
+          "BAC",
+          "BLK",
+          "CVS",
+          "EME",
+          "EOG",
+          "GRMN",
+          "GS",
+          "JPM",
+          "MCHP",
+          "OXY",
+          "PM",
+          "WFC",
+          "ZM"
+        ],
+        "mu_floor": 0.03
+      },
+      "check4_intercept": {
+        "admitted_after_at_adjusted_floor": 19,
+        "floor_minus_median_mu_after_in_sigma": 2.324638554126582,
+        "floor_minus_median_mu_before": 0.009819519735118888,
+        "floor_minus_median_mu_before_in_sigma": 0.7502686077528322,
+        "intercept_adjusted_floor": 0.009819519735118886,
+        "mu_after_median_center": {
+          "max": 0.03310369773265187,
+          "mean": -0.0017650043384838247,
+          "median": -1.5178830414797062e-18,
+          "min": -0.02272037380023896,
+          "n": 83,
+          "p10": -0.019088803752274626,
+          "p90": 0.013384166632949623,
+          "std": 0.01290523206145123
+        },
+        "mu_before": {
+          "max": 0.05240894830913207,
+          "mean": 0.01818339772086816,
+          "median": 0.02018048026488111,
+          "min": -0.00796903189122964,
+          "n": 83,
+          "p10": 0.0011022501268601556,
+          "p90": 0.033339497254601475,
+          "std": 0.013088005593796378
+        },
+        "removed_shift_per_name": {
+          "max": 0.020231909976902943,
+          "mean": 0.019948402059351982,
+          "median": 0.020144306661266077,
+          "min": 0.01475134190900932,
+          "n": 83,
+          "p10": 0.019879750001089054,
+          "p90": 0.020225671212070695,
+          "std": 0.0008033787632279494
+        }
+      },
+      "date": "2026-07-01",
+      "n_candidates": 83,
+      "n_holdings_rows": 6,
+      "run_id": "2026-07-01-live-01c54b39"
+    },
+    {
+      "check1_fidelity": {
+        "max_abs_diff_recomputed_er_vs_stored_mu": 0.0019753605060277707,
+        "n_rows_with_stored_mu": 83
+      },
+      "check2_laundering": {
+        "live_bl2_counter_from_pipeline_runs": 42,
+        "raw_neg_mu_pos": 43,
+        "raw_pos_mu_neg": 0,
+        "recomputed_total_sign_disagree": 43,
+        "sign_disagree_vs_stored_prod_mu": 42
+      },
+      "check3_admission": {
+        "admitted_after_by_center": {
+          "mean_cand_plus_holdings": 1,
+          "mean_candidates": 1,
+          "median_cand_plus_holdings": 1,
+          "median_candidates": 1
+        },
+        "admitted_before": 18,
+        "centers": {
+          "mean_cand_plus_holdings": -0.059389763868724306,
+          "mean_candidates": -0.07493243281202144,
+          "median_cand_plus_holdings": -0.029979859478771687,
+          "median_candidates": -0.046418365091085434
+        },
+        "gained": [],
+        "laundered_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "lost": [
+          "AAPL",
+          "AEP",
+          "ASML",
+          "AVGO",
+          "BAC",
+          "BLK",
+          "CVS",
+          "EME",
+          "EOG",
+          "GRMN",
+          "GS",
+          "JPM",
+          "MCHP",
+          "OXY",
+          "PM",
+          "WFC",
+          "ZM"
+        ],
+        "mu_floor": 0.03
+      },
+      "check4_intercept": {
+        "admitted_after_at_adjusted_floor": 20,
+        "floor_minus_median_mu_after_in_sigma": 2.331259763912187,
+        "floor_minus_median_mu_before": 0.00927611873674956,
+        "floor_minus_median_mu_before_in_sigma": 0.6980900980855264,
+        "intercept_adjusted_floor": 0.009276118736749559,
+        "mu_after_median_center": {
+          "max": 0.03137469109603941,
+          "mean": -0.002122662836271887,
+          "median": -1.5178830414797062e-18,
+          "min": -0.02272037380023896,
+          "n": 83,
+          "p10": -0.02008495166580988,
+          "p90": 0.012989337695793964,
+          "std": 0.012868578810649445
+        },
+        "mu_before": {
+          "max": 0.051265294862031144,
+          "mean": 0.01823629880728942,
+          "median": 0.02072388126325044,
+          "min": -0.007474121103145675,
+          "n": 83,
+          "p10": 0.0006456519793841313,
+          "p90": 0.03348775698801567,
+          "std": 0.013287853189994824
+        },
+        "removed_shift_per_name": {
+          "max": 0.020779839753871446,
+          "mean": 0.02035896164356132,
+          "median": 0.02070054380392217,
+          "min": 0.015246252697093284,
+          "n": 83,
+          "p10": 0.0203554947501259,
+          "p90": 0.02077391954982067,
+          "std": 0.0011529709038155013
+        }
+      },
+      "date": "2026-06-30",
+      "n_candidates": 83,
+      "n_holdings_rows": 7,
+      "run_id": "2026-06-30-live-b616357c"
+    },
+    {
+      "check1_fidelity": {
+        "max_abs_diff_recomputed_er_vs_stored_mu": 0.0018462995146944355,
+        "n_rows_with_stored_mu": 79
+      },
+      "check2_laundering": {
+        "live_bl2_counter_from_pipeline_runs": 44,
+        "raw_neg_mu_pos": 46,
+        "raw_pos_mu_neg": 0,
+        "recomputed_total_sign_disagree": 46,
+        "sign_disagree_vs_stored_prod_mu": 44
+      },
+      "check3_admission": {
+        "admitted_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "admitted_before": 18,
+        "centers": {
+          "mean_cand_plus_holdings": -0.05096540018123397,
+          "mean_candidates": -0.05657494827497845,
+          "median_cand_plus_holdings": -0.0454915426671505,
+          "median_candidates": -0.04734288156032562
+        },
+        "gained": [],
+        "laundered_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "lost": [
+          "AAPL",
+          "AVGO",
+          "BAC",
+          "BLK",
+          "CME",
+          "CVS",
+          "CVX",
+          "D",
+          "DUK",
+          "EOG",
+          "FTNT",
+          "JPM",
+          "KMI",
+          "NEE",
+          "PLTR",
+          "SOFI",
+          "WELL",
+          "WFC"
+        ],
+        "mu_floor": 0.03
+      },
+      "check4_intercept": {
+        "admitted_after_at_adjusted_floor": 18,
+        "floor_minus_median_mu_after_in_sigma": 2.434506251148971,
+        "floor_minus_median_mu_before": 0.00935413346970226,
+        "floor_minus_median_mu_before_in_sigma": 0.7608985526869168,
+        "intercept_adjusted_floor": 0.009354133469702259,
+        "mu_after_median_center": {
+          "max": 0.02869513816240533,
+          "mean": -0.0007364154845110005,
+          "median": -1.5178830414797062e-18,
+          "min": -0.02272037380023896,
+          "n": 79,
+          "p10": -0.018652051976889454,
+          "p90": 0.014453769800756869,
+          "std": 0.01232282726152025
+        },
+        "mu_before": {
+          "max": 0.04862112201959298,
+          "mean": 0.019790136668936975,
+          "median": 0.02064586653029774,
+          "min": -0.005994365931702929,
+          "n": 79,
+          "p10": 0.002013111980854405,
+          "p90": 0.03483958696633674,
+          "std": 0.012293535631879642
+        },
+        "removed_shift_per_name": {
+          "max": 0.02070120550276152,
+          "mean": 0.02052655215344797,
+          "median": 0.02064391593588775,
+          "min": 0.016726007868536032,
+          "n": 79,
+          "p10": 0.020364789653481777,
+          "p90": 0.020699115043829243,
+          "std": 0.0004558426097059791
+        }
+      },
+      "date": "2026-06-26",
+      "n_candidates": 79,
+      "n_holdings_rows": 5,
+      "run_id": "2026-06-26-live-3d74ce5c"
+    },
+    {
+      "check1_fidelity": {
+        "max_abs_diff_recomputed_er_vs_stored_mu": 0.003329071281141665,
+        "n_rows_with_stored_mu": 76
+      },
+      "check2_laundering": {
+        "live_bl2_counter_from_pipeline_runs": 24,
+        "raw_neg_mu_pos": 26,
+        "raw_pos_mu_neg": 0,
+        "recomputed_total_sign_disagree": 26,
+        "sign_disagree_vs_stored_prod_mu": 24
+      },
+      "check3_admission": {
+        "admitted_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 6
+        },
+        "admitted_before": 5,
+        "centers": {
+          "mean_cand_plus_holdings": -0.21371872485672802,
+          "mean_candidates": -0.2410293955931832,
+          "median_cand_plus_holdings": -0.2711734473705292,
+          "median_candidates": -0.2973184436559677
+        },
+        "gained": [
+          "TXN"
+        ],
+        "laundered_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "lost": [],
+        "mu_floor": 0.03
+      },
+      "check4_intercept": {
+        "admitted_after_at_adjusted_floor": 5,
+        "floor_minus_median_mu_after_in_sigma": 2.06367548880861,
+        "floor_minus_median_mu_before": 0.03060601572502603,
+        "floor_minus_median_mu_before_in_sigma": 2.1048427887443304,
+        "intercept_adjusted_floor": 0.03060601572502603,
+        "mu_after_median_center": {
+          "max": 0.03189125462741454,
+          "mean": 0.004762503364904375,
+          "median": -1.463672932855431e-18,
+          "min": -0.016858436904529834,
+          "n": 76,
+          "p10": -0.009969194054740019,
+          "p90": 0.027825813188007698,
+          "std": 0.014537169318863907
+        },
+        "mu_before": {
+          "max": 0.031300477150566365,
+          "mean": 0.004159990400617979,
+          "median": -0.0006060157250260317,
+          "min": -0.017459948384370986,
+          "n": 76,
+          "p10": -0.010573600808641174,
+          "p90": 0.027231251894469635,
+          "std": 0.01454076090085779
+        },
+        "removed_shift_per_name": {
+          "max": -0.0005907774768481727,
+          "mean": -0.0006025129642864005,
+          "median": -0.0006049901774944104,
+          "min": -0.0006060165762441038,
+          "n": 76,
+          "p10": -0.0006059389793845015,
+          "p90": -0.0005945612935380658,
+          "std": 4.488090191002139e-06
+        }
+      },
+      "date": "2026-06-25",
+      "n_candidates": 76,
+      "n_holdings_rows": 5,
+      "run_id": "2026-06-25-live-6c3aa3fa"
+    },
+    {
+      "check1_fidelity": {
+        "max_abs_diff_recomputed_er_vs_stored_mu": 0.00347530632336944,
+        "n_rows_with_stored_mu": 73
+      },
+      "check2_laundering": {
+        "live_bl2_counter_from_pipeline_runs": 20,
+        "raw_neg_mu_pos": 23,
+        "raw_pos_mu_neg": 0,
+        "recomputed_total_sign_disagree": 23,
+        "sign_disagree_vs_stored_prod_mu": 20
+      },
+      "check3_admission": {
+        "admitted_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 1,
+          "median_cand_plus_holdings": 2,
+          "median_candidates": 3
+        },
+        "admitted_before": 3,
+        "centers": {
+          "mean_cand_plus_holdings": -0.20185261843961816,
+          "mean_candidates": -0.23446202177988135,
+          "median_cand_plus_holdings": -0.26829612255096436,
+          "median_candidates": -0.28170284628868103
+        },
+        "gained": [],
+        "laundered_after_by_center": {
+          "mean_cand_plus_holdings": 0,
+          "mean_candidates": 0,
+          "median_cand_plus_holdings": 0,
+          "median_candidates": 0
+        },
+        "lost": [],
+        "mu_floor": 0.03
+      },
+      "check4_intercept": {
+        "admitted_after_at_adjusted_floor": 3,
+        "floor_minus_median_mu_after_in_sigma": 1.9367328585857169,
+        "floor_minus_median_mu_before": 0.029273836218421306,
+        "floor_minus_median_mu_before_in_sigma": 1.8903735183041035,
+        "intercept_adjusted_floor": 0.029273836218421306,
+        "mu_after_median_center": {
+          "max": 0.034248302548043334,
+          "mean": 0.0039923449068973126,
+          "median": -1.5178830414797062e-18,
+          "min": -0.020071978546080626,
+          "n": 73,
+          "p10": -0.012758866183730493,
+          "p90": 0.026979278615624745,
+          "std": 0.015490004141256349
+        },
+        "mu_before": {
+          "max": 0.03495267778178805,
+          "mean": 0.004713807663315915,
+          "median": 0.0007261637815786943,
+          "min": -0.01935285955638854,
+          "n": 73,
+          "p10": -0.012035446914266041,
+          "p90": 0.027691799833683316,
+          "std": 0.015485741804446944
+        },
+        "removed_shift_per_name": {
+          "max": 0.0007261637815786958,
+          "mean": 0.000721462756418602,
+          "median": 0.0007238802744114533,
+          "min": 0.0007043752337447182,
+          "n": 73,
+          "p10": 0.0007125212180585732,
+          "p90": 0.0007260827430550271,
+          "std": 5.530559714821475e-06
+        }
+      },
+      "date": "2026-06-24",
+      "n_candidates": 73,
+      "n_holdings_rows": 6,
+      "run_id": "2026-06-24-live-710e3805"
+    }
+  ],
+  "selected_run_ids": [
+    "2026-07-02-live-85496d1c",
+    "2026-07-01-live-01c54b39",
+    "2026-06-30-live-b616357c",
+    "2026-06-26-live-3d74ce5c",
+    "2026-06-25-live-6c3aa3fa",
+    "2026-06-24-live-710e3805"
+  ],
+  "stored_horizon_days_distinct": [
+    [
+      60,
+      60
+    ]
+  ],
+  "tool": "scripts/v5_m4_intercept_verification.py"
+}
