@@ -1,0 +1,110 @@
+{
+  "spec_version": 1,
+  "task": "D3 core-shrink check: does shrinking the incumbent panel to a high-separability core improve the CORE'S OWN realized pick quality? Mirror image of M8's verified dilution finding (#261 gate NO-GO; #264 SS5 random-wave correction). This is the incumbent-book core-shrink measurement RS-5 (#282) explicitly deferred to the D3 memo. Research measurement only; no watchlist/config change; feeds L1/D3 as its LAST input.",
+  "freeze_discipline": "This spec is committed BEFORE any core is selected, any model is trained, or any IC/pick-quality statistic is computed. Commit 2 = harness + controls; commit 3 = results + verdict. Nothing in this file may be altered after commit 1; deviations must be disclosed, and any undeclared deviation voids the run.",
+  "pre_freeze_feasibility_facts": {
+    "note": "coverage/schema checks only - NO outcome statistic was computed before this freeze",
+    "incumbents_in_e35_dataset": 133,
+    "watchlist_entries": 145,
+    "pick_table_names": 292,
+    "watchlist_intersect_pick_table": 142,
+    "pick_table_equity_incumbents_ex_etf": 135,
+    "etfs_in_watchlist_and_pick_table": ["SPY", "XLE", "XLF", "XLI", "XLK", "XLU", "XLY"],
+    "watchlist_not_in_pick_table": ["CRWV", "RKLB", "SPCX"],
+    "sep_scoring_window_eligible_incumbents": 120,
+    "incumbent_cut_coverage_252train_100test": {"cut1": 118, "cut2": 121, "cut3": 125, "cut4": 128, "cut5": 133, "cut6": 133, "cut7": 133},
+    "incumbents_missing_gics": 0,
+    "incumbents_missing_from_bar_store": 0,
+    "bar_store_adjustment": "close and volume are both back-adjusted (NVDA 2024-06-10 10:1 split row verified: close*volume continuous across the split), so close*volume is a valid dollar-volume series",
+    "rawlabel_join_source_has_fwd_60d_excess_raw": true
+  },
+  "inputs_read_only": {
+    "e35_dataset": "/Users/renhao/git/github/RenQuant/data/alpha158_816_dataset.parquet",
+    "strategy_config": "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json",
+    "gics_map": "/Users/renhao/git/github/RenQuant/scripts/strategy_config.russell_1000_universe.with_sectors.json",
+    "pick_table": "/Users/renhao/git/github/RenQuant/data/exp/oos_pick_table_recipe_v2.parquet",
+    "rawlabel_join_source": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fundamental_dataset_rawlabel.parquet",
+    "bar_store": "/Users/renhao/git/github/RenQuant/data/ohlcv/<TICKER>/1d.parquet",
+    "regime_series_diagnostic": "doc/research/evidence/2026-07-02-c3/c3_regime_series.json (committed; NOT point-in-time; exploratory only)",
+    "rule": "all inputs opened read-only; every intermediate lives in the session scratchpad; evidence JSONs carry input SHA-256s + code sha"
+  },
+  "incumbent_book": {
+    "wf_arm_baseline": "the 133 watchlist tickers present in the E35 dataset - exactly M8's baseline arm (#261)",
+    "s8_arm_full_book": "the 135 equity incumbents = (watchlist intersect pick-table names) minus the 7 sector/benchmark ETFs; the raw intersection is 142 (the '142-name panel'); ETFs are excluded from BOTH arms because the down-cap question is about the equity book and SPY is the benchmark asset itself"
+  },
+  "core_definitions": {
+    "LIQ": {
+      "name": "liquidity core",
+      "rule": "top-N of the 133 dataset incumbents by full-span median daily dollar volume (median over all available sessions 2016-01-04..2026-05-08 of close*volume from the umbrella bar store). Outcome-free (never reads forward returns), so in-span measurement is admissible per the M8 #264 SS3 ruling. Ties by ticker asc."
+    },
+    "SEP": {
+      "name": "separability core",
+      "rule": "top-N of the SEP-eligible incumbents by per-name |IC_n|. SEP scoring model: XGB rank:pairwise, production params (PANEL_LTR_PARAMS byte-identical to M8), seed 42, 100 rounds, label fwd_60d_excess, trained on ALL 133 incumbents' rows in 2016-01-01..2017-06-30 (M8 featurization: fillna(0), train-window z-norm clip +-5, labels clip +-5). Scored window: 2017-08-01..2018-09-30 (one-month gap mirrors the E35 cut geometry). Per-name IC_n = Spearman correlation over scored dates t of (cross-sectional percentile rank of n's score at t, cross-sectional percentile rank of n's fwd_60d_excess label at t), both ranks computed over incumbents present at t. Eligibility: >=126 scored dates (measured pre-freeze: 120/133 eligible). Ties by ticker asc.",
+      "disjointness": "M8's rejected disjoint-window alternative is AVAILABLE here because incumbents (unlike M8's candidates) have deep pre-2019 coverage. The scored window's last label (2018-09-30 + 60 trading days) resolves ~2018-12-24, strictly before the earliest evaluation label window (test dates start 2019-02-01) - selection outcomes and evaluation outcomes share ZERO return days. No selection-on-outcome.",
+      "excluded_names_note": "the 13 SEP-ineligible incumbents (post-2018 listings, e.g. PLTR/COIN/SNOW/CRWD) cannot enter SEP/SECBAL cores; they remain eligible for LIQ. Recorded as a coverage limit of the definition, not a data error."
+    },
+    "SECBAL": {
+      "name": "sector-balanced separability core",
+      "rule": "slots across GICS sectors proportional to the GICS mix of the SEP-ELIGIBLE incumbents (largest-remainder rounding, ties by sector name asc - M8's allocation rule verbatim); within each sector take top-|IC_n| (ties by ticker asc); sectors with fewer eligible names than slots release the remainder to the global |IC_n| ranking (M8's release rule). Separates the separability effect from sector-concentration confound."
+    }
+  },
+  "core_sizes": [60, 90],
+  "family": "3 definitions x 2 sizes = 6 family members; both directions (HELPS/HURTS) tested => 12 one-sided tests; Bonferroni alpha_total 0.05 => per-test one-sided alpha 0.0041667 => 99.5833% one-sided bootstrap CIs",
+  "wf_arm": {
+    "role": "PRIMARY (gating) arm",
+    "substrate": "E35 harness corpus: alpha158_816 dataset, the 7 CUTS byte-identical to umbrella scripts/walk_forward_extended.py (as M8), XGB rank:pairwise production params, 100 rounds, M8 _train_predict featurization verbatim",
+    "estimand": "paired per-test-date delta on the CORE's dates and names: Delta_t = IC_coreModel(t) - IC_baselineModel(t), where IC_coreModel(t) = cross-sectional Spearman IC over core names present at t under the model trained ONLY on the core's train rows, and IC_baselineModel(t) = same-date same-names IC under the model trained on all 133 incumbents. Both models score the identical test rows. Dates need >=5 core names (M8 floor). Primary label fwd_60d_excess.",
+    "training_seeds": [42, 43, 44],
+    "qualifying_cut_rule": "a cut qualifies for a core iff >=50% of core names have >=252 train rows AND >=100 test rows in it (M8's rule applied to the core); the gate pools ONLY qualifying-cut dates; minimum 3 qualifying cuts else that member is INFEASIBLE",
+    "pooling": "pooled Delta = mean over all qualifying-cut test dates of Delta_t (date-ordered series retained for bootstrap)",
+    "ci": "moving-block bootstrap on the date-ordered pooled Delta series, block length 60, n_boot 2000, bootstrap rng seed 1000+training_seed; one-sided 99.5833% bounds",
+    "placebo": "within-date train-label shuffle (rng seed = training seed) for BOTH arms on qualifying cuts; placebo-clean pooled Delta = pooled real Delta - pooled placebo Delta on common dates; house rule: trust placebo-clean differences (the ~+0.04 embargo floor is common to both arms and largely cancels in the pairing)",
+    "materiality_band": 0.010,
+    "materiality_basis": "the corpus's established paired-comparison threshold (E36 and M8 used |delta| 0.01 on this same 7-cut harness)"
+  },
+  "wf_gate": {
+    "HELPS(member)": "for ALL training seeds {42,43,44}: pooled Delta >= +0.010 AND one-sided 99.5833% bootstrap CI lower bound > 0 AND placebo-clean pooled Delta > 0",
+    "HURTS(member)": "for ALL training seeds {42,43,44}: pooled Delta <= -0.010 AND one-sided 99.5833% bootstrap CI upper bound < 0 AND placebo-clean pooled Delta < 0",
+    "NULL(member)": "otherwise",
+    "seed_unanimity_basis": "#264 SS5 gate-design note: the gate statistic moves ~+-0.02 across training seeds, so single-seed reads against a +-0.01 band are under-powered; unanimity over 3 seeds is the protection"
+  },
+  "s8_arm": {
+    "role": "SUPPORTING arm (pre-declared; reported with CIs; can corroborate or contradict, never solely gates)",
+    "substrate": "durable OOS pick table data/exp/oos_pick_table_recipe_v2.parquet (508 dates 2024-02-02..2026-02-11, 292 names, content-hash verified against its manifest anchor), restricted to the 135 equity incumbents; NO retraining - this arm isolates the pure book-restriction effect of the production-recipe scores",
+    "estimand": "top-decile pick-quality delta per date: full-book picks = k_full(t) = max(1, round(0.1*n_full(t))) highest-score names among available full-book names (ties by name asc); core picks = analogous within core names; Delta_pq(t) = mean(fwd_60d_excess_raw of core picks) - mean(fwd_60d_excess_raw of full-book picks); pooled over the 508 dates",
+    "label_units": "raw 60d excess return units, joined from the rawlabel parquet on (date, name); join success must be >=99% of pick rows else fall back to the table's per-date-standardized label with disclosure",
+    "ci": "moving-block bootstrap over the date series, block 60, n_boot 2000, bootstrap seeds {42,43,44} (all three reported, all must agree for a supportive read); one-sided 99.5833% bounds",
+    "bar": "SUPPORTIVE-POS iff pooled Delta_pq >= +0.0005 (5 bps/60d, the S9 (b)-bar magnitude) AND CI lower bound > 0 on all 3 bootstrap seeds; SUPPORTIVE-NEG symmetric; else NULL",
+    "era_caveats": "M3/V3-class caveats apply and are stated: 508 dates dominated by BULL_CALM, survivorship 292-name panel, resolved-outcome era ends with the table (2026-02-11 picks resolving into 2026-05); the S8 window overlaps WF cuts 6-7 test windows, so the two arms are CORRELATED reads, not independent replications"
+  },
+  "controls": {
+    "wf_positive_plant": "designated member SEP-60, all 3 training seeds: plant scores = 0.9*rankpct(baseline score) + 0.1*rankpct(label) per date on core names, run through the IDENTICAL pooling+bootstrap machinery vs baseline; MUST clear the full HELPS bar on all 3 seeds, else harness cannot detect and the run is INCONCLUSIVE",
+    "wf_true_null": "baseline retrained at offset seeds {142,143,144} on the SAME 133-name universe; for EVERY family member, null Delta = (offset-seed baseline restricted to core) vs (paired-seed baseline restricted to core) through the identical machinery (pairs 42/142, 43/143, 44/144); NO member-direction may clear the full gate; if any does, retrain noise defeats the gate and the run is INCONCLUSIVE. Also reported as the empirical seed-noise scale.",
+    "s8_positive_plant": "oracle core = top-60 equity incumbents by realized mean fwd_60d_excess_raw over the eval dates (outcome-selected BY CONSTRUCTION - control only, never a candidate core); Delta_pq must clear the SUPPORTIVE-POS bar on all 3 bootstrap seeds",
+    "s8_true_null": "6 random cores (rng seed 4200+draw, draws {1,2,3}, sizes {60,90}, uniform from the 135 equities); none may clear the SUPPORTIVE bar in either direction; a violation downgrades the S8 arm to unreliable (does not void the WF arm)"
+  },
+  "diagnostics_not_gated": [
+    "WF random-core reference: 3 uniform draws (rng seed 4200+draw) per size from the 133 incumbents, training seed 42 only, real runs only - locates the designed cores against random shrink (the shrink-side echo of #264 SS5's random-wave control)",
+    "selection-only read on the E35 substrate: baseline-model IC restricted to core names vs on all 133 (no retrain) - 'is the core intrinsically easier to rank'",
+    "fwd_20d_excess secondary label at training seed 42 for all 6 members (sign consistency only)",
+    "per-regime pooled Delta via the committed C3 regime series (exploratory; labels NOT point-in-time; inherits all C3 substrate caveats)",
+    "core composition overlap matrix between the 6 members (correlated-tests honesty)"
+  ],
+  "verdict_synthesis": {
+    "INCONCLUSIVE": "any WF control fails (plant not detected on all seeds, or any null member-direction clears the gate)",
+    "HELPS": ">=1 member WF-HELPS and no member WF-HURTS; if the S8 read for every helping member is SUPPORTIVE-NEG, downgrade headline to MIXED",
+    "HURTS": ">=1 member WF-HURTS and no member WF-HELPS",
+    "NULL": "all 6 members WF-NULL",
+    "MIXED": "members disagree in gated direction",
+    "s8_role": "the S8 arm is reported alongside every member verdict; it corroborates or caveats, and only modifies the headline via the HELPS-downgrade rule above"
+  },
+  "d3_consequence_mapping": {
+    "HELPS": "core-shrink gains IC-level support as a down-cap leg: shrinking the incumbent panel to the named core(s) improves the core's own pick quality by the measured Delta; costs/turnover/capacity NOT modeled here (a shrink lowers them, so the read is conservative on net); D3 may weigh a shrink leg on this evidence",
+    "NULL": "no IC-level evidence that shrinking the incumbent book to a liquidity/separability core improves the core's own pick quality; D3's down-cap case must rest on its other legs (M7 primary-panel result, new-data, ops/cost) - not on an intrinsic core-quality gain",
+    "HURTS": "shrinking degrades the core's own pick quality - within-book breadth is load-bearing (the direction #264's random-wave control pointed at); D3 should NOT down-cap the incumbent book expecting IC gains, and any shrink leg needs a non-IC justification plus this measured IC cost",
+    "not_a_decision": "this check renders evidence, not the D3 decision; L1/D3 synthesis and sign-off follow the master-plan SS1 delegation protocol"
+  },
+  "evidence_requirements": "evidence JSONs with input SHA-256s + harness code sha + per-date delta series sufficient to recompute every bootstrap; evidence-boundary and reopening blocks in the memo; VERDICTS.md row added in the same PR; multiple-comparisons frame stated (k=12 one-sided)",
+  "seeds": {"training": [42, 43, 44], "null_offset": [142, 143, 144], "bootstrap": "1000+training_seed (WF), {42,43,44} (S8)", "random_cores": "4200+draw"},
+  "runtime_budget": "~400 XGB trainings expected (~10-15 min on M-series); incremental persistence after every training"
+}
