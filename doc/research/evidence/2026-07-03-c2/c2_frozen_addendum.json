@@ -1,0 +1,98 @@
+{
+  "task": "C2 — quality composite (FMP-full): build-time frozen addendum, committed BEFORE any IC is computed",
+  "spec": "doc/design/2026-07-02-m-sig-signal-stack-spec.md (merged PR #243, r4) — section 1.2 + 2a + 0 + shared conventions",
+  "freeze_utc": "2026-07-03T10:20:00Z",
+  "freeze_discipline": "M8 three-commit pattern (doc/research/2026-07-03-m8-cluster-wave1.md): this addendum is committed before the measurement script is run; every choice below is fixed now and may not be tuned after seeing a result. Pre-freeze substrate inspection was OUTCOME-FREE only (schemas, null rates, PIT-field presence, split-seam checks, key alignment, harvest depth) — no forward return was joined to any fundamentals observation before this freeze.",
+
+  "frozen_thresholds_quoted_verbatim_from_spec": {
+    "g106_gate_section_0": "G106 (2027-Q4): >=2 orthogonal signals, each placebo-clean IC >= 0.015 individually, combined >= 0.02, measured cross-family rho committed, TC >= 0.6.",
+    "c2_estimand_section_1_2": "cross-sectional rank of a quality composite over {gross-profit/assets, total accruals, net share issuance}, quarterly-refreshed, `acceptedDate`-lagged.",
+    "c2_composite_section_1_2": "composite(i,t) = mean(zscore(GP/A(i,t)), -zscore(accruals(i,t)), -zscore(net_issuance(i,t))), where each zscore is computed cross-sectionally within the universe at date t ... This is an EQUAL-WEIGHT composite, frozen — no PCA, no IC-weighted blend, no 'whichever weighting wins' search.",
+    "c2_coverage_precondition_section_1_2": "the `fundamentals_scan` measured NULL on the free-tier panel is the baseline to beat; re-test is justified ONLY if the FMP-full/N3 coverage report shows >=20% panel-coverage improvement over that baseline ... The composite's OWN individual threshold, once re-tested, is the same >=0.015 placebo-clean bar as every other candidate (section 0) — there is no separate, weaker bar for C2.",
+    "c2_pit_rule_section_1_2_r4": "the availability timestamp MUST come from a genuinely PIT-verified publication/acceptance field. (1) `acceptedDate` (SEC EDGAR acceptance timestamp) if present in the N3 payload; (2) `filingDate` if present and `acceptedDate` is not. If NEITHER is present for a given ticker-period observation, that observation is INADMISSIBLE — excluded from C2's cross-section at that date entirely, not backfilled with any proxy. ... fall back to sourcing that observation's availability timestamp from `sec_fundamentals.py`'s `available_date` via a ticker+period-end join, BEFORE declaring the observation inadmissible.",
+    "c2_asof_lag_section_1_2": "1 trading day after the fundamentals record's PIT-acceptance timestamp.",
+    "c2_missingness_section_1_2": "a name missing ANY of the three legs at date t is excluded from that date's cross-section entirely (no partial-composite fallback).",
+    "c2_ic_estimator_section_1_2": "daily Spearman rank IC vs fwd_60d, block-bootstrap CI per the shared default (block=60, n>=600 decision dates, seeds {42,43,44}).",
+    "decision_rule_section_0_and_2a": "GO iff the block-bootstrap CI lower bound, at the level in section 2a (98.33% one-sided for C2/C3/C4 — NOT the naive 95%), exceeds the candidate's frozen individual threshold; KILL iff the same-level CI upper bound is below the threshold; else INCONCLUSIVE. Each of {C2, C3, C4} uses a per-candidate one-sided alpha = 0.05 / 3 ~= 0.01667, i.e. a one-sided 98.33% CI.",
+    "c2_earliest_test_section_1_2": "Earliest test: 2026-Q4, strictly after the N3 coverage verdict (unchanged from r1).",
+    "design_rule_2": "Placebo-clean differences only (never absolute IC — the ~+0.04 embargo floor). Per-regime cuts mandatory; BULL_CALM is the binding cell (79% of live time).",
+    "shared_ci_default": "moving-block bootstrap on the per-decision-date IC series, block = 60 ... n_boot = 2000, seed drawn from the fixed set {42, 43, 44} ... all three seeds must be run and reported; do not cherry-pick one.",
+    "min_sample_default": "at least 10 * block = 600 decision-date observations"
+  },
+
+  "substrate": {
+    "fundamentals": "/Users/renhao/git/github/RenQuant/data/fmp_harvest_5y/{key_metrics,ratios,financial_growth,income_statement}_annual.parquet (FMP Starter, harvested 2026-07-03, 134 symbols x ~10 annual periods, annual-only: quarterly plan-locked)",
+    "fundamentals_manifest_pit_classification": "research_descriptive_only / vendor_current_values_no_revision_identity — the harvest manifest itself states: 'no confirmatory claim may rest on this restated history regardless of timing'",
+    "prices": "/Users/renhao/git/github/RenQuant/data/ohlcv/<T>/1d.parquet (split-adjusted close, NOT dividend-adjusted) on the SPY trading calendar — same loader convention as scripts/c3_residual_momentum.py",
+    "universe": "the 134 harvested equities = the 142-name transformer-panel universe minus its 8 non-equity tickers (GLD, SPY, XLE, XLF, XLI, XLK, XLU, XLY, which have no fundamentals) — i.e. 134/134 equity coverage, 134/142 panel coverage",
+    "regime_series": "production regime task chain replayed via the committed C3 implementation (scripts/c3_residual_momentum.py::build_regime_series, pinned pipeline + pinned strategy config + prod GMM artifact) — NOT point-in-time; inherits every C3 substrate caveat",
+    "coverage_baseline_panel": "/Users/renhao/git/github/RenQuant/data/fmp_harvest/*_291.parquet (free-tier one-shot harvest 2026-06-25, the fundamentals_scan substrate, PR #204)"
+  },
+
+  "frozen_field_mapping": {
+    "note": "the spec (r4) explicitly left the exact field-level derivation to the build PR ('confirm the exact ... mapping in the build PR'); it is frozen HERE, now, before measurement. Selection among candidate derivations was by field availability/consistency ONLY (outcome-free), never by IC.",
+    "gp_a": "GP/A(i,y) = ratios.grossProfitMargin(i,y) * ratios.assetTurnover(i,y)  [= (GP/revenue)*(revenue/totalAssets) = grossProfit/totalAssets]. Guard: inadmissible if either field is null or assetTurnover <= 0. Pre-freeze consistency check vs income-statement-derived grossProfit/(revenue/assetTurnover): n=1314, max|diff|=0.0053.",
+    "accruals": "accruals(i,y) = (ratios.netProfitMargin(i,y) - ratios.operatingCashFlowSalesRatio(i,y)) * ratios.assetTurnover(i,y)  [= (netIncome - CFO)/totalAssets, the Sloan total-accruals-to-assets sign convention]. Guard: inadmissible if any field null or assetTurnover <= 0. Composite uses -zscore(accruals) per spec.",
+    "net_issuance": "net_issuance(i,y) = financial_growth.weightedAverageSharesGrowth(i,y) (YoY growth of weighted-average shares outstanding). Pre-freeze checks: identical to income_statement weightedAverageShsOut YoY where both exist (NVDA/AAPL spot-match); retroactively split-adjusted by the vendor (NVDA 10:1 2024, AAPL 4:1 2020, TSLA 3:1 2022 show NO seams), so splits do not masquerade as issuance. Guard: null -> inadmissible. Composite uses -zscore(net_issuance) per spec.",
+    "rejected_alternatives_recorded": [
+      "totalAssets via key_metrics.returnOnAssets inversion (undefined at ROA~0)",
+      "CFO via key_metrics.incomeQuality * netIncome (sign-unstable when netIncome<=0)",
+      "issuance via income_statement weightedAverageShsOut YoY directly (strictly less coverage: loses each symbol's earliest financial_growth row)"
+    ]
+  },
+
+  "frozen_pit_availability_rule": {
+    "acceptedDate_source": "income_statement_annual carries acceptedDate + filingDate on ALL 1324 rows (0 nulls, measured pre-freeze). key_metrics/ratios/financial_growth carry NEITHER; their acceptedDate is JOINED from income_statement per (symbol, date), fallback join per (symbol, fiscalYear) for period-end-label mismatches (measured pre-freeze: 7 ratios/key_metrics keys + 4 financial_growth keys, ADI/MDT period-end labeling drift of <=6 days). SAME-FILING DERIVATION ASSUMPTION, stated explicitly: FMP's key_metrics/ratios/financial_growth for fiscal year y are derived from that year's filed statements, so their availability equals the statement filing's acceptance; this is spot-checked (~5 tickers) by recomputing derived ratios from the income statement and by lag-sanity, and recorded in c2_pit_spotcheck.json.",
+    "availability": "observation (i,y) becomes usable on the FIRST trading day STRICTLY AFTER the calendar date of acceptedDate(i,y) (= acceptedDate + 1 trading day; matches spec 'as-of lag: 1 trading day after' and the fundamentals_scan next-session convention). acceptedDate missing -> filingDate; both missing -> sec_fundamentals.py EDGAR available_date join; none -> INADMISSIBLE (fail closed, never the bare period date — the r4 rule; the same trap that dropped earnings_291.parquet in S9, doc/research/2026-07-03-s9-track-a-conditional.md variable 4).",
+    "anomaly_guard": "acceptedDate on or before the fiscal period-end date is impossible for a real filing -> observation INADMISSIBLE (lookahead guard); count reported.",
+    "staleness_cap": "an observation older than 400 calendar days (acceptedDate-basis) no longer represents the name: the name drops out of the cross-section until its next admissible filing. 400d = annual cadence + filing-lag tolerance; frozen now.",
+    "per_observation_field_record": "per spec r4, which field matched (acceptedDate / filingDate / EDGAR / INADMISSIBLE) is recorded per observation in the evidence."
+  },
+
+  "frozen_harness": {
+    "score": "composite(i,t) = mean(z(GP/A), -z(accruals), -z(net_issuance)) cross-sectionally at each trading day t over names with ALL THREE legs admissible and fresh (missingness rule verbatim from spec 1.2); plain z-scores exactly as the spec formula states (a rank-z variant is a labeled SENSITIVITY, never the gate).",
+    "min_names_per_date": 30,
+    "labels": "fwd_60d (verdict) and fwd_20d (supporting, never gates) PRICE-return excess vs SPY, clipped +/-0.5 (repo label convention, same as C3)",
+    "placebo": "label shifted +horizon within ticker (fwd_h at t+h) — the committed C3-precedent placebo for direct-IC M-SIG candidates; placebo-clean = real_ic - placebo_ic per date. Stated power property, disclosed up front: this placebo nets out PERSISTENT cross-sectional return structure (including survivorship tilt); a quality premium that never decays within the horizon is scored ~0 by construction. This is the honest choice on a survivorship-backfilled panel — the alternative (within-date shuffle, expectation ~0, clean ~= absolute IC) would let survivorship manufacture a GO. The within-date-shuffle read is reported as a labeled diagnostic only.",
+    "ic": "per-date cross-sectional Spearman rank IC (spec 1.2), daily cadence",
+    "bootstrap": "moving-block bootstrap on the per-date clean-IC series, block=60 (fwd_60d) / block=20 (fwd_20d supporting), n_boot=2000, seeds {42,43,44} all reported; one-sided 98.33% (Bonferroni k=3, spec 2a) + two-sided 95% for legibility; implementation = the committed C3 block_bootstrap_conditional_mean/summarize_boot machinery",
+    "gate_unconditional": "C2's estimand is NOT regime-conditioned (unlike C3): the frozen rule reads the UNCONDITIONAL daily clean-IC series. GO iff 98.33% one-sided LB(mean clean fwd60) > 0.015 on ALL seeds AND n>=600; KILL iff 98.33% UB < 0.015 on all seeds; else INCONCLUSIVE.",
+    "per_regime_cuts": "mandatory DIAGNOSTIC (design rule 2; BULL_CALM binding cell reported), via the production-chain regime replay; never the gate"
+  },
+
+  "frozen_coverage_precondition_metric": {
+    "definition": "panel-coverage(t) = (# universe names with an admissible, <=400d-fresh, ALL-three-leg composite observation available at t) / 134, averaged over trading days 2017-07-01..2026-07-01 (fixed, outcome-free window: starts 18 months into the price calendar so the first full filing cycle is in; ends at calendar end). Computed IDENTICALLY on (a) the free-tier fundamentals_scan panel (fmp_harvest/*_291: GP/A = grossProfit/balance_sheet.totalAssets; accruals = (netIncome - cash_flow.operatingCashFlow)/totalAssets; issuance = income weightedAverageShsOut YoY; native acceptedDate) and (b) the new Starter panel per the frozen field mapping above.",
+    "bar_quoted": ">=20% panel-coverage improvement over that baseline (spec 1.2, frozen at r1)",
+    "consequence": "if the measured improvement is < 20%, the spec's own precondition for a C2 confirmatory re-test is NOT met; the harness still runs (dispatch instruction) but its output is EXPLORATORY/NON-VOTING and is recorded as such. The precondition reading itself is a spec-governed result.",
+    "prefreeze_expectation_disclosed": "pre-freeze outcome-free inspection already shows the free-tier panel covers all 134 universe names at ~20 annual periods with 0 nulls in every needed field and native acceptedDate — i.e. the precondition is EXPECTED to fail. This expectation is recorded BEFORE measurement so the failure cannot be construed as a post-hoc excuse."
+  },
+
+  "frozen_positive_controls": {
+    "standard": "S-REL R2 (PR #265): positive controls mandatory in every negative-result harness; a NULL without a passing positive control is inadmissible as a verdict.",
+    "pc_detect": "PC-A (must-detect): oracle-decay feature score_pc(i,t) = zscore_t(fwd60_label(i,t)) + kappa*N(0,1), kappa=33.17 targeting planted per-date Spearman IC ~= 0.030 (2x the 0.015 bar, decision scale). The planted effect DECAYS past the horizon by construction, so it must survive the shifted-label placebo. ACCEPTANCE: the full frozen harness (same code path: composite->IC->placebo->bootstrap->rule) must return GO on all seeds. If it does not, every NULL/KILL reading of this harness is inadmissible (R2).",
+    "pc_persistent": "PC-B (design-property demonstration): survivorship-oracle feature score(i,t) = z(full-sample mean of name i's daily excess return) — a purely PERSISTENT tilt. EXPECTATION recorded now: real IC materially > 0, placebo IC ~= real IC, clean ~= 0, verdict NOT GO. Demonstrates the frozen placebo kills persistent/survivorship structure by design (and states the corresponding insensitivity honestly).",
+    "pc_null": "PC-C (specificity): within-date permutation of the real composite. EXPECTATION: clean ~= 0, verdict NOT GO on all seeds.",
+    "pytest_fixture": "tests/test_msig_c2_quality.py — committed synthetic-panel fixture running PC-A/PC-C logic at small scale (R2's 'committed pytest fixture' requirement)."
+  },
+
+  "labeled_sensitivities_never_gate": [
+    "rank-z composite variant",
+    "within-date-shuffle placebo diagnostic (absolute-IC read)",
+    "per-leg standalone clean ICs (GP/A, -accruals, -issuance)",
+    "fwd_20d supporting horizon",
+    "block=13 (A1 convention) single-seed bootstrap"
+  ],
+
+  "deviations_disclosed_upfront": [
+    "TIMING: spec freezes 'Earliest test: 2026-Q4, strictly after the N3 coverage verdict'; this measurement runs 2026-07-03 (Q3) on operator dispatch. The coverage verdict is produced INSIDE this same PR rather than before it. Disclosed as a deviation; it cannot be undone by this PR.",
+    "CADENCE: spec estimand says 'quarterly-refreshed'; the harvest is ANNUAL-only (quarterly plan-locked on the Starter tier). The C2 signal refreshes ~once/year/name here — a strictly weaker instrument than the frozen estimand.",
+    "SUBSTRATE: S5/S8 pick-table/ledger (design rule 1) has no multi-year history (same C3 deviation); durable umbrella OHLCV + fixed 134-name universe used instead — survivorship-backfilled (current watchlist projected back).",
+    "VINTAGE: the harvest manifest itself classifies the data research_descriptive_only (restated current values, no revision identity) and states no confirmatory claim may rest on it. Together with the survivorship point this makes the run EXPLORATORY/NON-VOTING regardless of the mechanical rule output — the C3/#268 pattern (UNADJUDICATED, candidate stays OPEN)."
+  ],
+
+  "multiple_comparisons_frame": {
+    "family": "M-SIG formally-voting family {C2, C3, C4}, k=3, per-candidate one-sided alpha=0.05/3 (98.33% CI), frozen at spec time (section 2a); C1 never votes.",
+    "msig_channels_measured_to_date": "C3 (2026-07-02, PR #~255-era run — UNADJUDICATED per Codex r2 + S-REL V4 #268, candidate OPEN); C2 = THIS run (second channel measured; exploratory). C4 not yet run (gated on S3). The Bonferroni level does not depend on measurement order.",
+    "within_run_looks": "fwd_20d supporting never gates; seeds {42,43,44} are robustness on one corrected result, not extra looks (spec 2a); all sensitivities labeled and non-gating; the three per-leg ICs are diagnostics, not candidate re-picks."
+  }
+}
