@@ -1,0 +1,138 @@
+{
+  "pc_a_harness_detects_planted_decaying_effect": true,
+  "pc_c_specificity_no_false_go": true,
+  "pc_b_persistent_tilt": {
+    "real_ic": 0.16440528832128803,
+    "clean_ic": -0.008256606733946858,
+    "demonstrates": "shifted-label placebo nets out persistent/survivorship structure (real >> clean); harness is by design insensitive to never-decaying tilts"
+  },
+  "null_admissibility_per_s_rel_r2": true,
+  "detail": {
+    "pc_a_planted_decaying": {
+      "n_dates": 2519,
+      "sample_floor_n600_met": true,
+      "mean_real_ic": 0.030217615474126044,
+      "mean_placebo_ic": 0.0016236642654942712,
+      "mean_clean_ic": 0.028593951208631778,
+      "clean_hit_rate": 0.5875347360063518,
+      "bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.0029010677256485033,
+          "ci95_two_sided": [
+            0.02336700966532492,
+            0.0348513166901271
+          ],
+          "lb_one_sided_9833": 0.02300183081223276,
+          "ub_one_sided_9833": 0.03536903737654239,
+          "n_boot_effective": 2000
+        },
+        "43": {
+          "boot_se": 0.0028545012707672313,
+          "ci95_two_sided": [
+            0.02349628259159083,
+            0.03454959863751561
+          ],
+          "lb_one_sided_9833": 0.022903285712279352,
+          "ub_one_sided_9833": 0.03517117628797566,
+          "n_boot_effective": 2000
+        },
+        "44": {
+          "boot_se": 0.002831293560692168,
+          "ci95_two_sided": [
+            0.023496586934257144,
+            0.03488422286520444
+          ],
+          "lb_one_sided_9833": 0.02303607476304867,
+          "ub_one_sided_9833": 0.03552515429081311,
+          "n_boot_effective": 2000
+        }
+      },
+      "rule": "GO iff 98.33% one-sided LB > 0.015 all seeds AND n>=600; KILL iff 98.33% UB < 0.015 all seeds; else INCONCLUSIVE",
+      "mechanical_rule_output": "GO"
+    },
+    "pc_b_planted_persistent": {
+      "n_dates": 2519,
+      "sample_floor_n600_met": true,
+      "mean_real_ic": 0.16440528832128803,
+      "mean_placebo_ic": 0.1726618950552349,
+      "mean_clean_ic": -0.008256606733946858,
+      "clean_hit_rate": 0.5140928940055578,
+      "bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.04353355314784415,
+          "ci95_two_sided": [
+            -0.09023538110164665,
+            0.0779915464268745
+          ],
+          "lb_one_sided_9833": -0.10013348751133055,
+          "ub_one_sided_9833": 0.08623754633633876,
+          "n_boot_effective": 2000
+        },
+        "43": {
+          "boot_se": 0.04362494746439772,
+          "ci95_two_sided": [
+            -0.08955170327822673,
+            0.08315710095292858
+          ],
+          "lb_one_sided_9833": -0.09567646024341075,
+          "ub_one_sided_9833": 0.08718473854646622,
+          "n_boot_effective": 2000
+        },
+        "44": {
+          "boot_se": 0.04334331562488638,
+          "ci95_two_sided": [
+            -0.08542284295817346,
+            0.08462299540139381
+          ],
+          "lb_one_sided_9833": -0.09333419971748885,
+          "ub_one_sided_9833": 0.08923932589701519,
+          "n_boot_effective": 2000
+        }
+      },
+      "rule": "GO iff 98.33% one-sided LB > 0.015 all seeds AND n>=600; KILL iff 98.33% UB < 0.015 all seeds; else INCONCLUSIVE",
+      "mechanical_rule_output": "INCONCLUSIVE"
+    },
+    "pc_c_permuted_composite": {
+      "n_dates": 2241,
+      "sample_floor_n600_met": true,
+      "mean_real_ic": -0.002622394337988135,
+      "mean_placebo_ic": -0.0022440477325258623,
+      "mean_clean_ic": -0.00037834660546227195,
+      "clean_hit_rate": 0.4939759036144578,
+      "bootstrap_by_seed": {
+        "42": {
+          "boot_se": 0.0025885127769742448,
+          "ci95_two_sided": [
+            -0.004972076978711295,
+            0.005121019105033423
+          ],
+          "lb_one_sided_9833": -0.005373581390025939,
+          "ub_one_sided_9833": 0.005565336523638866,
+          "n_boot_effective": 2000
+        },
+        "43": {
+          "boot_se": 0.002597330208526207,
+          "ci95_two_sided": [
+            -0.005184549905767575,
+            0.0050890016352958135
+          ],
+          "lb_one_sided_9833": -0.005515840166413593,
+          "ub_one_sided_9833": 0.005420259685561822,
+          "n_boot_effective": 2000
+        },
+        "44": {
+          "boot_se": 0.0025594801726593654,
+          "ci95_two_sided": [
+            -0.005093073491028748,
+            0.004754809461182904
+          ],
+          "lb_one_sided_9833": -0.005440802317342248,
+          "ub_one_sided_9833": 0.005283459708828708,
+          "n_boot_effective": 2000
+        }
+      },
+      "rule": "GO iff 98.33% one-sided LB > 0.015 all seeds AND n>=600; KILL iff 98.33% UB < 0.015 all seeds; else INCONCLUSIVE",
+      "mechanical_rule_output": "KILL"
+    }
+  }
+}
