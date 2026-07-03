@@ -1,0 +1,327 @@
+{
+  "task": "S9 \u2014 Track A conditional pick-quality test",
+  "frozen_spec": "doc/design/2026-06-28-renquant105-direction-decision.md \u00a74 (origin/main)",
+  "constants": {
+    "cost_round_trip": 0.0011,
+    "train_frac": 0.6,
+    "embargo_days": 60,
+    "bootstrap": {
+      "n": 2000,
+      "block": 13,
+      "seed": 20260703
+    },
+    "periods_per_year": 4.2,
+    "gates": {
+      "a_book_lift_ann_min": 0.005,
+      "b_per_pick_lift_min": 0.0005,
+      "c_hit_rate_lift_min": 0.03,
+      "d_active_frac_min": 0.25,
+      "e_max_winner_drop": 0.3333333333333333,
+      "e_max_turnover_multiple": 2.0
+    }
+  },
+  "split": {
+    "n_oos_dates": 508,
+    "n_train_dates": 305,
+    "n_embargo_dates": 60,
+    "n_test_dates": 143,
+    "train_window": [
+      "2024-02-02",
+      "2025-04-22"
+    ],
+    "embargo_window": [
+      "2025-04-23",
+      "2025-07-18"
+    ],
+    "test_window": [
+      "2025-07-21",
+      "2026-02-11"
+    ],
+    "per_regime_cells": {
+      "train_picks": {
+        "BULL_CALM": 6960,
+        "BEAR": 1140,
+        "CHOPPY": 720,
+        "BULL_VOLATILE": 330
+      },
+      "train_dates": {
+        "BEAR": 38,
+        "BULL_CALM": 232,
+        "BULL_VOLATILE": 11,
+        "CHOPPY": 24
+      },
+      "test_picks": {
+        "BULL_CALM": 3485,
+        "CHOPPY": 404,
+        "BULL_VOLATILE": 240,
+        "BEAR": 30
+      },
+      "test_dates": {
+        "BEAR": 1,
+        "BULL_CALM": 118,
+        "BULL_VOLATILE": 8,
+        "CHOPPY": 16
+      }
+    }
+  },
+  "candidates": {
+    "C1_logit_all": {
+      "definition": "logistic regression on ['dispersion', 'margin', 'vol60', 'adv_rank', 'regime_BEAR', 'regime_BULL_CALM', 'regime_BULL_VOLATILE']; keep picks with predicted P(y=1) >= train-median tau=0.5107",
+      "train": {
+        "n_picks_baseline": 9150,
+        "n_picks_conditioned": 4575,
+        "n_dates": 305,
+        "capital_fraction": 0.5,
+        "active_day_fraction": 0.9540983606557377,
+        "baseline_hit_rate": 0.5227322404371585,
+        "conditioned_hit_rate": 0.5906010928961749,
+        "hit_rate_lift": 0.06786885245901642,
+        "hit_rate_lift_ci95": [
+          0.032140546131363204,
+          0.10675897226399415
+        ],
+        "baseline_net_expectancy_per_pick": 0.04119630503604259,
+        "conditioned_net_expectancy_per_pick": 0.0694070041157675,
+        "per_pick_lift": 0.02821069907972492,
+        "per_pick_lift_ci95": [
+          0.008763925167646486,
+          0.04857984037615552
+        ],
+        "book_lift_annualized": 0.05924246806742233,
+        "book_lift_annualized_ci95": [
+          0.01828091586875148,
+          0.10066763771174767
+        ],
+        "baseline_winners": 4783,
+        "dropped_winners": 2081,
+        "winner_drop_fraction": 0.43508258415220574,
+        "turnover_baseline": 2652,
+        "turnover_conditioned": 2067,
+        "turnover_multiple": 0.7794117647058824,
+        "gates": {
+          "a_book_lift": true,
+          "b_per_pick_lift": true,
+          "c_hit_rate_lift": true,
+          "d_active_exposure": true,
+          "e_winner_drop_and_turnover": false
+        },
+        "all_gates_pass": false
+      },
+      "test": {
+        "n_picks_baseline": 4159,
+        "n_picks_conditioned": 2358,
+        "n_dates": 143,
+        "capital_fraction": 0.5669632123106516,
+        "active_day_fraction": 0.9090909090909091,
+        "baseline_hit_rate": 0.49963933637893726,
+        "conditioned_hit_rate": 0.49321458863443596,
+        "hit_rate_lift": -0.006424747744501302,
+        "hit_rate_lift_ci95": [
+          -0.04175616691141625,
+          0.039289944643584776
+        ],
+        "baseline_net_expectancy_per_pick": 0.05822962420196437,
+        "conditioned_net_expectancy_per_pick": 0.03153642285705882,
+        "per_pick_lift": -0.02669320134490555,
+        "per_pick_lift_ci95": [
+          -0.05507491849384657,
+          0.002878350496678122
+        ],
+        "book_lift_annualized": -0.06356306536172315,
+        "book_lift_annualized_ci95": [
+          -0.13519003063823992,
+          0.006357364898624363
+        ],
+        "baseline_winners": 2078,
+        "dropped_winners": 915,
+        "winner_drop_fraction": 0.4403272377285852,
+        "turnover_baseline": 1217,
+        "turnover_conditioned": 1047,
+        "turnover_multiple": 0.8603122432210353,
+        "gates": {
+          "a_book_lift": false,
+          "b_per_pick_lift": false,
+          "c_hit_rate_lift": false,
+          "d_active_exposure": true,
+          "e_winner_drop_and_turnover": false
+        },
+        "all_gates_pass": false
+      }
+    },
+    "C2_regime_whitelist": {
+      "definition": "keep regimes with train hit-rate > unconditional (0.5227): ['BEAR']; train per-regime hit-rates = {'BEAR': 0.6895, 'BULL_CALM': 0.5024, 'BULL_VOLATILE': 0.4485, 'CHOPPY': 0.4889}",
+      "train": {
+        "n_picks_baseline": 9150,
+        "n_picks_conditioned": 1140,
+        "n_dates": 305,
+        "capital_fraction": 0.12459016393442623,
+        "active_day_fraction": 0.12459016393442623,
+        "baseline_hit_rate": 0.5227322404371585,
+        "conditioned_hit_rate": 0.6894736842105263,
+        "hit_rate_lift": 0.16674144377336786,
+        "hit_rate_lift_ci95": [
+          0.08760416666666658,
+          0.22574640637140633
+        ],
+        "baseline_net_expectancy_per_pick": 0.04119630503604259,
+        "conditioned_net_expectancy_per_pick": 0.14665267829858222,
+        "per_pick_lift": 0.10545637326253962,
+        "per_pick_lift_ci95": [
+          0.03515811335324634,
+          0.16050831638213023
+        ],
+        "book_lift_annualized": 0.05518307269738139,
+        "book_lift_annualized_ci95": [
+          0.007059152669412686,
+          0.11389544872424087
+        ],
+        "baseline_winners": 4783,
+        "dropped_winners": 3997,
+        "winner_drop_fraction": 0.8356679908007527,
+        "turnover_baseline": 2652,
+        "turnover_conditioned": 762,
+        "turnover_multiple": 0.2873303167420814,
+        "gates": {
+          "a_book_lift": true,
+          "b_per_pick_lift": true,
+          "c_hit_rate_lift": true,
+          "d_active_exposure": false,
+          "e_winner_drop_and_turnover": false
+        },
+        "all_gates_pass": false
+      },
+      "test": {
+        "n_picks_baseline": 4159,
+        "n_picks_conditioned": 30,
+        "n_dates": 143,
+        "capital_fraction": 0.0072132724212551095,
+        "active_day_fraction": 0.006993006993006993,
+        "baseline_hit_rate": 0.49963933637893726,
+        "conditioned_hit_rate": 0.5666666666666667,
+        "hit_rate_lift": 0.06702733028772939,
+        "hit_rate_lift_ci95": [
+          0.030956174746148306,
+          0.09107333717817004
+        ],
+        "baseline_net_expectancy_per_pick": 0.05822962420196437,
+        "conditioned_net_expectancy_per_pick": 0.05065145687605359,
+        "per_pick_lift": -0.007578167325910781,
+        "per_pick_lift_ci95": [
+          -0.023738550932703932,
+          0.0071838505996366445
+        ],
+        "book_lift_annualized": -0.00022958621857772506,
+        "book_lift_annualized_ci95": [
+          -0.001577895134668411,
+          0.00026748146344193367
+        ],
+        "baseline_winners": 2078,
+        "dropped_winners": 2061,
+        "winner_drop_fraction": 0.9918190567853705,
+        "turnover_baseline": 1217,
+        "turnover_conditioned": 60,
+        "turnover_multiple": 0.049301561216105176,
+        "gates": {
+          "a_book_lift": false,
+          "b_per_pick_lift": false,
+          "c_hit_rate_lift": true,
+          "d_active_exposure": false,
+          "e_winner_drop_and_turnover": false
+        },
+        "all_gates_pass": false
+      }
+    },
+    "C3_margin_top_half": {
+      "definition": "keep picks with within-date score margin >= within-date median margin",
+      "train": {
+        "n_picks_baseline": 9150,
+        "n_picks_conditioned": 4575,
+        "n_dates": 305,
+        "capital_fraction": 0.5,
+        "active_day_fraction": 1.0,
+        "baseline_hit_rate": 0.5227322404371585,
+        "conditioned_hit_rate": 0.5197814207650273,
+        "hit_rate_lift": -0.0029508196721311775,
+        "hit_rate_lift_ci95": [
+          -0.026071047008547024,
+          0.019453551912568368
+        ],
+        "baseline_net_expectancy_per_pick": 0.04119630503604259,
+        "conditioned_net_expectancy_per_pick": 0.04609900623732281,
+        "per_pick_lift": 0.004902701201280224,
+        "per_pick_lift_ci95": [
+          -0.006731276152797,
+          0.017021586881447306
+        ],
+        "book_lift_annualized": 0.010295672522688471,
+        "book_lift_annualized_ci95": [
+          -0.0141356799208737,
+          0.03574533245103934
+        ],
+        "baseline_winners": 4783,
+        "dropped_winners": 2405,
+        "winner_drop_fraction": 0.5028224963412085,
+        "turnover_baseline": 2652,
+        "turnover_conditioned": 1758,
+        "turnover_multiple": 0.6628959276018099,
+        "gates": {
+          "a_book_lift": false,
+          "b_per_pick_lift": false,
+          "c_hit_rate_lift": false,
+          "d_active_exposure": true,
+          "e_winner_drop_and_turnover": false
+        },
+        "all_gates_pass": false
+      },
+      "test": {
+        "n_picks_baseline": 4159,
+        "n_picks_conditioned": 2084,
+        "n_dates": 143,
+        "capital_fraction": 0.5010819908631883,
+        "active_day_fraction": 1.0,
+        "baseline_hit_rate": 0.49963933637893726,
+        "conditioned_hit_rate": 0.5695777351247601,
+        "hit_rate_lift": 0.0699383987458228,
+        "hit_rate_lift_ci95": [
+          0.03414639232897664,
+          0.10466556063925371
+        ],
+        "baseline_net_expectancy_per_pick": 0.05822962420196437,
+        "conditioned_net_expectancy_per_pick": 0.11326907404600257,
+        "per_pick_lift": 0.05503944984403821,
+        "per_pick_lift_ci95": [
+          0.03008332701272404,
+          0.08142632565195304
+        ],
+        "book_lift_annualized": 0.11583296383623412,
+        "book_lift_annualized_ci95": [
+          0.06317498672672049,
+          0.17129683136747662
+        ],
+        "baseline_winners": 2078,
+        "dropped_winners": 891,
+        "winner_drop_fraction": 0.4287776708373436,
+        "turnover_baseline": 1217,
+        "turnover_conditioned": 657,
+        "turnover_multiple": 0.5398520953163517,
+        "gates": {
+          "a_book_lift": true,
+          "b_per_pick_lift": true,
+          "c_hit_rate_lift": true,
+          "d_active_exposure": true,
+          "e_winner_drop_and_turnover": false
+        },
+        "all_gates_pass": false
+      }
+    }
+  },
+  "champion_by_train_protocol": {
+    "champion": "C1_logit_all",
+    "train_eligible": [],
+    "champion_test_all_gates_pass": false
+  },
+  "verdict": "NULL",
+  "verdict_rule": "GO iff ANY conditioning clears ALL of \u00a74 (a)-(e) on the held-out test window",
+  "candidates_passing_all_gates": [],
+  "pre_registered_consequence_if_null": "Track A is null: no conditioning delivers materially higher pick quality at book level. Track B (an input change: universe down-cap or new PIT-clean data) becomes the only remaining directional path. No filter fishing."
+}

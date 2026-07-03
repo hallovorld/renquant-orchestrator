@@ -386,3 +386,67 @@ def test_all_db_metrics_share_one_snapshot_despite_concurrent_writer(tmp_path):
     assert count_fresh == 2
     fresh_reader.execute("ROLLBACK")
     fresh_reader.close()
+
+
+# ------------------------------------------------------ ledger_coverage
+
+
+def _make_ledger_db():
+    """In-memory DB with a weekend duplicate cohort: Fri 2026-04-10 + Sat
+    2026-04-11 live rows for NVDA (one shared realization, both joined),
+    plus Mon 2026-04-13 NVDA with NO forward-return row."""
+    con = sqlite3.connect(":memory:")
+    con.execute(
+        "create table pipeline_runs (run_id text, run_date text, run_type text)"
+    )
+    con.execute("create table candidate_scores (run_id text, ticker text)")
+    con.execute(
+        "create table ticker_forward_returns "
+        "(as_of_date text, ticker text, fwd_20d real)"
+    )
+    for run_id, run_date in (
+        ("r1", "2026-04-10"), ("r2", "2026-04-11"), ("r3", "2026-04-13"),
+    ):
+        con.execute(
+            "insert into pipeline_runs values (?, ?, 'live')", (run_id, run_date)
+        )
+        con.execute(
+            "insert into candidate_scores values (?, 'NVDA')", (run_id,)
+        )
+    # Fri + Sat rows both resolved (Sat as-of Friday, per backtesting#60);
+    # Monday never got one.
+    con.execute("insert into ticker_forward_returns values ('2026-04-10', 'NVDA', 0.05)")
+    con.execute("insert into ticker_forward_returns values ('2026-04-11', 'NVDA', 0.05)")
+    con.commit()
+    return con
+
+
+def test_ledger_coverage_reports_raw_and_unique_session_admissible():
+    """backtesting#60 review: raw row coverage counts a Fri+Sat weekend
+    duplicate cohort twice (one market realization); the scorecard must
+    also report unique-session admissible coverage, which counts it once."""
+    con = _make_ledger_db()
+    m = kpi.metric_ledger_coverage(con, dt.date(2026, 7, 2))
+    # Raw: 2 of 3 rows covered.
+    assert m["value"] == pytest.approx(66.7)
+    d = m["detail"]
+    # Admissible: clusters are (NVDA, 2026-04-10) covered and
+    # (NVDA, 2026-04-13) uncovered -> 50%. The Sat row collapsed into
+    # Friday's cluster instead of inflating the covered count.
+    assert d["n_unique_ticker_sessions"] == 2
+    assert d["admissible_coverage_pct"] == pytest.approx(50.0)
+    assert d["n_non_session_rows"] == 1  # the Saturday row
+    assert d["session_calendar"] in ("nyse", "weekday_fallback")
+
+
+def test_ledger_session_keys_roll_weekends_to_friday():
+    import pandas as pd
+
+    keys, kind = kpi._ledger_session_keys(
+        pd.Series(["2026-04-10", "2026-04-11", "2026-04-12", "2026-04-13"])
+    )
+    assert list(keys) == [
+        pd.Timestamp("2026-04-10"), pd.Timestamp("2026-04-10"),
+        pd.Timestamp("2026-04-10"), pd.Timestamp("2026-04-13"),
+    ]
+    assert kind in ("nyse", "weekday_fallback")

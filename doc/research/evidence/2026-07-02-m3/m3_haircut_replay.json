@@ -1,0 +1,1435 @@
+{
+ "study": "M3 conviction uncertainty-haircut ledger replay",
+ "date": "2026-07-02",
+ "read_only": true,
+ "db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
+ "params": {
+  "floor": 0.03,
+  "k_list": [
+   0.5,
+   1.0
+  ],
+  "window_obs": 10,
+  "min_obs": 3,
+  "cost_proxy": 0.0011,
+  "thin_margin_band": [
+   0.03,
+   0.0375
+  ],
+  "block_len_primary": 13,
+  "block_len_sensitivity": [
+   5,
+   1
+  ],
+  "n_boot": 5000,
+  "seed": 20260702,
+  "min_full_run_candidates": 40
+ },
+ "se_proxy": {
+  "primary": "(a) cross-run dispersion: era-stratified trailing stdev of the ticker's mu over <=10 canonical daily runs (>=3 obs); a STABILITY proxy computable at decision time, NOT a sampling SE",
+  "sensitivity": "(b) calibrator global residual - see calibrator_band_proxy"
+ },
+ "canonical_runs": [
+  {
+   "run_date": "2026-05-04",
+   "run_id": "2026-05-04-live-47a6034a",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-06",
+   "run_id": "2026-05-06-live-84aa13a7",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-08",
+   "run_id": "2026-05-08-live-5afe02ce",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-09",
+   "run_id": "2026-05-09-live-1d6f7518",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-18",
+   "run_id": "2026-05-18-live-bafc1ea8",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-19",
+   "run_id": "2026-05-19-live-7165ae82",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-20",
+   "run_id": "2026-05-20-live-9694f79f",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-21",
+   "run_id": "2026-05-21-live-b2d754d0",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-22",
+   "run_id": "2026-05-22-live-ff554178",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-05-30",
+   "run_id": "2026-05-30-live-91edfc9c",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-01",
+   "run_id": "2026-06-01-live-57b22252",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-02",
+   "run_id": "2026-06-02-live-237c90a5",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-03",
+   "run_id": "2026-06-03-live-2b917827",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-04",
+   "run_id": "2026-06-04-live-38548bd0",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-09",
+   "run_id": "2026-06-09-live-70c90efc",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-10",
+   "run_id": "2026-06-10-live-c2bf522c",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-11",
+   "run_id": "2026-06-11-live-f68231b0",
+   "regime": "BEAR"
+  },
+  {
+   "run_date": "2026-06-22",
+   "run_id": "2026-06-22-live-c26c0042",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-23",
+   "run_id": "2026-06-23-live-59c11399",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-24",
+   "run_id": "2026-06-24-live-710e3805",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-25",
+   "run_id": "2026-06-25-live-6c3aa3fa",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-26",
+   "run_id": "2026-06-26-live-3d74ce5c",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-29",
+   "run_id": "2026-06-29-live-0534845a",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-06-30",
+   "run_id": "2026-06-30-live-b616357c",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-07-01",
+   "run_id": "2026-07-01-live-01c54b39",
+   "regime": "BULL_CALM"
+  },
+  {
+   "run_date": "2026-07-02",
+   "run_id": "2026-07-02-live-85496d1c",
+   "regime": "BULL_CALM"
+  }
+ ],
+ "counts": {
+  "n_canonical_dates": 26,
+  "n_candidate_rows_with_mu": 1769,
+  "n_floor_clearing": 430,
+  "n_floor_clearing_with_se": 301,
+  "se_coverage_of_floor_clearing": 0.7
+ },
+ "outcome_coverage": {
+  "fwd_20d": {
+   "resolved": 682,
+   "unresolved": 1087
+  },
+  "fwd_10d": {
+   "resolved": 1016,
+   "unresolved": 753
+  },
+  "fwd_5d": {
+   "resolved": 1323,
+   "unresolved": 446
+  }
+ },
+ "honest_calls": {
+  "horizon_mismatch": "mu_horizon_days=60 but fwd_60d is unresolvable for the entire live window; primary outcome is fwd_20d excess vs SPY - a 60d-mu judged on 20d outcomes",
+  "unvalidated_model": "this replays the HISTORICAL mu stream's ordering; D1 (model verdict) is pending - a haircut win here does not validate mu",
+  "overlapping_horizons": "consecutive decision dates share forward windows; primary correction = date-block bootstrap, plus strided subsample sensitivity (tiny n, flagged)",
+  "block13_degenerate": "block_len=13 >= n usable dates for fwd_20d -> the spec'd block-13 CI is degenerate by construction; block-5/1 shown",
+  "survivorship": "universe = names actually scored by live runs; names that left the watchlist keep their stamped forward returns, but the watchlist itself is winner-biased (survivorship not correctable from this ledger alone)",
+  "se_proxy_limits": "cross-run mu dispersion conflates sampling noise with real information arrival, feature drift and within-era retrains; era-stratification removes only the coarse scorer swaps"
+ },
+ "replays": {
+  "fwd_20d_k0.5": {
+   "horizon": "fwd_20d",
+   "k": 0.5,
+   "n_universe_dates": 8,
+   "current": {
+    "n": 191,
+    "mean_excess": 0.04452969914607406,
+    "expectancy_net_cost": 0.043429699146074065,
+    "winner_rate": 0.5340314136125655,
+    "n_winners": 102,
+    "n_losers": 89
+   },
+   "haircut": {
+    "n": 158,
+    "mean_excess": 0.04591448318836995,
+    "expectancy_net_cost": 0.044814483188369954,
+    "winner_rate": 0.5316455696202531,
+    "n_winners": 84,
+    "n_losers": 74
+   },
+   "removed": {
+    "n": 33,
+    "mean_excess": 0.03789952100417256,
+    "expectancy_net_cost": 0.03679952100417256,
+    "winner_rate": 0.5454545454545454,
+    "n_winners": 18,
+    "n_losers": 15
+   },
+   "winners_removed": 18,
+   "losers_removed": 15,
+   "expectancy_delta_haircut_minus_current": 0.001384784042295889,
+   "per_regime": {
+    "BULL_CALM": {
+     "current": {
+      "n": 191,
+      "mean_excess": 0.04452969914607406,
+      "expectancy_net_cost": 0.043429699146074065,
+      "winner_rate": 0.5340314136125655,
+      "n_winners": 102,
+      "n_losers": 89
+     },
+     "haircut": {
+      "n": 158,
+      "mean_excess": 0.04591448318836995,
+      "expectancy_net_cost": 0.044814483188369954,
+      "winner_rate": 0.5316455696202531,
+      "n_winners": 84,
+      "n_losers": 74
+     },
+     "removed": {
+      "n": 33,
+      "mean_excess": 0.03789952100417256,
+      "expectancy_net_cost": 0.03679952100417256,
+      "winner_rate": 0.5454545454545454,
+      "n_winners": 18,
+      "n_losers": 15
+     }
+    }
+   },
+   "per_era": {
+    "legacy_tournament": {
+     "current": {
+      "n": 36,
+      "mean_excess": 0.035073252507233005,
+      "expectancy_net_cost": 0.03397325250723301,
+      "winner_rate": 0.5833333333333334,
+      "n_winners": 21,
+      "n_losers": 15
+     },
+     "haircut": {
+      "n": 32,
+      "mean_excess": 0.04854611578832348,
+      "expectancy_net_cost": 0.04744611578832348,
+      "winner_rate": 0.625,
+      "n_winners": 20,
+      "n_losers": 12
+     },
+     "removed": {
+      "n": 4,
+      "mean_excess": -0.07270965374149083,
+      "expectancy_net_cost": -0.07380965374149083,
+      "winner_rate": 0.25,
+      "n_winners": 1,
+      "n_losers": 3
+     }
+    },
+    "pre_tournament_null": {
+     "current": {
+      "n": 155,
+      "mean_excess": 0.046726035139611356,
+      "expectancy_net_cost": 0.04562603513961136,
+      "winner_rate": 0.5225806451612903,
+      "n_winners": 81,
+      "n_losers": 74
+     },
+     "haircut": {
+      "n": 126,
+      "mean_excess": 0.04524613205187382,
+      "expectancy_net_cost": 0.04414613205187382,
+      "winner_rate": 0.5079365079365079,
+      "n_winners": 64,
+      "n_losers": 62
+     },
+     "removed": {
+      "n": 29,
+      "mean_excess": 0.05315595890012613,
+      "expectancy_net_cost": 0.05205595890012613,
+      "winner_rate": 0.5862068965517241,
+      "n_winners": 17,
+      "n_losers": 12
+     }
+    }
+   }
+  },
+  "fwd_20d_k1.0": {
+   "horizon": "fwd_20d",
+   "k": 1.0,
+   "n_universe_dates": 8,
+   "current": {
+    "n": 191,
+    "mean_excess": 0.04452969914607406,
+    "expectancy_net_cost": 0.043429699146074065,
+    "winner_rate": 0.5340314136125655,
+    "n_winners": 102,
+    "n_losers": 89
+   },
+   "haircut": {
+    "n": 141,
+    "mean_excess": 0.03941963733246304,
+    "expectancy_net_cost": 0.03831963733246304,
+    "winner_rate": 0.524822695035461,
+    "n_winners": 74,
+    "n_losers": 67
+   },
+   "removed": {
+    "n": 50,
+    "mean_excess": 0.05894007346045727,
+    "expectancy_net_cost": 0.057840073460457275,
+    "winner_rate": 0.56,
+    "n_winners": 28,
+    "n_losers": 22
+   },
+   "winners_removed": 28,
+   "losers_removed": 22,
+   "expectancy_delta_haircut_minus_current": -0.005110061813611025,
+   "per_regime": {
+    "BULL_CALM": {
+     "current": {
+      "n": 191,
+      "mean_excess": 0.04452969914607406,
+      "expectancy_net_cost": 0.043429699146074065,
+      "winner_rate": 0.5340314136125655,
+      "n_winners": 102,
+      "n_losers": 89
+     },
+     "haircut": {
+      "n": 141,
+      "mean_excess": 0.03941963733246304,
+      "expectancy_net_cost": 0.03831963733246304,
+      "winner_rate": 0.524822695035461,
+      "n_winners": 74,
+      "n_losers": 67
+     },
+     "removed": {
+      "n": 50,
+      "mean_excess": 0.05894007346045727,
+      "expectancy_net_cost": 0.057840073460457275,
+      "winner_rate": 0.56,
+      "n_winners": 28,
+      "n_losers": 22
+     }
+    }
+   },
+   "per_era": {
+    "legacy_tournament": {
+     "current": {
+      "n": 36,
+      "mean_excess": 0.035073252507233005,
+      "expectancy_net_cost": 0.03397325250723301,
+      "winner_rate": 0.5833333333333334,
+      "n_winners": 21,
+      "n_losers": 15
+     },
+     "haircut": {
+      "n": 28,
+      "mean_excess": 0.040294348208863795,
+      "expectancy_net_cost": 0.0391943482088638,
+      "winner_rate": 0.6071428571428571,
+      "n_winners": 17,
+      "n_losers": 11
+     },
+     "removed": {
+      "n": 8,
+      "mean_excess": 0.016799417551525225,
+      "expectancy_net_cost": 0.015699417551525225,
+      "winner_rate": 0.5,
+      "n_winners": 4,
+      "n_losers": 4
+     }
+    },
+    "pre_tournament_null": {
+     "current": {
+      "n": 155,
+      "mean_excess": 0.046726035139611356,
+      "expectancy_net_cost": 0.04562603513961136,
+      "winner_rate": 0.5225806451612903,
+      "n_winners": 81,
+      "n_losers": 74
+     },
+     "haircut": {
+      "n": 113,
+      "mean_excess": 0.03920289481441685,
+      "expectancy_net_cost": 0.03810289481441685,
+      "winner_rate": 0.504424778761062,
+      "n_winners": 57,
+      "n_losers": 56
+     },
+     "removed": {
+      "n": 42,
+      "mean_excess": 0.06696686506215861,
+      "expectancy_net_cost": 0.06586686506215861,
+      "winner_rate": 0.5714285714285714,
+      "n_winners": 24,
+      "n_losers": 18
+     }
+    }
+   }
+  },
+  "fwd_10d_k0.5": {
+   "horizon": "fwd_10d",
+   "k": 0.5,
+   "n_universe_dates": 11,
+   "current": {
+    "n": 214,
+    "mean_excess": 0.030032511516616286,
+    "expectancy_net_cost": 0.028932511516616286,
+    "winner_rate": 0.5046728971962616,
+    "n_winners": 108,
+    "n_losers": 106
+   },
+   "haircut": {
+    "n": 178,
+    "mean_excess": 0.03118065864119908,
+    "expectancy_net_cost": 0.03008065864119908,
+    "winner_rate": 0.5112359550561798,
+    "n_winners": 91,
+    "n_losers": 87
+   },
+   "removed": {
+    "n": 36,
+    "mean_excess": 0.024355561845068083,
+    "expectancy_net_cost": 0.023255561845068082,
+    "winner_rate": 0.4722222222222222,
+    "n_winners": 17,
+    "n_losers": 19
+   },
+   "winners_removed": 17,
+   "losers_removed": 19,
+   "expectancy_delta_haircut_minus_current": 0.0011481471245827941,
+   "per_regime": {
+    "BULL_CALM": {
+     "current": {
+      "n": 214,
+      "mean_excess": 0.030032511516616286,
+      "expectancy_net_cost": 0.028932511516616286,
+      "winner_rate": 0.5046728971962616,
+      "n_winners": 108,
+      "n_losers": 106
+     },
+     "haircut": {
+      "n": 178,
+      "mean_excess": 0.03118065864119908,
+      "expectancy_net_cost": 0.03008065864119908,
+      "winner_rate": 0.5112359550561798,
+      "n_winners": 91,
+      "n_losers": 87
+     },
+     "removed": {
+      "n": 36,
+      "mean_excess": 0.024355561845068083,
+      "expectancy_net_cost": 0.023255561845068082,
+      "winner_rate": 0.4722222222222222,
+      "n_winners": 17,
+      "n_losers": 19
+     }
+    }
+   },
+   "per_era": {
+    "legacy_tournament": {
+     "current": {
+      "n": 59,
+      "mean_excess": 0.02596272742932238,
+      "expectancy_net_cost": 0.02486272742932238,
+      "winner_rate": 0.576271186440678,
+      "n_winners": 34,
+      "n_losers": 25
+     },
+     "haircut": {
+      "n": 52,
+      "mean_excess": 0.03408463074279256,
+      "expectancy_net_cost": 0.032984630742792564,
+      "winner_rate": 0.6153846153846154,
+      "n_winners": 32,
+      "n_losers": 20
+     },
+     "removed": {
+      "n": 7,
+      "mean_excess": -0.03437141147074187,
+      "expectancy_net_cost": -0.03547141147074186,
+      "winner_rate": 0.2857142857142857,
+      "n_winners": 2,
+      "n_losers": 5
+     }
+    },
+    "pre_tournament_null": {
+     "current": {
+      "n": 155,
+      "mean_excess": 0.03158165513694106,
+      "expectancy_net_cost": 0.030481655136941063,
+      "winner_rate": 0.4774193548387097,
+      "n_winners": 74,
+      "n_losers": 81
+     },
+     "haircut": {
+      "n": 126,
+      "mean_excess": 0.029982193964350964,
+      "expectancy_net_cost": 0.028882193964350964,
+      "winner_rate": 0.46825396825396826,
+      "n_winners": 59,
+      "n_losers": 67
+     },
+     "removed": {
+      "n": 29,
+      "mean_excess": 0.03853103816267738,
+      "expectancy_net_cost": 0.037431038162677385,
+      "winner_rate": 0.5172413793103449,
+      "n_winners": 15,
+      "n_losers": 14
+     }
+    }
+   }
+  },
+  "fwd_10d_k1.0": {
+   "horizon": "fwd_10d",
+   "k": 1.0,
+   "n_universe_dates": 11,
+   "current": {
+    "n": 214,
+    "mean_excess": 0.030032511516616286,
+    "expectancy_net_cost": 0.028932511516616286,
+    "winner_rate": 0.5046728971962616,
+    "n_winners": 108,
+    "n_losers": 106
+   },
+   "haircut": {
+    "n": 159,
+    "mean_excess": 0.028747379551695793,
+    "expectancy_net_cost": 0.027647379551695793,
+    "winner_rate": 0.4968553459119497,
+    "n_winners": 79,
+    "n_losers": 80
+   },
+   "removed": {
+    "n": 55,
+    "mean_excess": 0.03374771119702286,
+    "expectancy_net_cost": 0.032647711197022866,
+    "winner_rate": 0.5272727272727272,
+    "n_winners": 29,
+    "n_losers": 26
+   },
+   "winners_removed": 29,
+   "losers_removed": 26,
+   "expectancy_delta_haircut_minus_current": -0.0012851319649204926,
+   "per_regime": {
+    "BULL_CALM": {
+     "current": {
+      "n": 214,
+      "mean_excess": 0.030032511516616286,
+      "expectancy_net_cost": 0.028932511516616286,
+      "winner_rate": 0.5046728971962616,
+      "n_winners": 108,
+      "n_losers": 106
+     },
+     "haircut": {
+      "n": 159,
+      "mean_excess": 0.028747379551695793,
+      "expectancy_net_cost": 0.027647379551695793,
+      "winner_rate": 0.4968553459119497,
+      "n_winners": 79,
+      "n_losers": 80
+     },
+     "removed": {
+      "n": 55,
+      "mean_excess": 0.03374771119702286,
+      "expectancy_net_cost": 0.032647711197022866,
+      "winner_rate": 0.5272727272727272,
+      "n_winners": 29,
+      "n_losers": 26
+     }
+    }
+   },
+   "per_era": {
+    "legacy_tournament": {
+     "current": {
+      "n": 59,
+      "mean_excess": 0.02596272742932238,
+      "expectancy_net_cost": 0.02486272742932238,
+      "winner_rate": 0.576271186440678,
+      "n_winners": 34,
+      "n_losers": 25
+     },
+     "haircut": {
+      "n": 46,
+      "mean_excess": 0.02959003311052897,
+      "expectancy_net_cost": 0.02849003311052897,
+      "winner_rate": 0.5869565217391305,
+      "n_winners": 27,
+      "n_losers": 19
+     },
+     "removed": {
+      "n": 13,
+      "mean_excess": 0.013127645788129793,
+      "expectancy_net_cost": 0.012027645788129792,
+      "winner_rate": 0.5384615384615384,
+      "n_winners": 7,
+      "n_losers": 6
+     }
+    },
+    "pre_tournament_null": {
+     "current": {
+      "n": 155,
+      "mean_excess": 0.03158165513694106,
+      "expectancy_net_cost": 0.030481655136941063,
+      "winner_rate": 0.4774193548387097,
+      "n_winners": 74,
+      "n_losers": 81
+     },
+     "haircut": {
+      "n": 113,
+      "mean_excess": 0.02840435243925041,
+      "expectancy_net_cost": 0.02730435243925041,
+      "winner_rate": 0.46017699115044247,
+      "n_winners": 52,
+      "n_losers": 61
+     },
+     "removed": {
+      "n": 42,
+      "mean_excess": 0.04013011239501357,
+      "expectancy_net_cost": 0.039030112395013576,
+      "winner_rate": 0.5238095238095238,
+      "n_winners": 22,
+      "n_losers": 20
+     }
+    }
+   }
+  },
+  "fwd_5d_k0.5": {
+   "horizon": "fwd_5d",
+   "k": 0.5,
+   "n_universe_dates": 13,
+   "current": {
+    "n": 223,
+    "mean_excess": 0.007560023816265862,
+    "expectancy_net_cost": 0.006460023816265862,
+    "winner_rate": 0.45739910313901344,
+    "n_winners": 102,
+    "n_losers": 121
+   },
+   "haircut": {
+    "n": 183,
+    "mean_excess": 0.008951533055302018,
+    "expectancy_net_cost": 0.007851533055302017,
+    "winner_rate": 0.47540983606557374,
+    "n_winners": 87,
+    "n_losers": 96
+   },
+   "removed": {
+    "n": 40,
+    "mean_excess": 0.0011938690476754389,
+    "expectancy_net_cost": 9.38690476754388e-05,
+    "winner_rate": 0.375,
+    "n_winners": 15,
+    "n_losers": 25
+   },
+   "winners_removed": 15,
+   "losers_removed": 25,
+   "expectancy_delta_haircut_minus_current": 0.0013915092390361554,
+   "per_regime": {
+    "BULL_CALM": {
+     "current": {
+      "n": 223,
+      "mean_excess": 0.007560023816265862,
+      "expectancy_net_cost": 0.006460023816265862,
+      "winner_rate": 0.45739910313901344,
+      "n_winners": 102,
+      "n_losers": 121
+     },
+     "haircut": {
+      "n": 183,
+      "mean_excess": 0.008951533055302018,
+      "expectancy_net_cost": 0.007851533055302017,
+      "winner_rate": 0.47540983606557374,
+      "n_winners": 87,
+      "n_losers": 96
+     },
+     "removed": {
+      "n": 40,
+      "mean_excess": 0.0011938690476754389,
+      "expectancy_net_cost": 9.38690476754388e-05,
+      "winner_rate": 0.375,
+      "n_winners": 15,
+      "n_losers": 25
+     }
+    }
+   },
+   "per_era": {
+    "legacy_tournament": {
+     "current": {
+      "n": 59,
+      "mean_excess": 0.015001974815955105,
+      "expectancy_net_cost": 0.013901974815955105,
+      "winner_rate": 0.5423728813559322,
+      "n_winners": 32,
+      "n_losers": 27
+     },
+     "haircut": {
+      "n": 52,
+      "mean_excess": 0.02071948063894972,
+      "expectancy_net_cost": 0.01961948063894972,
+      "winner_rate": 0.5769230769230769,
+      "n_winners": 30,
+      "n_losers": 22
+     },
+     "removed": {
+      "n": 7,
+      "mean_excess": -0.027470925583433465,
+      "expectancy_net_cost": -0.028570925583433465,
+      "winner_rate": 0.2857142857142857,
+      "n_winners": 2,
+      "n_losers": 5
+     }
+    },
+    "panel_ltr_xgboost": {
+     "current": {
+      "n": 9,
+      "mean_excess": -0.0015538876212511192,
+      "expectancy_net_cost": -0.0026538876212511193,
+      "winner_rate": 0.4444444444444444,
+      "n_winners": 4,
+      "n_losers": 5
+     },
+     "haircut": {
+      "n": 5,
+      "mean_excess": 0.01143471709283459,
+      "expectancy_net_cost": 0.01033471709283459,
+      "winner_rate": 0.6,
+      "n_winners": 3,
+      "n_losers": 2
+     },
+     "removed": {
+      "n": 4,
+      "mean_excess": -0.017789643513858255,
+      "expectancy_net_cost": -0.018889643513858256,
+      "winner_rate": 0.25,
+      "n_winners": 1,
+      "n_losers": 3
+     }
+    },
+    "pre_tournament_null": {
+     "current": {
+      "n": 155,
+      "mean_excess": 0.005256476035336753,
+      "expectancy_net_cost": 0.004156476035336753,
+      "winner_rate": 0.4258064516129032,
+      "n_winners": 66,
+      "n_losers": 89
+     },
+     "haircut": {
+      "n": 126,
+      "mean_excess": 0.003996380717704056,
+      "expectancy_net_cost": 0.0028963807177040555,
+      "winner_rate": 0.42857142857142855,
+      "n_winners": 54,
+      "n_losers": 72
+     },
+     "removed": {
+      "n": 29,
+      "mean_excess": 0.010731372932637408,
+      "expectancy_net_cost": 0.009631372932637407,
+      "winner_rate": 0.41379310344827586,
+      "n_winners": 12,
+      "n_losers": 17
+     }
+    }
+   }
+  },
+  "fwd_5d_k1.0": {
+   "horizon": "fwd_5d",
+   "k": 1.0,
+   "n_universe_dates": 13,
+   "current": {
+    "n": 223,
+    "mean_excess": 0.007560023816265862,
+    "expectancy_net_cost": 0.006460023816265862,
+    "winner_rate": 0.45739910313901344,
+    "n_winners": 102,
+    "n_losers": 121
+   },
+   "haircut": {
+    "n": 162,
+    "mean_excess": 0.006414826233933902,
+    "expectancy_net_cost": 0.005314826233933902,
+    "winner_rate": 0.4506172839506173,
+    "n_winners": 73,
+    "n_losers": 89
+   },
+   "removed": {
+    "n": 61,
+    "mean_excess": 0.010601368215245821,
+    "expectancy_net_cost": 0.00950136821524582,
+    "winner_rate": 0.47540983606557374,
+    "n_winners": 29,
+    "n_losers": 32
+   },
+   "winners_removed": 29,
+   "losers_removed": 32,
+   "expectancy_delta_haircut_minus_current": -0.0011451975823319601,
+   "per_regime": {
+    "BULL_CALM": {
+     "current": {
+      "n": 223,
+      "mean_excess": 0.007560023816265862,
+      "expectancy_net_cost": 0.006460023816265862,
+      "winner_rate": 0.45739910313901344,
+      "n_winners": 102,
+      "n_losers": 121
+     },
+     "haircut": {
+      "n": 162,
+      "mean_excess": 0.006414826233933902,
+      "expectancy_net_cost": 0.005314826233933902,
+      "winner_rate": 0.4506172839506173,
+      "n_winners": 73,
+      "n_losers": 89
+     },
+     "removed": {
+      "n": 61,
+      "mean_excess": 0.010601368215245821,
+      "expectancy_net_cost": 0.00950136821524582,
+      "winner_rate": 0.47540983606557374,
+      "n_winners": 29,
+      "n_losers": 32
+     }
+    }
+   },
+   "per_era": {
+    "legacy_tournament": {
+     "current": {
+      "n": 59,
+      "mean_excess": 0.015001974815955105,
+      "expectancy_net_cost": 0.013901974815955105,
+      "winner_rate": 0.5423728813559322,
+      "n_winners": 32,
+      "n_losers": 27
+     },
+     "haircut": {
+      "n": 46,
+      "mean_excess": 0.015864694829558854,
+      "expectancy_net_cost": 0.014764694829558854,
+      "winner_rate": 0.5217391304347826,
+      "n_winners": 24,
+      "n_losers": 22
+     },
+     "removed": {
+      "n": 13,
+      "mean_excess": 0.01194927322935722,
+      "expectancy_net_cost": 0.01084927322935722,
+      "winner_rate": 0.6153846153846154,
+      "n_winners": 8,
+      "n_losers": 5
+     }
+    },
+    "panel_ltr_xgboost": {
+     "current": {
+      "n": 9,
+      "mean_excess": -0.0015538876212511192,
+      "expectancy_net_cost": -0.0026538876212511193,
+      "winner_rate": 0.4444444444444444,
+      "n_winners": 4,
+      "n_losers": 5
+     },
+     "haircut": {
+      "n": 3,
+      "mean_excess": 0.015163346896003405,
+      "expectancy_net_cost": 0.014063346896003404,
+      "winner_rate": 0.6666666666666666,
+      "n_winners": 2,
+      "n_losers": 1
+     },
+     "removed": {
+      "n": 6,
+      "mean_excess": -0.009912504879878381,
+      "expectancy_net_cost": -0.011012504879878381,
+      "winner_rate": 0.3333333333333333,
+      "n_winners": 2,
+      "n_losers": 4
+     }
+    },
+    "pre_tournament_null": {
+     "current": {
+      "n": 155,
+      "mean_excess": 0.005256476035336753,
+      "expectancy_net_cost": 0.004156476035336753,
+      "winner_rate": 0.4258064516129032,
+      "n_winners": 66,
+      "n_losers": 89
+     },
+     "haircut": {
+      "n": 113,
+      "mean_excess": 0.002335715460615705,
+      "expectancy_net_cost": 0.0012357154606157047,
+      "winner_rate": 0.415929203539823,
+      "n_winners": 47,
+      "n_losers": 66
+     },
+     "removed": {
+      "n": 42,
+      "mean_excess": 0.013114712819705273,
+      "expectancy_net_cost": 0.012014712819705273,
+      "winner_rate": 0.4523809523809524,
+      "n_winners": 19,
+      "n_losers": 23
+     }
+    }
+   }
+  }
+ },
+ "bootstrap": {
+  "fwd_20d_k0.5": {
+   "block13": {
+    "block_len": 13,
+    "n_dates": 8,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     0.0013847840422958682,
+     0.0013847840422959098
+    ],
+    "median": 0.001384784042295896,
+    "degenerate": true
+   },
+   "block5": {
+    "block_len": 5,
+    "n_dates": 8,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0011133060708550316,
+     0.008246269730168052
+    ],
+    "median": 0.001384784042295896,
+    "degenerate": false
+   },
+   "block1": {
+    "block_len": 1,
+    "n_dates": 8,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0022752822040383244,
+     0.0077407712255448055
+    ],
+    "median": 0.001613591914013661,
+    "degenerate": false
+   }
+  },
+  "fwd_20d_k1.0": {
+   "block13": {
+    "block_len": 13,
+    "n_dates": 8,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.005110061813611073,
+     -0.005110061813611018
+    ],
+    "median": -0.005110061813611053,
+    "degenerate": true
+   },
+   "block5": {
+    "block_len": 5,
+    "n_dates": 8,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.008871221918969704,
+     -0.00011327369516758723
+    ],
+    "median": -0.005110061813611053,
+    "degenerate": false
+   },
+   "block1": {
+    "block_len": 1,
+    "n_dates": 8,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.014106341601369074,
+     0.0027542100897769498
+    ],
+    "median": -0.004872544918330404,
+    "degenerate": false
+   }
+  },
+  "fwd_10d_k0.5": {
+   "block13": {
+    "block_len": 13,
+    "n_dates": 11,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     0.0011481471245827768,
+     0.001148147124582808
+    ],
+    "median": 0.0011481471245827907,
+    "degenerate": true
+   },
+   "block5": {
+    "block_len": 5,
+    "n_dates": 11,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0023226262685588916,
+     0.010190784898199128
+    ],
+    "median": 0.001148147124582801,
+    "degenerate": false
+   },
+   "block1": {
+    "block_len": 1,
+    "n_dates": 11,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.003952097110503355,
+     0.010334834143361876
+    ],
+    "median": 0.0013391366574268745,
+    "degenerate": false
+   }
+  },
+  "fwd_10d_k1.0": {
+   "block13": {
+    "block_len": 13,
+    "n_dates": 11,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0012851319649205065,
+     -0.0012851319649204891
+    ],
+    "median": -0.0012851319649204995,
+    "degenerate": true
+   },
+   "block5": {
+    "block_len": 5,
+    "n_dates": 11,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.005267575549076101,
+     0.006077907934394125
+    ],
+    "median": -0.0011855530006289923,
+    "degenerate": false
+   },
+   "block1": {
+    "block_len": 1,
+    "n_dates": 11,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0075706643938016835,
+     0.00746696209395354
+    ],
+    "median": -0.0012482322846552457,
+    "degenerate": false
+   }
+  },
+  "fwd_5d_k0.5": {
+   "block13": {
+    "block_len": 13,
+    "n_dates": 13,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     0.0013915092390361537,
+     0.0013915092390361658
+    ],
+    "median": 0.0013915092390361572,
+    "degenerate": true
+   },
+   "block5": {
+    "block_len": 5,
+    "n_dates": 13,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0013378746922195093,
+     0.011154404113955602
+    ],
+    "median": 0.0014042352110351678,
+    "degenerate": false
+   },
+   "block1": {
+    "block_len": 1,
+    "n_dates": 13,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0013208276680221295,
+     0.008703526503592334
+    ],
+    "median": 0.0014549197399300016,
+    "degenerate": false
+   }
+  },
+  "fwd_5d_k1.0": {
+   "block13": {
+    "block_len": 13,
+    "n_dates": 13,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0011451975823319697,
+     -0.0011451975823319567
+    ],
+    "median": -0.0011451975823319593,
+    "degenerate": true
+   },
+   "block5": {
+    "block_len": 5,
+    "n_dates": 13,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.0034095377668556005,
+     0.006124111306798744
+    ],
+    "median": -0.0011451975823319532,
+    "degenerate": false
+   },
+   "block1": {
+    "block_len": 1,
+    "n_dates": 13,
+    "n_boot_effective": 5000,
+    "n_skipped": 0,
+    "ci95": [
+     -0.005157988822744802,
+     0.00484033009030177
+    ],
+    "median": -0.0009337606036979515,
+    "degenerate": false
+   }
+  }
+ },
+ "passthrough_sensitivity": {
+  "fwd_20d_k0.5": {
+   "treatment": "undefined_se_passthrough",
+   "horizon": "fwd_20d",
+   "k": 0.5,
+   "n_undefined_se_passed": 75,
+   "current": {
+    "n": 266,
+    "mean_excess": 0.03782791097613811,
+    "expectancy_net_cost": 0.03672791097613811,
+    "winner_rate": 0.5338345864661654,
+    "n_winners": 142,
+    "n_losers": 124
+   },
+   "haircut": {
+    "n": 233,
+    "mean_excess": 0.037817768783326385,
+    "expectancy_net_cost": 0.03671776878332639,
+    "winner_rate": 0.5321888412017167,
+    "n_winners": 124,
+    "n_losers": 109
+   },
+   "removed": {
+    "n": 33,
+    "mean_excess": 0.03789952100417256,
+    "expectancy_net_cost": 0.03679952100417256,
+    "winner_rate": 0.5454545454545454,
+    "n_winners": 18,
+    "n_losers": 15
+   },
+   "expectancy_delta_haircut_minus_current": -1.0142192811722628e-05
+  },
+  "fwd_20d_k1.0": {
+   "treatment": "undefined_se_passthrough",
+   "horizon": "fwd_20d",
+   "k": 1.0,
+   "n_undefined_se_passed": 75,
+   "current": {
+    "n": 266,
+    "mean_excess": 0.03782791097613811,
+    "expectancy_net_cost": 0.03672791097613811,
+    "winner_rate": 0.5338345864661654,
+    "n_winners": 142,
+    "n_losers": 124
+   },
+   "haircut": {
+    "n": 216,
+    "mean_excess": 0.03294083632699019,
+    "expectancy_net_cost": 0.031840836326990196,
+    "winner_rate": 0.5277777777777778,
+    "n_winners": 114,
+    "n_losers": 102
+   },
+   "removed": {
+    "n": 50,
+    "mean_excess": 0.05894007346045727,
+    "expectancy_net_cost": 0.057840073460457275,
+    "winner_rate": 0.56,
+    "n_winners": 28,
+    "n_losers": 22
+   },
+   "expectancy_delta_haircut_minus_current": -0.004887074649147914
+  },
+  "fwd_10d_k0.5": {
+   "treatment": "undefined_se_passthrough",
+   "horizon": "fwd_10d",
+   "k": 0.5,
+   "n_undefined_se_passed": 82,
+   "current": {
+    "n": 296,
+    "mean_excess": 0.018134283320452138,
+    "expectancy_net_cost": 0.017034283320452138,
+    "winner_rate": 0.47635135135135137,
+    "n_winners": 141,
+    "n_losers": 155
+   },
+   "haircut": {
+    "n": 260,
+    "mean_excess": 0.017272875524736105,
+    "expectancy_net_cost": 0.016172875524736105,
+    "winner_rate": 0.47692307692307695,
+    "n_winners": 124,
+    "n_losers": 136
+   },
+   "removed": {
+    "n": 36,
+    "mean_excess": 0.024355561845068083,
+    "expectancy_net_cost": 0.023255561845068082,
+    "winner_rate": 0.4722222222222222,
+    "n_winners": 17,
+    "n_losers": 19
+   },
+   "expectancy_delta_haircut_minus_current": -0.0008614077957160328
+  },
+  "fwd_10d_k1.0": {
+   "treatment": "undefined_se_passthrough",
+   "horizon": "fwd_10d",
+   "k": 1.0,
+   "n_undefined_se_passed": 82,
+   "current": {
+    "n": 296,
+    "mean_excess": 0.018134283320452138,
+    "expectancy_net_cost": 0.017034283320452138,
+    "winner_rate": 0.47635135135135137,
+    "n_winners": 141,
+    "n_losers": 155
+   },
+   "haircut": {
+    "n": 241,
+    "mean_excess": 0.014571052892189119,
+    "expectancy_net_cost": 0.013471052892189118,
+    "winner_rate": 0.46473029045643155,
+    "n_winners": 112,
+    "n_losers": 129
+   },
+   "removed": {
+    "n": 55,
+    "mean_excess": 0.03374771119702286,
+    "expectancy_net_cost": 0.032647711197022866,
+    "winner_rate": 0.5272727272727272,
+    "n_winners": 29,
+    "n_losers": 26
+   },
+   "expectancy_delta_haircut_minus_current": -0.0035632304282630194
+  }
+ },
+ "strided_sensitivity": {
+  "fwd_20d_k0.5": {
+   "stride_days": 28,
+   "kept_dates": [
+    "2026-05-09"
+   ],
+   "current": {
+    "n": 13,
+    "mean_excess": 0.07803543516804903,
+    "expectancy_net_cost": 0.07693543516804903,
+    "winner_rate": 0.5384615384615384,
+    "n_winners": 7,
+    "n_losers": 6
+   },
+   "haircut": {
+    "n": 3,
+    "mean_excess": 0.12695271454640245,
+    "expectancy_net_cost": 0.12585271454640246,
+    "winner_rate": 0.6666666666666666,
+    "n_winners": 2,
+    "n_losers": 1
+   },
+   "removed": {
+    "n": 10,
+    "mean_excess": 0.06336025135454301,
+    "expectancy_net_cost": 0.062260251354543016,
+    "winner_rate": 0.5,
+    "n_winners": 5,
+    "n_losers": 5
+   },
+   "expectancy_delta_haircut_minus_current": 0.04891727937835341
+  },
+  "fwd_20d_k1.0": {
+   "stride_days": 28,
+   "kept_dates": [
+    "2026-05-09"
+   ],
+   "current": {
+    "n": 13,
+    "mean_excess": 0.07803543516804903,
+    "expectancy_net_cost": 0.07693543516804903,
+    "winner_rate": 0.5384615384615384,
+    "n_winners": 7,
+    "n_losers": 6
+   },
+   "haircut": {
+    "n": 0,
+    "mean_excess": null,
+    "expectancy_net_cost": null,
+    "winner_rate": null,
+    "n_winners": 0,
+    "n_losers": 0
+   },
+   "removed": {
+    "n": 13,
+    "mean_excess": 0.07803543516804903,
+    "expectancy_net_cost": 0.07693543516804903,
+    "winner_rate": 0.5384615384615384,
+    "n_winners": 7,
+    "n_losers": 6
+   },
+   "expectancy_delta_haircut_minus_current": null
+  },
+  "fwd_10d_k0.5": {
+   "stride_days": 14,
+   "kept_dates": [
+    "2026-05-09",
+    "2026-06-02"
+   ],
+   "current": {
+    "n": 31,
+    "mean_excess": 0.029317691006299742,
+    "expectancy_net_cost": 0.02821769100629974,
+    "winner_rate": 0.5806451612903226,
+    "n_winners": 18,
+    "n_losers": 13
+   },
+   "haircut": {
+    "n": 20,
+    "mean_excess": 0.04235173139621836,
+    "expectancy_net_cost": 0.041251731396218363,
+    "winner_rate": 0.65,
+    "n_winners": 13,
+    "n_losers": 7
+   },
+   "removed": {
+    "n": 11,
+    "mean_excess": 0.005619435751902249,
+    "expectancy_net_cost": 0.004519435751902248,
+    "winner_rate": 0.45454545454545453,
+    "n_winners": 5,
+    "n_losers": 6
+   },
+   "expectancy_delta_haircut_minus_current": 0.013034040389918618
+  },
+  "fwd_10d_k1.0": {
+   "stride_days": 14,
+   "kept_dates": [
+    "2026-05-09",
+    "2026-06-02"
+   ],
+   "current": {
+    "n": 31,
+    "mean_excess": 0.029317691006299742,
+    "expectancy_net_cost": 0.02821769100629974,
+    "winner_rate": 0.5806451612903226,
+    "n_winners": 18,
+    "n_losers": 13
+   },
+   "haircut": {
+    "n": 14,
+    "mean_excess": 0.027643485272755373,
+    "expectancy_net_cost": 0.026543485272755372,
+    "winner_rate": 0.6428571428571429,
+    "n_winners": 9,
+    "n_losers": 5
+   },
+   "removed": {
+    "n": 17,
+    "mean_excess": 0.030696448669218633,
+    "expectancy_net_cost": 0.029596448669218633,
+    "winner_rate": 0.5294117647058824,
+    "n_winners": 9,
+    "n_losers": 8
+   },
+   "expectancy_delta_haircut_minus_current": -0.0016742057335443691
+  }
+ },
+ "calibrator_band_proxy": {
+  "available": true,
+  "calibrator_path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/panel-rank-calibration.alpha158_linear.json",
+  "calibrator_trained_date": "2026-07-02",
+  "calibrator_lookahead_days": 5,
+  "note": "vintage mismatch: this calibrator was trained after most of the replay window; no per-name band is persisted, so this is a single GLOBAL constant on the calibrator's 5d-label scale, not mu's 60d scale. A constant SE is per-name-blind: the 'haircut' degenerates to raising the floor to floor + k*resid (0.053 at k=0.5, 0.076 at k=1.0) - a blunt floor raise, not an uncertainty-sensitive rule",
+  "er_std": 0.04583364836862391,
+  "pool_ic": 0.037317184694229996,
+  "global_residual_std_proxy": 0.045801723916519314,
+  "per_k": {
+   "0.5": {
+    "n_admitted": 173,
+    "n_floor_clearing": 430
+   },
+   "1.0": {
+    "n_admitted": 144,
+    "n_floor_clearing": 430
+   }
+  }
+ }
+}

@@ -1,0 +1,49 @@
+{
+  "var1_regime": {
+    "passed": true,
+    "status": "VERIFIED \u2014 table column"
+  },
+  "var2_dispersion": {
+    "passed": true,
+    "status": "VERIFIED \u2014 derived from table"
+  },
+  "var3_score_margin": {
+    "passed": true,
+    "status": "VERIFIED \u2014 derived from table"
+  },
+  "var4_earnings_surprise_window": {
+    "variable": "earnings_surprise_window",
+    "source": "/Users/renhao/git/github/RenQuant/data/fmp_harvest/earnings_291.parquet",
+    "columns": [
+      "symbol",
+      "date",
+      "epsActual",
+      "epsEstimated",
+      "revenueActual",
+      "revenueEstimated",
+      "lastUpdated",
+      "ticker",
+      "fetched_at",
+      "source"
+    ],
+    "passed": false,
+    "reason": "PIT key absent: the file has no acceptedDate column (only a single-snapshot fetched_at and a vendor lastUpdated) \u2014 the announcement timestamps are backfilled, not point-in-time collected. Per \u00a74 the variable is DROPPED; substituting another source would be Track B."
+  },
+  "var5_liquidity_vol_state": {
+    "variable": "liquidity_vol_state",
+    "source": "/Users/renhao/git/github/RenQuant/data/ohlcv/<T>/1d.parquet",
+    "missing_files": [],
+    "short_history_names": [],
+    "passed": true,
+    "feature_coverage": 1.0
+  },
+  "surviving_model_features": [
+    "dispersion",
+    "margin",
+    "vol60",
+    "adv_rank",
+    "regime_BEAR",
+    "regime_BULL_CALM",
+    "regime_BULL_VOLATILE"
+  ]
+}

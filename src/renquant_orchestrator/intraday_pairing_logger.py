@@ -54,7 +54,7 @@ import json
 import math
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -91,6 +91,13 @@ ANALYSIS_UNIT = "session_date"
 # the last 30 min. The as-of / cutoff bounds are enforced against these instants;
 # times are never hard-coded (NYSE calendar guard scales half-days upstream).
 SESSION_ELIGIBILITY = "open+5min .. close-30min"
+# The two halves of the FROZEN window above, used to DERIVE the eligibility
+# instant / no-entry cutoff from the ``session_open`` / ``session_close`` stamps
+# the #216 quote logger writes on every tick line. This is the declared §11b
+# window applied to the session's own stamped bounds (half-days scale upstream),
+# NOT a new researcher degree of freedom.
+ELIGIBILITY_OPEN_DELAY = timedelta(minutes=5)
+NO_ENTRY_TAIL = timedelta(minutes=30)
 
 FROZEN_PREREG: dict[str, Any] = {
     "tick_selection": TICK_SELECTION,
@@ -499,6 +506,31 @@ def _quote_from_tick(tick: Mapping[str, Any]) -> QuoteRef:
     )
 
 
+def derive_frozen_window(
+    ticks: Sequence[Mapping[str, Any]],
+) -> tuple[str | None, str | None]:
+    """Derive the FROZEN §11b eligibility window (open+5min .. close−30min) from
+    the ``session_open`` / ``session_close`` stamps the #216 quote logger writes on
+    every tick line, returning ``(eligible_after, not_after)`` ISO instants.
+
+    This is the LAST fallback in the eligibility chain (explicit per-name map >
+    tick-stamped ``eligible_after`` > this derivation): applying the pre-registered
+    window to the session's own stamped bounds is the declared rule, not a post-hoc
+    choice, and half-day closes scale automatically because the producer stamps the
+    real session bounds. Returns ``(None, None)`` when no tick carries parseable
+    aware stamps — the pair then stays censored ``no_intraday_tick`` (recorded,
+    never guessed from a hard-coded local clock)."""
+    for tick in ticks:
+        open_dt = _parse_instant(tick.get("session_open"))
+        close_dt = _parse_instant(tick.get("session_close"))
+        if open_dt is not None and close_dt is not None:
+            return (
+                (open_dt + ELIGIBILITY_OPEN_DELAY).isoformat(),
+                (close_dt - NO_ENTRY_TAIL).isoformat(),
+            )
+    return (None, None)
+
+
 # ---------------------------------------------------------------------------
 # The join
 # ---------------------------------------------------------------------------
@@ -552,8 +584,20 @@ def pair_records(
                 if t.get("eligible_after") is not None:
                     eligible_after = str(t["eligible_after"])
                     break
+        cutoff = not_after.get(key)
+        if eligible_after is None or cutoff is None:
+            # Last fallback: the FROZEN §11b window (open+5min .. close−30min)
+            # applied to the session bounds stamped on the ticks themselves. The
+            # real #216 producer stamps session_open/session_close but NOT
+            # eligible_after; without this derivation every real pair was censored
+            # no_intraday_tick despite a full day of valid ticks.
+            derived_elig, derived_cutoff = derive_frozen_window(name_ticks)
+            if eligible_after is None:
+                eligible_after = derived_elig
+            if cutoff is None:
+                cutoff = derived_cutoff
         selected = select_first_eligible_tick(
-            name_ticks, eligible_after, not_after=not_after.get(key)
+            name_ticks, eligible_after, not_after=cutoff
         )
         intraday_arm = ArmObservation(
             arm="intraday",
@@ -708,10 +752,18 @@ def load_admitted(
     *,
     run_type: str = "live",
 ) -> list[AdmittedName]:
-    """Load the daily-admitted names (``candidate_scores.selected = 1``) for a
-    session, joined to ``pipeline_runs`` on ``run_id`` to filter by ``run_date``
-    and ``run_type``. ``signal_version`` carries the run_id (the frozen-signal id
-    that placed the batch order)."""
+    """LEGACY same-session admit path: the daily-admitted names
+    (``candidate_scores.selected = 1``) for a session, joined to ``pipeline_runs``
+    on ``run_id`` to filter by ``run_date`` and ``run_type``. ``signal_version``
+    carries the run_id (the frozen-signal id that placed the batch order).
+
+    NOTE (2026-07-02 zero-session root cause): the LIVE pipeline stopped stamping
+    ``selected = 1`` after 2026-05-22 — a submitted entry is now recorded as
+    ``selected = 0`` with ``blocked_by = 'broker_pending_submitted'`` plus a
+    ``trades`` row ``action = 'buy_pending'`` / ``order_type = 'NEW_BUY'``. This
+    predicate therefore matches NOTHING on current live sessions; it is kept only
+    for sim/backfill DBs that still carry the old stamp. Current live admits come
+    from :func:`load_submitted_entries`."""
     rows = conn.execute(
         """
         SELECT cs.run_id AS run_id, cs.ticker AS ticker
@@ -730,6 +782,93 @@ def load_admitted(
             signal_version=row["run_id"],
         )
         for row in rows
+    ]
+
+
+# Batch entry submissions on the CURRENT live path: the post-close batch stamps a
+# ``trades`` row with one of these order types at submit time (action
+# ``buy_pending``, flipped to ``buy`` only if a fill confirmation is ever written).
+# ``QP_BUY`` / sim rows (order_type NULL) are deliberately excluded — those belong
+# to the legacy ``selected = 1`` path.
+SUBMITTED_ENTRY_ORDER_TYPES = ("NEW_BUY", "TOP_UP")
+SUBMITTED_ENTRY_ACTIONS = ("buy_pending", "buy")
+
+
+def resolve_admitting_run_date(
+    conn: sqlite3.Connection,
+    session_date: str,
+    *,
+    run_type: str = "live",
+) -> str | None:
+    """The run date of the batch whose entries fill at ``session_date``'s open.
+
+    The post-close batch runs AFTER the close of session T−1 and its market orders
+    queue for the NEXT open, so the batch admitting session T's entries is the
+    latest ``run_date`` strictly BEFORE T (weekends/holidays skip automatically —
+    it is the previous run date actually present, not calendar T−1). Returns
+    ``None`` when no earlier run exists."""
+    row = conn.execute(
+        "SELECT MAX(run_date) FROM pipeline_runs WHERE run_date < ? AND run_type = ?",
+        (session_date, run_type),
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def load_submitted_entries(
+    conn: sqlite3.Connection,
+    admit_date: str,
+    *,
+    session_date: str,
+    run_type: str = "live",
+) -> list[AdmittedName]:
+    """CURRENT live admit path: the batch entry orders actually SUBMITTED by the
+    ``admit_date`` (previous session) runs — ``trades`` rows with
+    ``action IN ('buy_pending', 'buy')`` and ``order_type IN ('NEW_BUY', 'TOP_UP')``.
+
+    The submission row is the pre-treatment admit signal the live pipeline still
+    stamps (``candidate_scores.selected`` stays 0 with
+    ``blocked_by = 'broker_pending_submitted'``). The returned names carry
+    ``date = session_date`` (the FILL session T, whose open the order targets and
+    whose intraday ticks pair against it) while ``signal_version`` keeps the
+    admitting run_id. A DB without an ``order_type`` column (older schema) falls
+    back to ``action = 'buy_pending'`` alone. An order later canceled at the broker
+    is still an admit — its missing fill is recorded as censored, never dropped."""
+    cols = _table_columns(conn, "trades")
+    if "order_type" in cols:
+        action_ph = ",".join("?" for _ in SUBMITTED_ENTRY_ACTIONS)
+        type_ph = ",".join("?" for _ in SUBMITTED_ENTRY_ORDER_TYPES)
+        query = f"""
+            SELECT DISTINCT t.run_id AS run_id, t.ticker AS ticker
+            FROM trades t
+            JOIN pipeline_runs pr ON pr.run_id = t.run_id
+            WHERE pr.run_date = ? AND pr.run_type = ?
+              AND t.action IN ({action_ph})
+              AND t.order_type IN ({type_ph})
+            ORDER BY t.run_id, t.ticker
+        """
+        params: tuple[Any, ...] = (
+            admit_date,
+            run_type,
+            *SUBMITTED_ENTRY_ACTIONS,
+            *SUBMITTED_ENTRY_ORDER_TYPES,
+        )
+    else:
+        query = """
+            SELECT DISTINCT t.run_id AS run_id, t.ticker AS ticker
+            FROM trades t
+            JOIN pipeline_runs pr ON pr.run_id = t.run_id
+            WHERE pr.run_date = ? AND pr.run_type = ? AND t.action = 'buy_pending'
+            ORDER BY t.run_id, t.ticker
+        """
+        params = (admit_date, run_type)
+    return [
+        AdmittedName(
+            date=session_date,
+            ticker=row["ticker"],
+            side="buy",
+            signal_version=row["run_id"],
+        )
+        for row in conn.execute(query, params).fetchall()
     ]
 
 
@@ -858,12 +997,37 @@ def collect(
     batch_arrival_source: str | Path | None = None,
     run_type: str = "live",
 ) -> list[dict[str, Any]]:
-    """Read-only end-to-end pairing for a session: load admitted + batch fills +
-    batch arrival quotes + intraday ticks and return the raw-observation records.
-    Places nothing, writes nothing."""
+    """Read-only end-to-end pairing for one FILL session ``date`` (= T): load the
+    admitted entries, batch fills, batch arrival quotes and session-T intraday
+    ticks, and return the raw-observation records. Places nothing, writes nothing.
+
+    ``date`` is the SESSION the pairing observes — the day the batch order fills
+    at the open and the #216 quote logger's ticks are stamped with. The batch that
+    placed those entries ran post-close on the PREVIOUS session, so admits are
+    discovered from BOTH:
+
+      * the current live path — entry submissions (``buy_pending``/``NEW_BUY``
+        trades rows) of the latest run_date strictly before T
+        (:func:`load_submitted_entries`); and
+      * the legacy same-session path — ``candidate_scores.selected = 1`` on
+        run_date = T (:func:`load_admitted`), kept for sim/backfill DBs.
+
+    The two sources are disjoint on current data (live runs stopped stamping
+    ``selected = 1`` on 2026-05-22) but are deduplicated on
+    ``(signal_version, ticker)`` defensively."""
     conn = connect(runs_db)
     try:
         admitted = load_admitted(conn, date, run_type=run_type)
+        seen = {(n.signal_version, n.ticker) for n in admitted}
+        admit_date = resolve_admitting_run_date(conn, date, run_type=run_type)
+        if admit_date is not None:
+            for name in load_submitted_entries(
+                conn, admit_date, session_date=date, run_type=run_type
+            ):
+                if (name.signal_version, name.ticker) in seen:
+                    continue
+                admitted.append(name)
+                seen.add((name.signal_version, name.ticker))
         batch_fills = load_batch_fills(conn, admitted)
     finally:
         conn.close()
@@ -886,7 +1050,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "verdict (timing vs within-path execution are recorded separately)."
         ),
     )
-    parser.add_argument("--date", required=True, help="session date YYYY-MM-DD")
+    parser.add_argument(
+        "--date",
+        required=True,
+        help=(
+            "FILL-session date YYYY-MM-DD (the day the batch entries fill at the "
+            "open and the intraday ticks are stamped); the admitting batch run is "
+            "resolved to the previous session automatically"
+        ),
+    )
     parser.add_argument(
         "--runs-db",
         default=str(DEFAULT_RUNS_DB),
