@@ -3,8 +3,9 @@
 STATUS: design RFC (docs only, design-via-PR). Companion to renquant-pipeline **#162**
 (M4/BL-1 per-bar raw recentering, merged-as-default-OFF path) and to the unified-107 master
 plan (#231) Term IC row **M4**. BLOCKING CONTRACT: `recenter_raw_per_bar` MUST NOT be
-enabled in strategy-104 until this design's evaluation renders a winner — one combined
-config flip, never two half-states (§6, §7).
+enabled in strategy-104 until this design's TWO-STAGE evaluation (§3) renders a Stage-2
+CONFIRMED winner — a Stage 1 replay verdict alone authorizes shadow deployment only, never
+a live enable — delivered as one combined config flip, never two half-states (§3, §6, §7).
 DATE: 2026-07-03
 
 ---
@@ -105,8 +106,10 @@ pipeline #147 footgun lesson.
   unit-free (immune to any residual intercept/scale change in future calibrator vintages);
   matches the rank-centric semantics of the panel LTR scorer and of "center of the
   cross-section" that #162 adopted (median); computable per-bar with no per-name history
-  (survives the OXY/GRMN fresh-entrant problem); one parameter (K), and under the
-  matched-breadth protocol (§4) even that is pinned, leaving zero tuning freedom.
+  (survives the OXY/GRMN fresh-entrant problem); one parameter (K), pinned by the
+  matched-breadth protocol (§4) rather than hand-tuned — but see §3: pinning K on the same
+  window whose outcomes then judge the winner is in-sample family selection, not "zero
+  tuning freedom"; that is why §3/§6 require a prospective stage before any live enable.
 - **Cons:** unconditional breadth — on a genuinely conviction-free day it would still
   nominate names; the `μ > 0` side-condition (never long below-center) is therefore part of
   the rule, not optional. Stacks a relative gate on the relative `VetoWeakBuys` rank floor
@@ -207,9 +210,40 @@ its complexity; (d) deferred behind its own σ-wire decision.
 M3's replay compared rules at UNMATCHED admission rates — the haircut variants admitted
 fewer names than the baseline, so expectancy deltas conflated "which names" with "how
 many". The M4-b protocol matches admission rates across variants (same expected breadth),
-so the comparison isolates the SHAPE of the admission rule. Under matched breadth every
-candidate has exactly one free parameter (K, k, c, or σ-k) and the breadth constraint pins
-it — no tuning freedom survives, which is what makes the pre-registration credible.
+so the comparison isolates the SHAPE of the admission rule.
+
+**This does NOT make the replay a frozen authorization protocol by itself (corrected
+2026-07-03 review).** Matched breadth still selects AMONG rule families (a)–(d) and pins
+each family's one free parameter (K, k, c, or σ-k) using the SAME replay window whose
+forward outcomes then decide the winner. Fixing the parameter does not remove the
+family-selection degree of freedom, and judging the winner on the window that chose it is
+in-sample model selection, not a frozen contract — the exact failure class this document
+exists to close for the FLOOR, must not be reopened one level up for the RULE FAMILY.
+
+**Two-stage promotion contract (replaces the single-stage "matched breadth ⇒ enable"
+reading of earlier drafts):**
+
+- **Stage 1 — nomination (this replay).** The matched-breadth replay over the existing
+  window may NOMINATE a provisional winning family + parameter per the win criteria in §4.
+  Stage 1 output is a `candidate-for-shadow` verdict, not an authorization to change live
+  behavior. A nested holdout inside the replay window is not substituted here: the
+  resolved-outcome sample is already dominated by retired-era streams and BULL_CALM (§7),
+  too thin to split further without losing the power to distinguish families at all; the
+  prospective stage below is the real out-of-sample test, not a same-window split.
+- **Stage 2 — prospective shadow validation (required before live enable).** The Stage 1
+  nominee runs in SHADOW mode (§6) over sessions that occur AFTER Stage 1 concludes — never
+  sessions already in the replay corpus. Stage 2 re-applies the §4 win criteria as a
+  confirmatory (not exploratory) check against this untouched window. Only a nominee that
+  clears Stage 2 may go into a strategy-104 config PR. This is the same nominate-then-
+  confirm structure already applied to `renquant-backtesting` #61's WF-gate threshold this
+  session (retrospective evidence nominates, prospective evidence authorizes) — reused here
+  rather than re-derived, since the underlying problem (a threshold/family chosen while
+  looking at the outcomes it is judged against) is identical.
+- Stage 2's minimum window length and re-confirmation cadence are set in the
+  replay-implementation PR (§6 step 2), informed by how many prospective sessions are
+  needed for the block-5 bootstrap CI (§4 Statistics) to stop being dominated by the
+  Stage-1 sample; this document does not pre-commit a specific session count because that
+  number depends on live session-arrival rate, which is outside this design's evidence.
 
 ## 4. Pre-registered evaluation protocol (frozen here, before any replay runs)
 
@@ -232,6 +266,33 @@ over the replay window. Each candidate's single parameter is set ONCE, on the re
 window, such that its mean floor-clearing count equals B (±0.5). Per-bar counts may differ
 (that is each rule's shape); means may not. No per-bar re-tuning.
 
+**Matching the mean alone does not protect the A-2 selection-budget contract (corrected
+2026-07-03 review)** — two rules can share a mean admitted count and differ sharply in
+operational behavior that changes downstream QP/top_n dynamics. The frozen comparison
+additionally pins, per candidate vs. baseline over the SAME replay window:
+
+- **`top_n` saturation frequency** — the fraction of bars where the floor-clearing count
+  ≥ `panel_buy_top_n` (3), i.e. how often the floor is not actually the binding constraint
+  because top_n already caps selection;
+- **p90 / p95 admitted-count** — not just the mean, since a fat right tail can spike QP
+  pressure on specific bars even at a matched mean;
+- **QP spill pressure** — the fraction of bars where the floor-clearing count exceeds what
+  QP/portfolio construction can fully size under its caps (correlation/sector guards +
+  whole-share constraints), i.e. bars where QP must drop or truncate otherwise-admitted
+  candidates. The replay-implementation PR (§6 step 2) must compute this against the actual
+  QP step's caps, not approximate it from admitted-count alone;
+- **Consecutive zero-admission streak length** — the longest run of bars with zero
+  floor-clearing names, both mean-matched AND streak-matched (a candidate whose zero-runs
+  cluster differently than baseline's changes the live "how long between opportunities"
+  experience even at equal total admission).
+
+A candidate must match baseline within a pre-registered tolerance (set in the
+replay-implementation PR, before results are seen) on ALL FOUR of these, in addition to the
+mean, to be considered non-disruptive to the A-2 contract. A candidate that matches the
+mean but diverges on saturation/percentile/spill/streak is not disqualified outright, but
+must report the divergence explicitly in the results doc as an A-2-adjacent finding (per
+§5's freeze-and-report clause), not silently pass on mean-match alone.
+
 **Outcomes.** Primary: realized fwd_20d excess over SPY (fwd_60d is unresolvable for the
 live window until ~Aug 2026 — same honest deviation M3 recorded); fwd_10d and fwd_5d as
 sensitivity; winner = excess > the 11 bps cost proxy (M3's convention). Weekend mapping and
@@ -247,7 +308,8 @@ outcomes age in.
 this sample size), block-1 sensitivity carried alongside; CIs are descriptive of the window
 (M3's caveat inherited verbatim).
 
-**Frozen win criteria (the gate for the strategy-104 config PR):**
+**Frozen Stage 1 win criteria (the gate for a `candidate-for-shadow` verdict, NOT for the
+strategy-104 config PR — see §3's two-stage contract and §6):**
 
 1. Winner's Δ expectancy vs the CURRENT absolute-floor baseline, at matched breadth,
    > 0 with block-5 95% CI excluding 0 at the primary horizon;
@@ -256,10 +318,20 @@ this sample size), block-1 sensitivity carried alongside; CIs are descriptive of
    breadth);
 4. P(zero-admission bar) ≤ baseline's on the replay window (for (b): max consecutive
    zero-admission bars ≤ baseline's observed max, plus the monotone-in-dispersion sanity);
-5. zero post-hoc edits — any deviation from this section is recorded in the results doc
+5. admission-distribution match (top_n saturation frequency, p90/p95 admitted-count, QP
+   spill pressure, consecutive zero-admission streak — the four metrics pinned above),
+   within the pre-registered tolerance set in the replay-implementation PR;
+6. zero post-hoc edits — any deviation from this section is recorded in the results doc
    and downgrades the run to exploratory.
 
-**No-winner route (pre-registered).** If no candidate clears 1–4: M4 stays dark
+**Frozen Stage 2 win criteria (the gate for the strategy-104 config PR).** The Stage 1
+nominee re-clears criteria 1–5 above, computed fresh against the Stage 2 prospective
+window (§3) — confirmatory, not exploratory: the parameter is NOT re-fit on Stage 2 data,
+only re-evaluated. A nominee that fails any Stage 2 criterion returns to the no-winner
+route below; it does not get a second parameter fit.
+
+**No-winner route (pre-registered).** If no candidate clears Stage 1 criteria 1–6, or a
+Stage 1 nominee fails Stage 2: M4 stays dark
 (`recenter_raw_per_bar` remains false), BL-4 remains the permanent interim guard — exactly
 #231's M4 Plan-B ("keep BL-4 permanent → M3 weakens") — and the floor question re-enters
 via S5-aged panel-era outcomes, not via a re-run of the same window with new parameters.
@@ -299,17 +371,32 @@ via S5-aged panel-era outcomes, not via a re-run of the same window with new par
 
 ## 6. Rollout
 
+**Corrected 2026-07-03 (review):** a Stage 1 replay winner is a `candidate-for-shadow`,
+never a live enable. Section 6 previously allowed an immediate strategy-104 config PR
+straight off the replay verdict, which contradicted §7's own admission that the replay's
+resolved outcomes are retired-era/BULL_CALM-dominated and therefore provisional. The
+rollout below now requires Stage 2 (§3) between "replay winner" and "live enable," so this
+section is consistent with §7 rather than more aggressive than it.
+
 1. **This PR** — the design, evidence restatement, frozen protocol (docs only).
 2. **Replay implementation PR** (orchestrator, separate): read-only DB script per §4,
    committed evidence JSON, parameters imported from this doc — any divergence is a
    recorded deviation.
-3. **Shadow replay verdict recorded either way** (winner / no-winner), reviewed under the
-   normal control plane.
-4. **If winner:** strategy-104 config PR (design-via-PR) with the ONE combined flip (§5),
-   deployed via promote_pin (merged ≠ live until the live machine syncs pins), with a
-   monitored window and the combined single revert as rollback.
-5. **If no winner:** pre-registered NULL route (§4) — M4 dark, BL-4 permanent, revisit on
-   S5-aged panel-era outcomes.
+3. **Stage 1 replay verdict recorded either way** (candidate-for-shadow / no-winner),
+   reviewed under the normal control plane. A Stage 1 winner authorizes SHADOW deployment
+   only — no config, pipeline, or live-behavior change yet.
+4. **If Stage 1 nominee:** deploy the nominee in shadow/observe-only mode (implementation
+   detail for the replay-implementation PR — logging the nominee's admission decisions
+   alongside the live baseline's, per the same non-gating-shadow pattern already used by
+   `renquant-pipeline` #161's admission shadow logger) over the Stage 2 prospective window
+   (§3). No strategy-104 change at this step.
+5. **Stage 2 confirmatory verdict** — the Stage 1 nominee re-evaluated against the
+   prospective window per the Stage 2 win criteria (§4). Recorded either way.
+6. **If Stage 2 confirms:** strategy-104 config PR (design-via-PR) with the ONE combined
+   flip (§5), deployed via promote_pin (merged ≠ live until the live machine syncs pins),
+   with a monitored window and the combined single revert as rollback.
+7. **If no Stage 1 nominee, or a nominee fails Stage 2:** pre-registered NULL route (§4) —
+   M4 dark, BL-4 permanent, revisit on S5-aged panel-era outcomes.
 
 ## 7. Honest limits
 
