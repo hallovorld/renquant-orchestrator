@@ -67,7 +67,7 @@ rebase or an immediate follow-up — to:
 
 | Date | ID / source | Verdict | Evidence boundary (one phrase) | Verification | Reopening condition |
 |---|---|---|---|---|---|
-| 2026-06-28 | Phase −1 intraday directional alpha — `2026-06-27-renquant105-phase-minus-1-results.md` (recommitted from closed PR #199 by the V6 step-1 durability PR) | **NO-GO (soft)** — net edge −6.4 bps @ IC 0.03 / −3.4 @ IC 0.05 vs 220–367 bps breakeven; killed intraday directional alpha; L3 restricted to the timing residual | σ_oc ≈ 152 bps std (robust 114–115); 142-name survivorship universe; 11 bps cost prior; relied on by merged plans (H2 non-goals, L3 row, A4.2) | **PROVISIONAL** — V6 step-1 durability DONE; step-2 adversarial recompute pending | Measured cost below breakeven or evidenced IC far above the 0.03–0.05 band — either is a NEW frozen prereg, never a re-pitch |
+| 2026-06-28 | Phase −1 intraday directional alpha — `2026-06-27-renquant105-phase-minus-1-results.md` (recommitted from closed PR #199 by #267) | **NO-GO (soft)** — net edge −6.4 bps @ IC 0.03 / −3.4 @ IC 0.05 vs 220–367 bps breakeven; killed intraday directional alpha; L3 restricted to the timing residual | σ_oc ≈ 152 bps std (robust 114–115); 142-name survivorship universe; 11 bps cost prior; relied on by merged plans (H2 non-goals, L3 row, A4.2) | **PROVISIONAL** — V6 step-1 durability DONE (#267); step-2 adversarial recompute pending | Measured cost below breakeven or evidenced IC far above the 0.03–0.05 band — either is a NEW frozen prereg, never a re-pitch |
 
 ## Guardrails honoured
 
