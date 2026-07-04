@@ -9,6 +9,7 @@ import pytest
 
 from renquant_orchestrator.transfer_coefficient import (
     compute_tc_per_run,
+    main,
     measure_tc,
     tc_decomposition,
     tc_summary,
@@ -223,3 +224,25 @@ def test_tc_regime_breakdown(tc_db):
     # 3 BULL_CALM + 1 BEAR: only BULL_CALM has ≥3 runs
     assert list(s["by_regime"].keys()) == ["BULL_CALM"]
     assert s["by_regime"]["BULL_CALM"]["n"] == 3
+
+
+def test_cli_text_output(tc_db, capsys):
+    rc = main(["--db", str(tc_db), "--min-candidates", "5"])
+    captured = capsys.readouterr()
+    assert "Transfer Coefficient" in captured.out
+    assert rc == 0 or rc == 1
+
+
+def test_cli_json_output(tc_db, capsys):
+    rc = main(["--db", str(tc_db), "--min-candidates", "5", "--json"])
+    captured = capsys.readouterr()
+    import json as _json
+    data = _json.loads(captured.out)
+    assert "summary" in data
+    assert "decomposition" in data
+    assert rc == 0 or rc == 1
+
+
+def test_cli_no_data(tc_db, capsys):
+    rc = main(["--db", str(tc_db), "--min-candidates", "999"])
+    assert rc == 2
