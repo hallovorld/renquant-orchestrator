@@ -90,3 +90,44 @@ the same date with the same gate/scope → `n_verdicts` = 2, `n_covered` = 2,
 `coverage_ratio` = 1.0.
 
 15/15 attribution tests pass.
+
+## Round 4 (review): run_id was added to the counter, not the evidence
+
+Codex round 3 found round 3's own fix incomplete: `run_id` was added to the
+`COUNT(DISTINCT ...)` keys on both sides, but the `LEFT JOIN` predicate was
+still only `l.as_of = o.as_of AND l.scope = o.scope AND l.gate = o.gate` — no
+`run_id`. So the query counted at `(run_id, scope, gate)` grain while proving
+coverage only at `(as_of, scope, gate)` existence grain: one outcome cluster
+still silently "covered" every same-day rerun. The round-3 regression test
+(`test_outcome_coverage_counts_distinct_runs_not_collapsed`) encoded this
+exact overclaim — asserting `n_covered == 2` from one outcome row shared
+across two distinct `run_id`s.
+
+**Investigated whether option 1 (carry a true per-decision identity into
+`decision_outcomes` and join on it) is viable**: it is not. Traced
+`decision_ledger`'s `run_id` usage (`daily_trading_health.py`:
+`resolved_run_id = run_id or f"{as_of_str}-trading-health"`) — `run_id` is a
+per-invocation/process identity for the gate-registry run that produced a
+verdict. `decision_outcomes` rows are per-ticker *realized market returns*,
+recorded independently of which run evaluated the gate; a stock's forward
+return does not belong to a specific `run_id`, so there is no principled way
+to attribute an outcome to run-001 versus run-002 when both fired the same
+gate/scope on the same day. `decision_ledger` also has no ticker column at
+all (confirmed in round 2), reinforcing that these two tables simply do not
+share a join key finer than `(as_of, scope, gate)`.
+
+**Fix (option 2 — redefine honestly)**: reverted `COVERAGE_SQL` to count
+`DISTINCT gate || '|' || scope` per `as_of` (dropping `run_id` from the
+counters, since it can't be joined on and was misleading). Rewrote
+`outcome_coverage()`'s docstring to state explicitly: this measures
+date/scope/gate *outcome-cluster* coverage, not per-decision or per-run
+coverage; same-day reruns of the same gate/scope are deliberately collapsed
+because `decision_outcomes` cannot distinguish them. Replaced the round-3 test
+with `test_outcome_coverage_collapses_same_day_reruns_by_design`, which
+asserts the HONEST behavior (`n_verdicts=1`, `n_covered=1` for two same-day
+reruns sharing one outcome) and documents in its docstring why asserting
+`n_covered=2` would be the overclaim.
+
+1963/1963 relevant repo tests pass, 15/15 attribution tests pass (2
+pre-existing failures in `test_bundle_consistency_ci_gate.py` reproduce
+identically on a clean `origin/main` checkout — unrelated to this change).

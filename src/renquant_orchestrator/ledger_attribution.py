@@ -68,13 +68,13 @@ ORDER BY gate, verdict
 COVERAGE_SQL = """
 SELECT
   l.as_of,
-  COUNT(DISTINCT l.run_id || '|' || l.gate || '|' || l.scope) AS n_verdicts,
+  COUNT(DISTINCT l.gate || '|' || l.scope) AS n_verdicts,
   COUNT(DISTINCT CASE WHEN o.gate IS NOT NULL
-    THEN l.run_id || '|' || l.gate || '|' || l.scope END) AS n_covered,
-  CASE WHEN COUNT(DISTINCT l.run_id || '|' || l.gate || '|' || l.scope) > 0
+    THEN l.gate || '|' || l.scope END) AS n_covered,
+  CASE WHEN COUNT(DISTINCT l.gate || '|' || l.scope) > 0
     THEN COUNT(DISTINCT CASE WHEN o.gate IS NOT NULL
-           THEN l.run_id || '|' || l.gate || '|' || l.scope END) * 1.0
-         / COUNT(DISTINCT l.run_id || '|' || l.gate || '|' || l.scope)
+           THEN l.gate || '|' || l.scope END) * 1.0
+         / COUNT(DISTINCT l.gate || '|' || l.scope)
     ELSE NULL
   END AS coverage_ratio
 FROM decision_ledger l
@@ -176,16 +176,27 @@ def outcome_coverage(
     start_date: str,
     end_date: str,
 ) -> list[dict]:
-    """Per-date coverage ratio: what fraction of ledger decisions have AT LEAST
-    ONE corresponding outcome record?
+    """Per-date coverage ratio: what fraction of ``(as_of, scope, gate)``
+    combinations have AT LEAST ONE corresponding outcome record?
 
-    The ledger is keyed by ``(run_id, scope, gate)`` — multiple same-day runs
-    of the same gate/scope are distinct decisions. Both sides of the coverage
-    ratio count at this ``(run_id, gate, scope)`` grain so that same-day reruns
-    are not collapsed. The numerator counts ledger decisions whose
-    ``(as_of, scope, gate)`` has at least one matching outcome row; the
-    denominator counts all ledger decisions. ``coverage_ratio`` is therefore
-    bounded to [0, 1]. The S5 AC targets >=95% for aged decisions."""
+    This is coverage of *date/scope/gate outcome clusters*, not of individual
+    ledger decisions. The ledger's true PK is ``(run_id, scope, gate)`` — a
+    same-day rerun of a gate/scope (a distinct ``run_id``) is a distinct
+    decision row — but ``decision_outcomes`` carries no ``run_id`` (or any
+    other per-decision identity) and structurally cannot: an outcome is a
+    per-ticker realized forward return, a fact about the market on that date,
+    not about which invocation of the gate registry produced a verdict that
+    day. There is no principled way to attribute a market outcome to one
+    specific same-day rerun over another, so this metric intentionally
+    collapses same-day reruns of the same ``(scope, gate)`` into one unit:
+    both numerator and denominator count distinct ``(gate, scope)`` pairs per
+    ``as_of``, and ``coverage_ratio`` is bounded to [0, 1] by construction
+    (the numerator is a subset-count of the denominator). If two same-day
+    runs of the same gate/scope disagree, this metric cannot and does not
+    distinguish them — it only answers "does this date/scope/gate have
+    outcome data at all," not "was this specific run's verdict validated."
+    The S5 AC ("fwd-outcome join >=95% for aged decisions") should be read
+    against this (as_of, scope, gate) grain, not a per-run grain."""
     cur = conn.execute(COVERAGE_SQL, (start_date, end_date))
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]

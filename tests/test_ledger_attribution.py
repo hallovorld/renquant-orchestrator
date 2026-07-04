@@ -172,10 +172,17 @@ def test_outcome_coverage_bounded_with_multi_ticker_outcomes() -> None:
     assert cov[0]["n_covered"] == 2
 
 
-def test_outcome_coverage_counts_distinct_runs_not_collapsed() -> None:
-    """Two same-day runs of the same gate/scope must count as 2 verdicts, not 1.
-    This is the core grain-match test: the ledger PK is (run_id, scope, gate),
-    so the coverage denominator must respect run_id."""
+def test_outcome_coverage_collapses_same_day_reruns_by_design() -> None:
+    """Two same-day runs (distinct run_id) of the same gate/scope must NOT be
+    double-counted as 2 separate covered decisions from one outcome cluster.
+
+    decision_outcomes carries no run_id (an outcome is a per-ticker realized
+    market return, not tied to which run evaluated the gate), so there is no
+    principled way to attribute the one outcome record to run-001 specifically
+    and not run-002. The metric intentionally collapses same-day reruns of a
+    (scope, gate) into one (as_of, scope, gate) unit — asserting n_covered=2
+    here would be the exact overclaim Codex flagged (one outcome cluster
+    "covering" two distinct runs)."""
     conn = _db()
     write_verdicts(conn, "run-001", "2026-07-01", [
         {"scope": "daily", "gate": "P-WF-GATE", "verdict": "allow", "reason": "ok"},
@@ -192,8 +199,8 @@ def test_outcome_coverage_counts_distinct_runs_not_collapsed() -> None:
     ])
     cov = outcome_coverage(conn, "2026-07-01", "2026-07-01")
     assert len(cov) == 1
-    assert cov[0]["n_verdicts"] == 2
-    assert cov[0]["n_covered"] == 2
+    assert cov[0]["n_verdicts"] == 1
+    assert cov[0]["n_covered"] == 1
     assert cov[0]["coverage_ratio"] == pytest.approx(1.0)
 
 
