@@ -143,6 +143,15 @@ def artifact_dir(tmp_path):
     _write_artifact(
         staging / "panel-ltr.old.json",
         cutoff="2026-01-01", passed=True, lookahead_days=60,
+        trained_date="2026-01-01",
+    )
+    # Fresh retrain (trained_date recent) whose fwd_60d label_observation_cutoff
+    # is necessarily ~80-100d old by construction — must NOT be excluded by the
+    # scan window (Codex round 2/3: window binds to trained_date, not cutoff).
+    _write_artifact(
+        staging / "panel-ltr.fresh_retrain_wide_horizon.json",
+        cutoff="2026-04-10", passed=True, lookahead_days=60,
+        trained_date="2026-07-03",
     )
     # Not a panel-ltr file
     _write_artifact(
@@ -173,6 +182,21 @@ def test_scan_candidates_finds_recent(artifact_dir):
     assert not any("other-model" in n for n in names)
     assert not any(n.endswith(".staging.json") for n in names)
     assert not any(n.endswith(".metadata.json") for n in names)
+
+
+def test_scan_candidates_window_binds_to_trained_date_not_cutoff_age(artifact_dir):
+    """Codex round 2/3: a genuinely fresh retrain whose fwd_60d cutoff is ~85d
+    old by construction must still be scanned — the window is production
+    recency (trained_date), never the label-horizon-widened cutoff age."""
+    candidates = scan_candidates(
+        [artifact_dir / "staging"], NOW, window_days=10,
+    )
+    names = [Path(c.path).name for c in candidates]
+    assert "panel-ltr.fresh_retrain_wide_horizon.json" in names
+    fresh = next(c for c in candidates if Path(c.path).name == "panel-ltr.fresh_retrain_wide_horizon.json")
+    assert fresh.age_days is not None and fresh.age_days > 10, (
+        "fixture must actually exercise the wide-horizon case (cutoff age > window_days)"
+    )
 
 
 def test_scan_candidates_classifies_gates(artifact_dir):
@@ -470,6 +494,7 @@ def test_cli_window_days(enforce_dirs, capsys):
     _write_artifact(
         staging_dir / "panel-ltr.candidate.json",
         cutoff="2026-06-20", passed=True, lookahead_days=60,
+        trained_date="2026-06-15",  # produced outside the 5d window
     )
     rc = main([
         "--as-of", "2026-07-04",

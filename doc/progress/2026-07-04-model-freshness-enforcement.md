@@ -77,3 +77,57 @@ code (asserted `stale=True`, got `stale=False, tier='warn'`) and passes after. 3
 enforcer tests pass; 2014/2014 relevant repo tests pass (2 pre-existing, unrelated
 `test_bundle_consistency_ci_gate.py` failures reproduce identically on clean
 `origin/main`).
+
+## Round 3 (Codex — left as PLAIN PR COMMENTS, not formal reviews)
+
+Codex left two findings as plain PR comments (2026-07-04T20:16 and 22:06 — the second
+explicitly noting "I do not see a substantive change" after an intervening
+merge-from-main commit that did not touch the actual issue) plus a CI-status note
+(22:39). None of these were formal review submissions, so earlier sweep passes that
+only checked the reviews API missed them. This round fixes both — the 22:06 comment
+was re-confirming the SAME still-unfixed issue from 20:16, not a repeat of a failed
+fix attempt; this is the first actual fix for it.
+
+**Core issue — `scan_candidates()`'s window bound to the wrong clock.** The window
+(`window_days`, default 10) was compared directly against `freshness.age_days` — the
+candidate's binding `label_observation_cutoff` age. For fwd_60d panel artifacts this
+axis is *always* ~60-90d+ old by construction (a forward-60-day label cannot be fully
+observed until 60 days after the row date), even for a candidate trained TODAY. So the
+window silently excluded every genuinely fresh fwd_60d candidate from ever being
+scanned — the enforcer could report zero recent candidates while fresh, healthy
+retrains actually existed.
+
+Fixed: `scan_candidates()` now binds `window_days` to the candidate's own stamped
+`trained_date` (its production/registration timestamp) instead of `freshness.age_days`
+(its data-cutoff freshness axis). These are deliberately different questions: "was
+this candidate recently produced" (scan admission, now `trained_date`-keyed) vs. "is
+its underlying training data fresh enough to trust" (already correctly computed via
+`freshness.tier`, which lag-widens its thresholds by the artifact's own stamped
+`lookahead_days` per #423 — unchanged by this fix, still used for classification on
+the admitted `CandidateResult`). `trained_date` is read via the same `_parse_date`
+helper already used elsewhere in `model_freshness_monitor.py`; a missing/unparseable
+`trained_date` fails closed (excluded), consistent with this module's existing
+fail-closed philosophy.
+
+Two existing tests (`test_scan_candidates_finds_recent`'s `panel-ltr.old.json` case,
+`test_cli_window_days`) encoded the OLD (buggy) semantics implicitly, since their
+fixture artifacts had no explicit `trained_date` override and so defaulted to a
+recent stamped value — meaning they'd now pass for the wrong reason under the new
+binding. Updated both to set explicit old `trained_date` values so they still
+correctly test genuine exclusion. Added
+`test_scan_candidates_window_binds_to_trained_date_not_cutoff_age`, which
+constructs exactly Codex's described scenario (cutoff ~85d old, `trained_date` 1 day
+old) and asserts the candidate IS scanned — confirmed this test fails against the
+pre-fix code (`age_days`-based filter excludes it) and passes after.
+
+**CI-red snapshot (comment 3).** `tests/test_doc_alignment.py::test_snapshot_not_stale`
+failed because the committed `data/strategy_snapshot.json` baseline didn't include the
+new `model-freshness-enforce` CLI subcommand this PR adds (added by
+`renquant-orchestrator#329`'s M9 doc/impl alignment check, merged after this PR's
+original commit). Reproduced the exact failure locally, then regenerated the snapshot
+via `python scripts/generate_strategy_snapshot.py --update` per the test's own
+instruction.
+
+33 enforcer tests pass (32 + the new one); 2113/2113 relevant repo tests pass (2
+pre-existing, unrelated `test_bundle_consistency_ci_gate.py` failures reproduce
+identically on clean `origin/main`).

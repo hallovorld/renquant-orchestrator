@@ -51,6 +51,8 @@ from .model_freshness_monitor import (
     TIER_ESCALATE,
     TIER_UNKNOWN,
     _TIER_RANK,
+    _TRAINED_DATE_FIELD,
+    _parse_date,
     default_prod_panel_path,
     parse_as_of,
     read_artifact_freshness,
@@ -226,7 +228,26 @@ def scan_candidates(
                 f"candidate:{path.name}", path, now, policy=policy,
             )
 
-            if freshness.age_days is None or freshness.age_days > window_days:
+            # ``window_days`` bounds SCAN SCOPE ("was this candidate produced
+            # recently") — it is a different question from ``freshness.age_days``
+            # / ``freshness.tier`` (the binding DATA-cutoff freshness, computed
+            # above and preserved on the CandidateResult for classification).
+            # Comparing window_days directly against age_days conflated the two:
+            # for a fwd_60d panel the binding cutoff is *always* ~60-90d+ old by
+            # construction (the label horizon requires 60d before a row is fully
+            # labeled), even for a candidate trained TODAY, so the old check
+            # silently excluded every genuinely fresh fwd_60d candidate from ever
+            # being scanned (Codex round 2/3 review). Bind the window instead to
+            # this candidate's own stamped ``trained_date`` — its production /
+            # registration timestamp — never used here to certify data freshness
+            # (that stays keyed on ``freshness.tier``, per #423), only to decide
+            # whether the candidate is recent enough to be worth considering at
+            # all. Missing/unparseable trained_date fails closed (excluded).
+            produced = _parse_date(data.get(_TRAINED_DATE_FIELD))
+            if produced is None:
+                continue
+            produced_age_days = (now.date() - produced).days
+            if produced_age_days < 0 or produced_age_days > window_days:
                 continue
 
             wf_meta = (
