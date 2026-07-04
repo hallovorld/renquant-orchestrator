@@ -87,6 +87,13 @@ def collect_snapshot(
     today = dt.date.today().isoformat()
     snapshot_files = sorted(out_path.glob(f"*{today}*"))
 
+    if not snapshot_files:
+        raise RuntimeError(
+            f"PIT collector returned rc=0 but produced no snapshot files for {today} "
+            f"in {out_path}. This is a time-irreversible data source — a silent "
+            f"no-op permanently loses the day's revisions."
+        )
+
     provenance = {
         "collected_at": dt.datetime.utcnow().isoformat() + "Z",
         "collector": COLLECTOR_MODULE,

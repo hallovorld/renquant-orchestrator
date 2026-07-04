@@ -63,9 +63,25 @@ def test_collect_raises_on_nonzero_rc(monkeypatch, tmp_path) -> None:
         mod.collect_snapshot(repo)
 
 
-def test_collect_with_universe_override(monkeypatch, tmp_path) -> None:
+def test_collect_raises_on_empty_output(monkeypatch, tmp_path) -> None:
     repo = _repo(tmp_path)
     (repo / mod.DEFAULT_OUTPUT_DIR).mkdir(parents=True)
+
+    def ok_run(cmd, cwd=None, env=None, capture_output=False, text=False):
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mod.subprocess, "run", ok_run)
+
+    with pytest.raises(RuntimeError, match="no snapshot files"):
+        mod.collect_snapshot(repo)
+
+
+def test_collect_with_universe_override(monkeypatch, tmp_path) -> None:
+    repo = _repo(tmp_path)
+    out_dir = repo / mod.DEFAULT_OUTPUT_DIR
+    out_dir.mkdir(parents=True)
+    today = dt.date.today().isoformat()
+    (out_dir / f"estimates_{today}.parquet").write_bytes(b"data")
     seen_cmds: list[list[str]] = []
 
     def capture_run(cmd, cwd=None, env=None, capture_output=False, text=False):
