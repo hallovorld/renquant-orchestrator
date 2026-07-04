@@ -34,8 +34,8 @@ def test_inventory_covers_main_scheduled_job_kinds() -> None:
 def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
     payload = inventory_payload()
 
-    assert payload["summary"]["total"] == 22
-    assert payload["summary"]["native_multirepo"] == 20
+    assert payload["summary"]["total"] == 30
+    assert payload["summary"]["native_multirepo"] == 28
     assert payload["summary"]["umbrella_bridge"] == 2
     assert payload["summary"]["umbrella_bridge_jobs"] == [
         "daily_live_runner_bridge",
@@ -79,7 +79,7 @@ def test_inventory_flags_remaining_umbrella_code_bridges() -> None:
 def test_inventory_summarizes_remaining_umbrella_state_dependencies() -> None:
     payload = inventory_payload()
 
-    assert payload["summary"]["umbrella_state_dependency_job_count"] == 16
+    assert payload["summary"]["umbrella_state_dependency_job_count"] == 18
     assert payload["summary"]["umbrella_state_dependency_jobs"] == [
         "weekly_alpha158_fund_retrain",
         "weekly_patchtst_retrain",
@@ -96,6 +96,8 @@ def test_inventory_summarizes_remaining_umbrella_state_dependencies() -> None:
         "state_backup",
         "build_wf_manifest",
         "build_patchtst_wf_manifest",
+        "scorer_identity_monitor",
+        "fallback_shadow_logger",
         "model_freshness_monitor",
     ]
 
