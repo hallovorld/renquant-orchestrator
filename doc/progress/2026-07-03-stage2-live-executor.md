@@ -53,3 +53,34 @@ NEXT:     (all future, none in this PR) the authorization act = 3 steps:
           evidence block + $500 cap + <=31d expiry; (3) machine landing of
           RENQUANT_INTRADAY_LIVE=1 (ask-first). Until then every session
           runs the unchanged Stage-1 shadow path.
+
+ROUND 2 (codex review):
+FINDING 1 (fixed): "do not implement broker adapters here" is a hard
+          CLAUDE.md boundary this PR violated by defining `AlpacaBrokerPort`
+          locally. Moved it to renquant-execution (renquant-execution#21) —
+          `order_state_machine.BrokerPort`'s own docstring already said
+          "Alpaca adapter implements this later," confirming that's where it
+          belonged. This repo now only IMPORTS it
+          (`renquant_execution.alpaca_broker_port.AlpacaBrokerPort`) as the
+          CLI's default `port_factory`; `LiveTickExecutor`/`LiveSessionRunner`
+          already took the port as an injected `BrokerPort` dependency and
+          never changed. The adapter's one "no positive reference price"
+          contract check now raises a new execution-owned
+          `BrokerPortContractError` (not this repo's `Stage2ContractError`) —
+          no reverse dependency from execution back onto orchestrator. The
+          matching test moved to renquant-execution's test suite verbatim
+          (request-shaping only, no network). Net: -148 lines here (was
+          1795, now ~1650), no orchestrator behavior change. Verified: full
+          suite still 1532 passed / 3 skipped locally against the fixed
+          renquant-execution branch; hosted CI on THIS repo will stay red
+          until renquant-execution#21 merges to main (cross-repo dependency
+          ordering — same pattern as this session's common/base-data pin
+          cascade), since CI checks out renquant-execution's main, not this
+          feature branch.
+FINDING 2 (acknowledged, not resolved by this fix): "the execution plan is
+          ahead of the evidence plan" — the §9.3a quadruple gate (all flags
+          OFF) remains the runtime safety mechanism, but the §9.4 economic
+          authorization decision this concern raises is a SEPARATE,
+          not-yet-settled gate. This fix does not attempt to resolve it —
+          only finding 1 (the architecture-boundary violation) was in scope
+          for a code change.

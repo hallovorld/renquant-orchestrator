@@ -34,9 +34,11 @@ slice-2 pipeline tick (renquant-pipeline ``intraday_decisioning`` — consumed
 through the same normalized payload the shadow log records) are registered
 as parent intents in slice 1's ``OrderStateBook``
 (``renquant_execution.order_state_machine`` — consumed, never
-reimplemented), submitted through the :class:`AlpacaBrokerPort` adapter
-(client-order-id = the slice-1 child id, DAY time-in-force, limit/market per
-the recorded authorization), fills/cancels are reconciled back into the
+reimplemented), submitted through ``renquant_execution.alpaca_broker_port
+.AlpacaBrokerPort`` (broker adapters are owned there, injected here as the
+CLI's default ``port_factory`` — never defined in this repo; client-order-id
+= the slice-1 child id, DAY time-in-force, limit/market per the recorded
+authorization), fills/cancels are reconciled back into the
 book, and the book snapshot is persisted after every tick to
 ``data/rq105/order_state_book.json`` in slice 1's exact snapshot/restore
 shape (state file under the operator data root — never canonical prod data,
@@ -88,6 +90,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from renquant_artifacts import hash_jsonable
+from renquant_execution.alpaca_broker_port import AlpacaBrokerPort
 from renquant_execution.order_state_machine import (
     MAX_PENDING_AGE_SECONDS,
     BrokerPort,
@@ -636,141 +639,11 @@ def assert_entry_cap(
 
 
 # ---------------------------------------------------------------------------
-# The REAL broker adapter — Alpaca REST orders API behind slice 1's BrokerPort.
+# The REAL broker adapter — owned by renquant-execution, never here (per
+# CLAUDE.md "do not implement broker adapters here"). AlpacaBrokerPort lives
+# in renquant_execution.alpaca_broker_port; this module only injects it as
+# the CLI's default port_factory, behind the §9.3a quadruple gate.
 # ---------------------------------------------------------------------------
-@dataclass
-class AlpacaBrokerPort:
-    """Slice-1 ``BrokerPort`` over the Alpaca trading REST API.
-
-    - client-order-id == the slice-1 ``child_order_id`` (idempotency at the
-      broker: Alpaca rejects a duplicate client_order_id);
-    - DAY time-in-force always (§11b: no order carries overnight);
-    - limit vs market per the recorded authorization (A5.2: the order type
-      is pre-declared in the authorization artifact, never per-order):
-      entries default marketable-limit at the class-D reference price ±
-      ``limit_price_offset_bps``; exits default market (exits favor action);
-    - reads (``open_orders`` / ``order_status``) are GET-only, following the
-      same lazy env-credential client pattern as ``AlpacaLiveStateSource``.
-
-    NEVER constructed in tests — tests use a fake port; this adapter is the
-    only place a real submit can originate, and it is only reachable behind
-    the §9.3a quadruple gate.
-    """
-
-    paper: bool = True
-    entry_order_type: str = "limit"
-    exit_order_type: str = "market"
-    limit_price_offset_bps: float = 0.0
-    _client: Any = None
-
-    def _trading_client(self) -> Any:
-        if self._client is None:
-            from alpaca.trading.client import TradingClient  # noqa: PLC0415
-
-            self._client = TradingClient(
-                os.environ["ALPACA_API_KEY"],
-                os.environ["ALPACA_SECRET_KEY"],
-                paper=self.paper,
-            )
-        return self._client
-
-    @staticmethod
-    def _status_of(order: Any) -> str:
-        status = getattr(order, "status", "")
-        return str(getattr(status, "value", status)).lower()
-
-    @staticmethod
-    def _filled_of(order: Any) -> float:
-        return float(getattr(order, "filled_qty", 0.0) or 0.0)
-
-    def _limit_price(self, side: str, reference_price: float) -> float:
-        offset = self.limit_price_offset_bps / 10_000.0
-        price = (
-            reference_price * (1.0 + offset)
-            if side == SIDE_BUY
-            else reference_price * (1.0 - offset)
-        )
-        # Alpaca sub-penny rule: >= $1 quotes to 2dp, sub-$1 to 4dp.
-        return round(price, 2 if price >= 1.0 else 4)
-
-    def submit_order(
-        self,
-        *,
-        client_order_id: str,
-        symbol: str,
-        side: str,
-        qty: float,
-        limit_price: float | None = None,
-    ) -> Mapping[str, Any]:
-        from alpaca.trading.enums import OrderSide, TimeInForce  # noqa: PLC0415
-        from alpaca.trading.requests import (  # noqa: PLC0415
-            LimitOrderRequest,
-            MarketOrderRequest,
-        )
-
-        side_u = str(side).upper()
-        order_type = self.entry_order_type if side_u == SIDE_BUY else self.exit_order_type
-        order_side = OrderSide.BUY if side_u == SIDE_BUY else OrderSide.SELL
-        common: dict[str, Any] = {
-            "symbol": str(symbol).upper(),
-            "qty": qty,
-            "side": order_side,
-            "time_in_force": TimeInForce.DAY,
-            "client_order_id": client_order_id,
-        }
-        if order_type == "limit" and (limit_price is None or limit_price <= 0):
-            if side_u == SIDE_BUY:
-                # Entries fail closed without a limit reference (§10: entries
-                # need a fresh tape); never silently become a market order.
-                raise Stage2ContractError(
-                    f"limit entry for {symbol} has no positive reference "
-                    f"price ({limit_price!r})"
-                )
-            order_type = "market"  # exits favor action over quote freshness
-        if order_type == "limit":
-            request: Any = LimitOrderRequest(
-                limit_price=self._limit_price(side_u, float(limit_price)),
-                **common,
-            )
-        else:
-            request = MarketOrderRequest(**common)
-        order = self._trading_client().submit_order(order_data=request)
-        return {
-            "status": self._status_of(order),
-            "broker_order_id": str(getattr(order, "id", "")),
-            "client_order_id": client_order_id,
-            "filled_qty": self._filled_of(order),
-        }
-
-    def cancel_order(self, client_order_id: str) -> Mapping[str, Any]:
-        client = self._trading_client()
-        order = client.get_order_by_client_id(client_order_id)
-        if self._status_of(order) not in (
-            {"filled", "rejected", "expired"} | _CANCELED_STATUSES
-        ):
-            client.cancel_order_by_id(getattr(order, "id"))
-            order = client.get_order_by_client_id(client_order_id)
-        return {"status": self._status_of(order), "filled_qty": self._filled_of(order)}
-
-    def open_orders(self) -> Mapping[str, float]:
-        from alpaca.trading.enums import QueryOrderStatus  # noqa: PLC0415
-        from alpaca.trading.requests import GetOrdersRequest  # noqa: PLC0415
-
-        orders = self._trading_client().get_orders(
-            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500)
-        )
-        result: dict[str, float] = {}
-        for order in orders:
-            cid = str(getattr(order, "client_order_id", "") or "")
-            if not cid:
-                continue
-            requested = float(getattr(order, "qty", 0.0) or 0.0)
-            result[cid] = requested - self._filled_of(order)
-        return result
-
-    def order_status(self, client_order_id: str) -> Mapping[str, Any]:
-        order = self._trading_client().get_order_by_client_id(client_order_id)
-        return {"status": self._status_of(order), "filled_qty": self._filled_of(order)}
 
 
 # ---------------------------------------------------------------------------
@@ -1751,7 +1624,6 @@ def main(
 
 __all__ = [
     "ALL_GATES",
-    "AlpacaBrokerPort",
     "ArmDecision",
     "DEAD_MAN_CONSECUTIVE_FAILURES",
     "DEFAULT_DAILY_ENTRY_NOTIONAL_CAP",
