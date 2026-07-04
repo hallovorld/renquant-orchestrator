@@ -98,20 +98,23 @@ def previous_session(
 ) -> str:
     """The immediately preceding exchange session strictly before ``session_date``.
 
-    Walks backwards day-by-day through the injected calendar (holiday /
-    weekend / half-day aware — half days are still sessions). Raises
-    :class:`FrozenSignalError` when no session exists within the lookback
-    window (a data problem worth failing loudly on, not a fallback case).
+    Campaign B5: delegates to the canonical
+    :func:`renquant_common.market_calendar.previous_session_from_calendar`
+    (injected-calendar day-walk — holiday / weekend / half-day aware; half
+    days are still sessions). Raises :class:`FrozenSignalError` when no
+    session exists within the lookback window (a data problem worth failing
+    loudly on, not a fallback case).
     """
-    day = date_cls.fromisoformat(str(session_date))
-    for _ in range(max_lookback_days):
-        day = day - dt.timedelta(days=1)
-        if calendar.session_bounds(day) is not None:
-            return day.isoformat()
-    raise FrozenSignalError(
-        f"no exchange session found in the {max_lookback_days} days before "
-        f"{session_date} (calendar {getattr(calendar, 'name', '?')!r})"
+    from renquant_common.market_calendar import (  # noqa: PLC0415
+        previous_session_from_calendar,
     )
+
+    try:
+        return previous_session_from_calendar(
+            calendar, str(session_date), max_lookback_days=max_lookback_days
+        ).isoformat()
+    except ValueError as exc:
+        raise FrozenSignalError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

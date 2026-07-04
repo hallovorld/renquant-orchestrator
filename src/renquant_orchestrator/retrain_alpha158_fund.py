@@ -496,18 +496,6 @@ def _resolve_ohlcv_max_date(ctx: RetrainContext, ticker: str) -> "dt.date | None
     return _default_ohlcv_max_date(ctx.ohlcv_dir, ticker)
 
 
-@functools.lru_cache(maxsize=4)
-def _exchange_calendar(exchange: str):
-    """The SHARED exchange calendar (NYSE by default) — holiday and early-close
-    (half-day) aware. This is the same ``pandas_market_calendars`` calendar the
-    rest of the stack prices against (base-data's ``_last_completed_nyse_session``
-    and the live freshness checks), NOT a plain Mon-Fri business-day helper which
-    would count holidays as sessions and mis-decide lag."""
-    import pandas_market_calendars as mcal  # noqa: PLC0415
-
-    return mcal.get_calendar(exchange)
-
-
 def _default_now() -> object:
     """Timezone-aware wall clock used to derive the expected market session."""
     import pandas as pd  # noqa: PLC0415
@@ -518,34 +506,25 @@ def _default_now() -> object:
 def _expected_last_completed_session(exchange: str, now) -> "dt.date | None":
     """Most recent COMPLETED exchange session as of ``now`` (tz-aware).
 
-    Mirrors ``renquant_base_data.loaders.data._last_completed_nyse_session``:
-    today counts only once its (possibly early, half-day) close has passed;
-    otherwise the prior session is used. Holidays are skipped by the calendar.
-    Returns ``None`` only when the calendar yields no sessions in the lookback.
-    """
-    import pandas as pd  # noqa: PLC0415
+    Campaign B5 (audit #296 XC-2): delegates to the canonical
+    :func:`renquant_common.market_calendar.last_completed_session`. This was
+    previously a hand-copied "mirror" of base-data's
+    ``_last_completed_nyse_session`` that had already diverged (16-day vs
+    14-day lookback) — semantics unchanged and equivalence-proven on a
+    10-year fixture: today counts only once its (possibly early, half-day)
+    close has passed; holidays are skipped by the calendar. Kept as a named
+    seam so tests can monkeypatch the derivation. The canonical raises
+    ``ValueError`` (fail-closed) where the old copy returned ``None``;
+    ``_resolve_expected_session`` maps both to FreshnessUnprovableError.
 
-    cal = _exchange_calendar(exchange)
-    now = pd.Timestamp(now)
-    if now.tzinfo is None:
-        now = now.tz_localize("America/New_York")
-    ref_date = now.date()
-    sched = cal.schedule(
-        start_date=(ref_date - dt.timedelta(days=16)).isoformat(),
-        end_date=ref_date.isoformat(),
-    )
-    if sched.empty:
-        return None
-    todays = sched[sched.index.date == ref_date]
-    if not todays.empty:
-        close = pd.Timestamp(todays["market_close"].iloc[-1])
-        close = close.tz_localize("UTC") if close.tzinfo is None else close
-        if now >= close.tz_convert(now.tz):
-            return ref_date
-    before = sched[sched.index.date < ref_date]
-    if before.empty:
-        return None
-    return before.index[-1].date()
+    The "independently-derived expected session" contract of this gate means
+    independence from the DATA under check (clock + calendar, never
+    ``max(known dates)``) — not from the calendar library, which was always
+    the same ``pandas_market_calendars`` dataset base-data reads.
+    """
+    from renquant_common.market_calendar import last_completed_session  # noqa: PLC0415
+
+    return last_completed_session(now, calendar_name=exchange)
 
 
 def _resolve_expected_session(ctx: RetrainContext) -> "dt.date":
@@ -577,15 +556,19 @@ def _resolve_expected_session(ctx: RetrainContext) -> "dt.date":
 def _default_session_gap(exchange: str, start: "dt.date", end: "dt.date") -> int:
     """Number of exchange sessions strictly after ``start`` up to and including
     ``end`` (holiday / half-day aware). 0 when ``start >= end`` — half-days count
-    as full sessions (they are open sessions, merely early-close)."""
+    as full sessions (they are open sessions, merely early-close). Campaign B5:
+    counts via the canonical ``renquant_common.market_calendar`` primitive."""
+    from renquant_common.market_calendar import sessions_between  # noqa: PLC0415
+
     if start >= end:
         return 0
-    cal = _exchange_calendar(exchange)
-    vd = cal.valid_days(
-        start_date=(start + dt.timedelta(days=1)).isoformat(),
-        end_date=end.isoformat(),
+    return int(
+        len(
+            sessions_between(
+                start + dt.timedelta(days=1), end, calendar_name=exchange
+            )
+        )
     )
-    return int(len(vd))
 
 
 def _session_gap(ctx: RetrainContext, start: "dt.date", end: "dt.date") -> int:

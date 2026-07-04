@@ -38,10 +38,21 @@ broker calls anywhere in this module:
    explicit flag, an ntfy alert. Per §7, an open-order ledger mismatch (and any unknown
    broker status or broken replacement lineage) advises *halt new entries* (exits still
    allowed) — this module only advises; it does not enforce.
+
+**Canonical identity + terminal classification (campaign B3, audit #296 OR-1/OR-2).**
+The §7 two-level identity (``compute_parent_intent_id`` / ``child_order_id``) and the
+terminal broker-status classification (``classify_terminal_status`` /
+``TERMINAL_STATUS_MAP``) are **imported from** ``renquant_execution.order_state_machine``
+— the single canonical impl the Stage-2 executor uses — never re-implemented here. An
+audit that computes "the same" identity with a different recipe than the system it audits
+is divergent by construction (the calibrator-fingerprint triple-impl failure mode). Only
+the *non-terminal* (open/in-flight) Alpaca vocabulary plus the REPLACED lineage state —
+which execution's Stage-1 terminal map deliberately does not own — stays local, with an
+import-time guard that fails loudly if execution's terminal vocabulary ever grows to
+overlap it.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import threading
@@ -52,16 +63,28 @@ from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 from enum import Enum
 
 from renquant_common.notify import send as _send_notification
+# Canonical §7 impls — consumed, never copied (RFC #208 §8 row 1: execution owns the
+# identity + terminal-status vocabulary). Same top-level-import seam as
+# ``intraday_live_executor``; renquant-execution is a declared dependency.
+from renquant_execution.order_state_machine import (
+    TERMINAL_STATUS_MAP,
+    ChildOrderState,
+    child_order_id,
+    classify_terminal_status,
+    compute_parent_intent_id,
+)
 
 __all__ = [
     "OrderState",
     "OPEN_STATES",
     "TERMINAL_STATES",
     "ALPACA_STATUS_TO_STATE",
+    "TERMINAL_STATUS_MAP",  # re-export: canonical §7 terminal vocabulary (execution repo)
     "IllegalTransition",
     "LifecycleMachine",
-    "make_parent_intent_id",
-    "make_child_order_id",
+    "compute_parent_intent_id",  # re-export: canonical §7 dedup identity (execution repo)
+    "child_order_id",  # re-export: canonical §7 per-attempt broker client-order-id
+    "classify_terminal_status",  # re-export: canonical terminal-status classifier
     "OrderIntent",
     "IntentRegistry",
     "ChildAttempt",
@@ -197,9 +220,24 @@ _LEGAL_TRANSITIONS: dict[OrderState, frozenset[OrderState]] = {
     OrderState.UNKNOWN: frozenset(),
 }
 
-# Alpaca order.status -> canonical OrderState. Matches the broker field names seen in the
-# live 104 broker state (``filled_qty`` / ``filled_avg_price`` / ``client_order_id`` etc.).
-ALPACA_STATUS_TO_STATE: dict[str, OrderState] = {
+# Canonical terminal child state (execution's §7 vocabulary) -> this module's richer
+# audit-side OrderState. Total over every state ``TERMINAL_STATUS_MAP`` can emit — the
+# import-time check below fails loudly if execution's vocabulary grows past ours.
+_TERMINAL_CHILD_TO_ORDER_STATE: dict[ChildOrderState, OrderState] = {
+    ChildOrderState.FILLED: OrderState.FILLED,
+    ChildOrderState.CANCELED: OrderState.CANCELED,
+    ChildOrderState.REJECTED: OrderState.REJECTED,
+    ChildOrderState.EXPIRED: OrderState.EXPIRED,
+}
+
+# NON-terminal (open / in-flight) Alpaca order.status -> OrderState, plus REPLACED.
+# This is the ONLY status vocabulary owned locally: execution's canonical
+# ``TERMINAL_STATUS_MAP`` deliberately covers terminal outcomes only (anything it does not
+# classify is "still live — leave open"), and its Stage-1 machine does not model broker
+# replacement, while this audit-side reconciler tracks REPLACED lineage explicitly so a
+# replaced remainder is never booked as a canceled under-fill. Terminal statuses
+# (incl. ``done_for_day``) must NEVER be added here — they belong to execution's map.
+_OPEN_ALPACA_STATUS_TO_STATE: dict[str, OrderState] = {
     "new": OrderState.ACCEPTED,
     "pending_new": OrderState.SUBMITTED,
     "accepted": OrderState.ACCEPTED,
@@ -207,19 +245,40 @@ ALPACA_STATUS_TO_STATE: dict[str, OrderState] = {
     "held": OrderState.ACCEPTED,
     "calculated": OrderState.ACCEPTED,
     "partially_filled": OrderState.PARTIALLY_FILLED,
-    "filled": OrderState.FILLED,
-    "done_for_day": OrderState.ACCEPTED,
-    "canceled": OrderState.CANCELED,
-    "cancelled": OrderState.CANCELED,
     "pending_cancel": OrderState.ACCEPTED,
-    "expired": OrderState.EXPIRED,
     # `replaced` is NOT a plain cancel — the remainder is carried by the replacement child.
     # Keep it a distinct state with lineage so accounting never books a false under-fill.
     "replaced": OrderState.REPLACED,
     "pending_replace": OrderState.ACCEPTED,
-    "rejected": OrderState.REJECTED,
     "suspended": OrderState.ACCEPTED,
     "stopped": OrderState.ACCEPTED,
+}
+
+# Drift guard (fail loudly at import): the local open-vocabulary must never shadow the
+# canonical terminal vocabulary. If renquant-execution later classifies a status we map
+# here (e.g. adds "replaced" to TERMINAL_STATUS_MAP), the two repos must be reconciled
+# explicitly — silently diverging again is exactly the OR-1/OR-2 failure mode.
+_shadowed = sorted(set(_OPEN_ALPACA_STATUS_TO_STATE) & set(TERMINAL_STATUS_MAP))
+if _shadowed:  # pragma: no cover - tripped only by a cross-repo vocabulary change
+    raise RuntimeError(
+        "execution_reconciler's local open-status map shadows renquant-execution's "
+        f"canonical TERMINAL_STATUS_MAP for {_shadowed}; reconcile the vocabularies "
+        "(the canonical terminal classification lives in "
+        "renquant_execution.order_state_machine)"
+    )
+
+# Alpaca order.status -> canonical OrderState. Matches the broker field names seen in the
+# live 104 broker state (``filled_qty`` / ``filled_avg_price`` / ``client_order_id`` etc.).
+# DERIVED, not hand-written: terminal statuses come from execution's canonical
+# ``TERMINAL_STATUS_MAP`` (so ``done_for_day`` -> CANCELED — the broker's close-out of a
+# DAY order, see execution's module note — and ``failed`` -> REJECTED), and only the
+# open/in-flight vocabulary is local.
+ALPACA_STATUS_TO_STATE: dict[str, OrderState] = {
+    **{
+        status: _TERMINAL_CHILD_TO_ORDER_STATE[child_state]
+        for status, child_state in TERMINAL_STATUS_MAP.items()
+    },
+    **_OPEN_ALPACA_STATUS_TO_STATE,
 }
 
 
@@ -255,40 +314,28 @@ class LifecycleMachine:
     def from_broker_status(status: str) -> OrderState:
         """Map a raw broker (Alpaca) ``order.status`` string to a canonical state.
 
-        An unrecognised status maps to :attr:`OrderState.UNKNOWN` — **fail-closed**. Mapping
-        it to ACCEPTED (the old behaviour) is fail-*open*: a broker API/schema change would
-        make a status we no longer understand look like a valid open order. UNKNOWN instead
-        surfaces as a CRITICAL reconciliation divergence (Codex review, 2026-07-01)."""
-        return ALPACA_STATUS_TO_STATE.get(str(status).strip().lower(), OrderState.UNKNOWN)
+        Terminal statuses are classified by renquant-execution's canonical
+        :func:`classify_terminal_status` (so a terminal outcome can never drift from what
+        the Stage-2 executor books — notably ``done_for_day`` -> CANCELED); only the
+        open/in-flight vocabulary is resolved locally. An unrecognised status maps to
+        :attr:`OrderState.UNKNOWN` — **fail-closed**. Mapping it to ACCEPTED (the old
+        behaviour) is fail-*open*: a broker API/schema change would make a status we no
+        longer understand look like a valid open order. UNKNOWN instead surfaces as a
+        CRITICAL reconciliation divergence (Codex review, 2026-07-01)."""
+        terminal = classify_terminal_status(status)
+        if terminal is not None:
+            return _TERMINAL_CHILD_TO_ORDER_STATE[terminal]
+        return _OPEN_ALPACA_STATUS_TO_STATE.get(
+            str(status).strip().lower(), OrderState.UNKNOWN
+        )
 
 
-def make_parent_intent_id(
-    account: str, symbol: str, trading_day: str, side: str, signal_version: str
-) -> str:
-    """§7 dedup key — a stable hash of the *decision*, not a broker id. Re-deriving it for
-    the same (account, symbol, trading_day, side, signal_version) yields the identical id,
-    so a re-run or redelivery collides on the existing INTENDED row instead of creating a
-    duplicate order."""
-    payload = "|".join(
-        [
-            str(account).strip(),
-            str(symbol).strip().upper(),
-            str(trading_day).strip(),
-            str(side).strip().lower(),
-            str(signal_version).strip(),
-        ]
-    )
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-    return f"pi_{digest}"
-
-
-def make_child_order_id(parent_intent_id: str, attempt_n: int) -> str:
-    """§7 per-attempt broker client-order-id: ``parent_intent_id + ':' + attempt_n``. Every
-    submission (initial + each remainder) gets a fresh unique id so the broker never
-    duplicate-rejects, while all attempts still trace back to one parent decision."""
-    if attempt_n < 0:
-        raise ValueError(f"attempt_n must be >= 0, got {attempt_n}")
-    return f"{parent_intent_id}:{attempt_n}"
+# §7 identity: `compute_parent_intent_id` (dedup key of the *decision*) and
+# `child_order_id` (per-attempt broker client-order-id) are the canonical
+# renquant-execution impls imported above — one recipe, one id, in both repos. The
+# previous local derivation (`pi_` + sha256[:16], `|` separator, lower-cased side) never
+# matched execution's (`pi-` + sha256[:20], `\x1f` separator, upper-cased side) for the
+# same decision and was removed (campaign B3; audit #296 OR-1).
 
 
 @dataclass(frozen=True)
@@ -315,8 +362,12 @@ class OrderIntent:
         target_qty: float,
     ) -> "OrderIntent":
         return cls(
-            parent_intent_id=make_parent_intent_id(
-                account, symbol, trading_day, side, signal_version
+            parent_intent_id=compute_parent_intent_id(
+                account=account,
+                symbol=symbol,
+                trading_day=trading_day,
+                side=side,
+                signal_version=signal_version,
             ),
             account=account,
             symbol=str(symbol).strip().upper(),
@@ -525,7 +576,7 @@ class SqliteIntentStore:
                     (parent_intent_id,),
                 ).fetchone()
                 attempt_n = int(row[0])
-                cid = make_child_order_id(parent_intent_id, attempt_n)
+                cid = child_order_id(parent_intent_id, attempt_n)
                 self._conn.execute(
                     "INSERT INTO child_attempts"
                     " (client_order_id, parent_intent_id, attempt_n, broker_order_id, created_at)"
