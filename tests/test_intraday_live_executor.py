@@ -5,8 +5,24 @@ Covers the pre-registered safety surface, with NO live broker call anywhere
 renquant-execution — is tested THERE, against an injected fake client; this
 suite only pins the lazy fail-closed import seam):
 
-- the §9.3a QUADRUPLE gate — all 16 combinations, only all-four arms live;
-- authorization-file schema rejection cases;
+- the §9.3a arming matrix — the original 16 quadruple-gate combinations
+  EXTENDED (campaign A4, audit #296 OR-3) with the allowlist-consistency,
+  loss-budget and session-counter dimensions (128 combinations); only
+  all-gates-true arms live;
+- authorization-file schema rejection cases, including the campaign-A4
+  fields: ``canary_allowlist`` (absent / null / empty / malformed all fail
+  closed — §9.3a has no unrestricted-canary mode), the REQUIRED
+  ``max_cumulative_loss_usd``, and ``max_live_sessions`` (hard cap 20);
+- canary-allowlist ENFORCEMENT: non-allowlisted BUY intents skipped with a
+  counted, journaled reason and never shown to the broker; exits NEVER
+  blocked; the hard assert around every BUY submit;
+- the §9.3a cumulative loss budget: realized and MTM trip paths, sticky
+  across sessions (persisted), halts entries while exits continue, fires
+  the CRITICAL notification, refuses re-arming;
+- the §9.3a session counter: idempotent per date, journal-stamped,
+  ceiling refuses arming and hard-fails a defense-in-depth begin_session;
+- envelope persistence round-trips, the new-authorization reset (old
+  envelope archived), and corrupt-state fail-closed;
 - ``mode: "live"`` WITHOUT the authorization file still runs shadow
   (counted), and the fake port factory is never invoked;
 - daily entry-notional cap enforcement including the exit exemption;
@@ -43,16 +59,23 @@ from renquant_orchestrator.intraday_session_scheduler import (
     MODE_SHADOW,
 )
 from renquant_orchestrator.intraday_live_executor import (
+    CANARY_STATE_SCHEMA_VERSION,
     ENV_LIVE_FLAG,
     GATE_AUTHORIZATION_FILE,
+    GATE_CANARY_ENVELOPE,
     GATE_CONFIG_MODE_LIVE,
     GATE_ENV_LIVE_FLAG,
     GATE_KILL_SWITCH_ABSENT,
+    HALT_REASON_LOSS_BUDGET,
+    MAX_CANARY_LIVE_SESSIONS,
     MIN_SHADOW_SESSIONS_CLEAN,
     REASON_ENTRIES_HALTED,
     REASON_ENTRY_CAP,
+    REASON_NOT_ALLOWLISTED,
     RECORD_KIND_ACTION,
+    RECORD_KIND_ENVELOPE,
     RECORD_KIND_LIVE_TICK,
+    CanaryEnvelopeTracker,
     DeadManSwitch,
     EntryCapExceededError,
     LiveActionLog,
@@ -61,9 +84,11 @@ from renquant_orchestrator.intraday_live_executor import (
     Stage2Authorization,
     Stage2AuthorizationError,
     Stage2ContractError,
+    assert_canary_allowlist,
     assert_entry_cap,
     entry_notional_submitted,
     load_stage2_authorization,
+    read_canary_envelope,
     resolve_stage2_arming,
 )
 
@@ -75,12 +100,21 @@ NOW = datetime(2026, 7, 6, 10, 0, tzinfo=ET)
 
 
 # ─────────────────────────── fixtures ───────────────────────────
+#: BUY symbols the suite exercises — all pre-declared, so the §9.3a
+#: allowlist enforcement is active in EVERY executor test below. SELL-only
+#: symbols (EEE, HUGE, YYY) are deliberately NOT allowlisted: any exit that
+#: flows in these tests also pins allowlist-never-blocks-exits.
+ALLOWLIST = ["AAA", "BBB", "BIG", "CCC", "DDD"]
+
+
 def valid_authorization_payload(**overrides) -> dict:
     payload = {
         "authorized_by": "renhao",
         "date": "2026-07-03",
         "expiry": "2026-07-31",
         "daily_entry_notional_cap": 500.0,
+        "canary_allowlist": list(ALLOWLIST),
+        "max_cumulative_loss_usd": 150.0,
         "evidence": {
             "shadow_sessions_clean": 5,
             "replay_audits_green": True,
@@ -142,9 +176,11 @@ class FakeBrokerPort:
         }
         return {"status": "accepted", "filled_qty": 0.0, "broker_order_id": "b-1"}
 
-    def fill(self, client_order_id: str, qty: float) -> None:
+    def fill(self, client_order_id: str, qty: float, price: float | None = None) -> None:
         order = self.orders[client_order_id]
         order["filled_qty"] += qty
+        if price is not None:
+            order["filled_avg_price"] = price
         order["status"] = (
             "filled" if order["filled_qty"] >= order["qty"] - 1e-9 else "partially_filled"
         )
@@ -165,7 +201,10 @@ class FakeBrokerPort:
 
     def order_status(self, client_order_id):
         order = self.orders[client_order_id]
-        return {"status": order["status"], "filled_qty": order["filled_qty"]}
+        row = {"status": order["status"], "filled_qty": order["filled_qty"]}
+        if "filled_avg_price" in order:
+            row["filled_avg_price"] = order["filled_avg_price"]
+        return row
 
 
 def pid(symbol: str, side: str) -> str:
@@ -200,14 +239,25 @@ def make_executor(
     *,
     cap: float = 500.0,
     begin: bool = True,
+    trading_day: str = DAY,
+    max_loss: float = 10_000.0,
+    notifications: list | None = None,
+    auth_overrides: dict | None = None,
 ) -> LiveTickExecutor:
+    overrides = dict(auth_overrides or {})
+    overrides.setdefault("daily_entry_notional_cap", cap)
+    overrides.setdefault("max_cumulative_loss_usd", max_loss)
+    sink = notifications if notifications is not None else []
     executor = LiveTickExecutor(
         account=ACCOUNT,
-        trading_day=DAY,
+        trading_day=trading_day,
         port=port if port is not None else FakeBrokerPort(),
         action_log=LiveActionLog(tmp_path / "actions.jsonl"),
         book_path=tmp_path / "order_state_book.json",
-        authorization=make_authorization(daily_entry_notional_cap=cap),
+        authorization=make_authorization(**overrides),
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        # NEVER the real ntfy poster in tests.
+        notify=lambda title, body: sink.append((title, body)),
     )
     if begin:
         executor.begin_session()
@@ -225,21 +275,87 @@ def read_actions(tmp_path: Path) -> list[dict]:
     ]
 
 
-# ─────────────────── the §9.3a quadruple gate (16 combos) ───────────────────
+def read_broker_actions(tmp_path: Path) -> list[dict]:
+    return [r for r in read_actions(tmp_path) if r["kind"] == RECORD_KIND_ACTION]
+
+
+def read_envelope_stamps(tmp_path: Path) -> list[dict]:
+    return [r for r in read_actions(tmp_path) if r["kind"] == RECORD_KIND_ENVELOPE]
+
+
+def write_canary_state(
+    tmp_path: Path,
+    authorization_sha256: str,
+    *,
+    sessions: list[str] | None = None,
+    tripped: bool = False,
+) -> Path:
+    path = tmp_path / "stage2_canary_state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": CANARY_STATE_SCHEMA_VERSION,
+                "authorization_sha256": authorization_sha256,
+                "sessions": list(sessions or []),
+                "positions": {},
+                "realized_pnl_usd": 0.0,
+                "last_marks": {},
+                "loss_budget_tripped": tripped,
+                "trip_reason": "seeded trip" if tripped else None,
+                "previous_envelopes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+# ──────────── the §9.3a arming matrix (16 quadruple-gate combos ────────────
+# ──────────── × allowlist/budget/counter dimensions = 128 combos) ───────────
 @pytest.mark.parametrize(
-    "config_live,auth_file,env_flag,kill_absent",
-    list(itertools.product([True, False], repeat=4)),
+    "config_live,auth_file,env_flag,kill_absent,allowlist_ok,budget_ok,sessions_ok",
+    list(itertools.product([True, False], repeat=7)),
 )
-def test_quadruple_gate_all_16_combinations(
-    tmp_path, config_live, auth_file, env_flag, kill_absent
+def test_arming_matrix_all_128_combinations(
+    tmp_path,
+    config_live,
+    auth_file,
+    env_flag,
+    kill_absent,
+    allowlist_ok,
+    budget_ok,
+    sessions_ok,
 ):
-    """ONLY all-four-gates-true arms live; ANY missing gate ⇒ shadow."""
+    """ONLY all-gates-true arms live; ANY missing gate ⇒ shadow (counted).
+
+    The original 16-combination quadruple-gate matrix, extended (campaign
+    A4, audit #296 OR-3) with three envelope dimensions: allowlist
+    consistency with the pinned config (part of gate 2 — authorization
+    validity), the persisted §9.3a loss-budget trip, and the persisted
+    session-counter ceiling (gate 5 — envelope availability).
+    """
     config = IntradayDecisioningConfig(
-        enabled=True, mode=MODE_LIVE if config_live else MODE_SHADOW
+        enabled=True,
+        mode=MODE_LIVE if config_live else MODE_SHADOW,
+        # allowlist_ok=False: the pinned config declares an allowlist the
+        # authorization's is NOT a subset of — ambiguity fails closed.
+        canary_allowlist=() if allowlist_ok else ("ZZZ",),
     )
     auth_path = (
         write_authorization(tmp_path) if auth_file else tmp_path / "absent.json"
     )
+    auth_sha = hash_jsonable(valid_authorization_payload())
+    if not budget_ok or not sessions_ok:
+        write_canary_state(
+            tmp_path,
+            auth_sha,
+            sessions=(
+                [f"2026-06-{d:02d}" for d in range(1, MAX_CANARY_LIVE_SESSIONS + 1)]
+                if not sessions_ok
+                else []
+            ),
+            tripped=not budget_ok,
+        )
     environ = {ENV_LIVE_FLAG: "1"} if env_flag else {}
     kill_path = tmp_path / "KILL"
     if not kill_absent:
@@ -248,24 +364,34 @@ def test_quadruple_gate_all_16_combinations(
     decision = resolve_stage2_arming(
         config=config,
         authorization_path=auth_path,
+        canary_state_path=tmp_path / "stage2_canary_state.json",
         kill_switch=KillSwitch(kill_path),
         environ=environ,
         today=DAY,
     )
-    should_arm = config_live and auth_file and env_flag and kill_absent
-    assert decision.armed is should_arm
-    assert decision.mode_effective == (MODE_LIVE if should_arm else MODE_SHADOW)
-    assert decision.gates == {
+    # Gate 2 folds in allowlist consistency; gate 5 (envelope) requires a
+    # schema-valid authorization to even be evaluable, so it fails closed
+    # whenever the file is absent.
+    expected_gates = {
         GATE_CONFIG_MODE_LIVE: config_live,
-        GATE_AUTHORIZATION_FILE: auth_file,
+        GATE_AUTHORIZATION_FILE: auth_file and allowlist_ok,
         GATE_ENV_LIVE_FLAG: env_flag,
         GATE_KILL_SWITCH_ABSENT: kill_absent,
+        GATE_CANARY_ENVELOPE: auth_file and budget_ok and sessions_ok,
     }
+    should_arm = all(expected_gates.values())
+    assert decision.armed is should_arm
+    assert decision.mode_effective == (MODE_LIVE if should_arm else MODE_SHADOW)
+    assert decision.gates == expected_gates
     # A refused live request is DOWNGRADED (counted); shadow-mode configs are
     # not "downgraded", they simply never asked.
     assert decision.downgraded is (config_live and not should_arm)
     if not should_arm:
         assert decision.reasons  # every failed gate is explained
+    if should_arm:
+        assert decision.envelope is not None
+        assert decision.envelope["sessions_used"] == 0
+        assert decision.envelope["loss_budget_tripped"] is False
 
 
 # ─────────────────── authorization-file schema rejections ───────────────────
@@ -277,7 +403,24 @@ def test_valid_authorization_loads(tmp_path):
     assert auth.shadow_sessions_clean == MIN_SHADOW_SESSIONS_CLEAN
     assert auth.entry_order_type == "limit"  # A5.2 default: marketable-limit
     assert auth.exit_order_type == "market"
+    assert auth.canary_allowlist == tuple(sorted(ALLOWLIST))
+    assert auth.max_cumulative_loss_usd == 150.0
+    assert auth.max_live_sessions == MAX_CANARY_LIVE_SESSIONS  # §9.3a default
     assert auth.content_sha256 == hash_jsonable(valid_authorization_payload())
+    record = auth.to_manifest_record()
+    assert record["canary_allowlist"] == sorted(ALLOWLIST)
+
+
+def test_authorization_allowlist_is_normalized(tmp_path):
+    path = write_authorization(
+        tmp_path,
+        valid_authorization_payload(
+            canary_allowlist=["nvda", "NVDA", " msft "], max_live_sessions=3
+        ),
+    )
+    auth = load_stage2_authorization(path, today=DAY)
+    assert auth.canary_allowlist == ("MSFT", "NVDA")  # upper, dedup, sorted
+    assert auth.max_live_sessions == 3
 
 
 @pytest.mark.parametrize(
@@ -324,10 +467,42 @@ def test_valid_authorization_loads(tmp_path):
         ),
         ({"order": {"entry_order_type": "stop"}}, "entry_order_type"),
         ({"order": {"limit_price_offset_bps": 500}}, "limit_price_offset_bps"),
+        # ── campaign A4 (audit #296 OR-3): the §9.3a envelope fields. ──
+        # null is NOT an unrestricted-canary acknowledgment — no such mode
+        # exists in §9.3a/§10, so it fails closed like absence does.
+        ({"canary_allowlist": None}, "null is not accepted"),
+        ({"canary_allowlist": []}, "must not be empty"),
+        ({"canary_allowlist": "AAPL"}, "must be a non-empty list"),
+        ({"canary_allowlist": ["not a symbol!"]}, "not a plausible symbol"),
+        ({"canary_allowlist": [""]}, "not a plausible symbol"),
+        ({"max_cumulative_loss_usd": 0}, "positive finite USD"),
+        ({"max_cumulative_loss_usd": -150}, "positive finite USD"),
+        ({"max_cumulative_loss_usd": "large"}, "must be a number"),
+        ({"max_live_sessions": 0}, "outside"),
+        ({"max_live_sessions": MAX_CANARY_LIVE_SESSIONS + 1}, "outside"),
+        ({"max_live_sessions": 2.5}, "must be an integer"),
+        ({"max_live_sessions": True}, "must be an integer"),
     ],
 )
 def test_authorization_schema_rejections(tmp_path, mutation, match):
     path = write_authorization(tmp_path, valid_authorization_payload(**mutation))
+    with pytest.raises(Stage2AuthorizationError, match=match):
+        load_stage2_authorization(path, today=DAY)
+
+
+@pytest.mark.parametrize(
+    "missing_key,match",
+    [
+        # ABSENT fails closed too: §10 "canary allowlist required" — there is
+        # no no-restriction default to fall back to (audit #296 OR-3).
+        ("canary_allowlist", "canary_allowlist is required"),
+        ("max_cumulative_loss_usd", "max_cumulative_loss_usd is required"),
+    ],
+)
+def test_authorization_envelope_fields_are_required(tmp_path, missing_key, match):
+    payload = valid_authorization_payload()
+    del payload[missing_key]
+    path = write_authorization(tmp_path, payload)
     with pytest.raises(Stage2AuthorizationError, match=match):
         load_stage2_authorization(path, today=DAY)
 
@@ -468,14 +643,15 @@ def test_write_ahead_line_lands_before_the_broker_call(tmp_path):
     # At the moment the broker was called, the write-ahead line existed and
     # its outcome did not.
     assert observed == [{"cid": pid("AAA", "BUY") + ":1", "ahead": 1, "outcomes": 0}]
-    rows = read_actions(tmp_path)
-    assert [r["phase"] for r in rows if r["kind"] == RECORD_KIND_ACTION] == [
-        "write_ahead",
-        "outcome",
-    ]
+    rows = read_broker_actions(tmp_path)
+    assert [r["phase"] for r in rows] == ["write_ahead", "outcome"]
     assert rows[0]["order_type"] == "limit"
     assert rows[0]["time_in_force"] == "day"
     assert rows[1]["status"] == "accepted"
+    # The §9.3a envelope (session counter) is stamped in the same journal.
+    stamps = read_envelope_stamps(tmp_path)
+    assert [s["phase"] for s in stamps] == ["session_begin"]
+    assert stamps[0]["envelope"]["sessions_used"] == 1
 
 
 def test_broker_error_outcome_is_journaled_and_child_rejected(tmp_path):
@@ -486,7 +662,7 @@ def test_broker_error_outcome_is_journaled_and_child_rejected(tmp_path):
         {"intents": [make_intent("AAA", "BUY", 2, 100.0)]}, now=NOW
     )
     assert result["submitted"][0]["status"] == "error"
-    rows = read_actions(tmp_path)
+    rows = read_broker_actions(tmp_path)
     assert rows[0]["phase"] == "write_ahead"
     assert rows[1]["phase"] == "outcome"
     assert rows[1]["status"] == "error"
@@ -580,7 +756,9 @@ def test_round_trip_submit_partial_fill_snapshot_restore_reconcile(tmp_path):
         port=port,
         action_log=LiveActionLog(tmp_path / "actions.jsonl"),
         book_path=book_path,
-        authorization=make_authorization(),
+        authorization=make_authorization(max_cumulative_loss_usd=10_000.0),
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        notify=lambda title, body: None,
     )
     with pytest.raises(Stage2ContractError, match="reconcile-before-emit"):
         restored.process_tick({"intents": []}, now=NOW + timedelta(minutes=7))
@@ -624,7 +802,9 @@ def test_restore_with_book_broker_mismatch_halts_entries(tmp_path):
         port=port,
         action_log=LiveActionLog(tmp_path / "actions.jsonl"),
         book_path=tmp_path / "order_state_book.json",
-        authorization=make_authorization(),
+        authorization=make_authorization(max_cumulative_loss_usd=10_000.0),
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        notify=lambda title, body: None,
     )
     report = restored.begin_session()
     assert report["reconcile_clean"] is False
@@ -659,3 +839,361 @@ def test_one_open_child_per_parent_is_consumed_from_slice_1(tmp_path):
     )
     assert len(book.parents()) == 1
     assert len(book.parents()[0].children) == 1
+
+
+# ───────────── §9.3a canary allowlist enforcement (campaign A4) ─────────────
+def test_allowlist_blocks_non_allowlisted_entries_never_exits(tmp_path):
+    port = FakeBrokerPort()
+    executor = make_executor(tmp_path, port)
+    result = executor.process_tick(
+        {
+            "intents": [
+                make_intent("AAA", "BUY", 1, 100.0),  # allowlisted → submits
+                make_intent("ZZZ", "BUY", 1, 100.0),  # NOT allowlisted → skip
+                make_intent("YYY", "SELL", 2, 50.0),  # exit: NEVER allowlisted-gated
+            ]
+        },
+        now=NOW,
+    )
+    submitted = {(s["symbol"], s["side"]) for s in result["submitted"]}
+    assert submitted == {("AAA", "BUY"), ("YYY", "SELL")}
+    (skip,) = result["skipped"]
+    assert skip["symbol"] == "ZZZ"
+    assert skip["reasons"] == [REASON_NOT_ALLOWLISTED]
+    assert "canary allowlist" in skip["detail"]
+    # Counted + journaled; the broker NEVER saw the non-allowlisted intent.
+    assert result["canary"]["allowlist_skips"] == 1
+    assert result["canary"]["allowlist"] == sorted(ALLOWLIST)
+    assert {(c["symbol"], c["side"]) for c in port.submit_calls} == submitted
+
+
+def test_allowlist_hard_assert_binds_buys_only():
+    with pytest.raises(Stage2ContractError, match="allowlist breach"):
+        assert_canary_allowlist("ZZZ", side="BUY", allowlist=("AAA", "BBB"))
+    assert_canary_allowlist("AAA", side="BUY", allowlist=("AAA", "BBB"))
+    # Exits are exempt (§10 exits-always-allowed).
+    assert_canary_allowlist("ZZZ", side="SELL", allowlist=("AAA", "BBB"))
+
+
+def test_config_allowlist_consistency_is_gate_2(tmp_path):
+    """When the pinned config ALSO declares an allowlist, the authorization's
+    must be a subset — a superset config passes, a disagreement fails gate 2."""
+    auth_path = write_authorization(
+        tmp_path, valid_authorization_payload(canary_allowlist=["AAA", "BBB"])
+    )
+
+    def arm(config_allowlist):
+        return resolve_stage2_arming(
+            config=IntradayDecisioningConfig(
+                enabled=True, mode=MODE_LIVE, canary_allowlist=config_allowlist
+            ),
+            authorization_path=auth_path,
+            canary_state_path=tmp_path / "stage2_canary_state.json",
+            kill_switch=KillSwitch(tmp_path / "KILL"),
+            environ={ENV_LIVE_FLAG: "1"},
+            today=DAY,
+        )
+
+    assert arm(()).armed is True  # config silent → the authorization binds
+    assert arm(("AAA", "BBB")).armed is True  # equal
+    assert arm(("AAA", "BBB", "CCC")).armed is True  # config superset
+    for bad in (("ZZZ",), ("AAA",)):  # disjoint / authorization wider
+        decision = arm(bad)
+        assert decision.armed is False
+        assert decision.gates[GATE_AUTHORIZATION_FILE] is False
+        assert any("allowlist disagrees" in r for r in decision.reasons)
+
+
+# ───────────── §9.3a cumulative loss budget (campaign A4) ─────────────
+def test_loss_budget_trips_on_realized_loss_halts_entries_exits_flow(tmp_path):
+    port = FakeBrokerPort()
+    notifications: list = []
+    executor = make_executor(
+        tmp_path, port, cap=500.0, max_loss=100.0, notifications=notifications
+    )
+    # Tick 1: enter AAA 4 × $100; broker fills at $100.
+    executor.process_tick({"intents": [make_intent("AAA", "BUY", 4, 100.0)]}, now=NOW)
+    port.fill(pid("AAA", "BUY") + ":1", 4.0)
+    # Tick 2: the fill lands (position 4 @ 100); exit intent at $60 marks the
+    # position down → MTM -160 breaches the $100 budget AFTER the exit was
+    # submitted (exits are never gated on the budget).
+    r2 = executor.process_tick(
+        {"intents": [make_intent("AAA", "SELL", 4, 60.0)]},
+        now=NOW + timedelta(minutes=5),
+    )
+    assert [s["side"] for s in r2["submitted"]] == ["SELL"]
+    assert r2["canary"]["loss_budget"]["tripped"] is True
+    assert r2["canary"]["loss_budget"]["newly_tripped"] is True
+    assert r2["entries_halted"] is True
+    assert r2["halt_reason"] == HALT_REASON_LOSS_BUDGET
+    # CRITICAL notification fired exactly once, and the trip is journaled.
+    assert len(notifications) == 1
+    assert "loss budget tripped" in notifications[0][0]
+    assert [s["phase"] for s in read_envelope_stamps(tmp_path)] == [
+        "session_begin",
+        "loss_budget_trip",
+    ]
+    # Tick 3: the sell filled at $60 → realized -160; entries stay halted,
+    # exits still flow (§10), and no SECOND notification fires (sticky).
+    port.fill(pid("AAA", "SELL") + ":1", 4.0)
+    r3 = executor.process_tick(
+        {
+            "intents": [
+                make_intent("BBB", "BUY", 1, 50.0),
+                make_intent("CCC", "SELL", 1, 30.0),
+            ]
+        },
+        now=NOW + timedelta(minutes=10),
+    )
+    assert [s["reasons"] for s in r3["skipped"]] == [[REASON_ENTRIES_HALTED]]
+    assert [s["side"] for s in r3["submitted"]] == ["SELL"]
+    assert r3["canary"]["loss_budget"]["realized_pnl_usd"] == pytest.approx(-160.0)
+    assert r3["canary"]["loss_budget"]["newly_tripped"] is False
+    assert len(notifications) == 1
+    # Persisted state carries the trip.
+    state = json.loads(
+        (tmp_path / "stage2_canary_state.json").read_text(encoding="utf-8")
+    )
+    assert state["loss_budget_tripped"] is True
+    assert state["realized_pnl_usd"] == pytest.approx(-160.0)
+
+
+def test_loss_budget_trips_on_mark_to_market_alone(tmp_path):
+    port = FakeBrokerPort()
+    executor = make_executor(tmp_path, port, max_loss=100.0)
+    executor.process_tick({"intents": [make_intent("AAA", "BUY", 2, 100.0)]}, now=NOW)
+    port.fill(pid("AAA", "BUY") + ":1", 2.0)
+    # No exit, no realized loss — a marks-only tick breaches on MTM.
+    result = executor.process_tick(
+        {"intents": [], "marks": {"AAA": 30.0}}, now=NOW + timedelta(minutes=5)
+    )
+    budget = result["canary"]["loss_budget"]
+    assert budget["unrealized_pnl_usd"] == pytest.approx(-140.0)
+    assert budget["tripped"] is True
+    assert result["halt_reason"] == HALT_REASON_LOSS_BUDGET
+
+
+def test_exits_of_pre_canary_positions_are_not_attributed(tmp_path):
+    port = FakeBrokerPort()
+    executor = make_executor(tmp_path, port, max_loss=100.0)
+    # A SELL of a position Stage 2 never originated: flows, but its fill is
+    # NOT canary P&L (it belongs to the batch book).
+    executor.process_tick({"intents": [make_intent("EEE", "SELL", 2, 50.0)]}, now=NOW)
+    port.fill(pid("EEE", "SELL") + ":1", 2.0)
+    result = executor.process_tick({"intents": []}, now=NOW + timedelta(minutes=5))
+    budget = result["canary"]["loss_budget"]
+    assert budget["realized_pnl_usd"] == pytest.approx(0.0)
+    assert budget["tripped"] is False
+
+
+def test_broker_fill_price_preferred_over_limit_price(tmp_path):
+    port = FakeBrokerPort()
+    executor = make_executor(tmp_path, port)
+    executor.process_tick({"intents": [make_intent("AAA", "BUY", 2, 100.0)]}, now=NOW)
+    port.fill(pid("AAA", "BUY") + ":1", 2.0, price=99.5)  # broker-reported avg
+    executor.process_tick({"intents": []}, now=NOW + timedelta(minutes=5))
+    assert executor.canary.positions["AAA"]["cost_basis"] == pytest.approx(99.5)
+
+
+def test_budget_trip_is_sticky_across_sessions_and_refuses_arming(tmp_path):
+    port = FakeBrokerPort()
+    executor = make_executor(tmp_path, port, max_loss=100.0)
+    executor.process_tick({"intents": [make_intent("AAA", "BUY", 2, 100.0)]}, now=NOW)
+    port.fill(pid("AAA", "BUY") + ":1", 2.0)
+    executor.process_tick(
+        {"intents": [], "marks": {"AAA": 10.0}}, now=NOW + timedelta(minutes=5)
+    )
+    assert executor.canary.loss_budget_tripped is True
+
+    # A NEW session (new executor, fresh book path) under the SAME
+    # authorization: the trip is restored from the persisted envelope and
+    # entries halt from begin_session on; exits still flow.
+    port2 = FakeBrokerPort()
+    next_day = "2026-07-07"
+    executor2 = LiveTickExecutor(
+        account=ACCOUNT,
+        trading_day=next_day,
+        port=port2,
+        action_log=LiveActionLog(tmp_path / "actions.jsonl"),
+        book_path=tmp_path / "order_state_book_2.json",
+        authorization=make_authorization(max_cumulative_loss_usd=100.0),
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        notify=lambda title, body: None,
+    )
+    report = executor2.begin_session()
+    assert report["entries_halted"] is True
+    assert report["halt_reason"] == HALT_REASON_LOSS_BUDGET
+    assert report["canary_envelope"]["loss_budget_tripped"] is True
+    assert report["canary_envelope"]["sessions_used"] == 2  # both days counted
+    def next_day_intent(symbol, side, qty, price):
+        # A different trading day ⇒ a different lockstep id; leave it blank
+        # and let the book derive it (the lockstep guard has its own test).
+        return {
+            **make_intent(symbol, side, qty, price),
+            "trading_day": next_day,
+            "parent_intent_id": "",
+        }
+
+    result = executor2.process_tick(
+        {
+            "intents": [
+                next_day_intent("BBB", "BUY", 1, 50.0),
+                next_day_intent("CCC", "SELL", 1, 30.0),
+            ]
+        },
+        now=NOW + timedelta(days=1),
+    )
+    assert [s["reasons"] for s in result["skipped"]] == [[REASON_ENTRIES_HALTED]]
+    assert [s["side"] for s in result["submitted"]] == ["SELL"]
+
+    # And the arming gate refuses the envelope until re-authorization.
+    auth_path = write_authorization(
+        tmp_path, valid_authorization_payload(max_cumulative_loss_usd=100.0)
+    )
+    decision = resolve_stage2_arming(
+        config=IntradayDecisioningConfig(enabled=True, mode=MODE_LIVE),
+        authorization_path=auth_path,
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        kill_switch=KillSwitch(tmp_path / "KILL"),
+        environ={ENV_LIVE_FLAG: "1"},
+        today=DAY,
+    )
+    assert decision.armed is False
+    assert decision.gates[GATE_CANARY_ENVELOPE] is False
+    assert any("loss budget" in r for r in decision.reasons)
+
+
+# ───────────── §9.3a session counter + ceiling (campaign A4) ─────────────
+def test_session_counter_is_idempotent_per_date(tmp_path):
+    executor = make_executor(tmp_path)
+    assert executor.canary.sessions_used == 1
+    # A same-day restart does NOT consume a second envelope slot.
+    restart = make_executor(tmp_path)
+    assert restart.canary.sessions_used == 1
+    assert restart.begin_session()["canary_envelope"]["sessions_used"] == 1
+
+
+def test_session_ceiling_refuses_arming_and_begin_session(tmp_path):
+    auth_payload = valid_authorization_payload(max_live_sessions=2)
+    auth_path = write_authorization(tmp_path, auth_payload)
+    auth_sha = hash_jsonable(auth_payload)
+    write_canary_state(
+        tmp_path, auth_sha, sessions=["2026-07-01", "2026-07-02"]
+    )
+    decision = resolve_stage2_arming(
+        config=IntradayDecisioningConfig(enabled=True, mode=MODE_LIVE),
+        authorization_path=auth_path,
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        kill_switch=KillSwitch(tmp_path / "KILL"),
+        environ={ENV_LIVE_FLAG: "1"},
+        today=DAY,
+    )
+    assert decision.armed is False
+    assert decision.gates[GATE_CANARY_ENVELOPE] is False
+    assert any("re-authorization required" in r for r in decision.reasons)
+    # Defense in depth: even a directly-constructed executor refuses a NEW
+    # session beyond the ceiling… (the envelope is keyed to the authorization
+    # CONTENT hash, so the executor must carry the exact same payload).
+    same_auth = {"max_live_sessions": 2, "max_cumulative_loss_usd": 150.0}
+    with pytest.raises(Stage2ContractError, match="session ceiling"):
+        make_executor(tmp_path, auth_overrides=same_auth)
+    # …but a RESTART of an already-counted session is not a new session.
+    write_canary_state(tmp_path, auth_sha, sessions=["2026-07-01", DAY])
+    restart = make_executor(tmp_path, auth_overrides=same_auth)
+    assert restart.canary.sessions_used == 2
+
+
+def test_one_below_ceiling_still_arms(tmp_path):
+    auth_payload = valid_authorization_payload()
+    auth_path = write_authorization(tmp_path, auth_payload)
+    write_canary_state(
+        tmp_path,
+        hash_jsonable(auth_payload),
+        sessions=[f"2026-06-{d:02d}" for d in range(1, MAX_CANARY_LIVE_SESSIONS)],
+    )
+    decision = resolve_stage2_arming(
+        config=IntradayDecisioningConfig(enabled=True, mode=MODE_LIVE),
+        authorization_path=auth_path,
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        kill_switch=KillSwitch(tmp_path / "KILL"),
+        environ={ENV_LIVE_FLAG: "1"},
+        today=DAY,
+    )
+    assert decision.armed is True
+    assert decision.envelope["sessions_used"] == MAX_CANARY_LIVE_SESSIONS - 1
+    assert decision.envelope["sessions_remaining"] == 1
+
+
+# ───────────── envelope persistence + identity (campaign A4) ─────────────
+def test_new_authorization_starts_fresh_envelope_and_archives_old(tmp_path):
+    port = FakeBrokerPort()
+    executor = make_executor(tmp_path, port, max_loss=100.0)
+    executor.process_tick({"intents": [make_intent("AAA", "BUY", 2, 100.0)]}, now=NOW)
+    port.fill(pid("AAA", "BUY") + ":1", 2.0)
+    executor.process_tick(
+        {"intents": [], "marks": {"AAA": 10.0}}, now=NOW + timedelta(minutes=5)
+    )
+    old_sha = executor.authorization.content_sha256
+    assert executor.canary.loss_budget_tripped is True
+
+    # A NEW recorded §9.3a decision (different content) ⇒ fresh envelope;
+    # the exhausted one is archived, not clobbered.
+    new_auth = make_authorization(max_cumulative_loss_usd=200.0)
+    assert new_auth.content_sha256 != old_sha
+    tracker = CanaryEnvelopeTracker(
+        tmp_path / "stage2_canary_state.json", authorization=new_auth
+    )
+    assert tracker.loss_budget_tripped is False
+    assert tracker.sessions_used == 0
+    assert len(tracker.previous_envelopes) == 1
+    archived = tracker.previous_envelopes[0]
+    assert archived["authorization_sha256"] == old_sha
+    assert archived["loss_budget_tripped"] is True
+    # read_canary_envelope agrees (the arming view).
+    envelope = read_canary_envelope(
+        tmp_path / "stage2_canary_state.json", authorization=new_auth
+    )
+    assert envelope["loss_budget_tripped"] is False
+    assert envelope["sessions_used"] == 0
+
+
+def test_corrupt_canary_state_fails_closed(tmp_path):
+    state_path = tmp_path / "stage2_canary_state.json"
+    state_path.write_text("{not json", encoding="utf-8")
+    # The executor refuses to construct (never silently reset a loss ledger)…
+    with pytest.raises(Stage2ContractError, match="refusing to silently reset"):
+        make_executor(tmp_path, begin=False)
+    # …and the arming gate fails the envelope gate rather than raising.
+    auth_path = write_authorization(tmp_path)
+    decision = resolve_stage2_arming(
+        config=IntradayDecisioningConfig(enabled=True, mode=MODE_LIVE),
+        authorization_path=auth_path,
+        canary_state_path=state_path,
+        kill_switch=KillSwitch(tmp_path / "KILL"),
+        environ={ENV_LIVE_FLAG: "1"},
+        today=DAY,
+    )
+    assert decision.armed is False
+    assert decision.gates[GATE_CANARY_ENVELOPE] is False
+    assert any("refusing to silently reset" in r for r in decision.reasons)
+
+
+def test_arm_decision_manifest_record_carries_envelope_and_allowlist(tmp_path):
+    auth_path = write_authorization(tmp_path)
+    decision = resolve_stage2_arming(
+        config=IntradayDecisioningConfig(enabled=True, mode=MODE_LIVE),
+        authorization_path=auth_path,
+        canary_state_path=tmp_path / "stage2_canary_state.json",
+        kill_switch=KillSwitch(tmp_path / "KILL"),
+        environ={ENV_LIVE_FLAG: "1"},
+        today=DAY,
+    )
+    record = decision.to_manifest_record()
+    assert record["armed"] is True
+    assert record["gates"][GATE_CANARY_ENVELOPE] is True
+    assert record["authorization"]["canary_allowlist"] == sorted(ALLOWLIST)
+    assert record["authorization"]["max_cumulative_loss_usd"] == 150.0
+    assert record["authorization"]["max_live_sessions"] == MAX_CANARY_LIVE_SESSIONS
+    assert record["envelope"]["sessions_used"] == 0
+    assert record["envelope"]["max_live_sessions"] == MAX_CANARY_LIVE_SESSIONS
+    assert record["envelope"]["loss_budget_tripped"] is False
