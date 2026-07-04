@@ -44,7 +44,9 @@ class TestLivenessCommon:
             with patch("builtins.__import__", side_effect=ImportError("no module")):
                 alert("test title", "test body")
         err = capsys.readouterr().err
-        assert "unavailable" in err or "ImportError" in err or True
+        assert "unavailable" in err
+        assert "test title" in err
+        assert "test body" in err
 
 
 class TestRq104Liveness:
@@ -76,6 +78,28 @@ class TestRq104Liveness:
         (tmp_path / "risk_budget_2026-07-06.log").write_text("=== ok ===\n")
         log = tmp_path / "scorer_identity_2026-07-06.log"
         log.write_text("=== ok ===\nscorer_identity_check: OK\n")
+
+        with (
+            patch("rq104_liveness_check.is_session_day", return_value=True),
+            patch("rq104_liveness_check.LOG_DIR", str(tmp_path)),
+            patch("rq104_liveness_check.alert") as mock_alert,
+        ):
+            rc = main(["--as-of", "2026-07-06"])
+        assert rc == 0
+        mock_alert.assert_not_called()
+
+    def test_fallback_verdict_recognized_without_explicit_marker(self, tmp_path):
+        """Isolates the fallback path from the wrapper-log zero-byte check:
+        both logs are non-empty, and the scorer_identity log carries only the
+        plain 'identity ok' style success line, never the explicit
+        'scorer_identity_check:' marker. Must resolve OK on its own -- this
+        is the case the case-sensitivity bug (`"identity OK" not in
+        text.lower()`, which can never match) made permanently unreachable.
+        """
+        from rq104_liveness_check import main
+
+        (tmp_path / "risk_budget_2026-07-06.log").write_text("=== ok ===\n")
+        (tmp_path / "scorer_identity_2026-07-06.log").write_text("=== ok ===\nidentity OK\n")
 
         with (
             patch("rq104_liveness_check.is_session_day", return_value=True),

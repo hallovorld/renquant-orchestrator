@@ -49,7 +49,7 @@ def _check_scorer_identity_verdict(today_iso: str) -> str | None:
         text = Path(log).read_text(errors="replace")
     except OSError:
         return None
-    if "scorer_identity_check:" not in text and "identity OK" not in text.lower():
+    if "scorer_identity_check:" not in text and "identity ok" not in text.lower():
         return f"scorer_identity: log exists but no verdict line found (module may have crashed)"
     return None
 

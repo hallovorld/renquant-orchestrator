@@ -19,3 +19,27 @@ Status: DELIVERED
 
 - XC-6 (P1): rq104 has no liveness checker — silent launchd lapse undetectable
 - XC-8 (P2): liveness common dedup (pit + rq105 can migrate to this shared module later)
+
+## Round 2 (codex review)
+
+Fixed a real implementation bug: `_check_scorer_identity_verdict`'s fallback branch read
+`"identity OK" not in text.lower()` — comparing a lower-cased haystack against a
+mixed-case needle, so the substring could never match. In practice this meant ANY log
+lacking the exact `scorer_identity_check:` marker was always flagged as a crashed/missing
+verdict, even when it carried a genuine plain "identity ok"-style success line. Fixed to
+`"identity ok" not in text.lower()`.
+
+The existing test suite didn't catch this: `test_all_logs_present_ok` only used the
+explicit marker, and `test_empty_log_detected` also writes an empty `risk_budget` log, so
+its zero-byte wrapper-log failure masked whether the verdict-line fallback itself passed.
+Added `test_fallback_verdict_recognized_without_explicit_marker`, which isolates the
+fallback path (both logs present and non-empty, scorer_identity log carrying only the
+plain "identity OK" line) — confirmed this test fails against the pre-fix code and passes
+after.
+
+Also fixed `test_alert_missing_notify_does_not_crash`'s vacuous `... or True` assertion,
+which made the test unable to fail regardless of behavior. Replaced with real checks
+(`"unavailable" in err`, plus the title/body are preserved in the warning) — confirmed by
+temporarily breaking the warning-emission code and observing the test now fails.
+
+10/10 liveness tests pass; 1901/1901 full repo suite, zero regressions.
