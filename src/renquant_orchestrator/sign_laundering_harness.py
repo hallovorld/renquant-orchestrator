@@ -83,8 +83,21 @@ def _estimate_neutral_raw_from_scores(by_ticker):
 
 
 def measure_sign_laundering(scorer_path, calibrator_path=None, neutral_raw_override=None):
+    """Measure sign laundering in a single scorer artifact.
+
+    Reads ``raw_score`` — the actual calibrator input axis — only. Unlike
+    an earlier version of this function, it does NOT fall back to
+    ``rank_score`` (a different, rank-transformed field) when ``raw_score``
+    is missing or null: that fallback silently reported a calibrator-sense
+    laundering metric on a field that was never the calibrator input axis,
+    recreating the same semantic failure ``audit_laundering_history()`` was
+    fixed for. Tickers missing ``raw_score`` are excluded from the
+    measurement and counted in ``raw_score_missing_count`` instead, so a
+    caller can see how much of the artifact was actually measurable.
+    """
     scorer = json.loads(Path(scorer_path).read_text())
     by_ticker = {}
+    raw_score_missing_count = 0
     candidates = (
         scorer.get("candidates")
         or scorer.get("scores")
@@ -92,21 +105,28 @@ def measure_sign_laundering(scorer_path, calibrator_path=None, neutral_raw_overr
         or {}
     )
     if isinstance(candidates, dict):
-        for ticker, info in candidates.items():
-            if isinstance(info, dict):
-                by_ticker[ticker] = {
-                    "raw": info.get("raw_score", info.get("rank_score")),
-                    "mu": info.get("mu"),
-                    "sigma": info.get("sigma"),
-                }
+        items = candidates.items()
     elif isinstance(candidates, list):
-        for entry in candidates:
-            if isinstance(entry, dict) and "ticker" in entry:
-                by_ticker[entry["ticker"]] = {
-                    "raw": entry.get("raw_score", entry.get("rank_score")),
-                    "mu": entry.get("mu"),
-                    "sigma": entry.get("sigma"),
-                }
+        items = (
+            (entry["ticker"], entry)
+            for entry in candidates
+            if isinstance(entry, dict) and "ticker" in entry
+        )
+    else:
+        items = iter(())
+    for ticker, info in items:
+        if not isinstance(info, dict):
+            continue
+        raw = info.get("raw_score")
+        if raw is None:
+            if info.get("rank_score") is not None:
+                raw_score_missing_count += 1
+            continue
+        by_ticker[ticker] = {
+            "raw": raw,
+            "mu": info.get("mu"),
+            "sigma": info.get("sigma"),
+        }
     neutral_raw = neutral_raw_override
     if neutral_raw is None and calibrator_path is not None:
         neutral_raw = _find_neutral_raw_from_calibrator(Path(calibrator_path))
@@ -138,6 +158,7 @@ def measure_sign_laundering(scorer_path, calibrator_path=None, neutral_raw_overr
         "laundered_count": laundered_count,
         "laundering_rate": laundered_count / total if total > 0 else 0.0,
         "neutral_raw": neutral_raw,
+        "raw_score_missing_count": raw_score_missing_count,
         "raw_score_range": (
             (float(min(raw_values)), float(max(raw_values)))
             if raw_values
@@ -256,6 +277,15 @@ def _render_report(result):
             lines.append(
                 f"  {t:8s}  raw={info['raw']:+.4f}  mu={info['mu']:+.4f}"
             )
+    if result["raw_score_missing_count"]:
+        lines += [
+            "",
+            f"WARNING: {result['raw_score_missing_count']} name(s) had no "
+            "raw_score (only rank_score) and were EXCLUDED from this "
+            "measurement rather than substituted — rank_score is not the "
+            "calibrator input axis and reporting a laundering rate on it "
+            "would be measuring a different phenomenon.",
+        ]
     return "\n".join(lines)
 
 
@@ -320,6 +350,11 @@ def main(argv=None):
             sys.stdout.write("\n")
         else:
             print(_render_report(result))
+        if result["total_names"] == 0 and result["raw_score_missing_count"] > 0:
+            # Nothing was genuinely measurable (every candidate lacked
+            # raw_score) — a 0.0 rate here would misreport "clean" rather
+            # than "unmeasurable", so this is a distinct failure exit code.
+            return 2
         return 1 if result["laundering_rate"] > 0.10 else 0
     if args.action == "history":
         records = audit_laundering_history(

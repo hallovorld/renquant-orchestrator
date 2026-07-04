@@ -93,3 +93,47 @@ path, unaffected by this round's bugs), not from `audit_laundering_history()`.
 divergence, calibrator-bound stability across differing cross-sections) —
 both confirmed to fail against the pre-fix code and pass after. 27/27 tests
 pass.
+
+## Round 3 (Codex review — single-artifact path had the same bug class)
+
+Codex confirmed round 2's history-path fix addressed the core issue, but
+found `measure_sign_laundering()` (the single-artifact path) still had
+`info.get("raw_score", info.get("rank_score"))` — silently substituting
+`rank_score` when `raw_score` is missing/null, recreating the exact
+semantic failure (reporting a calibrator-sense metric on a field that
+isn't the calibrator input axis) in a different entry point.
+
+**Fix**: removed the fallback entirely (Option 1 — require `raw_score`).
+Tickers missing `raw_score` are now excluded from the measurement rather
+than substituted, and counted separately via a new `raw_score_missing_count`
+field. `_render_report()` prints an explicit warning when this is nonzero.
+Also handled the edge case where EVERY candidate lacks `raw_score`
+(`total_names == 0`): rather than silently reporting `laundering_rate: 0.0`
+(a false "clean" result), the CLI now exits with a distinct code (`2`,
+"unmeasurable") when `total_names == 0 and raw_score_missing_count > 0`.
+
+This is consistent with round 2's fix to `audit_laundering_history()`,
+which similarly refuses to silently mix an unreliable measurement into the
+same headline contract as a genuine one — there it was done via explicit
+source-tagging (`neutral_raw_source`) since the ambiguity was about the
+*threshold reference*; here it's done via exclusion since the ambiguity is
+about the *input field itself*, and there's no legitimate reading of
+`rank_score` as a degraded-but-usable proxy for `raw_score`.
+
+**Note on the doc's "44/90 (49%)" headline figure**: round 2's note stated
+this was "unaffected by this round's bugs" since it came from
+`measure_sign_laundering()`, which round 2 didn't touch. That reasoning no
+longer holds — round 3 changes exactly this function. Whether the 44/90
+figure itself would change under this fix depends on whether that specific
+original artifact had any candidates with `rank_score` set but `raw_score`
+missing/null; this was not re-verified against the original artifact as
+part of this round, so treat "44/90" as unconfirmed pending a rerun against
+that same artifact.
+
+Added 3 new regression tests (`test_missing_raw_score_excluded_not_substituted`,
+`test_all_missing_raw_score_is_unmeasurable_not_clean`,
+`test_measure_all_missing_raw_score_exits_2`) — all 3 confirmed to fail
+against the pre-round-3 code (which reported a false 100% laundering rate
+on a rank_score-only fixture) and pass after. 2031/2031 relevant repo tests
+pass (2 pre-existing, unrelated failures in `test_bundle_consistency_ci_gate.py`
+confirmed reproducing identically on a clean `origin/main` checkout).

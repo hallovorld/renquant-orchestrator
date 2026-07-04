@@ -123,9 +123,27 @@ class TestMeasureSignLaundering:
         result = measure_sign_laundering(_write_scorer(tmp_path, {}), neutral_raw_override=-0.29)
         assert result["total_names"] == 0 and result["laundering_rate"] == 0.0
 
-    def test_rank_score_fallback(self, tmp_path):
+    def test_missing_raw_score_excluded_not_substituted(self, tmp_path):
+        # AAPL has only rank_score (no raw_score) — must be EXCLUDED, not
+        # silently measured on rank_score as if it were the raw axis
+        # (Codex review round 2: rank_score is not the calibrator input).
+        candidates = {
+            "AAPL": {"rank_score": -0.15, "mu": 0.02, "sigma": 0.20},
+            "GOOG": {"raw_score": -0.35, "mu": -0.01, "sigma": 0.18},
+        }
+        result = measure_sign_laundering(_write_scorer(tmp_path, candidates), neutral_raw_override=-0.29)
+        assert "AAPL" not in result["by_ticker"]
+        assert result["total_names"] == 1
+        assert result["raw_score_missing_count"] == 1
+
+    def test_all_missing_raw_score_is_unmeasurable_not_clean(self, tmp_path):
+        # If every candidate lacks raw_score, total_names is 0 — this must
+        # be distinguishable from "measured 0 names, 0% laundered" (a
+        # false-clean result), via raw_score_missing_count.
         result = measure_sign_laundering(_write_scorer(tmp_path, {"AAPL": {"rank_score": -0.15, "mu": 0.02, "sigma": 0.20}}), neutral_raw_override=-0.29)
-        assert result["by_ticker"]["AAPL"]["raw"] == -0.15
+        assert result["total_names"] == 0
+        assert result["laundering_rate"] == 0.0
+        assert result["raw_score_missing_count"] == 1
 
     def test_positive_neutral(self, tmp_path):
         candidates = {"A": {"raw_score": 0.05, "mu": -0.01, "sigma": 0.2}, "B": {"raw_score": 0.15, "mu": 0.02, "sigma": 0.2}}
@@ -269,6 +287,13 @@ class TestCli:
     def test_measure_low_rate(self, tmp_path):
         candidates = {f"T{i}": {"raw_score": 0.10 + i * 0.01, "mu": 0.02, "sigma": 0.2} for i in range(20)}
         assert main(["measure", str(_write_scorer(tmp_path, candidates)), "--neutral-raw", "-0.29"]) == 0
+
+    def test_measure_all_missing_raw_score_exits_2(self, tmp_path, capsys):
+        # Every candidate lacks raw_score — must exit distinctly from
+        # "clean" (rc=0) rather than silently reporting 0% laundering.
+        rc = main(["measure", str(_write_scorer(tmp_path, {"AAPL": {"rank_score": -0.15, "mu": 0.02, "sigma": 0.20}})), "--neutral-raw", "-0.29"])
+        assert rc == 2
+        assert "WARNING" in capsys.readouterr().out
 
     def test_history_text(self, laundering_db, capsys):
         rc = main(["history", "--db", str(laundering_db)])
