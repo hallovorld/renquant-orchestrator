@@ -25,7 +25,16 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "native_live_run_candidate": "renquant_orchestrator.native_live_run",
     "build_wf_manifest": "renquant_orchestrator.build_wf_manifest",
     "build_patchtst_wf_manifest": "renquant_orchestrator.build_patchtst_wf_manifest",
+    "daily_pit_revision_snapshot": "renquant_orchestrator.pit_revision_collector",
     "model_freshness_monitor": "renquant_orchestrator.model_freshness_monitor",
+    "intraday_quote_logger": "renquant_orchestrator.intraday_quote_logger",
+    "intraday_pairing_logger": "renquant_orchestrator.intraday_pairing_logger",
+    "entry_timing_shadow": "renquant_orchestrator.entry_timing_shadow",
+    "intraday_session_scheduler": "renquant_orchestrator.intraday_session_scheduler",
+    "realtime_data_plane": "renquant_orchestrator.realtime_data_plane",
+    "shadow_realtime_serving": "renquant_orchestrator.shadow_realtime_serving",
+    "scorer_identity_monitor": "renquant_orchestrator.scorer_identity_monitor",
+    "fallback_shadow_logger": "renquant_orchestrator.fallback_shadow_logger",
 }
 
 
