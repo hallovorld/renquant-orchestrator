@@ -1,8 +1,9 @@
 """Tests for the Stage-2 live executor (RFC #208 §7/§9.3a/§10, sprint D2).
 
 Covers the pre-registered safety surface, with NO live broker call anywhere
-(fake ports only; the real ``AlpacaBrokerPort`` is exercised against an
-injected fake TradingClient for request shaping):
+(fake ports only; the real ``AlpacaBrokerPort`` — owned by
+renquant-execution — is tested THERE, against an injected fake client; this
+suite only pins the lazy fail-closed import seam):
 
 - the §9.3a QUADRUPLE gate — all 16 combinations, only all-four arms live;
 - authorization-file schema rejection cases;

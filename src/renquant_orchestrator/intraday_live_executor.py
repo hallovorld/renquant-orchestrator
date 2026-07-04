@@ -99,7 +99,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from renquant_artifacts import hash_jsonable
-from renquant_execution.alpaca_broker_port import AlpacaBrokerPort
 from renquant_execution.order_state_machine import (
     MAX_PENDING_AGE_SECONDS,
     BrokerPort,
@@ -625,14 +624,6 @@ def assert_entry_cap(
 
 
 # ---------------------------------------------------------------------------
-# The REAL broker adapter — owned by renquant-execution, never here (per
-# CLAUDE.md "do not implement broker adapters here"). AlpacaBrokerPort lives
-# in renquant_execution.alpaca_broker_port; this module only injects it as
-# the CLI's default port_factory, behind the §9.3a quadruple gate.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # The live tick executor — intents → book → broker → book → snapshot.
 # ---------------------------------------------------------------------------
 class LiveTickExecutor:
@@ -1152,8 +1143,6 @@ class LiveTickWriter:
             fh.write(json.dumps(record, sort_keys=True) + "\n")
         self._seen.add(key)
         return True
-
-
 
 
 __all__ = [

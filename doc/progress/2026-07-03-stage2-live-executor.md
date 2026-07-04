@@ -135,3 +135,15 @@ NOT RESOLVED: this still does not settle whether the canary is the right
           experiment to run (§9.4) — that decision remains the actual
           blocker for ever rebuilding `LiveSessionRunner`, per design doc
           §7's "what would need to be true to rebuild this."
+CONCURRENT ROUND 3 (independently landed while this round was in
+          progress — now superseded): a parallel fix made the
+          `AlpacaBrokerPort` import lazy (`_load_alpaca_broker_port_cls()`,
+          invoked inside the CLI's default `port_factory` only after
+          arming, so merge order with renquant-execution#21 stayed free
+          and a session arming without the adapter failed closed with
+          `Stage2ContractError`). Since this round removes the CLI/
+          `port_factory`/`LiveSessionRunner` entirely, that loader is now
+          unreachable dead code and was removed along with them — the
+          insight (defer the adapter import, fail closed at arming, not
+          at module import) is preserved in design doc §7's rebuild
+          sketch for whoever eventually builds the session runner.

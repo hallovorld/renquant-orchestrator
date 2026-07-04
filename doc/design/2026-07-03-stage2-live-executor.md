@@ -25,28 +25,38 @@ untouched by this PR):
   normalized payload the shadow log records) → registered as parent intents
   in slice 1's `OrderStateBook`
   (`renquant_execution.order_state_machine` — consumed, never
-  reimplemented) → submitted through a REAL `AlpacaBrokerPort` adapter →
+  reimplemented) → submitted through the REAL `AlpacaBrokerPort` adapter,
+  OWNED by renquant-execution (see next bullet) →
   fills/cancels reconciled back into the book → the book snapshot persisted
   after every tick to `data/rq105/order_state_book.json` in slice 1's exact
   `to_snapshot()`/`from_snapshot()` shape (a STATE file under the operator
   data root — not canonical prod data, never the umbrella git tree; the
   Stage-1 reader `load_order_state_reservations` parses it, pinned by test).
-- **`AlpacaBrokerPort`** — slice 1's `BrokerPort` protocol over the Alpaca
-  trading REST API: `client_order_id` = the slice-1 child id (broker-side
+- **`AlpacaBrokerPort` — owned by renquant-execution, NOT this repo**
+  (architecture fix, codex round 2: this repo's CLAUDE.md forbids
+  implementing broker adapters here, and `BrokerPort`'s own docstring
+  reserved "Alpaca adapter implements this later" for the execution repo).
+  It lives in `renquant_execution.alpaca_broker_port`
+  (renquant-execution#21): slice 1's `BrokerPort` protocol over the Alpaca
+  trading REST API — `client_order_id` = the slice-1 child id (broker-side
   idempotency), DAY time-in-force always (§11b no-carry), limit vs market
   pre-declared in the authorization artifact (A5.2 — never per-order:
   entries default marketable-limit at the class-D reference price ±
   `limit_price_offset_bps`, exits default market). GET-only reads
   (`open_orders`, `order_status`) follow the `AlpacaLiveStateSource`
   lazy-env-credential pattern.
-- **`LiveSessionRunner`** (DEFERRED, round 2 — see §8) — the session loop:
+- **`LiveSessionRunner`** (DEFERRED, round 2 — see §7) — the session loop:
   evaluates the quadruple gate at session start; if armed, drives live
   ticks (same §5/§11b windows, calendar, class-A/B/C input discipline as
   the shadow scheduler); if ANY gate is missing, delegates to the
   UNCHANGED Stage-1 `SessionScheduler` (shadow, counted). Was going to be
   a drop-in replacement for the shadow scheduler entrypoint
   (`python -m renquant_orchestrator.intraday_live_executor`); not shipped
-  this round.
+  this round. A parallel in-flight fix (independently landed while this
+  round was in progress) made the adapter import LAZY — deferred inside
+  the CLI's default `port_factory`, invoked only after arming, so an
+  execution checkout without the adapter couldn't break module import —
+  that lesson is folded into the §7 sketch for whoever rebuilds this.
 
 ## 2. The quadruple authorization gate (§9.3a)
 
