@@ -29,6 +29,7 @@ dependencies = [
 [project.scripts]
 renquant-orchestrator = "renquant_orchestrator.cli:main"
 rq-tc = "renquant_orchestrator.transfer_coefficient:main"
+rq-readiness = "renquant_orchestrator.readiness_monitor:main"
 
 [project.optional-dependencies]
 market-data = [
