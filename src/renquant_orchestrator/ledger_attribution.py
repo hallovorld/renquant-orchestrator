@@ -68,13 +68,13 @@ ORDER BY gate, verdict
 COVERAGE_SQL = """
 SELECT
   l.as_of,
-  COUNT(DISTINCT l.gate || '|' || l.scope) AS n_verdicts,
+  COUNT(DISTINCT l.run_id || '|' || l.gate || '|' || l.scope) AS n_verdicts,
   COUNT(DISTINCT CASE WHEN o.gate IS NOT NULL
-    THEN o.gate || '|' || o.scope END) AS n_outcomes,
-  CASE WHEN COUNT(DISTINCT l.gate || '|' || l.scope) > 0
+    THEN l.run_id || '|' || l.gate || '|' || l.scope END) AS n_covered,
+  CASE WHEN COUNT(DISTINCT l.run_id || '|' || l.gate || '|' || l.scope) > 0
     THEN COUNT(DISTINCT CASE WHEN o.gate IS NOT NULL
-           THEN o.gate || '|' || o.scope END) * 1.0
-         / COUNT(DISTINCT l.gate || '|' || l.scope)
+           THEN l.run_id || '|' || l.gate || '|' || l.scope END) * 1.0
+         / COUNT(DISTINCT l.run_id || '|' || l.gate || '|' || l.scope)
     ELSE NULL
   END AS coverage_ratio
 FROM decision_ledger l
@@ -176,17 +176,16 @@ def outcome_coverage(
     start_date: str,
     end_date: str,
 ) -> list[dict]:
-    """Per-date coverage ratio: what fraction of ledger (gate, scope) verdicts
-    have AT LEAST ONE corresponding outcome record?
+    """Per-date coverage ratio: what fraction of ledger decisions have AT LEAST
+    ONE corresponding outcome record?
 
-    The ledger has no ticker dimension (PRIMARY KEY is run_id/scope/gate — one
-    row per gate decision, not per ticker), while ``decision_outcomes`` is
-    ticker-level (a single gate/scope/date decision can affect many tickers).
-    Both sides of the ratio are counted at the ledger's own (gate, scope)
-    grain — existence of >=1 matching outcome, not a per-ticker outcome
-    count — so ``coverage_ratio`` stays mathematically bounded to [0, 1]
-    regardless of how many tickers a covered decision touches. The S5 AC
-    targets >=95% for aged decisions."""
+    The ledger is keyed by ``(run_id, scope, gate)`` — multiple same-day runs
+    of the same gate/scope are distinct decisions. Both sides of the coverage
+    ratio count at this ``(run_id, gate, scope)`` grain so that same-day reruns
+    are not collapsed. The numerator counts ledger decisions whose
+    ``(as_of, scope, gate)`` has at least one matching outcome row; the
+    denominator counts all ledger decisions. ``coverage_ratio`` is therefore
+    bounded to [0, 1]. The S5 AC targets >=95% for aged decisions."""
     cur = conn.execute(COVERAGE_SQL, (start_date, end_date))
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]

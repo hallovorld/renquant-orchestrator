@@ -169,7 +169,32 @@ def test_outcome_coverage_bounded_with_multi_ticker_outcomes() -> None:
     assert len(cov) == 1
     assert cov[0]["coverage_ratio"] == pytest.approx(1.0)
     assert cov[0]["n_verdicts"] == 2
-    assert cov[0]["n_outcomes"] == 2
+    assert cov[0]["n_covered"] == 2
+
+
+def test_outcome_coverage_counts_distinct_runs_not_collapsed() -> None:
+    """Two same-day runs of the same gate/scope must count as 2 verdicts, not 1.
+    This is the core grain-match test: the ledger PK is (run_id, scope, gate),
+    so the coverage denominator must respect run_id."""
+    conn = _db()
+    write_verdicts(conn, "run-001", "2026-07-01", [
+        {"scope": "daily", "gate": "P-WF-GATE", "verdict": "allow", "reason": "ok"},
+    ])
+    write_verdicts(conn, "run-002", "2026-07-01", [
+        {"scope": "daily", "gate": "P-WF-GATE", "verdict": "block", "reason": "rerun"},
+    ])
+    write_outcomes(conn, [
+        {
+            "as_of": "2026-07-01", "scope": "daily", "ticker": "AAPL",
+            "gate": "P-WF-GATE", "verdict": "allow",
+            "fwd_20d_ret": 0.02, "recorded_at": "2026-08-01T00:00:00Z",
+        },
+    ])
+    cov = outcome_coverage(conn, "2026-07-01", "2026-07-01")
+    assert len(cov) == 1
+    assert cov[0]["n_verdicts"] == 2
+    assert cov[0]["n_covered"] == 2
+    assert cov[0]["coverage_ratio"] == pytest.approx(1.0)
 
 
 def test_outcome_coverage_partial_when_gate_missing_outcomes() -> None:
@@ -187,7 +212,7 @@ def test_outcome_coverage_partial_when_gate_missing_outcomes() -> None:
     assert len(cov) == 1
     assert cov[0]["coverage_ratio"] == pytest.approx(0.5)
     assert cov[0]["n_verdicts"] == 2
-    assert cov[0]["n_outcomes"] == 1
+    assert cov[0]["n_covered"] == 1
 
 
 def test_outcome_coverage_empty_db() -> None:
