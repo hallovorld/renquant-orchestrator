@@ -29,6 +29,7 @@
     "run-job",
     "scheduled-health",
     "scheduled-jobs",
+    "sign-laundering",
     "signal-pipeline",
     "weekly-promote-health",
     "wf-promote-triage"
@@ -118,6 +119,7 @@
     "scheduled_jobs",
     "scorer_identity_monitor",
     "shadow_realtime_serving",
+    "sign_laundering_harness",
     "signal_pipeline_config",
     "state_backup",
     "train_gbdt",
