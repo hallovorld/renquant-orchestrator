@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from renquant_orchestrator.intraday_quote_logger import default_tick_feed_path
 from renquant_orchestrator.readiness_monitor import (
     ALL_CHECKS,
     CheckResult,
@@ -176,24 +177,54 @@ class TestPitFeatures:
 # Intraday corpus
 # ---------------------------------------------------------------------------
 
+def _write_tick_feed(data_root, records) -> None:
+    feed = default_tick_feed_path(data_root)
+    feed.parent.mkdir(parents=True, exist_ok=True)
+    with feed.open("w", encoding="utf-8") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec) + "\n")
+
+
 class TestIntradayCorpus:
-    def test_no_dir(self, tmp_path):
+    def test_no_feed(self, tmp_path):
         r = check_intraday_corpus(tmp_path)
         assert r.status == Status.UNKNOWN
+        assert r.authoritative is False
 
-    def test_partial(self, data_root):
+    def test_reads_real_tick_feed_not_a_fictional_directory(self, data_root):
+        # Round-3 regression: the OLD check counted directories under
+        # data/intraday/, a path the real N1 collector never writes to.
+        # Creating that fictional directory structure must NOT be what
+        # this check reads.
         for t in ["AAPL", "GOOG", "MSFT"]:
             (data_root / "data" / "intraday" / t).mkdir()
         r = check_intraday_corpus(data_root)
-        assert r.status == Status.NOT_READY
-        assert r.current == 3
+        assert r.status == Status.UNKNOWN  # no real tick feed written yet
+        assert r.current == 0
 
-    def test_ready(self, data_root):
-        for i in range(110):
-            (data_root / "data" / "intraday" / f"TICK{i}").mkdir()
+    def test_counts_distinct_days_and_tickers_from_real_feed(self, data_root):
+        _write_tick_feed(data_root, [
+            {"date": "2026-07-01", "ticker": "AAPL"},
+            {"date": "2026-07-01", "ticker": "GOOG"},
+            {"date": "2026-07-02", "ticker": "AAPL"},
+            {"date": "2026-07-03", "ticker": "AAPL"},
+        ])
         r = check_intraday_corpus(data_root)
-        assert r.status == Status.READY
-        assert r.current == 110
+        assert r.current == 3  # 3 distinct days, not 4 records or 2 tickers
+        assert "3 distinct trading day" in r.detail
+        assert "2 distinct ticker" in r.detail
+
+    def test_always_informational_never_feeds_ready_aggregate(self, data_root):
+        # Even with a large, healthy-looking corpus, this check must stay
+        # UNKNOWN/non-authoritative — there is no frozen N_days target to
+        # gate READY on (per Codex round-3).
+        _write_tick_feed(data_root, [
+            {"date": f"2026-{(i % 12) + 1:02d}-{(i % 28) + 1:02d}", "ticker": "AAPL"}
+            for i in range(200)
+        ])
+        r = check_intraday_corpus(data_root)
+        assert r.status == Status.UNKNOWN
+        assert r.authoritative is False
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +234,9 @@ class TestIntradayCorpus:
 class TestReadonlySessions:
     def test_no_dir(self, data_root):
         r = check_readonly_sessions(data_root)
-        assert r.status == Status.NOT_READY
+        assert r.status == Status.UNKNOWN
         assert r.current == 0
+        assert r.authoritative is False
 
     def test_partial(self, data_root):
         sess_dir = data_root / "data" / "105_sessions"
@@ -212,16 +244,21 @@ class TestReadonlySessions:
         for i in range(3):
             (sess_dir / f"session_{i}.json").write_text("{}")
         r = check_readonly_sessions(data_root)
-        assert r.status == Status.NOT_READY
         assert r.current == 3
+        assert r.authoritative is False
 
-    def test_ready(self, data_root):
+    def test_many_files_still_not_authoritative(self, data_root):
+        # Round-3 regression: file presence alone must never report READY
+        # or feed the aggregate — six arbitrary/unreplayed session files
+        # are not "5 clean sessions" per Codex's review.
         sess_dir = data_root / "data" / "105_sessions"
         sess_dir.mkdir(parents=True)
         for i in range(6):
             (sess_dir / f"session_{i}.json").write_text("{}")
         r = check_readonly_sessions(data_root)
-        assert r.status == Status.READY
+        assert r.status == Status.UNKNOWN
+        assert r.authoritative is False
+        assert "does NOT verify" in r.detail
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +531,16 @@ class TestRunAllChecks:
         for r in results:
             assert isinstance(r.status, Status)
 
+    def test_s10_and_m1_are_marked_non_authoritative(
+        self, data_root, db_path, ledger_db_path,
+    ):
+        results = run_all_checks(data_root=data_root, db_path=db_path,
+                                  ledger_db_path=ledger_db_path)
+        s10 = next(r for r in results if r.name == "S10_intraday_symbols_present")
+        m1 = next(r for r in results if r.name == "M1_session_logs_observed")
+        assert s10.authoritative is False
+        assert m1.authoritative is False
+
     def test_decision_ledger_uses_its_own_db_not_the_shared_one(
         self, data_root, db_path, ledger_db_path,
     ):
@@ -535,6 +582,45 @@ class TestCLI:
         assert state.exists()
         assert rc == 1
 
+    def test_informational_checks_dont_block_zero_exit(
+        self, data_root, db_path, ledger_db_path, capsys,
+    ):
+        # S10/M1 are left completely unpopulated (0 tick-feed records, no
+        # session dir) — under the OLD semantics both would have been
+        # NOT_READY and blocked rc==0. They must not do so now.
+        snap_dir = data_root / "data" / "estimate_snapshots"
+        today = dt.date.today()
+        for i in range(95):
+            _write_valid_pit_day(snap_dir, (today - dt.timedelta(days=i)).isoformat())
+        days = [f"2026-{m:02d}-{d:02d}" for m in range(4, 8) for d in range(1, 29)]
+        manifest = data_root / "data" / "pit_features" / "c1_revision_drift.manifest.json"
+        manifest.write_text(json.dumps({"processed_days": days[:95]}))
+
+        _write_fully_covered_ledger(ledger_db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE config_experiments (id INTEGER PRIMARY KEY, config TEXT)")
+        for i in range(50):
+            conn.execute("INSERT INTO config_experiments (config) VALUES (?)", (f"cfg{i}",))
+        today_ = dt.date.today()
+        conn.execute("INSERT INTO gate_verdicts VALUES (?, ?, ?)",
+                     ("run-fresh", str(today_ - dt.timedelta(days=1)), "PASS"))
+        for i in range(65):
+            m = (i // 28) + 4
+            d = (i % 28) + 1
+            conn.execute("INSERT INTO pipeline_runs VALUES (?, ?, ?)",
+                         (f"run-{i}", f"2026-{m:02d}-{d:02d}", "live"))
+        conn.commit()
+        conn.close()
+
+        rc = main(["--data-root", str(data_root), "--db", str(db_path),
+                    "--ledger-db", str(ledger_db_path)])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "S10_intraday_symbols_present" in out
+        assert "M1_session_logs_observed" in out
+        assert "[informational" in out
+
     def test_all_ready_returns_zero(self, data_root, db_path, ledger_db_path, capsys):
         snap_dir = data_root / "data" / "estimate_snapshots"
         today = dt.date.today()
@@ -543,8 +629,10 @@ class TestCLI:
         days = [f"2026-{m:02d}-{d:02d}" for m in range(4, 8) for d in range(1, 29)]
         manifest = data_root / "data" / "pit_features" / "c1_revision_drift.manifest.json"
         manifest.write_text(json.dumps({"processed_days": days[:95]}))
-        for i in range(110):
-            (data_root / "data" / "intraday" / f"TICK{i}").mkdir()
+        # S10/M1 are informational/non-authoritative (round 3) — populated
+        # here only to prove they do NOT block rc==0, not because they're
+        # required for it.
+        _write_tick_feed(data_root, [{"date": "2026-07-01", "ticker": "AAPL"}])
         sess_dir = data_root / "data" / "105_sessions"
         sess_dir.mkdir(parents=True)
         for i in range(6):

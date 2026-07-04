@@ -21,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
+from renquant_orchestrator.intraday_quote_logger import default_tick_feed_path
 from renquant_orchestrator.runtime_paths import default_data_root
 
 _OPS_PIT_DIR = Path(__file__).resolve().parents[2] / "ops" / "pit"
@@ -40,6 +41,11 @@ class CheckResult:
     threshold: Any
     detail: str
     pct: float = 0.0
+    authoritative: bool = True
+    """False for progress-only diagnostics that must NOT feed the aggregate
+    READY count / exit code — used when no real completion-artifact contract
+    exists yet to bind the check to (see S10/M1 below), so the check would
+    otherwise look stricter/more authoritative than it actually is."""
 
 
 @dataclass
@@ -143,38 +149,112 @@ def check_pit_features(data_root: Path) -> CheckResult:
 
 
 def check_intraday_corpus(data_root: Path) -> CheckResult:
-    """N1/S10: intraday quote collector corpus — need tickers × trading days."""
-    name = "S10_intraday_corpus"
-    threshold_tickers = 100
-    intraday_dir = data_root / "data" / "intraday"
-    if not intraday_dir.exists():
-        return CheckResult(name, Status.UNKNOWN, 0, threshold_tickers,
-                           "intraday dir not found")
-    tickers = [d.name for d in intraday_dir.iterdir() if d.is_dir()]
+    """N1/S10: intraday quote collector corpus — PROGRESS-ONLY, not
+    authoritative.
+
+    Round-3 finding (round 2 only fixed S5/N2): this used to count ticker
+    DIRECTORIES under a ``data/intraday/`` tree that the real N1 collector
+    (``intraday_quote_logger.py``) never writes to at all — it appends
+    ``{date, ticker, ...}`` records to a single rolling JSONL
+    (``default_tick_feed_path()``, ``logs/renquant105_pilot/intraday_ticks.jsonl``).
+    The old check was silently dead code (always UNKNOWN on a real data
+    root), not merely measuring the wrong axis.
+
+    Fixed to read the real feed and report DISTINCT TRADING DAYS accrued —
+    the S10 docs (``doc/progress/2026-07-02-s10-open-auction-is.md``) name
+    day-accrual, not symbol breadth, as "the binding step" for the S10
+    open-auction-IS prize. But there is no fixed ``N_days`` target anywhere
+    in the codebase to gate READY/NOT_READY on: the actual power calculation
+    (``scripts/s10_open_auction_is_study.py::_cluster_robust_prospective_n_days``)
+    is a data-dependent sensitivity table, not a frozen constant, and
+    computing it here would require this lightweight filesystem monitor to
+    invoke real statistical power analysis over the fill-vs-VWAP corpus —
+    out of scope. Per Codex's own explicit fallback ("rename ... and keep
+    them out of the authoritative READY count"), this is progress-only:
+    reports days + distinct symbols accrued so far, participates in NEITHER
+    the READY/total ratio NOR the overall exit code.
+    """
+    name = "S10_intraday_symbols_present"
+    tick_feed = default_tick_feed_path(data_root)
+    if not tick_feed.exists():
+        return CheckResult(name, Status.UNKNOWN, 0, None,
+                           f"tick feed not found: {tick_feed}",
+                           authoritative=False)
+    days: set[str] = set()
+    tickers: set[str] = set()
+    with tick_feed.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            d = rec.get("date")
+            t = rec.get("ticker")
+            if d:
+                days.add(str(d))
+            if t:
+                tickers.add(str(t))
+    n_days = len(days)
     n_tickers = len(tickers)
-    status = Status.READY if n_tickers >= threshold_tickers else Status.NOT_READY
-    return CheckResult(name, status, n_tickers, threshold_tickers,
-                       f"{n_tickers} tickers with intraday data",
-                       pct=min(n_tickers / threshold_tickers, 1.0) * 100)
+    detail = (
+        f"{n_days} distinct trading day(s), {n_tickers} distinct ticker(s) "
+        f"in the tick feed — day-accrual (not symbol count) is S10's real "
+        f"binding step per doc/progress/2026-07-02-s10-open-auction-is.md; "
+        f"no frozen N_days target exists to gate on yet"
+    )
+    return CheckResult(name, Status.UNKNOWN, n_days, None, detail,
+                       authoritative=False)
 
 
 def check_readonly_sessions(data_root: Path) -> CheckResult:
-    """M1: 105 Stage-1 readonly sessions — need 5 clean sessions."""
-    name = "M1_readonly_sessions"
-    threshold = 5
+    """M1: 105 Stage-1 readonly sessions — PROGRESS-ONLY, not authoritative.
+
+    Round-3 finding: this counted raw ``*.json``/``*.jsonl`` session-log
+    FILES as if that alone meant "5 clean sessions." The real M1 AC is
+    stronger and multi-part — decisions logged, nothing placed, four-class
+    replay green on every tick, census complete — and the sharpest
+    real evidence contract for it, ``Stage2Authorization``'s
+    ``evidence.shadow_sessions_clean``/``evidence.replay_audits_green``
+    (``intraday_live_executor.py``), is a SCHEMA VALIDATOR over a
+    manually-authored authorization file, not an automated per-session
+    verifier — it can only confirm a human's *claim* passes shape/value
+    checks, not independently re-derive it from raw session logs.
+
+    The actual per-tick verifier that COULD derive "clean" (four-class
+    replay) is ``intraday_replay_audit.replay_session()`` — but it requires
+    binding a live tick-runner to the real strategy/data/artifact pipeline
+    ("fail closed" per its own docstring) and has no default persisted
+    report location (``--report-out`` is optional, operator-chosen); there
+    is nothing on disk this lightweight, read-only filesystem monitor can
+    safely glob for without invoking that heavy pipeline machinery itself
+    (out of scope for this module's own "never invoke the pipeline" scope).
+
+    Per Codex's own explicit fallback ("rename ... and keep them out of the
+    authoritative READY count"), this stays a raw file count — genuinely all
+    that's cheaply knowable here — but is now clearly labeled as such and
+    excluded from the authoritative aggregate.
+    """
+    name = "M1_session_logs_observed"
     sessions_dir = data_root / "data" / "105_sessions"
     if not sessions_dir.exists():
         sessions_dir = data_root / "data" / "intraday_sessions"
     if not sessions_dir.exists():
-        return CheckResult(name, Status.NOT_READY, 0, threshold,
-                           "no session log directory found (Stage-1 not yet started)",
-                           pct=0.0)
+        return CheckResult(name, Status.UNKNOWN, 0, None,
+                           "no session log directory found (Stage-1 not yet started) "
+                           "— NOTE: file presence alone does not mean clean/replay-green",
+                           authoritative=False)
     session_files = list(sessions_dir.glob("*.json")) + list(sessions_dir.glob("*.jsonl"))
     n = len(session_files)
-    status = Status.READY if n >= threshold else Status.NOT_READY
-    return CheckResult(name, status, n, threshold,
-                       f"{n} session files found",
-                       pct=min(n / threshold, 1.0) * 100)
+    detail = (
+        f"{n} session log file(s) found — file presence only; does NOT verify "
+        f"decisions-logged/nothing-placed/four-class-replay-green/census-complete "
+        f"(the real M1 AC requires intraday_replay_audit against the live pipeline)"
+    )
+    return CheckResult(name, Status.UNKNOWN, n, None, detail,
+                       authoritative=False)
 
 
 def check_decision_ledger(db_path: Path | None = None) -> CheckResult:
@@ -329,11 +409,13 @@ ALL_CHECKS: list[ReadinessCheck] = [
     ReadinessCheck("N2_pit_features",
                    "C1 revision-drift features built from PIT snapshots",
                    check_pit_features),
-    ReadinessCheck("S10_intraday_corpus",
-                   "Intraday quote collector corpus (≥100 tickers)",
+    ReadinessCheck("S10_intraday_symbols_present",
+                   "Intraday tick-feed progress (days/symbols accrued; "
+                   "informational, no frozen N_days target yet)",
                    check_intraday_corpus),
-    ReadinessCheck("M1_readonly_sessions",
-                   "105 Stage-1 readonly sessions (5 clean)",
+    ReadinessCheck("M1_session_logs_observed",
+                   "105 Stage-1 session log files present (informational; "
+                   "does not verify clean/replay-green)",
                    check_readonly_sessions),
     ReadinessCheck("S5_decision_ledger",
                    "Decision-ledger entries with forward-return coverage (≥95%)",
@@ -417,9 +499,10 @@ def record_transitions(
 
 def _render_table(results: list[CheckResult]) -> str:
     lines = []
-    ready = sum(1 for r in results if r.status == Status.READY)
-    total = len(results)
-    lines.append(f"Readiness: {ready}/{total} checks passing\n")
+    authoritative = [r for r in results if r.authoritative]
+    ready = sum(1 for r in authoritative if r.status == Status.READY)
+    total = len(authoritative)
+    lines.append(f"Readiness: {ready}/{total} authoritative checks passing\n")
 
     name_w = max((len(r.name) for r in results), default=10)
     lines.append(f"{'Check':<{name_w}}  {'Status':>10}  {'Progress':>8}  Detail")
@@ -427,9 +510,10 @@ def _render_table(results: list[CheckResult]) -> str:
 
     for r in results:
         icon = {"READY": "+", "NOT_READY": "-", "UNKNOWN": "?"}[r.status.value]
+        tag = "" if r.authoritative else "  [informational — excluded from READY count]"
         lines.append(
             f"{r.name:<{name_w}}  [{icon}] {r.status.value:>8}  "
-            f"{r.pct:>6.1f}%  {r.detail}"
+            f"{r.pct:>6.1f}%  {r.detail}{tag}"
         )
     return "\n".join(lines)
 
@@ -460,14 +544,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         out = [{"name": r.name, "status": r.status.value, "current": r.current,
-                "threshold": r.threshold, "pct": r.pct, "detail": r.detail}
+                "threshold": r.threshold, "pct": r.pct, "detail": r.detail,
+                "authoritative": r.authoritative}
                for r in results]
         json.dump(out, sys.stdout, indent=2, default=str)
         sys.stdout.write("\n")
     else:
         print(_render_table(results))
 
-    return 0 if all(r.status == Status.READY for r in results) else 1
+    authoritative = [r for r in results if r.authoritative]
+    return 0 if all(r.status == Status.READY for r in authoritative) else 1
 
 
 if __name__ == "__main__":
