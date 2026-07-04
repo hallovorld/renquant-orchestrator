@@ -8,10 +8,9 @@ import json
 from pathlib import Path
 import sqlite3
 import sys
-import urllib.error
-import urllib.request
 
 from renquant_common import Job, Pipeline, Task
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
 
 from .runtime_paths import default_github_root, default_repo_root
 
@@ -122,20 +121,6 @@ def latest_sharpe(db_path: Path) -> tuple[float | None, float | None] | None:
     if row is None:
         return None
     return row
-
-
-def post_ntfy(title: str, body: str, topic: str) -> None:
-    url = f"https://ntfy.sh/{topic}"
-    try:
-        req = urllib.request.Request(
-            url,
-            data=body.encode("utf-8"),
-            headers={"Title": title},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).read()
-    except (urllib.error.URLError, OSError):
-        pass
 
 
 class LoadAuditRowsTask(Task):

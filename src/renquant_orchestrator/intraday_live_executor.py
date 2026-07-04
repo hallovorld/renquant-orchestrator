@@ -137,8 +137,6 @@ import logging
 import os
 import re
 import time
-import urllib.error
-import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from datetime import date as date_cls
@@ -147,6 +145,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from renquant_artifacts import hash_jsonable
+from renquant_common.notify import send as _send_notification
 from renquant_execution.order_state_machine import (
     MAX_PENDING_AGE_SECONDS,
     BrokerPort,
@@ -908,18 +907,10 @@ def read_canary_envelope(
 # default posts to ntfy (house convention) and honors RENQUANT_NO_NOTIFY.
 # ---------------------------------------------------------------------------
 def post_critical_ntfy(title: str, body: str) -> None:
-    if str(os.environ.get("RENQUANT_NO_NOTIFY", "")).strip().lower() in _ENV_TRUTHY:
-        return
-    try:
-        req = urllib.request.Request(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "5", "Tags": "rotating_light"},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).read()
-    except (urllib.error.URLError, OSError):
-        pass  # notification is best-effort; the halt itself never depends on it
+    # Canonical sender (campaign B6): RENQUANT_NO_NOTIFY suppression + the
+    # never-raise guarantee now live in renquant_common.notify. Notification is
+    # best-effort; the halt itself never depends on it.
+    _send_notification(title, body, NTFY_TOPIC, priority=5, tags="rotating_light")
 
 
 # ---------------------------------------------------------------------------

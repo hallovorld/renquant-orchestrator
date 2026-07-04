@@ -25,9 +25,10 @@ for MOD in intraday_pairing_logger entry_timing_shadow; do
   RC=$?
   if [ $RC -ne 0 ]; then
     RC_TOTAL=$RC
-    source "$RQ_ROOT/.env" 2>/dev/null || true
-    [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 $MOD FAILED rc=$RC ($TS)" \
-      -d "see logs/rq105/${MOD}_$TS.log" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+    # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+    . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+    rq_notify "rq105 $MOD FAILED rc=$RC ($TS)" \
+      "see logs/rq105/${MOD}_$TS.log" || true
   fi
 done
 exit $RC_TOTAL

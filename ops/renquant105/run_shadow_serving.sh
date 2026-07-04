@@ -13,10 +13,10 @@ TS="$(date +%Y-%m-%d)"
 SCORES="$RQ_ROOT/data/rq105/batch_scores_$TS.json"
 META="$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"
 if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 shadow serving SKIPPED ($TS)" \
-    -d "no frozen batch-score export for today (export_batch_scores 06:15 failed?)" \
-    "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving SKIPPED ($TS)" \
+    "no frozen batch-score export for today (export_batch_scores 06:15 failed?)" || true
   exit 1
 fi
 PY="$RQ_ROOT/.venv/bin/python"
@@ -35,9 +35,9 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # a bundle correctly stamped session_date=today but sourced from a stale
 # multi-day-old run is also caught here, not just at export time).
 if ! VERIFY_OUT=$("$PY" "$RQ105_ORCH_ROOT/ops/renquant105/batch_scores_bundle.py" verify "$SCORES" "$META" "$TS" 2>&1); then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 shadow serving SKIPPED — bundle verification failed ($TS)" \
-    -d "$VERIFY_OUT" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving SKIPPED — bundle verification failed ($TS)" \
+    "$VERIFY_OUT" || true
   echo "$VERIFY_OUT" >> "$LOG_DIR/shadow_serving_$TS.log"
   exit 1
 fi
@@ -53,8 +53,8 @@ for T in 10:00 12:00 14:00 15:30; do
     >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1 || RC_TOTAL=$?
 done
 if [ $RC_TOTAL -ne 0 ]; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 shadow serving FAILED rc=$RC_TOTAL ($TS)" \
-    -d "see logs/rq105/shadow_serving_$TS.log" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving FAILED rc=$RC_TOTAL ($TS)" \
+    "see logs/rq105/shadow_serving_$TS.log" || true
 fi
 exit $RC_TOTAL

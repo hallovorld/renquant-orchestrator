@@ -37,9 +37,9 @@ export PYTHONPATH="$BD_RUN_ROOT/src"
   --out "$RQ_ROOT/data/pit_features"
 RC=$?
 if [ $RC -ne 0 ]; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: C1 PIT feature build FAILED rc=$RC ($TS)" \
-    -d "see logs/pit_snapshots/c1_features_$TS.log — recoverable (incremental rebuild next run), but investigate" \
-    "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "C1 PIT feature build FAILED rc=$RC ($TS)" \
+    "see logs/pit_snapshots/c1_features_$TS.log — recoverable (incremental rebuild next run), but investigate" || true
 fi
 exit $RC

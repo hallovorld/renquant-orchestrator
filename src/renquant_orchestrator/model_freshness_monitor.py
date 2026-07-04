@@ -95,7 +95,7 @@ import sys
 from renquant_common import Job, Pipeline, Task
 
 from .runtime_paths import default_github_root, default_repo_root
-from .weekly_apy_monitor import post_ntfy
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
 
 
 GITHUB = default_github_root()

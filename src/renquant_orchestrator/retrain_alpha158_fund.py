@@ -28,7 +28,7 @@ from .runtime_paths import (
     default_strategy_config_candidates,
     resolve_subrepo_root,
 )
-from .weekly_apy_monitor import post_ntfy
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd

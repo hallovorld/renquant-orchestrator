@@ -99,7 +99,7 @@ import sys
 from typing import Any
 
 from .runtime_paths import default_repo_root
-from .weekly_apy_monitor import post_ntfy
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
 from .weekly_promote_monitor import (
     PROD_ARTIFACTS_SUBDIR,
     PROMOTE_LOG_SUBDIR,

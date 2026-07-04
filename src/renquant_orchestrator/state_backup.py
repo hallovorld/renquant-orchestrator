@@ -11,10 +11,9 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 
 from renquant_common import Job, Pipeline, Task
+from renquant_common.notify import send as _send_notification
 
 from .runtime_paths import default_data_root, default_github_root
 
@@ -58,17 +57,9 @@ class StateBackupContext:
 
 
 def post_ntfy(title: str, body: str, topic: str) -> None:
-    url = f"https://ntfy.sh/{topic}"
-    try:
-        req = urllib.request.Request(
-            url,
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "3", "Tags": "warning"},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).read()
-    except (urllib.error.URLError, OSError):
-        pass
+    """Alert seam: canonical ``renquant_common.notify`` sender with this job's
+    house priority/tags (campaign B6 re-point; now honors ``RENQUANT_NO_NOTIFY``)."""
+    _send_notification(title, body, topic, priority=3, tags="warning")
 
 
 def _notify(ctx: StateBackupContext, title: str, body: str) -> None:
