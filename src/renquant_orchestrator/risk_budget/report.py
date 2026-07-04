@@ -41,10 +41,13 @@ from renquant_orchestrator.runtime_paths import default_data_root
 DEFAULT_OUT_DIR = Path.home() / "renquant-data/research/risk_budget"
 
 _DATA_ROOT = default_data_root()
-_FORBIDDEN_OUT_PREFIXES = (
+_CANONICAL_UMBRELLA = Path.home() / "git/github/RenQuant"
+_FORBIDDEN_OUT_PREFIXES = tuple({
     _DATA_ROOT / "data",
     _DATA_ROOT / "runtime",
-)
+    _CANONICAL_UMBRELLA / "data",
+    _CANONICAL_UMBRELLA / "runtime",
+})
 
 WARN_THRESHOLD = 0.80
 CRITICAL_THRESHOLD = 1.00
