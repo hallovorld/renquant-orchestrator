@@ -635,6 +635,14 @@ class SessionScheduler:
     exit_orders_provider: Callable[[datetime], Sequence[Mapping[str, Any]]] | None = None
     environ: Mapping[str, str] | None = None
     strategy_config_fingerprint: str = ""
+    #: Optional OBSERVE-ONLY consumer of each persisted tick record (e.g. the
+    #: entry-timing policy shadow evaluator, :mod:`.entry_timing_policy`). It
+    #: is invoked AFTER the never-submit assertion and AFTER the record is
+    #: appended; it cannot alter the decision payload, and an observer
+    #: exception is counted in the manifest and swallowed — a diagnostic
+    #: surface may never halt the shadow decision loop.
+    tick_observer: Callable[[Mapping[str, Any]], None] | None = None
+    _windows: SessionWindows | None = None
     _manifest: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -720,6 +728,10 @@ class SessionScheduler:
             "mode": mode,
             "window_phase": phase,
             "calendar_id": getattr(self.calendar, "name", "unknown"),
+            # §11b windows stamped per tick (additive) so downstream shadow
+            # consumers (entry-timing policy evaluator, replay) can do
+            # window/deadline math without re-deriving the calendar.
+            "windows": self._windows.to_record() if self._windows else None,
             "fingerprints": {
                 "signal_version": str(signal.get("signal_version", "")),
                 "score_content_sha256": str(signal.get("score_content_sha256", "")),
@@ -741,6 +753,19 @@ class SessionScheduler:
         # payload is broker-submission evidence. Raises before persisting.
         assert_shadow_never_submits(mode=mode, decisions=record["decisions"])
         self.writer.append(record)
+        if self.tick_observer is not None:
+            try:
+                self.tick_observer(record)
+            except Exception as exc:  # noqa: BLE001 — observe-only diagnostics
+                # may never halt the shadow decision loop: count + continue.
+                log.warning(
+                    "tick observer failed (%s: %s) — continuing (observe-only)",
+                    type(exc).__name__,
+                    exc,
+                )
+                self._manifest["tick_observer_errors"] = (
+                    int(self._manifest.get("tick_observer_errors", 0)) + 1
+                )
         return record, dict(decisions.get("counters") or counters)
 
     # -- the session loop ------------------------------------------------------
@@ -775,6 +800,7 @@ class SessionScheduler:
         if bounds is None:
             return self._stamp("non_session_day")
         windows = SessionWindows.from_bounds(bounds, self.config)
+        self._windows = windows
         self._manifest["windows"] = windows.to_record()
 
         # Class A ONCE per session, leak-guarded twice (§6).
@@ -976,6 +1002,46 @@ def main(
             "canary_allowlist": list(config.canary_allowlist),
         }
 
+    # Entry-timing policy SHADOW evaluator (the default and only wired mode of
+    # .entry_timing_policy): observes each persisted tick record and logs what
+    # each pre-declared policy WOULD have done + counterfactual costs. Absent
+    # config section => baseline defaults; it never touches the decision path.
+    from .entry_timing_policy import (  # noqa: PLC0415
+        ShadowEntryTimingEvaluator,
+        default_policy_shadow_log_path,
+        load_entry_timing_config,
+    )
+
+    et_config = load_entry_timing_config(strategy_config)
+    if et_config.config_errors:
+        log.warning(
+            "entry_timing config errors (fail-safe to baseline): %s",
+            "; ".join(et_config.config_errors),
+        )
+    prior_close_refs: dict[str, float] | None = None
+    if et_config.prior_close_refs_path:
+        try:
+            prior_close_refs = {
+                str(k): float(v)
+                for k, v in _load_json_object(et_config.prior_close_refs_path).items()
+            }
+        except (OSError, ValueError, TypeError) as exc:
+            log.warning(
+                "entry_timing prior_close_refs_path unreadable (%s) — gap "
+                "reference absent; reversion policy will record degraded rows",
+                exc,
+            )
+    evaluator = ShadowEntryTimingEvaluator(
+        config=et_config,
+        log_path=(
+            Path(et_config.shadow_log)
+            if et_config.shadow_log
+            else default_policy_shadow_log_path(data_root)
+        ),
+        prior_close_refs=prior_close_refs,
+        tick_seconds=config.tick_seconds,
+    )
+
     scheduler = SessionScheduler(
         config=config,
         tick_runner=tick_runner,
@@ -987,8 +1053,14 @@ def main(
         kill_switch=KillSwitch(kill_path),
         calendar=cal,
         strategy_config_fingerprint=hash_jsonable(strategy_config),
+        tick_observer=evaluator.on_tick,
     )
-    manifest = scheduler.run_session(max_cycles=args.max_cycles)
+    try:
+        manifest = scheduler.run_session(max_cycles=args.max_cycles)
+    finally:
+        # Censored cells are recorded by cause, never dropped, even when the
+        # session halts early (kill switch / tick error).
+        evaluator.flush()
     if args.json:
         print(json.dumps(manifest, sort_keys=True, indent=2))
     ok_statuses = {
