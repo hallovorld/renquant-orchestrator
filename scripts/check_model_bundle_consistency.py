@@ -29,7 +29,9 @@ import json
 import sys
 from pathlib import Path
 
-DEFAULT_REPO = Path("/Users/renhao/git/github/RenQuant")
+from renquant_orchestrator.runtime_paths import default_data_root
+
+DEFAULT_REPO = default_data_root()
 
 
 def _resolve(strategy_dir: Path, rel: str) -> Path:
