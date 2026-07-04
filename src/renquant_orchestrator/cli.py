@@ -136,6 +136,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    signal_pipeline = sub.add_parser(
+        "signal-pipeline",
+        help="show signal pipeline configuration and readiness status (106 flag-off)",
+    )
+    signal_pipeline.add_argument(
+        "--config", default=None,
+        help="path to signal pipeline config JSON (default: built-in defaults)",
+    )
+    signal_pipeline.add_argument(
+        "--data-root", default=None,
+        help="data root for readiness check",
+    )
+    signal_pipeline.add_argument(
+        "--json", action="store_true", dest="signal_json",
+        help="output as JSON",
+    )
+
     model_fresh = sub.add_parser(
         "model-freshness",
         help="check model freshness across all populations (prod/shadow/tournament)",
@@ -622,6 +639,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         conn.close()
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "signal-pipeline":
+        from .signal_pipeline_config import main as spc_main
+
+        spc_argv = []
+        if args.config:
+            spc_argv.extend(["--config", args.config])
+        if args.data_root:
+            spc_argv.extend(["--data-root", args.data_root])
+        if args.signal_json:
+            spc_argv.append("--json")
+        return spc_main(spc_argv)
     if args.command == "model-freshness":
         from .model_freshness_monitor import main as mfm_main
 
