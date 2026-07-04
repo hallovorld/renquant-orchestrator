@@ -131,3 +131,30 @@ reruns sharing one outcome) and documents in its docstring why asserting
 1963/1963 relevant repo tests pass, 15/15 attribution tests pass (2
 pre-existing failures in `test_bundle_consistency_ci_gate.py` reproduce
 identically on a clean `origin/main` checkout — unrelated to this change).
+
+## Round 5 (review): attribution claims ahead of data model
+
+Codex round 4 pointed out a deeper architectural gap: `gate_value_report()` and
+`gate_information_value()` read directly from `decision_outcomes` without
+joining to `decision_ledger` — there is no enforced relationship, no
+foreign-key check, and no validation that outcome rows are consistent with
+what the ledger actually recorded. The module docstring and progress doc
+claimed "ledger-linked attribution" but the data model doesn't support it:
+`decision_ledger` has no ticker dimension, `decision_outcomes` is ticker-level,
+and gate/verdict in outcomes are free input fields.
+
+**Fix (option 2 — narrow scope)**: rewrote the module docstring to describe
+this as a "forward-outcome observation scaffold," not an "attribution engine."
+Explicitly documents:
+  - no foreign-key or consistency check against ledger decisions
+  - gate/verdict in outcomes are writer-convention, not structural guarantees
+  - `gate_value_report` measures recorded outcomes, not verified ledger joins
+  - a future ledger-linked attribution layer (requiring an explicit
+    decision→ticker mapping written by the pipeline) will close this gap
+
+Updated `gate_value_report()` and `gate_information_value()` docstrings to
+state they read from outcomes directly, not from a verified ledger join.
+No API or schema changes — the code is useful as-is, only the claims were
+overstated.
+
+15/15 attribution tests pass.

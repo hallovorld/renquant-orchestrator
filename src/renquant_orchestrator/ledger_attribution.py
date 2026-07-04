@@ -1,15 +1,28 @@
-"""Decision-ledger attribution engine (107 skeleton, S5 fwd-outcome join).
+"""Forward-outcome observation scaffold (107 skeleton).
 
-Extends the S2 decision_ledger with forward-outcome tracking and per-gate
-value-add analysis. The ledger records WHAT each gate decided; this module
-records WHAT HAPPENED NEXT and computes WHETHER the gate decision was right.
+Logs realized per-ticker forward returns and computes per-gate summary
+statistics (hit rate, avg return, value-of-information). This is an
+**independent outcome-logging surface** — it shares a DB with the S2
+decision_ledger and co-locates for convenience, but does NOT enforce a
+join-key relationship to ledger decisions.
 
-The payoff: TC/IC/expectancy measurement becomes a SQL-grade operation instead
-of one-off archaeology. The S5 AC: "fwd-outcome join >=95% for aged decisions."
+Important limitations (by design at this skeleton stage):
+  - ``decision_outcomes`` is keyed by ``(as_of, scope, ticker, gate)`` with
+    gate/verdict as free input fields. There is no foreign-key constraint or
+    consistency check against the ledger's ``(run_id, scope, gate)`` rows.
+  - The ledger has no ticker dimension; outcomes are ticker-level. The
+    association between a ledger decision and a specific ticker's outcome is
+    a convention of the writer, not a structural guarantee.
+  - ``gate_value_report()`` and ``gate_information_value()`` read directly
+    from ``decision_outcomes`` — they measure what was recorded, not what
+    the ledger decided. A future ledger-linked attribution layer (requiring
+    an explicit decision→ticker mapping written by the pipeline) will close
+    this gap.
 
-Schema additions (append-only, same WAL/busy-timeout discipline as the ledger):
-  - decision_outcomes: one row per (as_of, scope, ticker) with realized fwd returns
-  - attribution_view: the join that answers "was blocking ticker X on date Y right?"
+``outcome_coverage()`` measures date/scope/gate cluster coverage: does any
+outcome data exist for this combination? This is the S5 AC substrate —
+"fwd-outcome join >=95% for aged decisions" is measured at this
+``(as_of, scope, gate)`` grain, not at a per-decision or per-ticker grain.
 
 Usage:
     from renquant_orchestrator.ledger_attribution import (
@@ -142,11 +155,11 @@ def gate_value_report(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> list[dict]:
-    """Per-gate, per-verdict value-add report at a given forward horizon.
+    """Per-gate, per-verdict summary of recorded outcomes at a given horizon.
 
     Returns rows with: gate, verdict, n, avg_fwd_ret, hit_rate, worst, best.
-    This is the core attribution query: did blocking actually protect? Did
-    allowing actually earn?
+    Reads directly from ``decision_outcomes`` — these are statistics over
+    whatever outcome rows were written, not verified against ledger decisions.
     """
     if horizon not in (5, 20, 60):
         raise ValueError(f"horizon must be 5, 20, or 60; got {horizon}")
@@ -210,9 +223,9 @@ def gate_information_value(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict:
-    """Value of information for a single gate: the difference in average forward
-    return between names the gate allowed vs blocked. Positive = gate is adding
-    value (blocked names did worse than allowed names)."""
+    """Directional value signal for a single gate: allow avg return minus block
+    avg return. Positive suggests the gate is adding value. Computed from
+    recorded outcome rows, not from a verified ledger join (see module doc)."""
     report = gate_value_report(
         conn, horizon=horizon, gate=gate,
         start_date=start_date, end_date=end_date,
