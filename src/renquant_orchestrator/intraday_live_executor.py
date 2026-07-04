@@ -1,13 +1,22 @@
-"""renquant105 STAGE-2 live executor — built DARK behind the §9.3a quadruple gate.
+"""renquant105 STAGE-2 gate + state-book integration seam (dark, unarmable).
 
 Sprint D2 of the renquant105 build (RFC #208
 ``doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md``
 §7/§9.3a/§10; companion design note
-``doc/design/2026-07-03-stage2-live-executor.md``): the ``mode: "live"``
-tick path the Stage-1 scheduler deliberately did not implement. ALL of the
-code lands now; ENABLEMENT stays behind the pre-registered §9.3a
-authorization — that separation is the module's core design, not an
-afterthought.
+``doc/design/2026-07-03-stage2-live-executor.md``). Round 2 (codex review):
+this module SHRANK to the minimum orchestrator seam that can be exercised
+end-to-end today — the §9.3a quadruple gate, the authorization contract,
+and :class:`LiveTickExecutor` (which registers intents in slice 1's
+``OrderStateBook`` and enforces the safety invariants below against an
+injected fake broker port in tests). The session-driving loop that would
+actually SCHEDULE and RUN a live session (``LiveSessionRunner`` + a CLI
+entry point) was deferred, not merely dark-gated: shipping that machinery
+now is design cost ahead of the §9.4 economic-authorization decision,
+per codex's review, independent of whether it is reachable at runtime.
+The full sketch is preserved in
+``doc/design/2026-07-03-stage2-live-executor.md`` §"Deferred: session
+runner" and in this PR's git history — it is not lost, just not shipped
+as live code before that decision exists.
 
 **The quadruple authorization gate (§9.3a).** Live submission arms if and
 only if ALL FOUR hold, evaluated independently every session
@@ -34,11 +43,12 @@ slice-2 pipeline tick (renquant-pipeline ``intraday_decisioning`` — consumed
 through the same normalized payload the shadow log records) are registered
 as parent intents in slice 1's ``OrderStateBook``
 (``renquant_execution.order_state_machine`` — consumed, never
-reimplemented), submitted through ``renquant_execution.alpaca_broker_port
-.AlpacaBrokerPort`` (broker adapters are owned there, injected here as the
-CLI's default ``port_factory`` — never defined in this repo; client-order-id
-= the slice-1 child id, DAY time-in-force, limit/market per the recorded
-authorization), fills/cancels are reconciled back into the
+reimplemented), submitted through an injected ``BrokerPort`` (the real
+``renquant_execution.alpaca_broker_port.AlpacaBrokerPort`` in the deferred
+session runner's sketch; a fake port in every test here — broker adapters
+are owned in renquant-execution, never defined in this repo;
+client-order-id = the slice-1 child id, DAY time-in-force, limit/market per
+the recorded authorization), fills/cancels are reconciled back into the
 book, and the book snapshot is persisted after every tick to
 ``data/rq105/order_state_book.json`` in slice 1's exact snapshot/restore
 shape (state file under the operator data root — never canonical prod data,
@@ -76,7 +86,6 @@ delegates to that exact scheduler.
 """
 from __future__ import annotations
 
-import argparse
 import dataclasses
 import json
 import logging
@@ -87,7 +96,7 @@ from dataclasses import dataclass, field
 from datetime import date as date_cls
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping
 
 from renquant_artifacts import hash_jsonable
 from renquant_execution.alpaca_broker_port import AlpacaBrokerPort
@@ -107,39 +116,16 @@ from renquant_execution.order_state_machine import (
     reconcile_on_restart,
 )
 
-from .env_files import load_env_file
-from .intraday_quote_logger import ET, SessionCalendar, _as_aware, default_session_calendar
-from .intraday_session_inputs import (
-    FrozenSignalError,
-    SignalLeakError,
-    assert_signal_predates_session,
-    capture_session_start,
-    live_state_fingerprint,
-    verify_session_start,
-)
 from .intraday_session_scheduler import (
     MODE_LIVE,
     MODE_SHADOW,
-    PHASE_CLOSED,
-    PHASE_ENTRIES_OPEN,
-    PHASE_EXITS_ONLY,
     IntradayDecisioningConfig,
     KillSwitch,
-    SessionScheduler,
-    SessionWindows,
-    ShadowTickWriter,
-    TickRunner,
-    _ZERO_COUNTERS,
     _atomic_write_json,
     apply_entry_window_policy,
-    bind_pipeline_tick_runner,
-    default_kill_switch_path,
-    default_manifest_path,
-    default_shadow_log_path,
-    load_intraday_config,
     normalize_tick_result,
 )
-from .runtime_paths import default_data_root, default_strategy_config_path
+from .runtime_paths import default_data_root
 
 log = logging.getLogger("renquant.intraday_live_executor")
 
@@ -1168,458 +1154,6 @@ class LiveTickWriter:
         return True
 
 
-# ---------------------------------------------------------------------------
-# The live session runner — shadow fallback when ANY gate is missing.
-# ---------------------------------------------------------------------------
-@dataclass
-class LiveSessionRunner:
-    """Drive one session: quadruple-gated LIVE, else the Stage-1 SHADOW path.
-
-    Everything nondeterministic is injected (calendar, clock, providers,
-    tick runner, broker-port factory) exactly like the shadow scheduler, so
-    tests run whole live sessions with a fake broker and no wall clock. The
-    ``port_factory`` is only invoked AFTER the quadruple gate arms — an
-    unarmed session can never construct a submitting client.
-    """
-
-    config: IntradayDecisioningConfig
-    tick_runner: TickRunner
-    signal_loader: Callable[[str], Mapping[str, Any]]
-    session_start_provider: Callable[[str, datetime], Mapping[str, Any]]
-    live_state_provider: Callable[..., Mapping[str, Any]]
-    port_factory: Callable[[Stage2Authorization], BrokerPort]
-    writer: LiveTickWriter
-    shadow_log_path: Path
-    manifest_path: Path
-    kill_switch: KillSwitch
-    authorization_path: Path
-    actions_log_path: Path
-    book_path: Path
-    calendar: SessionCalendar | None = None
-    exit_orders_provider: Callable[[datetime], Sequence[Mapping[str, Any]]] | None = None
-    environ: Mapping[str, str] | None = None
-    strategy_config_fingerprint: str = ""
-    _manifest: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.calendar is None:
-            self.calendar = default_session_calendar()
-
-    # -- manifest ---------------------------------------------------------------
-    def _init_manifest(self, session_date: str, arming: ArmDecision) -> None:
-        self._manifest = {
-            "schema_version": LIVE_EXECUTOR_SCHEMA_VERSION,
-            "kind": "intraday_live_session_manifest",
-            "stage": STAGE2,
-            "session_date": session_date,
-            "calendar_id": getattr(self.calendar, "name", "unknown"),
-            "status": "starting",
-            "mode_requested": self.config.mode,
-            "mode_effective": arming.mode_effective,
-            "live_mode_downgraded_count": 1 if arming.downgraded else 0,
-            "stage2_arming": arming.to_manifest_record(),
-            "config": self.config.to_manifest_record(),
-            "strategy_config_fingerprint": self.strategy_config_fingerprint,
-            "kill_switch_file": str(self.kill_switch.path),
-            "kill_switch_engaged": False,
-            "authorization_file": str(self.authorization_path),
-            "actions_log": str(self.actions_log_path),
-            "order_state_book": str(self.book_path),
-            "live_log": str(self.writer.path),
-            "tick_count": 0,
-            "last_tick_at": None,
-            "counters": dict(_ZERO_COUNTERS),
-            "errors": [],
-        }
-
-    def _stamp(self, status: str, **extra: Any) -> dict[str, Any]:
-        self._manifest["status"] = status
-        self._manifest.update(extra)
-        self._manifest["updated_at"] = datetime.now(ET).isoformat()
-        _atomic_write_json(self.manifest_path, self._manifest)
-        return dict(self._manifest)
-
-    # -- shadow fallback ----------------------------------------------------------
-    def _run_shadow_fallback(
-        self,
-        arming: ArmDecision,
-        *,
-        now_fn: Callable[[], datetime],
-        sleep_fn: Callable[[float], None],
-        max_cycles: int | None,
-    ) -> dict[str, Any]:
-        """ANY missing gate ⇒ the Stage-1 shadow scheduler, unchanged + counted."""
-        scheduler = SessionScheduler(
-            config=self.config,
-            tick_runner=self.tick_runner,
-            signal_loader=self.signal_loader,
-            session_start_provider=self.session_start_provider,
-            live_state_provider=self.live_state_provider,
-            writer=ShadowTickWriter(self.shadow_log_path),
-            manifest_path=self.manifest_path,
-            kill_switch=self.kill_switch,
-            calendar=self.calendar,
-            exit_orders_provider=self.exit_orders_provider,
-            environ=self.environ,
-            strategy_config_fingerprint=self.strategy_config_fingerprint,
-        )
-        manifest = scheduler.run_session(
-            now_fn=now_fn, sleep_fn=sleep_fn, max_cycles=max_cycles
-        )
-        manifest["stage2_arming"] = arming.to_manifest_record()
-        manifest["live_mode_downgraded_count"] = max(
-            int(manifest.get("live_mode_downgraded_count", 0) or 0),
-            1 if arming.downgraded else 0,
-        )
-        _atomic_write_json(self.manifest_path, manifest)
-        return manifest
-
-    # -- the session --------------------------------------------------------------
-    def run_session(
-        self,
-        *,
-        now_fn: Callable[[], datetime] | None = None,
-        sleep_fn: Callable[[float], None] = time.sleep,
-        max_cycles: int | None = None,
-    ) -> dict[str, Any]:
-        now_fn = now_fn or (lambda: datetime.now(ET))
-        now = now_fn()
-        session_date = _as_aware(now).astimezone(ET).date().isoformat()
-
-        arming = resolve_stage2_arming(
-            config=self.config,
-            authorization_path=self.authorization_path,
-            kill_switch=self.kill_switch,
-            environ=self.environ,
-            today=session_date,
-        )
-        if not arming.armed:
-            return self._run_shadow_fallback(
-                arming, now_fn=now_fn, sleep_fn=sleep_fn, max_cycles=max_cycles
-            )
-
-        # ---- ARMED: the quadruple gate passed; run the live session. ----
-        self._init_manifest(session_date, arming)
-        bounds = self.calendar.session_bounds(_as_aware(now).astimezone(ET).date())
-        if bounds is None:
-            return self._stamp("non_session_day")
-        windows = SessionWindows.from_bounds(bounds, self.config)
-        self._manifest["windows"] = windows.to_record()
-
-        try:
-            signal = dict(self.signal_loader(session_date))
-            assert_signal_predates_session(signal, session_date)
-        except SignalLeakError as exc:
-            return self._stamp("aborted_class_a_leak", errors=[str(exc)])
-        except FrozenSignalError as exc:
-            return self._stamp("aborted_class_a_unavailable", errors=[str(exc)])
-        self._manifest["class_a"] = {
-            "signal_version": signal.get("signal_version"),
-            "as_of": signal.get("as_of"),
-            "source_run_id": signal.get("source_run_id"),
-            "score_content_sha256": signal.get("score_content_sha256"),
-        }
-        self._stamp("running")
-
-        executor: LiveTickExecutor | None = None
-        session_start: dict[str, Any] | None = None
-        counters: dict[str, Any] = dict(_ZERO_COUNTERS)
-        tick_index = 0
-        cycles = 0
-        status = "completed"
-
-        while True:
-            now = now_fn()
-            if self.kill_switch.engaged():
-                status = "halted_kill_switch"
-                self._manifest["kill_switch_engaged"] = True
-                break
-            phase = windows.phase(now)
-            if phase == PHASE_CLOSED:
-                break
-            if phase in (PHASE_ENTRIES_OPEN, PHASE_EXITS_ONLY):
-                try:
-                    live_state = dict(
-                        self.live_state_provider(now=now, trading_day=session_date)
-                    )
-                    if executor is None:
-                        executor = LiveTickExecutor(
-                            account=str(live_state.get("account", "unknown")),
-                            trading_day=session_date,
-                            port=self.port_factory(arming.authorization),
-                            action_log=LiveActionLog(self.actions_log_path),
-                            book_path=self.book_path,
-                            authorization=arming.authorization,
-                        )
-                        self._manifest["session_start_reconcile"] = (
-                            executor.begin_session()
-                        )
-                    if session_start is None:
-                        session_start = capture_session_start(
-                            self.session_start_provider(session_date, now),
-                            captured_at=_as_aware(now).astimezone(ET).isoformat(),
-                        )
-                        self._manifest["class_b"] = dict(session_start)
-                    verify_session_start(session_start)
-                    exit_orders = list(
-                        self.exit_orders_provider(now)
-                        if self.exit_orders_provider
-                        else ()
-                    )
-                    in_flight = sorted(
-                        {p.parent_intent_id for p in executor.book.parents()}
-                        | set(live_state.get("in_flight_parent_intents") or ())
-                    )
-                    raw = self.tick_runner(
-                        signal=signal,
-                        session_start=session_start,
-                        live_state=live_state,
-                        session_counters=dict(counters),
-                        in_flight_parent_intents=in_flight,
-                        exit_orders=exit_orders,
-                    )
-                    decisions = apply_entry_window_policy(
-                        normalize_tick_result(raw),
-                        phase=phase,
-                        counters_before=counters,
-                    )
-                    execution = executor.process_tick(decisions, now=now)
-                    record = {
-                        "schema_version": LIVE_EXECUTOR_SCHEMA_VERSION,
-                        "kind": RECORD_KIND_LIVE_TICK,
-                        "stage": STAGE2,
-                        "session_date": session_date,
-                        "tick_index": tick_index,
-                        "tick_at": _as_aware(now).astimezone(ET).isoformat(),
-                        "mode": MODE_LIVE,
-                        "window_phase": phase,
-                        "fingerprints": {
-                            "signal_version": str(signal.get("signal_version", "")),
-                            "gate_input_fingerprint": str(
-                                session_start.get("gate_input_fingerprint", "")
-                            ),
-                            "live_state_sha256": live_state_fingerprint(live_state),
-                            "strategy_config_fingerprint": self.strategy_config_fingerprint,
-                            "authorization_sha256": arming.authorization.content_sha256,
-                        },
-                        "decisions": decisions,
-                        "execution": execution,
-                    }
-                    self.writer.append(record)
-                except Exception as exc:
-                    self._stamp(
-                        "halted_tick_error", errors=[f"{type(exc).__name__}: {exc}"]
-                    )
-                    raise
-                counters = {
-                    **_ZERO_COUNTERS,
-                    **dict(decisions.get("counters") or counters),
-                }
-                tick_index += 1
-                self._manifest["tick_count"] = tick_index
-                self._manifest["last_tick_at"] = record["tick_at"]
-                self._manifest["counters"] = dict(counters)
-                self._manifest["cap"] = execution["cap"]
-                self._manifest["entries_halted"] = execution["entries_halted"]
-                self._manifest["dead_man"] = execution["dead_man"]
-                self._stamp("running")
-            cycles += 1
-            if max_cycles is not None and cycles >= max_cycles:
-                status = "stopped_max_cycles"
-                break
-            sleep_fn(self.config.tick_seconds)
-
-        if executor is not None:
-            try:
-                self._manifest["session_close"] = executor.close_session(now=now_fn())
-            except Exception as exc:  # noqa: BLE001 — close is best-effort, audited
-                self._manifest.setdefault("errors", []).append(
-                    f"close_session: {type(exc).__name__}: {exc}"
-                )
-        return self._stamp(status)
-
-
-# ---------------------------------------------------------------------------
-# CLI — same read-only wiring as the shadow scheduler + the live pieces.
-# ---------------------------------------------------------------------------
-def main(
-    argv: Sequence[str] | None = None,
-    *,
-    tick_runner: TickRunner | None = None,
-    live_state_provider: Callable[..., Mapping[str, Any]] | None = None,
-    calendar: SessionCalendar | None = None,
-    port_factory: Callable[[Stage2Authorization], BrokerPort] | None = None,
-) -> int:
-    parser = argparse.ArgumentParser(
-        prog="intraday-live-executor",
-        description=(
-            "renquant105 STAGE-2 live executor (RFC #208 §9.3a). Runs LIVE "
-            "only behind the quadruple authorization gate; ANY missing gate "
-            "runs the Stage-1 shadow scheduler instead (counted)."
-        ),
-    )
-    parser.add_argument("--strategy-config", default=None, help="pinned strategy config JSON")
-    parser.add_argument("--data-root", default=None, help="operator data root")
-    parser.add_argument("--db", default=None, help="runs.alpaca.db path (read-only)")
-    parser.add_argument("--out", default=None, help="live decisions JSONL path")
-    parser.add_argument("--shadow-out", default=None, help="shadow decisions JSONL path")
-    parser.add_argument("--manifest", default=None, help="session manifest JSON path")
-    parser.add_argument(
-        "--authorization-file",
-        default=None,
-        help="§9.3a stage2_authorization.json path (gate 2)",
-    )
-    parser.add_argument(
-        "--order-state-file",
-        default=None,
-        help="slice-1 OrderStateBook snapshot path (state file)",
-    )
-    parser.add_argument("--actions-log", default=None, help="write-ahead actions JSONL")
-    parser.add_argument(
-        "--broker-env",
-        choices=("paper", "live"),
-        default="paper",
-        help="Alpaca endpoint for the broker port (default paper)",
-    )
-    parser.add_argument(
-        "--data-manifest", default=None, help="data manifest JSON for the pipeline tick"
-    )
-    parser.add_argument(
-        "--artifact-manifest",
-        default=None,
-        help="artifact manifest JSON for the pipeline tick",
-    )
-    parser.add_argument("--env-file", default=None, help=".env with Alpaca credentials")
-    parser.add_argument("--max-cycles", type=int, default=None)
-    parser.add_argument("--json", action="store_true", help="print the final manifest")
-    parser.add_argument("--log-level", default="INFO")
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
-    if args.env_file:
-        load_env_file(args.env_file)
-
-    data_root = Path(args.data_root) if args.data_root else default_data_root()
-    strategy_config_path = (
-        Path(args.strategy_config) if args.strategy_config else default_strategy_config_path()
-    )
-    strategy_config = json.loads(Path(strategy_config_path).read_text(encoding="utf-8"))
-    if not isinstance(strategy_config, dict):
-        print(f"refusing to run: {strategy_config_path} is not a JSON object", flush=True)
-        return 2
-    config = load_intraday_config(strategy_config)
-
-    cal = calendar or default_session_calendar()
-    session_date = datetime.now(ET).date().isoformat()
-    db_path = Path(args.db) if args.db else data_root / "data" / "runs.alpaca.db"
-    kill_path = (
-        Path(config.kill_switch_file)
-        if config.kill_switch_file
-        else default_kill_switch_path(data_root)
-    )
-    book_path = (
-        Path(args.order_state_file)
-        if args.order_state_file
-        else default_order_state_book_path(data_root)
-    )
-
-    if tick_runner is None:
-        if not (args.data_manifest and args.artifact_manifest):
-            print(
-                "refusing to run: --data-manifest and --artifact-manifest are "
-                "required for the real pipeline tick (fail closed; RFC #208 §8)",
-                flush=True,
-            )
-            return 2
-        try:
-            tick_runner = bind_pipeline_tick_runner(
-                strategy_config=strategy_config,
-                data_manifest=json.loads(Path(args.data_manifest).read_text(encoding="utf-8")),
-                artifact_manifest=json.loads(
-                    Path(args.artifact_manifest).read_text(encoding="utf-8")
-                ),
-            )
-        except Exception as exc:  # noqa: BLE001 — fail closed with the reason
-            print(f"refusing to run: {exc}", flush=True)
-            return 2
-
-    if live_state_provider is None:
-        from .intraday_quote_logger import AlpacaQuoteSource, load_watchlist  # noqa: PLC0415
-        from .intraday_session_inputs import AlpacaLiveStateSource  # noqa: PLC0415
-
-        source = AlpacaLiveStateSource(
-            quote_source=AlpacaQuoteSource(),
-            tickers=load_watchlist(strategy_config_path),
-            order_state_path=book_path,
-            paper=args.broker_env != "live",
-        )
-
-        def live_state_provider(**kwargs: Any) -> Mapping[str, Any]:
-            return source.snapshot(**kwargs)
-
-    if port_factory is None:
-
-        def port_factory(authorization: Stage2Authorization) -> BrokerPort:
-            return AlpacaBrokerPort(
-                paper=args.broker_env != "live",
-                entry_order_type=authorization.entry_order_type,
-                exit_order_type=authorization.exit_order_type,
-                limit_price_offset_bps=authorization.limit_price_offset_bps,
-            )
-
-    from .intraday_session_inputs import load_frozen_daily_signal  # noqa: PLC0415
-
-    def signal_loader(day: str) -> Mapping[str, Any]:
-        return load_frozen_daily_signal(db_path=db_path, session_date=day, calendar=cal)
-
-    def session_start_provider(day: str, now: datetime) -> Mapping[str, Any]:
-        return {
-            "session_date": day,
-            "strategy_config_path": str(strategy_config_path),
-            "watchlist": list(strategy_config.get("watchlist") or []),
-            "canary_allowlist": list(config.canary_allowlist),
-        }
-
-    runner = LiveSessionRunner(
-        config=config,
-        tick_runner=tick_runner,
-        signal_loader=signal_loader,
-        session_start_provider=session_start_provider,
-        live_state_provider=live_state_provider,
-        port_factory=port_factory,
-        writer=LiveTickWriter(Path(args.out) if args.out else default_live_log_path(data_root)),
-        shadow_log_path=(
-            Path(args.shadow_out) if args.shadow_out else default_shadow_log_path(data_root)
-        ),
-        manifest_path=(
-            Path(args.manifest)
-            if args.manifest
-            else default_manifest_path(session_date, data_root)
-        ),
-        kill_switch=KillSwitch(kill_path),
-        authorization_path=(
-            Path(args.authorization_file)
-            if args.authorization_file
-            else default_authorization_path(data_root)
-        ),
-        actions_log_path=(
-            Path(args.actions_log) if args.actions_log else default_live_actions_path(data_root)
-        ),
-        book_path=book_path,
-        calendar=cal,
-        strategy_config_fingerprint=hash_jsonable(strategy_config),
-    )
-    manifest = runner.run_session(max_cycles=args.max_cycles)
-    if args.json:
-        print(json.dumps(manifest, sort_keys=True, indent=2))
-    ok_statuses = {
-        "completed",
-        "stopped_max_cycles",
-        "non_session_day",
-        "disabled_config",
-        "disabled_env_flag",
-    }
-    return 0 if manifest.get("status") in ok_statuses else 1
 
 
 __all__ = [
@@ -1636,7 +1170,6 @@ __all__ = [
     "GATE_KILL_SWITCH_ABSENT",
     "LIVE_EXECUTOR_SCHEMA_VERSION",
     "LiveActionLog",
-    "LiveSessionRunner",
     "LiveTickExecutor",
     "LiveTickWriter",
     "MAX_AUTHORIZATION_WINDOW_DAYS",
@@ -1657,10 +1190,5 @@ __all__ = [
     "entry_notional_submitted",
     "live_env_flag_enabled",
     "load_stage2_authorization",
-    "main",
     "resolve_stage2_arming",
 ]
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())

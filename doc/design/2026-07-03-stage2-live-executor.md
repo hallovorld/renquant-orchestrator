@@ -2,10 +2,17 @@
 
 STATUS: design note for `src/renquant_orchestrator/intraday_live_executor.py`.
 Companion to RFC #208 (`doc/design/2026-06-30-renquant105-intraday-decisioning-architecture.md`
-§7 / §9.3a / §10). The operator directive for this sprint: **ALL of the
-Stage-2 live-mode code lands now; ENABLEMENT stays behind the pre-registered
-§9.3a authorization gate.** That separation is a hard boundary and is
-restated at the end of this note.
+§7 / §9.3a / §10).
+
+ROUND 2 (codex review) supersedes the original "ALL of the Stage-2 code
+lands now, dark-gated" framing below: dark-gating reduces runtime risk but
+does not remove design cost, and shipping the full session-driving loop
+before the §9.4 economic-authorization decision exists is itself the
+problem, independent of reachability. What's now IMPLEMENTED (and tested,
+against a fake broker port) is just the gate + state-book integration
+seam — `LiveTickExecutor` and the §9.3a quadruple gate. `LiveSessionRunner`
+(the session-scheduling loop) and its CLI entry point are DEFERRED — see
+§7 below for the preserved sketch and what unblocks building it.
 
 ## 1. What this ships
 
@@ -32,13 +39,14 @@ untouched by this PR):
   `limit_price_offset_bps`, exits default market). GET-only reads
   (`open_orders`, `order_status`) follow the `AlpacaLiveStateSource`
   lazy-env-credential pattern.
-- **`LiveSessionRunner`** — the session loop: evaluates the quadruple gate
-  at session start; if armed, drives live ticks (same §5/§11b windows,
-  calendar, class-A/B/C input discipline as the shadow scheduler); if ANY
-  gate is missing, delegates to the UNCHANGED Stage-1 `SessionScheduler`
-  (shadow, counted). `python -m renquant_orchestrator.intraday_live_executor`
-  is a drop-in replacement for the shadow scheduler entrypoint: while
-  unarmed it behaves identically to today.
+- **`LiveSessionRunner`** (DEFERRED, round 2 — see §8) — the session loop:
+  evaluates the quadruple gate at session start; if armed, drives live
+  ticks (same §5/§11b windows, calendar, class-A/B/C input discipline as
+  the shadow scheduler); if ANY gate is missing, delegates to the
+  UNCHANGED Stage-1 `SessionScheduler` (shadow, counted). Was going to be
+  a drop-in replacement for the shadow scheduler entrypoint
+  (`python -m renquant_orchestrator.intraday_live_executor`); not shipped
+  this round.
 
 ## 2. The quadruple authorization gate (§9.3a)
 
@@ -173,9 +181,6 @@ calibrator-fingerprint triple-impl lesson, enforced not assumed).
 - the quadruple gate: **all 16 combinations** — only all-four arms live;
 - authorization-file schema rejection cases (15 parametrized + missing /
   malformed / non-object files);
-- `mode: "live"` WITHOUT the file still shadows (counted), port factory
-  never invoked, no actions journal, no book file — the st104 config flip
-  ALONE cannot go live;
 - cap enforcement incl. the exit exemption and cross-tick gross accounting;
 - write-ahead ordering observed AT the broker-call boundary (journal line
   exists, outcome does not, at the moment the port is called) + error
@@ -186,12 +191,17 @@ calibrator-fingerprint triple-impl lesson, enforced not assumed).
   refuses ticks until reconciled) → reconcile → full fill → FILLED, with
   the snapshot parsed by Stage-1's `load_order_state_reservations`
   (slice-1 shape parity) and a book/broker mismatch restore halting entries;
-- `AlpacaBrokerPort` request shaping against an injected fake TradingClient
-  (client id = child id, DAY tif, limit/market per config, marketable-limit
-  offset, limit-entry-without-price fails closed);
 - id lockstep violation halts loudly; one-open-child consumed from slice 1.
 
-Full suite: 1521 passed, 3 skipped.
+Round 2 removed the `LiveSessionRunner`-level tests (`mode: "live"` without
+the authorization file, armed-session submission, kill-switch fallback)
+along with the class itself (§7) — those asserted session-driving
+behavior no longer implemented, not the gate/executor contract above,
+which is unaffected. `AlpacaBrokerPort`'s own request-shaping test moved
+to `renquant-execution` in round 1 (renquant-execution#21) — broker
+adapters are owned there, not tested here.
+
+Full suite: 1634 passed, 3 skipped (repo-wide, includes this module).
 
 ## 6. The future authorization act — exactly three steps
 
@@ -216,7 +226,46 @@ touching `data/rq105/intraday_decisioning.KILL` at ANY time reverts the next
 session to shadow (gates re-evaluated every session; the file is also
 re-checked every cycle mid-session by both loops).
 
-## 7. HARD BOUNDARY (restated)
+Round 2 note: step 3 above now ALSO requires building `LiveSessionRunner`
+(§8) — it does not exist yet. The three-step act still starts with the
+§9.4 economic-authorization decision; building the session runner is
+follow-on engineering work gated on that decision, not blocking it.
+
+## 7. Deferred: session runner (round 2)
+
+`LiveSessionRunner` and its CLI entry point (`main()`,
+`python -m renquant_orchestrator.intraday_live_executor`) were removed
+from `intraday_live_executor.py` in round 2, per codex's review: shipping
+the full session-driving loop is design cost ahead of the §9.4 decision,
+independent of dark-gating. The full implementation (~450 lines) is
+preserved in this PR's git history (commit `21583e93`, before the round-2
+cut) and sketched here so the design isn't lost:
+
+- A `@dataclass` driving one session: evaluates `resolve_stage2_arming`
+  at session start; if armed, constructs a real `port_factory` (only ever
+  invoked post-arming — an unarmed session can never construct a
+  submitting client) and drives `LiveTickExecutor` through the same
+  §5/§11b windows, calendar, and class-A/B/C input discipline as the
+  Stage-1 `SessionScheduler`; if ANY gate is missing, delegates entirely
+  to the UNCHANGED Stage-1 scheduler (shadow, counted in the manifest).
+- A session manifest (schema `rq105-intraday-live-v1`) tracking
+  `mode_effective`, `live_mode_downgraded_count`, `stage2_arming`,
+  tick/error counters, and file paths for the authorization, actions log,
+  order-state book, and live tick log.
+- A CLI (`argparse`) exposing `--strategy-config`, `--data-root`,
+  `--authorization-file`, `--order-state-file`, `--broker-env
+  {paper,live}`, `--max-cycles`, matching the shadow scheduler's own
+  entrypoint shape so it could be a drop-in replacement once armed.
+
+**What would need to be true to rebuild this:** the §9.4 economic
+authorization decision has been made (this is the actual gate — building
+the runner is not what's blocking it), and at that point re-derive the
+implementation from the preserved git history rather than reviewing this
+sketch as if it were current code (it predates round 2's `LiveTickExecutor`
+changes and would need re-verification against the current gate/executor
+API before reuse).
+
+## 8. HARD BOUNDARY (restated)
 
 This PR makes Stage-2 live mode POSSIBLE, not ENABLED. Nothing merged here
 changes any running behavior: strategy-104 still pins `mode: "shadow"` (its

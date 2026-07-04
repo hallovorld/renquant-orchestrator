@@ -84,3 +84,54 @@ FINDING 2 (acknowledged, not resolved by this fix): "the execution plan is
           not-yet-settled gate. This fix does not attempt to resolve it —
           only finding 1 (the architecture-boundary violation) was in scope
           for a code change.
+
+ROUND 3 (codex follow-up, pursuing option (a) — shrink to the minimum seam):
+FINDING 2, REVISITED: codex confirmed finding 1 fixed, then sharpened
+          finding 2 into two options — (a) shrink to the minimum
+          orchestrator integration seam needed to exercise the gate and
+          state-book contract, or (b) pair with a preregistered canary
+          packet stating exact go/no-go metrics before this much live-path
+          machinery lands. Pursued (a): (b) would require authoring an
+          experimental-design/capital-risk protocol that isn't this fix's
+          call to make unilaterally.
+WHAT MOVED: removed `LiveSessionRunner` (the session-driving loop: gate
+          evaluation → live-tick dispatch → shadow fallback → manifest
+          tracking, ~270 lines) and its CLI entry point (`main()` +
+          `argparse` wiring, ~220 lines) from
+          `intraday_live_executor.py` entirely — not stubbed, genuinely
+          removed, since a stub still carries import/test/interface
+          maintenance surface. `LiveTickExecutor` (the actual
+          gate→OrderStateBook→broker-port integration seam, fully testable
+          against a fake port) and everything upstream of it (the §9.3a
+          quadruple gate, `Stage2Authorization`, `ArmDecision`,
+          `LiveActionLog`, `DeadManSwitch`, entry-cap enforcement) is
+          UNCHANGED and fully implemented/tested — this is what codex
+          named as the genuinely exercisable seam.
+WHY KEPT SEPARATE FROM STUBBING: a stub (e.g. `LiveSessionRunner` raising
+          `NotImplementedError`) still needs an import, a constructor
+          signature to keep in sync with its dependencies, and either
+          dead tests or maintained tests-for-a-stub — none of which
+          reduces the "long-lived maintenance surface... review burden"
+          codex named as the actual cost. Full removal does; the design
+          is preserved instead (design doc §7 + this PR's git history at
+          commit `21583e93`, the pre-round-3 state).
+EVIDENCE: diff size 4 files / 2885 lines (design+progress docs unchanged,
+          impl 1666→1194 lines [-472, -28%], tests 905→660 lines [-245]).
+          Removed 3 session-runner-level tests
+          (`test_mode_live_without_authorization_file_still_shadows`,
+          `test_armed_live_session_submits_through_the_fake_port`,
+          `test_armed_session_with_kill_switch_present_stays_shadow`) plus
+          their `make_runner`/`run_full_session`/`FakeCalendar`/
+          `ManualClock`/`fake_signal`/`fake_live_state`/`fake_tick_runner`
+          fixtures — all specific to the removed class, not the
+          gate/executor contract. Cleaned ~25 now-dead imports
+          (`argparse`, `SessionScheduler`, `ShadowTickWriter`,
+          `TickRunner`, session-input helpers, path defaults) that were
+          only reachable from the removed code. 46/46 module tests pass;
+          1634/1634 repo-wide (was 1566 before this PR's own additions
+          netted against the cut — confirms zero regression to anything
+          else in the repo).
+NOT RESOLVED: this still does not settle whether the canary is the right
+          experiment to run (§9.4) — that decision remains the actual
+          blocker for ever rebuilding `LiveSessionRunner`, per design doc
+          §7's "what would need to be true to rebuild this."
