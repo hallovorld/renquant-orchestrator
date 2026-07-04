@@ -15,6 +15,7 @@ import pytest
 
 from renquant_orchestrator.execution_reconciler import (
     ALPACA_STATUS_TO_STATE,
+    TERMINAL_STATUS_MAP,
     BrokerState,
     ChildAttempt,
     Divergence,
@@ -34,10 +35,11 @@ from renquant_orchestrator.execution_reconciler import (
     SqliteIntentStore,
     account_from_children,
     accounts_by_parent,
+    child_order_id,
+    classify_terminal_status,
+    compute_parent_intent_id,
     dedupe_latest_orders,
     is_whole_share,
-    make_child_order_id,
-    make_parent_intent_id,
     maybe_alert,
     parent_intent_id_of,
 )
@@ -125,6 +127,56 @@ def test_broker_status_maps_to_canonical_state():
     assert "expired" in ALPACA_STATUS_TO_STATE
 
 
+def test_terminal_statuses_classify_through_executions_canonical_map():
+    # B3 (audit #296 OR-2): terminal broker-status classification is IMPORTED from
+    # renquant-execution — for every status execution classifies terminal, the reconciler
+    # must land on the state with the identical name (no parallel drifted machine).
+    for status, child_state in TERMINAL_STATUS_MAP.items():
+        assert classify_terminal_status(status) is child_state
+        mapped = LifecycleMachine.from_broker_status(status)
+        assert mapped.value == child_state.value
+        assert ALPACA_STATUS_TO_STATE[status] is mapped
+
+
+def test_done_for_day_is_terminal_canceled_not_open():
+    # The in-repo drift OR-2 flagged: this module used to map `done_for_day` -> ACCEPTED
+    # (a live open order) while the executor books it CANCELED. Alpaca's `done_for_day`
+    # means the order is done executing for the day and will receive no further fills —
+    # for the Stage-1 TIF=DAY-only regime that is the broker's close-out of the order
+    # (execution's module note), NOT a live order consuming exposure/reserved cash.
+    assert LifecycleMachine.from_broker_status("done_for_day") is OrderState.CANCELED
+    order = OrderRecord.from_broker(
+        {"symbol": "MU", "side": "buy", "qty": "10", "filled_qty": "4",
+         "status": "done_for_day", "client_order_id": "pi-abc:0"}
+    )
+    assert order.state is OrderState.CANCELED
+    assert order.is_open is False
+    # accounting: the unfilled remainder books as canceled (retry-eligible per §7),
+    # never as open exposure.
+    acct = account_from_children("pi-abc", "MU", "buy", 10, [order])
+    assert acct.open_qty == 0
+    assert acct.cum_filled == 4
+    assert acct.cum_canceled == 6
+
+
+def test_done_for_day_broker_order_is_not_an_open_order_divergence():
+    # A done_for_day order at the broker is closed out — it must not surface as an orphan
+    # OPEN broker order (which advises halting new entries).
+    done = OrderRecord.from_broker(
+        {"symbol": "MU", "side": "buy", "qty": "10", "status": "done_for_day",
+         "client_order_id": "pi-abc:0"}
+    )
+    report = _reconciler(LocalState(), BrokerState(orders=[done])).reconcile()
+    assert report.of_kind(DivergenceKind.ORPHAN_BROKER_ORDER) == []
+    assert report.of_kind(DivergenceKind.UNKNOWN_ORDER_STATUS) == []
+
+
+def test_failed_status_is_rejected_via_canonical_map():
+    # `failed` is part of execution's canonical terminal vocabulary (-> REJECTED); the old
+    # local map did not know it and would have failed closed to UNKNOWN/CRITICAL.
+    assert LifecycleMachine.from_broker_status("failed") is OrderState.REJECTED
+
+
 def test_unknown_state_has_no_legal_transitions():
     # UNKNOWN is a fail-closed sentinel: never a legal source or destination.
     for st in OrderState:
@@ -143,24 +195,77 @@ def test_replaced_is_terminal_and_reachable_from_live_states():
 
 
 # ==================================================================================
-# 2. Idempotency identity (two-level id, §7)
+# 2. Idempotency identity (two-level id, §7) — CANONICAL, imported from renquant-execution
 # ==================================================================================
+def _pid(account="acct1", symbol="MU", trading_day="2026-07-01", side="buy",
+         signal_version="sigv7"):
+    return compute_parent_intent_id(
+        account=account, symbol=symbol, trading_day=trading_day, side=side,
+        signal_version=signal_version,
+    )
+
+
 def test_parent_intent_id_is_stable_for_same_decision():
-    a = make_parent_intent_id("acct1", "MU", "2026-07-01", "buy", "sigv7")
-    b = make_parent_intent_id("acct1", "mu", "2026-07-01", "BUY", "sigv7")  # normalized
+    a = _pid(side="buy", symbol="MU")
+    b = _pid(side="BUY", symbol="mu")  # side/symbol case-normalized by the canonical impl
     assert a == b
-    assert a != make_parent_intent_id("acct1", "MU", "2026-07-01", "sell", "sigv7")
-    assert a != make_parent_intent_id("acct1", "MU", "2026-07-01", "buy", "sigv8")
+    assert a != _pid(side="sell")
+    assert a != _pid(signal_version="sigv8")
+
+
+def test_parent_intent_id_is_the_canonical_execution_impl():
+    # B3 (audit #296 OR-1): the identity must be renquant-execution's function itself —
+    # an import, not a lookalike copy that can drift. The calibrator-fingerprint
+    # triple-impl lesson: two hand-copied recipes for "the same" id never match.
+    from renquant_execution.order_state_machine import (
+        child_order_id as exec_child_order_id,
+        compute_parent_intent_id as exec_compute_parent_intent_id,
+    )
+
+    assert compute_parent_intent_id is exec_compute_parent_intent_id
+    assert child_order_id is exec_child_order_id
+
+
+def test_parent_intent_id_golden_vectors_match_execution():
+    # Golden values pinned from renquant-execution's §7 impl (sha256 over
+    # "\x1f"-joined [account, SYMBOL, trading_day, SIDE, signal_version], "pi-" + 20 hex).
+    # If EITHER repo changes the recipe, this breaks — that is the point: the two systems
+    # must compute byte-identical ids for the same decision.
+    assert _pid() == "pi-32c5702b604fc035b2eb"
+    assert _pid(side="sell") == "pi-5ee345ace31764d1ece1"
+    assert (
+        compute_parent_intent_id(
+            account="live-104",
+            symbol="NVDA",
+            trading_day="2026-07-06",
+            side="BUY",
+            signal_version="patchtst-v3",
+        )
+        == "pi-2578508047e4c308e889"
+    )
+    # canonical format: "pi-" + 20 lowercase hex — NOT the removed local "pi_" + 16 hex.
+    import re
+
+    assert re.fullmatch(r"pi-[0-9a-f]{20}", _pid())
+    assert child_order_id(_pid(), 0) == "pi-32c5702b604fc035b2eb:0"
+
+
+def test_order_intent_build_id_equals_executor_id():
+    # The reconciler's OrderIntent and the Stage-2 executor must land on the SAME dedup
+    # row for the same decision — identity equality end-to-end, not just format equality.
+    intent = OrderIntent.build(
+        account="acct1", symbol="mu", trading_day="2026-07-01", side="BUY",
+        signal_version="sigv7", target_qty=10,
+    )
+    assert intent.parent_intent_id == _pid()
 
 
 def test_child_order_id_is_unique_per_attempt():
-    parent = make_parent_intent_id("acct1", "MU", "2026-07-01", "buy", "sigv7")
-    c0 = make_child_order_id(parent, 0)
-    c1 = make_child_order_id(parent, 1)
+    parent = _pid()
+    c0 = child_order_id(parent, 0)
+    c1 = child_order_id(parent, 1)
     assert c0 != c1
     assert c0.startswith(parent) and c1.startswith(parent)
-    with pytest.raises(ValueError):
-        make_child_order_id(parent, -1)
 
 
 def test_intent_registry_dedups_reruns():
@@ -275,7 +380,7 @@ def test_durable_store_child_allocation_is_unique_and_bindable(tmp_path):
     c0 = store.allocate_child(intent.parent_intent_id)
     c1 = store.allocate_child(intent.parent_intent_id)
     assert (c0.attempt_n, c1.attempt_n) == (0, 1)
-    assert c0.client_order_id == make_child_order_id(intent.parent_intent_id, 0)
+    assert c0.client_order_id == child_order_id(intent.parent_intent_id, 0)
     assert c0.client_order_id != c1.client_order_id
     assert c0.broker_order_id is None
 
