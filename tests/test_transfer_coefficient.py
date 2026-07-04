@@ -28,7 +28,8 @@ def tc_db(tmp_path):
         run_id TEXT, ticker TEXT, role TEXT,
         kelly_target_pct REAL, qp_target_w REAL,
         mu REAL, sigma REAL, rank_score REAL,
-        blocked_by TEXT, selected INTEGER
+        blocked_by TEXT, selected INTEGER,
+        qp_status TEXT
     )""")
 
     runs = [
@@ -41,28 +42,29 @@ def tc_db(tmp_path):
     )
 
     scores = [
-        ("run-2026-06-01-live-abc", "AAPL", "candidate", 0.10, 0.08, 0.05, 0.20, 0.8, None, 1),
-        ("run-2026-06-01-live-abc", "GOOG", "candidate", 0.08, 0.06, 0.04, 0.18, 0.7, None, 1),
-        ("run-2026-06-01-live-abc", "MSFT", "candidate", 0.06, 0.05, 0.03, 0.15, 0.6, None, 1),
-        ("run-2026-06-01-live-abc", "AMZN", "candidate", 0.04, 0.00, 0.02, 0.25, 0.5, "vol_gate", 0),
-        ("run-2026-06-01-live-abc", "META", "candidate", 0.03, 0.02, 0.01, 0.22, 0.4, None, 1),
-        ("run-2026-06-01-live-abc", "NVDA", "candidate", 0.12, 0.09, 0.06, 0.30, 0.9, None, 1),
-        # run 2: perfect TC (kelly == qp)
-        ("run-2026-06-02-live-def", "AAPL", "candidate", 0.10, 0.10, 0.05, 0.20, 0.8, None, 1),
-        ("run-2026-06-02-live-def", "GOOG", "candidate", 0.08, 0.08, 0.04, 0.18, 0.7, None, 1),
-        ("run-2026-06-02-live-def", "MSFT", "candidate", 0.06, 0.06, 0.03, 0.15, 0.6, None, 1),
-        ("run-2026-06-02-live-def", "AMZN", "candidate", 0.04, 0.04, 0.02, 0.25, 0.5, None, 1),
-        ("run-2026-06-02-live-def", "META", "candidate", 0.03, 0.03, 0.01, 0.22, 0.4, None, 1),
-        # run 3: heavy shrinkage + 2 blocked
-        ("run-2026-06-03-live-ghi", "AAPL", "candidate", 0.10, 0.05, 0.05, 0.20, 0.8, None, 1),
-        ("run-2026-06-03-live-ghi", "GOOG", "candidate", 0.08, 0.03, 0.04, 0.18, 0.7, None, 1),
-        ("run-2026-06-03-live-ghi", "MSFT", "candidate", 0.06, 0.02, 0.03, 0.15, 0.6, None, 1),
-        ("run-2026-06-03-live-ghi", "AMZN", "candidate", 0.04, 0.00, 0.02, 0.25, 0.5, "wash_sale", 0),
-        ("run-2026-06-03-live-ghi", "META", "candidate", 0.03, 0.00, 0.01, 0.22, 0.4, "conviction", 0),
-        ("run-2026-06-03-live-ghi", "NVDA", "candidate", 0.12, 0.06, 0.06, 0.30, 0.9, None, 1),
+        # run 1: optimal — one blocked, rest shrunken
+        ("run-2026-06-01-live-abc", "AAPL", "candidate", 0.10, 0.08, 0.05, 0.20, 0.8, None, 1, "optimal"),
+        ("run-2026-06-01-live-abc", "GOOG", "candidate", 0.08, 0.06, 0.04, 0.18, 0.7, None, 1, "optimal"),
+        ("run-2026-06-01-live-abc", "MSFT", "candidate", 0.06, 0.05, 0.03, 0.15, 0.6, None, 1, "optimal"),
+        ("run-2026-06-01-live-abc", "AMZN", "candidate", 0.04, 0.00, 0.02, 0.25, 0.5, "vol_gate", 0, "optimal"),
+        ("run-2026-06-01-live-abc", "META", "candidate", 0.03, 0.02, 0.01, 0.22, 0.4, None, 1, "optimal"),
+        ("run-2026-06-01-live-abc", "NVDA", "candidate", 0.12, 0.09, 0.06, 0.30, 0.9, None, 1, "optimal"),
+        # run 2: optimal — perfect TC (kelly == qp)
+        ("run-2026-06-02-live-def", "AAPL", "candidate", 0.10, 0.10, 0.05, 0.20, 0.8, None, 1, "optimal"),
+        ("run-2026-06-02-live-def", "GOOG", "candidate", 0.08, 0.08, 0.04, 0.18, 0.7, None, 1, "optimal"),
+        ("run-2026-06-02-live-def", "MSFT", "candidate", 0.06, 0.06, 0.03, 0.15, 0.6, None, 1, "optimal"),
+        ("run-2026-06-02-live-def", "AMZN", "candidate", 0.04, 0.04, 0.02, 0.25, 0.5, None, 1, "optimal"),
+        ("run-2026-06-02-live-def", "META", "candidate", 0.03, 0.03, 0.01, 0.22, 0.4, None, 1, "optimal"),
+        # run 3: infeasible — prior weights anti-correlated with kelly
+        ("run-2026-06-03-live-ghi", "AAPL", "candidate", 0.10, 0.05, 0.05, 0.20, 0.8, None, 1, "infeasible:infeasible"),
+        ("run-2026-06-03-live-ghi", "GOOG", "candidate", 0.08, 0.03, 0.04, 0.18, 0.7, None, 1, "infeasible:infeasible"),
+        ("run-2026-06-03-live-ghi", "MSFT", "candidate", 0.06, 0.02, 0.03, 0.15, 0.6, None, 1, "infeasible:infeasible"),
+        ("run-2026-06-03-live-ghi", "AMZN", "candidate", 0.04, 0.00, 0.02, 0.25, 0.5, "wash_sale", 0, "infeasible:infeasible"),
+        ("run-2026-06-03-live-ghi", "META", "candidate", 0.03, 0.00, 0.01, 0.22, 0.4, "conviction", 0, "infeasible:infeasible"),
+        ("run-2026-06-03-live-ghi", "NVDA", "candidate", 0.12, 0.06, 0.06, 0.30, 0.9, None, 1, "infeasible:infeasible"),
     ]
     conn.executemany(
-        "INSERT INTO candidate_scores VALUES (?,?,?,?,?,?,?,?,?,?)", scores
+        "INSERT INTO candidate_scores VALUES (?,?,?,?,?,?,?,?,?,?,?)", scores
     )
     conn.commit()
     conn.close()
@@ -160,6 +162,32 @@ def test_min_candidates_filter(tc_db):
     ts = compute_tc_per_run(conn, min_candidates=10)
     conn.close()
     assert len(ts) == 0
+
+
+def test_tc_by_qp_status(tc_db):
+    """TC breakdown by QP feasibility — the root cause diagnostic."""
+    conn = sqlite3.connect(f"file:{tc_db}?mode=ro", uri=True)
+    ts = compute_tc_per_run(conn, min_candidates=5)
+    conn.close()
+    s = tc_summary(ts)
+    assert "by_qp_status" in s
+    assert "optimal" in s["by_qp_status"]
+    assert "infeasible" in s["by_qp_status"]
+    assert s["by_qp_status"]["optimal"]["n"] == 2
+    assert s["by_qp_status"]["infeasible"]["n"] == 1
+    assert 0.0 < s["by_qp_status"]["optimal"]["frac_of_runs"] < 1.0
+
+
+def test_tc_qp_infeasible_flag(tc_db):
+    """compute_tc_per_run stamps qp_infeasible per run."""
+    conn = sqlite3.connect(f"file:{tc_db}?mode=ro", uri=True)
+    ts = compute_tc_per_run(conn, min_candidates=5)
+    conn.close()
+    assert "qp_infeasible" in ts.columns
+    run3 = ts[ts["run_id"] == "run-2026-06-03-live-ghi"]
+    assert bool(run3["qp_infeasible"].iloc[0]) is True
+    run1 = ts[ts["run_id"] == "run-2026-06-01-live-abc"]
+    assert bool(run1["qp_infeasible"].iloc[0]) is False
 
 
 def test_tc_regime_breakdown(tc_db):
