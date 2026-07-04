@@ -15,14 +15,19 @@ then summarized as a time series.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-DEFAULT_DB = Path.home() / "git/github/RenQuant/data/runs.alpaca.db"
+from renquant_orchestrator.runtime_paths import default_data_root
+
+DEFAULT_DB = default_data_root() / "data" / "runs.alpaca.db"
 
 
 def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -46,6 +51,7 @@ def _load_candidate_weights(
         SELECT cs.run_id, pr.run_date, cs.ticker, cs.role,
                cs.kelly_target_pct, cs.qp_target_w, cs.mu, cs.sigma,
                cs.rank_score, cs.blocked_by, cs.selected,
+               cs.qp_status,
                pr.regime, pr.portfolio_value
         FROM candidate_scores cs
         JOIN pipeline_runs pr ON pr.run_id = cs.run_id
@@ -91,10 +97,28 @@ def compute_tc_per_run(
 
         shrinkage = np.abs(kelly - qp)
 
+        qp_status = g["qp_status"].iloc[0] if "qp_status" in g.columns else None
+        # Honest taxonomy: qp_status is whatever the solver actually stamped.
+        # Group by the REAL value rather than collapsing every non-infeasible
+        # case into "optimal" -- a blank/missing status is not evidence the
+        # solver succeeded, it is evidence the field was never recorded.
+        if qp_status is None or (isinstance(qp_status, float) and pd.isna(qp_status)) or str(qp_status).strip() == "":
+            qp_status_category = "missing"
+        elif "infeasible" in str(qp_status):
+            qp_status_category = "infeasible"
+        elif str(qp_status) == "optimal":
+            qp_status_category = "optimal"
+        else:
+            qp_status_category = f"other:{qp_status}"
+        is_infeasible = qp_status_category == "infeasible"
+
         records.append({
             "run_id": run_id,
             "run_date": g["run_date"].iloc[0],
             "regime": g["regime"].iloc[0],
+            "qp_status": qp_status,
+            "qp_status_category": qp_status_category,
+            "qp_infeasible": is_infeasible,
             "n_candidates": len(g),
             "tc": tc,
             "tc_rank": tc_rank,
@@ -116,6 +140,22 @@ def tc_summary(tc_series: pd.DataFrame) -> dict[str, Any]:
         return {"n_runs": 0}
 
     tc = tc_series["tc"].dropna()
+
+    # Honest taxonomy: group by the actual qp_status_category rather than
+    # collapsing every non-infeasible run into "optimal". A run whose status
+    # was never recorded ("missing") is not evidence the solver succeeded.
+    by_qp_status: dict[str, Any] = {}
+    if "qp_status_category" in tc_series.columns:
+        for label, g in tc_series.groupby("qp_status_category"):
+            tc_g = g["tc"].dropna()
+            if len(tc_g) >= 1:
+                by_qp_status[label] = {
+                    "n": len(tc_g),
+                    "tc_mean": float(tc_g.mean()),
+                    "tc_median": float(tc_g.median()),
+                    "frac_of_runs": len(tc_g) / max(len(tc), 1),
+                }
+
     return {
         "n_runs": len(tc_series),
         "n_valid": len(tc),
@@ -127,6 +167,7 @@ def tc_summary(tc_series: pd.DataFrame) -> dict[str, Any]:
         "tc_q25": float(tc.quantile(0.25)),
         "tc_q75": float(tc.quantile(0.75)),
         "tc_rank_mean": float(tc_series["tc_rank"].dropna().mean()),
+        "by_qp_status": by_qp_status,
         "by_regime": {
             regime: {
                 "n": len(g),
@@ -236,3 +277,79 @@ def measure_tc(
         }
     finally:
         conn.close()
+
+
+def _render_summary(result: dict[str, Any]) -> str:
+    s = result["summary"]
+    if s.get("n_runs", 0) == 0:
+        return "No runs with sufficient candidates found."
+
+    lines = [
+        "# Transfer Coefficient (TC) report",
+        "",
+        f"Runs: {s['n_valid']} (min_candidates filter applied)",
+        f"TC mean: {s['tc_mean']:+.3f}  median: {s['tc_median']:+.3f}  "
+        f"std: {s['tc_std']:.3f}",
+        f"TC range: [{s['tc_min']:+.3f}, {s['tc_max']:+.3f}]",
+        f"TC rank (Spearman) mean: {s['tc_rank_mean']:+.3f}",
+    ]
+
+    if s.get("by_regime"):
+        lines += ["", "## By regime"]
+        for regime, info in sorted(s["by_regime"].items()):
+            lines.append(
+                f"  {regime:16s}: n={info['n']:3d}  "
+                f"TC mean={info['tc_mean']:+.3f}"
+            )
+
+    decomp = result.get("decomposition", {})
+    if decomp.get("by_source"):
+        lines += ["", "## TC loss decomposition"]
+        for src, info in decomp["by_source"].items():
+            lines.append(
+                f"  {src:12s}: {info['frac_of_total']:.0%} of total abs loss"
+            )
+
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Measure transfer coefficient (TC) from the run DB"
+    )
+    parser.add_argument(
+        "--db", type=Path, default=None,
+        help=f"Path to runs DB (default: {DEFAULT_DB})",
+    )
+    parser.add_argument(
+        "--run-type", default="live", choices=["live", "sim"],
+    )
+    parser.add_argument(
+        "--min-candidates", type=int, default=3,
+        help="Minimum candidates per run for TC computation",
+    )
+    parser.add_argument("--json", action="store_true", help="JSON output")
+    args = parser.parse_args(argv)
+
+    result = measure_tc(
+        db_path=args.db, run_type=args.run_type,
+        min_candidates=args.min_candidates,
+    )
+
+    if args.json:
+        json.dump(result, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+    else:
+        print(_render_summary(result))
+
+    s = result["summary"]
+    if s.get("n_runs", 0) == 0:
+        return 2
+    tc = s.get("tc_mean", 0)
+    if tc < 0:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

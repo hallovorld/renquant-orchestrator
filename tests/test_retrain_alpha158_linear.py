@@ -10,6 +10,7 @@ import subprocess
 import pytest
 
 from renquant_orchestrator import retrain_alpha158_linear as mod
+from renquant_orchestrator import retrain_common
 
 
 _RUNTIME_PATH_ENVS = (
@@ -64,7 +65,7 @@ def test_retrain_linear_command_sequence(monkeypatch, tmp_path: Path) -> None:
             calibrator.write_text(json.dumps({"kind": "global_panel_calibration"}), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     ctx = mod.RetrainLinearContext(repo_dir=repo, scorer_out=scorer, calibrator_out=calibrator)
 
     result = mod.build_pipeline().run(ctx)
@@ -131,7 +132,7 @@ def test_pythonpath_uses_runtime_assembly_dir_env(monkeypatch, tmp_path: Path) -
     (assembly / "repos").mkdir(parents=True)
     monkeypatch.setenv("RENQUANT_ASSEMBLY_DIR", str(assembly))
 
-    env = mod._subrepo_pythonpath(repo, env={})
+    env = retrain_common.subrepo_pythonpath(repo, env={})
 
     entries = env["PYTHONPATH"].split(os.pathsep)
     assert entries[0] == str(assembly / "repos" / "renquant-orchestrator" / "src")
@@ -147,7 +148,7 @@ def test_missing_scorer_fails_before_calibrator(monkeypatch, tmp_path: Path) -> 
     def fake_run(cmd, cwd=None, env=None):
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     ctx = mod.RetrainLinearContext(repo_dir=repo, scorer_out=scorer, calibrator_out=calibrator)
 
     with pytest.raises(FileNotFoundError, match="alpha158 linear training did not produce"):
@@ -159,4 +160,4 @@ def test_validate_repo_dir_requires_data_dir(tmp_path: Path) -> None:
     repo.mkdir()
 
     with pytest.raises(FileNotFoundError, match="data"):
-        mod._validate_repo_dir(repo)
+        retrain_common.validate_repo_dir(repo)

@@ -111,6 +111,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="return non-zero when any scheduled job still depends on umbrella code",
     )
+    gate_value = sub.add_parser(
+        "gate-value",
+        help="per-gate outcome summary from the forward-outcome observation scaffold",
+    )
+    gate_value.add_argument("--db", default=None, help="ledger DB path")
+    gate_value.add_argument("--horizon", type=int, default=20, choices=[5, 20, 60])
+    gate_value.add_argument("--gate", default=None, help="filter to a single gate")
+    gate_value.add_argument("--start-date", default=None)
+    gate_value.add_argument("--end-date", default=None)
+
     scheduled_health = sub.add_parser(
         "scheduled-health",
         help="emit scheduled-job last-exit health as JSON",
@@ -125,6 +135,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="return non-zero when any scheduled job is classified crash/reject",
     )
+
+    signal_pipeline = sub.add_parser(
+        "signal-pipeline",
+        help="show signal pipeline configuration and readiness status (106 flag-off)",
+    )
+    signal_pipeline.add_argument(
+        "--config", default=None,
+        help="path to signal pipeline config JSON (default: built-in defaults)",
+    )
+    signal_pipeline.add_argument(
+        "--data-root", default=None,
+        help="data root for readiness check",
+    )
+    signal_pipeline.add_argument(
+        "--json", action="store_true", dest="signal_json",
+        help="output as JSON",
+    )
+
+    model_fresh = sub.add_parser(
+        "model-freshness",
+        help="check model freshness across all populations (prod/shadow/tournament)",
+    )
+    model_fresh.add_argument("freshness_args", nargs=argparse.REMAINDER)
+
+    ledger_q = sub.add_parser(
+        "ledger-query",
+        help="query the decision ledger for gate verdicts by date and scope",
+    )
+    ledger_q.add_argument("--date", default=None, help="YYYY-MM-DD (default today)")
+    ledger_q.add_argument("--scope", default="daily", help="scope filter (default 'daily')")
+    ledger_q.add_argument("--db", default=None, help="ledger DB path (default ~/renquant-data/decision_ledger.db)")
+    ledger_q.add_argument("--verdict", default=None, choices=("allow", "halve", "block"),
+                          help="filter by verdict")
+    ledger_q.add_argument("--gate", default=None, help="filter by gate name (substring match)")
+    ledger_q.add_argument("--days", type=int, default=None,
+                          help="show last N days instead of a single date")
+    ledger_q.add_argument("--summary", action="store_true",
+                          help="print per-gate verdict counts instead of individual rows")
 
     weekly_promote = sub.add_parser(
         "weekly-promote-health",
@@ -569,6 +617,77 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
+        return 0
+    if args.command == "gate-value":
+        from .ledger_attribution import (
+            connect_attribution,
+            gate_information_value,
+            gate_value_report,
+        )
+
+        conn = connect_attribution(args.db or None)
+        if args.gate:
+            result = gate_information_value(
+                conn, args.gate, horizon=args.horizon,
+                start_date=args.start_date, end_date=args.end_date,
+            )
+        else:
+            result = gate_value_report(
+                conn, horizon=args.horizon, gate=args.gate,
+                start_date=args.start_date, end_date=args.end_date,
+            )
+        conn.close()
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "signal-pipeline":
+        from .signal_pipeline_config import main as spc_main
+
+        spc_argv = []
+        if args.config:
+            spc_argv.extend(["--config", args.config])
+        if args.data_root:
+            spc_argv.extend(["--data-root", args.data_root])
+        if args.signal_json:
+            spc_argv.append("--json")
+        return spc_main(spc_argv)
+    if args.command == "model-freshness":
+        from .model_freshness_monitor import main as mfm_main
+
+        return mfm_main(args.freshness_args or None)
+    if args.command == "ledger-query":
+        from .decision_ledger import connect, verdicts_for
+
+        db_path = args.db or None
+        conn = connect(db_path)
+        today = dt.date.today().isoformat()
+        if args.days:
+            base = dt.date.fromisoformat(args.date or today)
+            dates = [(base - dt.timedelta(days=i)).isoformat() for i in range(args.days)]
+        else:
+            dates = [args.date or today]
+
+        all_rows: list[dict] = []
+        for d in dates:
+            rows = verdicts_for(conn, d, args.scope)
+            for r in rows:
+                r["date"] = d
+            all_rows.extend(rows)
+        conn.close()
+
+        if args.verdict:
+            all_rows = [r for r in all_rows if r["verdict"] == args.verdict]
+        if args.gate:
+            all_rows = [r for r in all_rows if args.gate in r["gate"]]
+
+        if args.summary:
+            counts: dict[str, dict[str, int]] = {}
+            for r in all_rows:
+                g = r["gate"]
+                v = r["verdict"]
+                counts.setdefault(g, {"allow": 0, "halve": 0, "block": 0})[v] += 1
+            print(json.dumps(counts, indent=2, sort_keys=True))
+        else:
+            print(json.dumps(all_rows, indent=2, sort_keys=True))
         return 0
     if args.command == "scheduled-health":
         from .scheduled_health import build_scheduled_health

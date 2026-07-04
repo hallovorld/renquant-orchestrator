@@ -23,7 +23,7 @@ that lets the runner switch to the typed model without risking live state.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional  # noqa: UP035 — Pydantic evaluates at runtime, needs 3.9 compat
 
 from pydantic import BaseModel, ConfigDict
 
@@ -47,8 +47,8 @@ class HoldingV2(BaseModel):
     entry_date: str
     sell_streak: int = 0
     protection_breaches: int = 0           # the one-line field (#294 example)
-    position_hwm: float | None = None
-    entry_signal: dict[str, Any] | None = None  # full v1 signal, preserved
+    position_hwm: Optional[float] = None  # noqa: UP007
+    entry_signal: Optional[dict[str, Any]] = None  # noqa: UP007
 
     @property
     def entry_regime(self) -> str | None:
@@ -62,7 +62,7 @@ class LiveStateV2(BaseModel):
     schema_version: int = 2
     regime: str = "UNKNOWN"
     regime_confidence: float = 0.0
-    high_water_mark: float | None = None
+    high_water_mark: Optional[float] = None  # noqa: UP007
     skip_buys: bool = False
     holdings: dict[str, HoldingV2] = {}
     last_sell_dates: dict[str, str] = {}

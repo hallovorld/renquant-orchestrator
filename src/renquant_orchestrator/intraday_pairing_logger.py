@@ -113,10 +113,10 @@ FROZEN_PREREG: dict[str, Any] = {
 # (read-only). The pilot OUTPUT defaults under the operator data root (decoupled
 # from the umbrella checkout, honoring RENQUANT_DATA_ROOT) — this collector never
 # writes into the umbrella git tree by default.
-DEFAULT_RUNS_DB = Path.home() / "git/github/RenQuant/data/runs.alpaca.db"
-DEFAULT_TICK_SOURCE = Path.home() / "git/github/RenQuant/logs/renquant105_pilot/intraday_ticks.jsonl"
+DEFAULT_RUNS_DB = default_data_root() / "data" / "runs.alpaca.db"
+DEFAULT_TICK_SOURCE = default_data_root() / "logs" / "renquant105_pilot" / "intraday_ticks.jsonl"
 DEFAULT_BATCH_ARRIVAL_SOURCE = (
-    Path.home() / "git/github/RenQuant/logs/renquant105_pilot/batch_arrival_quotes.jsonl"
+    default_data_root() / "logs" / "renquant105_pilot" / "batch_arrival_quotes.jsonl"
 )
 
 
