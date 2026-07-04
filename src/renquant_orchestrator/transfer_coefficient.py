@@ -93,13 +93,26 @@ def compute_tc_per_run(
         shrinkage = np.abs(kelly - qp)
 
         qp_status = g["qp_status"].iloc[0] if "qp_status" in g.columns else None
-        is_infeasible = qp_status is not None and "infeasible" in str(qp_status)
+        # Honest taxonomy: qp_status is whatever the solver actually stamped.
+        # Group by the REAL value rather than collapsing every non-infeasible
+        # case into "optimal" -- a blank/missing status is not evidence the
+        # solver succeeded, it is evidence the field was never recorded.
+        if qp_status is None or (isinstance(qp_status, float) and pd.isna(qp_status)) or str(qp_status).strip() == "":
+            qp_status_category = "missing"
+        elif "infeasible" in str(qp_status):
+            qp_status_category = "infeasible"
+        elif str(qp_status) == "optimal":
+            qp_status_category = "optimal"
+        else:
+            qp_status_category = f"other:{qp_status}"
+        is_infeasible = qp_status_category == "infeasible"
 
         records.append({
             "run_id": run_id,
             "run_date": g["run_date"].iloc[0],
             "regime": g["regime"].iloc[0],
             "qp_status": qp_status,
+            "qp_status_category": qp_status_category,
             "qp_infeasible": is_infeasible,
             "n_candidates": len(g),
             "tc": tc,
@@ -123,10 +136,12 @@ def tc_summary(tc_series: pd.DataFrame) -> dict[str, Any]:
 
     tc = tc_series["tc"].dropna()
 
+    # Honest taxonomy: group by the actual qp_status_category rather than
+    # collapsing every non-infeasible run into "optimal". A run whose status
+    # was never recorded ("missing") is not evidence the solver succeeded.
     by_qp_status: dict[str, Any] = {}
-    if "qp_infeasible" in tc_series.columns:
-        for label, mask in [("infeasible", True), ("optimal", False)]:
-            g = tc_series[tc_series["qp_infeasible"] == mask]
+    if "qp_status_category" in tc_series.columns:
+        for label, g in tc_series.groupby("qp_status_category"):
             tc_g = g["tc"].dropna()
             if len(tc_g) >= 1:
                 by_qp_status[label] = {
