@@ -1,0 +1,628 @@
+{
+  "pipeline_root": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel",
+  "umbrella_root": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/kernel",
+  "counts": {
+    "pipeline_total": 189,
+    "umbrella_total": 217,
+    "shared": 168,
+    "pipeline_only": 21,
+    "umbrella_only": 49,
+    "identical": 63,
+    "trivial_drift": 32,
+    "material_drift": 73
+  },
+  "identical": [
+    "config.py",
+    "data_coverage.py",
+    "execution/__init__.py",
+    "execution/backend.py",
+    "execution/backend_lean.py",
+    "execution/backend_sim.py",
+    "execution/fees.py",
+    "execution/slippage.py",
+    "execution/t2_settlement.py",
+    "execution/types.py",
+    "intraday.py",
+    "intraday_wash.py",
+    "kelly.py",
+    "market_gates.py",
+    "meta_label/triple_barrier.py",
+    "models.py",
+    "panel_pipeline/feature_matrix.py",
+    "panel_pipeline/feature_transform.py",
+    "panel_pipeline/regime_ensemble_scorer.py",
+    "panel_pipeline/regime_router_scorer.py",
+    "panel_pipeline/transformer_scorer.py",
+    "pipeline/atoms/ctx_ops.py",
+    "pipeline/atoms/gates.py",
+    "pipeline/atoms/logging_atoms.py",
+    "pipeline/atoms/numerical.py",
+    "pipeline/atoms/persistence.py",
+    "pipeline/atoms/vectors.py",
+    "pipeline/job_candidates.py",
+    "pipeline/job_drawdown.py",
+    "pipeline/job_panel_veto.py",
+    "pipeline/job_ranking.py",
+    "pipeline/job_regime.py",
+    "pipeline/job_rotation.py",
+    "pipeline/job_score_distribution.py",
+    "pipeline/order_dedupe.py",
+    "pipeline/pp_execution.py",
+    "pipeline/task_data_freshness.py",
+    "pipeline/task_drawdown.py",
+    "pipeline/task_monitor.py",
+    "pipeline/task_risk_gates.py",
+    "pipeline/task_trend_overlay.py",
+    "portfolio.py",
+    "portfolio_qp/__init__.py",
+    "portfolio_qp/cvxportfolio_backend.py",
+    "portfolio_qp/davis_norman.py",
+    "portfolio_qp/proportional_trade.py",
+    "portfolio_qp/signal_combiner.py",
+    "realized_pnl.py",
+    "regime_hmm.py",
+    "regime_resolver.py",
+    "rotation.py",
+    "rotation_convex.py",
+    "scoring.py",
+    "state_paths.py",
+    "typed_past/__init__.py",
+    "typed_past/estimator.py",
+    "typed_past/past.py",
+    "typed_past/typed_data_freshness.py",
+    "vol_target.py",
+    "walk_forward/correlation_guard.py",
+    "walk_forward/gmm_guard.py",
+    "walk_forward/leakage_guard.py",
+    "walk_forward/lean_guard.py"
+  ],
+  "trivial_drift": [
+    "indicators.py",
+    "panel_pipeline/alpha158_features.py",
+    "panel_pipeline/ensemble_scorer.py",
+    "panel_pipeline/regime_router.py",
+    "panel_pipeline/task_quality_floor.py",
+    "panel_pipeline/tasks_feature_matrix.py",
+    "pipeline/atoms/__init__.py",
+    "pipeline/job_joint_actions.py",
+    "pipeline/job_short_candidates.py",
+    "pipeline/job_universe.py",
+    "pipeline/task_benchmark_sleeve.py",
+    "pipeline/task_buy_quality_gates.py",
+    "pipeline/task_candidates.py",
+    "pipeline/task_dd_flatten.py",
+    "pipeline/task_drawdown_rebalance.py",
+    "pipeline/task_execution.py",
+    "pipeline/task_panel_conviction_xs.py",
+    "pipeline/task_panel_veto.py",
+    "pipeline/task_post_stop_cooldown.py",
+    "pipeline/task_ranking.py",
+    "pipeline/task_short_candidates.py",
+    "pipeline/task_short_cover.py",
+    "pipeline/task_spy_regime.py",
+    "pipeline/task_trim.py",
+    "portfolio_qp/allocator_replay.py",
+    "portfolio_qp/placebo_replay_loader.py",
+    "portfolio_qp/task_joint_qp.py",
+    "preflight_pipeline/base.py",
+    "preflight_pipeline/ctx.py",
+    "preflight_pipeline/tasks/broker.py",
+    "preflight_pipeline/tasks/kelly_config.py",
+    "regime.py"
+  ],
+  "material_drift": [
+    {
+      "file": "__init__.py",
+      "summary": "+9/-72 lines"
+    },
+    {
+      "file": "alert_lifecycle.py",
+      "summary": "+6/-0 lines"
+    },
+    {
+      "file": "artifact_resolver.py",
+      "summary": "+17/-11 lines"
+    },
+    {
+      "file": "data.py",
+      "summary": "-_resolve_default_ohlcv_dir,_get_default_store; +16/-55 lines"
+    },
+    {
+      "file": "data_cache.py",
+      "summary": "+3/-3 lines"
+    },
+    {
+      "file": "decision_trace.py",
+      "summary": "-active_panel_model_type,active_scorer_identity,resolve_model_attribution; +3/-131 lines"
+    },
+    {
+      "file": "exit_types.py",
+      "summary": "+10/-3 lines"
+    },
+    {
+      "file": "exits.py",
+      "summary": "+_resolve_daily_sigma; -_resolve_daily_sigma,_from_state_sigma,_from_realized_daily; +25/-90 lines"
+    },
+    {
+      "file": "live_state_v2.py",
+      "summary": "+parse,holdings,to_v1_dict; -EntrySignalV2,MonitorStateV2,RegimeStateV2; +95/-209 lines"
+    },
+    {
+      "file": "meta_label/__init__.py",
+      "summary": "+5/-13 lines"
+    },
+    {
+      "file": "net_safety.py",
+      "summary": "+FetchBudget,__init__,charge; +165/-9 lines"
+    },
+    {
+      "file": "panel_pipeline/__init__.py",
+      "summary": "+1/-3 lines"
+    },
+    {
+      "file": "panel_pipeline/hf_patchtst_scorer.py",
+      "summary": "+_checkpoint_component_flags,_required_state_prefixes,_summarize_key_roots; -_RankerProxy; +100/-85 lines"
+    },
+    {
+      "file": "panel_pipeline/job_panel_scoring.py",
+      "summary": "+_bootstrap_gate_registry_import,run; -_runtime_cache,_cached_parquet,_cached_earnings_surprise; +131/-2814 lines"
+    },
+    {
+      "file": "panel_pipeline/model_registry.py",
+      "summary": "-_umbrella_repo; +14/-20 lines"
+    },
+    {
+      "file": "panel_pipeline/panel_scorer.py",
+      "summary": "+resolve_recipe_id,stamp_provenance_schema; +66/-4 lines"
+    },
+    {
+      "file": "panel_pipeline/patchtst_scorer.py",
+      "summary": "-_add_umbrella_scripts_to_path; +4/-10 lines"
+    },
+    {
+      "file": "panel_pipeline/shadow_scoring.py",
+      "summary": "+_subtract_business_days,_expected_lag_calendar_days,_parse_iso_date; -_default_tracking_uri,_resolve_shadow_artifact_path,_is_degenerate_cross_section; +924/-128 lines"
+    },
+    {
+      "file": "persistence.py",
+      "summary": "-_model_fields; +144/-237 lines"
+    },
+    {
+      "file": "pipeline/__init__.py",
+      "summary": "+9/-31 lines"
+    },
+    {
+      "file": "pipeline/context.py",
+      "summary": "+InferenceContext,TickerInferenceContext; +185/-10 lines"
+    },
+    {
+      "file": "pipeline/exit_params.py",
+      "summary": "-apply_single_day_loss_anchor_policy; +4/-88 lines"
+    },
+    {
+      "file": "pipeline/job_gates.py",
+      "summary": "+8/-8 lines"
+    },
+    {
+      "file": "pipeline/job_selection.py",
+      "summary": "+4/-16 lines"
+    },
+    {
+      "file": "pipeline/job_sell.py",
+      "summary": "+2/-4 lines"
+    },
+    {
+      "file": "pipeline/order_attribution.py",
+      "summary": "+_model_type_for; -_legacy_model_type_for,_model_attribution_for; +4/-46 lines"
+    },
+    {
+      "file": "pipeline/pipeline.py",
+      "summary": "+ParallelTimeoutError,__init__,resolve_workers; -TickerJob; +156/-74 lines"
+    },
+    {
+      "file": "pipeline/pp_inference.py",
+      "summary": "+31/-76 lines"
+    },
+    {
+      "file": "pipeline/pp_research_acceptance.py",
+      "summary": "+1/-1 lines"
+    },
+    {
+      "file": "pipeline/pp_training.py",
+      "summary": "+_run_gated_export; +142/-10 lines"
+    },
+    {
+      "file": "pipeline/pp_training_full.py",
+      "summary": "+10/-4 lines"
+    },
+    {
+      "file": "pipeline/soft_exit_guards.py",
+      "summary": "-_coerce_days; +11/-45 lines"
+    },
+    {
+      "file": "pipeline/task_gates.py",
+      "summary": "+_submit_gate_verdict; +60/-48 lines"
+    },
+    {
+      "file": "pipeline/task_joint_actions.py",
+      "summary": "+12/-39 lines"
+    },
+    {
+      "file": "pipeline/task_limit_sells.py",
+      "summary": "+9/-10 lines"
+    },
+    {
+      "file": "pipeline/task_regime.py",
+      "summary": "+17/-42 lines"
+    },
+    {
+      "file": "pipeline/task_rotation.py",
+      "summary": "+12/-42 lines"
+    },
+    {
+      "file": "pipeline/task_score_distribution.py",
+      "summary": "-_model_fields; +5/-37 lines"
+    },
+    {
+      "file": "pipeline/task_selection.py",
+      "summary": "-ApplyBearDefensiveSleeveTask,is_enabled,run; +8/-286 lines"
+    },
+    {
+      "file": "pipeline/task_sell.py",
+      "summary": "-ModelProtectionExitTask,run; +12/-110 lines"
+    },
+    {
+      "file": "pipeline/task_topup.py",
+      "summary": "+2/-18 lines"
+    },
+    {
+      "file": "portfolio_qp/baseline_allocators.py",
+      "summary": "-current_qp_allocator; +7/-60 lines"
+    },
+    {
+      "file": "portfolio_qp/constraint_snapshot.py",
+      "summary": "+3/-49 lines"
+    },
+    {
+      "file": "portfolio_qp/job_qp.py",
+      "summary": "+6/-17 lines"
+    },
+    {
+      "file": "portfolio_qp/qp_solver.py",
+      "summary": "+1/-30 lines"
+    },
+    {
+      "file": "portfolio_qp/replay_significance.py",
+      "summary": "+5/-4 lines"
+    },
+    {
+      "file": "portfolio_qp/run_ab_replay.py",
+      "summary": "-apply_promotion_gate_to_significance; +9/-139 lines"
+    },
+    {
+      "file": "portfolio_qp/tasks.py",
+      "summary": "-ApplySoftSellGuardMaskTask,_clear_mask,run; +30/-205 lines"
+    },
+    {
+      "file": "portfolio_qp/wf_replay_loader.py",
+      "summary": "-_scalar,_table_exists,_per_date_overlap_stats; +3/-220 lines"
+    },
+    {
+      "file": "preflight.py",
+      "summary": "-_pos_int; +34/-70 lines"
+    },
+    {
+      "file": "preflight_pipeline/__init__.py",
+      "summary": "+8/-7 lines"
+    },
+    {
+      "file": "preflight_pipeline/pipeline.py",
+      "summary": "+10/-11 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/__init__.py",
+      "summary": "+2/-0 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/artifact.py",
+      "summary": "+3/-3 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/broker_fill_freshness.py",
+      "summary": "+82/-24 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/calibrator.py",
+      "summary": "+4/-4 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/config_fingerprint.py",
+      "summary": "+3/-3 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/correlation.py",
+      "summary": "+4/-4 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/feature_coverage.py",
+      "summary": "+2/-2 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/gate.py",
+      "summary": "+_is_undefined_sharpe_zero_trades; +32/-4 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/meta_label.py",
+      "summary": "+2/-2 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/run_id.py",
+      "summary": "+2/-2 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/sector_map.py",
+      "summary": "+2/-2 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/state.py",
+      "summary": "+4/-29 lines"
+    },
+    {
+      "file": "preflight_pipeline/tasks/watchlist.py",
+      "summary": "+2/-2 lines"
+    },
+    {
+      "file": "score_audit.py",
+      "summary": "+4/-2 lines"
+    },
+    {
+      "file": "score_drift.py",
+      "summary": "+3/-0 lines"
+    },
+    {
+      "file": "selection.py",
+      "summary": "+1/-1 lines"
+    },
+    {
+      "file": "sizing.py",
+      "summary": "-_finite_float,conviction_score_percentiles,conviction_score_for_object; +4/-87 lines"
+    },
+    {
+      "file": "trade_events.py",
+      "summary": "+4/-27 lines"
+    },
+    {
+      "file": "walk_forward/__init__.py",
+      "summary": "+32/-12 lines"
+    },
+    {
+      "file": "walk_forward/loader.py",
+      "summary": "+_resolve_uri,_resolve_model_uri; -_resolve_uri; +75/-40 lines"
+    },
+    {
+      "file": "walk_forward/manifest.py",
+      "summary": "+10/-1 lines"
+    }
+  ],
+  "pipeline_only": [
+    "broker_reconciliation.py",
+    "config_schema.py",
+    "gate_registry.py",
+    "model_protection.py",
+    "panel_pipeline/_data_root.py",
+    "panel_pipeline/global_calibrator.py",
+    "panel_pipeline/model_contract.py",
+    "pipeline/signal_direction.py",
+    "pipeline/task_data_integrity.py",
+    "pipeline/task_data_verification.py",
+    "pit_reader.py",
+    "portfolio_qp/alpha_portfolio.py",
+    "portfolio_qp/e1_tc_decomposition.py",
+    "portfolio_qp/e2_horizon_sweep.py",
+    "portfolio_qp/e3_e4_breadth_shortsleeve.py",
+    "portfolio_qp/live_shadow_telemetry.py",
+    "portfolio_qp/patchtst_replay_loader.py",
+    "portfolio_qp/stage_a_significance.py",
+    "preflight_pipeline/tasks/config_schema.py",
+    "preflight_pipeline/tasks/fundamentals_freshness.py",
+    "preflight_pipeline/tasks/staleness.py"
+  ],
+  "umbrella_only": [
+    {
+      "file": "acceptance_entry_ic.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "artifact_contract.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "artifact_snapshot.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "calibrator_quality.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "challenger.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "config_consistency.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "drph.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "earnings_surprise.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "env_fingerprint.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "fred_macro.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "fundamentals.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "insider_trades.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "intraday_governor.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "macro.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "macro_per_ticker.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "manifest_uri_resolver.py",
+      "disposition": "RETIRE"
+    },
+    {
+      "file": "meta_label/job_meta_label_log.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "meta_label/labeler.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "meta_label/predictor.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "meta_label/purged_kfold.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "meta_label/snapshot.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "meta_label/task_meta_label_veto.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "meta_label/task_snapshot.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "metrics/__init__.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "metrics/block_bootstrap.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "metrics/deflated_sharpe.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "metrics/hac_se.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "metrics/pbo.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "metrics/perf_summary.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "model_acceptance.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "model_acceptance_short.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "panel_pipeline/admission_tasks.py",
+      "disposition": "RETIRE"
+    },
+    {
+      "file": "panel_pipeline/calibration.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "panel_pipeline/model_fingerprint.py",
+      "disposition": "RETIRE"
+    },
+    {
+      "file": "panel_pipeline/ngboost_tasks.py",
+      "disposition": "RETIRE"
+    },
+    {
+      "file": "panel_pipeline/runtime_features.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "panel_pipeline/sizing_tasks.py",
+      "disposition": "RETIRE"
+    },
+    {
+      "file": "pipeline/task_software_stops.py",
+      "disposition": "RETIRE"
+    },
+    {
+      "file": "preflight_pipeline/tasks/news_sentiment.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "reconciliation/__init__.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "reconciliation/live_sim_reconcile.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "registry/__init__.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "registry/mlflow_registry.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "risk_metrics.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "row_coverage.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "sim_smoke.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "tournament_acceptance.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "trade_score_diagnostics.py",
+      "disposition": "LIFT"
+    },
+    {
+      "file": "triple_barrier.py",
+      "disposition": "LIFT"
+    }
+  ]
+}
