@@ -12,15 +12,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
 from renquant_orchestrator.runtime_paths import default_data_root
+
+_OPS_PIT_DIR = Path(__file__).resolve().parents[2] / "ops" / "pit"
 
 
 class Status(str, Enum):
@@ -57,22 +60,64 @@ def _safe_connect(db_path: Path) -> sqlite3.Connection | None:
 # ---------------------------------------------------------------------------
 
 def check_pit_snapshots(data_root: Path) -> CheckResult:
-    """N2: PIT revision snapshots — need ≥90 consecutive days."""
+    """N2: PIT revision snapshots — count of days that PASS the N2
+    collector's own 4-endpoint publication contract, reused unchanged from
+    ``ops/pit/pit_liveness_check.check_snapshot()`` (the same validator
+    ``scripts/kpi_scorecard.py::metric_pit_accrual_days`` uses for the
+    D1/D3 accrual metric) — never a bare directory-name count. A directory
+    that merely exists (partial write, crashed mid-publish, stale manifest)
+    does not count; this is a time-irreversible, never-backfillable source,
+    so a false-positive day here can never be corrected later.
+
+    This check's threshold (90) is N2's own local AC, distinct from D3's
+    (>=120d, per the KPI scorecard). "Consecutive" was this check's own
+    prior (incorrect) framing: the established single-implementation source
+    of truth (``metric_pit_accrual_days``) counts total ACCRUED valid days
+    plus a separate staleness signal (latest valid day not >3 calendar days
+    old) — not an unbroken day-to-day run — so this mirrors that real
+    contract rather than inventing a stricter one.
+    """
     name = "N2_pit_snapshots"
     threshold = 90
     snapshot_dir = data_root / "data" / "estimate_snapshots"
     if not snapshot_dir.exists():
         return CheckResult(name, Status.UNKNOWN, 0, threshold,
                            f"snapshot dir not found: {snapshot_dir}")
-    days = sorted(
-        d.name for d in snapshot_dir.iterdir()
-        if d.is_dir() and len(d.name) == 10 and d.name[4] == "-"
-    )
-    n = len(days)
-    status = Status.READY if n >= threshold else Status.NOT_READY
-    rng = f"{days[0]}..{days[-1]}" if days else "none"
-    return CheckResult(name, status, n, threshold,
-                       f"{n} snapshot days ({rng})",
+
+    if str(_OPS_PIT_DIR) not in sys.path:
+        sys.path.insert(0, str(_OPS_PIT_DIR))
+    import pit_liveness_check as liveness  # noqa: PLC0415
+
+    prev_root = liveness.ROOT
+    liveness.ROOT = str(snapshot_dir)
+    try:
+        pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+        candidate_dirs = sorted(
+            d.name for d in snapshot_dir.iterdir()
+            if d.is_dir() and pat.match(d.name)
+        )
+        valid_days: list[str] = []
+        rejected: dict[str, list[str]] = {}
+        for d in candidate_dirs:
+            problems = liveness.check_snapshot(date.fromisoformat(d))
+            if problems:
+                rejected[d] = problems
+            else:
+                valid_days.append(d)
+    finally:
+        liveness.ROOT = prev_root
+
+    n = len(valid_days)
+    latest = valid_days[-1] if valid_days else None
+    stale = latest is None or (date.today() - date.fromisoformat(latest)).days > 3
+    status = Status.READY if (n >= threshold and not stale) else Status.NOT_READY
+    rng = f"{valid_days[0]}..{valid_days[-1]}" if valid_days else "none"
+    detail = f"{n} valid snapshot days ({rng})"
+    if rejected:
+        detail += f", {len(rejected)} rejected as partial/invalid (not counted)"
+    if stale and valid_days:
+        detail += f", STALE (latest valid day {latest} is >3d old)"
+    return CheckResult(name, status, n, threshold, detail,
                        pct=min(n / threshold, 1.0) * 100)
 
 
@@ -132,34 +177,67 @@ def check_readonly_sessions(data_root: Path) -> CheckResult:
                        pct=min(n / threshold, 1.0) * 100)
 
 
-def check_decision_ledger(db_path: Path) -> CheckResult:
-    """S5: decision-ledger wiring — need entries written + ≥95% join coverage."""
+def check_decision_ledger(db_path: Path | None = None) -> CheckResult:
+    """S5: decision-ledger wiring — need entries written + >=95% aged
+    fwd-outcome join coverage, measured against the real schema
+    (``decision_ledger`` + ``decision_outcomes``, ``fwd_5d_ret``/
+    ``fwd_20d_ret``/``fwd_60d_ret``) via the single-implementation
+    ``ledger_attribution.outcome_coverage()`` query — never a locally
+    invented ``decision_entries.fwd_return`` contract.
+
+    Default DB path matches ``decision_ledger.DEFAULT_DB``
+    (``~/renquant-data/decision_ledger.db``) — a DIFFERENT file from the
+    shared ``runs.alpaca.db`` the other DB-backed checks in this module use;
+    pass an explicit ``db_path`` to override (tests do).
+
+    "Aged" = ``as_of`` at least 60 calendar days old (``fwd_60d_ret`` is the
+    longest tracked outcome horizon), measured over a rolling 90-day accrual
+    window ending at that cutoff. Read-only: unlike
+    ``ledger_attribution.connect_attribution()``, this never creates the
+    ``decision_outcomes`` table if it's missing — a missing table is
+    NOT_READY, matching this module's own never-writes contract.
+    """
+    from .decision_ledger import DEFAULT_DB as LEDGER_DEFAULT_DB
+    from .ledger_attribution import outcome_coverage
+
     name = "S5_decision_ledger"
     threshold_pct = 95.0
-    conn = _safe_connect(db_path)
+    resolved_db = Path(db_path) if db_path else LEDGER_DEFAULT_DB
+    conn = _safe_connect(resolved_db)
     if conn is None:
         return CheckResult(name, Status.UNKNOWN, 0, threshold_pct,
                            "DB not found")
     try:
-        tables = [r[0] for r in conn.execute(
+        tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        if "decision_ledger" not in tables and "decision_entries" not in tables:
+        ).fetchall()}
+        if "decision_ledger" not in tables:
             return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
-                               "ledger table not yet created (wiring pending)",
+                               "decision_ledger table not yet created (wiring pending)",
                                pct=0.0)
-        table = "decision_entries" if "decision_entries" in tables else "decision_ledger"
-        n_entries = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
-        if n_entries == 0:
+        if "decision_outcomes" not in tables:
             return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
-                               "table exists but empty", pct=0.0)
-        n_with_outcome = conn.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE fwd_return IS NOT NULL"  # noqa: S608
-        ).fetchone()[0]
-        coverage = (n_with_outcome / n_entries * 100) if n_entries > 0 else 0
+                               "decision_ledger exists but decision_outcomes not yet created",
+                               pct=0.0)
+
+        aging_days = 60
+        window_days = 90
+        today = date.today()
+        end_date = (today - timedelta(days=aging_days)).isoformat()
+        start_date = (today - timedelta(days=aging_days + window_days)).isoformat()
+
+        rows = outcome_coverage(conn, start_date, end_date)
+        n_verdicts = sum(r["n_verdicts"] for r in rows)
+        n_covered = sum(r["n_covered"] or 0 for r in rows)
+        if n_verdicts == 0:
+            return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                               f"no aged (>={aging_days}d) decisions in {start_date}..{end_date}",
+                               pct=0.0)
+        coverage = n_covered / n_verdicts * 100
         status = Status.READY if coverage >= threshold_pct else Status.NOT_READY
         return CheckResult(name, status, round(coverage, 1), threshold_pct,
-                           f"{n_entries} entries, {n_with_outcome} with outcomes ({coverage:.1f}%)",
+                           f"{n_verdicts} aged (as_of,scope,gate) decisions, "
+                           f"{n_covered} covered ({coverage:.1f}%) over {start_date}..{end_date}",
                            pct=min(coverage / threshold_pct, 1.0) * 100)
     finally:
         conn.close()
@@ -275,6 +353,7 @@ ALL_CHECKS: list[ReadinessCheck] = [
 def run_all_checks(
     data_root: Path | None = None,
     db_path: Path | None = None,
+    ledger_db_path: Path | None = None,
 ) -> list[CheckResult]:
     if data_root is None:
         data_root = default_data_root()
@@ -283,6 +362,11 @@ def run_all_checks(
     results = []
     for rc in ALL_CHECKS:
         try:
+            if rc.check is check_decision_ledger:
+                # Separate default DB from the shared runs.alpaca.db — see
+                # check_decision_ledger's own docstring.
+                results.append(rc.check(ledger_db_path))
+                continue
             sig = rc.check.__code__.co_varnames[:rc.check.__code__.co_argcount]
             if "db_path" in sig:
                 results.append(rc.check(db_path))
@@ -355,13 +439,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path, default=None,
                         help="Override data root (default: auto-detect)")
     parser.add_argument("--db", type=Path, default=None,
-                        help="Override DB path")
+                        help="Override DB path (runs.alpaca.db-backed checks)")
+    parser.add_argument("--ledger-db", type=Path, default=None,
+                        help="Override decision-ledger DB path "
+                             "(default: decision_ledger.DEFAULT_DB)")
     parser.add_argument("--json", action="store_true", help="JSON output")
     parser.add_argument("--state-file", type=Path, default=None,
                         help="Path to persist state for transition detection")
     args = parser.parse_args(argv)
 
-    results = run_all_checks(data_root=args.data_root, db_path=args.db)
+    results = run_all_checks(data_root=args.data_root, db_path=args.db,
+                              ledger_db_path=args.ledger_db)
 
     if args.state_file:
         transitions = record_transitions(results, args.state_file)

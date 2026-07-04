@@ -1,8 +1,11 @@
 """Tests for the data-accumulation readiness monitor."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sqlite3
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +25,37 @@ from renquant_orchestrator.readiness_monitor import (
     record_transitions,
     run_all_checks,
 )
+
+_OPS_PIT_DIR = Path(__file__).resolve().parent.parent / "ops" / "pit"
+if str(_OPS_PIT_DIR) not in sys.path:
+    sys.path.insert(0, str(_OPS_PIT_DIR))
+import pit_liveness_check as liveness  # noqa: E402
+
+
+def _write_valid_pit_day(snapshot_dir, day: str) -> None:
+    """Write a snapshot day that PASSES check_snapshot()'s real 4-endpoint
+    publication contract (all manifests present, status=='ok', as_of
+    matching, referenced parquet present + non-empty)."""
+    day_dir = snapshot_dir / day
+    day_dir.mkdir(parents=True, exist_ok=True)
+    for endpoint in liveness.ENDPOINTS:
+        parquet_name = f"{endpoint}.parquet"
+        (day_dir / parquet_name).write_bytes(b"not-empty")
+        (day_dir / f"{endpoint}.manifest.json").write_text(json.dumps({
+            "status": "ok", "as_of": day, "output": parquet_name,
+        }))
+
+
+def _write_partial_pit_day(snapshot_dir, day: str) -> None:
+    """Write a day dir that fails the contract — some endpoints missing."""
+    day_dir = snapshot_dir / day
+    day_dir.mkdir(parents=True, exist_ok=True)
+    endpoint = liveness.ENDPOINTS[0]
+    parquet_name = f"{endpoint}.parquet"
+    (day_dir / parquet_name).write_bytes(b"not-empty")
+    (day_dir / f"{endpoint}.manifest.json").write_text(json.dumps({
+        "status": "ok", "as_of": day, "output": parquet_name,
+    }))
 
 
 # ---------------------------------------------------------------------------
@@ -65,25 +99,55 @@ class TestPitSnapshots:
         assert r.status == Status.NOT_READY
         assert r.current == 0
 
-    def test_partial(self, data_root):
+    def test_partial_days_not_counted(self, data_root):
+        # Codex's exact concern: a dir that merely EXISTS (partial/crashed
+        # publish, missing endpoints) must not inflate the count.
         snap_dir = data_root / "data" / "estimate_snapshots"
+        today = dt.date.today()
         for i in range(10):
-            (snap_dir / f"2026-07-{i+1:02d}").mkdir()
+            day = (today - dt.timedelta(days=i)).isoformat()
+            _write_valid_pit_day(snap_dir, day)
+        for i in range(10, 15):
+            day = (today - dt.timedelta(days=i)).isoformat()
+            _write_partial_pit_day(snap_dir, day)
         r = check_pit_snapshots(data_root)
         assert r.status == Status.NOT_READY
-        assert r.current == 10
-        assert r.pct == pytest.approx(11.1, abs=0.1)
+        assert r.current == 10  # only the 10 valid days count
+
+    def test_arbitrary_named_dirs_do_not_mark_ready(self, data_root):
+        # The exact pre-fix failure mode: 90 arbitrarily-named (bare, no
+        # manifest) directories must NOT report READY.
+        snap_dir = data_root / "data" / "estimate_snapshots"
+        today = dt.date.today()
+        for i in range(95):
+            (snap_dir / (today - dt.timedelta(days=i)).isoformat()).mkdir()
+        r = check_pit_snapshots(data_root)
+        assert r.status == Status.NOT_READY
+        assert r.current == 0
 
     def test_ready(self, data_root):
         snap_dir = data_root / "data" / "estimate_snapshots"
+        today = dt.date.today()
         for i in range(95):
-            d = 1 + i
-            month = (d - 1) // 28 + 4
-            day = (d - 1) % 28 + 1
-            (snap_dir / f"2026-{month:02d}-{day:02d}").mkdir()
+            day = (today - dt.timedelta(days=i)).isoformat()
+            _write_valid_pit_day(snap_dir, day)
         r = check_pit_snapshots(data_root)
         assert r.status == Status.READY
         assert r.current >= 90
+
+    def test_not_ready_when_stale(self, data_root):
+        # >=90 valid days, but the latest valid day is old — accrual has
+        # lapsed, so this must not report READY even though the count clears
+        # the threshold.
+        snap_dir = data_root / "data" / "estimate_snapshots"
+        anchor = dt.date.today() - dt.timedelta(days=10)
+        for i in range(95):
+            day = (anchor - dt.timedelta(days=i)).isoformat()
+            _write_valid_pit_day(snap_dir, day)
+        r = check_pit_snapshots(data_root)
+        assert r.status == Status.NOT_READY
+        assert r.current >= 90
+        assert "STALE" in r.detail
 
 
 class TestPitFeatures:
@@ -164,47 +228,110 @@ class TestReadonlySessions:
 # Decision ledger
 # ---------------------------------------------------------------------------
 
+from renquant_orchestrator.decision_ledger import DDL as _LEDGER_DDL
+from renquant_orchestrator.ledger_attribution import OUTCOMES_DDL as _OUTCOMES_DDL
+
+
+def _aged_date(days_old: int) -> str:
+    return (dt.date.today() - dt.timedelta(days=days_old)).isoformat()
+
+
+def _write_ledger_row(conn, *, run_id, as_of, scope, gate, verdict="allow"):
+    conn.execute(
+        "INSERT INTO decision_ledger (run_id, as_of, scope, gate, verdict, reason) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, as_of, scope, gate, verdict, "test"),
+    )
+
+
+def _write_outcome_row(conn, *, as_of, scope, ticker, gate, verdict="allow", fwd_60d_ret=0.01):
+    conn.execute(
+        "INSERT INTO decision_outcomes "
+        "(as_of, scope, ticker, gate, verdict, fwd_60d_ret, recorded_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (as_of, scope, ticker, gate, verdict, fwd_60d_ret, dt.datetime.utcnow().isoformat()),
+    )
+
+
 class TestDecisionLedger:
     def test_no_db(self, tmp_path):
         r = check_decision_ledger(tmp_path / "nope.db")
         assert r.status == Status.UNKNOWN
 
-    def test_no_table(self, db_path):
-        r = check_decision_ledger(db_path)
+    def test_no_ledger_table(self, tmp_path):
+        path = tmp_path / "ledger.db"
+        sqlite3.connect(str(path)).close()
+        r = check_decision_ledger(path)
         assert r.status == Status.NOT_READY
 
-    def test_empty_table(self, db_path):
-        conn = sqlite3.connect(str(db_path))
-        conn.execute("""CREATE TABLE decision_entries (
-            id INTEGER PRIMARY KEY, ticker TEXT, fwd_return REAL)""")
+    def test_ledger_without_outcomes_table(self, tmp_path):
+        path = tmp_path / "ledger.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(_LEDGER_DDL)
         conn.commit()
         conn.close()
-        r = check_decision_ledger(db_path)
+        r = check_decision_ledger(path)
+        assert r.status == Status.NOT_READY
+        assert "decision_outcomes" in r.detail
+
+    def test_no_aged_decisions(self, tmp_path):
+        # Both tables exist but every decision is recent (<60d old) — none
+        # are old enough for a fwd_60d_ret to have resolved yet.
+        path = tmp_path / "ledger.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(_LEDGER_DDL)
+        conn.executescript(_OUTCOMES_DDL)
+        _write_ledger_row(conn, run_id="r1", as_of=_aged_date(5), scope="daily", gate="P-WF-GATE")
+        conn.commit()
+        conn.close()
+        r = check_decision_ledger(path)
         assert r.status == Status.NOT_READY
         assert r.current == 0
 
-    def test_partial_coverage(self, db_path):
-        conn = sqlite3.connect(str(db_path))
-        conn.execute("""CREATE TABLE decision_entries (
-            id INTEGER PRIMARY KEY, ticker TEXT, fwd_return REAL)""")
-        conn.executemany("INSERT INTO decision_entries (ticker, fwd_return) VALUES (?, ?)",
-                         [("AAPL", 0.05), ("GOOG", None), ("MSFT", None)])
+    def test_partial_coverage(self, tmp_path):
+        path = tmp_path / "ledger.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(_LEDGER_DDL)
+        conn.executescript(_OUTCOMES_DDL)
+        # 3 aged (gate, scope) decisions, only 1 has a matching outcome.
+        _write_ledger_row(conn, run_id="r1", as_of=_aged_date(70), scope="daily", gate="P-WF-GATE")
+        _write_ledger_row(conn, run_id="r2", as_of=_aged_date(75), scope="daily", gate="P-FUND-FRESHNESS")
+        _write_ledger_row(conn, run_id="r3", as_of=_aged_date(80), scope="daily", gate="P-SECTOR-CAP")
+        _write_outcome_row(conn, as_of=_aged_date(70), scope="daily", ticker="AAPL", gate="P-WF-GATE")
         conn.commit()
         conn.close()
-        r = check_decision_ledger(db_path)
+        r = check_decision_ledger(path)
         assert r.status == Status.NOT_READY
         assert r.current == pytest.approx(33.3, abs=0.1)
 
-    def test_full_coverage(self, db_path):
-        conn = sqlite3.connect(str(db_path))
-        conn.execute("""CREATE TABLE decision_entries (
-            id INTEGER PRIMARY KEY, ticker TEXT, fwd_return REAL)""")
-        for t in ["AAPL", "GOOG", "MSFT", "AMZN", "META"]:
-            conn.execute("INSERT INTO decision_entries (ticker, fwd_return) VALUES (?, ?)",
-                         (t, 0.03))
+    def test_full_coverage(self, tmp_path):
+        path = tmp_path / "ledger.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(_LEDGER_DDL)
+        conn.executescript(_OUTCOMES_DDL)
+        for i, gate in enumerate(["P-WF-GATE", "P-FUND-FRESHNESS", "P-SECTOR-CAP"]):
+            as_of = _aged_date(70 + i)
+            _write_ledger_row(conn, run_id=f"r{i}", as_of=as_of, scope="daily", gate=gate)
+            _write_outcome_row(conn, as_of=as_of, scope="daily", ticker="AAPL", gate=gate)
         conn.commit()
         conn.close()
-        r = check_decision_ledger(db_path)
+        r = check_decision_ledger(path)
+        assert r.status == Status.READY
+        assert r.current == 100.0
+
+    def test_recent_unaged_decisions_excluded_from_coverage(self, tmp_path):
+        # A recent (<60d) decision with NO outcome must not drag down the
+        # coverage ratio — it isn't old enough to expect one yet.
+        path = tmp_path / "ledger.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(_LEDGER_DDL)
+        conn.executescript(_OUTCOMES_DDL)
+        _write_ledger_row(conn, run_id="r1", as_of=_aged_date(70), scope="daily", gate="P-WF-GATE")
+        _write_outcome_row(conn, as_of=_aged_date(70), scope="daily", ticker="AAPL", gate="P-WF-GATE")
+        _write_ledger_row(conn, run_id="r2", as_of=_aged_date(5), scope="daily", gate="P-SECTOR-CAP")
+        conn.commit()
+        conn.close()
+        r = check_decision_ledger(path)
         assert r.status == Status.READY
         assert r.current == 100.0
 
@@ -339,12 +466,45 @@ class TestTransitions:
 # run_all_checks integration
 # ---------------------------------------------------------------------------
 
+@pytest.fixture()
+def ledger_db_path(tmp_path):
+    """An unpopulated ledger DB path — always passed explicitly so tests
+    never fall through to check_decision_ledger's real-machine default
+    (~/renquant-data/decision_ledger.db)."""
+    return tmp_path / "ledger_test.db"
+
+
+def _write_fully_covered_ledger(path):
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_LEDGER_DDL)
+    conn.executescript(_OUTCOMES_DDL)
+    for i, gate in enumerate(["P-WF-GATE", "P-FUND-FRESHNESS", "P-SECTOR-CAP"]):
+        as_of = _aged_date(70 + i)
+        _write_ledger_row(conn, run_id=f"r{i}", as_of=as_of, scope="daily", gate=gate)
+        _write_outcome_row(conn, as_of=as_of, scope="daily", ticker="AAPL", gate=gate)
+    conn.commit()
+    conn.close()
+
+
 class TestRunAllChecks:
-    def test_all_checks_run(self, data_root, db_path):
-        results = run_all_checks(data_root=data_root, db_path=db_path)
+    def test_all_checks_run(self, data_root, db_path, ledger_db_path):
+        results = run_all_checks(data_root=data_root, db_path=db_path,
+                                  ledger_db_path=ledger_db_path)
         assert len(results) == len(ALL_CHECKS)
         for r in results:
             assert isinstance(r.status, Status)
+
+    def test_decision_ledger_uses_its_own_db_not_the_shared_one(
+        self, data_root, db_path, ledger_db_path,
+    ):
+        # check_decision_ledger's DB is a genuinely different file from the
+        # shared runs.alpaca.db-backed checks (gate_verdicts, etc.) — the
+        # exact schema/path mismatch this fix addresses.
+        _write_fully_covered_ledger(ledger_db_path)
+        results = run_all_checks(data_root=data_root, db_path=db_path,
+                                  ledger_db_path=ledger_db_path)
+        s5 = next(r for r in results if r.name == "S5_decision_ledger")
+        assert s5.status == Status.READY
 
 
 # ---------------------------------------------------------------------------
@@ -352,32 +512,34 @@ class TestRunAllChecks:
 # ---------------------------------------------------------------------------
 
 class TestCLI:
-    def test_text_output(self, data_root, db_path, capsys):
-        rc = main(["--data-root", str(data_root), "--db", str(db_path)])
+    def test_text_output(self, data_root, db_path, ledger_db_path, capsys):
+        rc = main(["--data-root", str(data_root), "--db", str(db_path),
+                    "--ledger-db", str(ledger_db_path)])
         out = capsys.readouterr().out
         assert "Readiness:" in out
         assert rc == 1
 
-    def test_json_output(self, data_root, db_path, capsys):
-        rc = main(["--data-root", str(data_root), "--db", str(db_path), "--json"])
+    def test_json_output(self, data_root, db_path, ledger_db_path, capsys):
+        rc = main(["--data-root", str(data_root), "--db", str(db_path),
+                    "--ledger-db", str(ledger_db_path), "--json"])
         out = capsys.readouterr().out
         data = json.loads(out)
         assert len(data) == len(ALL_CHECKS)
         assert all("status" in d for d in data)
 
-    def test_with_state_file(self, data_root, db_path, tmp_path, capsys):
+    def test_with_state_file(self, data_root, db_path, ledger_db_path, tmp_path, capsys):
         state = tmp_path / "state.json"
         rc = main(["--data-root", str(data_root), "--db", str(db_path),
+                    "--ledger-db", str(ledger_db_path),
                     "--state-file", str(state)])
         assert state.exists()
         assert rc == 1
 
-    def test_all_ready_returns_zero(self, data_root, db_path, capsys):
+    def test_all_ready_returns_zero(self, data_root, db_path, ledger_db_path, capsys):
         snap_dir = data_root / "data" / "estimate_snapshots"
+        today = dt.date.today()
         for i in range(95):
-            m = (i // 28) + 4
-            d = (i % 28) + 1
-            (snap_dir / f"2026-{m:02d}-{d:02d}").mkdir()
+            _write_valid_pit_day(snap_dir, (today - dt.timedelta(days=i)).isoformat())
         days = [f"2026-{m:02d}-{d:02d}" for m in range(4, 8) for d in range(1, 29)]
         manifest = data_root / "data" / "pit_features" / "c1_revision_drift.manifest.json"
         manifest.write_text(json.dumps({"processed_days": days[:95]}))
@@ -388,19 +550,15 @@ class TestCLI:
         for i in range(6):
             (sess_dir / f"session_{i}.json").write_text("{}")
 
+        _write_fully_covered_ledger(ledger_db_path)
+
         conn = sqlite3.connect(str(db_path))
-        conn.execute("""CREATE TABLE decision_entries (
-            id INTEGER PRIMARY KEY, ticker TEXT, fwd_return REAL)""")
-        for t in ["AAPL", "GOOG", "MSFT", "AMZN", "META"]:
-            conn.execute("INSERT INTO decision_entries (ticker, fwd_return) VALUES (?, ?)",
-                         (t, 0.03))
         conn.execute("CREATE TABLE config_experiments (id INTEGER PRIMARY KEY, config TEXT)")
         for i in range(50):
             conn.execute("INSERT INTO config_experiments (config) VALUES (?)", (f"cfg{i}",))
-        from datetime import date as dt, timedelta
-        today = dt.today()
+        today_ = dt.date.today()
         conn.execute("INSERT INTO gate_verdicts VALUES (?, ?, ?)",
-                     ("run-fresh", str(today - timedelta(days=1)), "PASS"))
+                     ("run-fresh", str(today_ - dt.timedelta(days=1)), "PASS"))
         for i in range(65):
             m = (i // 28) + 4
             d = (i % 28) + 1
@@ -409,5 +567,6 @@ class TestCLI:
         conn.commit()
         conn.close()
 
-        rc = main(["--data-root", str(data_root), "--db", str(db_path)])
+        rc = main(["--data-root", str(data_root), "--db", str(db_path),
+                    "--ledger-db", str(ledger_db_path)])
         assert rc == 0
