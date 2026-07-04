@@ -32,23 +32,34 @@ def _connect_ro(db_path=None):
 
 
 def _find_neutral_raw_from_calibrator(calibrator_path):
+    """ER=0 crossing from a real calibrator artifact's ``expected_return``
+    curve — schema and zero-crossing rule match
+    ``renquant_pipeline.kernel.panel_pipeline.global_calibrator`` exactly
+    (same rule reproduced/verified in ``scripts/m4b_floor_replay.py``'s
+    ``Calibrator.neutral_raw``, V5-verified #272): scan from the low-raw
+    end; a knot exactly at 0 returns that knot's x (flat-span left edge);
+    a strict sign change interpolates; never crossing returns None.
+
+    Real calibrator artifacts store ``expected_return: {"x": [...], "y":
+    [...]}`` — NOT a "breakpoints"/"intercept"+"slope" shape.
+    """
     cal = json.loads(Path(calibrator_path).read_text())
-    breakpoints = cal.get("breakpoints") or cal.get("calibration_breakpoints")
-    if breakpoints and isinstance(breakpoints, list):
-        for i in range(len(breakpoints) - 1):
-            bp_a = breakpoints[i]
-            bp_b = breakpoints[i + 1]
-            raw_a = bp_a.get("raw", bp_a.get("x", 0.0))
-            mu_a = bp_a.get("mu", bp_a.get("y", 0.0))
-            raw_b = bp_b.get("raw", bp_b.get("x", 0.0))
-            mu_b = bp_b.get("mu", bp_b.get("y", 0.0))
-            if mu_a * mu_b <= 0 and mu_a != mu_b:
-                t = mu_a / (mu_a - mu_b)
-                return float(raw_a + t * (raw_b - raw_a))
-    intercept = cal.get("intercept")
-    slope = cal.get("slope")
-    if intercept is not None and slope is not None and slope != 0:
-        return float(-intercept / slope)
+    er = cal.get("expected_return") or {}
+    xs = er.get("x") or []
+    ys = er.get("y") or []
+    if len(xs) < 2 or len(xs) != len(ys):
+        return None
+    pairs = sorted(zip(xs, ys), key=lambda p: p[0])
+    for i in range(len(pairs) - 1):
+        x0, y0 = pairs[i]
+        x1, y1 = pairs[i + 1]
+        if y0 == 0.0:
+            return float(x0)
+        if y0 * y1 < 0.0:
+            return float(x0 + (x1 - x0) * (0.0 - y0) / (y1 - y0))
+    x_last, y_last = pairs[-1]
+    if y_last == 0.0:
+        return float(x_last)
     return None
 
 
@@ -136,16 +147,37 @@ def measure_sign_laundering(scorer_path, calibrator_path=None, neutral_raw_overr
     }
 
 
-def audit_laundering_history(db_path=None, n_runs=30, run_type="live"):
+def audit_laundering_history(
+    db_path=None, n_runs=30, run_type="live",
+    calibrator_path=None, neutral_raw_override=None,
+):
+    """Audit sign-laundering across recent runs from ``candidate_scores``.
+
+    Reads ``raw_score`` — the actual calibrator input axis — not
+    ``rank_score`` (a different, rank-transformed field on the same table
+    that does not go through the calibration curve).
+
+    The neutral-raw reference is bound to a STABLE, external source when
+    available: an explicit ``neutral_raw_override``, or the ER=0 crossing
+    of a real calibrator artifact at ``calibrator_path``. Only when neither
+    is given does this fall back to a PER-RUN cross-sectional estimate —
+    a moving, sample-dependent threshold that can hide or reshape the very
+    laundering being measured, so those records are explicitly flagged via
+    ``neutral_raw_source: "per_run_estimate"`` rather than silently mixed
+    in with calibrator-bound measurements.
+    """
+    stable_neutral_raw = neutral_raw_override
+    if stable_neutral_raw is None and calibrator_path is not None:
+        stable_neutral_raw = _find_neutral_raw_from_calibrator(Path(calibrator_path))
     conn = _connect_ro(db_path)
     try:
         q = """
             SELECT cs.run_id, pr.run_date, cs.ticker,
-                   cs.rank_score, cs.mu
+                   cs.raw_score, cs.mu
             FROM candidate_scores cs
             JOIN pipeline_runs pr ON pr.run_id = cs.run_id
             WHERE pr.run_type = ?
-              AND cs.rank_score IS NOT NULL
+              AND cs.raw_score IS NOT NULL
               AND cs.mu IS NOT NULL
             ORDER BY pr.run_date DESC
         """
@@ -167,10 +199,17 @@ def audit_laundering_history(db_path=None, n_runs=30, run_type="live"):
         by_ticker = {}
         for _, row in g.iterrows():
             by_ticker[row["ticker"]] = {
-                "raw": float(row["rank_score"]),
+                "raw": float(row["raw_score"]),
                 "mu": float(row["mu"]),
             }
-        neutral_raw = _estimate_neutral_raw_from_scores(by_ticker)
+        if stable_neutral_raw is not None:
+            neutral_raw = stable_neutral_raw
+            neutral_raw_source = (
+                "override" if neutral_raw_override is not None else "calibrator"
+            )
+        else:
+            neutral_raw = _estimate_neutral_raw_from_scores(by_ticker)
+            neutral_raw_source = "per_run_estimate"
         if neutral_raw is None:
             continue
         laundered = 0
@@ -191,6 +230,7 @@ def audit_laundering_history(db_path=None, n_runs=30, run_type="live"):
             "laundered_count": laundered,
             "laundering_rate": laundered / total if total > 0 else 0.0,
             "neutral_raw": neutral_raw,
+            "neutral_raw_source": neutral_raw_source,
         })
     records.sort(key=lambda r: r["run_date"])
     return records
@@ -240,6 +280,14 @@ def _render_history(history):
         f"Mean rate: {np.mean(rates):.1%}  "
         f"Trend: {rates[-1] - rates[0]:+.1%} (first->last)",
     ]
+    sources = {r.get("neutral_raw_source", "per_run_estimate") for r in history}
+    if sources != {"calibrator"} and sources != {"override"}:
+        lines.append(
+            "WARNING: neutral_raw derived per-run from each day's own "
+            "cross-section (no --calibrator/--neutral-raw given) — this "
+            "threshold is sample-dependent and can hide or reshape the "
+            "laundering it measures; not comparable across runs."
+        )
     return "\n".join(lines)
 
 
@@ -257,6 +305,8 @@ def main(argv=None):
     history.add_argument("--db", type=Path, default=None)
     history.add_argument("--n-runs", type=int, default=30)
     history.add_argument("--run-type", default="live")
+    history.add_argument("--calibrator", type=Path, default=None)
+    history.add_argument("--neutral-raw", type=float, default=None)
     history.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
     if args.action == "measure":
@@ -274,6 +324,7 @@ def main(argv=None):
     if args.action == "history":
         records = audit_laundering_history(
             db_path=args.db, n_runs=args.n_runs, run_type=args.run_type,
+            calibrator_path=args.calibrator, neutral_raw_override=args.neutral_raw,
         )
         if args.as_json:
             json.dump(records, sys.stdout, indent=2, default=str)
