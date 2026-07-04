@@ -126,6 +126,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    model_fresh = sub.add_parser(
+        "model-freshness",
+        help="check model freshness across all populations (prod/shadow/tournament)",
+    )
+    model_fresh.add_argument("freshness_args", nargs=argparse.REMAINDER)
+
     weekly_promote = sub.add_parser(
         "weekly-promote-health",
         help="emit weekly model-promote chain liveness/health as JSON and alert on stale/errored runs",
@@ -570,6 +576,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
         return 0
+    if args.command == "model-freshness":
+        from .model_freshness_monitor import main as mfm_main
+
+        return mfm_main(args.freshness_args or None)
     if args.command == "scheduled-health":
         from .scheduled_health import build_scheduled_health
 
