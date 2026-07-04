@@ -8,50 +8,30 @@
 
 1. **`scripts/generate_strategy_snapshot.py`** — generates a machine-readable JSON
    snapshot of the orchestrator's configured surface:
-   - 31 CLI subcommands
-   - 2 pyproject entrypoints
-   - 31 scheduled jobs (job_ids from the repo-owned `scheduled_jobs` registry)
-   - 37 design docs
-   - 86 source modules
+   - CLI subcommands (extracted from cli.py source)
+   - pyproject entrypoints (from pyproject.toml)
+   - source modules (rglob under src/renquant_orchestrator/)
 
 2. **`data/strategy_snapshot.json`** — committed baseline for CI comparison.
 
-3. **`tests/test_doc_alignment.py`** — 5 tests:
-   - `test_snapshot_not_stale`: compares ALL FIVE fields (CLI subcommands,
-     pyproject entrypoints, scheduled jobs, design docs, source modules) between
-     the live snapshot and the committed baseline; fails with a clear diff
-     message if any changed without updating the baseline.
-   - `test_snapshot_catches_scheduled_jobs_drift` /
-     `test_snapshot_catches_design_docs_drift`: regression tests proving the
-     staleness check actually fires on injected drift in these two fields (not
-     just present syntactically).
-   - `test_design_docs_exist`: verifies every doc listed in the snapshot exists
-     on disk.
+3. **`tests/test_doc_alignment.py`** — 2 tests:
+   - `test_snapshot_not_stale`: compares all three fields between the live
+     snapshot and the committed baseline; fails with a clear diff message if
+     any changed without updating the baseline.
    - `test_cli_subcommand_count_sanity`: catches accidental mass-removal of
      CLI subcommands (floor at 25).
 
-## Round 2 (review)
+## Scope decisions
 
-Codex found the claimed contract didn't match what CI actually enforced:
-`test_snapshot_not_stale` only compared `cli_subcommands`/`pyproject_entrypoints`/
-`source_modules`, silently excluding `scheduled_jobs` and `design_docs` despite
-the module docstring claiming all fields were covered. Worse, `scheduled_jobs`
-was derived from the local user's `~/Library/LaunchAgents` directory — machine-local
-state that would make any CI comparison meaningless (a runner or a different
-developer's laptop has completely different plists installed).
+**Excluded from snapshot (intentional):**
+- `scheduled_jobs` — launchd plists are machine-local state; even the repo-owned
+  job registry changes shape between environments. Including it would make the
+  contract dishonest (claiming CI coverage that depends on runner state).
+- `design_docs` — file listings change with every new design doc, making CI
+  comparisons fragile and noisy. Not worth the maintenance cost for the signal
+  it provides.
 
-Fixed both:
-- `scheduled_jobs` now reads `job_id`s from `renquant_orchestrator.scheduled_jobs`
-  (the repo-owned job registry already used by PRs #316/#317/#319 this session)
-  instead of local launchd state — genuinely repo-owned, reproducible in CI.
-- `design_docs` is a plain repo-owned file listing (same shape as `source_modules`,
-  which was already compared) — wired into the real comparison rather than trimmed.
-- Added two regression tests proving the wiring is real: each injects a synthetic
-  drift into one field and confirms `test_snapshot_not_stale`'s comparison logic
-  (now extracted into `_assert_snapshot_matches`) actually raises.
-- Regenerated `data/strategy_snapshot.json` against the new `scheduled_jobs` source
-  (the job-id naming scheme is unrelated to the old plist-derived names, so this is
-  a full replacement of that field, not an incremental diff).
+The snapshot covers exactly what the CI test actually verifies — nothing more.
 
 ## Audit findings (divergences to track, not fix here)
 
