@@ -153,6 +153,30 @@ artifact's stamped value over its own recompute** (`setdefault` /
 exactly this to make the whole fleet venv-version-insensitive without touching any
 code.
 
+### 2a-bis. Inventory amendment — campaign B1+B2 sites (2026-07-04)
+
+The compliance campaign's B1/B2 audit (PR #297; RQ#444 F-2/F-10, #295 P0-2,
+#296 BT-1) found this table under-counted the WF-loader legs: the
+`WalkForwardModelLoader` existed as ×3 DIVERGENT forks, and two umbrella
+call-sites were on the umbrella kernel's stale local `model_content_sha256`
+copy (not the pipeline re-export as site 6 previously implied). Corrections
+and dispositions, landed 2026-07-04 (backtesting `fix/wf-loader-unify` +
+umbrella `fix/wf-gate-loader-repoint`; equivalence proven read-only against
+the real 47-artifact inventory — identical green/red sets on all legs,
+ZERO green matches relying on 12-char prefixes):
+
+| # | Call site | Was | Now | Class |
+|---|---|---|---|---|
+| 6′ | umbrella `scripts/fit_calibrator_alpha158_fund.py:32` (CORRECTION to site 6: it imported `kernel.panel_pipeline.panel_scorer` — the umbrella kernel's STALE LOCAL copy, not the pipeline re-export) | 0.8.1-frozen local recompute as the fallback under stamped-value precedence | recompute fallback = the EXPLICIT legacy engine, `renquant_common.model_fingerprint` imports only; propagates `scorer_fingerprint_schema_version` for v1-stamped scorers (dead until step 2) | migrated (B2) |
+| 7′ | umbrella `scripts/stamp_walkforward_fingerprints.py` (site 7) | UNCONDITIONAL recompute via the same stale local copy — would go v1 the day the local copy is ever synced (and was the §1a.3 pollution path via any venv-coupled route) | stamped-value-first + explicit legacy fallback; propagates the schema version into calibrator bindings (keeps a post-step-2 stamper re-run from downgrading step-2 declarations) | migrated (B2) |
+| 11 | umbrella `backtesting/renquant_104/kernel/walk_forward/loader.py` — the LIVE promote-gate leg (`run_wf_gate.py` loader imports at :2311 area + `adapters/sim.py`); previously MISSING from this table | full fork: local 12-char-prefix matcher + stale-copy recompute | verification via the pipeline `fingerprint_dispatch` (resolved importable → `RENQUANT_SUBREPO_ROOT` → `.subrepo_runtime/repos` → siblings; FAIL-LOUD if absent); #421 bounded resolver + digest binding preserved | migrated (B2) |
+| 12 | renquant-backtesting `walk_forward/loader.py`; previously MISSING from this table | full fork: local matcher + venv-coupled bare-name recompute from pipeline `panel_scorer` (the #160 hazard — v1 semantics on any 0.9.x assembly) | subclass of the pipeline loader; ONLY the backtesting URI-resolution layer stays local; verification inherited from the dispatch | migrated (B1) |
+
+Step-4 note: the 12-char-prefix retirement now covers all four loader legs
+through the ONE `accept_legacy_stamps` flag — no per-repo matcher remains to
+retire separately. The step-5 zero-legacy-callers grep already covers these
+paths.
+
 ## 3. The re-stamp plan (sequenced cutover)
 
 Reconciliation with stage-1 §2c ("never an OR-accepting window"): the migration
