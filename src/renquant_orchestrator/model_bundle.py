@@ -71,10 +71,7 @@ def _default_fingerprint_config() -> Callable[[dict], str]:
 
 
 def _default_model_content_sha256() -> Callable[[dict], str]:
-    try:
-        from renquant_pipeline.kernel.panel_pipeline.panel_scorer import model_content_sha256  # noqa: PLC0415
-    except Exception:  # pragma: no cover - environment dependent
-        from kernel.panel_pipeline.panel_scorer import model_content_sha256  # noqa: PLC0415
+    from renquant_common.model_fingerprint import model_content_sha256  # noqa: PLC0415
     return model_content_sha256
 
 
