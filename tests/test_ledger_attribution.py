@@ -144,6 +144,50 @@ def test_outcome_coverage_reports_join_ratio() -> None:
     assert len(cov) == 2
     for row in cov:
         assert row["n_verdicts"] >= 1
+        assert 0 <= row["coverage_ratio"] <= 1.0
+
+
+def test_outcome_coverage_bounded_with_multi_ticker_outcomes() -> None:
+    """coverage_ratio must not exceed 1.0 even when multiple tickers have
+    outcomes for the same gate|scope on one date."""
+    conn = _db()
+    _seed_verdicts(conn)
+    _seed_outcomes(conn)
+    write_outcomes(conn, [
+        {
+            "as_of": "2026-07-01", "scope": "daily", "ticker": "GOOG",
+            "gate": "P-WF-GATE", "verdict": "allow",
+            "fwd_20d_ret": 0.03, "recorded_at": "2026-08-01T00:00:00Z",
+        },
+        {
+            "as_of": "2026-07-01", "scope": "daily", "ticker": "AMZN",
+            "gate": "P-WF-GATE", "verdict": "allow",
+            "fwd_20d_ret": 0.04, "recorded_at": "2026-08-01T00:00:00Z",
+        },
+    ])
+    cov = outcome_coverage(conn, "2026-07-01", "2026-07-01")
+    assert len(cov) == 1
+    assert cov[0]["coverage_ratio"] == pytest.approx(1.0)
+    assert cov[0]["n_verdicts"] == 2
+    assert cov[0]["n_outcomes"] == 2
+
+
+def test_outcome_coverage_partial_when_gate_missing_outcomes() -> None:
+    """If only one of two gates has outcome records, ratio is 0.5."""
+    conn = _db()
+    _seed_verdicts(conn)
+    write_outcomes(conn, [
+        {
+            "as_of": "2026-07-01", "scope": "daily", "ticker": "AAPL",
+            "gate": "P-WF-GATE", "verdict": "allow",
+            "fwd_20d_ret": 0.02, "recorded_at": "2026-08-01T00:00:00Z",
+        },
+    ])
+    cov = outcome_coverage(conn, "2026-07-01", "2026-07-01")
+    assert len(cov) == 1
+    assert cov[0]["coverage_ratio"] == pytest.approx(0.5)
+    assert cov[0]["n_verdicts"] == 2
+    assert cov[0]["n_outcomes"] == 1
 
 
 def test_outcome_coverage_empty_db() -> None:

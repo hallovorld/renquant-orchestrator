@@ -69,9 +69,11 @@ COVERAGE_SQL = """
 SELECT
   l.as_of,
   COUNT(DISTINCT l.gate || '|' || l.scope) AS n_verdicts,
-  COUNT(DISTINCT o.gate || '|' || o.scope || '|' || o.ticker) AS n_outcomes,
+  COUNT(DISTINCT CASE WHEN o.gate IS NOT NULL
+    THEN o.gate || '|' || o.scope END) AS n_outcomes,
   CASE WHEN COUNT(DISTINCT l.gate || '|' || l.scope) > 0
-    THEN COUNT(DISTINCT o.gate || '|' || o.scope || '|' || o.ticker) * 1.0
+    THEN COUNT(DISTINCT CASE WHEN o.gate IS NOT NULL
+           THEN o.gate || '|' || o.scope END) * 1.0
          / COUNT(DISTINCT l.gate || '|' || l.scope)
     ELSE NULL
   END AS coverage_ratio
