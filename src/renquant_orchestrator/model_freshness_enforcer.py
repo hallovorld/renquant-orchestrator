@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -263,8 +263,17 @@ def enforce(
 
     Returns a structured ``EnforcementResult`` with the recommended action.
     Never mutates any artifact.
+
+    ``breach_days`` is the single source of truth for the breach threshold used
+    in tiering: it always overrides ``policy.breach_days`` (all of ``policy``'s
+    other fields — name/warn_days/escalate_days/require_validated_promote — are
+    preserved). This keeps the two parameters from silently disagreeing when
+    ``enforce`` is called directly with a non-default ``breach_days`` but the
+    default ``policy`` (previously: the reported ``breach_days`` in ``detail``
+    had no effect on the actual tiering, which only read ``policy.breach_days``).
     """
     result = EnforcementResult()
+    policy = replace(policy, breach_days=breach_days)
 
     prod_freshness = read_artifact_freshness(
         "prod-panel", prod_panel_path, now, policy=policy,

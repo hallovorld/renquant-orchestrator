@@ -50,3 +50,30 @@ Pillar-3 automation) chooses to act on it.
 - Pillar 3 (auto-promotion of infra-only failures) is DEFERRED — the enforcer only
   recommends; the `promote_freshest` action is tagged `[Pillar 3 DEFERRED]`
 - Exit codes: 0 = healthy, 1 = stale but candidate available, 2 = stale no candidates
+
+## Round 2 (review)
+
+Codex flagged a real API-contract bug: `enforce()` accepted a standalone `breach_days`
+argument that was used ONLY for the `detail` display string — the actual staleness
+tiering read `policy.breach_days` (defaulting to `PROD_FAST_POLICY`'s 28d), which never
+picked up a caller-supplied `breach_days` unless the caller ALSO separately constructed
+a matching `FreshnessPolicy`. `build_context()` (the CLI path) happened to do this
+correctly, masking the bug for every existing test (all of which only exercised the
+default 28d path).
+
+Fixed: `enforce()` now derives its effective policy via
+`policy = replace(policy, breach_days=breach_days)` at the top of the function, making
+`breach_days` the single authoritative source for the breach threshold while preserving
+`policy`'s other fields (name/warn_days/escalate_days/require_validated_promote). This
+flows through to both the prod-panel freshness read and `scan_candidates()`'s internal
+per-candidate reads (both take the same `policy` object). `build_context()`'s existing
+behavior is unchanged (it already passed a matching policy, so the derive is a no-op
+there).
+
+Added `test_enforce_breach_days_is_authoritative_over_default_policy`: an artifact aged
+100d (lag-widened effective thresholds: 14d→96d, 28d→110d) reads BREACH at
+`breach_days=14` and HEALTHY at `breach_days=28` — this test fails against the pre-fix
+code (asserted `stale=True`, got `stale=False, tier='warn'`) and passes after. 31/31
+enforcer tests pass; 2014/2014 relevant repo tests pass (2 pre-existing, unrelated
+`test_bundle_consistency_ci_gate.py` failures reproduce identically on clean
+`origin/main`).

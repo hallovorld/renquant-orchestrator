@@ -231,6 +231,29 @@ def test_enforce_healthy_model(enforce_dirs):
     assert "no enforcement needed" in result.detail
 
 
+def test_enforce_breach_days_is_authoritative_over_default_policy(enforce_dirs):
+    """``breach_days`` must actually drive tiering, not just the detail text.
+
+    age=100d sits between the 14d-effective (14+82 lag=96d, BREACH) and
+    28d-effective (28+82 lag=110d, HEALTHY) thresholds. Pre-fix, passing
+    ``breach_days=14`` without also constructing a matching ``FreshnessPolicy``
+    silently kept evaluating against the default ``PROD_FAST_POLICY`` (28d),
+    so this artifact read HEALTHY even though the caller asked for a 14d ceiling.
+    """
+    root, prod_dir, staging_dir = enforce_dirs
+    prod = _write_artifact(
+        prod_dir / "panel-ltr.alpha158_fund.json",
+        cutoff="2026-03-26", lookahead_days=60,
+    )
+    result_default_policy_14 = enforce(prod, [staging_dir], NOW, breach_days=14)
+    assert result_default_policy_14.stale, (
+        "breach_days=14 must be authoritative even with the default policy object"
+    )
+
+    result_28 = enforce(prod, [staging_dir], NOW, breach_days=28)
+    assert not result_28.stale
+
+
 def test_enforce_stale_with_passing_candidate(enforce_dirs):
     root, prod_dir, staging_dir = enforce_dirs
     prod = _write_artifact(
