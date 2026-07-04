@@ -22,12 +22,14 @@ from typing import Any
 from renquant_orchestrator.attribution import decompose as dc
 from renquant_orchestrator.attribution import ledger as lg
 
+from renquant_orchestrator.runtime_paths import default_data_root
+
 DEFAULT_OUT_DIR = Path.home() / "renquant-data/research/attribution"
 
-# Paths this reporter must never write into (prod inputs, run DB home).
+_DATA_ROOT = default_data_root()
 _FORBIDDEN_OUT_PREFIXES = (
-    Path.home() / "git/github/RenQuant/data",
-    Path.home() / "git/github/RenQuant/runtime",
+    _DATA_ROOT / "data",
+    _DATA_ROOT / "runtime",
 )
 
 
