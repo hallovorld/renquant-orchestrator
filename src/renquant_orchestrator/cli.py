@@ -111,6 +111,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="return non-zero when any scheduled job still depends on umbrella code",
     )
+    gate_value = sub.add_parser(
+        "gate-value",
+        help="per-gate outcome summary from the forward-outcome observation scaffold",
+    )
+    gate_value.add_argument("--db", default=None, help="ledger DB path")
+    gate_value.add_argument("--horizon", type=int, default=20, choices=[5, 20, 60])
+    gate_value.add_argument("--gate", default=None, help="filter to a single gate")
+    gate_value.add_argument("--start-date", default=None)
+    gate_value.add_argument("--end-date", default=None)
+
     scheduled_health = sub.add_parser(
         "scheduled-health",
         help="emit scheduled-job last-exit health as JSON",
@@ -607,6 +617,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
+        return 0
+    if args.command == "gate-value":
+        from .ledger_attribution import (
+            connect_attribution,
+            gate_information_value,
+            gate_value_report,
+        )
+
+        conn = connect_attribution(args.db or None)
+        if args.gate:
+            result = gate_information_value(
+                conn, args.gate, horizon=args.horizon,
+                start_date=args.start_date, end_date=args.end_date,
+            )
+        else:
+            result = gate_value_report(
+                conn, horizon=args.horizon, gate=args.gate,
+                start_date=args.start_date, end_date=args.end_date,
+            )
+        conn.close()
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "signal-pipeline":
         from .signal_pipeline_config import main as spc_main
