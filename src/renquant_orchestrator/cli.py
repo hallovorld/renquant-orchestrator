@@ -126,6 +126,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    model_fresh = sub.add_parser(
+        "model-freshness",
+        help="check model freshness across all populations (prod/shadow/tournament)",
+    )
+    model_fresh.add_argument("freshness_args", nargs=argparse.REMAINDER)
+
     ledger_q = sub.add_parser(
         "ledger-query",
         help="query the decision ledger for gate verdicts by date and scope",
@@ -585,6 +591,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
         return 0
+    if args.command == "model-freshness":
+        from .model_freshness_monitor import main as mfm_main
+
+        return mfm_main(args.freshness_args or None)
     if args.command == "ledger-query":
         from .decision_ledger import connect, verdicts_for
 
