@@ -27,6 +27,7 @@ import subprocess
 import pytest
 
 from renquant_orchestrator import retrain_alpha158_fund as mod
+from renquant_orchestrator import retrain_common
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -307,7 +308,7 @@ def test_pipeline_isolates_sigma_head_failure_from_ranker_retrain(tmp_path, monk
             calibrator.write_text(json.dumps({"method": "isotonic"}))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
 
     def boom(*a, **k):
