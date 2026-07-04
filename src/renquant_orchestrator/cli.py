@@ -459,6 +459,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to gate_calibration_diagnostic.main",
     )
 
+    outcome_bf = sub.add_parser(
+        "outcome-backfill",
+        help="backfill decision_outcomes from candidate_scores + forward returns",
+    )
+    outcome_bf.add_argument(
+        "outcome_backfill_args", nargs=argparse.REMAINDER,
+        help="pass-through args to outcome_backfiller.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -951,6 +960,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .gate_calibration_diagnostic import main as gc_main
 
         return gc_main(args.gate_cal_args or None)
+    if args.command == "outcome-backfill":
+        from .outcome_backfiller import main as ob_main
+
+        return ob_main(args.outcome_backfill_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
