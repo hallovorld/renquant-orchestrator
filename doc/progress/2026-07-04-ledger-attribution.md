@@ -73,3 +73,20 @@ number will be meaningful once measured against real data.
 1931/1931 relevant repo tests pass (2 pre-existing failures in
 `test_bundle_consistency_ci_gate.py` reproduce identically on a clean
 `origin/main` checkout — unrelated to this change).
+
+## Round 3 (review): run_id grain not carried through
+
+Codex round 2 found that the coverage query still collapsed same-day reruns:
+`decision_ledger` PK is `(run_id, scope, gate)`, but coverage counted only
+`DISTINCT gate || '|' || scope` — two runs on 07-01 with the same gate/scope
+were one denominator entry, not two.
+
+**Fix**: both sides now count `DISTINCT run_id || '|' || gate || '|' || scope`,
+matching the ledger's actual PK grain. Column renamed `n_outcomes` → `n_covered`
+to reflect that the numerator counts covered *decisions*, not outcome rows.
+
+Added `test_outcome_coverage_counts_distinct_runs_not_collapsed`: two runs on
+the same date with the same gate/scope → `n_verdicts` = 2, `n_covered` = 2,
+`coverage_ratio` = 1.0.
+
+15/15 attribution tests pass.
