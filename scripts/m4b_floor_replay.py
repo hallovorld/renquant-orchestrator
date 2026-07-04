@@ -124,6 +124,9 @@ from pathlib import Path
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from renquant_orchestrator.expkit.replay import canonical_runs as _expkit_canonical_runs  # noqa: E402
+
 # ------------------------------------------------------------------ paths
 DEFAULT_DB = "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db"
 # The LIVE calibrator artifact: strategy_config.json ranking.panel_scoring
@@ -335,35 +338,15 @@ def open_ro(path: str) -> sqlite3.Connection:
 
 def canonical_runs(con: sqlite3.Connection,
                    min_candidates: int = MIN_FULL_RUN_CANDIDATES) -> list[dict]:
-    """One canonical live run per date: latest created_at among that date's
-    runs with >= min_candidates scored candidate rows carrying raw_panel
-    (the replay substrate; M3/#234 dedup discipline, counted here on
-    score_distribution because raw_panel is what the floor replay consumes)."""
-    rows = con.execute(
-        """
-        SELECT p.run_id, p.run_date, COALESCE(p.regime,'UNKNOWN'), p.created_at,
-               COALESCE(p.counters_json, '')
-        FROM pipeline_runs p
-        WHERE p.run_type='live'
-          AND (SELECT COUNT(*) FROM score_distribution s
-               WHERE s.run_id=p.run_id AND s.is_holding=0
-                 AND s.raw_panel IS NOT NULL) >= ?
-        ORDER BY p.run_date, p.created_at
-        """,
-        (min_candidates,),
-    ).fetchall()
-    by_date: dict[str, tuple] = {}
-    for run_id, run_date, regime, created_at, counters in rows:
-        by_date[run_date] = (run_id, regime, created_at, counters)
-    out = []
-    for d, (run_id, regime, _c, counters) in sorted(by_date.items()):
-        try:
-            counters_d = json.loads(counters) if counters else {}
-        except (ValueError, TypeError):
-            counters_d = {}
-        out.append({"run_date": d, "run_id": run_id, "regime": regime,
-                    "counters": counters_d})
-    return out
+    """One canonical live run per date -- forwards to the shared
+    ``expkit.replay.canonical_runs`` (the M3/#234 dedup discipline).
+
+    Kept as a thin local wrapper (rather than switching every call site to
+    the expkit import directly) so this script's own default
+    (``MIN_FULL_RUN_CANDIDATES``, an M4b-specific threshold) stays local
+    while the dedup SQL itself has exactly one implementation, shared with
+    every other arm-vs-arm replay experiment via ``expkit.replay``."""
+    return _expkit_canonical_runs(con, min_candidates)
 
 
 def load_bars(con: sqlite3.Connection, runs: list[dict]) -> list[Bar]:
