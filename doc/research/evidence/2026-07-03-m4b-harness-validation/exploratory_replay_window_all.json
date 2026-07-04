@@ -1,0 +1,1161 @@
+{
+  "baseline_premeasure": {
+    "mean_floor_clearing_B": 13.642857142857142,
+    "mean_sign_laundered": 34.285714285714285,
+    "note": "current-pairing baseline re-measured before replay (post-P1-restore pairing: scorer restored to 06-21, calibrator refit 2026-07-03)",
+    "per_bar": [
+      {
+        "date": "2026-05-20",
+        "floor_clearing": 45,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.07713539537036695,
+        "raw_center_median": -0.13048215955495834,
+        "sign_laundered": 26
+      },
+      {
+        "date": "2026-05-21",
+        "floor_clearing": 44,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.09570588123985174,
+        "raw_center_median": -0.10700264573097229,
+        "sign_laundered": 31
+      },
+      {
+        "date": "2026-06-09",
+        "floor_clearing": 5,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.0017725512993967344,
+        "raw_center_median": -0.19445053488016129,
+        "sign_laundered": 46
+      },
+      {
+        "date": "2026-06-10",
+        "floor_clearing": 5,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.0017725512993967344,
+        "raw_center_median": -0.19445053488016129,
+        "sign_laundered": 46
+      },
+      {
+        "date": "2026-06-11",
+        "floor_clearing": 3,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.002914469900207635,
+        "raw_center_median": -0.1921001821756363,
+        "sign_laundered": 48
+      },
+      {
+        "date": "2026-06-22",
+        "floor_clearing": 9,
+        "is_current_pairing": false,
+        "mu_stored_median": -0.0021902857427450193,
+        "raw_center_median": -0.2928873598575592,
+        "sign_laundered": 19
+      },
+      {
+        "date": "2026-06-23",
+        "floor_clearing": 5,
+        "is_current_pairing": false,
+        "mu_stored_median": -0.0024353609628331974,
+        "raw_center_median": -0.2955453097820282,
+        "sign_laundered": 23
+      },
+      {
+        "date": "2026-06-24",
+        "floor_clearing": 4,
+        "is_current_pairing": false,
+        "mu_stored_median": -0.0011590170383966349,
+        "raw_center_median": -0.28170284628868103,
+        "sign_laundered": 20
+      },
+      {
+        "date": "2026-06-25",
+        "floor_clearing": 6,
+        "is_current_pairing": false,
+        "mu_stored_median": -0.0025988319607515385,
+        "raw_center_median": -0.2973184436559677,
+        "sign_laundered": 24
+      },
+      {
+        "date": "2026-06-26",
+        "floor_clearing": 14,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.02104081813368816,
+        "raw_center_median": -0.04734288156032562,
+        "sign_laundered": 44
+      },
+      {
+        "date": "2026-06-29",
+        "floor_clearing": 6,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.022425744171279856,
+        "raw_center_median": -0.031762029975652695,
+        "sign_laundered": 22
+      },
+      {
+        "date": "2026-06-30",
+        "floor_clearing": 14,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.0211230642267808,
+        "raw_center_median": -0.046418365091085434,
+        "sign_laundered": 42
+      },
+      {
+        "date": "2026-07-01",
+        "floor_clearing": 14,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.02018048026488111,
+        "raw_center_median": -0.05285589396953583,
+        "sign_laundered": 44
+      },
+      {
+        "date": "2026-07-02",
+        "floor_clearing": 17,
+        "is_current_pairing": false,
+        "mu_stored_median": 0.02158676334587726,
+        "raw_center_median": -0.03618967905640602,
+        "sign_laundered": 45
+      }
+    ]
+  },
+  "bl4_basis": "prod-raw",
+  "calibrator": {
+    "er_clip_bound": 0.2,
+    "file_sha256": "abac923a35c37afed6c8add2ebf45fcfe911ef54f12e11d864e01c2c1d61cd0c",
+    "horizon_scaling_note": "mu replayed at each run's stored mu_horizon_days; when it differs from the artifact's native lookahead the pipeline scales linearly and re-clips (job_panel_scoring R2 audit) \u2014 reproduced here",
+    "native_lookahead_days": 60,
+    "neutral_raw": -0.266739630066495,
+    "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-rank-calibration.json",
+    "trained_date": "2026-07-03"
+  },
+  "controls": {
+    "arms": {
+      "absolute": {
+        "positive_control_power": {
+          "gap_0.02": 0.0,
+          "gap_0.04": 0.0,
+          "gap_0.08": 0.0
+        },
+        "true_null_false_fire_rate_iid": 0.0,
+        "true_null_false_fire_rate_perm": 0.0
+      },
+      "dispersion": {
+        "positive_control_power": {
+          "gap_0.02": 0.235,
+          "gap_0.04": 0.37,
+          "gap_0.08": 0.78
+        },
+        "true_null_false_fire_rate_iid": 0.105,
+        "true_null_false_fire_rate_perm": 0.0
+      },
+      "quantile": {
+        "positive_control_power": {
+          "gap_0.02": 0.165,
+          "gap_0.04": 0.3,
+          "gap_0.08": 0.62
+        },
+        "true_null_false_fire_rate_iid": 0.07,
+        "true_null_false_fire_rate_perm": 0.0
+      }
+    },
+    "n_reps": 200,
+    "noise_sigma": 0.11902078705300873,
+    "nominal": 0.025,
+    "sig_branch_used": [
+      "exact_small_n",
+      "exact_small_n+degenerate"
+    ]
+  },
+  "design": "doc/design/2026-07-03-m4b-relative-conviction-floor.md \u00a74",
+  "deviations": [
+    "--window all: replay window includes non-current-pairing bars (retired scorer/calibrator pairings) \u2014 cross-era EXPLORATORY read, never a Stage-1 verdict input (recorded deviation)",
+    "5 bar(s) with zero floor-eligible names (wholesale upstream veto) excluded from all arms identically: ['2026-05-30', '2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04']"
+  ],
+  "evaluations": {
+    "absolute": {
+      "admission": {
+        "baseline": {
+          "arm": "baseline",
+          "counts_by_date": {
+            "2026-05-20": 45,
+            "2026-05-21": 44,
+            "2026-06-09": 5,
+            "2026-06-10": 5,
+            "2026-06-11": 3,
+            "2026-06-22": 9,
+            "2026-06-23": 5,
+            "2026-06-24": 4,
+            "2026-06-25": 6,
+            "2026-06-26": 14,
+            "2026-06-29": 6,
+            "2026-06-30": 14,
+            "2026-07-01": 14,
+            "2026-07-02": 17
+          },
+          "max_zero_streak": 0,
+          "mean": 13.642857142857142,
+          "p90": 35.90000000000003,
+          "p95": 44.35,
+          "param": null,
+          "qp_spill_excess_p90": 32.90000000000003,
+          "qp_spill_freq": 0.9285714285714286,
+          "spill_proxy_note": "qp_spill computed as floor-clearing count > panel_buy_top_n (3); full QP-cap replay (correlation/sector/whole-share) deferred - recorded deviation, see design \u00a74 criterion 6",
+          "topn_saturation_freq": 1.0,
+          "zero_admission_freq": 0.0
+        },
+        "candidate": {
+          "arm": "absolute",
+          "counts_by_date": {
+            "2026-05-20": 28,
+            "2026-05-21": 24,
+            "2026-06-09": 0,
+            "2026-06-10": 0,
+            "2026-06-11": 0,
+            "2026-06-22": 21,
+            "2026-06-23": 17,
+            "2026-06-24": 18,
+            "2026-06-25": 18,
+            "2026-06-26": 14,
+            "2026-06-29": 6,
+            "2026-06-30": 14,
+            "2026-07-01": 14,
+            "2026-07-02": 17
+          },
+          "max_zero_streak": 3,
+          "mean": 13.642857142857142,
+          "p90": 23.1,
+          "p95": 25.4,
+          "param": 0.009082031250000004,
+          "qp_spill_excess_p90": 20.1,
+          "qp_spill_freq": 0.7857142857142857,
+          "spill_proxy_note": "qp_spill computed as floor-clearing count > panel_buy_top_n (3); full QP-cap replay (correlation/sector/whole-share) deferred - recorded deviation, see design \u00a74 criterion 6",
+          "topn_saturation_freq": 0.7857142857142857,
+          "zero_admission_freq": 0.21428571428571427
+        }
+      },
+      "arm": "absolute",
+      "baseline": {
+        "mean_excess": 0.04430189935980625,
+        "n": 45,
+        "n_losers": 19,
+        "n_winners": 26
+      },
+      "bl4_basis": "prod-raw",
+      "block1_sensitivity": {
+        "block_len": 1,
+        "branch": "exact_small_n",
+        "ci95_interp": [
+          0.0,
+          0.0
+        ],
+        "degenerate": true,
+        "delta_max": 0.0,
+        "delta_min": 0.0,
+        "exact": true,
+        "n_atoms": 4,
+        "n_dates": 2,
+        "n_skipped_empty": 0,
+        "n_tuples": 4,
+        "p_ge_0": 1.0,
+        "p_le_0": 1.0,
+        "two_sided_p": 1.0
+      },
+      "block5": {
+        "block_len": 5,
+        "branch": "exact_small_n",
+        "ci95_interp": [
+          0.0,
+          0.0
+        ],
+        "degenerate": true,
+        "delta_max": 0.0,
+        "delta_min": 0.0,
+        "exact": true,
+        "n_atoms": 2,
+        "n_dates": 2,
+        "n_skipped_empty": 0,
+        "n_tuples": 2,
+        "p_ge_0": 1.0,
+        "p_le_0": 1.0,
+        "two_sided_p": 1.0
+      },
+      "candidate": {
+        "mean_excess": 0.04430189935980625,
+        "n": 45,
+        "n_losers": 19,
+        "n_winners": 26
+      },
+      "criteria": {
+        "1_delta_ci_excludes_0": false,
+        "2_not_worse_all_cuts": true,
+        "3_winners_removed_le_losers_removed": true,
+        "4_zero_admission_le_baseline": false,
+        "5_admission_distribution_match": false,
+        "5_detail": {
+          "p90": false,
+          "p95": false,
+          "qp_spill": false,
+          "topn_saturation": false,
+          "zero_streak": false
+        }
+      },
+      "cuts": {
+        "era:hf_patchtst": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:legacy_tournament": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:panel_ltr_xgboost": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:pre_tournament_null": {
+          "baseline": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "candidate": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "counted": false,
+          "delta": 0.0,
+          "n_resolved_dates": 2
+        },
+        "regime:BEAR": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "regime:BULL_CALM": {
+          "baseline": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "candidate": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "counted": false,
+          "delta": 0.0,
+          "n_resolved_dates": 2
+        }
+      },
+      "expectancy_delta": 0.0,
+      "horizon": "fwd_20d",
+      "monotone_in_dispersion_rho": null,
+      "param": 0.009082031250000004,
+      "removed_vs_baseline": {
+        "mean_excess": null,
+        "n": 0,
+        "n_losers": 0,
+        "n_winners": 0
+      },
+      "sensitivity_horizons": {
+        "fwd_10d": {
+          "block5": {
+            "branch": "exact_small_n",
+            "ci95": null,
+            "ci95_interp": [
+              0.0,
+              0.0
+            ],
+            "exact": true,
+            "n_dates": 2,
+            "p_le_0": 1.0
+          },
+          "expectancy_delta": 0.0,
+          "n_baseline": 45,
+          "n_candidate": 45
+        },
+        "fwd_5d": {
+          "block5": {
+            "branch": "exact_small_n",
+            "ci95": null,
+            "ci95_interp": [
+              -0.0008226326170697301,
+              0.005181609510630887
+            ],
+            "exact": true,
+            "n_dates": 6,
+            "p_le_0": 0.19444444444444445
+          },
+          "expectancy_delta": 0.00179922326182103,
+          "n_baseline": 69,
+          "n_candidate": 103
+        },
+        "fwd_60d": {
+          "block5": {
+            "branch": "mc_fallback_small_n",
+            "ci95": null,
+            "ci95_interp": null,
+            "exact": false,
+            "n_dates": 0,
+            "p_le_0": null
+          },
+          "expectancy_delta": null,
+          "n_baseline": 0,
+          "n_candidate": 0
+        }
+      },
+      "stage1_all_criteria_pass": false
+    },
+    "dispersion": {
+      "admission": {
+        "baseline": {
+          "arm": "baseline",
+          "counts_by_date": {
+            "2026-05-20": 45,
+            "2026-05-21": 44,
+            "2026-06-09": 5,
+            "2026-06-10": 5,
+            "2026-06-11": 3,
+            "2026-06-22": 9,
+            "2026-06-23": 5,
+            "2026-06-24": 4,
+            "2026-06-25": 6,
+            "2026-06-26": 14,
+            "2026-06-29": 6,
+            "2026-06-30": 14,
+            "2026-07-01": 14,
+            "2026-07-02": 17
+          },
+          "max_zero_streak": 0,
+          "mean": 13.642857142857142,
+          "p90": 35.90000000000003,
+          "p95": 44.35,
+          "param": null,
+          "qp_spill_excess_p90": 32.90000000000003,
+          "qp_spill_freq": 0.9285714285714286,
+          "spill_proxy_note": "qp_spill computed as floor-clearing count > panel_buy_top_n (3); full QP-cap replay (correlation/sector/whole-share) deferred - recorded deviation, see design \u00a74 criterion 6",
+          "topn_saturation_freq": 1.0,
+          "zero_admission_freq": 0.0
+        },
+        "candidate": {
+          "arm": "dispersion",
+          "counts_by_date": {
+            "2026-05-20": 16,
+            "2026-05-21": 16,
+            "2026-06-09": 12,
+            "2026-06-10": 12,
+            "2026-06-11": 12,
+            "2026-06-22": 21,
+            "2026-06-23": 17,
+            "2026-06-24": 18,
+            "2026-06-25": 18,
+            "2026-06-26": 14,
+            "2026-06-29": 6,
+            "2026-06-30": 10,
+            "2026-07-01": 13,
+            "2026-07-02": 6
+          },
+          "max_zero_streak": 0,
+          "mean": 13.642857142857142,
+          "p90": 18.0,
+          "p95": 19.049999999999997,
+          "param": 1.171875,
+          "qp_spill_excess_p90": 15.0,
+          "qp_spill_freq": 1.0,
+          "spill_proxy_note": "qp_spill computed as floor-clearing count > panel_buy_top_n (3); full QP-cap replay (correlation/sector/whole-share) deferred - recorded deviation, see design \u00a74 criterion 6",
+          "topn_saturation_freq": 1.0,
+          "zero_admission_freq": 0.0
+        }
+      },
+      "arm": "dispersion",
+      "baseline": {
+        "mean_excess": 0.04430189935980625,
+        "n": 45,
+        "n_losers": 19,
+        "n_winners": 26
+      },
+      "bl4_basis": "prod-raw",
+      "block1_sensitivity": {
+        "block_len": 1,
+        "branch": "exact_small_n",
+        "ci95_interp": [
+          -7.745621687855618e-05,
+          0.018954750780364703
+        ],
+        "degenerate": false,
+        "delta_max": 0.01980791681045612,
+        "delta_min": -0.0007674421054825395,
+        "exact": true,
+        "n_atoms": 4,
+        "n_dates": 2,
+        "n_skipped_empty": 0,
+        "n_tuples": 4,
+        "p_ge_0": 0.75,
+        "p_le_0": 0.25,
+        "two_sided_p": 0.5
+      },
+      "block5": {
+        "block_len": 5,
+        "branch": "exact_small_n",
+        "ci95_interp": [
+          0.00843236974257057,
+          0.00843236974257057
+        ],
+        "degenerate": true,
+        "delta_max": 0.00843236974257057,
+        "delta_min": 0.00843236974257057,
+        "exact": true,
+        "n_atoms": 2,
+        "n_dates": 2,
+        "n_skipped_empty": 0,
+        "n_tuples": 2,
+        "p_ge_0": 1.0,
+        "p_le_0": 0.0,
+        "two_sided_p": 0.0
+      },
+      "candidate": {
+        "mean_excess": 0.05273426910237682,
+        "n": 32,
+        "n_losers": 13,
+        "n_winners": 19
+      },
+      "criteria": {
+        "1_delta_ci_excludes_0": false,
+        "2_not_worse_all_cuts": true,
+        "3_winners_removed_le_losers_removed": false,
+        "4_zero_admission_le_baseline": true,
+        "5_admission_distribution_match": false,
+        "5_detail": {
+          "p90": false,
+          "p95": false,
+          "qp_spill": true,
+          "topn_saturation": true,
+          "zero_streak": true
+        }
+      },
+      "cuts": {
+        "era:hf_patchtst": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:legacy_tournament": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:panel_ltr_xgboost": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:pre_tournament_null": {
+          "baseline": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "candidate": {
+            "mean_excess": 0.05273426910237682,
+            "n": 32,
+            "n_losers": 13,
+            "n_winners": 19
+          },
+          "counted": false,
+          "delta": 0.00843236974257057,
+          "n_resolved_dates": 2
+        },
+        "regime:BEAR": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "regime:BULL_CALM": {
+          "baseline": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "candidate": {
+            "mean_excess": 0.05273426910237682,
+            "n": 32,
+            "n_losers": 13,
+            "n_winners": 19
+          },
+          "counted": false,
+          "delta": 0.00843236974257057,
+          "n_resolved_dates": 2
+        }
+      },
+      "expectancy_delta": 0.00843236974257057,
+      "horizon": "fwd_20d",
+      "monotone_in_dispersion_rho": 0.31486284186637303,
+      "param": 1.171875,
+      "removed_vs_baseline": {
+        "mean_excess": 0.023545296916555603,
+        "n": 13,
+        "n_losers": 6,
+        "n_winners": 7
+      },
+      "sensitivity_horizons": {
+        "fwd_10d": {
+          "block5": {
+            "branch": "exact_small_n",
+            "ci95": null,
+            "ci95_interp": [
+              0.008684850464680757,
+              0.008684850464680757
+            ],
+            "exact": true,
+            "n_dates": 2,
+            "p_le_0": 0.0
+          },
+          "expectancy_delta": 0.008684850464680757,
+          "n_baseline": 45,
+          "n_candidate": 32
+        },
+        "fwd_5d": {
+          "block5": {
+            "branch": "exact_small_n",
+            "ci95": null,
+            "ci95_interp": [
+              -0.0006046554048211357,
+              0.007013464168068978
+            ],
+            "exact": true,
+            "n_dates": 6,
+            "p_le_0": 0.05555555555555555
+          },
+          "expectancy_delta": 0.00324298110235856,
+          "n_baseline": 69,
+          "n_candidate": 90
+        },
+        "fwd_60d": {
+          "block5": {
+            "branch": "mc_fallback_small_n",
+            "ci95": null,
+            "ci95_interp": null,
+            "exact": false,
+            "n_dates": 0,
+            "p_le_0": null
+          },
+          "expectancy_delta": null,
+          "n_baseline": 0,
+          "n_candidate": 0
+        }
+      },
+      "stage1_all_criteria_pass": false
+    },
+    "quantile": {
+      "admission": {
+        "baseline": {
+          "arm": "baseline",
+          "counts_by_date": {
+            "2026-05-20": 45,
+            "2026-05-21": 44,
+            "2026-06-09": 5,
+            "2026-06-10": 5,
+            "2026-06-11": 3,
+            "2026-06-22": 9,
+            "2026-06-23": 5,
+            "2026-06-24": 4,
+            "2026-06-25": 6,
+            "2026-06-26": 14,
+            "2026-06-29": 6,
+            "2026-06-30": 14,
+            "2026-07-01": 14,
+            "2026-07-02": 17
+          },
+          "max_zero_streak": 0,
+          "mean": 13.642857142857142,
+          "p90": 35.90000000000003,
+          "p95": 44.35,
+          "param": null,
+          "qp_spill_excess_p90": 32.90000000000003,
+          "qp_spill_freq": 0.9285714285714286,
+          "spill_proxy_note": "qp_spill computed as floor-clearing count > panel_buy_top_n (3); full QP-cap replay (correlation/sector/whole-share) deferred - recorded deviation, see design \u00a74 criterion 6",
+          "topn_saturation_freq": 1.0,
+          "zero_admission_freq": 0.0
+        },
+        "candidate": {
+          "arm": "quantile",
+          "counts_by_date": {
+            "2026-05-20": 14,
+            "2026-05-21": 14,
+            "2026-06-09": 12,
+            "2026-06-10": 12,
+            "2026-06-11": 12,
+            "2026-06-22": 16,
+            "2026-06-23": 16,
+            "2026-06-24": 15,
+            "2026-06-25": 15,
+            "2026-06-26": 14,
+            "2026-06-29": 6,
+            "2026-06-30": 14,
+            "2026-07-01": 14,
+            "2026-07-02": 17
+          },
+          "max_zero_streak": 0,
+          "mean": 13.642857142857142,
+          "p90": 16.0,
+          "p95": 16.35,
+          "param": 0.19921955078124998,
+          "qp_spill_excess_p90": 13.0,
+          "qp_spill_freq": 1.0,
+          "spill_proxy_note": "qp_spill computed as floor-clearing count > panel_buy_top_n (3); full QP-cap replay (correlation/sector/whole-share) deferred - recorded deviation, see design \u00a74 criterion 6",
+          "topn_saturation_freq": 1.0,
+          "zero_admission_freq": 0.0
+        }
+      },
+      "arm": "quantile",
+      "baseline": {
+        "mean_excess": 0.04430189935980625,
+        "n": 45,
+        "n_losers": 19,
+        "n_winners": 26
+      },
+      "bl4_basis": "prod-raw",
+      "block1_sensitivity": {
+        "block_len": 1,
+        "branch": "exact_small_n",
+        "ci95_interp": [
+          -0.00929126386157659,
+          0.032947518031328185
+        ],
+        "degenerate": false,
+        "delta_max": 0.034741491151784265,
+        "delta_min": -0.01092205684054523,
+        "exact": true,
+        "n_atoms": 4,
+        "n_dates": 2,
+        "n_skipped_empty": 0,
+        "n_tuples": 4,
+        "p_ge_0": 0.75,
+        "p_le_0": 0.25,
+        "two_sided_p": 0.5
+      },
+      "block5": {
+        "block_len": 5,
+        "branch": "exact_small_n",
+        "ci95_interp": [
+          0.01082184954570329,
+          0.01082184954570329
+        ],
+        "degenerate": true,
+        "delta_max": 0.01082184954570329,
+        "delta_min": 0.01082184954570329,
+        "exact": true,
+        "n_atoms": 2,
+        "n_dates": 2,
+        "n_skipped_empty": 0,
+        "n_tuples": 2,
+        "p_ge_0": 1.0,
+        "p_le_0": 0.0,
+        "two_sided_p": 0.0
+      },
+      "candidate": {
+        "mean_excess": 0.05512374890550955,
+        "n": 28,
+        "n_losers": 10,
+        "n_winners": 18
+      },
+      "criteria": {
+        "1_delta_ci_excludes_0": false,
+        "2_not_worse_all_cuts": true,
+        "3_winners_removed_le_losers_removed": true,
+        "4_zero_admission_le_baseline": true,
+        "5_admission_distribution_match": false,
+        "5_detail": {
+          "p90": false,
+          "p95": false,
+          "qp_spill": true,
+          "topn_saturation": true,
+          "zero_streak": true
+        }
+      },
+      "cuts": {
+        "era:hf_patchtst": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:legacy_tournament": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:panel_ltr_xgboost": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "era:pre_tournament_null": {
+          "baseline": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "candidate": {
+            "mean_excess": 0.05512374890550955,
+            "n": 28,
+            "n_losers": 10,
+            "n_winners": 18
+          },
+          "counted": false,
+          "delta": 0.010821849545703296,
+          "n_resolved_dates": 2
+        },
+        "regime:BEAR": {
+          "baseline": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "candidate": {
+            "mean_excess": null,
+            "n": 0,
+            "n_losers": 0,
+            "n_winners": 0
+          },
+          "counted": false,
+          "delta": null,
+          "n_resolved_dates": 0
+        },
+        "regime:BULL_CALM": {
+          "baseline": {
+            "mean_excess": 0.04430189935980625,
+            "n": 45,
+            "n_losers": 19,
+            "n_winners": 26
+          },
+          "candidate": {
+            "mean_excess": 0.05512374890550955,
+            "n": 28,
+            "n_losers": 10,
+            "n_winners": 18
+          },
+          "counted": false,
+          "delta": 0.010821849545703296,
+          "n_resolved_dates": 2
+        }
+      },
+      "expectancy_delta": 0.010821849545703296,
+      "horizon": "fwd_20d",
+      "monotone_in_dispersion_rho": null,
+      "param": 0.19921955078124998,
+      "removed_vs_baseline": {
+        "mean_excess": 0.02647767657864787,
+        "n": 17,
+        "n_losers": 9,
+        "n_winners": 8
+      },
+      "sensitivity_horizons": {
+        "fwd_10d": {
+          "block5": {
+            "branch": "exact_small_n",
+            "ci95": null,
+            "ci95_interp": [
+              0.012626817111068531,
+              0.012626817111068531
+            ],
+            "exact": true,
+            "n_dates": 2,
+            "p_le_0": 0.0
+          },
+          "expectancy_delta": 0.01262681711106851,
+          "n_baseline": 45,
+          "n_candidate": 28
+        },
+        "fwd_5d": {
+          "block5": {
+            "branch": "exact_small_n",
+            "ci95": null,
+            "ci95_interp": [
+              -0.0011598709899190724,
+              0.006896048047573876
+            ],
+            "exact": true,
+            "n_dates": 6,
+            "p_le_0": 0.1111111111111111
+          },
+          "expectancy_delta": 0.00285310077793565,
+          "n_baseline": 69,
+          "n_candidate": 84
+        },
+        "fwd_60d": {
+          "block5": {
+            "branch": "mc_fallback_small_n",
+            "ci95": null,
+            "ci95_interp": null,
+            "exact": false,
+            "n_dates": 0,
+            "p_le_0": null
+          },
+          "expectancy_delta": null,
+          "n_baseline": 0,
+          "n_candidate": 0
+        }
+      },
+      "stage1_all_criteria_pass": false
+    }
+  },
+  "generated_at": "2026-07-04T00:35:24+00:00",
+  "matched_breadth": {
+    "mean_positive_mu_breadth_cap": 17.5,
+    "solves": {
+      "absolute": {
+        "achieved_mean": 13.642857142857142,
+        "arm": "absolute",
+        "bounds_mean": [
+          22.428571428571427,
+          0.0
+        ],
+        "matched": true,
+        "param": 0.009082031250000004,
+        "target": 13.642857142857142
+      },
+      "dispersion": {
+        "achieved_mean": 13.642857142857142,
+        "arm": "dispersion",
+        "bounds_mean": [
+          17.5,
+          0.0
+        ],
+        "matched": true,
+        "param": 1.171875,
+        "target": 13.642857142857142
+      },
+      "quantile": {
+        "achieved_mean": 13.642857142857142,
+        "arm": "quantile",
+        "bounds_mean": [
+          1.0,
+          17.5
+        ],
+        "matched": true,
+        "param": 0.19921955078124998,
+        "target": 13.642857142857142
+      }
+    },
+    "target_B": 13.642857142857142
+  },
+  "mode": "replay",
+  "ngboost_sigma_band": {
+    "note": "candidate (d) NGBoost sigma-band SKIPPED per design \u00a72(d): sigma head trained+promoted (ngb 30b0460a, 2026-05-17) but the sigma-wire is OFF per the 2026-05-17 A/B (global sigma-on NULL; per-regime SUSPECT-neg; consistent with E55). Reopening the sigma-wire is a separate operator decision with its own recorded negative history \u2014 it must be re-pitched on its own merits, never smuggled in as a floor re-derivation; its expectancy read additionally requires a sigma-calibration check (predicted sigma rank-correlates with realized |mu - fwd|) first.",
+    "status": "SKIPPED"
+  },
+  "pre_registered": {
+    "block_primary": 5,
+    "block_sensitivity": 1,
+    "breadth_tol": 0.5,
+    "cost_proxy": 0.0011,
+    "criterion5_tolerances": {
+      "p90_count": 2.0,
+      "p95_count": 2.0,
+      "qp_spill_freq": 0.1,
+      "topn_saturation_freq": 0.1,
+      "zero_streak_extra": 1
+    },
+    "floor": 0.03,
+    "min_cut_dates": 5,
+    "min_stage1_sessions": 10,
+    "small_n_dates": 15,
+    "top_n": 3
+  },
+  "primary_horizon": "fwd_20d",
+  "run_gate": {
+    "current_pairing_sessions": 0,
+    "current_pairing_sessions_with_resolved_outcomes": 0,
+    "gate_met": false,
+    "note": "Stage 1 nomination may only be recorded from a gate-met run; a Stage 1 winner authorizes SHADOW deployment only (design \u00a73/\u00a76) \u2014 never a live enable. Stage 2 prospective confirmation gates the strategy-104 config PR.",
+    "primary_horizon": "fwd_20d",
+    "required_sessions": 10,
+    "verdict_eligibility": "PRE-GATE EXPLORATORY"
+  },
+  "substrate": {
+    "current_pairing_bars": [],
+    "dates": [
+      "2026-05-20",
+      "2026-05-21",
+      "2026-06-09",
+      "2026-06-10",
+      "2026-06-11",
+      "2026-06-22",
+      "2026-06-23",
+      "2026-06-24",
+      "2026-06-25",
+      "2026-06-26",
+      "2026-06-29",
+      "2026-06-30",
+      "2026-07-01",
+      "2026-07-02"
+    ],
+    "fwd_60d_note": "fwd_60d unresolved on this window (expected until ~Aug 2026); fwd_20d primary is the stated compromise (design \u00a74/\u00a77)",
+    "n_bars": 14,
+    "n_structural_empty_excluded": 5,
+    "outcome_coverage": {
+      "fwd_10d": {
+        "resolved": 688,
+        "unresolved": 748
+      },
+      "fwd_20d": {
+        "resolved": 360,
+        "unresolved": 1076
+      },
+      "fwd_5d": {
+        "resolved": 995,
+        "unresolved": 441
+      },
+      "fwd_60d": {
+        "resolved": 0,
+        "unresolved": 1436
+      }
+    }
+  },
+  "verdict_eligibility": "PRE-GATE EXPLORATORY",
+  "window": "all"
+}
