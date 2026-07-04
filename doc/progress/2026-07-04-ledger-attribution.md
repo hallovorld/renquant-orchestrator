@@ -1,34 +1,50 @@
-# Decision-ledger attribution engine (107 skeleton, S5)
+# Forward-outcome observation scaffold (107 skeleton, S5 substrate)
 
 **Date**: 2026-07-04
 **PR**: (this PR)
-**Master plan ref**: S5 (fwd-outcome join >=95%), 107 skeleton
+**Master plan ref**: S5 substrate, 107 skeleton
 
 ## What
 
-Adds `ledger_attribution.py` — the forward-outcome tracking and per-gate
-value-add analysis engine that extends the S2 decision ledger:
+Adds `ledger_attribution.py` — a forward-outcome logging and reporting surface
+co-located in the decision-ledger DB. This is an **outcome-observation scaffold**,
+not a finished attribution engine: it logs realized per-ticker returns and
+computes per-gate summary statistics, but does NOT enforce a join-key
+relationship to ledger decisions (see Limitations below).
 
 ### Schema
 - `decision_outcomes` table: one row per (as_of, scope, ticker, gate) recording
-  realized forward returns at 5d/20d/60d horizons, entry/exit prices, metadata
+  realized forward returns at 5d/20d/60d horizons, entry/exit prices, metadata.
+  Gate/verdict are free input fields — no FK to `decision_ledger`.
 
 ### API
 - `write_outcomes()` — append realized outcomes (append-only, idempotent)
-- `gate_value_report()` — per-gate per-verdict report: n, avg_fwd_ret, hit_rate
-- `gate_information_value()` — single-gate VOI: allow_avg_ret − block_avg_ret
-- `outcome_coverage()` — per-date join ratio (S5 AC: >=95% for aged decisions)
+- `gate_value_report()` — per-gate per-verdict summary of recorded outcomes
+- `gate_information_value()` — directional value signal: allow avg − block avg
+- `outcome_coverage()` — per-date (as_of, scope, gate) cluster coverage ratio
 
 ### CLI
 - `renquant-orchestrator gate-value [--gate G --horizon 20 --start-date --end-date]`
-  — full report or single-gate VOI
+  — outcome summary report or single-gate directional signal
+
+### Limitations (by design at this skeleton stage)
+- No FK constraint or consistency check against `decision_ledger` rows
+- The ledger has no ticker dimension; outcomes are ticker-level; the association
+  is a convention of the writer, not a structural guarantee
+- `gate_value_report()` reads recorded outcomes, not verified ledger decisions
+- `outcome_coverage()` measures date/scope/gate cluster coverage, deliberately
+  collapsing same-day reruns (see round 4 below)
+- A future ledger-linked attribution layer (requiring an explicit decision→ticker
+  mapping written by the pipeline) will close this gap
 
 ## Why
 
-The decision ledger records WHAT each gate decided. This module records WHAT
-HAPPENED NEXT. The join enables: "did blocking GOOG on 07-02 save money?"
-"is P-WF-GATE adding value?" — the attribution query that makes gate tuning
-evidence-based instead of opinion-based.
+Substrate for the S5 AC ("fwd-outcome join >=95%") and future gate-tuning
+analysis. Records per-ticker forward returns alongside the ledger so that
+gate-level outcome statistics are queryable. The scaffold is useful now for
+directional signals (which gates have positive VOI?) while the real
+ledger-linked attribution requires the pipeline to write both sides with
+an explicit mapping.
 
 ## Tests
 

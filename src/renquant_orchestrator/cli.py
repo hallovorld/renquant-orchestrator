@@ -113,7 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     gate_value = sub.add_parser(
         "gate-value",
-        help="per-gate value-of-information report from the decision ledger",
+        help="per-gate outcome summary from the forward-outcome observation scaffold",
     )
     gate_value.add_argument("--db", default=None, help="ledger DB path")
     gate_value.add_argument("--horizon", type=int, default=20, choices=[5, 20, 60])
