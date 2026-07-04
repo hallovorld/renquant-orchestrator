@@ -522,6 +522,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         umbrella_state_dependency="RenQuant model artifacts for best-of-recent selection",
         launchd_label="com.renquant.fallback-shadow-logger",
     ),
+    ScheduledJob(
+        job_id="model_freshness_monitor",
+        kind="ops",
+        cadence="daily",
+        command=["renquant-orchestrator", "run-job", "model_freshness_monitor"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency="RenQuant model artifacts and strategy config",
+        launchd_label="com.renquant.model-freshness",
+    ),
 )
 
 
