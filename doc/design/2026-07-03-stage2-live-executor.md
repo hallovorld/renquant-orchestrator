@@ -18,20 +18,33 @@ untouched by this PR):
   normalized payload the shadow log records) → registered as parent intents
   in slice 1's `OrderStateBook`
   (`renquant_execution.order_state_machine` — consumed, never
-  reimplemented) → submitted through a REAL `AlpacaBrokerPort` adapter →
+  reimplemented) → submitted through the REAL `AlpacaBrokerPort` adapter,
+  OWNED by renquant-execution (see next bullet) →
   fills/cancels reconciled back into the book → the book snapshot persisted
   after every tick to `data/rq105/order_state_book.json` in slice 1's exact
   `to_snapshot()`/`from_snapshot()` shape (a STATE file under the operator
   data root — not canonical prod data, never the umbrella git tree; the
   Stage-1 reader `load_order_state_reservations` parses it, pinned by test).
-- **`AlpacaBrokerPort`** — slice 1's `BrokerPort` protocol over the Alpaca
-  trading REST API: `client_order_id` = the slice-1 child id (broker-side
+- **`AlpacaBrokerPort` — owned by renquant-execution, NOT this repo**
+  (architecture fix, codex round 2: this repo's CLAUDE.md forbids
+  implementing broker adapters here, and `BrokerPort`'s own docstring
+  reserved "Alpaca adapter implements this later" for the execution repo).
+  It lives in `renquant_execution.alpaca_broker_port`
+  (renquant-execution#21): slice 1's `BrokerPort` protocol over the Alpaca
+  trading REST API — `client_order_id` = the slice-1 child id (broker-side
   idempotency), DAY time-in-force always (§11b no-carry), limit vs market
   pre-declared in the authorization artifact (A5.2 — never per-order:
   entries default marketable-limit at the class-D reference price ±
   `limit_price_offset_bps`, exits default market). GET-only reads
   (`open_orders`, `order_status`) follow the `AlpacaLiveStateSource`
-  lazy-env-credential pattern.
+  lazy-env-credential pattern. This module only injects it as the CLI's
+  DEFAULT `port_factory`, through a LAZY import
+  (`_load_alpaca_broker_port_cls`) executed inside the factory — which the
+  runner invokes only AFTER the §9.3a quadruple gate arms. Both
+  consequences are pinned by test: merge order with renquant-execution#21
+  is free (an execution checkout without the adapter cannot break module
+  import, shadow sessions, or this suite), and a session that ARMS without
+  the adapter fails closed with `Stage2ContractError` — never silently.
 - **`LiveSessionRunner`** — the session loop: evaluates the quadruple gate
   at session start; if armed, drives live ticks (same §5/§11b windows,
   calendar, class-A/B/C input discipline as the shadow scheduler); if ANY
@@ -188,7 +201,11 @@ calibrator-fingerprint triple-impl lesson, enforced not assumed).
   (slice-1 shape parity) and a book/broker mismatch restore halting entries;
 - `AlpacaBrokerPort` request shaping against an injected fake TradingClient
   (client id = child id, DAY tif, limit/market per config, marketable-limit
-  offset, limit-entry-without-price fails closed);
+  offset, limit-entry-without-price fails closed) — MOVED, verbatim, to
+  `renquant-execution/tests/test_alpaca_broker_port.py` with the adapter
+  (renquant-execution#21); this suite instead pins the seam: the default
+  port factory's import is lazy, returns the execution-owned class, and
+  fails closed (`Stage2ContractError`) at arming when it is unavailable;
 - id lockstep violation halts loudly; one-open-child consumed from slice 1.
 
 Full suite: 1521 passed, 3 skipped.

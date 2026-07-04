@@ -1,8 +1,9 @@
 """Tests for the Stage-2 live executor (RFC #208 §7/§9.3a/§10, sprint D2).
 
 Covers the pre-registered safety surface, with NO live broker call anywhere
-(fake ports only; the real ``AlpacaBrokerPort`` is exercised against an
-injected fake TradingClient for request shaping):
+(fake ports only; the real ``AlpacaBrokerPort`` — owned by
+renquant-execution — is tested THERE, against an injected fake client; this
+suite only pins the lazy fail-closed import seam):
 
 - the §9.3a QUADRUPLE gate — all 16 combinations, only all-four arms live;
 - authorization-file schema rejection cases;
@@ -872,7 +873,31 @@ def test_armed_session_with_kill_switch_present_stays_shadow(tmp_path):
 
 # AlpacaBrokerPort's own request-shaping test moved to
 # renquant-execution/tests/test_alpaca_broker_port.py (renquant-execution#21)
-# — broker adapters are owned there, not here.
+# — broker adapters are owned there, not here. This repo only pins the seam:
+# the adapter import is LAZY (inside the default port_factory, invoked only
+# after arming) so merge order with renquant-execution#21 stays free.
+def test_default_port_factory_import_is_lazy_and_fails_closed(monkeypatch):
+    """An execution repo without the adapter breaks ARMING, not import."""
+    import sys
+
+    from renquant_orchestrator import intraday_live_executor as live
+
+    monkeypatch.setitem(
+        sys.modules, "renquant_execution.alpaca_broker_port", None
+    )
+    with pytest.raises(Stage2ContractError, match="renquant-execution#21"):
+        live._load_alpaca_broker_port_cls()
+
+
+def test_default_port_factory_uses_the_execution_owned_adapter():
+    """When available, the loader returns renquant-execution's class —
+    never a local reimplementation (CLAUDE.md: no broker adapters here)."""
+    pytest.importorskip("renquant_execution.alpaca_broker_port")
+    from renquant_orchestrator import intraday_live_executor as live
+
+    cls = live._load_alpaca_broker_port_cls()
+    assert cls.__module__ == "renquant_execution.alpaca_broker_port"
+    assert cls.__name__ == "AlpacaBrokerPort"
 
 
 # ───────────────────────── id lockstep guard ─────────────────────────

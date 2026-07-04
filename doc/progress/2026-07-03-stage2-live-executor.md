@@ -84,3 +84,31 @@ FINDING 2 (acknowledged, not resolved by this fix): "the execution plan is
           not-yet-settled gate. This fix does not attempt to resolve it —
           only finding 1 (the architecture-boundary violation) was in scope
           for a code change.
+
+ROUND 3 (hardening the round-2 fix — lazy import, merge order freed):
+DONE:     the round-2 relocation left a TOP-LEVEL
+          `from renquant_execution.alpaca_broker_port import AlpacaBrokerPort`
+          — importable only against the renquant-execution#21 branch, so
+          this repo's suite (and CI) broke against execution MAIN, forcing a
+          merge order. Replaced with `_load_alpaca_broker_port_cls()`: the
+          import now happens INSIDE the CLI's default `port_factory`, which
+          the runner invokes only AFTER the §9.3a quadruple gate arms.
+          Consequences (both pinned by new tests): (1) merge order between
+          this PR and renquant-execution#21 is FREE — an execution checkout
+          without the adapter cannot break module import, shadow sessions,
+          or this suite; (2) a session that ARMS without the adapter fails
+          CLOSED with `Stage2ContractError` naming the missing dependency —
+          fail-closed at arming, never at import, never silently. Live
+          arming still functionally requires the adapter deployed.
+NOTE:     renquant-execution#21 MERGED to execution main while this round
+          was in flight — the cross-repo ordering is settled (execution
+          first, already done) and this repo's CI is unblocked either way.
+VERIFIED: orchestrator suite green BOTH against execution main WITH the
+          adapter (post-#21 merge) AND against a pre-adapter execution
+          main (bad0415 — proves module import, shadow sessions, and the
+          suite never needed the adapter); execution suite green;
+          `git diff origin/main...HEAD -- src/` contains zero
+          TradingClient/APCA/alpaca-REST code (the only `alpaca` hits are
+          the lazy import of the execution-owned adapter and the
+          pre-existing GET-only Stage-1 `AlpacaLiveStateSource` /
+          `AlpacaQuoteSource` wiring).

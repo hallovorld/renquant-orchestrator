@@ -90,7 +90,6 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from renquant_artifacts import hash_jsonable
-from renquant_execution.alpaca_broker_port import AlpacaBrokerPort
 from renquant_execution.order_state_machine import (
     MAX_PENDING_AGE_SECONDS,
     BrokerPort,
@@ -644,6 +643,27 @@ def assert_entry_cap(
 # in renquant_execution.alpaca_broker_port; this module only injects it as
 # the CLI's default port_factory, behind the §9.3a quadruple gate.
 # ---------------------------------------------------------------------------
+def _load_alpaca_broker_port_cls() -> type:
+    """Lazily import the execution-owned adapter (renquant-execution#21).
+
+    Deferred on purpose: the import happens inside the default port_factory,
+    which the runner only invokes AFTER the quadruple gate arms. A deployed
+    renquant-execution that predates the adapter therefore cannot break
+    module import, shadow sessions, or tests — merge order between this PR
+    and renquant-execution#21 stays free. If a session actually ARMS without
+    the adapter available, we fail closed here with the reason.
+    """
+    try:
+        from renquant_execution.alpaca_broker_port import (  # noqa: PLC0415
+            AlpacaBrokerPort,
+        )
+    except ImportError as exc:
+        raise Stage2ContractError(
+            "live arming requires renquant_execution.alpaca_broker_port "
+            "(renquant-execution#21); the renquant-execution on PYTHONPATH "
+            f"does not provide it: {exc}"
+        ) from exc
+    return AlpacaBrokerPort
 
 
 # ---------------------------------------------------------------------------
@@ -1560,7 +1580,10 @@ def main(
     if port_factory is None:
 
         def port_factory(authorization: Stage2Authorization) -> BrokerPort:
-            return AlpacaBrokerPort(
+            # Invoked only AFTER arming; the lazy loader fails closed with
+            # Stage2ContractError if the execution repo lacks the adapter.
+            alpaca_broker_port_cls = _load_alpaca_broker_port_cls()
+            return alpaca_broker_port_cls(
                 paper=args.broker_env != "live",
                 entry_order_type=authorization.entry_order_type,
                 exit_order_type=authorization.exit_order_type,
