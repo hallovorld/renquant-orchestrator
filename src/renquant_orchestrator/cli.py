@@ -432,6 +432,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any included log failed or could not be classified",
     )
 
+    sign_launder = sub.add_parser(
+        "sign-laundering",
+        help="measure sign laundering in scorer/calibrator artifacts",
+    )
+    sign_launder.add_argument(
+        "sign_launder_args", nargs=argparse.REMAINDER,
+        help="pass-through args to sign_laundering_harness.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -912,6 +921,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(str(exc))
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload["summary"]["ok"] or not args.strict else 1
+    if args.command == "sign-laundering":
+        from .sign_laundering_harness import main as sl_main
+
+        return sl_main(args.sign_launder_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
