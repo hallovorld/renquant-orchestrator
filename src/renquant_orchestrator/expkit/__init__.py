@@ -32,14 +32,21 @@ sketch, not current scope).
                   scripts/msig_c2_quality.py already reaches back into c3 for
                   them via the same importlib.util hack.
 
+    replay.py     Replay-experiment orchestration: the reusable arm-vs-arm
+                  evaluation pattern.  The load -> match -> evaluate ->
+                  control -> stamp pipeline extracted from
+                  scripts/m4b_floor_replay.py: score loading (read-only DB),
+                  per-arm evaluation with per-date expectancy aggregation,
+                  and control tests (iid-noise null, permutation null,
+                  positive-control planted-effect).
+
 NOT shipped in this narrowing (no duplication evidence found — each
 experiment's verdict/controls logic differs in its specific formulas, not
-just its wiring): controls.py (mandatory positive-plant + true-null — a real
-policy lesson from the S-REL A-1 incident, but not consolidated duplicate
-code), verdict.py (GO/KILL/NULL/INCONCLUSIVE/NON-VOTING decision engine),
-runner.py (the full spec -> controls -> evaluation -> stats -> verdict ->
-evidence pipeline), plugins/ (runner's plugin registration). These remain a
-documented design sketch pending real, repeated, evidence-justified need.
+just its wiring): verdict.py (GO/KILL/NULL/INCONCLUSIVE/NON-VOTING decision
+engine), runner.py (the full spec -> controls -> evaluation -> stats ->
+verdict -> evidence pipeline), plugins/ (runner's plugin registration).
+These remain a documented design sketch pending real, repeated,
+evidence-justified need.
 """
 
 from renquant_orchestrator.expkit.evaluation import (
@@ -72,6 +79,19 @@ from renquant_orchestrator.expkit.prereg import (
     load_frozen_spec,
     write_frozen_spec,
 )
+from renquant_orchestrator.expkit.replay import (
+    ReplayArm,
+    ReplayBar,
+    admitted_set,
+    evaluate_arm,
+    mean_admission_count,
+    open_readonly,
+    per_date_expectancy,
+    point_delta,
+    replay_experiment,
+    run_control_tests,
+    solve_arm_param,
+)
 from renquant_orchestrator.expkit.stats import (
     SMALL_N_MIN_USABLE_BLOCKS,
     block_bootstrap_conditional_mean,
@@ -85,12 +105,15 @@ from renquant_orchestrator.expkit.stats import (
 )
 
 __all__ = [
+    "ReplayArm",
+    "ReplayBar",
     "SMALL_N_MIN_USABLE_BLOCKS",
     "Criterion",
     "FreezeCheck",
     "FrozenSpec",
     "ManifestVerification",
     "SpecNotFrozenError",
+    "admitted_set",
     "assert_spec_frozen_before_results",
     "block_bootstrap_conditional_mean",
     "block_bootstrap_diff",
@@ -99,18 +122,26 @@ __all__ = [
     "build_manifest",
     "canonical_json",
     "check_spec_frozen_before_results",
+    "evaluate_arm",
     "exact_sign_test",
     "fwd_excess",
     "gate_shift_sessions",
     "load_and_verify_evidence",
     "load_frozen_spec",
+    "mean_admission_count",
     "multi_seed_unanimity",
+    "open_readonly",
     "paired_deltas",
     "per_date_ic",
+    "per_date_expectancy",
+    "point_delta",
+    "replay_experiment",
+    "run_control_tests",
     "sha256_bytes",
     "sha256_file",
     "shifted_label_placebo",
     "shifted_label_placebo_long",
+    "solve_arm_param",
     "solve_matched_admission",
     "spearman",
     "summarize_boot",
