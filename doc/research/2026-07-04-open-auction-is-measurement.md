@@ -1,31 +1,65 @@
 # S10: Open-auction implementation shortfall — measurement memo
 
-**Date:** 2026-05-22 (study as of)
+**Date:** 2026-07-04
 **Period:** 2026-04-23 to 2026-05-22
-**Sample:** 37 unique live buys, $70,115 total invested
+**Sample:** 36 clean unique live buys, $69,679 total invested (1 excluded: HON 2:1 split-adjustment mismatch)
 
-## Summary
+## Bottom line
 
-Average implementation shortfall vs VWAP: **-168.8 bps** (95% CI [-459.0, +0.2]), n=37. We underpaid relative to same-day VWAP on average.
-Dollar-weighted IS vs VWAP: **-119.9 bps** (weights larger orders more heavily).
+**No measurable execution leak.** Current open-auction fills are competitive with
+same-day VWAP. The execution-timing prize assumed by 105 §9.4 (~40 bps) is
+**not supported** by this data.
 
-Fill vs same-day open: **-149.7 bps** (95% CI [-429.8, +5.6]). Fills deviate meaningfully from the open. 
-Fill vs same-day close: **-206.2 bps** (95% CI [-512.8, -13.4]). 
-Fill vs next-day close: **-55.1 bps** (95% CI [-391.3, +195.5]). 
+## Summary (clean sample, n=36, HON excluded)
+
+| Benchmark | Mean (bps) | Median (bps) | 95% CI | % overpaid |
+|-----------|-----------|-------------|--------|------------|
+| Fill vs open | -17.3 | +12.6 | [-49.6, +12.7] | 56% |
+| Fill vs VWAP | -35.4 | -13.5 | [-85.9, +11.1] | 39% |
+| Fill vs close | -73.4 | -3.9 | [-154.2, +5.4] | 42% |
+| Fill vs next-day close | +81.9 | -47.9 | [-52.5, +230.5] | 44% |
+
+Dollar-weighted IS vs VWAP: **-89.6 bps** (larger orders fill even better vs VWAP).
 
 ## Interpretation for 105 §9.4 prereg
 
-The IS vs VWAP is negative or zero — we are NOT systematically overpaying relative to VWAP. This suggests the current execution is already competitive with or better than intraday average. For the §9.4 prereg: the execution-leak rationale for 105 is **not supported** by this data. The prize from entry-timing optimization may be smaller than the ~40bps previously assumed.
+1. **Fill vs open** (mean -17, CI includes zero): we are filling essentially AT the
+   open. No systematic early-session overpay.
+2. **Fill vs VWAP** (mean -35, CI includes zero): fills are at or below the intraday
+   average — no leak to recover.
+3. **Fill vs close** (mean -73): early-session fills are cheaper than EOD. Consistent
+   with momentum stocks drifting up after our entry, which is the directional
+   edge we expect, NOT an execution problem.
+4. **Dollar-weighted IS more negative** (-90 bps): our larger orders (NVDA, NVTS, NET,
+   MU — liquid names) fill even better relative to VWAP.
 
-## Data and method
+**Conclusion:** The execution-leak rationale for 105's entry-timing optimization
+is not supported. Current fills are already competitive. The 105 engineering
+prize should be re-anchored to:
+- **Execution timing of exits** (not measured here — requires sell-side IS)
+- **Order-type optimization** (limit vs market, but current market orders perform well)
+- **Overnight gap management** (fills vs next-close show noise, not leak)
+
+## Data quality notes
+
+- **30/67 trades unmatched** — weekend `run_date` entries (Sat/Sun pipeline runs)
+  have no FMP OHLCV data. These are duplicate pipeline invocations where the
+  actual fill occurred on the adjacent weekday; the matched 36 are the clean sample.
+- **HON excluded** — fill at $217.70, FMP open at $428.22. Exact 2:1 ratio indicates
+  a stock split adjustment mismatch between Alpaca (post-split) and FMP (pre-split
+  or differently adjusted). IS = -4916 bps is a data artifact, not execution quality.
+- **MU -431 bps** — retained as legitimate; large intraday move, not a split artifact.
+
+## Method
 
 - Source: `runs.alpaca.db` live buys joined to FMP `historical-price-eod/full`
-- Deduplication: `DISTINCT (run_date, ticker, shares, price, invest)`
-- OHLCV source: FMP Starter (includes true volume-weighted VWAP)
-- Bootstrap: 10000 resamples, 95% CI (seed=42)
+- Dedup: `DISTINCT (run_date, ticker, shares, price, invest)` in SQL
+- Outlier filter: |IS_vs_open| > 1000 bps excluded (1 trade = HON split artifact)
+- Bootstrap: 10,000 resamples, 95% CI (seed=42, reproducible)
 - IS convention: positive = overpaid = leak
+- Script: `scripts/s10_open_auction_is.py`
 
-## Per-ticker detail
+## Per-ticker detail (clean, sorted by invested)
 
 | Ticker | Buys | Invested | IS vs Open (bps) | IS vs VWAP (bps) |
 |--------|------|----------|-------------------|-------------------|
@@ -54,4 +88,3 @@ The IS vs VWAP is negative or zero — we are NOT systematically overpaying rela
 | D | 1 | $541 | -79.2 | -44.5 |
 | WFC | 1 | $535 | +5.2 | -4.2 |
 | LMT | 1 | $512 | +75.1 | +88.8 |
-| HON | 1 | $435 | -4916.2 | -4969.1 |
