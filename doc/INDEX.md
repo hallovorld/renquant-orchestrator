@@ -1,5 +1,16 @@
 # Doc Index
 
+> ⚠️ **READ FIRST: [`AGENT-RETROSPECTIVE.md`](AGENT-RETROSPECTIVE.md)** — the agent
+> **control contract**. The failure mode is *systemic*, so it is contained by
+> EXTERNAL controls (sandbox/read-only prod, a status+evidence template the operator
+> bounces if missing, scoped tasks, a constraint ledger), NOT by agent promises.
+> Every status must lead with the §4 template; no "X works/fails" without the §4
+> evidence block.
+>
+> ⚠️ **THEN: [`AGENT-STATE.md`](AGENT-STATE.md)** — the externalised executive memory:
+> **§A long-term agreements (binding) · §B mid-term plan · §C short-term state.**
+> Refer every session; §A is the constraint ledger you may not violate.
+
 ## System Architecture (as-built, 2026-07-04)
 
 | Doc | System | One-line hook |
@@ -13,6 +24,8 @@
 
 | Doc | Status | One-line hook |
 |---|---|---|
+| `AGENT-RETROSPECTIVE.md` | **READ FIRST — contract** | systemic failure + external controls C1–C5; §7.1 = the per-PR Codex review checklist |
+| `AGENT-STATE.md` | **READ FIRST — exec memory** | §A long-term agreements (binding ledger) · §B mid-term plan · §C short-term state |
 | `research/VERDICTS.md` | **AUTHORITY** | Standing verdict ledger — 14 rows, S-REL governed |
 | `design/2026-07-04-compliance-fix-campaign.md` | ACTIVE | Consolidated 4-audit fix plan (groups A–D) |
 | `design/2026-07-03-s-rel-experiment-reliability.md` | ACTIVE | S-REL program design |

@@ -38,3 +38,28 @@ Cross-references. All four are cross-linked.
 - These docs should be updated as systems evolve (they document current state)
 - C1 mirror-drift inventory will provide quantitative data for the 104 as-built's
   kernel dual-home section
+
+## Round 2 (codex review)
+
+Codex held this PR for two concrete reasons:
+
+1. **`doc/INDEX.md` demoted the agent control contract.** The reorganization dropped
+   `AGENT-RETROSPECTIVE.md` and `AGENT-STATE.md` entirely — not demoted, removed
+   outright, not even carried into the "Superseded / Historical" section. These are
+   the active control contract and executive-memory checklist for the whole agent
+   loop, not historical decoration. Restored: the original top-of-file "READ FIRST"
+   warning block (verbatim, both files) plus their table rows in "Active Governance"
+   (added at the top of that table, ahead of `VERDICTS.md`). The broader
+   reorganization (as-built docs as the new architecture-reference authority,
+   superseded-doc consolidation) is otherwise unchanged.
+2. **The 104 as-built doc hard-coded a stale, now-conflicting drift count.** The
+   original text froze `78/169 materially drifted` as a manually-typed number. That
+   number already disagreed with `renquant-orchestrator#303`'s own C1 inventory
+   baseline (`73/168` as of that PR's current branch, commit `f68bbd5a`) — two
+   hand-maintained copies of one fact, guaranteed to drift apart again. Replaced with
+   a link to the actual source-of-truth artifact
+   (`data/c1_drift_baseline.json`, produced by `#303`'s `scripts/mirror_drift_inventory.py`),
+   stating the number is current AS OF that commit rather than freezing it a third
+   time. Once `#303` merges, that link resolves; until then it's forward-referencing
+   a sibling PR by design (the two PRs are meant to land together per the compliance
+   campaign's dependency order).

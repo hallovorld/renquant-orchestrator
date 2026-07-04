@@ -117,9 +117,13 @@ data refresh (base-data)
 
 ## Known Issues
 
-- **Kernel dual-home drift**: 78/169 kernel files materially drifted between pipeline
-  and umbrella copies; C1 governance program in progress (pipeline = authority,
-  umbrella = frozen mirror, CI drift detection planned)
+- **Kernel dual-home drift**: material-drift count between pipeline and umbrella
+  copies is tracked live in [`data/c1_drift_baseline.json`](../../data/c1_drift_baseline.json)
+  (as of `feat/c1-mirror-drift-inventory` @ `f68bbd5a`: 73/168 shared kernel files
+  materially drifted) — do not re-freeze this number here; read the artifact, it is
+  the single source of truth and will keep moving as the C1 governance program (PR
+  #303) lands. Pipeline = authority, umbrella = frozen mirror, CI drift detection
+  (`scripts/check_mirror_drift.py`) landing alongside it.
 - **RANK5-60 train/serve skew (B8)**: pandas average-rank (train) vs max-rank (serve)
   on the XGB path — biting the entire XGB service life; behavior change requires
   separate operator-visible design PR per fix-wave protection contract
