@@ -24,38 +24,54 @@ import os
 import sys
 
 
-def _ensure_common_importable() -> None:
-    """Campaign B5 bare-script bootstrap. The launchd wrappers invoke this
-    file (and export_batch_scores.py, which imports it) with the umbrella
-    venv python and no PYTHONPATH; ``expected_previous_session`` now needs
-    ``renquant_common.market_calendar``. If the interpreter cannot already
-    resolve it (e.g. a stale venv install predating market_calendar), put a
-    sibling checkout of renquant-common on sys.path — pinned ``-run``
-    checkout preferred, plain sibling as fallback (the same sibling layout
-    the Makefile uses). No sibling found → imports fail loudly later
-    (fail-closed; the wrapper alerts + skips)."""
+def _ensure_subrepo_importable(package: str, *, submod: str | None = None) -> None:
+    """Bare-script bootstrap: make a subrepo package importable when this
+    file is invoked via a launchd wrapper with the umbrella venv and no
+    PYTHONPATH.  Tries the installed venv first; falls back to a sibling
+    checkout (``-run`` pinned checkout preferred, then plain sibling).  No
+    sibling found -> imports fail loudly later (fail-closed)."""
+    check = f"{package}.{submod}" if submod else package
     try:
-        if importlib.util.find_spec("renquant_common.market_calendar") is not None:
+        if importlib.util.find_spec(check) is not None:
             return
     except Exception:
         pass
     repo_parent = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     )
-    for name in ("renquant-common-run", "renquant-common"):
-        cand = os.path.join(repo_parent, name, "src")
+    pkg_to_repo = {
+        "renquant_common": "renquant-common",
+        "renquant_artifacts": "renquant-artifacts",
+    }
+    repo_name = pkg_to_repo.get(package, package.replace("_", "-"))
+    for suffix in (f"{repo_name}-run", repo_name):
+        cand = os.path.join(repo_parent, suffix, "src")
         if os.path.isdir(cand):
             sys.path.insert(0, cand)
-            # A stale installed renquant_common may already be cached — drop
-            # it so the sibling checkout actually wins the re-import.
-            sys.modules.pop("renquant_common", None)
+            sys.modules.pop(package, None)
             return
 
 
-_ensure_common_importable()
+_ensure_subrepo_importable("renquant_common", submod="market_calendar")
+_ensure_subrepo_importable("renquant_artifacts")
+
+from renquant_artifacts import hash_jsonable  # noqa: E402
 
 
 def canonical_hash(obj) -> str:
+    """Campaign B4: delegate to ``hash_jsonable`` from renquant-artifacts
+    so the hash matches ``intraday_session_inputs`` and every other site."""
+    return hash_jsonable(obj)
+
+
+def _legacy_canonical_hash(obj) -> str:
+    """The pre-B4 ``canonical_hash`` implementation, preserved verbatim so
+    ``verify_bundle`` can still validate bundles that were exported before
+    the B4 unification (Codex round on #331: unifying the writer must not
+    make historically-valid bundles retroactively unverifiable — a fresh
+    export always uses the new ``canonical_hash``/``hash_jsonable`` scheme;
+    this legacy path exists ONLY as a fallback for ``verify_bundle`` reading
+    an older meta.json stamped before this change shipped)."""
     blob = json.dumps(obj, sort_keys=True, default=str).encode("utf-8")
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 
@@ -130,13 +146,21 @@ def verify_bundle(score_path: str, meta_path: str, *, today: str) -> tuple[bool,
         return False, f"cannot read/parse score file {score_path}: {exc}"
 
     actual_hash = canonical_hash(scores)
-    if actual_hash != expected_hash:
-        return False, (
-            f"score content hash mismatch: on-disk={actual_hash} "
-            f"meta-recorded={expected_hash} (corruption or tampering "
-            "between export and replay)"
-        )
-    return True, "ok"
+    if actual_hash == expected_hash:
+        return True, "ok"
+
+    # Fall back to the pre-B4 hash scheme before concluding failure — a
+    # bundle stamped by the old canonical_hash is not corrupt, it was just
+    # exported before the B4 unification (see _legacy_canonical_hash).
+    legacy_hash = _legacy_canonical_hash(scores)
+    if legacy_hash == expected_hash:
+        return True, "ok (legacy pre-B4 hash scheme)"
+
+    return False, (
+        f"score content hash mismatch: on-disk={actual_hash} "
+        f"(legacy-scheme={legacy_hash}) meta-recorded={expected_hash} "
+        "(corruption or tampering between export and replay)"
+    )
 
 
 def _cli(argv: list[str]) -> int:
