@@ -136,6 +136,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    model_fresh = sub.add_parser(
+        "model-freshness",
+        help="check model freshness across all populations (prod/shadow/tournament)",
+    )
+    model_fresh.add_argument("freshness_args", nargs=argparse.REMAINDER)
+
+    ledger_q = sub.add_parser(
+        "ledger-query",
+        help="query the decision ledger for gate verdicts by date and scope",
+    )
+    ledger_q.add_argument("--date", default=None, help="YYYY-MM-DD (default today)")
+    ledger_q.add_argument("--scope", default="daily", help="scope filter (default 'daily')")
+    ledger_q.add_argument("--db", default=None, help="ledger DB path (default ~/renquant-data/decision_ledger.db)")
+    ledger_q.add_argument("--verdict", default=None, choices=("allow", "halve", "block"),
+                          help="filter by verdict")
+    ledger_q.add_argument("--gate", default=None, help="filter by gate name (substring match)")
+    ledger_q.add_argument("--days", type=int, default=None,
+                          help="show last N days instead of a single date")
+    ledger_q.add_argument("--summary", action="store_true",
+                          help="print per-gate verdict counts instead of individual rows")
+
     weekly_promote = sub.add_parser(
         "weekly-promote-health",
         help="emit weekly model-promote chain liveness/health as JSON and alert on stale/errored runs",
@@ -600,6 +621,45 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         conn.close()
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "model-freshness":
+        from .model_freshness_monitor import main as mfm_main
+
+        return mfm_main(args.freshness_args or None)
+    if args.command == "ledger-query":
+        from .decision_ledger import connect, verdicts_for
+
+        db_path = args.db or None
+        conn = connect(db_path)
+        today = dt.date.today().isoformat()
+        if args.days:
+            base = dt.date.fromisoformat(args.date or today)
+            dates = [(base - dt.timedelta(days=i)).isoformat() for i in range(args.days)]
+        else:
+            dates = [args.date or today]
+
+        all_rows: list[dict] = []
+        for d in dates:
+            rows = verdicts_for(conn, d, args.scope)
+            for r in rows:
+                r["date"] = d
+            all_rows.extend(rows)
+        conn.close()
+
+        if args.verdict:
+            all_rows = [r for r in all_rows if r["verdict"] == args.verdict]
+        if args.gate:
+            all_rows = [r for r in all_rows if args.gate in r["gate"]]
+
+        if args.summary:
+            counts: dict[str, dict[str, int]] = {}
+            for r in all_rows:
+                g = r["gate"]
+                v = r["verdict"]
+                counts.setdefault(g, {"allow": 0, "halve": 0, "block": 0})[v] += 1
+            print(json.dumps(counts, indent=2, sort_keys=True))
+        else:
+            print(json.dumps(all_rows, indent=2, sort_keys=True))
         return 0
     if args.command == "scheduled-health":
         from .scheduled_health import build_scheduled_health
