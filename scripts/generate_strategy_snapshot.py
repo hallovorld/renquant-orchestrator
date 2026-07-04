@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Generate a machine-readable snapshot of the orchestrator's configured surface.
 
-The snapshot captures CLI subcommands, scheduled jobs, pyproject entrypoints,
-and design doc inventory. A committed baseline is compared in CI via
-``tests/test_doc_alignment.py`` — if any of these change without updating the
-baseline, the test fails with a clear diff.
+The snapshot captures CLI subcommands, scheduled jobs (from the repo-owned
+``scheduled_jobs`` registry, not machine-local launchd state), pyproject
+entrypoints, design doc inventory, and source modules. All five fields are
+compared against a committed baseline in CI via ``tests/test_doc_alignment.py``
+(``test_snapshot_not_stale``) — if any change without updating the baseline,
+the test fails with a clear diff.
 
 Usage::
 
@@ -50,18 +52,16 @@ def _pyproject_entrypoints() -> dict[str, str]:
 
 
 def _scheduled_jobs() -> list[str]:
-    """List installed com.renquant.* launchd plists."""
-    agents_dir = Path.home() / "Library" / "LaunchAgents"
-    if not agents_dir.exists():
-        return []
-    names: list[str] = []
-    for p in sorted(agents_dir.glob("com.renquant.*.plist")):
-        stem = p.stem
-        if stem.endswith(".disabled") or ".bak" in stem:
-            continue
-        name = stem.removeprefix("com.renquant.")
-        names.append(name)
-    return sorted(set(names))
+    """List job_ids from the repo-owned scheduled-job registry.
+
+    Sourced from ``renquant_orchestrator.scheduled_jobs`` (not local
+    ``~/Library/LaunchAgents`` state, which is machine-local and would make
+    this comparison meaningless in CI / on a different developer's laptop).
+    """
+    sys.path.insert(0, str(REPO / "src"))
+    from renquant_orchestrator.scheduled_jobs import scheduled_jobs as _registry
+
+    return sorted(job.job_id for job in _registry())
 
 
 def _design_docs() -> list[str]:
