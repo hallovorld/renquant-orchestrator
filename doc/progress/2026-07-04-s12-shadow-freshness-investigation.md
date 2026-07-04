@@ -45,15 +45,19 @@ staleness of the same panel, but via different paths.)
 **Fix**: rebuild the rawlabel panel with fresh data. This is a data-pipeline task
 in the umbrella repo (not orchestrator scope).
 
-## Summary
+## Resolution status
 
-The shadow model staleness has TWO independent causes, both required to fix:
-
-| Cause | Status | Fix | Scope |
+| Cause | Status | Fix | Resolution |
 |---|---|---|---|
-| No retrain cadence (plist not installed) | CONFIRMED | install launchd plist | machine-landing |
-| rawlabel data frozen at 2026-02-11 | CONFIRMED | rebuild rawlabel panel | umbrella data pipeline |
+| No retrain cadence (plist not installed) | **FIXED** | launchd plist installed | operator-authorized 2026-07-04 |
+| rawlabel data frozen at 2026-02-11 | **CODE MERGED** | base-data #33 (recipe) + umbrella #442 (refresh) | merged; needs first run |
 
-Installing the plist without fixing the data will give weekly "REFUSED — not fresh"
-logs (the safe behavior, per #212 design). Both fixes are needed for the shadow
-served pin to actually advance.
+Both fixes are code-complete. The launchd plist is installed (Saturday 05:30 PT).
+The rawlabel refresh mechanism is merged in base-data and umbrella. The next
+`weekly_retrain_patchtst.sh` run (Saturday 05:30 or manual trigger) will rebuild
+the rawlabel sidecar to bar-frontier (~1 day old) and the promote gate's rawlabel
+source should go back ON-SLA.
+
+Remaining operator action: verify the live tree's subrepo pins include the
+rawlabel refresh code (base-data pin must be at or after #33). If not, a pin
+bump is needed before the Saturday run.
