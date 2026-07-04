@@ -1,6 +1,6 @@
 {
-  "pipeline_root": "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel",
-  "umbrella_root": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/kernel",
+  "pipeline_root": "renquant-pipeline/src/renquant_pipeline/kernel",
+  "umbrella_root": "RenQuant/backtesting/renquant_104/kernel",
   "counts": {
     "pipeline_total": 189,
     "umbrella_total": 217,

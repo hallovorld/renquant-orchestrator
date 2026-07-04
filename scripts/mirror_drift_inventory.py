@@ -30,6 +30,14 @@ PIPELINE_DEFAULT = str(_SIBLINGS_ROOT / "renquant-pipeline" / "src" / "renquant_
 UMBRELLA_DEFAULT = str(_SIBLINGS_ROOT / "RenQuant" / "backtesting" / "renquant_104" / "kernel")
 
 
+def _is_under_siblings(p: Path) -> bool:
+    try:
+        p.resolve().relative_to(_SIBLINGS_ROOT.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def _collect_py_files(root: Path) -> set[str]:
     result: set[str] = set()
     for dirpath, _dirs, files in os.walk(root):
@@ -132,8 +140,10 @@ def build_inventory(
     ]
 
     return {
-        "pipeline_root": str(pipeline_root),
-        "umbrella_root": str(umbrella_root),
+        "pipeline_root": str(pipeline_root.relative_to(_SIBLINGS_ROOT))
+        if _is_under_siblings(pipeline_root) else str(pipeline_root),
+        "umbrella_root": str(umbrella_root.relative_to(_SIBLINGS_ROOT))
+        if _is_under_siblings(umbrella_root) else str(umbrella_root),
         "counts": {
             "pipeline_total": len(pipeline_files),
             "umbrella_total": len(umbrella_files),
