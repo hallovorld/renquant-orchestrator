@@ -17,6 +17,7 @@ write itself is not a single transaction."""
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 import os
@@ -61,6 +62,18 @@ def canonical_hash(obj) -> str:
     """Campaign B4: delegate to ``hash_jsonable`` from renquant-artifacts
     so the hash matches ``intraday_session_inputs`` and every other site."""
     return hash_jsonable(obj)
+
+
+def _legacy_canonical_hash(obj) -> str:
+    """The pre-B4 ``canonical_hash`` implementation, preserved verbatim so
+    ``verify_bundle`` can still validate bundles that were exported before
+    the B4 unification (Codex round on #331: unifying the writer must not
+    make historically-valid bundles retroactively unverifiable — a fresh
+    export always uses the new ``canonical_hash``/``hash_jsonable`` scheme;
+    this legacy path exists ONLY as a fallback for ``verify_bundle`` reading
+    an older meta.json stamped before this change shipped)."""
+    blob = json.dumps(obj, sort_keys=True, default=str).encode("utf-8")
+    return "sha256:" + hashlib.sha256(blob).hexdigest()
 
 
 def expected_previous_session(
@@ -133,13 +146,21 @@ def verify_bundle(score_path: str, meta_path: str, *, today: str) -> tuple[bool,
         return False, f"cannot read/parse score file {score_path}: {exc}"
 
     actual_hash = canonical_hash(scores)
-    if actual_hash != expected_hash:
-        return False, (
-            f"score content hash mismatch: on-disk={actual_hash} "
-            f"meta-recorded={expected_hash} (corruption or tampering "
-            "between export and replay)"
-        )
-    return True, "ok"
+    if actual_hash == expected_hash:
+        return True, "ok"
+
+    # Fall back to the pre-B4 hash scheme before concluding failure — a
+    # bundle stamped by the old canonical_hash is not corrupt, it was just
+    # exported before the B4 unification (see _legacy_canonical_hash).
+    legacy_hash = _legacy_canonical_hash(scores)
+    if legacy_hash == expected_hash:
+        return True, "ok (legacy pre-B4 hash scheme)"
+
+    return False, (
+        f"score content hash mismatch: on-disk={actual_hash} "
+        f"(legacy-scheme={legacy_hash}) meta-recorded={expected_hash} "
+        "(corruption or tampering between export and replay)"
+    )
 
 
 def _cli(argv: list[str]) -> int:
