@@ -1,4 +1,4 @@
-# S-TC root cause: QP infeasibility drives TC = -0.43
+# S-TC diagnostic: QP infeasibility — leading hypothesis for TC = -0.43
 
 DATE: 2026-07-04
 
@@ -52,7 +52,7 @@ diagnostic** — treat the ROI estimate below as directional, not as a
 validated claim, until the pipeline stamps `qp_status` on a much larger
 share of runs.
 
-## Root cause
+## Leading hypothesis (diagnostic, not yet validated)
 
 `infeasible:infeasible` means all 3 cvxpy solvers (CLARABEL→OSQP→SCS) found
 the hard constraint set has NO feasible point. The hard constraints are:
@@ -76,16 +76,20 @@ sector/correlation caps create a region that's too small for the solver to
 move to the desired allocation. The C2 relaxation retry (sector/corr 1.5×)
 exists but only under "relax" policy (default is "strict" = no retry).
 
-## Impact
+## Potential impact (contingent on the hypothesis validating — NOT established)
 
-If the infeasible/optimal split above holds at scale, fixing QP feasibility
-would be a high-ROI lever:
-- Expected TC swing: -0.43 → ~+0.44 (ΔTC ≈ +0.9), based on the 18-run sample
+IF the infeasible/optimal split above holds at scale (it currently does not
+have enough support to say so — 18 qualifying runs, 22/33,304 total runs with
+`qp_status` stamped at all), fixing QP feasibility would be a high-ROI lever:
+- Projected TC swing: -0.43 → ~+0.44 (ΔTC ≈ +0.9), based on the 18-run sample
+  only — treat this as a back-of-envelope scale estimate, not a forecast
 - IR = TC × IC × √BR — this is a multiplicative factor on all model value
+  IF the projection above holds
 
 This is a projection from a small sample (see evidence-boundary note above),
 not a validated result — see #309 for the hypothesis-driven design that
-enumerates competing explanations before committing to this fix path.
+enumerates competing explanations and states an explicit falsification
+criterion before committing to this fix path.
 
 ## Fix candidates (pipeline-side, NOT orchestrator)
 
@@ -102,3 +106,22 @@ Added `qp_status`, `qp_status_category`, and `qp_infeasible` columns to
 / `missing` / `other:<value>` — not a collapsed boolean) to `tc_summary()`.
 13 tests pass (added `test_tc_missing_qp_status_not_counted_as_optimal`
 covering the fixed case).
+
+### Round 3: narrowed causal framing (this round)
+
+Round 2 fixed the taxonomy bug itself (collapsed boolean → honest
+`qp_status_category` grouping). Codex's round-2 review confirmed the
+implementation is now correct but held the PR because the title and this
+doc's headline still presented a small-sample diagnostic (18 qualifying
+runs, 22/33,304 total runs with `qp_status` stamped at all) as a settled
+"root cause" finding with an established causal projection
+(`-0.43 -> +0.44`).
+
+Fixed by renaming this doc's own title and the "Root cause" section to
+"leading hypothesis" / diagnostic framing, rewording the "Impact" section
+to be explicitly conditional ("IF the hypothesis validates..."), and
+updating the PR title/body to match (dropped "root cause" language,
+corrected the stale pre-taxonomy-fix numbers referenced in the original
+PR body). No code/logic change — the implementation itself was already
+accepted as correct in round 2; this round is scoped entirely to claim
+discipline in the title, PR body, and progress doc.
