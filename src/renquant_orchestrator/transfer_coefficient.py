@@ -51,7 +51,6 @@ def _load_candidate_weights(
         SELECT cs.run_id, pr.run_date, cs.ticker, cs.role,
                cs.kelly_target_pct, cs.qp_target_w, cs.mu, cs.sigma,
                cs.rank_score, cs.blocked_by, cs.selected,
-               cs.qp_status,
                pr.regime, pr.portfolio_value
         FROM candidate_scores cs
         JOIN pipeline_runs pr ON pr.run_id = cs.run_id
@@ -97,15 +96,10 @@ def compute_tc_per_run(
 
         shrinkage = np.abs(kelly - qp)
 
-        qp_status = g["qp_status"].iloc[0] if "qp_status" in g.columns else None
-        is_infeasible = qp_status is not None and "infeasible" in str(qp_status)
-
         records.append({
             "run_id": run_id,
             "run_date": g["run_date"].iloc[0],
             "regime": g["regime"].iloc[0],
-            "qp_status": qp_status,
-            "qp_infeasible": is_infeasible,
             "n_candidates": len(g),
             "tc": tc,
             "tc_rank": tc_rank,
@@ -128,19 +122,6 @@ def tc_summary(tc_series: pd.DataFrame) -> dict[str, Any]:
 
     tc = tc_series["tc"].dropna()
 
-    by_qp_status: dict[str, Any] = {}
-    if "qp_infeasible" in tc_series.columns:
-        for label, mask in [("infeasible", True), ("optimal", False)]:
-            g = tc_series[tc_series["qp_infeasible"] == mask]
-            tc_g = g["tc"].dropna()
-            if len(tc_g) >= 1:
-                by_qp_status[label] = {
-                    "n": len(tc_g),
-                    "tc_mean": float(tc_g.mean()),
-                    "tc_median": float(tc_g.median()),
-                    "frac_of_runs": len(tc_g) / max(len(tc), 1),
-                }
-
     return {
         "n_runs": len(tc_series),
         "n_valid": len(tc),
@@ -152,7 +133,6 @@ def tc_summary(tc_series: pd.DataFrame) -> dict[str, Any]:
         "tc_q25": float(tc.quantile(0.25)),
         "tc_q75": float(tc.quantile(0.75)),
         "tc_rank_mean": float(tc_series["tc_rank"].dropna().mean()),
-        "by_qp_status": by_qp_status,
         "by_regime": {
             regime: {
                 "n": len(g),
@@ -282,15 +262,6 @@ def _render_summary(result: dict[str, Any]) -> str:
         f"TC range: [{s['tc_min']:+.3f}, {s['tc_max']:+.3f}]",
         f"TC rank (Spearman) mean: {s['tc_rank_mean']:+.3f}",
     ]
-
-    by_qp = s.get("by_qp_status", {})
-    if by_qp:
-        lines += ["", "## By QP status (ROOT CAUSE diagnostic)"]
-        for label, info in sorted(by_qp.items()):
-            lines.append(
-                f"  {label:12s}: n={info['n']:3d} ({info['frac_of_runs']:.0%})  "
-                f"TC mean={info['tc_mean']:+.3f}"
-            )
 
     if s.get("by_regime"):
         lines += ["", "## By regime"]

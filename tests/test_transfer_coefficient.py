@@ -165,32 +165,6 @@ def test_min_candidates_filter(tc_db):
     assert len(ts) == 0
 
 
-def test_tc_by_qp_status(tc_db):
-    """TC breakdown by QP feasibility — the root cause diagnostic."""
-    conn = sqlite3.connect(f"file:{tc_db}?mode=ro", uri=True)
-    ts = compute_tc_per_run(conn, min_candidates=5)
-    conn.close()
-    s = tc_summary(ts)
-    assert "by_qp_status" in s
-    assert "optimal" in s["by_qp_status"]
-    assert "infeasible" in s["by_qp_status"]
-    assert s["by_qp_status"]["optimal"]["n"] == 2
-    assert s["by_qp_status"]["infeasible"]["n"] == 1
-    assert 0.0 < s["by_qp_status"]["optimal"]["frac_of_runs"] < 1.0
-
-
-def test_tc_qp_infeasible_flag(tc_db):
-    """compute_tc_per_run stamps qp_infeasible per run."""
-    conn = sqlite3.connect(f"file:{tc_db}?mode=ro", uri=True)
-    ts = compute_tc_per_run(conn, min_candidates=5)
-    conn.close()
-    assert "qp_infeasible" in ts.columns
-    run3 = ts[ts["run_id"] == "run-2026-06-03-live-ghi"]
-    assert bool(run3["qp_infeasible"].iloc[0]) is True
-    run1 = ts[ts["run_id"] == "run-2026-06-01-live-abc"]
-    assert bool(run1["qp_infeasible"].iloc[0]) is False
-
-
 def test_tc_regime_breakdown(tc_db):
     conn = sqlite3.connect(f"file:{tc_db}?mode=ro", uri=True)
     ts = compute_tc_per_run(conn, min_candidates=5)
