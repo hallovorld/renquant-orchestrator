@@ -22,7 +22,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-DEFAULT_DB = Path.home() / "git/github/RenQuant/data/runs.alpaca.db"
+from renquant_orchestrator.runtime_paths import default_data_root
+
+DEFAULT_DB = default_data_root() / "data" / "runs.alpaca.db"
 
 
 def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
