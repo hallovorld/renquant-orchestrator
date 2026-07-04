@@ -44,18 +44,19 @@ from typing import Any
 
 import pandas as pd
 
+from renquant_orchestrator.runtime_paths import default_data_root
+
 # --- default read-only sources (every public function takes them explicitly) ---
-DEFAULT_UMBRELLA = Path.home() / "git/github/RenQuant"
-DEFAULT_DB = DEFAULT_UMBRELLA / "data/runs.alpaca.db"
-DEFAULT_OHLCV_DIR = DEFAULT_UMBRELLA / "data/ohlcv"
-# sleeve.log_path is relative to the 104 run directory (strategy config key)
+_DATA_ROOT = default_data_root()
+DEFAULT_DB = _DATA_ROOT / "data/runs.alpaca.db"
+DEFAULT_OHLCV_DIR = _DATA_ROOT / "data/ohlcv"
 DEFAULT_SLEEVE_LOG = (
-    DEFAULT_UMBRELLA / "backtesting/renquant_104/logs/parking_sleeve_shadow.jsonl"
+    _DATA_ROOT / "backtesting/renquant_104/logs/parking_sleeve_shadow.jsonl"
 )
 # Pinned runtime copy first (what the live run actually reads — "merged is not
 # deployed"), sibling working checkout as fallback for research use.
 STRATEGY_CONFIG_CANDIDATES = (
-    DEFAULT_UMBRELLA / ".subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json",
+    _DATA_ROOT / ".subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json",
     Path.home() / "git/github/renquant-strategy-104/configs/strategy_config.json",
 )
 
