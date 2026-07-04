@@ -49,10 +49,12 @@ from typing import Any
 
 import pandas as pd
 
+from renquant_orchestrator.runtime_paths import default_data_root
+
 # The live run DB — a default for ad-hoc/CLI use only; every public function
 # takes the connection/path explicitly (same convention as
 # decision_pnl_attribution / decision_ledger).
-DEFAULT_DB = Path.home() / "git/github/RenQuant/data/runs.alpaca.db"
+DEFAULT_DB = default_data_root() / "data" / "runs.alpaca.db"
 
 BENCHMARK_TICKER = "SPY"
 REF_PX_KIND = "close"  # the only persisted reference price (see module doc)
