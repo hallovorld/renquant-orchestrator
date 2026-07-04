@@ -10,7 +10,13 @@ RQ105_ORCH_ROOT="${RQ105_ORCH_ROOT:-/Users/renhao/git/github/renquant-orchestrat
 LOG_DIR="$RQ_ROOT/logs/rq105"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
-export PYTHONPATH="$RQ105_ORCH_ROOT/src"
+# Campaign B5: the orchestrator session-calendar primitive now lives in
+# renquant_common.market_calendar — put a sibling renquant-common checkout on
+# PYTHONPATH (pinned -run checkout preferred; the venv install alone may
+# predate market_calendar).
+RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
+[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 PY="$RQ_ROOT/.venv/bin/python"
 RC_TOTAL=0
 for MOD in intraday_pairing_logger entry_timing_shadow; do

@@ -314,27 +314,34 @@ def _ledger_session_keys(run_dates) -> "tuple[pd.Series, str]":
     coverage must be reported separately).
 
     Returns (keys, calendar_kind). calendar_kind is 'nyse' when the shared
-    NYSE calendar (pandas_market_calendars) resolved the keys, else
-    'weekday_fallback' (Sat/Sun roll to Friday; weekday holidays are NOT
-    detected — degraded, flagged in the metric detail).
+    NYSE calendar (renquant_common.market_calendar, campaign B5 canonical)
+    resolved the keys, else 'weekday_fallback' (Sat/Sun roll to Friday;
+    weekday holidays are NOT detected — degraded, flagged in the metric
+    detail). The weekday fallback is this call-site's EXPLICIT lenient wrap
+    of the fail-closed canonical (a scorecard should degrade + flag, not
+    crash, when the calendar backend is missing).
     """
     import pandas as pd
     d = pd.to_datetime(run_dates).dt.normalize()
     try:
-        import pandas_market_calendars as mcal
-        cal = mcal.get_calendar("NYSE")
-        sessions = pd.DatetimeIndex(cal.valid_days(
-            start_date=(d.min() - pd.Timedelta(days=14)).date(),
-            end_date=(d.max() + pd.Timedelta(days=7)).date(),
-        ))
-        if sessions.tz is not None:
-            sessions = sessions.tz_localize(None)
-        sessions = sessions.normalize()
-        idx = (sessions.searchsorted(d.values, side="right") - 1).clip(min=0)
-        return pd.Series(sessions.values[idx], index=d.index), "nyse"
+        from renquant_common.market_calendar import (
+            CalendarUnavailableError,
+            session_keys,
+            sessions_between,
+        )
+        sessions = sessions_between(
+            (d.min() - pd.Timedelta(days=14)).date(),
+            (d.max() + pd.Timedelta(days=7)).date(),
+        )
+        return session_keys(d, sessions), "nyse"
     except ImportError:
-        shift = (d.dt.weekday - 4).clip(lower=0)  # Sat -> -1d, Sun -> -2d
-        return d - pd.to_timedelta(shift, unit="D"), "weekday_fallback"
+        # Stale-deploy safety: a renquant_common without market_calendar (or
+        # no pandas_market_calendars) degrades exactly like the pre-B5 copy.
+        pass
+    except CalendarUnavailableError:
+        pass
+    shift = (d.dt.weekday - 4).clip(lower=0)  # Sat -> -1d, Sun -> -2d
+    return d - pd.to_timedelta(shift, unit="D"), "weekday_fallback"
 
 
 def metric_ledger_coverage(con, as_of: dt.date) -> dict:

@@ -18,8 +18,41 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import importlib.util
 import json
+import os
 import sys
+
+
+def _ensure_common_importable() -> None:
+    """Campaign B5 bare-script bootstrap. The launchd wrappers invoke this
+    file (and export_batch_scores.py, which imports it) with the umbrella
+    venv python and no PYTHONPATH; ``expected_previous_session`` now needs
+    ``renquant_common.market_calendar``. If the interpreter cannot already
+    resolve it (e.g. a stale venv install predating market_calendar), put a
+    sibling checkout of renquant-common on sys.path — pinned ``-run``
+    checkout preferred, plain sibling as fallback (the same sibling layout
+    the Makefile uses). No sibling found → imports fail loudly later
+    (fail-closed; the wrapper alerts + skips)."""
+    try:
+        if importlib.util.find_spec("renquant_common.market_calendar") is not None:
+            return
+    except Exception:
+        pass
+    repo_parent = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    for name in ("renquant-common-run", "renquant-common"):
+        cand = os.path.join(repo_parent, name, "src")
+        if os.path.isdir(cand):
+            sys.path.insert(0, cand)
+            # A stale installed renquant_common may already be cached — drop
+            # it so the sibling checkout actually wins the re-import.
+            sys.modules.pop("renquant_common", None)
+            return
+
+
+_ensure_common_importable()
 
 
 def canonical_hash(obj) -> str:
@@ -31,25 +64,18 @@ def expected_previous_session(
     today_iso: str, *, calendar_name: str = "NYSE", lookback_days: int = 14
 ) -> str:
     """The most recent NYSE trading-day strictly before `today_iso`
-    (weekend/holiday aware). Same primitive (pandas_market_calendars) used
-    elsewhere this session (intraday_quote_logger.NyseSessionCalendar,
-    renquant_execution.preopen_cancel_gate). `lookback_days` bounds the query
-    window — NYSE never has more than a handful of consecutive non-trading
-    days, 14 is a generous margin. Raises ValueError if no session is found
-    in that window (fail closed rather than silently returning nothing)."""
-    import pandas_market_calendars as mcal  # noqa: PLC0415
+    (weekend/holiday aware). Campaign B5: delegates to the canonical
+    :func:`renquant_common.market_calendar.previous_session` (equivalence-
+    proven on a 10-year fixture against the hand-copy that lived here).
+    Raises ValueError if no session is found in the window (fail closed
+    rather than silently returning nothing); a missing/stale renquant_common
+    also raises (fail closed — the wrapper alerts + skips, never trusts an
+    unverified bundle)."""
+    from renquant_common.market_calendar import previous_session  # noqa: PLC0415
 
-    today = dt.date.fromisoformat(today_iso)
-    cal = mcal.get_calendar(calendar_name)
-    start = today - dt.timedelta(days=lookback_days)
-    end = today - dt.timedelta(days=1)
-    valid_days = cal.valid_days(start_date=start.isoformat(), end_date=end.isoformat())
-    if len(valid_days) == 0:
-        raise ValueError(
-            f"no {calendar_name} session found in the {lookback_days}-day "
-            f"window before {today_iso} (fail-closed)"
-        )
-    return valid_days[-1].date().isoformat()
+    return previous_session(
+        today_iso, calendar_name=calendar_name, lookback_days=lookback_days
+    ).isoformat()
 
 
 def verify_bundle(score_path: str, meta_path: str, *, today: str) -> tuple[bool, str]:
