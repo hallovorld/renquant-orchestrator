@@ -429,3 +429,12 @@ def test_merge_audit_cli_strict_returns_nonzero_on_missing_pre_merge_marker(
     assert out["ok"] is False
     assert out["n_missing_pre_merge_audit"] == 1
     assert out["prs"][0]["status"] == "missing_pre_merge_audit"
+
+
+def test_signal_pipeline_cli_json(capsys) -> None:
+    rc = main(["signal-pipeline", "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["total_sources"] == 5
+    assert out["enabled"] == 2
+    assert "pit_estimate_revisions" in out["disabled_names"]

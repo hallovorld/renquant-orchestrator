@@ -126,6 +126,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any scheduled job is classified crash/reject",
     )
 
+    signal_pipeline = sub.add_parser(
+        "signal-pipeline",
+        help="show signal pipeline configuration and readiness status (106 flag-off)",
+    )
+    signal_pipeline.add_argument(
+        "--config", default=None,
+        help="path to signal pipeline config JSON (default: built-in defaults)",
+    )
+    signal_pipeline.add_argument(
+        "--data-root", default=None,
+        help="data root for readiness check",
+    )
+    signal_pipeline.add_argument(
+        "--json", action="store_true", dest="signal_json",
+        help="output as JSON",
+    )
+
     weekly_promote = sub.add_parser(
         "weekly-promote-health",
         help="emit weekly model-promote chain liveness/health as JSON and alert on stale/errored runs",
@@ -570,6 +587,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.fail_on_umbrella_bridge and payload["summary"]["umbrella_bridge"]:
             return 2
         return 0
+    if args.command == "signal-pipeline":
+        from .signal_pipeline_config import main as spc_main
+
+        spc_argv = []
+        if args.config:
+            spc_argv.extend(["--config", args.config])
+        if args.data_root:
+            spc_argv.extend(["--data-root", args.data_root])
+        if args.signal_json:
+            spc_argv.append("--json")
+        return spc_main(spc_argv)
     if args.command == "scheduled-health":
         from .scheduled_health import build_scheduled_health
 
