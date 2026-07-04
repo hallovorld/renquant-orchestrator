@@ -13,6 +13,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: renquant-orchestrator
+          fetch-depth: 0
       - uses: actions/checkout@v4
         with:
           repository: hallovorld/renquant-common
