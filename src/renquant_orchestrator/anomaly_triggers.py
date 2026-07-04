@@ -6,7 +6,8 @@ shock should launch the weekly WF trust-boundary chain.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
+from typing import Callable, Optional  # noqa: UP035 — runtime type alias needs 3.9 compat
 from dataclasses import dataclass, field
 import json
 import logging
@@ -16,7 +17,7 @@ from renquant_common import Job, Pipeline, Task
 
 
 log = logging.getLogger("renquant-orchestrator.anomaly-triggers")
-PctChangeFetcher = Callable[[str], float | None]
+PctChangeFetcher = Callable[[str], "Optional[float]"]
 
 
 def pct_change_from_closes(closes: Sequence[float]) -> float | None:
