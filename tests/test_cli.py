@@ -429,3 +429,86 @@ def test_merge_audit_cli_strict_returns_nonzero_on_missing_pre_merge_marker(
     assert out["ok"] is False
     assert out["n_missing_pre_merge_audit"] == 1
     assert out["prs"][0]["status"] == "missing_pre_merge_audit"
+
+
+def test_ledger_query_returns_verdicts_for_date(tmp_path, capsys) -> None:
+    from renquant_orchestrator.decision_ledger import connect, write_verdicts
+
+    db = tmp_path / "ledger.db"
+    conn = connect(db)
+    write_verdicts(conn, "run-001", "2026-07-04", [
+        {"scope": "daily", "gate": "P-MODEL-STALENESS", "verdict": "allow", "reason": "fresh"},
+        {"scope": "daily", "gate": "P-WF-GATE", "verdict": "block", "reason": "placebo leak"},
+    ])
+    conn.close()
+
+    rc = main(["ledger-query", "--db", str(db), "--date", "2026-07-04"])
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 2
+    assert rows[0]["gate"] == "P-MODEL-STALENESS"
+    assert rows[1]["verdict"] == "block"
+
+
+def test_ledger_query_filters_by_verdict(tmp_path, capsys) -> None:
+    from renquant_orchestrator.decision_ledger import connect, write_verdicts
+
+    db = tmp_path / "ledger.db"
+    conn = connect(db)
+    write_verdicts(conn, "run-001", "2026-07-04", [
+        {"scope": "daily", "gate": "G1", "verdict": "allow", "reason": "ok"},
+        {"scope": "daily", "gate": "G2", "verdict": "block", "reason": "bad"},
+    ])
+    conn.close()
+
+    rc = main(["ledger-query", "--db", str(db), "--date", "2026-07-04", "--verdict", "block"])
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 1
+    assert rows[0]["gate"] == "G2"
+
+
+def test_ledger_query_filters_by_gate_substring(tmp_path, capsys) -> None:
+    from renquant_orchestrator.decision_ledger import connect, write_verdicts
+
+    db = tmp_path / "ledger.db"
+    conn = connect(db)
+    write_verdicts(conn, "run-001", "2026-07-04", [
+        {"scope": "daily", "gate": "P-MODEL-STALENESS", "verdict": "allow", "reason": "ok"},
+        {"scope": "daily", "gate": "P-WF-GATE", "verdict": "block", "reason": "bad"},
+    ])
+    conn.close()
+
+    rc = main(["ledger-query", "--db", str(db), "--date", "2026-07-04", "--gate", "WF"])
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 1
+    assert rows[0]["gate"] == "P-WF-GATE"
+
+
+def test_ledger_query_summary_mode(tmp_path, capsys) -> None:
+    from renquant_orchestrator.decision_ledger import connect, write_verdicts
+
+    db = tmp_path / "ledger.db"
+    conn = connect(db)
+    write_verdicts(conn, "run-001", "2026-07-04", [
+        {"scope": "daily", "gate": "G1", "verdict": "allow", "reason": "ok"},
+    ])
+    write_verdicts(conn, "run-002", "2026-07-03", [
+        {"scope": "daily", "gate": "G1", "verdict": "block", "reason": "bad"},
+    ])
+    conn.close()
+
+    rc = main(["ledger-query", "--db", str(db), "--date", "2026-07-04", "--days", "2", "--summary"])
+    assert rc == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["G1"]["allow"] == 1
+    assert summary["G1"]["block"] == 1
+
+
+def test_ledger_query_empty_db_returns_empty(tmp_path, capsys) -> None:
+    db = tmp_path / "ledger.db"
+    rc = main(["ledger-query", "--db", str(db), "--date", "2026-01-01"])
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert rows == []
