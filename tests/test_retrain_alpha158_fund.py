@@ -10,6 +10,7 @@ import subprocess
 import pytest
 
 from renquant_orchestrator import retrain_alpha158_fund as mod
+from renquant_orchestrator import retrain_common
 
 
 _RUNTIME_PATH_ENVS = (
@@ -84,7 +85,7 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
             calibrator.write_text(json.dumps({"method": "isotonic"}))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     strategy_config = repo / "strategy_config.json"
     strategy_config.write_text("{}")
     ctx = mod.RetrainContext(
@@ -128,7 +129,7 @@ def test_missing_scorer_fails_before_calibrator(monkeypatch, tmp_path) -> None:
     def fake_run(_cmd, cwd=None, env=None):
         return subprocess.CompletedProcess(_cmd, 0)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     ctx = mod.RetrainContext(
         repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator, **_fresh_kwargs()
     )
@@ -148,7 +149,7 @@ def test_invalid_scorer_content_fails_before_calibrator(monkeypatch, tmp_path) -
             scorer.write_text(json.dumps({"trained_date": dt.datetime.utcnow().strftime("%Y-%m-%d")}))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     ctx = mod.RetrainContext(
         repo_dir=repo, xgb_artifact_out=scorer, calibrator_out=calibrator, **_fresh_kwargs()
     )
@@ -201,7 +202,9 @@ def test_main_staged_defaults_to_candidate_artifact_paths(monkeypatch, tmp_path)
 def test_pythonpath_includes_required_sibling_repos(monkeypatch, tmp_path) -> None:
     _clear_runtime_path_env(monkeypatch)
     repo = _repo(tmp_path)
-    env = mod._subrepo_pythonpath(repo, env={})
+    env = retrain_common.subrepo_pythonpath(
+        repo, env={}, strategy_config=mod._fund_strategy_config(),
+    )
     path = env["PYTHONPATH"]
     for name in (
         "renquant-orchestrator/src",
@@ -225,7 +228,7 @@ def test_pythonpath_uses_runtime_subrepo_root_env(monkeypatch, tmp_path) -> None
     subrepo_root = tmp_path / "runtime" / "repos"
     monkeypatch.setenv("RENQUANT_SUBREPO_ROOT", str(subrepo_root))
 
-    env = mod._subrepo_pythonpath(repo, env={})
+    env = retrain_common.subrepo_pythonpath(repo, env={})
 
     entries = env["PYTHONPATH"].split(os.pathsep)
     assert entries[0] == str(subrepo_root / "renquant-orchestrator" / "src")
@@ -242,7 +245,7 @@ def test_pythonpath_uses_current_subrepo_assembly_env(monkeypatch, tmp_path) -> 
     current_env.parent.mkdir(parents=True)
     current_env.write_text(f"export RENQUANT_ASSEMBLY_DIR={assembly}\n", encoding="utf-8")
 
-    env = mod._subrepo_pythonpath(repo, env={})
+    env = retrain_common.subrepo_pythonpath(repo, env={})
 
     entries = env["PYTHONPATH"].split(os.pathsep)
     assert entries[0] == str(assembly / "repos" / "renquant-orchestrator" / "src")
@@ -254,7 +257,7 @@ def test_strict_subrepo_pythonpath_requires_existing_siblings(monkeypatch, tmp_p
     repo = _repo(tmp_path)
 
     with pytest.raises(FileNotFoundError, match="missing multirepo source paths"):
-        mod._subrepo_pythonpath(repo, env={"RENQUANT_STRICT_SUBREPO_PATHS": "1"})
+        retrain_common.subrepo_pythonpath(repo, env={"RENQUANT_STRICT_SUBREPO_PATHS": "1"})
 
 
 def test_recipe_parity_with_prod_path_AUDIT_REGRESSION_GUARD() -> None:
@@ -336,4 +339,4 @@ def test_validate_repo_dir_fails_loudly_for_non_umbrella_checkout(tmp_path) -> N
     repo.mkdir()
 
     with pytest.raises(FileNotFoundError, match="data"):
-        mod._validate_repo_dir(repo)
+        retrain_common.validate_repo_dir(repo)
