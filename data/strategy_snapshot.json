@@ -67,6 +67,7 @@
     "expkit.evaluation",
     "expkit.evidence",
     "expkit.prereg",
+    "expkit.replay",
     "expkit.stats",
     "fallback_shadow_logger",
     "feature_drift_audit",
