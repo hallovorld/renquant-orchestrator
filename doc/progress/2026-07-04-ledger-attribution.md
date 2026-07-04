@@ -35,3 +35,41 @@ evidence-based instead of opinion-based.
 12 new tests covering: write/idempotency, value report (basic + filtered),
 gate VOI computation, outcome coverage, multiple horizons, metadata.
 All 1927 tests pass.
+
+## Round 2 (review): coverage-ratio grain-mismatch bug
+
+Codex found a real correctness bug in `outcome_coverage()`: the denominator
+counted distinct `gate|scope` pairs per date (the ledger's own grain —
+`decision_ledger`'s PK is `run_id/scope/gate`, it has **no ticker column at
+all**), while the numerator counted distinct `gate|scope|ticker` triples from
+`decision_outcomes` (which is ticker-level — one gate/scope/date decision can
+have many ticker outcomes attached). Any date where a single covered ledger
+row had outcomes for >1 ticker inflated `coverage_ratio` above 1.0 — not
+merely a display quirk, a mathematically meaningless metric feeding the S5
+`>=95%` acceptance criterion.
+
+**Root cause confirmed**: the ledger has no per-ticker decision rows to join
+against at that grain (matching grains via ticker-level ledger rows is not
+available; the schema doesn't carry a ticker dimension). **Fix**: redefined
+`n_outcomes`/`coverage_ratio` at the ledger's own `(gate, scope)` grain on
+*both* sides — `n_outcomes` now counts distinct ledger rows that have **at
+least one** matching outcome (an existence check via `CASE WHEN o.gate IS
+NOT NULL`), not a per-ticker outcome count. `coverage_ratio` is bounded to
+[0, 1] by construction since the numerator is now a subset-count of the
+denominator, never an independently-larger population.
+
+Added 2 regression tests proving boundedness (`test_outcome_coverage_bounded_with_multi_ticker_outcomes`:
+multiple tickers on one covered gate → ratio stays 1.0, not inflated;
+`test_outcome_coverage_partial_when_gate_missing_outcomes`: one of two gates
+covered → ratio is 0.5) and tightened the original coverage test to assert
+`0 <= coverage_ratio <= 1.0` generally.
+
+**No claim in this doc depended on a specific coverage-ratio number** (the
+`>=95%` S5 AC is a target for the real, aged-decision production ledger, not
+a number this PR asserted was already achieved) — the fix does not retract
+any prior stated result, only corrects the metric's definition so that
+number will be meaningful once measured against real data.
+
+1931/1931 relevant repo tests pass (2 pre-existing failures in
+`test_bundle_consistency_ci_gate.py` reproduce identically on a clean
+`origin/main` checkout — unrelated to this change).

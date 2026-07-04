@@ -176,8 +176,17 @@ def outcome_coverage(
     start_date: str,
     end_date: str,
 ) -> list[dict]:
-    """Per-date coverage ratio: what fraction of ledger verdicts have
-    corresponding outcome records? The S5 AC targets >=95% for aged decisions."""
+    """Per-date coverage ratio: what fraction of ledger (gate, scope) verdicts
+    have AT LEAST ONE corresponding outcome record?
+
+    The ledger has no ticker dimension (PRIMARY KEY is run_id/scope/gate — one
+    row per gate decision, not per ticker), while ``decision_outcomes`` is
+    ticker-level (a single gate/scope/date decision can affect many tickers).
+    Both sides of the ratio are counted at the ledger's own (gate, scope)
+    grain — existence of >=1 matching outcome, not a per-ticker outcome
+    count — so ``coverage_ratio`` stays mathematically bounded to [0, 1]
+    regardless of how many tickers a covered decision touches. The S5 AC
+    targets >=95% for aged decisions."""
     cur = conn.execute(COVERAGE_SQL, (start_date, end_date))
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
