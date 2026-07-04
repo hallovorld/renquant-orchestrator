@@ -141,8 +141,16 @@ def default_pilot_path(data_root: Path | None = None) -> Path:
     return Path(root) / "logs" / "renquant105_pilot" / "entry_timing_shadow.jsonl"
 
 
-# The #216 tick feed the evaluator reads (a single rolling JSONL filtered by date).
-DEFAULT_TICK_SOURCE = Path.home() / "git/github/RenQuant/logs/renquant105_pilot/intraday_ticks.jsonl"
+def default_tick_source(data_root: Path | None = None) -> Path:
+    """Default tick feed the evaluator reads (single rolling JSONL filtered by date).
+
+    Rooted at :func:`default_data_root` (honoring ``RENQUANT_DATA_ROOT``),
+    consistent with :func:`default_pilot_path`."""
+    root = data_root or default_data_root()
+    return Path(root) / "logs" / "renquant105_pilot" / "intraday_ticks.jsonl"
+
+
+DEFAULT_TICK_SOURCE = default_tick_source()
 
 
 # ---------------------------------------------------------------------------
