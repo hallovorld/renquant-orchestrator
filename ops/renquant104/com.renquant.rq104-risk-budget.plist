@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.renquant.rq104-risk-budget</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_risk_budget_statement.sh</string></array>
+  <!-- monthly statement: 1st of the month, 15:30 local (after the daily-full window) -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Day</key><integer>1</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_risk_budget.out</string>
+  <key>StandardErrorPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_risk_budget.err</string>
+</dict>
+</plist>
