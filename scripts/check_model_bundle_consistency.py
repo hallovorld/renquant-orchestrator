@@ -11,7 +11,7 @@ whack-a-mole happens here instead of on the live tree.
 Reuses the SAME authorities the live preflight uses, so a PASS here means the runtime
 P-* gates will pass too:
   - config fingerprint:   renquant_common.config_consistency.fingerprint_config
-  - scorer fingerprint:    kernel.panel_pipeline.panel_scorer.model_content_sha256
+  - scorer fingerprint:    renquant_common.model_fingerprint.model_content_sha256
   - calibrator binding:    calibrator.metadata.scorer_model_content_fingerprint
   - WF gate metadata:      artifact (metadata.)wf_gate_metadata.{passed, numerics}
   - watchlist:             config.watchlist vs artifact.config_fingerprint_fields.watchlist
@@ -62,10 +62,7 @@ def check_bundle(config_path: Path, strategy_dir: Path, *,
     if fingerprint_config is None:
         from renquant_common.config_consistency import fingerprint_config  # noqa: PLC0415
     if model_content_sha256 is None:
-        try:
-            from renquant_pipeline.kernel.panel_pipeline.panel_scorer import model_content_sha256  # noqa: PLC0415
-        except Exception:
-            from kernel.panel_pipeline.panel_scorer import model_content_sha256  # noqa: PLC0415
+        from renquant_common.model_fingerprint import model_content_sha256  # noqa: PLC0415
 
     config = json.loads(config_path.read_text())
     panel = _active_panel(config)
