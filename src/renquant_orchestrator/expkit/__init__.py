@@ -35,10 +35,10 @@ sketch, not current scope).
     replay.py     Replay-experiment orchestration: the reusable arm-vs-arm
                   evaluation pattern.  The load -> match -> evaluate ->
                   control -> stamp pipeline extracted from
-                  scripts/m4b_floor_replay.py: score loading (read-only DB),
-                  per-arm evaluation with per-date expectancy aggregation,
-                  and control tests (iid-noise null, permutation null,
-                  positive-control planted-effect).
+                  scripts/m4b_floor_replay.py: score loading (read-only DB +
+                  canonical-run dedup), per-arm evaluation with per-date
+                  expectancy aggregation, and control tests (iid-noise null,
+                  permutation null, positive-control planted-effect).
 
 NOT shipped in this narrowing (no duplication evidence found — each
 experiment's verdict/controls logic differs in its specific formulas, not
@@ -83,6 +83,7 @@ from renquant_orchestrator.expkit.replay import (
     ReplayArm,
     ReplayBar,
     admitted_set,
+    canonical_runs,
     evaluate_arm,
     mean_admission_count,
     open_readonly,
@@ -121,6 +122,7 @@ __all__ = [
     "bootstrap_or_exact",
     "build_manifest",
     "canonical_json",
+    "canonical_runs",
     "check_spec_frozen_before_results",
     "evaluate_arm",
     "exact_sign_test",

@@ -24,15 +24,48 @@ stats.py, evidence.py).
 ## Shipped surface
 
 - `expkit/replay.py`: `ReplayArm`, `ReplayBar`, `open_readonly`,
-  `admitted_set`, `per_date_expectancy`, `point_delta`,
+  `canonical_runs`, `admitted_set`, `per_date_expectancy`, `point_delta`,
   `mean_admission_count`, `solve_arm_param`, `evaluate_arm`,
   `run_control_tests`, `replay_experiment`.
 - `expkit/__init__.py`: updated imports + `__all__`.
-- `tests/test_expkit_replay.py`: 16 fixture-based tests covering DB
-  read-only enforcement, eligibility masking, per-date aggregation,
-  point-delta computation, admission counting, parameter solving, arm
-  evaluation, control tests (null rate + power monotonicity), and end-to-end
-  replay orchestration.
+- `tests/test_expkit_replay.py`: fixture-based tests covering DB
+  read-only enforcement, canonical-run dedup (latest `created_at` per date,
+  `min_candidates` threshold, `run_type='live'` filter), eligibility masking,
+  per-date aggregation, point-delta computation, admission counting,
+  parameter solving, arm evaluation, control tests (null rate + power
+  monotonicity), and end-to-end replay orchestration.
+
+## Round 2 (codex re-review)
+
+Codex re-blocked this PR: the module docstring and this doc's own "Item 1"
+claimed the extraction covered "canonical-run dedup discipline," but the
+shipped surface at the time only had `open_readonly` (a bare read-only
+connection opener) -- the actual dedup query (`canonical_runs()`: one live
+run per date, latest `created_at`, `min_candidates` threshold on
+`score_distribution.raw_panel`) was still living exclusively in
+`scripts/m4b_floor_replay.py`. The documented claim was ahead of the code.
+
+Fixed by choosing option (a) from the review -- actually extracting the
+dedup logic, not just narrowing the docs -- since `canonical_runs()` has no
+burst-script-specific coupling (it's a pure SQL query against `con` plus a
+caller-supplied `min_candidates`):
+
+- Moved the SQL query verbatim into `expkit/replay.py::canonical_runs()`.
+  `min_candidates` is a required (non-defaulted) parameter there -- the
+  "how many candidates make a run usable" threshold is experiment-specific
+  tuning, not a property of the dedup rule itself.
+- `scripts/m4b_floor_replay.py::canonical_runs()` is now a thin forwarding
+  wrapper: it keeps its own local `MIN_FULL_RUN_CANDIDATES = 40` default
+  (M4b-specific) and calls `expkit.replay.canonical_runs` for the actual
+  query. No behavior change for existing callers.
+- Added `test_canonical_runs_dedup_latest_full` and
+  `test_canonical_runs_min_candidates_threshold` to
+  `tests/test_expkit_replay.py` against a synthetic fixture DB (same-date
+  dedup-to-latest, threshold filtering, `run_type` filtering). The
+  pre-existing `test_canonical_runs_dedup_latest_full` in
+  `tests/test_m4b_floor_replay.py` still passes unchanged, now exercising
+  the forwarding wrapper.
+- Full suite: 1930 passed, 3 skipped, zero regressions.
 
 ## Design notes
 

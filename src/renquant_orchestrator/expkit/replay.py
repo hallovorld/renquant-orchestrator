@@ -24,6 +24,7 @@ Items already in expkit that this module composes:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
@@ -39,6 +40,7 @@ __all__ = [
     "ReplayArm",
     "ReplayBar",
     "admitted_set",
+    "canonical_runs",
     "evaluate_arm",
     "mean_admission_count",
     "open_readonly",
@@ -100,6 +102,44 @@ def open_readonly(db_path: str) -> sqlite3.Connection:
     harness must never mutate the trade DB (CLAUDE.md hard boundary).
     """
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
+def canonical_runs(con: sqlite3.Connection, min_candidates: int) -> list[dict]:
+    """One canonical live run per date: latest ``created_at`` among that
+    date's runs with >= ``min_candidates`` scored candidate rows carrying
+    ``raw_panel`` (the M3/#234 dedup discipline -- ported verbatim from
+    ``scripts/m4b_floor_replay.py`` so every arm-vs-arm replay experiment
+    shares one dedup implementation instead of hand-copying it per script).
+
+    ``min_candidates`` is caller-owned (experiment-specific threshold
+    tuning), not defaulted here -- the "how many candidates make a run
+    usable" number is a property of the experiment, not of the dedup rule.
+    """
+    rows = con.execute(
+        """
+        SELECT p.run_id, p.run_date, COALESCE(p.regime,'UNKNOWN'), p.created_at,
+               COALESCE(p.counters_json, '')
+        FROM pipeline_runs p
+        WHERE p.run_type='live'
+          AND (SELECT COUNT(*) FROM score_distribution s
+               WHERE s.run_id=p.run_id AND s.is_holding=0
+                 AND s.raw_panel IS NOT NULL) >= ?
+        ORDER BY p.run_date, p.created_at
+        """,
+        (min_candidates,),
+    ).fetchall()
+    by_date: dict[str, tuple] = {}
+    for run_id, run_date, regime, created_at, counters in rows:
+        by_date[run_date] = (run_id, regime, created_at, counters)
+    out = []
+    for d, (run_id, regime, _c, counters) in sorted(by_date.items()):
+        try:
+            counters_d = json.loads(counters) if counters else {}
+        except (ValueError, TypeError):
+            counters_d = {}
+        out.append({"run_date": d, "run_id": run_id, "regime": regime,
+                    "counters": counters_d})
+    return out
 
 
 # -------------------------------------------------------------- core primitives

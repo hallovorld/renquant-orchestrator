@@ -11,6 +11,7 @@ from renquant_orchestrator.expkit.replay import (
     ReplayArm,
     ReplayBar,
     admitted_set,
+    canonical_runs,
     evaluate_arm,
     mean_admission_count,
     open_readonly,
@@ -106,6 +107,71 @@ def test_open_readonly(tmp_path: Path):
     with pytest.raises(sqlite3.OperationalError):
         ro.execute("INSERT INTO t VALUES (2)")
     ro.close()
+
+
+# --------------------------------------------------------------------------
+# canonical_runs
+# --------------------------------------------------------------------------
+
+
+def _build_canonical_runs_db(path: Path) -> None:
+    con = sqlite3.connect(str(path))
+    con.execute(
+        "CREATE TABLE pipeline_runs (run_id TEXT PRIMARY KEY, run_date TEXT, "
+        "regime TEXT, created_at TEXT, counters_json TEXT, run_type TEXT)"
+    )
+    con.execute(
+        "CREATE TABLE score_distribution (run_id TEXT, ticker TEXT, "
+        "is_holding INTEGER, raw_panel REAL)"
+    )
+
+    def _insert_run(run_id, run_date, created_at, run_type="live", n_candidates=10):
+        con.execute(
+            "INSERT INTO pipeline_runs VALUES (?,?,?,?,?,?)",
+            (run_id, run_date, "BULL_CALM", created_at, '{"n": 1}', run_type),
+        )
+        for i in range(n_candidates):
+            con.execute(
+                "INSERT INTO score_distribution VALUES (?,?,0,?)",
+                (run_id, f"T{i}", 0.1 * i),
+            )
+
+    # 2026-06-10: an early (superseded) run + a later full run, same date.
+    _insert_run("run-early", "2026-06-10", "2026-06-10T09:00:00")
+    _insert_run("run-late", "2026-06-10", "2026-06-10T15:30:00")
+    # 2026-06-11: a single run with too few candidates -- filtered by threshold.
+    _insert_run("run-thin", "2026-06-11", "2026-06-11T15:30:00", n_candidates=3)
+    # 2026-06-12: a single non-live (e.g. backtest) run -- filtered by run_type.
+    _insert_run("run-sim", "2026-06-12", "2026-06-12T15:30:00", run_type="backtest")
+    con.commit()
+    con.close()
+
+
+def test_canonical_runs_dedup_latest_full(tmp_path: Path):
+    db_path = tmp_path / "runs.fixture.db"
+    _build_canonical_runs_db(db_path)
+    con = open_readonly(str(db_path))
+    runs = canonical_runs(con, min_candidates=5)
+    con.close()
+
+    # Only 2026-06-10 has a qualifying (>= 5 candidates) live run; the
+    # 06-11 run is too thin and 06-12 is not run_type='live'.
+    assert len(runs) == 1
+    assert runs[0]["run_date"] == "2026-06-10"
+    assert runs[0]["run_id"] == "run-late"  # the LATER of the two same-date runs
+
+
+def test_canonical_runs_min_candidates_threshold(tmp_path: Path):
+    db_path = tmp_path / "runs.fixture.db"
+    _build_canonical_runs_db(db_path)
+    con = open_readonly(str(db_path))
+    runs = canonical_runs(con, min_candidates=3)
+    con.close()
+
+    # At threshold 3, the thin 06-11 run now qualifies too.
+    dates = {r["run_date"] for r in runs}
+    assert "2026-06-11" in dates
+    assert "2026-06-12" not in dates  # still excluded: run_type != 'live'
 
 
 # --------------------------------------------------------------------------
