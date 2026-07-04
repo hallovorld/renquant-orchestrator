@@ -276,6 +276,61 @@ class TestConfigResolvePaths:
         assert cfg.authorization_path == custom
 
 
+class TestSection94Gate:
+    """§9.4 economic-authorization gate must be present for live mode."""
+
+    def test_armed_without_section_94_falls_back_to_shadow(self, tmp_path: Path):
+        """Quintuple gate armed but no §9.4 file → shadow."""
+        runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
+        with patch.object(
+            runner, "_evaluate_arming",
+            return_value=MagicMock(
+                armed=True,
+                mode_effective="live",
+                downgraded=False,
+                authorization=MagicMock(content_sha256="abc123"),
+                to_manifest_record=lambda: {"armed": True},
+                reasons=[],
+            ),
+        ):
+            result = runner.run_session(
+                now_fn=lambda: _trading_day_now(10, 0),
+                sleep_fn=lambda _: None,
+                max_cycles=1,
+            )
+        assert result.mode_effective == "shadow"
+
+    def test_section_94_file_must_have_authorized_true(self, tmp_path: Path):
+        """§9.4 file exists but authorized=false → shadow."""
+        auth_dir = tmp_path / "data" / "rq105"
+        auth_dir.mkdir(parents=True, exist_ok=True)
+        (auth_dir / "section_9_4_economic_authorization.json").write_text(
+            json.dumps({"authorized": False, "prereg_id": "test-001"})
+        )
+        runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
+        assert not runner._check_section_9_4()
+
+    def test_section_94_file_must_have_prereg_id(self, tmp_path: Path):
+        """§9.4 file with authorized=true but no prereg_id → rejected."""
+        auth_dir = tmp_path / "data" / "rq105"
+        auth_dir.mkdir(parents=True, exist_ok=True)
+        (auth_dir / "section_9_4_economic_authorization.json").write_text(
+            json.dumps({"authorized": True})
+        )
+        runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
+        assert not runner._check_section_9_4()
+
+    def test_section_94_valid_file_passes(self, tmp_path: Path):
+        """Valid §9.4 file → gate passes."""
+        auth_dir = tmp_path / "data" / "rq105"
+        auth_dir.mkdir(parents=True, exist_ok=True)
+        (auth_dir / "section_9_4_economic_authorization.json").write_text(
+            json.dumps({"authorized": True, "prereg_id": "prereg-2026-08-01"})
+        )
+        runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
+        assert runner._check_section_9_4()
+
+
 class TestLiveFallbackWithoutPortFactory:
     """If the gate somehow arms but no port_factory is provided, fall back."""
 
@@ -290,7 +345,7 @@ class TestLiveFallbackWithoutPortFactory:
                 authorization=MagicMock(content_sha256="abc123"),
                 to_manifest_record=lambda: {"armed": True},
             ),
-        ):
+        ), patch.object(runner, "_check_section_9_4", return_value=True):
             result = runner.run_session(
                 now_fn=lambda: _trading_day_now(10, 0),
                 sleep_fn=lambda _: None,

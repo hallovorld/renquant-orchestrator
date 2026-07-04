@@ -1,5 +1,14 @@
 """Backfill decision_outcomes from candidate_scores + ticker_forward_returns.
 
+PROVENANCE WARNING — RECONSTRUCTED SUBSTRATE, NOT AUTHORITATIVE LIVE TRUTH.
+This backfiller infers gate verdicts from the ``blocked_by`` column in
+``candidate_scores``, which is a pipeline annotation, NOT a real-time ledger
+event. The mapping (blocked_by prefix → gate name) is heuristic. Downstream
+consumers (e.g. ``decision_outcome_validator``) should treat results as
+reconstructed/approximate and should NOT cite them as definitive live-ledger
+measurements without explicit qualification. The authoritative source for
+gate verdicts will be the live decision_ledger once #133 is wired.
+
 Bridges the per-ticker gate verdicts recorded in candidate_scores.blocked_by
 (from pipeline runs in runs.alpaca.db) to the decision_outcomes table (in
 decision_ledger.db). This is the collector that populates the S5 readiness

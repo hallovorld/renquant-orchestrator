@@ -4,11 +4,14 @@
 **Period:** 2026-04-23 to 2026-05-22
 **Sample:** 36 clean unique live buys, $69,679 total invested (1 excluded: HON 2:1 split-adjustment mismatch)
 
-## Bottom line
+## Bottom line — EXPLORATORY, not definitive
 
-**No measurable execution leak.** Current open-auction fills are competitive with
-same-day VWAP. The execution-timing prize assumed by 105 §9.4 (~40 bps) is
-**not supported** by this data.
+**Preliminary signal: no large execution leak apparent.** Current open-auction fills
+appear competitive with same-day VWAP in this sample. The execution-timing prize
+assumed by 105 §9.4 (~40 bps) is **not yet confirmed** by this data, but the
+evidence is EXPLORATORY — see §Data quality caveats below before drawing
+conclusions. This memo does NOT carry the status to close or re-anchor the §9.4
+thesis; it provides a directional signal for the prereg design.
 
 ## Summary (clean sample, n=36, HON excluded)
 
@@ -34,13 +37,38 @@ Dollar-weighted IS vs VWAP: **-89.6 bps** (larger orders fill even better vs VWA
    MU — liquid names) fill even better relative to VWAP.
 
 **Conclusion:** The execution-leak rationale for 105's entry-timing optimization
-is not supported. Current fills are already competitive. The 105 engineering
-prize should be re-anchored to:
-- **Execution timing of exits** (not measured here — requires sell-side IS)
-- **Order-type optimization** (limit vs market, but current market orders perform well)
-- **Overnight gap management** (fills vs next-close show noise, not leak)
+is not yet confirmed. Current fills appear competitive, but the evidence quality
+is EXPLORATORY (see caveats). Further work needed before re-anchoring the §9.4
+thesis:
+- Reconcile fills to actual trade date (not `run_date`)
+- Define exclusion logic ex-ante (not post-hoc split detection)
+- Show sensitivity with/without weekend remap and outlier handling
+- Extend to sell-side IS (exits, not just entries)
 
-## Data quality notes
+## Data quality caveats (MUST READ before citing this memo)
+
+**This is EXPLORATORY evidence, not measured-tier.** Three methodological
+instabilities prevent promoting these numbers to decision-grade:
+
+1. **Join-key misalignment**: `run_date` is the pipeline invocation date, NOT the
+   actual fill date. 30/67 raw trades land on weekends because the pipeline ran
+   Sat/Sun while the actual fill happened on the adjacent weekday. The "clean 36"
+   are the subset where `run_date` matches an FMP trading day — this is a heuristic
+   filter, not a verified trade-date reconciliation.
+
+2. **Deduplication is heuristic**: `DISTINCT (run_date, ticker, shares, price, invest)`
+   assumes these fields uniquely identify a trade. Partial fills, same-day re-entries,
+   or price-identical trades on different dates could be conflated or split.
+
+3. **Post-hoc outlier exclusion**: HON was excluded via `|IS_vs_open| > 1000 bps` —
+   a rule chosen AFTER observing the data. A pre-registered exclusion rule (e.g.,
+   split-adjusted price ratio detection) would be methodologically cleaner.
+
+**Sensitivity**: if the 30 unmatched weekend trades systematically had WORSE fills
+(plausible if weekend runs used stale prices for sizing), the true IS could be
+materially different from the matched-only estimate.
+
+## Raw data quality notes
 
 - **30/67 trades unmatched** — weekend `run_date` entries (Sat/Sun pipeline runs)
   have no FMP OHLCV data. These are duplicate pipeline invocations where the

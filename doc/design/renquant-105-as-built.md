@@ -11,11 +11,13 @@ decisioning (盘中). The goal is execution quality, NOT intraday alpha
 (Phase −1 measured net edge NEGATIVE: −6.4bps @IC 0.03 vs 220bps breakeven).
 Holding period stays multi-day.
 
-**S10 finding (2026-07-04):** Open-auction IS measurement on 36 clean live
-buys showed NO measurable execution leak — fills are competitive with VWAP
-(mean −35 bps, CI includes zero). The ~40bps entry-leak rationale is NOT
-supported. The 105 prize should re-anchor to exit timing and overnight gap
-management, not entry-side optimization.
+**S10 preliminary signal (2026-07-04, EXPLORATORY):** Open-auction IS
+measurement on 36 matched live buys showed fills approximately competitive
+with VWAP (mean −35 bps, CI includes zero). This is a directional signal,
+NOT a definitive conclusion — see `doc/research/2026-07-04-open-auction-is-measurement.md`
+§Data quality caveats for join-key, dedup, and outlier-exclusion limitations
+that must be resolved before the §9.4 entry-leak thesis can be confirmed or
+rejected.
 
 ## Architecture
 
@@ -145,9 +147,9 @@ return with status=non_session_day.
 - Session runner: DELIVERED (PR #333, pending review)
 - Software stops: DELIVERED (PR #333, pending review)
 - Shadow data collection: ACTIVE (collectors installed via launchd)
-- Live arming: NOT YET (requires 5 clean shadow sessions + replay audit + operator authorization)
+- Live arming: NOT YET (requires §9.3a quintuple gate + §9.4 economic authorization file + prereg)
 - Entry-timing evidence: ACCUMULATING (shadow pilot)
-- S10 execution leak: NOT CONFIRMED (2026-07-04, n=36 clean buys)
+- S10 execution leak: EXPLORATORY (2026-07-04, n=36 matched buys — see caveats in research memo)
 
 ## Cross-references
 

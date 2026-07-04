@@ -4,20 +4,23 @@ The integration point that wires all 105 modules into a single session
 lifecycle:
 
 1. Evaluate the §9.3a quintuple arming gate (``resolve_stage2_arming``)
-2. If armed → drive ``LiveTickExecutor`` through the session tick loop
-3. If ANY gate missing → delegate to the Stage-1 ``SessionScheduler`` (shadow)
-4. Software stops evaluated each tick, signals logged (shadow or folded into
+2. Check the §9.4 economic-authorization gate (separate from arming)
+3. If BOTH pass → drive ``LiveTickExecutor`` through the session tick loop
+4. If EITHER gate missing → delegate to the Stage-1 ``SessionScheduler`` (shadow)
+5. Software stops evaluated each tick, signals logged (shadow or folded into
    live decisions when armed)
-5. Entry-timing policy shadow evaluator runs as tick observer (same as today)
+6. Entry-timing policy shadow evaluator runs as tick observer (same as today)
 
-This was deferred in the Stage-2 PR (round 2, per codex review — "design
-cost ahead of the §9.4 economic-authorization decision"). The §9.4 decision
-gate is unchanged: this runner does NOT enable live mode — it provides the
-orchestration layer that WOULD drive it once the gate opens. Until then,
-every invocation falls through to shadow.
+SAFETY: live execution requires TWO independent gates:
+- The §9.3a quintuple arming gate (broker envelope, canary, kill switch, etc.)
+- The §9.4 economic-authorization gate (a pre-registered, immutable file that
+  records the operator's explicit decision that the economic case for live
+  intraday execution is justified — this gate does NOT exist yet and MUST be
+  created through the prereg process before live mode can activate)
 
-Shadow-only by default: all five gates of the quintuple gate must hold for
-live execution. The runner never constructs a broker port unless armed.
+Without the §9.4 file, the runner ALWAYS falls through to shadow regardless
+of arming state. The live-execution code path exists but is gated behind
+this additional authorization that is not satisfiable today.
 """
 from __future__ import annotations
 
@@ -84,6 +87,7 @@ ET = ZoneInfo("America/New_York")
 
 RUNNER_SCHEMA_VERSION = "rq105-session-runner-v1"
 RECORD_KIND_MANIFEST = "session_runner_manifest"
+SECTION_9_4_FILENAME = "section_9_4_economic_authorization.json"
 
 
 @dataclass
@@ -239,6 +243,28 @@ class SessionRunner:
             today=today,
         )
 
+    def _check_section_9_4(self) -> bool:
+        """Check whether the §9.4 economic-authorization file exists and is valid.
+
+        This is the SEPARATE gate that must be satisfied BEFORE live execution
+        can activate, independent of the quintuple arming gate. The file must
+        exist, contain valid JSON with ``"authorized": true``, and include a
+        ``"prereg_id"`` field linking it to a pre-registered experiment.
+        """
+        auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
+        if not auth_path.exists():
+            return False
+        try:
+            with auth_path.open() as fh:
+                payload = json.load(fh)
+            return (
+                isinstance(payload, dict)
+                and payload.get("authorized") is True
+                and bool(payload.get("prereg_id"))
+            )
+        except Exception:
+            return False
+
     def run_session(
         self,
         *,
@@ -273,9 +299,24 @@ class SessionRunner:
                 max_cycles=max_cycles,
             )
 
+        if not self._check_section_9_4():
+            log.info(
+                "quintuple gate armed BUT §9.4 economic authorization NOT "
+                "present — falling back to shadow. The §9.4 file must be "
+                "created through the prereg process before live mode activates."
+            )
+            return self._run_shadow(
+                arming=arming,
+                kill_switch=kill_switch,
+                session_date=session_date,
+                now_fn=now_fn,
+                sleep_fn=sleep_fn,
+                max_cycles=max_cycles,
+            )
+
         log.info(
-            "quintuple gate ARMED — driving Stage-2 live session "
-            "(authorization=%s)",
+            "quintuple gate ARMED + §9.4 authorized — driving Stage-2 live "
+            "session (authorization=%s)",
             arming.authorization.content_sha256[:12] if arming.authorization else "?",
         )
         return self._run_live(
