@@ -1,13 +1,17 @@
-# Signal pipeline configuration — 106 feature flag-off pre-build
+# Signal pipeline configuration — 106 readiness scaffolding
 
 **Date**: 2026-07-04
-**PR**: (this PR)
-**Master plan ref**: 106 service path (C1/PIT feature pipeline flag-off)
+**PR**: #321
+**Master plan ref**: 106 service path (C1/PIT feature pipeline flag-off pre-build)
 
 ## What
 
-Adds `signal_pipeline_config.py` — the feature-flag-off infrastructure that
-makes enabling new signal families a config flip instead of a code change.
+Adds `signal_pipeline_config.py` — a **pre-build inventory and readiness
+scaffold** for the 106 signal evolution path.
+
+**This is scaffolding, NOT an already-effective pipeline toggle.** No existing
+training or feature-building flow reads this registry yet. Wiring a real consumer
+so `enabled=True` actually feeds a retrain is downstream work tracked by M-SIG.
 
 ### Module
 - `SignalSource` dataclass: name, kind, enabled, min_history_days, data_subpath,
@@ -26,13 +30,13 @@ makes enabling new signal families a config flip instead of a code change.
 ## Design
 
 Future signal sources (PIT revisions, analyst estimates, regime momentum) are
-defined but start DISABLED. Each carries:
+registered but start DISABLED. Each carries:
 - `min_history_days`: minimum data accrual before the source CAN be enabled
 - `prereg_gate`: the pre-registration gate that must be passed before enabling
 
-When a signal passes its M-SIG prereg and has enough accrued history, activation
-is a config change: set `enabled: true` in the pipeline config JSON.
+The activation path is not yet wired: when a real consumer (retrain flow) is
+connected to read this config, enabling a source will become a config flip.
 
 ## Tests
 
-16 new tests. All 1929 pass.
+16 new tests.
