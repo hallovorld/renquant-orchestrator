@@ -36,7 +36,8 @@
   ],
   "pyproject_entrypoints": {
     "renquant-orchestrator": "renquant_orchestrator.cli:main",
-    "rq-tc": "renquant_orchestrator.transfer_coefficient:main"
+    "rq-tc": "renquant_orchestrator.transfer_coefficient:main",
+    "rq-readiness": "renquant_orchestrator.readiness_monitor:main"
   },
   "source_modules": [
     "__main__",
@@ -103,6 +104,7 @@
     "native_live_snapshots",
     "patchtst_weekly_cutoff",
     "pit_revision_collector",
+    "readiness_monitor",
     "realtime_data_plane",
     "repos",
     "retrain_alpha158_fund",
