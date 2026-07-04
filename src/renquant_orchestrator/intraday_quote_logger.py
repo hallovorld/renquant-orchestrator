@@ -255,96 +255,25 @@ def alpaca_credentials_present() -> bool:
 # ---------------------------------------------------------------------------
 # Exchange-calendar / session-boundary primitive (dependency-injected)
 # ---------------------------------------------------------------------------
-@dataclass(frozen=True)
-class SessionBounds:
-    """The regular-trading-hours boundaries of ONE exchange session, as aware ET
-    datetimes. ``open`` is inclusive, ``close`` is exclusive. Early closes yield an
-    earlier ``close``; DST is already resolved (the datetimes are tz-aware)."""
-
-    open: datetime
-    close: datetime
-
-    def contains(self, moment: datetime) -> bool:
-        """True when ``moment`` (aware) is within [open, close)."""
-        m = _as_aware(moment)
-        return self.open <= m < self.close
-
-
-class SessionCalendar(Protocol):
-    """Pluggable exchange session calendar. The real impl is NYSE via
-    ``pandas_market_calendars`` (the SAME primitive execution uses); tests inject a
-    deterministic fake. ``session_bounds`` returns ``None`` for a non-trading day
-    (weekend/holiday)."""
-
-    name: str
-
-    def session_bounds(self, day: date_cls) -> SessionBounds | None:
-        ...
-
-
-class NyseSessionCalendar:
-    """Real NYSE session calendar backed by ``pandas_market_calendars`` — the same
-    primitive ``renquant_execution.preopen_cancel_gate`` uses. Handles holidays
-    (no session), half days / early closes (earlier ``market_close``) and DST
-    (tz-aware timestamps). Schedules are cached per date so the sampling loop pays
-    the pandas cost once per session, not once per tick."""
-
-    name = "NYSE"
-
-    def __init__(self, calendar_name: str = "NYSE") -> None:
-        self.name = calendar_name
-        self._cal: Any | None = None
-        self._cache: dict[str, SessionBounds | None] = {}
-
-    def _calendar(self) -> Any:
-        if self._cal is None:
-            import pandas_market_calendars as mcal  # noqa: PLC0415
-
-            self._cal = mcal.get_calendar(self.name)
-        return self._cal
-
-    def session_bounds(self, day: date_cls) -> SessionBounds | None:
-        key = day.isoformat()
-        if key in self._cache:
-            return self._cache[key]
-        cal = self._calendar()
-        sched = cal.schedule(key, key)
-        bounds: SessionBounds | None
-        if sched.empty:
-            bounds = None
-        else:
-            open_ts = sched["market_open"].iloc[0]
-            close_ts = sched["market_close"].iloc[0]
-            bounds = SessionBounds(open=_pandas_ts_to_et(open_ts), close=_pandas_ts_to_et(close_ts))
-        self._cache[key] = bounds
-        return bounds
-
-
-_DEFAULT_CALENDAR: SessionCalendar | None = None
-
-
-def default_session_calendar() -> SessionCalendar:
-    """Lazily-constructed shared NYSE calendar for real runs. Tests inject a fake
-    and never reach this."""
-    global _DEFAULT_CALENDAR
-    if _DEFAULT_CALENDAR is None:
-        _DEFAULT_CALENDAR = NyseSessionCalendar()
-    return _DEFAULT_CALENDAR
+# Campaign B5 (audit #296 §4.1): the calendar primitive that lived here —
+# SessionBounds / SessionCalendar / NyseSessionCalendar /
+# default_session_calendar — was the de-facto orchestrator canonical and has
+# been lifted VERBATIM to ``renquant_common.market_calendar``, the ONE shared
+# NYSE session calendar every repo now imports. The names are re-exported
+# here so in-repo consumers (intraday_session_scheduler,
+# intraday_session_inputs, entry-timing, both ops liveness checkers) and
+# their tests keep importing from this module unchanged.
+from renquant_common.market_calendar import (  # noqa: E402  (re-export)
+    NyseSessionCalendar,
+    SessionBounds,
+    SessionCalendar,
+    default_session_calendar,
+)
 
 
 def _as_aware(moment: datetime) -> datetime:
     """Treat a naive datetime as ET; leave an aware one alone."""
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=ET)
-
-
-def _pandas_ts_to_et(ts: Any) -> datetime:
-    """Convert a (tz-aware, typically UTC) pandas Timestamp to an aware ET
-    ``datetime``. DST is resolved by the tz conversion."""
-    to_pydatetime = getattr(ts, "to_pydatetime", None)
-    dt = to_pydatetime() if callable(to_pydatetime) else ts
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(ET)
 
 
 # ---------------------------------------------------------------------------

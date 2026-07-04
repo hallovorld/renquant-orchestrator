@@ -20,6 +20,13 @@ if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
   exit 1
 fi
 PY="$RQ_ROOT/.venv/bin/python"
+# Campaign B5: the calendar primitive behind bundle verification now lives in
+# renquant_common.market_calendar — put a sibling renquant-common checkout on
+# PYTHONPATH BEFORE the verify step (pinned -run checkout preferred; the venv
+# install alone may predate market_calendar).
+RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
+[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # Verify the on-disk bundle is genuinely today's, sourced from the correct
 # prior session, and unmodified before trusting it — session_date match +
 # source_run_date match against the real prior NYSE session + score-content-
@@ -35,7 +42,6 @@ if ! VERIFY_OUT=$("$PY" "$RQ105_ORCH_ROOT/ops/renquant105/batch_scores_bundle.py
   exit 1
 fi
 RUN_ID=$(python3 -c "import json;print(json.load(open('$META'))['run_id'])")
-export PYTHONPATH="$RQ105_ORCH_ROOT/src"
 RC_TOTAL=0
 for T in 10:00 12:00 14:00 15:30; do
   AS_OF=$("$PY" -c "import datetime,zoneinfo; h,m='${T}'.split(':'); print(datetime.datetime.combine(datetime.date.today(), datetime.time(int(h),int(m)), tzinfo=zoneinfo.ZoneInfo('America/New_York')).isoformat())")

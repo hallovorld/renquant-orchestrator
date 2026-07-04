@@ -58,6 +58,15 @@ def _session_calendar():
     p = os.path.join(RQ_ORCH_ROOT, "src")
     if p not in sys.path:
         sys.path.insert(0, p)
+    # Campaign B5: the primitive re-exported by intraday_quote_logger now
+    # lives in renquant_common.market_calendar — a stale venv install may
+    # predate it, so put a sibling renquant-common checkout on sys.path too
+    # (pinned -run checkout preferred).
+    for name in ("renquant-common-run", "renquant-common"):
+        c = os.path.join(os.path.dirname(RQ_ORCH_ROOT), name, "src")
+        if os.path.isdir(c) and c not in sys.path:
+            sys.path.insert(0, c)
+            break
     from renquant_orchestrator.intraday_quote_logger import default_session_calendar
 
     return default_session_calendar()
