@@ -42,7 +42,13 @@ def test_build_readonly_execution_payload_does_not_connect_to_broker() -> None:
         }
     ]
     assert payload["execution_audit"] == [
-        {"broker": "readonly-alpaca", "dry_run": True, "n_intents": 1, "n_submitted": 1}
+        {
+            "broker": "readonly-alpaca",
+            "dry_run": True,
+            "n_intents": 1,
+            "n_submitted": 1,
+            "n_skipped": 0,
+        }
     ]
 
 

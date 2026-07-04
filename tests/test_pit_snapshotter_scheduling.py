@@ -33,6 +33,9 @@ import pit_liveness_check as liveness  # noqa: E402
 _EXPECTED_TIMES = {
     "com.renquant.pit-estimate-snapshot.plist": (14, 30),
     "com.renquant.pit-liveness.plist": (15, 0),
+    # C1 feature builder runs AFTER the snapshot (14:30) and liveness (15:00)
+    # so it always sees today's published snapshot when one exists.
+    "com.renquant.pit-c1-features.plist": (15, 30),
 }
 
 
@@ -455,3 +458,81 @@ def test_run_with_lock_propagates_wrapped_command_exit_code(tmp_path):
         capture_output=True, text=True,
     )
     assert result.returncode == 7
+
+
+# ───────────────── C1 feature-builder wrapper (M-SIG C1 serving path) ────────
+#
+# The heavy lock-machinery guarantees are proven once above against
+# run_with_lock.py (shared by both wrappers). Here we only assert the C1
+# wrapper's own wiring: it reaches the builder through the stub venv python
+# when its lock is free, and it skips cleanly (exit 0, no builder invocation)
+# when its own DEDICATED lock file is held — the two wrappers must not share
+# a lock, or a long snapshot fetch would silently skip the feature build.
+
+_C1_WRAPPER = OPS_DIR / "run_c1_feature_builder.sh"
+
+
+def _c1_env(tmp_path: Path):
+    env_overrides, runs_log = _stub_env(tmp_path)
+    env_overrides["PIT_C1_LOCK_FILE"] = str(tmp_path / "c1.lock")
+    return env_overrides, runs_log
+
+
+def test_c1_wrapper_runs_builder_when_lock_free(tmp_path):
+    env_overrides, runs_log = _c1_env(tmp_path)
+    env = {**os.environ, **env_overrides}
+    result = subprocess.run(["/bin/bash", str(_C1_WRAPPER)], env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0
+    assert _run_count(runs_log) == 1, "stub python was never invoked — wrapper did not run the builder"
+
+
+def test_c1_wrapper_skips_cleanly_when_its_own_lock_is_held(tmp_path):
+    env_overrides, runs_log = _c1_env(tmp_path)
+    lock_file = env_overrides["PIT_C1_LOCK_FILE"]
+    holder_log = tmp_path / "holder.log"
+    holder = subprocess.Popen(
+        [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", lock_file,
+         "--log-file", str(holder_log), "--", "sleep", "5"],
+    )
+    try:
+        _wait_for_lock_held(lock_file, timeout=5)
+        env = {**os.environ, **env_overrides}
+        result = subprocess.run(["/bin/bash", str(_C1_WRAPPER)], env=env,
+                                capture_output=True, text=True)
+        assert result.returncode == 0, "a held lock must be a benign skip (exit 0), not a failure"
+        assert _run_count(runs_log) == 0, "the builder must NOT run while its lock is held"
+    finally:
+        holder.kill()
+        holder.wait(timeout=5)
+
+
+def test_c1_wrapper_uses_a_dedicated_lock_not_the_snapshotters(tmp_path):
+    """Holding the SNAPSHOTTER's lock must not block the C1 builder."""
+    env_overrides, runs_log = _c1_env(tmp_path)
+    snap_lock = env_overrides["PIT_SNAPSHOT_LOCK_FILE"]
+    holder_log = tmp_path / "holder.log"
+    holder = subprocess.Popen(
+        [sys.executable, str(_LOCK_LAUNCHER), "--lock-file", snap_lock,
+         "--log-file", str(holder_log), "--", "sleep", "5"],
+    )
+    try:
+        _wait_for_lock_held(snap_lock, timeout=5)
+        env = {**os.environ, **env_overrides}
+        result = subprocess.run(["/bin/bash", str(_C1_WRAPPER)], env=env,
+                                capture_output=True, text=True)
+        assert result.returncode == 0
+        assert _run_count(runs_log) == 1, "the C1 builder must proceed under its own lock"
+    finally:
+        holder.kill()
+        holder.wait(timeout=5)
+
+
+def test_c1_wrapper_points_at_the_read_only_lake_and_pit_features_out(tmp_path):
+    """The wrapper must invoke `pit_revision_features build` with the lake as
+    --snapshot-root and a data/pit_features out-root (the builder itself
+    structurally refuses anything else — this pins the wrapper's wiring)."""
+    text = _C1_WRAPPER.read_text()
+    assert "-m renquant_base_data.pit_revision_features build" in text
+    assert "--snapshot-root" in text and "data/estimate_snapshots" in text
+    assert "--out" in text and "data/pit_features" in text
