@@ -182,13 +182,23 @@ solver room to find a feasible point.
 ### Stage 3: soft-turnover migration (pipeline code change, conditional on Stage 0.5 + Stages 1-2 results)
 
 Move turnover from a hard constraint to a soft penalty in the objective:
-`-kappa_turnover * ||dw||₁`. This makes the QP always feasible (removing
-turnover from the constraint set removes the most binding constraint) while
-still penalizing excessive trading.
+`-kappa_turnover * ||dw||₁`. **This does not make the QP always feasible** —
+budget, box, wash-sale, sector, and correlation constraints remain in the
+constraint set and can still conflict with each other independent of
+turnover. What this stage removes is *turnover-driven* infeasibility
+specifically: our working hypothesis (per the root-cause decomposition
+above, pending Stage 0.5 re-verification) is that turnover is the dominant
+binding constraint in the observed infeasible runs, so eliminating it as a
+hard constraint should resolve most of them — not all, and not by
+mathematical guarantee.
 
-**Expected impact**: eliminates infeasibility from turnover entirely. The
-linear transaction cost term `kappa` already penalizes trading; the hard cap
-is redundant protection.
+**Expected impact**: reduces infeasibility attributable to the turnover cap.
+The linear transaction cost term `kappa` already penalizes trading; the hard
+cap is redundant protection for that specific constraint — but the QP can
+still come back infeasible on the other five constraints listed under "Why
+the constraint set is infeasible" above. Stage 4's fallback improvement
+exists precisely because some non-zero infeasible rate is expected to
+remain (see the ~5% Full (1-4) projection in Success metric below, not 0%).
 
 ### Stage 4: infeasibility fallback improvement (pipeline code change, conditional on Stage 0.5)
 
@@ -228,8 +238,13 @@ is caught rather than assumed to have worked.
 
 - Stage 1 (relax C2): LOW — loosens inter-name caps by 1.5×, no single-name
   risk change. Reversible (config flag).
-- Stage 2 (turnover 50%): LOW — still caps daily rebalancing at half the book.
-  Commission-free broker means no cost impact. Reversible.
+- Stage 2 (turnover 50%): LOW-MEDIUM — still caps daily rebalancing at half
+  the book. The broker is commission-free, but higher turnover is not
+  cost-free: slippage and spread-capture costs scale with trade frequency,
+  and faster rebalancing could degrade realized IR even absent explicit
+  commissions. This should be monitored via the TC time series (S-TC
+  module) alongside the infeasible-rate metric during rollout, not assumed
+  benign because commissions are zero. Reversible.
 - Stage 3 (soft turnover): MEDIUM — removes the hard trading cap. Needs
   parameter tuning for the penalty coefficient. Should shadow-run first.
 - Stage 4 (fallback): LOW — only fires on infeasible runs which currently
