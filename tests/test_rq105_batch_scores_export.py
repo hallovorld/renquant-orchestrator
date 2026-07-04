@@ -484,3 +484,30 @@ def test_verify_bundle_rejects_missing_meta_hash_field():
         ok, reason = bundle.verify_bundle(score_path, meta_path, today="2026-07-02")
         assert not ok
         assert "sha256" in reason.lower() or "hash" in reason.lower()
+
+
+# ──────────────── B4: canonical_hash == hash_jsonable equivalence ──────────────
+
+
+def test_canonical_hash_matches_hash_jsonable():
+    """Campaign B4: ``canonical_hash`` must produce the SAME hash as
+    ``renquant_artifacts.hash_jsonable`` on score-shaped dicts."""
+    from renquant_artifacts import hash_jsonable
+
+    for payload in [
+        {"AAPL": 0.123, "GOOG": -0.456, "MSFT": 0.0},
+        {},
+        {"ZZZ": 1.0},
+        {"A": 0.1, "B": 0.2, "C": 0.3, "D": 0.4, "E": 0.5},
+    ]:
+        assert bundle.canonical_hash(payload) == hash_jsonable(payload), (
+            f"canonical_hash diverges from hash_jsonable on {payload}"
+        )
+
+
+def test_canonical_hash_delegates_to_hash_jsonable():
+    """B4 contract: ``canonical_hash`` is a thin wrapper."""
+    from renquant_artifacts import hash_jsonable
+
+    scores = {"AAPL": 0.5, "GOOG": -0.1, "NVDA": 0.25}
+    assert bundle.canonical_hash(scores) == hash_jsonable(scores)
