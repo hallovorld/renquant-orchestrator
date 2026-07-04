@@ -484,3 +484,95 @@ def test_verify_bundle_rejects_missing_meta_hash_field():
         ok, reason = bundle.verify_bundle(score_path, meta_path, today="2026-07-02")
         assert not ok
         assert "sha256" in reason.lower() or "hash" in reason.lower()
+
+
+# ──────────────── B4: canonical_hash == hash_jsonable equivalence ──────────────
+
+
+def test_canonical_hash_matches_hash_jsonable():
+    """Campaign B4: ``canonical_hash`` must produce the SAME hash as
+    ``renquant_artifacts.hash_jsonable`` on score-shaped dicts."""
+    from renquant_artifacts import hash_jsonable
+
+    for payload in [
+        {"AAPL": 0.123, "GOOG": -0.456, "MSFT": 0.0},
+        {},
+        {"ZZZ": 1.0},
+        {"A": 0.1, "B": 0.2, "C": 0.3, "D": 0.4, "E": 0.5},
+    ]:
+        assert bundle.canonical_hash(payload) == hash_jsonable(payload), (
+            f"canonical_hash diverges from hash_jsonable on {payload}"
+        )
+
+
+def test_canonical_hash_delegates_to_hash_jsonable():
+    """B4 contract: ``canonical_hash`` is a thin wrapper."""
+    from renquant_artifacts import hash_jsonable
+
+    scores = {"AAPL": 0.5, "GOOG": -0.1, "NVDA": 0.25}
+    assert bundle.canonical_hash(scores) == hash_jsonable(scores)
+
+
+# ──────── B4 round 2: verify_bundle must still accept pre-B4 bundles ────────
+
+
+def test_new_and_legacy_hash_schemes_genuinely_differ():
+    """Sanity check that the fallback test below is exercising a real
+    scheme difference, not accidentally testing two identical functions."""
+    scores = {"AAPL": 0.123, "GOOG": -0.456, "MSFT": 0.0}
+    assert bundle.canonical_hash(scores) != bundle._legacy_canonical_hash(scores)
+
+
+def test_verify_bundle_accepts_bundle_stamped_with_legacy_hash_scheme(tmp_path):
+    """A bundle exported before the B4 unification stamped its meta's
+    score_content_sha256 with the old canonical_hash (plain hashlib.sha256
+    over json.dumps(..., default=str), no separators/volatile-key strip).
+    verify_bundle must still accept it today — unifying the writer must not
+    make a bundle that was valid under the contract in force when it was
+    written retroactively unverifiable (Codex review on #331)."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-legacyhash")
+    out_dir = tmp_path / "out"
+    exporter.main(db_path=db, out_dir=str(out_dir), today="2026-07-02")
+
+    meta_path = out_dir / "batch_scores_2026-07-02.meta.json"
+    score_path = out_dir / "batch_scores_2026-07-02.json"
+    scores = json.loads(score_path.read_text())
+    meta = json.loads(meta_path.read_text())
+    # Re-stamp with the legacy scheme, as a pre-B4 export would have.
+    meta["score_content_sha256"] = bundle._legacy_canonical_hash(scores)
+    meta_path.write_text(json.dumps(meta))
+
+    ok, reason = bundle.verify_bundle(
+        str(score_path), str(meta_path), today="2026-07-02"
+    )
+    assert ok, reason
+    assert "legacy" in reason.lower()
+
+
+def test_verify_bundle_still_rejects_genuine_tampering_under_either_scheme(tmp_path):
+    """The legacy-scheme fallback must not turn verify_bundle into a
+    rubber stamp — a score file that matches NEITHER the new nor the
+    legacy hash of the meta-recorded value is still genuine tampering."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-legacytamper")
+    out_dir = tmp_path / "out"
+    exporter.main(db_path=db, out_dir=str(out_dir), today="2026-07-02")
+
+    meta_path = out_dir / "batch_scores_2026-07-02.meta.json"
+    score_path = out_dir / "batch_scores_2026-07-02.json"
+    scores = json.loads(score_path.read_text())
+    meta = json.loads(meta_path.read_text())
+    meta["score_content_sha256"] = bundle._legacy_canonical_hash(scores)
+    meta_path.write_text(json.dumps(meta))
+
+    # Tamper with the on-disk scores after re-stamping.
+    payload = json.loads(score_path.read_text())
+    payload["AAA"] = 999.0
+    score_path.write_text(json.dumps(payload))
+
+    ok, reason = bundle.verify_bundle(
+        str(score_path), str(meta_path), today="2026-07-02"
+    )
+    assert not ok
+    assert "mismatch" in reason.lower()
