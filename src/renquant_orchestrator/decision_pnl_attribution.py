@@ -34,10 +34,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from renquant_orchestrator.runtime_paths import default_data_root
+
 # The live run DB. Exposed only as a default for ad-hoc/CLI use — every public
 # function takes the path/connection explicitly so nothing is hard-coded into
 # the logic and tests never touch live state.
-DEFAULT_DB = Path.home() / "git/github/RenQuant/data/runs.alpaca.db"
+DEFAULT_DB = default_data_root() / "data" / "runs.alpaca.db"
 
 # Class labels (kept as constants so callers/tests don't string-match by hand).
 SELECTED = "SELECTED"
