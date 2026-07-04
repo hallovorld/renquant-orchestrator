@@ -1,4 +1,4 @@
-# rq104 ops — scorer-identity monitor
+# rq104 ops — scorer-identity monitor · risk-budget statement
 
 Post-run monitors for the renquant_104 daily chain that key on what a run
 ACTUALLY served (its own bundle stamps), not on what sits on disk.
@@ -58,3 +58,37 @@ launchctl load ~/Library/LaunchAgents/com.renquant.rq104-scorer-identity.plist
 The plist points at the deployed run checkout
 (`/Users/renhao/git/github/renquant-orchestrator-run`), same convention as the
 `ops/renquant105` jobs — merged is not deployed until that checkout syncs.
+
+## risk-budget statement (107 sprint D3) — OBSERVE-ONLY
+
+`renquant_orchestrator.risk_budget.report` renders the monthly risk-budget
+statement: budgets as data (DD 15% HARD per the G* bar / β 0.6 planning per
+RS-1 §2 / per-name concentration per the pinned regime caps / sleeve DD
+sub-budget per pipeline #157), current consumption from read-only sources
+(`runs.alpaca.db` mode=ro, pinned strategy config, sleeve shadow JSONL when
+present, ohlcv closes for measured per-name β), burn-rate/runway arithmetic,
+and the attribution-engine bridge answering which P&L leg consumes the DD
+budget. Censored eras (#253 fill-confirmation boundary etc.) propagate
+explicitly — nothing is imputed. No gates, no trading behavior.
+
+Exit codes: `0` ok · `2` WARN (any budget >80% consumed) · `1` CRITICAL
+(>=100%). The wrapper (`run_risk_budget_statement.sh`) posts ntfy on
+WARN/CRITICAL and on a crash that never reached a verdict.
+
+### Manual run
+
+```bash
+PY=/Users/renhao/git/github/RenQuant/.venv/bin/python
+export PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src
+$PY -m renquant_orchestrator.risk_budget.report   # writes ~/renquant-data/research/risk_budget/
+```
+
+### Install (operator action — NOT performed by merge)
+
+Monthly, 1st at 15:30 local:
+
+```bash
+mkdir -p /Users/renhao/git/github/RenQuant/logs/rq104
+cp ops/renquant104/com.renquant.rq104-risk-budget.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.renquant.rq104-risk-budget.plist
+```
