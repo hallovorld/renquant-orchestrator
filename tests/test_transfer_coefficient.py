@@ -1,6 +1,7 @@
 """Tests for the transfer-coefficient measurement module (S-TC)."""
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import numpy as np
@@ -198,3 +199,19 @@ def test_tc_regime_breakdown(tc_db):
     assert s["n_runs"] == 3
     # 2 BULL_CALM + 1 BEAR: neither regime has ≥3 runs, so by_regime is empty
     assert len(s["by_regime"]) == 0
+
+
+def test_cli_text_output(tc_db):
+    from renquant_orchestrator.transfer_coefficient import main
+    rc = main(["--db", str(tc_db), "--min-candidates", "5"])
+    assert rc == 0
+
+
+def test_cli_json_output(tc_db, capsys):
+    from renquant_orchestrator.transfer_coefficient import main
+    rc = main(["--db", str(tc_db), "--min-candidates", "5", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert "summary" in data
+    assert data["summary"]["n_runs"] == 3
