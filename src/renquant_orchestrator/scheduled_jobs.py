@@ -440,6 +440,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         production_safe=False,
         umbrella_state_dependency="RenQuant data and artifact output paths",
     ),
+    ScheduledJob(
+        job_id="model_freshness_monitor",
+        kind="ops",
+        cadence="daily",
+        command=["renquant-orchestrator", "run-job", "model_freshness_monitor"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency="RenQuant model artifacts and strategy config",
+        launchd_label="com.renquant.model-freshness",
+    ),
 )
 
 

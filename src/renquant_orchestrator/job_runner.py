@@ -25,6 +25,7 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "native_live_run_candidate": "renquant_orchestrator.native_live_run",
     "build_wf_manifest": "renquant_orchestrator.build_wf_manifest",
     "build_patchtst_wf_manifest": "renquant_orchestrator.build_patchtst_wf_manifest",
+    "model_freshness_monitor": "renquant_orchestrator.model_freshness_monitor",
 }
 
 
