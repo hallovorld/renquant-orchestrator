@@ -441,6 +441,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         umbrella_state_dependency="RenQuant data and artifact output paths",
     ),
     ScheduledJob(
+        job_id="daily_pit_revision_snapshot",
+        kind="ops",
+        cadence="daily",
+        command=["renquant-orchestrator", "run-job", "daily_pit_revision_snapshot"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency="RenQuant/data/pit output paths and FMP API key",
+        launchd_label="com.renquant.pit-revision-collector",
+    ),
+    ScheduledJob(
         job_id="intraday_quote_logger",
         kind="ops",
         cadence="intraday_session",
