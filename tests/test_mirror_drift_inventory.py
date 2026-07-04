@@ -189,7 +189,10 @@ class TestCheckMirrorDrift:
         assert rc == 0
         assert "no baseline" in capsys.readouterr().out.lower()
 
-    def test_new_file_detected(self, twin_kernels, tmp_path):
+    def test_new_pipeline_only_file_is_not_drift(self, twin_kernels, tmp_path):
+        """Pipeline is the sole kernel/ authority — a brand-new pipeline-only
+        file is normal pipeline evolution, not umbrella mirror drift, and
+        must never trip the strict-mode freeze-line."""
         from check_mirror_drift import check_drift
 
         pipeline, umbrella = twin_kernels
@@ -197,8 +200,23 @@ class TestCheckMirrorDrift:
         inv = build_inventory(pipeline, umbrella)
         baseline_path.write_text(json.dumps(inv))
 
-        # Add a brand new file
         (pipeline / "brand_new.py").write_text("def fresh(): pass\n")
+
+        rc = check_drift(pipeline, umbrella, baseline_path, report_only=False)
+        assert rc == 0
+
+    def test_new_umbrella_only_file_is_flagged(self, twin_kernels, tmp_path):
+        """The umbrella mirror is meant to be frozen — a brand-new
+        umbrella-only file is itself suspicious and must still fail
+        strict mode."""
+        from check_mirror_drift import check_drift
+
+        pipeline, umbrella = twin_kernels
+        baseline_path = tmp_path / "baseline.json"
+        inv = build_inventory(pipeline, umbrella)
+        baseline_path.write_text(json.dumps(inv))
+
+        (umbrella / "brand_new.py").write_text("def fresh(): pass\n")
 
         rc = check_drift(pipeline, umbrella, baseline_path, report_only=False)
         assert rc == 1

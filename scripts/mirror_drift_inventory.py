@@ -20,8 +20,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-PIPELINE_DEFAULT = "/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/kernel"
-UMBRELLA_DEFAULT = "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/kernel"
+# Sibling-repo layout convention (per RENQUANT_REPOS.md): every subrepo is
+# checked out as a sibling of this repo under a common parent directory.
+# Derive from __file__ rather than hard-coding a workstation-specific home
+# directory, so the baseline this script produces is portable across
+# machines/CI runners instead of baking in one operator's local layout.
+_SIBLINGS_ROOT = Path(__file__).resolve().parent.parent.parent
+PIPELINE_DEFAULT = str(_SIBLINGS_ROOT / "renquant-pipeline" / "src" / "renquant_pipeline" / "kernel")
+UMBRELLA_DEFAULT = str(_SIBLINGS_ROOT / "RenQuant" / "backtesting" / "renquant_104" / "kernel")
 
 
 def _collect_py_files(root: Path) -> set[str]:

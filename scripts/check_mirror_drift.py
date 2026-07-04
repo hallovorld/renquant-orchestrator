@@ -66,14 +66,22 @@ def check_drift(
         if entry["file"] not in baseline_material:
             new_drift.append(entry)
 
+    # Only files that are part of (or should be part of) the FROZEN UMBRELLA
+    # MIRROR are policed here: files shared between both trees (identical /
+    # trivial_drift / material_drift — new_drift above already catches the
+    # material case) and umbrella_only files (the umbrella is meant to be
+    # frozen, so a brand-new umbrella-only file is itself suspicious).
+    # pipeline_only files are deliberately EXCLUDED: pipeline is the sole
+    # authority for kernel/ per this campaign's own design, so new
+    # pipeline-authority-native files are normal pipeline evolution, not
+    # mirror drift, and must never trip the strict-mode freeze-line.
     new_files: list[str] = []
-    current_all_files: set[str] = set()
-    current_all_files.update(current["identical"])
-    current_all_files.update(current["trivial_drift"])
-    current_all_files.update(e["file"] for e in current["material_drift"])
-    current_all_files.update(current["pipeline_only"])
-    current_all_files.update(e["file"] for e in current["umbrella_only"])
-    for f in sorted(current_all_files - baseline_all):
+    mirror_eligible_files: set[str] = set()
+    mirror_eligible_files.update(current["identical"])
+    mirror_eligible_files.update(current["trivial_drift"])
+    mirror_eligible_files.update(e["file"] for e in current["material_drift"])
+    mirror_eligible_files.update(e["file"] for e in current["umbrella_only"])
+    for f in sorted(mirror_eligible_files - baseline_all):
         new_files.append(f)
 
     if not new_drift and not new_files:
