@@ -53,31 +53,55 @@ rather than "stale."
 
 ---
 
-## 3. Candidate B: "dropna clip" (serving-axis coupling)
+## 3. Candidate B: training/serving axis coupling or config-fingerprint drift
 
-The same `build_alpha158_qlib.py:448` dropna bug that caused the fundamentals
-freshness block (PR #26 fix) has a **shadow-side variant**. The primary fix
-(#26, `resolve_serving_daily_index()`) decoupled the PROD serving axis from
-the training label clip. But the SHADOW retrain pipeline may still build its
-feature matrix against the label-clipped alpha dataset, producing a model whose
-effective data horizon is ~88 calendar days behind price.
+**Investigated, not confirmed as the #26 mechanism specifically.** An earlier
+draft of this memo named a concrete causal chain — "the shadow retrain calls
+`build_alpha158_qlib.py` without the #26 fix's `resolve_serving_daily_index()`
+decoupling" — but tracing the actual shadow PatchTST code path does not
+support that specific claim:
 
-**Mechanism:** If the shadow retrain calls `build_alpha158_qlib` without the
-#26 fix's serving-axis decoupling, the resulting artifact's training cutoff is
-coupled to `fwd_60d_excess` label availability. The WF gate then evaluates
-this artifact against a corpus whose tail is structurally ~60 trading days
-behind, and the placebo/leakage tests fire on the truncated validation window.
+- The shadow retrain (`renquant_orchestrator.retrain_patchtst`, dispatched via
+  `weekly_patchtst_retrain`) subprocesses into the pinned `renquant-model`
+  PatchTST trainer using **`data/transformer_v4_wl200_clean.parquet`** as its
+  primary feature-matrix input (`build_patchtst_wf_manifest.py`
+  `DEFAULT_DATASET_REL`) — a dataset built by an entirely different pipeline,
+  not `RenQuant/scripts/build_alpha158_qlib.py`.
+- Only the **calibrator** subprocess (a post-hoc probability-calibration fit,
+  not the scorer's own feature build) reads an alpha158-derived file
+  (`data/alpha158_291_fundamental_dataset_rawlabel.parquet`,
+  `DEFAULT_RAW_LABEL_PANEL_REL`). Using a forward-label-clipped panel to *fit
+  a calibrator* is a training-time input choice, not necessarily the same
+  defect class as #26 (which was specifically about the **live serving** feed
+  being wrongly coupled to that clip).
+- `build_alpha158_qlib.py` itself does not import or call
+  `resolve_serving_daily_index()` at all (grepped; no reference). The #26 fix
+  lives in `renquant_base_data.sec_fundamentals.resolve_serving_daily_index`,
+  consumed by the live daily runner's fundamentals feed — a different call
+  path than anything in the shadow retrain/calibrator chain traced above.
 
-A separate variant: even with a successfully trained shadow, the config
-fingerprint stamped at training time may not match the current live config
-(`strategy_config.shadow.json`), causing `P-CONFIG-FP` mismatch at promote
-evaluation time. This is the known `shadow-config-fp-restamp` issue — the
-shadow e2e leg fail-closes whenever the watchlist/sector_map drifts from the
-stamp.
+So there is no demonstrated call chain from the shadow retrain path into the
+specific #26 mechanism. The broader hypothesis — that *some* data-path or
+config coupling between training-time and serving-time state is stalling the
+shadow lane — remains plausible and worth investigating, but should not be
+presented as a variant of the #26 bug specifically until a concrete call path
+is found (e.g., if a future change routes the shadow feature build through
+`build_alpha158_qlib.py`, or if the calibrator's rawlabel-panel staleness
+turns out to gate the shadow's effective serving date some other way).
 
-**Evidence that would confirm:**
+A separate, better-evidenced variant: even with a successfully trained shadow,
+the config fingerprint stamped at training time may not match the current live
+config (`strategy_config.shadow.json`), causing `P-CONFIG-FP` mismatch at
+promote evaluation time. This is the known `shadow-config-fp-restamp` issue —
+the shadow e2e leg fail-closes whenever the watchlist/sector_map drifts from
+the stamp. Of the two variants folded into this candidate, this one has a
+concrete, previously-observed mechanism; the axis-coupling variant above is
+speculative pending further evidence.
+
+**Evidence that would confirm (axis-coupling variant, still speculative):**
 - A recent shadow retrain log shows the training dataset's max date is >60
-  trading days behind the price calendar
+  trading days behind the price calendar, AND a concrete call path from the
+  shadow retrain into a label-clipped serving-relevant index is identified
 - The shadow artifact metadata's `config_fingerprint` does not match the
   current pinned `strategy_config.shadow.json`'s fingerprint
 - The promote log shows `panel_scorer_config_mismatch` for the shadow lane
@@ -86,6 +110,9 @@ stamp.
 - Shadow retrain log shows a training dataset that reaches within ~5 trading
   days of today
 - Config fingerprint matches after a re-stamp
+- No call path from the shadow retrain/calibrator into a serving-coupled clip
+  is ever found (in which case this candidate reduces to the config-fp variant
+  alone)
 
 ---
 
@@ -100,8 +127,10 @@ stamp.
 4. **Check config fingerprint:** run `check_model_bundle_consistency.py` against
    the shadow artifact + shadow config — does `P-CONFIG-FP` pass?
 5. **Check data freshness in the shadow artifact:** read the metadata JSON for
-   `trained_date` and the corpus date range — is the corpus coupled to
-   `fwd_60d_excess` clipping?
+   `trained_date` and the corpus date range — is the corpus behind price by
+   more than the expected training lag, and if so, trace what specifically
+   clips it (no call path into `resolve_serving_daily_index()` is
+   established yet — see §3)?
 6. **Check weekly promote logs:** `grep -l "VERDICT\|no.*candidate\|config_mismatch"
    logs/weekly_wf_promote/*.log | tail -5` — what has the promote chain been
    seeing?
@@ -116,11 +145,14 @@ variant (data clip vs config fp). Step 6 provides the promote chain's own view.
 If **A (builder-not-run)**: install the launchd plist, verify one successful
 retrain cycle, then the promote chain picks up the staged artifact normally.
 
-If **B (dropna clip)**: verify that the shadow retrain path uses the #26-fixed
-`resolve_serving_daily_index()` for its feature build. If not, the fix is to
-ensure the shadow retrain imports the same decoupled index builder that prod
-uses. The config-fp variant is fixed by re-stamping (the existing
-`stamp_patchtst_fingerprint.py` script).
+If **B (axis coupling, speculative)**: step 5's investigation determines
+whether a concrete data-path coupling is actually stalling the shadow's
+effective data horizon; if so, the fix depends on what that path turns out to
+be (not assumed in advance to be `resolve_serving_daily_index()` — no call
+chain into that function has been demonstrated from the shadow retrain path).
+If **B (config-fp variant, well-evidenced)**: fixed by re-stamping (the
+existing `stamp_patchtst_fingerprint.py` script) — this is the same known
+`shadow-config-fp-restamp` mechanism seen before, not speculative.
 
 Both causes may be active. The investigation order is A-first because it is
 cheaper to diagnose (one `launchctl` command) and likelier given the system's
