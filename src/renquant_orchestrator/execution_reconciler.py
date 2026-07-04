@@ -45,13 +45,13 @@ import hashlib
 import json
 import sqlite3
 import threading
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 from enum import Enum
+
+from renquant_common.notify import send as _send_notification
 
 __all__ = [
     "OrderState",
@@ -1355,20 +1355,10 @@ class ExecutionReconciler:
 # ntfy alerting (behind an explicit flag; observe-only)
 # --------------------------------------------------------------------------------------
 def post_ntfy(title: str, body: str, topic: str) -> bool:
-    """Best-effort ntfy POST (same pattern as ``state_backup.post_ntfy``). Never raises;
+    """Best-effort ntfy POST via the canonical ``renquant_common.notify`` sender
+    (campaign B6 re-point; now honors ``RENQUANT_NO_NOTIFY``). Never raises;
     returns whether the POST was attempted-and-not-errored. Injectable in tests."""
-    url = f"https://ntfy.sh/{topic}"
-    try:
-        req = urllib.request.Request(
-            url,
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "4", "Tags": "warning"},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).read()
-        return True
-    except (urllib.error.URLError, OSError):
-        return False
+    return _send_notification(title, body, topic, priority=4, tags="warning")
 
 
 def maybe_alert(

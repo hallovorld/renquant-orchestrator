@@ -34,12 +34,12 @@ import argparse
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
+
+from renquant_common.notify import send as _send_notification
 
 SCHEMA_VERSION = 1
 OWNER_REPO = "renquant-orchestrator"
@@ -145,19 +145,10 @@ def _load_json(path: str | Path | None) -> Any | None:
 
 
 def post_ntfy(title: str, body: str, topic: str) -> None:
-    """Fire-and-forget ntfy alert. Mirrors the package's other monitors: network
-    failures are swallowed so a flaky push never fails the daily job."""
-    url = f"https://ntfy.sh/{topic}"
-    try:
-        req = urllib.request.Request(
-            url,
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "4", "Tags": "warning,chart"},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).read()
-    except (urllib.error.URLError, OSError):
-        pass
+    """This monitor's alert seam: the canonical ``renquant_common.notify`` sender
+    with the house priority/tags for daily trading health (campaign B6 re-point;
+    also honors ``RENQUANT_NO_NOTIFY``, which the local copy did not)."""
+    _send_notification(title, body, topic, priority=4, tags="warning,chart")
 
 
 # --- signal builders ---------------------------------------------------------

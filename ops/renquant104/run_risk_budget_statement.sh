@@ -25,9 +25,9 @@ RC=$?
 } >> "$LOG"
 
 notify() {
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: $1" \
-    -d "$2" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "$1" "$2" || true
 }
 
 STATUS_LINE=$(printf '%s' "$OUT" | grep "risk_budget_statement:" | head -1)

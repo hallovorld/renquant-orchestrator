@@ -29,8 +29,9 @@ RC=$?
 # (no "scorer_identity_check:" status line) — a crashed monitor must never
 # fail silent (that is the exact failure mode this alarm exists to close).
 if [ $RC -ne 0 ] && ! printf '%s' "$OUT" | grep -q "scorer_identity_check:"; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq104 scorer-identity monitor CRASHED rc=$RC ($TS)" \
-    -d "see logs/rq104/scorer_identity_$TS.log" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq104 scorer-identity monitor CRASHED rc=$RC ($TS)" \
+    "see logs/rq104/scorer_identity_$TS.log" || true
 fi
 exit $RC

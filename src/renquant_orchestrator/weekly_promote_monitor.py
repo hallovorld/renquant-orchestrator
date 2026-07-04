@@ -36,9 +36,9 @@ import json
 from pathlib import Path
 import re
 import sys
-import urllib.error
-import urllib.request
 from typing import Any
+
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
 
 from .runtime_paths import default_repo_root
 
@@ -315,22 +315,6 @@ def build_weekly_promote_health(
         "alert": verdict in {"stale", "error"},
         "summary": summary,
     }
-
-
-def post_ntfy(title: str, body: str, topic: str) -> None:
-    """Best-effort ntfy alert; network failures are swallowed (matches the
-    package's other monitors)."""
-    url = f"https://ntfy.sh/{topic}"
-    try:
-        req = urllib.request.Request(
-            url,
-            data=body.encode("utf-8"),
-            headers={"Title": title},
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5).read()
-    except (urllib.error.URLError, OSError):
-        pass
 
 
 def emit_alert(health: dict[str, Any], *, topic: str = DEFAULT_NTFY_TOPIC, quiet: bool = False) -> bool:

@@ -24,7 +24,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -76,16 +75,21 @@ def _is_session_day(day: dt.date) -> bool:
 
 
 def _alert(title: str, body: str) -> None:
-    topic = os.environ.get("NTFY_TOPIC")
-    if not topic and os.path.exists(os.path.join(RQ, ".env")):
-        for line in open(os.path.join(RQ, ".env")):
-            if line.startswith("NTFY_TOPIC="):
-                topic = line.split("=", 1)[1].strip().strip('"')
-    if topic:
-        subprocess.run(
-            ["curl", "-s", "-H", f"Title: {title}", "-d", body, f"ntfy.sh/{topic}"],
-            capture_output=True,
+    """Canonical sender re-point (campaign B6): topic resolution (NTFY_TOPIC env
+    > $RQ/.env parse > "renquant") and RENQUANT_NO_NOTIFY suppression live in
+    renquant_common.notify. Imported lazily + guarded so this liveness check
+    still runs (and logs the loss loudly) against a venv whose renquant-common
+    predates the notify module."""
+    try:
+        from renquant_common.notify import send
+    except ImportError as exc:  # stale venv — do not let the alert path crash the check
+        print(
+            f"WARNING: renquant_common.notify unavailable ({exc}); "
+            f"alert NOT sent: {title}: {body}",
+            file=sys.stderr,
         )
+        return
+    send(title, body, env_file=os.path.join(RQ, ".env"))
 
 
 def check_endpoint_manifest(day_dir: Path, endpoint: str, expected_as_of: str) -> str | None:

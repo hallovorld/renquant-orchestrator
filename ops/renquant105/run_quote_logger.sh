@@ -17,8 +17,9 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src"
   >> "$LOG_DIR/quote_logger_$TS.log" 2>&1
 RC=$?
 if [ $RC -ne 0 ]; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 quote logger FAILED rc=$RC" \
-    -d "see logs/rq105/quote_logger_$TS.log" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 quote logger FAILED rc=$RC" \
+    "see logs/rq105/quote_logger_$TS.log" || true
 fi
 exit $RC

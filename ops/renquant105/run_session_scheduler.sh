@@ -32,8 +32,9 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src"
   >> "$LOG_DIR/session_scheduler_$TS.log" 2>&1
 RC=$?
 if [ $RC -ne 0 ]; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: rq105 session scheduler FAILED rc=$RC" \
-    -d "see logs/rq105/session_scheduler_$TS.log" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 session scheduler FAILED rc=$RC" \
+    "see logs/rq105/session_scheduler_$TS.log" || true
 fi
 exit $RC

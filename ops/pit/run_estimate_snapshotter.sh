@@ -36,9 +36,9 @@ export PYTHONPATH="$BD_RUN_ROOT/src"
   --out "$RQ_ROOT/data/estimate_snapshots"
 RC=$?
 if [ $RC -ne 0 ]; then
-  source "$RQ_ROOT/.env" 2>/dev/null || true
-  [ -n "${NTFY_TOPIC:-}" ] && curl -s -H "Title: PIT estimate snapshot FAILED rc=$RC ($TS)" \
-    -d "see logs/pit_snapshots/estimate_snapshot_$TS.log — every missed day is UNRECOVERABLE" \
-    "ntfy.sh/$NTFY_TOPIC" >/dev/null
+  # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "PIT estimate snapshot FAILED rc=$RC ($TS)" \
+    "see logs/pit_snapshots/estimate_snapshot_$TS.log — every missed day is UNRECOVERABLE" || true
 fi
 exit $RC
