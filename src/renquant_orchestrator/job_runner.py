@@ -26,6 +26,7 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "build_wf_manifest": "renquant_orchestrator.build_wf_manifest",
     "build_patchtst_wf_manifest": "renquant_orchestrator.build_patchtst_wf_manifest",
     "daily_pit_revision_snapshot": "renquant_orchestrator.pit_revision_collector",
+    "model_freshness_monitor": "renquant_orchestrator.model_freshness_monitor",
 }
 
 
