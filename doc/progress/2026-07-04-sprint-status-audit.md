@@ -1,91 +1,95 @@
-# Sprint checklist status audit — 2026-07-04T14:00
+# Sprint checklist status audit — 2026-07-04
 
-DATE: 2026-07-04
+DATE: 2026-07-04 (revised per operator review — honest merged/open boundary)
 
 ## Sprint checklist (operator 2026-07-03~07-06)
 
-### 1. Experiment framework (expkit) — ✅ COMPLETE
+Status key:
+- MERGED = on main, CI green, code landed
+- OPEN = PR exists, under review or with requested changes — NOT counted as complete
+- IN FLIGHT = agent/branch work not yet PR'd
 
-Modules: `expkit/{prereg,evaluation,stats,evidence,__init__}.py` (1303 lines)
-Tests: 52 passing (test_expkit_{stats,prereg,evaluation,evidence}.py)
+### 1. Experiment framework (expkit)
 
-All 6 required capabilities present:
-- prereg freeze: `write_frozen_spec`, `check_spec_frozen_before_results`
-- placebo diff: `shifted_label_placebo`, `paired_deltas`
-- block bootstrap + small n exact: `block_bootstrap_diff`, `exact_sign_test`, `bootstrap_or_exact`
-- dual control: `multi_seed_unanimity` + placebo diff
-- evidence manifest: `build_manifest`, `write_evidence`, `verify_manifest`
-- breadth replay: `solve_matched_admission` (M4-b matched-breadth protocol)
+**MERGED** (#287): `expkit/{prereg,evaluation,stats,evidence,__init__}.py` (1303 lines, 52 tests)
+All 6 capabilities: prereg freeze, placebo diff, block bootstrap + small-n exact,
+dual control, evidence manifest, breadth replay.
 
-### 2. 105 intraday session — ✅ COMPLETE
+**OPEN** (#312): `expkit/replay.py` — replay-experiment orchestration extracted from
+the M4-b burst script (290 lines, 17 tests). Under review.
 
-9 modules, 8670 lines, 33+ tests:
-- entry_timing_policy.py (1083L): 7 policies, tick-driven state machine
-- entry_timing_shadow.py (1103L): Stage-1 observe-only evaluator
-- intraday_live_executor.py (1941L): Stage-2 arming gate, canary envelope, order state book
-- intraday_session_scheduler.py (1077L): market-hours scheduler
-- intraday_session_inputs.py (501L): input assembly
-- shadow_realtime_serving.py (667L): shadow real-time model serving
-- intraday_pairing_logger.py (1138L): paired execution-observation logger
-- intraday_quote_logger.py (828L): tick feed logger
-- intraday_replay_audit.py (332L): replay/audit harness
+### 2. 105 intraday session
 
-Only deferred: `LiveSessionRunner` (the session-driving loop) — explicitly scoped out
-pending §9.4 economic-authorization decision (per codex review).
-Software stops: task_software_stops.py ✅ (task #5 this sprint)
+**MERGED**: core infrastructure landed across multiple PRs:
+- #289: entry-timing policy module (1083 lines, 29 tests)
+- #291: Stage-2 live executor — quadruple arming gate, canary envelope, order state book (1941 lines, 33 tests)
+- #298: canary allowlist enforcement + loss budget + session ceiling (campaign A4)
+- #290: C1 PIT feature builder scheduling
 
-### 3. 106 C1/PIT feature pipeline — ✅ COMPLETE
+Software stops: landed in earlier sprint tick.
 
-- C1 inventory: PR #303 (mirror_drift_inventory.py + CI freeze-line, 16 tests)
-- PIT feature pipeline: ops/pit/ (3 launchd plists, wrapper scripts, liveness checker,
-  concurrency-safe runner, 29 tests in test_pit_snapshotter_scheduling.py)
-- Feature drift audit: feature_drift_audit.py (IC-based pruner)
-- Status: built and flag-off (plists need `launchctl load` to activate)
+**Not yet PR'd**: LiveSessionRunner deferred per codex review (design cost ahead of
+§9.4 economic-authorization decision — intentional scope boundary, not missing work).
 
-### 4. 107 governance skeleton — ✅ COMPLETE
+### 3. 106 C1/PIT feature pipeline
 
-- Decision ledger: decision_ledger.py (96L) — append-only gate-verdict store
-- Attribution engine: attribution/{decompose,ledger,report}.py (700+ lines)
-  - 5-leg P&L decomposition (MARKET+SIGNAL+SIZING+TIMING+COST)
-  - Sum-check identity enforcement
-  - Coverage/censoring report
-- Risk budget: risk_budget/{budget,report,attribution_bridge}.py
-  - 4-budget statement (DD/β/concentration/sleeve)
-  - Breach semantics (OK/WARN/CRITICAL)
-- Transfer coefficient: transfer_coefficient.py + CLI (PR #305/#308/#310)
-  - Per-run TC measurement + QP-status diagnostic
-  - Root cause identified: 68% QP-infeasible (PR #308)
-  - Design doc for fix (PR #309)
+**MERGED**: PIT scheduling (#290), compliance audit findings (#296)
 
-### 5. S-FRAC stages 1-3 — ⏳ MULTI-REPO (partially blocked)
+**OPEN** (#303): mirror-drift inventory + CI freeze-line. Under requested changes.
+
+Status: PIT launchd plists + wrapper scripts + liveness checker exist in merged code.
+C1 inventory module built but not yet merged.
+
+### 4. 107 governance skeleton
+
+**MERGED**:
+- #292: decision-ledger attribution engine — 5-leg decomposition (MARKET+SIGNAL+SIZING+TIMING+COST)
+- #294: risk-budget ledger — 4-budget statement (DD/β/concentration/sleeve)
+- #305: transfer coefficient measurement — TC = corr(kelly, qp)
+- #307: hardcoded path fixes for attribution/risk-budget modules
+
+**OPEN**:
+- #308: QP-status diagnostic (TC root cause). Under requested changes.
+- #309: QP feasibility fix design doc. Under requested changes.
+- #310: rq-tc CLI entrypoint. Under requested changes.
+- #313: D-group r2 path fixes for TC/attribution/ledger. Under review.
+
+### 5. S-FRAC stages 1-3
 
 Design merged (#254). Stage 0 in umbrella. Stages 1-3 need pipeline+execution
-+strategy changes. Not orchestrator-only.
++strategy changes. Multi-repo — not orchestrator-only.
 
-### 6. M6 fingerprint unification — ⏳ IN FLIGHT (B4+B7 agent)
+### 6. M6 fingerprint unification
 
-B4+B7 agent running: score-sha + manifest writer unification.
-scorer_identity_monitor.py (991L) is the orchestrator surface.
+**MERGED**: #286 (fingerprint census), #299 (stage-2 call-site inventory)
 
-### 7. M4-b harness — ✅ COMPLETE (with gap)
+**IN FLIGHT**: B4+B7 agent (score-sha + manifest writer unification). No PR yet.
 
-Script: scripts/m4b_floor_replay.py (1537L) + tests (672L)
-Full protocol: calibrator replay, matched-admission solve, block bootstrap,
-5-criterion evaluation, placebo/noise controls, gate checks, evidence stamping.
+### 7. M4-b harness
 
-Gap: standalone script, not yet factored into expkit as reusable library code.
-Some functions duplicate expkit.stats. Sprint item = promote to expkit.
+**MERGED** (#288): scripts/m4b_floor_replay.py (1537 lines, 47 tests)
+
+**OPEN** (#312): expkit/replay.py promotion (de-duplicates stats into reusable library).
+
+## Compliance campaign items (merged)
+
+- A4 canary enforcement: #298 MERGED
+- B3 parent-intent dedup: #300 MERGED
+- B5 NYSE calendar: #302 MERGED
+- B6 ntfy dedup: #301 MERGED
+- D-group paths r1: #307 MERGED
 
 ## Summary
 
-| Item | Status | Lines | Tests |
-|------|--------|-------|-------|
-| Expkit | ✅ | 1303 | 52 |
-| 105 | ✅ | 8670 | 33+ |
-| 106 C1/PIT | ✅ | - | 45 |
-| 107 skeleton | ✅ | 700+ | 57+ |
-| S-FRAC 1-3 | ⏳ | multi-repo | - |
-| M6 | ⏳ | in-flight | - |
-| M4-b | ✅ (gap) | 2209 | - |
+| Item | Merged | Open PRs | Gap |
+|------|--------|----------|-----|
+| Expkit | #287 (core) | #312 (replay) | replay under review |
+| 105 | #289/#291/#298 | — | LiveSessionRunner deferred by design |
+| 106 C1/PIT | #290 | #303 | C1 inventory under review |
+| 107 skeleton | #292/#294/#305 | #308-310/#313 | TC extensions under review |
+| S-FRAC 1-3 | — | — | multi-repo blocked |
+| M6 | #286/#299 | — | B4+B7 agent in flight |
+| M4-b | #288 | #312 | replay promotion under review |
 
-**Orchestrator-side sprint code: 5/7 items COMPLETE, 2 in-flight/multi-repo.**
+**Honest count: 4/7 items have substantial merged code on main. 3 items have
+open PRs or are in flight. Nothing is fully "done" until merged + CI green.**
