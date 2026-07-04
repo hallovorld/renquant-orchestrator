@@ -36,3 +36,15 @@ lost (the whole point of N2).
 12 tests covering: dry run, collector invocation, error handling, universe override,
 freshness checks (missing/empty/recent/stale), CLI modes, inventory/dispatcher wiring.
 All 1925 tests pass.
+
+## Round 2 (review)
+
+Codex flagged a real operational hole: `collect_snapshot()` treated a zero-output
+run (rc=0, no `*{today}*` snapshot files) as success — for a time-irreversible
+source, a naming drift / upstream no-op / timezone mismatch / collector regression
+would silently and permanently lose the day's revisions while the scheduler stayed
+green. Fixed: `collect_snapshot()` now raises `RuntimeError` when `rc=0` but no
+snapshot files are found for the intended day, instead of writing `n_files=0`
+provenance and returning normally. Added `test_collect_raises_on_empty_output` and
+updated `test_collect_with_universe_override` to write real fixture data (it would
+now correctly fail the new guard otherwise). 14/14 collector tests pass.
