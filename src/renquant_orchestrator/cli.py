@@ -159,6 +159,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     model_fresh.add_argument("freshness_args", nargs=argparse.REMAINDER)
 
+    model_enforce = sub.add_parser(
+        "model-freshness-enforce",
+        help="check prod panel freshness and recommend fallback if stale",
+    )
+    model_enforce.add_argument("enforce_args", nargs=argparse.REMAINDER)
+
     ledger_q = sub.add_parser(
         "ledger-query",
         help="query the decision ledger for gate verdicts by date and scope",
@@ -663,6 +669,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .model_freshness_monitor import main as mfm_main
 
         return mfm_main(args.freshness_args or None)
+    if args.command == "model-freshness-enforce":
+        from .model_freshness_enforcer import main as mfe_main
+
+        return mfe_main(args.enforce_args or None)
     if args.command == "ledger-query":
         from .decision_ledger import connect, verdicts_for
 
