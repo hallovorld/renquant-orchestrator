@@ -7,9 +7,15 @@
 ## Purpose
 
 105 evolves 104 from post-close batch (盘后) to during-session real-time
-decisioning (盘中). The goal is execution quality (cutting the measured ~40bps
-entry leak), NOT intraday alpha (Phase −1 measured net edge NEGATIVE: −6.4bps
-@IC 0.03 vs 220bps breakeven). Holding period stays multi-day.
+decisioning (盘中). The goal is execution quality, NOT intraday alpha
+(Phase −1 measured net edge NEGATIVE: −6.4bps @IC 0.03 vs 220bps breakeven).
+Holding period stays multi-day.
+
+**S10 finding (2026-07-04):** Open-auction IS measurement on 36 clean live
+buys showed NO measurable execution leak — fills are competitive with VWAP
+(mean −35 bps, CI includes zero). The ~40bps entry-leak rationale is NOT
+supported. The 105 prize should re-anchor to exit timing and overnight gap
+management, not entry-side optimization.
 
 ## Architecture
 
@@ -54,6 +60,8 @@ Stage-2 live executor (dark, unarmable today)
 | `intraday_pairing_logger.py` | Class-A/D pairing collector (signal vs reality) | — |
 | `intraday_session_inputs.py` | Signal integrity guards: leak detection, staleness, fingerprinting | — |
 | `intraday_replay_audit.py` | Replay harness: re-runs shadow decisions against persisted inputs for sim-parity verification | — |
+| `intraday_session_runner.py` | Integration layer: wires quintuple gate → live or shadow, software stops each tick | 18 |
+| `software_stop.py` | Per-position hard + trailing stops (shadow-observe, then fold into live decisions when armed) | 21 |
 
 ### Cross-repo Slices
 
@@ -108,13 +116,38 @@ SUBMIT-NOW (degradation recorded, never silently dropped).
 | Entry timing shadow | `logs/renquant105_pilot/entry_timing_policy_shadow.jsonl` | Per-tick within session |
 | Liveness check | Alert-only (ntfy on missing/stale outputs) | Daily post-close |
 
+## Software Stops (per-position)
+
+| Type | Trigger | Default | Behavior |
+|---|---|---|---|
+| Hard stop | Unrealized loss ≥ hard_stop_pct from entry | 5% | Sticky exit signal, fires once per position per session |
+| Trailing stop | Price drops ≥ trailing_stop_pct from session HWM | 3% | Updates HWM on new highs, fires on retracement |
+
+Shadow-only by default (enabled=False in StopConfig). Stop signals are logged
+to the shadow decision log; actual order submission requires the quintuple gate.
+
+## Session Runner (Integration Layer)
+
+The SessionRunner wires all 105 subsystems into one lifecycle:
+1. Evaluate quintuple arming gate
+2. If armed → drive LiveTickExecutor through tick loop
+3. If NOT armed → delegate to SessionScheduler (shadow)
+4. Software stops evaluated each tick regardless of mode
+5. Kill switch checked every cycle
+
+Safe degradation: no port_factory → always shadow. Non-session day → immediate
+return with status=non_session_day.
+
 ## Current Status
 
 - Stage-1 code: DELIVERED (PR #268 + dependencies)
 - Stage-2 code: DELIVERED (PR #303 + campaign A4 canary enforcement)
+- Session runner: DELIVERED (PR #333, pending review)
+- Software stops: DELIVERED (PR #333, pending review)
 - Shadow data collection: ACTIVE (collectors installed via launchd)
 - Live arming: NOT YET (requires 5 clean shadow sessions + replay audit + operator authorization)
 - Entry-timing evidence: ACCUMULATING (shadow pilot)
+- S10 execution leak: NOT CONFIRMED (2026-07-04, n=36 clean buys)
 
 ## Cross-references
 
