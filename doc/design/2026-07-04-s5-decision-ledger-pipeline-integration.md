@@ -87,12 +87,25 @@ After gate verdicts are recorded, forward returns must be joined. Two paths:
 pipeline annotations. This is RECONSTRUCTED substrate (see provenance warning in
 the module docstring).
 
-**Path B (live, target)**: At verdict-write time, also record the candidate's
-current scores. Then, after forward periods elapse (5d, 20d, 60d), a scheduled
-job updates the outcome row with realized forward returns from ticker price data.
+**Path B (live, target)**: `write_outcomes()` is append-only (`INSERT OR
+IGNORE` on the `(as_of, scope, ticker, gate)` primary key) — it cannot update
+an already-written row, so this path does NOT incrementally fill in
+`fwd_5d_ret` now, `fwd_20d_ret` later, `fwd_60d_ret` still later via separate
+inserts against the same key (a second insert attempt on an existing PK is a
+silent no-op). Instead, a scheduled job waits until a decision is **fully
+aged (≥60 calendar days old — the longest tracked horizon)**, computes
+`fwd_5d_ret`, `fwd_20d_ret`, and `fwd_60d_ret` together from historical price
+data in one pass, and writes the outcome row ONCE with all three fields
+already populated. This matches the readiness monitor's own "aged" threshold
+(`readiness_monitor.check_decision_ledger()`: aged = `as_of` ≥60d old, since
+`fwd_60d_ret` is the longest tracked horizon) — a decision is not written to
+`decision_outcomes` at all until it is old enough for every horizon to be
+computable.
 
 The readiness monitor's `S5_decision_ledger` check gates on ≥95% of aged
-decisions (≥60d old) having `fwd_60d_ret IS NOT NULL`.
+decisions (≥60d old) having a `decision_outcomes` row at all (which, per the
+write-once-when-fully-aged mechanism above, implies `fwd_60d_ret IS NOT
+NULL`).
 
 ### Step 4: Canonical fixture — OXY 2026-07-01
 
@@ -151,10 +164,10 @@ CREATE TABLE IF NOT EXISTS decision_outcomes (
   fwd_20d_ret REAL,
   fwd_60d_ret REAL,
   entry_price REAL,
-  exit_price REAL,
-  exit_date DATE,
-  exit_reason TEXT,
-  created_at TEXT NOT NULL,
+  exit_price_5d REAL,
+  exit_price_20d REAL,
+  exit_price_60d REAL,
+  recorded_at TEXT NOT NULL,
   metadata_json TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY (as_of, scope, ticker, gate)
 ) WITHOUT ROWID;
