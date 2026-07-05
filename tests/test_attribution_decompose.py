@@ -195,6 +195,20 @@ class TestCensoringNoBenchmark:
         for leg in ("market", "signal"):
             assert result["legs"][leg] is None
 
+    def test_zero_spy_entry_censors_market_signal(self):
+        rec = _make_rec(spy_entry_px=0.0)
+        result = decompose_round_trip(rec)
+        for leg in ("market", "signal"):
+            assert result["legs"][leg] is None
+            assert CENSOR_NO_BENCH in result["censored"][leg]
+
+    def test_zero_spy_exit_censors_market_signal(self):
+        rec = _make_rec(spy_exit_px=0.0)
+        result = decompose_round_trip(rec)
+        for leg in ("market", "signal"):
+            assert result["legs"][leg] is None
+            assert CENSOR_NO_BENCH in result["censored"][leg]
+
 
 class TestCensoringNoReference:
     """Missing reference prices censor signal, sizing, timing."""

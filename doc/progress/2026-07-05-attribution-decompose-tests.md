@@ -27,3 +27,25 @@
 ## Test count
 
 2255 -> 2292 (+37)
+
+## Round 2 (Codex review — benchmark-side zero-price asymmetry)
+
+The zero-price censoring fix above made `ref_reason` symmetric
+(`ref_entry == 0` and `ref_exit == 0` both censor), but `bench_reason`
+was left asymmetric: `spy_entry in (None, 0)` was checked, but
+`spy_exit` only checked `is None`, not `== 0`. A zero SPY exit price
+therefore fed straight into `_ret()`, producing a spurious -100%
+benchmark return (`market`/`signal` legs computed a real dollar value
+instead of being censored) — the exact defect class the round-1 fix
+was meant to eliminate, just on the other side of the same check.
+
+Fixed: `bench_reason` now checks `spy_exit in (None, 0)`, matching
+`spy_entry`'s existing check and mirroring `ref_reason`'s symmetric
+form. Added `test_zero_spy_entry_censors_market_signal` and
+`test_zero_spy_exit_censors_market_signal` to `TestCensoringNoBenchmark`
+— confirmed the new spy-exit test fails against the pre-fix code
+(computes `-2000.0` instead of censoring to `None`) and passes after.
+
+Test count: 2292 -> 2294 (+2). Full suite: 2291/2293 pass (2
+pre-existing, unrelated failures in `test_bundle_consistency_ci_gate.py`
+reproduce identically on clean `origin/main`).
