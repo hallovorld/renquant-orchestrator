@@ -521,3 +521,36 @@ def test_ledger_query_empty_db_returns_empty(tmp_path, capsys) -> None:
     assert rc == 0
     rows = json.loads(capsys.readouterr().out)
     assert rows == []
+
+
+def test_replay_audit_cli_delegates_to_module(tmp_path, monkeypatch) -> None:
+    """replay-audit subcommand delegates argv to intraday_replay_audit.main."""
+    import renquant_orchestrator.intraday_replay_audit as replay_mod
+
+    captured: dict = {}
+
+    def fake_main(argv, *, tick_runner=None):
+        captured["argv"] = list(argv) if argv else argv
+        captured["tick_runner"] = tick_runner
+        return 0
+
+    monkeypatch.setattr(replay_mod, "main", fake_main)
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    shadow = tmp_path / "shadow.jsonl"
+    shadow.write_text("", encoding="utf-8")
+
+    rc = main([
+        "replay-audit",
+        "--manifest", str(manifest),
+        "--shadow-log", str(shadow),
+        "--json",
+    ])
+
+    assert rc == 0
+    assert captured["argv"] == [
+        "--manifest", str(manifest),
+        "--shadow-log", str(shadow),
+        "--json",
+    ]

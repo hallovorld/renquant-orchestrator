@@ -29,6 +29,7 @@
     "native-live-market-snapshot",
     "observe-outcomes",
     "outcome-backfill",
+    "replay-audit",
     "repos",
     "roadmap",
     "run-job",

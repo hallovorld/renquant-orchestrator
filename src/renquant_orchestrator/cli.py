@@ -496,6 +496,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     roadmap.add_argument("--allow-consequential", action="store_true",
                          help="let 'next' pick operator-only (GPU/deploy/live) items")
 
+    replay_audit = sub.add_parser(
+        "replay-audit",
+        help="replay a recorded 105 shadow session and audit decision "
+             "reproducibility (RFC #208 §6/§9)",
+    )
+    replay_audit.add_argument(
+        "replay_audit_args", nargs=argparse.REMAINDER,
+        help="pass-through args to intraday_replay_audit.main",
+    )
+
     agentwf = sub.add_parser(
         "agent-workflow",
         help="resolve a per-agent PR workflow queue (review/fix/merge); "
@@ -618,6 +628,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         sep = raw_argv.index("--")
         repos_exec_cmd = raw_argv[sep + 1:]
         raw_argv = raw_argv[:sep]
+
+    # Pre-split replay-audit pass-through args: parse_known_args misroutes
+    # REMAINDER args starting with "--" into the unknown bucket.  Split them
+    # off before argparse for the same reason as repos-exec above.
+    replay_audit_argv: list[str] = []
+    if raw_argv and raw_argv[0] == "replay-audit":
+        replay_audit_argv = raw_argv[1:]
+        raw_argv = raw_argv[:1]
 
     args, unknown = parser.parse_known_args(raw_argv)
     if unknown and args.command not in {"live-bridge", "daily-bridge"}:
@@ -987,6 +1005,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "replay-audit":
+        from .intraday_replay_audit import main as ra_main
+
+        return ra_main(replay_audit_argv or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
