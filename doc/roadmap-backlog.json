@@ -36,10 +36,8 @@
       "title": "Persist live gate verdicts to the decision ledger",
       "category": "#108 S2 wiring",
       "repo": "RenQuant",
-      "status": "pending",
-      "blocked_by": [
-        "s2-god-file-decomp-next"
-      ],
+      "status": "done",
+      "blocked_by": [],
       "consequential": false,
       "prompt": "GateRegistry + decision_ledger (merged #133 in the orchestrator) make 'why was this run sell-only?' one SQL query. Submit the live pre-flight / WF / buy-block gate verdicts to a per-run GateRegistry and persist them to the decision ledger at the aggregation step, so live runs become queryable. Mirror the verdict algebra into the umbrella kernel if a cross-import is not allowed. Add tests."
     },
@@ -48,7 +46,7 @@
       "title": "Intraday cadence + governors + validation (#26)",
       "category": "mid-term execution",
       "repo": "RenQuant",
-      "status": "pending",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "Implement the intraday risk-reaction cadence with governors and validation per the protection epic (task #26). Build the cadence + governor logic with tests; keep live-affecting behaviour behind a flag (default off) until the operator enables it."
