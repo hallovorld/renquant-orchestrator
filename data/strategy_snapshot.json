@@ -153,7 +153,6 @@
     "signal_pipeline_config",
     "software_stop",
     "state_backup",
-    "tc_measurement",
     "train_gbdt",
     "transfer_coefficient",
     "weekly_apy_monitor",
