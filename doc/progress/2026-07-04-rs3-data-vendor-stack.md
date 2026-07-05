@@ -50,3 +50,28 @@ Fixed two blocking probe-design gaps plus one tightening:
    require a live Polygon call (T2/T3/T4/T6/T7, none of which are docs-only)
    versus which were already spot-checked live this round (T5a/T5b, against
    the existing FMP key).
+
+## Round 3 (Codex review — §6.3 vs §8 contradiction)
+
+§6.3 correctly said T2/T3/T4/T6 may need Polygon's paid tier; §8 still framed
+the *whole* probe as "zero cost, uses free tiers + existing FMP key." Both
+couldn't be the contract.
+
+Resolved using PR #348's actual executed results (this memo's own validation
+plan, run the same day): T1, T5a, T5b, T7 are genuinely zero-cost (T1 via web
+research — comparison articles + Polygon's changelog, no signup; T5a/T5b via
+the existing FMP key; T7 via SEC EDGAR's free API) and ALL FOUR were run
+without needing any spend decision. T1 FAILED first (real cost $99–298/mo,
+not $58/mo per PR #348), which made the paid-tier tests T2/T3/T4/T6 moot —
+they were never run and no Polygon spend was ever requested. So the "zero
+cost" claim in §8 was true in outcome (nothing was ever paid for), but the
+original wording implied the *entire* 8-test probe was zero-cost by
+construction regardless of outcome, when §6.3 itself said otherwise for
+T2/T3/T4/T6. Rewrote §6.3 to explicitly split the zero-cost tests from the
+paid-tier-gated ones and state the sequencing rule (run zero-cost first; T1
+alone can falsify before any paid-tier spend is needed), and rewrote §8 to
+reflect that the zero-cost path already ran, Polygon was already disqualified,
+and the operator decision now needed is the SEC EDGAR harvester effort (PR
+#350), not a Polygon spend approval. Added a cross-reference at the top of
+the memo pointing to PR #348 as the executed-results follow-on, since this
+memo is now the probe DESIGN record and #348 is the RESULTS record.

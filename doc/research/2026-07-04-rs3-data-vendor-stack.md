@@ -6,6 +6,16 @@ STATUS: PRELIMINARY SCREEN + VALIDATION PLAN (delegated research per #230 §1;
 BLOCKS: N2 (PIT revision accrual), N3 (FMP quarterly depth), M-SIG (signal substrate),
         M8 (universe expansion)
 
+**Probe executed — see PR #348** (`doc/research/2026-07-04-rs3-probe-results.md`).
+This memo is the probe DESIGN; #348 is the executed RESULTS. Outcome: **T1
+(Polygon cost) FAILED** — real cost is $99–298/mo, not the $58/mo this memo's
+Tier-1 pick assumed. **T5/T7 PASSED** (FMP Starter analyst-consensus depth, SEC
+EDGAR free PIT data). Recommendation revised to SEC EDGAR harvester ($0, see
+PR #350) + FMP Starter (already subscribed). The Bottom line / §3 Tier-1 pick
+below reflects the PRE-probe preliminary screen and is superseded by that
+outcome — kept here for the audit trail of what the screen assumed before
+validation, not as the current recommendation.
+
 ---
 
 ## Bottom line
@@ -174,7 +184,7 @@ backtest run before the amendment date would see look-ahead-biased numbers.
 
 | Test | Method | Pass criterion | Falsifies |
 |---|---|---|---|
-| **T1: Polygon cost verification** | Visit polygon.io/pricing; attempt Fundamentals add-on signup flow (stop before payment) | True incremental cost confirmed ≤$35/mo with NO base subscription required, OR base + add-on total confirmed | "Total $58/mo" claim |
+| **T1: Polygon cost verification** | Visit polygon.io/pricing (JS-rendered, not directly scrapable — fall back to cross-referencing comparison articles + Polygon's own changelog posts); zero-cost, no signup required | True incremental cost confirmed ≤$35/mo with NO base subscription required, OR base + add-on total confirmed | "Total $58/mo" claim |
 | **T2: Polygon PIT fidelity** | Query Polygon `/vX/reference/financials` for the 3 sample filings; compare `filing_date` field against SEC EDGAR actual filing date | All 3 `filing_date` values match EDGAR ±1 day | Polygon as PIT source |
 | **T3: Polygon restatement handling** | Concrete fixture set (see §6.1a) — 5 real restatement events found via SEC EDGAR's public submissions API on our actual watchlist. For each, compare Polygon's `/vX/reference/financials` response for that `period_of_report_date` against EDGAR ground truth | See §6.1a pass/fail criteria | PIT fidelity under restatements |
 | **T4: Polygon quarterly depth** | Query all 10 sample tickers for quarterly financials going back 5 years | ≥8/10 tickers have ≥16 quarters of data (4y) with `filing_date` populated | Quarterly depth claim |
@@ -185,24 +195,40 @@ backtest run before the amendment date would see look-ahead-biased numbers.
 
 ### 6.3 Probe execution plan
 
-1. **T2, T3, T4, T6, T7 require a live Polygon API call** (free tier if one
-   exists, otherwise the paid tier being evaluated) — public API docs/examples
-   are useful for feature discovery only and do NOT establish live entitlement,
-   real endpoint behavior, or actual per-ticker coverage; none of T2/T3/T4/T6/T7
-   should be marked passed from documentation alone.
-2. **T5a and T5b use our existing FMP key and were confirmed reachable this
-   round** (see §6.2 — `price-target-news` verified live for AAPL/GRMN with
-   real multi-year depth; `grade` was already in production use). These two
-   are the only tests in this probe that are zero-cost AND already spot-checked
-   live, not merely documented.
-3. **T1** requires visiting the pricing page interactively (operator or agent).
-4. **Pass all 8 (T1-T4, T5a, T5b, T6, T7)** → recommendation upgrades to
-   CONFIRMED; operator approves $29/mo.
-5. **Fail T2/T3/T4** → Polygon is NOT viable for PIT; escalate to Sharadar SF1
-   (Tier 2 probe required).
-6. **Fail T5a** → recommendation-history insufficient; investigate FMP Premium.
-   **Fail T5b** → target-history insufficient; investigate Polygon/Benzinga
-   analyst endpoints as an alternative target-history source.
+Two cost tiers among these tests, not one uniform "zero cost" probe:
+
+1. **T1, T5a, T5b, T7 are zero-cost** — T1 via web research (comparison
+   articles + Polygon's changelog, no signup/payment); T5a/T5b via our
+   existing, already-subscribed FMP key; T7 via SEC EDGAR's free public API.
+   These four can run without any spend decision or paid-tier access.
+2. **T2, T3, T4, T6 require a live Polygon API call under the paid Financials
+   tier being evaluated** — public API docs/blog claims are useful for feature
+   discovery only and do NOT establish live entitlement, real endpoint
+   behavior, or actual per-ticker coverage; none of T2/T3/T4/T6 should be
+   marked passed from documentation alone, and none can be run without first
+   approving that spend.
+3. **Sequencing matters**: run the zero-cost tests (1) FIRST. T1 alone can
+   falsify the Tier-1 recommendation on cost grounds before any paid-tier
+   spend is needed for T2/T3/T4/T6 — do not approve the paid tier before T1
+   clears.
+4. **Executed outcome (PR #348, 2026-07-04)**: T1 FAILED at the zero-cost
+   stage — real cost is $99–298/mo, not $58/mo (see PR #348's results doc).
+   Because T1 failed first, T2/T3/T4/T6 were never run and no paid-tier spend
+   was ever needed or requested — this was the "fail T1 → escalate" path
+   under case 5 below, resolved without touching the paid tier. T5a/T5b/T7 (also
+   zero-cost) independently PASSED, confirming FMP Starter + SEC EDGAR jointly
+   satisfy the analyst-consensus and PIT needs without Polygon at all.
+5. **Fail T1** → Polygon's economics don't clear the budget threshold before
+   PIT fidelity is even tested → do not approve paid-tier spend; re-evaluate
+   Tier-1 pick using only what zero-cost tests confirm (§ Executed outcome).
+6. Had T1 passed: **Pass all 8 (T1-T4, T5a, T5b, T6, T7)** → recommendation
+   upgrades to CONFIRMED; operator approves $29/mo. **Fail T2/T3/T4** →
+   Polygon is NOT viable for PIT; escalate to Sharadar SF1 (Tier 2 probe
+   required). **Fail T5a** → recommendation-history insufficient; investigate
+   FMP Premium. **Fail T5b** → target-history insufficient; investigate
+   Polygon/Benzinga analyst endpoints as an alternative target-history source.
+   (Moot given T1's outcome, kept for completeness / future re-runs against a
+   different Tier-1 candidate.)
 
 ### 6.4 Falsification: what kills the Tier-1 recommendation
 
@@ -224,9 +250,21 @@ backtest run before the amendment date would see look-ahead-biased numbers.
 
 ## 8. Decision needed from operator
 
-- [ ] Approve running the validation probe (§6.3 — zero cost, uses free tiers + existing FMP key)
-- [ ] After probe PASSES: approve Polygon.io Fundamentals add-on ($29/mo incremental)
-- [ ] Sharadar SF1: want me to get the real price? (Tier 2 contingency, only if Polygon fails)
+**Superseded by PR #348's executed results** — the zero-cost portion of this
+probe (T1, T5a, T5b, T7) has already run (no operator approval was needed,
+since none of those four tests touch a paid tier). T1 failed: Polygon's real
+cost is $99–298/mo, not $58/mo, so the paid-tier tests (T2/T3/T4/T6) were
+never triggered and no Polygon spend was ever requested. The decision the
+operator actually needs now (see PR #350):
+
+- [ ] Approve the SEC EDGAR XBRL harvester engineering effort ($0 spend,
+      `renquant-base-data`) as the N2/M-SIG PIT source, per PR #348's revised
+      recommendation
+- [ ] Sharadar SF1: want me to get the real price? (Tier 2 contingency, only
+      if the EDGAR concept-mapping engineering proves too costly)
+- [ ] Polygon: NOT requested at this time — T1 failed at zero cost before any
+      paid-tier spend was needed; would require a fresh probe at the real
+      $99–298/mo price point if reconsidered later
 
 ---
 
