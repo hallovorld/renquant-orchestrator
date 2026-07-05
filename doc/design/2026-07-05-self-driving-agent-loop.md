@@ -1,7 +1,17 @@
 # Design: self-driving agent loop behavior specification
 
 DATE: 2026-07-05
-STATUS: RFC — for operator review and discussion
+STATUS: **NON-BINDING retrospective / heuristic discussion note.** This document
+        is NOT operationally binding on its own, and merging this PR does not
+        ratify any of the rules below as policy. Per `doc/memory/README.md`'s
+        tier model, binding (LONG-tier) rules require **operator** authorship —
+        the agent may transcribe them, not originate them (§1 of that spec:
+        "LONG ... operator only (agent transcribes)"). This doc lives outside
+        the LONG/MID/SHORT tiers entirely; it is scoped to `renquant-orchestrator`
+        only, and any rule below that the operator finds worth keeping must be
+        separately adopted into `doc/memory/long-term-agreements.md` and/or
+        `CLAUDE.md` — by the operator, through the normal SOP-M/operator-review
+        path — before it constrains agent behavior.
 SCOPE: Defines how the Claude agent should behave in an autonomous `/loop` session.
        This is a BEHAVIOR spec (what the agent does), not an infrastructure spec
        (how GitHub events flow — that's `2026-06-30-agent-automation-closed-loop.md`).
@@ -34,32 +44,40 @@ writable code on main; data pipelines accruing; every SHORT item either done or
 in-flight"). Each loop tick asks: "what's the highest-ROI action that moves
 toward the terminal state?" — not "what's the next item on the list?"
 
-### 1.2 Never idle
+### 1.2 Avoid idling by default
 
-Every loop tick MUST produce at least one substantive action:
+Every loop tick SHOULD aim to produce at least one substantive action:
 - Write code or tests
 - Write a design doc or research memo
 - Run an experiment or probe
 - Open a PR
 - Launch a sub-agent for parallel work
 
-If the agent believes there is nothing to do, it is wrong. The correct response
-is to scan a wider horizon (SHORT → MID → LONG), switch to a different work
-category (code → research → design → integration prep → verification), or run
-diagnostic/measurement work.
+This is a heuristic, not an unconditional requirement — it does not apply when
+genuinely blocked by quota/rate limits, an explicit safety gate awaiting human
+sign-off, or a hard dependency with no available substitute work of any kind. In
+those cases the correct response is honest status, not manufactured busywork.
+Short of that, if the agent believes there is nothing to do, it is usually wrong:
+the correct response is to scan a wider horizon (SHORT → MID → LONG), switch to
+a different work category (code → research → design → integration prep →
+verification), or run diagnostic/measurement work.
 
 ### 1.3 Self-unblocking
 
 When encountering a blocker, the agent's job is to RESOLVE it, not report it:
 
-| Blocker | Wrong response | Right response |
-|---|---|---|
-| PR awaiting review | Wait | Start the next item; review happens in background |
-| Blocked on other repo | Report "blocked" | Write the orchestrator-side integration spec, tests, or adapter |
-| Need operator decision | Ask and wait | Make a recommendation with evidence and proceed with the recommended path (notify, don't ask) |
-| Data not available | Report "no data" | Build the collector/harvester that produces the data |
-| Test failing | Report failure | Debug and fix the test |
-| Dependency not merged | Wait for merge | Use the unblock-authorization clause if on critical path |
+These are heuristics for the common case, not universal rules — genuine safety
+gates, capital-risk decisions, and hard dependencies with no substitute work
+still warrant waiting or asking:
+
+| Blocker | Usual wrong response | Usual right response | Exception |
+|---|---|---|---|
+| PR awaiting review | Wait | Start the next item; review happens in background | none — this one generalizes safely |
+| Blocked on other repo | Report "blocked" | Write the orchestrator-side integration spec, tests, or adapter | if no orchestrator-side work exists either, say so honestly |
+| Need operator decision | Ask and wait | Make a recommendation with evidence and proceed with the recommended path (notify, don't ask) | capital-risk / irreversible actions still require asking first |
+| Data not available | Report "no data" | Build the collector/harvester that produces the data | if building the collector requires spend/access not yet authorized, ask first |
+| Test failing | Report failure | Debug and fix the test | if the failure indicates a genuine pre-existing bug outside scope, report it rather than papering over |
+| Dependency not merged | Wait for merge | Use the unblock-authorization clause if on critical path | only within the granted scope of that authorization (§3) |
 
 ### 1.4 Parallel by default
 
@@ -114,20 +132,24 @@ Each use MUST be:
 - Within the hard safety boundaries (never bypass branch protection, never
   write prod paths, never run git in live tree outside #242)
 
-## 4. Anti-patterns (things the agent must NOT do)
+## 4. Anti-patterns to avoid (heuristics, not absolutes)
 
-1. **Empty ticks**: a loop tick that only checks status and schedules the next
-   wakeup without producing any work
-2. **Serial review dependency**: waiting for PR review before starting unrelated
-   work
-3. **Asking permission for delegated decisions**: the operator has delegated
-   research recommendations and engineering decisions — make them, don't ask
-4. **Reporting blockers without solutions**: every blocker report must include
-   a proposed resolution path
+1. **Empty ticks when avoidable**: a loop tick that only checks status and
+   schedules the next wakeup without producing any work, when substitute work
+   genuinely existed — not applicable when no substitute work exists or a
+   safety gate blocks all available options
+2. **Serial review dependency when avoidable**: waiting for PR review before
+   starting unrelated, independent work
+3. **Asking permission for decisions already delegated**: within the scope of
+   what's actually delegated (§3, §9 protocol) — decisions outside that scope,
+   or genuinely capital-risk/irreversible ones, should still be asked
+4. **Reporting blockers without solutions when a solution exists**: a blocker
+   report should include a proposed resolution path when one exists; if none
+   exists, say so honestly rather than inventing one
 5. **Re-analyzing settled questions**: if a verdict is recorded in VERDICTS.md,
-   don't re-derive it
+   don't re-derive it without new evidence
 6. **Polishing over progress**: don't spend a tick perfecting a doc when code
-   could be written
+   could be written, all else being equal
 
 ## 5. Terminal state definition
 
@@ -140,27 +162,39 @@ The loop is DONE when:
 - No item is in "waiting for review" state without parallel work happening
 - The roadmap state vector (§0 of #231) has no stale entries
 
-## 6. Relationship to existing docs
+## 6. Relationship to existing docs and to this repo's authority tiers
 
-- **`doc/AGENT-RETROSPECTIVE.md`**: the compliance/quality framework — this spec
-  does not override it; it specifies the BEHAVIOR within those constraints
+- **`doc/AGENT-RETROSPECTIVE.md`**: the compliance/quality framework — this note
+  does not override it; it discusses BEHAVIOR that would need to fit within
+  those constraints, if adopted
 - **`doc/design/2026-06-30-agent-automation-closed-loop.md`**: the infrastructure
-  for event-driven automation — this spec is the AGENT-SIDE behavior that runs
-  on top of that infrastructure (or on a manual `/loop`)
-- **`doc/memory/long-term-agreements.md`**: the hard safety boundaries — this
-  spec operates strictly within them
-- **CLAUDE.md**: the operating rules — this spec adds behavioral expectations
-  that should be incorporated into CLAUDE.md §Agent operating rules
+  for event-driven automation — this note discusses AGENT-SIDE behavior that
+  would run on top of that infrastructure (or on a manual `/loop`), if adopted
+- **`doc/memory/long-term-agreements.md`**: the actual hard safety boundaries
+  (LONG tier — binding, **operator-authored only** per `doc/memory/README.md`
+  §1). This note is subordinate to it in every respect: nothing here overrides,
+  loosens, or reinterprets a LONG-tier constraint, and none of the heuristics
+  above become binding by virtue of this doc merging.
+- **CLAUDE.md**: the operating rules — same authority relationship as
+  `long-term-agreements.md`. This note does not itself add behavioral
+  expectations to CLAUDE.md; see §7.
 
-## 7. Proposed CLAUDE.md amendment
+## 7. Path to adoption (not a self-executing amendment)
 
-Add to CLAUDE.md under "Agent operating rules":
+This document does not amend CLAUDE.md and is not itself a source of binding
+rules. Per this repo's own memory-tier model, a change to CLAUDE.md or
+`doc/memory/long-term-agreements.md` requires **operator** authorship — the
+agent's role is limited to transcribing an operator-authored decision (LONG
+tier) or proposing a workstream for operator confirmation (MID tier via
+SOP-M). If, after review, the operator finds some subset of the heuristics in
+§1–§4 worth keeping, the adoption path is:
 
-```markdown
-**Self-driving loop behavior (2026-07-05):**
-- Every loop tick produces at least one substantive action (code/design/research/PR).
-- Never wait for a single PR review; launch parallel work.
-- Resolve blockers, don't report them. Use unblock authorization when granted.
-- Prioritize by ROI within the roadmap priority tiers.
-- Run 2-4 sub-agents concurrently for independent work items.
-```
+1. Operator reviews this note and decides which heuristics (if any) to keep,
+   drop, or amend.
+2. Operator authors (or explicitly directs the agent to transcribe verbatim)
+   the resulting language directly into `CLAUDE.md` and/or
+   `doc/memory/long-term-agreements.md`, through the normal review process for
+   those files.
+3. Until step 2 happens, this document has the status of a discussion note:
+   informative, not enforceable, and carrying no more authority than any other
+   `doc/design/` proposal.
