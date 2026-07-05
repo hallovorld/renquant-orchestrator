@@ -115,7 +115,23 @@ CREATE TABLE tc_metrics (
 );
 ```
 
-Idempotent: `INSERT OR IGNORE` on run_id.
+Supersede-on-rerun, not append-only: each write reads existing rows keyed
+by `run_date` (not `run_id`) before persisting. If the canonical run for a
+`run_date` is unchanged from the last write, the run is a no-op. If a later
+rerun has become the new canonical run for a date that was already measured
+under an older `run_id`, that date's row is deleted before the new row is
+inserted (`INSERT OR REPLACE`) — so `tc_metrics` never holds two rows for
+the same trading day, and the rolling mean/SE cannot double-count a date.
+This closed a round-3 Codex review finding on #391, where an earlier
+`INSERT OR IGNORE`-on-`run_id` scheme would leave both the old and new
+run's rows in place for the same date.
+
+`--dry-run` reads existing rows through a separate, genuinely read-only
+SQLite connection (`mode=ro` URI) and skips the write path entirely — it
+cannot create or alter `decision_ledger.db`, even if the file doesn't yet
+exist. This was also a round-3 finding: an earlier `--dry-run` still opened
+the ledger read-write, enabled WAL, and ran `_ensure_table()`, which could
+create/alter the file despite the "compute but don't persist" contract.
 
 ## Canonical run selection
 
@@ -129,7 +145,50 @@ A "canonical daily run" is defined as:
 
 This deduplication was added in round 2 to fix double-counting on dates with
 multiple runs (e.g., 2026-06-09 had two entries in the raw pipeline_runs
-table).
+table). Round 3 further hardened this at the persistence layer (see
+"Persistence" above): the selection rule alone was not sufficient, because a
+LATER rerun replacing an EARLIER same-day run as canonical would previously
+still leave the earlier run's already-written row in `tc_metrics`. The
+selection rule decides which run is canonical; the persistence layer must
+separately enforce that only that run's row survives.
+
+### Why `max(created_at)`, and what else was considered
+
+`max(created_at)` — the last completed run for a trading day — is the
+estimator wanted for the baseline because a same-day rerun in this pipeline
+is evidence that the earlier attempt was superseded, not that both attempts
+are independent, equally-valid observations of that day's decision-TC. Same-
+day reruns arise from operational recovery (a crashed or partial run
+restarted) or a corrected input being re-fed through the pipeline after the
+first attempt; in both cases the earlier attempt's `trades` rows reflect a
+run whose fills either never happened as intended or were superseded by the
+rerun's own submissions. Treating the earlier attempt as a second, valid
+data point would silently measure decision-TC against a stale, non-canonical
+version of that day's actual portfolio actions.
+
+Alternative selection rules considered and rejected:
+
+- **`min(created_at)` (first run of the day)**: would measure TC against
+  whichever attempt happened to run first, even when that attempt was the
+  one that got aborted or corrected — the opposite of "the run whose fills
+  actually reflect that trading day."
+- **Average across all same-day runs**: would blend a superseded attempt's
+  `w_actual` (fills that may not reflect the day's final book) with the
+  canonical run's, diluting the signal with data from an attempt the
+  pipeline itself effectively discarded. It would also make `n_survived_admission`
+  and `n_corr_population` ambiguous — averaged over what population?
+- **Exclude days with any rerun**: the simplest way to sidestep the
+  ambiguity, but at current sample sizes (see limitation 1 below) this would
+  discard a nontrivial fraction of the already-small `measured` set for no
+  benefit over just picking the canonical run correctly.
+
+`max(created_at)` is not a purely definitional choice — it is a claim, still
+unvalidated at n=4 `measured` runs, that same-day reruns in this pipeline are
+reliably "correction of an earlier attempt" and not "two independently
+meaningful decisions on the same day." If a future operational pattern
+emerges where legitimate same-day reruns represent genuinely distinct
+decisions (e.g., an intentional midday re-run to react to new information,
+not a recovery from a crash), this selection rule would need revisiting.
 
 ## Known limitations
 
