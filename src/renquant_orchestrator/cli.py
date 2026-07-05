@@ -588,6 +588,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     roadmap.add_argument("--allow-consequential", action="store_true",
                          help="let 'next' pick operator-only (GPU/deploy/live) items")
 
+    prune = sub.add_parser(
+        "prune-artifacts",
+        help="prune stale promote-pipeline staging/rollback/backup artifacts (dry-run by default)",
+    )
+    prune.add_argument(
+        "--execute",
+        action="store_true",
+        help="actually delete files (default: dry-run, list only)",
+    )
+    prune.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="umbrella repo root; default: /Users/renhao/git/github/RenQuant",
+    )
+    prune.add_argument(
+        "--json",
+        action="store_true",
+        dest="prune_json",
+        help="emit machine-readable JSON instead of human summary",
+    )
+
     agentwf = sub.add_parser(
         "agent-workflow",
         help="resolve a per-agent PR workflow queue (review/fix/merge); "
@@ -1187,6 +1209,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         audit = audit_merged_prs(args.repo, args.token, limit=args.limit)
         print(json.dumps(audit, indent=2, sort_keys=True))
         return 0 if audit["ok"] or not args.strict else 1
+    if args.command == "prune-artifacts":
+        from .retention_policy import main as prune_main
+
+        prune_argv: list[str] = []
+        if args.execute:
+            prune_argv.append("--execute")
+        if args.repo:
+            prune_argv.extend(["--repo", str(args.repo)])
+        if args.prune_json:
+            prune_argv.append("--json")
+        return prune_main(prune_argv)
     if args.command == "repos":
         from .repos import DEFAULT_MANIFEST, run_repos
 
