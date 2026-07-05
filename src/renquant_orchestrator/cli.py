@@ -483,6 +483,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    decision_pnl = sub.add_parser(
+        "decision-pnl",
+        help="per-decision P&L attribution from candidate_scores + forward returns",
+    )
+    decision_pnl.add_argument(
+        "--db", default=None,
+        help="run DB path (default: runs.alpaca.db)",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -987,6 +996,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "decision-pnl":
+        from .decision_pnl_attribution import (
+            attribute_by_class,
+            classify_decisions,
+            connect as pnl_connect,
+            load_decision_outcomes,
+            selection_edge,
+        )
+
+        conn = pnl_connect(args.db or None)
+        try:
+            joined, ret_col = load_decision_outcomes(conn)
+        finally:
+            conn.close()
+        classified = classify_decisions(joined)
+        agg = attribute_by_class(classified, ret_col)
+        edge = selection_edge(classified, ret_col)
+        by_class = [
+            {
+                "class": cls_name,
+                "count": int(row["count"]),
+                "mean": float(row["mean"]),
+                "median": float(row["median"]),
+            }
+            for cls_name, row in agg.iterrows()
+        ]
+        result = {
+            "return_column": ret_col,
+            "n_decisions": len(classified),
+            "edge": edge,
+            "by_class": by_class,
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 

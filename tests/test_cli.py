@@ -521,3 +521,35 @@ def test_ledger_query_empty_db_returns_empty(tmp_path, capsys) -> None:
     assert rc == 0
     rows = json.loads(capsys.readouterr().out)
     assert rows == []
+
+
+def test_decision_pnl_cli_emits_attribution(tmp_path, capsys) -> None:
+    import sqlite3
+
+    import pandas as pd
+
+    db = tmp_path / "runs.db"
+    conn = sqlite3.connect(db)
+    pd.DataFrame({
+        "run_id": ["2026-06-11-live-abc"] * 3,
+        "ticker": ["AAA", "BBB", "CCC"],
+        "selected": [1, 0, 0],
+        "blocked_by": [None, "kelly:capped_zero", None],
+        "rank_score": [0.9, 0.4, 0.5],
+    }).to_sql("candidate_scores", conn, index=False)
+    pd.DataFrame({
+        "as_of_date": ["2026-06-11"] * 3,
+        "ticker": ["AAA", "BBB", "CCC"],
+        "fwd_ret_5d": [0.030, -0.020, 0.005],
+    }).to_sql("ticker_forward_returns", conn, index=False)
+    conn.close()
+
+    rc = main(["decision-pnl", "--db", str(db)])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["return_column"] == "fwd_ret_5d"
+    assert out["n_decisions"] == 3
+    assert out["edge"]["n_selected"] == 1
+    assert out["edge"]["n_vetoed"] == 1
+    assert out["edge"]["edge"] > 0  # selected beat vetoed
+    assert len(out["by_class"]) >= 2
