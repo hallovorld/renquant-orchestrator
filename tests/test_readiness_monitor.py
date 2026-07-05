@@ -540,6 +540,18 @@ class TestCollectorLiveness:
 # N3: FMP coverage
 # ---------------------------------------------------------------------------
 
+def _write_ok_manifest(harvest_dir, stem, *, finished_at=None, output=None):
+    """Write a matching `<stem>.manifest.json` sidecar with status 'ok', per
+    the real fmp_harvest.py collector's own parquet+manifest contract."""
+    finished_at = finished_at or dt.datetime.now().isoformat()
+    output = output or f"{stem}.parquet"
+    manifest = {
+        "endpoint": "earnings", "status": "ok",
+        "output": output, "finished_at": finished_at,
+    }
+    (harvest_dir / f"{stem}.manifest.json").write_text(json.dumps(manifest))
+
+
 class TestFmpCoverage:
     def test_no_harvest_dir(self, tmp_path):
         r = check_fmp_coverage(tmp_path)
@@ -560,6 +572,7 @@ class TestFmpCoverage:
             pytest.skip("pandas not available")
         df = pd.DataFrame({"symbol": ["AAPL", "MSFT", "GOOG"]})
         df.to_parquet(harvest / "earnings_291.parquet")
+        _write_ok_manifest(harvest, "earnings_291")
         r = check_fmp_coverage(tmp_path)
         assert r.current == 3
 
@@ -575,11 +588,111 @@ class TestFmpCoverage:
         tickers = [f"T{i}" for i in range(100)]
         df = pd.DataFrame({"symbol": tickers})
         df.to_parquet(harvest / "earnings_291.parquet")
+        _write_ok_manifest(harvest, "earnings_291")
         cfg = {"watchlist": tickers + ["MISSING1", "MISSING2"]}
         (config_dir / "strategy_config.json").write_text(json.dumps(cfg))
         r = check_fmp_coverage(tmp_path)
         assert r.status == Status.READY
         assert r.current == pytest.approx(100 / 102 * 100, abs=0.1)
+
+    def test_parquet_without_manifest_is_not_trusted(self, tmp_path):
+        # A parquet with no sidecar manifest is exactly the "old residue on
+        # disk" scenario Codex flagged — must NOT be trusted as current.
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        tickers = [f"T{i}" for i in range(100)]
+        df = pd.DataFrame({"symbol": tickers})
+        df.to_parquet(harvest / "earnings_291.parquet")
+        # deliberately NO manifest written
+        cfg = {"watchlist": tickers}
+        (config_dir / "strategy_config.json").write_text(json.dumps(cfg))
+        r = check_fmp_coverage(tmp_path)
+        assert r.status == Status.NOT_READY
+
+    def test_stale_ok_manifest_is_not_ready(self, tmp_path):
+        # An "ok" manifest that finished 100 days ago must not keep this
+        # AUTHORITATIVE check READY on its own — this is the exact false
+        # positive Codex's review is about ("stale historical harvest can
+        # keep this check at READY even if the current harvest is broken").
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        tickers = [f"T{i}" for i in range(100)]
+        df = pd.DataFrame({"symbol": tickers})
+        df.to_parquet(harvest / "earnings_291.parquet")
+        old = (dt.datetime.now() - dt.timedelta(days=100)).isoformat()
+        _write_ok_manifest(harvest, "earnings_291", finished_at=old)
+        cfg = {"watchlist": tickers}
+        (config_dir / "strategy_config.json").write_text(json.dumps(cfg))
+        r = check_fmp_coverage(tmp_path)
+        assert r.status == Status.NOT_READY
+        assert "stale" in r.detail
+
+    def test_stale_residue_does_not_mask_broken_current_harvest(self, tmp_path):
+        # A broad, OLD ok-status harvest sits alongside a narrow CURRENT one.
+        # The union-across-all-files bug would report READY off the old
+        # residue's broad coverage; the fix must select only the current
+        # (freshest) snapshot and correctly report NOT_READY on its narrow
+        # coverage.
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        watchlist = [f"T{i}" for i in range(100)]
+
+        # Old, broad, ok-status harvest (100/100 coverage) — 100 days stale.
+        old_tickers = list(watchlist)
+        pd.DataFrame({"symbol": old_tickers}).to_parquet(
+            harvest / "earnings_291.parquet")
+        old_finished = (dt.datetime.now() - dt.timedelta(days=100)).isoformat()
+        _write_ok_manifest(harvest, "earnings_291", finished_at=old_finished)
+
+        # Current, narrow, ok-status harvest (only 5/100 coverage) — fresh.
+        new_tickers = watchlist[:5]
+        pd.DataFrame({"symbol": new_tickers}).to_parquet(
+            harvest / "earnings_105.parquet")
+        _write_ok_manifest(harvest, "earnings_105")
+
+        cfg = {"watchlist": watchlist}
+        (config_dir / "strategy_config.json").write_text(json.dumps(cfg))
+        r = check_fmp_coverage(tmp_path)
+        # Old bug: union(100, 5) = 100 tickers -> READY. Fixed: current
+        # snapshot only -> 5/100 = 5% -> NOT_READY.
+        assert r.status == Status.NOT_READY
+        assert r.current == pytest.approx(5.0, abs=0.1)
+
+    def test_non_ok_manifest_excluded(self, tmp_path):
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        pd.DataFrame({"symbol": ["AAPL"]}).to_parquet(
+            harvest / "earnings_291.parquet")
+        manifest = {
+            "endpoint": "earnings", "status": "error",
+            "output": "earnings_291.parquet",
+            "finished_at": dt.datetime.now().isoformat(),
+        }
+        (harvest / "earnings_291.manifest.json").write_text(json.dumps(manifest))
+        r = check_fmp_coverage(tmp_path)
+        assert r.status == Status.NOT_READY
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +818,7 @@ def _populate_fmp_harvest(data_root):
     harvest.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame({"symbol": [f"T{i}" for i in range(100)]})
     df.to_parquet(harvest / "earnings_291.parquet")
+    _write_ok_manifest(harvest, "earnings_291")
 
 
 def _populate_oos_pick_table(data_root):

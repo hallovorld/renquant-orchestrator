@@ -450,14 +450,26 @@ def check_collector_liveness(data_root: Path) -> CheckResult:
 
 
 def check_fmp_coverage(data_root: Path) -> CheckResult:
-    """N3: FMP harvest coverage — check that the FMP earnings harvest exists
-    and covers ≥95% of the trading universe.
+    """N3: FMP harvest coverage — check that the CURRENT FMP earnings harvest
+    exists and covers ≥95% of the trading universe.
 
-    Looks for data/fmp_harvest/earnings_*.parquet and checks ticker coverage
-    against the strategy config's watchlist.
+    Looks for data/fmp_harvest/earnings_*.parquet, but only trusts a parquet
+    file that has a matching ``<stem>.manifest.json`` sidecar (the real
+    fmp_harvest.py collector's own contract: every endpoint writes a parquet
+    AND a manifest atomically, and a broken/errored pull never overwrites the
+    existing good parquet/manifest — see scripts/fmp_harvest.py). Among
+    manifests with ``status == "ok"``, only the one with the most recent
+    ``finished_at`` is used (the "current" snapshot), and it must be within
+    ``max_age_days`` — this prevents old harvest residue (e.g. a stale
+    universe-sized variant from a prior run) from silently keeping this
+    AUTHORITATIVE check READY while the current harvest is broken or missing
+    recent names.
     """
     name = "N3_fmp_coverage"
     threshold_pct = 95.0
+    max_age_days = 45  # earnings harvests run periodically, not daily; wide
+                       # enough to tolerate normal cadence, bounded enough that
+                       # genuinely abandoned residue can't count as current.
 
     harvest_dir = data_root / "data" / "fmp_harvest"
     if not harvest_dir.exists():
@@ -469,6 +481,43 @@ def check_fmp_coverage(data_root: Path) -> CheckResult:
         return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
                            "no earnings_*.parquet files in fmp_harvest/", pct=0.0)
 
+    now = datetime.now()
+    candidates: list[tuple[datetime, Path]] = []
+    for pf in parquet_files:
+        manifest_path = pf.with_suffix("").with_suffix(".manifest.json")
+        if not manifest_path.exists():
+            continue
+        try:
+            man = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if man.get("status") != "ok" or man.get("output") != pf.name:
+            continue
+        finished_at = man.get("finished_at")
+        if not finished_at:
+            continue
+        try:
+            finished_dt = datetime.fromisoformat(finished_at)
+        except ValueError:
+            continue
+        candidates.append((finished_dt, pf))
+
+    if not candidates:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                           "no earnings_*.parquet with a matching ok-status "
+                           "manifest — cannot trust any harvest as current",
+                           pct=0.0)
+
+    finished_dt, current_pf = max(candidates, key=lambda c: c[0])
+    age_days = (now - finished_dt).days
+    if age_days > max_age_days:
+        return CheckResult(
+            name, Status.NOT_READY, 0, threshold_pct,
+            f"most recent ok-status harvest ({current_pf.name}) is "
+            f"{age_days}d old (> {max_age_days}d) — current harvest is stale",
+            pct=0.0,
+        )
+
     try:
         import pandas as pd
     except ImportError:
@@ -476,16 +525,17 @@ def check_fmp_coverage(data_root: Path) -> CheckResult:
                            "pandas not available — cannot read parquet")
 
     harvested_tickers: set[str] = set()
-    for pf in parquet_files:
-        try:
-            df = pd.read_parquet(pf, columns=["symbol"])
-            harvested_tickers.update(df["symbol"].dropna().unique())
-        except Exception:
-            continue
+    try:
+        df = pd.read_parquet(current_pf, columns=["symbol"])
+        harvested_tickers.update(df["symbol"].dropna().unique())
+    except Exception:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                           f"current harvest {current_pf.name} could not be "
+                           f"read", pct=0.0)
 
     if not harvested_tickers:
         return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
-                           "parquet files exist but contain no tickers", pct=0.0)
+                           "current harvest parquet contains no tickers", pct=0.0)
 
     config_path = data_root / "config" / "strategy_config.json"
     universe_size = None
