@@ -58,7 +58,7 @@ intraday_session_runner.py (orchestrator — entry point)
 
 | Repo | Command | Required state |
 |---|---|---|
-| renquant-orchestrator | `make test` | All pass (currently 2255) |
+| renquant-orchestrator | `make test` | All pass |
 | renquant-execution | `pytest tests/` | All pass; OSM tests specifically |
 | renquant-pipeline | `pytest kernel/tests/test_intraday_decisioning.py` | All pass |
 | renquant-common | `pytest` | All pass |
@@ -105,14 +105,29 @@ Strategy config (`strategy_config.json`) must contain:
   "intraday_decisioning": {
     "enabled": true,
     "mode": "shadow",
-    "tick_cadence_seconds": 720,
-    "entry_cutoff_before_close_minutes": 30
+    "tick_seconds": 720,
+    "entry_open_delay_seconds": 300,
+    "entry_close_cutoff_seconds": 1800
   }
 }
 ```
 
 - `enabled: true` — gate 1 of the triple gate
 - `mode: "shadow"` — CRITICAL: live mode is downgraded to shadow with warning (code enforces this)
+- `tick_seconds` — decision-tick cadence in seconds (default 720 = the RFC's fixed
+  12-min Stage-1 cadence; `load_intraday_config()` rejects non-positive values and
+  falls back to the default, recording a `config_errors` entry)
+- `entry_open_delay_seconds` — no new entries in the first N seconds after session
+  open (default 300 = 5 min)
+- `entry_close_cutoff_seconds` — no new entries in the last N seconds before session
+  close (default 1800 = 30 min); exits are not affected by this cutoff
+
+These three keys, `enabled`, and `mode` are read by `load_intraday_config()` in
+`src/renquant_orchestrator/intraday_session_scheduler.py`. A missing/malformed key
+does NOT fail the section outright — `load_intraday_config()` falls back to that
+key's default and appends a message to `config_errors`, so a typo'd key name here
+is silently ignored rather than raising, which is exactly the failure mode this
+checklist exists to prevent operators from hitting unnoticed.
 
 ### 2.5 Environment
 
@@ -124,10 +139,19 @@ Strategy config (`strategy_config.json`) must contain:
 
 | Collector | Plist | Status |
 |---|---|---|
-| Quote logger | `ops/renquant105/com.renquant.rq105-quote-logger.plist` | Exists; must be `launchctl load`ed |
+| Quote logger | `ops/renquant105/com.renquant.rq105-quote-logger.plist` | Exists; must be `launchctl bootstrap`ed |
 | Session scheduler | `ops/renquant105/com.renquant.rq105-session-scheduler.plist` | Exists; fires weekdays 06:25 ET |
 | Liveness checker | `ops/renquant105/com.renquant.rq105-liveness.plist` | Exists; alerts on stale outputs |
 | Batch scores export | `ops/renquant105/com.renquant.rq105-batch-scores-export.plist` | Exists; feeds class-A signals |
+
+Current-macOS launchctl verbs only (`load`/`unload` are deprecated, per
+`ops/renquant105/README.md` and `tests/test_rq105_collector_scheduling.py`):
+
+```bash
+launchctl bootstrap "gui/$UID_NUM" ~/Library/LaunchAgents/com.renquant.rq105-<p>.plist
+# unload: launchctl bootout "gui/$UID_NUM/com.renquant.rq105-<p>"
+# force-run once: launchctl kickstart "gui/$UID_NUM/com.renquant.rq105-<p>"
+```
 
 ### 2.7 Kill switch test
 
@@ -217,7 +241,7 @@ All of the following simultaneously:
 
 ```
 1. Verify all §2 prerequisites GREEN
-2. `launchctl load` the session scheduler plist (§2.6)
+2. `launchctl bootstrap "gui/$UID_NUM" <plist>` the session scheduler plist (§2.6)
 3. Wait for first weekday session
 4. After session: verify §3.1 checks
 5. Repeat for 5 sessions
