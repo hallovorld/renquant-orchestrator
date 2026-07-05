@@ -152,9 +152,20 @@ def _run(out_dir: Path) -> dict:
     results["bootstrap_ci_lo"] = round(float(ci95[0]), 4)
     results["bootstrap_ci_hi"] = round(float(ci95[1]), 4)
     results["bootstrap_lb_one_sided"] = round(float(boot_summary["lb_one_sided"]), 4)
+    # One-sided bootstrap percentile p-value for H0: mean paired delta <= 0,
+    # from the SAME resample distribution used for the CI/lb above (standard
+    # bootstrap-percentile p-value; the tail-mass equivalent of
+    # exact_block_tail_masses' p_le_threshold, via resampling instead of full
+    # enumeration — n_dates=200/block=20 puts exact enumeration (200**10
+    # tuples) far past EXACT_ENUM_LIMIT, so the bootstrap estimate is the
+    # correct available method here, not exact_sign_test's coarser
+    # binomial approximation).
+    paired_delta_p_value = float(np.mean(boot <= 0.0))
+    results["paired_delta_p_value"] = round(paired_delta_p_value, 4)
     print(f"  SE: {boot_summary['boot_se']:.4f}, "
           f"CI95: [{ci95[0]:.4f}, {ci95[1]:.4f}], "
-          f"lb_one_sided: {boot_summary['lb_one_sided']:.4f}")
+          f"lb_one_sided: {boot_summary['lb_one_sided']:.4f}, "
+          f"paired_delta_p: {paired_delta_p_value:.4f}")
 
     # Also test the bootstrap_or_exact branch (small-n path)
     small_vals = deltas.values[:8]
@@ -186,14 +197,13 @@ def _run(out_dir: Path) -> dict:
     ic_criterion = spec.criterion("genuine_ic")
     ic_met = ic_criterion.met(mean_delta)
     p_criterion = spec.criterion("paired_delta_p")
-    lb = boot_summary["lb_one_sided"]
-    p_met = p_criterion.met(lb)
+    p_met = p_criterion.met(paired_delta_p_value)
     results["criterion_ic_met"] = ic_met
-    results["criterion_lb_met"] = p_met
-    verdict = "GO" if ic_met else "FAIL"
+    results["criterion_paired_delta_p_met"] = p_met
+    verdict = "GO" if (ic_met and p_met) else "FAIL"
     results["verdict"] = verdict
-    print(f"  genuine_ic > {ic_criterion.threshold}: {ic_met} (value={mean_delta:.4f})")
-    print(f"  lb_one_sided > 0 (ie significant): {lb > 0} (lb={lb:.4f})")
+    print(f"  genuine_ic {ic_criterion.direction} {ic_criterion.threshold}: {ic_met} (value={mean_delta:.4f})")
+    print(f"  paired_delta_p {p_criterion.direction} {p_criterion.threshold}: {p_met} (p={paired_delta_p_value:.4f})")
     print(f"  verdict: {verdict}")
 
     # ── Step 6: write evidence manifest ───────────────────────────
@@ -208,7 +218,7 @@ def _run(out_dir: Path) -> dict:
         "unanimity": unanimity,
         "criteria": {
             "genuine_ic": {"met": ic_met, "value": mean_delta},
-            "lb_one_sided": {"met": p_met, "value": lb},
+            "paired_delta_p": {"met": p_met, "value": paired_delta_p_value},
         },
         "verdict": verdict,
     }
@@ -262,7 +272,8 @@ def main() -> int:
 
     all_ok = (
         results.get("mean_ic_genuine", 0) > 0
-        and results.get("criterion_ic_met") is not None
+        and results.get("criterion_ic_met") is True
+        and results.get("criterion_paired_delta_p_met") is True
         and results.get("manifest_ok", False)
     )
     status = "✅ PASS" if all_ok else "❌ FAIL"
