@@ -6,48 +6,52 @@ This script is the pre-flight checklist an operator runs BEFORE Monday's paper
 trading session. It verifies every gate the session runner will evaluate at
 startup, but modifies NOTHING — no files are created, no state is written.
 
+Every check below calls into the SAME authoritative functions the session
+runner itself uses (``check_section_9_4_authorization``, ``resolve_stage2_arming``,
+``load_intraday_config``, the real gate/threshold constants) rather than
+maintaining a parallel copy of the gate contract. If the gate semantics move,
+this script moves with them automatically — there is no second source of
+truth to go stale.
+
 Checks performed:
   1. section_9_4_economic_authorization.json exists with correct paper content
+     (via ``intraday_session_runner.check_section_9_4_authorization``)
   2. PaperBrokerPort is importable from renquant_execution
-  3. The quintuple arming gate prerequisites:
-     G1 — config: intraday_decisioning.enabled + mode=live
-     G2 — authorization file: stage2_authorization.json present + schema-valid
-     G3 — env flag: RENQUANT_INTRADAY_LIVE truthy
-     G4 — kill switch: intraday_decisioning.KILL absent
-     G5 — canary envelope: stage2_canary_state.json accessible
-  4. Shadow session count vs MIN_SHADOW_SESSIONS_CLEAN_PAPER threshold
+  3. The full §9.3a quintuple arming gate (via
+     ``intraday_live_executor.resolve_stage2_arming`` — the exact function
+     ``SessionRunner._evaluate_arming`` calls)
+  4. Shadow session count vs the real MIN_SHADOW_SESSIONS_CLEAN_PAPER threshold
 
 Exit 0: all checks pass — ready for paper trading.
 Exit 1: at least one check failed — see output for remediation steps.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
-import os
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Constants — mirrored from the source modules for import-free checking.
-# When the source modules ARE importable, we cross-validate against them.
-# ---------------------------------------------------------------------------
-SECTION_9_4_FILENAME = "section_9_4_economic_authorization.json"
-PAPER_PREREG_ID = "rq105-paper-canary-prereg-v1"
-MIN_SHADOW_SESSIONS_CLEAN_PAPER = 1
-ENV_LIVE_FLAG = "RENQUANT_INTRADAY_LIVE"
-KILL_SWITCH_FILENAME = "intraday_decisioning.KILL"
-STAGE2_AUTH_FILENAME = "stage2_authorization.json"
-CANARY_STATE_FILENAME = "stage2_canary_state.json"
+_SRC = Path(__file__).resolve().parents[2] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-
-def _resolve_data_root() -> Path:
-    """Resolve the operator data root (same logic as runtime_paths.default_data_root)."""
-    if raw := os.environ.get("RENQUANT_DATA_ROOT"):
-        return Path(raw).expanduser().resolve()
-    if raw := os.environ.get("RQ_ROOT"):
-        return Path(raw).expanduser().resolve()
-    # Fallback: the umbrella checkout at the canonical location.
-    return Path("/Users/renhao/git/github/RenQuant").resolve()
+from renquant_orchestrator.intraday_live_executor import (  # noqa: E402
+    MIN_SHADOW_SESSIONS_CLEAN_PAPER,
+    default_authorization_path,
+    default_canary_state_path,
+    resolve_stage2_arming,
+)
+from renquant_orchestrator.intraday_session_runner import (  # noqa: E402
+    PAPER_PREREG_ID,
+    SECTION_9_4_FILENAME,
+    build_kill_switch,
+    check_section_9_4_authorization,
+)
+from renquant_orchestrator.intraday_session_scheduler import (  # noqa: E402
+    load_intraday_config,
+)
+from renquant_orchestrator.runtime_paths import default_data_root  # noqa: E402
 
 
 class _Check:
@@ -69,13 +73,29 @@ class _Check:
         self.remediation = remediation
 
 
+def check_rq105_data_dir(data_root: Path) -> _Check:
+    """Prerequisite: the data/rq105 directory exists."""
+    c = _Check("data/rq105 directory exists")
+    path = data_root / "data" / "rq105"
+    if path.is_dir():
+        c.ok(f"Found at {path}")
+    else:
+        c.fail(
+            f"Directory not found: {path}",
+            remediation=f'Create it with:\n  mkdir -p "{path}"',
+        )
+    return c
+
+
 def check_section_9_4(data_root: Path) -> _Check:
-    """Check 1: the section 9.4 economic authorization file."""
+    """Check 1: the §9.4 economic authorization file — via the real
+    ``check_section_9_4_authorization`` the session runner itself calls."""
     c = _Check("section 9.4 economic authorization file")
     path = data_root / "data" / "rq105" / SECTION_9_4_FILENAME
-    if not path.exists():
+    authorized, is_paper = check_section_9_4_authorization(data_root)
+    if not authorized:
         c.fail(
-            f"File not found: {path}",
+            f"Not authorized (file missing, unparseable, or content invalid): {path}",
             remediation=(
                 "Create the file with:\n"
                 f'  mkdir -p "{path.parent}"\n'
@@ -86,24 +106,10 @@ def check_section_9_4(data_root: Path) -> _Check:
                 "  HEREDOC"
             ),
         )
-        return c
-    try:
-        content = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        c.fail(f"File exists but cannot be parsed: {exc}")
-        return c
-
-    errors: list[str] = []
-    if not content.get("authorized"):
-        errors.append('"authorized" must be true')
-    if content.get("prereg_id") != PAPER_PREREG_ID:
-        errors.append(
-            f'"prereg_id" must be "{PAPER_PREREG_ID}", '
-            f'got "{content.get("prereg_id")}"'
-        )
-    if errors:
+    elif not is_paper:
         c.fail(
-            f"Content validation failed: {'; '.join(errors)}",
+            f'Authorized, but prereg_id does not match PAPER_PREREG_ID '
+            f'("{PAPER_PREREG_ID}")',
             remediation=(
                 f"Fix the file at {path} — expected content:\n"
                 "  "
@@ -111,7 +117,7 @@ def check_section_9_4(data_root: Path) -> _Check:
             ),
         )
     else:
-        c.ok(f"Found at {path} with correct content")
+        c.ok(f"Found at {path}, authorized, paper mode confirmed")
     return c
 
 
@@ -134,141 +140,56 @@ def check_paper_broker_port() -> _Check:
     return c
 
 
-def check_gate_1_config(data_root: Path) -> _Check:
-    """Check G1: intraday_decisioning.enabled + mode=live in strategy config."""
-    c = _Check("G1 config: intraday_decisioning enabled + mode=live")
-    config_path = data_root / "strategy_config.json"
-    if not config_path.exists():
+def check_quintuple_arming_gate(data_root: Path) -> _Check:
+    """Check 3: the full §9.3a quintuple arming gate — via the real
+    ``resolve_stage2_arming``, the exact function
+    ``SessionRunner._evaluate_arming`` calls, with the same inputs
+    (``load_intraday_config``, the real authorization/canary paths, a real
+    ``KillSwitch``). This is READ-ONLY: no session is armed or run, we just
+    ask the authoritative gate function what its verdict would be today."""
+    c = _Check("§9.3a quintuple arming gate (config/auth/env/kill/envelope)")
+
+    strategy_config_path = data_root / "strategy_config.json"
+    if not strategy_config_path.exists():
         c.fail(
-            f"strategy_config.json not found at {config_path}",
+            f"strategy_config.json not found at {strategy_config_path}",
             remediation="Ensure the pinned strategy config exists at the data root.",
         )
         return c
     try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        strategy_config = json.loads(strategy_config_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         c.fail(f"Cannot parse strategy_config.json: {exc}")
         return c
 
-    section = config.get("intraday_decisioning", {})
-    enabled = section.get("enabled", False)
-    mode = section.get("mode", "shadow")
+    intraday_config = load_intraday_config(strategy_config)
+    kill_switch = build_kill_switch(intraday_config=intraday_config, data_root=data_root)
+    _, is_paper = check_section_9_4_authorization(data_root)
+    today = dt.date.today().isoformat()
 
-    if not enabled:
-        c.fail(
-            "intraday_decisioning.enabled is not true",
-            remediation=(
-                'Set "enabled": true in strategy_config.json '
-                "intraday_decisioning section."
-            ),
-        )
-    elif mode != "live":
-        c.fail(
-            f'intraday_decisioning.mode is "{mode}", must be "live"',
-            remediation=(
-                'Set "mode": "live" in strategy_config.json '
-                "intraday_decisioning section."
-            ),
-        )
-    else:
-        c.ok("enabled=true, mode=live")
-    return c
+    arming = resolve_stage2_arming(
+        config=intraday_config,
+        authorization_path=default_authorization_path(data_root),
+        canary_state_path=default_canary_state_path(data_root),
+        kill_switch=kill_switch,
+        today=today,
+        paper=is_paper,
+    )
 
-
-def check_gate_2_authorization(data_root: Path) -> _Check:
-    """Check G2: stage2_authorization.json exists and is parseable."""
-    c = _Check("G2 authorization: stage2_authorization.json")
-    path = data_root / "data" / "rq105" / STAGE2_AUTH_FILENAME
-    if not path.exists():
-        c.fail(
-            f"File not found: {path}",
-            remediation=(
-                "Create the stage2 authorization file at the path above. "
-                "This is a SEPARATE file from the section_9_4 authorization. "
-                "It must contain: authorized_by, date, expiry, "
-                "daily_entry_notional_cap, evidence block (shadow_sessions_clean, "
-                "replay_audits_green, entry_timing_report), canary_allowlist, "
-                "max_cumulative_loss_usd. See intraday_live_executor.py "
-                "Stage2Authorization dataclass for the full schema."
-            ),
-        )
-        return c
-    try:
-        content = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        c.fail(f"File exists but cannot be parsed: {exc}")
-        return c
-
-    # Basic schema check — the runtime does the full validation.
-    required_keys = {"authorized_by", "date", "expiry", "daily_entry_notional_cap"}
-    missing = required_keys - set(content.keys())
-    if missing:
-        c.fail(
-            f"Missing required keys: {sorted(missing)}",
-            remediation="Add the missing keys to the authorization file.",
-        )
-    else:
-        c.ok(f"Found at {path} with required keys present")
-    return c
-
-
-def check_gate_3_env() -> _Check:
-    """Check G3: RENQUANT_INTRADAY_LIVE env flag."""
-    c = _Check(f"G3 env: {ENV_LIVE_FLAG}")
-    val = os.environ.get(ENV_LIVE_FLAG, "")
-    if val.strip().lower() in ("1", "true", "yes"):
-        c.ok(f'{ENV_LIVE_FLAG}="{val}"')
+    if arming.armed:
+        c.ok(f"ARMED — mode_effective={arming.mode_effective}")
     else:
         c.fail(
-            f'{ENV_LIVE_FLAG} is not set truthy (current value: "{val}")',
-            remediation=(
-                f"Set the env flag before running the session:\n"
-                f"  export {ENV_LIVE_FLAG}=1\n"
-                "Or add it to the .env file / launchd plist / wrapper script."
-            ),
+            f"NOT armed (mode_effective={arming.mode_effective}, "
+            f"gates={dict(arming.gates)})",
+            remediation="; ".join(arming.reasons) or "See arming.reasons for detail.",
         )
-    return c
-
-
-def check_gate_4_kill_switch(data_root: Path) -> _Check:
-    """Check G4: kill switch file must be ABSENT."""
-    c = _Check("G4 kill switch: intraday_decisioning.KILL absent")
-    path = data_root / "data" / "rq105" / KILL_SWITCH_FILENAME
-    if path.exists():
-        c.fail(
-            f"Kill switch is ENGAGED: {path} exists",
-            remediation=(
-                f"Remove the kill switch file to allow sessions:\n"
-                f'  rm "{path}"'
-            ),
-        )
-    else:
-        c.ok(f"Not present at {path}")
-    return c
-
-
-def check_gate_5_canary_envelope(data_root: Path) -> _Check:
-    """Check G5: canary envelope state file accessibility."""
-    c = _Check("G5 canary envelope: stage2_canary_state.json")
-    path = data_root / "data" / "rq105" / CANARY_STATE_FILENAME
-    if not path.exists():
-        # Not necessarily a failure — the envelope is created on first armed
-        # session. For initial paper trading setup this is expected.
-        c.ok(
-            f"Not present at {path} (will be created on first armed session; "
-            f"this is expected for initial paper trading setup)"
-        )
-    else:
-        try:
-            json.loads(path.read_text(encoding="utf-8"))
-            c.ok(f"Found and parseable at {path}")
-        except (json.JSONDecodeError, OSError) as exc:
-            c.fail(f"File exists but cannot be parsed: {exc}")
     return c
 
 
 def check_shadow_sessions(data_root: Path) -> _Check:
-    """Check 4: shadow session count vs MIN_SHADOW_SESSIONS_CLEAN_PAPER."""
+    """Check 4: shadow session count vs the real
+    MIN_SHADOW_SESSIONS_CLEAN_PAPER threshold."""
     c = _Check(
         f"Shadow session evidence >= {MIN_SHADOW_SESSIONS_CLEAN_PAPER} "
         f"clean session(s)"
@@ -302,22 +223,9 @@ def check_shadow_sessions(data_root: Path) -> _Check:
             f"need >= {MIN_SHADOW_SESSIONS_CLEAN_PAPER}",
             remediation=(
                 "Run shadow sessions until the threshold is met. "
-                "Paper mode requires only 1 clean shadow session."
+                f"Paper mode requires only {MIN_SHADOW_SESSIONS_CLEAN_PAPER} "
+                "clean shadow session(s)."
             ),
-        )
-    return c
-
-
-def check_rq105_data_dir(data_root: Path) -> _Check:
-    """Prerequisite: the data/rq105 directory exists."""
-    c = _Check("data/rq105 directory exists")
-    path = data_root / "data" / "rq105"
-    if path.is_dir():
-        c.ok(f"Found at {path}")
-    else:
-        c.fail(
-            f"Directory not found: {path}",
-            remediation=f'Create it with:\n  mkdir -p "{path}"',
         )
     return c
 
@@ -329,18 +237,14 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 0
 
-    data_root = _resolve_data_root()
+    data_root = default_data_root()
     print(f"[check_paper_trading_readiness] data_root = {data_root}\n")
 
     checks: list[_Check] = [
         check_rq105_data_dir(data_root),
         check_section_9_4(data_root),
         check_paper_broker_port(),
-        check_gate_1_config(data_root),
-        check_gate_2_authorization(data_root),
-        check_gate_3_env(),
-        check_gate_4_kill_switch(data_root),
-        check_gate_5_canary_envelope(data_root),
+        check_quintuple_arming_gate(data_root),
         check_shadow_sessions(data_root),
     ]
 
