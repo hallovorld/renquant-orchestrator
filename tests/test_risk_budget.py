@@ -865,7 +865,377 @@ def test_cli_exit_code_matches_status(seeded_db, tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 5. Read-only smoke over the REAL run DB (skipped when absent)
+# 5. Pure-function edge cases for report.py
+#    (_fmt, breach_status boundaries, overall_status edge cases,
+#     exit_code unknown, _check_out_dir paths, render_markdown variants,
+#     write_statement file content)
+# ---------------------------------------------------------------------------
+
+
+def _make_statement():
+    """Build a minimal but complete statement dict for pure-function tests."""
+    return {
+        "generated_at": "2026-07-04T12:00:00+0000",
+        "as_of": "2026-07-03",
+        "run_type": "live",
+        "status": "WARN",
+        "exit_code": 2,
+        "provenance": {
+            "strategy_config": "/path/to/config.json",
+            "strategy_config_pinned": True,
+            "sleeve_log": "/path/to/sleeve.jsonl",
+            "read_only": True,
+        },
+        "budgets": {
+            "max_drawdown": {"limit": 0.15, "kind": "hard"},
+            "book_beta": {"limit": 0.6, "kind": "planning"},
+            "per_name_concentration": {
+                "limit": None, "kind": "hard",
+                "per_regime": {"BULL_CALM": 0.12},
+            },
+            "sleeve_dd_sub_budget": {"limit": 0.15, "kind": "sub-budget"},
+        },
+        "controls_context": {
+            "cash_reserve_per_regime": {"BULL_CALM": 0.0},
+            "max_positions_per_sector": 6,
+            "vol_gate": None,
+            "sleeve_flag": {"enabled": False},
+        },
+        "readings": {
+            "drawdown": {
+                "as_of": "2026-07-03",
+                "max_drawdown": 0.08,
+                "current_drawdown": 0.05,
+                "max_drawdown_peak_date": "2026-05-01",
+                "max_drawdown_date": "2026-06-15",
+                "peak_value": 100000.0,
+                "start_date": "2026-01-01",
+                "censored": None,
+            },
+            "dd_consumption": {
+                "max_consumption": 0.53,
+                "current_consumption": 0.33,
+                "censored": None,
+            },
+            "burn": {
+                "burn_per_session": 0.001,
+                "consumption_now": 0.33,
+                "consumption_window_start": 0.31,
+                "window": 21,
+                "runway_sessions": 670,
+                "censored": None,
+            },
+            "positions": {
+                "cash_weight": 0.3,
+                "positions": [
+                    {"ticker": "AAPL", "weight": 0.25, "sector": "tech"},
+                ],
+                "censored": None,
+            },
+            "concentration": {
+                "n_names": 3,
+                "top_name": "AAPL",
+                "top_name_weight": 0.25,
+                "cap": 0.12,
+                "hhi_book": 0.04,
+                "effective_n_invested": 5.0,
+                "regime": "BULL_CALM",
+                "censored": None,
+            },
+            "beta_realized": {
+                "beta": 0.85,
+                "n_obs": 50,
+                "r2": 0.72,
+                "censored": None,
+            },
+            "beta_composition": {
+                "book_beta_measured_names": 0.92,
+                "measured_weight": 0.7,
+                "per_name": {
+                    "AAPL": {
+                        "weight": 0.25,
+                        "beta": 1.2,
+                        "n_obs": 40,
+                        "censored": None,
+                    },
+                },
+                "censored_names": {},
+                "sleeve_leg": None,
+                "censored": None,
+            },
+            "sleeve": {
+                "present": False,
+                "censored": "sleeve_log_absent(flag default-OFF; shadow never ran)",
+            },
+        },
+        "leg_decomposition": {
+            "overall": {
+                "n_records": 10,
+                "n_decomposed": 8,
+                "total_pnl_decomposed": 500.0,
+                "leg_totals": {
+                    "market": 300.0, "signal": 200.0,
+                    "sizing": -50.0, "timing": -80.0, "cost": -20.0,
+                },
+                "leg_n": {
+                    "market": 10, "signal": 10,
+                    "sizing": 8, "timing": 8, "cost": 8,
+                },
+                "leg_censored": {
+                    "market": {}, "signal": {},
+                    "sizing": {"fill": 2}, "timing": {"fill": 2}, "cost": {"fill": 2},
+                },
+                "dd_consumers": [
+                    {"leg": "timing", "total": -80.0, "n": 8},
+                    {"leg": "sizing", "total": -50.0, "n": 8},
+                ],
+                "ranking": [
+                    {"leg": "timing", "total": -80.0, "n": 8},
+                    {"leg": "sizing", "total": -50.0, "n": 8},
+                    {"leg": "cost", "total": -20.0, "n": 8},
+                    {"leg": "signal", "total": 200.0, "n": 10},
+                    {"leg": "market", "total": 300.0, "n": 10},
+                ],
+            },
+        },
+        "breaches": {
+            "max_drawdown": {
+                "limit": 0.15, "consumption": 0.53, "status": "OK",
+            },
+            "book_beta": {
+                "limit": 0.6, "consumption": 1.53,
+                "measured_beta": 0.92, "status": "CRITICAL",
+            },
+            "per_name_concentration": {
+                "limit": 0.12, "consumption": 2.08, "status": "CRITICAL",
+            },
+            "sleeve_dd_sub_budget": {
+                "limit": 0.15, "consumption": None, "status": "CENSORED",
+            },
+        },
+        "censoring": [
+            {"where": "sleeve", "reason": "sleeve_log_absent(flag default-OFF)"},
+        ],
+    }
+
+
+# 5a. _fmt ----
+
+@pytest.mark.parametrize(
+    "value,pct,expected",
+    [
+        (None, False, "censored"),
+        (None, True, "censored"),
+        (0.12345, False, "0.123"),
+        (0.5, True, "50.0%"),
+        (0.8015, True, "80.2%"),
+        (0.0, False, "0.000"),
+        (0.0, True, "0.0%"),
+        (-0.05, False, "-0.050"),
+        (-0.05, True, "-5.0%"),
+        (float("inf"), False, "inf"),
+        (float("inf"), True, "inf"),
+    ],
+    ids=[
+        "none_default", "none_pct", "float_3dec", "float_pct",
+        "float_pct_rounding", "zero_default", "zero_pct",
+        "negative_default", "negative_pct", "inf_default", "inf_pct",
+    ],
+)
+def test_fmt_floats_and_none(value, pct, expected):
+    assert rp._fmt(value, pct=pct) == expected
+
+
+def test_fmt_string_passthrough():
+    assert rp._fmt("hello") == "hello"
+
+
+def test_fmt_int_passthrough():
+    assert rp._fmt(42) == "42"
+
+
+# 5b. breach_status edge cases not covered by the parametrize above ----
+
+def test_breach_status_negative_is_ok():
+    assert rp.breach_status(-0.1) == rp.STATUS_OK
+
+
+def test_breach_status_inf_is_critical():
+    assert rp.breach_status(float("inf")) == rp.STATUS_CRITICAL
+
+
+# 5c. overall_status edge cases ----
+
+def test_overall_status_empty_list():
+    assert rp.overall_status([]) == rp.STATUS_OK
+
+
+def test_overall_status_censored_only_stays_ok():
+    # CENSORED has severity 0 (same as OK); worst starts at OK and CENSORED
+    # never wins (strict >), so a list of only CENSOREDs returns OK.
+    assert rp.overall_status([rp.STATUS_CENSORED, rp.STATUS_CENSORED]) == rp.STATUS_OK
+
+
+def test_overall_status_unknown_treated_as_zero():
+    assert rp.overall_status(["FOOBAR", rp.STATUS_OK]) == rp.STATUS_OK
+    assert rp.overall_status(["FOOBAR", rp.STATUS_WARN]) == rp.STATUS_WARN
+
+
+# 5d. exit_code edge case ----
+
+def test_exit_code_unknown_defaults_to_zero():
+    assert rp.exit_code("FOOBAR") == 0
+
+
+# 5e. _check_out_dir ----
+
+def test_check_out_dir_safe_path_returns_resolved(tmp_path):
+    result = rp._check_out_dir(tmp_path / "research" / "out")
+    assert result == (tmp_path / "research" / "out").resolve()
+
+
+def test_check_out_dir_umbrella_runtime_forbidden():
+    with pytest.raises(ValueError, match="refusing to write"):
+        rp._check_out_dir(rp._CANONICAL_UMBRELLA / "runtime" / "x")
+
+
+def test_check_out_dir_data_root_data_forbidden():
+    with pytest.raises(ValueError, match="refusing to write"):
+        rp._check_out_dir(rp._DATA_ROOT / "data" / "y")
+
+
+def test_check_out_dir_data_root_runtime_forbidden():
+    with pytest.raises(ValueError, match="refusing to write"):
+        rp._check_out_dir(rp._DATA_ROOT / "runtime" / "z")
+
+
+# 5f. write_statement file content ----
+
+def test_write_statement_json_parseable(tmp_path):
+    stmt = _make_statement()
+    paths = rp.write_statement(stmt, tmp_path / "lake")
+    loaded = json.loads(paths["json"].read_text())
+    assert loaded["status"] == "WARN"
+    assert loaded["exit_code"] == 2
+
+
+def test_write_statement_filenames_encode_run_type_and_timestamp(tmp_path):
+    stmt = _make_statement()
+    paths = rp.write_statement(stmt, tmp_path / "lake")
+    assert "live" in paths["markdown"].name
+    assert "2026-07-04" in paths["markdown"].name
+    assert paths["markdown"].suffix == ".md"
+    assert paths["json"].suffix == ".json"
+
+
+# 5g. render_markdown ----
+
+def test_render_markdown_title_and_status():
+    md = rp.render_markdown(_make_statement())
+    assert "# Risk-budget statement (observe-only)" in md
+    assert "**status: WARN**" in md
+    assert "exit 2" in md
+
+
+def test_render_markdown_all_budget_rows():
+    md = rp.render_markdown(_make_statement())
+    for budget in ("max_drawdown", "book_beta", "per_name_concentration",
+                   "sleeve_dd_sub_budget"):
+        assert budget in md
+
+
+def test_render_markdown_runway_section():
+    md = rp.render_markdown(_make_statement())
+    assert "## Runway" in md
+    assert "670 sessions" in md
+
+
+def test_render_markdown_leg_decomposition():
+    md = rp.render_markdown(_make_statement())
+    assert "Which leg consumes the DD budget" in md
+    for leg in ("timing", "sizing", "cost", "signal", "market"):
+        assert leg in md
+
+
+def test_render_markdown_censoring_appendix():
+    md = rp.render_markdown(_make_statement())
+    assert "Censoring appendix" in md
+    assert "sleeve_log_absent" in md
+
+
+def test_render_markdown_observe_only_footer():
+    md = rp.render_markdown(_make_statement())
+    assert "OBSERVE-ONLY" in md
+
+
+def test_render_markdown_beta_composition_table():
+    md = rp.render_markdown(_make_statement())
+    assert "Beta composition" in md
+    assert "AAPL" in md
+    # w*beta contribution for AAPL: 0.25 * 1.2 = 0.300
+    assert "0.300" in md
+
+
+def test_render_markdown_beta_censored_name():
+    stmt = _make_statement()
+    stmt["readings"]["beta_composition"]["per_name"]["MSFT"] = {
+        "weight": 0.15, "beta": None, "n_obs": 0,
+        "censored": "no_price_series(ohlcv parquet missing)",
+    }
+    md = rp.render_markdown(stmt)
+    assert "MSFT" in md
+    assert "no_price_series" in md
+
+
+def test_render_markdown_dd_censored_note():
+    stmt = _make_statement()
+    stmt["readings"]["drawdown"]["censored"] = "no_equity_curve"
+    md = rp.render_markdown(stmt)
+    assert "no_equity_curve" in md
+
+
+def test_render_markdown_sleeve_present():
+    stmt = _make_statement()
+    stmt["readings"]["sleeve"] = {
+        "present": True, "n_records": 20,
+        "reversal_metrics": {"contribution_sum_pct": -0.005, "triggered": True},
+        "censored": None,
+    }
+    md = rp.render_markdown(stmt)
+    assert "20 records" in md
+    assert "triggered=True" in md
+
+
+def test_render_markdown_burn_censored():
+    stmt = _make_statement()
+    stmt["readings"]["burn"] = {
+        "censored": "short_curve(fewer than window)",
+        "window": 21, "burn_per_session": None,
+    }
+    md = rp.render_markdown(stmt)
+    assert "short_curve" in md
+
+
+def test_render_markdown_legs_censored():
+    stmt = _make_statement()
+    stmt["leg_decomposition"] = {"censored": "sim_refused_without_allow_sim"}
+    md = rp.render_markdown(stmt)
+    assert "sim_refused_without_allow_sim" in md
+
+
+def test_render_markdown_sleeve_leg_in_beta():
+    stmt = _make_statement()
+    stmt["readings"]["beta_composition"]["sleeve_leg"] = {
+        "spy_weight": 0.10, "beta_contribution": 0.10,
+        "sgov_beta_assumed_zero": True,
+    }
+    md = rp.render_markdown(stmt)
+    assert "sleeve (SPY)" in md
+    assert "1.00 (definitional)" in md
+
+
+# ---------------------------------------------------------------------------
+# 6. Read-only smoke over the REAL run DB (skipped when absent)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not REAL_DB.exists(), reason="live run DB not present")
