@@ -8,6 +8,7 @@
     "daily-contract",
     "daily-trading-health",
     "decision-validate",
+    "edgar-harvest",
     "engineering-census",
     "gate-calibration",
     "gate-value",

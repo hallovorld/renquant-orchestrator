@@ -521,3 +521,19 @@ def test_ledger_query_empty_db_returns_empty(tmp_path, capsys) -> None:
     assert rc == 0
     rows = json.loads(capsys.readouterr().out)
     assert rows == []
+
+
+def test_edgar_harvest_dry_run(tmp_path, capsys) -> None:
+    """CLI wiring: edgar-harvest delegates to sec_edgar_harvester.main."""
+    output = tmp_path / "edgar_out.jsonl"
+    rc = main([
+        "edgar-harvest",
+        "--repo-dir", str(tmp_path),
+        "--output", str(output),
+        "--tickers", "AAPL,GRMN",
+        "--dry-run",
+    ])
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "dry_run"
+    assert str(output) in " ".join(result["command"])

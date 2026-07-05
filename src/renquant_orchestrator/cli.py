@@ -483,6 +483,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    edgar = sub.add_parser(
+        "edgar-harvest",
+        help="schedule a SEC EDGAR companyfacts harvest (N3 data collection)",
+    )
+    edgar.add_argument(
+        "edgar_args", nargs=argparse.REMAINDER,
+        help="pass-through args to sec_edgar_harvester.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -620,7 +629,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw_argv = raw_argv[:sep]
 
     args, unknown = parser.parse_known_args(raw_argv)
-    if unknown and args.command not in {"live-bridge", "daily-bridge"}:
+    if unknown and args.command not in {"live-bridge", "daily-bridge", "edgar-harvest"}:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if args.command == "daily-contract":
         from .contract_fixture import run_contract_fixture
@@ -987,6 +996,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "edgar-harvest":
+        from .sec_edgar_harvester import main as edgar_main
+
+        edgar_argv = unknown + (args.edgar_args or [])
+        return edgar_main(edgar_argv or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
