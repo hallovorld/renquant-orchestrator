@@ -717,7 +717,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw_argv = raw_argv[:1]
 
     args, unknown = parser.parse_known_args(raw_argv)
-    if unknown and args.command not in {"live-bridge", "daily-bridge", "edgar-harvest"}:
+    _remainder_commands = {
+        "live-bridge", "daily-bridge", "edgar-harvest", "parking-sleeve",
+        "transfer-coefficient", "readiness-monitor", "entry-timing",
+        "train-gbdt", "patchtst-cutoff", "risk-budget-report",
+    }
+    if unknown and args.command not in _remainder_commands:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if args.command == "daily-contract":
         from .contract_fixture import run_contract_fixture
@@ -1227,15 +1232,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "parking-sleeve":
         from .parking_sleeve import main as ps_main
 
-        return ps_main(args.parking_args or None)
+        ps_argv = unknown + (args.parking_args or [])
+        return ps_main(ps_argv or None)
     if args.command == "transfer-coefficient":
         from .transfer_coefficient import main as tc_main
 
-        return tc_main(args.tc_args or None)
+        tc_argv = unknown + (args.tc_args or [])
+        return tc_main(tc_argv or None)
     if args.command == "readiness-monitor":
         from .readiness_monitor import main as rm_main
 
-        return rm_main(args.readiness_args or None)
+        rm_argv = unknown + (args.readiness_args or [])
+        return rm_main(rm_argv or None)
     if args.command == "edgar-harvest":
         from .sec_edgar_harvester import main as edgar_main
 
@@ -1244,15 +1252,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "entry-timing":
         from .entry_timing_policy import main as et_main
 
-        return et_main(args.entry_timing_args or None)
+        et_argv = unknown + (args.entry_timing_args or [])
+        return et_main(et_argv or None)
     if args.command == "train-gbdt":
         from .train_gbdt import main as tg_main
 
-        return tg_main(args.train_gbdt_args or None)
+        tg_argv = unknown + (args.train_gbdt_args or [])
+        return tg_main(tg_argv or None)
     if args.command == "patchtst-cutoff":
         from .patchtst_weekly_cutoff import main as pwc_main
 
-        return pwc_main(args.patchtst_cutoff_args or None)
+        pwc_argv = unknown + (args.patchtst_cutoff_args or [])
+        return pwc_main(pwc_argv or None)
     if args.command == "replay-audit":
         from .intraday_replay_audit import main as ra_main
 
@@ -1260,7 +1271,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "risk-budget-report":
         from .risk_budget.report import main as rb_main
 
-        return rb_main(args.risk_budget_args or None)
+        rb_argv = unknown + (args.risk_budget_args or [])
+        return rb_main(rb_argv or None)
     raise AssertionError(f"unhandled command: {args.command}")
 
 

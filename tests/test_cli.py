@@ -553,3 +553,23 @@ def test_decision_pnl_cli_emits_attribution(tmp_path, capsys) -> None:
     assert out["edge"]["n_vetoed"] == 1
     assert out["edge"]["edge"] > 0  # selected beat vetoed
     assert len(out["by_class"]) >= 2
+
+
+def test_parking_sleeve_cli_computes_allocation(tmp_path, capsys) -> None:
+    book_json = tmp_path / "book_state.json"
+    book_json.write_text(
+        json.dumps({
+            "portfolio_value": 10000,
+            "positions_value": 4300,
+            "cash_value": 5700,
+            "beta_positions": 0.43,
+            "regime": "BULL_CALM",
+        }),
+        encoding="utf-8",
+    )
+
+    rc = main(["parking-sleeve", "--book-state-json", str(book_json)])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["regime"] == "BULL_CALM"
+    assert out["portfolio_value"] == 10000
