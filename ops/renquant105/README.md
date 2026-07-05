@@ -174,3 +174,76 @@ PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
   --strategy-config <pinned strategy_config.json> \
   --data-manifest <data_manifest.json> --artifact-manifest <artifact_manifest.json> --json
 ```
+
+## Paper trading setup (Stage-2 paper canary — #365)
+
+Paper trading is the pre-registration experiment for rq105 live canary trading. It uses
+`PaperBrokerPort` (zero capital risk) with a relaxed evidence floor
+(`MIN_SHADOW_SESSIONS_CLEAN_PAPER = 1` vs the live `MIN_SHADOW_SESSIONS_CLEAN = 5`).
+
+### Pre-flight: readiness checker (read-only)
+
+Run the readiness checker BEFORE attempting to enable paper trading. It verifies every
+prerequisite the session runner will evaluate at startup, prints a pass/fail checklist,
+and provides remediation instructions for any failures. It modifies nothing.
+
+```bash
+PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
+  /Users/renhao/git/github/RenQuant/.venv/bin/python \
+  /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/check_paper_trading_readiness.py
+```
+
+### Enablement steps (operator — one-time setup)
+
+All steps below are OPERATOR actions. The readiness checker tells you which are missing.
+
+1. **Create the section 9.4 economic authorization file** (the paper-mode gate):
+   ```bash
+   mkdir -p /Users/renhao/git/github/RenQuant/data/rq105
+   cat > /Users/renhao/git/github/RenQuant/data/rq105/section_9_4_economic_authorization.json << 'EOF'
+   {"authorized": true, "prereg_id": "rq105-paper-canary-prereg-v1"}
+   EOF
+   ```
+   The `prereg_id` value `rq105-paper-canary-prereg-v1` is what triggers paper mode in the
+   session runner — it derives `config.paper=True` from this, NOT from a config flag.
+
+2. **Create the stage2 authorization file** (the §9.3a gate 2):
+   ```bash
+   # This file declares the canary envelope — allowlist, loss budget, caps.
+   # The operator must fill in the actual values for their deployment.
+   # See Stage2Authorization in intraday_live_executor.py for the full schema.
+   ```
+
+3. **Set the env flag** (§9.3a gate 3):
+   ```bash
+   export RENQUANT_INTRADAY_LIVE=1
+   # Or add to the .env file / launchd plist for persistent sessions.
+   ```
+
+4. **Ensure kill switch is absent** (§9.3a gate 4 — should be absent by default):
+   ```bash
+   # Verify:
+   ls /Users/renhao/git/github/RenQuant/data/rq105/intraday_decisioning.KILL
+   # If present, remove: rm <path>
+   ```
+
+5. **Ensure at least 1 clean shadow session** has been recorded (paper-mode evidence floor):
+   ```bash
+   ls /Users/renhao/git/github/RenQuant/logs/renquant105_pilot/session_manifest_*.json
+   ```
+
+6. **Re-run the readiness checker** to confirm all checks pass:
+   ```bash
+   PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
+     /Users/renhao/git/github/RenQuant/.venv/bin/python \
+     /Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/check_paper_trading_readiness.py
+   ```
+
+### Safety properties
+
+- Paper mode is RUNTIME-ASSERTED: the session runner verifies the port returned by
+  `port_factory()` is a genuine `PaperBrokerPort` — a mismatch (e.g., a real broker port
+  under a paper prereg_id) is a hard refusal, not a warning.
+- The `RENQUANT_INTRADAY_LIVE` env flag and the kill switch file provide independent
+  circuit breakers: touch `data/rq105/intraday_decisioning.KILL` to halt mid-session.
+- The readiness checker is READ-ONLY — it never creates or modifies any files.

@@ -617,6 +617,36 @@ def test_readiness_monitor_cli_delegates(monkeypatch) -> None:
     assert seen["argv"] == ["--json"]
 
 
+def test_conviction_replay_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.m4b_conviction_replay as m4b_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 4
+
+    monkeypatch.setattr(m4b_mod, "main", fake_main)
+    rc = main(["conviction-replay", "--dry-run"])
+    assert rc == 4
+    assert seen["argv"] == ["--dry-run"]
+
+
+def test_m6_restamp_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.m6_restamp as m6_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 6
+
+    monkeypatch.setattr(m6_mod, "main", fake_main)
+    rc = main(["m6-restamp", "--artifacts-dir", "/tmp/test", "--dry-run"])
+    assert rc == 6
+    assert seen["argv"] == ["--artifacts-dir", "/tmp/test", "--dry-run"]
+
+
 def test_edgar_harvest_cli_delegates(monkeypatch) -> None:
     import renquant_orchestrator.sec_edgar_harvester as edgar_mod
 

@@ -194,6 +194,52 @@ def _extract_quotes(live_state: Mapping[str, Any]) -> dict[str, float]:
     return quotes
 
 
+def build_kill_switch(*, intraday_config: Any, data_root: str | Path) -> KillSwitch:
+    """Build the KillSwitch from a loaded intraday config — standalone form
+    of ``SessionRunner._build_kill_switch`` for read-only tooling reuse."""
+    kill_path = (
+        Path(intraday_config.kill_switch_file)
+        if intraday_config.kill_switch_file
+        else Path(data_root) / "data" / "rq105" / "intraday_decisioning.KILL"
+    )
+    return KillSwitch(kill_path)
+
+
+def check_section_9_4_authorization(data_root: str | Path) -> tuple[bool, bool]:
+    """Check §9.4 economic-authorization and derive paper mode from it.
+
+    Standalone, importable form of ``SessionRunner._check_section_9_4`` —
+    extracted so read-only tooling (e.g. the paper-trading readiness
+    checker) can call the SAME authoritative check instead of maintaining
+    its own copy of the file path / schema / prereg_id comparison.
+
+    Returns ``(authorized, is_paper)``. The paper flag is derived from the
+    authorization file's ``prereg_id``, NOT from a caller-supplied flag — so
+    the evidence-floor relaxation and the execution backend are coupled
+    through the same authoritative artifact (the §9.4 file), and a caller
+    cannot accidentally decouple them.
+
+    If ``prereg_id == PAPER_PREREG_ID``, the session is paper-mode: the
+    §9.3a evidence floor drops to K=1, and ``_run_live()`` will require the
+    constructed port to be a ``PaperBrokerPort`` (fail-closed on mismatch).
+    """
+    auth_path = Path(data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
+    if not auth_path.exists():
+        return False, False
+    try:
+        with auth_path.open() as fh:
+            payload = json.load(fh)
+        if not (isinstance(payload, dict) and payload.get("authorized") is True):
+            return False, False
+        prereg_id = payload.get("prereg_id")
+        if not prereg_id:
+            return False, False
+        is_paper = prereg_id == PAPER_PREREG_ID
+        return True, is_paper
+    except Exception:
+        return False, False
+
+
 class SessionRunner:
     """Drives one complete intraday session with all 105 subsystems wired.
 
@@ -240,12 +286,9 @@ class SessionRunner:
         self._stop_log = SoftwareStopShadowLog(runner_config.stop_log_path)
 
     def _build_kill_switch(self) -> KillSwitch:
-        kill_path = (
-            Path(self.intraday_config.kill_switch_file)
-            if self.intraday_config.kill_switch_file
-            else Path(self.config.data_root) / "data" / "rq105" / "intraday_decisioning.KILL"
+        return build_kill_switch(
+            intraday_config=self.intraday_config, data_root=self.config.data_root
         )
-        return KillSwitch(kill_path)
 
     def _evaluate_arming(
         self, *, kill_switch: KillSwitch, today: str
@@ -272,23 +315,7 @@ class SessionRunner:
         §9.3a evidence floor drops to K=1, and ``_run_live()`` will require the
         constructed port to be a ``PaperBrokerPort`` (fail-closed on mismatch).
         """
-        auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
-        if not auth_path.exists():
-            return False, False
-        try:
-            with auth_path.open() as fh:
-                payload = json.load(fh)
-            if not (
-                isinstance(payload, dict) and payload.get("authorized") is True
-            ):
-                return False, False
-            prereg_id = payload.get("prereg_id")
-            if not prereg_id:
-                return False, False
-            is_paper = prereg_id == PAPER_PREREG_ID
-            return True, is_paper
-        except Exception:
-            return False, False
+        return check_section_9_4_authorization(self.config.data_root)
 
     def run_session(
         self,
