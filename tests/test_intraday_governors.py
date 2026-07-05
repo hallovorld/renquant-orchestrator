@@ -662,6 +662,93 @@ class TestGovernorShadowObserver:
         assert len(observer.evaluations) == 1
         assert observer.evaluations[0]["n_intents"] == 0
 
+    def test_blocked_intent_does_not_advance_turnover_state(self) -> None:
+        """A shadow-blocked intent must not feed into governor state — it
+        never executes in the world being modeled. Regression for a bug
+        where on_tick() called record_action() for every intent regardless
+        of its governor verdict, self-contaminating later ticks."""
+        config = _make_config(
+            max_actions_per_session=0,
+            max_turnover_fraction=0.05,  # $5,000 cap on $100,000 equity
+            min_seconds_between_same_ticker=0,
+            loss_cooldown_seconds=0,
+        )
+        evaluator = GovernorEvaluator(config, session_equity=100_000.0)
+        observer = GovernorShadowObserver(evaluator)
+
+        # Tick 1: $4,000 — within cap (0.04 <= 0.05). Allowed.
+        observer.on_tick(self._make_tick_record(
+            tick_index=0,
+            intents=[{"symbol": "AAPL", "side": "BUY", "notional": 4_000.0}],
+            tick_at="2026-07-05T10:00:00-04:00",
+        ))
+        assert observer.evaluations[0]["n_blocked"] == 0
+        assert evaluator.state.cumulative_turnover_notional == 4_000.0
+
+        # Tick 2: $4,000 more — projected (4000+4000)/100000=0.08 > 0.05.
+        # Blocked. Must NOT advance cumulative_turnover_notional.
+        observer.on_tick(self._make_tick_record(
+            tick_index=1,
+            intents=[{"symbol": "MSFT", "side": "BUY", "notional": 4_000.0}],
+            tick_at="2026-07-05T10:12:00-04:00",
+        ))
+        assert observer.evaluations[1]["n_blocked"] == 1
+        assert evaluator.state.cumulative_turnover_notional == 4_000.0, (
+            "a shadow-blocked intent must not advance cumulative turnover — "
+            "it never executed in the world being modeled"
+        )
+
+        # Tick 3: a small $500 intent that easily fits under the cap on its
+        # own (4000+500=4500 -> 0.045 <= 0.05). Pre-fix, tick 2's blocked
+        # $4,000 would have phantom-fed forward (cumulative=8000), pushing
+        # this tick's projection to 0.085 > 0.05 and incorrectly blocking
+        # it too — a cascading, self-contaminated false block.
+        observer.on_tick(self._make_tick_record(
+            tick_index=2,
+            intents=[{"symbol": "GOOG", "side": "BUY", "notional": 500.0}],
+            tick_at="2026-07-05T10:24:00-04:00",
+        ))
+        assert observer.evaluations[2]["n_blocked"] == 0, (
+            "tick 3 should be allowed on its own merits — a prior "
+            "shadow-blocked intent must not cascade into blocking it"
+        )
+        assert evaluator.state.cumulative_turnover_notional == 4_500.0
+
+    def test_blocked_intent_does_not_advance_ticker_cooldown_state(self) -> None:
+        """Same contamination bug, via the per-ticker cooldown timestamp:
+        a blocked intent must not set last_action_by_ticker, or a later
+        genuinely-first action on that ticker could be wrongly cooled down
+        against a phantom prior timestamp."""
+        config = _make_config(
+            max_actions_per_session=1,  # tick 1 allowed, tick 2 blocked
+            max_turnover_fraction=0.0,
+            min_seconds_between_same_ticker=300,
+            loss_cooldown_seconds=0,
+        )
+        evaluator = GovernorEvaluator(config, session_equity=100_000.0)
+        observer = GovernorShadowObserver(evaluator)
+
+        observer.on_tick(self._make_tick_record(
+            tick_index=0,
+            intents=[{"symbol": "AAPL", "side": "BUY", "notional": 1_000.0}],
+            tick_at="2026-07-05T10:00:00-04:00",
+        ))
+        assert observer.evaluations[0]["n_blocked"] == 0
+
+        # Tick 2: MSFT — blocked by max_actions_per_session (action_count=1
+        # already). Must NOT record a last_action_by_ticker timestamp for
+        # MSFT, since it never actually acted.
+        observer.on_tick(self._make_tick_record(
+            tick_index=1,
+            intents=[{"symbol": "MSFT", "side": "BUY", "notional": 1_000.0}],
+            tick_at="2026-07-05T10:01:00-04:00",
+        ))
+        assert observer.evaluations[1]["n_blocked"] == 1
+        assert "MSFT" not in evaluator.state.last_action_by_ticker, (
+            "a shadow-blocked intent must not stamp a ticker cooldown "
+            "timestamp — it never actually acted on that ticker"
+        )
+
 
 # =========================================================================
 # Config fingerprint

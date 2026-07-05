@@ -93,6 +93,7 @@
     "gate_calibration_diagnostic",
     "gate_registry",
     "gtc_catastrophe_planner",
+    "intraday_governors",
     "intraday_live_executor",
     "intraday_pairing_logger",
     "intraday_quote_logger",

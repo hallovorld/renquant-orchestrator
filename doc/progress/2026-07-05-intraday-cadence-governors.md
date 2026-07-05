@@ -61,3 +61,35 @@ All independent, all shadow-evaluated, all report every tripped reason:
 - `src/renquant_orchestrator/intraday_governors.py` (new)
 - `tests/test_intraday_governors.py` (new)
 - `doc/progress/2026-07-05-intraday-cadence-governors.md` (this file)
+
+## Round 2 (codex review)
+
+STATUS: fixed
+WHAT: `GovernorShadowObserver.on_tick()` evaluated each tick's intents (producing
+a `governor_blocked` verdict per intent) but then looped over the *original*,
+unannotated `intents` list to call `record_action()` — unconditionally, for
+every intent, regardless of its verdict. A shadow-blocked intent therefore
+still advanced `action_count`, `cumulative_turnover_notional`, and
+`last_action_by_ticker` as if it had actually executed.
+WHY-DIR: once one governor trips on a tick, that intent's phantom state feeds
+into every later tick's evaluation — cascading into false blocks on
+subsequent, otherwise-fine intents. For a shadow-evaluation control-plane
+module whose entire purpose is measuring "how often would this governor
+block a live session," that self-contamination systematically overstates
+blocking, invalidating the measurement codex flagged.
+EVIDENCE: fixed by iterating the `annotated` list (which carries
+`governor_blocked`) instead of raw `intents`, skipping `record_action()` for
+any intent the governor itself blocked. Added
+`test_blocked_intent_does_not_advance_turnover_state` (a blocked $4,000
+intent must not push cumulative turnover from $4,000 to $8,000, which would
+then falsely block a later $500 intent that fits the cap on its own) and
+`test_blocked_intent_does_not_advance_ticker_cooldown_state` (a blocked
+intent must not stamp a per-ticker cooldown timestamp). Both confirmed to
+fail against the pre-fix code (`git stash` verification) and pass after.
+Also regenerated `data/strategy_snapshot.json` (pre-existing, unrelated
+staleness on this branch — `intraday_governors` module was missing from the
+baseline). Full suite 3034/3036 passed (2 pre-existing unrelated failures in
+`test_bundle_consistency_ci_gate.py`, confirmed reproducing on clean
+`origin/main`).
+NEXT: none — the shadow observer's state model now correctly reflects only
+genuinely-allowed intents.

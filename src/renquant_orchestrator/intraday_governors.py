@@ -567,9 +567,12 @@ class GovernorShadowObserver:
     the shadow decision loop).
 
     Governor state is accumulated from the tick records it observes: each
-    intent (entry or exit) that appears in the tick's decisions is counted
-    as an action, building up the per-session governor state so later ticks
-    see the accumulated action count, turnover, and per-ticker timestamps.
+    intent (entry or exit) that the governor ITSELF allowed this tick is
+    counted as an action, building up the per-session governor state so
+    later ticks see the accumulated action count, turnover, and per-ticker
+    timestamps. A shadow-blocked intent is deliberately excluded from this
+    accumulation — it never executes in the world being modeled, so it must
+    not advance state as if it had.
     """
 
     def __init__(
@@ -620,11 +623,19 @@ class GovernorShadowObserver:
         }
         self._evaluations.append(evaluation)
 
-        # Accumulate governor state from the intents (treat each intent as
-        # an action for shadow tracking purposes)
-        for intent in intents:
-            ticker = str(intent.get("symbol", intent.get("ticker", "")))
-            notional = float(intent.get("notional", 0.0))
+        # Accumulate governor state ONLY from intents the governor itself
+        # allowed this tick. A shadow-blocked intent never executes in the
+        # world this evaluator is modeling — feeding it into record_action()
+        # anyway would advance action_count/turnover/cooldown state as if a
+        # blocked action had actually happened, self-contaminating later
+        # ticks' evaluations and systematically overstating cascading
+        # blocks (once one governor trips, phantom state from the blocked
+        # intent makes subsequent intents look more likely to trip too).
+        for annotated_intent in annotated:
+            if annotated_intent.get("governor_blocked"):
+                continue
+            ticker = str(annotated_intent.get("symbol", annotated_intent.get("ticker", "")))
+            notional = float(annotated_intent.get("notional", 0.0))
             self.evaluator.record_action(
                 ticker=ticker,
                 notional=notional,
