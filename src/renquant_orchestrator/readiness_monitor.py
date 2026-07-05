@@ -398,17 +398,260 @@ def check_trading_days(db_path: Path) -> CheckResult:
         conn.close()
 
 
+def check_collector_liveness(data_root: Path) -> CheckResult:
+    """N1: 105 collector liveness — check that collector outputs exist and are
+    fresh. Informational only (authoritative=False).
+
+    Checks intraday_tick_feed.jsonl and entry_timing_policy_shadow.jsonl for
+    existence, session-date count (threshold=3), and staleness (>48h warning).
+    """
+    name = "N1_collector_liveness"
+    threshold_sessions = 3
+    staleness_hours = 48
+
+    tick_feed = data_root / "data" / "rq105" / "intraday_tick_feed.jsonl"
+    timing_log = (data_root / "logs" / "renquant105_pilot"
+                  / "entry_timing_policy_shadow.jsonl")
+
+    files_present = sum(1 for f in [tick_feed, timing_log] if f.exists())
+    if files_present == 0:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_sessions,
+                           "no collector output files found", pct=0.0,
+                           authoritative=False)
+
+    session_dates: set[str] = set()
+    for path in [tick_feed, timing_log]:
+        if not path.exists():
+            continue
+        try:
+            with open(path) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                        sd = row.get("session_date") or row.get("date")
+                        if sd:
+                            session_dates.add(str(sd)[:10])
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+        except OSError:
+            continue
+
+    n_sessions = len(session_dates)
+    status = Status.READY if n_sessions >= threshold_sessions else Status.NOT_READY
+
+    newest_mod = None
+    for path in [tick_feed, timing_log]:
+        if path.exists():
+            mtime = datetime.fromtimestamp(path.stat().st_mtime)
+            if newest_mod is None or mtime > newest_mod:
+                newest_mod = mtime
+
+    stale_note = ""
+    if newest_mod is not None:
+        age_hours = (datetime.now() - newest_mod).total_seconds() / 3600
+        if age_hours > staleness_hours:
+            stale_note = f" (STALE: {age_hours:.0f}h since last write)"
+
+    return CheckResult(
+        name, status, n_sessions, threshold_sessions,
+        f"{n_sessions} session dates across {files_present}/2 collector files"
+        f"{stale_note}",
+        pct=min(n_sessions / threshold_sessions, 1.0) * 100,
+        authoritative=False,
+    )
+
+
+_FMP_STALENESS_DAYS = 14
+
+
+def check_fmp_coverage(data_root: Path) -> CheckResult:
+    """N3: FMP harvest coverage — check that a RECENT harvest covers ≥95% of
+    the trading universe.
+
+    Only evaluates the LATEST harvest file (by filename sort) to avoid the
+    all-time-union false-positive identified in Codex review of #336: stale
+    historical parquet residue must not satisfy a readiness gate. If the
+    latest file is older than _FMP_STALENESS_DAYS, coverage is downgraded
+    to NOT_READY regardless of ticker count.
+    """
+    name = "N3_fmp_coverage"
+    threshold_pct = 95.0
+
+    harvest_dir = data_root / "data" / "fmp_harvest"
+    if not harvest_dir.exists():
+        return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                           "data/fmp_harvest/ directory not found", pct=0.0)
+
+    parquet_files = sorted(harvest_dir.glob("earnings_*.parquet"))
+    if not parquet_files:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                           "no earnings_*.parquet files in fmp_harvest/", pct=0.0)
+
+    latest = parquet_files[-1]
+    mtime = datetime.fromtimestamp(latest.stat().st_mtime)
+    age_days = (datetime.now() - mtime).total_seconds() / 86400
+
+    try:
+        import pandas as pd  # noqa: PLC0415
+    except ImportError:
+        return CheckResult(name, Status.UNKNOWN, None, threshold_pct,
+                           "pandas not available — cannot read parquet")
+
+    try:
+        df = pd.read_parquet(latest, columns=["symbol"])
+        harvested_tickers = set(df["symbol"].dropna().unique())
+    except Exception:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                           f"latest parquet {latest.name} unreadable", pct=0.0)
+
+    if not harvested_tickers:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_pct,
+                           f"{latest.name} contains no tickers", pct=0.0)
+
+    config_path = data_root / "config" / "strategy_config.json"
+    if not config_path.exists():
+        return CheckResult(name, Status.UNKNOWN, len(harvested_tickers), threshold_pct,
+                           f"{len(harvested_tickers)} tickers in {latest.name} "
+                           f"(watchlist not found for coverage calc)",
+                           pct=0.0, authoritative=False)
+
+    try:
+        with open(config_path) as fh:
+            cfg = json.load(fh)
+        watchlist = cfg.get("watchlist", [])
+    except (json.JSONDecodeError, KeyError):
+        return CheckResult(name, Status.UNKNOWN, len(harvested_tickers), threshold_pct,
+                           f"watchlist config unreadable", pct=0.0, authoritative=False)
+
+    if not watchlist:
+        return CheckResult(name, Status.UNKNOWN, len(harvested_tickers), threshold_pct,
+                           f"{len(harvested_tickers)} tickers in {latest.name} "
+                           f"(empty watchlist — coverage cannot be computed)",
+                           pct=0.0, authoritative=False)
+
+    universe_size = len(watchlist)
+    covered = len(set(watchlist) & harvested_tickers)
+    coverage_pct = (covered / universe_size) * 100
+
+    stale = age_days > _FMP_STALENESS_DAYS
+    if stale:
+        return CheckResult(
+            name, Status.NOT_READY, coverage_pct, threshold_pct,
+            f"{latest.name}: {coverage_pct:.1f}% of {universe_size}-name watchlist "
+            f"but STALE ({age_days:.0f}d old, limit {_FMP_STALENESS_DAYS}d)",
+            pct=min(coverage_pct, 100.0),
+        )
+
+    status = Status.READY if coverage_pct >= threshold_pct else Status.NOT_READY
+    return CheckResult(
+        name, status, coverage_pct, threshold_pct,
+        f"{latest.name}: {coverage_pct:.1f}% of {universe_size}-name watchlist "
+        f"({age_days:.0f}d old)",
+        pct=min(coverage_pct, 100.0),
+    )
+
+
+def check_tc_baseline(db_path: Path) -> CheckResult:
+    """S-TC: Transfer coefficient baseline — check that TC measurements
+    exist in the DB (≥10 sessions).
+    """
+    name = "S_TC_baseline"
+    threshold_sessions = 10
+    conn = _safe_connect(db_path)
+    if conn is None:
+        return CheckResult(name, Status.NOT_READY, 0, threshold_sessions,
+                           "DB not found", pct=0.0)
+    try:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()]
+        if "transfer_coefficient" not in tables:
+            return CheckResult(name, Status.NOT_READY, 0, threshold_sessions,
+                               "transfer_coefficient table not found",
+                               pct=0.0)
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT run_date) FROM transfer_coefficient"
+        ).fetchone()
+        n = row[0] if row else 0
+        status = Status.READY if n >= threshold_sessions else Status.NOT_READY
+        return CheckResult(name, status, n, threshold_sessions,
+                           f"{n}/{threshold_sessions} sessions with TC measurement",
+                           pct=min(n / threshold_sessions, 1.0) * 100)
+    finally:
+        conn.close()
+
+
+def check_oos_pick_table(data_root: Path) -> CheckResult:
+    """S8: Track A OOS pick table — check that the durable table exists
+    and is non-empty with a date column.
+    """
+    name = "S8_oos_pick_table"
+
+    exp_dir = data_root / "data" / "exp"
+    if not exp_dir.exists():
+        return CheckResult(name, Status.NOT_READY, None, "exists",
+                           "data/exp/ directory not found", pct=0.0)
+
+    candidates = list(exp_dir.glob("oos_pick_table*.parquet"))
+    if not candidates:
+        candidates = list(exp_dir.glob("*pick_table*.parquet"))
+
+    if not candidates:
+        return CheckResult(name, Status.NOT_READY, 0, "exists",
+                           "no oos_pick_table parquet found in data/exp/",
+                           pct=0.0)
+
+    try:
+        import pandas as pd  # noqa: PLC0415
+    except ImportError:
+        return CheckResult(name, Status.UNKNOWN, len(candidates), "exists",
+                           f"{len(candidates)} parquet file(s) found but pandas "
+                           f"not available for validation")
+
+    latest = sorted(candidates)[-1]
+    try:
+        df = pd.read_parquet(latest)
+    except Exception:
+        return CheckResult(name, Status.NOT_READY, 0, "exists",
+                           f"{latest.name} unreadable", pct=0.0)
+
+    if df.empty:
+        return CheckResult(name, Status.NOT_READY, 0, "exists",
+                           f"{latest.name} is empty", pct=0.0)
+
+    has_date = any(c in df.columns for c in ("date", "run_date", "as_of"))
+    if not has_date:
+        return CheckResult(name, Status.NOT_READY, len(df), "exists",
+                           f"{latest.name} has {len(df)} rows but no date column",
+                           pct=50.0)
+
+    return CheckResult(name, Status.READY, len(df), "exists",
+                       f"{latest.name}: {len(df)} rows, "
+                       f"columns={list(df.columns[:6])}",
+                       pct=100.0)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
 ALL_CHECKS: list[ReadinessCheck] = [
+    ReadinessCheck("N1_collector_liveness",
+                   "105 collector output liveness (informational)",
+                   check_collector_liveness),
     ReadinessCheck("N2_pit_snapshots",
                    "PIT revision snapshots (≥90d for revision-drift features)",
                    check_pit_snapshots),
     ReadinessCheck("N2_pit_features",
                    "C1 revision-drift features built from PIT snapshots",
                    check_pit_features),
+    ReadinessCheck("N3_fmp_coverage",
+                   "FMP harvest coverage (≥95% of watchlist, latest file, "
+                   "freshness-gated)",
+                   check_fmp_coverage),
     ReadinessCheck("S10_intraday_symbols_present",
                    "Intraday tick-feed progress (days/symbols accrued; "
                    "informational, no frozen N_days target yet)",
@@ -420,6 +663,12 @@ ALL_CHECKS: list[ReadinessCheck] = [
     ReadinessCheck("S5_decision_ledger",
                    "Decision-ledger entries with forward-return coverage (≥95%)",
                    check_decision_ledger),
+    ReadinessCheck("S8_oos_pick_table",
+                   "Track A OOS pick table exists and is non-empty",
+                   check_oos_pick_table),
+    ReadinessCheck("S_TC_baseline",
+                   "Transfer coefficient baseline (≥10 sessions)",
+                   check_tc_baseline),
     ReadinessCheck("D1_gate_verdict",
                    "WF-gate verdict freshness (≤14d since last)",
                    check_gate_verdict_freshness),
