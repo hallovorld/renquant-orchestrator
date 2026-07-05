@@ -483,6 +483,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    tc = sub.add_parser(
+        "transfer-coefficient",
+        help="measure transfer coefficient (TC) from the run DB (S-TC)",
+    )
+    tc.add_argument(
+        "tc_args", nargs=argparse.REMAINDER,
+        help="pass-through args to transfer_coefficient.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -987,6 +996,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "transfer-coefficient":
+        from .transfer_coefficient import main as tc_main
+
+        return tc_main(args.tc_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 

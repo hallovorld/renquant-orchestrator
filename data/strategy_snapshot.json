@@ -36,6 +36,7 @@
     "scheduled-jobs",
     "sign-laundering",
     "signal-pipeline",
+    "transfer-coefficient",
     "weekly-promote-health",
     "wf-promote-triage"
   ],
