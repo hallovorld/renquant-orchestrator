@@ -136,8 +136,10 @@ data refresh (base-data)
 - **RANK5-60 train/serve skew (B8)**: pandas average-rank (train) vs max-rank (serve)
   on the XGB path — biting the entire XGB service life; behavior change requires
   separate operator-visible design PR per fix-wave protection contract
-- **Sign laundering**: calibrator neutral at raw −0.2902; 44–45/90 candidates get
-  sign-laundered to μ=0 post-recentering; M4-b matched-breadth protocol pending
+- **Sign laundering**: calibrator neutral at raw −0.2667 (refit; previously −0.2902).
+  M4-b production audit (2026-07-04): mean 7.9% laundering rate, **worsening** (3.3% →
+  10.1%); recent runs ~13-20% of candidates in zone. Prior "44/90" figure used a
+  different definition. Matched-breadth forward-return comparison blocked on S5 data
 - **Whole-share sizing artifact**: `int()` floor truncation in `commit_contract.py`
   (S-FRAC stage 0 `normalize_fill_qty` delivered, capability-gated behind
   `fractional_shares_enabled`)
