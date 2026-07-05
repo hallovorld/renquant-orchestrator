@@ -483,6 +483,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    entry_timing = sub.add_parser(
+        "entry-timing",
+        help="renquant105 entry-timing policy shadow evaluation: report + replay",
+    )
+    entry_timing.add_argument(
+        "entry_timing_args", nargs=argparse.REMAINDER,
+        help="pass-through args to entry_timing_policy.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -987,6 +996,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "entry-timing":
+        from .entry_timing_policy import main as et_main
+
+        return et_main(args.entry_timing_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
