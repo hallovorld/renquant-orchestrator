@@ -170,6 +170,64 @@ def write_shadow_log(
     )
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for shadow parking-sleeve computation.
+
+    Reads book state from a JSON file, computes the shadow allocation,
+    and prints the result as JSON.  Optionally appends a JSONL shadow log.
+    """
+    import argparse
+    import sys as _sys
+
+    parser = argparse.ArgumentParser(
+        prog="renquant-orchestrator parking-sleeve",
+        description="Compute shadow parking-sleeve allocation (observe-only)",
+    )
+    parser.add_argument(
+        "--book-state-json",
+        required=True,
+        help="JSON file with book state: portfolio_value, positions_value, "
+        "cash_value, beta_positions, regime",
+    )
+    parser.add_argument(
+        "--config-json",
+        default=None,
+        help="JSON file with sleeve config section (default: built-in defaults)",
+    )
+    parser.add_argument(
+        "--shadow-log",
+        default=None,
+        help="path to append shadow allocation JSONL record",
+    )
+
+    args = parser.parse_args(argv)
+
+    with open(args.book_state_json) as f:
+        book_data = json.load(f)
+
+    book = BookState(
+        portfolio_value=float(book_data["portfolio_value"]),
+        positions_value=float(book_data["positions_value"]),
+        cash_value=float(book_data["cash_value"]),
+        beta_positions=float(book_data["beta_positions"]),
+        regime=str(book_data["regime"]),
+    )
+
+    config_dict = None
+    if args.config_json:
+        with open(args.config_json) as f:
+            config_dict = json.load(f)
+    config = SleeveConfig.from_dict(config_dict)
+
+    allocation = compute_sleeve_allocation(book, config)
+
+    if args.shadow_log:
+        write_shadow_log(allocation, Path(args.shadow_log))
+
+    _sys.stdout.write(json.dumps(allocation.to_dict(), indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def _zero_allocation(
     book: BookState, config: SleeveConfig, *, reason: str
 ) -> SleeveAllocation:

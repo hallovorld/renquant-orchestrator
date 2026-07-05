@@ -483,6 +483,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    parking = sub.add_parser(
+        "parking-sleeve",
+        help="compute shadow parking-sleeve allocation (S7, observe-only)",
+    )
+    parking.add_argument(
+        "--book-state-json",
+        required=True,
+        help="JSON file with book state: portfolio_value, positions_value, "
+        "cash_value, beta_positions, regime",
+    )
+    parking.add_argument(
+        "--config-json",
+        default=None,
+        help="JSON file with sleeve config section (default: built-in defaults)",
+    )
+    parking.add_argument(
+        "--shadow-log",
+        default=None,
+        help="path to append shadow allocation JSONL record",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -987,6 +1008,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "parking-sleeve":
+        from .parking_sleeve import main as ps_main
+
+        ps_argv = ["--book-state-json", args.book_state_json]
+        if args.config_json:
+            ps_argv.extend(["--config-json", args.config_json])
+        if args.shadow_log:
+            ps_argv.extend(["--shadow-log", args.shadow_log])
+        return ps_main(ps_argv)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 

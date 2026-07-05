@@ -521,3 +521,66 @@ def test_ledger_query_empty_db_returns_empty(tmp_path, capsys) -> None:
     assert rc == 0
     rows = json.loads(capsys.readouterr().out)
     assert rows == []
+
+
+def test_parking_sleeve_cli_computes_allocation(tmp_path: Path, capsys) -> None:
+    book_json = tmp_path / "book_state.json"
+    book_json.write_text(
+        json.dumps({
+            "portfolio_value": 10000,
+            "positions_value": 4300,
+            "cash_value": 5700,
+            "beta_positions": 0.43,
+            "regime": "BULL_CALM",
+        }),
+        encoding="utf-8",
+    )
+
+    rc = main(["parking-sleeve", "--book-state-json", str(book_json)])
+
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["regime"] == "BULL_CALM"
+    assert out["portfolio_value"] == 10000
+    assert abs(out["sleeve_weight"] - 0.55) < 1e-9
+    assert out["spy_frac"] > 0
+    assert out["sgov_frac"] > 0
+
+
+def test_parking_sleeve_cli_with_config_and_shadow_log(tmp_path: Path, capsys) -> None:
+    book_json = tmp_path / "book_state.json"
+    book_json.write_text(
+        json.dumps({
+            "portfolio_value": 10000,
+            "positions_value": 4000,
+            "cash_value": 6000,
+            "beta_positions": 0.40,
+            "regime": "BEAR",
+        }),
+        encoding="utf-8",
+    )
+    config_json = tmp_path / "sleeve_config.json"
+    config_json.write_text(
+        json.dumps({"enabled": True, "beta_max": 0.6, "regime_bear_override": True}),
+        encoding="utf-8",
+    )
+    shadow_log = tmp_path / "shadow" / "sleeve.jsonl"
+
+    rc = main([
+        "parking-sleeve",
+        "--book-state-json", str(book_json),
+        "--config-json", str(config_json),
+        "--shadow-log", str(shadow_log),
+    ])
+
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["regime"] == "BEAR"
+    assert out["regime_override_active"] is True
+    assert out["spy_frac"] == 0.0
+    assert out["sgov_frac"] == 1.0
+    assert out["enabled"] is True
+
+    assert shadow_log.exists()
+    record = json.loads(shadow_log.read_text().strip())
+    assert record["regime_override_active"] is True
