@@ -87,13 +87,15 @@ After gate verdicts are recorded, forward returns must be joined. Two paths:
 pipeline annotations. This is RECONSTRUCTED substrate (see provenance warning in
 the module docstring).
 
-**Path B (live, target)**: After each forward period elapses (5d, 20d, 60d), a
-scheduled job writes a NEW outcome row with the realized forward returns and
-exit prices for that horizon. The `decision_outcomes` table is append-only
-(`write_outcomes()` uses INSERT OR IGNORE on PK) — there is no UPDATE path.
-Each row is written once with all available forward-return data at recording
-time; rows with NULL forward returns mean the horizon hadn't elapsed yet when
-recorded.
+**Path B (live, target)**: A scheduled job runs after the longest horizon (60d)
+has elapsed for each decision date. It writes ONE row per `(as_of, scope,
+ticker, gate)` with all three forward-return horizons populated at write time.
+The table is append-only (`write_outcomes()` uses INSERT OR IGNORE on PK) —
+there is no UPDATE path. Because the PK is `(as_of, scope, ticker, gate)`,
+a decision can only have one outcome row; writing incrementally per horizon
+is not supported in v1 (the second INSERT would be silently ignored). The
+tradeoff: outcome data is delayed by 60d after the decision date, but all
+horizons are guaranteed non-NULL in a single atomic write.
 
 The readiness monitor's `S5_decision_ledger` check gates on ≥95% of aged
 decisions (≥60d old) having `fwd_60d_ret IS NOT NULL`.
