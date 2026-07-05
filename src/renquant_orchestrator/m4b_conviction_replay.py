@@ -705,6 +705,16 @@ def main(argv: list[str] | None = None) -> int:
         print("No candidate scores found in the specified window.", file=sys.stderr)
         return 1
 
+    if args.calibrate and config.quantile_k is None and config.mad_k is None:
+        print(
+            "ERROR: --calibrate requires --quantile-k or --mad-k to select which "
+            "formula to calibrate (the given value is only used to pick the "
+            "formula -- calibration replaces it). Without one of these, "
+            "--calibrate silently compares the baseline against itself.",
+            file=sys.stderr,
+        )
+        return 1
+
     # Calibrate parameter to matched breadth if requested
     if args.calibrate and (config.quantile_k is not None or config.mad_k is not None):
         calibrated_k = calibrate_parameter(scores, config)

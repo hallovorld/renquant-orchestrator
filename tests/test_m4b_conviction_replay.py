@@ -497,6 +497,19 @@ class TestCLI:
         for s in stats:
             assert "2026-06-05" <= s["date"] <= "2026-06-10"
 
+    def test_cli_calibrate_without_formula_errors(self, tmp_path, capsys):
+        """--calibrate with neither --quantile-k nor --mad-k has no formula to
+        calibrate, and would otherwise silently compare baseline to itself
+        (admitted_candidate falls back to admitted_baseline) -- must error,
+        not silently no-op."""
+        db_path = _make_db(
+            tmp_path, ["2026-06-01", "2026-06-02"], n_tickers=25, mu_center=0.04,
+        )
+        rc = main(["--db", str(db_path), "--calibrate", "--json"])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "--quantile-k or --mad-k" in err
+
 
 # ------------------------------------------------- test load_candidate_scores
 
