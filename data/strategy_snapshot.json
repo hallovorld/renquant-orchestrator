@@ -112,6 +112,7 @@
     "native_live_run",
     "native_live_snapshots",
     "outcome_backfiller",
+    "parking_sleeve",
     "patchtst_weekly_cutoff",
     "pit_revision_collector",
     "readiness_monitor",
