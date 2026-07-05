@@ -74,7 +74,24 @@ class SessionRecord:
     agreed_reject: list[str]              # both paths reject
     tournament_only: list[str]            # tournament admits, panel rejects
     panel_only: list[str]                 # panel admits, tournament rejects
-    agreement_rate: float                 # fraction of tickers both paths agree on
+    agreement_rate: float                 # whole-watchlist agreement — CONTEXT
+                                           # ONLY. Dominated by trivial
+                                           # both-reject names; not the
+                                           # retirement-decision signal. See
+                                           # ``conditional_agreement_rate``.
+    conditional_agreement_rate: float | None
+    # Jaccard overlap of the two paths' ADMITTED sets: |agreed_admit| /
+    # |tournament_admitted ∪ panel_admitted|. Restricted to the
+    # admission-relevant subset (names at least one path would admit), so
+    # it cannot be inflated by names both paths trivially reject. This is
+    # the decision-grade redundancy signal. None when neither path admitted
+    # anything this session (no admission-relevant subset to measure).
+    admission_precision: float | None
+    # Of tournament-admitted names, fraction panel also admits. None when
+    # tournament admitted nothing this session.
+    admission_recall: float | None
+    # Of panel-admitted names, fraction tournament also admits. None when
+    # panel admitted nothing this session.
     tournament_details: list[dict]        # per-ticker TickerAdmission dicts
     panel_details: list[dict]             # per-ticker TickerAdmission dicts
     regime: str | None = None
@@ -239,6 +256,20 @@ def evaluate_session(
     n = len(watchlist) if watchlist else 1
     agreement_rate = (len(agreed_admit) + len(agreed_reject)) / n
 
+    admission_relevant = tourn_admitted | panel_admit_set
+    conditional_agreement_rate = (
+        round(len(agreed_admit) / len(admission_relevant), 4)
+        if admission_relevant else None
+    )
+    admission_precision = (
+        round(len(agreed_admit) / len(tourn_admitted), 4)
+        if tourn_admitted else None
+    )
+    admission_recall = (
+        round(len(agreed_admit) / len(panel_admit_set), 4)
+        if panel_admit_set else None
+    )
+
     return SessionRecord(
         schema_version=SCHEMA_VERSION,
         run_date=run_date.isoformat(),
@@ -254,6 +285,9 @@ def evaluate_session(
         tournament_only=tournament_only,
         panel_only=panel_only,
         agreement_rate=round(agreement_rate, 4),
+        conditional_agreement_rate=conditional_agreement_rate,
+        admission_precision=admission_precision,
+        admission_recall=admission_recall,
         tournament_details=[asdict(d) for d in tournament_details],
         panel_details=[asdict(d) for d in panel_details],
         regime=regime,
@@ -365,10 +399,20 @@ class DeltaReport:
 
     n_sessions: int
     date_range: tuple[str, str]
-    mean_agreement_rate: float
+    mean_agreement_rate: float             # whole-watchlist — CONTEXT ONLY
     median_agreement_rate: float
     min_agreement_rate: float
     max_agreement_rate: float
+    # Admission-relevant (Jaccard) agreement — the retirement DECISION
+    # signal. None fields below when no session had any admission-relevant
+    # activity to measure (n_sessions_admission_relevant == 0).
+    mean_conditional_agreement_rate: float | None
+    median_conditional_agreement_rate: float | None
+    min_conditional_agreement_rate: float | None
+    max_conditional_agreement_rate: float | None
+    n_sessions_admission_relevant: int
+    mean_admission_precision: float | None
+    mean_admission_recall: float | None
     total_tickers_evaluated: int
     mean_tournament_admitted: float
     mean_panel_admitted: float
@@ -400,6 +444,13 @@ def generate_delta_report(records: list[dict]) -> DeltaReport:
             median_agreement_rate=0.0,
             min_agreement_rate=0.0,
             max_agreement_rate=0.0,
+            mean_conditional_agreement_rate=None,
+            median_conditional_agreement_rate=None,
+            min_conditional_agreement_rate=None,
+            max_conditional_agreement_rate=None,
+            n_sessions_admission_relevant=0,
+            mean_admission_precision=None,
+            mean_admission_recall=None,
             total_tickers_evaluated=0,
             mean_tournament_admitted=0.0,
             mean_panel_admitted=0.0,
@@ -413,6 +464,20 @@ def generate_delta_report(records: list[dict]) -> DeltaReport:
     agreement_rates = [float(r.get("agreement_rate", 0)) for r in records]
     tourn_admitted_counts = [len(r.get("tournament_admitted", [])) for r in records]
     panel_admitted_counts = [len(r.get("panel_admitted", [])) for r in records]
+
+    conditional_rates = [
+        r["conditional_agreement_rate"] for r in records
+        if r.get("conditional_agreement_rate") is not None
+    ]
+    precisions = [
+        r["admission_precision"] for r in records
+        if r.get("admission_precision") is not None
+    ]
+    recalls = [
+        r["admission_recall"] for r in records
+        if r.get("admission_recall") is not None
+    ]
+    n_relevant = len(conditional_rates)
 
     # Chronic disagreements
     chronic_tourn: dict[str, int] = {}
@@ -445,32 +510,66 @@ def generate_delta_report(records: list[dict]) -> DeltaReport:
     mean_tourn = sum(tourn_admitted_counts) / n
     mean_panel = sum(panel_admitted_counts) / n
 
-    # Generate recommendation
+    def _mean(xs: list[float]) -> float | None:
+        return round(sum(xs) / len(xs), 4) if xs else None
+
+    def _median(xs: list[float]) -> float | None:
+        if not xs:
+            return None
+        s = sorted(xs)
+        m = len(s)
+        return s[m // 2] if m % 2 else (s[m // 2 - 1] + s[m // 2]) / 2
+
+    mean_conditional = _mean(conditional_rates)
+    median_conditional = _median(conditional_rates)
+    min_conditional = round(min(conditional_rates), 4) if conditional_rates else None
+    max_conditional = round(max(conditional_rates), 4) if conditional_rates else None
+    mean_precision = _mean(precisions)
+    mean_recall = _mean(recalls)
+
+    # Generate recommendation — driven by conditional_agreement_rate (the
+    # admission-relevant subset), NOT the whole-watchlist agreement_rate,
+    # which is dominated by trivial both-reject names and can look
+    # comfortingly high even when the paths materially disagree on the
+    # names that actually matter for the retirement decision.
     if n < 20:
         recommendation = (
             f"Insufficient data ({n} sessions). "
             f"Need >= 20 sessions before making a retirement decision."
         )
-    elif mean_agreement >= 0.95:
+    elif n_relevant == 0:
         recommendation = (
-            f"READY for permanent bypass. Mean agreement {mean_agreement:.1%} "
-            f"across {n} sessions is >= 95%. The tournament gate adds no "
-            f"differentiation beyond what the panel path already provides."
+            f"CANNOT ASSESS. Across {n} sessions, neither path ever admitted "
+            f"a ticker, so there is no admission-relevant subset to compare "
+            f"— redundancy cannot be evaluated from this data."
         )
-    elif mean_agreement >= 0.85:
+    elif mean_conditional >= 0.95:
+        recommendation = (
+            f"READY for permanent bypass. Admission-relevant agreement "
+            f"{mean_conditional:.1%} across {n_relevant} session(s) with "
+            f"admission activity (of {n} total) is >= 95%. The tournament "
+            f"gate adds no differentiation beyond what the panel path "
+            f"already provides on the names that matter."
+        )
+    elif mean_conditional >= 0.85:
         chronic_count = len(chronic_tourn) + len(chronic_panel)
         recommendation = (
-            f"LIKELY READY with caveats. Mean agreement {mean_agreement:.1%} "
-            f"across {n} sessions. {chronic_count} chronic disagreement "
-            f"ticker(s). Review chronic_tournament_only and chronic_panel_only "
-            f"for names where the paths structurally disagree."
+            f"LIKELY READY with caveats. Admission-relevant agreement "
+            f"{mean_conditional:.1%} across {n_relevant} session(s) with "
+            f"admission activity (of {n} total). {chronic_count} chronic "
+            f"disagreement ticker(s). Review chronic_tournament_only and "
+            f"chronic_panel_only for names where the paths structurally "
+            f"disagree."
         )
     else:
         recommendation = (
-            f"NOT READY. Mean agreement {mean_agreement:.1%} across {n} "
-            f"sessions is < 85%. The two paths still produce materially "
-            f"different admission sets. Investigate structural disagreements "
-            f"before retiring the tournament."
+            f"NOT READY. Admission-relevant agreement {mean_conditional:.1%} "
+            f"across {n_relevant} session(s) with admission activity (of "
+            f"{n} total) is < 85%. The two paths still produce materially "
+            f"different admission sets on the names that matter. "
+            f"Investigate structural disagreements before retiring the "
+            f"tournament. (Whole-watchlist agreement {mean_agreement:.1%} "
+            f"is context only — do not use it for this decision.)"
         )
 
     return DeltaReport(
@@ -480,6 +579,13 @@ def generate_delta_report(records: list[dict]) -> DeltaReport:
         median_agreement_rate=round(median_rate, 4),
         min_agreement_rate=round(min(agreement_rates), 4),
         max_agreement_rate=round(max(agreement_rates), 4),
+        mean_conditional_agreement_rate=mean_conditional,
+        median_conditional_agreement_rate=median_conditional,
+        min_conditional_agreement_rate=min_conditional,
+        max_conditional_agreement_rate=max_conditional,
+        n_sessions_admission_relevant=n_relevant,
+        mean_admission_precision=mean_precision,
+        mean_admission_recall=mean_recall,
         total_tickers_evaluated=sum(r.get("n_watchlist", 0) for r in records),
         mean_tournament_admitted=round(mean_tourn, 2),
         mean_panel_admitted=round(mean_panel, 2),
@@ -503,6 +609,28 @@ def format_delta_report(report: DeltaReport) -> str:
     lines.append("")
     lines.append(f"Sessions analyzed:   {report.n_sessions}")
     lines.append(f"Date range:          {report.date_range[0]} to {report.date_range[1]}")
+    lines.append("")
+    lines.append("--- Admission-relevant agreement (DECISION SIGNAL) ---")
+    if report.n_sessions_admission_relevant > 0:
+        lines.append(
+            f"Sessions w/ admission activity: {report.n_sessions_admission_relevant} "
+            f"of {report.n_sessions}"
+        )
+        lines.append(f"Mean conditional agreement:  {report.mean_conditional_agreement_rate:.1%}")
+        lines.append(f"Median conditional agreement:{report.median_conditional_agreement_rate:.1%}")
+        lines.append(
+            f"Range:                       "
+            f"[{report.min_conditional_agreement_rate:.1%}, "
+            f"{report.max_conditional_agreement_rate:.1%}]"
+        )
+        if report.mean_admission_precision is not None:
+            lines.append(f"Mean admission precision:    {report.mean_admission_precision:.1%}")
+        if report.mean_admission_recall is not None:
+            lines.append(f"Mean admission recall:       {report.mean_admission_recall:.1%}")
+    else:
+        lines.append("No session had admission activity under either path.")
+    lines.append("")
+    lines.append("--- Whole-watchlist agreement (CONTEXT ONLY — not the decision signal) ---")
     lines.append(f"Mean agreement:      {report.mean_agreement_rate:.1%}")
     lines.append(f"Median agreement:    {report.median_agreement_rate:.1%}")
     lines.append(f"Range:               [{report.min_agreement_rate:.1%}, "

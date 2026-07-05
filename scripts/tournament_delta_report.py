@@ -86,10 +86,16 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(format_delta_report(report))
 
-    # Exit code: 0 if ready, 1 if not enough data, 2 if not ready
+    # Exit code: 0 if ready, 1 if not enough (or no admission-relevant) data,
+    # 2 if not ready. Driven by mean_conditional_agreement_rate (the
+    # admission-relevant subset) — NOT mean_agreement_rate, which is
+    # dominated by trivial both-reject names and can look ready when it
+    # isn't. See tournament_shadow_admission.generate_delta_report.
     if report.n_sessions < 20:
         return 1
-    if report.mean_agreement_rate >= 0.85:
+    if report.mean_conditional_agreement_rate is None:
+        return 1
+    if report.mean_conditional_agreement_rate >= 0.85:
         return 0
     return 2
 

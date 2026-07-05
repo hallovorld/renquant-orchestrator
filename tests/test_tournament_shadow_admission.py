@@ -291,6 +291,105 @@ class TestSessionAgreement:
 
 
 # ---------------------------------------------------------------------------
+# Conditional (admission-relevant) agreement — codex review fix
+# ---------------------------------------------------------------------------
+
+class TestConditionalAgreement:
+    def test_whole_watchlist_metric_hides_admission_relevant_disagreement(self):
+        """Reproduces the exact bug: 18 trivial both-reject names plus 2
+        admission-relevant names in TOTAL disagreement. The old whole-
+        watchlist ``agreement_rate`` reports a comforting 90% (dominated by
+        the 18 both-reject names) while ``conditional_agreement_rate`` — the
+        metric restricted to the admission-relevant subset — correctly
+        reports 0% (the two paths agree on NOTHING that either path would
+        actually admit)."""
+        rejects = [f"REJ{i}" for i in range(18)]
+        watchlist = rejects + ["TOURN_ONLY", "PANEL_ONLY"]
+        scores = _make_scores(
+            watchlist, buy_signal={"TOURN_ONLY"}, high_rank={"TOURN_ONLY"},
+        )
+        record = evaluate_session(
+            run_date=RUN_DATE,
+            watchlist=watchlist,
+            ticker_scores=scores,
+            panel_candidates=["PANEL_ONLY"],
+            panel_blocked={},
+            min_model_score=MIN_MODEL_SCORE,
+            bypass_ticker_gate=True,
+        )
+        # The old metric: comforting and WRONG for the retirement decision.
+        assert record.agreement_rate == 0.9
+        # The new metric: correctly surfaces total disagreement on the
+        # names that actually matter.
+        assert record.conditional_agreement_rate == 0.0
+        assert record.admission_precision == 0.0
+        assert record.admission_recall == 0.0
+
+    def test_conditional_agreement_full_overlap(self):
+        """Both paths admit exactly the same names -> conditional agreement
+        is 1.0 regardless of how many trivial both-reject names surround it."""
+        scores = _make_scores(
+            ["AAPL", "MSFT", "GOOG"],
+            buy_signal={"AAPL", "MSFT"}, high_rank={"AAPL", "MSFT"},
+        )
+        record = evaluate_session(
+            run_date=RUN_DATE,
+            watchlist=["AAPL", "MSFT", "GOOG"],
+            ticker_scores=scores,
+            panel_candidates=["AAPL", "MSFT"],
+            panel_blocked={"GOOG": "veto:low"},
+            min_model_score=MIN_MODEL_SCORE,
+            bypass_ticker_gate=True,
+        )
+        assert record.conditional_agreement_rate == 1.0
+        assert record.admission_precision == 1.0
+        assert record.admission_recall == 1.0
+
+    def test_conditional_agreement_none_when_no_admission_relevant_subset(self):
+        """When neither path admits anything, there is no admission-relevant
+        subset — conditional_agreement_rate (and precision/recall) must be
+        None, not a default that could be misread as agreement."""
+        scores = _make_scores(["AAPL", "MSFT"])  # no buy_signal -> both reject
+        record = evaluate_session(
+            run_date=RUN_DATE,
+            watchlist=["AAPL", "MSFT"],
+            ticker_scores=scores,
+            panel_candidates=[],
+            panel_blocked={"AAPL": "veto:low", "MSFT": "veto:low"},
+            min_model_score=MIN_MODEL_SCORE,
+            bypass_ticker_gate=True,
+        )
+        assert record.conditional_agreement_rate is None
+        assert record.admission_precision is None
+        assert record.admission_recall is None
+        # Whole-watchlist agreement is still 1.0 (both trivially reject) —
+        # exactly the comforting-but-uninformative number this fix guards
+        # against being mistaken for the decision signal.
+        assert record.agreement_rate == 1.0
+
+    def test_asymmetric_admission_precision_recall(self):
+        """Tournament admits a superset of what panel admits -> precision
+        < 1.0 (tournament over-admits relative to panel), recall == 1.0
+        (every panel-admitted name is also tournament-admitted)."""
+        scores = _make_scores(
+            ["AAPL", "MSFT", "GOOG"],
+            buy_signal={"AAPL", "MSFT", "GOOG"}, high_rank={"AAPL", "MSFT", "GOOG"},
+        )
+        record = evaluate_session(
+            run_date=RUN_DATE,
+            watchlist=["AAPL", "MSFT", "GOOG"],
+            ticker_scores=scores,
+            panel_candidates=["AAPL"],
+            panel_blocked={"MSFT": "veto:low", "GOOG": "veto:low"},
+            min_model_score=MIN_MODEL_SCORE,
+            bypass_ticker_gate=True,
+        )
+        assert record.admission_precision == pytest.approx(1 / 3, abs=1e-4)
+        assert record.admission_recall == 1.0
+        assert record.conditional_agreement_rate == pytest.approx(1 / 3, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
 # Persistence (JSONL)
 # ---------------------------------------------------------------------------
 
@@ -387,8 +486,21 @@ class TestLogShadowAdmission:
 
 class TestDeltaReport:
     @staticmethod
-    def _build_records(n: int, agreement_rate: float = 1.0) -> list[dict]:
-        """Build n synthetic session records."""
+    def _build_records(
+        n: int,
+        agreement_rate: float = 1.0,
+        conditional_agreement_rate: float | None = None,
+    ) -> list[dict]:
+        """Build n synthetic session records.
+
+        ``conditional_agreement_rate`` defaults to ``agreement_rate`` so
+        existing threshold tests (written against the pre-fix whole-watchlist
+        metric) continue to exercise the same READY/LIKELY READY/NOT READY
+        branches, now via the corrected admission-relevant metric that
+        actually drives ``recommendation``.
+        """
+        if conditional_agreement_rate is None:
+            conditional_agreement_rate = agreement_rate
         records = []
         for i in range(n):
             d = date(2026, 7, 1 + i)
@@ -409,6 +521,9 @@ class TestDeltaReport:
                 "run_date": d.isoformat(),
                 "n_watchlist": 4,
                 "agreement_rate": agreement_rate,
+                "conditional_agreement_rate": conditional_agreement_rate,
+                "admission_precision": conditional_agreement_rate,
+                "admission_recall": conditional_agreement_rate,
                 "tournament_admitted": tourn_admitted,
                 "panel_admitted": panel_admitted,
                 "tournament_rejected": [],
@@ -474,6 +589,35 @@ class TestDeltaReport:
         records = self._build_records(5)
         report = generate_delta_report(records)
         assert report.total_tickers_evaluated == 20  # 5 sessions * 4 tickers
+
+    def test_recommendation_driven_by_conditional_not_whole_watchlist(self):
+        """The exact bug this fix closes at the aggregate level: a dataset
+        where whole-watchlist agreement looks READY (>=95%) but the
+        admission-relevant subset is in material disagreement (<85%) must
+        recommend NOT READY, not READY."""
+        records = self._build_records(
+            25, agreement_rate=0.97, conditional_agreement_rate=0.40,
+        )
+        report = generate_delta_report(records)
+        assert report.mean_agreement_rate == 0.97
+        assert report.mean_conditional_agreement_rate == 0.40
+        assert "NOT READY" in report.recommendation
+        assert "READY" not in report.recommendation.split("NOT READY")[0]
+
+    def test_cannot_assess_when_no_admission_relevant_sessions(self):
+        records = self._build_records(
+            25, agreement_rate=1.0, conditional_agreement_rate=None,
+        )
+        # Explicitly strip the field to simulate zero admission-relevant
+        # sessions (both paths reject everything, every session).
+        for r in records:
+            r["conditional_agreement_rate"] = None
+            r["admission_precision"] = None
+            r["admission_recall"] = None
+        report = generate_delta_report(records)
+        assert report.n_sessions_admission_relevant == 0
+        assert report.mean_conditional_agreement_rate is None
+        assert "CANNOT ASSESS" in report.recommendation
 
 
 # ---------------------------------------------------------------------------

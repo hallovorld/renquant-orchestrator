@@ -151,6 +151,7 @@
     "signal_pipeline_config",
     "software_stop",
     "state_backup",
+    "tournament_shadow_admission",
     "train_gbdt",
     "transfer_coefficient",
     "weekly_apy_monitor",

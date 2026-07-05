@@ -77,3 +77,40 @@ The caller (daily pipeline in the umbrella) invokes
 - No orders, no model changes, no config changes.
 - No git operations on any live tree.
 - Default OFF.
+
+## Round 2 (codex review)
+
+STATUS: fixed
+WHAT: the readiness metric was whole-watchlist `agreement_rate`
+(`(agreed_admit + agreed_reject) / n_watchlist`) — dominated by trivial
+both-reject names, so it could report high agreement even when the two
+paths materially disagreed on the small subset of names that actually
+survive into admission territory. `scripts/tournament_delta_report.py`'s
+exit code was also driven directly by this metric.
+WHY-DIR: codex correctly identified this as an experiment-design gap, not
+style — a metric that hides disagreement on the names that matter makes
+the retirement decision too easy to pass, producing "a comforting number,
+not a decision-grade signal."
+EVIDENCE: added `conditional_agreement_rate` (Jaccard overlap of the two
+paths' admitted sets, restricted to the admission-relevant subset — names
+at least one path would admit), plus `admission_precision`/
+`admission_recall`, to `SessionRecord` and aggregated in `DeltaReport`
+(mean/median/min/max + `n_sessions_admission_relevant`). `recommendation`
+and the CLI exit code now key off `mean_conditional_agreement_rate`, not
+`mean_agreement_rate`; the whole-watchlist number is retained but relabeled
+"CONTEXT ONLY — not the decision signal" in both the dataclass docstring
+and `format_delta_report`'s output. Added `TestConditionalAgreement` (4
+tests) proving: (a) a synthetic 18-both-reject + 2-admission-relevant
+watchlist reports 90% whole-watchlist agreement but 0% conditional
+agreement — the exact failure mode codex described; (b) full/no-overlap/
+asymmetric admission sets compute the new fields correctly; plus 2
+`DeltaReport`-level tests proving the aggregate recommendation flips from
+"would-be READY" to "NOT READY" once driven by the corrected metric, and
+that zero admission-relevant sessions correctly produces "CANNOT ASSESS"
+rather than a silent default. All 6 new tests confirmed to fail against
+the pre-fix code (`git stash` check) and pass after. Full suite 3017/3020
+(3 pre-existing skips, no new failures); also regenerated
+`data/strategy_snapshot.json` for an unrelated pre-existing stale-snapshot
+gap (this PR's own module was never in the baseline).
+NEXT: none — logger is decision-grade for the redundancy question once
+>= 20 sessions of shadow data with admission activity accumulate.
