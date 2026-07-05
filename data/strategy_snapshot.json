@@ -29,6 +29,7 @@
     "native-live-market-snapshot",
     "observe-outcomes",
     "outcome-backfill",
+    "patchtst-cutoff",
     "repos",
     "roadmap",
     "run-job",
@@ -36,6 +37,7 @@
     "scheduled-jobs",
     "sign-laundering",
     "signal-pipeline",
+    "train-gbdt",
     "weekly-promote-health",
     "wf-promote-triage"
   ],

@@ -483,6 +483,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    train_gbdt = sub.add_parser(
+        "train-gbdt",
+        help="run the self-contained GBDT panel-LTR training pipeline",
+    )
+    train_gbdt.add_argument(
+        "train_gbdt_args", nargs=argparse.REMAINDER,
+        help="pass-through args to train_gbdt.main",
+    )
+
+    patchtst_cutoff = sub.add_parser(
+        "patchtst-cutoff",
+        help="derive the weekly PatchTST retrain cutoff from the training-corpus frontier",
+    )
+    patchtst_cutoff.add_argument(
+        "patchtst_cutoff_args", nargs=argparse.REMAINDER,
+        help="pass-through args to patchtst_weekly_cutoff.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -987,6 +1005,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_observer import main as oo_main
 
         return oo_main(args.observe_args or None)
+    if args.command == "train-gbdt":
+        from .train_gbdt import main as tg_main
+
+        return tg_main(args.train_gbdt_args or None)
+    if args.command == "patchtst-cutoff":
+        from .patchtst_weekly_cutoff import main as pwc_main
+
+        return pwc_main(args.patchtst_cutoff_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
