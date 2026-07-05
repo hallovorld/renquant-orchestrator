@@ -296,6 +296,332 @@ def test_sleeve_reversal_not_triggered_on_positive_contribution(tmp_path):
     assert out["reversal_metrics"]["triggered"] is False
 
 
+def test_sleeve_empty_file(tmp_path):
+    log = tmp_path / "sleeve.jsonl"
+    log.write_text("")
+    out = bd.read_sleeve_shadow(log)
+    assert out["present"] is False
+    assert out["censored"] == "sleeve_log_empty"
+
+
+def test_sleeve_reversal_none_when_missing_data(tmp_path):
+    """When contribution or max_dd_consumption fields are absent, reversal is None."""
+    log = tmp_path / "sleeve.jsonl"
+    log.write_text(json.dumps({"book_state": {"spy_notional": 10_000}}))
+    out = bd.read_sleeve_shadow(log)
+    assert out["reversal_metrics"]["triggered"] is None
+
+
+def test_sleeve_partial_json_lines_tolerated(tmp_path):
+    """Invalid JSON lines are skipped; valid ones parsed."""
+    log = tmp_path / "sleeve.jsonl"
+    content = (
+        json.dumps({"book_state": {"sleeve_contribution_pct": 0.01,
+                                   "max_dd_budget_consumption_pct": 0.10}})
+        + "\n{invalid json\n"
+        + json.dumps({"book_state": {"sleeve_contribution_pct": 0.02,
+                                     "max_dd_budget_consumption_pct": 0.20}})
+    )
+    log.write_text(content)
+    out = bd.read_sleeve_shadow(log)
+    assert out["n_records"] == 2
+
+
+# ---------------------------------------------------------------------------
+# 3b. build_budgets — budget ledger as data
+# ---------------------------------------------------------------------------
+
+def test_build_budgets_full_controls():
+    controls = {
+        "regime_params": {
+            "BULL_CALM": {"max_position_pct": 0.12},
+            "BEAR": {"max_position_pct": 0.0},
+        },
+        "sleeve": {"dd_budget_pct": 0.05},
+    }
+    budgets = bd.build_budgets(controls)
+    assert budgets["max_drawdown"]["limit"] == bd.DD_BUDGET_HARD
+    assert budgets["max_drawdown"]["kind"] == "hard"
+    assert budgets["book_beta"]["limit"] == bd.BETA_BUDGET_PLANNING
+    assert budgets["book_beta"]["kind"] == "planning"
+    assert budgets["per_name_concentration"]["per_regime"]["BULL_CALM"] == 0.12
+    assert budgets["per_name_concentration"]["per_regime"]["BEAR"] == 0.0
+    assert budgets["sleeve_dd_sub_budget"]["limit"] == 0.05
+
+
+def test_build_budgets_empty_controls():
+    budgets = bd.build_budgets({})
+    assert budgets["max_drawdown"]["limit"] == bd.DD_BUDGET_HARD
+    assert budgets["per_name_concentration"]["per_regime"] == {}
+    # Fallback: no sleeve dd_budget_pct => DD_BUDGET_HARD
+    assert budgets["sleeve_dd_sub_budget"]["limit"] == bd.DD_BUDGET_HARD
+
+
+def test_build_budgets_missing_sleeve():
+    controls = {"regime_params": {"CHOPPY": {"max_position_pct": 0.15}}}
+    budgets = bd.build_budgets(controls)
+    assert budgets["sleeve_dd_sub_budget"]["limit"] == bd.DD_BUDGET_HARD
+
+
+def test_build_budgets_sleeve_dd_none():
+    controls = {"sleeve": {"enabled": True, "dd_budget_pct": None}}
+    budgets = bd.build_budgets(controls)
+    assert budgets["sleeve_dd_sub_budget"]["limit"] == bd.DD_BUDGET_HARD
+
+
+# ---------------------------------------------------------------------------
+# 3c. resolve_strategy_config
+# ---------------------------------------------------------------------------
+
+def test_resolve_explicit_path_exists(tmp_path):
+    cfg = tmp_path / "my_config.json"
+    cfg.write_text("{}")
+    assert bd.resolve_strategy_config(cfg) == cfg
+
+
+def test_resolve_explicit_path_missing(tmp_path):
+    assert bd.resolve_strategy_config(tmp_path / "nonexistent.json") is None
+
+
+def test_resolve_none_candidates_searched(monkeypatch, tmp_path):
+    """When path is None, candidates are checked in order; first match wins."""
+    fake_candidates = (
+        tmp_path / "first.json",
+        tmp_path / "second.json",
+    )
+    monkeypatch.setattr(bd, "STRATEGY_CONFIG_CANDIDATES", fake_candidates)
+    assert bd.resolve_strategy_config() is None
+    fake_candidates[1].write_text("{}")
+    assert bd.resolve_strategy_config() == fake_candidates[1]
+    fake_candidates[0].write_text("{}")
+    assert bd.resolve_strategy_config() == fake_candidates[0]
+
+
+# ---------------------------------------------------------------------------
+# 3d. load_strategy_risk_controls — standalone
+# ---------------------------------------------------------------------------
+
+def test_load_controls_missing_file(tmp_path):
+    out = bd.load_strategy_risk_controls(tmp_path / "nonexistent.json")
+    assert out["config_path"] is None
+    assert out["pinned"] is False
+    assert out["regime_params"] == {}
+    assert len(out["censored"]) == 1
+    assert "strategy_config_missing" in out["censored"][0]
+
+
+def test_load_controls_valid_config(tmp_path):
+    cfg = {
+        "regime_params": {
+            "BULL_CALM": {
+                "max_position_pct": 0.12,
+                "cash_reserve_pct": 0.10,
+                "max_sector_weight_pct": 0.30,
+                "stop_loss_pct": 0.07,
+                "max_single_day_loss_pct": 0.05,
+            },
+            "BEAR": {"max_position_pct": 0.0, "cash_reserve_pct": 0.50},
+        },
+        "regime": {"bear_vol_threshold": 0.25, "vol_realized_window": 21},
+        "sleeve": {
+            "enabled": True, "mode": "parking", "beta_max": 0.6,
+            "beta_pos": 1.0, "dd_budget_pct": 0.05, "log_path": "/tmp/s.jsonl",
+        },
+        "max_positions_per_sector": 3,
+        "position_sizing": {"method": "equal_weight"},
+    }
+    path = tmp_path / "strategy_config.json"
+    path.write_text(json.dumps(cfg))
+    out = bd.load_strategy_risk_controls(path)
+    assert out["config_path"] == str(path)
+    assert out["pinned"] is False
+    assert out["regime_params"]["BULL_CALM"]["max_position_pct"] == 0.12
+    assert out["regime_params"]["BEAR"]["max_position_pct"] == 0.0
+    assert out["vol_gate"]["bear_vol_threshold"] == 0.25
+    assert out["sleeve"]["enabled"] is True
+    assert out["sleeve"]["dd_budget_pct"] == 0.05
+    assert out["max_positions_per_sector"] == 3
+    assert out["position_sizing"]["method"] == "equal_weight"
+    assert out["censored"] == []
+
+
+def test_load_controls_minimal_config(tmp_path):
+    path = tmp_path / "minimal.json"
+    path.write_text(json.dumps({}))
+    out = bd.load_strategy_risk_controls(path)
+    assert out["regime_params"] == {}
+    assert out["vol_gate"] == {}
+    assert out["censored"] == []
+
+
+# ---------------------------------------------------------------------------
+# 3e. Additional edge cases — drawdown, burn, concentration, beta
+# ---------------------------------------------------------------------------
+
+def test_running_drawdown_recovery_past_peak():
+    """Full recovery past previous peak: current DD = 0, max DD preserved."""
+    out = bd.running_drawdown(_curve([100, 200, 160, 210]))
+    assert out["max_drawdown"] == pytest.approx(0.20)
+    assert out["current_drawdown"] == 0.0
+    assert out["peak_value"] == 210.0
+
+
+def test_running_drawdown_single_row():
+    out = bd.running_drawdown(_curve([100]))
+    assert out["max_drawdown"] == 0.0
+    assert out["current_drawdown"] == 0.0
+    assert out["n_sessions"] == 1
+
+
+def test_dd_budget_zero_drawdown():
+    dd = {"max_drawdown": 0.0, "max_drawdown_conservative": 0.0,
+          "current_drawdown": 0.0, "censored": None}
+    out = bd.dd_budget_consumption(dd, 0.15)
+    assert out["max_consumption"] == 0.0
+    assert out["remaining_fraction"] == 1.0
+
+
+def test_dd_budget_over_budget_clamps():
+    dd = {"max_drawdown": 0.20, "max_drawdown_conservative": 0.20,
+          "current_drawdown": 0.18, "censored": None}
+    out = bd.dd_budget_consumption(dd, 0.15)
+    assert out["max_consumption"] > 1.0
+    assert out["remaining_fraction"] == 0.0
+
+
+def test_dd_budget_conservative_driver():
+    dd = {"max_drawdown": 0.05, "max_drawdown_conservative": 0.10,
+          "current_drawdown": 0.03, "censored": None}
+    out = bd.dd_budget_consumption(dd, 0.15)
+    assert out["max_consumption"] == pytest.approx(0.10 / 0.15)
+
+
+def test_burn_rate_window_larger_than_curve():
+    """k = min(window, len-1); 3 values => k=2 regardless of window=21."""
+    curve = _curve([100, 90, 80])
+    out = bd.burn_rate(curve, limit=0.15, window=21)
+    assert out["window"] == 2
+    assert out["burn_per_session"] > 0
+
+
+def test_burn_rate_exact_arithmetic():
+    """Verify exact burn/runway on a linear decline."""
+    # peak=100, linear decline: dd=[0, 5%, 10%, 15%, 20%]
+    # limit=0.20 => consumption = dd/0.20 = [0, 0.25, 0.50, 0.75, 1.0]
+    # window=4 => k=4, c_now=1.0, c_then=0.0, burn=(1.0-0.0)/4=0.25
+    # runway = (1.0 - 1.0) / 0.25 = 0.0
+    curve = _curve([100, 95, 90, 85, 80])
+    out = bd.burn_rate(curve, limit=0.20, window=4)
+    assert out["burn_per_session"] == pytest.approx(0.25)
+    assert out["runway_sessions"] == pytest.approx(0.0)
+
+
+def test_concentration_single_name():
+    pos = _positions([("AAPL", 0.10, "Technology")])
+    out = bd.concentration(pos, REGIME_CAPS)
+    assert out["n_names"] == 1
+    assert out["top_name"] == "AAPL"
+    assert out["hhi_invested"] == pytest.approx(1.0)
+    assert out["consumption"] == pytest.approx(0.10 / 0.12)
+    assert out["censored"] is None
+
+
+def test_concentration_sector_weights():
+    pos = _positions([
+        ("AAA", 0.08, "tech"), ("BBB", 0.06, "tech"), ("CCC", 0.04, "fin"),
+    ])
+    out = bd.concentration(pos, REGIME_CAPS)
+    assert out["sector_weights"]["tech"] == pytest.approx(0.14)
+    assert out["sector_weights"]["fin"] == pytest.approx(0.04)
+
+
+def test_concentration_missing_cap():
+    pos = _positions([("AAA", 0.10, "tech")], regime="UNKNOWN")
+    out = bd.concentration(pos, REGIME_CAPS)
+    assert out["consumption"] is None
+    assert "no_cap_for_regime(UNKNOWN)" in out["censored"]
+
+
+def test_concentration_none_regime():
+    pos = _positions([("AAA", 0.10, "tech")], regime=None)
+    out = bd.concentration(pos, REGIME_CAPS)
+    assert out["cap"] is None
+    assert out["consumption"] is None
+
+
+def test_concentration_zero_weight_excluded():
+    pos = _positions([("AAA", 0.10, "tech"), ("BBB", 0, "tech")])
+    out = bd.concentration(pos, REGIME_CAPS)
+    assert out["n_names"] == 1
+
+
+def test_realized_beta_zero_variance_benchmark():
+    dates = [f"2026-01-{i + 1:02d}" for i in range(30)]
+    book = pd.Series([0.01] * 30, index=dates, dtype=float)
+    bench = pd.Series([0.0] * 30, index=dates, dtype=float)
+    out = bd.realized_beta(book, bench, min_obs=20)
+    assert out["censored"] == "benchmark_variance_zero"
+
+
+def test_realized_beta_partial_overlap():
+    dates_a = [f"2026-01-{i + 1:02d}" for i in range(30)]
+    dates_b = [f"2026-01-{i + 16:02d}" for i in range(15)] + \
+              [f"2026-02-{i + 1:02d}" for i in range(15)]
+    book = pd.Series([0.01] * 30, index=dates_a, dtype=float)
+    bench = pd.Series([0.02] * 30, index=dates_b, dtype=float)
+    out = bd.realized_beta(book, bench, min_obs=20)
+    assert out["n_obs"] == 15
+    assert "beta_unmeasurable" in out["censored"]
+
+
+def test_per_name_betas_missing_benchmark():
+    bench_series = _series([100 + i * 0.5 for i in range(80)])
+    closes = {"AAPL": bench_series, "MSFT": bench_series}
+    # No "SPY" key at all
+    out = bd.per_name_betas(closes, bench_ticker="SPY")
+    assert out["AAPL"]["censored"] == bd.CENSOR_NO_SPY
+    assert out["MSFT"]["censored"] == bd.CENSOR_NO_SPY
+
+
+def test_per_name_betas_benchmark_excluded():
+    n = 80
+    dates = [f"2026-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}" for i in range(n)]
+    spy = pd.Series([100 + i * 0.5 for i in range(n)], index=dates, dtype=float)
+    closes = {"SPY": spy, "AAA": spy}
+    out = bd.per_name_betas(closes, window=63, min_obs=20)
+    assert "SPY" not in out
+
+
+def test_beta_composition_no_positions():
+    pos = _positions([])
+    out = bd.beta_composition(pos, {})
+    assert out["book_beta_measured_names"] is None
+    assert out["censored"] == "no_measurable_names"
+
+
+def test_beta_composition_sleeve_not_present():
+    pos = _positions([("AAA", 0.30, "tech")])
+    betas = {"AAA": {"beta": 1.0, "n_obs": 60, "r2": 0.9, "censored": None}}
+    out = bd.beta_composition(pos, betas, sleeve_reading={"present": False})
+    assert out["sleeve_leg"] is None
+    assert out["book_beta_measured_names"] == pytest.approx(0.30)
+
+
+def test_beta_composition_missing_beta_entry():
+    """Name has no key in betas dict => falls back to 'no_beta_computed' censoring."""
+    pos = _positions([("AAA", 0.30, "tech")])
+    out = bd.beta_composition(pos, {})
+    assert out["unmeasured_weight"] == pytest.approx(0.30)
+    assert "AAA" in out["censored_names"]
+    assert out["censored"] == "no_measurable_names"
+
+
+def test_constants():
+    assert bd.DD_BUDGET_HARD == 0.15
+    assert bd.BETA_BUDGET_PLANNING == 0.6
+    assert bd.BENCHMARK_TICKER == "SPY"
+
+
 # ---------------------------------------------------------------------------
 # 4. Statement assembly on a seeded live-schema fixture
 # ---------------------------------------------------------------------------
