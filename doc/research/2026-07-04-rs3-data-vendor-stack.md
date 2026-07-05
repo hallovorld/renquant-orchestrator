@@ -1,7 +1,8 @@
 # RS-3: Data-vendor stack recommendation memo
 
 DATE: 2026-07-04
-STATUS: RECOMMENDATION (delegated research per #230 §1; operator signs off on spend)
+STATUS: PRELIMINARY SCREEN + VALIDATION PLAN (delegated research per #230 §1;
+        spend decision DEFERRED until probe results confirm the stack satisfies contracts)
 BLOCKS: N2 (PIT revision accrual), N3 (FMP quarterly depth), M-SIG (signal substrate),
         M8 (universe expansion)
 
@@ -9,13 +10,14 @@ BLOCKS: N2 (PIT revision accrual), N3 (FMP quarterly depth), M-SIG (signal subst
 
 ## Bottom line
 
-**Recommended stack: FMP Starter (keep) + Polygon.io Fundamentals add-on ($29/mo) +
-SEC EDGAR XBRL (free).** Total incremental spend: $29/month. This covers all four
-roadmap data needs (PIT fundamentals, analyst consensus, quarterly depth, universe
-breadth) at the lowest cost that actually delivers point-in-time capability. If PIT
-fidelity requirements escalate beyond what Polygon's `filing_date` field provides,
-upgrade to Sharadar SF1 on Nasdaq Data Link (~$150–500/yr, pricing behind login wall
-— verify before committing).
+**Preliminary recommendation (CONDITIONAL on validation probe passing): FMP Starter
+(keep) + Polygon.io Fundamentals add-on ($29/mo) + SEC EDGAR XBRL (free).** Total
+incremental spend: $29/month. This is the lowest-cost combination that CLAIMS
+point-in-time capability via `filing_date` timestamps. However, the recommendation
+is NOT yet economically verified — the probe in §5 must confirm: (a) Polygon's
+base-plan dependency and real total cost, (b) PIT fidelity under restatements on our
+actual ticker set, (c) analyst-consensus coverage at the depth M-SIG needs.
+**Spend decision deferred until probe results are in.**
 
 ---
 
@@ -113,33 +115,70 @@ M8 (cluster-wave)          ← FMP Starter (broad universe prices + annual funda
 S10 (execution leak)       ← Alpaca (intraday quotes) — ALREADY ACTIVE
 ```
 
-## 6. Open questions and risks
+## 6. Validation probe (required before spend decision)
 
-1. **Polygon fundamentals add-on pricing**: Web search shows $29/mo but this needs
-   verification at polygon.io/pricing before subscribing. The add-on may require
-   a base Stocks subscription.
+The vendor comparison above is a feature-matrix screen from docs and web research.
+Before recommending spend, the following concrete acceptance tests must PASS on our
+actual ticker set. Each test has a falsification criterion.
 
-2. **Polygon PIT fidelity**: The `filing_date` field exists, but we haven't verified
-   whether it handles restatements correctly (does it show the original filing, or
-   the restated version?). A free-tier probe should confirm this before committing.
+### 6.1 Probe design
 
-3. **Sharadar SF1 pricing**: Behind a Nasdaq Data Link login wall. Historical community
-   reports suggest ~$150–500/yr range but current pricing is unconfirmed. This is the
-   gold standard for PIT fundamentals if Polygon proves insufficient.
+**Sample tickers** (10 names spanning our watchlist + M8 candidates):
+AAPL, GRMN, MU, OXY, AMZN (watchlist); COST, LLY, AVGO, URI, WM (M8 candidates)
 
-4. **FMP quarterly unlock**: We haven't verified whether FMP Premium tier ($49–79/mo?)
-   actually unlocks the quarterly endpoints we need, or if it's a higher tier. The
-   Polygon add-on may make this moot.
+**Sample filing dates** (known 10-Q/10-K filing dates from SEC EDGAR, pre-verified):
+- AAPL 10-Q filed 2025-01-31 (FQ1 2025)
+- MU 10-Q filed 2025-03-20 (FQ2 2025)
+- OXY 10-K filed 2025-02-21 (FY 2024)
 
-5. **Tiingo free-tier probe**: Worth testing whether Tiingo's "as reported" SEC data
-   provides adequate PIT fidelity at $0–10/mo — could replace Polygon if it does,
-   but PIT capability is unconfirmed.
+**Fields to validate**: revenue, net_income, eps_diluted, total_assets, filing_date
 
-## 7. Decision needed from operator
+### 6.2 Acceptance tests
 
-- [ ] Approve Polygon.io Fundamentals add-on ($29/mo incremental)
-- [ ] Confirm: probe Polygon and Tiingo free tiers before committing? (recommended)
-- [ ] Sharadar SF1: want me to log in and get the real price? (Tier 2 contingency)
+| Test | Method | Pass criterion | Falsifies |
+|---|---|---|---|
+| **T1: Polygon cost verification** | Visit polygon.io/pricing; attempt Fundamentals add-on signup flow (stop before payment) | True incremental cost confirmed ≤$35/mo with NO base subscription required, OR base + add-on total confirmed | "Total $58/mo" claim |
+| **T2: Polygon PIT fidelity** | Query Polygon `/vX/reference/financials` for the 3 sample filings; compare `filing_date` field against SEC EDGAR actual filing date | All 3 `filing_date` values match EDGAR ±1 day | Polygon as PIT source |
+| **T3: Polygon restatement handling** | Find a known restatement (e.g., a company that restated 2024 earnings); query the ORIGINAL filing date's data vs the restated date | Polygon preserves the original-as-filed numbers at the original filing_date (not overwritten by restatement) | PIT fidelity under restatements |
+| **T4: Polygon quarterly depth** | Query all 10 sample tickers for quarterly financials going back 5 years | ≥8/10 tickers have ≥16 quarters of data (4y) with `filing_date` populated | Quarterly depth claim |
+| **T5: Analyst-consensus coverage** | Query FMP Starter `/api/v3/grade/<ticker>` for the 10 sample tickers; verify historical revision timeline depth | ≥8/10 tickers have ≥2 years of monthly grade history with analyst counts | N3/M-SIG analyst-revision need |
+| **T6: Universe breadth** | Query Polygon for total US tickers with quarterly financals available | ≥3,000 tickers with ≥8 quarters available | M8 expansion coverage |
+| **T7: SEC EDGAR cross-check** | For the 3 sample filings, compare Polygon revenue/EPS against raw EDGAR XBRL `us-gaap:Revenues`/`us-gaap:EarningsPerShareDiluted` | All values match within rounding ($1 / $0.01) | Polygon data accuracy |
+
+### 6.3 Probe execution plan
+
+1. **Free-tier probes first** (zero cost): T2, T3, T4, T6, T7 can be tested using
+   Polygon's free tier (if available) or public API docs/examples. T5 uses our
+   existing FMP Starter key.
+2. **T1** requires visiting the pricing page interactively (operator or agent).
+3. **Pass all 7** → recommendation upgrades to CONFIRMED; operator approves $29/mo.
+4. **Fail T2/T3/T4** → Polygon is NOT viable for PIT; escalate to Sharadar SF1
+   (Tier 2 probe required).
+5. **Fail T5** → FMP Starter insufficient for analyst-revision; investigate FMP
+   Premium or Polygon analyst endpoints.
+
+### 6.4 Falsification: what kills the Tier-1 recommendation
+
+- Polygon requires a $99/mo+ base subscription → cost exceeds budget threshold
+- `filing_date` field is not truly PIT (overwrites on restatement) → need Sharadar
+- Quarterly depth < 3 years → insufficient for WF backtesting window
+- Analyst-revision timeline < 1 year → M-SIG C2 feature cannot be constructed
+
+## 7. Open questions (pending probe)
+
+1. **Polygon base-plan dependency**: unverified whether the $29/mo Fundamentals
+   add-on is standalone or requires a Stocks subscription ($29–99/mo).
+2. **Restatement handling**: critical for PIT fidelity — does Polygon preserve
+   original-as-filed data or overwrite with restated figures?
+3. **Sharadar SF1 pricing**: behind login wall (~$150–500/yr unverified).
+4. **Tiingo PIT capability**: "as reported" SEC data may or may not provide
+   adequate `filing_date` granularity — lower priority probe.
+
+## 8. Decision needed from operator
+
+- [ ] Approve running the validation probe (§6.3 — zero cost, uses free tiers + existing FMP key)
+- [ ] After probe PASSES: approve Polygon.io Fundamentals add-on ($29/mo incremental)
+- [ ] Sharadar SF1: want me to get the real price? (Tier 2 contingency, only if Polygon fails)
 
 ---
 
