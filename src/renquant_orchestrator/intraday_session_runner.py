@@ -32,6 +32,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from renquant_execution.paper_broker_port import PaperBrokerPort
+
 from .intraday_live_executor import (
     ArmDecision,
     LiveActionLog,
@@ -89,6 +91,10 @@ RUNNER_SCHEMA_VERSION = "rq105-session-runner-v1"
 RECORD_KIND_MANIFEST = "session_runner_manifest"
 SECTION_9_4_FILENAME = "section_9_4_economic_authorization.json"
 
+#: Paper trading IS the pre-registration experiment — this prereg_id
+#: satisfies the §9.4 gate when running on a paper account.
+PAPER_PREREG_ID = "rq105-paper-canary-prereg-v1"
+
 
 @dataclass
 class SessionRunnerConfig:
@@ -105,6 +111,7 @@ class SessionRunnerConfig:
     live_actions_path: Path | None = None
     stop_log_path: Path | None = None
     stop_config: StopConfig = field(default_factory=StopConfig)
+    paper: bool = False
 
     def resolve_paths(self) -> None:
         root = self.data_root
@@ -193,6 +200,14 @@ class SessionRunner:
     Shadow by default — the quintuple gate determines whether the session
     actually submits orders. The runner never constructs a broker port
     unless all gates arm live mode.
+
+    Paper mode is DERIVED from the §9.4 authorization file, not from the
+    caller: if the file's ``prereg_id`` equals ``PAPER_PREREG_ID``, the
+    runner sets ``config.paper=True`` (K=1 evidence floor) before evaluating
+    the quintuple gate. ``_run_live()`` independently verifies the ACTUAL
+    port ``port_factory()`` constructs is a genuine ``PaperBrokerPort`` before
+    any order can be submitted, and fails closed on mismatch — so the
+    relaxed evidence bar can never silently combine with a real broker.
     """
 
     def __init__(
@@ -241,29 +256,39 @@ class SessionRunner:
             canary_state_path=self.config.canary_state_path,
             kill_switch=kill_switch,
             today=today,
+            paper=self.config.paper,
         )
 
-    def _check_section_9_4(self) -> bool:
-        """Check whether the §9.4 economic-authorization file exists and is valid.
+    def _check_section_9_4(self) -> tuple[bool, bool]:
+        """Check §9.4 economic-authorization and derive paper mode from it.
 
-        This is the SEPARATE gate that must be satisfied BEFORE live execution
-        can activate, independent of the quintuple arming gate. The file must
-        exist, contain valid JSON with ``"authorized": true``, and include a
-        ``"prereg_id"`` field linking it to a pre-registered experiment.
+        Returns ``(authorized, is_paper)``. The paper flag is derived from the
+        authorization file's ``prereg_id``, NOT from ``config.paper`` — so the
+        evidence-floor relaxation and the execution backend are coupled through
+        the same authoritative artifact (the §9.4 file), and a caller cannot
+        accidentally decouple them.
+
+        If ``prereg_id == PAPER_PREREG_ID``, the session is paper-mode: the
+        §9.3a evidence floor drops to K=1, and ``_run_live()`` will require the
+        constructed port to be a ``PaperBrokerPort`` (fail-closed on mismatch).
         """
         auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
         if not auth_path.exists():
-            return False
+            return False, False
         try:
             with auth_path.open() as fh:
                 payload = json.load(fh)
-            return (
-                isinstance(payload, dict)
-                and payload.get("authorized") is True
-                and bool(payload.get("prereg_id"))
-            )
+            if not (
+                isinstance(payload, dict) and payload.get("authorized") is True
+            ):
+                return False, False
+            prereg_id = payload.get("prereg_id")
+            if not prereg_id:
+                return False, False
+            is_paper = prereg_id == PAPER_PREREG_ID
+            return True, is_paper
         except Exception:
-            return False
+            return False, False
 
     def run_session(
         self,
@@ -272,11 +297,14 @@ class SessionRunner:
         sleep_fn: Callable[[float], None] = time.sleep,
         max_cycles: int | None = None,
     ) -> SessionResult:
-        """Run one session: arm → drive (live or shadow) → close."""
+        """Run one session: §9.4 → derive paper → arm → drive."""
         now_fn = now_fn or (lambda: datetime.now(ET))
         now = now_fn()
         session_date = _as_aware(now).astimezone(ET).date().isoformat()
         kill_switch = self._build_kill_switch()
+
+        s94_ok, is_paper = self._check_section_9_4()
+        self.config.paper = is_paper
 
         arming = self._evaluate_arming(
             kill_switch=kill_switch, today=session_date
@@ -299,7 +327,7 @@ class SessionRunner:
                 max_cycles=max_cycles,
             )
 
-        if not self._check_section_9_4():
+        if not s94_ok:
             log.info(
                 "quintuple gate armed BUT §9.4 economic authorization NOT "
                 "present — falling back to shadow. The §9.4 file must be "
@@ -315,8 +343,9 @@ class SessionRunner:
             )
 
         log.info(
-            "quintuple gate ARMED + §9.4 authorized — driving Stage-2 live "
+            "quintuple gate ARMED + §9.4 authorized — driving Stage-2 %s "
             "session (authorization=%s)",
+            "PAPER" if is_paper else "LIVE",
             arming.authorization.content_sha256[:12] if arming.authorization else "?",
         )
         return self._run_live(
@@ -402,6 +431,18 @@ class SessionRunner:
             )
 
         port = self.port_factory()
+
+        if self.config.paper and not isinstance(port, PaperBrokerPort):
+            raise RuntimeError(
+                f"config.paper=True (accepted a relaxed K=1 shadow-session "
+                f"evidence floor) but port_factory() constructed "
+                f"{type(port).__name__}, not PaperBrokerPort. Refusing to "
+                "execute — this would silently submit real orders under an "
+                "evidence bar that was only relaxed for paper trading. "
+                "Fix port_factory to return a PaperBrokerPort, or remove "
+                "the paper prereg_id from §9.4 to require the real K=5 floor."
+            )
+
         executor = LiveTickExecutor(
             account="primary",
             trading_day=session_date,
