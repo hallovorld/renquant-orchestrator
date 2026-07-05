@@ -179,12 +179,41 @@ def _ensure_table(ledger_conn: sqlite3.Connection) -> None:
     ledger_conn.executescript(TC_DDL)
 
 
-def _already_measured(ledger_conn: sqlite3.Connection) -> set[str]:
+def _existing_metrics_rows(ledger_conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Read every persisted row (run_id, run_date, category, buy_side_tc).
+
+    Used both to find already-measured dates and to build the rolling
+    tc_mean/tc_se summary without a second post-write query.
+    """
     try:
-        rows = ledger_conn.execute("SELECT run_id FROM tc_metrics").fetchall()
-        return {r[0] for r in rows}
+        cur = ledger_conn.execute(
+            "SELECT run_id, run_date, category, buy_side_tc FROM tc_metrics"
+        )
     except sqlite3.OperationalError:
-        return set()
+        return []
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def _read_existing_metrics_readonly(ledger_db: str | Path) -> list[dict[str, Any]]:
+    """Read-only peek at existing measurements for --dry-run.
+
+    Connects via SQLite's ``mode=ro`` URI, which cannot create or alter the
+    database file — unlike the normal path, which opens read-write, enables
+    WAL, and calls ``_ensure_table()``. This makes "compute but don't
+    persist" a genuine guarantee rather than a documented intent: dry-run
+    never touches decision_ledger.db at all if it doesn't already exist,
+    and never writes to it if it does.
+    """
+    uri = f"file:{Path(ledger_db)}?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.OperationalError:
+        return []
+    try:
+        return _existing_metrics_rows(conn)
+    finally:
+        conn.close()
 
 
 def run_measurement(
@@ -197,17 +226,38 @@ def run_measurement(
         ledger_db = LEDGER_DB
 
     runs_conn = sqlite3.connect(str(runs_db))
-    ledger_conn = sqlite3.connect(str(ledger_db), timeout=10)
-    ledger_conn.execute("PRAGMA journal_mode=WAL")
-    ledger_conn.execute("PRAGMA busy_timeout=5000")
-    _ensure_table(ledger_conn)
 
+    ledger_conn: sqlite3.Connection | None = None
+    if dry_run:
+        existing_rows = _read_existing_metrics_readonly(ledger_db)
+    else:
+        ledger_conn = sqlite3.connect(str(ledger_db), timeout=10)
+        ledger_conn.execute("PRAGMA journal_mode=WAL")
+        ledger_conn.execute("PRAGMA busy_timeout=5000")
+        _ensure_table(ledger_conn)
+        existing_rows = _existing_metrics_rows(ledger_conn)
+
+    measured_run_id_by_date = {r["run_date"]: r["run_id"] for r in existing_rows}
     canonical = _canonical_daily_runs(runs_conn)
-    measured_ids = _already_measured(ledger_conn)
-    new_runs = [r for r in canonical if r["run_id"] not in measured_ids]
+
+    # A date is "stale" when a later rerun has become the new canonical run
+    # for a day that was already measured under an OLDER run_id — the prior
+    # row must be superseded (deleted), not left alongside a second one for
+    # the same trading day (that would double-count the day in the rolling
+    # summary; see Codex round-3 review on #391).
+    stale_dates: list[str] = []
+    to_compute: list[dict[str, str]] = []
+    for run in canonical:
+        prior_run_id = measured_run_id_by_date.get(run["run_date"])
+        if prior_run_id is None:
+            to_compute.append(run)
+        elif prior_run_id != run["run_id"]:
+            stale_dates.append(run["run_date"])
+            to_compute.append(run)
+        # else: already measured under the current canonical run_id — no-op.
 
     results = []
-    for run in new_runs:
+    for run in to_compute:
         tc_result = compute_buy_side_tc(runs_conn, run["run_id"])
         if tc_result is None:
             continue
@@ -215,33 +265,45 @@ def run_measurement(
         results.append(tc_result)
 
     written = 0
-    if not dry_run and results:
-        ledger_conn.executemany(
-            "INSERT OR IGNORE INTO tc_metrics "
-            "(run_id, run_date, category, buy_side_tc, exposure_transfer_ratio, "
-            "n_eligible, n_survived_admission, n_corr_population, n_bought) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (r["run_id"], r["run_date"], r["category"], r["buy_side_tc"],
-                 r["exposure_transfer_ratio"], r["n_eligible"],
-                 r["n_survived_admission"], r["n_corr_population"], r["n_bought"])
-                for r in results
-            ],
-        )
-        ledger_conn.commit()
-        written = len(results)
+    if not dry_run:
+        if stale_dates:
+            ledger_conn.executemany(
+                "DELETE FROM tc_metrics WHERE run_date = ?",
+                [(d,) for d in stale_dates],
+            )
+        if results:
+            ledger_conn.executemany(
+                "INSERT OR REPLACE INTO tc_metrics "
+                "(run_id, run_date, category, buy_side_tc, exposure_transfer_ratio, "
+                "n_eligible, n_survived_admission, n_corr_population, n_bought) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (r["run_id"], r["run_date"], r["category"], r["buy_side_tc"],
+                     r["exposure_transfer_ratio"], r["n_eligible"],
+                     r["n_survived_admission"], r["n_corr_population"], r["n_bought"])
+                    for r in results
+                ],
+            )
+            written = len(results)
+        if stale_dates or results:
+            ledger_conn.commit()
 
-    all_tc = ledger_conn.execute(
-        "SELECT buy_side_tc FROM tc_metrics WHERE category='measured' "
-        "ORDER BY run_date"
-    ).fetchall()
-    tc_values = [r[0] for r in all_tc if r[0] is not None]
+    # Build the (would-be) post-write picture in Python: existing rows minus
+    # anything superseded this run, plus what was newly computed. This lets
+    # dry-run report an accurate rolling tc_mean/tc_se without a second
+    # ledger read (which would defeat the read-only guarantee above).
+    surviving_existing = [r for r in existing_rows if r["run_date"] not in stale_dates]
+    combined = surviving_existing + results
+    tc_values = [
+        r["buy_side_tc"] for r in combined
+        if r.get("category") == "measured" and r.get("buy_side_tc") is not None
+    ]
     n_measured = len(tc_values)
 
     import math
     summary = {
         "n_canonical_runs": len(canonical),
-        "n_already_measured": len(measured_ids),
+        "n_already_measured": len(canonical) - len(to_compute),
         "n_new_computed": len(results),
         "n_written": written,
         "tc_mean": round(float(np.mean(tc_values)), 3) if n_measured else None,
@@ -253,7 +315,8 @@ def run_measurement(
     }
 
     runs_conn.close()
-    ledger_conn.close()
+    if ledger_conn is not None:
+        ledger_conn.close()
     return summary
 
 

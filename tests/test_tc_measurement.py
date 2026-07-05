@@ -40,10 +40,10 @@ def _create_runs_db(tmp_path):
     return db, conn
 
 
-def _seed_run(conn, run_id, run_date, candidates, trades):
+def _seed_run(conn, run_id, run_date, candidates, trades, created_at=None):
     conn.execute(
         "INSERT INTO pipeline_runs VALUES (?, ?, ?)",
-        (run_id, run_date, f"{run_date}T09:30:00"),
+        (run_id, run_date, created_at or f"{run_date}T09:30:00"),
     )
     for c in candidates:
         conn.execute(
@@ -217,6 +217,65 @@ class TestRunMeasurement:
 
         assert summary["n_canonical_runs"] == 0
         assert summary["n_new_computed"] == 0
+
+    def test_rerun_supersedes_prior_canonical(self, tmp_path):
+        """A later rerun becoming the new canonical run for an
+        already-measured day must REPLACE that day's row, not add a
+        second one (Codex round-3 review on #391: persistence was keyed
+        by run_id, not run_date, so a rerun would double-count the day
+        in the rolling summary)."""
+        runs_db, runs_conn = _create_runs_db(tmp_path)
+        ledger_db = tmp_path / "ledger.db"
+
+        candidates = [
+            {"ticker": f"T{i}", "mu": 0.05, "kelly": 0.08}
+            for i in range(90)
+        ]
+        trades_a = [{"ticker": "T0", "target_pct": 0.08}]
+        _seed_run(
+            runs_conn, "2026-07-01-live-runA", "2026-07-01",
+            candidates, trades_a, created_at="2026-07-01T09:30:00",
+        )
+        run_measurement(runs_db, ledger_db)
+
+        # A later rerun for the SAME trading day, with a later created_at,
+        # becomes the new canonical run and buys a different name.
+        trades_b = [{"ticker": "T1", "target_pct": 0.08}]
+        _seed_run(
+            runs_conn, "2026-07-01-live-runB", "2026-07-01",
+            candidates, trades_b, created_at="2026-07-01T15:00:00",
+        )
+        summary2 = run_measurement(runs_db, ledger_db)
+
+        ledger_conn = sqlite3.connect(str(ledger_db))
+        rows = ledger_conn.execute(
+            "SELECT run_id, run_date FROM tc_metrics WHERE run_date='2026-07-01'"
+        ).fetchall()
+        assert len(rows) == 1, f"expected exactly one row for the day, got {rows}"
+        assert rows[0][0] == "2026-07-01-live-runB"
+        assert summary2["tc_n_measured"] == 1
+
+    def test_dry_run_never_creates_ledger_db(self, tmp_path):
+        """--dry-run must never create or write decision_ledger.db — even
+        opening it read-write / enabling WAL / calling _ensure_table()
+        violates the advertised 'compute but don't persist' contract
+        (Codex round-3 review on #391)."""
+        runs_db, runs_conn = _create_runs_db(tmp_path)
+        ledger_db = tmp_path / "ledger.db"
+
+        candidates = [
+            {"ticker": f"T{i}", "mu": 0.05, "kelly": 0.08}
+            for i in range(90)
+        ]
+        trades = [{"ticker": "T0", "target_pct": 0.08}]
+        _seed_run(runs_conn, "2026-07-01-live-abc", "2026-07-01", candidates, trades)
+
+        assert not ledger_db.exists()
+        summary = run_measurement(runs_db, ledger_db, dry_run=True)
+        assert summary["n_new_computed"] == 1
+        assert not ledger_db.exists(), (
+            "dry-run created decision_ledger.db — persistence contract violated"
+        )
 
 
 class TestDefaultRunsDbResolution:
