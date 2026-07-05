@@ -474,6 +474,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_backfiller.main",
     )
 
+    observe = sub.add_parser(
+        "observe-outcomes",
+        help="S5 Path B: populate decision_outcomes from forward returns",
+    )
+    observe.add_argument(
+        "observe_args", nargs=argparse.REMAINDER,
+        help="pass-through args to outcome_observer.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -974,6 +983,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .outcome_backfiller import main as ob_main
 
         return ob_main(args.outcome_backfill_args or None)
+    if args.command == "observe-outcomes":
+        from .outcome_observer import main as oo_main
+
+        return oo_main(args.observe_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 
