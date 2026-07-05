@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from renquant_execution.paper_broker import PaperBroker
+from renquant_execution.paper_broker_port import PaperBrokerPort
 
 from .intraday_live_executor import (
     ArmDecision,
@@ -205,7 +205,7 @@ class SessionRunner:
     caller: if the file's ``prereg_id`` equals ``PAPER_PREREG_ID``, the
     runner sets ``config.paper=True`` (K=1 evidence floor) before evaluating
     the quintuple gate. ``_run_live()`` independently verifies the ACTUAL
-    port ``port_factory()`` constructs is a genuine ``PaperBroker`` before
+    port ``port_factory()`` constructs is a genuine ``PaperBrokerPort`` before
     any order can be submitted, and fails closed on mismatch — so the
     relaxed evidence bar can never silently combine with a real broker.
     """
@@ -270,7 +270,7 @@ class SessionRunner:
 
         If ``prereg_id == PAPER_PREREG_ID``, the session is paper-mode: the
         §9.3a evidence floor drops to K=1, and ``_run_live()`` will require the
-        constructed port to be a ``PaperBroker`` (fail-closed on mismatch).
+        constructed port to be a ``PaperBrokerPort`` (fail-closed on mismatch).
         """
         auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
         if not auth_path.exists():
@@ -432,25 +432,15 @@ class SessionRunner:
 
         port = self.port_factory()
 
-        # Safety invariant: the relaxed paper-mode evidence floor (see
-        # resolve_stage2_arming's ``paper=`` kwarg) is evaluated at arming
-        # time from ``self.config.paper`` — a free boolean, independent of
-        # what ``port_factory()`` actually constructs. If a caller sets
-        # ``paper=True`` (accepting K=1 shadow sessions instead of K=5) but
-        # still points ``port_factory`` at a real submitting broker, no
-        # amount of upstream evidence-floor logic prevents live capital risk.
-        # This is the last-line check: verify the ACTUAL constructed
-        # backend before any order can be submitted, and fail closed on
-        # any mismatch rather than silently trusting the config flag.
-        if self.config.paper and not isinstance(port, PaperBroker):
+        if self.config.paper and not isinstance(port, PaperBrokerPort):
             raise RuntimeError(
                 f"config.paper=True (accepted a relaxed K=1 shadow-session "
                 f"evidence floor) but port_factory() constructed "
-                f"{type(port).__name__}, not PaperBroker. Refusing to "
-                "execute live — this would silently submit real orders "
-                "under an evidence bar that was only relaxed for paper "
-                "trading. Fix port_factory to return a genuine PaperBroker, "
-                "or set config.paper=False to require the real K=5 floor."
+                f"{type(port).__name__}, not PaperBrokerPort. Refusing to "
+                "execute — this would silently submit real orders under an "
+                "evidence bar that was only relaxed for paper trading. "
+                "Fix port_factory to return a PaperBrokerPort, or remove "
+                "the paper prereg_id from §9.4 to require the real K=5 floor."
             )
 
         executor = LiveTickExecutor(

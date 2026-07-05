@@ -363,20 +363,17 @@ class TestRunLivePaperPortCoupling:
         )
 
     def test_paper_true_with_non_paper_port_fails_closed(self, tmp_path):
-        """paper=True (accepted the relaxed K=1 floor) but port_factory
-        constructs something that is NOT a PaperBroker — must raise, not
-        silently submit live orders under a relaxed evidence bar."""
-        from renquant_orchestrator.intraday_session_runner import SessionRunner
-
-        class _NotAPaperBroker:
-            """Stands in for a real live-submitting broker port."""
+        """paper=True but port_factory constructs something that is NOT a
+        PaperBrokerPort — must raise, not silently submit live orders."""
+        class _NotAPaperPort:
+            pass
 
         runner = self._runner(
-            tmp_path, paper=True, port_factory=lambda: _NotAPaperBroker(),
+            tmp_path, paper=True, port_factory=lambda: _NotAPaperPort(),
         )
         arming = self._armed_decision(tmp_path, paper=True)
 
-        with pytest.raises(RuntimeError, match="not PaperBroker"):
+        with pytest.raises(RuntimeError, match="not PaperBrokerPort"):
             runner._run_live(
                 arming=arming,
                 kill_switch=KillSwitch(tmp_path / "KILL"),
@@ -386,30 +383,15 @@ class TestRunLivePaperPortCoupling:
                 max_cycles=1,
             )
 
-    def test_paper_true_with_real_paper_broker_does_not_raise_the_coupling_check(self, tmp_path):
-        """paper=True with a genuine PaperBroker port must NOT trip the
-        mismatch check (it may still fail/succeed later for unrelated
-        reasons — this test only proves the coupling check itself passes).
-
-        Uses a thin PaperBroker subclass adding ``open_orders()`` (aliasing
-        the base class's ``get_open_orders()``) purely so this test can walk
-        through ``begin_session()``'s reconciliation step — PaperBroker not
-        implementing the full BrokerPort protocol is a separate, pre-existing
-        gap unrelated to the paper/live coupling fix under test here."""
-        from renquant_execution.paper_broker import PaperBroker
-        from renquant_orchestrator.intraday_session_runner import SessionRunner
-
-        class _ReconcilableFakePaperBroker(PaperBroker):
-            def open_orders(self):
-                return self.get_open_orders()
+    def test_paper_true_with_paper_broker_port_passes_coupling_check(self, tmp_path):
+        """paper=True with a genuine PaperBrokerPort must NOT trip the
+        mismatch check."""
+        from renquant_execution.paper_broker_port import PaperBrokerPort
 
         runner = self._runner(
-            tmp_path, paper=True, port_factory=lambda: _ReconcilableFakePaperBroker(),
+            tmp_path, paper=True, port_factory=lambda: PaperBrokerPort(),
         )
         arming = self._armed_decision(tmp_path, paper=True)
-
-        # A non-session-day calendar short-circuits immediately after the
-        # coupling check, keeping this test focused on that one invariant.
         runner.calendar = _NonSessionCalendarForCoupling()
 
         result = runner._run_live(
