@@ -97,12 +97,19 @@ decisions (≥60d old) having `fwd_60d_ret IS NOT NULL`.
 ### Step 4: Canonical fixture — OXY 2026-07-01
 
 The S5 AC names OXY 07-01 as the canonical test fixture. The pipeline PR
-should include a test that:
+should include a **smoke test** (not a full validation) that:
 1. Replays the OXY 07-01 decision (known: 6th-ranked candidate, admitted
    through gates, selected by QP, 1-share buy)
 2. Writes verdicts to an in-memory ledger
-3. Verifies all expected gates recorded with correct verdicts
-4. Runs `decision_outcome_validator` on the fixture and gets a PASS
+3. Verifies all expected gates recorded with correct verdicts and inputs
+4. Verifies a `verdicts_for()` query returns the expected rows
+
+Note: a single-fixture test is NOT sufficient for `decision_outcome_validator`
+validation — the validator's `MIN_SAMPLE_SIZE` (default 5) will return
+`INSUFFICIENT_DATA` on a single decision. Full validator coverage requires
+≥5 aged decisions with forward returns populated. The OXY fixture proves the
+write path works; validator acceptance is a separate integration milestone
+that gates on accumulated live data.
 
 ## Integration checklist
 
@@ -158,6 +165,16 @@ CREATE TABLE IF NOT EXISTS decision_outcomes (
 - `write_verdicts` is append-only (INSERT OR IGNORE on PK)
 - The DB uses WAL mode + busy timeout for concurrent-agent safety
 - The pipeline should NEVER delete from or UPDATE the ledger
-- If the orchestrator modules are not importable (version skew), the pipeline
-  should fail-open on the ledger write (log a warning, continue with the run)
-  — missing ledger data is recoverable via backfiller, but a failed daily run is not
+- **Fail-open on ledger write (explicit tradeoff)**: If the orchestrator modules
+  are not importable (version skew, dependency missing), the pipeline should
+  log a WARNING and continue the daily run without writing to the ledger.
+  Rationale: S5 is a measurement substrate, not a trading gate — a missing
+  ledger write degrades downstream analytics (TC, IC, attribution) but does
+  not affect trade safety. A failed daily run, by contrast, means no position
+  management for that day. The tradeoff is: silent measurement gaps accumulate
+  until someone notices the readiness monitor's S5 check is stuck at NOT_READY.
+  Mitigation: the readiness monitor's `S5_decision_ledger` check will surface
+  persistent gaps; the outcome_backfiller can reconstruct from `candidate_scores`
+  as a partial recovery (with RECONSTRUCTED provenance). If the pipeline team
+  prefers fail-closed (abort on ledger-write failure), that is a valid
+  alternative — document the choice in the pipeline PR
