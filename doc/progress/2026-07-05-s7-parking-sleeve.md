@@ -13,3 +13,11 @@ TESTS: 23 unit tests covering formula, regime override, edge cases, shadow log.
 NEXT: wire into the 105 session scheduler as a per-tick shadow computation;
       10-session shadow run (plumbing validation); separate SPY-arm prereg per
       #228 §1.3 before any live enablement.
+
+ROUND 2 (Codex review): the module docstring's formula omitted the w_sleeve
+term (stated `(β_max − β_positions) / β_spy`, a different and wrong formula
+from the executable `(β_max − β_positions) / (w_sleeve × β_spy)`). Fixed the
+docstring to match the code exactly, and made "integration pending" explicit
+in the module docstring itself (was already explicit in this doc's NEXT line,
+but not in the code's own docstring). No executable-code change; 23/23 tests
+unchanged.
