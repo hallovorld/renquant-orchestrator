@@ -483,6 +483,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    risk_budget_rpt = sub.add_parser(
+        "risk-budget-report",
+        help="observe-only risk-budget statement (read-only over the run DB)",
+    )
+    risk_budget_rpt.add_argument(
+        "risk_budget_args", nargs=argparse.REMAINDER,
+        help="pass-through args to risk_budget.report.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -1093,6 +1102,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             save_backlog(backlog_path, items)
             print(f"marked {args.item_id} -> {args.new_status}")
             return 0
+    if args.command == "risk-budget-report":
+        from .risk_budget.report import main as rb_main
+
+        return rb_main(args.risk_budget_args or None)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
