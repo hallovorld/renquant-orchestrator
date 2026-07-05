@@ -6,132 +6,132 @@
       "title": "Route orchestrator artifact lookups through ArtifactResolver",
       "category": "#108 S1 wiring",
       "repo": "renquant-orchestrator",
+      "prompt": "ArtifactResolver (src/renquant_orchestrator/artifact_resolver.py, merged #131) is the single fail-closed resolution authority but is not yet wired. Route the ad-hoc Path(ref).resolve()/.exists() artifact lookups in build_wf_manifest.py, build_patchtst_wf_manifest.py and retrain_*.py through resolve_artifact() so they fail closed and can carry sha256 provenance. Do NOT change the manifest-row JSON schema (cross-repo contract); only the resolution path. Add tests.",
       "status": "done",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "ArtifactResolver (src/renquant_orchestrator/artifact_resolver.py, merged #131) is the single fail-closed resolution authority but is not yet wired. Route the ad-hoc Path(ref).resolve()/.exists() artifact lookups in build_wf_manifest.py, build_patchtst_wf_manifest.py and retrain_*.py through resolve_artifact() so they fail closed and can carry sha256 provenance. Do NOT change the manifest-row JSON schema (cross-repo contract); only the resolution path. Add tests."
+      "consequential": false
     },
     {
       "id": "s2-god-file-decomp-next",
       "title": "Extract the next cohesive unit out of the sim/runner god-file",
       "category": "#108 S2 decomposition",
       "repo": "RenQuant",
+      "prompt": "Continue the strangler-fig decomposition of the 2958-LOC runner / 3476-LOC scorer (after sim_nav/sim_price/sim_cash, #376/#375/#366). Extract one more cohesive unit (pure function or module) with invariant tests, gated by replay-parity (behaviour must be byte-identical). Keep it small and reviewable.",
       "status": "done",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "Continue the strangler-fig decomposition of the 2958-LOC runner / 3476-LOC scorer (after sim_nav/sim_price/sim_cash, #376/#375/#366). Extract one more cohesive unit (pure function or module) with invariant tests, gated by replay-parity (behaviour must be byte-identical). Keep it small and reviewable."
+      "consequential": false
     },
     {
       "id": "s1-wire-live-state-v2",
       "title": "Adopt LiveStateV2 in the runner behind a flag",
       "category": "#108 S1 wiring",
       "repo": "RenQuant",
+      "prompt": "LiveStateV2 (src/renquant_orchestrator/live_state_v2.py, merged #132) round-trips live_state.alpaca.json losslessly. Wire the runner's live-state read/write through it behind a flag (default off), so adding a per-holding field becomes a 1-line change. The lossless to_v1_dict() inverse must be used on write so the on-disk v1 file is byte-identical when the flag is off. Add tests; do not change live behaviour when the flag is off.",
       "status": "done",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "LiveStateV2 (src/renquant_orchestrator/live_state_v2.py, merged #132) round-trips live_state.alpaca.json losslessly. Wire the runner's live-state read/write through it behind a flag (default off), so adding a per-holding field becomes a 1-line change. The lossless to_v1_dict() inverse must be used on write so the on-disk v1 file is byte-identical when the flag is off. Add tests; do not change live behaviour when the flag is off."
+      "consequential": false
     },
     {
       "id": "s2-wire-gate-ledger",
       "title": "Persist live gate verdicts to the decision ledger",
       "category": "#108 S2 wiring",
       "repo": "RenQuant",
+      "prompt": "GateRegistry + decision_ledger (merged #133 in the orchestrator) make 'why was this run sell-only?' one SQL query. Submit the live pre-flight / WF / buy-block gate verdicts to a per-run GateRegistry and persist them to the decision ledger at the aggregation step, so live runs become queryable. Mirror the verdict algebra into the umbrella kernel if a cross-import is not allowed. Add tests.",
       "status": "pending",
       "blocked_by": [
         "s2-god-file-decomp-next"
       ],
-      "consequential": false,
-      "prompt": "GateRegistry + decision_ledger (merged #133 in the orchestrator) make 'why was this run sell-only?' one SQL query. Submit the live pre-flight / WF / buy-block gate verdicts to a per-run GateRegistry and persist them to the decision ledger at the aggregation step, so live runs become queryable. Mirror the verdict algebra into the umbrella kernel if a cross-import is not allowed. Add tests."
+      "consequential": false
     },
     {
       "id": "intraday-cadence-governors",
       "title": "Intraday cadence + governors + validation (#26)",
       "category": "mid-term execution",
       "repo": "RenQuant",
+      "prompt": "Implement the intraday risk-reaction cadence with governors and validation per the protection epic (task #26). Build the cadence + governor logic with tests; keep live-affecting behaviour behind a flag (default off) until the operator enables it.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "Implement the intraday risk-reaction cadence with governors and validation per the protection epic (task #26). Build the cadence + governor logic with tests; keep live-affecting behaviour behind a flag (default off) until the operator enables it."
+      "consequential": false
     },
     {
       "id": "model-scale-sweep",
       "title": "Pre-registered PatchTST scale sweep",
       "category": "#106 model",
       "repo": "renquant-orchestrator",
+      "prompt": "OPERATOR-ONLY (burns GPU). The prod model is 0.07M params / fast trains, so a pre-registered scale sweep (d_model / n_layers / seq_len grid) is nearly free. Run WF-gate-judged. Needs operator go for the GPU budget.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": true,
-      "prompt": "OPERATOR-ONLY (burns GPU). The prod model is 0.07M params / fast trains, so a pre-registered scale sweep (d_model / n_layers / seq_len grid) is nearly free. Run WF-gate-judged. Needs operator go for the GPU budget."
+      "consequential": true
     },
     {
       "id": "r4-patchtst-wf-regen",
       "title": "Regenerate the PatchTST WF corpus for the Sharpe stamp",
       "category": "live unblock",
       "repo": "RenQuant",
+      "prompt": "OPERATOR-ONLY (GPU + writes live tree). Once a model passes the sanity gate, regenerate the PatchTST walkforward_v2 panel-ltr snapshots so the WF gate can produce a real Sharpe and stamp wf_gate_metadata (pre-flight then unblocks buys). Mirror of the GBDT R4 regen.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": true,
-      "prompt": "OPERATOR-ONLY (GPU + writes live tree). Once a model passes the sanity gate, regenerate the PatchTST walkforward_v2 panel-ltr snapshots so the WF gate can produce a real Sharpe and stamp wf_gate_metadata (pre-flight then unblocks buys). Mirror of the GBDT R4 regen."
+      "consequential": true
     },
     {
       "id": "model-horizon-decision",
       "title": "Decide the model label horizon (20d vs 60d)",
       "category": "live unblock / strategy",
       "repo": "renquant-orchestrator",
+      "prompt": "OPERATOR DECISION. Evidence: 60d models all fail the placebo (slow 60d-label persistence IS the placebo); the 20d model passes it at the 2x-horizon shift. Switching to 20d re-architects the live horizon contract (QP mu horizon, calibrators). Decide: switch horizon, ensemble across horizons, or keep 60d. Collecting multi-seed 20d evidence in the meantime.",
       "status": "blocked",
       "blocked_by": [],
-      "consequential": true,
-      "prompt": "OPERATOR DECISION. Evidence: 60d models all fail the placebo (slow 60d-label persistence IS the placebo); the 20d model passes it at the 2x-horizon shift. Switching to 20d re-architects the live horizon contract (QP mu horizon, calibrators). Decide: switch horizon, ensemble across horizons, or keep 60d. Collecting multi-seed 20d evidence in the meantime."
+      "consequential": true
     },
     {
       "id": "s11-staging-backup-retention-policy",
       "title": "Define a retention/pruning policy for weekly-promote staging + rollback artifacts",
       "category": "S11 live-tree inventory",
       "repo": "RenQuant",
+      "prompt": "S11's exhaustive live-tree inventory (renquant-orchestrator#241, scripts/s11_live_tree_inventory.py manifest) found 46 untracked promote-pipeline files with no visible pruning: 20 timestamped panel-ltr/panel-rank-calibration weekly staging files (~2.5 weeks, kernel/model_acceptance.py's pre-promote staging step), 21 weekly/monthly rollback snapshots (same pipeline's kept revert points), and 3 subrepos.lock.json.promote-bak.* backups (scripts/promote_pin.py). Define a retention window (e.g. keep last N or last 30 days per family) and add a pruning step to the writer(s). Not urgent/blocking; unbounded disk growth only.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "S11's exhaustive live-tree inventory (renquant-orchestrator#241, scripts/s11_live_tree_inventory.py manifest) found 46 untracked promote-pipeline files with no visible pruning: 20 timestamped panel-ltr/panel-rank-calibration weekly staging files (~2.5 weeks, kernel/model_acceptance.py's pre-promote staging step), 21 weekly/monthly rollback snapshots (same pipeline's kept revert points), and 3 subrepos.lock.json.promote-bak.* backups (scripts/promote_pin.py). Define a retention window (e.g. keep last N or last 30 days per family) and add a pruning step to the writer(s). Not urgent/blocking; unbounded disk growth only."
+      "consequential": false
     },
     {
       "id": "s11-live-state-gitignore-mismatch",
       "title": "Resolve live_state.*.json tracked-vs-gitignore mismatch",
       "category": "S11 live-tree inventory",
       "repo": "RenQuant",
+      "prompt": "S11's inventory (renquant-orchestrator#241) found backtesting/renquant_104/live_state.{alpaca,alpaca_shadow}.json are tracked in git despite a .gitignore rule (backtesting/*/live_state.json) that appears intended to exclude live-state snapshots but does not match these actual broker-suffixed filenames. Confirm intent: if tracking these two files is deliberate (a durable state-snapshot record), fix or annotate the gitignore rule to make that explicit; if it's a gitignore gap, untrack them and align the rule. OPERATOR/OWNER decision needed on intent before either fix.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "S11's inventory (renquant-orchestrator#241) found backtesting/renquant_104/live_state.{alpaca,alpaca_shadow}.json are tracked in git despite a .gitignore rule (backtesting/*/live_state.json) that appears intended to exclude live-state snapshots but does not match these actual broker-suffixed filenames. Confirm intent: if tracking these two files is deliberate (a durable state-snapshot record), fix or annotate the gitignore rule to make that explicit; if it's a gitignore gap, untrack them and align the rule. OPERATOR/OWNER decision needed on intent before either fix."
+      "consequential": false
     },
     {
       "id": "s11-qp-replay-origin",
       "title": "Identify the producer of artifacts/qp_step4_replay/ or remove it",
       "category": "S11 live-tree inventory",
       "repo": "RenQuant",
-      "status": "pending",
+      "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked artifacts/qp_step4_replay/ directory in the live tree with no identifiable producer \u2014 repo-wide grep for 'qp_step4_replay' finds no writer script. Likely an ad hoc/manual QP-replay investigation's leftover. Confirm: if it's dead weight, remove it (live-tree operation, not this ticket's scope); if it's evidence for a specific investigation, move it to doc/research/evidence/ and commit it instead of leaving it untracked in the live tree.",
+      "status": "done",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked artifacts/qp_step4_replay/ directory in the live tree with no identifiable producer — repo-wide grep for 'qp_step4_replay' finds no writer script. Likely an ad hoc/manual QP-replay investigation's leftover. Confirm: if it's dead weight, remove it (live-tree operation, not this ticket's scope); if it's evidence for a specific investigation, move it to doc/research/evidence/ and commit it instead of leaving it untracked in the live tree."
+      "consequential": false
     },
     {
       "id": "s11-as-of-file-origin",
       "title": "Identify or remove the untracked empty top-level as_of file",
       "category": "S11 live-tree inventory",
       "repo": "RenQuant",
+      "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked, 0-byte top-level /as_of file in the live tree (dated 2026-07-01) with no identifiable producer (repo-wide grep found no writer/reader). Check git history (git log -p -- as_of) for whether it was ever tracked, then remove as inert debris once confirmed safe, or document its purpose if one is found.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked, 0-byte top-level /as_of file in the live tree (dated 2026-07-01) with no identifiable producer (repo-wide grep found no writer/reader). Check git history (git log -p -- as_of) for whether it was ever tracked, then remove as inert debris once confirmed safe, or document its purpose if one is found."
+      "consequential": false
     },
     {
       "id": "s11-universe-expansion-model-commit",
       "title": "Track or document the commit cadence for new-ticker model artifacts",
       "category": "S11 live-tree inventory",
       "repo": "RenQuant",
+      "prompt": "S11's inventory (renquant-orchestrator#241) found 9 untracked new-ticker model-artifact directories (APH, ATI, BWXT, EME, GLW, GRMN, SPY, XLI, XLY under backtesting/renquant_104/models/) not yet committed, consistent with the normal lag between a ticker joining the watchlist/universe and its first model-state commit. This is currently self-resolving (the next commit of a universe expansion picks them up) with no dedicated tracked process. Low priority: either confirm the existing universe-expansion workflow already covers committing these, or add an explicit step/reminder so new-ticker model state doesn't silently linger untracked indefinitely.",
       "status": "pending",
       "blocked_by": [],
-      "consequential": false,
-      "prompt": "S11's inventory (renquant-orchestrator#241) found 9 untracked new-ticker model-artifact directories (APH, ATI, BWXT, EME, GLW, GRMN, SPY, XLI, XLY under backtesting/renquant_104/models/) not yet committed, consistent with the normal lag between a ticker joining the watchlist/universe and its first model-state commit. This is currently self-resolving (the next commit of a universe expansion picks them up) with no dedicated tracked process. Low priority: either confirm the existing universe-expansion workflow already covers committing these, or add an explicit step/reminder so new-ticker model state doesn't silently linger untracked indefinitely."
+      "consequential": false
     }
   ]
 }
