@@ -144,8 +144,8 @@ return with status=non_session_day.
 
 - Stage-1 code: DELIVERED (PR #268 + dependencies)
 - Stage-2 code: DELIVERED (PR #303 + campaign A4 canary enforcement)
-- Session runner: DELIVERED (PR #333, pending review)
-- Software stops: DELIVERED (PR #333, pending review)
+- Session runner: DELIVERED (PR #335, merged)
+- Software stops: DELIVERED (PR #335, merged)
 - Shadow data collection: ACTIVE (collectors installed via launchd)
 - Live arming: NOT YET (requires §9.3a quintuple gate + §9.4 economic authorization file + prereg)
 - Entry-timing evidence: ACCUMULATING (shadow pilot)
