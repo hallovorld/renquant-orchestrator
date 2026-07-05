@@ -286,6 +286,79 @@ def apply_floor(
     return pd.concat(results, ignore_index=True)
 
 
+# ---------------------------------------------------- parameter calibration
+
+
+def calibrate_parameter(
+    scores_df: pd.DataFrame,
+    config: ReplayConfig,
+    *,
+    tol: float = BREADTH_TOL,
+    max_iter: int = 100,
+) -> float:
+    """Binary-search for the quantile_k or mad_k that matches baseline breadth.
+
+    Finds the parameter value such that the mean per-day candidate admission
+    count is within ``tol`` of the mean baseline admission count.  This is the
+    core of the matched-breadth protocol: any return delta between arms is
+    attributable to the floor FORMULA, not a different admission rate.
+
+    Returns the calibrated parameter value.  Raises ValueError if the search
+    fails to converge.
+    """
+    if scores_df.empty:
+        raise ValueError("no dates with sufficient breadth for calibration")
+
+    # Compute mean baseline breadth first
+    baseline_breadths: list[int] = []
+    for _date, group in scores_df.groupby("date"):
+        if len(group) < config.min_breadth:
+            continue
+        mu = group["mu"].astype(float)
+        baseline_breadths.append(int((mu >= config.baseline_floor).sum()))
+
+    if not baseline_breadths:
+        raise ValueError("no dates with sufficient breadth for calibration")
+
+    target = float(np.mean(baseline_breadths))
+    is_quantile = config.quantile_k is not None
+
+    def _mean_admission(k: float) -> float:
+        trial = ReplayConfig(
+            quantile_k=k if is_quantile else None,
+            mad_k=None if is_quantile else k,
+            baseline_floor=config.baseline_floor,
+            min_breadth=config.min_breadth,
+        )
+        admitted = apply_floor(scores_df, trial)
+        if admitted.empty:
+            return 0.0
+        counts = admitted.groupby("date")["admitted_candidate"].sum()
+        return float(counts.mean())
+
+    lo, hi = 0.01, 0.99 if is_quantile else 5.0
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2
+        n_mid = _mean_admission(mid)
+        if abs(n_mid - target) <= tol:
+            return mid
+        if is_quantile:
+            if n_mid < target:
+                lo = mid
+            else:
+                hi = mid
+        else:
+            if n_mid < target:
+                hi = mid
+            else:
+                lo = mid
+
+    raise ValueError(
+        f"calibration did not converge after {max_iter} iterations "
+        f"(target={target:.1f}, last={n_mid:.1f}, param={mid:.4f})"
+    )
+
+
 # ---------------------------------------------------------- matched breadth
 
 
@@ -589,6 +662,13 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Block bootstrap block size (default: {BLOCK_PRIMARY})",
     )
     parser.add_argument(
+        "--calibrate", action="store_true",
+        help="Calibrate the candidate parameter (quantile_k or mad_k) to match "
+             "baseline admission rate before comparing returns. This is the "
+             "matched-breadth protocol: without it, the harness compares at "
+             "the fixed parameter value (exploratory, not matched).",
+    )
+    parser.add_argument(
         "--output", type=Path, default=None,
         help="Output path for JSON results",
     )
@@ -625,6 +705,14 @@ def main(argv: list[str] | None = None) -> int:
         print("No candidate scores found in the specified window.", file=sys.stderr)
         return 1
 
+    # Calibrate parameter to matched breadth if requested
+    if args.calibrate and (config.quantile_k is not None or config.mad_k is not None):
+        calibrated_k = calibrate_parameter(scores, config)
+        if config.quantile_k is not None:
+            config = ReplayConfig(**{**asdict(config), "quantile_k": calibrated_k})
+        else:
+            config = ReplayConfig(**{**asdict(config), "mad_k": calibrated_k})
+
     # Apply floor
     admitted = apply_floor(scores, config)
 
@@ -645,6 +733,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Output
     result = {
+        "calibrated": args.calibrate and (
+            config.quantile_k is not None or config.mad_k is not None
+        ),
         "config": asdict(config),
         "comparison": {
             "per_day_stats": comparison["per_day_stats"],

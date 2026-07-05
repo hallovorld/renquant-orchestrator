@@ -15,10 +15,12 @@ import pandas as pd
 import pytest
 
 from renquant_orchestrator.m4b_conviction_replay import (
+    BREADTH_TOL,
     ReplayConfig,
     apply_floor,
     block_bootstrap_ci,
     block_bootstrap_diff_ci,
+    calibrate_parameter,
     load_candidate_scores,
     main,
     matched_breadth_compare,
@@ -572,3 +574,61 @@ class TestLoadCandidateScores:
         conn.close()
         df = load_candidate_scores(db_path)
         assert df.empty
+
+
+# ------------------------------------------------ test calibrate_parameter
+
+
+class TestCalibrateParameter:
+    """Test the matched-breadth calibration loop."""
+
+    def test_quantile_calibration_matches_baseline_breadth(self) -> None:
+        dates = [f"2026-06-{d:02d}" for d in range(1, 21)]
+        scores = _make_scores_df(dates, n_tickers=30, mu_spread=0.06)
+
+        config = ReplayConfig(quantile_k=0.3, baseline_floor=0.03, min_breadth=5)
+        calibrated_k = calibrate_parameter(scores, config)
+
+        # Apply with calibrated parameter and verify breadth matches
+        cal_config = ReplayConfig(
+            quantile_k=calibrated_k, baseline_floor=0.03, min_breadth=5,
+        )
+        admitted = apply_floor(scores, cal_config)
+        baseline_config = ReplayConfig(baseline_floor=0.03, min_breadth=5)
+        baseline_admitted = apply_floor(scores, baseline_config)
+
+        mean_cand = admitted.groupby("date")["admitted_candidate"].sum().mean()
+        mean_base = baseline_admitted.groupby("date")["admitted_baseline"].sum().mean()
+        assert abs(mean_cand - mean_base) <= BREADTH_TOL
+
+    def test_mad_calibration_matches_baseline_breadth(self) -> None:
+        dates = [f"2026-06-{d:02d}" for d in range(1, 21)]
+        scores = _make_scores_df(dates, n_tickers=30, mu_spread=0.06)
+
+        config = ReplayConfig(mad_k=1.0, baseline_floor=0.03, min_breadth=5)
+        calibrated_k = calibrate_parameter(scores, config)
+
+        cal_config = ReplayConfig(
+            mad_k=calibrated_k, baseline_floor=0.03, min_breadth=5,
+        )
+        admitted = apply_floor(scores, cal_config)
+        baseline_config = ReplayConfig(baseline_floor=0.03, min_breadth=5)
+        baseline_admitted = apply_floor(scores, baseline_config)
+
+        mean_cand = admitted.groupby("date")["admitted_candidate"].sum().mean()
+        mean_base = baseline_admitted.groupby("date")["admitted_baseline"].sum().mean()
+        assert abs(mean_cand - mean_base) <= BREADTH_TOL
+
+    def test_calibration_raises_on_empty_data(self) -> None:
+        scores = _make_scores_df([], n_tickers=30)
+        config = ReplayConfig(quantile_k=0.3, baseline_floor=0.03, min_breadth=5)
+        with pytest.raises(ValueError, match="no dates"):
+            calibrate_parameter(scores, config)
+
+    def test_calibrated_k_is_positive(self) -> None:
+        dates = [f"2026-06-{d:02d}" for d in range(1, 16)]
+        scores = _make_scores_df(dates, n_tickers=25, mu_spread=0.04)
+
+        config = ReplayConfig(quantile_k=0.2, baseline_floor=0.03, min_breadth=5)
+        calibrated_k = calibrate_parameter(scores, config)
+        assert calibrated_k > 0
