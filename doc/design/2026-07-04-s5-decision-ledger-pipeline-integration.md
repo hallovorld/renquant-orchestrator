@@ -87,9 +87,13 @@ After gate verdicts are recorded, forward returns must be joined. Two paths:
 pipeline annotations. This is RECONSTRUCTED substrate (see provenance warning in
 the module docstring).
 
-**Path B (live, target)**: At verdict-write time, also record the candidate's
-current scores. Then, after forward periods elapse (5d, 20d, 60d), a scheduled
-job updates the outcome row with realized forward returns from ticker price data.
+**Path B (live, target)**: After each forward period elapses (5d, 20d, 60d), a
+scheduled job writes a NEW outcome row with the realized forward returns and
+exit prices for that horizon. The `decision_outcomes` table is append-only
+(`write_outcomes()` uses INSERT OR IGNORE on PK) — there is no UPDATE path.
+Each row is written once with all available forward-return data at recording
+time; rows with NULL forward returns mean the horizon hadn't elapsed yet when
+recorded.
 
 The readiness monitor's `S5_decision_ledger` check gates on ≥95% of aged
 decisions (≥60d old) having `fwd_60d_ret IS NOT NULL`.
@@ -151,10 +155,10 @@ CREATE TABLE IF NOT EXISTS decision_outcomes (
   fwd_20d_ret REAL,
   fwd_60d_ret REAL,
   entry_price REAL,
-  exit_price REAL,
-  exit_date DATE,
-  exit_reason TEXT,
-  created_at TEXT NOT NULL,
+  exit_price_5d REAL,
+  exit_price_20d REAL,
+  exit_price_60d REAL,
+  recorded_at TEXT NOT NULL,
   metadata_json TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY (as_of, scope, ticker, gate)
 ) WITHOUT ROWID;

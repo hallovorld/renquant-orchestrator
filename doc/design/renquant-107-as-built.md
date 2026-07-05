@@ -57,13 +57,13 @@ S-REL experiment reliability
 
 ### Decision Ledger (S5 substrate)
 
-| Module | Role | Tests |
-|---|---|---|
-| `decision_ledger.py` | Append-only gate-verdict event store (WAL mode, busy timeout) | 6 |
-| `gate_registry.py` | GateRegistry + verdict algebra (lattice: allow < halve < block) | 16 |
-| `decision_outcome_validator.py` | Forward-return coverage check (≥95% for aged decisions) | 11 |
-| `outcome_backfiller.py` | Reconstructs decision_outcomes from candidate_scores (RECONSTRUCTED provenance) | 12 |
-| `ledger_attribution.py` | Decision-outcomes DDL + attribution join | — |
+| Module | Role |
+|---|---|
+| `decision_ledger.py` | Append-only gate-verdict event store (WAL mode, busy timeout) |
+| `gate_registry.py` | GateRegistry + verdict algebra (lattice: allow < halve < block) |
+| `decision_outcome_validator.py` | Forward-return coverage check (≥95% for aged decisions) |
+| `outcome_backfiller.py` | Reconstructs decision_outcomes from candidate_scores (RECONSTRUCTED provenance) |
+| `ledger_attribution.py` | Decision-outcomes DDL + attribution join |
 
 ### Attribution Engine (`attribution/`)
 
@@ -108,9 +108,9 @@ Budgets (each cites its source — nothing invented):
 
 ### Readiness Monitor
 
-| Module | Role | Tests |
-|---|---|---|
-| `readiness_monitor.py` | 12 programmatic data-accumulation checks with state transition logging | 50+ |
+| Module | Role |
+|---|---|
+| `readiness_monitor.py` | 12 programmatic data-accumulation checks with state transition logging |
 
 12 checks (authoritative unless noted):
 
@@ -131,20 +131,20 @@ Budgets (each cites its source — nothing invented):
 
 ### Gate Diagnostics
 
-| Module | Role | Tests |
-|---|---|---|
-| `gate_calibration_diagnostic.py` | Calibrator sign-laundering zone analysis, mu distribution diagnostics | 14 |
-| `sign_laundering_harness.py` | Matched-breadth protocol for measuring sign-laundering impact (M4-b) | 10 |
-| `software_stop.py` | Trailing stop, dollar-max stop, session P&L limit — observe-only (105 Stage-2) | 10 |
-| `config_experiment_store.py` | Persistent config-experiment DB for λ sweeps (S6) | 8 |
+| Module | Role |
+|---|---|
+| `gate_calibration_diagnostic.py` | Calibrator sign-laundering zone analysis, mu distribution diagnostics |
+| `sign_laundering_harness.py` | Matched-breadth protocol for measuring sign-laundering impact (M4-b) |
+| `software_stop.py` | Trailing stop, dollar-max stop, session P&L limit — observe-only (105 Stage-2) |
+| `config_experiment_store.py` | Persistent config-experiment DB for λ sweeps (S6) |
 
 ### Scorer Identity Monitor + Model Freshness
 
-| Module | Role | Tests |
-|---|---|---|
-| `scorer_identity_monitor.py` | Run-over-run scorer identity diff alarm | 35 |
-| `model_freshness_monitor.py` | Tournament + panel + shadow freshness tracking | 30+ |
-| `model_freshness_enforcer.py` | Recommendation engine (28-day directive) | — |
+| Module | Role |
+|---|---|
+| `scorer_identity_monitor.py` | Run-over-run scorer identity diff alarm |
+| `model_freshness_monitor.py` | Tournament + panel + shadow freshness tracking |
+| `model_freshness_enforcer.py` | Recommendation engine (28-day directive) |
 
 ### S-REL Experiment Reliability
 
@@ -183,13 +183,13 @@ Six rules governing all production fixes (operator directive 2026-07-03):
 
 ## Current Status
 
-- Decision ledger: DELIVERED — modules ready, pipeline integration spec written
-  (#339); pipeline-side wiring pending (S5)
-- Attribution engine: DELIVERED, observe-only (23 tests)
-- Risk budget ledger: DELIVERED, observe-only (34 tests)
-- Readiness monitor: DELIVERED, 12 checks (50+ tests)
+- Decision ledger: DELIVERED — modules ready, pipeline integration spec written;
+  pipeline-side wiring pending (S5)
+- Attribution engine: DELIVERED, observe-only
+- Risk budget ledger: DELIVERED, observe-only
+- Readiness monitor: DELIVERED, 12 checks
 - Gate diagnostics: DELIVERED (gate calibration, sign-laundering harness, software stops)
-- Scorer identity monitor: DELIVERED, installed as launchd job (35 tests)
+- Scorer identity monitor: DELIVERED, installed as launchd job
 - Model freshness: DELIVERED (monitor + enforcer recommendation engine)
 - S-REL: ACTIVE — 6 verifications dispatched, 1 UPHELD, verdict ledger maintained
 - Fix-wave protection contract: ACTIVE, governing the compliance fix campaign
