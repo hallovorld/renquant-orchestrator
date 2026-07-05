@@ -18,6 +18,43 @@ that pin the behavior.
 
 Modeled on `doc/design/2026-07-04-s5-decision-ledger-pipeline-integration.md`.
 
+## Version boundary (pipeline commit this spec describes)
+
+This is a pinned-subrepo orchestration repo — every cross-repo behavioral claim
+below only holds for a specific pipeline checkout state. That state:
+
+- **Pipeline commit**: `0dfc070cec82bb27089909f28eb764730ccdd844`
+  (`feat(fingerprint): M6 stage-2 step-1 — schema-version-dispatched
+  verification behind accept_legacy_stamps`), `renquant-pipeline` package
+  version `0.4.0`. This is the single commit that introduced/last-touched all
+  five files section 1 documents (`fingerprint_dispatch.py`, `panel_scorer.py`,
+  `job_panel_scoring.py`, `walk_forward/loader.py`,
+  `tests/test_model_content_sha256_shared.py`) — verified via
+  `git log --oneline -- <file>` on each, all five resolve to this same commit
+  as their most recent touch. As of this doc's date, `renquant-pipeline`
+  `origin/main` HEAD (`0b47bf57564006c8c63ace7a626cc37f1d54b196`, PR #175) sits
+  strictly after this commit but does not modify any of these five files, so
+  the described behavior is still current against `origin/main` at time of
+  writing.
+- **Orchestrator-run pin expectation**: `renquant-orchestrator`'s
+  `pyproject.toml` currently pins `renquant-pipeline>=0.1.0` (an open range,
+  not a strict lock — this repo's local dev/CI wiring runs against the sibling
+  checkout via `PYTHONPATH` rather than an installed pinned package; see
+  `pytest.ini_options.pythonpath` in `pyproject.toml`). There is no
+  machine-checkable lock file pinning this specific commit today. An operator
+  or reviewer wanting to confirm "does my checkout match what this spec
+  describes" should check that their local `renquant-pipeline` checkout is at
+  or after commit `0dfc070c` on the files listed above (`git log --oneline -1
+  -- <file>` should show `0dfc070` unless a later commit has since touched it,
+  in which case this spec is stale for that file and needs re-anchoring).
+
+**Re-anchoring note**: this version boundary is a snapshot in time. If
+`renquant-pipeline`'s pin (or sibling checkout) moves past a commit that
+touches any of the five files above, the line-range references and described
+dispatch behavior in this doc must be re-verified against the new commit
+before being treated as current — do not assume this spec stays accurate
+across a pipeline pin bump without re-checking.
+
 ## Current state (as-built, 2026-07-04)
 
 Step-1 code has been implemented. The following table records the as-built state
