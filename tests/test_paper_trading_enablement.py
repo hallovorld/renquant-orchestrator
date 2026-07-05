@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from renquant_orchestrator.intraday_live_executor import (
+    ArmDecision,
     MIN_SHADOW_SESSIONS_CLEAN,
     MIN_SHADOW_SESSIONS_CLEAN_PAPER,
     Stage2Authorization,
@@ -23,6 +24,7 @@ from renquant_orchestrator.intraday_live_executor import (
 from renquant_orchestrator.intraday_session_runner import (
     PAPER_PREREG_ID,
     SECTION_9_4_FILENAME,
+    SessionRunner,
     SessionRunnerConfig,
 )
 from renquant_orchestrator.intraday_session_scheduler import (
@@ -295,3 +297,174 @@ class TestSection94Paper:
             live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
         )
         assert runner._check_section_9_4() is False
+
+    def test_paper_rejects_mismatched_truthy_prereg_id(self, tmp_path):
+        """A truthy prereg_id that is NOT PAPER_PREREG_ID must not authorize
+        paper mode — accepting any truthy string would let a real-money
+        authorization silently double as paper-mode authorization."""
+        auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
+        auth_path.parent.mkdir(parents=True)
+        auth_path.write_text(json.dumps({
+            "authorized": True,
+            "prereg_id": "some-other-real-money-prereg",
+        }))
+        from renquant_orchestrator.intraday_session_runner import SessionRunner
+        runner_cfg = SessionRunnerConfig(
+            data_root=tmp_path,
+            strategy_config={
+                "watchlist": ["AAPL"],
+                "intraday_decisioning": {
+                    "enabled": True,
+                    "mode": "shadow",
+                    "tick_seconds": 1,
+                },
+            },
+            paper=True,
+        )
+        runner = SessionRunner(
+            runner_config=runner_cfg,
+            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
+            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
+            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
+            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
+        )
+        assert runner._check_section_9_4() is False
+
+    def test_non_paper_accepts_any_truthy_prereg_id(self, tmp_path):
+        """Non-paper mode keeps the original, more permissive contract —
+        only paper mode requires the exact PAPER_PREREG_ID match."""
+        auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
+        auth_path.parent.mkdir(parents=True)
+        auth_path.write_text(json.dumps({
+            "authorized": True,
+            "prereg_id": "some-real-money-prereg",
+        }))
+        from renquant_orchestrator.intraday_session_runner import SessionRunner
+        runner_cfg = SessionRunnerConfig(
+            data_root=tmp_path,
+            strategy_config={
+                "watchlist": ["AAPL"],
+                "intraday_decisioning": {
+                    "enabled": True,
+                    "mode": "shadow",
+                    "tick_seconds": 1,
+                },
+            },
+            paper=False,
+        )
+        runner = SessionRunner(
+            runner_config=runner_cfg,
+            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
+            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
+            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
+            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
+        )
+        assert runner._check_section_9_4() is True
+
+
+# ---------- _run_live() fails closed on a paper/port-type mismatch ----------
+
+class TestRunLivePaperPortCoupling:
+    """The relaxed paper-mode evidence floor must never combine with a real
+    submitting broker: _run_live() verifies the ACTUAL port_factory() output
+    before any order can be submitted, independent of the declared paper flag."""
+
+    def _armed_decision(self, tmp_path: Path, *, paper: bool) -> ArmDecision:
+        payload = _base_payload(prereg_id=PAPER_PREREG_ID if paper else "some-prereg")
+        auth = Stage2Authorization.from_payload(payload, today=DAY, paper=paper)
+        return ArmDecision(
+            armed=True,
+            mode_effective="live",
+            downgraded=False,
+            gates={},
+            reasons=(),
+            authorization=auth,
+        )
+
+    def _runner(self, tmp_path: Path, *, paper: bool, port_factory):
+        return SessionRunner(
+            runner_config=SessionRunnerConfig(
+                data_root=tmp_path,
+                strategy_config={
+                    "watchlist": ["AAPL"],
+                    "intraday_decisioning": {
+                        "enabled": True,
+                        "mode": "shadow",
+                        "tick_seconds": 1,
+                    },
+                },
+                paper=paper,
+            ),
+            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
+            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
+            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
+            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
+            port_factory=port_factory,
+        )
+
+    def test_paper_true_with_non_paper_port_fails_closed(self, tmp_path):
+        """paper=True (accepted the relaxed K=1 floor) but port_factory
+        constructs something that is NOT a PaperBroker — must raise, not
+        silently submit live orders under a relaxed evidence bar."""
+        from renquant_orchestrator.intraday_session_runner import SessionRunner
+
+        class _NotAPaperBroker:
+            """Stands in for a real live-submitting broker port."""
+
+        runner = self._runner(
+            tmp_path, paper=True, port_factory=lambda: _NotAPaperBroker(),
+        )
+        arming = self._armed_decision(tmp_path, paper=True)
+
+        with pytest.raises(RuntimeError, match="not PaperBroker"):
+            runner._run_live(
+                arming=arming,
+                kill_switch=KillSwitch(tmp_path / "KILL"),
+                session_date=DAY,
+                now_fn=lambda: __import__("datetime").datetime(2026, 7, 6, 10, 0),
+                sleep_fn=lambda s: None,
+                max_cycles=1,
+            )
+
+    def test_paper_true_with_real_paper_broker_does_not_raise_the_coupling_check(self, tmp_path):
+        """paper=True with a genuine PaperBroker port must NOT trip the
+        mismatch check (it may still fail/succeed later for unrelated
+        reasons — this test only proves the coupling check itself passes).
+
+        Uses a thin PaperBroker subclass adding ``open_orders()`` (aliasing
+        the base class's ``get_open_orders()``) purely so this test can walk
+        through ``begin_session()``'s reconciliation step — PaperBroker not
+        implementing the full BrokerPort protocol is a separate, pre-existing
+        gap unrelated to the paper/live coupling fix under test here."""
+        from renquant_execution.paper_broker import PaperBroker
+        from renquant_orchestrator.intraday_session_runner import SessionRunner
+
+        class _ReconcilableFakePaperBroker(PaperBroker):
+            def open_orders(self):
+                return self.get_open_orders()
+
+        runner = self._runner(
+            tmp_path, paper=True, port_factory=lambda: _ReconcilableFakePaperBroker(),
+        )
+        arming = self._armed_decision(tmp_path, paper=True)
+
+        # A non-session-day calendar short-circuits immediately after the
+        # coupling check, keeping this test focused on that one invariant.
+        runner.calendar = _NonSessionCalendarForCoupling()
+
+        result = runner._run_live(
+            arming=arming,
+            kill_switch=KillSwitch(tmp_path / "KILL"),
+            session_date=DAY,
+            now_fn=lambda: __import__("datetime").datetime(2026, 7, 6, 10, 0),
+            sleep_fn=lambda s: None,
+            max_cycles=1,
+        )
+        assert result.status == "non_session_day"
+
+
+class _NonSessionCalendarForCoupling:
+    name = "test"
+
+    def session_bounds(self, date):
+        return None

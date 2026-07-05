@@ -32,6 +32,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from renquant_execution.paper_broker import PaperBroker
+
 from .intraday_live_executor import (
     ArmDecision,
     LiveActionLog,
@@ -198,6 +200,15 @@ class SessionRunner:
     Shadow by default — the quintuple gate determines whether the session
     actually submits orders. The runner never constructs a broker port
     unless all gates arm live mode.
+
+    ``config.paper=True`` relaxes the §9.3a shadow-session evidence floor
+    from K=5 to K=1 (paper trades carry zero capital risk) and requires the
+    §9.4 authorization to cite ``PAPER_PREREG_ID`` specifically. This is a
+    declared-intent flag, not a self-enforcing one: ``_run_live()``
+    independently verifies the ACTUAL port ``port_factory()`` constructs is
+    a genuine ``PaperBroker`` before any order can be submitted, and fails
+    closed (raises) on any mismatch — so a misconfigured ``paper=True`` can
+    never silently combine a relaxed evidence bar with a real broker.
     """
 
     def __init__(
@@ -257,9 +268,12 @@ class SessionRunner:
         exist, contain valid JSON with ``"authorized": true``, and include a
         ``"prereg_id"`` field linking it to a pre-registered experiment.
 
-        Paper mode: the §9.4 file must still exist and be valid, but it may
-        reference ``PAPER_PREREG_ID`` — paper trading IS the pre-registration
-        experiment, so the prereg the file cites is the paper canary itself.
+        Paper mode: the §9.4 file must still exist and be valid, AND its
+        ``prereg_id`` must equal ``PAPER_PREREG_ID`` exactly — paper trading
+        IS the pre-registration experiment, so accepting any other truthy
+        prereg_id here would let a real-money authorization silently double
+        as paper-mode authorization (or vice versa), defeating the point of
+        a paper-specific prereg identity.
         """
         auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
         if not auth_path.exists():
@@ -267,11 +281,16 @@ class SessionRunner:
         try:
             with auth_path.open() as fh:
                 payload = json.load(fh)
-            return (
-                isinstance(payload, dict)
-                and payload.get("authorized") is True
-                and bool(payload.get("prereg_id"))
-            )
+            if not (
+                isinstance(payload, dict) and payload.get("authorized") is True
+            ):
+                return False
+            prereg_id = payload.get("prereg_id")
+            if not prereg_id:
+                return False
+            if self.config.paper:
+                return prereg_id == PAPER_PREREG_ID
+            return True
         except Exception:
             return False
 
@@ -412,6 +431,28 @@ class SessionRunner:
             )
 
         port = self.port_factory()
+
+        # Safety invariant: the relaxed paper-mode evidence floor (see
+        # resolve_stage2_arming's ``paper=`` kwarg) is evaluated at arming
+        # time from ``self.config.paper`` — a free boolean, independent of
+        # what ``port_factory()`` actually constructs. If a caller sets
+        # ``paper=True`` (accepting K=1 shadow sessions instead of K=5) but
+        # still points ``port_factory`` at a real submitting broker, no
+        # amount of upstream evidence-floor logic prevents live capital risk.
+        # This is the last-line check: verify the ACTUAL constructed
+        # backend before any order can be submitted, and fail closed on
+        # any mismatch rather than silently trusting the config flag.
+        if self.config.paper and not isinstance(port, PaperBroker):
+            raise RuntimeError(
+                f"config.paper=True (accepted a relaxed K=1 shadow-session "
+                f"evidence floor) but port_factory() constructed "
+                f"{type(port).__name__}, not PaperBroker. Refusing to "
+                "execute live — this would silently submit real orders "
+                "under an evidence bar that was only relaxed for paper "
+                "trading. Fix port_factory to return a genuine PaperBroker, "
+                "or set config.paper=False to require the real K=5 floor."
+            )
+
         executor = LiveTickExecutor(
             account="primary",
             trading_day=session_date,
