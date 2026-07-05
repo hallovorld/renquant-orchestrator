@@ -492,6 +492,89 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="run DB path (default: runs.alpaca.db)",
     )
 
+    parking = sub.add_parser(
+        "parking-sleeve",
+        help="compute shadow parking-sleeve allocation (S7, observe-only)",
+    )
+    parking.add_argument(
+        "parking_args", nargs=argparse.REMAINDER,
+        help="pass-through args to parking_sleeve.main",
+    )
+
+    tc = sub.add_parser(
+        "transfer-coefficient",
+        help="measure transfer coefficient (TC) from the run DB (S-TC)",
+    )
+    tc.add_argument(
+        "tc_args", nargs=argparse.REMAINDER,
+        help="pass-through args to transfer_coefficient.main",
+    )
+
+    readiness = sub.add_parser(
+        "readiness-monitor",
+        help="data-accumulation readiness dashboard — check all gates and "
+             "report progress toward the unified master plan (#231)",
+    )
+    readiness.add_argument(
+        "readiness_args", nargs=argparse.REMAINDER,
+        help="pass-through args to readiness_monitor.main",
+    )
+
+    edgar = sub.add_parser(
+        "edgar-harvest",
+        help="schedule a SEC EDGAR companyfacts harvest (N3 data collection)",
+    )
+    edgar.add_argument(
+        "edgar_args", nargs=argparse.REMAINDER,
+        help="pass-through args to sec_edgar_harvester.main",
+    )
+
+    entry_timing = sub.add_parser(
+        "entry-timing",
+        help="renquant105 entry-timing policy shadow evaluation: report + replay",
+    )
+    entry_timing.add_argument(
+        "entry_timing_args", nargs=argparse.REMAINDER,
+        help="pass-through args to entry_timing_policy.main",
+    )
+
+    train_gbdt_p = sub.add_parser(
+        "train-gbdt",
+        help="run the self-contained GBDT panel-LTR training pipeline",
+    )
+    train_gbdt_p.add_argument(
+        "train_gbdt_args", nargs=argparse.REMAINDER,
+        help="pass-through args to train_gbdt.main",
+    )
+
+    patchtst_cutoff = sub.add_parser(
+        "patchtst-cutoff",
+        help="derive the weekly PatchTST retrain cutoff from the training-corpus frontier",
+    )
+    patchtst_cutoff.add_argument(
+        "patchtst_cutoff_args", nargs=argparse.REMAINDER,
+        help="pass-through args to patchtst_weekly_cutoff.main",
+    )
+
+    replay_audit = sub.add_parser(
+        "replay-audit",
+        help="replay a recorded 105 shadow session and audit decision "
+             "reproducibility (RFC #208 §6/§9)",
+    )
+    replay_audit.add_argument(
+        "replay_audit_args", nargs=argparse.REMAINDER,
+        help="pass-through args to intraday_replay_audit.main",
+    )
+
+    risk_budget_rpt = sub.add_parser(
+        "risk-budget-report",
+        help="observe-only risk-budget statement (read-only over the run DB)",
+    )
+    risk_budget_rpt.add_argument(
+        "risk_budget_args", nargs=argparse.REMAINDER,
+        help="pass-through args to risk_budget.report.main",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -628,8 +711,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         repos_exec_cmd = raw_argv[sep + 1:]
         raw_argv = raw_argv[:sep]
 
+    replay_audit_argv: list[str] = []
+    if raw_argv and raw_argv[0] == "replay-audit":
+        replay_audit_argv = raw_argv[1:]
+        raw_argv = raw_argv[:1]
+
     args, unknown = parser.parse_known_args(raw_argv)
-    if unknown and args.command not in {"live-bridge", "daily-bridge"}:
+    if unknown and args.command not in {"live-bridge", "daily-bridge", "edgar-harvest"}:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     if args.command == "daily-contract":
         from .contract_fixture import run_contract_fixture
@@ -1136,6 +1224,43 @@ def main(argv: Sequence[str] | None = None) -> int:
             save_backlog(backlog_path, items)
             print(f"marked {args.item_id} -> {args.new_status}")
             return 0
+    if args.command == "parking-sleeve":
+        from .parking_sleeve import main as ps_main
+
+        return ps_main(args.parking_args or None)
+    if args.command == "transfer-coefficient":
+        from .transfer_coefficient import main as tc_main
+
+        return tc_main(args.tc_args or None)
+    if args.command == "readiness-monitor":
+        from .readiness_monitor import main as rm_main
+
+        return rm_main(args.readiness_args or None)
+    if args.command == "edgar-harvest":
+        from .sec_edgar_harvester import main as edgar_main
+
+        edgar_argv = unknown + (args.edgar_args or [])
+        return edgar_main(edgar_argv or None)
+    if args.command == "entry-timing":
+        from .entry_timing_policy import main as et_main
+
+        return et_main(args.entry_timing_args or None)
+    if args.command == "train-gbdt":
+        from .train_gbdt import main as tg_main
+
+        return tg_main(args.train_gbdt_args or None)
+    if args.command == "patchtst-cutoff":
+        from .patchtst_weekly_cutoff import main as pwc_main
+
+        return pwc_main(args.patchtst_cutoff_args or None)
+    if args.command == "replay-audit":
+        from .intraday_replay_audit import main as ra_main
+
+        return ra_main(replay_audit_argv or None)
+    if args.command == "risk-budget-report":
+        from .risk_budget.report import main as rb_main
+
+        return rb_main(args.risk_budget_args or None)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
