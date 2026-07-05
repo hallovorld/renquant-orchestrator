@@ -177,15 +177,43 @@ class TestObserveOutcomes:
         result = observe_outcomes(ledger_db, runs_db, max_as_of=old)
         assert len(result) == 0
 
-    def test_partial_fwd_returns_accepted(self, ledger_db, runs_db):
+    def test_partial_fwd_returns_not_written(self, ledger_db, runs_db):
+        """Atomic write contract (Codex #351 round 1): a decision_outcomes
+        row is written ONLY when all three horizons are available. Writing
+        a partial row would permanently suppress backfill of the missing
+        horizons, since write_outcomes() is INSERT OR IGNORE on a fixed
+        primary key with no update path, and pending_decisions() treats
+        "row exists" as "done"."""
         old = (datetime.date.today() - datetime.timedelta(days=CALENDAR_BUFFER + 1)).isoformat()
         _write_decision(ledger_db, old, "AAPL", "ConvictionGate")
         _write_fwd_returns(runs_db, old, "AAPL", fwd_5d=0.01, fwd_20d=None, fwd_60d=None)
 
         result = observe_outcomes(ledger_db, runs_db, max_as_of=old)
+        assert result == []
+
+        still_pending = pending_decisions(ledger_db, max_as_of=old)
+        assert len(still_pending) == 1
+        assert still_pending[0]["scope"] == "AAPL"
+
+    def test_becomes_pending_again_once_all_horizons_available(self, ledger_db, runs_db):
+        """A decision with only partial forward-return data stays pending;
+        once all three horizons are populated (e.g. a later scheduled run),
+        it is written and no longer pending."""
+        old = (datetime.date.today() - datetime.timedelta(days=CALENDAR_BUFFER + 1)).isoformat()
+        _write_decision(ledger_db, old, "AAPL", "ConvictionGate")
+        _write_fwd_returns(runs_db, old, "AAPL", fwd_5d=0.01, fwd_20d=None, fwd_60d=None)
+
+        assert observe_outcomes(ledger_db, runs_db, max_as_of=old) == []
+        assert len(pending_decisions(ledger_db, max_as_of=old)) == 1
+
+        runs_db.execute("DELETE FROM ticker_forward_returns WHERE ticker='AAPL'")
+        runs_db.commit()
+        _write_fwd_returns(runs_db, old, "AAPL", fwd_5d=0.01, fwd_20d=0.02, fwd_60d=0.05)
+
+        result = observe_outcomes(ledger_db, runs_db, max_as_of=old)
         assert len(result) == 1
-        assert result[0]["fwd_5d_ret"] == 0.01
-        assert result[0]["fwd_20d_ret"] is None
+        assert result[0]["fwd_60d_ret"] == 0.05
+        assert pending_decisions(ledger_db, max_as_of=old) == []
 
     def test_multiple_gates_per_ticker(self, ledger_db, runs_db):
         old = (datetime.date.today() - datetime.timedelta(days=CALENDAR_BUFFER + 1)).isoformat()

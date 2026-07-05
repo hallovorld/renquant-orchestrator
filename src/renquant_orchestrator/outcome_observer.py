@@ -8,8 +8,11 @@ One row per ``(as_of, scope, ticker, gate)`` with all three horizons
 re-running is idempotent.
 
 The observer reads decisions from the ledger, resolves entry prices from
-the runs DB or price source, fetches close prices at +5/+20/+60 trading
-days, and writes the forward returns.
+``candidate_scores``, and reads +5/+20/+60 forward returns from the
+precomputed ``ticker_forward_returns`` derived table (NOT a first-hand
+realized-close-price fetch — this is a useful substrate but inherits
+whatever assumptions the process that populated ``ticker_forward_returns``
+made; see ``_load_forward_prices`` for the exact query).
 
 Usage (CLI):
     rq observe-outcomes --runs-db ~/renquant-data/runs.alpaca.db
@@ -118,11 +121,18 @@ def _load_forward_prices(
     decisions: list[dict[str, Any]],
     calendar_fn: Any = None,
 ) -> dict[tuple[str, str, int], float]:
-    """Load close prices at +5/+20/+60 trading days for each (as_of, ticker).
+    """Read precomputed +5/+20/+60 forward returns for each (as_of, ticker).
 
-    Returns {(as_of, ticker, horizon): close_price}.
-    Falls back to ticker_forward_returns if available, otherwise tries
-    daily_prices or similar tables.
+    Returns {(as_of, ticker, horizon): fwd_return}. This reads the
+    precomputed ``ticker_forward_returns`` derived table keyed by
+    (run_date=as_of, ticker) — it is NOT a first-hand fetch of realized
+    close prices at ``target_date``. ``target_date`` is computed only as an
+    availability guard (skip a horizon the calendar function can't resolve
+    at all); it is never used to filter the query itself, since
+    ``ticker_forward_returns`` already stores the forward return under the
+    originating ``as_of``, not under the target date. Do not present this
+    as an authoritative realized-price path without also fixing this to
+    genuinely resolve/query by target_date against a raw price table.
     """
     if not decisions:
         return {}
@@ -198,7 +208,14 @@ def observe_outcomes(
         fwd_20d = fwd_data.get((as_of, ticker, 20))
         fwd_60d = fwd_data.get((as_of, ticker, 60))
 
-        if fwd_5d is None and fwd_20d is None and fwd_60d is None:
+        # Atomic write contract (module docstring, S5 spec #339): a
+        # decision_outcomes row is written ONLY once ALL THREE horizons are
+        # available. write_outcomes() is INSERT OR IGNORE on a fixed
+        # (as_of, scope, ticker, gate) primary key with no update path, and
+        # pending_decisions() treats "row exists" as "done" — a partial
+        # write here would permanently suppress backfill of the still-
+        # missing horizons (Codex #351 round 1).
+        if fwd_5d is None or fwd_20d is None or fwd_60d is None:
             continue
 
         exit_5d = entry_price * (1 + fwd_5d) if entry_price and fwd_5d is not None else None
