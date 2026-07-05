@@ -37,6 +37,7 @@ logic. It is pure control-plane engineering.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import json
@@ -455,10 +456,22 @@ def evaluate_tick_intents(
     kept (blocked ones are annotated, not removed) so the shadow log captures
     what would have been blocked.
 
-    This does NOT update ``state`` — the caller decides whether to
-    :meth:`GovernorState.record_action` based on whether the intent is
-    ultimately executed (shadow vs live).
+    Intents within the SAME tick are evaluated SEQUENTIALLY, not against a
+    single static snapshot of ``state``: each intent this function itself
+    allows is fed into a scratch copy of the state before the next intent in
+    the tick is evaluated. Otherwise two intents in one tick would both see
+    the identical pre-tick counters (e.g. both see ``action_count=0`` under
+    ``max_actions_per_session=1``) and both pass, even though allowing the
+    first should make the second fail — the core governor semantics, not an
+    edge case, for a tick that carries more than one intent.
+
+    This does NOT update the caller's ``state`` object — only an internal
+    scratch copy is advanced for intra-tick sequencing. The caller still
+    decides whether to :meth:`GovernorState.record_action` on its own
+    (real) state based on whether the intent is ultimately executed (shadow
+    vs live).
     """
+    scratch_state = copy.deepcopy(state)
     annotated: list[dict[str, Any]] = []
     for intent in intents:
         intent_dict = dict(intent)
@@ -467,7 +480,7 @@ def evaluate_tick_intents(
         notional = float(intent_dict.get("notional", 0.0))
         verdict = evaluate_governor(
             config=config,
-            state=state,
+            state=scratch_state,
             ticker=ticker,
             side=side,
             notional=notional,
@@ -476,6 +489,8 @@ def evaluate_tick_intents(
         intent_dict["governor_verdict"] = verdict.to_record()
         intent_dict["governor_blocked"] = not verdict.allowed
         annotated.append(intent_dict)
+        if verdict.allowed:
+            scratch_state.record_action(ticker=ticker, notional=notional, at=now)
     return annotated
 
 

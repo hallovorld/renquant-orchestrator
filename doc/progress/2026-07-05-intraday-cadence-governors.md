@@ -93,3 +93,38 @@ baseline). Full suite 3034/3036 passed (2 pre-existing unrelated failures in
 `origin/main`).
 NEXT: none — the shadow observer's state model now correctly reflects only
 genuinely-allowed intents.
+
+## Round 3 (codex review)
+
+STATUS: fixed
+WHAT: codex confirmed the round-2 phantom-state fix, then found a deeper
+correctness hole: `evaluate_tick_intents()` evaluated EVERY intent in a
+single tick against the identical, unmutated `state` snapshot. With
+`max_actions_per_session=1` and two BUY intents in one tick, both saw
+`action_count=0` and both were allowed — even though allowing the first
+should have made the second fail. Same issue for turnover accumulation and
+same-ticker cooldown when multiple intents land in one tick.
+WHY-DIR: this is the core governor semantics, not an edge case — a governor
+that only enforces correctly across ticks but not within a multi-intent tick
+would silently let a session exceed its configured caps whenever more than
+one intent arrives in the same evaluation window.
+EVIDENCE: `evaluate_tick_intents()` now deep-copies `state` into a scratch
+copy and advances it sequentially — each intent it itself allows is fed into
+the scratch state via `record_action()` before the next intent in the same
+tick is evaluated. The real `state` object passed in remains untouched
+(same contract as the existing `test_does_not_modify_state`), preserving the
+caller's discretion to decide shadow-vs-live commit as before. Added 6 new
+tests: sequential blocking under max_actions/turnover/ticker-cooldown within
+one tick, a 3-intent case proving a later intent sees only the FIRST
+allowed intent's contribution (not the blocked second one), a state-
+isolation check across a multi-intent tick, and a full
+`GovernorShadowObserver` end-to-end integration test (2 same-tick BUY
+intents under `max_actions_per_session=1` commit exactly 1 action to real
+state, not 2). 5 of 6 confirmed to fail against the pre-fix code (`git
+stash` verification); the state-isolation test correctly passes both before
+and after, since it verifies a contract, not the bug. Full suite 3040/3042
+passed (same 2 pre-existing unrelated failures in
+`test_bundle_consistency_ci_gate.py`, confirmed reproducing on clean
+`origin/main`).
+NEXT: none — governor enforcement is now sequentially correct both within a
+tick and across ticks.

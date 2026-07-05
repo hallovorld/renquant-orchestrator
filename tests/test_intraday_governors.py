@@ -545,6 +545,179 @@ class TestEvaluateTickIntents:
         assert annotated == []
 
 
+class TestEvaluateTickIntentsSequentialWithinTick:
+    """Regression: a multi-intent tick must gate later intents against the
+    effect of earlier ALLOWED intents in the same tick, not a single static
+    pre-tick snapshot. Pre-fix, evaluate_tick_intents() evaluated every
+    intent against the identical unmutated `state`, so e.g. two BUY intents
+    under max_actions_per_session=1 both saw action_count=0 and both passed."""
+
+    def test_max_actions_second_intent_blocked_by_first(self) -> None:
+        config = _make_config(
+            max_actions_per_session=1,
+            max_turnover_fraction=0.0,
+            min_seconds_between_same_ticker=0,
+            loss_cooldown_seconds=0,
+        )
+        state = _make_state()
+        intents = [
+            {"symbol": "AAPL", "side": "BUY", "notional": 1_000.0},
+            {"symbol": "MSFT", "side": "BUY", "notional": 1_000.0},
+        ]
+        annotated = evaluate_tick_intents(
+            config=config, state=state, intents=intents, now=_et(10, 0),
+        )
+        assert not annotated[0]["governor_blocked"], (
+            "first intent in the tick sees action_count=0 and must be allowed"
+        )
+        assert annotated[1]["governor_blocked"], (
+            "second intent in the SAME tick must see the first intent's "
+            "action_count=1 and be blocked under max_actions_per_session=1 "
+            "— pre-fix both saw the same static action_count=0 and passed"
+        )
+        assert BLOCK_MAX_ACTIONS in annotated[1]["governor_verdict"]["blocked_reasons"]
+
+    def test_max_turnover_second_intent_blocked_by_first(self) -> None:
+        config = _make_config(
+            max_actions_per_session=0,
+            max_turnover_fraction=0.05,  # $5,000 cap on $100,000 equity
+            min_seconds_between_same_ticker=0,
+            loss_cooldown_seconds=0,
+        )
+        state = _make_state(equity=100_000.0)
+        intents = [
+            {"symbol": "AAPL", "side": "BUY", "notional": 4_000.0},
+            {"symbol": "MSFT", "side": "BUY", "notional": 4_000.0},
+        ]
+        annotated = evaluate_tick_intents(
+            config=config, state=state, intents=intents, now=_et(10, 0),
+        )
+        assert not annotated[0]["governor_blocked"], "4000/100000=0.04 <= 0.05"
+        assert annotated[1]["governor_blocked"], (
+            "second intent must see the first's $4,000 already accumulated: "
+            "(4000+4000)/100000=0.08 > 0.05 — pre-fix both saw cumulative=0 "
+            "and both projected only 0.04, so both passed"
+        )
+        assert BLOCK_MAX_TURNOVER in annotated[1]["governor_verdict"]["blocked_reasons"]
+
+    def test_ticker_cooldown_second_intent_same_ticker_blocked_by_first(self) -> None:
+        config = _make_config(
+            max_actions_per_session=0,
+            max_turnover_fraction=0.0,
+            min_seconds_between_same_ticker=300,
+            loss_cooldown_seconds=0,
+        )
+        state = _make_state()
+        intents = [
+            {"symbol": "AAPL", "side": "BUY", "notional": 1_000.0},
+            {"symbol": "AAPL", "side": "BUY", "notional": 500.0},
+        ]
+        annotated = evaluate_tick_intents(
+            config=config, state=state, intents=intents, now=_et(10, 0),
+        )
+        assert not annotated[0]["governor_blocked"], "no prior action on AAPL"
+        assert annotated[1]["governor_blocked"], (
+            "second AAPL intent in the same tick (elapsed=0s) must be "
+            "blocked by the ticker cooldown against the first — pre-fix "
+            "both saw no last_action_by_ticker entry and both passed"
+        )
+        assert BLOCK_TICKER_COOLDOWN in annotated[1]["governor_verdict"]["blocked_reasons"]
+
+    def test_third_intent_fits_headroom_left_by_first_two(self) -> None:
+        """A later intent in the tick that fits the REMAINING headroom
+        (after an earlier allowed intent, but excluding a blocked one) must
+        still be correctly evaluated — proves the scratch state advances
+        only on allowed intents, not on every intent seen."""
+        config = _make_config(
+            max_actions_per_session=0,
+            max_turnover_fraction=0.05,  # $5,000 cap on $100,000 equity
+            min_seconds_between_same_ticker=0,
+            loss_cooldown_seconds=0,
+        )
+        state = _make_state(equity=100_000.0)
+        intents = [
+            {"symbol": "AAPL", "side": "BUY", "notional": 4_000.0},  # allowed, cum=4000
+            {"symbol": "MSFT", "side": "BUY", "notional": 4_000.0},  # blocked (would be 8000)
+            {"symbol": "GOOG", "side": "BUY", "notional": 500.0},    # allowed, cum=4500
+        ]
+        annotated = evaluate_tick_intents(
+            config=config, state=state, intents=intents, now=_et(10, 0),
+        )
+        assert not annotated[0]["governor_blocked"]
+        assert annotated[1]["governor_blocked"]
+        assert not annotated[2]["governor_blocked"], (
+            "third intent must be evaluated against cumulative=4000 (only "
+            "the first, allowed intent), not 8000 (as if the blocked "
+            "second intent had also executed)"
+        )
+
+    def test_does_not_modify_state_across_multi_intent_tick(self) -> None:
+        """The sequential intra-tick tracking must use an internal scratch
+        copy only — the caller's real `state` object must remain untouched,
+        same contract as the single-intent test_does_not_modify_state."""
+        config = _make_config(max_actions_per_session=1)
+        state = _make_state()
+        intents = [
+            {"symbol": "AAPL", "side": "BUY", "notional": 1_000.0},
+            {"symbol": "MSFT", "side": "BUY", "notional": 1_000.0},
+        ]
+        evaluate_tick_intents(
+            config=config, state=state, intents=intents, now=_et(10, 0),
+        )
+        assert state.action_count == 0
+        assert state.cumulative_turnover_notional == 0.0
+        assert state.last_action_by_ticker == {}
+
+
+class TestGovernorShadowObserverSequentialWithinTick:
+    def _make_tick_record(
+        self,
+        tick_index: int = 0,
+        intents: list[dict] | None = None,
+        tick_at: str = "2026-07-05T10:00:00-04:00",
+    ) -> dict:
+        return {
+            "schema_version": "rq105-intraday-shadow-v1",
+            "kind": "intraday_decision_shadow_tick",
+            "session_date": "2026-07-05",
+            "tick_index": tick_index,
+            "tick_at": tick_at,
+            "decisions": {
+                "intents": intents or [],
+                "skipped": [],
+                "blocked_by": {},
+                "counters": {"entries_count": 0},
+            },
+        }
+
+    def test_end_to_end_multi_intent_tick_via_observer(self) -> None:
+        """Full integration through GovernorShadowObserver: a single tick
+        with two BUY intents under max_actions_per_session=1 must commit
+        exactly ONE action to real evaluator state, not two."""
+        config = _make_config(
+            max_actions_per_session=1,
+            max_turnover_fraction=0.0,
+            min_seconds_between_same_ticker=0,
+            loss_cooldown_seconds=0,
+        )
+        evaluator = GovernorEvaluator(config, session_equity=100_000.0)
+        observer = GovernorShadowObserver(evaluator)
+
+        observer.on_tick(self._make_tick_record(intents=[
+            {"symbol": "AAPL", "side": "BUY", "notional": 1_000.0},
+            {"symbol": "MSFT", "side": "BUY", "notional": 1_000.0},
+        ]))
+
+        assert observer.evaluations[0]["n_blocked"] == 1, (
+            "exactly one of the two same-tick intents must be blocked"
+        )
+        assert evaluator.state.action_count == 1, (
+            "only the first, genuinely-allowed intent may commit to real "
+            "state — pre-fix both would have been evaluated as allowed "
+            "and both committed, giving action_count=2"
+        )
+
+
 # =========================================================================
 # GovernorEvaluator
 # =========================================================================
