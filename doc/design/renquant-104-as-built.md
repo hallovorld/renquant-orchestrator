@@ -98,6 +98,9 @@ data refresh (base-data)
 | `outcome_backfiller.py` | Backfills decision_outcomes from candidate_scores + forward returns (19 tests) |
 | `config_experiment_store.py` | S6 config experiment DDL + CRUD for lambda sweep (11 tests) |
 | `model_freshness_enforcer.py` | Freshness enforcement recommendation engine (observe-only, PR #334) |
+| `readiness_monitor.py` | 12 programmatic data-accumulation checks (N1/N2/N3/S5/S6/S8/S-TC/D1/baseline) |
+| `sign_laundering_harness.py` | M4-b matched-breadth protocol for measuring sign-laundering impact |
+| `check_model_bundle_consistency.py` | Pre-deploy bundle self-consistency check (config/calibrator/WF-gate/watchlist) |
 
 ## Models
 
