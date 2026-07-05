@@ -588,6 +588,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     roadmap.add_argument("--allow-consequential", action="store_true",
                          help="let 'next' pick operator-only (GPU/deploy/live) items")
 
+    prune = sub.add_parser(
+        "prune-artifacts",
+        help="prune stale promote-pipeline staging/rollback/backup artifacts (dry-run by default)",
+    )
+    prune.add_argument(
+        "--execute",
+        action="store_true",
+        help="actually delete files (default: dry-run, list only)",
+    )
+    prune.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="umbrella repo root; default: /Users/renhao/git/github/RenQuant",
+    )
+    prune.add_argument(
+        "--json",
+        action="store_true",
+        dest="prune_json",
+        help="emit machine-readable JSON instead of human summary",
+    )
+
     agentwf = sub.add_parser(
         "agent-workflow",
         help="resolve a per-agent PR workflow queue (review/fix/merge); "
@@ -649,6 +671,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--strict",
         action="store_true",
         help="return non-zero when either token is missing, invalid, or shared",
+    )
+
+    m4b_replay = sub.add_parser(
+        "conviction-replay",
+        help="M4-b matched-breadth conviction-floor replay harness",
+    )
+    m4b_replay.add_argument(
+        "m4b_args", nargs=argparse.REMAINDER,
+        help="pass-through args to m4b_conviction_replay.main",
+    )
+
+    m6_restamp_p = sub.add_parser(
+        "m6-restamp",
+        help="M6 fingerprint re-stamp tool (dry-run by default)",
+    )
+    m6_restamp_p.add_argument(
+        "m6_args", nargs=argparse.REMAINDER,
+        help="pass-through args to m6_restamp.main",
     )
 
     merge_audit = sub.add_parser(
@@ -721,6 +761,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "live-bridge", "daily-bridge", "edgar-harvest", "parking-sleeve",
         "transfer-coefficient", "readiness-monitor", "entry-timing",
         "train-gbdt", "patchtst-cutoff", "risk-budget-report",
+        "conviction-replay", "m6-restamp",
     }
     if unknown and args.command not in _remainder_commands:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -1168,6 +1209,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         audit = audit_merged_prs(args.repo, args.token, limit=args.limit)
         print(json.dumps(audit, indent=2, sort_keys=True))
         return 0 if audit["ok"] or not args.strict else 1
+    if args.command == "prune-artifacts":
+        from .retention_policy import main as prune_main
+
+        prune_argv: list[str] = []
+        if args.execute:
+            prune_argv.append("--execute")
+        if args.repo:
+            prune_argv.extend(["--repo", str(args.repo)])
+        if args.prune_json:
+            prune_argv.append("--json")
+        return prune_main(prune_argv)
     if args.command == "repos":
         from .repos import DEFAULT_MANIFEST, run_repos
 
@@ -1273,6 +1325,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         rb_argv = unknown + (args.risk_budget_args or [])
         return rb_main(rb_argv or None)
+    if args.command == "conviction-replay":
+        from .m4b_conviction_replay import main as m4b_main
+
+        m4b_argv = unknown + (args.m4b_args or [])
+        return m4b_main(m4b_argv or None)
+    if args.command == "m6-restamp":
+        from .m6_restamp import main as m6_main
+
+        m6_argv = unknown + (args.m6_args or [])
+        return m6_main(m6_argv or None)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
