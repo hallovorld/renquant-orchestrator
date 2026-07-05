@@ -1,6 +1,6 @@
 # M4-b matched-breadth conviction-floor replay harness
 
-DATE: 2026-07-05 (round 2: same day, Codex calibration-gap fix + CLI guard addendum)
+DATE: 2026-07-05 (round 3: same day, Codex headline-labeling fix)
 STATUS: implementation complete, tests passing
 
 ## What
@@ -71,6 +71,44 @@ One regression test (`test_cli_calibrate_without_formula_errors`) added, confirm
   `test_bundle_consistency_ci_gate.py` unrelated to this module (reproduce on `main`).
 - `calibrate_parameter` confirmed absent from the pre-fix commit (`27806323`) via
   `git show <sha>:path | grep -c calibrate_parameter` → 0.
+
+## Round 3 (2026-07-05): Codex review — headline labeling still overstates uncalibrated runs
+
+**Codex's finding:** round 2 added genuine calibration machinery (`calibrate_parameter`,
+`--calibrate`), but the CLI's default text report (`_render_report`) unconditionally titled
+itself `"# M4-b Matched-Breadth Conviction Floor Replay"` regardless of whether calibration
+actually ran. A user invoking `--quantile-k 0.30` alone (no `--calibrate`) got a report
+carrying the matched-breadth headline while comparing at a fixed, uncalibrated parameter —
+exactly the two-different-experiment-classes-under-one-headline problem the design doc's own
+vocabulary (design §6, line 325: "downgrades the run to exploratory") anticipates and names.
+The JSON output already had a `"calibrated": bool` field (round 2), but the human-readable
+report — the default output when neither `--json` nor `--output` is passed — ignored it
+entirely.
+
+**Fix implemented (Option B: distinctly-labeled modes, not forced-default calibration).**
+Chose the split-label option over making calibration mandatory because the design doc's own
+§6 vocabulary explicitly treats "exploratory" as a legitimate, named fallback state (not
+something to eliminate) — a fixed-parameter run is a real, useful mode for quick iteration
+before committing to a full calibrated pass, it just must never share the matched-breadth
+headline.
+
+- `_render_report(comparison, ci, calibrated)` now takes the `calibrated` flag (threaded
+  through from `main()`'s already-existing computation, no new logic needed there) and
+  renders one of two distinct headlines:
+  - `calibrated=True`: `"# M4-b Matched-Breadth Conviction Floor Replay"` (unchanged).
+  - `calibrated=False`: `"# M4-b Exploratory Fixed-Parameter Replay (NOT matched-breadth)"`,
+    followed immediately by an explicit `WARNING:` line stating the return delta may reflect
+    a different admission rate, not the floor formula, and does not support a causal claim.
+- This makes the distinction impossible to miss in the primary human-facing output surface,
+  not just buried in a JSON field a reader might not check.
+
+**Verification:** added 4 tests — two confirm the JSON `calibrated` field is `True`/`False`
+correctly for calibrated/uncalibrated CLI invocations; two confirm the TEXT report headline
+and warning presence/absence for each case. Confirmed via `git stash` (source-file-only,
+keeping the new tests) that `test_cli_text_report_uncalibrated_is_labeled_exploratory` fails
+against the pre-fix code with the exact bug Codex described (uncalibrated run producing the
+`"# M4-b Matched-Breadth Conviction Floor Replay"` title), and passes after. Full module
+suite: 41 passed (37 prior + 4 new).
 
 ## Components
 

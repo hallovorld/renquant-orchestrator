@@ -510,6 +510,83 @@ class TestCLI:
         err = capsys.readouterr().err
         assert "--quantile-k or --mad-k" in err
 
+    def test_cli_json_calibrated_field_true_when_calibrate_passed(
+        self, tmp_path, capsys,
+    ):
+        """--calibrate with a formula flag: JSON output's calibrated field
+        must be True -- this is the structural flag downstream consumers
+        check to know which experiment class produced the report."""
+        db_path = _make_db(
+            tmp_path,
+            ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04",
+             "2026-06-05"],
+            n_tickers=25,
+            mu_center=0.04,
+        )
+        rc = main([
+            "--db", str(db_path), "--quantile-k", "0.30", "--calibrate", "--json",
+        ])
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["calibrated"] is True
+
+    def test_cli_json_calibrated_field_false_without_calibrate_flag(
+        self, tmp_path, capsys,
+    ):
+        """Fixed-parameter run (no --calibrate): JSON output's calibrated
+        field must be False, even though --quantile-k was given."""
+        db_path = _make_db(
+            tmp_path,
+            ["2026-06-01", "2026-06-02", "2026-06-03"],
+            n_tickers=25,
+            mu_center=0.04,
+        )
+        rc = main(["--db", str(db_path), "--quantile-k", "0.30", "--json"])
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["calibrated"] is False
+
+    def test_cli_text_report_uncalibrated_is_labeled_exploratory(
+        self, tmp_path, capsys,
+    ):
+        """The default text report for a fixed-parameter (uncalibrated) run
+        must NOT claim the matched-breadth title -- this is the exact gap
+        Codex flagged: a user could run --quantile-k alone and get a report
+        titled 'M4-b Matched-Breadth Conviction Floor Replay' with no
+        calibration having occurred."""
+        db_path = _make_db(
+            tmp_path,
+            ["2026-06-01", "2026-06-02", "2026-06-03"],
+            n_tickers=25,
+            mu_center=0.04,
+        )
+        rc = main(["--db", str(db_path), "--quantile-k", "0.30"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Exploratory Fixed-Parameter Replay" in out
+        assert "NOT matched-breadth" in out
+        assert "Matched-Breadth Conviction Floor Replay" not in out
+        assert "WARNING" in out
+
+    def test_cli_text_report_calibrated_is_labeled_matched_breadth(
+        self, tmp_path, capsys,
+    ):
+        """The default text report for a genuinely calibrated run must show
+        the matched-breadth title, with no exploratory warning."""
+        db_path = _make_db(
+            tmp_path,
+            ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04",
+             "2026-06-05"],
+            n_tickers=25,
+            mu_center=0.04,
+        )
+        rc = main(["--db", str(db_path), "--quantile-k", "0.30", "--calibrate"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert out.startswith("# M4-b Matched-Breadth Conviction Floor Replay")
+        assert "Exploratory" not in out
+        assert "WARNING" not in out
+
 
 # ------------------------------------------------- test load_candidate_scores
 

@@ -576,12 +576,34 @@ def block_bootstrap_diff_ci(
 # ------------------------------------------------------------------- CLI
 
 
-def _render_report(comparison: dict[str, Any], ci: dict[str, Any]) -> str:
-    """Render a human-readable text report."""
-    lines = [
-        "# M4-b Matched-Breadth Conviction Floor Replay",
-        "",
-    ]
+def _render_report(
+    comparison: dict[str, Any], ci: dict[str, Any], calibrated: bool,
+) -> str:
+    """Render a human-readable text report.
+
+    The title and framing depend on ``calibrated``: only a run whose candidate
+    parameter was actually calibrated to match baseline breadth (design §4)
+    may claim the matched-breadth protocol. A run at a fixed, uncalibrated
+    parameter is a different experiment class (design §3/§6 language:
+    "downgrades the run to exploratory") — its return delta may reflect a
+    different admission rate rather than the floor formula, so it must not
+    share the matched-breadth headline.
+    """
+    if calibrated:
+        lines = [
+            "# M4-b Matched-Breadth Conviction Floor Replay",
+            "",
+        ]
+    else:
+        lines = [
+            "# M4-b Exploratory Fixed-Parameter Replay (NOT matched-breadth)",
+            "",
+            "WARNING: candidate parameter was NOT calibrated to baseline breadth "
+            "(pass --calibrate to run the matched-breadth protocol). Any return "
+            "delta below may reflect a different admission rate, not the floor "
+            "formula -- it does not support a causal claim about the formula.",
+            "",
+        ]
 
     summary = comparison.get("summary", {})
     lines.append(f"Resolved dates:       {summary.get('n_resolved_dates', 0)}")
@@ -742,10 +764,11 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # Output
+    calibrated = args.calibrate and (
+        config.quantile_k is not None or config.mad_k is not None
+    )
     result = {
-        "calibrated": args.calibrate and (
-            config.quantile_k is not None or config.mad_k is not None
-        ),
+        "calibrated": calibrated,
         "config": asdict(config),
         "comparison": {
             "per_day_stats": comparison["per_day_stats"],
@@ -765,7 +788,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(result, sys.stdout, indent=2, default=str)
         sys.stdout.write("\n")
     elif not args.output:
-        print(_render_report(comparison, ci))
+        print(_render_report(comparison, ci, calibrated))
 
     return 0
 
