@@ -18,6 +18,7 @@ import json
 import logging
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 from .runtime_paths import default_repo_root, resolve_subrepo_root
@@ -126,8 +127,16 @@ def harvest(
 
     prov_dir = repo_dir / DEFAULT_PROVENANCE_DIR
     prov_dir.mkdir(parents=True, exist_ok=True)
-    today = dt.date.today().isoformat()
-    prov_file = prov_dir / f"sec_edgar_harvest_{today}.json"
+    # Per-invocation, not per-date: a per-date filename lets two same-day
+    # harvests (reruns, or separate watchlists) silently overwrite each
+    # other's provenance record, losing the earlier run's hash/count/path.
+    # Timestamp (matching retrain_patchtst.py's ``weekly_%Y%m%dT%H%M%SZ``
+    # run-artifact convention) for sorting/readability, plus a uuid4 suffix
+    # (matching intraday_live_executor.py's ``la-{uuid.uuid4().hex[:16]}``
+    # action-id pattern) so two invocations can never collide regardless of
+    # timing or identical output content.
+    stamp = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    prov_file = prov_dir / f"sec_edgar_harvest_{stamp}_{uuid.uuid4().hex[:8]}.json"
     prov_file.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
     provenance["provenance_file"] = str(prov_file)
 

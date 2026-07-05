@@ -109,6 +109,30 @@ def test_harvest_raises_on_missing_output(monkeypatch, tmp_path) -> None:
         mod.harvest(repo, output, tickers="AAPL")
 
 
+def test_harvest_provenance_unique_across_same_day_reruns(monkeypatch, tmp_path) -> None:
+    """Two harvests on the same date must not overwrite each other's
+    provenance record — codex review: per-date filenames lose the earlier
+    run's hash/count/path on a same-day rerun or a second watchlist."""
+    repo = _repo(tmp_path)
+    output = tmp_path / "out.jsonl"
+
+    def fake_run(cmd, cwd=None, env=None, capture_output=False, text=False):
+        _write_output(output, ["AAPL", "GRMN"])
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    first = mod.harvest(repo, output, tickers="AAPL,GRMN")
+    second = mod.harvest(repo, output, tickers="AAPL,GRMN")
+
+    assert first["provenance_file"] != second["provenance_file"]
+    assert Path(first["provenance_file"]).exists()
+    assert Path(second["provenance_file"]).exists()
+
+    prov_dir = repo / mod.DEFAULT_PROVENANCE_DIR
+    assert len(list(prov_dir.glob("*.json"))) == 2
+
+
 def test_harvest_excludes_completion_markers_from_record_count(monkeypatch, tmp_path) -> None:
     """The _harvest_complete marker records (from the base-data harvester's
     resumability fix) must not be double-counted as fact records here."""

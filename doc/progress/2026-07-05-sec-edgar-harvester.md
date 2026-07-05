@@ -40,3 +40,22 @@ SAFETY: never writes to `data/` canonical paths; output to CLI-specified path
 NEXT: land base-data PR #40 first, then this PR. Run against the full
      watchlist to validate coverage; cross-check with Polygon (RS-3 probe T7)
      when Polygon access is available.
+
+## Round 2 (Codex review — provenance overwrite bug)
+
+Codex found the wrapper's provenance filename was keyed on date alone
+(`sec_edgar_harvest_<date>.json`), so two same-day harvests (a rerun, or a
+second watchlist) silently overwrote each other's provenance record, losing
+the earlier run's output hash/count/path. Fixed: filename now embeds a
+timestamp (matching `retrain_patchtst.py`'s `weekly_%Y%m%dT%H%M%SZ`
+run-artifact convention) plus a `uuid4` suffix (matching
+`intraday_live_executor.py`'s `la-{uuid.uuid4().hex[:16]}` action-id
+pattern), guaranteeing uniqueness per invocation regardless of timing or
+identical output content. Added
+`test_harvest_provenance_unique_across_same_day_reruns`, which asserts two
+back-to-back harvests produce two distinct provenance files — confirmed
+this collides deterministically pre-fix (both invocations construct the
+identical `sec_edgar_harvest_<today>.json` path, not just a probabilistic
+same-second race). 2260/2262 relevant tests pass (2 pre-existing, unrelated
+`test_bundle_consistency_ci_gate.py` failures reproduce identically on clean
+`origin/main`).
