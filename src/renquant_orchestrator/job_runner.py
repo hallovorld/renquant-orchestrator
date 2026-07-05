@@ -35,6 +35,7 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "shadow_realtime_serving": "renquant_orchestrator.shadow_realtime_serving",
     "scorer_identity_monitor": "renquant_orchestrator.scorer_identity_monitor",
     "fallback_shadow_logger": "renquant_orchestrator.fallback_shadow_logger",
+    "readiness_monitor": "renquant_orchestrator.readiness_monitor",
 }
 
 

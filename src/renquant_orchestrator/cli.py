@@ -483,6 +483,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outcome_observer.main",
     )
 
+    readiness = sub.add_parser(
+        "readiness-monitor",
+        help="data-accumulation readiness dashboard — check all gates and "
+             "report progress toward the unified master plan (#231)",
+    )
+    readiness.add_argument(
+        "--data-root", type=Path, default=None,
+        help="override data root (default: auto-detect)",
+    )
+    readiness.add_argument(
+        "--db", type=Path, default=None,
+        help="override DB path (runs.alpaca.db-backed checks)",
+    )
+    readiness.add_argument(
+        "--ledger-db", type=Path, default=None,
+        help="override decision-ledger DB path "
+             "(default: decision_ledger.DEFAULT_DB)",
+    )
+    readiness.add_argument(
+        "--json", action="store_true", dest="readiness_json",
+        help="output as JSON",
+    )
+    readiness.add_argument(
+        "--state-file", type=Path, default=None,
+        help="path to persist state for transition detection",
+    )
+
     roadmap = sub.add_parser(
         "roadmap",
         help="roadmap implementation driver: emit the next backlog item as an "
@@ -1061,6 +1088,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.repos_action == "merge-audit" and args.repos_strict and not result.get("ok"):
             return 1
         return 1 if blocked else 0
+    if args.command == "readiness-monitor":
+        from .readiness_monitor import main as readiness_main
+
+        readiness_argv: list[str] = []
+        if args.data_root:
+            readiness_argv.extend(["--data-root", str(args.data_root)])
+        if args.db:
+            readiness_argv.extend(["--db", str(args.db)])
+        if args.ledger_db:
+            readiness_argv.extend(["--ledger-db", str(args.ledger_db)])
+        if args.readiness_json:
+            readiness_argv.append("--json")
+        if args.state_file:
+            readiness_argv.extend(["--state-file", str(args.state_file)])
+        return readiness_main(readiness_argv)
     if args.command == "roadmap":
         from pathlib import Path as _P
 

@@ -555,6 +555,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         umbrella_state_dependency="runs.alpaca.db for entry prices and forward returns",
         launchd_label="com.renquant.outcome-observer",
     ),
+    ScheduledJob(
+        job_id="readiness_monitor",
+        kind="ops",
+        cadence="daily",
+        command=["renquant-orchestrator", "run-job", "readiness_monitor"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency="RenQuant data paths and runs.alpaca.db for readiness checks",
+        launchd_label="com.renquant.readiness-monitor",
+    ),
 )
 
 
