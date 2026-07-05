@@ -108,7 +108,7 @@
       "title": "Identify the producer of artifacts/qp_step4_replay/ or remove it",
       "category": "S11 live-tree inventory",
       "repo": "RenQuant",
-      "status": "pending",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "S11's inventory (renquant-orchestrator#241) found an untracked artifacts/qp_step4_replay/ directory in the live tree with no identifiable producer — repo-wide grep for 'qp_step4_replay' finds no writer script. Likely an ad hoc/manual QP-replay investigation's leftover. Confirm: if it's dead weight, remove it (live-tree operation, not this ticket's scope); if it's evidence for a specific investigation, move it to doc/research/evidence/ and commit it instead of leaving it untracked in the live tree."
