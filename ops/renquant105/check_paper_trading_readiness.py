@@ -13,6 +13,16 @@ maintaining a parallel copy of the gate contract. If the gate semantics move,
 this script moves with them automatically — there is no second source of
 truth to go stale.
 
+The strategy-config input follows the SAME resolution contract as every real
+launch entrypoint in this repo (``intraday_session_scheduler.py``,
+``intraday_quote_logger.py``, ``train_gbdt.py``): an explicit
+``--strategy-config`` path takes precedence; absent that, it falls back to
+``runtime_paths.default_strategy_config_path()`` — never a silent
+``data_root / "strategy_config.json"`` guess. Pass ``--strategy-config``
+pointing at the exact pinned config you intend to launch a real session
+with, so this checker reports readiness against production's actual input,
+not an incidental default.
+
 Checks performed:
   1. section_9_4_economic_authorization.json exists with correct paper content
      (via ``intraday_session_runner.check_section_9_4_authorization``)
@@ -27,6 +37,7 @@ Exit 1: at least one check failed — see output for remediation steps.
 """
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import json
 import sys
@@ -51,7 +62,10 @@ from renquant_orchestrator.intraday_session_runner import (  # noqa: E402
 from renquant_orchestrator.intraday_session_scheduler import (  # noqa: E402
     load_intraday_config,
 )
-from renquant_orchestrator.runtime_paths import default_data_root  # noqa: E402
+from renquant_orchestrator.runtime_paths import (  # noqa: E402
+    default_data_root,
+    default_strategy_config_path,
+)
 
 
 class _Check:
@@ -140,20 +154,30 @@ def check_paper_broker_port() -> _Check:
     return c
 
 
-def check_quintuple_arming_gate(data_root: Path) -> _Check:
+def check_quintuple_arming_gate(data_root: Path, strategy_config_path: Path) -> _Check:
     """Check 3: the full §9.3a quintuple arming gate — via the real
     ``resolve_stage2_arming``, the exact function
     ``SessionRunner._evaluate_arming`` calls, with the same inputs
     (``load_intraday_config``, the real authorization/canary paths, a real
     ``KillSwitch``). This is READ-ONLY: no session is armed or run, we just
-    ask the authoritative gate function what its verdict would be today."""
+    ask the authoritative gate function what its verdict would be today.
+
+    ``strategy_config_path`` must be the SAME path a real session would be
+    launched against — see ``main()``'s ``--strategy-config``/
+    ``default_strategy_config_path()`` resolution. This function does not
+    guess a path itself, so a caller can never accidentally check readiness
+    against a different config than the one production will actually use.
+    """
     c = _Check("§9.3a quintuple arming gate (config/auth/env/kill/envelope)")
 
-    strategy_config_path = data_root / "strategy_config.json"
     if not strategy_config_path.exists():
         c.fail(
             f"strategy_config.json not found at {strategy_config_path}",
-            remediation="Ensure the pinned strategy config exists at the data root.",
+            remediation=(
+                "Ensure the pinned strategy config exists at this path, or "
+                "pass --strategy-config pointing at the config you intend "
+                "to launch a real session with."
+            ),
         )
         return c
     try:
@@ -237,14 +261,33 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 0
 
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--strategy-config",
+        default=None,
+        help=(
+            "pinned strategy config JSON to check readiness against. Pass "
+            "the exact path you intend to launch a real session with. "
+            "Defaults to runtime_paths.default_strategy_config_path() — "
+            "the SAME resolution every real launch entrypoint in this repo "
+            "uses (intraday_session_scheduler.py, intraday_quote_logger.py, "
+            "train_gbdt.py) — never a silent data-root-relative guess."
+        ),
+    )
+    args = parser.parse_args(argv)
+
     data_root = default_data_root()
-    print(f"[check_paper_trading_readiness] data_root = {data_root}\n")
+    strategy_config_path = (
+        Path(args.strategy_config) if args.strategy_config else default_strategy_config_path()
+    )
+    print(f"[check_paper_trading_readiness] data_root = {data_root}")
+    print(f"[check_paper_trading_readiness] strategy_config = {strategy_config_path}\n")
 
     checks: list[_Check] = [
         check_rq105_data_dir(data_root),
         check_section_9_4(data_root),
         check_paper_broker_port(),
-        check_quintuple_arming_gate(data_root),
+        check_quintuple_arming_gate(data_root, strategy_config_path),
         check_shadow_sessions(data_root),
     ]
 

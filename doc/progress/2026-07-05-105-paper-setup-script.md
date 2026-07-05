@@ -85,3 +85,57 @@ runs, this session]`
 Full suite: 2886 passed, 3 skipped (2 pre-existing unrelated failures in
 `test_bundle_consistency_ci_gate.py`, confirmed reproducing identically on
 clean `origin/main` earlier this session — not caused by this change).
+
+## Round 4 (Codex review — strategy-config input-source drift)
+
+Codex confirmed round 3's logic-sharing fix was genuinely correct
+("materially better... mostly fixed"), then found a deeper, distinct gap:
+`check_quintuple_arming_gate()` unconditionally read
+`data_root / "strategy_config.json"`, while a real session is launched
+against an *explicit pinned* strategy config path. That meant the checker
+could report a readiness verdict against a different intraday config than
+the one production will actually use — an input-source drift problem, not
+a logic-duplication problem this time.
+
+Investigated how every real launch entrypoint in this repo resolves its
+strategy-config path: `intraday_session_scheduler.py`, `intraday_quote_logger.py`,
+and `train_gbdt.py` all follow the identical pattern — an explicit
+`--strategy-config` CLI override takes precedence; absent that, fall back to
+`runtime_paths.default_strategy_config_path()` (which itself checks the
+strategy-104 subrepo path, then an umbrella fallback). No non-test code in
+this repo constructs `SessionRunner` directly yet (no CLI wiring exists for
+it), so there's no single existing call-site to point at — but this
+repo-wide convention is exactly the "wrapper/artifact contract" codex
+referenced.
+
+Fixed by adopting the same convention in the checker itself:
+- Added an explicit `--strategy-config` CLI argument to `main()` (via
+  `argparse`), documented as "pass the exact path you intend to launch a
+  real session with."
+- `check_quintuple_arming_gate()` no longer resolves any path itself — it
+  now takes `strategy_config_path` as an explicit parameter, so it
+  structurally cannot guess wrong.
+- `main()` resolves the path exactly like every other real entrypoint:
+  `Path(args.strategy_config) if args.strategy_config else
+  default_strategy_config_path()` — imported directly from `runtime_paths`,
+  not re-derived.
+- Module docstring updated to state the resolution contract explicitly.
+
+Added `tests/test_check_paper_trading_readiness.py` (3 tests): (1) an
+explicit `--strategy-config` path is genuinely read, proven against a decoy
+file sitting at the old hardcoded `data_root / "strategy_config.json"`
+location; (2) absent an override, the checker calls the same
+`default_strategy_config_path()` real entrypoints use, again proven against
+a decoy at the old hardcoded location; (3) `check_quintuple_arming_gate()`
+fails closed with a `--strategy-config`-mentioning remediation when the
+passed-in path doesn't exist — it no longer has any fallback path logic of
+its own. Confirmed via `git stash` that all 3 tests genuinely fail against
+the pre-fix code (`AttributeError`/`TypeError` — the pre-fix function
+signature and module didn't even have the surface these tests exercise),
+then pass after.
+
+`[VERIFIED — stash-diff pre/post-fix test failure, this session]`
+
+Full suite: 2978 passed, 3 skipped (same 2 pre-existing unrelated failures
+in `test_bundle_consistency_ci_gate.py`, confirmed reproducing identically
+on clean `origin/main`).
