@@ -195,7 +195,7 @@ Six rules governing all production fixes (operator directive 2026-07-03):
     comparison blocked on S5 forward-return data
 - Scorer identity monitor: DELIVERED, installed as launchd job
 - Model freshness: DELIVERED (monitor + enforcer recommendation engine)
-- S-REL: ACTIVE — 6 verifications dispatched, 1 UPHELD, verdict ledger maintained
+- S-REL: ACTIVE — 6 verifications dispatched; 6 UPHELD, 1 WEAKENED, 1 PROVISIONAL, 1 SETTLED-BY-REVIEW, 5 NOT QUEUED; verdict ledger maintained
 - Fix-wave protection contract: ACTIVE, governing the compliance fix campaign
 
 ## Open Items
@@ -207,7 +207,7 @@ Six rules governing all production fixes (operator directive 2026-07-03):
   raw+mu+fwd history for demean #145 and momentum guard #187 analysis)
 - Risk budgets observe-only — no enforcement wiring (existing enforcement stays
   where it lives in the strategy config's regime caps / per-name caps / vol gate)
-- S-REL verification queue: V1–V4 still IN FLIGHT or PROVISIONAL
+- S-REL verification queue: D3 still PROVISIONAL (only remaining unresolved)
 - β overshoot handling (MU β=4.29) — no automated response implemented
 
 ## Cross-references
