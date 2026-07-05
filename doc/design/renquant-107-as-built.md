@@ -190,6 +190,9 @@ Six rules governing all production fixes (operator directive 2026-07-03):
 - Risk budget ledger: DELIVERED, observe-only
 - Readiness monitor: DELIVERED, 12 checks
 - Gate diagnostics: DELIVERED (gate calibration, sign-laundering harness, software stops)
+  - M4-b first production audit (2026-07-04): mean laundering rate 7.9%, worsening
+    trend (3.3% → 10.1%); production neutral_raw = −0.2667; matched-breadth
+    comparison blocked on S5 forward-return data
 - Scorer identity monitor: DELIVERED, installed as launchd job
 - Model freshness: DELIVERED (monitor + enforcer recommendation engine)
 - S-REL: ACTIVE — 6 verifications dispatched, 1 UPHELD, verdict ledger maintained
@@ -197,8 +200,9 @@ Six rules governing all production fixes (operator directive 2026-07-03):
 
 ## Open Items
 
-- Decision ledger pipeline wiring (S5): orchestrator modules ready, pipeline needs
-  to call `write_verdicts()` at gate-verdict time — spec in #339
+- Decision ledger pipeline wiring (S5): orchestrator modules ready; pipeline-side
+  `DecisionLedgerWriteTask` PR'd (renquant-pipeline #176, default OFF via
+  `decision_ledger.enabled` config) — awaiting review + merge
 - Attribution validation blocked until S5 pipeline wiring lands (need per-name
   raw+mu+fwd history for demean #145 and momentum guard #187 analysis)
 - Risk budgets observe-only — no enforcement wiring (existing enforcement stays
