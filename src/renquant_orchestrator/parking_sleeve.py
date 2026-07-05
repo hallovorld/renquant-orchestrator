@@ -4,14 +4,20 @@ Computes the target parking-sleeve allocation from current book state using the
 RS-1 β-budget formula. The SPY fraction is sized so that total book beta stays
 within the planning budget (β_max = 0.6 by default). SGOV absorbs the rest.
 
-    sleeve_spy_frac = clamp(0, 1, (β_max − β_positions) / β_spy)
+    sleeve_spy_frac = clamp(0, 1, (β_max − β_positions) / (w_sleeve × β_spy))
 
 where β_positions is the measured beta contribution from single-name holdings
-(positions_value / portfolio_value × β_portfolio_ex_sleeve) and β_spy ≈ 1.0.
+(positions_value / portfolio_value × β_portfolio_ex_sleeve), w_sleeve is the
+book weight available to the sleeve (1 − positions_weight − reserve_pct), and
+β_spy ≈ 1.0.
 
 This module is OBSERVE-ONLY: it logs shadow allocations to a JSONL file. It
 never places orders, never modifies config, and never touches production state.
 Arming requires the pre-registration gate per RS-1 §4 / #228 §1.3.
+
+Module delivered; scheduler/session-tick integration (wiring this into the 105
+session scheduler as a per-tick shadow computation) is NOT yet done — see the
+progress doc's NEXT section.
 
 Regime override: BEAR → sleeve_spy_frac = 0 (100% SGOV / cash).
 """
