@@ -46,7 +46,7 @@
       "title": "Intraday cadence + governors + validation (#26)",
       "category": "mid-term execution",
       "repo": "RenQuant",
-      "status": "pending",
+      "status": "done",
       "blocked_by": [],
       "consequential": false,
       "prompt": "Implement the intraday risk-reaction cadence with governors and validation per the protection epic (task #26). Build the cadence + governor logic with tests; keep live-affecting behaviour behind a flag (default off) until the operator enables it."

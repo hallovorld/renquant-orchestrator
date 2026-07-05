@@ -38,6 +38,7 @@ _MODULE_JOBS: Final[dict[str, str]] = {
     "outcome_observer": "renquant_orchestrator.outcome_observer",
     "parking_sleeve_shadow": "renquant_orchestrator.parking_sleeve",
     "readiness_monitor": "renquant_orchestrator.readiness_monitor",
+    "tc_measurement": "renquant_orchestrator.tc_measurement",
 }
 
 

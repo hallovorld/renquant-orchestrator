@@ -29,9 +29,9 @@ import json
 import sys
 from pathlib import Path
 
-from renquant_orchestrator.runtime_paths import default_data_root
-
-DEFAULT_REPO = default_data_root()
+def _default_repo() -> Path:
+    from renquant_orchestrator.runtime_paths import default_data_root
+    return default_data_root()
 
 
 def _resolve(strategy_dir: Path, rel: str) -> Path:
@@ -136,10 +136,10 @@ def main():
                     help="strategy config path (default: pinned 104 strategy_config.json)")
     ap.add_argument("--strategy-dir", default=None,
                     help="artifact resolution base (default: <repo>/backtesting/renquant_104)")
-    ap.add_argument("--repo", default=str(DEFAULT_REPO))
+    ap.add_argument("--repo", default=None)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    repo = Path(a.repo)
+    repo = Path(a.repo) if a.repo else _default_repo()
     config_path = Path(a.config) if a.config else (
         repo / ".subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json")
     strategy_dir = Path(a.strategy_dir) if a.strategy_dir else (repo / "backtesting/renquant_104")
