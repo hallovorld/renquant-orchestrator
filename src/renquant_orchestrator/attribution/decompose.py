@@ -110,9 +110,10 @@ def decompose_round_trip(
     entry_reason = None if entry_confirmed else CENSOR_ENTRY_FILL
     exit_reason = None if exit_leg_ok else CENSOR_EXIT_FILL
     ref_reason = (
-        CENSOR_NO_REF_ENTRY if ref_entry is None else (CENSOR_NO_REF_EXIT if ref_exit is None else None)
+        CENSOR_NO_REF_ENTRY if (ref_entry is None or ref_entry == 0)
+        else (CENSOR_NO_REF_EXIT if (ref_exit is None or ref_exit == 0) else None)
     )
-    bench_reason = CENSOR_NO_BENCH if (spy_entry is None or spy_exit is None) else None
+    bench_reason = CENSOR_NO_BENCH if (spy_entry in (None, 0) or spy_exit in (None, 0)) else None
     intended_reason = CENSOR_NO_INTENDED if n_i is None else None
 
     # MARKET = N_i * r_spy
