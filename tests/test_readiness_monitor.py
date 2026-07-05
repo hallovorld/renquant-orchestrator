@@ -14,13 +14,17 @@ from renquant_orchestrator.readiness_monitor import (
     ALL_CHECKS,
     CheckResult,
     Status,
+    check_collector_liveness,
     check_decision_ledger,
+    check_fmp_coverage,
     check_gate_verdict_freshness,
     check_intraday_corpus,
     check_lambda_sweep,
+    check_oos_pick_table,
     check_pit_features,
     check_pit_snapshots,
     check_readonly_sessions,
+    check_tc_baseline,
     check_trading_days,
     main,
     record_transitions,
@@ -500,6 +504,174 @@ class TestTransitions:
 
 
 # ---------------------------------------------------------------------------
+# N1: collector liveness
+# ---------------------------------------------------------------------------
+
+class TestCollectorLiveness:
+    def test_no_files(self, tmp_path):
+        r = check_collector_liveness(tmp_path)
+        assert r.status == Status.NOT_READY
+        assert r.authoritative is False
+
+    def test_with_sessions(self, tmp_path):
+        rq_dir = tmp_path / "data" / "rq105"
+        rq_dir.mkdir(parents=True)
+        feed = rq_dir / "intraday_tick_feed.jsonl"
+        rows = [
+            json.dumps({"session_date": f"2026-07-0{i}", "ticker": "AAPL"})
+            for i in range(1, 5)
+        ]
+        feed.write_text("\n".join(rows) + "\n")
+        r = check_collector_liveness(tmp_path)
+        assert r.status == Status.READY
+        assert r.current == 4
+
+    def test_insufficient_sessions(self, tmp_path):
+        rq_dir = tmp_path / "data" / "rq105"
+        rq_dir.mkdir(parents=True)
+        feed = rq_dir / "intraday_tick_feed.jsonl"
+        feed.write_text(json.dumps({"session_date": "2026-07-01"}) + "\n")
+        r = check_collector_liveness(tmp_path)
+        assert r.status == Status.NOT_READY
+        assert r.current == 1
+
+
+# ---------------------------------------------------------------------------
+# N3: FMP coverage
+# ---------------------------------------------------------------------------
+
+class TestFmpCoverage:
+    def test_no_harvest_dir(self, tmp_path):
+        r = check_fmp_coverage(tmp_path)
+        assert r.status == Status.NOT_READY
+
+    def test_empty_harvest(self, tmp_path):
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        r = check_fmp_coverage(tmp_path)
+        assert r.status == Status.NOT_READY
+
+    def test_with_parquet(self, tmp_path):
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        df = pd.DataFrame({"symbol": ["AAPL", "MSFT", "GOOG"]})
+        df.to_parquet(harvest / "earnings_291.parquet")
+        r = check_fmp_coverage(tmp_path)
+        assert r.current == 3
+
+    def test_coverage_with_watchlist(self, tmp_path):
+        harvest = tmp_path / "data" / "fmp_harvest"
+        harvest.mkdir(parents=True)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        tickers = [f"T{i}" for i in range(100)]
+        df = pd.DataFrame({"symbol": tickers})
+        df.to_parquet(harvest / "earnings_291.parquet")
+        cfg = {"watchlist": tickers + ["MISSING1", "MISSING2"]}
+        (config_dir / "strategy_config.json").write_text(json.dumps(cfg))
+        r = check_fmp_coverage(tmp_path)
+        assert r.status == Status.READY
+        assert r.current == pytest.approx(100 / 102 * 100, abs=0.1)
+
+
+# ---------------------------------------------------------------------------
+# S-TC: transfer coefficient baseline
+# ---------------------------------------------------------------------------
+
+class TestTcBaseline:
+    def test_no_db(self, tmp_path):
+        r = check_tc_baseline(tmp_path / "nope.db")
+        assert r.status == Status.NOT_READY
+
+    def test_no_table(self, tmp_path):
+        db = tmp_path / "test.db"
+        sqlite3.connect(str(db)).close()
+        r = check_tc_baseline(db)
+        assert r.status == Status.NOT_READY
+        assert "not found" in r.detail
+
+    def test_with_data(self, tmp_path):
+        db = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db))
+        conn.execute("""CREATE TABLE transfer_coefficient (
+            run_date DATE, tc REAL)""")
+        for i in range(12):
+            conn.execute("INSERT INTO transfer_coefficient VALUES (?, ?)",
+                         (f"2026-06-{i + 1:02d}", 0.4 + i * 0.01))
+        conn.commit()
+        conn.close()
+        r = check_tc_baseline(db)
+        assert r.status == Status.READY
+        assert r.current == 12
+
+    def test_insufficient_data(self, tmp_path):
+        db = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db))
+        conn.execute("""CREATE TABLE transfer_coefficient (
+            run_date DATE, tc REAL)""")
+        for i in range(3):
+            conn.execute("INSERT INTO transfer_coefficient VALUES (?, ?)",
+                         (f"2026-06-{i + 1:02d}", 0.4))
+        conn.commit()
+        conn.close()
+        r = check_tc_baseline(db)
+        assert r.status == Status.NOT_READY
+        assert r.current == 3
+
+
+# ---------------------------------------------------------------------------
+# S8: OOS pick table
+# ---------------------------------------------------------------------------
+
+class TestOosPickTable:
+    def test_no_exp_dir(self, tmp_path):
+        r = check_oos_pick_table(tmp_path)
+        assert r.status == Status.NOT_READY
+
+    def test_empty_exp_dir(self, tmp_path):
+        (tmp_path / "data" / "exp").mkdir(parents=True)
+        r = check_oos_pick_table(tmp_path)
+        assert r.status == Status.NOT_READY
+
+    def test_with_parquet(self, tmp_path):
+        exp = tmp_path / "data" / "exp"
+        exp.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        df = pd.DataFrame({
+            "date": ["2026-01-01"] * 10,
+            "ticker": [f"T{i}" for i in range(10)],
+            "score": range(10),
+        })
+        df.to_parquet(exp / "oos_pick_table_v1.parquet")
+        r = check_oos_pick_table(tmp_path)
+        assert r.status == Status.READY
+        assert r.current == 10
+
+    def test_empty_parquet(self, tmp_path):
+        exp = tmp_path / "data" / "exp"
+        exp.mkdir(parents=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not available")
+        df = pd.DataFrame({"date": [], "ticker": [], "score": []})
+        df.to_parquet(exp / "oos_pick_table.parquet")
+        r = check_oos_pick_table(tmp_path)
+        assert r.status == Status.NOT_READY
+
+
+# ---------------------------------------------------------------------------
 # run_all_checks integration
 # ---------------------------------------------------------------------------
 
@@ -521,6 +693,34 @@ def _write_fully_covered_ledger(path):
         _write_outcome_row(conn, as_of=as_of, scope="daily", ticker="AAPL", gate=gate)
     conn.commit()
     conn.close()
+
+
+def _populate_fmp_harvest(data_root):
+    """Create a passing FMP harvest for integration tests."""
+    try:
+        import pandas as pd
+    except ImportError:
+        return
+    harvest = data_root / "data" / "fmp_harvest"
+    harvest.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame({"symbol": [f"T{i}" for i in range(100)]})
+    df.to_parquet(harvest / "earnings_291.parquet")
+
+
+def _populate_oos_pick_table(data_root):
+    """Create a passing OOS pick table for integration tests."""
+    try:
+        import pandas as pd
+    except ImportError:
+        return
+    exp = data_root / "data" / "exp"
+    exp.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame({
+        "date": ["2026-01-01"] * 10,
+        "ticker": [f"T{i}" for i in range(10)],
+        "score": range(10),
+    })
+    df.to_parquet(exp / "oos_pick_table_v1.parquet")
 
 
 class TestRunAllChecks:
@@ -585,9 +785,8 @@ class TestCLI:
     def test_informational_checks_dont_block_zero_exit(
         self, data_root, db_path, ledger_db_path, capsys,
     ):
-        # S10/M1 are left completely unpopulated (0 tick-feed records, no
-        # session dir) — under the OLD semantics both would have been
-        # NOT_READY and blocked rc==0. They must not do so now.
+        # S10/M1/N1 are left completely unpopulated — they are
+        # non-authoritative and must not block rc==0.
         snap_dir = data_root / "data" / "estimate_snapshots"
         today = dt.date.today()
         for i in range(95):
@@ -602,6 +801,11 @@ class TestCLI:
         conn.execute("CREATE TABLE config_experiments (id INTEGER PRIMARY KEY, config TEXT)")
         for i in range(50):
             conn.execute("INSERT INTO config_experiments (config) VALUES (?)", (f"cfg{i}",))
+        conn.execute("""CREATE TABLE transfer_coefficient (
+            run_date DATE, tc REAL)""")
+        for i in range(12):
+            conn.execute("INSERT INTO transfer_coefficient VALUES (?, ?)",
+                         (f"2026-06-{i + 1:02d}", 0.4))
         today_ = dt.date.today()
         conn.execute("INSERT INTO gate_verdicts VALUES (?, ?, ?)",
                      ("run-fresh", str(today_ - dt.timedelta(days=1)), "PASS"))
@@ -612,6 +816,9 @@ class TestCLI:
                          (f"run-{i}", f"2026-{m:02d}-{d:02d}", "live"))
         conn.commit()
         conn.close()
+
+        _populate_fmp_harvest(data_root)
+        _populate_oos_pick_table(data_root)
 
         rc = main(["--data-root", str(data_root), "--db", str(db_path),
                     "--ledger-db", str(ledger_db_path)])
@@ -629,9 +836,8 @@ class TestCLI:
         days = [f"2026-{m:02d}-{d:02d}" for m in range(4, 8) for d in range(1, 29)]
         manifest = data_root / "data" / "pit_features" / "c1_revision_drift.manifest.json"
         manifest.write_text(json.dumps({"processed_days": days[:95]}))
-        # S10/M1 are informational/non-authoritative (round 3) — populated
-        # here only to prove they do NOT block rc==0, not because they're
-        # required for it.
+        # S10/M1/N1 are informational/non-authoritative — populated
+        # here only to prove they do NOT block rc==0.
         _write_tick_feed(data_root, [{"date": "2026-07-01", "ticker": "AAPL"}])
         sess_dir = data_root / "data" / "105_sessions"
         sess_dir.mkdir(parents=True)
@@ -644,6 +850,11 @@ class TestCLI:
         conn.execute("CREATE TABLE config_experiments (id INTEGER PRIMARY KEY, config TEXT)")
         for i in range(50):
             conn.execute("INSERT INTO config_experiments (config) VALUES (?)", (f"cfg{i}",))
+        conn.execute("""CREATE TABLE transfer_coefficient (
+            run_date DATE, tc REAL)""")
+        for i in range(12):
+            conn.execute("INSERT INTO transfer_coefficient VALUES (?, ?)",
+                         (f"2026-06-{i + 1:02d}", 0.4))
         today_ = dt.date.today()
         conn.execute("INSERT INTO gate_verdicts VALUES (?, ?, ?)",
                      ("run-fresh", str(today_ - dt.timedelta(days=1)), "PASS"))
@@ -654,6 +865,9 @@ class TestCLI:
                          (f"run-{i}", f"2026-{m:02d}-{d:02d}", "live"))
         conn.commit()
         conn.close()
+
+        _populate_fmp_harvest(data_root)
+        _populate_oos_pick_table(data_root)
 
         rc = main(["--data-root", str(data_root), "--db", str(db_path),
                     "--ledger-db", str(ledger_db_path)])
