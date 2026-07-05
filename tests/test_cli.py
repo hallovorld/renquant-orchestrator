@@ -705,3 +705,29 @@ def test_risk_budget_report_cli_delegates(monkeypatch) -> None:
     rc = main(["risk-budget-report", "--json"])
     assert rc == 2
     assert seen["argv"] == ["--json"]
+
+
+def test_run_job_dispatches_outcome_observer(monkeypatch) -> None:
+    import renquant_orchestrator.job_runner as runner
+
+    seen = {}
+
+    def fake_run_module_main(module_name, argv):
+        seen["module_name"] = module_name
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(runner, "_run_module_main", fake_run_module_main)
+
+    rc = main([
+        "run-job",
+        "outcome_observer",
+        "--",
+        "--db", "/tmp/test.db",
+    ])
+
+    assert rc == 0
+    assert seen == {
+        "module_name": "renquant_orchestrator.outcome_observer",
+        "argv": ["--db", "/tmp/test.db"],
+    }
