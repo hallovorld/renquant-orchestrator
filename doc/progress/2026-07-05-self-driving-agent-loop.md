@@ -28,3 +28,32 @@ NEXT: operator reviews the (now explicitly non-binding) heuristics; if any are
       worth keeping, operator authors or directs verbatim transcription of the
       resulting language into `CLAUDE.md`/`doc/memory/long-term-agreements.md`
       directly, per §7's adoption path.
+
+WHY-DIR (round 3): Codex's round-2 review pointed out the non-binding reframing
+     fixed the authority-overreach problem but not the underlying scope
+     problem: the doc was still a general agent-operating-policy retrospective
+     (loop behavior, delegation, wakeups, cross-repo authorization, whole-
+     roadmap terminal-state definitions) — none of which `renquant-orchestrator`
+     as a repo owns or enforces. Rewrote the doc from scratch, narrowed to ONE
+     concrete orchestrator-repo-owned workflow: how this repo's recurring
+     PR-review-sweep loop (check open PRs across repos → fix Codex findings →
+     merge when ready → repeat) should sequence and parallelize that specific
+     task. Cut entirely (not re-hedged): goal-driven/task-driven framing,
+     ROI-weighted whole-roadmap prioritization, the standing cross-repo
+     "unblock authorization protocol", and the whole-system terminal-state
+     definition — all genuinely out of scope for this repo. Kept and sharpened:
+     the PR-review sweep's own tick workflow (list → check reviews+comments →
+     fan out parallel fixes → verify-before-reporting → merge protocol) and its
+     two concrete anti-patterns (serial review blocking, superseding-PR
+     fragmentation), both of which this session's own recurring loop actually
+     exercises. New §2 "verify before reporting" section is grounded in a real
+     incident this session: a dispatched fix reported success as prose without
+     a commit ever landing on the branch (caught only because the parent
+     re-checked the raw git ref rather than trusting the summary).
+EVIDENCE (round 3): doc word count dropped from ~1450 to ~750 words; every
+     remaining section names a concrete, orchestrator-repo-owned action (list
+     PRs, check comments, fan out fixes, verify commits, merge protocol) rather
+     than a general behavioral claim. `[VERIFIED — self-review against Codex's
+     round-2 comment text, this session]`
+NEXT (round 3): none — this is the final narrowing round unless Codex finds
+      further scope drift.
