@@ -109,6 +109,7 @@
     "live_parity_payloads",
     "live_rehearsal_plan",
     "live_state_v2",
+    "m6_restamp",
     "model_bundle",
     "model_freshness_enforcer",
     "model_freshness_monitor",
