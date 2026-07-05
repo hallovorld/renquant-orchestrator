@@ -1,17 +1,23 @@
 """Tests for S-TC transfer coefficient measurement."""
 from __future__ import annotations
 
+import os
+import subprocess
 import sqlite3
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from renquant_orchestrator.tc_measurement import (
     TC_DDL,
+    DEFAULT_RUNS_DB,
     _classify_reason,
     compute_buy_side_tc,
     run_measurement,
 )
+from renquant_orchestrator.runtime_paths import default_data_root
 
 
 def _create_runs_db(tmp_path):
@@ -211,3 +217,32 @@ class TestRunMeasurement:
 
         assert summary["n_canonical_runs"] == 0
         assert summary["n_new_computed"] == 0
+
+
+class TestDefaultRunsDbResolution:
+    """main()'s default --runs-db must resolve through the canonical
+    runtime_paths.default_data_root() authority, never a hard-coded
+    workstation path (Codex review on #391: RQ_ROOT / ~/git/github/RenQuant
+    is a machine-specific default a standing scheduled job cannot trust)."""
+
+    def test_default_runs_db_matches_canonical_data_root(self):
+        assert DEFAULT_RUNS_DB == default_data_root() / "data" / "runs.alpaca.db"
+
+    def test_default_runs_db_honors_data_root_env_at_import(self, tmp_path):
+        # DEFAULT_RUNS_DB is a module-level constant computed at import time,
+        # so proving it is genuinely DERIVED (not a value that merely looks
+        # similar) requires a fresh interpreter with the env var set before
+        # import — patching os.environ post-import wouldn't move it.
+        repo_src = Path(__file__).resolve().parents[1] / "src"
+        env = dict(os.environ)
+        env["RENQUANT_DATA_ROOT"] = str(tmp_path)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(repo_src)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+        )
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from renquant_orchestrator.tc_measurement import DEFAULT_RUNS_DB; "
+             "print(DEFAULT_RUNS_DB)"],
+            capture_output=True, text=True, env=env, check=True,
+        )
+        assert result.stdout.strip() == str(tmp_path / "data" / "runs.alpaca.db")

@@ -6,8 +6,9 @@ baseline. Scheduled as a daily batch job after live runs complete.
 TC = corr(w_actual, w* ∝ kelly_target_pct) over admission-surviving candidates
 per canonical daily run (Clarke–de Silva–Thorley 2002: IR = TC × IC × √BR).
 
-Input: ~/renquant-data/runs.alpaca.db (read-only, candidate_scores + trades).
-Output: ~/renquant-data/decision_ledger.db tc_metrics table (append-only).
+Input: <data_root>/data/runs.alpaca.db (read-only, candidate_scores + trades),
+resolved via ``runtime_paths.default_data_root()`` — never a hard-coded path.
+Output: decision_ledger's DEFAULT_DB, tc_metrics table (append-only).
 
 See scripts/poc_transfer_coefficient.py for the methodology (rounds 1–3 of
 Codex review). This module extracts the core computation; the POC remains the
@@ -26,8 +27,11 @@ import numpy as np
 import pandas as pd
 
 from .decision_ledger import DEFAULT_DB as LEDGER_DB
+from .runtime_paths import default_data_root
 
 log = logging.getLogger(__name__)
+
+DEFAULT_RUNS_DB = default_data_root() / "data" / "runs.alpaca.db"
 
 MU_FLOOR = 0.03
 MIN_FULL_RUN_CANDIDATES = 80
@@ -260,10 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Compute but don't persist")
     args = parser.parse_args(argv or [])
 
-    import os
-    runs_db = args.runs_db or Path(
-        os.environ.get("RQ_ROOT", str(Path.home() / "git/github/RenQuant"))
-    ) / "data/runs.alpaca.db"
+    runs_db = args.runs_db or DEFAULT_RUNS_DB
 
     summary = run_measurement(
         runs_db=runs_db,
