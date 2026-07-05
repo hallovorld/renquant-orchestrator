@@ -11,13 +11,17 @@ decisioning (盘中). The goal is execution quality, NOT intraday alpha
 (Phase −1 measured net edge NEGATIVE: −6.4bps @IC 0.03 vs 220bps breakeven).
 Holding period stays multi-day.
 
-**S10 preliminary signal (2026-07-04, EXPLORATORY):** Open-auction IS
-measurement on 36 matched live buys showed fills approximately competitive
-with VWAP (mean −35 bps, CI includes zero). This is a directional signal,
-NOT a definitive conclusion — see `doc/research/2026-07-04-open-auction-is-measurement.md`
-§Data quality caveats for join-key, dedup, and outlier-exclusion limitations
-that must be resolved before the §9.4 entry-leak thesis can be confirmed or
-rejected.
+**S10 finding (2026-07-04, sensitivity-checked round 2):** Open-auction IS
+measurement across a 4-way sensitivity sweep (weekend-remap × ex ante
+outlier exclusion, see `doc/research/2026-07-04-open-auction-is-measurement.md`)
+shows a consistently negative (favorable, not a leak) point estimate vs both
+open and VWAP in all four configurations, with the fullest cleaned sample
+(n=65, remap + ex ante exclusion) at −7.8bps vs open / −32.6bps vs VWAP,
+CIs [−50.8,+37.8] / [−74.3,+7.3]. This is preliminary-but-robust evidence
+against a large entry-side leak, not a settled null — the CIs are wide
+enough that a leak of a few tens of bps is not excluded at this sample size.
+The 105 prize re-anchoring toward exit timing / overnight gap management is
+retained as the informed recommendation, not a definitively closed question.
 
 ## Architecture
 
@@ -144,12 +148,13 @@ return with status=non_session_day.
 
 - Stage-1 code: DELIVERED (PR #268 + dependencies)
 - Stage-2 code: DELIVERED (PR #303 + campaign A4 canary enforcement)
-- Session runner: DELIVERED (PR #333, pending review)
-- Software stops: DELIVERED (PR #333, pending review)
+- Session runner: DELIVERED (PR #335, pending review)
+- Software stops: DELIVERED (PR #335, pending review)
 - Shadow data collection: ACTIVE (collectors installed via launchd)
 - Live arming: NOT YET (requires §9.3a quintuple gate + §9.4 economic authorization file + prereg)
 - Entry-timing evidence: ACCUMULATING (shadow pilot)
-- S10 execution leak: EXPLORATORY (2026-07-04, n=36 matched buys — see caveats in research memo)
+- S10 execution leak: NOT CONFIRMED, sensitivity-checked (2026-07-04 round 2,
+  4-way weekend-remap × ex-ante-exclusion sweep, n=37-67 depending on config)
 
 ## Cross-references
 
