@@ -1,20 +1,26 @@
 # RenQuant-107 As-Built Architecture
 
 > Governance and risk infrastructure. This documents **what is implemented**
-> as of 2026-07-04. All modules are observe-only; no enforcement wiring exists.
+> as of 2026-07-05. All modules are observe-only; no enforcement wiring exists.
 
 ## Purpose
 
 107 is the governance layer: decision-ledger attribution (decomposing realized P&L
 into its sources), risk budgets (measuring consumption against limits), experiment
-reliability (S-REL — governing evidence quality), scorer identity monitoring, and
-the model freshness governance policy. It observes and measures; it does not gate
-or trade.
+reliability (S-REL — governing evidence quality), scorer identity monitoring,
+model freshness governance, readiness monitoring, and gate diagnostics. It
+observes and measures; it does not gate or trade.
 
 ## Architecture
 
 ```
 Run bundles (104 persists after each daily run)
+  ↓
+Decision ledger (S5 substrate)
+  → gate verdicts: append-only per (run_id, scope, gate)
+  → gate registry: verdict algebra (max-join lattice)
+  → outcome validator: forward-return coverage check
+  → outcome backfiller: bootstraps from candidate_scores (RECONSTRUCTED)
   ↓
 Attribution engine
   → per-round-trip decomposition: TOTAL = MARKET + SIGNAL + SIZING + TIMING + COST
@@ -26,18 +32,38 @@ Risk budget ledger
   → consumption measured from read-only sources
   → attribution bridge (connects attribution legs to budget consumption)
   ↓
+Readiness monitor (12 programmatic checks)
+  → N1/N2/N3 data accumulation
+  → S5/S6/S8/S-TC evidence substrate
+  → D1 gate verdicts, baseline trading days
+  → state transitions logged for automation
+  ↓
+Scorer identity monitor + model freshness enforcer
+  → run-over-run identity diff on prod/calibrator/shadow lanes
+  → freshness check (28-day directive) + recommendation engine
+  ↓
+Gate diagnostics
+  → calibration diagnostic: sign-laundering zone, mu distribution
+  → sign-laundering harness: matched-breadth protocol
+  → software stops: trailing + dollar-max + session P&L limits
+  ↓
 S-REL experiment reliability
   → D-gate verdicts provisional until adversarial re-verification UPHELD
   → positive controls mandatory
   → standing verdict ledger (VERDICTS.md)
-  ↓
-Scorer identity monitor
-  → run-over-run identity diff on prod/calibrator/shadow lanes
-  → unexplained boundary → CRITICAL alert
-  → freshness check (28-day directive)
 ```
 
 ## Key Modules (all in renquant-orchestrator)
+
+### Decision Ledger (S5 substrate)
+
+| Module | Role | Tests |
+|---|---|---|
+| `decision_ledger.py` | Append-only gate-verdict event store (WAL mode, busy timeout) | 6 |
+| `gate_registry.py` | GateRegistry + verdict algebra (lattice: allow < halve < block) | 16 |
+| `decision_outcome_validator.py` | Forward-return coverage check (≥95% for aged decisions) | 11 |
+| `outcome_backfiller.py` | Reconstructs decision_outcomes from candidate_scores (RECONSTRUCTED provenance) | 12 |
+| `ledger_attribution.py` | Decision-outcomes DDL + attribution join | — |
 
 ### Attribution Engine (`attribution/`)
 
@@ -46,6 +72,7 @@ Scorer identity monitor
 | `attribution/decompose.py` | Per-decision P&L decomposition into 5 legs |
 | `attribution/ledger.py` | Decision ledger: round-trip records with entry/exit/reference prices |
 | `attribution/report.py` | Aggregate attribution report generator |
+| `decision_pnl_attribution.py` | Per-name P&L attribution (flat-module, legacy) |
 
 The identity decomposition:
 ```
@@ -79,16 +106,45 @@ Budgets (each cites its source — nothing invented):
 | Per-name concentration | Per-regime max_position_pct | Pinned strategy config | Observe-only |
 | Sleeve DD sub-budget | `sleeve.dd_budget_pct` | Pipeline #157 ParkingSleeveShadowTask | Observe-only (sleeve default-OFF) |
 
-### Scorer Identity Monitor
+### Readiness Monitor
 
-| Module | Role |
-|---|---|
-| `scorer_identity_monitor.py` | Run-over-run scorer identity diff alarm |
+| Module | Role | Tests |
+|---|---|---|
+| `readiness_monitor.py` | 12 programmatic data-accumulation checks with state transition logging | 50+ |
 
-Reads run bundles (read-only DB), extracts scorer identity tuples per lane
-(prod_panel, calibrator, shadow_models), diffs consecutive runs. Unexplained
-boundary → CRITICAL ntfy alert. Also checks trained-date freshness against
-28-day operator directive.
+12 checks (authoritative unless noted):
+
+| Check | What | Authoritative |
+|---|---|---|
+| N1_collector_liveness | 105 collector output freshness | No (informational) |
+| N2_pit_snapshots | PIT revision snapshot count (≥90d, 4-endpoint contract) | Yes |
+| N2_pit_features | C1 revision-drift features built from PIT | Yes |
+| N3_fmp_coverage | FMP harvest coverage (≥95%, latest file, 14d freshness) | Yes (when watchlist available) |
+| S10_intraday_symbols_present | Tick-feed day/symbol accrual | No (informational) |
+| M1_session_logs_observed | 105 Stage-1 session logs present | No (informational) |
+| S5_decision_ledger | Decision-ledger forward-return coverage (≥95% aged) | Yes |
+| S8_oos_pick_table | Track A OOS pick table exists and non-empty | Yes |
+| S_TC_baseline | Transfer coefficient measurements (≥10 sessions) | Yes |
+| D1_gate_verdict | WF-gate verdict freshness (≤14d) | Yes |
+| S6_lambda_sweep | λ sweep config experiments (≥45) | Yes |
+| baseline_trading_days | Total live trading days (≥60) | Yes |
+
+### Gate Diagnostics
+
+| Module | Role | Tests |
+|---|---|---|
+| `gate_calibration_diagnostic.py` | Calibrator sign-laundering zone analysis, mu distribution diagnostics | 14 |
+| `sign_laundering_harness.py` | Matched-breadth protocol for measuring sign-laundering impact (M4-b) | 10 |
+| `software_stop.py` | Trailing stop, dollar-max stop, session P&L limit — observe-only (105 Stage-2) | 10 |
+| `config_experiment_store.py` | Persistent config-experiment DB for λ sweeps (S6) | 8 |
+
+### Scorer Identity Monitor + Model Freshness
+
+| Module | Role | Tests |
+|---|---|---|
+| `scorer_identity_monitor.py` | Run-over-run scorer identity diff alarm | 35 |
+| `model_freshness_monitor.py` | Tournament + panel + shadow freshness tracking | 30+ |
+| `model_freshness_enforcer.py` | Recommendation engine (28-day directive) | — |
 
 ### S-REL Experiment Reliability
 
@@ -127,19 +183,23 @@ Six rules governing all production fixes (operator directive 2026-07-03):
 
 ## Current Status
 
+- Decision ledger: DELIVERED — modules ready, pipeline integration spec written
+  (#339); pipeline-side wiring pending (S5)
 - Attribution engine: DELIVERED, observe-only (23 tests)
 - Risk budget ledger: DELIVERED, observe-only (34 tests)
+- Readiness monitor: DELIVERED, 12 checks (50+ tests)
+- Gate diagnostics: DELIVERED (gate calibration, sign-laundering harness, software stops)
 - Scorer identity monitor: DELIVERED, installed as launchd job (35 tests)
+- Model freshness: DELIVERED (monitor + enforcer recommendation engine)
 - S-REL: ACTIVE — 6 verifications dispatched, 1 UPHELD, verdict ledger maintained
-- Model freshness governance: RFC merged, enforced by scorer identity monitor's
-  trained-date freshness check
 - Fix-wave protection contract: ACTIVE, governing the compliance fix campaign
 
 ## Open Items
 
-- Attribution engine blocked by missing decision ledger persistence (#133) —
-  validation of demean (#145) and momentum guard (#187) impossible without
-  per-name raw+mu+fwd history
+- Decision ledger pipeline wiring (S5): orchestrator modules ready, pipeline needs
+  to call `write_verdicts()` at gate-verdict time — spec in #339
+- Attribution validation blocked until S5 pipeline wiring lands (need per-name
+  raw+mu+fwd history for demean #145 and momentum guard #187 analysis)
 - Risk budgets observe-only — no enforcement wiring (existing enforcement stays
   where it lives in the strategy config's regime caps / per-name caps / vol gate)
 - S-REL verification queue: V1–V4 still IN FLIGHT or PROVISIONAL
