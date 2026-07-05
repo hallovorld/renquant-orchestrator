@@ -11,11 +11,17 @@ decisioning (盘中). The goal is execution quality, NOT intraday alpha
 (Phase −1 measured net edge NEGATIVE: −6.4bps @IC 0.03 vs 220bps breakeven).
 Holding period stays multi-day.
 
-**S10 finding (2026-07-04):** Open-auction IS measurement on 36 clean live
-buys showed NO measurable execution leak — fills are competitive with VWAP
-(mean −35 bps, CI includes zero). The ~40bps entry-leak rationale is NOT
-supported. The 105 prize should re-anchor to exit timing and overnight gap
-management, not entry-side optimization.
+**S10 finding (2026-07-04, sensitivity-checked round 2):** Open-auction IS
+measurement across a 4-way sensitivity sweep (weekend-remap × ex ante
+outlier exclusion, see `doc/research/2026-07-04-open-auction-is-measurement.md`)
+shows a consistently negative (favorable, not a leak) point estimate vs both
+open and VWAP in all four configurations, with the fullest cleaned sample
+(n=65, remap + ex ante exclusion) at −7.8bps vs open / −32.6bps vs VWAP,
+CIs [−50.8,+37.8] / [−74.3,+7.3]. This is preliminary-but-robust evidence
+against a large entry-side leak, not a settled null — the CIs are wide
+enough that a leak of a few tens of bps is not excluded at this sample size.
+The 105 prize re-anchoring toward exit timing / overnight gap management is
+retained as the informed recommendation, not a definitively closed question.
 
 ## Architecture
 
@@ -129,14 +135,21 @@ to the shadow decision log; actual order submission requires the quintuple gate.
 ## Session Runner (Integration Layer)
 
 The SessionRunner wires all 105 subsystems into one lifecycle:
-1. Evaluate quintuple arming gate
-2. If armed → drive LiveTickExecutor through tick loop
-3. If NOT armed → delegate to SessionScheduler (shadow)
-4. Software stops evaluated each tick regardless of mode
-5. Kill switch checked every cycle
+1. Evaluate the §9.3a quintuple arming gate
+2. Evaluate the SEPARATE §9.4 economic-authorization gate
+   (`RENQUANT_STAGE2_ECONOMIC_AUTHORIZATION_9_4`, closed/absent by default —
+   no such decision has been made) — codex review round 2: the quintuple
+   gate alone was reachable from `_run_live()` whenever armed + a
+   `port_factory` was present, with no representation of the separate §9.4
+   decision at all; this gate closes that gap
+3. If BOTH hold → drive LiveTickExecutor through tick loop
+4. If EITHER gate is missing → delegate to SessionScheduler (shadow)
+5. Software stops evaluated each tick regardless of mode
+6. Kill switch checked every cycle
 
-Safe degradation: no port_factory → always shadow. Non-session day → immediate
-return with status=non_session_day.
+Safe degradation: no port_factory → always shadow. §9.4 gate not confirmed →
+always shadow, regardless of quintuple-gate state. Non-session day →
+immediate return with status=non_session_day.
 
 ## Current Status
 
@@ -147,7 +160,8 @@ return with status=non_session_day.
 - Shadow data collection: ACTIVE (collectors installed via launchd)
 - Live arming: NOT YET (requires 5 clean shadow sessions + replay audit + operator authorization)
 - Entry-timing evidence: ACCUMULATING (shadow pilot)
-- S10 execution leak: NOT CONFIRMED (2026-07-04, n=36 clean buys)
+- S10 execution leak: NOT CONFIRMED, sensitivity-checked (2026-07-04 round 2,
+  4-way weekend-remap × ex-ante-exclusion sweep, n=37-67 depending on config)
 
 ## Cross-references
 

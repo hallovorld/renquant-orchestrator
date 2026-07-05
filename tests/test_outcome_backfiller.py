@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from renquant_orchestrator.outcome_backfiller import (
+    RECONSTRUCTED_PROVENANCE,
     _map_gate,
     backfill,
     main,
@@ -159,6 +160,28 @@ class TestBackfill:
         ledger_con = sqlite3.connect(str(ledger_db))
         rows = ledger_con.execute("SELECT * FROM decision_outcomes").fetchall()
         assert len(rows) == 2
+
+    def test_written_rows_stamped_reconstructed_provenance(self, tmp_path):
+        """Codex review (PR #333): every backfilled row must be distinguishable
+        from a genuine live-ledger write, not silently presented as
+        authoritative provenance."""
+        runs_db = tmp_path / "runs.db"
+        ledger_db = tmp_path / "ledger.db"
+        con = _make_runs_db(runs_db)
+        _insert_run(con, "run-1", "2026-06-10")
+        _insert_candidate(con, "run-1", "AAPL", selected=1)
+        _insert_fwd(con, "2026-06-10", "AAPL", fwd_5d=0.01, fwd_20d=0.03, fwd_60d=0.05)
+        con.commit()
+        con.close()
+
+        backfill(runs_db, ledger_db)
+
+        ledger_con = sqlite3.connect(str(ledger_db))
+        row = ledger_con.execute(
+            "SELECT metadata_json FROM decision_outcomes"
+        ).fetchone()
+        metadata = json.loads(row[0])
+        assert metadata["provenance"] == RECONSTRUCTED_PROVENANCE
 
     def test_missing_forward_returns(self, tmp_path):
         runs_db = tmp_path / "runs.db"

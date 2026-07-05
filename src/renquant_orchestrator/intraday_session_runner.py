@@ -4,25 +4,42 @@ The integration point that wires all 105 modules into a single session
 lifecycle:
 
 1. Evaluate the §9.3a quintuple arming gate (``resolve_stage2_arming``)
-2. If armed → drive ``LiveTickExecutor`` through the session tick loop
-3. If ANY gate missing → delegate to the Stage-1 ``SessionScheduler`` (shadow)
-4. Software stops evaluated each tick, signals logged (shadow or folded into
+2. Evaluate the SEPARATE §9.4 economic-authorization gate (this module,
+   :func:`economic_authorization_9_4_confirmed`) — closed by default
+3. If BOTH hold → drive ``LiveTickExecutor`` through the session tick loop
+4. If EITHER gate is missing → delegate to the Stage-1 ``SessionScheduler``
+   (shadow)
+5. Software stops evaluated each tick, signals logged (shadow or folded into
    live decisions when armed)
-5. Entry-timing policy shadow evaluator runs as tick observer (same as today)
+6. Entry-timing policy shadow evaluator runs as tick observer (same as today)
 
-This was deferred in the Stage-2 PR (round 2, per codex review — "design
-cost ahead of the §9.4 economic-authorization decision"). The §9.4 decision
-gate is unchanged: this runner does NOT enable live mode — it provides the
-orchestration layer that WOULD drive it once the gate opens. Until then,
-every invocation falls through to shadow.
+Round 2 (codex review): the §9.3a quintuple gate (``resolve_stage2_arming``)
+is necessary but was NOT sufficient — it is entirely §9.3a-level plumbing
+(config pin, authorization-file schema, env flag, kill switch, canary
+envelope); none of its five gates represent the §9.4 economic-authorization
+DECISION itself, which per the Stage-2 PR's own docstring
+(``intraday_live_executor.py``) has not been made. Prior to this fix,
+``run_session()`` would call ``_run_live()`` — constructing a real broker
+port and a live ``LiveTickExecutor`` — whenever the quintuple gate armed
+and a ``port_factory`` was supplied, with no §9.4 check at all: the safety
+narrative ("shadow-only until §9.4") did not match the code. Fixed by
+adding a genuinely separate, additional gate
+(:data:`ECONOMIC_AUTHORIZATION_ENV_FLAG`, closed/absent by default) that
+``run_session()`` checks BEFORE ever dispatching to ``_run_live()``,
+independent of the quintuple gate's own verdict. Until that flag is
+explicitly set (a decision distinct from, and layered on top of, the
+§9.3a authorization file), every invocation falls through to shadow
+regardless of what the quintuple gate says.
 
-Shadow-only by default: all five gates of the quintuple gate must hold for
-live execution. The runner never constructs a broker port unless armed.
+Shadow-only by default: BOTH the five §9.3a gates AND the separate §9.4
+economic-authorization gate must hold for live execution. The runner never
+constructs a broker port unless both are open.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -84,6 +101,32 @@ ET = ZoneInfo("America/New_York")
 
 RUNNER_SCHEMA_VERSION = "rq105-session-runner-v1"
 RECORD_KIND_MANIFEST = "session_runner_manifest"
+
+#: The §9.4 economic-authorization gate — SEPARATE from, and additional to,
+#: the §9.3a quintuple gate (``resolve_stage2_arming``). Closed (unset) by
+#: default: no operator/business decision has authorized live capital risk
+#: today. This module's own docstring in a prior round claimed "shadow-only
+#: until §9.4 opens," but nothing in code enforced that independently of the
+#: quintuple gate — this flag is the enforcement. Setting it is itself the
+#: §9.4 decision act; it must never be flipped as a side effect of any other
+#: config change.
+ECONOMIC_AUTHORIZATION_ENV_FLAG = "RENQUANT_STAGE2_ECONOMIC_AUTHORIZATION_9_4"
+_ENV_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def economic_authorization_9_4_confirmed(
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    """The §9.4 economic-authorization gate: closed (False) unless explicitly set.
+
+    Distinct from the §9.3a authorization FILE (:class:`Stage2Authorization`,
+    gate 2 of the quintuple gate) — that file is per-session operational
+    plumbing; this flag represents the separate, higher-level decision to
+    authorize live capital risk at all. Both must hold for ``_run_live()``
+    to ever be reached.
+    """
+    env = os.environ if environ is None else environ
+    return str(env.get(ECONOMIC_AUTHORIZATION_ENV_FLAG, "")).strip().lower() in _ENV_TRUTHY
 
 
 @dataclass
@@ -186,9 +229,13 @@ def _extract_quotes(live_state: Mapping[str, Any]) -> dict[str, float]:
 class SessionRunner:
     """Drives one complete intraday session with all 105 subsystems wired.
 
-    Shadow by default — the quintuple gate determines whether the session
-    actually submits orders. The runner never constructs a broker port
-    unless all gates arm live mode.
+    Shadow by default — TWO independent gates must both hold before the
+    session actually submits orders: the §9.3a quintuple gate
+    (``resolve_stage2_arming``, purely operational plumbing) AND the
+    separate §9.4 economic-authorization gate
+    (:func:`economic_authorization_9_4_confirmed`, closed by default — no
+    such decision has been made). The runner never constructs a broker
+    port unless BOTH gates are open.
     """
 
     def __init__(
@@ -273,9 +320,32 @@ class SessionRunner:
                 max_cycles=max_cycles,
             )
 
+        # The quintuple gate is necessary but NOT sufficient: it is entirely
+        # §9.3a-level plumbing and carries no representation of the SEPARATE
+        # §9.4 economic-authorization decision. That decision has not been
+        # made — this flag stays closed until it explicitly has been.
+        economic_ok = economic_authorization_9_4_confirmed()
+        if not economic_ok:
+            log.info(
+                "quintuple gate armed but the SEPARATE §9.4 economic-"
+                "authorization gate is closed (%s not set) — delegating to "
+                "Stage-1 shadow scheduler regardless of quintuple-gate "
+                "state (authorization=%s)",
+                ECONOMIC_AUTHORIZATION_ENV_FLAG,
+                arming.authorization.content_sha256[:12] if arming.authorization else "?",
+            )
+            return self._run_shadow(
+                arming=arming,
+                kill_switch=kill_switch,
+                session_date=session_date,
+                now_fn=now_fn,
+                sleep_fn=sleep_fn,
+                max_cycles=max_cycles,
+            )
+
         log.info(
-            "quintuple gate ARMED — driving Stage-2 live session "
-            "(authorization=%s)",
+            "quintuple gate ARMED and §9.4 economic authorization confirmed "
+            "— driving Stage-2 live session (authorization=%s)",
             arming.authorization.content_sha256[:12] if arming.authorization else "?",
         )
         return self._run_live(
@@ -324,6 +394,10 @@ class SessionRunner:
             now_fn=now_fn, sleep_fn=sleep_fn, max_cycles=max_cycles
         )
         manifest["stage2_arming"] = arming.to_manifest_record()
+        manifest["economic_authorization_9_4"] = {
+            "confirmed": economic_authorization_9_4_confirmed(),
+            "env_flag": ECONOMIC_AUTHORIZATION_ENV_FLAG,
+        }
         return SessionResult(
             mode_effective=MODE_SHADOW,
             armed=False,
@@ -382,6 +456,10 @@ class SessionRunner:
                 status="non_session_day",
                 manifest={
                     "stage2_arming": arming.to_manifest_record(),
+                    "economic_authorization_9_4": {
+                        "confirmed": economic_authorization_9_4_confirmed(),
+                        "env_flag": ECONOMIC_AUTHORIZATION_ENV_FLAG,
+                    },
                     "session_begin": begin_result,
                 },
             )
@@ -467,6 +545,10 @@ class SessionRunner:
             "mode_effective": MODE_LIVE,
             "status": status,
             "stage2_arming": arming.to_manifest_record(),
+            "economic_authorization_9_4": {
+                "confirmed": economic_authorization_9_4_confirmed(),
+                "env_flag": ECONOMIC_AUTHORIZATION_ENV_FLAG,
+            },
             "session_begin": begin_result,
             "session_close": close_result,
             "tick_count": tick_index,

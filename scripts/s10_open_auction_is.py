@@ -97,6 +97,58 @@ def load_live_buys(db_path: str | Path) -> list[Trade]:
                   fill_price=r[3], invest=r[4]) for r in rows]
 
 
+def remap_weekend_run_dates(trades: list[Trade]) -> list[Trade]:
+    """Remap a trade's ``run_date`` to the nearest PRIOR weekday when it
+    falls on a Saturday/Sunday.
+
+    Codex review (PR #333): 30/67 trades are unmatched purely because
+    ``run_date`` landed on a weekend — these are duplicate pipeline
+    invocations where the actual fill occurred on the adjacent (prior)
+    weekday, not a genuine same-day execution on a day markets were
+    closed. This is a data-alignment fix, not an outlier exclusion: it
+    does not drop any trade, it corrects the join key so weekend-stamped
+    trades can be matched to the OHLCV day they were actually filled on.
+    """
+    from datetime import datetime, timedelta
+
+    out = []
+    for t in trades:
+        d = datetime.strptime(t.date, "%Y-%m-%d")
+        # Monday=0 ... Sunday=6. Saturday(5) -> back 1 day to Friday.
+        # Sunday(6) -> back 2 days to Friday.
+        if d.weekday() == 5:
+            d = d - timedelta(days=1)
+        elif d.weekday() == 6:
+            d = d - timedelta(days=2)
+        out.append(Trade(
+            date=d.strftime("%Y-%m-%d"), ticker=t.ticker, shares=t.shares,
+            fill_price=t.fill_price, invest=t.invest,
+        ))
+    return out
+
+
+def apply_outlier_exclusion(
+    results: list[ISResult], *, threshold_bps: float | None
+) -> tuple[list[ISResult], list[ISResult]]:
+    """Split ``results`` into (kept, excluded) by an EX ANTE absolute
+    IS-vs-open threshold.
+
+    ``threshold_bps=None`` excludes nothing (kept == results). The
+    threshold is a parameter, not a post-hoc per-trade judgment call —
+    Codex review (PR #333) flagged that HON's exclusion in the prior memo
+    was decided after looking at the result, not declared in advance.
+    """
+    if threshold_bps is None:
+        return list(results), []
+    kept, excluded = [], []
+    for r in results:
+        if r.matched and r.is_vs_open_bps is not None and abs(r.is_vs_open_bps) > threshold_bps:
+            excluded.append(r)
+        else:
+            kept.append(r)
+    return kept, excluded
+
+
 def fetch_ohlcv(
     tickers: list[str],
     from_date: str,
@@ -449,6 +501,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env", default=None, help=".env file for FMP_API_KEY")
     parser.add_argument("--json", action="store_true", help="JSON output")
     parser.add_argument("--memo", default=None, help="write research memo to this path")
+    parser.add_argument(
+        "--weekend-remap", action="store_true",
+        help="remap weekend run_date to the nearest prior weekday before matching",
+    )
+    parser.add_argument(
+        "--exclude-outlier-bps", type=float, default=None,
+        help="EX ANTE: exclude trades with |IS_vs_open| above this bps threshold "
+             "(declared via this flag, not chosen after seeing results)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -474,6 +535,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     log.info("loaded %d unique live buys", len(trades))
+    if args.weekend_remap:
+        trades = remap_weekend_run_dates(trades)
+        log.info("weekend-remapped run_date to nearest prior weekday")
 
     tickers = sorted(set(t.ticker for t in trades))
     min_date = min(t.date for t in trades)
@@ -491,7 +555,20 @@ def main(argv: list[str] | None = None) -> int:
     matched = sum(1 for r in results if r.matched)
     log.info("matched %d/%d trades to OHLCV", matched, len(results))
 
-    report = build_report(results)
+    kept, excluded = apply_outlier_exclusion(
+        results, threshold_bps=args.exclude_outlier_bps
+    )
+    if excluded:
+        log.info(
+            "excluded %d trade(s) as outliers (|IS_vs_open| > %.0f bps): %s",
+            len(excluded), args.exclude_outlier_bps,
+            [f"{r.trade.ticker}@{r.trade.date}" for r in excluded],
+        )
+
+    report = build_report(kept)
+    report["outlier_exclusion_threshold_bps"] = args.exclude_outlier_bps
+    report["n_excluded_outliers"] = len(excluded)
+    report["weekend_remap_applied"] = args.weekend_remap
 
     if args.json:
         print(json.dumps(report, indent=2))

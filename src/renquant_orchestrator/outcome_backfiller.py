@@ -8,6 +8,18 @@ substrate and enables the decision_outcome_validator to run on real data.
 READ-ONLY on the runs DB. WRITE to the ledger/attribution DB only (via the
 existing write_outcomes helper).
 
+**RECONSTRUCTED SUBSTRATE, NOT AUTHORITATIVE LIVE-LEDGER TRUTH** (codex
+review, PR #333). Every row this module writes is DERIVED after the fact
+from `candidate_scores.blocked_by` — a practical bootstrap for S5 readiness
+while a genuine live-ledger write path does not yet exist, NOT a record of
+what `decision_ledger` itself recorded at decision time. Every written row
+is stamped `metadata.provenance == "reconstructed_from_candidate_scores"`
+(see :data:`RECONSTRUCTED_PROVENANCE`) specifically so downstream
+gate-validation / attribution consumers (e.g. `ledger_attribution.py`'s
+coverage and value-of-information reports) can distinguish reconstructed
+rows from genuine live-ledger outcomes, rather than presenting backfilled
+data with the same evidentiary weight as authoritative provenance.
+
 Data flow:
   runs.alpaca.db:candidate_scores  →  per-ticker gate verdicts (allow/block)
   runs.alpaca.db:ticker_forward_returns  →  fwd_5d, fwd_20d, fwd_60d returns
@@ -29,6 +41,12 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_RUNS_DB = Path.home() / "git/github/RenQuant/data/runs.alpaca.db"
+
+#: Stamped on every row this module writes — RECONSTRUCTED from
+#: candidate_scores.blocked_by after the fact, never a genuine live-ledger
+#: write. Downstream consumers of decision_outcomes MUST check this field
+#: before treating a row as authoritative provenance (codex review, PR #333).
+RECONSTRUCTED_PROVENANCE = "reconstructed_from_candidate_scores"
 
 GATE_PREFIXES = {
     "veto:": "VetoWeakBuys",
@@ -146,6 +164,7 @@ def backfill(
                 "recorded_at": now_iso,
                 "metadata": {
                     "source": "outcome_backfiller",
+                    "provenance": RECONSTRUCTED_PROVENANCE,
                     "run_id": run_id,
                     "blocked_by": blocked_by,
                 },

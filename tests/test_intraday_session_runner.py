@@ -299,6 +299,85 @@ class TestLiveFallbackWithoutPortFactory:
         assert result.mode_effective == "shadow"
 
 
+class TestEconomicAuthorization94Gate:
+    """The SEPARATE §9.4 economic-authorization gate — closed by default,
+    independent of the §9.3a quintuple gate. This is the regression coverage
+    for Codex's review: prior to this fix, an armed quintuple gate + a
+    present port_factory reached ``_run_live()`` unconditionally.
+    """
+
+    def _armed_mock(self):
+        return MagicMock(
+            armed=True,
+            mode_effective="live",
+            downgraded=False,
+            authorization=MagicMock(content_sha256="abc123"),
+            to_manifest_record=lambda: {"armed": True},
+        )
+
+    def test_armed_gate_and_port_factory_still_falls_to_shadow_by_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Quintuple gate armed + a real port_factory present must NOT be
+        enough to go live while §9.4 is unset — this is the exact gap
+        Codex's review found."""
+        monkeypatch.delenv(
+            "RENQUANT_STAGE2_ECONOMIC_AUTHORIZATION_9_4", raising=False
+        )
+        runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
+        with patch.object(runner, "_evaluate_arming", return_value=self._armed_mock()):
+            with patch.object(runner, "_run_live") as mock_run_live:
+                result = runner.run_session(
+                    now_fn=lambda: _trading_day_now(10, 0),
+                    sleep_fn=lambda _: None,
+                    max_cycles=1,
+                )
+        mock_run_live.assert_not_called()
+        assert result.mode_effective == "shadow"
+
+    def test_armed_gate_and_confirmed_9_4_reaches_run_live(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Once §9.4 is explicitly confirmed (in addition to the quintuple
+        gate arming), the live path IS reachable — proving the gate is a
+        real, functioning control and not a permanent block."""
+        monkeypatch.setenv("RENQUANT_STAGE2_ECONOMIC_AUTHORIZATION_9_4", "1")
+        runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
+        arming = self._armed_mock()
+        with patch.object(runner, "_evaluate_arming", return_value=arming):
+            with patch.object(runner, "_run_live") as mock_run_live:
+                mock_run_live.return_value = MagicMock(mode_effective="live")
+                runner.run_session(
+                    now_fn=lambda: _trading_day_now(10, 0),
+                    sleep_fn=lambda _: None,
+                    max_cycles=1,
+                )
+        mock_run_live.assert_called_once()
+        assert mock_run_live.call_args.kwargs["arming"] is arming
+
+    def test_economic_authorization_9_4_confirmed_default_false(self):
+        from renquant_orchestrator.intraday_session_runner import (
+            economic_authorization_9_4_confirmed,
+        )
+
+        assert economic_authorization_9_4_confirmed(environ={}) is False
+
+    def test_economic_authorization_9_4_confirmed_truthy_values(self):
+        from renquant_orchestrator.intraday_session_runner import (
+            ECONOMIC_AUTHORIZATION_ENV_FLAG,
+            economic_authorization_9_4_confirmed,
+        )
+
+        for value in ("1", "true", "True", "yes", "on"):
+            assert economic_authorization_9_4_confirmed(
+                environ={ECONOMIC_AUTHORIZATION_ENV_FLAG: value}
+            ) is True
+        for value in ("0", "false", "", "no"):
+            assert economic_authorization_9_4_confirmed(
+                environ={ECONOMIC_AUTHORIZATION_ENV_FLAG: value}
+            ) is False
+
+
 class TestKillSwitch:
     def test_kill_switch_path_from_config(self, tmp_path: Path):
         runner = _build_runner(tmp_path)
