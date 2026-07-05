@@ -1,35 +1,99 @@
 # D1 First Definitive WF-Gate Verdict — Assessment
 
 DATE: 2026-07-04
-STATUS: VERIFIED (extracted from existing production gate metadata)
+STATUS: VERIFIED (extracted from existing production gate metadata) — REVISED to
+separate model-quality diagnostics from the currently enforced verdict; see
+"Round 2 (Codex review)" below.
 TAGS: D1, S1-S3, WF gate, regime IC, verdict
 
 ## Bottom line
 
-**D1 is MODEL-BLOCKED, not gate-blocked.** S1-S3 gate code is all merged and has
-already evaluated the production XGB model. The gate produces a FAIL verdict due
-to regime-level IC:
-
-- **BULL_CALM** genuine IC = 0.017 (< 0.02 bar) — this regime is ~78% of trading time
-- **CHOPPY** genuine IC = 0.002 (≈ zero — signal IS the placebo)
-
-No amount of gate engineering changes this result. The next D1 unblock requires a
-model retrain that demonstrates genuine predictive power in BULL_CALM.
+**D1's currently-enforced verdict is FALSE because a required gate was skipped on
+this run — not because the model was judged and rejected.** The regime-level IC
+diagnostic (same artifact, same run) separately shows the production model likely
+has genuine quality problems in BULL_CALM/CHOPPY, but that diagnostic comes from a
+`diagnostic_only` run and has never been combined with a clean, non-skipped gate
+pass/fail. We do not yet have a single run that tells us definitively whether D1
+is gate-blocked, model-blocked, or both. See Layers 1–3 below.
 
 ## Source
 
 Extracted from WF gate metadata on the active production model artifact:
 `panel-ltr.alpha158_fund.json` (XGB, trained 2026-06-21, re-promoted 2026-06-23).
 
-## Gate Results
+## Layer 1 — Regime-level model-quality diagnostics
 
-### Overall
+This is what the regime-conditional genuine-IC breakdown shows on this artifact,
+independent of gate enforcement:
+
+| Regime | Mean IC | Placebo IC | Genuine IC | n | Pass? |
+|--------|---------|------------|------------|---|-------|
+| BEAR | 0.335 | 0.088 | 0.247 | ≥30 | PASS |
+| BULL_CALM | 0.023 | 0.006 | 0.017 | ≥30 | **FAIL (< 0.02)** |
+| BULL_VOLATILE | 0.025 | 0.010 | 0.015 | 19 | Ineligible (n < 30) |
+| CHOPPY | 0.026 | 0.024 | 0.002 | ≥30 | **FAIL (≈ 0)** |
+
+- BULL_CALM is ~78% of trading time — this is the dominant regime, and genuine IC
+  there (0.017) sits just under the 0.02 bar.
+- CHOPPY genuine IC (0.002) is effectively zero — the raw signal in this regime is
+  indistinguishable from its own placebo.
+- Pooled (non-regime-conditional) S3 genuine IC = 0.0415, which clears the 0.02 bar
+  as a shadow computation — the regime split is what surfaces the BULL_CALM/CHOPPY
+  weakness that the pooled number hides.
+
+**This diagnostic is real and worth taking seriously as evidence of model quality**
+— but per Layer 2/3 below, it comes from a run whose gate metadata is stamped
+`diagnostic_only: true`, so it is not yet paired with a clean acceptance-grade
+gate verdict.
+
+## Layer 2 — Currently enforced gate verdict
+
 - Gate version: v2 (absolute ceiling)
-- Overall passed: `True` BUT `diagnostic_only: True`
-- Gate verdict without override: `False`
-- Reason: `passed=false solely from skipped_required_gates=[trade_monotonicity_pass_open_allowed]`
+- `overall passed` (raw computation): `True`
+- `diagnostic_only`: `True`
+- **Gate verdict without override: `False`**
+- Reason: `skipped_required_gates=[trade_monotonicity_pass_open_allowed]`
 
-### Walk-Forward Performance (3 cuts, 27 months)
+Reading `renquant-backtesting`'s `wf_gate/runner.py::_compute_overall_pass()`
+directly: this function returns `False` unconditionally whenever
+`skipped_required_gates` is non-empty, **regardless of the underlying WF/sanity/
+regime results** — its own docstring states "a skipped WF, sanity battery, trade
+gate, config parity check, or trace cannot be promoted as acceptance evidence."
+`trade_monotonicity_pass_open_allowed` appears in that list specifically because
+this run was invoked with the `--allow-pass-open-trade-monotonicity` emergency
+override flag, which the gate code treats as disqualifying for acceptance
+purposes — independent of, and unrelated to, the regime-level IC numbers in
+Layer 1.
+
+So: **the proximate cause of today's `False` verdict is a run-configuration
+choice (an emergency skip flag was set), not the regime-level IC result.**
+
+## Layer 3 — Entanglement assessment
+
+Is the current D1 failure still entangled with configuration/skipped-gate policy,
+or is it cleanly isolated to model quality? **It is still entangled.** Because
+`_compute_overall_pass()` short-circuits to `False` the moment any required gate
+is skipped, this artifact's metadata cannot tell us what the trade-monotonicity
+gate itself would have concluded on its own merits, nor can it certify that the
+Layer 1 regime-level numbers were computed under acceptance-grade (non-diagnostic)
+conditions. Two things would both need to be true before "model-blocked, not
+gate-blocked" becomes a safe claim:
+
+1. A rerun without the `--allow-pass-open-trade-monotonicity` skip flag (and
+   without any other required-gate skip) produces a genuine, non-`diagnostic_only`
+   verdict — i.e., the trade-monotonicity gate and every other required check
+   pass on their own merits.
+2. That clean rerun's regime-level genuine IC still fails in BULL_CALM/CHOPPY the
+   same way this diagnostic run's did.
+
+Until (1) is done, we know the CURRENT enforced verdict is `False` for a
+configuration reason, and we have a *separate*, suggestive-but-not-yet-paired
+diagnostic pointing at real model-quality weakness. We do not have a single
+clean run that lets us say "the gate would pass if not for the model."
+
+## Walk-Forward Performance (3 cuts, 27 months)
+
+(From the same diagnostic-only artifact — informational, not an acceptance result.)
 
 | Cut | Sharpe | APY | SPY Sharpe | SPY APY | Beat SPY? |
 |-----|--------|-----|------------|---------|-----------|
@@ -50,35 +114,36 @@ Extracted from WF gate metadata on the active production model artifact:
 | Placebo/Real ratio | 0.453 | < 0.5 | PASS (barely) |
 | S3 genuine IC | 0.0415 | > 0.02 | PASS (shadow) |
 
-### Regime-Level IC (the FAIL)
-
-| Regime | Mean IC | Placebo IC | Genuine IC | n | Pass? |
-|--------|---------|------------|------------|---|-------|
-| BEAR | 0.335 | 0.088 | 0.247 | ≥30 | PASS |
-| BULL_CALM | 0.023 | 0.006 | 0.017 | ≥30 | **FAIL (< 0.02)** |
-| BULL_VOLATILE | 0.025 | 0.010 | 0.015 | 19 | Ineligible (n < 30) |
-| CHOPPY | 0.026 | 0.024 | 0.002 | ≥30 | **FAIL (≈ 0)** |
-
 ## Implications
 
-1. **The gate is working correctly.** S1-S3 repairs are all landed and producing
-   the expected results. The placebo-clean difference test (S3 shadow) correctly
-   identifies that the model's BULL_CALM predictive power is marginal (0.017) and
-   CHOPPY is zero (0.002).
+1. **The gate machinery is producing internally consistent numbers.** S1-S3
+   repairs are landed, and the placebo-clean difference test (S3 shadow)
+   correctly separates BULL_CALM/CHOPPY weakness from the healthier pooled and
+   BEAR-regime numbers.
 
-2. **D1 verdict = FAIL is an HONEST assessment**, not a gate bug. The model genuinely
-   lacks regime-specific edge in the dominant regime.
+2. **D1's current `False` verdict is a configuration artifact of this specific
+   run (a skipped required gate), not yet a clean model-quality verdict.** The
+   Layer 1 regime-level diagnostic is real evidence the model likely has a
+   genuine problem, but it has not yet been produced under acceptance-grade
+   (non-`diagnostic_only`) conditions.
 
-3. **S3 v3 promotion is still valuable** — replacing the v2 absolute-ceiling gate
-   (which has the structural +0.04 embargo floor problem) with the v3 placebo
-   difference test would make the gate more honest, even though the current model
-   would still fail at regime level.
+3. **S3 v3 promotion remains valuable independent of this finding** — replacing
+   the v2 absolute-ceiling gate (which has the structural +0.04 embargo floor
+   problem) with the v3 placebo difference test would make the gate more honest.
+   It does not, by itself, resolve the Layer 2/3 entanglement above — that needs
+   a clean rerun without the skip flag.
 
-4. **Next steps for D1 clearance:**
-   - A new retrain must demonstrate genuine IC > 0.02 in BULL_CALM
-   - The WF gate infrastructure is ready — this is a model quality problem
+4. **Next steps:**
+   - Rerun the WF gate on this artifact WITHOUT `--allow-pass-open-trade-monotonicity`
+     (and confirm no other required gate is skipped) to get a genuine,
+     non-diagnostic verdict — this is the prerequisite for knowing whether D1 is
+     gate-blocked, model-blocked, or both.
+   - If that clean run still fails only on regime-level IC, THEN "D1 needs a model
+     retrain demonstrating genuine BULL_CALM IC > 0.02" becomes the accurate
+     next step — but that is conditional on step 1, not yet established.
    - Consider whether the CHOPPY genuine IC ≈ 0 should inform trading policy
-     (fail-close in CHOPPY regimes vs continuing with a no-edge model)
+     (fail-close in CHOPPY regimes vs continuing with a no-edge model),
+     independent of the D1 gate question.
 
 5. **This is consistent with the existing evidence base:**
    - Win rate is backtest not live (memory)
@@ -88,5 +153,23 @@ Extracted from WF gate metadata on the active production model artifact:
 ## Cross-references
 
 - S1-S3 gate repair: backtesting PRs #48-#51, #57-#58, #61, #64
+- `renquant-backtesting/src/renquant_backtesting/wf_gate/runner.py::_compute_overall_pass`
+  and `_required_validation_skip_reasons` — the skip-disqualifies-acceptance logic
+  cited in Layer 2/3 above
 - WF-gate embargo leakage floor: ~+0.04 shuffled-label floor (memory)
 - WF-promote chronic reject: config tangle, not one root cause (memory)
+
+## Round 2 (Codex review)
+
+Codex held this memo: the original "D1 is MODEL-BLOCKED, not gate-blocked"
+headline collapsed two distinct facts — (1) the regime-level IC diagnostic
+(real, suggestive of model quality issues) and (2) the currently enforced verdict
+being `False` solely because `trade_monotonicity_pass_open_allowed` was skipped
+(a run-configuration fact, unrelated to regime IC). Restructured the memo into
+three explicit layers (model-quality diagnostics / currently enforced verdict /
+entanglement assessment), traced the actual gate logic
+(`_compute_overall_pass`/`_required_validation_skip_reasons` in
+`renquant-backtesting`) to confirm the skip genuinely short-circuits the verdict
+independent of the regime results, and rewrote the bottom line + implications to
+state the honest, still-entangled conclusion: we don't yet have a clean run that
+isolates D1's failure to model quality alone.
