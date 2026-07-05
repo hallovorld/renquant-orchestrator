@@ -90,10 +90,17 @@ def main(argv: list[str] | None = None) -> int:
     # 2 if not ready. Driven by mean_conditional_agreement_rate (the
     # admission-relevant subset) — NOT mean_agreement_rate, which is
     # dominated by trivial both-reject names and can look ready when it
-    # isn't. See tournament_shadow_admission.generate_delta_report.
+    # isn't. The minimum-N gate is on n_sessions_admission_relevant, NOT
+    # n_sessions: a report can have >= 20 total calendar sessions but only
+    # a handful with any admission activity, and the effective sample size
+    # for this decision is the latter. See
+    # tournament_shadow_admission.generate_delta_report /
+    # MIN_ADMISSION_RELEVANT_SESSIONS.
     if report.n_sessions < 20:
         return 1
     if report.mean_conditional_agreement_rate is None:
+        return 1
+    if report.n_sessions_admission_relevant < 20:
         return 1
     if report.mean_conditional_agreement_rate >= 0.85:
         return 0

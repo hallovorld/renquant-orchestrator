@@ -619,6 +619,34 @@ class TestDeltaReport:
         assert report.mean_conditional_agreement_rate is None
         assert "CANNOT ASSESS" in report.recommendation
 
+    def test_insufficient_admission_relevant_sample_despite_25_total_sessions(self):
+        """The exact bug codex flagged: 25 total sessions (>= 20) but only 2
+        have any admission activity, and those 2 happen to agree perfectly
+        (conditional_agreement_rate=1.0). Pre-fix, this would report READY
+        off an effective sample size of 2. Must report insufficient sample
+        instead, regardless of the total session count."""
+        records = self._build_records(
+            25, agreement_rate=1.0, conditional_agreement_rate=None,
+        )
+        # Strip admission activity from all but 2 sessions, which agree
+        # perfectly -- would trip the >=0.95 READY branch under the old,
+        # total-session-only minimum-N gate.
+        for r in records:
+            r["conditional_agreement_rate"] = None
+            r["admission_precision"] = None
+            r["admission_recall"] = None
+        for r in records[:2]:
+            r["conditional_agreement_rate"] = 1.0
+            r["admission_precision"] = 1.0
+            r["admission_recall"] = 1.0
+
+        report = generate_delta_report(records)
+        assert report.n_sessions == 25
+        assert report.n_sessions_admission_relevant == 2
+        assert report.mean_conditional_agreement_rate == 1.0
+        assert "INSUFFICIENT ADMISSION-RELEVANT SAMPLE" in report.recommendation
+        assert "READY" not in report.recommendation
+
 
 # ---------------------------------------------------------------------------
 # Delta report CLI
@@ -665,6 +693,48 @@ class TestDeltaReportCLI:
 
         rc = main([str(log_path), "--last", "3"])
         assert rc == 1  # only 3 sessions < 20
+
+    def test_exit_code_insufficient_despite_25_total_sessions(self, tmp_path: Path):
+        """The same aggregate bug, exercised through the real exit-code path:
+        25 total sessions (>= 20) but only 2 with any admission activity,
+        which agree perfectly. Pre-fix, this would return 0 (ready) off an
+        effective sample size of 2. Must return 1 (insufficient), not 0."""
+        from scripts.tournament_delta_report import main
+
+        log_path = tmp_path / "test.jsonl"
+        for i in range(23):
+            # Both paths reject: no admission activity this session.
+            record = evaluate_session(
+                run_date=date(2026, 7, 1 + i),
+                watchlist=["AAPL"],
+                ticker_scores={"AAPL": {"signal": "hold", "raw_score": -0.1, "rank_score": 0.01}},
+                panel_candidates=[],
+                panel_blocked={"AAPL": "veto_weak_buy"},
+                min_model_score=MIN_MODEL_SCORE,
+                bypass_ticker_gate=True,
+            )
+            append_record(record, log_path)
+        for i in range(23, 25):
+            # Both paths admit: perfect agreement, but only 2 such sessions.
+            record = evaluate_session(
+                run_date=date(2026, 7, 1 + i),
+                watchlist=["AAPL"],
+                ticker_scores={"AAPL": {"signal": "buy", "raw_score": 0.3, "rank_score": 0.5}},
+                panel_candidates=["AAPL"],
+                panel_blocked={},
+                min_model_score=MIN_MODEL_SCORE,
+                bypass_ticker_gate=True,
+            )
+            append_record(record, log_path)
+
+        records = read_records(log_path)
+        report = generate_delta_report(records)
+        assert report.n_sessions == 25
+        assert report.n_sessions_admission_relevant == 2
+        assert report.mean_conditional_agreement_rate == 1.0
+
+        rc = main([str(log_path)])
+        assert rc == 1  # insufficient admission-relevant sample, not 0 (ready)
 
 
 # ---------------------------------------------------------------------------

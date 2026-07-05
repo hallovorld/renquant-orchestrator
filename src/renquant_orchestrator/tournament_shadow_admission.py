@@ -40,6 +40,14 @@ SCHEMA_VERSION = 1
 DEFAULT_SHADOW_DIR = "data/shadow"
 DEFAULT_LOG_FILENAME = "tournament_vs_panel_admission.jsonl"
 
+# Minimum sample size for a retirement decision. This applies to the
+# ADMISSION-RELEVANT subset (sessions where at least one path admitted a
+# ticker), not the total calendar session count -- the effective sample
+# size for this experiment is the former, since sessions where both paths
+# trivially reject everything carry no information about whether the two
+# paths agree on the names that matter.
+MIN_ADMISSION_RELEVANT_SESSIONS = 20
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -457,7 +465,10 @@ def generate_delta_report(records: list[dict]) -> DeltaReport:
             chronic_tournament_only={},
             chronic_panel_only={},
             per_session=[],
-            recommendation="Insufficient data (0 sessions). Need >= 20 sessions.",
+            recommendation=(
+                f"Insufficient data (0 sessions). "
+                f"Need >= {MIN_ADMISSION_RELEVANT_SESSIONS} sessions."
+            ),
         )
 
     dates = sorted(r.get("run_date", "") for r in records)
@@ -532,16 +543,26 @@ def generate_delta_report(records: list[dict]) -> DeltaReport:
     # which is dominated by trivial both-reject names and can look
     # comfortingly high even when the paths materially disagree on the
     # names that actually matter for the retirement decision.
-    if n < 20:
+    if n < MIN_ADMISSION_RELEVANT_SESSIONS:
         recommendation = (
             f"Insufficient data ({n} sessions). "
-            f"Need >= 20 sessions before making a retirement decision."
+            f"Need >= {MIN_ADMISSION_RELEVANT_SESSIONS} sessions before making a retirement decision."
         )
     elif n_relevant == 0:
         recommendation = (
             f"CANNOT ASSESS. Across {n} sessions, neither path ever admitted "
             f"a ticker, so there is no admission-relevant subset to compare "
             f"— redundancy cannot be evaluated from this data."
+        )
+    elif n_relevant < MIN_ADMISSION_RELEVANT_SESSIONS:
+        recommendation = (
+            f"INSUFFICIENT ADMISSION-RELEVANT SAMPLE. Only {n_relevant} of "
+            f"{n} sessions had any admission activity under either path — "
+            f"the effective sample size for this retirement decision is the "
+            f"admission-relevant subset, not the total calendar count. Need "
+            f">= {MIN_ADMISSION_RELEVANT_SESSIONS} admission-relevant "
+            f"sessions before making a retirement decision, regardless of "
+            f"how many total sessions have been observed."
         )
     elif mean_conditional >= 0.95:
         recommendation = (

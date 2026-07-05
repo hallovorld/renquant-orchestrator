@@ -114,3 +114,39 @@ the pre-fix code (`git stash` check) and pass after. Full suite 3017/3020
 gap (this PR's own module was never in the baseline).
 NEXT: none — logger is decision-grade for the redundancy question once
 >= 20 sessions of shadow data with admission activity accumulate.
+
+## Round 3 (codex review)
+
+STATUS: fixed
+WHAT: the minimum-sample-size gate (`n >= 20`) was checked against TOTAL
+sessions, then the recommendation/exit-code decision was computed on
+`n_relevant` (admission-active sessions). A report could say READY with,
+e.g., 25 total sessions but only 1-2 admission-relevant sessions — a
+statistically meaningless sample dressed up by a large but irrelevant
+denominator. The same gap existed independently in
+`scripts/tournament_delta_report.py`'s exit-code logic (`n_sessions < 20`
+check, with no corresponding `n_sessions_admission_relevant` check) — found
+while re-verifying the automated decision path, not just the text
+recommendation.
+WHY-DIR: codex correctly identified that the effective sample size for this
+experiment is the admission-relevant subset, not the calendar count — the
+"no admission activity = unassessable" handling already built in round 2
+needed to carry through to the ordinary (nonzero-but-still-too-small) case
+too, via one consistent rule.
+EVIDENCE: added `MIN_ADMISSION_RELEVANT_SESSIONS = 20` and a new
+`elif n_relevant < MIN_ADMISSION_RELEVANT_SESSIONS` branch (between the
+existing `n_relevant == 0` and `mean_conditional >= 0.95` branches) that
+reports "INSUFFICIENT ADMISSION-RELEVANT SAMPLE" instead of falling through
+to a READY/LIKELY READY/NOT READY verdict. Applied the identical fix to the
+CLI's exit code (`report.n_sessions_admission_relevant < 20` -> exit 1).
+Added `test_insufficient_admission_relevant_sample_despite_25_total_sessions`
+(25 total sessions, 2 admission-relevant sessions agreeing perfectly --
+would trigger READY pre-fix) and the equivalent CLI-level
+`test_exit_code_insufficient_despite_25_total_sessions` (asserts exit code
+1, not 0, on the same scenario end-to-end through `append_record`/
+`read_records`/`main()`). Both confirmed to fail against the pre-fix code
+(`git stash`/`git apply` on the isolated hunks) and pass after. Full module
+suite 42/42; full repo suite 3016/3018 (2 pre-existing unrelated failures
+in `test_bundle_consistency_ci_gate.py`, confirmed reproducing on clean
+`origin/main`).
+NEXT: none.
