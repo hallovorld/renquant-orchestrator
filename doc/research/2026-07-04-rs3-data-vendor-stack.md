@@ -133,36 +133,84 @@ AAPL, GRMN, MU, OXY, AMZN (watchlist); COST, LLY, AVGO, URI, WM (M8 candidates)
 
 **Fields to validate**: revenue, net_income, eps_diluted, total_assets, filing_date
 
+### 6.1a T3 fixture set (concrete, reproducible — not a hypothetical case)
+
+Queried `data.sec.gov/submissions/CIK{cik}.json` for every ticker in the live
+104 watchlist (142 names, from `strategy_config.json`'s `watchlist` field,
+136/142 resolvable to a CIK via `sec.gov/files/company_tickers.json`) for any
+`10-Q/A` or `10-K/A` filing in their recent-filings history. **53 amendment
+filings found across the real watchlist.** Five selected, favoring recency,
+ticker diversity, and excluding a routine incorporate-by-reference amendment:
+
+| Ticker | Form | Period (original) | Amendment filed | Accession # |
+|---|---|---|---|---|
+| CVX | 10-Q/A | 2022-03-31 | 2022-05-04 | 0000093410-22-000028 |
+| KO | 10-Q/A | 2024-03-29 | 2024-05-30 | 0000021344-24-000019 |
+| GLD | 10-K/A | 2024-09-30 | 2024-12-19 | 0001437749-24-037938 |
+| GRMN | 10-K/A | 2023-12-30 | 2024-11-29 | 0000950170-24-131914 |
+| DUK | 10-Q/A | 2020-03-31 | 2020-06-02 | 0001326160-20-000172 |
+
+(MO has a 10-K/A filed in every one of the last 9 years, always ~5 months
+after the original 10-K — almost certainly a routine Part III proxy-
+incorporation amendment, not a financial restatement. Excluded from the
+probe sample for that reason.)
+
+**What to compare, per (ticker, original period) pair**: pull Polygon's
+`/vX/reference/financials` filtered to that `period_of_report_date`; check
+whether Polygon returns **one** record (latest/restated values only) or
+**two distinct timestamped records** (original-as-filed + amended, each
+under its own `filing_date`); compare both `filing_date` values against the
+EDGAR ground truth above.
+
+**PASS** (per ticker): Polygon exposes the original-filing values under the
+original `filing_date` AND the amendment's corrected values under the later
+`filing_date` — a backtest run "as of" any date between the two filings
+would see the pre-amendment numbers. **FAIL**: Polygon returns only one
+record per period (silently the latest/restated values), which means a
+backtest run before the amendment date would see look-ahead-biased numbers.
+**Falsification of Polygon as Tier-1**: 3 or more of the 5 tickers FAIL.
+
 ### 6.2 Acceptance tests
 
 | Test | Method | Pass criterion | Falsifies |
 |---|---|---|---|
 | **T1: Polygon cost verification** | Visit polygon.io/pricing; attempt Fundamentals add-on signup flow (stop before payment) | True incremental cost confirmed ≤$35/mo with NO base subscription required, OR base + add-on total confirmed | "Total $58/mo" claim |
 | **T2: Polygon PIT fidelity** | Query Polygon `/vX/reference/financials` for the 3 sample filings; compare `filing_date` field against SEC EDGAR actual filing date | All 3 `filing_date` values match EDGAR ±1 day | Polygon as PIT source |
-| **T3: Polygon restatement handling** | Find a known restatement (e.g., a company that restated 2024 earnings); query the ORIGINAL filing date's data vs the restated date | Polygon preserves the original-as-filed numbers at the original filing_date (not overwritten by restatement) | PIT fidelity under restatements |
+| **T3: Polygon restatement handling** | Concrete fixture set (see §6.1a) — 5 real restatement events found via SEC EDGAR's public submissions API on our actual watchlist. For each, compare Polygon's `/vX/reference/financials` response for that `period_of_report_date` against EDGAR ground truth | See §6.1a pass/fail criteria | PIT fidelity under restatements |
 | **T4: Polygon quarterly depth** | Query all 10 sample tickers for quarterly financials going back 5 years | ≥8/10 tickers have ≥16 quarters of data (4y) with `filing_date` populated | Quarterly depth claim |
-| **T5: Analyst-consensus coverage** | Query FMP Starter `/api/v3/grade/<ticker>` for the 10 sample tickers; verify historical revision timeline depth | ≥8/10 tickers have ≥2 years of monthly grade history with analyst counts | N3/M-SIG analyst-revision need |
+| **T5a: Recommendation-change history** | Query FMP `/api/v3/grade/<ticker>` for the 10 sample tickers; verify historical revision timeline depth | ≥8/10 tickers have ≥2 years of monthly grade history with analyst counts | N3/M-SIG recommendation-revision need |
+| **T5b: Price-target history** | Query FMP `stable/price-target-news?symbol=<ticker>` for the 10 sample tickers; verify per-event historical depth (this is a distinct endpoint from `grade` — event-level target changes with `publishedDate`/`priceTarget`/`analystCompany`, confirmed live under our existing free-tier key this round: AAPL returned 100 events back to 2024-08, GRMN 21 events back to 2022-02) | ≥8/10 tickers have ≥2 years of price-target-change events | N3/M-SIG target-revision need |
 | **T6: Universe breadth** | Query Polygon for total US tickers with quarterly financals available | ≥3,000 tickers with ≥8 quarters available | M8 expansion coverage |
 | **T7: SEC EDGAR cross-check** | For the 3 sample filings, compare Polygon revenue/EPS against raw EDGAR XBRL `us-gaap:Revenues`/`us-gaap:EarningsPerShareDiluted` | All values match within rounding ($1 / $0.01) | Polygon data accuracy |
 
 ### 6.3 Probe execution plan
 
-1. **Free-tier probes first** (zero cost): T2, T3, T4, T6, T7 can be tested using
-   Polygon's free tier (if available) or public API docs/examples. T5 uses our
-   existing FMP Starter key.
-2. **T1** requires visiting the pricing page interactively (operator or agent).
-3. **Pass all 7** → recommendation upgrades to CONFIRMED; operator approves $29/mo.
-4. **Fail T2/T3/T4** → Polygon is NOT viable for PIT; escalate to Sharadar SF1
+1. **T2, T3, T4, T6, T7 require a live Polygon API call** (free tier if one
+   exists, otherwise the paid tier being evaluated) — public API docs/examples
+   are useful for feature discovery only and do NOT establish live entitlement,
+   real endpoint behavior, or actual per-ticker coverage; none of T2/T3/T4/T6/T7
+   should be marked passed from documentation alone.
+2. **T5a and T5b use our existing FMP key and were confirmed reachable this
+   round** (see §6.2 — `price-target-news` verified live for AAPL/GRMN with
+   real multi-year depth; `grade` was already in production use). These two
+   are the only tests in this probe that are zero-cost AND already spot-checked
+   live, not merely documented.
+3. **T1** requires visiting the pricing page interactively (operator or agent).
+4. **Pass all 8 (T1-T4, T5a, T5b, T6, T7)** → recommendation upgrades to
+   CONFIRMED; operator approves $29/mo.
+5. **Fail T2/T3/T4** → Polygon is NOT viable for PIT; escalate to Sharadar SF1
    (Tier 2 probe required).
-5. **Fail T5** → FMP Starter insufficient for analyst-revision; investigate FMP
-   Premium or Polygon analyst endpoints.
+6. **Fail T5a** → recommendation-history insufficient; investigate FMP Premium.
+   **Fail T5b** → target-history insufficient; investigate Polygon/Benzinga
+   analyst endpoints as an alternative target-history source.
 
 ### 6.4 Falsification: what kills the Tier-1 recommendation
 
 - Polygon requires a $99/mo+ base subscription → cost exceeds budget threshold
 - `filing_date` field is not truly PIT (overwrites on restatement) → need Sharadar
 - Quarterly depth < 3 years → insufficient for WF backtesting window
-- Analyst-revision timeline < 1 year → M-SIG C2 feature cannot be constructed
+- Recommendation-change OR price-target-change timeline < 1 year → M-SIG C2
+  feature cannot be constructed for that dimension
 
 ## 7. Open questions (pending probe)
 
