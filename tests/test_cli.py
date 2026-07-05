@@ -573,3 +573,135 @@ def test_parking_sleeve_cli_computes_allocation(tmp_path, capsys) -> None:
     out = json.loads(capsys.readouterr().out)
     assert out["regime"] == "BULL_CALM"
     assert out["portfolio_value"] == 10000
+
+
+# ---------------------------------------------------------------------------
+# CLI delegation coverage (Codex review on #383): each of these subcommands
+# is a thin nargs=REMAINDER pass-through to a target module's main(argv).
+# Codex: "I also want at least focused CLI delegation coverage for the
+# nontrivial pass-through cases kept here, especially replay-audit and
+# edgar-harvest, because the consolidation currently reduced test coverage
+# while broadening the public CLI surface." parking-sleeve already has its
+# own functional test above; these cover the remaining 7 wired subcommands
+# so a dispatch-to-missing-symbol regression (the exact parking-sleeve bug)
+# would fail CI instead of silently landing.
+# ---------------------------------------------------------------------------
+
+def test_transfer_coefficient_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.transfer_coefficient as tc_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 7
+
+    monkeypatch.setattr(tc_mod, "main", fake_main)
+    rc = main(["transfer-coefficient", "--json"])
+    assert rc == 7
+    assert seen["argv"] == ["--json"]
+
+
+def test_readiness_monitor_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.readiness_monitor as rm_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 3
+
+    monkeypatch.setattr(rm_mod, "main", fake_main)
+    rc = main(["readiness-monitor", "--json"])
+    assert rc == 3
+    assert seen["argv"] == ["--json"]
+
+
+def test_edgar_harvest_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.sec_edgar_harvester as edgar_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 11
+
+    monkeypatch.setattr(edgar_mod, "main", fake_main)
+    rc = main(["edgar-harvest", "--dry-run"])
+    assert rc == 11
+    assert seen["argv"] == ["--dry-run"]
+
+
+def test_entry_timing_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.entry_timing_policy as et_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 5
+
+    monkeypatch.setattr(et_mod, "main", fake_main)
+    rc = main(["entry-timing", "--json"])
+    assert rc == 5
+    assert seen["argv"] == ["--json"]
+
+
+def test_train_gbdt_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.train_gbdt as tg_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 9
+
+    monkeypatch.setattr(tg_mod, "main", fake_main)
+    rc = main(["train-gbdt", "--staged"])
+    assert rc == 9
+    assert seen["argv"] == ["--staged"]
+
+
+def test_patchtst_cutoff_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.patchtst_weekly_cutoff as pwc_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 13
+
+    monkeypatch.setattr(pwc_mod, "main", fake_main)
+    rc = main(["patchtst-cutoff", "--json"])
+    assert rc == 13
+    assert seen["argv"] == ["--json"]
+
+
+def test_replay_audit_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.intraday_replay_audit as ra_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 6
+
+    monkeypatch.setattr(ra_mod, "main", fake_main)
+    rc = main(["replay-audit", "--session-date", "2026-07-01"])
+    assert rc == 6
+    assert seen["argv"] == ["--session-date", "2026-07-01"]
+
+
+def test_risk_budget_report_cli_delegates(monkeypatch) -> None:
+    import renquant_orchestrator.risk_budget.report as rb_mod
+
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 2
+
+    monkeypatch.setattr(rb_mod, "main", fake_main)
+    rc = main(["risk-budget-report", "--json"])
+    assert rc == 2
+    assert seen["argv"] == ["--json"]
