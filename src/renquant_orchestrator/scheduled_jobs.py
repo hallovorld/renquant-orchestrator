@@ -544,6 +544,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         umbrella_state_dependency="RenQuant model artifacts and strategy config",
         launchd_label="com.renquant.model-freshness",
     ),
+    ScheduledJob(
+        job_id="outcome_observer",
+        kind="ops",
+        cadence="weekly",
+        command=["renquant-orchestrator", "run-job", "outcome_observer"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency="runs.alpaca.db for entry prices and forward returns",
+        launchd_label="com.renquant.outcome-observer",
+    ),
 )
 
 
