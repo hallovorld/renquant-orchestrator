@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from renquant_orchestrator.retention_policy import (
     ArtifactFamily,
     DEFAULT_FAMILIES,
     PruneResult,
+    _parse_artifact_timestamp,
     prune_stale_artifacts,
     main,
 )
@@ -38,7 +40,7 @@ def _make_staging_panel_ltr(root: Path, n: int) -> list[Path]:
     prod.mkdir(parents=True, exist_ok=True)
     paths = []
     for i in range(n):
-        ts = f"2026060{i}T120000Z"
+        ts = f"202606{i + 1:02d}T120000Z"
         p = prod / f"panel-ltr.alpha158_fund.weekly_{ts}.staging.json"
         _touch(p, mtime_offset=-n + i)  # oldest first
         paths.append(p)
@@ -50,7 +52,7 @@ def _make_staging_calibration(root: Path, n: int) -> list[Path]:
     prod.mkdir(parents=True, exist_ok=True)
     paths = []
     for i in range(n):
-        ts = f"2026060{i}T120000Z"
+        ts = f"202606{i + 1:02d}T120000Z"
         p = prod / f"panel-rank-calibration.weekly_{ts}.staging.json"
         _touch(p, mtime_offset=-n + i)
         paths.append(p)
@@ -74,7 +76,7 @@ def _make_rollback_snapshots(root: Path, n: int) -> list[Path]:
 def _make_lock_backups(root: Path, n: int) -> list[Path]:
     paths = []
     for i in range(n):
-        ts = f"2026060{i}T12000{i}"
+        ts = f"202606{i + 1:02d}T12000{i}"
         p = root / f"subrepos.lock.json.promote-bak.{ts}"
         _touch(p, mtime_offset=-n + i)
         paths.append(p)
@@ -228,6 +230,67 @@ class TestDryRunVsExecute:
         assert len(r.prunable) == 0
 
 
+class TestChronologyIsFilenameNotMtime:
+    """Keep/delete ordering must follow the filename's embedded semantic
+    timestamp, not filesystem mtime -- a copy, restore, touch, or sync can
+    reorder mtime independent of the artifact's actual logical age."""
+
+    def test_prune_uses_parsed_timestamp_not_mtime(self, tmp_path: Path) -> None:
+        prod = tmp_path / "artifacts" / "prod"
+        prod.mkdir(parents=True, exist_ok=True)
+
+        # Filename-chronological order: 01 (oldest) < 02 < 03 (newest).
+        oldest = prod / "panel-ltr.alpha158_fund.weekly_20260601T120000Z.staging.json"
+        middle = prod / "panel-ltr.alpha158_fund.weekly_20260602T120000Z.staging.json"
+        newest = prod / "panel-ltr.alpha158_fund.weekly_20260603T120000Z.staging.json"
+        for p in (oldest, middle, newest):
+            p.write_text("{}")
+
+        # Simulate a restore/sync that reorders mtime opposite to the real
+        # (filename) chronology: the logically-newest file gets the
+        # earliest mtime, and the logically-oldest file gets the latest.
+        os.utime(newest, (100.0, 100.0))
+        os.utime(middle, (200.0, 200.0))
+        os.utime(oldest, (300.0, 300.0))
+
+        family = ArtifactFamily(
+            name="staging_panel_ltr",
+            glob_pattern="artifacts/prod/panel-ltr.alpha158_fund.weekly_*.staging.json",
+            keep=2,
+            description="test",
+            timestamp_regex=r"weekly_(\d{8}T\d{6}Z)\.staging\.json$",
+            timestamp_format="%Y%m%dT%H%M%SZ",
+        )
+        results = prune_stale_artifacts(tmp_path, families=(family,))
+        r = results[0]
+
+        # Correct (mtime-blind) decision: the filename-oldest file (01) is
+        # the sole prunable one; 02 and 03 are kept as the two newest.
+        # Pre-fix (mtime-sorted) behaviour would have kept `newest`+`middle`
+        # by filename but actually computed mtime order, keeping `oldest`
+        # (mtime=300, "newest" by mtime) and `middle` (mtime=200) while
+        # marking `newest` (mtime=100, oldest by mtime) prunable --
+        # deleting the actual latest snapshot. This assertion fails under
+        # that pre-fix behavior and passes under the fix.
+        assert r.prunable == [oldest]
+
+    def test_parse_artifact_timestamp_rejects_unrecognized_filename(
+        self, tmp_path: Path
+    ) -> None:
+        family = ArtifactFamily(
+            name="staging_panel_ltr",
+            glob_pattern="*.json",
+            keep=1,
+            description="test",
+            timestamp_regex=r"weekly_(\d{8}T\d{6}Z)\.staging\.json$",
+            timestamp_format="%Y%m%dT%H%M%SZ",
+        )
+        bogus = tmp_path / "not-a-recognized-artifact-name.json"
+        bogus.write_text("{}")
+        with pytest.raises(ValueError, match="does not match the expected timestamp pattern"):
+            _parse_artifact_timestamp(bogus, family)
+
+
 # ---------------------------------------------------------------------------
 # Empty directory / missing directory
 # ---------------------------------------------------------------------------
@@ -255,7 +318,7 @@ class TestEmptyAndMissing:
         bt_prod = tmp_path / "backtesting" / "renquant_104" / "artifacts" / "prod"
         bt_prod.mkdir(parents=True, exist_ok=True)
         for i in range(6):
-            ts = f"2026060{i}T120000Z"
+            ts = f"202606{i + 1:02d}T120000Z"
             _touch(bt_prod / f"panel-ltr.alpha158_fund.weekly_{ts}.staging.json",
                    mtime_offset=-6 + i)
         results = prune_stale_artifacts(tmp_path, families=(DEFAULT_FAMILIES[0],))
@@ -308,6 +371,8 @@ class TestCustomFamily:
             glob_pattern="artifacts/prod/panel-ltr.alpha158_fund.weekly_*.staging.json",
             keep=2,
             description="test",
+            timestamp_regex=r"weekly_(\d{8}T\d{6}Z)\.staging\.json$",
+            timestamp_format="%Y%m%dT%H%M%SZ",
         ),)
         results = prune_stale_artifacts(tmp_path, families=custom)
         assert results[0].kept == 2
@@ -364,6 +429,26 @@ class TestCLI:
         assert rc == 0
         out = capsys.readouterr().out
         assert "nothing to prune" in out
+
+    def test_execute_without_repo_requires_explicit_path(self, capsys) -> None:
+        """--execute must never silently guess a workstation path."""
+        rc = main(["--execute"])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "--execute requires an explicit --repo" in err
+
+    def test_dry_run_without_repo_uses_canonical_default(
+        self, tmp_path: Path, capsys, monkeypatch
+    ) -> None:
+        """Dry-run may default via the canonical runtime-path resolver
+        (never a hard-coded workstation path)."""
+        import renquant_orchestrator.retention_policy as rp
+
+        monkeypatch.setattr(rp, "default_repo_root", lambda: tmp_path)
+        rc = main([])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert str(tmp_path) in out
 
 
 class TestCLIIntegration:

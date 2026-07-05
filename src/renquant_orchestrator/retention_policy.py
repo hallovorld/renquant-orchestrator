@@ -30,9 +30,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+
+from .runtime_paths import default_repo_root
 
 # ---------------------------------------------------------------------------
 # Retention configuration
@@ -49,6 +53,15 @@ class ArtifactFamily:
     glob_pattern: str
     keep: int
     description: str
+    #: Regex with one capture group extracting the semantic timestamp
+    #: embedded in the filename. Chronological keep/delete ordering is
+    #: driven by this, never by filesystem mtime -- a copy, restore,
+    #: touch, or sync can reorder mtime independent of the artifact's
+    #: actual logical age, which would otherwise cause the wrong
+    #: rollback/staging snapshot to be selected for deletion.
+    timestamp_regex: str
+    #: ``datetime.strptime`` format for the captured group above.
+    timestamp_format: str
 
 
 #: Default families. The glob patterns are relative to the repo root.
@@ -59,26 +72,50 @@ DEFAULT_FAMILIES: tuple[ArtifactFamily, ...] = (
         glob_pattern="artifacts/prod/panel-ltr.alpha158_fund.weekly_*.staging.json",
         keep=4,
         description="weekly panel-ltr staging snapshots (~1 month at weekly cadence)",
+        timestamp_regex=r"weekly_(\d{8}T\d{6}Z)\.staging\.json$",
+        timestamp_format="%Y%m%dT%H%M%SZ",
     ),
     ArtifactFamily(
         name="staging_calibration",
         glob_pattern="artifacts/prod/panel-rank-calibration.weekly_*.staging.json",
         keep=4,
         description="weekly calibration staging snapshots (~1 month at weekly cadence)",
+        timestamp_regex=r"weekly_(\d{8}T\d{6}Z)\.staging\.json$",
+        timestamp_format="%Y%m%dT%H%M%SZ",
     ),
     ArtifactFamily(
         name="rollback_snapshots",
         glob_pattern="artifacts/prod/*_rollback_*.json",
         keep=8,
         description="weekly/monthly rollback snapshots for revert safety",
+        timestamp_regex=r"rollback_(\d{4}-\d{2}-\d{2})\.json$",
+        timestamp_format="%Y-%m-%d",
     ),
     ArtifactFamily(
         name="lock_backups",
         glob_pattern="subrepos.lock.json.promote-bak.*",
         keep=5,
         description="subrepos.lock.json pre-promote backups",
+        timestamp_regex=r"promote-bak\.(\d{8}T\d{6})$",
+        timestamp_format="%Y%m%dT%H%M%S",
     ),
 )
+
+
+def _parse_artifact_timestamp(path: Path, family: ArtifactFamily) -> datetime:
+    """Extract the semantic timestamp embedded in an artifact's filename.
+
+    Used for keep/delete chronology instead of filesystem mtime -- see
+    ``ArtifactFamily.timestamp_regex`` docstring for why mtime is unsafe here.
+    """
+    m = re.search(family.timestamp_regex, path.name)
+    if not m:
+        raise ValueError(
+            f"{path}: filename does not match the expected timestamp pattern "
+            f"for family {family.name!r} ({family.timestamp_regex!r}) -- cannot "
+            f"determine prune eligibility without a reliable chronological key."
+        )
+    return datetime.strptime(m.group(1), family.timestamp_format)
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +137,10 @@ class PruneResult:
 def _scan_family(root: Path, family: ArtifactFamily) -> PruneResult:
     """Identify prunable files for one artifact family.
 
-    Files are sorted by modification time (newest first); the ``keep`` newest
-    are retained and the rest are returned as prunable.
+    Files are sorted by the semantic timestamp parsed from each filename
+    (newest first) -- never filesystem mtime, which a copy, restore, touch,
+    or sync can reorder independent of the artifact's actual logical age.
+    The ``keep`` newest are retained and the rest are returned as prunable.
     """
     # The glob pattern may start with a subdirectory.  We need to search
     # both the repo root and the backtesting/renquant_104/ prefix because
@@ -121,8 +160,9 @@ def _scan_family(root: Path, family: ArtifactFamily) -> PruneResult:
             seen.add(resolved)
             unique.append(p)
 
-    # Sort newest-first by mtime.
-    unique.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    # Sort newest-first by the semantic timestamp embedded in the filename,
+    # not filesystem mtime (see ArtifactFamily.timestamp_regex docstring).
+    unique.sort(key=lambda p: _parse_artifact_timestamp(p, family), reverse=True)
 
     prunable = unique[family.keep:]
     return PruneResult(
@@ -192,7 +232,11 @@ def main(argv: list[str] | None = None) -> int:
         "--repo",
         type=Path,
         default=None,
-        help="umbrella repo root; default: /Users/renhao/git/github/RenQuant",
+        help=(
+            "umbrella repo root; required with --execute (a destructive "
+            "delete must not silently guess a workstation path); optional "
+            "for dry-run, where it defaults via runtime_paths.default_repo_root()"
+        ),
     )
     ap.add_argument(
         "--json",
@@ -202,12 +246,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
 
-    repo_root: Path = args.repo or Path("/Users/renhao/git/github/RenQuant")
+    dry_run = not args.execute
+
+    if args.repo is not None:
+        repo_root: Path = args.repo
+    elif dry_run:
+        repo_root = default_repo_root()
+    else:
+        print(
+            "error: --execute requires an explicit --repo (refusing to guess "
+            "a workstation path for a destructive delete)",
+            file=sys.stderr,
+        )
+        return 1
+
     if not repo_root.is_dir():
         print(f"error: repo root does not exist: {repo_root}", file=sys.stderr)
         return 1
-
-    dry_run = not args.execute
     results = prune_stale_artifacts(repo_root, dry_run=dry_run)
 
     if args.emit_json:
