@@ -201,14 +201,13 @@ class SessionRunner:
     actually submits orders. The runner never constructs a broker port
     unless all gates arm live mode.
 
-    ``config.paper=True`` relaxes the §9.3a shadow-session evidence floor
-    from K=5 to K=1 (paper trades carry zero capital risk) and requires the
-    §9.4 authorization to cite ``PAPER_PREREG_ID`` specifically. This is a
-    declared-intent flag, not a self-enforcing one: ``_run_live()``
-    independently verifies the ACTUAL port ``port_factory()`` constructs is
-    a genuine ``PaperBroker`` before any order can be submitted, and fails
-    closed (raises) on any mismatch — so a misconfigured ``paper=True`` can
-    never silently combine a relaxed evidence bar with a real broker.
+    Paper mode is DERIVED from the §9.4 authorization file, not from the
+    caller: if the file's ``prereg_id`` equals ``PAPER_PREREG_ID``, the
+    runner sets ``config.paper=True`` (K=1 evidence floor) before evaluating
+    the quintuple gate. ``_run_live()`` independently verifies the ACTUAL
+    port ``port_factory()`` constructs is a genuine ``PaperBroker`` before
+    any order can be submitted, and fails closed on mismatch — so the
+    relaxed evidence bar can never silently combine with a real broker.
     """
 
     def __init__(
@@ -260,39 +259,36 @@ class SessionRunner:
             paper=self.config.paper,
         )
 
-    def _check_section_9_4(self) -> bool:
-        """Check whether the §9.4 economic-authorization file exists and is valid.
+    def _check_section_9_4(self) -> tuple[bool, bool]:
+        """Check §9.4 economic-authorization and derive paper mode from it.
 
-        This is the SEPARATE gate that must be satisfied BEFORE live execution
-        can activate, independent of the quintuple arming gate. The file must
-        exist, contain valid JSON with ``"authorized": true``, and include a
-        ``"prereg_id"`` field linking it to a pre-registered experiment.
+        Returns ``(authorized, is_paper)``. The paper flag is derived from the
+        authorization file's ``prereg_id``, NOT from ``config.paper`` — so the
+        evidence-floor relaxation and the execution backend are coupled through
+        the same authoritative artifact (the §9.4 file), and a caller cannot
+        accidentally decouple them.
 
-        Paper mode: the §9.4 file must still exist and be valid, AND its
-        ``prereg_id`` must equal ``PAPER_PREREG_ID`` exactly — paper trading
-        IS the pre-registration experiment, so accepting any other truthy
-        prereg_id here would let a real-money authorization silently double
-        as paper-mode authorization (or vice versa), defeating the point of
-        a paper-specific prereg identity.
+        If ``prereg_id == PAPER_PREREG_ID``, the session is paper-mode: the
+        §9.3a evidence floor drops to K=1, and ``_run_live()`` will require the
+        constructed port to be a ``PaperBroker`` (fail-closed on mismatch).
         """
         auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
         if not auth_path.exists():
-            return False
+            return False, False
         try:
             with auth_path.open() as fh:
                 payload = json.load(fh)
             if not (
                 isinstance(payload, dict) and payload.get("authorized") is True
             ):
-                return False
+                return False, False
             prereg_id = payload.get("prereg_id")
             if not prereg_id:
-                return False
-            if self.config.paper:
-                return prereg_id == PAPER_PREREG_ID
-            return True
+                return False, False
+            is_paper = prereg_id == PAPER_PREREG_ID
+            return True, is_paper
         except Exception:
-            return False
+            return False, False
 
     def run_session(
         self,
@@ -301,11 +297,14 @@ class SessionRunner:
         sleep_fn: Callable[[float], None] = time.sleep,
         max_cycles: int | None = None,
     ) -> SessionResult:
-        """Run one session: arm → drive (live or shadow) → close."""
+        """Run one session: §9.4 → derive paper → arm → drive."""
         now_fn = now_fn or (lambda: datetime.now(ET))
         now = now_fn()
         session_date = _as_aware(now).astimezone(ET).date().isoformat()
         kill_switch = self._build_kill_switch()
+
+        s94_ok, is_paper = self._check_section_9_4()
+        self.config.paper = is_paper
 
         arming = self._evaluate_arming(
             kill_switch=kill_switch, today=session_date
@@ -328,7 +327,7 @@ class SessionRunner:
                 max_cycles=max_cycles,
             )
 
-        if not self._check_section_9_4():
+        if not s94_ok:
             log.info(
                 "quintuple gate armed BUT §9.4 economic authorization NOT "
                 "present — falling back to shadow. The §9.4 file must be "
@@ -344,8 +343,9 @@ class SessionRunner:
             )
 
         log.info(
-            "quintuple gate ARMED + §9.4 authorized — driving Stage-2 live "
+            "quintuple gate ARMED + §9.4 authorized — driving Stage-2 %s "
             "session (authorization=%s)",
+            "PAPER" if is_paper else "LIVE",
             arming.authorization.content_sha256[:12] if arming.authorization else "?",
         )
         return self._run_live(

@@ -308,7 +308,8 @@ class TestSection94Gate:
             json.dumps({"authorized": False, "prereg_id": "test-001"})
         )
         runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
-        assert not runner._check_section_9_4()
+        ok, _ = runner._check_section_9_4()
+        assert not ok
 
     def test_section_94_file_must_have_prereg_id(self, tmp_path: Path):
         """§9.4 file with authorized=true but no prereg_id → rejected."""
@@ -318,7 +319,8 @@ class TestSection94Gate:
             json.dumps({"authorized": True})
         )
         runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
-        assert not runner._check_section_9_4()
+        ok, _ = runner._check_section_9_4()
+        assert not ok
 
     def test_section_94_valid_file_passes(self, tmp_path: Path):
         """Valid §9.4 file → gate passes."""
@@ -328,7 +330,9 @@ class TestSection94Gate:
             json.dumps({"authorized": True, "prereg_id": "prereg-2026-08-01"})
         )
         runner = _build_runner(tmp_path, port_factory=lambda: MagicMock())
-        assert runner._check_section_9_4()
+        ok, is_paper = runner._check_section_9_4()
+        assert ok
+        assert not is_paper
 
 
 class TestLiveFallbackWithoutPortFactory:
@@ -345,7 +349,7 @@ class TestLiveFallbackWithoutPortFactory:
                 authorization=MagicMock(content_sha256="abc123"),
                 to_manifest_record=lambda: {"armed": True},
             ),
-        ), patch.object(runner, "_check_section_9_4", return_value=True):
+        ), patch.object(runner, "_check_section_9_4", return_value=(True, False)):
             result = runner.run_session(
                 now_fn=lambda: _trading_day_now(10, 0),
                 sleep_fn=lambda _: None,

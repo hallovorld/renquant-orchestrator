@@ -246,120 +246,80 @@ class TestSessionRunnerConfigPaper:
 # ---------- §9.4 with paper prereg ----------
 
 class TestSection94Paper:
-    def test_paper_prereg_id_accepted(self, tmp_path):
+
+    def _make_runner(self, tmp_path):
+        return SessionRunner(
+            runner_config=SessionRunnerConfig(
+                data_root=tmp_path,
+                strategy_config={
+                    "watchlist": ["AAPL"],
+                    "intraday_decisioning": {
+                        "enabled": True,
+                        "mode": "shadow",
+                        "tick_seconds": 1,
+                    },
+                },
+            ),
+            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
+            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
+            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
+            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
+        )
+
+    def test_paper_prereg_id_returns_authorized_and_paper(self, tmp_path):
         auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
         auth_path.parent.mkdir(parents=True)
         auth_path.write_text(json.dumps({
             "authorized": True,
             "prereg_id": PAPER_PREREG_ID,
         }))
-        from renquant_orchestrator.intraday_session_runner import SessionRunner
-        runner_cfg = SessionRunnerConfig(
-            data_root=tmp_path,
-            strategy_config={
-                "watchlist": ["AAPL"],
-                "intraday_decisioning": {
-                    "enabled": True,
-                    "mode": "shadow",
-                    "tick_seconds": 1,
-                },
-            },
-            paper=True,
-        )
-        runner = SessionRunner(
-            runner_config=runner_cfg,
-            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
-            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
-            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
-            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
-        )
-        assert runner._check_section_9_4() is True
+        runner = self._make_runner(tmp_path)
+        ok, is_paper = runner._check_section_9_4()
+        assert ok is True
+        assert is_paper is True
 
-    def test_section_94_missing_fails(self, tmp_path):
-        from renquant_orchestrator.intraday_session_runner import SessionRunner
-        runner_cfg = SessionRunnerConfig(
-            data_root=tmp_path,
-            strategy_config={
-                "watchlist": ["AAPL"],
-                "intraday_decisioning": {
-                    "enabled": True,
-                    "mode": "shadow",
-                    "tick_seconds": 1,
-                },
-            },
-            paper=True,
-        )
-        runner = SessionRunner(
-            runner_config=runner_cfg,
-            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
-            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
-            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
-            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
-        )
-        assert runner._check_section_9_4() is False
+    def test_section_94_missing_returns_false_false(self, tmp_path):
+        runner = self._make_runner(tmp_path)
+        ok, is_paper = runner._check_section_9_4()
+        assert ok is False
+        assert is_paper is False
 
-    def test_paper_rejects_mismatched_truthy_prereg_id(self, tmp_path):
-        """A truthy prereg_id that is NOT PAPER_PREREG_ID must not authorize
-        paper mode — accepting any truthy string would let a real-money
-        authorization silently double as paper-mode authorization."""
-        auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
-        auth_path.parent.mkdir(parents=True)
-        auth_path.write_text(json.dumps({
-            "authorized": True,
-            "prereg_id": "some-other-real-money-prereg",
-        }))
-        from renquant_orchestrator.intraday_session_runner import SessionRunner
-        runner_cfg = SessionRunnerConfig(
-            data_root=tmp_path,
-            strategy_config={
-                "watchlist": ["AAPL"],
-                "intraday_decisioning": {
-                    "enabled": True,
-                    "mode": "shadow",
-                    "tick_seconds": 1,
-                },
-            },
-            paper=True,
-        )
-        runner = SessionRunner(
-            runner_config=runner_cfg,
-            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
-            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
-            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
-            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
-        )
-        assert runner._check_section_9_4() is False
-
-    def test_non_paper_accepts_any_truthy_prereg_id(self, tmp_path):
-        """Non-paper mode keeps the original, more permissive contract —
-        only paper mode requires the exact PAPER_PREREG_ID match."""
+    def test_non_paper_prereg_returns_authorized_not_paper(self, tmp_path):
+        """A non-paper prereg_id authorizes the session but does NOT
+        set paper mode — the evidence floor stays at K=5."""
         auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
         auth_path.parent.mkdir(parents=True)
         auth_path.write_text(json.dumps({
             "authorized": True,
             "prereg_id": "some-real-money-prereg",
         }))
-        from renquant_orchestrator.intraday_session_runner import SessionRunner
-        runner_cfg = SessionRunnerConfig(
-            data_root=tmp_path,
-            strategy_config={
-                "watchlist": ["AAPL"],
-                "intraday_decisioning": {
-                    "enabled": True,
-                    "mode": "shadow",
-                    "tick_seconds": 1,
-                },
-            },
-            paper=False,
-        )
-        runner = SessionRunner(
-            runner_config=runner_cfg,
-            tick_runner=lambda **kw: {"intents": [], "scores": {}, "regime": "BULL_CALM"},
-            signal_loader=lambda d: {"signal_version": "t", "as_of": d, "source_run_id": "t", "score_content_sha256": "t", "scores": {}},
-            session_start_provider=lambda d, n: {"session_date": d, "watchlist": ["AAPL"]},
-            live_state_provider=lambda **kw: {"prices": {"AAPL": 200.0}},
-        )
-        assert runner._check_section_9_4() is True
+        runner = self._make_runner(tmp_path)
+        ok, is_paper = runner._check_section_9_4()
+        assert ok is True
+        assert is_paper is False
+
+    def test_not_authorized_returns_false(self, tmp_path):
+        auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
+        auth_path.parent.mkdir(parents=True)
+        auth_path.write_text(json.dumps({
+            "authorized": False,
+            "prereg_id": PAPER_PREREG_ID,
+        }))
+        runner = self._make_runner(tmp_path)
+        ok, is_paper = runner._check_section_9_4()
+        assert ok is False
+        assert is_paper is False
+
+    def test_missing_prereg_id_returns_false(self, tmp_path):
+        auth_path = tmp_path / "data" / "rq105" / SECTION_9_4_FILENAME
+        auth_path.parent.mkdir(parents=True)
+        auth_path.write_text(json.dumps({
+            "authorized": True,
+        }))
+        runner = self._make_runner(tmp_path)
+        ok, is_paper = runner._check_section_9_4()
+        assert ok is False
+        assert is_paper is False
 
 
 # ---------- _run_live() fails closed on a paper/port-type mismatch ----------
