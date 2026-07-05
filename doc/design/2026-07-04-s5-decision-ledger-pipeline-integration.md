@@ -102,7 +102,21 @@ should include a test that:
    through gates, selected by QP, 1-share buy)
 2. Writes verdicts to an in-memory ledger
 3. Verifies all expected gates recorded with correct verdicts
-4. Runs `decision_outcome_validator` on the fixture and gets a PASS
+4. Runs `decision_outcome_validator` on the fixture and asserts
+   `overall_verdict == "INSUFFICIENT_DATA"`
+
+**Note on (4):** a single fixture is n=1, below `decision_outcome_validator`'s
+`MIN_SAMPLE_SIZE = 5` default — per-gate verdicts below that threshold are
+`INSUFFICIENT_DATA` by design (not a bug to work around), so a real `PASS`
+verdict is not an achievable or meaningful target for a one-decision replay.
+This step is a **write-side plumbing check**: it verifies the ledger rows the
+fixture produces are structurally correct and that the validator consumes them
+without erroring, not that the validator's statistical assessment reaches
+significance. Do not lower `min_sample` to force a `PASS` here — that would
+defeat the purpose of the threshold rather than validate anything. A real
+`PASS` requires ≥5 decisions per gate and belongs to the live-data readiness
+path (Step 3 / `S5_decision_ledger` in the readiness monitor), not this
+fixture.
 
 ## Integration checklist
 
@@ -158,6 +172,19 @@ CREATE TABLE IF NOT EXISTS decision_outcomes (
 - `write_verdicts` is append-only (INSERT OR IGNORE on PK)
 - The DB uses WAL mode + busy timeout for concurrent-agent safety
 - The pipeline should NEVER delete from or UPDATE the ledger
-- If the orchestrator modules are not importable (version skew), the pipeline
-  should fail-open on the ledger write (log a warning, continue with the run)
-  — missing ledger data is recoverable via backfiller, but a failed daily run is not
+- **Explicit operational tradeoff — fail-open on ledger-write import/version
+  skew:** if the orchestrator modules are not importable (version skew), the
+  pipeline logs a warning and continues the run rather than blocking it. This
+  is a deliberate choice, not a quiet default: S5 is a critical measurement
+  substrate for several downstream programs (S8, M-SIG, M3, the 107
+  attribution engine), and choosing fail-open means a version-skew or import
+  failure silently produces a gap in ledger coverage for that run — reducing
+  the ≥95% forward-outcome-join coverage the S5 AC requires — rather than
+  surfacing as a pipeline failure. The tradeoff is made deliberately in favor
+  of run availability over ledger completeness, on the reasoning that a
+  missing day of ledger coverage is recoverable via `outcome_backfiller.py`
+  (bootstrap/reconstruction path), while a blocked daily run is not
+  recoverable after the fact. Any pipeline PR implementing this contract
+  should log fail-open events at a level that is monitored (not silently
+  swallowed), since repeated fail-opens would erode the coverage this
+  substrate depends on without any other visible signal.
