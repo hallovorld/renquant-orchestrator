@@ -63,6 +63,7 @@ S-REL experiment reliability
 | `gate_registry.py` | GateRegistry + verdict algebra (lattice: allow < halve < block) |
 | `decision_outcome_validator.py` | Forward-return coverage check (≥95% for aged decisions) |
 | `outcome_backfiller.py` | Reconstructs decision_outcomes from candidate_scores (RECONSTRUCTED provenance) |
+| `outcome_observer.py` | Forward-outcome observer — populates decision_outcomes from live forward returns after 60d (Path B, PR #351) |
 | `ledger_attribution.py` | Decision-outcomes DDL + attribution join |
 
 ### Attribution Engine (`attribution/`)

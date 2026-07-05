@@ -96,6 +96,7 @@ data refresh (base-data)
 | `gate_calibration_diagnostic.py` | Gate threshold vs model output achievability diagnostic (20 tests) |
 | `decision_outcome_validator.py` | Per-gate precision/recall/accuracy from realized outcomes (18 tests) |
 | `outcome_backfiller.py` | Backfills decision_outcomes from candidate_scores + forward returns (19 tests) |
+| `outcome_observer.py` | Forward-outcome observer — populates decision_outcomes from live forward returns after 60d (21 tests) |
 | `config_experiment_store.py` | S6 config experiment DDL + CRUD for lambda sweep (11 tests) |
 | `model_freshness_enforcer.py` | Freshness enforcement recommendation engine (observe-only, PR #334) |
 | `readiness_monitor.py` | 12 programmatic data-accumulation checks (N1/N2/N3/S5/S6/S8/S-TC/D1/baseline) |
