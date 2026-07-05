@@ -576,6 +576,17 @@ _JOBS: tuple[ScheduledJob, ...] = (
         umbrella_state_dependency="runs.alpaca.db for entry prices and forward returns",
         launchd_label="com.renquant.outcome-observer",
     ),
+    ScheduledJob(
+        job_id="tc_measurement",
+        kind="ops",
+        cadence="daily",
+        command=["renquant-orchestrator", "run-job", "tc_measurement"],
+        owner_repo="renquant-orchestrator",
+        migration_state="native_multirepo",
+        production_safe=True,
+        umbrella_state_dependency="runs.alpaca.db for candidate_scores and trades",
+        launchd_label="com.renquant.tc-measurement",
+    ),
 )
 
 

@@ -156,6 +156,7 @@
     "signal_pipeline_config",
     "software_stop",
     "state_backup",
+    "tc_measurement",
     "tournament_shadow_admission",
     "train_gbdt",
     "transfer_coefficient",
