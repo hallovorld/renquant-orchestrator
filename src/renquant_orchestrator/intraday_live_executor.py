@@ -198,6 +198,10 @@ DEFAULT_DAILY_ENTRY_NOTIONAL_CAP = 500.0
 #: must attest to before it validates.
 MIN_SHADOW_SESSIONS_CLEAN = 5
 
+#: Paper-mode shadow-session floor: paper trades carry zero capital risk,
+#: so the evidence bar is lower — 1 clean session proves the machinery runs.
+MIN_SHADOW_SESSIONS_CLEAN_PAPER = 1
+
 #: §9.3a duration cap ≈ one month: an authorization window longer than this
 #: is structurally an indefinite production grant, so it fails validation.
 MAX_AUTHORIZATION_WINDOW_DAYS = 31
@@ -338,7 +342,7 @@ class Stage2Authorization:
 
     @classmethod
     def from_payload(
-        cls, payload: Mapping[str, Any], *, today: str
+        cls, payload: Mapping[str, Any], *, today: str, paper: bool = False
     ) -> "Stage2Authorization":
         """Validate the authorization schema; raise with EVERY violation."""
         errors: list[str] = []
@@ -506,10 +510,16 @@ class Stage2Authorization:
                     f"{raw_sessions!r}"
                 )
             else:
-                if sessions < MIN_SHADOW_SESSIONS_CLEAN:
+                floor = (
+                    MIN_SHADOW_SESSIONS_CLEAN_PAPER
+                    if paper
+                    else MIN_SHADOW_SESSIONS_CLEAN
+                )
+                if sessions < floor:
                     errors.append(
                         f"evidence.shadow_sessions_clean={sessions} is below "
-                        f"the §9.3 K={MIN_SHADOW_SESSIONS_CLEAN} floor"
+                        f"the {'paper' if paper else '§9.3 K'}="
+                        f"{floor} floor"
                     )
             replay_green = evidence.get("replay_audits_green")
             if replay_green is not True:
@@ -577,7 +587,7 @@ class Stage2Authorization:
 
 
 def load_stage2_authorization(
-    path: str | Path, *, today: str
+    path: str | Path, *, today: str, paper: bool = False
 ) -> Stage2Authorization:
     """Load + schema-validate the §9.3a authorization file (gate 2)."""
     p = Path(path)
@@ -589,7 +599,7 @@ def load_stage2_authorization(
         raise Stage2AuthorizationError(f"authorization file {p} unreadable: {exc}")
     if not isinstance(payload, dict):
         raise Stage2AuthorizationError(f"authorization file {p} is not a JSON object")
-    return Stage2Authorization.from_payload(payload, today=today)
+    return Stage2Authorization.from_payload(payload, today=today, paper=paper)
 
 
 # ---------------------------------------------------------------------------
@@ -958,6 +968,7 @@ def resolve_stage2_arming(
     kill_switch: KillSwitch,
     environ: Mapping[str, str] | None = None,
     today: str,
+    paper: bool = False,
 ) -> ArmDecision:
     """Evaluate the §9.3a arming gate. ANY missing gate ⇒ shadow (counted).
 
@@ -983,7 +994,9 @@ def resolve_stage2_arming(
 
     authorization: Stage2Authorization | None = None
     try:
-        authorization = load_stage2_authorization(authorization_path, today=today)
+        authorization = load_stage2_authorization(
+            authorization_path, today=today, paper=paper
+        )
         auth_ok = True
     except Stage2AuthorizationError as exc:
         auth_ok = False

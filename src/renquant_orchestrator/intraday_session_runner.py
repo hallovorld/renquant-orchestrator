@@ -89,6 +89,10 @@ RUNNER_SCHEMA_VERSION = "rq105-session-runner-v1"
 RECORD_KIND_MANIFEST = "session_runner_manifest"
 SECTION_9_4_FILENAME = "section_9_4_economic_authorization.json"
 
+#: Paper trading IS the pre-registration experiment — this prereg_id
+#: satisfies the §9.4 gate when running on a paper account.
+PAPER_PREREG_ID = "rq105-paper-canary-prereg-v1"
+
 
 @dataclass
 class SessionRunnerConfig:
@@ -105,6 +109,7 @@ class SessionRunnerConfig:
     live_actions_path: Path | None = None
     stop_log_path: Path | None = None
     stop_config: StopConfig = field(default_factory=StopConfig)
+    paper: bool = False
 
     def resolve_paths(self) -> None:
         root = self.data_root
@@ -241,6 +246,7 @@ class SessionRunner:
             canary_state_path=self.config.canary_state_path,
             kill_switch=kill_switch,
             today=today,
+            paper=self.config.paper,
         )
 
     def _check_section_9_4(self) -> bool:
@@ -250,6 +256,10 @@ class SessionRunner:
         can activate, independent of the quintuple arming gate. The file must
         exist, contain valid JSON with ``"authorized": true``, and include a
         ``"prereg_id"`` field linking it to a pre-registered experiment.
+
+        Paper mode: the §9.4 file must still exist and be valid, but it may
+        reference ``PAPER_PREREG_ID`` — paper trading IS the pre-registration
+        experiment, so the prereg the file cites is the paper canary itself.
         """
         auth_path = Path(self.config.data_root) / "data" / "rq105" / SECTION_9_4_FILENAME
         if not auth_path.exists():
