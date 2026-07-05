@@ -438,6 +438,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="return non-zero when any included log failed or could not be classified",
     )
 
+    decision_validate = sub.add_parser(
+        "decision-validate",
+        help="validate gate accuracy against realized forward outcomes",
+    )
+    decision_validate.add_argument(
+        "decision_validate_args", nargs=argparse.REMAINDER,
+        help="pass-through args to decision_outcome_validator.main",
+    )
+
     sign_launder = sub.add_parser(
         "sign-laundering",
         help="measure sign laundering in scorer/calibrator artifacts",
@@ -445,6 +454,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     sign_launder.add_argument(
         "sign_launder_args", nargs=argparse.REMAINDER,
         help="pass-through args to sign_laundering_harness.main",
+    )
+
+    gate_cal = sub.add_parser(
+        "gate-calibration",
+        help="gate threshold calibration diagnostic — are gates achievable?",
+    )
+    gate_cal.add_argument(
+        "gate_cal_args", nargs=argparse.REMAINDER,
+        help="pass-through args to gate_calibration_diagnostic.main",
+    )
+
+    outcome_bf = sub.add_parser(
+        "outcome-backfill",
+        help="backfill decision_outcomes from candidate_scores + forward returns",
+    )
+    outcome_bf.add_argument(
+        "outcome_backfill_args", nargs=argparse.REMAINDER,
+        help="pass-through args to outcome_backfiller.main",
     )
 
     roadmap = sub.add_parser(
@@ -931,10 +958,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(str(exc))
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload["summary"]["ok"] or not args.strict else 1
+    if args.command == "decision-validate":
+        from .decision_outcome_validator import main as dv_main
+
+        return dv_main(args.decision_validate_args or None)
     if args.command == "sign-laundering":
         from .sign_laundering_harness import main as sl_main
 
         return sl_main(args.sign_launder_args or None)
+    if args.command == "gate-calibration":
+        from .gate_calibration_diagnostic import main as gc_main
+
+        return gc_main(args.gate_cal_args or None)
+    if args.command == "outcome-backfill":
+        from .outcome_backfiller import main as ob_main
+
+        return ob_main(args.outcome_backfill_args or None)
     if args.command == "agent-workflow":
         from .agent_workflows import resolve_token, run_agent_workflow
 

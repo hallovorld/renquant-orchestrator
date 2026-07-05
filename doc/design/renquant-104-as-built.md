@@ -93,6 +93,11 @@ data refresh (base-data)
 | `agent_workflows.py` | Multi-repo orchestration (pin management, promote) |
 | `build_patchtst_wf_manifest.py` | PatchTST walk-forward manifest builder |
 | `scorer_identity_monitor.py` | Run-over-run scorer identity diff alarm |
+| `gate_calibration_diagnostic.py` | Gate threshold vs model output achievability diagnostic (20 tests) |
+| `decision_outcome_validator.py` | Per-gate precision/recall/accuracy from realized outcomes (18 tests) |
+| `outcome_backfiller.py` | Backfills decision_outcomes from candidate_scores + forward returns (19 tests) |
+| `config_experiment_store.py` | S6 config experiment DDL + CRUD for lambda sweep (11 tests) |
+| `model_freshness_enforcer.py` | Freshness enforcement recommendation engine (observe-only, PR #334) |
 
 ## Models
 
