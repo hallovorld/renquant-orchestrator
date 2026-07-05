@@ -8,13 +8,23 @@ BLOCKS: N2 (PIT revision accrual), N3 (FMP quarterly depth), M-SIG (signal subst
 
 **Probe executed — see PR #348** (`doc/research/2026-07-04-rs3-probe-results.md`).
 This memo is the probe DESIGN; #348 is the executed RESULTS. Outcome: **T1
-(Polygon cost) FAILED** — real cost is $99–298/mo, not the $58/mo this memo's
-Tier-1 pick assumed. **T5/T7 PASSED** (FMP Starter analyst-consensus depth, SEC
-EDGAR free PIT data). Recommendation revised to SEC EDGAR harvester ($0, see
-PR #350) + FMP Starter (already subscribed). The Bottom line / §3 Tier-1 pick
-below reflects the PRE-probe preliminary screen and is superseded by that
-outcome — kept here for the audit trail of what the screen assumed before
-validation, not as the current recommendation.
+(Polygon cost) downgraded to HIGH-RISK / UNVERIFIED** — the public evidence is
+genuinely conflicting (one round of research found ~$99/mo for the Financials
+add-on; a separate fresh re-check surfaced a competing, unofficial ~$29/mo
+claim) and non-official (Polygon/Massive's real pricing page is a JS-rendered
+SPA with no scrapable content or documented public pricing API — confirmed
+independently twice). Neither number is acceptance-test-grade confirmed, so
+this is NOT a falsification of Polygon on cost grounds — the cost boundary
+this memo's Tier-1 pick assumed ($58/mo) is unconfirmed, not disproven.
+**T5a/T5b/T7 PASSED** (FMP Starter analyst-consensus + target-history depth,
+SEC EDGAR free raw PIT data — confirmed as a free PIT *source*, not proven
+equivalent to Polygon's pre-parsed financials surface in concept normalization,
+restatement handling, or coverage convenience). Recommendation revised to SEC
+EDGAR harvester ($0, see PR #350) + FMP Starter (already subscribed) — chosen
+on its own independently-confirmed merits, not because Polygon was ruled out.
+The Bottom line / §3 Tier-1 pick below reflects the PRE-probe preliminary
+screen and is superseded by that outcome — kept here for the audit trail of
+what the screen assumed before validation, not as the current recommendation.
 
 ---
 
@@ -211,16 +221,24 @@ Two cost tiers among these tests, not one uniform "zero cost" probe:
    falsify the Tier-1 recommendation on cost grounds before any paid-tier
    spend is needed for T2/T3/T4/T6 — do not approve the paid tier before T1
    clears.
-4. **Executed outcome (PR #348, 2026-07-04)**: T1 FAILED at the zero-cost
-   stage — real cost is $99–298/mo, not $58/mo (see PR #348's results doc).
-   Because T1 failed first, T2/T3/T4/T6 were never run and no paid-tier spend
-   was ever needed or requested — this was the "fail T1 → escalate" path
-   under case 5 below, resolved without touching the paid tier. T5a/T5b/T7 (also
-   zero-cost) independently PASSED, confirming FMP Starter + SEC EDGAR jointly
-   satisfy the analyst-consensus and PIT needs without Polygon at all.
-5. **Fail T1** → Polygon's economics don't clear the budget threshold before
-   PIT fidelity is even tested → do not approve paid-tier spend; re-evaluate
-   Tier-1 pick using only what zero-cost tests confirm (§ Executed outcome).
+4. **Executed outcome (PR #348, 2026-07-04, revised 2026-07-05)**: T1 was
+   downgraded to HIGH-RISK / UNVERIFIED at the zero-cost stage — the public
+   cost evidence is conflicting (~$99/mo per one round of research vs. a
+   competing, unofficial ~$29/mo per a later re-check) and neither source is
+   official (see PR #348's results doc for the full evidence table). This is
+   not a confirmed falsification, but the evidence quality is too weak to
+   authorize paid-tier spend on. Because T1 did not clear, T2/T3/T4/T6 were
+   never run and no paid-tier spend was ever needed or requested — this is
+   the "T1 inconclusive → do not escalate to paid tier" path under case 5
+   below. T5a/T5b/T7 (also zero-cost) independently PASSED, confirming FMP
+   Starter + SEC EDGAR jointly satisfy the analyst-consensus and PIT needs
+   without needing Polygon resolved either way.
+5. **T1 inconclusive (HIGH-RISK/UNVERIFIED)** → Polygon's real cost cannot be
+   confirmed from public information → do not approve paid-tier spend without
+   an official quote; re-evaluate Tier-1 pick using only what the zero-cost
+   tests confirm (§ Executed outcome) rather than either the original $58/mo
+   assumption or a stronger "disqualified" claim neither side of the evidence
+   actually proves.
 6. Had T1 passed: **Pass all 8 (T1-T4, T5a, T5b, T6, T7)** → recommendation
    upgrades to CONFIRMED; operator approves $29/mo. **Fail T2/T3/T4** →
    Polygon is NOT viable for PIT; escalate to Sharadar SF1 (Tier 2 probe
@@ -252,19 +270,23 @@ Two cost tiers among these tests, not one uniform "zero cost" probe:
 
 **Superseded by PR #348's executed results** — the zero-cost portion of this
 probe (T1, T5a, T5b, T7) has already run (no operator approval was needed,
-since none of those four tests touch a paid tier). T1 failed: Polygon's real
-cost is $99–298/mo, not $58/mo, so the paid-tier tests (T2/T3/T4/T6) were
-never triggered and no Polygon spend was ever requested. The decision the
-operator actually needs now (see PR #350):
+since none of those four tests touch a paid tier). T1 is HIGH-RISK/UNVERIFIED,
+not FAILED: Polygon's real cost cannot be confirmed either way from public
+sources (conflicting ~$99/mo vs. ~$29/mo third-party claims, no official
+pricing page access), so the paid-tier tests (T2/T3/T4/T6) were never
+triggered and no Polygon spend was ever requested. The decision the operator
+actually needs now (see PR #350) rests on T5a/T5b/T7's independently
+CONFIRMED PASS, not on Polygon being ruled out:
 
 - [ ] Approve the SEC EDGAR XBRL harvester engineering effort ($0 spend,
       `renquant-base-data`) as the N2/M-SIG PIT source, per PR #348's revised
-      recommendation
+      recommendation — justified by SEC EDGAR + FMP Starter's own confirmed
+      results, independent of Polygon's unresolved status
 - [ ] Sharadar SF1: want me to get the real price? (Tier 2 contingency, only
       if the EDGAR concept-mapping engineering proves too costly)
-- [ ] Polygon: NOT requested at this time — T1 failed at zero cost before any
-      paid-tier spend was needed; would require a fresh probe at the real
-      $99–298/mo price point if reconsidered later
+- [ ] Polygon: NOT requested at this time — cost remains unverified, not
+      disqualified; would require an official quote (sales contact or a live
+      trial checkout page) to resolve if reconsidered later
 
 ---
 

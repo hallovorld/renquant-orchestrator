@@ -75,3 +75,22 @@ and the operator decision now needed is the SEC EDGAR harvester effort (PR
 #350), not a Polygon spend approval. Added a cross-reference at the top of
 the memo pointing to PR #348 as the executed-results follow-on, since this
 memo is now the probe DESIGN record and #348 is the RESULTS record.
+
+## Round 4 (2026-07-05): synced T1 verdict with PR #348's own correction
+
+PR #348 had its own evidence-quality review round after this memo's round 3
+landed: T1 was downgraded from FAIL ("$99-298/mo, disqualified") to HIGH-RISK
+/ UNVERIFIED, because the cost evidence turned out to be genuinely conflicting
+— a fresh re-check surfaced a competing, unofficial ~$29/mo claim alongside
+the original ~$99/mo finding, and neither traces to an official Polygon
+pricing page or checkout flow (confirmed unscrapable, twice). This memo still
+described T1 as "FAILED"/"disqualified" in three places (the top cross-ref
+block, §6.3 point 4, and §8) — reintroducing the stronger, already-retracted
+claim. Fetched #348's actual current (merged) wording from `origin/main` and
+matched this memo's language to it exactly: T1 is HIGH-RISK/UNVERIFIED (cost
+boundary unconfirmed, not disproven), the SEC EDGAR recommendation is now
+framed as resting on T5a/T5b/T7's own independently-confirmed PASS rather than
+on Polygon being ruled out, and case 5's decision framing was reworded from
+"Fail T1 → escalate" to "T1 inconclusive → do not escalate to paid tier
+without an official quote." The two documents (design memo + results memo)
+now tell the same core story about T1's status.
