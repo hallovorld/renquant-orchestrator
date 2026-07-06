@@ -984,6 +984,7 @@ def main(
             quote_source=AlpacaQuoteSource(),
             tickers=load_watchlist(strategy_config_path),
             order_state_path=args.order_state_file,
+            paper=False,
         )
 
         def live_state_provider(**kwargs: Any) -> Mapping[str, Any]:
