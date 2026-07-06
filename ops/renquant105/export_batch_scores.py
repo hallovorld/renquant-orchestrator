@@ -127,13 +127,26 @@ def _select_source_run(con: sqlite3.Connection, expected_run_date: str):
     return run_id, run_date, run_bundle
 
 
+_REQUIRED_ARTIFACT_KEYS = frozenset({
+    "panel",
+    "global_calibration",
+    "ranking.panel_scoring.artifact_path",
+})
+
+
 def _fingerprint_gaps(run_bundle: dict) -> list[str]:
     gaps = []
     if not run_bundle.get("config_hash"):
         gaps.append("config_hash")
     artifact_hashes = run_bundle.get("artifact_hashes") or {}
-    if not artifact_hashes or any(not v for v in artifact_hashes.values()):
+    if not artifact_hashes:
         gaps.append("artifact_hashes")
+    else:
+        missing_required = _REQUIRED_ARTIFACT_KEYS - {
+            k for k, v in artifact_hashes.items() if v
+        }
+        if missing_required:
+            gaps.append(f"artifact_hashes({','.join(sorted(missing_required))})")
     if not run_bundle.get("watchlist_hash"):
         gaps.append("watchlist_hash")
     return gaps
