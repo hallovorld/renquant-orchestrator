@@ -752,6 +752,14 @@ class SessionScheduler:
         # THE Stage-1 runtime assertion: shadow mode, and nothing in the
         # payload is broker-submission evidence. Raises before persisting.
         assert_shadow_never_submits(mode=mode, decisions=record["decisions"])
+        # Strip the per-ticker decision_trace on no-trade ticks to keep
+        # the shadow log lean (~3KB summary vs ~90KB full trace per tick).
+        intents = decisions.get("intents") or ()
+        if not intents and "decision_trace" in decisions:
+            record["decisions"] = {
+                k: v for k, v in decisions.items() if k != "decision_trace"
+            }
+            record["decisions"]["decision_trace_stripped"] = True
         self.writer.append(record)
         if self.tick_observer is not None:
             try:
