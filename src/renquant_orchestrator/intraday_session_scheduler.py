@@ -6,8 +6,11 @@ M1 SLICE 3 of the Stage-1 build (RFC #208
 plumbing, and the shadow decision log the replay/audit harness
 (:mod:`.intraday_replay_audit`) verifies. Consumes slice 1
 (renquant-execution #20, order-state machine) and slice 2
-(renquant-pipeline #163, ``run_intraday_decision_tick``) strictly through
-their contracts; implements neither.
+(renquant-pipeline #163, ``run_frozen_score_diagnostic_tick`` — the
+frozen-score diagnostic variant of ``run_intraday_decision_tick``, moved
+into renquant-pipeline in PR #400 round 2 after previously composing
+``panel_scoring``/``selection`` internals here) strictly through their
+contracts; implements neither.
 
 **Nothing here can place an order.** The scheduler holds no trading client
 with a submit path (class-C reads are GET-only, see
@@ -486,80 +489,26 @@ def bind_pipeline_tick_runner(
     until pipeline #163 is merged AND the pins advance (§8 merge order). The
     scheduler CLI refuses to run in that case rather than inventing a local
     decision path (hard boundary: no decision/sizing internals here).
+
+    Binds :func:`renquant_pipeline.intraday_decisioning
+    .run_frozen_score_diagnostic_tick` — the frozen-score DIAGNOSTIC PROBE
+    (no live feature build; see that function's docstring for the
+    semantic-validity caveats it carries). This module imports ONLY that
+    one slice-2 entry point; the stage composition it drives
+    (``panel_scoring``/``selection`` internals) lives entirely inside
+    renquant-pipeline, never here (RFC #208 §8 boundary — reaching into
+    those internals to assemble a custom stage graph in this repo was a
+    real architecture-boundary violation, fixed in orchestrator PR #400
+    round 2 by moving the composition into the owning repo).
     """
     try:
         from renquant_pipeline import intraday_decisioning as contract  # noqa: PLC0415
-        from renquant_pipeline.panel_scoring import (  # noqa: PLC0415
-            ApplyGlobalCalibrationTask,
-            ApplyScoresTask,
-            EmitAttributedOrderIntentsTask,
-            RegimeModelAdmissionTask,
-            VetoWeakBuysTask,
-        )
-        from renquant_pipeline.selection import SelectionJob  # noqa: PLC0415
     except ImportError as exc:
         raise PipelineContractUnavailable(
             "renquant_pipeline.intraday_decisioning is not importable — "
             "slice 2 (renquant-pipeline #163) must be merged and pinned "
             f"before the scheduler can run real ticks ({exc})"
         )
-
-    from renquant_common import Job, Task as _Task  # noqa: PLC0415
-
-    class _StubFeatureMatrixTask(_Task):
-        def run(self, ctx):
-            market = getattr(ctx, "market_snapshot", {}) or {}
-            scores = market.get("panel_scores") or {}
-            matrix = {str(t): {} for t in scores}
-            setattr(ctx, "panel_feature_cols", [])
-            setattr(ctx, "panel_feature_matrix", matrix)
-            setattr(ctx, "panel_artifact_id", "frozen-daily-signal")
-            cfg = getattr(ctx, "strategy_config", {}) or {}
-            exe = cfg.setdefault("execution", {})
-            if exe.get("default_quantity") is None:
-                exe["default_quantity"] = 1
-            return True
-
-    class _FrozenScoreScoringJob(Job):
-        """PanelScoringJob replacement that skips feature build and uses
-        pre-computed frozen scores from the class-A signal.
-
-        DIAGNOSTIC / DEBUG PROBE ONLY — not a validated intent-generation
-        design. ``_StubFeatureMatrixTask`` injects an EMPTY feature matrix
-        and hardcodes ``default_quantity=1`` purely to unblock the pipeline
-        from its usual per-tick feature-availability gate; there is no
-        proof that bypassing the feature contract this way preserves the
-        pipeline's semantics, no real sizing control (quantity is always 1
-        regardless of price/risk), and no exit/sell path at all. This is
-        confined to the shadow-only scheduler (no submit path exists in
-        this module), so it can only ever produce shadow-logged intents —
-        but it must not be treated as, or built on top of, a defensible
-        paper/live execution design until those gaps are closed."""
-
-        def __init__(self, *, emit_orders=False):
-            tasks = [
-                _StubFeatureMatrixTask(),
-                ApplyScoresTask(),
-                ApplyGlobalCalibrationTask(),
-                RegimeModelAdmissionTask(),
-                VetoWeakBuysTask(),
-            ]
-            if emit_orders:
-                tasks.append(EmitAttributedOrderIntentsTask())
-            self._tasks = tasks
-
-        @property
-        def tasks(self):
-            return self._tasks
-
-    def _frozen_score_stages():
-        """Stage list that uses pre-computed frozen scores instead of
-        rebuilding features from scratch each tick."""
-        return [
-            _FrozenScoreScoringJob(),
-            SelectionJob(),
-            _FrozenScoreScoringJob(emit_orders=True),
-        ]
 
     def runner(
         *,
@@ -571,7 +520,7 @@ def bind_pipeline_tick_runner(
         exit_orders: Sequence[Mapping[str, Any]],
     ) -> Any:
         state = dict(live_state)
-        return contract.run_intraday_decision_tick(
+        return contract.run_frozen_score_diagnostic_tick(
             strategy_config=dict(strategy_config),
             data_manifest=dict(data_manifest),
             artifact_manifest=dict(artifact_manifest),
@@ -604,7 +553,6 @@ def bind_pipeline_tick_runner(
                 deployed_notional=float(session_counters.get("deployed_notional", 0.0)),
                 turnover_notional=float(session_counters.get("turnover_notional", 0.0)),
             ),
-            stages=_frozen_score_stages(),
         )
 
     return runner
