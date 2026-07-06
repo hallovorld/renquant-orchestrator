@@ -50,7 +50,12 @@ CREATE TABLE candidate_scores (
 
 _GOOD_BUNDLE = {
     "config_hash": "sha256:cfg",
-    "artifact_hashes": {"panel": "sha256:art1", "gate_b": "sha256:art2"},
+    "artifact_hashes": {
+        "panel": "sha256:art1",
+        "global_calibration": "sha256:art2",
+        "ranking.panel_scoring.artifact_path": "sha256:art3",
+        "gate_b": "sha256:art4",
+    },
     "watchlist_hash": "sha256:wl",
     "watchlist_size": 3,
 }
@@ -169,7 +174,11 @@ def test_rejects_run_with_empty_artifact_hash_value(tmp_path):
     because the dict key technically exists."""
     db = _make_db(tmp_path)
     bad_bundle = dict(_GOOD_BUNDLE)
-    bad_bundle["artifact_hashes"] = {"panel": "sha256:art1", "gate_b": None}
+    bad_bundle["artifact_hashes"] = {
+        "panel": "sha256:art1",
+        "global_calibration": None,
+        "ranking.panel_scoring.artifact_path": "sha256:art3",
+    }
     _insert_run(db, "2026-07-01-live-partialfp", run_bundle=bad_bundle)
     rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
     assert rc == 1
