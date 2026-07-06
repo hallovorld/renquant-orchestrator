@@ -79,6 +79,7 @@ def test_holiday_weekday_is_still_checked(monkeypatch, tmp_path):
     # regardless of market status). Liveness must verify, not skip.
     holiday_friday = dt.date(2026, 7, 3)  # observed July 4th
     monkeypatch.setattr(liveness, "ROOT", str(tmp_path))
+    monkeypatch.setattr(liveness, "_alert", lambda title, body: None)
     rc = liveness.main(["--as-of", holiday_friday.isoformat()])
     assert rc == 1  # no snapshot dir → flagged as missing
 
