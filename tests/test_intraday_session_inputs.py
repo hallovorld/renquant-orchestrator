@@ -76,7 +76,11 @@ def test_previous_session_fails_loudly_when_no_session_in_window():
 GOOD_BUNDLE = json.dumps(
     {
         "config_hash": "cfg",
-        "artifact_hashes": {"panel": "abc"},
+        "artifact_hashes": {
+            "panel": "abc",
+            "global_calibration": "cal",
+            "ranking.panel_scoring.artifact_path": "scorer",
+        },
         "watchlist_hash": "wl",
     }
 )
