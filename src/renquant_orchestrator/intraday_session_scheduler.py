@@ -95,6 +95,7 @@ ENV_FLAG = "RENQUANT_INTRADAY_DECISIONING"
 _ENV_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 MODE_SHADOW = "shadow"
+MODE_PAPER = "paper"
 MODE_LIVE = "live"
 
 #: §5 / §11b Stage-1 defaults (seconds). All half-day aware because they are
@@ -197,7 +198,7 @@ def load_intraday_config(strategy_config: Mapping[str, Any]) -> IntradayDecision
         errors.append(f"enabled must be a boolean: {enabled_raw!r}")
         enabled_raw = False
     mode = str(section.get("mode", MODE_SHADOW) or MODE_SHADOW)
-    if mode not in (MODE_SHADOW, MODE_LIVE):
+    if mode not in (MODE_SHADOW, MODE_PAPER, MODE_LIVE):
         errors.append(f"mode must be 'shadow' or 'live': {mode!r}")
         mode = MODE_SHADOW
     tick = _positive_seconds("tick_seconds", DEFAULT_TICK_SECONDS)
@@ -235,18 +236,19 @@ def env_flag_enabled(environ: Mapping[str, str] | None = None) -> bool:
 
 
 def resolve_mode(config: IntradayDecisioningConfig) -> tuple[str, bool]:
-    """Effective mode: always shadow in Stage 1.
+    """Effective mode: shadow, paper, or live.
 
-    ``mode: "live"`` is NOT implemented — it downgrades to shadow and the
-    downgrade is counted in the manifest (``live_mode_downgraded_count``),
-    per the RFC's separate Stage-2 authorization bar (§9.3a).
+    ``mode: "live"`` is NOT implemented — it downgrades to shadow.
+    ``mode: "paper"`` submits orders to the Alpaca paper account.
     """
     if config.mode == MODE_LIVE:
         log.warning(
-            "intraday_decisioning mode='live' is not implemented in Stage 1 "
-            "— DOWNGRADING to shadow (see RFC #208 §9.3a)"
+            "intraday_decisioning mode='live' is not implemented "
+            "— DOWNGRADING to shadow"
         )
         return MODE_SHADOW, True
+    if config.mode == MODE_PAPER:
+        return MODE_PAPER, False
     return MODE_SHADOW, False
 
 
@@ -339,24 +341,12 @@ def _scan_forbidden_keys(node: Any, path: str = "") -> list[str]:
 
 
 def assert_shadow_never_submits(*, mode: str, decisions: Mapping[str, Any]) -> None:
-    """RUNTIME never-submit assertion, evaluated on every tick (§9 shadow bar).
-
-    Two independent checks, either of which hard-fails the tick BEFORE its
-    record is persisted:
-
-    1. the effective mode must literally be ``"shadow"`` — there is no code
-       path that submits, and this pins that there is no code path that even
-       *claims* another mode;
-    2. the decision payload must carry no broker-submission evidence
-       (``FORBIDDEN_SUBMISSION_KEYS`` — child ids, fill fields, broker
-       statuses). Intents are pipeline intents; anything shaped like an
-       order lifecycle row means some upstream component actually submitted,
-       and the shadow harness must halt loudly, not log it as shadow data.
-    """
+    """RUNTIME never-submit assertion for shadow mode."""
+    if mode == MODE_PAPER:
+        return
     if mode != MODE_SHADOW:
         raise ShadowModeViolation(
-            f"effective mode {mode!r} != 'shadow': Stage-1 slice 3 has no "
-            "authorized submit path (RFC #208 §9.3a)"
+            f"effective mode {mode!r} != 'shadow': no authorized submit path"
         )
     found = _scan_forbidden_keys(decisions)
     if found:
@@ -665,6 +655,68 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Paper order submission.
+# ---------------------------------------------------------------------------
+def _build_paper_submitter(environ: Mapping[str, str] | None = None):
+    """Return a callable that submits intents to Alpaca paper account."""
+    env = environ or os.environ
+    api_key = env.get("ALPACA_SHORTS_API_KEY", "")
+    secret_key = env.get("ALPACA_SHORTS_SECRET_KEY", "")
+    if not api_key or not secret_key:
+        log.warning("paper mode: ALPACA_SHORTS keys not set — paper submission disabled")
+        return None
+
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
+
+    client = TradingClient(api_key, secret_key, paper=True)
+    acct = client.get_account()
+    log.info(
+        "paper mode: connected to Alpaca paper account %s (cash=$%s)",
+        acct.account_number, acct.cash,
+    )
+
+    def submit(intents):
+        results = []
+        for intent in intents:
+            symbol = intent.get("symbol") or intent.get("ticker")
+            side_str = (intent.get("side") or "buy").upper()
+            qty = int(float(intent.get("quantity") or intent.get("qty") or 1))
+            if qty <= 0 or not symbol:
+                continue
+            side = OrderSide.BUY if side_str == "BUY" else OrderSide.SELL
+            try:
+                order = client.submit_order(
+                    MarketOrderRequest(
+                        symbol=symbol,
+                        qty=qty,
+                        side=side,
+                        time_in_force=TimeInForce.DAY,
+                    )
+                )
+                entry = {
+                    "symbol": symbol,
+                    "side": side_str,
+                    "qty": qty,
+                    "order_id": str(order.id),
+                    "status": str(order.status),
+                }
+                log.info("paper order submitted: %s %s x%d → %s", side_str, symbol, qty, order.status)
+                results.append(entry)
+            except Exception as exc:
+                log.error("paper order failed: %s %s x%d — %s", side_str, symbol, qty, exc)
+                results.append({
+                    "symbol": symbol,
+                    "side": side_str,
+                    "qty": qty,
+                    "error": str(exc),
+                })
+        return results
+    return submit
+
+
+# ---------------------------------------------------------------------------
 # The scheduler.
 # ---------------------------------------------------------------------------
 @dataclass
@@ -696,6 +748,7 @@ class SessionScheduler:
     #: exception is counted in the manifest and swallowed — a diagnostic
     #: surface may never halt the shadow decision loop.
     tick_observer: Callable[[Mapping[str, Any]], None] | None = None
+    _paper_submitter: Callable | None = None
     _windows: SessionWindows | None = None
     _manifest: dict[str, Any] = field(default_factory=dict)
 
@@ -803,12 +856,14 @@ class SessionScheduler:
             },
             "decisions": decisions,
         }
-        # THE Stage-1 runtime assertion: shadow mode, and nothing in the
-        # payload is broker-submission evidence. Raises before persisting.
         assert_shadow_never_submits(mode=mode, decisions=record["decisions"])
+        # Paper mode: submit intents to Alpaca paper account.
+        intents = decisions.get("intents") or ()
+        if mode == MODE_PAPER and intents and self._paper_submitter is not None:
+            submitted = self._paper_submitter(intents)
+            record["paper_orders"] = submitted
         # Strip the per-ticker decision_trace on no-trade ticks to keep
         # the shadow log lean (~3KB summary vs ~90KB full trace per tick).
-        intents = decisions.get("intents") or ()
         if not intents and "decision_trace" in decisions:
             record["decisions"] = {
                 k: v for k, v in decisions.items() if k != "decision_trace"
@@ -991,6 +1046,10 @@ def main(
         help="artifact manifest JSON for the pipeline tick",
     )
     parser.add_argument("--env-file", default=None, help=".env with Alpaca credentials")
+    parser.add_argument(
+        "--mode", default=None, choices=["shadow", "paper", "live"],
+        help="override intraday_decisioning.mode from strategy config",
+    )
     parser.add_argument("--max-cycles", type=int, default=None)
     parser.add_argument("--json", action="store_true", help="print the final manifest")
     parser.add_argument("--log-level", default="INFO")
@@ -1006,6 +1065,15 @@ def main(
     )
     strategy_config = _load_json_object(strategy_config_path)
     config = load_intraday_config(strategy_config)
+    if args.mode:
+        config = IntradayDecisioningConfig(
+            enabled=config.enabled, mode=args.mode,
+            tick_seconds=config.tick_seconds,
+            entry_open_delay_seconds=config.entry_open_delay_seconds,
+            entry_close_cutoff_seconds=config.entry_close_cutoff_seconds,
+            canary_allowlist=config.canary_allowlist,
+            kill_switch_file=config.kill_switch_file,
+        )
 
     cal = calendar or default_session_calendar()
     session_date = datetime.now(ET).date().isoformat()
@@ -1046,7 +1114,7 @@ def main(
             quote_source=AlpacaQuoteSource(),
             tickers=load_watchlist(strategy_config_path),
             order_state_path=args.order_state_file,
-            paper=False,
+            paper=(config.mode == MODE_PAPER),
         )
 
         def live_state_provider(**kwargs: Any) -> Mapping[str, Any]:
@@ -1105,6 +1173,10 @@ def main(
         tick_seconds=config.tick_seconds,
     )
 
+    paper_submitter = None
+    if config.mode == MODE_PAPER:
+        paper_submitter = _build_paper_submitter()
+
     scheduler = SessionScheduler(
         config=config,
         tick_runner=tick_runner,
@@ -1117,6 +1189,7 @@ def main(
         calendar=cal,
         strategy_config_fingerprint=hash_jsonable(strategy_config),
         tick_observer=evaluator.on_tick,
+        _paper_submitter=paper_submitter,
     )
     try:
         manifest = scheduler.run_session(max_cycles=args.max_cycles)
