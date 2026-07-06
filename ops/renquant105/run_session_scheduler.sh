@@ -34,7 +34,6 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
   --data-root "$RQ_ROOT" \
   --data-manifest "$RQ_ROOT/data/rq105/data_manifest.json" \
   --artifact-manifest "$RQ_ROOT/data/rq105/artifact_manifest.json" \
-  --mode paper \
   --log-level INFO \
   >> "$LOG_DIR/session_scheduler_$TS.log" 2>&1
 RC=$?

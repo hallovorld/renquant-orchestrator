@@ -461,13 +461,11 @@ class AlpacaLiveStateSource:
 
             from alpaca.trading.client import TradingClient  # noqa: PLC0415
 
-            if self.paper:
-                key = os.environ.get("ALPACA_SHORTS_API_KEY", os.environ["ALPACA_API_KEY"])
-                secret = os.environ.get("ALPACA_SHORTS_SECRET_KEY", os.environ["ALPACA_SECRET_KEY"])
-            else:
-                key = os.environ["ALPACA_API_KEY"]
-                secret = os.environ["ALPACA_SECRET_KEY"]
-            self._client = TradingClient(key, secret, paper=self.paper)
+            self._client = TradingClient(
+                os.environ["ALPACA_API_KEY"],
+                os.environ["ALPACA_SECRET_KEY"],
+                paper=self.paper,
+            )
         return self._client
 
     def snapshot(self, *, now: datetime, trading_day: str) -> dict[str, Any]:
