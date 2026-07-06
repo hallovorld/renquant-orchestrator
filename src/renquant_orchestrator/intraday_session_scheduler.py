@@ -6,8 +6,11 @@ M1 SLICE 3 of the Stage-1 build (RFC #208
 plumbing, and the shadow decision log the replay/audit harness
 (:mod:`.intraday_replay_audit`) verifies. Consumes slice 1
 (renquant-execution #20, order-state machine) and slice 2
-(renquant-pipeline #163, ``run_intraday_decision_tick``) strictly through
-their contracts; implements neither.
+(renquant-pipeline #163, ``run_frozen_score_diagnostic_tick`` — the
+frozen-score diagnostic variant of ``run_intraday_decision_tick``, moved
+into renquant-pipeline in PR #400 round 2 after previously composing
+``panel_scoring``/``selection`` internals here) strictly through their
+contracts; implements neither.
 
 **Nothing here can place an order.** The scheduler holds no trading client
 with a submit path (class-C reads are GET-only, see
@@ -486,6 +489,17 @@ def bind_pipeline_tick_runner(
     until pipeline #163 is merged AND the pins advance (§8 merge order). The
     scheduler CLI refuses to run in that case rather than inventing a local
     decision path (hard boundary: no decision/sizing internals here).
+
+    Binds :func:`renquant_pipeline.intraday_decisioning
+    .run_frozen_score_diagnostic_tick` — the frozen-score DIAGNOSTIC PROBE
+    (no live feature build; see that function's docstring for the
+    semantic-validity caveats it carries). This module imports ONLY that
+    one slice-2 entry point; the stage composition it drives
+    (``panel_scoring``/``selection`` internals) lives entirely inside
+    renquant-pipeline, never here (RFC #208 §8 boundary — reaching into
+    those internals to assemble a custom stage graph in this repo was a
+    real architecture-boundary violation, fixed in orchestrator PR #400
+    round 2 by moving the composition into the owning repo).
     """
     try:
         from renquant_pipeline import intraday_decisioning as contract  # noqa: PLC0415
@@ -506,7 +520,7 @@ def bind_pipeline_tick_runner(
         exit_orders: Sequence[Mapping[str, Any]],
     ) -> Any:
         state = dict(live_state)
-        return contract.run_intraday_decision_tick(
+        return contract.run_frozen_score_diagnostic_tick(
             strategy_config=dict(strategy_config),
             data_manifest=dict(data_manifest),
             artifact_manifest=dict(artifact_manifest),
