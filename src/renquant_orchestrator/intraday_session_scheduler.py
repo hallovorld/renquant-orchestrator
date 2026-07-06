@@ -32,7 +32,7 @@ Session semantics (§5 / §11b), all derived from the injected NYSE calendar
 — the same half-day-aware primitive the quote logger and execution use), so
 early closes scale the windows with no hard-coded clock times:
 
-- fixed tick cadence, default 720 s (the RFC's 12-min Stage-1 tick);
+- fixed tick cadence, default 180 s (3-min tick);
 - first eligible decision tick at ``open + 5 min`` (auction settling);
 - **entries stop** at ``close − 30 min`` (the entry cutoff); **exits
   continue to the bell** — past the cutoff the tick still runs, and
@@ -99,7 +99,7 @@ MODE_LIVE = "live"
 
 #: §5 / §11b Stage-1 defaults (seconds). All half-day aware because they are
 #: applied to the calendar's actual session bounds.
-DEFAULT_TICK_SECONDS = 720  # the RFC's fixed 12-min Stage-1 cadence
+DEFAULT_TICK_SECONDS = 180  # 3-min tick cadence (operator directive 2026-07-06)
 DEFAULT_ENTRY_OPEN_DELAY_SECONDS = 300  # no entries in the first 5 min
 DEFAULT_ENTRY_CLOSE_CUTOFF_SECONDS = 1800  # no NEW entries in the last 30 min
 
@@ -752,6 +752,14 @@ class SessionScheduler:
         # THE Stage-1 runtime assertion: shadow mode, and nothing in the
         # payload is broker-submission evidence. Raises before persisting.
         assert_shadow_never_submits(mode=mode, decisions=record["decisions"])
+        # Strip the per-ticker decision_trace on no-trade ticks to keep
+        # the shadow log lean (~3KB summary vs ~90KB full trace per tick).
+        intents = decisions.get("intents") or ()
+        if not intents and "decision_trace" in decisions:
+            record["decisions"] = {
+                k: v for k, v in decisions.items() if k != "decision_trace"
+            }
+            record["decisions"]["decision_trace_stripped"] = True
         self.writer.append(record)
         if self.tick_observer is not None:
             try:
@@ -984,6 +992,7 @@ def main(
             quote_source=AlpacaQuoteSource(),
             tickers=load_watchlist(strategy_config_path),
             order_state_path=args.order_state_file,
+            paper=False,
         )
 
         def live_state_provider(**kwargs: Any) -> Mapping[str, Any]:
