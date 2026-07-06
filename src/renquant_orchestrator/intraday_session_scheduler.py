@@ -489,12 +489,65 @@ def bind_pipeline_tick_runner(
     """
     try:
         from renquant_pipeline import intraday_decisioning as contract  # noqa: PLC0415
+        from renquant_pipeline.panel_scoring import (  # noqa: PLC0415
+            ApplyGlobalCalibrationTask,
+            ApplyScoresTask,
+            EmitAttributedOrderIntentsTask,
+            RegimeModelAdmissionTask,
+            VetoWeakBuysTask,
+        )
+        from renquant_pipeline.selection import SelectionJob  # noqa: PLC0415
     except ImportError as exc:
         raise PipelineContractUnavailable(
             "renquant_pipeline.intraday_decisioning is not importable — "
             "slice 2 (renquant-pipeline #163) must be merged and pinned "
             f"before the scheduler can run real ticks ({exc})"
         )
+
+    from renquant_common import Job, Task as _Task  # noqa: PLC0415
+
+    class _StubFeatureMatrixTask(_Task):
+        def run(self, ctx):
+            market = getattr(ctx, "market_snapshot", {}) or {}
+            scores = market.get("panel_scores") or {}
+            matrix = {str(t): {} for t in scores}
+            setattr(ctx, "panel_feature_cols", [])
+            setattr(ctx, "panel_feature_matrix", matrix)
+            setattr(ctx, "panel_artifact_id", "frozen-daily-signal")
+            cfg = getattr(ctx, "strategy_config", {}) or {}
+            exe = cfg.setdefault("execution", {})
+            if exe.get("default_quantity") is None:
+                exe["default_quantity"] = 1
+            return True
+
+    class _FrozenScoreScoringJob(Job):
+        """PanelScoringJob replacement that skips feature build and uses
+        pre-computed frozen scores from the class-A signal."""
+
+        def __init__(self, *, emit_orders=False):
+            tasks = [
+                _StubFeatureMatrixTask(),
+                ApplyScoresTask(),
+                ApplyGlobalCalibrationTask(),
+                RegimeModelAdmissionTask(),
+                VetoWeakBuysTask(),
+            ]
+            if emit_orders:
+                tasks.append(EmitAttributedOrderIntentsTask())
+            self._tasks = tasks
+
+        @property
+        def tasks(self):
+            return self._tasks
+
+    def _frozen_score_stages():
+        """Stage list that uses pre-computed frozen scores instead of
+        rebuilding features from scratch each tick."""
+        return [
+            _FrozenScoreScoringJob(),
+            SelectionJob(),
+            _FrozenScoreScoringJob(emit_orders=True),
+        ]
 
     def runner(
         *,
@@ -539,6 +592,7 @@ def bind_pipeline_tick_runner(
                 deployed_notional=float(session_counters.get("deployed_notional", 0.0)),
                 turnover_notional=float(session_counters.get("turnover_notional", 0.0)),
             ),
+            stages=_frozen_score_stages(),
         )
 
     return runner
