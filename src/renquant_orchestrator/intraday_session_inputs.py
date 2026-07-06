@@ -120,11 +120,34 @@ def previous_session(
 # ---------------------------------------------------------------------------
 # Class A — frozen daily signal from the committed run DB (read-only).
 # ---------------------------------------------------------------------------
-_REQUIRED_ARTIFACT_KEYS = frozenset({
-    "panel",
-    "global_calibration",
-    "ranking.panel_scoring.artifact_path",
-})
+#: ``panel`` and ``global_calibration`` are the two "primary runtime
+#: artifacts" ``resolve_artifact_paths``
+#: (RenQuant backtesting/renquant_104/kernel/artifact_contract.py) always
+#: aliases whenever a config declares panel scoring at all -- panel from
+#: EITHER ``ranking.panel_scoring.artifact_path`` or the ``panel_ltr.
+#: artifact_path`` fallback, global_calibration from EITHER
+#: ``ranking.panel_scoring.global_calibration.artifact_path`` or ``panel_ltr.
+#: calibrator_artifact_path``. Because the alias always resolves to whichever
+#: config-field variant is actually set, requiring the alias (not the raw
+#: field) is both necessary AND sufficient to prove the artifacts that feed
+#: THIS module's class-A signal (defined above as "the panel scores of the
+#: latest committed daily full run") are hashed, regardless of which config
+#: variant produced them.
+#:
+#: Codex #399 review: everything else a config's ``artifact_paths`` may
+#: additionally carry -- shadow-evaluation lanes, auxiliary ngboost/embedding
+#: heads, downstream quality-floor thresholds, diagnostic data scans,
+#: meta-label models, regime-conditional calibration PATTERNS (template
+#: strings like ``panel-calibration-{regime}.json``, never real files, so
+#: ``sha256_file`` can never succeed on them by construction) -- is provably
+#: not an input to computing the frozen panel score itself, so its absence
+#: from ``artifact_hashes`` is not a class-A fingerprint gap. (Prior to this
+#: fix, ``ranking.panel_scoring.artifact_path`` was ALSO required directly --
+#: redundant with ``panel``, since ``panel``'s resolved path IS that same
+#: field when it's the config variant in use, and dropping the raw field
+#: closes a false-negative on configs using the ``panel_ltr.artifact_path``
+#: fallback instead, where the raw dotted key is never even present.)
+_REQUIRED_ARTIFACT_KEYS = frozenset({"panel", "global_calibration"})
 
 
 def _fingerprint_gaps(run_bundle: Mapping[str, Any]) -> list[str]:

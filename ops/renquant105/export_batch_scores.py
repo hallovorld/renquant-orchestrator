@@ -127,11 +127,19 @@ def _select_source_run(con: sqlite3.Connection, expected_run_date: str):
     return run_id, run_date, run_bundle
 
 
-_REQUIRED_ARTIFACT_KEYS = frozenset({
-    "panel",
-    "global_calibration",
-    "ranking.panel_scoring.artifact_path",
-})
+# panel + global_calibration are the two "primary runtime artifacts"
+# resolve_artifact_paths always aliases regardless of which underlying
+# config-field variant is set (ranking.panel_scoring.artifact_path vs.
+# panel_ltr.artifact_path fallback), so requiring the alias is both
+# necessary and sufficient to prove the class-A signal's own inputs (panel
+# score + calibration) are hashed. Everything else a config's
+# artifact_paths may carry (shadow lanes, auxiliary ngboost/embedding
+# heads, quality-floor thresholds, diagnostic scans, meta-label models,
+# regime-conditional PATTERN strings that are never real files) is
+# provably not an input to the panel score itself — see
+# intraday_session_inputs.py's _REQUIRED_ARTIFACT_KEYS for the full
+# reasoning (Codex #399 review; this module mirrors that fix).
+_REQUIRED_ARTIFACT_KEYS = frozenset({"panel", "global_calibration"})
 
 
 def _fingerprint_gaps(run_bundle: dict) -> list[str]:
