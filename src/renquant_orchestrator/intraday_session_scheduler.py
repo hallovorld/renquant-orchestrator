@@ -6,8 +6,11 @@ M1 SLICE 3 of the Stage-1 build (RFC #208
 plumbing, and the shadow decision log the replay/audit harness
 (:mod:`.intraday_replay_audit`) verifies. Consumes slice 1
 (renquant-execution #20, order-state machine) and slice 2
-(renquant-pipeline #163, ``run_intraday_decision_tick``) strictly through
-their contracts; implements neither.
+(renquant-pipeline #163, ``run_frozen_score_diagnostic_tick`` — the
+frozen-score diagnostic variant of ``run_intraday_decision_tick``, moved
+into renquant-pipeline in PR #400 round 2 after previously composing
+``panel_scoring``/``selection`` internals here) strictly through their
+contracts; implements neither.
 
 **Nothing here can place an order.** The scheduler holds no trading client
 with a submit path (class-C reads are GET-only, see
@@ -95,7 +98,6 @@ ENV_FLAG = "RENQUANT_INTRADAY_DECISIONING"
 _ENV_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 MODE_SHADOW = "shadow"
-MODE_PAPER = "paper"
 MODE_LIVE = "live"
 
 #: §5 / §11b Stage-1 defaults (seconds). All half-day aware because they are
@@ -198,7 +200,7 @@ def load_intraday_config(strategy_config: Mapping[str, Any]) -> IntradayDecision
         errors.append(f"enabled must be a boolean: {enabled_raw!r}")
         enabled_raw = False
     mode = str(section.get("mode", MODE_SHADOW) or MODE_SHADOW)
-    if mode not in (MODE_SHADOW, MODE_PAPER, MODE_LIVE):
+    if mode not in (MODE_SHADOW, MODE_LIVE):
         errors.append(f"mode must be 'shadow' or 'live': {mode!r}")
         mode = MODE_SHADOW
     tick = _positive_seconds("tick_seconds", DEFAULT_TICK_SECONDS)
@@ -236,19 +238,18 @@ def env_flag_enabled(environ: Mapping[str, str] | None = None) -> bool:
 
 
 def resolve_mode(config: IntradayDecisioningConfig) -> tuple[str, bool]:
-    """Effective mode: shadow, paper, or live.
+    """Effective mode: always shadow in Stage 1.
 
-    ``mode: "live"`` is NOT implemented — it downgrades to shadow.
-    ``mode: "paper"`` submits orders to the Alpaca paper account.
+    ``mode: "live"`` is NOT implemented — it downgrades to shadow and the
+    downgrade is counted in the manifest (``live_mode_downgraded_count``),
+    per the RFC's separate Stage-2 authorization bar (§9.3a).
     """
     if config.mode == MODE_LIVE:
         log.warning(
-            "intraday_decisioning mode='live' is not implemented "
-            "— DOWNGRADING to shadow"
+            "intraday_decisioning mode='live' is not implemented in Stage 1 "
+            "— DOWNGRADING to shadow (see RFC #208 §9.3a)"
         )
         return MODE_SHADOW, True
-    if config.mode == MODE_PAPER:
-        return MODE_PAPER, False
     return MODE_SHADOW, False
 
 
@@ -341,12 +342,24 @@ def _scan_forbidden_keys(node: Any, path: str = "") -> list[str]:
 
 
 def assert_shadow_never_submits(*, mode: str, decisions: Mapping[str, Any]) -> None:
-    """RUNTIME never-submit assertion for shadow mode."""
-    if mode == MODE_PAPER:
-        return
+    """RUNTIME never-submit assertion, evaluated on every tick (§9 shadow bar).
+
+    Two independent checks, either of which hard-fails the tick BEFORE its
+    record is persisted:
+
+    1. the effective mode must literally be ``"shadow"`` — there is no code
+       path that submits, and this pins that there is no code path that even
+       *claims* another mode;
+    2. the decision payload must carry no broker-submission evidence
+       (``FORBIDDEN_SUBMISSION_KEYS`` — child ids, fill fields, broker
+       statuses). Intents are pipeline intents; anything shaped like an
+       order lifecycle row means some upstream component actually submitted,
+       and the shadow harness must halt loudly, not log it as shadow data.
+    """
     if mode != MODE_SHADOW:
         raise ShadowModeViolation(
-            f"effective mode {mode!r} != 'shadow': no authorized submit path"
+            f"effective mode {mode!r} != 'shadow': Stage-1 slice 3 has no "
+            "authorized submit path (RFC #208 §9.3a)"
         )
     found = _scan_forbidden_keys(decisions)
     if found:
@@ -476,68 +489,26 @@ def bind_pipeline_tick_runner(
     until pipeline #163 is merged AND the pins advance (§8 merge order). The
     scheduler CLI refuses to run in that case rather than inventing a local
     decision path (hard boundary: no decision/sizing internals here).
+
+    Binds :func:`renquant_pipeline.intraday_decisioning
+    .run_frozen_score_diagnostic_tick` — the frozen-score DIAGNOSTIC PROBE
+    (no live feature build; see that function's docstring for the
+    semantic-validity caveats it carries). This module imports ONLY that
+    one slice-2 entry point; the stage composition it drives
+    (``panel_scoring``/``selection`` internals) lives entirely inside
+    renquant-pipeline, never here (RFC #208 §8 boundary — reaching into
+    those internals to assemble a custom stage graph in this repo was a
+    real architecture-boundary violation, fixed in orchestrator PR #400
+    round 2 by moving the composition into the owning repo).
     """
     try:
         from renquant_pipeline import intraday_decisioning as contract  # noqa: PLC0415
-        from renquant_pipeline.panel_scoring import (  # noqa: PLC0415
-            ApplyGlobalCalibrationTask,
-            ApplyScoresTask,
-            EmitAttributedOrderIntentsTask,
-            RegimeModelAdmissionTask,
-            VetoWeakBuysTask,
-        )
-        from renquant_pipeline.selection import SelectionJob  # noqa: PLC0415
     except ImportError as exc:
         raise PipelineContractUnavailable(
             "renquant_pipeline.intraday_decisioning is not importable — "
             "slice 2 (renquant-pipeline #163) must be merged and pinned "
             f"before the scheduler can run real ticks ({exc})"
         )
-
-    from renquant_common import Job, Task as _Task  # noqa: PLC0415
-
-    class _StubFeatureMatrixTask(_Task):
-        def run(self, ctx):
-            market = getattr(ctx, "market_snapshot", {}) or {}
-            scores = market.get("panel_scores") or {}
-            matrix = {str(t): {} for t in scores}
-            setattr(ctx, "panel_feature_cols", [])
-            setattr(ctx, "panel_feature_matrix", matrix)
-            setattr(ctx, "panel_artifact_id", "frozen-daily-signal")
-            cfg = getattr(ctx, "strategy_config", {}) or {}
-            exe = cfg.setdefault("execution", {})
-            if exe.get("default_quantity") is None:
-                exe["default_quantity"] = 1
-            return True
-
-    class _FrozenScoreScoringJob(Job):
-        """PanelScoringJob replacement that skips feature build and uses
-        pre-computed frozen scores from the class-A signal."""
-
-        def __init__(self, *, emit_orders=False):
-            tasks = [
-                _StubFeatureMatrixTask(),
-                ApplyScoresTask(),
-                ApplyGlobalCalibrationTask(),
-                RegimeModelAdmissionTask(),
-                VetoWeakBuysTask(),
-            ]
-            if emit_orders:
-                tasks.append(EmitAttributedOrderIntentsTask())
-            self._tasks = tasks
-
-        @property
-        def tasks(self):
-            return self._tasks
-
-    def _frozen_score_stages():
-        """Stage list that uses pre-computed frozen scores instead of
-        rebuilding features from scratch each tick."""
-        return [
-            _FrozenScoreScoringJob(),
-            SelectionJob(),
-            _FrozenScoreScoringJob(emit_orders=True),
-        ]
 
     def runner(
         *,
@@ -549,7 +520,7 @@ def bind_pipeline_tick_runner(
         exit_orders: Sequence[Mapping[str, Any]],
     ) -> Any:
         state = dict(live_state)
-        return contract.run_intraday_decision_tick(
+        return contract.run_frozen_score_diagnostic_tick(
             strategy_config=dict(strategy_config),
             data_manifest=dict(data_manifest),
             artifact_manifest=dict(artifact_manifest),
@@ -582,7 +553,6 @@ def bind_pipeline_tick_runner(
                 deployed_notional=float(session_counters.get("deployed_notional", 0.0)),
                 turnover_notional=float(session_counters.get("turnover_notional", 0.0)),
             ),
-            stages=_frozen_score_stages(),
         )
 
     return runner
@@ -655,77 +625,6 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Paper order submission.
-# ---------------------------------------------------------------------------
-def _build_paper_submitter(environ: Mapping[str, str] | None = None):
-    """Return a callable that submits intents to Alpaca paper account."""
-    env = environ or os.environ
-    api_key = env.get("ALPACA_SHORTS_API_KEY", "")
-    secret_key = env.get("ALPACA_SHORTS_SECRET_KEY", "")
-    if not api_key or not secret_key:
-        log.warning("paper mode: ALPACA_SHORTS keys not set — paper submission disabled")
-        return None
-
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import MarketOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
-
-    client = TradingClient(api_key, secret_key, paper=True)
-    acct = client.get_account()
-    log.info(
-        "paper mode: connected to Alpaca paper account %s (cash=$%s)",
-        acct.account_number, acct.cash,
-    )
-
-    def submit(intents):
-        results = []
-        for intent in intents:
-            symbol = intent.get("symbol") or intent.get("ticker")
-            side_str = (intent.get("side") or "buy").upper()
-            qty = int(float(intent.get("quantity") or intent.get("qty") or 1))
-            if qty <= 0 or not symbol:
-                continue
-            side = OrderSide.BUY if side_str == "BUY" else OrderSide.SELL
-            try:
-                order = client.submit_order(
-                    MarketOrderRequest(
-                        symbol=symbol,
-                        qty=qty,
-                        side=side,
-                        time_in_force=TimeInForce.DAY,
-                    )
-                )
-                entry = {
-                    "symbol": symbol,
-                    "side": side_str,
-                    "qty": qty,
-                    "order_id": str(order.id),
-                    "status": str(order.status),
-                }
-                log.info("paper order submitted: %s %s x%d → %s", side_str, symbol, qty, order.status)
-                results.append(entry)
-            except Exception as exc:
-                log.error("paper order failed: %s %s x%d — %s", side_str, symbol, qty, exc)
-                results.append({
-                    "symbol": symbol,
-                    "side": side_str,
-                    "qty": qty,
-                    "error": str(exc),
-                })
-        if results:
-            filled = [r for r in results if "error" not in r]
-            if filled:
-                try:
-                    from renquant_common.notify import send as _ntfy
-                    summary = ", ".join(f"{r['side']} {r['symbol']} x{r['qty']}" for r in filled)
-                    _ntfy("rq105 paper order", summary)
-                except Exception:
-                    pass
-        return results
-    return submit
-
-
-# ---------------------------------------------------------------------------
 # The scheduler.
 # ---------------------------------------------------------------------------
 @dataclass
@@ -757,7 +656,6 @@ class SessionScheduler:
     #: exception is counted in the manifest and swallowed — a diagnostic
     #: surface may never halt the shadow decision loop.
     tick_observer: Callable[[Mapping[str, Any]], None] | None = None
-    _paper_submitter: Callable | None = None
     _windows: SessionWindows | None = None
     _manifest: dict[str, Any] = field(default_factory=dict)
 
@@ -865,14 +763,12 @@ class SessionScheduler:
             },
             "decisions": decisions,
         }
+        # THE Stage-1 runtime assertion: shadow mode, and nothing in the
+        # payload is broker-submission evidence. Raises before persisting.
         assert_shadow_never_submits(mode=mode, decisions=record["decisions"])
-        # Paper mode: submit intents to Alpaca paper account.
-        intents = decisions.get("intents") or ()
-        if mode == MODE_PAPER and intents and self._paper_submitter is not None:
-            submitted = self._paper_submitter(intents)
-            record["paper_orders"] = submitted
         # Strip the per-ticker decision_trace on no-trade ticks to keep
         # the shadow log lean (~3KB summary vs ~90KB full trace per tick).
+        intents = decisions.get("intents") or ()
         if not intents and "decision_trace" in decisions:
             record["decisions"] = {
                 k: v for k, v in decisions.items() if k != "decision_trace"
@@ -1055,10 +951,6 @@ def main(
         help="artifact manifest JSON for the pipeline tick",
     )
     parser.add_argument("--env-file", default=None, help=".env with Alpaca credentials")
-    parser.add_argument(
-        "--mode", default=None, choices=["shadow", "paper", "live"],
-        help="override intraday_decisioning.mode from strategy config",
-    )
     parser.add_argument("--max-cycles", type=int, default=None)
     parser.add_argument("--json", action="store_true", help="print the final manifest")
     parser.add_argument("--log-level", default="INFO")
@@ -1074,15 +966,6 @@ def main(
     )
     strategy_config = _load_json_object(strategy_config_path)
     config = load_intraday_config(strategy_config)
-    if args.mode:
-        config = IntradayDecisioningConfig(
-            enabled=config.enabled, mode=args.mode,
-            tick_seconds=config.tick_seconds,
-            entry_open_delay_seconds=config.entry_open_delay_seconds,
-            entry_close_cutoff_seconds=config.entry_close_cutoff_seconds,
-            canary_allowlist=config.canary_allowlist,
-            kill_switch_file=config.kill_switch_file,
-        )
 
     cal = calendar or default_session_calendar()
     session_date = datetime.now(ET).date().isoformat()
@@ -1123,7 +1006,7 @@ def main(
             quote_source=AlpacaQuoteSource(),
             tickers=load_watchlist(strategy_config_path),
             order_state_path=args.order_state_file,
-            paper=(config.mode == MODE_PAPER),
+            paper=False,
         )
 
         def live_state_provider(**kwargs: Any) -> Mapping[str, Any]:
@@ -1182,10 +1065,6 @@ def main(
         tick_seconds=config.tick_seconds,
     )
 
-    paper_submitter = None
-    if config.mode == MODE_PAPER:
-        paper_submitter = _build_paper_submitter()
-
     scheduler = SessionScheduler(
         config=config,
         tick_runner=tick_runner,
@@ -1198,7 +1077,6 @@ def main(
         calendar=cal,
         strategy_config_fingerprint=hash_jsonable(strategy_config),
         tick_observer=evaluator.on_tick,
-        _paper_submitter=paper_submitter,
     )
     try:
         manifest = scheduler.run_session(max_cycles=args.max_cycles)

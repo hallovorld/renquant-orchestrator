@@ -17,6 +17,7 @@ from renquant_orchestrator.intraday_session_inputs import (
     FrozenSignalError,
     OrderStateFileError,
     SignalLeakError,
+    _fingerprint_gaps,
     assert_signal_predates_session,
     capture_session_start,
     load_frozen_daily_signal,
@@ -174,6 +175,64 @@ def test_unfingerprinted_run_refused(tmp_path):
         load_frozen_daily_signal(
             db_path=db, session_date=MONDAY, calendar=CAL, min_rows=3
         )
+
+
+def test_fingerprint_gaps_accepts_missing_optional_artifact_hashes():
+    """Codex #399 review: a config-declared but non-semantic artifact
+    (shadow lane, aux ngboost head, quality-floor threshold, etc.) missing
+    its hash must NOT block class-A — only panel + global_calibration
+    (the two artifacts that actually feed the panel score) are required."""
+    bundle = {
+        "config_hash": "cfg",
+        "artifact_hashes": {
+            "panel": "abc",
+            "global_calibration": "cal",
+            "ranking.panel_scoring.shadow_models[0].artifact_path": None,
+            "panel_ltr.ngboost.artifact_path": None,
+            "ranking.panel_scoring.quality_floor.gate_b_artifact_path": None,
+            "ranking.panel_scoring.global_calibration.regime_conditional.artifact_pattern": None,
+        },
+        "watchlist_hash": "wl",
+    }
+    assert _fingerprint_gaps(bundle) == []
+
+
+def test_fingerprint_gaps_requires_panel_and_global_calibration():
+    """Missing either of the two primary runtime artifacts IS a gap,
+    regardless of what else is present."""
+    missing_panel = {
+        "config_hash": "cfg",
+        "artifact_hashes": {"global_calibration": "cal"},
+        "watchlist_hash": "wl",
+    }
+    gaps = _fingerprint_gaps(missing_panel)
+    assert len(gaps) == 1
+    assert "artifact_hashes(panel)" in gaps[0]
+
+    missing_calibration = {
+        "config_hash": "cfg",
+        "artifact_hashes": {"panel": "abc"},
+        "watchlist_hash": "wl",
+    }
+    gaps = _fingerprint_gaps(missing_calibration)
+    assert len(gaps) == 1
+    assert "artifact_hashes(global_calibration)" in gaps[0]
+
+
+def test_fingerprint_gaps_ignores_raw_panel_scoring_key_when_panel_alias_present():
+    """A config using the panel_ltr.artifact_path fallback (so the raw
+    ranking.panel_scoring.artifact_path key is never even present) must not
+    be spuriously blocked — the panel alias is sufficient proof either way."""
+    bundle = {
+        "config_hash": "cfg",
+        "artifact_hashes": {
+            "panel": "abc",  # resolved via the panel_ltr.artifact_path fallback
+            "global_calibration": "cal",
+            # note: no "ranking.panel_scoring.artifact_path" key at all
+        },
+        "watchlist_hash": "wl",
+    }
+    assert _fingerprint_gaps(bundle) == []
 
 
 def test_coverage_floor_refused(tmp_path):
