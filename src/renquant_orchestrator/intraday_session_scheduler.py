@@ -32,7 +32,7 @@ Session semantics (§5 / §11b), all derived from the injected NYSE calendar
 — the same half-day-aware primitive the quote logger and execution use), so
 early closes scale the windows with no hard-coded clock times:
 
-- fixed tick cadence, default 720 s (the RFC's 12-min Stage-1 tick);
+- fixed tick cadence, default 180 s (3-min tick);
 - first eligible decision tick at ``open + 5 min`` (auction settling);
 - **entries stop** at ``close − 30 min`` (the entry cutoff); **exits
   continue to the bell** — past the cutoff the tick still runs, and
@@ -99,7 +99,7 @@ MODE_LIVE = "live"
 
 #: §5 / §11b Stage-1 defaults (seconds). All half-day aware because they are
 #: applied to the calendar's actual session bounds.
-DEFAULT_TICK_SECONDS = 720  # the RFC's fixed 12-min Stage-1 cadence
+DEFAULT_TICK_SECONDS = 180  # 3-min tick cadence (operator directive 2026-07-06)
 DEFAULT_ENTRY_OPEN_DELAY_SECONDS = 300  # no entries in the first 5 min
 DEFAULT_ENTRY_CLOSE_CUTOFF_SECONDS = 1800  # no NEW entries in the last 30 min
 
