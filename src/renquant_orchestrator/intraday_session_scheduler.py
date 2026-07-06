@@ -712,6 +712,15 @@ def _build_paper_submitter(environ: Mapping[str, str] | None = None):
                     "qty": qty,
                     "error": str(exc),
                 })
+        if results:
+            filled = [r for r in results if "error" not in r]
+            if filled:
+                try:
+                    from renquant_common.notify import send as _ntfy
+                    summary = ", ".join(f"{r['side']} {r['symbol']} x{r['qty']}" for r in filled)
+                    _ntfy("rq105 paper order", summary)
+                except Exception:
+                    pass
         return results
     return submit
 
