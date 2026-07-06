@@ -468,8 +468,13 @@ class AlpacaLiveStateSource:
             quotes = {}
         for ticker, quote in quotes.items():
             mid = getattr(quote, "mid", None)
-            if mid:
-                prices[str(ticker).upper()] = float(mid)
+            if callable(mid):
+                mid = mid()
+            if mid is not None:
+                try:
+                    prices[str(ticker).upper()] = float(mid)
+                except (TypeError, ValueError):
+                    pass
 
         reservations = load_order_state_reservations(
             self.order_state_path, trading_day=trading_day
