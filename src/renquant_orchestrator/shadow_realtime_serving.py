@@ -585,12 +585,11 @@ def main(argv: Any | None = None, *, scorer: ShadowScorer | None = None) -> int:
     parser.add_argument("--tick-feed", default=None, help="intraday_ticks.jsonl (default under data root)")
     parser.add_argument(
         "--feature-snapshot-json",
-        default=None,
+        required=True,
         help=(
             "materialized, cutoff-stamped T-1 feature snapshot "
             "({feature_cutoff, feature_builder_version, features}); its digest binds "
-            "every logged row to immutable feature state (Codex #221). "
-            "Optional in observe-only mode — omit to log without feature provenance."
+            "every logged row to immutable feature state (Codex #221)"
         ),
     )
     parser.add_argument("--batch-scores-json", required=True, help="JSON object ticker->frozen batch score")
@@ -604,34 +603,28 @@ def main(argv: Any | None = None, *, scorer: ShadowScorer | None = None) -> int:
     args = parser.parse_args(argv)
 
     if scorer is None:
+        # The real panel scorer + its Stage-3 feature construction are wired by the
+        # operator/caller (load_pinned_panel_scorer); the observe-only CLI does not
+        # fabricate one. Mirrors the #216 logger's fail-clear-on-missing-dep stance.
         print(
-            "[shadow-realtime-serving] no scorer wired. This CLI needs a "
-            "ShadowScorer injected via load_pinned_panel_scorer (requires "
-            "Stage-3 feature_matrix_fn wiring). Nothing logged.",
+            "[shadow-realtime-serving] no scorer wired. This OBSERVE-ONLY collector "
+            "needs an injected ShadowScorer (real run: load_pinned_panel_scorer with "
+            "the pinned artifact + a snapshot->matrix builder). Nothing logged.",
             flush=True,
         )
         return 2
 
     data_root = Path(args.data_root).expanduser().resolve() if args.data_root else None
     feed_path = Path(args.tick_feed) if args.tick_feed else default_tick_feed_path(data_root)
-    if args.feature_snapshot_json:
-        feature_snapshot = FeatureSnapshot.from_mapping(_load_json_object(args.feature_snapshot_json))
-    else:
-        feature_snapshot = None
+    feature_snapshot = FeatureSnapshot.from_mapping(_load_json_object(args.feature_snapshot_json))
     batch_scores = _load_json_object(args.batch_scores_json)
 
     build_kwargs: dict[str, Any] = {}
     if args.staleness_sec is not None:
         build_kwargs["staleness_sec"] = args.staleness_sec
-    if feature_snapshot is not None:
-        build_kwargs["feature_snapshot"] = feature_snapshot
-    else:
-        build_kwargs["daily_features"] = {
-            t: {"feature_cutoff": "bootstrap", "values": {}}
-            for t in batch_scores
-        }
     snapshot = build_realtime_snapshot(
         as_of=args.as_of,
+        feature_snapshot=feature_snapshot,
         feed_source=JsonlTickFeedSource(feed_path),
         **build_kwargs,
     )
