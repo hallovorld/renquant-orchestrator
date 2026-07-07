@@ -385,6 +385,53 @@ def test_coverage_at_floor_is_accepted(tmp_path):
     assert meta["n"] == 9
 
 
+# ─────────────────── MIN_ROWS: the self-referential-coverage gap ───────────
+# Codex review round 2: MIN_COVERAGE_FRACTION's denominator is the run's OWN
+# candidate roster, so a genuinely partial run whose truncated roster is
+# nonetheless internally 100%-scored trivially clears the coverage gate.
+# MIN_ROWS is the ONLY thing standing between that scenario and acceptance.
+# These tests use the module's real (non-monkeypatched) MIN_ROWS=25, chosen
+# from an 85-run historical query of runs.alpaca.db: the legitimate low end
+# is 29 (2026-05-17), and a pre-operational anomalous cluster (2026-04-23
+# through 04-27) tops out at 10 candidates — 25 sits with margin on both
+# sides of that real split, not an arbitrary round number.
+
+def test_run_at_evidence_based_floor_with_full_coverage_is_accepted(tmp_path, monkeypatch):
+    """25 candidates, all scored (100% coverage) — mirrors the real
+    2026-05-17 pattern (29-31 candidates, 100% covered) that MIN_ROWS=30
+    would have wrongly rejected. Uses the module's real MIN_ROWS (not the
+    autouse fixture's monkeypatched value) to prove the actual shipped
+    floor, not a test-only stand-in, accepts this legitimate shape."""
+    monkeypatch.setattr(exporter, "MIN_ROWS", 25)
+    db = _make_db(tmp_path)
+    scores = {f"T{i}": 0.1 * i for i in range(25)}
+    _insert_run(db, "2026-07-01-live-atrealfloor", scores=scores)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 0
+    meta = json.loads((tmp_path / "out" / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["universe_n"] == 25
+    assert meta["n"] == 25
+
+
+def test_run_below_evidence_based_floor_with_full_coverage_is_still_rejected(tmp_path, monkeypatch):
+    """10 candidates, ALL scored (100% coverage) — mirrors the real
+    pre-operational anomalous cluster (2026-04-23 through 04-27, counts as
+    low as 2-10). This is exactly Codex's concern: a small, internally
+    self-consistent roster that the self-referential coverage check alone
+    would accept trivially. MIN_ROWS must still refuse it. This test uses
+    the module's real MIN_ROWS (not the autouse fixture's monkeypatched
+    value of 2, which would incorrectly accept this same roster) — proving
+    the actual shipped floor genuinely does protective work in this exact
+    scenario, not just in the abstract."""
+    monkeypatch.setattr(exporter, "MIN_ROWS", 25)
+    db = _make_db(tmp_path)
+    scores = {f"T{i}": 0.1 * i for i in range(10)}  # 10/10 scored, 100% coverage
+    _insert_run(db, "2026-07-01-live-belowfloor", scores=scores)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert not (tmp_path / "out").exists()
+
+
 # ─────────────────────────── atomic write + hashing ───────────────────────
 
 def test_export_is_atomic_no_partial_file_survives_a_write_crash(tmp_path, monkeypatch):
