@@ -223,8 +223,13 @@ def _remote_worker(request_json: str) -> str:
     ohlcv = {}
     if ohlcv_dir.is_dir():
         import pandas as pd
-        for f in ohlcv_dir.glob("*.parquet"):
-            ohlcv[f.stem] = pd.read_parquet(f)
+        # Layout: ohlcv/{SYMBOL}/1d.parquet (directory-per-symbol)
+        for symbol_dir in sorted(ohlcv_dir.iterdir()):
+            if not symbol_dir.is_dir():
+                continue
+            pq = symbol_dir / "1d.parquet"
+            if pq.exists():
+                ohlcv[symbol_dir.name] = pd.read_parquet(pq)
 
     benchmark = config.get("benchmark", "SPY")
     spy_df = ohlcv.get(benchmark)

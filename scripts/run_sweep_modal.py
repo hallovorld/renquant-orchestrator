@@ -102,9 +102,24 @@ def main(argv: list[str] | None = None) -> int:
     artifacts_dir = strat_dir / "artifacts"
     model_dir = strat_dir / "models"
 
-    local_paths: dict[str, str] = {}
-    if ohlcv_dir.is_dir():
-        local_paths["ohlcv"] = str(ohlcv_dir)
+    # Only sync OHLCV for symbols the sweep actually uses (16 MB vs 250 MB)
+    base_config = json.loads(base_config_path.read_text())
+    watchlist = set(base_config.get("watchlist", []))
+    watchlist |= set(base_config.get("sector_etf_map", {}).values())
+    watchlist.add(base_config.get("benchmark", "SPY"))
+
+    import tempfile
+    ohlcv_staging = Path(tempfile.mkdtemp(prefix="ohlcv_sync_"))
+    for sym in sorted(watchlist):
+        src_pq = ohlcv_dir / sym / "1d.parquet"
+        if src_pq.exists():
+            dst = ohlcv_staging / sym
+            dst.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(src_pq, dst / "1d.parquet")
+    print(f"  Staged {len(list(ohlcv_staging.iterdir()))} symbols for sync")
+
+    local_paths: dict[str, str] = {"ohlcv": str(ohlcv_staging)}
     if artifacts_dir.is_dir():
         local_paths["artifacts"] = str(artifacts_dir)
     if model_dir.is_dir():
