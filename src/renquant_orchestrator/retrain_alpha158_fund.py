@@ -1348,6 +1348,47 @@ class RefitCalibratorTask(Task):
         return True
 
 
+def _stamp_calibrator_fingerprint(scorer_path: Path, calibrator_path: Path) -> None:
+    """Stamp the calibrator with the scorer's model_content_sha256.
+
+    The runtime's fingerprint_dispatch.verify() asserts calibrator and scorer
+    hashes match before allowing scoring.  The fit_calibrator step does not
+    stamp this because it delegates to renquant-model code that predates the
+    fingerprint contract.  Without this, every promote followed by a daily-full
+    crashes with ``calibrator/scorer fingerprint mismatch`` (the triple-impl
+    bug, memory 2026-07-01).
+    """
+    scorer = read_json_object(scorer_path, "scorer for fingerprint")
+    cal = read_json_object(calibrator_path, "calibrator for fingerprint")
+    try:
+        from renquant_pipeline.kernel.panel_pipeline.fingerprint_dispatch import (  # noqa: PLC0415
+            model_content_sha256,
+        )
+
+        scorer_hash = model_content_sha256(scorer)
+    except ImportError:
+        from renquant_common.model_fingerprint import (  # noqa: PLC0415
+            model_content_sha256,
+        )
+
+        scorer_hash = model_content_sha256(scorer)
+    cal["model_content_sha256"] = scorer_hash
+    calibrator_path.write_text(json.dumps(cal, indent=1))
+    log.info(
+        "StampCalibratorFingerprintTask: stamped %s with scorer hash %s",
+        calibrator_path.name,
+        scorer_hash,
+    )
+
+
+class StampCalibratorFingerprintTask(Task):
+    def run(self, ctx: RetrainContext) -> bool | None:
+        if ctx.dry_run:
+            return True
+        _stamp_calibrator_fingerprint(ctx.xgb_artifact_out, ctx.calibrator_out)
+        return True
+
+
 class RetrainJob(Job):
     @property
     def tasks(self) -> list[Task]:
@@ -1359,6 +1400,7 @@ class RetrainJob(Job):
             RefreshSigmaHeadRawLabelTask(),
             TrainGbdtScorerTask(),
             RefitCalibratorTask(),
+            StampCalibratorFingerprintTask(),
         ]
 
 

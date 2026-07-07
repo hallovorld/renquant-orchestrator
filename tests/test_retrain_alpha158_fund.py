@@ -63,6 +63,7 @@ def test_pipeline_shape_is_single_job_with_ordered_tasks(tmp_path) -> None:
         "RefreshSigmaHeadRawLabelTask",
         "TrainGbdtScorerTask",
         "RefitCalibratorTask",
+        "StampCalibratorFingerprintTask",
     ]
 
 
@@ -86,6 +87,10 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        mod, "_stamp_calibrator_fingerprint",
+        lambda scorer_path, cal_path: None,
+    )
     strategy_config = repo / "strategy_config.json"
     strategy_config.write_text("{}")
     ctx = mod.RetrainContext(
@@ -156,6 +161,26 @@ def test_invalid_scorer_content_fails_before_calibrator(monkeypatch, tmp_path) -
 
     with pytest.raises(ValueError, match="missing config_fingerprint"):
         mod.build_pipeline().run(ctx)
+
+
+def test_stamp_calibrator_fingerprint_writes_scorer_hash(tmp_path, monkeypatch) -> None:
+    scorer = tmp_path / "scorer.json"
+    calibrator = tmp_path / "calibrator.json"
+    scorer.write_text(json.dumps({"scores": [1, 2, 3], "trained_date": "2026-07-06"}))
+    calibrator.write_text(json.dumps({"method": "isotonic"}))
+    monkeypatch.setattr(
+        mod, "_stamp_calibrator_fingerprint",
+        mod._stamp_calibrator_fingerprint,  # use real impl
+    )
+    fake_hash = "sha256:test_hash_abc123"
+    monkeypatch.setattr(
+        "renquant_common.model_fingerprint.model_content_sha256",
+        lambda payload: fake_hash,
+    )
+    mod._stamp_calibrator_fingerprint(scorer, calibrator)
+    cal = json.loads(calibrator.read_text())
+    assert cal["model_content_sha256"] == fake_hash
+    assert cal["method"] == "isotonic"
 
 
 def test_dry_run_records_commands_without_artifacts(tmp_path) -> None:
