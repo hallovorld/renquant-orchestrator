@@ -67,18 +67,21 @@ def test_plist_log_paths_are_under_documented_log_dir(filename):
 # ─────────────────────────── liveness: session-day gating ────────────────────
 
 
-def test_holiday_is_not_flagged_as_a_lapsed_session(monkeypatch, tmp_path):
-    # Mock the calendar check directly rather than depending on
-    # pandas_market_calendars (and its historical data) being installed in
-    # whatever environment runs this suite — test_calendar_failure_fails_
-    # closed_to_session_day already covers the "library unavailable" case;
-    # this test is purely about main()'s own control flow when a day IS
-    # correctly identified as non-session.
-    holiday = dt.date(2026, 1, 1)  # New Year's Day, for readability only
-    monkeypatch.setattr(liveness, "_is_session_day", lambda day: False)
-    monkeypatch.setattr(liveness, "ROOT", str(tmp_path))  # no snapshot dir exists at all
-    rc = liveness.main(["--as-of", holiday.isoformat()])
-    assert rc == 0  # must not alert/fail just because nothing was published on a holiday
+def test_weekend_is_not_flagged_as_a_lapsed_session(monkeypatch, tmp_path):
+    saturday = dt.date(2026, 7, 4)  # Saturday — launchd doesn't fire
+    monkeypatch.setattr(liveness, "ROOT", str(tmp_path))
+    rc = liveness.main(["--as-of", saturday.isoformat()])
+    assert rc == 0
+
+
+def test_holiday_weekday_is_still_checked(monkeypatch, tmp_path):
+    # Snapshotter runs all weekdays including holidays (FMP data updates
+    # regardless of market status). Liveness must verify, not skip.
+    holiday_friday = dt.date(2026, 7, 3)  # observed July 4th
+    monkeypatch.setattr(liveness, "ROOT", str(tmp_path))
+    monkeypatch.setattr(liveness, "_alert", lambda title, body: None)
+    rc = liveness.main(["--as-of", holiday_friday.isoformat()])
+    assert rc == 1  # no snapshot dir → flagged as missing
 
 
 def test_ordinary_weekday_with_no_snapshot_is_flagged():
@@ -88,14 +91,11 @@ def test_ordinary_weekday_with_no_snapshot_is_flagged():
     assert problems and "missing" in problems[0]
 
 
-def test_calendar_failure_fails_closed_to_session_day(monkeypatch):
-    def _boom():
-        raise RuntimeError("pandas_market_calendars unavailable")
-
-    monkeypatch.setattr(liveness, "_session_calendar", _boom)
-    # A calendar failure must NOT silently skip the check — it must still be
-    # treated as a session day so a real lapse can't hide behind a broken import.
-    assert liveness._is_session_day(dt.date(2026, 6, 29)) is True
+def test_collection_day_is_weekday_only():
+    assert liveness._is_collection_day(dt.date(2026, 6, 29)) is True   # Monday
+    assert liveness._is_collection_day(dt.date(2026, 7, 3)) is True    # Friday (holiday)
+    assert liveness._is_collection_day(dt.date(2026, 7, 4)) is False   # Saturday
+    assert liveness._is_collection_day(dt.date(2026, 7, 5)) is False   # Sunday
 
 
 # ─────────────────────────── liveness: publication contract ──────────────────
@@ -201,12 +201,12 @@ def test_missing_referenced_parquet_is_unhealthy(tmp_path, monkeypatch):
 
 def test_as_of_flag_overrides_today(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(liveness, "ROOT", str(tmp_path))
-    monkeypatch.setattr(liveness, "_is_session_day", lambda day: False)
-    fixed = dt.date(2026, 1, 1)  # arbitrary fixed date, deterministic regardless of run date
+    # Use a Saturday so the check skips (no snapshot expected)
+    fixed = dt.date(2026, 7, 4)  # Saturday
     rc = liveness.main(["--as-of", fixed.isoformat()])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "2026-01-01" in out
+    assert "2026-07-04" in out
 
 
 # ───────────────── wrapper: kernel-released fcntl.flock concurrency lock ─────
