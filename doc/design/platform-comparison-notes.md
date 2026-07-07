@@ -1,8 +1,19 @@
 # Cloud backtest compute: platform comparison
 
+REVISION: r2 (Codex corrective review) — the r1 cost table applied Modal's A10
+GPU per-second rate to this CPU-only workload, understating Modal's true cost
+by ~28× (correctly, in the wrong direction for the actual recommendation: it
+made Modal look artificially *more* expensive than it is). r2 recomputes
+Modal and AWS Fargate costs from each platform's verified current CPU+memory
+pricing (modal.com/pricing and aws.amazon.com/fargate/pricing, both checked
+2026-07-07) and revises the recommendation accordingly. Beam/Fal.ai/Anyscale
+figures are carried over from r1 and are explicitly flagged as not
+independently re-verified in this pass.
+
 Evaluated for: embarrassingly parallel CPU-bound Python backtests (~30min each,
 74 concurrent workers, complex deps torch+xgboost+pandas+8 internal subrepos,
-~3GB persistent data volume, streaming results back, $5/sweep budget).
+~3GB persistent data volume, streaming results back, $5/sweep budget, 4 GiB
+memory per worker).
 
 ---
 
@@ -10,7 +21,7 @@ Evaluated for: embarrassingly parallel CPU-bound Python backtests (~30min each,
 
 | Criterion | Modal | Beam (beam.cloud) | Fal.ai | Anyscale (Ray) | AWS Batch (Fargate) |
 |-----------|-------|--------------------|--------|----------------|---------------------|
-| **Pricing model** | Per-vCPU·s ($0.000306/vCPU·s) [modal.com/pricing](https://modal.com/pricing) | Per-core·h ($0.19/core·h ≈ $0.0000528/core·s) [beam.cloud/pricing](https://www.beam.cloud/pricing) | Per-second by machine tier ($0.0003–0.0006/s for CPU) [fal.ai/pricing](https://fal.ai/pricing) | Per-vCPU·min (~$0.00006/min, varies by instance) [anyscale.com/pricing](https://www.anyscale.com/pricing) | Per-vCPU·s ($0.04048/vCPU·h ≈ $0.0000112/vCPU·s; Spot ~70% off) [aws.amazon.com/fargate/pricing](https://aws.amazon.com/fargate/pricing/) |
+| **Pricing model** | Per-physical-core·s ($0.0000131/core·s, 1 core = 2 vCPU equiv.) + $0.00000222/GiB·s memory [modal.com/pricing](https://modal.com/pricing) (verified 2026-07-07; **r1 wrongly used the $0.000306/sec A10 GPU rate here**) | Per-core·h ($0.19/core·h ≈ $0.0000528/core·s) [beam.cloud/pricing](https://www.beam.cloud/pricing) (not re-verified in r2) | Per-second by machine tier ($0.0003–0.0006/s for CPU) [fal.ai/pricing](https://fal.ai/pricing) (not re-verified in r2) | Per-vCPU·min (~$0.00006/min, varies by instance) [anyscale.com/pricing](https://www.anyscale.com/pricing) (not re-verified in r2; see caveat below) | Per-vCPU·s ($0.000011244/vCPU·s) + $0.000001235/GB·s memory [aws.amazon.com/fargate/pricing](https://aws.amazon.com/fargate/pricing/) (verified 2026-07-07; Spot ~70% off) |
 | **Min billing** | Per-millisecond | Per-second | Per-second | Per-minute | Per-second |
 | **Cold start** | ~1–5s (warm containers ~180ms with keep-warm) [modal.com/docs/guide/cold-start](https://modal.com/docs/guide/cold-start) | <1s (custom runtime optimized for fast boot) [beam.cloud/blog/top-serverless-gpu-providers](https://www.beam.cloud/blog/top-serverless-gpu-providers) | Not benchmarked for CPU; GPU ~2–5s | 30–120s (cluster spin-up, not per-container) | 20–60s (ENI + image pull + bootstrap) [aws.plainenglish.io](https://aws.plainenglish.io/taming-cold-starts-on-aws-fargate-the-architecture-behind-sub-5-second-task-launches-622ebd73b051) |
 | **Persistent volume** | Yes — `modal.Volume`, supports `.commit()` for immutable snapshots [modal.com/docs](https://modal.com/docs/guide/volumes) | Yes — distributed volumes, shared across apps; eventual consistency ~60s [docs.beam.cloud/data/volumes](https://docs.beam.cloud/v2/data/volume) | Yes — `/data` mount, multi-layer cache (NVMe → DC cache → object store) [docs.fal.ai](https://docs.fal.ai/serverless/development/use-persistent-storage) | Via cloud object storage (S3/GCS); no built-in volume abstraction [docs.anyscale.com](https://docs.anyscale.com/configuration) | EFS or S3 mount; no built-in volume concept in Batch itself |
@@ -23,25 +34,36 @@ Evaluated for: embarrassingly parallel CPU-bound Python backtests (~30min each,
 
 ---
 
-## Cost estimate for our 75-variant sweep (2 vCPU × 30min × 74 workers)
+## Cost estimate for our 75-variant sweep (2 vCPU + 4 GiB × 30min × 74 workers)
+
+Modal and AWS Fargate rows are recomputed with **verified** current CPU+memory
+pricing (both checked 2026-07-07) and include memory cost, which the r1 table
+omitted entirely for every platform. Beam/Fal.ai/Anyscale are carried over
+from r1 unchanged (not re-verified) — treat those three as lower-confidence.
 
 | Platform | Unit price | Calculation | Est. cost |
 |----------|-----------|-------------|-----------|
-| **Modal** | $0.000306/vCPU·s | 74 × 2 vCPU × 1800s × $0.000306 | **$81.56** |
-| **Beam** | $0.19/core·h | 74 × 2 cores × 0.5h × $0.19 | **$14.06** |
-| **Fal.ai** | ~$0.0004/s (CPU-M est.) | 74 × 1800s × $0.0004 | **$53.28** |
-| **Anyscale** | ~$0.0036/vCPU·h (low-end) | 74 × 2 vCPU × 0.5h × $0.0036 | **$0.27** |
-| **AWS Batch (Fargate on-demand)** | $0.04048/vCPU·h | 74 × 2 vCPU × 0.5h × $0.04048 | **$3.00** |
-| **AWS Batch (Fargate Spot)** | ~$0.012/vCPU·h (70% off) | 74 × 2 vCPU × 0.5h × $0.012 | **$0.89** |
+| **Modal** | $0.0000131/core·s + $0.00000222/GiB·s | 74 × [(1 core × 1800s × $0.0000131) + (4 GiB × 1800s × $0.00000222)] | **$2.93** |
+| **Beam** (not re-verified) | $0.19/core·h | 74 × 2 cores × 0.5h × $0.19 | **$14.06** |
+| **Fal.ai** (not re-verified) | ~$0.0004/s (CPU-M est.) | 74 × 1800s × $0.0004 | **$53.28** |
+| **Anyscale** (not re-verified) | ~$0.0036/vCPU·h (low-end) | 74 × 2 vCPU × 0.5h × $0.0036 | **$0.27** |
+| **AWS Batch (Fargate on-demand)** | $0.000011244/vCPU·s + $0.000001235/GB·s | 74 × [(2 vCPU × 1800s × $0.000011244) + (4 GB × 1800s × $0.000001235)] | **$3.66** |
+| **AWS Batch (Fargate Spot)** | ~70% off on-demand | $3.66 × 0.30 | **$1.10** |
 
-**IMPORTANT CAVEAT**: Modal's $0.000306/vCPU·s = $1.10/vCPU·h, which is significantly
-more expensive than Fargate ($0.04/vCPU·h). Modal's premium is for the developer
-experience and fast cold starts, not raw compute cost. For a 30-min CPU batch job
-where cold start is irrelevant (<1% of runtime), the DX premium may not be justified.
+**r1→r2 correction**: the r1 table applied Modal's A10 **GPU** rate
+($0.000306/sec) to this CPU workload and omitted memory cost for every
+platform. Modal's real per-physical-core rate is $0.0000131/sec — about
+23× lower than the mistaken r1 figure — and its memory-inclusive real cost
+for this workload is **$2.93/sweep**, not $81.56. Once AWS Fargate's memory
+cost is also included, Modal is now *cheaper* than on-demand Fargate ($3.66)
+and only ~2.7× Fargate Spot ($1.10) — not the ~27× gap r1 claimed. See the
+main RFC (`2026-07-07-cloud-backtest-compute.md` §3.3) for the revised
+platform recommendation this correction drives.
 
 The Anyscale price looks unrealistically low — their $0.00006/min figure may be a
 platform fee on top of underlying cloud compute, or for the smallest instance type
-that wouldn't run our workload. **Could not verify** from public docs.
+that wouldn't run our workload. **Could not verify** from public docs; unchanged
+from r1, still unresolved.
 
 ---
 
@@ -51,19 +73,22 @@ that wouldn't run our workload. **Could not verify** from public docs.
 - **Strengths**: Best Python SDK by far. `.map()` is exactly our dispatch pattern.
   Volume `.commit()` gives immutable snapshots (critical for result reproducibility).
   Millisecond billing. $30/mo free tier.
-- **Weaknesses**: CPU pricing is high ($1.10/vCPU·h vs Fargate $0.04). For a
-  30-min CPU batch where cold start doesn't matter, we're paying a 27× premium
-  for DX. Not cost-effective at scale.
-- **Fit for us**: Excellent DX, poor cost efficiency for CPU-heavy batch.
+- **Weaknesses**: Real CPU+memory cost is $2.93/sweep — corrected from r1's
+  mistaken $81.56 (GPU-rate bug). This is now *cheaper* than on-demand Fargate
+  and only ~2.7× Fargate Spot, not a "27× premium." Vendor lock-in (proprietary
+  SDK) is the more relevant remaining weakness than cost.
+- **Fit for us**: Excellent DX, and cost-competitive once correctly priced.
 
 ### Beam (beam.cloud)
 - **Strengths**: Open-source engine (beta9) = self-hostable = zero lock-in escape
   hatch. Sub-1s cold starts. Built-in 3× retry. Distributed volumes.
 - **Weaknesses**: Younger ecosystem. Volume eventual consistency (60s) could matter
-  if workers write intermediate results (ours don't). CPU pricing ~$0.38/core·h is
-  still 10× Fargate. Documentation less comprehensive than Modal.
-- **Fit for us**: Interesting for the open-source angle, but still expensive for
-  CPU batch.
+  if workers write intermediate results (ours don't). CPU pricing ~$0.38/core·h
+  is still ~5× Modal's corrected rate and well above Fargate. Documentation
+  less comprehensive than Modal. (Pricing not re-verified in r2 — see caveat
+  above.)
+- **Fit for us**: Interesting for the open-source angle, but not cost-competitive
+  with the corrected Modal/Fargate numbers.
 
 ### Fal.ai
 - **Strengths**: Fast inference platform. Good persistent storage with multi-layer
@@ -85,55 +110,73 @@ that wouldn't run our workload. **Could not verify** from public docs.
   need distributed training or complex DAGs, but we don't.
 
 ### AWS Batch (Fargate)
-- **Strengths**: Cheapest compute by far ($0.04/vCPU·h on-demand, ~$0.012 Spot).
-  No vendor lock-in (standard Docker). Effectively unlimited concurrency. Mature,
+- **Strengths**: Cheap Spot pricing (~$1.10/sweep with memory included). No
+  vendor lock-in (standard Docker). Effectively unlimited concurrency. Mature,
   battle-tested. Fargate Spot = 70% savings for interrupt-tolerant work (ours is).
 - **Weaknesses**: Worst DX (boto3 + JSON job definitions, no Python-native SDK).
   Slowest cold starts (20–60s, irrelevant for 30-min jobs). Significant one-time
   infra setup (ECR repo, job definitions, compute environments, IAM roles).
-  No built-in volume (need EFS or S3 mount).
-- **Fit for us**: Best cost. Worst DX. The 20–60s cold start is <3% of a 30-min
-  job — irrelevant.
+  No built-in volume (need EFS or S3 mount). On-demand Fargate ($3.66/sweep,
+  memory included) is actually *more expensive* than Modal ($2.93/sweep) once
+  correctly priced.
+- **Fit for us**: Spot is cheapest, but the margin over Modal is now small
+  (~$1.83/sweep, not ~$81/sweep) and doesn't clearly outweigh the DX/setup
+  cost for a 1-person team.
 
 ---
 
-## Recommendation
+## Recommendation (r2, corrected)
 
-**Two-tier strategy: Modal for prototyping, AWS Batch Spot for production.**
+**Modal as primary AND production platform.** The r1 recommendation
+("two-tier: Modal for prototyping, AWS Batch Spot for production") was driven
+entirely by a pricing bug (§ above) that made Modal look ~27× more expensive
+than it actually is. With correct CPU+memory pricing, Modal ($2.93/sweep) is
+cheaper than on-demand Fargate ($3.66/sweep) and only ~2.7× Fargate Spot
+($1.10/sweep) — a gap of ~$1.83/sweep, or roughly $13-18/month at the
+project's actual 2-7 sweeps/month cadence. That gap is small enough that
+Modal's DX advantage (best-in-class Python SDK, no IAM/VPC/ECR setup, faster
+iteration for a 1-person team) is the deciding factor, not cost.
 
 ### Rationale
 
 1. **Our workload is CPU-bound, long-running (30min), and embarrassingly parallel.**
-   Cold start is irrelevant (<3% of runtime). The DX premium of Modal/Beam buys
-   nothing that matters at execution time.
+   Cold start is irrelevant (<3% of runtime) for platform choice, but DX and
+   setup cost are not irrelevant for a 1-person team.
 
-2. **Cost difference is 27×.** Modal: ~$82/sweep. AWS Batch Spot: ~$0.89/sweep.
-   At 7 sweeps/month, that's $574 vs $6. Even on-demand Fargate ($3/sweep) is 27×
-   cheaper than Modal.
+2. **Cost difference is now ~$1.83/sweep (Modal vs Fargate Spot), not 27×.**
+   At 7 sweeps/month, that's ~$20/month, not ~$568/month. This does not
+   justify eating AWS Batch's one-time IAM/VPC/ECR/job-definition setup cost
+   (~4-8h of engineering time) up front.
 
-3. **DX cost is one-time; compute cost is recurring.** The boto3 setup is ugly but
-   you do it once. The per-sweep cost difference compounds forever.
+3. **Modal is actually cheaper than on-demand Fargate** ($2.93 vs $3.66), so
+   "AWS Batch is the cheap option" is only true if the Spot market is used —
+   which itself carries interruption risk this workload has to tolerate.
 
-4. **However**, Modal's DX makes iteration 10× faster during development. Building
-   and debugging the worker function, testing data sync, validating result schemas —
-   all faster with `.map()` than with boto3 job definitions.
+4. **Modal's DX makes iteration 10× faster during development and ongoing
+   operation.** Building and debugging the worker function, testing data sync,
+   validating result schemas — all faster with `.map()` than with boto3 job
+   definitions, and this benefit recurs every time the sweep toolchain changes,
+   not just once during setup.
 
 ### Proposed approach
 
 | Phase | Platform | Why |
 |-------|----------|-----|
-| Phase 1: prototype + validate | **Modal** | Fast iteration, $30 free tier covers ~3 sweeps while we validate the architecture |
-| Phase 2: production | **AWS Batch Spot** | 27× cheaper; one-time infra setup amortized over months of sweeps |
-| Bridge: abstraction layer | Backend interface | `BacktestBackend` protocol with `dispatch()` and `collect()` — swap Modal → Batch without changing controller logic |
+| Now | **Modal** | Cost-competitive once correctly priced; best DX; $30/mo free tier covers ~10 sweeps |
+| Escape hatch, if needed later | **AWS Batch Spot** (or Anyscale/Ray) | Available via the abstraction layer if sweep volume grows enough that the ~$1.83/sweep gap starts to matter, or if Modal's pricing/limits become unfavorable |
+| Bridge: abstraction layer | Backend interface | `BacktestExecutor` protocol with `dispatch()`/`collect()` — swap Modal → Batch without changing controller logic, if that day comes |
 
-The abstraction layer is critical: the design RFC should define a `BacktestBackend`
-protocol so the controller doesn't know which cloud runs the work. This makes the
-Modal → Batch migration a one-file change, not a rewrite.
+The abstraction layer is still valuable even though Modal is now the
+straightforward choice: it keeps the migration option open cheaply, and it
+is what lets Phase 1 (§9 of the main RFC) ship value on the local backend
+before any cloud backend is even built.
 
 ### If forced to pick ONE platform
 
-**AWS Batch Spot.** The DX tax is real but bounded (one-time setup ~4-8h). The cost
-savings are unbounded. For a system that will run dozens of sweeps, the math is clear.
+**Modal.** At the corrected pricing, cost is no longer the reason to avoid
+it, and its DX is the best fit for a 1-person team's iteration speed. AWS
+Batch Spot remains the fallback if sweep volume or pricing changes enough
+to revisit this.
 
 ### Fal.ai verdict
 

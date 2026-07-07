@@ -1,18 +1,50 @@
-# Design: cloud compute platform for RenQuant research & backtesting
+# Design: cloud burst execution for the orchestrator's local sweep toolchain
 
 STATUS: design / RFC for cross-agent review. No infra, no spend, no live behavior change.
 
 DATE: 2026-07-07
+REVISION: r2 (Codex corrective review) — narrows repo scope to what
+`renquant-orchestrator` actually owns today, recomputes the platform cost
+model with correct CPU pricing (the r1 numbers mixed in a GPU rate), and
+replaces the single-repo provenance field with the full pinned multirepo
+assembly fingerprint.
 
 ---
 
 ## 0. This document's job
 
-Define the compute infrastructure that RenQuant needs NOW and will grow into
-over the next 12 months, then select a platform and design the system.
+Define cloud burst-execution for the parameter-sweep / placebo-significance
+toolchain that **already lives in `renquant-orchestrator` today**
+(`scripts/run_concentration_cap_sweep.py` and siblings), then select a
+platform and design the system for that toolchain specifically.
 
-The previous draft started from "Modal is cool" and worked backward.
-This version starts from our workloads and works forward.
+The previous draft started from "Modal is cool" and worked backward, then a
+r1 rewrite started from "all of RenQuant's compute needs" and drifted past
+this repo's ownership boundary. This revision starts from the workload this
+repo actually owns and stops there.
+
+**Scope boundary (per CLAUDE.md hard rules — orchestrator does not implement
+model-training internals, and per the multi-repo operating model, backtest/sim
+infrastructure is owned by `renquant-backtesting`):**
+
+- **In scope for this RFC's Phase 1-3 implementation**: W1 (parameter sweeps)
+  and W4 (placebo/shuffle significance) — both CPU-only, both dispatched today
+  from scripts that live in this repo, both embarrassingly parallel across
+  independent variants with no cross-variant state.
+- **Out of scope, belongs in `renquant-model`**: W2 (walk-forward retrain) and
+  W12 (scheduled model retraining) — these are GPU model-training workloads.
+  If cloud burst execution is wanted for retrain, it needs its own design in
+  `renquant-model`; this RFC's abstraction layer may be reusable there, but
+  that is a follow-on decision for that repo to make, not this one.
+- **Deferred, not designed here**: W5-W9 (planned H2 2026 workloads) and W10-W11
+  (future workloads) are listed in §1 for context on how this toolchain might
+  need to grow, but none of them are implemented by this RFC's phases. If any
+  of them turns into a genuine cloud-backtest-compute engine spanning more than
+  this repo's own sweep scripts, the right owner is `renquant-backtesting`
+  (with model-training-specific extensions handled separately in
+  `renquant-model`), and that move should happen before, not after, the
+  generalization — not as an orchestrator-owned platform that other repos
+  grow to depend on.
 
 ---
 
@@ -20,14 +52,20 @@ This version starts from our workloads and works forward.
 
 ### 1.1 Current workloads
 
-| ID | Workload | Hardware | Parallelism | Duration (local) | Frequency |
-|----|----------|----------|-------------|------------------|-----------|
-| W1 | Parameter sweep (conc cap, Kelly, etc.) | CPU | embarrassingly parallel (75-225 variants) | 38h | ad hoc (~2/month) |
-| W2 | Walk-forward retrain | GPU (PatchTST) + CPU (XGB/NGBoost) | sequential per cutoff, parallelizable across cutoffs | PatchTST ~50s/cut × 20 cuts; XGB ~154s/cut × 20 cuts | weekly |
-| W3 | Daily-full pipeline | CPU | sequential | ~5 min | daily |
-| W4 | Placebo/shuffle significance | CPU | embarrassingly parallel (100+ shuffles) | ~20h | per gate change |
+| ID | Workload | Hardware | Parallelism | Duration (local) | Frequency | This RFC |
+|----|----------|----------|-------------|------------------|-----------|----------|
+| W1 | Parameter sweep (conc cap, Kelly, etc.) | CPU | embarrassingly parallel (75-225 variants) | 38h | ad hoc (~2/month) | **IN SCOPE** |
+| W2 | Walk-forward retrain | GPU (PatchTST) + CPU (XGB/NGBoost) | sequential per cutoff, parallelizable across cutoffs | PatchTST ~50s/cut × 20 cuts; XGB ~154s/cut × 20 cuts | weekly | OUT — `renquant-model` |
+| W3 | Daily-full pipeline | CPU | sequential | ~5 min | daily | not cloud (§1.4) |
+| W4 | Placebo/shuffle significance | CPU | embarrassingly parallel (100+ shuffles) | ~20h | per gate change | **IN SCOPE** |
 
 ### 1.2 Planned workloads (H2 2026 roadmap)
+
+Listed for context on how the sweep toolchain's requirements might grow — none
+of these are implemented by this RFC. If pursued, W5-W9 are candidates for a
+generalized cloud-backtest-compute engine, which per the scope boundary above
+belongs in `renquant-backtesting`, not as a further extension of this
+orchestrator-owned toolchain.
 
 | ID | Workload | Hardware | Parallelism | Estimated duration | Frequency |
 |----|----------|----------|-------------|-------------------|-----------|
@@ -39,11 +77,11 @@ This version starts from our workloads and works forward.
 
 ### 1.3 Future workloads (12-month horizon)
 
-| ID | Workload | Hardware | Key change |
-|----|----------|----------|-----------|
-| W10 | 500+ ticker universe | CPU | 3.5× current pipeline days per variant |
-| W11 | Multi-strategy concurrent | CPU | 2-3× total workload |
-| W12 | Scheduled model retraining | GPU (CUDA) | needs GPU cloud, not just CPU |
+| ID | Workload | Hardware | Key change | This RFC |
+|----|----------|----------|-----------|----------|
+| W10 | 500+ ticker universe | CPU | 3.5× current pipeline days per variant | in-scope toolchain, future scale |
+| W11 | Multi-strategy concurrent | CPU | 2-3× total workload | in-scope toolchain, future scale |
+| W12 | Scheduled model retraining | GPU (CUDA) | needs GPU cloud, not just CPU | OUT — `renquant-model` |
 
 ### 1.4 What does NOT go to cloud
 
@@ -62,10 +100,9 @@ This version starts from our workloads and works forward.
 
 | Req | Source | Description |
 |-----|--------|-------------|
-| F1 | W1,W4-W8 | Execute a Python backtest function with a config JSON, return structured results |
+| F1 | W1,W4 | Execute a Python backtest function with a config JSON, return structured results |
 | F2 | W1 | Support 20-200+ concurrent workers |
 | F3 | W1,W4 | Stream results back as each worker completes (not batch at end) |
-| F4 | W2,W12 | Support GPU workers (CUDA) for model training |
 | F5 | all | Shared read-only data volume (OHLCV 250MB + model artifacts 2.7GB) |
 | F6 | W1 | Resume interrupted sweeps from checkpoint |
 | F7 | all | Identical results on cloud vs local (backend-transparent) |
@@ -81,16 +118,20 @@ This version starts from our workloads and works forward.
 | NF5 Security | No API keys / live state / prod DB leave local | Backtests use only historical data |
 | NF6 Portability | Switch platform in ≤1 week of engineering | No deep vendor lock-in in the abstraction layer |
 | NF7 Observability | Progress visible during sweep; completion notification | ntfy + terminal progress |
-| NF8 Reproducibility | Same data + code + config = same result (±FP) | Volume commit ID + image hash + config fingerprint |
+| NF8 Reproducibility | Same data + code + config = same result (±FP) | Volume commit ID + image hash + full pinned-multirepo assembly fingerprint (§4.5) — not just the orchestrator repo's own commit |
 
 ### 2.3 Growth vectors
 
 | Vector | Impact on platform choice |
 |--------|--------------------------|
-| GPU training (W12) | Platform MUST support GPU instances, not just CPU |
 | 500+ ticker universe (W10) | Workers need more memory (4GB → 8GB); data volume grows to ~1GB OHLCV |
 | Higher sweep frequency | Cost efficiency matters more; warm pools / reserved capacity useful |
 | Multi-strategy | Same infra, different configs; no architectural change |
+
+GPU training (W2/W12) is intentionally not listed as a growth vector for this
+RFC's platform choice — it is out of scope per §0, and a `renquant-model`-owned
+RFC choosing GPU cloud infra should not be constrained by a CPU-only
+orchestrator toolchain's platform pick.
 
 ---
 
@@ -100,11 +141,15 @@ This version starts from our workloads and works forward.
 
 | Platform | Type | Strengths | Weaknesses |
 |----------|------|-----------|------------|
-| **Modal** | Python-native serverless | Best DX; Volume snapshots; GPU support; cold start ~10-30s | Vendor lock-in (Python decorator API); US-only regions |
-| **Beam** | Python-native serverless | Similar to Modal; persistent volumes; GPU | Smaller community; less mature docs |
-| **Anyscale (Ray)** | Distributed framework + managed cloud | Ray is OSS (portable); scales to 1000s of workers; GPU native | Heavier setup; min cluster size; overkill for burst | 
-| **Fal.ai** | AI/ML-focused serverless | Good for inference/training; GPU-first | Not designed for general CPU backtests; limited Volume support |
-| **AWS Batch + Spot** | Traditional IaaS | Cheapest (spot ~$0.01/vCPU·h); full control; GPU via EC2 | Heavy setup (ECR/IAM/VPC/job-def); cold start 2-5 min; no streaming results |
+| **Modal** | Python-native serverless | Best DX; Volume snapshots; cold start ~10-30s | Vendor lock-in (Python decorator API); US-only regions |
+| **Beam** | Python-native serverless | Similar to Modal; persistent volumes | Smaller community; less mature docs |
+| **Anyscale (Ray)** | Distributed framework + managed cloud | Ray is OSS (portable); scales to 1000s of workers | Heavier setup; min cluster size; overkill for burst | 
+| **Fal.ai** | AI/ML-focused serverless | Good for inference/training | Not designed for general CPU backtests; limited Volume support |
+| **AWS Batch + Spot** | Traditional IaaS | Cheap on-demand; full control | Heavy setup (ECR/IAM/VPC/job-def); cold start 2-5 min; no streaming results |
+
+GPU columns/rows are removed from this comparison versus the r1 draft — GPU
+support is not a requirement for W1/W4 (this RFC's in-scope workloads; see §0
+scope boundary), so it should not weight the platform choice here.
 
 ### 3.2 Scoring against our requirements
 
@@ -113,29 +158,48 @@ This version starts from our workloads and works forward.
 | F1 Python function dispatch | ★★★ | ★★★ | ★★☆ | ★★☆ | ★☆☆ |
 | F2 20-200 concurrent | ★★★ | ★★★ | ★★★ | ★★☆ | ★★★ |
 | F3 Streaming results | ★★★ (.map generator) | ★★☆ | ★★★ (Ray futures) | ★☆☆ | ★☆☆ (poll SQS) |
-| F4 GPU support | ★★★ (T4/A10G/A100) | ★★★ | ★★★ | ★★★ | ★★★ |
 | F5 Shared volume | ★★★ (Volume + commit) | ★★☆ | ★★☆ (S3/NFS) | ★☆☆ | ★★☆ (EFS/S3) |
 | F6 Resume | ★★☆ (app-level) | ★★☆ | ★★★ (Ray checkpoints) | ★☆☆ | ★★☆ (app-level) |
 | F7 Backend-transparent | ★★★ | ★★★ | ★★☆ (Ray API leaks) | ★★☆ | ★★★ |
 | NF2 Cold start | ★★★ (~10-30s) | ★★☆ (~30-60s) | ★★☆ (~60s cluster) | ★★☆ (~30s) | ★☆☆ (2-5 min) |
-| NF3 Cost (75-var sweep) | ★★☆ (~$4-5) | ★★☆ (~$4-5) | ★★☆ (~$5-8) | ★★☆ (~$5) | ★★★ (~$1-2 spot) |
+| NF3 Cost (75-var sweep, W1) | ★★★ (~$2.93) | ★★☆ (~$14, not independently re-verified) | ★★☆ (~$0.27, flagged unreliable — §3.2 note) | ★★☆ (~$53, not independently re-verified) | ★★★ (~$1.10 spot / ~$3.66 on-demand) |
 | NF6 Portability | ★★☆ (decorator lock-in) | ★★☆ (same) | ★★★ (Ray is OSS) | ★☆☆ | ★★★ (containers) |
+
+**NF3 cost note (r2 correction):** the r1 draft's NF3 cost figures were computed
+using Modal's A10 GPU per-second rate mistakenly applied to a CPU workload
+(off by ~28×). Modal and AWS Batch figures above are recomputed directly from
+each platform's current published CPU+memory pricing (Modal: `$0.0000131`/
+physical-core-sec + `$0.00000222`/GiB-sec, verified against modal.com/pricing
+2026-07-07; AWS Fargate: `$0.000011244`/vCPU-sec + `$0.000001235`/GB-sec,
+verified against aws.amazon.com/fargate/pricing 2026-07-07) for 74 workers ×
+1 physical core (Modal) or 2 vCPU (AWS) × 4 GiB × 1800s. Beam/Fal.ai/Anyscale
+figures are carried over from the r1 draft and are **not** independently
+re-verified in this revision — see `platform-comparison-notes.md` for the
+full recomputation and the unresolved Anyscale-price caveat.
 
 ### 3.3 Selection
 
 **Primary: Modal.** Best fit for our current scale (10-200 workers, burst,
-mixed CPU/GPU). Fastest time-to-value. Volume commit snapshots solve the data
-consistency problem natively. GPU support covers W12 when we get there.
+CPU-only for W1/W4). Fastest time-to-value. Volume commit snapshots solve the
+data consistency problem natively. At the corrected pricing, Modal (~$2.93/
+sweep) is now cheaper than on-demand Fargate (~$3.66/sweep) and only ~2.7×
+Fargate Spot (~$1.10/sweep) — a small, bounded gap that the DX advantage
+easily justifies for a 1-person team, unlike the r1 draft's mistaken ~27×
+gap. This RFC does not rely on GPU support for its selection — W2/W12 (the
+workloads that would need it) are out of scope (§0).
 
 **Escape hatch: Anyscale/Ray.** If we outgrow Modal (>500 workers, need
 multi-region, or pricing becomes unfavorable), Ray's OSS core means we can
 self-host or move to Anyscale with the same application code. The abstraction
 layer (§4.1) is designed so this migration is a backend swap, not a rewrite.
 
-**Why not AWS Batch:** 2-5 min cold start is 8-15% overhead on 30-min jobs.
-No streaming results (must poll SQS or wait for all). Heavy IAM/VPC/ECR
-setup for a 1-person team. Cheapest on $/vCPU·h but most expensive on
-$/engineering-hour.
+**Why not AWS Batch as primary:** 2-5 min cold start is 8-15% overhead on
+30-min jobs. No streaming results (must poll SQS or wait for all). Heavy
+IAM/VPC/ECR setup for a 1-person team. With correct pricing the cost gap
+versus Modal is small (Spot is cheaper, on-demand is not) and no longer large
+enough on its own to justify eating that engineering-time cost up front; AWS
+Batch Spot remains a viable fallback if Modal's pricing or limits become
+unfavorable at higher sweep volume (see the growth vectors in §2.3).
 
 **Why not Fal.ai:** AI-inference-focused; CPU backtest support is second-class.
 Limited volume/storage primitives.
@@ -386,15 +450,46 @@ def run_sweep(
 
 **Schema:**
 
+A single `code_commit` (the orchestrator repo's own SHA) is not sufficient
+provenance for a multirepo system: the sweep worker actually executes code
+assembled from several pinned subrepos (per `RENQUANT_REPOS.md`), reads a
+specific strategy config, and reads specific data/artifact snapshots. A cloud
+result can only be proven to correspond to the same assembly that a local
+backtest, daily orchestration, or later audit is consuming if all of those are
+recorded — matching this repo's existing "no silent continuation without
+strategy/data/artifact fingerprints" rule (CLAUDE.md) and the immutable,
+all-fields-required provenance pattern already used for shadow-serving rows
+(`RunProvenance` in `shadow_realtime_serving.py`).
+
 ```sql
 -- One row per sweep run
 CREATE TABLE sweep_runs (
-    sweep_id        TEXT PRIMARY KEY,
-    created_at      TIMESTAMP NOT NULL,
-    backend         TEXT NOT NULL,            -- 'local' | 'modal' | 'ray'
-    volume_commit   TEXT,                     -- NULL for local backend
-    image_id        TEXT,                     -- container image hash
-    code_commit     TEXT,                     -- git SHA of orchestrator
+    sweep_id                  TEXT PRIMARY KEY,
+    created_at                TIMESTAMP NOT NULL,
+    backend                   TEXT NOT NULL,       -- 'local' | 'modal' | 'ray'
+    volume_commit             TEXT,                -- NULL for local backend
+    image_id                  TEXT,                -- container image hash
+    -- Full pinned multirepo assembly, not just this repo's own commit:
+    subrepo_pins_json         TEXT NOT NULL,        -- {name: commit} for every
+                                                     -- RENQUANT_REPOS.md subrepo
+                                                     -- actually imported by the
+                                                     -- sweep worker (verbatim
+                                                     -- copy of the umbrella
+                                                     -- lock's `subrepos` map
+                                                     -- at dispatch time)
+    subrepo_pins_sha256       TEXT NOT NULL,        -- sha256 of the canonical
+                                                     -- serialization of
+                                                     -- subrepo_pins_json, for
+                                                     -- fast equality checks
+    strategy_config_fingerprint TEXT NOT NULL,      -- same config-fingerprint
+                                                     -- contract as
+                                                     -- model_bundle.py
+    data_manifest_fingerprint TEXT NOT NULL,        -- OHLCV / base-data
+                                                     -- manifest fingerprint
+                                                     -- consumed by the sweep
+    artifact_manifest_fingerprint TEXT NOT NULL,    -- model/WF-artifact
+                                                     -- manifest fingerprint
+                                                     -- consumed by the sweep
     backtest_start  TEXT NOT NULL,            -- ISO date
     backtest_end    TEXT NOT NULL,
     initial_cash    REAL NOT NULL,
@@ -408,6 +503,18 @@ CREATE TABLE sweep_runs (
     total_seconds   REAL,
     cost_usd        REAL
 );
+```
+
+All seven provenance fields above (`volume_commit`* , `image_id`, `subrepo_pins_json`,
+`subrepo_pins_sha256`, `strategy_config_fingerprint`, `data_manifest_fingerprint`,
+`artifact_manifest_fingerprint`) are validated present-and-non-empty before a
+sweep is allowed to start writing `variant_results` rows — a sweep with any
+missing fingerprint fails closed at dispatch time, it does not write partial
+rows with an incomplete provenance record. (*`volume_commit` is the one
+backend-conditional exception: NULL only for `backend='local'`, since the
+local backend has no cloud volume to commit.)
+
+```sql
 
 -- One row per variant (inserted on receipt, not batched)
 CREATE TABLE variant_results (
@@ -611,7 +718,8 @@ python scripts/run_concentration_cap_sweep.py \
 
 ### 6.6 Reproducibility
 
-Every result is stamped with full provenance:
+Every result is stamped with full provenance — the full pinned multirepo
+assembly (§4.5), not just this repo's own commit:
 
 ```json
 {
@@ -620,19 +728,30 @@ Every result is stamped with full provenance:
     "backend": "modal",
     "volume_commit_id": "vol_abc123",
     "code_image_id": "im_def456",
-    "code_commit": "e914f31a",
+    "subrepo_pins": {
+      "renquant-orchestrator": "e914f31a",
+      "renquant-strategy-104": "efa50715",
+      "renquant-pipeline": "...",
+      "renquant-common": "...",
+      "renquant-backtesting": "..."
+    },
+    "subrepo_pins_sha256": "sha256:...",
+    "strategy_config_fingerprint": "sha256:...",
     "backtest_range": ["2024-06-01", "2026-07-01"],
     "initial_cash": 10000,
     "grid_spec_hash": "sha256:...",
-    "ohlcv_file_count": 146,
-    "ohlcv_total_sha256": "sha256:...",
-    "wf_manifest_sha256": "sha256:..."
+    "data_manifest_fingerprint": "sha256:...",
+    "artifact_manifest_fingerprint": "sha256:..."
   }
 }
 ```
 
-To reproduce: same Volume commit + same image + same config → identical result
-(modulo FP non-associativity, bounded by A/A cross-backend test ≤0.01 Sharpe).
+To reproduce: same Volume commit + same image + same pinned multirepo
+assembly (subrepo pins + strategy config + data manifest + artifact manifest)
+→ identical result (modulo FP non-associativity, bounded by A/A cross-backend
+test ≤0.01 Sharpe). A result whose subrepo pins don't match any known
+umbrella-lock state is a red flag, not merely a curiosity — it means the
+worker ran code that no longer exists in any recorded assembly.
 
 ---
 
@@ -663,22 +782,15 @@ _bundle/                          ← created by bundle.py
 
 **Image is rebuilt only when `bundle_manifest.json` changes** (content-addressed).
 
-### 7.2 GPU image variant
+### 7.2 GPU training (out of scope — see §0)
 
-For W12 (model retraining), a separate image with CUDA:
-
-```python
-gpu_image = (
-    modal.Image.from_registry("nvidia/cuda:12.1-runtime-ubuntu22.04")
-    .pip_install("torch", ...)
-    .copy_local_dir("_bundle/", "/app/")
-)
-
-@app.function(image=gpu_image, gpu="T4", ...)
-def train_model_remote(request_json: str) -> str: ...
-```
-
-Same `BacktestExecutor` interface; different `@app.function` under the hood.
+The r1 draft included a CUDA image variant and `train_model_remote` function
+for W12 here. That is removed in this revision: W2/W12 (model training) are
+out of scope for this RFC (§0 scope boundary) and belong in a `renquant-model`-
+owned design. If `renquant-model` later wants to reuse this RFC's
+`BacktestExecutor`/Modal-dispatch abstraction for GPU training, that is a
+decision for that repo to make and design explicitly, not something this
+orchestrator-owned RFC should pre-build a code path for.
 
 ---
 
@@ -730,27 +842,36 @@ Before any cloud dispatch, the controller runs:
 4. `--resume` CLI
 5. Sweep comparison: `scripts/compare_sweeps.py {id1} {id2}`
 
-### Phase 4: GPU training (when W12 is needed)
-
-1. GPU image variant
-2. `train_model_remote` function
-3. Walk-forward retrain integration
+Phase 4 (GPU training) from the r1 draft is removed in this revision — W12 is
+out of scope (§0). If `renquant-model` wants a GPU-training phase built on
+this abstraction layer, that is a separate decision and design for that repo.
 
 ---
 
 ## 10. Cost model
 
-Modal pricing (~$0.000033/vCPU·s, $2.78/GPU·h for T4):
+Modal CPU pricing, verified against modal.com/pricing 2026-07-07:
+`$0.0000131`/physical-core-sec (1 physical core = 2 vCPU equivalent) +
+`$0.00000222`/GiB-sec memory. (The r1 draft's `$0.000033/vCPU·s` figure was
+itself wrong — see `platform-comparison-notes.md` for the fuller correction
+history; it was not the A10 GPU rate but was still not Modal's real CPU rate.)
+Workloads below are limited to this RFC's in-scope W1/W4 (§0) at 2 vCPU
+(= 1 physical core) + 4 GiB memory per worker, 30 min/worker:
 
-| Workload | Workers | Time/worker | CPU/GPU | Est. cost |
-|----------|---------|-------------|---------|-----------|
-| W1: 75-variant sweep | 74 | ~30 min | CPU×2 | ~$4.40 |
-| W4: 100 placebo shuffles | 100 | ~30 min | CPU×2 | ~$6.00 |
-| W6: signal validation (10 combos) | 10 | ~30 min | CPU×2 | ~$0.60 |
-| W12: PatchTST retrain (20 cutoffs) | 20 | ~5 min | T4 GPU | ~$4.60 |
-| Backend equivalence test | 1 | ~30 min | CPU×2 | ~$0.06 |
+| Workload | Workers | Time/worker | Est. cost |
+|----------|---------|-------------|-----------|
+| W1: 75-variant sweep | 74 | ~30 min | **$2.93** |
+| W4: 100 placebo shuffles | 100 | ~30 min | **$3.96** |
+| Backend equivalence test | 1 | ~30 min | **$0.04** |
 
-Free tier ($30/month) covers: ~6 full sweeps + ~3 placebo runs + ~4 retrains.
+Free tier ($30/month) covers: ~10 full sweeps, or ~7 placebo runs, or any mix
+totalling ≤$30. This is a materially larger margin than the r1 draft's
+(wrongly GPU-priced) numbers implied.
+
+W6 (signal validation) and W12 (PatchTST retrain) from the r1 table are
+removed here — W6 is a planned-not-implemented workload (§1.2) and W12 is
+out of scope (§0); neither is built by this RFC's phases, so costing them
+here would imply a scope this RFC does not deliver.
 
 ---
 
@@ -762,3 +883,9 @@ Free tier ($30/month) covers: ~6 full sweeps + ~3 placebo runs + ~4 retrains.
 - Does NOT implement multi-cloud (Modal primary; swap via abstraction layer if needed)
 - Does NOT implement persistent cloud workers (burst-only; containers die after task)
 - Does NOT change any backtest logic (same `execute_variant` everywhere)
+- Does NOT implement GPU/model-training cloud execution (W2/W12 are out of
+  scope — see §0; that is a `renquant-model`-owned design decision)
+- Does NOT become a generalized cloud-backtest-compute engine for other repos
+  by default — if W5-W9 or a broader research/backtesting use case is later
+  pursued at that scope, the right owner is `renquant-backtesting` (§0), not
+  an expansion of this orchestrator-owned toolchain
