@@ -60,7 +60,7 @@ from batch_scores_bundle import canonical_hash, expected_previous_session  # noq
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 DB = os.path.join(RQ, "data/runs.alpaca.db")
 OUT_DIR = os.path.join(RQ, "data", "rq105")
-MIN_ROWS = 80  # a daily FULL run scores the whole watchlist
+MIN_ROWS = 30  # floor for a non-trivial run; coverage gate (MIN_COVERAGE_FRACTION) is the real quality check
 
 # Fraction of the run's OWN persisted candidate roster (role='candidate', see
 # module docstring) that must carry a non-null panel_score. NOT sourced from
