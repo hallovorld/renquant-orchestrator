@@ -25,7 +25,8 @@ TS="$(date +%Y-%m-%d)"
 # predate market_calendar).
 RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
 [ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
-export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
+SUBREPO="$RQ_ROOT/.subrepo_runtime/repos"
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipeline/src:$SUBREPO/renquant-common/src:$SUBREPO/renquant-base-data/src:$SUBREPO/renquant-model/src:$SUBREPO/renquant-artifacts/src:$SUBREPO/renquant-execution/src:$SUBREPO/renquant-strategy-104/src:$SUBREPO/renquant-backtesting/src"
 # NOTE: RENQUANT_INTRADAY_DECISIONING is deliberately NOT exported here.
 # Activation (a recorded landing step) uncomments the next line:
 # export RENQUANT_INTRADAY_DECISIONING=1
