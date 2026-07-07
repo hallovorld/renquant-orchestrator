@@ -9,21 +9,31 @@ local cores. Blocks the machine including live trading ops.
 
 ## Design
 
-Local controller / remote worker architecture with Modal:
-- **Upload**: OHLCV (250MB) + model artifacts (2.7GB) to Modal Volume with
-  SHA-256 checksums and immutable commit snapshots
-- **Dispatch**: controller sends variant configs as JSON; workers are stateless
-- **Return**: structured JSON results (~200KB/variant) with equity curves and
-  trade logs (gzip+base64); integrity verified via result_checksum
-- **Ingest**: each result INSERT'd to local SQLite immediately on receipt (not
-  batched); crash at variant 73/74 preserves 72 results; `--resume` flag for
-  interrupted sweeps
-- **Security**: no API keys, no live state, no production DB leaves local;
-  code/model in private Modal images; public OHLCV only sensitive-by-volume
+v2 rewrite: starts from workload taxonomy → requirements → platform evaluation
+→ architecture, replacing the previous Modal-first sketch.
 
-NFRs covered: performance targets, reliability (retry/resume/checkpoint),
-observability (progress/ntfy/cost tracking), cost controls (per-sweep ceiling),
-security (threat model), testing (backend equivalence, mocked + integration).
+**Platform evaluation**: compared Modal, Beam, Fal.ai, Anyscale (Ray), AWS
+Batch Spot across 10 requirements (F1-F7, NF2/NF3/NF6). Selected Modal as
+primary (best DX for our scale, Volume snapshots, GPU path for W12). Fal.ai
+eliminated (GenAI-focused, not CPU batch). Anyscale eliminated (over-engineered
+for embarrassingly parallel). AWS Batch Spot = escape hatch if cost matters
+more at scale. Abstraction layer (`BacktestExecutor` protocol) ensures platform
+swap is a one-file change.
+
+**Architecture**: local controller / remote worker with `BacktestExecutor`
+interface. Three implementations: `LocalExecutor` (today), `ModalExecutor`
+(primary), future `RayExecutor`/`AWSBatchExecutor`.
+
+**Key mechanisms**:
+- Data sync: SHA-256 checksums + Volume commit snapshots; hardcoded exclusion list
+- Results: per-variant INSERT to local SQLite on receipt (crash-safe); equity curves
+  + trade logs via gzip+base64 (~200KB/variant)
+- Resume: `--resume {sweep_id}` re-dispatches only missing variants
+- Pre-flight: volume freshness, integrity spot-check, cost projection, cross-backend A/A
+- Security: no API keys, live state, or production DB leave local
+
+NFRs: 75-variant sweep ≤45min, ≤$10/sweep, zero silent data loss, backend
+equivalence ±0.01 Sharpe, platform switch ≤1 week engineering.
 
 ## Scope
 
