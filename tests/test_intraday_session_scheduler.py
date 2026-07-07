@@ -20,6 +20,7 @@ from renquant_orchestrator.intraday_session_scheduler import (
     DEFAULT_ENTRY_OPEN_DELAY_SECONDS,
     DEFAULT_TICK_SECONDS,
     ENV_FLAG,
+    MODE_PAPER,
     MODE_SHADOW,
     PHASE_ENTRIES_OPEN,
     PHASE_EXITS_ONLY,
@@ -280,6 +281,21 @@ def test_valid_section_parses():
     assert not config.config_errors
 
 
+def test_paper_mode_section_parses_as_compatibility_request():
+    config = load_intraday_config(
+        {
+            "intraday_decisioning": {
+                "enabled": True,
+                "mode": MODE_PAPER,
+                "tick_seconds": 720,
+            }
+        }
+    )
+    assert config.enabled is True
+    assert config.mode == MODE_PAPER
+    assert not config.config_errors
+
+
 def test_env_flag_default_off():
     assert env_flag_enabled({}) is False
     assert env_flag_enabled({ENV_FLAG: "0"}) is False
@@ -292,21 +308,16 @@ def test_live_mode_downgrades_to_shadow():
         {"intraday_decisioning": {"enabled": True, "mode": "live"}}
     )
     assert config.enabled is True  # live is a valid REQUEST...
-    mode, downgraded, downgrade_kind = resolve_mode(config)
+    mode, downgraded = resolve_mode(config)
     assert mode == MODE_SHADOW  # ...but the effective mode is always shadow
-    assert downgraded is True
-    assert downgrade_kind == "live"
+    assert downgraded == "live"
 
 
-def test_paper_mode_downgrades_to_shadow():
-    config = load_intraday_config(
-        {"intraday_decisioning": {"enabled": True, "mode": "paper"}}
-    )
-    assert config.enabled is True  # paper is a valid REQUEST...
-    mode, downgraded, downgrade_kind = resolve_mode(config)
-    assert mode == MODE_SHADOW  # ...but the effective mode is always shadow
-    assert downgraded is True
-    assert downgrade_kind == "paper"  # never conflated with a live downgrade
+def test_paper_mode_downgrades_to_shadow_compatibly():
+    config = IntradayDecisioningConfig(enabled=True, mode=MODE_PAPER)
+    mode, downgraded = resolve_mode(config)
+    assert mode == MODE_SHADOW
+    assert downgraded == MODE_PAPER
 
 
 # ─────────────────────────── calendar gating ───────────────────────────
@@ -559,27 +570,21 @@ def test_live_mode_config_downgrades_and_counts(tmp_path):
     assert manifest["mode_requested"] == "live"
     assert manifest["mode_effective"] == MODE_SHADOW
     assert manifest["live_mode_downgraded_count"] == 1
-    assert manifest["paper_mode_downgraded_count"] == 0
+    assert manifest["paper_mode_compatibility_count"] == 0
     assert all(t["mode"] == MODE_SHADOW for t in read_ticks(tmp_path))
 
 
-def test_paper_mode_config_downgrades_and_counts_distinctly_from_live(tmp_path):
-    """A --mode paper request must be recorded as a paper downgrade, not
-    silently indistinguishable from a plain shadow request, and not
-    conflated with a live downgrade (Codex round on #425: the pre-fix
-    resolve_mode() fell through to plain MODE_SHADOW for any non-live
-    request, so a paper request and a shadow request produced byte-identical
-    manifests with no trace of which was actually asked for)."""
+def test_paper_mode_is_recorded_as_shadow_compatibility_only(tmp_path):
     config = load_intraday_config(
-        {"intraday_decisioning": {"enabled": True, "mode": "paper", "tick_seconds": 600}}
+        {"intraday_decisioning": {"enabled": True, "mode": MODE_PAPER, "tick_seconds": 600}}
     )
     scheduler = make_scheduler(tmp_path, config=config)
     manifest = run_full_session(scheduler)
     assert manifest["status"] == "completed"
-    assert manifest["mode_requested"] == "paper"
+    assert manifest["mode_requested"] == MODE_PAPER
     assert manifest["mode_effective"] == MODE_SHADOW
-    assert manifest["paper_mode_downgraded_count"] == 1
     assert manifest["live_mode_downgraded_count"] == 0
+    assert manifest["paper_mode_compatibility_count"] == 1
     assert all(t["mode"] == MODE_SHADOW for t in read_ticks(tmp_path))
 
 

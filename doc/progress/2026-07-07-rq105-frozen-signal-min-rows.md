@@ -23,6 +23,10 @@ passes `--mode paper`; next `-run` sync to repo would crash argparse.
    `export_batch_scores.py` which was already fixed in #415)
 2. `intraday_session_scheduler.py`: restored `--mode` CLI arg with
    `choices=["shadow", "paper", "live"]` + config override logic
+3. `paper` remains a Stage-1 shadow-only compatibility request, not a
+   paper-order execution mode; manifests now record that explicitly so
+   wrappers can keep passing `--mode paper` without creating false
+   evidence that paper orders were authorized or submitted
 
 ## Verification
 
@@ -36,28 +40,33 @@ after applying the MIN_ROWS fix:
 STATUS: fixed
 WHAT: `--mode paper` fixed the argparse crash, but `resolve_mode()` still
 only special-cased `mode == "live"` — a paper request silently fell through
-to the identical `(MODE_SHADOW, False)` result as a plain shadow request,
-with no recorded evidence in the manifest that `paper` was ever requested.
-The PR's own "tomorrow confirm ... places paper orders" claim was therefore
-misleading: no such path exists in this repo (see #400, which removed the
-last attempt at a real paper-broker submission path as an architecture-
-boundary violation — implementing broker execution here is not allowed).
+to the identical shadow result as a plain shadow request, with no recorded
+evidence in the manifest that `paper` was ever requested. The PR's own
+"tomorrow confirm ... places paper orders" claim was therefore misleading:
+no such path exists in this repo (see #400, which removed the last attempt
+at a real paper-broker submission path as an architecture-boundary
+violation — implementing broker execution here is not allowed). A separate
+bug was also caught in the same area: the CLI's `--mode` override
+constructed a fresh `IntradayDecisioningConfig` without carrying forward
+`config_errors` from the originally-loaded config, silently discarding any
+unrelated validation errors the moment `--mode` was passed.
 WHY-DIR: a caller cannot afford to silently lose the distinction between "I
 asked for paper mode and it was honestly downgraded to shadow" and "I asked
 for plain shadow" — the module docstring is explicit that Stage 1 is
-shadow-only, so any non-shadow request must be recorded as a downgrade, not
-absorbed invisibly.
-EVIDENCE: added `MODE_PAPER`; `resolve_mode()` now returns
-`(effective_mode, downgraded, downgrade_kind)` with `downgrade_kind` in
-`{"live", "paper", None}`; manifest gained a `paper_mode_downgraded_count`
-field distinct from the existing `live_mode_downgraded_count`. Two new
-tests (`test_paper_mode_downgrades_to_shadow`,
-`test_paper_mode_config_downgrades_and_counts_distinctly_from_live`) plus
-updated assertions on the existing live-mode tests, all confirmed to fail
-against the pre-fix code via `git stash` (unpacking error / stale manifest
-schema / wrong terminal status) and pass after. Corrected the PR body to
-remove the "places paper orders" claim — `--mode paper` is Stage-1
-shadow-only compatibility, nothing more.
+shadow-only, so any non-shadow request must be recorded, not absorbed
+invisibly. Framing it as a "compatibility count" rather than a "downgrade
+count" for `paper` (unlike `live`, which is a genuine failure to honor an
+unimplemented request) also keeps the semantics honest: paper is an
+accepted, expected wrapper-compatibility path, not an anomaly.
+EVIDENCE: `resolve_mode()` now returns `(effective_mode, downgrade_reason)`
+with `downgrade_reason` in `{"live", "paper", None}`; manifest gained a
+`paper_mode_compatibility_count` field distinct from the existing
+`live_mode_downgraded_count`. The `--mode` CLI override now preserves
+`config_errors`. Tests added/updated for both the direct `resolve_mode()`
+unit behavior and the full-session manifest evidence, confirmed against
+the pre-fix code to genuinely fail. Corrected the PR body to remove the
+"places paper orders" claim — `--mode paper` is Stage-1 shadow-only
+compatibility, nothing more.
 NEXT: real paper-order submission remains out of scope here; any future
 work belongs in `renquant-execution` with its own authorization design, per
 #400.

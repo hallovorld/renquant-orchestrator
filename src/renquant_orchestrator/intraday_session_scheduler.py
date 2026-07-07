@@ -98,14 +98,8 @@ ENV_FLAG = "RENQUANT_INTRADAY_DECISIONING"
 _ENV_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 MODE_SHADOW = "shadow"
-MODE_LIVE = "live"
-#: Accepted as a requested mode (CLI override or config), but Stage 1 has no
-#: real paper-broker submission path — see #400, which removed the last
-#: attempt at wiring one from this repo as an architecture-boundary
-#: violation. ``resolve_mode`` downgrades it to shadow, same as ``live``,
-#: and records which kind of downgrade occurred so a paper request is never
-#: silently indistinguishable from an ordinary shadow request.
 MODE_PAPER = "paper"
+MODE_LIVE = "live"
 
 #: §5 / §11b Stage-1 defaults (seconds). All half-day aware because they are
 #: applied to the calendar's actual session bounds.
@@ -207,8 +201,8 @@ def load_intraday_config(strategy_config: Mapping[str, Any]) -> IntradayDecision
         errors.append(f"enabled must be a boolean: {enabled_raw!r}")
         enabled_raw = False
     mode = str(section.get("mode", MODE_SHADOW) or MODE_SHADOW)
-    if mode not in (MODE_SHADOW, MODE_LIVE, MODE_PAPER):
-        errors.append(f"mode must be 'shadow', 'live', or 'paper': {mode!r}")
+    if mode not in (MODE_SHADOW, MODE_PAPER, MODE_LIVE):
+        errors.append(f"mode must be 'shadow', 'paper', or 'live': {mode!r}")
         mode = MODE_SHADOW
     tick = _positive_seconds("tick_seconds", DEFAULT_TICK_SECONDS)
     open_delay = _positive_seconds(
@@ -244,35 +238,29 @@ def env_flag_enabled(environ: Mapping[str, str] | None = None) -> bool:
     return str(env.get(ENV_FLAG, "")).strip().lower() in _ENV_TRUTHY
 
 
-def resolve_mode(config: IntradayDecisioningConfig) -> tuple[str, bool, str | None]:
+def resolve_mode(config: IntradayDecisioningConfig) -> tuple[str, str | None]:
     """Effective mode: always shadow in Stage 1.
 
     ``mode: "live"`` is NOT implemented — it downgrades to shadow and the
     downgrade is counted in the manifest (``live_mode_downgraded_count``),
-    per the RFC's separate Stage-2 authorization bar (§9.3a).
-
-    ``mode: "paper"`` is likewise not implemented — Stage 1 has no real
-    paper-broker submission path (see #400) — and downgrades to shadow with
-    its own counter (``paper_mode_downgraded_count``), never silently
-    counted as a ``live`` downgrade or left unrecorded.
-
-    Returns ``(effective_mode, downgraded, downgrade_kind)`` where
-    ``downgrade_kind`` is ``"live"``, ``"paper"``, or ``None``.
+    per the RFC's separate Stage-2 authorization bar (§9.3a). ``paper`` is
+    accepted only as a wrapper-compatibility request in Stage 1: it also runs
+    as shadow, but is counted separately so the manifest does not falsely imply
+    paper-order semantics were active.
     """
     if config.mode == MODE_LIVE:
         log.warning(
             "intraday_decisioning mode='live' is not implemented in Stage 1 "
             "— DOWNGRADING to shadow (see RFC #208 §9.3a)"
         )
-        return MODE_SHADOW, True, MODE_LIVE
+        return MODE_SHADOW, MODE_LIVE
     if config.mode == MODE_PAPER:
-        log.warning(
-            "intraday_decisioning mode='paper' has no real paper-broker "
-            "submission path in this repo (see #400) — DOWNGRADING to "
-            "shadow"
+        log.info(
+            "intraday_decisioning mode='paper' requested — Stage 1 remains "
+            "shadow-only, recording this as a compatibility request"
         )
-        return MODE_SHADOW, True, MODE_PAPER
-    return MODE_SHADOW, False, None
+        return MODE_SHADOW, MODE_PAPER
+    return MODE_SHADOW, None
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +678,7 @@ class SessionScheduler:
         self,
         session_date: str,
         mode: str,
-        downgrade_kind: str | None = None,
+        downgrade_reason: str | None,
     ) -> None:
         self._manifest = {
             "schema_version": SCHEDULER_SCHEMA_VERSION,
@@ -701,8 +689,10 @@ class SessionScheduler:
             "status": "starting",
             "mode_requested": self.config.mode,
             "mode_effective": mode,
-            "live_mode_downgraded_count": 1 if downgrade_kind == MODE_LIVE else 0,
-            "paper_mode_downgraded_count": 1 if downgrade_kind == MODE_PAPER else 0,
+            "live_mode_downgraded_count": 1 if downgrade_reason == MODE_LIVE else 0,
+            "paper_mode_compatibility_count": (
+                1 if downgrade_reason == MODE_PAPER else 0
+            ),
             "config": self.config.to_manifest_record(),
             "config_fingerprint": hash_jsonable(self.config.to_manifest_record()),
             "strategy_config_fingerprint": self.strategy_config_fingerprint,
@@ -830,8 +820,8 @@ class SessionScheduler:
         now_fn = now_fn or (lambda: datetime.now(ET))
         now = now_fn()
         session_date = _as_aware(now).astimezone(ET).date().isoformat()
-        mode, _downgraded, downgrade_kind = resolve_mode(self.config)
-        self._init_manifest(session_date, mode, downgrade_kind)
+        mode, downgrade_reason = resolve_mode(self.config)
+        self._init_manifest(session_date, mode, downgrade_reason)
 
         if self.config.config_errors:
             return self._stamp(
@@ -1006,6 +996,7 @@ def main(
             entry_close_cutoff_seconds=config.entry_close_cutoff_seconds,
             canary_allowlist=config.canary_allowlist,
             kill_switch_file=config.kill_switch_file,
+            config_errors=config.config_errors,
         )
 
     cal = calendar or default_session_calendar()
