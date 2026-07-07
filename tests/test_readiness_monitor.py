@@ -21,6 +21,7 @@ from renquant_orchestrator.readiness_monitor import (
     check_intraday_corpus,
     check_lambda_sweep,
     check_oos_pick_table,
+    check_parking_sleeve_shadow,
     check_pit_features,
     check_pit_snapshots,
     check_readonly_sessions,
@@ -434,6 +435,67 @@ class TestLambdaSweep:
 
 
 # ---------------------------------------------------------------------------
+# Parking sleeve shadow (S7)
+# ---------------------------------------------------------------------------
+
+def _write_sleeve_shadow(data_root, rows) -> Path:
+    log_path = (
+        data_root / "backtesting" / "renquant_104" / "logs"
+        / "parking_sleeve_shadow.jsonl"
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+    return log_path
+
+
+class TestParkingSleeveShadow:
+    def test_no_log(self, data_root):
+        r = check_parking_sleeve_shadow(data_root)
+        assert r.status == Status.NOT_READY
+        assert r.authoritative is False
+        assert r.current == 0
+
+    def test_legacy_direct_schema_counts_session_dates(self, data_root):
+        _write_sleeve_shadow(data_root, [
+            {"as_of": "2026-07-01", "spy_frac": 0.2},
+            {"as_of": "2026-07-02", "spy_frac": 0.1},
+            {"as_of": "2026-07-02", "spy_frac": 0.0},
+        ])
+        r = check_parking_sleeve_shadow(data_root)
+        assert r.status == Status.NOT_READY
+        assert r.current == 2
+        assert "schema=legacy_direct" in r.detail
+
+    def test_runtime_wrapped_schema_reaches_10_session_milestone(self, data_root):
+        rows = []
+        for i in range(10):
+            rows.append({
+                "session_date": f"2026-07-{i+1:02d}",
+                "book_state": {
+                    "session_date": f"2026-07-{i+1:02d}",
+                    "sleeve_contribution_pct": 0.0,
+                },
+                "spy_frac": 0.25,
+            })
+        r = check_parking_sleeve_shadow(data_root)
+        assert r.status == Status.NOT_READY  # file not written yet
+        _write_sleeve_shadow(data_root, rows)
+        r = check_parking_sleeve_shadow(data_root)
+        assert r.status == Status.READY
+        assert r.current == 10
+        assert r.authoritative is False
+        assert "schema=runtime_wrapped" in r.detail
+
+    def test_empty_or_unreadable_file_not_ready(self, data_root):
+        _write_sleeve_shadow(data_root, [])
+        r = check_parking_sleeve_shadow(data_root)
+        assert r.status == Status.NOT_READY
+        assert "no readable JSON records" in r.detail
+
+
+# ---------------------------------------------------------------------------
 # Trading days baseline
 # ---------------------------------------------------------------------------
 
@@ -744,8 +806,10 @@ class TestRunAllChecks:
                                   ledger_db_path=ledger_db_path)
         s10 = next(r for r in results if r.name == "S10_intraday_symbols_present")
         m1 = next(r for r in results if r.name == "M1_session_logs_observed")
+        s7 = next(r for r in results if r.name == "S7_parking_sleeve_shadow")
         assert s10.authoritative is False
         assert m1.authoritative is False
+        assert s7.authoritative is False
 
     def test_decision_ledger_uses_its_own_db_not_the_shared_one(
         self, data_root, db_path, ledger_db_path,
