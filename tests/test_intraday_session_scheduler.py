@@ -698,3 +698,30 @@ def test_session_scheduler_wrapper_cli_args_are_valid():
         f"run_session_scheduler.sh passes unrecognised CLI args: {unknown}. "
         f"The CLI will reject these with 'unrecognized arguments'."
     )
+
+
+def test_session_scheduler_wrapper_does_not_hard_export_activation_flag():
+    """Control-plane regression: the committed wrapper must never hard-export
+    RENQUANT_INTRADAY_DECISIONING=1 as a default. Per the documented triple
+    gate (this file's own header comment), that flag is activated ONLY by an
+    operator manually uncommenting the line as a recorded landing step — the
+    committed default must always require that explicit action.
+
+    Regression: a prior revision synced a live-tree operator hotfix that had
+    hard-exported the flag, silently flipping the default from operator-armed
+    to code-armed. That must never land in the committed repo default."""
+    wrapper = (OPS_DIR / "run_session_scheduler.sh").read_text(encoding="utf-8")
+    for line in wrapper.splitlines():
+        stripped = line.strip()
+        assert stripped != "export RENQUANT_INTRADAY_DECISIONING=1", (
+            "run_session_scheduler.sh hard-exports RENQUANT_INTRADAY_DECISIONING=1 "
+            "as an active (uncommented) statement. This flips the documented "
+            "default-OFF triple gate to code-armed. Activation must remain an "
+            "explicit, commented-out operator landing step, never a committed "
+            "default."
+        )
+    # The documented deactivated form must still be present (commented out).
+    assert "# export RENQUANT_INTRADAY_DECISIONING=1" in wrapper, (
+        "expected the commented-out activation line documenting the "
+        "operator landing step to be present"
+    )
