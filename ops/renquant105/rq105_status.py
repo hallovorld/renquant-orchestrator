@@ -8,16 +8,29 @@ Shows: process health, launchd job states, today's log freshness, batch-scores
 availability, quote-logger feed freshness, paper account state, and any errors.
 Read-only — touches nothing.
 
-Path resolution uses runtime_paths.default_repo_root (via RQ_ROOT env fallback
-for standalone use). Batch-scores threshold imports from export_batch_scores to
-stay in sync with the canonical gate.
+Path resolution uses runtime_paths.default_data_root — the resolver this repo's
+multi-repo migration uses for operator state, decoupled from the umbrella
+checkout (honors RENQUANT_DATA_ROOT; falls back to the umbrella root only as
+a migration compatibility path, never a first-class default). Batch-scores
+threshold imports from export_batch_scores to stay in sync with the canonical
+gate. Launchd job identity is derived from scheduled_jobs.py's registry
+(filtered to the intraday_session cadence, the native rq105 job set) rather
+than a launchctl label-prefix scan, since the wrapper-era `com.renquant.rq105-`
+prefix predates the native multirepo launchd labels this repo has migrated
+to (e.g. com.renquant.intraday-quote-logger) and would silently miss every
+job under the new naming. The "latest DB run" check reuses
+export_batch_scores._select_source_run against the same expected prior
+session the real exporter checks, instead of a separately-approximated query
+that could disagree with the real qualifying-run contract (pipeline_runs
+completion, run_type='live', non-empty strategy, MIN_ROWS panel_score rows,
+created_at ordering — see that module's docstring for the full history of
+why each of those checks exists).
 """
 from __future__ import annotations
 
 import datetime as dt
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -30,14 +43,22 @@ if str(_SRC_DIR) not in sys.path:
 if str(_OPS_DIR) not in sys.path:
     sys.path.insert(0, str(_OPS_DIR))
 
-from renquant_orchestrator.runtime_paths import default_repo_root  # noqa: E402
+from renquant_orchestrator.runtime_paths import default_data_root  # noqa: E402
+from renquant_orchestrator.scheduled_jobs import scheduled_jobs  # noqa: E402
 
 try:
     from export_batch_scores import MIN_ROWS as BATCH_MIN_ROWS  # noqa: E402
+    from export_batch_scores import _select_source_run  # noqa: E402
+    from batch_scores_bundle import expected_previous_session  # noqa: E402
 except ImportError:
     BATCH_MIN_ROWS = 25
+    _select_source_run = None
+    expected_previous_session = None
 
-LAUNCHD_PREFIX = "com.renquant.rq105-"
+# The native multirepo launchd labels for rq105's intraday-session jobs,
+# derived from the scheduled_jobs registry rather than hardcoded here — this
+# stays correct as the registry evolves instead of drifting from it.
+_RQ105_CADENCE = "intraday_session"
 
 OK = "\033[32m✓\033[0m"
 FAIL = "\033[31m✗\033[0m"
@@ -45,35 +66,48 @@ WARN = "\033[33m!\033[0m"
 
 
 def _repo_root() -> Path:
-    return Path(os.environ.get("RQ_ROOT", str(default_repo_root())))
+    return Path(os.environ.get("RENQUANT_DATA_ROOT", str(default_data_root())))
+
+
+def _rq105_job_labels() -> dict[str, str]:
+    """job_id -> launchd_label for the native rq105 intraday-session jobs,
+    sourced from the scheduled_jobs registry (the canonical orchestrator
+    inventory), not a launchctl label-prefix scan."""
+    return {
+        job.job_id: job.launchd_label
+        for job in scheduled_jobs()
+        if job.cadence == _RQ105_CADENCE and job.launchd_label
+    }
 
 
 def _launchd_status() -> list[dict]:
-    """Parse launchctl list for rq105 jobs."""
+    """Check launchctl state for the registry's rq105 intraday-session jobs."""
+    expected = _rq105_job_labels()
     try:
         raw = subprocess.check_output(
             ["launchctl", "list"], text=True, stderr=subprocess.DEVNULL,
         )
     except Exception:
-        return []
-    jobs = {}
+        raw = ""
+    loaded = {}
     for line in raw.strip().splitlines()[1:]:
         parts = line.split("\t")
         if len(parts) >= 3:
             pid, exit_code, label = parts[0], parts[1], parts[2]
-            if label.startswith(LAUNCHD_PREFIX):
-                short = label[len(LAUNCHD_PREFIX):]
-                jobs[short] = {"pid": pid, "exit": exit_code}
+            loaded[label] = {"pid": pid, "exit": exit_code}
     results = []
-    for short, info in sorted(jobs.items()):
-        if info["pid"] != "-":
-            results.append({"name": short, "status": f"RUNNING (pid {info['pid']})", "icon": OK})
+    for job_id, label in sorted(expected.items()):
+        info = loaded.get(label)
+        if info is None:
+            results.append({"name": job_id, "status": "not loaded", "icon": FAIL})
+        elif info["pid"] != "-":
+            results.append({"name": job_id, "status": f"RUNNING (pid {info['pid']})", "icon": OK})
         elif info["exit"] == "0":
-            results.append({"name": short, "status": "exited 0", "icon": OK})
+            results.append({"name": job_id, "status": "exited 0", "icon": OK})
         else:
-            results.append({"name": short, "status": f"exited {info['exit']}", "icon": FAIL})
+            results.append({"name": job_id, "status": f"exited {info['exit']}", "icon": FAIL})
     if not results:
-        results.append({"name": "(none)", "status": "no rq105 jobs loaded", "icon": FAIL})
+        results.append({"name": "(none)", "status": "no rq105 jobs in registry", "icon": FAIL})
     return results
 
 
@@ -124,28 +158,35 @@ def _batch_scores(rq_root: Path, today: str) -> dict:
 
 
 def _db_latest_run(rq_root: Path) -> dict:
-    """Check latest live run in DB with scored candidates."""
+    """Check the canonical qualifying run for the exporter's expected prior
+    session, reusing export_batch_scores._select_source_run — the real
+    exporter contract (pipeline_runs completion, run_type='live', non-empty
+    strategy, MIN_ROWS panel_score rows, created_at ordering) — rather than a
+    dashboard-local approximation that could disagree with it."""
     db_path = rq_root / "data" / "runs.alpaca.db"
     if not db_path.exists():
         return {"status": "no DB", "icon": FAIL, "detail": ""}
-    con = sqlite3.connect(str(db_path))
-    row = con.execute(
-        "SELECT p.run_id, p.run_date, COUNT(cs.ticker) as n "
-        "FROM pipeline_runs p "
-        "JOIN candidate_scores cs ON cs.run_id = p.run_id "
-        "  AND cs.role = 'candidate' AND cs.panel_score IS NOT NULL "
-        "WHERE p.run_type = 'live' "
-        "GROUP BY p.run_id "
-        "ORDER BY p.run_date DESC, p.created_at DESC "
-        "LIMIT 1",
-    ).fetchone()
-    con.close()
-    if not row:
-        return {"status": "no qualifying runs", "icon": FAIL, "detail": ""}
+    if _select_source_run is None or expected_previous_session is None:
+        return {"status": "export_batch_scores unavailable", "icon": FAIL, "detail": ""}
+    import sqlite3 as _sqlite3  # noqa: PLC0415 — keep top-level import list free of DB-only need
+
+    con = _sqlite3.connect(str(db_path))
+    try:
+        expected_date = expected_previous_session(dt.date.today().isoformat())
+        result = _select_source_run(con, expected_date)
+    finally:
+        con.close()
+    if not result:
+        return {
+            "status": f"no qualifying run for {expected_date}",
+            "icon": FAIL,
+            "detail": "",
+        }
+    run_id, run_date, _run_bundle = result
     return {
-        "status": f"date={row[1]} scored={row[2]}",
-        "icon": OK if row[2] >= BATCH_MIN_ROWS else WARN,
-        "detail": row[0],
+        "status": f"date={run_date}",
+        "icon": OK,
+        "detail": run_id,
     }
 
 
