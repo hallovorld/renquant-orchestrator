@@ -1348,6 +1348,67 @@ class RefitCalibratorTask(Task):
         return True
 
 
+def _stamp_calibrator_fingerprint(scorer_path: Path, calibrator_path: Path) -> None:
+    """Stamp the calibrator metadata with the scorer's fingerprint identity.
+
+    The runtime's ``_assert_calibrator_matches_scorer`` builds identity claims
+    from ``metadata`` keys (``scorer_model_content_fingerprint``,
+    ``artifact_fingerprint``, etc.) — NOT the top-level
+    ``model_content_sha256``.  It computes scorer identity via the legacy
+    ``stamp_artifact_metadata`` shim (path-based file hash) at load time.
+
+    This function replicates that computation and writes the result into the
+    calibrator's ``metadata`` dict so the legacy route matches.
+    """
+    import warnings  # noqa: PLC0415
+
+    cal = read_json_object(calibrator_path, "calibrator for fingerprint")
+    scorer = read_json_object(scorer_path, "scorer for fingerprint")
+    try:
+        from renquant_common.model_fingerprint import (  # noqa: PLC0415
+            model_content_sha256_from_path,
+            stamp_artifact_metadata,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "StampCalibratorFingerprintTask: renquant_common.model_fingerprint "
+            "not available — refusing to publish an unstamped calibrator that "
+            "would fail fingerprint verification at daily-full runtime"
+        ) from exc
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        scorer_meta = stamp_artifact_metadata(
+            {k: v for k, v in scorer.items() if k != "booster_raw_json"},
+            scorer_path,
+            payload=scorer,
+        )
+    legacy_hash = scorer_meta.get("model_content_fingerprint")
+    artifact_hash = scorer_meta.get("artifact_fingerprint")
+    if "metadata" not in cal:
+        cal["metadata"] = {}
+    cal["metadata"]["scorer_model_content_fingerprint"] = legacy_hash
+    cal["metadata"]["scorer_artifact_fingerprint"] = artifact_hash
+    cal["metadata"]["model_content_fingerprint"] = legacy_hash
+    cal["metadata"]["artifact_fingerprint"] = artifact_hash
+    cal["metadata"]["artifact_sha256"] = artifact_hash
+    calibrator_path.write_text(json.dumps(cal, indent=1))
+    log.info(
+        "StampCalibratorFingerprintTask: stamped %s — "
+        "legacy=%s artifact=%s",
+        calibrator_path.name,
+        legacy_hash,
+        artifact_hash,
+    )
+
+
+class StampCalibratorFingerprintTask(Task):
+    def run(self, ctx: RetrainContext) -> bool | None:
+        if ctx.dry_run:
+            return True
+        _stamp_calibrator_fingerprint(ctx.xgb_artifact_out, ctx.calibrator_out)
+        return True
+
+
 class RetrainJob(Job):
     @property
     def tasks(self) -> list[Task]:
@@ -1359,6 +1420,7 @@ class RetrainJob(Job):
             RefreshSigmaHeadRawLabelTask(),
             TrainGbdtScorerTask(),
             RefitCalibratorTask(),
+            StampCalibratorFingerprintTask(),
         ]
 
 

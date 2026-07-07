@@ -63,6 +63,7 @@ def test_pipeline_shape_is_single_job_with_ordered_tasks(tmp_path) -> None:
         "RefreshSigmaHeadRawLabelTask",
         "TrainGbdtScorerTask",
         "RefitCalibratorTask",
+        "StampCalibratorFingerprintTask",
     ]
 
 
@@ -86,6 +87,10 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        mod, "_stamp_calibrator_fingerprint",
+        lambda scorer_path, cal_path: None,
+    )
     strategy_config = repo / "strategy_config.json"
     strategy_config.write_text("{}")
     ctx = mod.RetrainContext(
@@ -156,6 +161,77 @@ def test_invalid_scorer_content_fails_before_calibrator(monkeypatch, tmp_path) -
 
     with pytest.raises(ValueError, match="missing config_fingerprint"):
         mod.build_pipeline().run(ctx)
+
+
+def test_stamp_calibrator_fingerprint_writes_scorer_hash(tmp_path, monkeypatch) -> None:
+    scorer = tmp_path / "scorer.json"
+    calibrator = tmp_path / "calibrator.json"
+    scorer.write_text(json.dumps({"scores": [1, 2, 3], "trained_date": "2026-07-06"}))
+    calibrator.write_text(json.dumps({"method": "isotonic"}))
+    fake_legacy = "sha256:legacy_abc123"
+    fake_artifact = "sha256:artifact_def456"
+
+    def fake_stamp(meta, path, payload=None):
+        meta["model_content_fingerprint"] = fake_legacy
+        meta["artifact_fingerprint"] = fake_artifact
+        return meta
+
+    monkeypatch.setattr(
+        "renquant_common.model_fingerprint.stamp_artifact_metadata",
+        fake_stamp,
+    )
+    mod._stamp_calibrator_fingerprint(scorer, calibrator)
+    cal = json.loads(calibrator.read_text())
+    assert cal["metadata"]["scorer_model_content_fingerprint"] == fake_legacy
+    assert cal["metadata"]["scorer_artifact_fingerprint"] == fake_artifact
+    assert cal["metadata"]["model_content_fingerprint"] == fake_legacy
+
+
+def test_stamp_calibrator_fingerprint_fails_closed_on_missing_module(
+    tmp_path, monkeypatch,
+) -> None:
+    """If renquant_common.model_fingerprint can't be imported, the stamp step
+    must raise (not log-and-return) so the caller cannot publish an
+    unstamped calibrator that will fail fingerprint verification at
+    daily-full runtime."""
+    scorer = tmp_path / "scorer.json"
+    calibrator = tmp_path / "calibrator.json"
+    scorer.write_text(json.dumps({"scores": [1, 2, 3], "trained_date": "2026-07-06"}))
+    calibrator.write_text(json.dumps({"method": "isotonic"}))
+
+    import sys
+    monkeypatch.setitem(sys.modules, "renquant_common.model_fingerprint", None)
+
+    with pytest.raises(RuntimeError, match="model_fingerprint.*not available"):
+        mod._stamp_calibrator_fingerprint(scorer, calibrator)
+
+    # Must not have silently written an unstamped/partially-stamped calibrator.
+    cal = json.loads(calibrator.read_text())
+    assert "metadata" not in cal
+
+
+def test_stamp_calibrator_fingerprint_task_fails_closed_on_missing_module(
+    tmp_path, monkeypatch,
+) -> None:
+    """StampCalibratorFingerprintTask.run() must propagate the same failure —
+    a caller driving the pipeline must see this as a hard error, not a
+    successful task completion."""
+    scorer = tmp_path / "scorer.json"
+    calibrator = tmp_path / "calibrator.json"
+    scorer.write_text(json.dumps({"scores": [1, 2, 3], "trained_date": "2026-07-06"}))
+    calibrator.write_text(json.dumps({"method": "isotonic"}))
+
+    import sys
+    monkeypatch.setitem(sys.modules, "renquant_common.model_fingerprint", None)
+
+    ctx = mod.RetrainContext(
+        repo_dir=tmp_path,
+        xgb_artifact_out=scorer,
+        calibrator_out=calibrator,
+    )
+    task = mod.StampCalibratorFingerprintTask()
+    with pytest.raises(RuntimeError, match="model_fingerprint.*not available"):
+        task.run(ctx)
 
 
 def test_dry_run_records_commands_without_artifacts(tmp_path) -> None:

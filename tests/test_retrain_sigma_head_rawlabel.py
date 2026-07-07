@@ -310,6 +310,10 @@ def test_pipeline_isolates_sigma_head_failure_from_ranker_retrain(tmp_path, monk
 
     monkeypatch.setattr(retrain_common.subprocess, "run", fake_run)
     monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+    monkeypatch.setattr(
+        mod, "_stamp_calibrator_fingerprint",
+        lambda scorer_path, cal_path: None,
+    )
 
     def boom(*a, **k):
         raise RuntimeError("sigma head down")
