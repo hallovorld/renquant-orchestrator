@@ -1,23 +1,29 @@
 # 2026-07-07 — cloud backtest compute design
 
-**PR**: design(infra): Modal-first cloud backtest compute for parallel sweeps
+**PR**: design(infra): cloud backtest compute — controller/worker burst execution
 
 ## Problem
 
 Concentration cap sweep (75 variants × 3 seeds × 575 days) takes ~38h on 12
-local cores. This blocks the machine and delays data-driven decisions.
+local cores. Blocks the machine including live trading ops.
 
 ## Design
 
-Local controller + Modal cloud workers. The sweep script dispatches independent
-variant backtests to N Modal containers via `.map()`, collects results locally,
-and runs verdicts. Same `execute_variant` function, same result schema — cloud
-is a transparent backend swap.
+Local controller / remote worker architecture with Modal:
+- **Upload**: OHLCV (250MB) + model artifacts (2.7GB) to Modal Volume with
+  SHA-256 checksums and immutable commit snapshots
+- **Dispatch**: controller sends variant configs as JSON; workers are stateless
+- **Return**: structured JSON results (~200KB/variant) with equity curves and
+  trade logs (gzip+base64); integrity verified via result_checksum
+- **Ingest**: each result INSERT'd to local SQLite immediately on receipt (not
+  batched); crash at variant 73/74 preserves 72 results; `--resume` flag for
+  interrupted sweeps
+- **Security**: no API keys, no live state, no production DB leaves local;
+  code/model in private Modal images; public OHLCV only sensitive-by-volume
 
-Data (OHLCV 250MB + model artifacts 2.7GB) lives on a Modal Volume, synced
-before each sweep. No API keys or live state leave local.
-
-Estimated: 74 workers × ~30 min = **$4.40** vs 38h local.
+NFRs covered: performance targets, reliability (retry/resume/checkpoint),
+observability (progress/ntfy/cost tracking), cost controls (per-sweep ceiling),
+security (threat model), testing (backend equivalence, mocked + integration).
 
 ## Scope
 
