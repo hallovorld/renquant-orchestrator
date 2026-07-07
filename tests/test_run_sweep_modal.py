@@ -1,0 +1,297 @@
+"""End-to-end test of scripts/run_sweep_modal.py::run_sweep against the REAL
+ResultStore API — not mocked-apart unit tests of each piece in isolation.
+
+Before the fix, run_sweep_modal.py called ResultStore/insert_variant/
+completed_variants/finalize with a signature that did not match the real
+class (see doc/progress/2026-07-07-cloud-sweep-executor-phase1.md round 2)
+— every unit test of ResultStore in isolation and of the executor protocol
+in isolation still passed, because neither exercised the two integrated.
+This test drives run_sweep() with a fake in-memory executor and a real,
+tmp-path-backed ResultStore, so an API mismatch between the two fails here.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from renquant_orchestrator.cloud.executor import BacktestResult, BatchSummary, DataManifest
+from renquant_orchestrator.cloud.result_store import ResultStore
+
+from run_sweep_modal import run_sweep
+
+
+FROZEN_SEEDS = (42, 43, 44)
+
+
+@dataclass(frozen=True)
+class _FakeVariantSpec:
+    name: str
+    role: str
+    entry_cap: float
+    drift_buffer: float
+    topup_threshold: float
+    config_path: Path
+    seeds: tuple[int, ...] = FROZEN_SEEDS
+
+    def as_json(self) -> dict:
+        return {
+            "name": self.name, "role": self.role, "entry_cap": self.entry_cap,
+            "drift_buffer": self.drift_buffer, "topup_threshold": self.topup_threshold,
+            "config_path": str(self.config_path), "seeds": list(self.seeds),
+        }
+
+
+def _seed_row(seed, *, sharpe, bull_calm_sharpe, bull_calm_dd=0.05, full_dd=0.08,
+              turnover=0.30, net_positive=True):
+    return {
+        "seed": seed,
+        "sharpe": sharpe,
+        "sharpe_net_of_cost": sharpe,
+        "apy": 0.10,
+        "max_dd": full_dd,
+        "calmar": 2.0,
+        "per_regime": {
+            "BULL_CALM": {"sharpe": bull_calm_sharpe, "sharpe_net_of_cost": bull_calm_sharpe,
+                          "max_dd": bull_calm_dd, "apy": 0.12, "n_days": 200},
+            "BEAR": {"sharpe": sharpe, "sharpe_net_of_cost": sharpe,
+                     "max_dd": full_dd, "apy": -0.02, "n_days": 60},
+            "BULL_VOLATILE": {"sharpe": sharpe, "sharpe_net_of_cost": sharpe,
+                               "max_dd": full_dd, "apy": 0.05, "n_days": 80},
+        },
+        "turnover": {"turnover_annualized": turnover, "modeled_cost_bps": turnover * 10.0},
+        "winner_continuation": {"net_positive": net_positive},
+    }
+
+
+class _FakeExecutor:
+    """Deterministic in-memory BacktestExecutor — no real subprocess/Modal call."""
+
+    def __init__(self, canned: dict[str, list[dict] | None]):
+        self._canned = canned  # variant_name -> per_seed rows, or None for error
+
+    def execute_batch(self, requests, *, on_result, on_error, max_concurrent=100):
+        n_completed = n_failed = 0
+        for req in requests:
+            per_seed = self._canned.get(req.variant_name)
+            if per_seed is None:
+                on_error(req.variant_name, RuntimeError("canned failure"))
+                n_failed += 1
+                continue
+            result = BacktestResult(
+                variant_name=req.variant_name,
+                role=req.role,
+                config_fingerprint=hashlib.sha256(req.config_json.encode()).hexdigest(),
+                worker_id="fake-worker-0",
+                volume_commit_id=req.volume_commit_id,
+                code_image_id="fake-image",
+                started_at="2026-01-01T00:00:00Z",
+                finished_at="2026-01-01T00:00:01Z",
+                elapsed_seconds=1.0,
+                peak_memory_mb=128.0,
+                seeds=req.seeds,
+                per_seed=per_seed,
+            )
+            on_result(result)
+            n_completed += 1
+        return BatchSummary(
+            total_seconds=float(len(requests)), cost_usd=0.01 * len(requests),
+            n_completed=n_completed, n_failed=n_failed,
+        )
+
+
+@pytest.fixture
+def variants(tmp_path):
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+
+    def _write(name):
+        p = config_dir / f"{name}.json"
+        p.write_text(json.dumps({"watchlist": ["AAPL"]}))
+        return p
+
+    incumbent = _FakeVariantSpec(
+        "incumbent", "incumbent", 0.10, 0.0, 0.05, _write("incumbent"),
+    )
+    winner = _FakeVariantSpec(
+        "cap12_drift00_topup05", "candidate", 0.12, 0.0, 0.05, _write("winner"),
+    )
+    loser = _FakeVariantSpec(
+        "cap20_drift00_topup05", "candidate", 0.20, 0.0, 0.05, _write("loser"),
+    )
+    failing = _FakeVariantSpec(
+        "cap30_drift00_topup05", "candidate", 0.30, 0.0, 0.05, _write("failing"),
+    )
+    aa = _FakeVariantSpec(
+        "aa_resplit", "aa_resplit", 0.10, 0.0, 0.05, _write("aa"),
+    )
+    return {"incumbent": incumbent, "winner": winner, "loser": loser,
+            "failing": failing, "aa": aa}
+
+
+@pytest.fixture
+def store(tmp_path):
+    s = ResultStore("test-modal-sweep", tmp_path / "store")
+    s.init_sweep(
+        backend="modal", backtest_start="2024-01-02", backtest_end="2026-03-28",
+        initial_cash=100_000.0, grid_spec={"n": 4}, n_variants=4,
+    )
+    yield s
+    s.close()
+
+
+class TestRunSweepEndToEnd:
+    def test_persists_variants_computes_verdicts_and_finalizes(self, tmp_path, variants, store):
+        canned = {
+            "incumbent": [
+                _seed_row(s, sharpe=1.0, bull_calm_sharpe=1.0) for s in FROZEN_SEEDS
+            ],
+            # dominates the incumbent on every criterion, every seed
+            "cap12_drift00_topup05": [
+                _seed_row(s, sharpe=1.3, bull_calm_sharpe=1.3, bull_calm_dd=0.04)
+                for s in FROZEN_SEEDS
+            ],
+            # gross Sharpe looks fine but regresses vs incumbent on BULL_CALM
+            "cap20_drift00_topup05": [
+                _seed_row(s, sharpe=1.0, bull_calm_sharpe=0.5) for s in FROZEN_SEEDS
+            ],
+            "cap30_drift00_topup05": None,  # canned failure
+            "aa_resplit": [
+                _seed_row(s, sharpe=1.0, bull_calm_sharpe=1.0) for s in FROZEN_SEEDS
+            ],
+        }
+        executor = _FakeExecutor(canned)
+        grid_variants = [variants["incumbent"], variants["winner"],
+                          variants["loser"], variants["failing"]]
+        aa_variant = variants["aa"]
+        variant_by_name = {v.name: v for v in grid_variants}
+        variant_by_name[aa_variant.name] = aa_variant
+
+        data_manifest = DataManifest(
+            commit_id="deadbeef", timestamp="2026-01-01T00:00:00Z", files={}, total_bytes=0,
+        )
+
+        result = run_sweep(
+            executor=executor,
+            store=store,
+            grid_variants=grid_variants,
+            aa_variant=aa_variant,
+            placebo={"provided": True, "passed": True, "items": []},
+            variant_by_name=variant_by_name,
+            data_manifest=data_manifest,
+            strat_dir=tmp_path,
+            manifest_path="",
+            start="2024-01-02",
+            end="2026-03-28",
+            initial_cash=100_000.0,
+        )
+
+        # every non-failing variant genuinely persisted through the real store
+        completed = store.completed_variants()
+        assert completed == {"incumbent", "cap12_drift00_topup05",
+                              "cap20_drift00_topup05", "aa_resplit"}
+
+        # the failure is recorded, not silently dropped
+        error_row = store._conn.execute(
+            "SELECT error FROM variant_results WHERE sweep_id = ? AND variant_name = ?",
+            ("test-modal-sweep", "cap30_drift00_topup05"),
+        ).fetchone()
+        assert error_row is not None and error_row[0] == "canned failure"
+
+        # verdicts were computed AND persisted via update_verdict (not just returned)
+        winner_row = store._conn.execute(
+            "SELECT tier3_ready, verdict_json FROM variant_results "
+            "WHERE sweep_id = ? AND variant_name = ?",
+            ("test-modal-sweep", "cap12_drift00_topup05"),
+        ).fetchone()
+        assert winner_row[0] == 1
+        assert json.loads(winner_row[1])["tier3_ready"] is True
+
+        loser_row = store._conn.execute(
+            "SELECT tier3_ready FROM variant_results WHERE sweep_id = ? AND variant_name = ?",
+            ("test-modal-sweep", "cap20_drift00_topup05"),
+        ).fetchone()
+        assert loser_row[0] == 0
+
+        # per-seed and per-regime rows genuinely reached the store, not just variant_results
+        seed_rows = store._conn.execute(
+            "SELECT COUNT(*) FROM seed_metrics WHERE sweep_id = ? AND variant_name = ?",
+            ("test-modal-sweep", "cap12_drift00_topup05"),
+        ).fetchone()[0]
+        assert seed_rows == len(FROZEN_SEEDS)
+
+        # finalize() was actually called with real totals, not skipped
+        sweep_row = store._conn.execute(
+            "SELECT status, n_completed, n_failed, aa_sharpe_lift, aa_passed "
+            "FROM sweep_runs WHERE sweep_id = ?",
+            ("test-modal-sweep",),
+        ).fetchone()
+        assert sweep_row[0] == "partial"  # one canned failure
+        assert sweep_row[1] == 4  # incumbent, winner, loser, aa
+        assert sweep_row[2] == 1
+        assert sweep_row[3] == pytest.approx(0.0, abs=1e-9)  # aa vs incumbent, identical sharpe
+        assert sweep_row[4] == 1
+
+        assert result["tier3_winners"] == ["cap12_drift00_topup05"]
+
+    def test_resume_skips_already_completed_variants(self, tmp_path, variants, store):
+        # Pre-populate the store as if the incumbent already ran in a prior attempt.
+        store.insert_variant(
+            "incumbent", "incumbent", "fp0",
+            [_seed_row(s, sharpe=1.0, bull_calm_sharpe=1.0) for s in FROZEN_SEEDS],
+        )
+
+        dispatched: list[str] = []
+
+        class _RecordingExecutor(_FakeExecutor):
+            def execute_batch(self, requests, *, on_result, on_error, max_concurrent=100):
+                dispatched.extend(r.variant_name for r in requests)
+                return super().execute_batch(
+                    requests, on_result=on_result, on_error=on_error,
+                    max_concurrent=max_concurrent,
+                )
+
+        canned = {
+            "cap12_drift00_topup05": [
+                _seed_row(s, sharpe=1.1, bull_calm_sharpe=1.1) for s in FROZEN_SEEDS
+            ],
+            "cap20_drift00_topup05": [
+                _seed_row(s, sharpe=1.1, bull_calm_sharpe=1.1) for s in FROZEN_SEEDS
+            ],
+            "cap30_drift00_topup05": [
+                _seed_row(s, sharpe=1.1, bull_calm_sharpe=1.1) for s in FROZEN_SEEDS
+            ],
+            "aa_resplit": [
+                _seed_row(s, sharpe=1.0, bull_calm_sharpe=1.0) for s in FROZEN_SEEDS
+            ],
+        }
+        executor = _RecordingExecutor(canned)
+        grid_variants = [variants["incumbent"], variants["winner"],
+                          variants["loser"], variants["failing"]]
+        aa_variant = variants["aa"]
+        variant_by_name = {v.name: v for v in grid_variants}
+        variant_by_name[aa_variant.name] = aa_variant
+        data_manifest = DataManifest(
+            commit_id="deadbeef", timestamp="2026-01-01T00:00:00Z", files={}, total_bytes=0,
+        )
+
+        run_sweep(
+            executor=executor, store=store, grid_variants=grid_variants,
+            aa_variant=aa_variant, placebo={"provided": False, "passed": False, "items": []},
+            variant_by_name=variant_by_name, data_manifest=data_manifest,
+            strat_dir=tmp_path, manifest_path="", start="2024-01-02", end="2026-03-28",
+            initial_cash=100_000.0,
+        )
+
+        # the already-completed incumbent must never be re-dispatched
+        assert "incumbent" not in dispatched
+        assert set(dispatched) == {
+            "cap12_drift00_topup05", "cap20_drift00_topup05",
+            "cap30_drift00_topup05", "aa_resplit",
+        }
