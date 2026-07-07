@@ -1,4 +1,16 @@
-"""BacktestExecutor protocol and data objects — platform-agnostic interface."""
+"""BacktestExecutor protocol and data objects — platform-agnostic interface.
+
+Scope (doc/design/2026-07-07-cloud-backtest-compute.md §0/§9, r2, approved):
+this abstraction exists so W1 (concentration-cap / Kelly-style parameter
+sweeps) and W4 (placebo/shuffle significance) share ONE local-vs-Modal
+execution interface, per Phase 1's "refactor run_concentration_cap_sweep.py
+to use BacktestExecutor" step. It is NOT a general-purpose "run any Python
+function on any cloud backend" engine — W2/W12 (GPU model training) are
+explicitly out of scope here (belongs in renquant-model), and a
+general-purpose cloud-backtest substrate beyond W1/W4 belongs in
+renquant-backtesting, not orchestrator. Keep new BacktestExecutor
+implementations and call sites scoped to W1/W4-shaped variant sweeps.
+"""
 from __future__ import annotations
 
 import hashlib

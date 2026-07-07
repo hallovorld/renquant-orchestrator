@@ -1,4 +1,12 @@
-"""Bundle subrepo source code for cloud container image."""
+"""Bundle subrepo source code for cloud container image.
+
+This is NOT a generic "bundle any repo set" facility — SUBREPO_NAMES is
+hardcoded to exactly the repos scripts/run_concentration_cap_sweep.py's own
+SUBREPO_IMPORT_ORDER needs to run one full renquant_104 backtest (W1/W4 in
+doc/design/2026-07-07-cloud-backtest-compute.md §0). If that sweep's real
+dependency set ever changes, update both lists together rather than growing
+this into an arbitrary multi-repo packager.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -6,6 +14,8 @@ import json
 import shutil
 from pathlib import Path
 
+# Kept in sync with run_concentration_cap_sweep.py::SUBREPO_IMPORT_ORDER —
+# see module docstring above.
 SUBREPO_NAMES = (
     "renquant-common",
     "renquant-base-data",

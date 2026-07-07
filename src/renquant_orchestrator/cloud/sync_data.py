@@ -19,6 +19,19 @@ SYNC_EXCLUSIONS = {
 SYNC_EXCLUDE_DIRS = {"logs", ".git", "__pycache__", "tests"}
 
 
+def compute_manifest_commit_id(manifest: dict[str, str]) -> str:
+    """Deterministic content digest of a {path: sha256} manifest.
+
+    Same pattern as bundle.py::compute_bundle_fingerprint — the digest
+    changes iff the manifest's content changes, so it can stand in for a
+    real Volume commit id (Modal's Python SDK does not return one from
+    `vol.commit()`). A wall-clock timestamp proves nothing about content
+    identity and cannot serve as a replay-provenance field.
+    """
+    canonical = json.dumps(manifest, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def build_local_manifest(paths: dict[str, Path]) -> dict[str, str]:
     """Build {relative_path: sha256} for all files under the given paths."""
     result: dict[str, str] = {}
@@ -64,7 +77,7 @@ def sync_to_modal_volume(
     to_upload = {k: v for k, v in local_manifest.items() if prev.get(k) != v}
     if not to_upload:
         log.info("No changes to sync — reusing existing Volume state")
-        commit_id = prev.get("_commit_id", "unchanged")
+        commit_id = compute_manifest_commit_id(local_manifest)
         return DataManifest(
             commit_id=commit_id,
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -90,12 +103,10 @@ def sync_to_modal_volume(
         log.info("  uploaded %s (%s)", rel_path, checksum[:8])
 
     vol.commit()
-    commit_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    commit_id = compute_manifest_commit_id(local_manifest)
 
     prev_manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    save = dict(local_manifest)
-    save["_commit_id"] = commit_id
-    prev_manifest_path.write_text(json.dumps(save, indent=2, sort_keys=True))
+    prev_manifest_path.write_text(json.dumps(local_manifest, indent=2, sort_keys=True))
 
     log.info("Synced %d files (%.1f MB), commit=%s",
              len(to_upload), total_bytes / 1e6, commit_id)

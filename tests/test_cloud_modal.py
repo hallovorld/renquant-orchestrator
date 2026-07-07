@@ -21,7 +21,10 @@ from renquant_orchestrator.cloud.modal_executor import (
     _estimate_cost_usd,
     _request_to_dict,
 )
-from renquant_orchestrator.cloud.sync_data import build_local_manifest
+from renquant_orchestrator.cloud.sync_data import (
+    build_local_manifest,
+    compute_manifest_commit_id,
+)
 
 
 class TestBundle:
@@ -84,6 +87,26 @@ class TestBundle:
         m2 = {"a.py": "xyz789"}
         assert compute_bundle_fingerprint(m1) != compute_bundle_fingerprint(m2)
 
+    def test_subrepo_names_stays_synced_with_sweep_scripts_own_dependency_list(self):
+        """SUBREPO_NAMES is documented as hardcoded to exactly what
+        run_concentration_cap_sweep.py::SUBREPO_IMPORT_ORDER needs (see
+        bundle.py's module docstring) — not a generic arbitrary repo list.
+        This proves that coupling instead of leaving it as a comment nobody
+        re-checks when either list changes."""
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        from renquant_orchestrator.cloud.bundle import SUBREPO_NAMES
+
+        scripts_dir = str(_Path(__file__).parent.parent / "scripts")
+        _sys.path.insert(0, scripts_dir)
+        try:
+            from run_concentration_cap_sweep import SUBREPO_IMPORT_ORDER
+        finally:
+            _sys.path.remove(scripts_dir)
+
+        assert set(SUBREPO_NAMES) == set(SUBREPO_IMPORT_ORDER)
+
 
 class TestSyncDataLocalManifest:
     def test_build_manifest_file(self, tmp_path: Path):
@@ -100,6 +123,19 @@ class TestSyncDataLocalManifest:
         manifest = build_local_manifest({"ohlcv": d})
         assert "ohlcv/AAPL.parquet" in manifest
         assert "ohlcv/SPY.parquet" in manifest
+
+    def test_commit_id_is_content_coupled_not_a_timestamp(self):
+        """commit_id must change iff the synced manifest's content changes —
+        a wall-clock timestamp (the pre-fix behavior) would pass this only
+        by accident, since two syncs of identical content a second apart
+        would wrongly report different commit_ids, and unchanged reruns
+        would wrongly look like a genuine content change."""
+        m1 = {"ohlcv/AAPL.parquet": "sha_a", "artifacts/wf.json": "sha_b"}
+        m2 = {"ohlcv/AAPL.parquet": "sha_a", "artifacts/wf.json": "sha_b"}
+        m3 = {"ohlcv/AAPL.parquet": "sha_a_changed", "artifacts/wf.json": "sha_b"}
+
+        assert compute_manifest_commit_id(m1) == compute_manifest_commit_id(m2)
+        assert compute_manifest_commit_id(m1) != compute_manifest_commit_id(m3)
 
     def test_excludes_sensitive_files(self, tmp_path: Path):
         d = tmp_path / "data"
