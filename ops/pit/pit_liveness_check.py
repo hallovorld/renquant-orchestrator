@@ -11,12 +11,10 @@ contract, not merely "some parquet exists somewhere":
 A missed day is UNRECOVERABLE (PIT invariant: no backfill), so this alert is the
 package's most important file. Read-only.
 
-Session-day gating uses the REAL NYSE exchange calendar
-(``renquant_orchestrator.intraday_quote_logger.default_session_calendar`` —
-``pandas_market_calendars``-backed, the SAME primitive #232's rq105 liveness
-check and ``renquant_execution.preopen_cancel_gate`` use) rather than a bare
-weekday check, so a scheduled market holiday does not fire a false
-"snapshot lapsed" alert.
+The snapshotter runs on ALL weekdays (Mon–Fri) because FMP analyst estimates
+update regardless of NYSE market status. The liveness check therefore verifies
+on all weekdays too — not just NYSE trading days — so a snapshot failure on a
+market holiday is never silently missed.
 """
 from __future__ import annotations
 
@@ -29,12 +27,6 @@ from pathlib import Path
 
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 ROOT = os.path.join(RQ, "data", "estimate_snapshots")
-# The run-checkout root this script is deployed under (see README) — matches
-# #232's own convention for locating the orchestrator src tree from an ops/
-# script deployed outside a normal editable install.
-RQ_ORCH_ROOT = os.environ.get(
-    "RQ_ORCH_ROOT", "/Users/renhao/git/github/renquant-orchestrator-run"
-)
 
 # Mirrors renquant_base_data.fmp_estimate_revisions.ENDPOINTS exactly (a
 # separate repo; not imported at runtime to keep this liveness check a
@@ -50,37 +42,10 @@ ENDPOINTS = (
 )
 
 
-def _session_calendar():
-    """Real NYSE calendar (holiday/half-day aware) — lazily imported so this
-    script's argument parsing never requires the orchestrator package to be
-    importable, only the actual liveness check does."""
-    p = os.path.join(RQ_ORCH_ROOT, "src")
-    if p not in sys.path:
-        sys.path.insert(0, p)
-    # Campaign B5: the primitive re-exported by intraday_quote_logger now
-    # lives in renquant_common.market_calendar — a stale venv install may
-    # predate it, so put a sibling renquant-common checkout on sys.path too
-    # (pinned -run checkout preferred).
-    for name in ("renquant-common-run", "renquant-common"):
-        c = os.path.join(os.path.dirname(RQ_ORCH_ROOT), name, "src")
-        if os.path.isdir(c) and c not in sys.path:
-            sys.path.insert(0, c)
-            break
-    from renquant_orchestrator.intraday_quote_logger import default_session_calendar
-
-    return default_session_calendar()
-
-
-def _is_session_day(day: dt.date) -> bool:
-    try:
-        return _session_calendar().session_bounds(day) is not None
-    except Exception as exc:  # pandas_market_calendars unavailable/broken — fail closed
-        print(
-            f"WARNING: NYSE calendar check failed ({exc}); treating {day} as a "
-            f"session day (fail-closed: do not silently skip a possible lapse)",
-            file=sys.stderr,
-        )
-        return True
+def _is_collection_day(day: dt.date) -> bool:
+    """The snapshotter runs Mon–Fri via launchd (FMP data updates regardless of
+    NYSE market status). Only skip Sat/Sun where launchd never fires."""
+    return day.weekday() < 5
 
 
 def _alert(title: str, body: str) -> None:
@@ -158,8 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     today = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
 
-    if not _is_session_day(today):
-        print(f"PIT liveness: {today} is not an NYSE session day — skip")
+    if not _is_collection_day(today):
+        print(f"PIT liveness: {today} is a weekend — skip")
         return 0
 
     problems = check_snapshot(today)
