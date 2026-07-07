@@ -168,18 +168,23 @@ def test_stamp_calibrator_fingerprint_writes_scorer_hash(tmp_path, monkeypatch) 
     calibrator = tmp_path / "calibrator.json"
     scorer.write_text(json.dumps({"scores": [1, 2, 3], "trained_date": "2026-07-06"}))
     calibrator.write_text(json.dumps({"method": "isotonic"}))
+    fake_legacy = "sha256:legacy_abc123"
+    fake_artifact = "sha256:artifact_def456"
+
+    def fake_stamp(meta, path, payload=None):
+        meta["model_content_fingerprint"] = fake_legacy
+        meta["artifact_fingerprint"] = fake_artifact
+        return meta
+
     monkeypatch.setattr(
-        mod, "_stamp_calibrator_fingerprint",
-        mod._stamp_calibrator_fingerprint,  # use real impl
-    )
-    fake_hash = "sha256:test_hash_abc123"
-    monkeypatch.setattr(
-        "renquant_common.model_fingerprint.model_content_sha256",
-        lambda payload: fake_hash,
+        "renquant_common.model_fingerprint.stamp_artifact_metadata",
+        fake_stamp,
     )
     mod._stamp_calibrator_fingerprint(scorer, calibrator)
     cal = json.loads(calibrator.read_text())
-    assert cal["model_content_sha256"] == fake_hash
+    assert cal["metadata"]["scorer_model_content_fingerprint"] == fake_legacy
+    assert cal["metadata"]["scorer_artifact_fingerprint"] == fake_artifact
+    assert cal["metadata"]["model_content_fingerprint"] == fake_legacy
     assert cal["method"] == "isotonic"
 
 

@@ -1349,35 +1349,56 @@ class RefitCalibratorTask(Task):
 
 
 def _stamp_calibrator_fingerprint(scorer_path: Path, calibrator_path: Path) -> None:
-    """Stamp the calibrator with the scorer's model_content_sha256.
+    """Stamp the calibrator metadata with the scorer's fingerprint identity.
 
-    The runtime's fingerprint_dispatch.verify() asserts calibrator and scorer
-    hashes match before allowing scoring.  The fit_calibrator step does not
-    stamp this because it delegates to renquant-model code that predates the
-    fingerprint contract.  Without this, every promote followed by a daily-full
-    crashes with ``calibrator/scorer fingerprint mismatch`` (the triple-impl
-    bug, memory 2026-07-01).
+    The runtime's ``_assert_calibrator_matches_scorer`` builds identity claims
+    from ``metadata`` keys (``scorer_model_content_fingerprint``,
+    ``artifact_fingerprint``, etc.) — NOT the top-level
+    ``model_content_sha256``.  It computes scorer identity via the legacy
+    ``stamp_artifact_metadata`` shim (path-based file hash) at load time.
+
+    This function replicates that computation and writes the result into the
+    calibrator's ``metadata`` dict so the legacy route matches.
     """
-    scorer = read_json_object(scorer_path, "scorer for fingerprint")
+    import warnings  # noqa: PLC0415
+
     cal = read_json_object(calibrator_path, "calibrator for fingerprint")
+    scorer = read_json_object(scorer_path, "scorer for fingerprint")
     try:
-        from renquant_pipeline.kernel.panel_pipeline.fingerprint_dispatch import (  # noqa: PLC0415
-            model_content_sha256,
-        )
-
-        scorer_hash = model_content_sha256(scorer)
-    except ImportError:
         from renquant_common.model_fingerprint import (  # noqa: PLC0415
-            model_content_sha256,
+            model_content_sha256_from_path,
+            stamp_artifact_metadata,
         )
-
-        scorer_hash = model_content_sha256(scorer)
-    cal["model_content_sha256"] = scorer_hash
+    except ImportError:
+        log.warning(
+            "StampCalibratorFingerprintTask: renquant_common.model_fingerprint "
+            "not available — skipping stamp (calibrator will fail fingerprint "
+            "verification at runtime)"
+        )
+        return
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        scorer_meta = stamp_artifact_metadata(
+            {k: v for k, v in scorer.items() if k != "booster_raw_json"},
+            scorer_path,
+            payload=scorer,
+        )
+    legacy_hash = scorer_meta.get("model_content_fingerprint")
+    artifact_hash = scorer_meta.get("artifact_fingerprint")
+    if "metadata" not in cal:
+        cal["metadata"] = {}
+    cal["metadata"]["scorer_model_content_fingerprint"] = legacy_hash
+    cal["metadata"]["scorer_artifact_fingerprint"] = artifact_hash
+    cal["metadata"]["model_content_fingerprint"] = legacy_hash
+    cal["metadata"]["artifact_fingerprint"] = artifact_hash
+    cal["metadata"]["artifact_sha256"] = artifact_hash
     calibrator_path.write_text(json.dumps(cal, indent=1))
     log.info(
-        "StampCalibratorFingerprintTask: stamped %s with scorer hash %s",
+        "StampCalibratorFingerprintTask: stamped %s — "
+        "legacy=%s artifact=%s",
         calibrator_path.name,
-        scorer_hash,
+        legacy_hash,
+        artifact_hash,
     )
 
 
