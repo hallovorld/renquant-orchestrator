@@ -37,3 +37,10 @@ is intentionally NOT an authoritative READY gate: a 10-session count alone does
 not prove the full S7 AC (`sweep and fund legs both exercised`, `reserve never
 breached`). It gives the program a real-time accrual surface without pretending
 to authorize live enablement.
+
+ROUND 4 (Codex review): tightened that readiness surface so the 10-session
+milestone counts only **runtime-wrapped** sessions (the post-#423 plumbing
+shape with `book_state` + `runtime` provenance), not legacy module-only
+direct-allocation rows. Mixed logs now report both the wrapped-session accrual
+and the count of legacy-only sessions, so the monitor stops overstating
+"plumbing progress" just because old shadow rows exist.

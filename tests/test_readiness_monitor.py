@@ -465,8 +465,9 @@ class TestParkingSleeveShadow:
         ])
         r = check_parking_sleeve_shadow(data_root)
         assert r.status == Status.NOT_READY
-        assert r.current == 2
+        assert r.current == 0
         assert "schema=legacy_direct" in r.detail
+        assert "legacy_sessions=2" in r.detail
 
     def test_runtime_wrapped_schema_reaches_10_session_milestone(self, data_root):
         rows = []
@@ -487,6 +488,28 @@ class TestParkingSleeveShadow:
         assert r.current == 10
         assert r.authoritative is False
         assert "schema=runtime_wrapped" in r.detail
+        assert "10/10 runtime-wrapped session date" in r.detail
+
+    def test_mixed_schema_counts_only_runtime_wrapped_sessions(self, data_root):
+        _write_sleeve_shadow(data_root, [
+            {"as_of": "2026-07-01", "spy_frac": 0.2},
+            {
+                "session_date": "2026-07-02",
+                "book_state": {"session_date": "2026-07-02"},
+                "runtime": {"book_state_source": "latest_live_run"},
+            },
+            {
+                "session_date": "2026-07-03",
+                "book_state": {"session_date": "2026-07-03"},
+                "runtime": {"book_state_source": "latest_live_run"},
+            },
+        ])
+        r = check_parking_sleeve_shadow(data_root)
+        assert r.status == Status.NOT_READY
+        assert r.current == 2
+        assert "schema=mixed" in r.detail
+        assert "3 total distinct session date" in r.detail
+        assert "legacy_sessions=1" in r.detail
 
     def test_empty_or_unreadable_file_not_ready(self, data_root):
         _write_sleeve_shadow(data_root, [])

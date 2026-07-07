@@ -384,8 +384,9 @@ def check_parking_sleeve_shadow(data_root: Path) -> CheckResult:
 
     Reports how many DISTINCT session dates have been observed in the canonical
     sleeve shadow JSONL (`backtesting/renquant_104/logs/parking_sleeve_shadow.jsonl`),
-    whether the file is fresh, and whether it carries the newer runtime-wrapped
-    schema (`book_state` present) or the legacy direct-allocation schema.
+    whether the file is fresh, and whether those sessions come from the newer
+    runtime-wrapped schema (`book_state` + `runtime`) or only the legacy
+    direct-allocation schema.
 
     This is intentionally informational-only (authoritative=False). Ten session
     dates in the log is a useful progress milestone, but file presence / date
@@ -408,6 +409,8 @@ def check_parking_sleeve_shadow(data_root: Path) -> CheckResult:
         )
 
     session_dates: set[str] = set()
+    wrapped_session_dates: set[str] = set()
+    legacy_session_dates: set[str] = set()
     n_records = 0
     wrapped_records = 0
     for line in log_path.read_text(encoding="utf-8").splitlines():
@@ -433,7 +436,12 @@ def check_parking_sleeve_shadow(data_root: Path) -> CheckResult:
         else:
             session_date = rec.get("session_date") or rec.get("as_of")
         if session_date:
-            session_dates.add(str(session_date)[:10])
+            session_day = str(session_date)[:10]
+            session_dates.add(session_day)
+            if isinstance(book_state, dict):
+                wrapped_session_dates.add(session_day)
+            else:
+                legacy_session_dates.add(session_day)
 
     if n_records == 0:
         return CheckResult(
@@ -443,7 +451,8 @@ def check_parking_sleeve_shadow(data_root: Path) -> CheckResult:
         )
 
     n_sessions = len(session_dates)
-    status = Status.READY if n_sessions >= threshold_sessions else Status.NOT_READY
+    n_wrapped_sessions = len(wrapped_session_dates)
+    status = Status.READY if n_wrapped_sessions >= threshold_sessions else Status.NOT_READY
     schema_mode = (
         "runtime_wrapped" if wrapped_records == n_records else
         "mixed" if wrapped_records > 0 else
@@ -453,13 +462,15 @@ def check_parking_sleeve_shadow(data_root: Path) -> CheckResult:
     age_hours = (datetime.now() - newest_mod).total_seconds() / 3600
     stale_note = f", STALE ({age_hours:.0f}h since last write)" if age_hours > staleness_hours else ""
     detail = (
-        f"{n_sessions}/{threshold_sessions} distinct session date(s), "
-        f"{n_records} readable record(s), schema={schema_mode}{stale_note}; "
+        f"{n_wrapped_sessions}/{threshold_sessions} runtime-wrapped session date(s), "
+        f"{n_sessions} total distinct session date(s), "
+        f"{n_records} readable record(s), schema={schema_mode}"
+        f" legacy_sessions={len(legacy_session_dates)}{stale_note}; "
         f"informational only — does NOT prove sweep/fund legs exercised or reserve discipline"
     )
     return CheckResult(
-        name, status, n_sessions, threshold_sessions, detail,
-        pct=min(n_sessions / threshold_sessions, 1.0) * 100,
+        name, status, n_wrapped_sessions, threshold_sessions, detail,
+        pct=min(n_wrapped_sessions / threshold_sessions, 1.0) * 100,
         authoritative=False,
     )
 
