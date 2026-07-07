@@ -12,6 +12,7 @@ from renquant_orchestrator.parking_sleeve import (
     SleeveAllocation,
     SleeveConfig,
     compute_sleeve_allocation,
+    main,
     write_shadow_log,
 )
 
@@ -283,9 +284,21 @@ class TestShadowLog:
             "reserve_weight", "spy_frac", "sgov_frac", "spy_target_weight",
             "sgov_target_weight", "spy_target_notional", "sgov_target_notional",
             "beta_positions", "beta_book_estimate", "regime",
-            "regime_override_active", "enabled",
+            "regime_override_active", "enabled", "spy_notional", "sgov_notional",
         }
         assert set(record.keys()) == expected_fields
+
+    def test_log_alias_fields_match_target_notionals(self, tmp_path):
+        log_path = tmp_path / "sleeve.jsonl"
+        book = BookState(15000, 4500, 10500, 0.30, "BULL_CALM")
+        cfg = SleeveConfig.from_dict({"enabled": True})
+        alloc = compute_sleeve_allocation(book, cfg)
+
+        write_shadow_log(alloc, log_path)
+
+        record = json.loads(log_path.read_text().strip())
+        assert record["spy_notional"] == pytest.approx(record["spy_target_notional"])
+        assert record["sgov_notional"] == pytest.approx(record["sgov_target_notional"])
 
 
 # --- Integration: allocation → log round-trip ---
@@ -305,3 +318,49 @@ class TestRoundTrip:
         assert abs(record["beta_book_estimate"] - 0.6) < 1e-6
         assert record["positions_weight"] == pytest.approx(0.43)
         assert record["sleeve_weight"] == pytest.approx(0.55)
+
+
+class TestMain:
+    def test_main_auto_runtime_mode_writes_default_shadow_log(self, tmp_path, monkeypatch, capsys):
+        from renquant_orchestrator import parking_sleeve as mod
+
+        cfg_path = tmp_path / "strategy_config.json"
+        cfg_path.write_text(json.dumps({"sleeve": {"enabled": True, "beta_max": 0.6}}))
+
+        monkeypatch.setattr(mod, "default_data_root", lambda: tmp_path)
+        monkeypatch.setattr(mod, "default_strategy_config_path", lambda: cfg_path)
+        monkeypatch.setattr(
+            mod,
+            "_build_runtime_book_state",
+            lambda **_: (
+                BookState(
+                    portfolio_value=10_000,
+                    positions_value=4_000,
+                    cash_value=6_000,
+                    beta_positions=0.40,
+                    regime="BULL_CALM",
+                ),
+                {
+                    "positions": {"run_id": "r1"},
+                    "beta_composition": {"book_beta_measured_names": 0.40},
+                    "beta_censored_names": {},
+                    "db_path": str(tmp_path / "data" / "runs.alpaca.db"),
+                    "ohlcv_dir": str(tmp_path / "data" / "ohlcv"),
+                    "run_type": "live",
+                },
+            ),
+        )
+
+        rc = main([])
+
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["portfolio_value"] == 10_000
+        assert payload["spy_notional"] == pytest.approx(payload["spy_target_notional"])
+
+        shadow_log = tmp_path / "backtesting" / "renquant_104" / "logs" / "parking_sleeve_shadow.jsonl"
+        record = json.loads(shadow_log.read_text().strip())
+        assert record["runtime"]["book_state_source"] == "latest_live_run"
+        assert record["runtime"]["config_path"] == str(cfg_path)
+        assert record["book_state"]["spy_notional"] == pytest.approx(record["spy_target_notional"])
+        assert record["input_book_state"]["regime"] == "BULL_CALM"
