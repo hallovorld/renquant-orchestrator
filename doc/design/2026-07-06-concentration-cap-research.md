@@ -174,12 +174,21 @@ seeds** (per the unanimity rule above):
    matches this repo's ±0.02 seed-noise convention, so a full-period
    "regression" smaller than seed noise is not grounds for rejection, but
    anything larger is)
-4. **Worst-regime Sharpe ≥ incumbent's worst-regime Sharpe − 0.02, AND
-   worst-regime MaxDD ≤ incumbent's worst-regime MaxDD × 1.10** — evaluated
-   against whichever of {BULL_CALM, BEAR, BULL_VOLATILE} is worst for the
-   INCUMBENT (a candidate cannot win by improving the regime that was already
-   the incumbent's best while quietly degrading the regime that was already
-   weakest)
+4. **Per-regime no-material-regression, checked on EVERY regime individually
+   (round 3 — Codex review)**: for **each** of {BULL_CALM, BEAR,
+   BULL_VOLATILE} — not just whichever was the incumbent's historical worst —
+   candidate Sharpe in that regime ≥ incumbent Sharpe in that SAME regime −
+   0.02, AND candidate MaxDD in that regime ≤ incumbent MaxDD in that SAME
+   regime × 1.10. A candidate that keeps the incumbent's worst regime flat
+   but creates a new tail in some other regime (e.g., incumbent's worst is
+   BEAR; candidate holds BEAR flat, improves BULL_CALM, but materially
+   damages BULL_VOLATILE) now fails this criterion on BULL_VOLATILE
+   specifically — checking only the incumbent's historical worst regime would
+   have missed this, since BULL_VOLATILE was never the incumbent's weakest
+   bucket. With exactly 3 regimes in this repo's taxonomy, checking all three
+   individually (rather than the coarser "worst-vs-worst" or "check one,
+   bound the rest" alternatives) is not over-restrictive and is the more
+   direct closure of the gap.
 5. **Turnover does not exceed incumbent's turnover by more than 25%** (a
    config that wins on net-of-cost Sharpe by churning 3x more is not a clean
    win — this bounds how much of criterion 1's edge is allowed to come from
