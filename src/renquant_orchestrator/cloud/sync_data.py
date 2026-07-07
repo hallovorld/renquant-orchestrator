@@ -90,7 +90,11 @@ def sync_to_modal_volume(
         log.info("  uploaded %s (%s)", rel_path, checksum[:8])
 
     vol.commit()
-    commit_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    # commit_id = content-addressed digest of the full manifest so replay
+    # provenance is tied to actual data content, not wall-clock time.
+    commit_id = hashlib.sha256(
+        json.dumps(local_manifest, sort_keys=True).encode()
+    ).hexdigest()[:16]
 
     prev_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     save = dict(local_manifest)

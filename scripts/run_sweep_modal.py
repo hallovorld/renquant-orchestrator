@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run the concentration cap sweep on Modal cloud compute.
 
-Wraps the existing sweep logic (scripts/run_concentration_cap_sweep.py) with
-the cloud executor pipeline:
+Orchestrator-specific wrapper around the existing sweep grid logic
+(scripts/run_concentration_cap_sweep.py), adding:
   1. Bundle subrepo source code → container image
   2. Sync OHLCV + artifacts to Modal Volume
   3. Dispatch variants via Modal .map() with streaming callbacks
@@ -22,9 +22,11 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -71,10 +73,14 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(strat_dir.parent.parent / "scripts"))
     from run_concentration_cap_sweep import (
         FROZEN_SEEDS,
+        ENTRY_CAPS,
+        DRIFT_BUFFERS,
+        TOPUP_THRESHOLDS,
         build_grid_variants,
         build_aa_variant,
         load_placebo_evidence,
         bootstrap_subrepo_imports,
+        unanimity_verdict,
     )
 
     subrepo_root = bootstrap_subrepo_imports(repo_root)
@@ -84,9 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     from renquant_orchestrator.cloud.bundle import bundle_subrepos, compute_bundle_fingerprint
 
     bundle_dir = output_dir / "bundle"
-    manifest = bundle_subrepos(subrepo_root, strat_dir, bundle_dir)
-    bundle_fp = compute_bundle_fingerprint(manifest)
-    print(f"  Bundled {len(manifest)} files, fingerprint={bundle_fp[:12]}")
+    bundle_manifest = bundle_subrepos(subrepo_root, strat_dir, bundle_dir)
+    bundle_fp = compute_bundle_fingerprint(bundle_manifest)
+    print(f"  Bundled {len(bundle_manifest)} files, fingerprint={bundle_fp[:12]}")
 
     # ── Step 2: Sync data to Modal Volume ──
     print("Step 2: Syncing data to Modal Volume...")
@@ -102,20 +108,17 @@ def main(argv: list[str] | None = None) -> int:
     artifacts_dir = strat_dir / "artifacts"
     model_dir = strat_dir / "models"
 
-    # Only sync OHLCV for symbols the sweep actually uses (16 MB vs 250 MB)
     base_config = json.loads(base_config_path.read_text())
     watchlist = set(base_config.get("watchlist", []))
     watchlist |= set(base_config.get("sector_etf_map", {}).values())
     watchlist.add(base_config.get("benchmark", "SPY"))
 
-    import tempfile
     ohlcv_staging = Path(tempfile.mkdtemp(prefix="ohlcv_sync_"))
     for sym in sorted(watchlist):
         src_pq = ohlcv_dir / sym / "1d.parquet"
         if src_pq.exists():
             dst = ohlcv_staging / sym
             dst.mkdir(parents=True, exist_ok=True)
-            import shutil
             shutil.copy2(src_pq, dst / "1d.parquet")
     print(f"  Staged {len(list(ohlcv_staging.iterdir()))} symbols for sync")
 
@@ -126,9 +129,12 @@ def main(argv: list[str] | None = None) -> int:
         local_paths["models"] = str(model_dir)
 
     data_manifest = executor.sync_data(local_paths)
-    print(f"  Volume commit={data_manifest.commit_id}, "
-          f"{len(data_manifest.files)} files, "
-          f"{data_manifest.total_bytes / 1e6:.1f} MB")
+    data_manifest_fp = hashlib.sha256(
+        json.dumps(data_manifest.files, sort_keys=True).encode()
+    ).hexdigest()
+    print(f"  Volume synced: {len(data_manifest.files)} files, "
+          f"{data_manifest.total_bytes / 1e6:.1f} MB, "
+          f"data_fp={data_manifest_fp[:12]}")
 
     # ── Step 3: Preflight check ──
     print("Step 3: Preflight check...")
@@ -150,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nDry run complete. Add --execute to run, or --preflight to check only.")
         return 0
 
-    # ── Step 4: Build variant grid → BacktestRequests ──
+    # ── Step 4: Build variant grid ──
     print("Step 4: Building variant grid...")
     grid_variants = build_grid_variants(
         base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
@@ -163,7 +169,51 @@ def main(argv: list[str] | None = None) -> int:
     from renquant_orchestrator.cloud.executor import BacktestRequest
     from renquant_orchestrator.cloud.result_store import ResultStore
 
-    base_config = json.loads(base_config_path.read_text())
+    # ── Step 5: Initialize ResultStore (matches API: sweep_id, base_dir) ──
+    subrepo_pins = _collect_subrepo_pins(subrepo_root)
+    subrepo_pins_sha = hashlib.sha256(
+        json.dumps(subrepo_pins, sort_keys=True).encode()
+    ).hexdigest()
+    strategy_config_fp = hashlib.sha256(
+        base_config_path.read_bytes()
+    ).hexdigest()
+    artifact_fp = hashlib.sha256(
+        json.dumps(
+            {k: v for k, v in data_manifest.files.items()
+             if k.startswith("artifacts/") or k.startswith("models/")},
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+    sweep_id = args.resume or f"modal_{stamp}"
+    store = ResultStore(sweep_id, output_dir)
+    grid_spec = {
+        "entry_caps": list(ENTRY_CAPS),
+        "drift_buffers": [
+            "inf" if math.isinf(x) else x for x in DRIFT_BUFFERS
+        ],
+        "topup_thresholds": list(TOPUP_THRESHOLDS),
+    }
+
+    if not args.resume:
+        store.init_sweep(
+            backend="modal",
+            backtest_start=args.start,
+            backtest_end=args.end,
+            initial_cash=args.initial_cash,
+            grid_spec=grid_spec,
+            n_variants=len(grid_variants) + 1,
+            volume_commit=data_manifest.commit_id,
+            subrepo_pins_json=json.dumps(subrepo_pins),
+            subrepo_pins_sha256=subrepo_pins_sha,
+            strategy_config_fingerprint=strategy_config_fp,
+            data_manifest_fingerprint=data_manifest_fp,
+            artifact_manifest_fingerprint=artifact_fp,
+        )
+    print(f"  sweep_id={sweep_id}, db={store._db_path}")
+
+    completed = store.completed_variants()
+    print(f"  {len(completed)} variants already completed (resume)")
 
     def variant_to_request(v, incumbent_turnover=None):
         config = json.loads(v.config_path.read_text())
@@ -191,33 +241,17 @@ def main(argv: list[str] | None = None) -> int:
             incumbent_turnover=incumbent_turnover,
         )
 
-    # ── Step 5: Initialize ResultStore ──
-    db_path = output_dir / "sweep_results.db"
-    store = ResultStore(str(db_path))
-
-    import hashlib
-    subrepo_pins = _collect_subrepo_pins(subrepo_root)
-    subrepo_pins_sha = hashlib.sha256(
-        json.dumps(subrepo_pins, sort_keys=True).encode()
-    ).hexdigest()
-
-    sweep_id = args.resume or store.init_sweep(
-        name="concentration-cap-sweep-modal",
-        n_variants=len(grid_variants) + 1,
-        subrepo_pins_json=json.dumps(subrepo_pins),
-        subrepo_pins_sha256=subrepo_pins_sha,
-        strategy_config_fingerprint=hashlib.sha256(
-            base_config_path.read_bytes()
-        ).hexdigest(),
-        data_manifest_fingerprint=hashlib.sha256(
-            json.dumps(data_manifest.files, sort_keys=True).encode()
-        ).hexdigest(),
-        artifact_manifest_fingerprint=bundle_fp,
-    )
-    print(f"  sweep_id={sweep_id}, db={db_path}")
-
-    completed = store.completed_variants(sweep_id)
-    print(f"  {len(completed)} variants already completed (resume)")
+    def _store_result(result) -> None:
+        """Adapt BacktestResult to ResultStore.insert_variant() API."""
+        store.insert_variant(
+            variant_name=result.variant_name,
+            role=result.role,
+            config_fingerprint=result.config_fingerprint,
+            per_seed=result.per_seed,
+            worker_id=result.worker_id,
+            elapsed_seconds=result.elapsed_seconds,
+            peak_memory_mb=result.peak_memory_mb,
+        )
 
     # ── Step 6: Run incumbent first (needed for turnover baseline) ──
     incumbent = next(v for v in grid_variants if v.role == "incumbent")
@@ -230,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def on_inc_result(r):
             inc_results.append(r)
-            store.insert_variant(sweep_id, r)
+            _store_result(r)
 
         executor.execute_batch(
             [inc_request], on_result=on_inc_result,
@@ -244,26 +278,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nStep 6: Incumbent already completed (resume)")
 
     # ── Step 7: Dispatch candidates via Modal .map() ──
-    candidates = [v for v in grid_variants if v.role != "incumbent" and v.name not in completed]
+    all_to_run = [v for v in grid_variants if v.role != "incumbent" and v.name not in completed]
     if aa_variant.name not in completed:
-        candidates.append(aa_variant)
+        all_to_run.append(aa_variant)
 
-    print(f"\nStep 7: Dispatching {len(candidates)} variants to Modal...")
-    requests = [variant_to_request(v, incumbent_turnover=inc_turnover) for v in candidates]
+    print(f"\nStep 7: Dispatching {len(all_to_run)} variants to Modal...")
+    requests = [variant_to_request(v, incumbent_turnover=inc_turnover) for v in all_to_run]
 
     n_done = 0
 
     def on_result(r):
         nonlocal n_done
         n_done += 1
-        store.insert_variant(sweep_id, r)
+        _store_result(r)
         print(f"  [{n_done}/{len(requests)}] {r.variant_name} "
               f"({r.elapsed_seconds:.0f}s, worker={r.worker_id[:12]})")
 
     def on_error(name, exc):
         nonlocal n_done
         n_done += 1
-        store.insert_error(sweep_id, name, str(exc))
+        store.insert_error(name, str(exc))
         print(f"  [{n_done}/{len(requests)}] {name} FAILED: {exc}")
 
     t0 = time.monotonic()
@@ -275,19 +309,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nDone: {summary.n_completed} completed, {summary.n_failed} failed")
     print(f"  Wall time: {wall:.0f}s, estimated cost: ${summary.cost_usd:.2f}")
 
-    store.finalize(sweep_id)
+    store.finalize(total_seconds=wall, cost_usd=summary.cost_usd)
 
-    # ── Step 8: Compute verdicts ──
-    print("\nStep 8: Computing verdicts...")
-    from run_concentration_cap_sweep import unanimity_verdict
-    # TODO: read back from store and compute verdicts
-
-    print(f"\nResults persisted to {db_path}")
+    print(f"\nResults persisted to {store._db_path}")
     print(f"sweep_id={sweep_id}")
     return 0
 
 
 def _collect_subrepo_pins(subrepo_root: Path) -> dict[str, str]:
+    import subprocess
+
     pins = {}
     for d in sorted(subrepo_root.iterdir()):
         if not d.is_dir():
@@ -295,17 +326,14 @@ def _collect_subrepo_pins(subrepo_root: Path) -> dict[str, str]:
         git_dir = d / ".git"
         if not git_dir.exists():
             continue
-        head_file = git_dir / "HEAD" if git_dir.is_dir() else None
-        if head_file and head_file.exists():
-            import subprocess
-            try:
-                sha = subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=str(d), stderr=subprocess.DEVNULL,
-                ).decode().strip()
-                pins[d.name] = sha
-            except Exception:
-                pins[d.name] = "unknown"
+        try:
+            sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(d), stderr=subprocess.DEVNULL,
+            ).decode().strip()
+            pins[d.name] = sha
+        except Exception:
+            pins[d.name] = "unknown"
     return pins
 
 
