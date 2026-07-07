@@ -60,7 +60,23 @@ from batch_scores_bundle import canonical_hash, expected_previous_session  # noq
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 DB = os.path.join(RQ, "data/runs.alpaca.db")
 OUT_DIR = os.path.join(RQ, "data", "rq105")
-MIN_ROWS = 30  # floor for a non-trivial run; coverage gate (MIN_COVERAGE_FRACTION) is the real quality check
+# Codex review round 2 on this fix — MIN_ROWS is not just a "non-trivially-
+# empty" floor: since MIN_COVERAGE_FRACTION's denominator is the run's OWN
+# role='candidate' roster (self-referential, see below), MIN_ROWS is the ONLY
+# protection against a run whose roster itself is too small to trust, even if
+# every row in it happens to be scored. 30 was picked by eyeballing one
+# 8-session sample and was WRONG on that sample's own terms: an 85-run query
+# of the real runs.alpaca.db (2026-04-23 through 2026-07-06, same run_type=
+# 'live' + strategy-not-null predicate this module's own SELECT uses) shows
+# the legitimate low end is 29 (2026-05-17, three same-day runs: 29/30/31,
+# all 100% covered) — MIN_ROWS=30 would have REJECTED that exact real,
+# legitimate run. The same query also surfaces a genuinely anomalous
+# pre-operational cluster (2026-04-23 through 04-27: candidate counts as low
+# as 2-10) that predates this pipeline's stable operational period and must
+# stay excluded. 25 sits with real margin below the observed legitimate
+# minimum (29) and real margin above the anomalous cluster's ceiling (10) —
+# an evidence-based floor, not an arbitrary round number.
+MIN_ROWS = 25
 
 # Fraction of the run's OWN persisted candidate roster (role='candidate', see
 # module docstring) that must carry a non-null panel_score. NOT sourced from
@@ -70,6 +86,16 @@ MIN_ROWS = 30  # floor for a non-trivial run; coverage gate (MIN_COVERAGE_FRACTI
 # to. 0.9 is a deliberately conservative interim floor chosen to clearly
 # reject the kind of ~50% coverage collapse Codex's review flagged; replace
 # with #227's real Stage-1 census requirement once it lands in code.
+#
+# Residual limitation (Codex round 2): this denominator is still the run's
+# OWN roster, not an external expected-universe count — a genuine watchlist-
+# based check was investigated and rejected here, because this pipeline's
+# candidate roster is legitimately only 24-58% of the 145-name watchlist on
+# ordinary days (feature-data availability, not a defect), so requiring 90%
+# watchlist coverage would reject every real run. MIN_ROWS above is the
+# concrete, evidence-based mitigation for the specific gap this leaves (a
+# partial run whose truncated roster is nonetheless 100% self-consistent);
+# it does not fully close the structural gap #227 is meant to close.
 MIN_COVERAGE_FRACTION = 0.9
 
 
