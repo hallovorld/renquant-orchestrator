@@ -43,6 +43,10 @@ Metrics (source of truth for definitions: doc/research/2026-07-02-rs6-kpi-scorec
   7. calibrator_sign_laundered  — latest daily FULL run's counters_json counter
   8. buy_side_decision_tc       — scripts/poc_transfer_coefficient.py round-3 method
                                   (imported, NOT re-implemented — single-impl rule)
+  9. sizing_fidelity            — latest CANONICAL FULL run's realized-vs-target sizing
+                                  gap on accepted buy entries, plus the standing
+                                  size_insufficient_cash baseline and explicit blockers for
+                                  still-unstamped one_share_floor / fractional-path fields
 
 Provenance: every DB-derived metric records the exact canonical run_id(s)/date(s) it read
 plus a content hash of the deterministic query extract that produced its value (NOT just
@@ -212,6 +216,155 @@ def metric_deployed_fraction(con) -> dict:
                   "must never silently supersede it for this metric). Counts long stock "
                   "positions only; no parking sleeve exists yet (RS-1 not implemented), so "
                   "idle cash is genuinely idle. Target (#231 §0): >=95% incl. sleeve.",
+    }
+
+
+def metric_sizing_fidelity(con) -> dict:
+    """Standing sizing-fidelity KPI for the cash-drag program.
+
+    The fractional-shares RFC freezes this family into the daily KPI scorecard:
+    median/p90 |realized-target|/target over accepted buy entries, plus the
+    zero-drop count (``size_insufficient_cash``). The active path does NOT yet
+    stamp all future stage-2 fields (``target_notional``, ``sizing_mode``,
+    ``size_floor_reason``), so this metric does two things explicitly:
+
+      1. compute the pieces already provable from the live schema today;
+      2. mark the still-missing pieces UNAVAILABLE instead of fabricating them.
+
+    ``target_notional`` is therefore a current-schema proxy:
+    ``kelly_target_pct * portfolio_value`` from the latest canonical FULL run.
+    That matches the best available active-path contract today, but is still
+    recorded as a proxy rather than silently claimed to be a direct stage-2
+    stamp.
+    """
+    import numpy as np
+    import pandas as pd
+
+    canon = _canonical_daily_live(con)
+    canon = canon[canon["portfolio_value"] > 0].copy()
+    if canon.empty:
+        raise ValueError("no full-run canonical rows with positive portfolio_value")
+
+    latest = canon.iloc[-1]
+    run_id = str(latest["run_id"])
+    portfolio_value = float(latest["portfolio_value"])
+
+    candidates = pd.read_sql(
+        "select ticker, role, blocked_by, kelly_target_pct "
+        "from candidate_scores where run_id = ?",
+        con,
+        params=(run_id,),
+    )
+    if candidates.empty:
+        raise ValueError(f"no candidate_scores rows for canonical full run {run_id}")
+
+    candidates = candidates[candidates["role"].fillna("candidate") == "candidate"].copy()
+    zero_drop_raw = int((candidates["blocked_by"] == "size_insufficient_cash").sum())
+
+    buys = pd.read_sql(
+        "select ticker, sum(coalesce(invest, 0.0)) as realized_notional, "
+        "       sum(coalesce(shares, 0.0)) as realized_shares, "
+        "       count(*) as n_buy_rows "
+        "from trades "
+        "where run_id = ? and lower(action) like 'buy%' "
+        "group by ticker",
+        con,
+        params=(run_id,),
+    )
+
+    gaps = pd.DataFrame(columns=["ticker", "target_notional", "realized_notional", "gap"])
+    if not buys.empty:
+        merged = buys.merge(
+            candidates[["ticker", "kelly_target_pct"]],
+            on="ticker",
+            how="left",
+        )
+        merged["target_notional_proxy"] = merged["kelly_target_pct"] * portfolio_value
+        merged = merged[
+            merged["kelly_target_pct"].notna()
+            & (merged["target_notional_proxy"] > 0)
+        ].copy()
+        if not merged.empty:
+            merged["gap"] = (
+                (merged["realized_notional"] - merged["target_notional_proxy"]).abs()
+                / merged["target_notional_proxy"]
+            )
+            gaps = merged[[
+                "ticker", "target_notional_proxy", "realized_notional", "gap"
+            ]].rename(columns={"target_notional_proxy": "target_notional"})
+
+    median_gap = round(float(gaps["gap"].median()), 4) if not gaps.empty else None
+    p90_gap = round(float(np.percentile(gaps["gap"], 90)), 4) if not gaps.empty else None
+
+    missing_contracts = {
+        "n_one_share_floor_roundups": (
+            "active-path trades/candidate_scores do not yet stamp sizing_mode or "
+            "size_floor_reason"
+        ),
+        "one_share_floor_overshoot_notional": (
+            "active-path trades/candidate_scores do not yet stamp sizing_mode or "
+            "size_floor_reason"
+        ),
+        "fractional_book_pct": (
+            "active-path runs DB does not yet stamp which holdings were created by "
+            "fractional sizing"
+        ),
+        "fractionable_subset_zero_drop_count": (
+            "per-symbol broker fractionability is not yet stamped in runs.alpaca.db, "
+            "so only the raw size_insufficient_cash baseline can be reported today"
+        ),
+    }
+
+    return {
+        "value": median_gap,
+        "unit": "median |realized_notional - target_notional| / target_notional on "
+                "accepted buy entries in the latest CANONICAL FULL run "
+                "(target_notional currently proxied as kelly_target_pct * portfolio_value)",
+        "detail": {
+            "latest_full_run_id": run_id,
+            "latest_full_run_date": latest["run_date"],
+            "latest_full_run_created_at": str(latest["created_at"]),
+            "portfolio_value": round(portfolio_value, 2),
+            "median_gap": median_gap,
+            "p90_gap": p90_gap,
+            "n_entries": int(len(gaps)),
+            "n_size_insufficient_cash_raw": zero_drop_raw,
+            "target_notional_proxy": "kelly_target_pct * portfolio_value",
+            "gaps_by_ticker": [
+                {
+                    "ticker": row["ticker"],
+                    "target_notional": round(float(row["target_notional"]), 4),
+                    "realized_notional": round(float(row["realized_notional"]), 4),
+                    "gap": round(float(row["gap"]), 4),
+                }
+                for _, row in gaps.sort_values("ticker").iterrows()
+            ],
+            "pending_contract_fields_unavailable": missing_contracts,
+            "canonical_extract_sha256": _extract_hash(
+                {
+                    "run": {
+                        "run_id": run_id,
+                        "run_date": latest["run_date"],
+                        "portfolio_value": round(portfolio_value, 6),
+                    },
+                    "candidate_rows": candidates[[
+                        "ticker", "blocked_by", "kelly_target_pct"
+                    ]].sort_values("ticker"),
+                    "buy_rows": gaps.sort_values("ticker"),
+                }
+            ),
+        },
+        "source": "runs.alpaca.db candidate_scores + trades joined to the latest "
+                  "canonical FULL live run",
+        "method": "accepted-entry sizing gaps are computed per ticker on the latest "
+                  "canonical FULL run using realized_notional = sum(trades.invest for "
+                  "buy rows) and a current-schema proxy target_notional = "
+                  "kelly_target_pct * portfolio_value because the active path does not "
+                  "yet stamp target_notional directly. The raw zero-drop baseline is the "
+                  "count of candidate_scores.blocked_by == size_insufficient_cash. "
+                  "One-share-floor and fractional-book aggregates remain explicitly "
+                  "unavailable until the active path stamps sizing_mode/size_floor_reason "
+                  "and fractional-sized holdings contracts.",
     }
 
 
@@ -741,6 +894,7 @@ def main() -> None:
 
     metrics = {
         "deployed_fraction": db_metric(metric_deployed_fraction),
+        "sizing_fidelity": db_metric(metric_sizing_fidelity),
         "floor_gap_vs_spy": db_metric(metric_floor_gap_vs_spy, as_of),
         "gate_verdict_age": db_metric(metric_gate_verdict_age, as_of),
         "ledger_coverage": db_metric(metric_ledger_coverage, as_of),
@@ -801,6 +955,9 @@ def main() -> None:
             if name == "floor_gap_vs_spy":
                 extra = (f"pp foregone / {m['detail']['n_sessions']} sessions / "
                          f"avg cash {m['detail']['avg_cash_weight_pct']}%")
+            elif name == "sizing_fidelity":
+                extra = (f"(p90={m['detail']['p90_gap']}, n_entries={m['detail']['n_entries']}, "
+                         f"size_insufficient_cash={m['detail']['n_size_insufficient_cash_raw']})")
             elif name == "ledger_coverage":
                 extra = (f"% fwd_20d raw over {m['detail']['n_aged_rows']} aged rows; "
                          f"admissible {m['detail']['admissible_coverage_pct']}% over "
