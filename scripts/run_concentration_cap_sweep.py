@@ -462,13 +462,16 @@ def execute_variant(
     per_seed: list[dict[str, Any]] = []
     for seed, seed_result in zip(result.seeds, result.per_seed_results):
         regimes = per_regime_metrics(getattr(seed_result, "equity_df", None), REQUIRED_REGIMES)
-        n_days = int(len(getattr(seed_result, "equity_df", []) or []))
+        eq_df = getattr(seed_result, "equity_df", None)
+        n_days = int(len(eq_df)) if eq_df is not None else 0
+        trade_log = getattr(seed_result, "trade_log", None)
+        trade_log = trade_log if trade_log is not None else []
         turnover = compute_turnover_fills_cost(
-            getattr(seed_result, "trade_log", []) or [], n_days=n_days,
+            trade_log, n_days=n_days,
             incumbent_turnover_annualized=incumbent_turnover_annualized,
         )
         winner_cont = compute_winner_continuation(
-            getattr(seed_result, "trade_log", []) or [], entry_cap=variant.entry_cap,
+            trade_log, entry_cap=variant.entry_cap,
         )
         per_seed.append({
             "seed": seed,
