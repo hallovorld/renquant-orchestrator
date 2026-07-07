@@ -52,8 +52,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -409,6 +411,25 @@ def compute_winner_continuation(trade_log: list[dict], *, entry_cap: float) -> d
     }
 
 
+def prefetch_ohlcv(base_config_path: Path, subrepo_root: Path) -> dict[str, Any]:
+    """Load OHLCV data ONCE for all variants. Returns a bundle dict with
+    keys: ohlcv, spy_df, sector_etf_map."""
+    from kernel.data import fetch_ohlcv  # noqa: PLC0415
+
+    config = json.loads(base_config_path.read_text())
+    benchmark = config.get("benchmark", "SPY")
+    spy_df = fetch_ohlcv(benchmark)
+    etf_map = config.get("sector_etf_map", {})
+    symbols = sorted(set(config.get("watchlist", [])) | set(etf_map.values()))
+    ohlcv = {benchmark: spy_df}
+    for symbol in symbols:
+        try:
+            ohlcv[symbol] = fetch_ohlcv(symbol)
+        except Exception:
+            continue
+    return {"ohlcv": ohlcv, "spy_df": spy_df, "sector_etf_map": etf_map}
+
+
 def execute_variant(
     variant: VariantSpec,
     *,
@@ -419,6 +440,7 @@ def execute_variant(
     initial_cash: float,
     manifest_path: str,
     incumbent_turnover_annualized: float | None = None,
+    ohlcv_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one variant across ALL its frozen seeds and return per-seed
     results plus the aggregated view. Per-seed results are kept
@@ -438,19 +460,24 @@ def execute_variant(
         wf["manifest_path"] = manifest_path
         wf.setdefault("fail_on_no_model", True)
 
-    from kernel.data import fetch_ohlcv  # noqa: PLC0415
     from sim.runner import run_backtest_multi_seed  # noqa: PLC0415
 
-    benchmark = config.get("benchmark", "SPY")
-    spy_df = fetch_ohlcv(benchmark)
-    etf_map = config.get("sector_etf_map", {})
-    symbols = sorted(set(config.get("watchlist", [])) | set(etf_map.values()))
-    ohlcv = {benchmark: spy_df}
-    for symbol in symbols:
-        try:
-            ohlcv[symbol] = fetch_ohlcv(symbol)
-        except Exception:
-            continue
+    if ohlcv_bundle is not None:
+        ohlcv = ohlcv_bundle["ohlcv"]
+        spy_df = ohlcv_bundle["spy_df"]
+        etf_map = ohlcv_bundle["sector_etf_map"]
+    else:
+        from kernel.data import fetch_ohlcv  # noqa: PLC0415
+        benchmark = config.get("benchmark", "SPY")
+        spy_df = fetch_ohlcv(benchmark)
+        etf_map = config.get("sector_etf_map", {})
+        symbols = sorted(set(config.get("watchlist", [])) | set(etf_map.values()))
+        ohlcv = {benchmark: spy_df}
+        for symbol in symbols:
+            try:
+                ohlcv[symbol] = fetch_ohlcv(symbol)
+            except Exception:
+                continue
 
     result = run_backtest_multi_seed(
         seeds=list(variant.seeds), parallel=False, config=config,
@@ -647,6 +674,10 @@ def main(argv: list[str] | None = None) -> int:
              "gating run. Requires --i-know-this-breaks-the-frozen-contract.",
     )
     parser.add_argument("--i-know-this-breaks-the-frozen-contract", action="store_true")
+    parser.add_argument(
+        "--workers", type=int, default=max(1, os.cpu_count() - 2),
+        help="parallel worker threads (default: cpu_count - 2; 1 = serial)",
+    )
     args = parser.parse_args(argv)
 
     if args.dev_seeds and not args.i_know_this_breaks_the_frozen_contract:
@@ -727,13 +758,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     subrepo_root = bootstrap_subrepo_imports(repo_root)
+    n_workers = max(1, args.workers)
+
+    print(f"Pre-fetching OHLCV data (shared across all variants)...")
+    ohlcv_bundle = prefetch_ohlcv(base_config_path, subrepo_root)
+    print(f"  loaded {len(ohlcv_bundle['ohlcv'])} symbols")
 
     print(f"EXECUTING incumbent (control arm) + A/A resplit + {len(grid_variants)} grid variants")
+    print(f"  workers={n_workers} ({'serial' if n_workers == 1 else 'threaded'})")
     incumbent_variant = next(v for v in grid_variants if v.role == "incumbent")
     incumbent_result = execute_variant(
         incumbent_variant, subrepo_root=subrepo_root, strategy_dir_path=strat_dir,
         start=args.start, end=args.end, initial_cash=args.initial_cash,
-        manifest_path=args.manifest_path,
+        manifest_path=args.manifest_path, ohlcv_bundle=ohlcv_bundle,
     )
     inc_turnover = _mean([
         (row.get("turnover") or {}).get("turnover_annualized")
@@ -744,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         aa_variant, subrepo_root=subrepo_root, strategy_dir_path=strat_dir,
         start=args.start, end=args.end, initial_cash=args.initial_cash,
         manifest_path=args.manifest_path, incumbent_turnover_annualized=inc_turnover,
+        ohlcv_bundle=ohlcv_bundle,
     )
     inc_sharpe_mean = _mean([row.get("sharpe") for row in incumbent_result.get("per_seed", [])])
     aa_sharpe_mean = _mean([row.get("sharpe") for row in aa_result.get("per_seed", [])])
@@ -755,29 +793,55 @@ def main(argv: list[str] | None = None) -> int:
     print(f"A/A resplit Sharpe lift: {aa_sharpe_lift:+.4f} "
           f"({'PASS' if aa_passed else 'FAIL'} — tolerance ±{AA_MAX_ABS_SHARPE_LIFT})")
 
+    candidates = [v for v in grid_variants if v.role != "incumbent"]
     results = [incumbent_result]
     verdicts = []
-    for i, variant in enumerate(grid_variants):
-        if variant.role == "incumbent":
-            continue
-        print(f"[{i+1}/{len(grid_variants)}] Running {variant.name}...")
-        t0 = time.time()
-        try:
-            result = execute_variant(
-                variant, subrepo_root=subrepo_root, strategy_dir_path=strat_dir,
-                start=args.start, end=args.end, initial_cash=args.initial_cash,
-                manifest_path=args.manifest_path, incumbent_turnover_annualized=inc_turnover,
-            )
-            result["elapsed_seconds"] = time.time() - t0
-            results.append(result)
-            verdict = unanimity_verdict(result, incumbent_result, placebo_passed=(
-                placebo["passed"] if placebo["provided"] else None
-            ))
-            verdicts.append(verdict)
-            print(f"  tier3_ready={verdict['tier3_ready']}")
-        except Exception as exc:
-            print(f"  FAILED: {exc}")
-            results.append({"variant": variant.name, "error": str(exc)})
+
+    common_kwargs = dict(
+        subrepo_root=subrepo_root, strategy_dir_path=strat_dir,
+        start=args.start, end=args.end, initial_cash=args.initial_cash,
+        manifest_path=args.manifest_path, incumbent_turnover_annualized=inc_turnover,
+        ohlcv_bundle=ohlcv_bundle,
+    )
+
+    if n_workers <= 1:
+        for i, variant in enumerate(candidates):
+            print(f"[{i+1}/{len(candidates)}] Running {variant.name}...")
+            t0 = time.time()
+            try:
+                result = execute_variant(variant, **common_kwargs)
+                result["elapsed_seconds"] = time.time() - t0
+                results.append(result)
+                verdict = unanimity_verdict(result, incumbent_result, placebo_passed=(
+                    placebo["passed"] if placebo["provided"] else None
+                ))
+                verdicts.append(verdict)
+                print(f"  tier3_ready={verdict['tier3_ready']}")
+            except Exception as exc:
+                print(f"  FAILED: {exc}")
+                results.append({"variant": variant.name, "error": str(exc)})
+    else:
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            future_to_variant = {}
+            for variant in candidates:
+                future = pool.submit(execute_variant, variant, **common_kwargs)
+                future_to_variant[future] = variant
+            done_count = 0
+            for future in as_completed(future_to_variant):
+                done_count += 1
+                variant = future_to_variant[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    verdict = unanimity_verdict(result, incumbent_result, placebo_passed=(
+                        placebo["passed"] if placebo["provided"] else None
+                    ))
+                    verdicts.append(verdict)
+                    print(f"[{done_count}/{len(candidates)}] {variant.name} "
+                          f"tier3_ready={verdict['tier3_ready']}")
+                except Exception as exc:
+                    print(f"[{done_count}/{len(candidates)}] {variant.name} FAILED: {exc}")
+                    results.append({"variant": variant.name, "error": str(exc)})
 
     results_path = output_dir / "sweep_results.json"
     results_path.write_text(json.dumps(results, indent=2, default=str) + "\n")
