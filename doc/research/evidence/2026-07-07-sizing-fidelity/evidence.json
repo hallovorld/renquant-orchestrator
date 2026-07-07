@@ -1,0 +1,215 @@
+{
+  "generated_at": "2026-07-07T08:16:34.313680+00:00",
+  "days": 30,
+  "canonical_run_ids": [
+    "2026-06-09-live-70c90efc",
+    "2026-06-10-live-c2bf522c",
+    "2026-06-11-live-f68231b0",
+    "2026-06-22-live-c26c0042",
+    "2026-06-23-live-844746ad",
+    "2026-06-25-live-6c3aa3fa",
+    "2026-06-26-live-3d74ce5c",
+    "2026-06-30-live-b616357c",
+    "2026-07-01-live-01c54b39",
+    "2026-07-02-live-85496d1c"
+  ],
+  "labeled_size_insufficient_cash_blocks": 10,
+  "quantization_loss": {
+    "n_selected": 66,
+    "n_gapped": 64,
+    "total_gap_pct": 3.768157,
+    "mean_gap_pct_per_selected": 0.057093,
+    "rows": [
+      {
+        "run_id": "2026-06-23-live-844746ad",
+        "ticker": "ASML",
+        "kelly_target_pct": 0.08463646428929958,
+        "actual_pct": 0.0,
+        "gap_pct": 0.084636,
+        "blocked_by": "size_insufficient_cash"
+      },
+      {
+        "run_id": "2026-06-09-live-70c90efc",
+        "ticker": "EQIX",
+        "kelly_target_pct": 0.08302881085317039,
+        "actual_pct": 0.0,
+        "gap_pct": 0.083029,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-09-live-70c90efc",
+        "ticker": "ORCL",
+        "kelly_target_pct": 0.08302881085317039,
+        "actual_pct": 0.0,
+        "gap_pct": 0.083029,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-10-live-c2bf522c",
+        "ticker": "EQIX",
+        "kelly_target_pct": 0.08229653364201445,
+        "actual_pct": 0.0,
+        "gap_pct": 0.082297,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-10-live-c2bf522c",
+        "ticker": "ORCL",
+        "kelly_target_pct": 0.08229653364201445,
+        "actual_pct": 0.0,
+        "gap_pct": 0.082297,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-25-live-6c3aa3fa",
+        "ticker": "AMZN",
+        "kelly_target_pct": 0.08184910623444425,
+        "actual_pct": 0.0,
+        "gap_pct": 0.081849,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-25-live-6c3aa3fa",
+        "ticker": "CRWD",
+        "kelly_target_pct": 0.08184910623444425,
+        "actual_pct": 0.0,
+        "gap_pct": 0.081849,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-25-live-6c3aa3fa",
+        "ticker": "CSCO",
+        "kelly_target_pct": 0.08184910623444425,
+        "actual_pct": 0.0,
+        "gap_pct": 0.081849,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-25-live-6c3aa3fa",
+        "ticker": "PANW",
+        "kelly_target_pct": 0.08184910623444425,
+        "actual_pct": 0.0,
+        "gap_pct": 0.081849,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-22-live-c26c0042",
+        "ticker": "ASML",
+        "kelly_target_pct": 0.08075432844061509,
+        "actual_pct": 0.0,
+        "gap_pct": 0.080754,
+        "blocked_by": "size_insufficient_cash"
+      },
+      {
+        "run_id": "2026-06-22-live-c26c0042",
+        "ticker": "AVGO",
+        "kelly_target_pct": 0.08075432844061509,
+        "actual_pct": 0.0,
+        "gap_pct": 0.080754,
+        "blocked_by": "size_insufficient_cash"
+      },
+      {
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "ticker": "AMZN",
+        "kelly_target_pct": 0.07938429993928636,
+        "actual_pct": 0.0,
+        "gap_pct": 0.079384,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "ticker": "CRWD",
+        "kelly_target_pct": 0.07938429993928636,
+        "actual_pct": 0.0,
+        "gap_pct": 0.079384,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "ticker": "CSCO",
+        "kelly_target_pct": 0.07938429993928636,
+        "actual_pct": 0.0,
+        "gap_pct": 0.079384,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "ticker": "PANW",
+        "kelly_target_pct": 0.07938429993928636,
+        "actual_pct": 0.0,
+        "gap_pct": 0.079384,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "ticker": "AMZN",
+        "kelly_target_pct": 0.07359247504468312,
+        "actual_pct": 0.0,
+        "gap_pct": 0.073592,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "ticker": "AVGO",
+        "kelly_target_pct": 0.07359247504468312,
+        "actual_pct": 0.0,
+        "gap_pct": 0.073592,
+        "blocked_by": "size_insufficient_cash"
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "ticker": "BLK",
+        "kelly_target_pct": 0.07359247504468312,
+        "actual_pct": 0.0,
+        "gap_pct": 0.073592,
+        "blocked_by": "size_insufficient_cash"
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "ticker": "CSCO",
+        "kelly_target_pct": 0.07359247504468312,
+        "actual_pct": 0.0,
+        "gap_pct": 0.073592,
+        "blocked_by": null
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "ticker": "PANW",
+        "kelly_target_pct": 0.07359247504468312,
+        "actual_pct": 0.0,
+        "gap_pct": 0.073592,
+        "blocked_by": null
+      }
+    ]
+  },
+  "block_breakdown": [
+    {
+      "reason": "veto_weak_buys",
+      "count": 665
+    },
+    {
+      "reason": "conviction_floor",
+      "count": 53
+    },
+    {
+      "reason": "candidate_not_selected",
+      "count": 52
+    },
+    {
+      "reason": "broker_pending_submitted",
+      "count": 23
+    },
+    {
+      "reason": "kelly_zero",
+      "count": 12
+    },
+    {
+      "reason": "size_insufficient",
+      "count": 7
+    },
+    {
+      "reason": "correlation_cap",
+      "count": 5
+    }
+  ]
+}
