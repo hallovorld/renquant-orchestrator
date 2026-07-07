@@ -1369,13 +1369,12 @@ def _stamp_calibrator_fingerprint(scorer_path: Path, calibrator_path: Path) -> N
             model_content_sha256_from_path,
             stamp_artifact_metadata,
         )
-    except ImportError:
-        log.warning(
+    except ImportError as exc:
+        raise RuntimeError(
             "StampCalibratorFingerprintTask: renquant_common.model_fingerprint "
-            "not available — skipping stamp (calibrator will fail fingerprint "
-            "verification at runtime)"
-        )
-        return
+            "not available — refusing to publish an unstamped calibrator that "
+            "would fail fingerprint verification at daily-full runtime"
+        ) from exc
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         scorer_meta = stamp_artifact_metadata(

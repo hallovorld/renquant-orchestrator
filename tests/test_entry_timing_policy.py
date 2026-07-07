@@ -707,6 +707,21 @@ def one_entry_tick_runner(
     }
 
 
+#: The fixture's session runs the full FakeCalendar window (09:30-16:00,
+#: 6.5h = 23400s). max_cycles must comfortably exceed
+#: session_seconds / tick_seconds regardless of the configured cadence, or
+#: the loop hits stopped_max_cycles before PHASE_CLOSED and these
+#: reaches-the-close assertions silently stop testing what they claim to
+#: (Codex #399 round 1: DEFAULT_TICK_SECONDS 720s->180s left the old
+#: hardcoded max_cycles=60 covering only ~3h of the 6.5h session).
+_SESSION_SECONDS = 6.5 * 3600
+_SAFETY_MARGIN_CYCLES = 20
+
+
+def _max_cycles_for_full_session(scheduler: "SessionScheduler") -> int:
+    return int(_SESSION_SECONDS / scheduler.config.tick_seconds) + _SAFETY_MARGIN_CYCLES
+
+
 def build_scheduler(tmp_path: Path, evaluator_or_observer, price_fn) -> tuple[SessionScheduler, ManualClock]:
     def live_state(*, now: datetime, trading_day: str):
         return {
@@ -757,7 +772,11 @@ def test_evaluator_runs_inside_scheduler_tick_loop(tmp_path: Path):
         config=CONFIG, log_path=log, prior_close_refs={"AAA": 100.0}
     )
     scheduler, clock = build_scheduler(tmp_path, evaluator.on_tick, gap_price)
-    manifest = scheduler.run_session(now_fn=clock, sleep_fn=clock.sleep, max_cycles=60)
+    manifest = scheduler.run_session(
+        now_fn=clock,
+        sleep_fn=clock.sleep,
+        max_cycles=_max_cycles_for_full_session(scheduler),
+    )
     evaluator.flush()
     assert manifest["status"] == "completed"
     assert "tick_observer_errors" not in manifest  # evaluator never raised
@@ -787,6 +806,10 @@ def test_observer_errors_never_halt_the_session(tmp_path: Path):
         raise RuntimeError("diagnostic surface blew up")
 
     scheduler, clock = build_scheduler(tmp_path, exploding_observer, gap_price)
-    manifest = scheduler.run_session(now_fn=clock, sleep_fn=clock.sleep, max_cycles=60)
+    manifest = scheduler.run_session(
+        now_fn=clock,
+        sleep_fn=clock.sleep,
+        max_cycles=_max_cycles_for_full_session(scheduler),
+    )
     assert manifest["status"] == "completed"  # the decision loop survived
     assert manifest["tick_observer_errors"] > 0  # ...and the failure is counted

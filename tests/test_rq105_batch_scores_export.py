@@ -50,7 +50,12 @@ CREATE TABLE candidate_scores (
 
 _GOOD_BUNDLE = {
     "config_hash": "sha256:cfg",
-    "artifact_hashes": {"panel": "sha256:art1", "gate_b": "sha256:art2"},
+    "artifact_hashes": {
+        "panel": "sha256:art1",
+        "global_calibration": "sha256:art2",
+        "ranking.panel_scoring.artifact_path": "sha256:art3",
+        "gate_b": "sha256:art4",
+    },
     "watchlist_hash": "sha256:wl",
     "watchlist_size": 3,
 }
@@ -169,10 +174,46 @@ def test_rejects_run_with_empty_artifact_hash_value(tmp_path):
     because the dict key technically exists."""
     db = _make_db(tmp_path)
     bad_bundle = dict(_GOOD_BUNDLE)
-    bad_bundle["artifact_hashes"] = {"panel": "sha256:art1", "gate_b": None}
+    bad_bundle["artifact_hashes"] = {
+        "panel": "sha256:art1",
+        "global_calibration": None,
+        "ranking.panel_scoring.artifact_path": "sha256:art3",
+    }
     _insert_run(db, "2026-07-01-live-partialfp", run_bundle=bad_bundle)
     rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
     assert rc == 1
+
+
+def test_accepts_run_with_missing_optional_artifact_hash(tmp_path):
+    """Codex #399 review: a config-declared but non-semantic artifact
+    (shadow lane, gate_b threshold, etc.) with a null hash must not block
+    export — only panel + global_calibration are required."""
+    db = _make_db(tmp_path)
+    ok_bundle = dict(_GOOD_BUNDLE)
+    ok_bundle["artifact_hashes"] = {
+        "panel": "sha256:art1",
+        "global_calibration": "sha256:art2",
+        "ranking.panel_scoring.shadow_models[0].artifact_path": None,
+        "gate_b": None,
+    }
+    _insert_run(db, "2026-07-01-live-optionalgap", run_bundle=ok_bundle)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 0
+
+
+def test_rejects_run_missing_panel_or_global_calibration_hash(tmp_path):
+    """Missing either of the two primary runtime artifacts IS a gap even
+    when unrelated auxiliary artifacts are fully hashed."""
+    db = _make_db(tmp_path)
+    bad_bundle = dict(_GOOD_BUNDLE)
+    bad_bundle["artifact_hashes"] = {
+        "global_calibration": "sha256:art2",
+        "ranking.panel_scoring.shadow_models[0].artifact_path": "sha256:shadow",
+    }
+    _insert_run(db, "2026-07-01-live-nopanel", run_bundle=bad_bundle)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert not (tmp_path / "out").exists()
 
 
 def test_picks_canonical_latest_run_by_created_at_not_run_id_string(tmp_path):

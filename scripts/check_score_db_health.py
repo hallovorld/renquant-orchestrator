@@ -9,9 +9,8 @@ backtesting/renquant_104/ — it is NOT the actual score store.
 This script:
   1. Warns if score_db.sqlite3 exists and is empty (misleading artifact).
   2. Verifies data/runs.<broker>.db has score_distribution rows.
-  3. Reports the latest date and row count.
-  4. Reports META-like diagnostics: any tickers with score_db.enabled=true
-     but 0 rows in the last 5 sessions.
+  3. Reports the latest date and row count, plus percentile-table coverage
+     and the last 10 scored dates.
 
 Exit 0 = healthy, exit 1 = problems found.
 """
@@ -22,18 +21,22 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from renquant_orchestrator.runtime_paths import default_data_root
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--repo-dir",
         type=Path,
-        default=Path.home() / "git" / "github" / "RenQuant",
+        default=None,
+        help="operator data/state root (default: runtime_paths.default_data_root(), "
+        "honoring RENQUANT_DATA_ROOT)",
     )
     parser.add_argument("--broker", default="alpaca")
     args = parser.parse_args(argv)
 
-    repo = args.repo_dir
+    repo = args.repo_dir if args.repo_dir is not None else default_data_root()
     problems = 0
 
     # 1. Check for misleading empty score_db.sqlite3
