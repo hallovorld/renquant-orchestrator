@@ -951,6 +951,10 @@ def main(
         help="artifact manifest JSON for the pipeline tick",
     )
     parser.add_argument("--env-file", default=None, help=".env with Alpaca credentials")
+    parser.add_argument(
+        "--mode", default=None, choices=["shadow", "paper", "live"],
+        help="override intraday_decisioning.mode from strategy config",
+    )
     parser.add_argument("--max-cycles", type=int, default=None)
     parser.add_argument("--json", action="store_true", help="print the final manifest")
     parser.add_argument("--log-level", default="INFO")
@@ -966,6 +970,15 @@ def main(
     )
     strategy_config = _load_json_object(strategy_config_path)
     config = load_intraday_config(strategy_config)
+    if args.mode:
+        config = IntradayDecisioningConfig(
+            enabled=config.enabled, mode=args.mode,
+            tick_seconds=config.tick_seconds,
+            entry_open_delay_seconds=config.entry_open_delay_seconds,
+            entry_close_cutoff_seconds=config.entry_close_cutoff_seconds,
+            canary_allowlist=config.canary_allowlist,
+            kill_switch_file=config.kill_switch_file,
+        )
 
     cal = calendar or default_session_calendar()
     session_date = datetime.now(ET).date().isoformat()
