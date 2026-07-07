@@ -23,6 +23,10 @@ passes `--mode paper`; next `-run` sync to repo would crash argparse.
    `export_batch_scores.py` which was already fixed in #415)
 2. `intraday_session_scheduler.py`: restored `--mode` CLI arg with
    `choices=["shadow", "paper", "live"]` + config override logic
+3. `paper` remains a Stage-1 shadow-only compatibility request, not a
+   paper-order execution mode; manifests now record that explicitly so
+   wrappers can keep passing `--mode paper` without creating false
+   evidence that paper orders were authorized or submitted
 
 ## Verification
 
@@ -30,3 +34,9 @@ Ran session scheduler with `--max-cycles 0 --json` against `-run` checkout
 after applying the MIN_ROWS fix:
 - Before: `"status": "aborted_class_a_unavailable"`, `"errors": ["no qualifying completed live run..."]`
 - After: `"status": "stopped_max_cycles"`, `"errors": []`, `"tick_count": 1`
+
+Added targeted scheduler tests to verify:
+- `mode=paper` is accepted by config/CLI as a compatibility request
+- effective execution mode remains `shadow`
+- manifests distinguish `live` downgrade counts from `paper`
+  compatibility counts
