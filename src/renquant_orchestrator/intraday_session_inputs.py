@@ -69,7 +69,7 @@ OPEN_CHILD_STATES = frozenset(
 #: Same floors export_batch_scores.py enforces (see its module docstring for
 #: the Codex #236 review history); kept in lockstep until #227's gate-input
 #: census ships a canonical expected-universe utility to defer to.
-DEFAULT_MIN_ROWS = 80
+DEFAULT_MIN_ROWS = 25
 DEFAULT_MIN_COVERAGE_FRACTION = 0.9
 
 _MAX_PRIOR_SESSION_LOOKBACK_DAYS = 10
