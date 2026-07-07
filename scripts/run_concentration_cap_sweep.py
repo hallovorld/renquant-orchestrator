@@ -431,6 +431,41 @@ def prefetch_ohlcv(
     return {"ohlcv": ohlcv, "spy_df": spy_df, "sector_etf_map": etf_map}
 
 
+def _run_variant_worker(
+    variant: VariantSpec,
+    *,
+    subrepo_root: Path,
+    strategy_dir_path: Path,
+    start: str,
+    end: str,
+    initial_cash: float,
+    manifest_path: str,
+    incumbent_turnover_annualized: float | None,
+    ohlcv_bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Module-level (picklable) worker entrypoint for ProcessPoolExecutor.
+
+    macOS/Windows default to the ``spawn`` multiprocessing start method,
+    which requires the submitted callable to be picklable by qualified
+    name — a function nested inside ``main()`` is not (its
+    ``__qualname__`` contains ``<locals>``, and pickle cannot resolve it
+    back to an importable module attribute in the child process). This
+    must stay at module scope with every dependency passed explicitly
+    (no closures) for ``--workers > 1`` to work under ``spawn``, not just
+    under Linux's ``fork``.
+    """
+    t0 = time.time()
+    result = execute_variant(
+        variant, subrepo_root=subrepo_root, strategy_dir_path=strategy_dir_path,
+        start=start, end=end, initial_cash=initial_cash,
+        manifest_path=manifest_path,
+        incumbent_turnover_annualized=incumbent_turnover_annualized,
+        ohlcv_bundle=ohlcv_bundle,
+    )
+    result["elapsed_seconds"] = time.time() - t0
+    return result
+
+
 def execute_variant(
     variant: VariantSpec,
     *,
@@ -799,22 +834,18 @@ def main(argv: list[str] | None = None) -> int:
     results = [incumbent_result]
     verdicts = []
 
-    def _run_one(variant: VariantSpec) -> dict[str, Any]:
-        t0 = time.time()
-        result = execute_variant(
-            variant, subrepo_root=subrepo_root, strategy_dir_path=strat_dir,
-            start=args.start, end=args.end, initial_cash=args.initial_cash,
-            manifest_path=args.manifest_path, incumbent_turnover_annualized=inc_turnover,
-            ohlcv_bundle=ohlcv_bundle,
-        )
-        result["elapsed_seconds"] = time.time() - t0
-        return result
+    worker_kwargs = dict(
+        subrepo_root=subrepo_root, strategy_dir_path=strat_dir,
+        start=args.start, end=args.end, initial_cash=args.initial_cash,
+        manifest_path=args.manifest_path, incumbent_turnover_annualized=inc_turnover,
+        ohlcv_bundle=ohlcv_bundle,
+    )
 
     if n_workers <= 1:
         for i, variant in enumerate(candidates):
             print(f"[{i+1}/{len(candidates)}] Running {variant.name}...")
             try:
-                result = _run_one(variant)
+                result = _run_variant_worker(variant, **worker_kwargs)
                 results.append(result)
                 verdict = unanimity_verdict(result, incumbent_result, placebo_passed=(
                     placebo["passed"] if placebo["provided"] else None
@@ -828,7 +859,7 @@ def main(argv: list[str] | None = None) -> int:
         completed = 0
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             future_to_variant = {
-                pool.submit(_run_one, variant): variant
+                pool.submit(_run_variant_worker, variant, **worker_kwargs): variant
                 for variant in candidates
             }
             for future in as_completed(future_to_variant):
