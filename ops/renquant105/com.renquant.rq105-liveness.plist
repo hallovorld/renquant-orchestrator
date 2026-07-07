@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.renquant.rq105-liveness</string>
-  <key>ProgramArguments</key><array><string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/rq105_liveness_check.py</string></array>
+  <key>ProgramArguments</key><array><string>/bin/zsh</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_liveness_check.sh</string></array>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>

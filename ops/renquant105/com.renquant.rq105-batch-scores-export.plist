@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.renquant.rq105-batch-scores-export</string>
-  <key>ProgramArguments</key><array><string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/export_batch_scores.py</string></array>
+  <key>ProgramArguments</key><array><string>/bin/zsh</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh</string></array>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
