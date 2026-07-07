@@ -133,6 +133,66 @@ class TestPathAuthority:
         assert "Path.home()" not in source
 
 
+class TestParallelWorkerPicklability:
+    """Codex review on PR #414: the parallel-sweep worker was a function
+    nested inside main(), which is not picklable under the `spawn`
+    multiprocessing start method macOS/Windows default to (only Linux's
+    `fork` tolerates it) — the --workers > 1 path would fail with a
+    pickling error before delivering any speedup, even though CI (likely
+    Linux) passed. This proves the worker is a genuine module-level,
+    picklable callable."""
+
+    def test_worker_is_module_level_not_nested(self):
+        assert "<locals>" not in sweep._run_variant_worker.__qualname__
+
+    def test_worker_is_genuinely_picklable(self):
+        import pickle
+        pickle.loads(pickle.dumps(sweep._run_variant_worker))
+
+    def test_worker_takes_all_dependencies_as_explicit_parameters(self):
+        """No closure capture — every dependency execute_variant needs must
+        be an explicit parameter, or a child process spawned via `spawn`
+        (which does not inherit parent memory) would see them undefined."""
+        import inspect
+        sig = inspect.signature(sweep._run_variant_worker)
+        required = {
+            "variant", "subrepo_root", "strategy_dir_path", "start", "end",
+            "initial_cash", "manifest_path", "incumbent_turnover_annualized",
+            "ohlcv_bundle",
+        }
+        assert required.issubset(sig.parameters.keys())
+
+    def test_worker_dispatches_through_real_processpoolexecutor_under_spawn(
+        self, tmp_path,
+    ):
+        """End-to-end: submit the actual worker to a real ProcessPoolExecutor
+        using an explicit `spawn` context (the failure mode this whole class
+        guards against only reproduces under spawn, not fork). A variant
+        pointing at a nonexistent config path is used so execute_variant
+        fails fast for a benign, expected reason (FileNotFoundError) — the
+        thing under test is that dispatch and result retrieval complete at
+        all without PicklingError, not that the backtest itself runs."""
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+
+        variant = sweep.VariantSpec(
+            name="probe", role="candidate", entry_cap=0.12,
+            drift_buffer=float("inf"), topup_threshold=0.05,
+            config_path=tmp_path / "does_not_exist.json",
+        )
+        ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
+            future = pool.submit(
+                sweep._run_variant_worker, variant,
+                subrepo_root=tmp_path, strategy_dir_path=tmp_path,
+                start="2024-01-01", end="2024-01-02", initial_cash=100_000.0,
+                manifest_path="", incumbent_turnover_annualized=None,
+                ohlcv_bundle=None,
+            )
+            with pytest.raises(FileNotFoundError):
+                future.result(timeout=60)
+
+
 class TestTurnoverFillsCost:
     def test_turnover_and_fill_count_computed_from_trade_log(self):
         trade_log = [
