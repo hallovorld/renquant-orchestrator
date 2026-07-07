@@ -12,11 +12,23 @@ mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
 SCORES="$RQ_ROOT/data/rq105/batch_scores_$TS.json"
 META="$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"
+FEATURE_SNAPSHOT="$RQ_ROOT/data/rq105/feature_snapshot_$TS.json"
 if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
   # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
   rq_notify "rq105 shadow serving SKIPPED ($TS)" \
     "no frozen batch-score export for today (export_batch_scores 06:15 failed?)" || true
+  exit 1
+fi
+if [ ! -f "$FEATURE_SNAPSHOT" ]; then
+  # shadow_realtime_serving requires --feature-snapshot-json (Codex #221: every
+  # logged row binds to immutable feature state — the CLI must not accept a
+  # missing snapshot). No producer for this file exists yet (Stage-3 wiring,
+  # tracked separately) — skip cleanly rather than invoke a binary whose
+  # required argument we cannot supply.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving SKIPPED ($TS)" \
+    "no feature-snapshot producer yet (Stage-3 wiring pending) — see #221" || true
   exit 1
 fi
 PY="$RQ_ROOT/.venv/bin/python"
@@ -47,6 +59,7 @@ for T in 10:00 12:00 14:00 15:30; do
   AS_OF=$("$PY" -c "import datetime,zoneinfo; h,m='${T}'.split(':'); print(datetime.datetime.combine(datetime.date.today(), datetime.time(int(h),int(m)), tzinfo=zoneinfo.ZoneInfo('America/New_York')).isoformat())")
   "$PY" -m renquant_orchestrator.shadow_realtime_serving \
     --as-of "$AS_OF" \
+    --feature-snapshot-json "$FEATURE_SNAPSHOT" \
     --batch-scores-json "$SCORES" \
     --batch-run-id "$RUN_ID" \
     --data-root "$RQ_ROOT" \
