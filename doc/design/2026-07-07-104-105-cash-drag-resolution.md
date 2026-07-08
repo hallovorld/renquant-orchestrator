@@ -4,6 +4,9 @@ STATUS: design / RFC for cross-agent review. Docs only. No live behavior, config
 or capital-routing change ships here.
 
 DATE: 2026-07-07
+REVISION: r2 (Codex corrective review) — aligns the plan with the active multi-repo
+architecture, demotes umbrella-first implementation, and separates shadow plumbing
+from deploy-authorizing policy changes.
 
 SCOPE: define the scientifically justified execution order for cash-drag work across
 104 and 105, backed by measured evidence on record plus the running concentration cap
@@ -15,18 +18,27 @@ sweep. The goal is to stop solving the wrong problem first.
 
 Four decisions:
 
-1. **104 primary fix = fractional shares.** The measured binding constraint is
-   whole-share quantization on high-price names, not slot count or concentration caps.
-2. **104 secondary fix = concentration cap tuning.** The 75-variant 3D sweep
-   (entry_cap × drift_buffer × topup_thresh) is running; if a variant dominates the
-   incumbent on all 7 criteria across 3 seeds, it ships. If null, incumbent stays.
-3. **104 tertiary fix = parking sleeve (SGOV-first).** Residual idle cash earns
-   carry without silently turning the book into a benchmark-beta product.
-4. **105 is NOT a live cash-drag implementation target yet.** It receives
+1. **No new implementation starts in the umbrella repo.** Under the current multi-repo
+   contract, cash-drag implementation belongs in `renquant-strategy-104`,
+   `renquant-pipeline`, `renquant-execution`, and `renquant-orchestrator`; `RenQuant`
+   stays integration/pinning/rollback only.
+2. **Parking-sleeve shadow/runtime wiring is correctly an orchestrator problem.**
+   It is scheduling / book-state capture / shadow-log provenance, not model or broker
+   logic. `renquant-orchestrator#423` is therefore in the right repo.
+3. **Lane A remains a strategy+pipeline program, not a concentration-sweep substitute.**
+   The accepted S6 shape is still one-change-at-a-time A-1 / A-2 / A-3. The running
+   concentration-cap sweep is useful research, but it does not replace those owned
+   policy/runtime changes or authorize shipping them by implication.
+4. **Fractional shares are a separate sizing-fidelity track, not the default first
+   implementation phase of cash-drag remediation.** The cheaper non-fractional A-3
+   one-share initiation floor and the sleeve shadow path must be exhausted or shown
+   insufficient before re-opening the active-path fractional rollout.
+5. **105 is NOT a live cash-drag implementation target yet.** It receives
    compatibility + instrumentation work only.
 
-Execution order: fix sizing fidelity → tune concentration parameters (data-driven)
-→ monetize residual idle cash → then re-measure whether policy knobs still need to move.
+Execution order: finish orchestrator shadow plumbing → run policy/runtime experiments in
+the owning repos (strategy-104 + pipeline, one change at a time) → only then decide
+whether fractional shares are still worth the active-path complexity.
 
 ---
 
@@ -70,7 +82,7 @@ This is a **sizing fidelity** problem, not an exposure policy problem.
 | max_conc=12% optimal? | **RUNNING** (07-07 sweep) | TBD — 75 variants × 3 seeds |
 | top_up_threshold=5% optimal? | **RUNNING** (07-07 sweep) | TBD |
 | entry cap ≠ drift cap? | **RUNNING** (07-07 sweep) | TBD |
-| λ (QP cash penalty)? | YES (A-1 sweep) | NULL — no significant change |
+| λ (QP cash penalty)? | PARTIAL | λ-alone in current prod config is a mechanical no-op; sensitivity exists only when `qp_min_invested_pct` also moves, so A-1 is not settled and not deploy-authorizing as currently scoped |
 | Fractional shares? | DESIGNED, NOT TESTED | subrepo PRs built, closed (operator: prioritize 105) |
 
 ---
@@ -107,90 +119,93 @@ benchmark beta.
 
 ---
 
-## 3. The plan: phased, each gate-checked
+## 3. Repo map (multi-repo architecture; no umbrella-first implementation)
 
-### Phase 1: fractional shares (104 sizing fidelity)
+| Work item | Owning repo | Why |
+|---|---|---|
+| `panel_buy_top_n`, `qp_cash_drag_lambda`, `qp_min_invested_pct`, sleeve-enable / reserve config | `renquant-strategy-104` | active 104 strategy policy/config lives here |
+| one-share initiation floor, QP objective changes, drop-reason ledger fields, target-notional math | `renquant-pipeline` | runtime inference / sizing / selection logic lives here |
+| broker fractional capability, order validation, order-audit invariants | `renquant-execution` | broker execution and order audit live here |
+| sleeve shadow scheduling, runtime book-state capture, run bundles, readiness monitors, shadow scorecards | `renquant-orchestrator` | pinned-subrepo daily orchestration and provenance live here |
+| cross-repo pin advance / integration verification only | `RenQuant` umbrella | integration harness and rollback source; no new feature implementation |
 
-**Why first**: the measured binding constraint. Fractional shares are justified by
-mechanical error reduction, not PnL.
+Practical rule: if a PR changes *what to buy / how much to buy / which names are admitted*,
+it is not an orchestrator PR. If it changes *when to run, what to log, how to stitch the
+subrepos, or how to prove provenance*, orchestrator is the right home.
+
+---
+
+## 4. The plan: phased, each gate-checked
+
+### Phase 1: orchestrator shadow plumbing (already the correct low-risk start)
+
+**Why first**: it is shadow-only, repo-correct, and unblocks clean evidence collection
+without forcing an active-path execution rewrite first.
 
 Cross-repo sequence:
 
 | Order | Repo | Change |
 |---|---|---|
-| 1 | RenQuant umbrella | preserve fractional fill quantities end-to-end; capability gate before live emission |
-| 2 | renquant-execution | fractional validation on live broker path |
-| 3 | renquant-pipeline | wire stage-2 fractional sizing path, default OFF |
-| 4 | renquant-strategy-104 | config block default-OFF, enable after gate proven |
-| 5 | renquant-orchestrator | sizing-fidelity scorecard + monitoring |
+| 1 | renquant-orchestrator | land parking-sleeve shadow runtime wiring + default shadow-log location + run-bundle provenance |
+| 2 | renquant-orchestrator | attach sleeve metrics to readiness / scorecard surfaces |
+| 3 | renquant-strategy-104 | keep sleeve flags default-OFF until shadow evidence is complete |
 
 Acceptance criteria:
-- `size_insufficient_cash` for fractionable names → 0 on canonical full runs
-- median |realized − target notional| / target ≤ 1%
-- no fractional dust remains after full sell lifecycle
-- no unsupported fractional order reaches broker
-- no regression in stops, live-state, or cash accounting
+- sleeve shadow runs from scheduled orchestration with no manual JSON injection
+- sweep/fund shadow legs are logged with reproducible book-state provenance
+- no broker mutation path is introduced
+- no 105 live authorization semantics change
 
-**Explicitly NOT in Phase 1**: changing top_n, qp_cash_drag_lambda, or other exposure
-knobs. Those confound "better plumbing" with "more exposure."
+### Phase 2: Lane A policy/runtime experiments in the owning repos
 
-### Phase 2: concentration cap tuning (data-driven, if sweep shows signal)
+**Why next**: these are the actual 104 exposure-policy changes, and each must be isolated.
 
-**Pre-condition**: sweep completes with ≥1 variant dominating incumbent on all 7 criteria
-(net-of-cost Sharpe, max DD, Calmar, per-regime no-regression, turnover ≤ 1.25×,
-unanimity across 3 seeds).
+Ordered sequence:
+- **A-1**: correct the design scope first. In current production, moving `qp_cash_drag_lambda`
+  alone does nothing because `qp_min_invested_pct=0`; any real A-1 experiment must either
+  explicitly un-disable both together or be re-scoped before it is called evidence.
+- **A-2**: `panel_buy_top_n` change, in `renquant-strategy-104`, only after A-1 is
+  separately understood.
+- **A-3**: one-share initiation floor, in `renquant-pipeline`, with explicit ledger
+  reason codes and headroom checks.
 
-If the sweep result is NULL (no variant dominates), the incumbent parameters stay and
-this phase produces only a data-only memo documenting the null result.
-
-If a winner emerges:
-- Ship as a monitored exception (same pattern as demean, 2026-06-25)
-- 8-week revert window
-- Decision-ledger wiring for forward validation
-
-**Theory support**: the sweep's 3D grid (entry_cap × drift_buffer × topup_thresh)
-tests H1 (entry cap ≠ drift tolerance improves by letting winners run) and H2
-(top_up_threshold should scale with max_concentration). The no-trade-band literature
-supports both hypotheses directionally.
-
-### Phase 3: parking sleeve (SGOV-first)
-
-**Pre-condition**: Phase 1 live or merge-ready.
-
-First live contract:
-- vehicle = SGOV
-- shadow first, live second
-- sweep only cash above operational reserve + pending order headroom + planned equity buys
-- sell sleeve first to fund admitted single-name buys
-- no benchmark-beta claims
+The concentration-cap sweep is **adjacent research**, not a substitute for A-1/A-2/A-3.
+If it produces a winner, that winner earns its own config PR. If it is null, Lane A still
+stands or falls on its own evidence.
 
 Acceptance criteria:
-- idle cash at close reduced to reserve band on canonical full runs
-- sweep/fund round trips reconcile cleanly
-- sleeve never blocks admitted single-name buys
-- sleeve attribution visible separately from alpha positions
+- one change at a time; no bundled rollout
+- every deployment increase is attributable to the changed knob, not to sleeve or
+  concentration-sweep confounding
+- no gate bypass on conviction / veto / correlation / sector rules
+- decision ledger records the exact drop/floor reasons touched by the change
 
-### Phase 4: revisit exposure-policy knobs (only on new baseline)
+### Phase 3: fractional shares only if the cheaper fixes still leave material error
 
-After Phases 1-3 measured on a stable baseline, then revisit:
-- `qp_cash_drag_lambda`
-- `panel_buy_top_n`
-- any remaining sizing-stack de-throttling
+**Why not first**: the active-path fractional rollout still carries commit-path, stop,
+and broker-capability complexity. That work is justified only if A-3 plus the sleeve
+leave a residual sizing-fidelity problem large enough to matter.
 
-At that point the experiment is clean: zero-drop is gone, residual cash has a separate
-owner, and any deployment increase can be attributed to policy, not plumbing.
+Acceptance criteria:
+- residual sizing error remains material after A-3 / sleeve
+- active-path stop / broker / lifecycle contract is proven before any enablement
+- the implementation lands in execution / pipeline / strategy, not as umbrella-first code
 
----
+### Phase 4: optional concentration-cap PR, if and only if the sweep actually wins
 
-## 4. 105: compatibility and instrumentation only
+If the running 75-variant sweep finds a real winner under its pre-registered criteria,
+ship that winner as its own config change. If not, record the null and move on.
+
+### Phase 5: 105 compatibility and instrumentation only
 
 105 is NOT a mature live strategy with a proven edge. The current record:
 - Stage 1 operations-only, default-OFF, frozen canary envelope
 - Phase -1 feasibility: net edge −6.4 bps @ IC 0.03 (soft NO-GO on intraday alpha)
-- Fractional shares = Stage-2 dependency, not Stage-1 blocker
+- parking-sleeve shadow/runtime integration is a 105/orchestrator compatibility task, not
+  a 105 economic authorization
 
 This RFC does NOT authorize live cash-drag deployment for 105. Instead:
-1. Make 105 compatible with 104's fractional/sleeve contracts
+1. Make 105 compatible with 104's sleeve-shadow contracts
 2. Add measurement fields (target notional, zero-drop count, residual idle cash)
 3. No 105 live-capital expansion on cash-drag grounds until economics authorized
 
@@ -201,6 +216,8 @@ This RFC does NOT authorize live cash-drag deployment for 105. Instead:
 This RFC does not authorize:
 - bundled "turn every cash-drag knob at once" rollout
 - SPY-first sleeve rollout
+- using the running concentration sweep as a silent replacement for S6 Lane A
+- new feature implementation in the umbrella repo
 - 105 deployment push before 105 economics are authorized
 - claim that higher deployment alone implies higher expected value
 
@@ -209,12 +226,13 @@ This RFC does not authorize:
 ## 6. Merge and implementation rule
 
 After this design PR merges:
-1. Phase 1 (fractional shares) implementation starts immediately
-2. Phase 2 (concentration cap) ships only if sweep data supports it
-3. Phase 3 (sleeve) proceeds in parallel or immediately after Phase 1
-4. Phase 4 (exposure knobs) stays blocked until new baseline exists
+1. Orchestrator sleeve-shadow plumbing can merge as soon as review is complete
+2. Lane A work proceeds only in `renquant-strategy-104` + `renquant-pipeline`
+3. Fractional shares require a fresh active-path justification after A-3 / sleeve evidence
+4. Concentration-cap changes ship only if the sweep data supports them
 5. 105 receives compatibility/instrumentation only
 
 Running sweep status: 75 variants × 3 seeds, ~20-50h ETA from 2026-07-07 09:13.
 Results will be published as a data-only memo when complete. If the sweep produces
-a clear winner, Phase 2 implementation follows this design's merge.
+a clear winner, that earns a separate config PR; it does not silently redefine the
+cash-drag implementation order.
