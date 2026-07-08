@@ -90,6 +90,10 @@ def run_variant_remote(request_json: str) -> str:
     app_root = "/data/app"
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
+    # app_root itself (not its subdirectories) must be on sys.path for
+    # `from adapters.sim import ...` / `from sim.runner import ...` /
+    # `from scripts.run_concentration_cap_sweep import ...` to resolve
+    # `adapters`/`sim`/`scripts` as top-level packages under app_root.
     for sub in [
         "subrepos/renquant-common/src",
         "subrepos/renquant-base-data/src",
@@ -100,11 +104,6 @@ def run_variant_remote(request_json: str) -> str:
         "subrepos/renquant-strategy-104/src",
         "subrepos/renquant-backtesting/src",
         "subrepos/renquant-orchestrator/src",
-        "kernel",
-        "sim",
-        "adapters",
-        "training_panel",
-        "scripts",
     ]:
         p = f"{app_root}/{sub}"
         if p not in sys.path:

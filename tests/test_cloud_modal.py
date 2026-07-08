@@ -107,6 +107,77 @@ class TestBundle:
 
         assert set(SUBREPO_NAMES) == set(SUBREPO_IMPORT_ORDER)
 
+    def test_bundles_adapters_and_training_panel_dirs(self, tmp_path: Path):
+        """sim/runner.py::run_backtest unconditionally does
+        `from adapters.sim import SimAdapter` on its default (non-snapshot)
+        path — these dirs are not optional to bundle."""
+        strategy_dir = tmp_path / "strategy"
+        for subdir in ("kernel", "sim", "adapters", "training_panel"):
+            d = strategy_dir / subdir
+            d.mkdir(parents=True)
+            (d / "__init__.py").write_text("")
+
+        subrepo_root = tmp_path / "subrepos"
+        output = tmp_path / "bundle"
+        manifest = bundle_subrepos(subrepo_root, strategy_dir, output)
+
+        assert "adapters/__init__.py" in manifest
+        assert "training_panel/__init__.py" in manifest
+        assert (output / "adapters" / "__init__.py").exists()
+        assert (output / "training_panel" / "__init__.py").exists()
+
+    def test_worker_sys_path_setup_resolves_top_level_bundled_packages(self, tmp_path: Path):
+        """Regression test: the worker in modal_app.py inserts only
+        app_root (plus subrepo src dirs) onto sys.path, NOT
+        app_root/adapters or app_root/training_panel individually —
+        `from adapters.sim import X` requires adapters' PARENT directory
+        on sys.path to resolve `adapters` as a top-level package.
+        Inserting app_root/adapters itself does NOT make `adapters`
+        importable; it was a real bug caught by exercising a built bundle
+        with the exact sys.path strategy the worker uses, rather than
+        only unit-testing bundle_subrepos() and the worker in isolation."""
+        strategy_dir = tmp_path / "strategy"
+        for subdir, module_name, class_name in (
+            ("adapters", "sim", "SimAdapter"),
+            ("training_panel", "panel", "TrainingPanel"),
+        ):
+            pkg = strategy_dir / subdir
+            pkg.mkdir(parents=True)
+            (pkg / "__init__.py").write_text("")
+            (pkg / f"{module_name}.py").write_text(
+                f"class {class_name}:\n    pass\n"
+            )
+        (strategy_dir / "kernel").mkdir()
+        (strategy_dir / "sim").mkdir()
+        (strategy_dir / "sim" / "__init__.py").write_text("")
+        (strategy_dir / "sim" / "runner.py").write_text(
+            "def run_backtest():\n"
+            "    from adapters.sim import SimAdapter\n"
+            "    return SimAdapter\n"
+        )
+
+        subrepo_root = tmp_path / "subrepos"
+        output = tmp_path / "bundle"
+        bundle_subrepos(subrepo_root, strategy_dir, output)
+
+        import subprocess
+        import sys as _sys
+
+        # Exactly what the worker does: app_root itself on sys.path, no
+        # per-subdirectory insertion for adapters/training_panel.
+        code = (
+            f"import sys; sys.path.insert(0, {str(output)!r}); "
+            "from adapters.sim import SimAdapter; "
+            "from sim.runner import run_backtest; "
+            "assert run_backtest() is SimAdapter; "
+            "print('OK')"
+        )
+        result = subprocess.run(
+            [_sys.executable, "-c", code], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+        assert "OK" in result.stdout
+
 
 class TestSyncDataLocalManifest:
     def test_build_manifest_file(self, tmp_path: Path):
