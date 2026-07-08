@@ -1,0 +1,924 @@
+{
+  "as_of": "2026-07-07",
+  "generator_sha256": "44bc58c65df64aada4410c83419511873edc2580f66e177c9fe8b6da1145138c",
+  "inputs": {
+    "db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
+    "db_open_mode": "mode=ro",
+    "db_snapshot": {
+      "mtime": "2026-07-07T13:06:07",
+      "note": "size+mtime alone do NOT prove which rows were read from this mutable, continuously-written file, nor distinguish two DB states that happen to share both \u2014 see each DB-derived metric's own detail.*_extract_sha256/canonical_extract_sha256 field for the actual per-metric source-content provenance",
+      "size_bytes": 101011456
+    },
+    "rq_root": "/Users/renhao/git/github/RenQuant",
+    "serving_artifact_sha256": null,
+    "spy_parquet_sha256": "2df46b36353b3de42225e0494af7c59a62d943ebb8cc29d24fca1b166cfabbfb"
+  },
+  "measured_at": "2026-07-07T13:23:22",
+  "metrics": {
+    "buy_side_decision_tc": {
+      "detail": {
+        "canonical_run_ids": [
+          "2026-06-04-live-38548bd0",
+          "2026-06-09-live-70c90efc",
+          "2026-06-10-live-c2bf522c",
+          "2026-06-11-live-f68231b0",
+          "2026-06-22-live-c26c0042",
+          "2026-06-23-live-844746ad",
+          "2026-06-25-live-6c3aa3fa",
+          "2026-06-26-live-3d74ce5c",
+          "2026-06-30-live-b616357c",
+          "2026-07-01-live-01c54b39",
+          "2026-07-02-live-85496d1c"
+        ],
+        "category_counts": {
+          "insufficient_sizing_population": 3,
+          "measured": 4
+        },
+        "n_canonical_runs": 11,
+        "n_measured": 4,
+        "per_run": [
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 1.221,
+            "n_survived_admission": 5,
+            "run_id": "2026-06-09-live-70c90efc",
+            "tc": 0.588
+          },
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 1.235,
+            "n_survived_admission": 5,
+            "run_id": "2026-06-10-live-c2bf522c",
+            "tc": 0.566
+          },
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 0.296,
+            "n_survived_admission": 7,
+            "run_id": "2026-06-22-live-c26c0042",
+            "tc": 0.0
+          },
+          {
+            "category": "measured",
+            "exposure_transfer_ratio": 0.397,
+            "n_survived_admission": 7,
+            "run_id": "2026-06-23-live-844746ad",
+            "tc": 0.0
+          },
+          {
+            "category": "insufficient_sizing_population",
+            "exposure_transfer_ratio": null,
+            "n_survived_admission": 1,
+            "run_id": "2026-06-30-live-b616357c",
+            "tc": null
+          },
+          {
+            "category": "insufficient_sizing_population",
+            "exposure_transfer_ratio": null,
+            "n_survived_admission": 2,
+            "run_id": "2026-07-01-live-01c54b39",
+            "tc": null
+          },
+          {
+            "category": "insufficient_sizing_population",
+            "exposure_transfer_ratio": null,
+            "n_survived_admission": 3,
+            "run_id": "2026-07-02-live-85496d1c",
+            "tc": null
+          }
+        ],
+        "per_run_extract_sha256": "8f001bf41f5c078a51662f0e15aba850eeb57a2879e000094b39c02c592202a7",
+        "se_measured": 0.167
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "imported unchanged from poc_transfer_coefficient.buy_side_decision_tc: eligible = candidates with mu >= 0.03; admission survivors classified by the round-3 blocked_by stage taxonomy; Pearson TC only over runs with real dispersion ('measured'); undefined cases categorized, never averaged in as 0. Caveats in doc/progress/2026-07-02-s-tc-measurement.md apply verbatim.",
+      "source": "runs.alpaca.db candidate_scores + trades via scripts/poc_transfer_coefficient.py (round-3 blocked_by taxonomy)",
+      "status": "ok",
+      "unit": "mean Pearson corr(kelly_target_pct, emitted buy target_pct) over admission-surviving candidates, 'measured'-category canonical runs only \u2014 EXPLORATORY DIAGNOSTIC, not measured-tier TC (POC-S-TC round 3)",
+      "value": 0.288
+    },
+    "calibrator_sign_laundered": {
+      "detail": {
+        "all_counters": {
+          "blocked_wash": 0,
+          "broker_pending_submitted": 1,
+          "calibrator_sign_laundered": 45,
+          "conviction_vetoed": 0,
+          "corr_blocks": 1,
+          "data_verification_failures": 0,
+          "defensive_non_bear_blocks": 0,
+          "no_candidate_streak": 0,
+          "no_trade_streak": 0,
+          "panel_vetoed": 66,
+          "risk_gate_vol_dropped": 32,
+          "sector_blocks": 0,
+          "selection_size_insufficient_cash": 2,
+          "topup_negative_raw_signal_no_long": 1
+        },
+        "counters_json_sha256": "0d3f7da6c116e9c34d024fdada9876262d0457f4877aad23ce192967deeefd7d",
+        "n_scored": 88,
+        "run_date": "2026-07-02",
+        "run_id": "2026-07-02-live-85496d1c"
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "parse counters_json['calibrator_sign_laundered']. M4 AC: single digits (BL-1 recentering); 44/90 was the measured 2026-07-01 state.",
+      "source": "runs.alpaca.db pipeline_runs.counters_json of the latest canonical daily FULL run (>= 80 candidate_scores rows via candidate_scores JOIN+count, last created_at per run_date)",
+      "status": "ok",
+      "unit": "names whose calibrated mu sign was laundered, latest daily FULL run",
+      "value": 45
+    },
+    "collector_liveness": {
+      "detail": {
+        "entry_timing_shadow": {
+          "freshness_basis": "file_mtime",
+          "path": "$RQ_ROOT/logs/renquant105_pilot/entry_timing_shadow.jsonl",
+          "reason": null,
+          "row_content_sha256": "3acbd0609f9d6a5926798c10a1185b9373ab302ef4af4ab52e331391b50997ca",
+          "status": "ok"
+        },
+        "intraday_pairing_logger": {
+          "freshness_basis": "file_mtime",
+          "path": "$RQ_ROOT/logs/renquant105_pilot/paired_is.jsonl",
+          "reason": null,
+          "row_content_sha256": "915c598118330cc4071c86988d2c5fe20baabd5443adedb75be1b64d15c5c27d",
+          "status": "ok"
+        },
+        "intraday_quote_logger": {
+          "freshness_basis": "row_event_time",
+          "path": "$RQ_ROOT/logs/renquant105_pilot/intraday_ticks.jsonl",
+          "reason": "/Users/renhao/git/github/RenQuant/logs/renquant105_pilot/intraday_ticks.jsonl last complete row age=0:23:58.543958 exceeds 0:10:00 bound",
+          "row_content_sha256": "53d619af8595ae1e8831c285f67ff70afd87e12b2cc787db605f59a9314e2f46",
+          "status": "stale_or_missing"
+        }
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "'live' iff EVERY collector's own check_collector_data_outputs() entry reports status=='ok'. Each entry also carries row_content_sha256 (a hash of the EXACT row the validator selected as the one that determined the verdict, not an arbitrary tail-read blob) and freshness_basis ('row_event_time' | 'file_mtime') for provenance. Any single collector missing/stale/unavailable fails the aggregate \u2014 no generic directory activity can substitute for a real per-collector check.",
+      "source": "ops/renquant105/rq105_liveness_check.py's check_collector_data_outputs() \u2014 the STABLE PUBLIC interface (imported unchanged, single-impl rule)",
+      "status": "ok",
+      "unit": "every rq105 pilot/shadow collector's OWN freshness contract (row-event-time for the continuous quote feed, file-mtime completion proxy for the post-close one-shot pairing/entry-timing collectors \u2014 the exact rule per collector is #248's own responsibility, not re-derived here), not directory mtime",
+      "value": "stale"
+    },
+    "deployed_fraction": {
+      "detail": {
+        "canonical_extract_sha256": "9612a41250900bef92f0b94d8fb73dade1e5ea11be079640030aab3d814ce68c",
+        "canonical_full_run_ids": [
+          "2026-06-04-live-38548bd0",
+          "2026-06-09-live-70c90efc",
+          "2026-06-10-live-c2bf522c",
+          "2026-06-11-live-f68231b0",
+          "2026-06-22-live-c26c0042",
+          "2026-06-23-live-844746ad",
+          "2026-06-25-live-6c3aa3fa",
+          "2026-06-26-live-3d74ce5c",
+          "2026-06-30-live-b616357c",
+          "2026-07-01-live-01c54b39",
+          "2026-07-02-live-85496d1c"
+        ],
+        "cash": 8313.5,
+        "latest_full_run_created_at": "2026-07-02 21:07:27",
+        "latest_full_run_date": "2026-07-02",
+        "latest_full_run_id": "2026-07-02-live-85496d1c",
+        "portfolio_value": 10706.1,
+        "trailing_5_session_mean": 0.2161,
+        "trailing_5_sessions": [
+          "2026-06-25",
+          "2026-06-26",
+          "2026-06-30",
+          "2026-07-01",
+          "2026-07-02"
+        ]
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "deployed = 1 - cash/portfolio_value, computed on the latest CANONICAL FULL run (not the raw latest pipeline_runs row by created_at \u2014 an intraday monitor pass can be more recent than the day's full run and must never silently supersede it for this metric). Counts long stock positions only; no parking sleeve exists yet (RS-1 not implemented), so idle cash is genuinely idle. Target (#231 \u00a70): >=95% incl. sleeve.",
+      "source": "runs.alpaca.db pipeline_runs (run_type='live') JOIN candidate_scores count >= 80, latest row by created_at among FULL runs only; trailing mean over the same canonical daily series",
+      "status": "ok",
+      "unit": "fraction of book (1 - cash/portfolio_value), latest CANONICAL FULL run",
+      "value": 0.2235
+    },
+    "floor_gap_vs_spy": {
+      "detail": {
+        "avg_cash_weight_pct": 76.2,
+        "canonical_extract_sha256": "fb83257da7d78de56fba7600515643c660ee3510dd4775c911b9ceee6a500150",
+        "canonical_full_run_ids": [
+          "2026-06-04-live-38548bd0",
+          "2026-06-09-live-70c90efc",
+          "2026-06-10-live-c2bf522c",
+          "2026-06-11-live-f68231b0",
+          "2026-06-22-live-c26c0042",
+          "2026-06-23-live-844746ad",
+          "2026-06-25-live-6c3aa3fa",
+          "2026-06-26-live-3d74ce5c",
+          "2026-06-30-live-b616357c",
+          "2026-07-01-live-01c54b39",
+          "2026-07-02-live-85496d1c"
+        ],
+        "n_sessions": 11,
+        "spy_span_return_pct": -1.6,
+        "window": [
+          "2026-06-04",
+          "2026-07-02"
+        ]
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "for each canonical session t (last live row per run_date, trading days only): foregone += cash_weight(t) * SPY close-to-close return t->t+1; cumulative simple sum in pp of book. Same method family as RS-1 \u00a71 (which reported 46 sessions / 75.5% avg cash / 2.88pp on this window); this implementation's canonical-row selection yields the same session count but slightly different weights \u2014 treat RS-1's exact figures as its own snapshot and THIS series as the standing weekly definition.",
+      "source": "runs.alpaca.db pipeline_runs (canonical daily live FULL rows) + data/ohlcv/SPY/1d.parquet close",
+      "status": "ok",
+      "unit": "pp of book, cumulative realized foregone SPY return on idle cash (2026-06-04 -> 2026-07-02); DESCRIPTIVE, NOT annualized (RS-1 \u00a71)",
+      "value": -1.24
+    },
+    "gate_verdict_age": {
+      "detail": {
+        "gate_verdicts_table_rows": 0,
+        "serving_artifact": "$RQ_ROOT/backtesting/renquant_104/artifacts/panel-ltr.alpha158_fund.json"
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "authoritative verdict := wf_gate_metadata with diagnostic_only != true and a non-null passed field; report its age in days. Otherwise report 'mute since 2026-05-18' (operator-established date, #231 \u00a70) with the latest diagnostic stamp attached for context. Unmuting is S1-S4 of the master plan.",
+      "source": "metadata.wf_gate_metadata stamped by RenQuant/scripts/run_wf_gate.py into the serving artifact; cross-checked against the (empty) runs.alpaca.db gate_verdicts table",
+      "status": "ok",
+      "unit": "no authoritative verdict exists \u2014 the freshest stamp on the serving artifact is diagnostic_only",
+      "value": "mute since 2026-05-18 (50 days)"
+    },
+    "ledger_coverage": {
+      "detail": {
+        "admissible_coverage_pct": 98.4,
+        "aged_cutoff_days": 35,
+        "extract_sha256": "f7fae308bd5452806c2a8cb5b98027ddfd5ce92e9ef7a56d25d270ada4e92d9d",
+        "joined_any_pct": 100.0,
+        "n_aged_rows": 7237,
+        "n_non_session_rows": 1356,
+        "n_unique_ticker_sessions": 1025,
+        "run_date_range": [
+          "2026-04-22",
+          "2026-06-02"
+        ],
+        "session_calendar": "nyse"
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "aged := run_date at least 35 calendar days old (20 trading days for fwd_20d to resolve, plus buffer). Raw coverage = share of those decision rows whose (run_date, ticker) has a non-null fwd_20d. Admissible coverage = share of unique (ticker, NYSE-session) clusters covered, where session = last NYSE session at or before run_date (weekend/holiday rows share their base session's realization \u2014 backtesting#60). S5 AC: >=95% on BOTH.",
+      "source": "runs.alpaca.db candidate_scores JOIN pipeline_runs (run_date) LEFT JOIN ticker_forward_returns on (as_of_date, ticker)",
+      "status": "ok",
+      "unit": "% of aged live candidate_scores rows (run_date <= 2026-06-02) with a non-null fwd_20d forward outcome",
+      "value": 98.0
+    },
+    "pit_accrual_days": {
+      "detail": {
+        "accrual_extract_sha256": "0c0fb61c440520f73fcc7edaddcb91cb3cea095aaf5fd26534f3c3aae9200be7",
+        "accrual_stale": false,
+        "first": "2026-07-02",
+        "latest": "2026-07-06",
+        "n_dirs_scanned": 103,
+        "n_rejected_partial_or_invalid": 100,
+        "rejected_days": {
+          "2018-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2018-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2019-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2020-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2021-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2022-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2023-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2024-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-08-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-09-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-10-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-11-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2025-12-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-01-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-02-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-03-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-04-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-05-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-06-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ],
+          "2026-07-01": [
+            "analyst_estimates: manifest missing (analyst_estimates.manifest.json)",
+            "grades_consensus: status=None (not 'ok' \u2014 partial or dry-run publish)",
+            "price_target_consensus: manifest missing (price_target_consensus.manifest.json)",
+            "price_target_summary: manifest missing (price_target_summary.manifest.json)"
+          ]
+        },
+        "valid_day_manifest_sha256": {
+          "2026-07-02": "0e68812680d36761824bdb34ea1df4e619882ced4b26c7ac40bc247d674bdf6b",
+          "2026-07-03": "68306c193f28327d5cffc1a28352f12a5c365eda41ebd3165889b18672a286e1",
+          "2026-07-06": "142c8636ac48e7b84255fca6cdde787af7b4d098b5be220003340b3657cfa3f1"
+        }
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "count directories named YYYY-MM-DD whose check_snapshot() returns zero problems (all 4 endpoint manifests present, status=='ok', as_of matching the directory date, referenced parquet present and non-empty). A partial or crashed publish is excluded, not counted. accrual_stale flags a latest VALID dir more than 3 calendar days old (missed-day alert is task N2's AC). M-SIG needs >=120 accrued (valid) days before D3.",
+      "source": "$RQ_ROOT/data/estimate_snapshots/<YYYY-MM-DD>/ directory listing, each day validated via ops/pit/pit_liveness_check.check_snapshot() (the same contract the daily liveness alert enforces for today)",
+      "status": "ok",
+      "unit": "count of dated snapshot dirs that PASS the N2 collector's own 4-endpoint publication contract (accrued PIT days; time-irreversible, cannot be backfilled)",
+      "value": 3
+    },
+    "sizing_fidelity": {
+      "detail": {
+        "canonical_extract_sha256": "64f4a2c22a728c7db2405a79f5aaad8c5c33a2fe12d830015647d35bc8394dbb",
+        "gaps_by_ticker": [
+          {
+            "gap": 0.6957,
+            "realized_notional": 239.76,
+            "target_notional": 787.8884,
+            "ticker": "GRMN"
+          }
+        ],
+        "latest_full_run_created_at": "2026-07-02 21:07:27",
+        "latest_full_run_date": "2026-07-02",
+        "latest_full_run_id": "2026-07-02-live-85496d1c",
+        "median_gap": 0.6957,
+        "n_entries": 1,
+        "n_size_insufficient_cash_raw": 2,
+        "p90_gap": 0.6957,
+        "pending_contract_fields_unavailable": {
+          "fractionable_subset_zero_drop_count": "per-symbol broker fractionability is not yet stamped in runs.alpaca.db, so only the raw size_insufficient_cash baseline can be reported today",
+          "fractional_book_pct": "active-path runs DB does not yet stamp which holdings were created by fractional sizing",
+          "n_one_share_floor_roundups": "active-path trades/candidate_scores do not yet stamp sizing_mode or size_floor_reason",
+          "one_share_floor_overshoot_notional": "active-path trades/candidate_scores do not yet stamp sizing_mode or size_floor_reason"
+        },
+        "portfolio_value": 10706.1,
+        "target_notional_proxy": "kelly_target_pct * portfolio_value"
+      },
+      "measured_at": "2026-07-07T13:23:22",
+      "method": "accepted-entry sizing gaps are computed per ticker on the latest canonical FULL run using realized_notional = sum(trades.invest for buy rows) and a current-schema proxy target_notional = kelly_target_pct * portfolio_value because the active path does not yet stamp target_notional directly. The raw zero-drop baseline is the count of candidate_scores.blocked_by == size_insufficient_cash. One-share-floor and fractional-book aggregates remain explicitly unavailable until the active path stamps sizing_mode/size_floor_reason and fractional-sized holdings contracts.",
+      "source": "runs.alpaca.db candidate_scores + trades joined to the latest canonical FULL live run",
+      "status": "ok",
+      "unit": "median |realized_notional - target_notional| / target_notional on accepted buy entries in the latest CANONICAL FULL run (target_notional currently proxied as kelly_target_pct * portfolio_value)",
+      "value": 0.6957
+    }
+  },
+  "output_content_sha256": "f096fe5a846b21268225d71c9a660e8e4ef86465bbe3f8f4ce9233fd6392960b",
+  "schema_version": 1,
+  "scorecard": "RS-6 weekly KPI scorecard (#231 \u00a70 state vector)"
+}
