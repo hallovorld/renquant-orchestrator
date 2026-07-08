@@ -52,7 +52,7 @@ def bundle_subrepos(
         dst = subrepos_out / repo_name / "src"
         _copy_tree(src, dst, manifest, f"subrepos/{repo_name}/src")
 
-    for subdir_name in ("kernel", "sim"):
+    for subdir_name in ("kernel", "sim", "adapters", "training_panel"):
         src = strategy_dir / subdir_name
         if src.is_dir():
             dst = output_dir / subdir_name
@@ -65,6 +65,19 @@ def bundle_subrepos(
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(subrepo_paths, dst)
         manifest["scripts/subrepo_paths.py"] = _sha256(subrepo_paths)
+
+    orch_root = Path(__file__).resolve().parent.parent.parent.parent
+    orch_sweep = orch_root / "scripts" / "run_concentration_cap_sweep.py"
+    if orch_sweep.is_file():
+        dst = output_dir / "scripts" / "run_concentration_cap_sweep.py"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(orch_sweep, dst)
+        manifest["scripts/run_concentration_cap_sweep.py"] = _sha256(orch_sweep)
+
+    scripts_init = output_dir / "scripts" / "__init__.py"
+    if not scripts_init.exists():
+        scripts_init.write_text("")
+        manifest["scripts/__init__.py"] = hashlib.sha256(b"").hexdigest()
 
     manifest_path = output_dir / "bundle_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))

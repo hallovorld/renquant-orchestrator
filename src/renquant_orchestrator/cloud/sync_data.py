@@ -87,22 +87,20 @@ def sync_to_modal_volume(
 
     log.info("Syncing %d files to Modal Volume '%s'", len(to_upload), volume_name)
 
-    for rel_path, checksum in to_upload.items():
-        parts = rel_path.split("/", 1)
-        label = parts[0]
-        file_rel = parts[1] if len(parts) > 1 else ""
-        local_base = local_paths[label]
-        if local_base.is_file():
-            local_file = local_base
-        else:
-            local_file = local_base / file_rel
+    with vol.batch_upload(force=True) as batch:
+        for rel_path, checksum in to_upload.items():
+            parts = rel_path.split("/", 1)
+            label = parts[0]
+            file_rel = parts[1] if len(parts) > 1 else ""
+            local_base = local_paths[label]
+            if local_base.is_file():
+                local_file = local_base
+            else:
+                local_file = local_base / file_rel
 
-        remote_path = f"/data/{rel_path}"
-        with open(local_file, "rb") as f:
-            vol.write_file(remote_path, f)
-        log.info("  uploaded %s (%s)", rel_path, checksum[:8])
-
-    vol.commit()
+            remote_path = f"/{rel_path}"
+            batch.put_file(str(local_file), remote_path)
+            log.info("  uploaded %s (%s)", rel_path, checksum[:8])
     commit_id = compute_manifest_commit_id(local_manifest)
 
     prev_manifest_path.parent.mkdir(parents=True, exist_ok=True)

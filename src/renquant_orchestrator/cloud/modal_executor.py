@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 import base64
-import gzip
-import hashlib
-import io
 import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -58,23 +54,31 @@ class ModalExecutor:
         on_error: Callable[[str, Exception], None],
         max_concurrent: int = 100,
     ) -> BatchSummary:
-        import modal
+        import sys
 
-        from .modal_app import VOLUME_NAME, app, build_image, data_volume
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        if module_name in sys.modules:
+            existing = sys.modules[module_name]
+            if (
+                existing.WORKER_TIMEOUT_SECONDS != self._timeout
+                or existing.WORKER_RETRIES != self._retries
+            ):
+                raise RuntimeError(
+                    "modal_app was already imported with timeout="
+                    f"{existing.WORKER_TIMEOUT_SECONDS}, retries={existing.WORKER_RETRIES} "
+                    f"(baked into the @app.function decorator at import time); this "
+                    f"ModalExecutor requested timeout={self._timeout}, retries={self._retries}, "
+                    "which cannot be honored without a fresh process. Modal's "
+                    "@app.function timeout/retries are decorator-time-only, so a "
+                    "second import in the same process would silently reuse the "
+                    "first import's baked-in values. Run each distinct "
+                    "timeout/retries combination in its own process."
+                )
+        else:
+            os.environ["RENQUANT_MODAL_TIMEOUT_SECONDS"] = str(self._timeout)
+            os.environ["RENQUANT_MODAL_RETRIES"] = str(self._retries)
 
-        image = build_image(self._bundle_dir)
-        volume = modal.Volume.from_name(self._volume_name, create_if_missing=True)
-
-        @app.function(
-            image=image,
-            volumes={"/data": volume},
-            cpu=WORKER_CORES * 2,  # vCPUs
-            memory=WORKER_MEM_GIB * 1024,
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        def run_variant_remote(request_json: str) -> str:
-            return _remote_worker(request_json)
+        from .modal_app import app, run_variant_remote
 
         t0 = time.monotonic()
         summary = BatchSummary()
@@ -87,6 +91,7 @@ class ModalExecutor:
                 d["seeds"] = [seed]
                 per_seed_requests.append(json.dumps(d))
 
+        log.info("Starting Modal app (first run builds image ~3-5min, cached after)...")
         with app.run():
             n_tasks = len(per_seed_requests)
             n_variants = len(requests)
@@ -200,8 +205,10 @@ class ModalExecutor:
             checks["modal_sdk"] = False
             details["modal_sdk"] = "modal package not installed"
 
-        projected = len(data_manifest.files) * 0.04
+        projected = _estimate_cost_usd(30.0) * 75
         checks["cost_reasonable"] = projected < 20.0
+        if not checks["cost_reasonable"]:
+            details["cost_reasonable"] = f"Projected: ${projected:.2f} (75 variants × 30s)"
 
         return PreflightReport(
             passed=all(checks.values()),
@@ -230,160 +237,3 @@ def _request_to_dict(req: BacktestRequest) -> dict[str, Any]:
     }
 
 
-def _remote_worker(request_json: str) -> str:
-    """Execute one variant backtest on a Modal worker.
-
-    This function runs INSIDE the Modal container. It has access to:
-    - /app/ — bundled subrepo code (in PYTHONPATH)
-    - /data/ — Modal Volume with OHLCV + artifacts
-    """
-    import json
-    import hashlib
-    import os
-    import time
-    import resource
-    import base64
-    import gzip
-    import io
-    from datetime import datetime, timezone
-    from pathlib import Path
-
-    request = json.loads(request_json)
-    t0 = time.time()
-
-    import sys
-    sys.path.insert(0, "/app/kernel")
-    sys.path.insert(0, "/app/sim")
-    sys.path.insert(0, "/app/scripts")
-
-    config = json.loads(request["config_json"])
-    config["_strategy_dir"] = "/app/kernel"
-    config["_strategy_config_name"] = f"remote_{request['variant_name']}"
-    config["initial_cash"] = float(request["initial_cash"])
-    config["backtest_start"] = request["start"]
-    config["backtest_end"] = request["end"]
-    config["persistence"] = {"enabled": False}
-    config.setdefault("data_freshness", {})["enabled"] = False
-
-    ohlcv_dir = Path("/data/ohlcv")
-    ohlcv = {}
-    if ohlcv_dir.is_dir():
-        import pandas as pd
-        # Layout: ohlcv/{SYMBOL}/1d.parquet (directory-per-symbol)
-        for symbol_dir in sorted(ohlcv_dir.iterdir()):
-            if not symbol_dir.is_dir():
-                continue
-            pq = symbol_dir / "1d.parquet"
-            if pq.exists():
-                ohlcv[symbol_dir.name] = pd.read_parquet(pq)
-
-    benchmark = config.get("benchmark", "SPY")
-    spy_df = ohlcv.get(benchmark)
-    etf_map = config.get("sector_etf_map", {})
-
-    manifest_rel = config.get("walkforward", {}).get("manifest_path", "")
-    if manifest_rel:
-        vol_manifest = Path("/data/artifacts") / Path(manifest_rel).name
-        if vol_manifest.exists():
-            config["walkforward"]["manifest_path"] = str(vol_manifest)
-
-    from sim.runner import run_backtest
-
-    # Each pod runs exactly ONE seed — fan-out across pods for parallelism.
-    seeds = request["seeds"]
-    seed = seeds[0] if isinstance(seeds, list) else seeds
-    strategy_dir = Path("/app/kernel")
-
-    seed_result = run_backtest(
-        config=config,
-        strategy_dir=strategy_dir, ohlcv=ohlcv, spy_df=spy_df,
-        sector_etf_map=etf_map, initial_cash=float(request["initial_cash"]),
-        backtest_start=request["start"], backtest_end=request["end"],
-        snapshot=False, seed=seed,
-    )
-
-    from scripts.run_concentration_cap_sweep import (
-        per_regime_metrics,
-        compute_turnover_fills_cost,
-        compute_winner_continuation,
-        REQUIRED_REGIMES,
-        _finite,
-    )
-
-    eq_df = getattr(seed_result, "equity_df", None)
-    n_days = int(len(eq_df)) if eq_df is not None else 0
-    trade_log = getattr(seed_result, "trade_log", None) or []
-
-    turnover = compute_turnover_fills_cost(
-        trade_log, n_days=n_days,
-        incumbent_turnover_annualized=request.get("incumbent_turnover"),
-    )
-    daily_cost_drag = float(turnover.get("daily_modeled_cost_frac") or 0.0)
-    regimes = per_regime_metrics(
-        eq_df, REQUIRED_REGIMES, daily_cost_drag=daily_cost_drag,
-    )
-    winner_cont = compute_winner_continuation(
-        trade_log,
-        entry_cap=config.get("ranking", {}).get("kelly_sizing", {}).get(
-            "max_concentration", 0.12
-        ),
-    )
-
-    seed_data = {
-        "seed": seed,
-        "apy": _finite(seed_result.apy),
-        "sharpe": _finite(seed_result.sharpe),
-        "max_dd": _finite(seed_result.max_dd),
-        "calmar": _finite(seed_result.calmar),
-        "per_regime": regimes,
-        "turnover": turnover,
-        "winner_continuation": winner_cont,
-    }
-
-    equity_curves = {}
-    trade_logs = {}
-    if eq_df is not None and not getattr(eq_df, "empty", True):
-        buf = io.BytesIO()
-        eq_df.to_csv(buf, index=True)
-        equity_curves[seed] = base64.b64encode(
-            gzip.compress(buf.getvalue())
-        ).decode()
-
-    if trade_log:
-        tl_json = "\n".join(json.dumps(t, default=str) for t in trade_log)
-        trade_logs[seed] = base64.b64encode(
-            gzip.compress(tl_json.encode())
-        ).decode()
-
-    peak_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if sys.platform == "darwin":
-        peak_mem /= 1024 * 1024  # bytes → MB on macOS
-    else:
-        peak_mem /= 1024  # KB → MB on Linux
-
-    result_obj = {
-        "variant_name": request["variant_name"],
-        "role": request.get("role", "candidate"),
-        "config_fingerprint": hashlib.sha256(
-            request["config_json"].encode()
-        ).hexdigest(),
-        "worker_id": os.environ.get("MODAL_TASK_ID", "unknown"),
-        "volume_commit_id": request.get("volume_commit_id"),
-        "code_image_id": os.environ.get("MODAL_IMAGE_ID", "unknown"),
-        "started_at": datetime.fromtimestamp(t0, tz=timezone.utc).isoformat(),
-        "finished_at": datetime.now(timezone.utc).isoformat(),
-        "elapsed_seconds": time.time() - t0,
-        "peak_memory_mb": peak_mem,
-        "seed": seed,
-        "per_seed": [seed_data],
-        "equity_curves": equity_curves or None,
-        "trade_logs": trade_logs or None,
-    }
-
-    canonical = json.dumps(
-        {k: v for k, v in result_obj.items() if k != "result_checksum"},
-        sort_keys=True, default=str,
-    )
-    result_obj["result_checksum"] = hashlib.sha256(canonical.encode()).hexdigest()
-
-    return json.dumps(result_obj, default=str)

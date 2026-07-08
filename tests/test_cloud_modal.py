@@ -218,3 +218,146 @@ class TestModalExecutor:
         report = executor.preflight(manifest)
         assert not report.passed
         assert report.checks["volume_has_data"] is False
+
+
+def _install_fake_modal_sdk(monkeypatch):
+    """Stub the `modal` package so modal_app.py can be imported without the
+    real SDK (not a project dependency — only needed at actual cloud
+    runtime). Captures the exact kwargs @app.function is decorated with so
+    tests can assert on the real decoration-time values, not a guess."""
+    import sys as _sys
+    import types
+
+    captured: dict = {}
+
+    fake_modal = types.ModuleType("modal")
+
+    class _FakeApp:
+        def __init__(self, name):
+            self.name = name
+
+        def function(self, **kwargs):
+            captured.update(kwargs)
+
+            def deco(fn):
+                fn._modal_function_kwargs = kwargs
+                fn.get_build_def = lambda: ""
+                return fn
+
+            return deco
+
+    class _FakeVolume:
+        @staticmethod
+        def from_name(name, create_if_missing=False):
+            return object()
+
+    class _FakeImage:
+        def pip_install(self, *a, **k):
+            return self
+
+        def run_commands(self, *a, **k):
+            return self
+
+    class _FakeImageNS:
+        @staticmethod
+        def debian_slim(python_version=None):
+            return _FakeImage()
+
+    fake_modal.App = _FakeApp
+    fake_modal.Volume = _FakeVolume
+    fake_modal.Image = _FakeImageNS
+
+    monkeypatch.setitem(_sys.modules, "modal", fake_modal)
+    return captured
+
+
+class TestModalTimeoutRetriesConfigurability:
+    """Prove timeout/retries genuinely reach the @app.function decorator.
+
+    Modal's @app.function bakes timeout/retries in at decoration time (no
+    per-call override exists in the installed SDK — verified against the
+    real modal package: no with_options()/options() on modal.Function, and
+    app.function()'s signature takes timeout/retries as plain kwargs).
+    ModalExecutor.execute_batch sets RENQUANT_MODAL_TIMEOUT_SECONDS /
+    RENQUANT_MODAL_RETRIES env vars before importing modal_app so the
+    module-level decorator picks up the caller's requested values on that
+    process's first (only) import. `modal` itself is not a project
+    dependency (only needed at real cloud runtime), so these tests stub it.
+    """
+
+    def _fresh_import(self, monkeypatch, captured):
+        import sys as _sys
+
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        monkeypatch.delitem(_sys.modules, module_name, raising=False)
+        import importlib
+        return importlib.import_module(module_name)
+
+    def test_env_var_reaches_decorator_kwargs(self, monkeypatch):
+        captured = _install_fake_modal_sdk(monkeypatch)
+        monkeypatch.setenv("RENQUANT_MODAL_TIMEOUT_SECONDS", "111")
+        monkeypatch.setenv("RENQUANT_MODAL_RETRIES", "7")
+
+        self._fresh_import(monkeypatch, captured)
+
+        assert captured["timeout"] == 111
+        assert captured["retries"] == 7
+
+    def test_defaults_used_when_env_unset(self, monkeypatch):
+        captured = _install_fake_modal_sdk(monkeypatch)
+        monkeypatch.delenv("RENQUANT_MODAL_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_RETRIES", raising=False)
+
+        self._fresh_import(monkeypatch, captured)
+
+        assert captured["timeout"] == 3600
+        assert captured["retries"] == 1
+
+    def test_execute_batch_sets_env_vars_before_first_import(self, monkeypatch, tmp_path: Path):
+        """Proves execute_batch's own env-var-setting side effect fires
+        before modal_app import — the real (unpatched) code path under
+        test, only the modal SDK itself is stubbed."""
+        import sys as _sys
+
+        _install_fake_modal_sdk(monkeypatch)
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        monkeypatch.delitem(_sys.modules, module_name, raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_RETRIES", raising=False)
+
+        executor = ModalExecutor(bundle_dir=str(tmp_path), timeout=222, retries=9)
+
+        try:
+            executor.execute_batch([], on_result=lambda r: None, on_error=lambda n, e: None)
+        except Exception:
+            pass  # fake app.run() / empty request list — irrelevant here
+
+        mod = _sys.modules[module_name]
+        assert mod.WORKER_TIMEOUT_SECONDS == 222
+        assert mod.WORKER_RETRIES == 9
+        assert mod.run_variant_remote._modal_function_kwargs["timeout"] == 222
+        assert mod.run_variant_remote._modal_function_kwargs["retries"] == 9
+
+    def test_execute_batch_raises_on_conflicting_reimport(self, monkeypatch, tmp_path: Path):
+        """A second ModalExecutor with different timeout/retries in the same
+        process cannot silently reuse the first import's baked-in decorator
+        values — must raise, not silently ignore, matching the fix's honesty
+        requirement (this is exactly the bug class being fixed: a parameter
+        that looks accepted but is silently dropped)."""
+        import sys as _sys
+
+        _install_fake_modal_sdk(monkeypatch)
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        monkeypatch.delitem(_sys.modules, module_name, raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_RETRIES", raising=False)
+
+        first = ModalExecutor(bundle_dir=str(tmp_path), timeout=100, retries=2)
+        try:
+            first.execute_batch([], on_result=lambda r: None, on_error=lambda n, e: None)
+        except Exception:
+            pass
+
+        second = ModalExecutor(bundle_dir=str(tmp_path), timeout=200, retries=3)
+        with pytest.raises(RuntimeError, match="cannot be honored without a fresh process"):
+            second.execute_batch([], on_result=lambda r: None, on_error=lambda n, e: None)
