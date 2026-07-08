@@ -546,3 +546,109 @@ in place.
   tests, a genuinely comprehensive trace of every consumer's resolution
   convention (rather than fixing one gap per round as discovered) may be
   warranted before further real spend, to reduce the risk of a fourth.
+
+## Round 7 (2026-07-08): architecture investigation — is the stale kernel/panel_pipeline copy a mistake to eliminate, or genuinely load-bearing? Plus 2 more real data gaps found by tracing it fully.
+
+Round 6 found that `adapters/sim.py` imports panel scoring via a bare
+`from kernel.panel_pipeline import PanelScorer` that resolves, inside the
+Modal container, to a stale bundled copy of `job_panel_scoring.py`
+(`RenQuant/backtesting/renquant_104/kernel/panel_pipeline/`) rather than
+the canonical `renquant_pipeline.kernel.panel_pipeline` package. This
+round investigates whether that's an accidental drift to eliminate, or a
+deliberate separate implementation — the "comprehensive trace" round 6
+flagged as still outstanding.
+
+### Finding: this is NOT an accidental duplicate — do not eliminate it
+
+Directly diffed the two files: **3273 lines different** — not minor
+staleness, an entirely different generation (missing the
+fingerprint_dispatch unification and the `_data_root.py` refactor
+entirely, missing large caching-helper sections that exist in canonical).
+
+But `git log`/`git blame` on the bundled tree (read-only inspection only —
+no writes made to the umbrella tree, per this repo's hard rule) shows a
+long, continuously active, INDEPENDENT commit history for this exact
+kernel — "decomposition slice 1-5" refactors, regime-specialist-ensemble
+features, continuous-Kelly sizing, etc., spanning many months. This
+specific file's last real commit was 2026-06-12; a sibling file in the
+same directory was touched 2026-06-14 — i.e. the whole kernel tree is
+actively maintained, this one file simply hasn't needed a change since a
+refactor (fingerprint unification, `_data_root.py`) that happened in
+`renquant_pipeline` (the live/production package) after that date and was
+never backported here.
+
+**Conclusion: `RenQuant/backtesting/renquant_104/kernel/` is the genuine,
+deliberately separate backtesting/sim kernel — not a mistake.** Redirecting
+`adapters/sim.py`'s import to canonical, or aliasing/deleting the bundled
+copy, would risk breaking every LOCAL (non-Modal) backtest that currently
+depends on this exact implementation — a much bigger, riskier change than
+this PR's scope, and not something to do unilaterally mid-fix. Rounds 4-6's
+approach (stage the specific files this kernel's own hardcoded
+`parents[4]`-relative paths expect, leave the import alone) is confirmed
+correct and the right fix given this constraint, not a lazy band-aid.
+
+### Two more real gaps found while tracing this kernel's own file fully
+
+Reading the stale copy's full `data/`-relative dependency surface (not
+just the one path round 6 fixed) found two more:
+
+- `data/earnings_surprise/` — read whenever the scorer's `feature_cols`
+  includes any of `days_since_earnings`/`pead_signal`/`pead_quintile_rank`
+  (PEAD) or `sue_signal`/`surprise_momentum`/`surprise_streak` (SUE).
+- `data/news_sentiment_alpaca/` — read whenever `feature_cols` includes
+  any `sentiment_*` column.
+
+Confirmed BOTH are genuinely exercised by this sweep's actual model:
+directly grepped the walk-forward manifest's `feature_cols`
+(`artifacts/walkforward_v2_20260602/2024-01-01/panel-ltr.json`) and found
+all of `days_since_earnings, pead_signal, pead_quintile_rank, sue_signal,
+surprise_momentum, surprise_streak, sentiment_pos_share, mean_sentiment,
+n_articles_log` present — this is not a theoretical/unused code path.
+
+**Severity is lower than round 6's finding, but real**: unlike the
+fund-feature check (`if not fp.exists(): _fail_closed_panel_scoring(...)`,
+a hard block), this kernel's own "Feature-health check" only *warns* on
+all-zero PEAD/SUE columns — it does not fail-closed the day. So the
+missing dirs would NOT have caused a fourth timeout, but would have
+silently zero-imputed 6-9 of the model's feature columns, producing a
+misleadingly weaker/different smoke-test result than what rounds 4-6's
+fixes alone would suggest — the same class of "quiet overclaim" this
+session has repeatedly flagged, just manifesting as understated results
+rather than an outright crash.
+
+**Fix**: `stage_panel_history()` now also stages `data/earnings_surprise/`
+and `data/news_sentiment_alpaca/` (small — ~3MB and ~4MB, confirmed via
+`du -sh` locally) at both the canonical `"data"`-label path and the stale
+kernel's Volume-root path, same dual-staging pattern as
+`sec_fundamentals_daily.parquet`. Caught and fixed my own initial path
+mistake before committing: first attempt nested these under an extra
+`"data"` subdirectory inside the staging dir, which would have doubled up
+with the `"data"` LABEL itself and landed one level too deep
+(`/data/data/data/...` instead of `/data/data/...`) — corrected to flat
+staging, matching the existing file-staging pattern, and verified via the
+manifest-path test below before trusting it.
+
+**Verification**:
+- 3 new tests in `TestStagePanelHistory`:
+  `test_earnings_surprise_and_sentiment_dirs_staged_at_modern_path`,
+  `test_earnings_surprise_and_sentiment_dirs_staged_at_legacy_root_path`,
+  `test_missing_earnings_surprise_dir_does_not_raise`.
+- Confirmed 2 of the 3 fail against pre-fix code (`FileNotFoundError`
+  reading the staged file) via targeted `git stash` of only
+  `run_sweep_modal.py`, keeping the new tests — the third passes
+  vacuously pre-fix (old code never touches these dirs at all, so
+  "missing dir doesn't raise" was trivially true).
+- Full suite: 3256 passed, 1 pre-existing unrelated failure
+  (`test_parking_sleeve_cli_computes_allocation`, same as every prior
+  round).
+- **Did NOT run a fresh real Modal smoke test** — round 6's real smoke
+  test (predates this fix, and round 6's own fix) was still in flight at
+  the start of this investigation; not touched or duplicated. No
+  additional spend incurred by this round's investigation/fix.
+
+This is now 4 real rounds of fixes to the same general area (Modal
+container data-availability for the sim kernel). All 4 have been
+genuinely distinct, well-understood, cheaply-fixable data-staging gaps —
+not evidence of an unbounded/open-ended problem — but a fresh real smoke
+test against ALL FOUR fixes together is now the single most informative
+next step before considering the full 75-variant sweep.

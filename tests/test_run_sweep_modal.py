@@ -430,6 +430,84 @@ class TestStagePanelHistory:
         assert "sec_fundamentals_daily.parquet" in manifest
         assert "data/sec_fundamentals_daily.parquet" not in manifest
 
+    def test_earnings_surprise_and_sentiment_dirs_staged_at_modern_path(self, tmp_path):
+        """Round 7 finding: this sweep's actual XGBoost artifact (walk-forward
+        manifest feature_cols) includes PEAD/SUE features (days_since_earnings,
+        pead_signal, pead_quintile_rank, sue_signal, surprise_momentum,
+        surprise_streak) and sentiment features — both job_panel_scoring.py
+        implementations read data/earnings_surprise/ and
+        data/news_sentiment_alpaca/ (per-ticker parquet dirs) for these,
+        relative to the same repo/data_root as the fundamentals files. Neither
+        dir was ever staged. Unlike the fund-feature check, this doesn't hard
+        fail-closed (job_panel_scoring.py's feature-health check only warns on
+        all-zero PEAD/SUE columns) — so it wouldn't cause another timeout, but
+        would silently zero-impute these features, understating the sweep's
+        real result quality."""
+        from renquant_orchestrator.cloud.sync_data import build_local_manifest
+
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        (data_dir / "alpha158_291_fundamental_dataset.parquet").write_bytes(b"x")
+        earn_dir = data_dir / "earnings_surprise"
+        earn_dir.mkdir()
+        (earn_dir / "AAPL.parquet").write_bytes(b"earnings data")
+        sent_dir = data_dir / "news_sentiment_alpaca"
+        sent_dir.mkdir()
+        (sent_dir / "AAPL.parquet").write_bytes(b"sentiment data")
+
+        staging, _root_staging = stage_panel_history(repo_root, base_config={})
+
+        assert (staging / "earnings_surprise" / "AAPL.parquet").read_bytes() == b"earnings data"
+        assert (staging / "news_sentiment_alpaca" / "AAPL.parquet").read_bytes() == b"sentiment data"
+
+        manifest, _sources = build_local_manifest({"data": staging})
+        assert "data/earnings_surprise/AAPL.parquet" in manifest
+        assert "data/news_sentiment_alpaca/AAPL.parquet" in manifest
+
+    def test_earnings_surprise_and_sentiment_dirs_staged_at_legacy_root_path(self, tmp_path):
+        """Same two dirs must ALSO land at the Volume root (no "data" prefix)
+        for the stale bundled kernel/panel_pipeline/job_panel_scoring.py
+        consumer, whose parents[4]-based repo resolves to "/" inside the
+        container — same rationale as sec_fundamentals_daily.parquet's
+        legacy-root staging above."""
+        from renquant_orchestrator.cloud.sync_data import build_local_manifest
+
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        (data_dir / "alpha158_291_fundamental_dataset.parquet").write_bytes(b"x")
+        earn_dir = data_dir / "earnings_surprise"
+        earn_dir.mkdir()
+        (earn_dir / "AAPL.parquet").write_bytes(b"earnings data")
+        sent_dir = data_dir / "news_sentiment_alpaca"
+        sent_dir.mkdir()
+        (sent_dir / "AAPL.parquet").write_bytes(b"sentiment data")
+
+        _staging, root_staging = stage_panel_history(repo_root, base_config={})
+
+        assert (root_staging / "earnings_surprise" / "AAPL.parquet").read_bytes() == b"earnings data"
+        assert (root_staging / "news_sentiment_alpaca" / "AAPL.parquet").read_bytes() == b"sentiment data"
+
+        manifest, _sources = build_local_manifest({"": root_staging})
+        assert "earnings_surprise/AAPL.parquet" in manifest
+        assert "news_sentiment_alpaca/AAPL.parquet" in manifest
+        assert "data/earnings_surprise/AAPL.parquet" not in manifest
+
+    def test_missing_earnings_surprise_dir_does_not_raise(self, tmp_path):
+        """No local earnings_surprise/ or news_sentiment_alpaca/ dirs (e.g. a
+        dev machine that only has the fundamentals files) must not crash
+        sync — same fail-soft contract as the missing-file case below."""
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        (data_dir / "alpha158_291_fundamental_dataset.parquet").write_bytes(b"x")
+
+        staging, root_staging = stage_panel_history(repo_root, base_config={})
+
+        assert not (staging / "earnings_surprise").exists()
+        assert not (root_staging / "earnings_surprise").exists()
+
     def test_missing_source_file_does_not_raise_but_yields_empty_staging(self, tmp_path):
         """No local fundamentals files at all (e.g. a dev machine without
         the source datasets) must not crash sync — it should stage nothing

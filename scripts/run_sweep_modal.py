@@ -267,17 +267,48 @@ def stage_panel_history(
        (1)/(2)'s file-not-found errors, yet panel_fundamentals_missing
        still fired — because this third path was never covered at all).
 
-    Selectively stage just these files (792 MB + 17.5 MB, the latter
-    duplicated at two paths since it's small) rather than the full data/
-    dir (24 GB) — same rationale as the OHLCV subsetting elsewhere in
-    main().
+    IMPORTANT (round 7 — confirmed by direct architecture investigation,
+    not assumption): RenQuant/backtesting/renquant_104/kernel/ is NOT a
+    forgotten/stale accidental duplicate of renquant_pipeline. It has its
+    own long, active, independent git history (decomposition refactors as
+    recently as 2026-06-12, one day before other sibling files in the same
+    tree were touched 2026-06-14) — this is the genuine, deliberately
+    separate backtesting/sim kernel, not a mistake to "fix" by redirecting
+    the import to canonical. Eliminating or aliasing it would risk breaking
+    every local (non-Modal) backtest that currently depends on it. The
+    correct, safe fix given this constraint is exactly what rounds 4-7 do:
+    stage the specific data files/dirs this kernel's own hardcoded
+    `parents[4]`-relative paths expect, not touch the import itself.
+
+    Round 7 also found this same stale kernel's job_panel_scoring.py has
+    TWO MORE `data/`-relative dependencies exercised by this sweep's actual
+    XGBoost artifact (confirmed via the walk-forward manifest's
+    feature_cols: pead_signal/pead_quintile_rank/days_since_earnings/
+    sue_signal/surprise_momentum/surprise_streak + sentiment_*):
+    data/earnings_surprise/ and data/news_sentiment_alpaca/ (per-ticker
+    parquet directories, ~3MB/~4MB total — small, same selective-staging
+    rationale). These do NOT hard fail-closed the way the fund-feature
+    check does (job_panel_scoring.py's own "Feature-health check" only
+    logs a warning for all-zero PEAD/SUE columns, it does not block the
+    day) — so their absence would not have caused another timeout, but it
+    would have silently degraded these features to zero, giving a
+    misleadingly weaker smoke-test result than what round 4-6's fixes
+    alone would produce. Staged proactively here rather than waiting for
+    a fourth expensive real Modal test to reveal it as a "the model looks
+    worse than expected" symptom instead of an outright failure.
+
+    Selectively stage just these files/dirs (792 MB + 17.5 MB + ~3MB +
+    ~4MB — the 17.5MB file duplicated at two paths since it's small)
+    rather than the full data/ dir (24 GB) — same rationale as the OHLCV
+    subsetting elsewhere in main().
 
     Returns (data_staging, root_staging): data_staging is for
-    local_paths["data"] (consumers 1+2); root_staging is for
-    local_paths[""] (consumer 3 — empty label means no path prefix, so
-    the file lands directly at the Volume root). Any individual source
-    file that's missing is skipped with a warning (caller decides whether
-    that is fatal) rather than raising.
+    local_paths["data"] (consumers 1+2, plus earnings_surprise/
+    news_sentiment_alpaca for the canonical resolver's own equivalent
+    lookups); root_staging is for local_paths[""] (consumer 3 — empty
+    label means no path prefix, so files land directly at the Volume
+    root). Any individual source file/dir that's missing is skipped with
+    a warning (caller decides whether that is fatal) rather than raising.
     """
     panel_history_path = base_config.get("ranking", {}).get("panel_scoring", {}).get(
         "panel_history_path",
@@ -296,6 +327,25 @@ def stage_panel_history(
             print(f"  WARNING: {rel_path} not found at {src} "
                   f"— panel scoring will fail-closed on the remote worker")
 
+    for dir_name in ("earnings_surprise", "news_sentiment_alpaca"):
+        src_dir = repo_root / "data" / dir_name
+        if src_dir.is_dir():
+            # Flat under data_staging (matching the two files above), NOT
+            # nested under an extra "data" subdir — the "data" LABEL itself
+            # already contributes that path segment once uploaded
+            # (label "data" + rel "earnings_surprise/X" -> /data/data/
+            # earnings_surprise/X on the Volume, matching repo/"data"/
+            # "earnings_surprise" where repo == RENQUANT_DATA_ROOT == /data).
+            dst_dir = data_staging / dir_name
+            shutil.copytree(src_dir, dst_dir)
+            n_files = sum(1 for _ in dst_dir.iterdir())
+            total_mb = sum(f.stat().st_size for f in dst_dir.iterdir()) / 1e6
+            print(f"  Staged data/{dir_name}/: {n_files} files ({total_mb:.1f} MB)")
+        else:
+            print(f"  WARNING: data/{dir_name} not found at {src_dir} "
+                  f"— PEAD/SUE/sentiment features will silently zero-impute "
+                  f"(warning-only, not fail-closed, but degrades result quality)")
+
     sec_fund_src = repo_root / "data" / "sec_fundamentals_daily.parquet"
     if sec_fund_src.exists():
         dst = root_staging / sec_fund_src.name
@@ -303,6 +353,15 @@ def stage_panel_history(
         print(f"  Staged data/sec_fundamentals_daily.parquet at Volume root "
               f"(legacy kernel/panel_pipeline consumer): {dst.name} "
               f"({sec_fund_src.stat().st_size / 1e6:.0f} MB)")
+
+    for dir_name in ("earnings_surprise", "news_sentiment_alpaca"):
+        src_dir = repo_root / "data" / dir_name
+        if src_dir.is_dir():
+            dst_dir = root_staging / dir_name
+            shutil.copytree(src_dir, dst_dir)
+            print(f"  Staged data/{dir_name}/ at Volume root "
+                  f"(legacy kernel/panel_pipeline consumer): "
+                  f"{sum(1 for _ in dst_dir.iterdir())} files")
     return data_staging, root_staging
 
 
