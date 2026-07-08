@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -53,6 +54,30 @@ class ModalExecutor:
         on_error: Callable[[str, Exception], None],
         max_concurrent: int = 100,
     ) -> BatchSummary:
+        import sys
+
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        if module_name in sys.modules:
+            existing = sys.modules[module_name]
+            if (
+                existing.WORKER_TIMEOUT_SECONDS != self._timeout
+                or existing.WORKER_RETRIES != self._retries
+            ):
+                raise RuntimeError(
+                    "modal_app was already imported with timeout="
+                    f"{existing.WORKER_TIMEOUT_SECONDS}, retries={existing.WORKER_RETRIES} "
+                    f"(baked into the @app.function decorator at import time); this "
+                    f"ModalExecutor requested timeout={self._timeout}, retries={self._retries}, "
+                    "which cannot be honored without a fresh process. Modal's "
+                    "@app.function timeout/retries are decorator-time-only, so a "
+                    "second import in the same process would silently reuse the "
+                    "first import's baked-in values. Run each distinct "
+                    "timeout/retries combination in its own process."
+                )
+        else:
+            os.environ["RENQUANT_MODAL_TIMEOUT_SECONDS"] = str(self._timeout)
+            os.environ["RENQUANT_MODAL_RETRIES"] = str(self._retries)
+
         from .modal_app import app, run_variant_remote
 
         t0 = time.monotonic()

@@ -7,10 +7,26 @@ is not installed in the container image.
 """
 from __future__ import annotations
 
+import os
+
 import modal
 
 VOLUME_NAME = "renquant-sweep-data"
 APP_NAME = "renquant-sweep"
+
+# @app.function's timeout/retries are decorator-time-only — Modal has no
+# per-call override for a module-scope function (verified against the
+# installed modal SDK: no with_options()/options() on modal.Function, and
+# app.function()'s signature takes timeout/retries as plain kwargs, not
+# something reconfigurable via .map()/.remote()). ModalExecutor sets these
+# env vars before importing this module (its only import site) so the
+# caller's requested values are still what gets baked into the decorator.
+DEFAULT_TIMEOUT_SECONDS = 3600
+DEFAULT_RETRIES = 1
+WORKER_TIMEOUT_SECONDS = int(
+    os.environ.get("RENQUANT_MODAL_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
+)
+WORKER_RETRIES = int(os.environ.get("RENQUANT_MODAL_RETRIES", DEFAULT_RETRIES))
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -45,8 +61,8 @@ WORKER_MEM_GIB = 4
     volumes={"/data": data_volume},
     cpu=WORKER_CORES * 2,
     memory=WORKER_MEM_GIB * 1024,
-    timeout=3600,
-    retries=1,
+    timeout=WORKER_TIMEOUT_SECONDS,
+    retries=WORKER_RETRIES,
 )
 def run_variant_remote(request_json: str) -> str:
     """Execute one variant backtest on a Modal worker.
