@@ -88,6 +88,17 @@ def run_variant_remote(request_json: str) -> str:
     t0 = time.time()
 
     app_root = "/data/app"
+    # renquant_pipeline.kernel.panel_pipeline._data_root.data_root() resolves
+    # the umbrella-checkout root via RENQUANT_DATA_ROOT first, else a chain of
+    # local-machine fallbacks (sibling checkout / ~/git/github/RenQuant / the
+    # pipeline package root itself) — none of which exist inside this
+    # container, so it silently fails to find its own sentinel
+    # (data/sec_fundamentals_daily.parquet) and the XGBoost-fund-feature path
+    # in job_panel_scoring.py fail-closes as "panel_fundamentals_missing".
+    # Pin it explicitly to where stage_panel_history() in run_sweep_modal.py
+    # actually stages both fundamentals files (repo_root == strategy_dir's
+    # grandparent == this Volume's mount point).
+    os.environ.setdefault("RENQUANT_DATA_ROOT", "/data")
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
     # app_root itself (not its subdirectories) must be on sys.path for

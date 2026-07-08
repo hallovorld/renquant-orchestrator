@@ -1,10 +1,12 @@
 # Modal Sweep — Reconciled with #434's Runtime Fixes
 
 **Date**: 2026-07-08
-**Status**: Round 4 real bounded Modal smoke test FAILED (3/3 tasks hit
-3600s timeout, ~$0.95 real cost). Root cause found and fixed (missing
-fundamentals data in the Volume sync). A FRESH real Modal smoke test has
-NOT been run against this fix -- that verification is still outstanding.
+**Status**: Round 5 real bounded Modal smoke test STILL RUNNING at the time
+this round was written (operator re-authorized under the standing <$10
+spend policy). Interim log inspection of the in-progress run found a
+SECOND, independent fundamentals-sync gap (round 4's fix was necessary but
+not sufficient) — fixed in this round, not yet re-verified against a fresh
+run.
 
 ## Round 2 (2026-07-08): fix cost/provenance undercounting + preflight mismatch
 
@@ -321,3 +323,107 @@ not exercised -- this sweep's config has no shorting enabled and
   has not been re-confirmed on Modal. That is the next required step
   before treating this PR as execution-proven, and it requires separate
   spend authorization (the failed round-4 attempt already cost ~$0.95).
+
+## Round 5 (2026-07-08): second real smoke test found a SIBLING fundamentals gap
+
+Operator re-authorized a fresh bounded (1-variant/3-seed) remote Modal
+smoke test on round 4's fix (under the standing <$10 spend policy — no
+per-run re-ask needed at this scale). That run was inspected mid-flight
+(read-only `modal app logs`/`modal volume ls` on the already-running app;
+no new spend triggered by this inspection).
+
+**Confirmed round 4's fix genuinely worked**: the specific
+`No such file or directory: '/data/data/alpha158_291_fundamental_dataset.parquet'`
+error is completely absent from this run's logs (it appeared on every
+occurrence of the failure in round 4's run; zero occurrences here).
+
+**But `panel_fundamentals_missing` still fired on every simulated day.**
+Root-caused by reading `renquant-pipeline`'s actual source (not just this
+sweep script) — a SEPARATE, independent gap:
+
+`renquant_pipeline.kernel.panel_pipeline.job_panel_scoring` (lines
+~1278-1294) has an XGBoost-scorer-specific fund-feature lookup, active
+whenever `scorer.feature_cols` includes `earnings_yield`/`book_to_price`/
+`gross_profitability`/`roe`/`asset_growth` — true for this sweep's
+`panel_ltr_xgboost` scorer (confirmed by the observed failure itself, not
+assumed). It reads a SECOND file,
+`renquant_pipeline...panel_pipeline._data_root.data_root() / "data" /
+"sec_fundamentals_daily.parquet"` — never staged by round 4's fix (which
+only covered `alpha158_291_fundamental_dataset.parquet`), so this branch
+fail-closes to `panel_fundamentals_missing` regardless of the first file
+now being present.
+
+**Deeper contributing issue found**: `_data_root_cached()`'s own resolver
+(`_data_root.py`) validates itself against the SAME sentinel file
+(`data/sec_fundamentals_daily.parquet`) — meaning if it EVER returns a
+root successfully, that root must already contain the file (by
+construction). Its fallback chain (env var, else sibling-checkout /
+home-dir / package-root candidates) has no candidate that plausibly
+exists inside the Modal container (no bundled `RenQuant` umbrella
+checkout, no `~/git/github/RenQuant` on an ephemeral container, and
+`bundle.py` never copies a `data/` folder into the bundled
+`renquant-pipeline` package root). The observed graceful
+`panel_fundamentals_missing` (rather than an unhandled `RuntimeError` from
+`_resolve()`'s own final `raise`) implies something upstream catches that
+exception and reports it as this same fail-closed reason — the exact
+try/except site was not traced further given time/spend constraints, but
+does not change the fix: pin the resolver's *first* (env-var) candidate
+explicitly rather than depend on the fragile fallback chain succeeding by
+accident.
+
+### Fix
+
+1. `scripts/run_sweep_modal.py`'s `stage_panel_history()` (renamed in
+   scope, not in name — same function) now stages BOTH
+   `alpha158_291_fundamental_dataset.parquet` (792 MB) AND
+   `sec_fundamentals_daily.parquet` (17.5 MB) into the same `"data"`
+   staging directory, so both land at their respective
+   `/data/data/<filename>` paths on the Volume. Each file is staged
+   independently — one being absent locally does not block staging the
+   other.
+2. `modal_app.py`'s `run_variant_remote()` now sets
+   `os.environ.setdefault("RENQUANT_DATA_ROOT", "/data")` at the very top
+   of the function body, before any `renquant_pipeline` imports that would
+   trigger `_data_root_cached()`'s lazy resolution — pinning it
+   deterministically to the same root `SimAdapter` already correctly
+   resolves to (`strategy_dir.parent.parent` == the Volume mount point),
+   rather than relying on the local-machine-oriented fallback chain that
+   has no valid candidate inside a Modal container.
+
+### Sibling-gap re-check (broader this time)
+
+Given this was the second gap of the exact same class found in
+consecutive rounds, traced the fuller data-loading surface before
+stopping:
+- `job_panel_scoring.py`'s other `repo / "data" / ...`-style reads: none
+  found beyond the two now-fixed files.
+- `SimAdapter`/`sim/runner.py::run_backtest`'s other `data/`-relative
+  reads: same set already covered by round 4's sibling check (output
+  paths and shorting-specific, not exercised by this sweep's
+  `persistence.enabled=False`/no-shorting config) — re-confirmed, no new
+  gap found there.
+- Did not exhaustively trace every OTHER scorer-kind branch in
+  `job_panel_scoring.py` (e.g. `panel_linear`) since this sweep's config
+  uses `panel_ltr_xgboost` specifically — noting this as a known
+  incomplete area rather than claiming full coverage.
+
+### Verification
+
+- 2 new tests in `tests/test_run_sweep_modal.py::TestStagePanelHistory`:
+  `test_sec_fundamentals_daily_is_also_staged` and
+  `test_one_missing_file_does_not_block_staging_the_other`. Both confirmed
+  to fail against the round-4-only code via `git stash` (targeted stash of
+  just `scripts/run_sweep_modal.py` + `modal_app.py`, keeping the new
+  tests) — `AssertionError: assert False` on the missing staged file.
+- Full suite: 3252 passed, 1 pre-existing unrelated failure
+  (`test_parking_sleeve_cli_computes_allocation`, same as every prior
+  round — a stale hardcoded path dependent on other worktrees, not caused
+  by this change).
+- **Did NOT run a fresh real Modal smoke test on this fix.** The
+  currently-running round-5 smoke test (already in flight before this
+  round's investigation started) is running against the FUNDAMENTALS-FILE
+  fix only, not this `RENQUANT_DATA_ROOT`/second-file fix — it was
+  inspected read-only, not restarted or duplicated (no additional spend
+  incurred by this round). A genuinely fresh bounded smoke test against
+  BOTH fixes together is still the next required step before this PR can
+  be treated as execution-proven.

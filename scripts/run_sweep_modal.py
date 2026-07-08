@@ -225,33 +225,55 @@ def run_sweep(
 
 
 def stage_panel_history(repo_root: Path, base_config: dict[str, Any]) -> Path:
-    """Stage SimAdapter's panel-history fundamentals cache for Volume sync.
+    """Stage the fundamentals inputs SimAdapter/job_panel_scoring need for Volume sync.
 
-    SimAdapter._load_panel_history_cache() resolves "panel_history_path"
-    (default "data/alpha158_291_fundamental_dataset.parquet", not overridden
-    in any config this sweep uses) relative to strategy_dir.parent.parent,
-    i.e. the same repo_root already used for ohlcv_dir. Selectively stage
-    just that one file (792 MB) rather than the full data/ dir (24 GB) —
-    same rationale as the OHLCV subsetting elsewhere in main().
+    Two independent consumers read files under repo_root/"data" on the
+    remote worker, and both were silently unsynced (first Modal smoke test
+    round found the first; a second real run found the second still
+    fail-closing after the first fix landed):
 
-    Returns the staging directory to pass as local_paths["data"]; the
-    directory may be empty if the source file is missing (caller decides
-    whether that is fatal).
+    1. SimAdapter._load_panel_history_cache() resolves "panel_history_path"
+       (default "data/alpha158_291_fundamental_dataset.parquet", not
+       overridden in any config this sweep uses) relative to
+       strategy_dir.parent.parent, i.e. the same repo_root already used
+       for ohlcv_dir.
+    2. renquant_pipeline.kernel.panel_pipeline.job_panel_scoring's
+       XGBoost-scorer fund-feature lookup (needed whenever
+       scorer.feature_cols includes earnings_yield/book_to_price/
+       gross_profitability/roe/asset_growth — true for this sweep's
+       panel_ltr_xgboost scorer) reads
+       renquant_pipeline...panel_pipeline._data_root.data_root() / "data" /
+       "sec_fundamentals_daily.parquet". That resolver's own fallback chain
+       (RENQUANT_DATA_ROOT env var, else sibling-checkout / home-dir /
+       package-root candidates — none of which exist inside the Modal
+       container) never lands on this repo_root; modal_app.py now pins
+       RENQUANT_DATA_ROOT="/data" explicitly on the remote worker so this
+       resolver targets the same root SimAdapter already uses, but that
+       root still needs the file physically present.
+
+    Selectively stage just these two files (792 MB + 17.5 MB) rather than
+    the full data/ dir (24 GB) — same rationale as the OHLCV subsetting
+    elsewhere in main().
+
+    Returns the staging directory to pass as local_paths["data"]; any
+    individual source file that's missing is skipped with a warning
+    (caller decides whether that is fatal) rather than raising.
     """
     panel_history_path = base_config.get("ranking", {}).get("panel_scoring", {}).get(
         "panel_history_path",
         base_config.get("panel_history_path", "data/alpha158_291_fundamental_dataset.parquet"),
     )
     data_staging = Path(tempfile.mkdtemp(prefix="data_sync_"))
-    panel_history_src = repo_root / panel_history_path
-    if panel_history_src.exists():
-        dst = data_staging / Path(panel_history_path).name
-        shutil.copy2(panel_history_src, dst)
-        print(f"  Staged panel history cache: {dst.name} "
-              f"({panel_history_src.stat().st_size / 1e6:.0f} MB)")
-    else:
-        print(f"  WARNING: panel history cache not found at {panel_history_src} "
-              f"— panel scoring will fail-closed on the remote worker")
+    for rel_path in (panel_history_path, "data/sec_fundamentals_daily.parquet"):
+        src = repo_root / rel_path
+        if src.exists():
+            dst = data_staging / Path(rel_path).name
+            shutil.copy2(src, dst)
+            print(f"  Staged {rel_path}: {dst.name} "
+                  f"({src.stat().st_size / 1e6:.0f} MB)")
+        else:
+            print(f"  WARNING: {rel_path} not found at {src} "
+                  f"— panel scoring will fail-closed on the remote worker")
     return data_staging
 
 

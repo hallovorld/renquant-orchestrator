@@ -305,7 +305,15 @@ class TestStagePanelHistory:
     local_paths dict never included a "data" label, so the fundamentals
     parquet was never synced to the Modal Volume. Every simulated day
     fail-closed on panel scoring until the remote task hit its 3600s
-    timeout and was cancelled — a real, ~$0.95 failed cloud run."""
+    timeout and was cancelled — a real, ~$0.95 failed cloud run.
+
+    Round 2 (2026-07-08, same day): a second real smoke test with that fix
+    in place confirmed the file-not-found error for
+    alpha158_291_fundamental_dataset.parquet was gone, but
+    panel_fundamentals_missing still fired every day via a SIBLING gap —
+    renquant_pipeline's XGBoost fund-feature lookup reads a second,
+    independent file (data/sec_fundamentals_daily.parquet) that was also
+    never staged. stage_panel_history now covers both."""
 
     def test_default_panel_history_path_is_staged(self, tmp_path):
         repo_root = tmp_path
@@ -357,9 +365,33 @@ class TestStagePanelHistory:
 
         assert "data/alpha158_291_fundamental_dataset.parquet" in manifest
 
+    def test_sec_fundamentals_daily_is_also_staged(self, tmp_path):
+        """The XGBoost fund-feature sibling gap found in round 2: this file
+        must be staged alongside the panel-history parquet, landing at
+        /data/data/sec_fundamentals_daily.parquet on the Volume — the exact
+        path renquant_pipeline's job_panel_scoring._data_root_cached()
+        resolves to once RENQUANT_DATA_ROOT is pinned to /data (see
+        modal_app.py)."""
+        from renquant_orchestrator.cloud.sync_data import build_local_manifest
+
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        (data_dir / "alpha158_291_fundamental_dataset.parquet").write_bytes(b"x")
+        (data_dir / "sec_fundamentals_daily.parquet").write_bytes(b"sec fund content")
+
+        staging = stage_panel_history(repo_root, base_config={})
+
+        staged = staging / "sec_fundamentals_daily.parquet"
+        assert staged.exists()
+        assert staged.read_bytes() == b"sec fund content"
+
+        manifest = build_local_manifest({"data": staging})
+        assert "data/sec_fundamentals_daily.parquet" in manifest
+
     def test_missing_source_file_does_not_raise_but_yields_empty_staging(self, tmp_path):
-        """No local fundamentals file at all (e.g. a dev machine without
-        the 792 MB dataset) must not crash sync — it should stage nothing
+        """No local fundamentals files at all (e.g. a dev machine without
+        the source datasets) must not crash sync — it should stage nothing
         and let the caller's own warning explain the resulting remote
         failure, rather than raising here."""
         repo_root = tmp_path  # no data/ dir created at all
@@ -368,3 +400,18 @@ class TestStagePanelHistory:
 
         assert staging.exists()
         assert list(staging.iterdir()) == []
+
+    def test_one_missing_file_does_not_block_staging_the_other(self, tmp_path):
+        """The two files are independent — if only one source exists
+        locally, it must still be staged rather than the whole function
+        bailing out because its sibling is absent."""
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        (data_dir / "sec_fundamentals_daily.parquet").write_bytes(b"sec only")
+        # alpha158_291_fundamental_dataset.parquet deliberately absent
+
+        staging = stage_panel_history(repo_root, base_config={})
+
+        assert (staging / "sec_fundamentals_daily.parquet").exists()
+        assert not (staging / "alpha158_291_fundamental_dataset.parquet").exists()
