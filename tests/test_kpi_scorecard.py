@@ -34,7 +34,7 @@ def rq_root(tmp_path, monkeypatch):
     return root
 
 
-def _make_pipeline_runs_db(path, rows):
+def _make_pipeline_runs_db(path, rows, *, candidate_rows=None, trade_rows=None):
     """rows: list of (run_id, run_date, created_at, portfolio_value, cash, n_candidates).
 
     n_candidates here means "how many candidate_scores rows to synthesize
@@ -47,7 +47,14 @@ def _make_pipeline_runs_db(path, rows):
         "create table pipeline_runs (run_id text, run_date text, created_at text, "
         "run_type text, portfolio_value real, cash real, counters_json text)"
     )
-    con.execute("create table candidate_scores (run_id text, ticker text)")
+    con.execute(
+        "create table candidate_scores (run_id text, ticker text, role text, "
+        "blocked_by text, kelly_target_pct real)"
+    )
+    con.execute(
+        "create table trades (run_id text, ticker text, action text, "
+        "shares real, invest real)"
+    )
     for run_id, run_date, created_at, pv, cash, n_candidates in rows:
         con.execute(
             "insert into pipeline_runs (run_id, run_date, created_at, run_type, "
@@ -55,8 +62,19 @@ def _make_pipeline_runs_db(path, rows):
             (run_id, run_date, created_at, pv, cash),
         )
         con.executemany(
-            "insert into candidate_scores (run_id, ticker) values (?, ?)",
+            "insert into candidate_scores (run_id, ticker, role) values (?, ?, 'candidate')",
             [(run_id, f"TICKER{i}") for i in range(n_candidates)],
+        )
+    if candidate_rows:
+        con.executemany(
+            "insert into candidate_scores (run_id, ticker, role, blocked_by, kelly_target_pct) "
+            "values (?, ?, ?, ?, ?)",
+            candidate_rows,
+        )
+    if trade_rows:
+        con.executemany(
+            "insert into trades (run_id, ticker, action, shares, invest) values (?, ?, ?, ?, ?)",
+            trade_rows,
         )
     con.commit()
     con.close()
@@ -236,6 +254,69 @@ def test_metric_deployed_fraction_uses_full_run_not_raw_latest(rq_root):
     # more-recent intraday partial row.
     assert result["value"] == pytest.approx(0.8, abs=1e-4)
     assert result["detail"]["latest_full_run_id"] == "full-run-1"
+
+
+def test_metric_sizing_fidelity_uses_canonical_full_run_and_reports_proxy_gap(rq_root):
+    db_path = str(rq_root / "runs.alpaca.db")
+    rows = [
+        ("full-run-1", "2026-06-01", "2026-06-01T13:55:00", 10_000.0, 8_000.0,
+         kpi.MIN_FULL_RUN_CANDIDATES),
+        ("intraday-monitor-1", "2026-06-01", "2026-06-01T15:30:00", 10_500.0, 500.0, 3),
+    ]
+    candidate_rows = [
+        ("full-run-1", "AAA", "candidate", None, 0.05),
+        ("full-run-1", "BLK", "candidate", "size_insufficient_cash", 0.03),
+        ("intraday-monitor-1", "AAA", "candidate", None, 0.10),
+    ]
+    trade_rows = [
+        ("full-run-1", "AAA", "buy", 4.0, 480.0),   # target proxy = 500 -> gap 4%
+        ("intraday-monitor-1", "AAA", "buy", 10.0, 1000.0),  # must be ignored
+    ]
+    _make_pipeline_runs_db(
+        db_path, rows, candidate_rows=candidate_rows, trade_rows=trade_rows
+    )
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    result = kpi._run(kpi.metric_sizing_fidelity, con)
+
+    assert result["status"] == "ok"
+    assert result["value"] == pytest.approx(0.04, abs=1e-4)
+    assert result["detail"]["latest_full_run_id"] == "full-run-1"
+    assert result["detail"]["n_entries"] == 1
+    assert result["detail"]["p90_gap"] == pytest.approx(0.04, abs=1e-4)
+    assert result["detail"]["n_size_insufficient_cash_raw"] == 1
+    assert result["detail"]["target_notional_proxy"] == "kelly_target_pct * portfolio_value"
+    assert result["detail"]["gaps_by_ticker"] == [
+        {
+            "ticker": "AAA",
+            "target_notional": pytest.approx(500.0, abs=1e-4),
+            "realized_notional": pytest.approx(480.0, abs=1e-4),
+            "gap": pytest.approx(0.04, abs=1e-4),
+        }
+    ]
+    assert "sizing_mode" in result["detail"]["pending_contract_fields_unavailable"][
+        "n_one_share_floor_roundups"
+    ]
+
+
+def test_metric_sizing_fidelity_keeps_zero_drop_baseline_when_no_buys(rq_root):
+    db_path = str(rq_root / "runs.alpaca.db")
+    rows = [
+        ("full-run-1", "2026-06-01", "2026-06-01T13:55:00", 10_000.0, 10_000.0,
+         kpi.MIN_FULL_RUN_CANDIDATES),
+    ]
+    candidate_rows = [
+        ("full-run-1", "BLK", "candidate", "size_insufficient_cash", 0.03),
+    ]
+    _make_pipeline_runs_db(db_path, rows, candidate_rows=candidate_rows)
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    result = kpi._run(kpi.metric_sizing_fidelity, con)
+
+    assert result["status"] == "ok"
+    assert result["value"] is None
+    assert result["detail"]["n_entries"] == 0
+    assert result["detail"]["median_gap"] is None
+    assert result["detail"]["p90_gap"] is None
+    assert result["detail"]["n_size_insufficient_cash_raw"] == 1
 
 
 # ------------------------------------------------------- DB provenance
