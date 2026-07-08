@@ -217,18 +217,34 @@ def run_variant_remote(request_json: str) -> str:
     else:
         peak_mem /= 1024  # KB -> MB on Linux
 
+    pod_worker_id = os.environ.get("MODAL_TASK_ID", "unknown")
+    pod_started_at = datetime.fromtimestamp(t0, tz=timezone.utc).isoformat()
+    pod_finished_at = datetime.now(timezone.utc).isoformat()
+    pod_elapsed_seconds = time.time() - t0
+
+    # Each (variant, seed) pair runs on its own pod under the per-seed
+    # fan-out design, so worker identity/timing/memory are genuinely
+    # POD-level facts, not variant-level ones. Stamp them onto seed_data
+    # so the executor can preserve per-pod provenance instead of collapsing
+    # N pods' worth of facts into a single arbitrary value.
+    seed_data["worker_id"] = pod_worker_id
+    seed_data["started_at"] = pod_started_at
+    seed_data["finished_at"] = pod_finished_at
+    seed_data["elapsed_seconds"] = pod_elapsed_seconds
+    seed_data["peak_memory_mb"] = peak_mem
+
     result_obj = {
         "variant_name": request["variant_name"],
         "role": request.get("role", "candidate"),
         "config_fingerprint": hashlib.sha256(
             request["config_json"].encode()
         ).hexdigest(),
-        "worker_id": os.environ.get("MODAL_TASK_ID", "unknown"),
+        "worker_id": pod_worker_id,
         "volume_commit_id": request.get("volume_commit_id"),
         "code_image_id": os.environ.get("MODAL_IMAGE_ID", "unknown"),
-        "started_at": datetime.fromtimestamp(t0, tz=timezone.utc).isoformat(),
-        "finished_at": datetime.now(timezone.utc).isoformat(),
-        "elapsed_seconds": time.time() - t0,
+        "started_at": pod_started_at,
+        "finished_at": pod_finished_at,
+        "elapsed_seconds": pod_elapsed_seconds,
         "peak_memory_mb": peak_mem,
         "seeds": [seed],
         "per_seed": [seed_data],

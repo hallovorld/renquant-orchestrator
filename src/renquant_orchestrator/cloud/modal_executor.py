@@ -24,6 +24,20 @@ MODAL_MEM_RATE = 0.00000222  # $/GiB-sec
 WORKER_CORES = 4
 WORKER_MEM_GIB = 16
 
+# Conservative per-pod runtime estimate for the preflight cost gate, in
+# seconds. The only real data point available is the pre-reconciliation
+# smoke test's cached-run worker time (5558s / 93min) for ONE pod running
+# ALL 3 seeds serially on the OLD architecture — see
+# doc/progress/2026-07-08-modal-sweep-validated.md. Under the per-seed
+# fan-out design each pod now runs exactly ONE seed, so the true per-pod
+# time is very likely lower (perhaps close to 5558/3 if backtest compute
+# dominates), but that has NOT been re-measured on the reconciled code, and
+# fixed per-pod overhead (image pull, data load from the Volume) may not
+# scale down linearly with fewer seeds. Using the full un-split figure is
+# the conservative (non-optimistic) choice until a fresh bounded smoke test
+# on THIS code produces a real per-seed-pod number to replace it.
+DEFAULT_SECONDS_PER_POD_ESTIMATE = 5558.0
+
 
 def _estimate_cost_usd(elapsed_seconds: float) -> float:
     return elapsed_seconds * (
@@ -116,13 +130,31 @@ class ModalExecutor:
                         result_dict.get("per_seed", [])
                     )
                     if vname not in variant_meta:
-                        variant_meta[vname] = result_dict
+                        # Each (variant, seed) pod bills its own compute-seconds;
+                        # seed the variant-level total from this pod's elapsed
+                        # time rather than treating a single pod as the whole
+                        # variant's cost.
+                        prev = dict(result_dict)
+                        prev["total_worker_seconds"] = result_dict.get(
+                            "elapsed_seconds", 0.0
+                        )
+                        variant_meta[vname] = prev
                     else:
                         prev = variant_meta[vname]
-                        prev["elapsed_seconds"] = max(
-                            prev.get("elapsed_seconds", 0),
-                            result_dict.get("elapsed_seconds", 0),
-                        )
+                        # Cost is billed per pod-second across ALL dispatched
+                        # pods for this variant (3 seeds = 3 separate pods
+                        # under the per-seed fan-out design), so the variant's
+                        # total compute-seconds is a SUM across pods, not the
+                        # max of any single pod's wall-clock time. Using max()
+                        # here would systematically undercount real spend by
+                        # roughly (seeds_per_variant)x.
+                        prev["total_worker_seconds"] = prev.get(
+                            "total_worker_seconds", 0.0
+                        ) + result_dict.get("elapsed_seconds", 0.0)
+                        # peak_memory_mb IS legitimately a max: pods run on
+                        # independent machines, so memory doesn't add across
+                        # them — the worst single pod's footprint is what
+                        # matters for right-sizing the resource envelope.
                         prev["peak_memory_mb"] = max(
                             prev.get("peak_memory_mb", 0),
                             result_dict.get("peak_memory_mb", 0),
@@ -163,12 +195,24 @@ class ModalExecutor:
                         variant_name=vname,
                         role=meta.get("role", "candidate"),
                         config_fingerprint=meta.get("config_fingerprint", ""),
+                        # worker_id/started_at/finished_at/result_checksum below
+                        # are stamped from whichever pod's response happened to
+                        # be aggregated first for this variant — they are NOT
+                        # necessarily representative of every pod that ran a
+                        # seed for this variant. Each per_seed[i] entry carries
+                        # its own authoritative worker_id/started_at/
+                        # finished_at/elapsed_seconds/peak_memory_mb — use those
+                        # for genuine per-pod provenance.
                         worker_id=meta.get("worker_id", "modal"),
                         volume_commit_id=meta.get("volume_commit_id"),
                         code_image_id=meta.get("code_image_id"),
                         started_at=meta.get("started_at", ""),
                         finished_at=meta.get("finished_at", ""),
-                        elapsed_seconds=meta.get("elapsed_seconds", 0.0),
+                        # elapsed_seconds at the variant level is the SUM of
+                        # every dispatched pod's elapsed time for this variant
+                        # (total billed compute-seconds), not any single pod's
+                        # wall-clock duration — see the aggregation loop above.
+                        elapsed_seconds=meta.get("total_worker_seconds", 0.0),
                         peak_memory_mb=meta.get("peak_memory_mb", 0.0),
                         seeds=all_seeds,
                         per_seed=per_seed,
@@ -186,7 +230,14 @@ class ModalExecutor:
         summary.total_seconds = time.monotonic() - t0
         return summary
 
-    def preflight(self, data_manifest: DataManifest) -> PreflightReport:
+    def preflight(
+        self,
+        data_manifest: DataManifest,
+        *,
+        n_variants: int,
+        n_seeds_per_variant: int,
+        seconds_per_pod: float = DEFAULT_SECONDS_PER_POD_ESTIMATE,
+    ) -> PreflightReport:
         checks: dict[str, bool] = {}
         details: dict[str, str] = {}
 
@@ -205,10 +256,18 @@ class ModalExecutor:
             checks["modal_sdk"] = False
             details["modal_sdk"] = "modal package not installed"
 
-        projected = _estimate_cost_usd(30.0) * 75
+        # Under the per-seed fan-out design, one pod is dispatched per
+        # (variant, seed) pair — the cost projection must scale with the
+        # ACTUAL pod count, not a stale one-pod-per-variant assumption.
+        n_pods = n_variants * n_seeds_per_variant
+        projected = _estimate_cost_usd(seconds_per_pod) * n_pods
         checks["cost_reasonable"] = projected < 20.0
         if not checks["cost_reasonable"]:
-            details["cost_reasonable"] = f"Projected: ${projected:.2f} (75 variants × 30s)"
+            details["cost_reasonable"] = (
+                f"Projected: ${projected:.2f} ({n_pods} pods = "
+                f"{n_variants} variants × {n_seeds_per_variant} seeds, "
+                f"{seconds_per_pod:.0f}s/pod estimate)"
+            )
 
         return PreflightReport(
             passed=all(checks.values()),

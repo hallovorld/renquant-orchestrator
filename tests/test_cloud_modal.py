@@ -237,7 +237,7 @@ class TestModalExecutor:
             files={"ohlcv/SPY.parquet": "abc"},
             total_bytes=1000,
         )
-        report = executor.preflight(manifest)
+        report = executor.preflight(manifest, n_variants=1, n_seeds_per_variant=1)
         assert not report.passed
         assert report.checks["bundle_exists"] is False
 
@@ -254,7 +254,7 @@ class TestModalExecutor:
             files={"ohlcv/SPY.parquet": "abc"},
             total_bytes=1000,
         )
-        report = executor.preflight(manifest)
+        report = executor.preflight(manifest, n_variants=1, n_seeds_per_variant=1)
         assert report.checks["bundle_exists"] is True
         assert report.checks["volume_has_data"] is True
         assert report.checks["cost_reasonable"] is True
@@ -286,9 +286,35 @@ class TestModalExecutor:
         manifest = DataManifest(
             commit_id=None, timestamp="", files={}, total_bytes=0,
         )
-        report = executor.preflight(manifest)
+        report = executor.preflight(manifest, n_variants=1, n_seeds_per_variant=1)
         assert not report.passed
         assert report.checks["volume_has_data"] is False
+
+    def test_preflight_cost_scales_with_actual_pod_count(self, tmp_path: Path):
+        """Under per-seed fan-out, pods = n_variants * n_seeds_per_variant.
+        The preflight cost projection must scale with that real product, not
+        a stale one-pod-per-variant assumption (previously hardcoded as
+        `_estimate_cost_usd(30.0) * 75`, which never reflected the actual
+        75 variants x 3 seeds = 225-pod fan-out plan)."""
+        bundle = tmp_path / "bundle"
+        bundle.mkdir()
+        executor = ModalExecutor(bundle_dir=str(bundle))
+        manifest = DataManifest(
+            commit_id="test", timestamp="2026-07-08T00:00:00",
+            files={"ohlcv/SPY.parquet": "abc"}, total_bytes=1000,
+        )
+
+        # Force a scale where the $20 gate fires so the projected dollar
+        # figure is actually reported (and thus comparable) in `details`.
+        big = executor.preflight(manifest, n_variants=1000, n_seeds_per_variant=1)
+        bigger = executor.preflight(manifest, n_variants=1000, n_seeds_per_variant=3)
+        assert not big.checks["cost_reasonable"]
+        assert not bigger.checks["cost_reasonable"]
+        big_cost = float(big.details["cost_reasonable"].split("$")[1].split(" ")[0])
+        bigger_cost = float(
+            bigger.details["cost_reasonable"].split("$")[1].split(" ")[0]
+        )
+        assert bigger_cost == pytest.approx(big_cost * 3, rel=1e-6)
 
 
 def _install_fake_modal_sdk(monkeypatch):
@@ -432,3 +458,149 @@ class TestModalTimeoutRetriesConfigurability:
         second = ModalExecutor(bundle_dir=str(tmp_path), timeout=200, retries=3)
         with pytest.raises(RuntimeError, match="cannot be honored without a fresh process"):
             second.execute_batch([], on_result=lambda r: None, on_error=lambda n, e: None)
+
+
+def _install_fake_modal_sdk_with_map(monkeypatch, per_seed_results_json):
+    """Like _install_fake_modal_sdk, but the decorated worker function's
+    `.map()` yields the given canned per-pod JSON result strings and
+    `app.run()` is a working (no-op) context manager — enough to exercise
+    ModalExecutor.execute_batch's real aggregation logic end to end without
+    a real Modal dispatch."""
+    import sys as _sys
+    import types
+    from contextlib import contextmanager
+
+    fake_modal = types.ModuleType("modal")
+
+    class _FakeMappedFn:
+        def __init__(self, results):
+            self._results = results
+
+        def map(self, requests, kwargs=None):
+            return iter(self._results)
+
+    class _FakeApp:
+        def __init__(self, name):
+            self.name = name
+
+        def function(self, **kwargs):
+            def deco(fn):
+                wrapped = _FakeMappedFn(per_seed_results_json)
+                wrapped._modal_function_kwargs = kwargs
+                wrapped.get_build_def = lambda: ""
+                return wrapped
+
+            return deco
+
+        @contextmanager
+        def run(self):
+            yield self
+
+    class _FakeVolume:
+        @staticmethod
+        def from_name(name, create_if_missing=False):
+            return object()
+
+    class _FakeImage:
+        def pip_install(self, *a, **k):
+            return self
+
+        def run_commands(self, *a, **k):
+            return self
+
+    class _FakeImageNS:
+        @staticmethod
+        def debian_slim(python_version=None):
+            return _FakeImage()
+
+    fake_modal.App = _FakeApp
+    fake_modal.Volume = _FakeVolume
+    fake_modal.Image = _FakeImageNS
+
+    monkeypatch.setitem(_sys.modules, "modal", fake_modal)
+
+
+class TestPerSeedCostAggregation:
+    """Prove variant-level cost/elapsed reflects the SUM of every dispatched
+    pod's compute time under per-seed fan-out, not just the slowest pod's
+    wall-clock duration (which would undercount real spend by roughly
+    seeds_per_variant x — the bug Codex's r1 review on #435 blocked on)."""
+
+    def _fake_pod_result(self, variant_name, seed, elapsed_seconds, worker_id):
+        return json.dumps({
+            "variant_name": variant_name,
+            "role": "candidate",
+            "config_fingerprint": "fp",
+            "worker_id": worker_id,
+            "volume_commit_id": "vc1",
+            "code_image_id": "img1",
+            "started_at": "2026-07-08T00:00:00+00:00",
+            "finished_at": "2026-07-08T00:10:00+00:00",
+            "elapsed_seconds": elapsed_seconds,
+            "peak_memory_mb": 1000.0 + seed,
+            "seeds": [seed],
+            "per_seed": [{"seed": seed, "apy": 0.1, "sharpe": 1.0}],
+            "equity_curves": None,
+            "trade_logs": None,
+            "result_checksum": f"chk{seed}",
+        })
+
+    def test_variant_cost_is_sum_not_max_of_per_seed_pods(self, monkeypatch, tmp_path):
+        import sys as _sys
+        from renquant_orchestrator.cloud.executor import BacktestRequest
+
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        monkeypatch.delitem(_sys.modules, module_name, raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_RETRIES", raising=False)
+
+        # 3 pods for ONE variant with deliberately DIFFERENT elapsed times —
+        # max() would report only the slowest pod's time (600s); sum() must
+        # report the true total compute-seconds actually billed (1100s).
+        per_seed = [
+            self._fake_pod_result("cap12_driftinf_topup05", 42, 300.0, "task-a"),
+            self._fake_pod_result("cap12_driftinf_topup05", 43, 600.0, "task-b"),
+            self._fake_pod_result("cap12_driftinf_topup05", 44, 200.0, "task-c"),
+        ]
+        _install_fake_modal_sdk_with_map(monkeypatch, per_seed)
+
+        executor = ModalExecutor(bundle_dir=str(tmp_path))
+        request = BacktestRequest(
+            variant_name="cap12_driftinf_topup05",
+            role="candidate",
+            config_json="{}",
+            volume_commit_id="vc1",
+            seeds=[42, 43, 44],
+            start="2024-01-01",
+            end="2026-03-28",
+            initial_cash=100_000.0,
+            incumbent_turnover=None,
+        )
+
+        results = []
+        summary = executor.execute_batch(
+            [request],
+            on_result=results.append,
+            on_error=lambda n, e: (_ for _ in ()).throw(e),
+        )
+
+        assert len(results) == 1
+        result = results[0]
+
+        # The bug: max(300, 600, 200) == 600 (undercounts by ~1.83x here,
+        # and by ~seeds_per_variant x in the general case where all pods
+        # take similar time). The fix: sum == 1100.
+        assert result.elapsed_seconds == pytest.approx(1100.0)
+        assert result.elapsed_seconds != pytest.approx(600.0)
+
+        assert summary.cost_usd == pytest.approx(_estimate_cost_usd(1100.0))
+        assert summary.cost_usd != pytest.approx(_estimate_cost_usd(600.0))
+
+        # peak_memory_mb legitimately IS a max (independent pods, memory
+        # doesn't add across machines) — must NOT have been changed to a sum.
+        assert result.peak_memory_mb == pytest.approx(max(1042.0, 1043.0, 1044.0))
+
+        # Per-pod provenance must survive per-seed, not just collapse to
+        # whichever pod happened to report first.
+        assert len(result.per_seed) == 3
+        assert {s["seed"] for s in result.per_seed} == {42, 43, 44}

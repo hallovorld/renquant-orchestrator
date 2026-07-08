@@ -6,6 +6,98 @@ test is still recommended before the full 75-variant sweep (see below —
 this revision downgrades the prior "Smoke test PASS, ready for full sweep"
 claim, which turned out to be unreliable evidence for this reconciled code).
 
+## Round 2 (2026-07-08): fix cost/provenance undercounting + preflight mismatch
+
+Codex's re-review of the reconciled code (round 1 above) found two more
+blocking issues, both about the per-seed fan-out changing execution
+semantics (1 pod per variant → 1 pod per (variant, seed)) without the
+cost/provenance accounting or the preflight cost gate being updated to
+match.
+
+### Issue 1 — variant cost undercounted by ~seeds_per_variant x
+
+`ModalExecutor.execute_batch`'s aggregation loop took `max(elapsed_seconds)`
+across a variant's per-seed pods and charged cost once from that single
+max value. With 3 separate pods actually running (and billing) per
+variant, this understated real spend by roughly 3x — e.g. pods taking
+300s/600s/200s reported a variant cost as if only ONE 600s pod ran,
+silently discarding the other 500s of billed compute.
+
+**Fix**: `modal_executor.py`'s aggregation now tracks `total_worker_seconds`
+as a running SUM across every pod's `elapsed_seconds` for that variant
+(seeded from the first pod's own elapsed time, then added to on each
+subsequent pod). `BacktestResult.elapsed_seconds` is now populated from
+that sum, not a max — so it represents *total billed compute-seconds*
+for the variant, not any single pod's wall-clock duration. `peak_memory_mb`
+correctly stays a max (independent pods don't share memory, so the
+worst single pod's footprint is the right resource-sizing signal, unlike
+elapsed time which genuinely sums for billing purposes).
+
+For per-pod provenance (worker_id/started_at/finished_at/checksum),
+`modal_app.py`'s worker now stamps these fields onto each `seed_data`
+entry (in addition to the existing pod-level `result_obj` fields), so
+`BacktestResult.per_seed[i]` carries genuine per-pod identity/timing —
+not just whichever pod's response the executor happened to aggregate
+first. The variant-level `worker_id`/`started_at`/`finished_at`/
+`result_checksum` fields are documented in code as representative-only
+(first-arrival), not authoritative for every pod — `per_seed[i]` is the
+authoritative source per pod.
+
+### Issue 2 — preflight cost gate modeled the old 1-pod-per-variant plan
+
+`preflight()` computed `_estimate_cost_usd(30.0) * 75` — a stale
+75-pods-at-30s-each model from before the per-seed fan-out redesign,
+even though the actual plan is now `n_variants x n_seeds_per_variant`
+pods (~225-228 for the full grid + A/A variant). At the old (wrong)
+inputs this projected ~$0.20 — nowhere near the ~$9-$100+ real range
+depending on true per-pod duration — meaning the safety gate meant to
+catch unreasonable spend was silently modeling roughly 1/28th of the
+real dispatch and would never fire.
+
+**Fix**: `preflight()` now takes required `n_variants`/`n_seeds_per_variant`
+keyword args and computes `n_pods = n_variants * n_seeds_per_variant`
+before projecting cost — no hardcoded pod count. `run_sweep_modal.py`'s
+call site now derives real values from the frozen grid constants
+(`len(ENTRY_CAPS) * len(DRIFT_BUFFERS) * len(TOPUP_THRESHOLDS)` = 75,
++1 for the A/A resplit variant, or `args.max_variants + 1` in smoke
+mode) and `len(FROZEN_SEEDS)` — cheaply, without materializing the full
+75-variant config-file grid just to count it. `LocalExecutor.preflight`
+and the `BacktestExecutor` protocol gained the same optional params for
+interface consistency (local execution has no real cost concern).
+
+The per-pod time estimate used for the projection is now a named
+constant, `DEFAULT_SECONDS_PER_POD_ESTIMATE = 5558.0` (93 min) — the
+only real data point available (the original smoke test's cached-run
+worker time), used conservatively as a per-pod figure even though the
+per-seed design likely runs faster per pod than that 3-seeds-serial
+number. This is a deliberately non-optimistic placeholder pending a
+fresh smoke test on this code; it is NOT a validated per-seed-pod
+timing. At this conservative estimate, the full-grid projection now
+correctly exceeds the $20 preflight threshold — this is intended: the
+gate should require a human decision (or a real, better number) before
+authorizing full-sweep spend, not silently wave it through.
+
+### Verification
+
+- `tests/test_cloud_modal.py::TestModalExecutor::test_preflight_cost_scales_with_actual_pod_count`
+  — proves preflight's projected cost scales linearly with
+  `n_variants * n_seeds_per_variant`; confirmed failing pre-fix
+  (`TypeError: got an unexpected keyword argument 'n_variants'`).
+- `tests/test_cloud_modal.py::TestPerSeedCostAggregation::test_variant_cost_is_sum_not_max_of_per_seed_pods`
+  — dispatches 3 fake per-seed pod results (300s/600s/200s) through the
+  real `execute_batch` aggregation path (fake Modal SDK with a working
+  `app.run()` + controllable `.map()`) and asserts the resulting
+  `BacktestResult.elapsed_seconds` is 1100 (sum), not 600 (max);
+  confirmed failing pre-fix (`600.0 == 1100.0` assertion failure) via
+  `git stash` on `modal_executor.py` alone.
+- Full suite: 3246 passed, 3 skipped, 1 pre-existing unrelated failure
+  (`test_parking_sleeve_cli_computes_allocation`, reproduces on clean
+  `main`).
+- **Still NOT performed**: a fresh real Modal smoke test. Per the
+  reviewing feedback, even a bounded 1-2 variant smoke test should wait
+  until this accounting fix lands — which it now has in this revision —
+  but no cloud dispatch was run as part of this round.
+
 ## What this is
 
 This PR (per-seed fan-out) and #434 (7 runtime-failure fixes) were built

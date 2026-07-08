@@ -85,7 +85,13 @@ class LocalExecutor:
         summary.total_seconds = time.monotonic() - t0
         return summary
 
-    def preflight(self, data_manifest: DataManifest) -> PreflightReport:
+    def preflight(
+        self,
+        data_manifest: DataManifest,
+        *,
+        n_variants: int = 0,
+        n_seeds_per_variant: int = 0,
+    ) -> PreflightReport:
         return PreflightReport(passed=True, checks={"local": True})
 
     def sync_data(self, local_paths: dict[str, str]) -> DataManifest:

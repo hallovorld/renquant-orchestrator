@@ -266,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.path.insert(0, str(strat_dir.parent.parent / "scripts"))
     from run_concentration_cap_sweep import (
+        ENTRY_CAPS,
+        DRIFT_BUFFERS,
+        TOPUP_THRESHOLDS,
         FROZEN_SEEDS,
         build_grid_variants,
         build_aa_variant,
@@ -344,7 +347,23 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Step 3: Preflight check ──
     print("Step 3: Preflight check...")
-    report = executor.preflight(data_manifest)
+    # Cheap grid-size lookup from the frozen grid constants — cost/pod-count
+    # must reflect the ACTUAL per-seed fan-out plan (one pod per variant per
+    # seed), not an assumption made before the grid was known. Avoids fully
+    # materializing build_grid_variants() (which writes 75 config files to
+    # disk) just to count them. Mirrors Step 4's --max-variants limiting
+    # logic (limited grid size == args.max_variants itself: 1 incumbent +
+    # max(0, args.max_variants - 1) candidates), plus the always-run A/A
+    # resplit variant.
+    n_grid_variants = len(ENTRY_CAPS) * len(DRIFT_BUFFERS) * len(TOPUP_THRESHOLDS)
+    n_variants_planned = (
+        args.max_variants if args.max_variants is not None else n_grid_variants
+    ) + 1
+    report = executor.preflight(
+        data_manifest,
+        n_variants=n_variants_planned,
+        n_seeds_per_variant=len(FROZEN_SEEDS),
+    )
     for check, passed in report.checks.items():
         status = "PASS" if passed else "FAIL"
         detail = report.details.get(check, "")
