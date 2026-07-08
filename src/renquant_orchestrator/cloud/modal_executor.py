@@ -25,8 +25,8 @@ log = logging.getLogger(__name__)
 
 MODAL_CPU_RATE = 0.0000131  # $/physical-core-sec
 MODAL_MEM_RATE = 0.00000222  # $/GiB-sec
-WORKER_CORES = 1  # physical cores (= 2 vCPU)
-WORKER_MEM_GIB = 4
+WORKER_CORES = 4
+WORKER_MEM_GIB = 16
 
 
 def _estimate_cost_usd(elapsed_seconds: float) -> float:
@@ -42,7 +42,7 @@ class ModalExecutor:
         self,
         bundle_dir: str,
         volume_name: str = "renquant-sweep-data",
-        timeout: int = 3600,
+        timeout: int = int(os.environ.get("MODAL_TIMEOUT", "86400")),
         retries: int = 1,
     ):
         self._bundle_dir = bundle_dir
@@ -79,56 +79,102 @@ class ModalExecutor:
         t0 = time.monotonic()
         summary = BatchSummary()
 
-        request_jsons = [json.dumps(_request_to_dict(r)) for r in requests]
+        # Fan out: one Modal task per (variant, seed) for max parallelism.
+        per_seed_requests = []
+        for r in requests:
+            for seed in r.seeds:
+                d = _request_to_dict(r)
+                d["seeds"] = [seed]
+                per_seed_requests.append(json.dumps(d))
 
         with app.run():
+            n_tasks = len(per_seed_requests)
+            n_variants = len(requests)
+            log.info(
+                "Dispatching %d tasks (%d variants × %d seeds)...",
+                n_tasks, n_variants,
+                n_tasks // n_variants if n_variants else 0,
+            )
+
+            variant_seeds: dict[str, list[dict]] = {}
+            variant_meta: dict[str, dict] = {}
+
             for result_json in run_variant_remote.map(
-                request_jsons,
+                per_seed_requests,
                 kwargs={},
             ):
                 try:
                     result_dict = json.loads(result_json)
+                    vname = result_dict["variant_name"]
 
-                    equity_curves = None
-                    if result_dict.get("equity_curves"):
-                        equity_curves = {
-                            int(k): base64.b64decode(v)
-                            for k, v in result_dict["equity_curves"].items()
-                        }
-
-                    trade_logs = None
-                    if result_dict.get("trade_logs"):
-                        trade_logs = {
-                            int(k): base64.b64decode(v)
-                            for k, v in result_dict["trade_logs"].items()
-                        }
-
-                    result = BacktestResult(
-                        variant_name=result_dict["variant_name"],
-                        role=result_dict.get("role", "candidate"),
-                        config_fingerprint=result_dict.get("config_fingerprint", ""),
-                        worker_id=result_dict.get("worker_id", "modal"),
-                        volume_commit_id=result_dict.get("volume_commit_id"),
-                        code_image_id=result_dict.get("code_image_id"),
-                        started_at=result_dict.get("started_at", ""),
-                        finished_at=result_dict.get("finished_at", ""),
-                        elapsed_seconds=result_dict.get("elapsed_seconds", 0.0),
-                        peak_memory_mb=result_dict.get("peak_memory_mb", 0.0),
-                        seeds=result_dict.get("seeds", []),
-                        per_seed=result_dict.get("per_seed", []),
-                        equity_curves=equity_curves,
-                        trade_logs=trade_logs,
-                        result_checksum=result_dict.get("result_checksum", ""),
+                    variant_seeds.setdefault(vname, []).extend(
+                        result_dict.get("per_seed", [])
                     )
-                    on_result(result)
-                    summary.n_completed += 1
-                    summary.cost_usd += _estimate_cost_usd(result.elapsed_seconds)
+                    if vname not in variant_meta:
+                        variant_meta[vname] = result_dict
+                    else:
+                        prev = variant_meta[vname]
+                        prev["elapsed_seconds"] = max(
+                            prev.get("elapsed_seconds", 0),
+                            result_dict.get("elapsed_seconds", 0),
+                        )
+                        prev["peak_memory_mb"] = max(
+                            prev.get("peak_memory_mb", 0),
+                            result_dict.get("peak_memory_mb", 0),
+                        )
+                        for k in ("equity_curves", "trade_logs"):
+                            if result_dict.get(k):
+                                prev.setdefault(k, {}).update(result_dict[k])
+
                 except Exception as exc:
                     vname = "unknown"
                     try:
                         vname = json.loads(result_json).get("variant_name", "unknown")
                     except Exception:
                         pass
+                    on_error(vname, exc)
+                    summary.n_failed += 1
+
+            for vname, meta in variant_meta.items():
+                try:
+                    per_seed = variant_seeds.get(vname, [])
+                    all_seeds = [s["seed"] for s in per_seed]
+
+                    equity_curves = None
+                    if meta.get("equity_curves"):
+                        equity_curves = {
+                            int(k): base64.b64decode(v)
+                            for k, v in meta["equity_curves"].items()
+                        }
+
+                    trade_logs = None
+                    if meta.get("trade_logs"):
+                        trade_logs = {
+                            int(k): base64.b64decode(v)
+                            for k, v in meta["trade_logs"].items()
+                        }
+
+                    result = BacktestResult(
+                        variant_name=vname,
+                        role=meta.get("role", "candidate"),
+                        config_fingerprint=meta.get("config_fingerprint", ""),
+                        worker_id=meta.get("worker_id", "modal"),
+                        volume_commit_id=meta.get("volume_commit_id"),
+                        code_image_id=meta.get("code_image_id"),
+                        started_at=meta.get("started_at", ""),
+                        finished_at=meta.get("finished_at", ""),
+                        elapsed_seconds=meta.get("elapsed_seconds", 0.0),
+                        peak_memory_mb=meta.get("peak_memory_mb", 0.0),
+                        seeds=all_seeds,
+                        per_seed=per_seed,
+                        equity_curves=equity_curves,
+                        trade_logs=trade_logs,
+                        result_checksum=meta.get("result_checksum", ""),
+                    )
+                    on_result(result)
+                    summary.n_completed += 1
+                    summary.cost_usd += _estimate_cost_usd(result.elapsed_seconds)
+                except Exception as exc:
                     on_error(vname, exc)
                     summary.n_failed += 1
 
@@ -241,75 +287,73 @@ def _remote_worker(request_json: str) -> str:
         if vol_manifest.exists():
             config["walkforward"]["manifest_path"] = str(vol_manifest)
 
-    from sim.runner import run_backtest_multi_seed
+    from sim.runner import run_backtest
 
+    # Each pod runs exactly ONE seed — fan-out across pods for parallelism.
     seeds = request["seeds"]
+    seed = seeds[0] if isinstance(seeds, list) else seeds
     strategy_dir = Path("/app/kernel")
 
-    result = run_backtest_multi_seed(
-        seeds=seeds, parallel=False, config=config,
+    seed_result = run_backtest(
+        config=config,
         strategy_dir=strategy_dir, ohlcv=ohlcv, spy_df=spy_df,
         sector_etf_map=etf_map, initial_cash=float(request["initial_cash"]),
         backtest_start=request["start"], backtest_end=request["end"],
-        snapshot=False,
+        snapshot=False, seed=seed,
     )
 
-    per_seed = []
+    from scripts.run_concentration_cap_sweep import (
+        per_regime_metrics,
+        compute_turnover_fills_cost,
+        compute_winner_continuation,
+        REQUIRED_REGIMES,
+        _finite,
+    )
+
+    eq_df = getattr(seed_result, "equity_df", None)
+    n_days = int(len(eq_df)) if eq_df is not None else 0
+    trade_log = getattr(seed_result, "trade_log", None) or []
+
+    turnover = compute_turnover_fills_cost(
+        trade_log, n_days=n_days,
+        incumbent_turnover_annualized=request.get("incumbent_turnover"),
+    )
+    daily_cost_drag = float(turnover.get("daily_modeled_cost_frac") or 0.0)
+    regimes = per_regime_metrics(
+        eq_df, REQUIRED_REGIMES, daily_cost_drag=daily_cost_drag,
+    )
+    winner_cont = compute_winner_continuation(
+        trade_log,
+        entry_cap=config.get("ranking", {}).get("kelly_sizing", {}).get(
+            "max_concentration", 0.12
+        ),
+    )
+
+    seed_data = {
+        "seed": seed,
+        "apy": _finite(seed_result.apy),
+        "sharpe": _finite(seed_result.sharpe),
+        "max_dd": _finite(seed_result.max_dd),
+        "calmar": _finite(seed_result.calmar),
+        "per_regime": regimes,
+        "turnover": turnover,
+        "winner_continuation": winner_cont,
+    }
+
     equity_curves = {}
     trade_logs = {}
+    if eq_df is not None and not getattr(eq_df, "empty", True):
+        buf = io.BytesIO()
+        eq_df.to_csv(buf, index=True)
+        equity_curves[seed] = base64.b64encode(
+            gzip.compress(buf.getvalue())
+        ).decode()
 
-    for seed, seed_result in zip(result.seeds, result.per_seed_results):
-        eq_df = getattr(seed_result, "equity_df", None)
-        n_days = int(len(eq_df)) if eq_df is not None else 0
-        trade_log = getattr(seed_result, "trade_log", None) or []
-
-        from scripts.run_concentration_cap_sweep import (
-            per_regime_metrics,
-            compute_turnover_fills_cost,
-            compute_winner_continuation,
-            REQUIRED_REGIMES,
-            _finite,
-        )
-
-        turnover = compute_turnover_fills_cost(
-            trade_log, n_days=n_days,
-            incumbent_turnover_annualized=request.get("incumbent_turnover"),
-        )
-        daily_cost_drag = float(turnover.get("daily_modeled_cost_frac") or 0.0)
-        regimes = per_regime_metrics(
-            eq_df, REQUIRED_REGIMES, daily_cost_drag=daily_cost_drag,
-        )
-        winner_cont = compute_winner_continuation(
-            trade_log,
-            entry_cap=config.get("ranking", {}).get("kelly_sizing", {}).get(
-                "max_concentration", 0.12
-            ),
-        )
-
-        seed_data = {
-            "seed": seed,
-            "apy": _finite(seed_result.apy),
-            "sharpe": _finite(seed_result.sharpe),
-            "max_dd": _finite(seed_result.max_dd),
-            "calmar": _finite(seed_result.calmar),
-            "per_regime": regimes,
-            "turnover": turnover,
-            "winner_continuation": winner_cont,
-        }
-        per_seed.append(seed_data)
-
-        if eq_df is not None and not getattr(eq_df, "empty", True):
-            buf = io.BytesIO()
-            eq_df.to_csv(buf, index=True)
-            equity_curves[seed] = base64.b64encode(
-                gzip.compress(buf.getvalue())
-            ).decode()
-
-        if trade_log:
-            tl_json = "\n".join(json.dumps(t, default=str) for t in trade_log)
-            trade_logs[seed] = base64.b64encode(
-                gzip.compress(tl_json.encode())
-            ).decode()
+    if trade_log:
+        tl_json = "\n".join(json.dumps(t, default=str) for t in trade_log)
+        trade_logs[seed] = base64.b64encode(
+            gzip.compress(tl_json.encode())
+        ).decode()
 
     peak_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if sys.platform == "darwin":
@@ -330,8 +374,8 @@ def _remote_worker(request_json: str) -> str:
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "elapsed_seconds": time.time() - t0,
         "peak_memory_mb": peak_mem,
-        "seeds": seeds,
-        "per_seed": per_seed,
+        "seed": seed,
+        "per_seed": [seed_data],
         "equity_curves": equity_curves or None,
         "trade_logs": trade_logs or None,
     }
