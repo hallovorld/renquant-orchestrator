@@ -318,13 +318,20 @@ def _returns_metrics(returns: list[float]) -> dict[str, float]:
     }
 
 
-def per_regime_metrics(equity_df: Any, required_regimes: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+def per_regime_metrics(
+    equity_df: Any,
+    required_regimes: tuple[str, ...],
+    *,
+    daily_cost_drag: float = 0.0,
+) -> dict[str, dict[str, Any]]:
     """Split equity_df by its 'regime' column and compute per-regime
     returns metrics — regimes have no dedicated field on SimResult; they
     must be derived from equity_df, matching
     run_kelly_sigma_horizon_ab.py::_seed_per_regime_metrics."""
-    out: dict[str, dict[str, Any]] = {r: {"apy": None, "sharpe": None, "max_dd": None}
-                                        for r in required_regimes}
+    out: dict[str, dict[str, Any]] = {
+        r: {"apy": None, "sharpe": None, "sharpe_net_of_cost": None, "max_dd": None}
+        for r in required_regimes
+    }
     if equity_df is None or getattr(equity_df, "empty", True) or "portfolio" not in equity_df.columns:
         return out
     if "regime" not in equity_df.columns:
@@ -337,9 +344,11 @@ def per_regime_metrics(equity_df: Any, required_regimes: tuple[str, ...]) -> dic
             continue
         group_returns = _numeric_values(returns.reindex(group.index).dropna().tolist())
         perf = _returns_metrics(group_returns)
+        net_perf = _returns_metrics([ret - daily_cost_drag for ret in group_returns])
         out[regime] = {
             "n_days": int(len(group)),
             "apy": perf["apy"], "sharpe": perf["sharpe"],
+            "sharpe_net_of_cost": net_perf["sharpe"],
             "max_dd": perf["max_dd"], "calmar": perf["calmar"],
         }
     return out
@@ -362,6 +371,8 @@ def compute_turnover_fills_cost(
     years = max(n_days / 252.0, 1e-9)
     turnover_annualized = weight_flow / years
     modeled_cost_bps = turnover_annualized * ASSUMED_COST_BPS_PER_UNIT_TURNOVER
+    total_modeled_cost_frac = weight_flow * ASSUMED_COST_BPS_PER_UNIT_TURNOVER / 10_000.0
+    daily_modeled_cost_frac = total_modeled_cost_frac / n_days if n_days > 0 else 0.0
     cost_delta_bps = (
         modeled_cost_bps - (incumbent_turnover_annualized or 0.0) * ASSUMED_COST_BPS_PER_UNIT_TURNOVER
         if incumbent_turnover_annualized is not None else None
@@ -370,6 +381,8 @@ def compute_turnover_fills_cost(
         "turnover_annualized": turnover_annualized,
         "fill_count": fill_count,
         "modeled_cost_bps": modeled_cost_bps,
+        "total_modeled_cost_frac": total_modeled_cost_frac,
+        "daily_modeled_cost_frac": daily_modeled_cost_frac,
         "cost_delta_bps_vs_incumbent": cost_delta_bps,
     }
 
@@ -524,7 +537,6 @@ def execute_variant(
 
     per_seed: list[dict[str, Any]] = []
     for seed, seed_result in zip(result.seeds, result.per_seed_results):
-        regimes = per_regime_metrics(getattr(seed_result, "equity_df", None), REQUIRED_REGIMES)
         eq_df = getattr(seed_result, "equity_df", None)
         n_days = int(len(eq_df)) if eq_df is not None else 0
         trade_log = getattr(seed_result, "trade_log", None)
@@ -533,6 +545,18 @@ def execute_variant(
             trade_log, n_days=n_days,
             incumbent_turnover_annualized=incumbent_turnover_annualized,
         )
+        daily_cost_drag = float(turnover.get("daily_modeled_cost_frac") or 0.0)
+        regimes = per_regime_metrics(
+            eq_df, REQUIRED_REGIMES, daily_cost_drag=daily_cost_drag,
+        )
+        portfolio_returns = []
+        if eq_df is not None and not getattr(eq_df, "empty", True) and "portfolio" in eq_df.columns:
+            portfolio_returns = _numeric_values(
+                eq_df["portfolio"].astype(float).pct_change().dropna().tolist()
+            )
+        full_net_perf = _returns_metrics(
+            [ret - daily_cost_drag for ret in portfolio_returns]
+        )
         winner_cont = compute_winner_continuation(
             trade_log, entry_cap=variant.entry_cap,
         )
@@ -540,6 +564,7 @@ def execute_variant(
             "seed": seed,
             "apy": _finite(seed_result.apy),
             "sharpe": _finite(seed_result.sharpe),
+            "sharpe_net_of_cost": full_net_perf["sharpe"],
             "max_dd": _finite(seed_result.max_dd),
             "calmar": _finite(seed_result.calmar),
             "per_regime": regimes,
@@ -571,8 +596,12 @@ def _seed_criteria(
 
     cand_bc = (seed_row.get("per_regime") or {}).get("BULL_CALM", {})
     inc_bc = (incumbent_seed_row.get("per_regime") or {}).get("BULL_CALM", {})
-    cand_bc_sharpe = _finite(cand_bc.get("sharpe"))
-    inc_bc_sharpe = _finite(inc_bc.get("sharpe"))
+    cand_bc_sharpe = _finite(
+        cand_bc.get("sharpe_net_of_cost", cand_bc.get("sharpe"))
+    )
+    inc_bc_sharpe = _finite(
+        inc_bc.get("sharpe_net_of_cost", inc_bc.get("sharpe"))
+    )
     out["1_bull_calm_sharpe_net_of_cost"] = (
         cand_bc_sharpe >= inc_bc_sharpe
         if cand_bc_sharpe is not None and inc_bc_sharpe is not None else None
