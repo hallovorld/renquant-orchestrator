@@ -213,6 +213,14 @@ class TestTurnoverFillsCost:
         )
         assert out["cost_delta_bps_vs_incumbent"] is not None
 
+    def test_daily_modeled_cost_drag_exposed_for_net_of_cost_sharpe(self):
+        trade_log = [{"action": "buy", "ticker": "AAPL", "target_pct": 0.20}]
+        out = sweep.compute_turnover_fills_cost(trade_log, n_days=10)
+        assert out["total_modeled_cost_frac"] > 0.0
+        assert out["daily_modeled_cost_frac"] == pytest.approx(
+            out["total_modeled_cost_frac"] / 10.0, abs=1e-12,
+        )
+
 
 class TestWinnerContinuation:
     def test_sell_that_drifted_above_entry_cap_is_flagged(self):
@@ -235,11 +243,23 @@ class TestWinnerContinuation:
 
 class TestUnanimityVerdict:
     def _seed_row(self, seed, *, sharpe, bull_calm_sharpe, bull_calm_dd, full_dd=0.10,
-                  turnover=0.10, net_positive=True):
+                  turnover=0.10, net_positive=True,
+                  bull_calm_sharpe_net_of_cost=None, sharpe_net_of_cost=None):
         return {
             "seed": seed, "sharpe": sharpe, "max_dd": full_dd,
+            "sharpe_net_of_cost": (
+                sharpe if sharpe_net_of_cost is None else sharpe_net_of_cost
+            ),
             "per_regime": {
-                "BULL_CALM": {"sharpe": bull_calm_sharpe, "max_dd": bull_calm_dd},
+                "BULL_CALM": {
+                    "sharpe": bull_calm_sharpe,
+                    "sharpe_net_of_cost": (
+                        bull_calm_sharpe
+                        if bull_calm_sharpe_net_of_cost is None
+                        else bull_calm_sharpe_net_of_cost
+                    ),
+                    "max_dd": bull_calm_dd,
+                },
                 "BEAR": {"sharpe": sharpe, "max_dd": full_dd},
                 "BULL_VOLATILE": {"sharpe": sharpe, "max_dd": full_dd},
             },
@@ -271,6 +291,33 @@ class TestUnanimityVerdict:
             for s in (42, 43, 44)
         ]}
         verdict = sweep.unanimity_verdict(cand, inc, placebo_passed=True)
+        assert verdict["tier3_ready"] is False
+
+    def test_criterion_1_uses_bull_calm_net_of_cost_sharpe(self):
+        cand = {"variant": "candidate", "per_seed": [
+            self._seed_row(
+                s,
+                sharpe=1.2,
+                sharpe_net_of_cost=1.1,
+                bull_calm_sharpe=1.3,
+                bull_calm_sharpe_net_of_cost=0.8,
+                bull_calm_dd=0.09,
+            )
+            for s in (42, 43, 44)
+        ]}
+        inc = {"variant": "incumbent", "per_seed": [
+            self._seed_row(
+                s,
+                sharpe=1.0,
+                sharpe_net_of_cost=0.95,
+                bull_calm_sharpe=1.0,
+                bull_calm_sharpe_net_of_cost=1.0,
+                bull_calm_dd=0.10,
+            )
+            for s in (42, 43, 44)
+        ]}
+        verdict = sweep.unanimity_verdict(cand, inc, placebo_passed=True)
+        assert verdict["unanimous_criteria"]["1_bull_calm_sharpe_net_of_cost"] is False
         assert verdict["tier3_ready"] is False
 
     def test_missing_placebo_blocks_verdict_as_null_not_pass(self):
