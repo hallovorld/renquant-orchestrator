@@ -99,6 +99,50 @@ def run_variant_remote(request_json: str) -> str:
     # actually stages both fundamentals files (repo_root == strategy_dir's
     # grandparent == this Volume's mount point).
     os.environ.setdefault("RENQUANT_DATA_ROOT", "/data")
+
+    # The kernel copy of job_panel_scoring.py uses
+    #   Path(__file__).resolve().parents[4] / "data" / "sec_fundamentals..."
+    # On Modal, /data is a Volume mount that .resolve() follows to the
+    # underlying /__modal/volumes/<id> path, breaking parents[4] ancestry.
+    # The subrepo copy uses _data_root_cached() (correct), but the strategy
+    # kernel copy does not.  Place the fundamentals at BOTH the unresolved
+    # AND the resolved ancestry so both code paths find them.
+    _fund_names = ("sec_fundamentals_daily.parquet",
+                   "alpha158_291_fundamental_dataset.parquet")
+    _fund_src = {}
+    for _name in _fund_names:
+        for _src_dir in ("/data/data", "/data"):
+            _src = f"{_src_dir}/{_name}"
+            if os.path.exists(_src):
+                _fund_src[_name] = _src
+                break
+
+    # Compute the RESOLVED parents[4] path that the kernel will actually use
+    _kernel_scoring = Path(f"{app_root}/kernel/panel_pipeline/job_panel_scoring.py")
+    _resolved_parents4 = (
+        _kernel_scoring.resolve().parents[4] if _kernel_scoring.exists()
+        else None
+    )
+
+    # Place files at every ancestor path the kernel might resolve to
+    _target_dirs = [
+        f"{app_root}/data",
+        f"{app_root}/subrepos/renquant-pipeline/data",
+    ]
+    if _resolved_parents4:
+        _target_dirs.append(str(_resolved_parents4 / "data"))
+
+    for _td in _target_dirs:
+        os.makedirs(_td, exist_ok=True)
+        for _name, _src in _fund_src.items():
+            _dst = f"{_td}/{_name}"
+            if not os.path.exists(_dst):
+                try:
+                    os.symlink(_src, _dst)
+                except OSError:
+                    import shutil
+                    shutil.copy2(_src, _dst)
+
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
     # app_root itself (not its subdirectories) must be on sys.path for
