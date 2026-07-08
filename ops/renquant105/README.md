@@ -175,6 +175,24 @@ PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
   --data-manifest <data_manifest.json> --artifact-manifest <artifact_manifest.json> --json
 ```
 
+Cash-drag scorecard (run any time, read-only): summarizes the 105 shadow-session cash-drag
+signals the CURRENT contract exposes from `intraday_decisions_shadow.jsonl`:
+
+- close idle-cash fraction (`cash / equity` on the final tick),
+- final envelope counters (`entries_count`, `deployed_notional`, `turnover_notional`),
+- recorded whole-share-floor and insufficient-cash skips.
+
+```bash
+PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
+  /Users/renhao/git/github/RenQuant/.venv/bin/python -m renquant_orchestrator.intraday_cash_drag_scorecard \
+  --shadow-log /Users/renhao/git/github/RenQuant/logs/renquant105_pilot/intraday_decisions_shadow.jsonl
+```
+
+Important limitation: this scorecard does **not** infer `target_notional` or a true
+pre-quantization zero-drop diagnostic, because the current 105 intraday contract does not expose
+those fields yet. That future sizing-truth contract belongs in `renquant-pipeline`; this tool is
+only the orchestrator-owned evidence surface over the fields already present today.
+
 ## Paper trading setup (Stage-2 paper canary — #365)
 
 Paper trading is the pre-registration experiment for rq105 live canary trading. It uses
