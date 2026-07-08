@@ -1,10 +1,10 @@
 # Modal Sweep — Reconciled with #434's Runtime Fixes
 
 **Date**: 2026-07-08
-**Status**: Code reconciled + locally verified; a fresh bounded remote smoke
-test is still recommended before the full 75-variant sweep (see below —
-this revision downgrades the prior "Smoke test PASS, ready for full sweep"
-claim, which turned out to be unreliable evidence for this reconciled code).
+**Status**: Round 4 real bounded Modal smoke test FAILED (3/3 tasks hit
+3600s timeout, ~$0.95 real cost). Root cause found and fixed (missing
+fundamentals data in the Volume sync). A FRESH real Modal smoke test has
+NOT been run against this fix -- that verification is still outstanding.
 
 ## Round 2 (2026-07-08): fix cost/provenance undercounting + preflight mismatch
 
@@ -234,3 +234,90 @@ Findings from that run: seeds 42/43/44 produced identical results
 projection (75 variants × 3 seeds, 225 pods, ~31 min wall-clock, ~$9) is
 plausible order-of-magnitude but should be re-confirmed once a fresh
 smoke test on this reconciled code exists.
+
+
+## Round 4 (2026-07-08): real bounded smoke test FAILED -- missing fundamentals data
+
+With cost/provenance accounting fixed (round 2) and the stale
+"validated" claim removed (round 3), the operator authorized running the
+actual bounded 1-variant/3-seed remote Modal smoke test round 3 asked for.
+
+**Result: FAILED.** All 3 dispatched tasks (1 variant x 3 seeds) ran for
+the full 3600s worker timeout and were cancelled by Modal's platform --
+none produced a completed result. Real cost incurred: ~3 pods x
+up to 3600s on 4 CPU/16GB ~= **$0.95**.
+
+### Root cause
+
+Remote logs (`modal app logs <app-id>`) showed, on every one of 500+
+consecutive simulated backtest days:
+
+```
+Panel scoring contract failed (panel_fundamentals_missing). Cleared N buy candidate(s); buy/QP path is fail-closed for this run.
+NoTradeAlert: N consecutive days with zero orders (limit=15) -- some upstream gate is blocking.
+SimAdapter: panel history cache load failed -- [Errno 2] No such file or directory: '/data/data/alpha158_291_fundamental_dataset.parquet'
+```
+
+`SimAdapter._load_panel_history_cache()` (`backtesting/renquant_104/adapters/sim.py:753-778`)
+resolves `panel_history_path` (default
+`"data/alpha158_291_fundamental_dataset.parquet"`, not overridden in any
+config this sweep uses) relative to `strategy_dir.parent.parent` -- i.e.
+`repo_root` in this script's terms. `scripts/run_sweep_modal.py`'s
+`local_paths` dict passed to `executor.sync_data()` only ever had
+`"ohlcv"` and `"app"` labels -- **no `"data"` label at all**, so this
+792 MB fundamentals dataset was never synced to the Modal Volume in the
+first place. Every simulated day fail-closed on panel scoring with zero
+candidates, and the worker apparently spun in that state without ever
+reaching a terminal result until Modal killed it on timeout.
+
+This is a structural gap, not a flaky/transient failure: it would recur
+on every future Modal run of this sweep, deterministically, regardless of
+which variant or seed runs.
+
+### Fix
+
+Extracted a new `stage_panel_history(repo_root, base_config) -> Path`
+function (mirrors the existing OHLCV-subsetting pattern -- the full
+`data/` dir is 24 GB; only the one 792 MB fundamentals file is needed, so
+it is selectively staged into a temp dir rather than syncing everything).
+Added `"data": str(data_staging)` to `local_paths`. With the Modal
+Volume mounted at `/data` (per `modal_executor.py`), a `"data"`-labeled
+sync entry lands at `/data/data/<filename>` inside the container --
+exactly the path `SimAdapter` resolves to.
+
+`stage_panel_history()` reads the same config keys `SimAdapter` reads
+(`ranking.panel_scoring.panel_history_path`, falling back to
+`panel_history_path`, falling back to the same hardcoded default) so a
+future config override is honored identically on both the local and
+Modal execution paths.
+
+Checked for sibling gaps: the only other `"data/..."`-relative config
+keys in `adapters/sim.py`/`adapters/runner.py`/`kernel/persistence.py`
+are OUTPUT paths (`position_day_snapshots.parquet`, `runs.db`,
+`sim_runs.db`) or short-selling-specific (`alpaca_borrow_status.json`,
+not exercised -- this sweep's config has no shorting enabled and
+`persistence.enabled=False` is set for every variant, per
+`variant_to_request()` in `run_sweep()`). No other input-data gap found.
+
+### Verification
+
+- 4 new tests in `tests/test_run_sweep_modal.py::TestStagePanelHistory`,
+  covering: default path staged, configured-override path staged, the
+  staged file's manifest-relative-path contract
+  (`build_local_manifest` genuinely produces
+  `"data/alpha158_291_fundamental_dataset.parquet"`, not just "a file
+  exists somewhere"), and the missing-source-file case degrading
+  gracefully rather than crashing.
+- All 4 confirmed to fail against pre-fix code via `git stash`
+  (`ImportError: cannot import name 'stage_panel_history'`).
+- Full suite: 3250 passed, 1 pre-existing unrelated failure
+  (`test_parking_sleeve_cli_computes_allocation` -- confirmed passes in
+  isolation; an environment/ordering flake unrelated to this change, not
+  introduced by it).
+- **Did NOT re-run a real Modal smoke test.** This fix is verified
+  locally (source file resolution + manifest-path contract), but the
+  actual remote execution path -- does the fundamentals file genuinely
+  land correctly inside the container and let panel scoring succeed --
+  has not been re-confirmed on Modal. That is the next required step
+  before treating this PR as execution-proven, and it requires separate
+  spend authorization (the failed round-4 attempt already cost ~$0.95).

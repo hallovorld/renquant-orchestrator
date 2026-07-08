@@ -224,6 +224,37 @@ def run_sweep(
     }
 
 
+def stage_panel_history(repo_root: Path, base_config: dict[str, Any]) -> Path:
+    """Stage SimAdapter's panel-history fundamentals cache for Volume sync.
+
+    SimAdapter._load_panel_history_cache() resolves "panel_history_path"
+    (default "data/alpha158_291_fundamental_dataset.parquet", not overridden
+    in any config this sweep uses) relative to strategy_dir.parent.parent,
+    i.e. the same repo_root already used for ohlcv_dir. Selectively stage
+    just that one file (792 MB) rather than the full data/ dir (24 GB) —
+    same rationale as the OHLCV subsetting elsewhere in main().
+
+    Returns the staging directory to pass as local_paths["data"]; the
+    directory may be empty if the source file is missing (caller decides
+    whether that is fatal).
+    """
+    panel_history_path = base_config.get("ranking", {}).get("panel_scoring", {}).get(
+        "panel_history_path",
+        base_config.get("panel_history_path", "data/alpha158_291_fundamental_dataset.parquet"),
+    )
+    data_staging = Path(tempfile.mkdtemp(prefix="data_sync_"))
+    panel_history_src = repo_root / panel_history_path
+    if panel_history_src.exists():
+        dst = data_staging / Path(panel_history_path).name
+        shutil.copy2(panel_history_src, dst)
+        print(f"  Staged panel history cache: {dst.name} "
+              f"({panel_history_src.stat().st_size / 1e6:.0f} MB)")
+    else:
+        print(f"  WARNING: panel history cache not found at {panel_history_src} "
+              f"— panel scoring will fail-closed on the remote worker")
+    return data_staging
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
@@ -314,6 +345,12 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copy2(src_pq, dst / "1d.parquet")
     print(f"  Staged {len(list(ohlcv_staging.iterdir()))} symbols for sync")
 
+    # SimAdapter._load_panel_history_cache() resolves "panel_history_path"
+    # relative to strategy_dir.parent.parent (== repo_root here). Missing this
+    # caused every simulated day to fail-closed on panel scoring
+    # (panel_fundamentals_missing) until the remote task hit its timeout.
+    data_staging = stage_panel_history(repo_root, base_config)
+
     # Copy artifacts into bundle at kernel/artifacts/... so they appear at the
     # path SimAdapter expects (strategy_dir/artifacts/...) without symlinks.
     wf_manifest = json.loads(manifest_abs_path.read_text())
@@ -338,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     local_paths: dict[str, str] = {
         "ohlcv": str(ohlcv_staging),
         "app": str(bundle_dir),
+        "data": str(data_staging),
     }
 
     data_manifest = executor.sync_data(local_paths)

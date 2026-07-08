@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from renquant_orchestrator.cloud.executor import BacktestResult, BatchSummary, DataManifest
 from renquant_orchestrator.cloud.result_store import ResultStore
 
-from run_sweep_modal import run_sweep
+from run_sweep_modal import run_sweep, stage_panel_history
 
 
 FROZEN_SEEDS = (42, 43, 44)
@@ -295,3 +295,76 @@ class TestRunSweepEndToEnd:
             "cap12_drift00_topup05", "cap20_drift00_topup05",
             "cap30_drift00_topup05", "aa_resplit",
         }
+
+
+
+class TestStagePanelHistory:
+    """Regression test for the missing-fundamentals-data Modal smoke-test
+    failure (2026-07-08): SimAdapter._load_panel_history_cache() resolves
+    panel_history_path relative to repo_root, but run_sweep_modal.py's
+    local_paths dict never included a "data" label, so the fundamentals
+    parquet was never synced to the Modal Volume. Every simulated day
+    fail-closed on panel scoring until the remote task hit its 3600s
+    timeout and was cancelled — a real, ~$0.95 failed cloud run."""
+
+    def test_default_panel_history_path_is_staged(self, tmp_path):
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        src = data_dir / "alpha158_291_fundamental_dataset.parquet"
+        src.write_bytes(b"fake parquet content")
+
+        staging = stage_panel_history(repo_root, base_config={})
+
+        staged = staging / "alpha158_291_fundamental_dataset.parquet"
+        assert staged.exists(), "default panel_history_path must be staged"
+        assert staged.read_bytes() == b"fake parquet content"
+
+    def test_configured_panel_history_path_override_is_staged(self, tmp_path):
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        src = data_dir / "custom_panel_history.parquet"
+        src.write_bytes(b"custom content")
+
+        staging = stage_panel_history(
+            repo_root,
+            base_config={"ranking": {"panel_scoring": {
+                "panel_history_path": "data/custom_panel_history.parquet",
+            }}},
+        )
+
+        staged = staging / "custom_panel_history.parquet"
+        assert staged.exists()
+        assert staged.read_bytes() == b"custom content"
+
+    def test_staged_file_lands_at_the_path_simadapter_expects_on_the_volume(self, tmp_path):
+        """End-to-end contract check against the real manifest builder:
+        the staged file must appear in the sync manifest as
+        "data/<filename>", so that with the Volume mounted at /data
+        (see modal_executor.py), the remote path is /data/data/<filename>
+        — exactly what SimAdapter's strategy_dir.parent.parent-relative
+        resolution expects."""
+        from renquant_orchestrator.cloud.sync_data import build_local_manifest
+
+        repo_root = tmp_path
+        data_dir = repo_root / "data"
+        data_dir.mkdir()
+        (data_dir / "alpha158_291_fundamental_dataset.parquet").write_bytes(b"x")
+
+        staging = stage_panel_history(repo_root, base_config={})
+        manifest = build_local_manifest({"data": staging})
+
+        assert "data/alpha158_291_fundamental_dataset.parquet" in manifest
+
+    def test_missing_source_file_does_not_raise_but_yields_empty_staging(self, tmp_path):
+        """No local fundamentals file at all (e.g. a dev machine without
+        the 792 MB dataset) must not crash sync — it should stage nothing
+        and let the caller's own warning explain the resulting remote
+        failure, rather than raising here."""
+        repo_root = tmp_path  # no data/ dir created at all
+
+        staging = stage_panel_history(repo_root, base_config={})
+
+        assert staging.exists()
+        assert list(staging.iterdir()) == []
