@@ -183,7 +183,7 @@ class TestSyncDataLocalManifest:
     def test_build_manifest_file(self, tmp_path: Path):
         f = tmp_path / "data.parquet"
         f.write_bytes(b"parquet data")
-        manifest = build_local_manifest({"ohlcv": f})
+        manifest, _sources = build_local_manifest({"ohlcv": f})
         assert "ohlcv/data.parquet" in manifest
 
     def test_build_manifest_dir(self, tmp_path: Path):
@@ -191,7 +191,7 @@ class TestSyncDataLocalManifest:
         d.mkdir()
         (d / "AAPL.parquet").write_bytes(b"aapl")
         (d / "SPY.parquet").write_bytes(b"spy")
-        manifest = build_local_manifest({"ohlcv": d})
+        manifest, _sources = build_local_manifest({"ohlcv": d})
         assert "ohlcv/AAPL.parquet" in manifest
         assert "ohlcv/SPY.parquet" in manifest
 
@@ -214,7 +214,7 @@ class TestSyncDataLocalManifest:
         (d / "good.parquet").write_bytes(b"ok")
         (d / ".env").write_text("SECRET=x")
         (d / "rawlabel.parquet").write_bytes(b"nope")
-        manifest = build_local_manifest({"data": d})
+        manifest, _sources = build_local_manifest({"data": d})
         assert "data/good.parquet" in manifest
         assert not any(".env" in k for k in manifest)
         assert not any("rawlabel" in k for k in manifest)

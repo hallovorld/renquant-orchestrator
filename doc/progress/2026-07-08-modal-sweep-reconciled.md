@@ -427,3 +427,122 @@ stopping:
   incurred by this round). A genuinely fresh bounded smoke test against
   BOTH fixes together is still the next required step before this PR can
   be treated as execution-proven.
+
+## Round 6 (2026-07-08): THIRD real smoke test — round 5's fix was necessary but not sufficient; root cause is a stale bundled triple-impl, not a caching/ordering race
+
+A third real bounded (1-variant/3-seed) Modal smoke test was run against
+round 5's fix (`36b3972f`, both fundamentals files staged under `"data"` +
+`RENQUANT_DATA_ROOT=/data` pinned). **Confirmed via `modal app logs`: both
+prior file-not-found errors are gone** — neither
+`alpha158_291_fundamental_dataset.parquet` nor `sec_fundamentals_daily.parquet`
+produced a "no such file" error, and `modal volume ls renquant-sweep-data
+/data` directly confirmed both files genuinely exist on the Volume at their
+staged paths. **Yet `panel_fundamentals_missing` still fired on every
+simulated day, same as rounds 4-5.**
+
+Round 5's own writeup left this open: *"The observed graceful
+panel_fundamentals_missing ... implies something upstream catches that
+exception ... the exact try/except site was not traced further."* This
+round traced it. **The hypothesis was wrong — there is no swallowed
+exception and no import-order/`@lru_cache`-timing race in `modal_app.py`.**
+Read `modal_app.py`'s `run_variant_remote` line-by-line: `os.environ.
+setdefault("RENQUANT_DATA_ROOT", "/data")` runs before `sys.path` is even
+configured (before any subrepo directory is importable), and before the
+first `from sim.runner import run_backtest` / `from scripts.run_
+concentration_cap_sweep import ...` — there is no earlier import in this
+file or its own module-level code that could reach `renquant_pipeline`
+first. In isolation, the ordering in this file is correct.
+
+**The actual root cause: `adapters/sim.py` (bundled into the Modal image
+via `bundle_subrepos()`'s `kernel`/`sim`/`adapters` copy) imports panel
+scoring via `from kernel.panel_pipeline import PanelScorer` — a
+DIFFERENT top-level import path than `renquant_pipeline.kernel.
+panel_pipeline`, resolving to a physically SEPARATE directory:
+`RenQuant/backtesting/renquant_104/kernel/panel_pipeline/` (confirmed a
+real directory, not a symlink). This bundled copy's `job_panel_scoring.py`
+predates the `_data_root.py` refactor entirely — it has no
+`_data_root_cached()` import at all, and hardcodes
+`repo = Path(__file__).resolve().parents[4]` directly (confirmed by
+reading the file: 6 separate call sites, e.g. line 568-569,
+`repo = Path(__file__).resolve().parents[4]; fp = repo / "data" /
+"sec_fundamentals_daily.parquet"`).**
+
+For this file bundled at `/data/app/kernel/panel_pipeline/
+job_panel_scoring.py`, `parents[4]` resolves to `/` (the container
+filesystem root) — completely independent of `RENQUANT_DATA_ROOT`, which
+this stale copy never reads. So it looks for
+`/data/sec_fundamentals_daily.parquet` (Volume-relative path
+`sec_fundamentals_daily.parquet`, no directory prefix) — ONE level
+shallower than where round 5 staged it (`/data/data/sec_fundamentals_
+daily.parquet`, Volume-relative `data/sec_fundamentals_daily.parquet`).
+This is a genuine triple-impl divergence — the same class of bug this
+session's own history has hit before (calibrator/scorer fingerprint
+triple-impl) — not a caching or ordering bug in the code round 5 touched.
+
+`alpha158_291_fundamental_dataset.parquet` was unaffected by this same
+issue because `SimAdapter._load_panel_history_cache()` (the consumer for
+THAT file) resolves its own root via `strategy_dir.parent.parent` — a
+third, independent convention that happens to already agree with round
+4's staging path; only the `sec_fundamentals_daily.parquet` consumer in
+the stale bundled `job_panel_scoring.py` copy has this depth mismatch.
+
+### Fix
+
+`sync_data.py`: `build_local_manifest` now returns
+`(manifest, sources)` instead of just `manifest` — the previous
+`rel_path.split("/", 1)` re-derivation of `(label, file_rel)` in
+`sync_to_modal_volume`'s upload loop is ambiguous for a root-level
+(no-prefix) file, since there's nothing to split on; the new `sources`
+dict is built directly alongside the manifest and used as the
+authoritative local-file lookup at upload time. Added `_prefixed(label,
+rel)`: an empty label means no path prefix, landing a file directly at
+the Volume root.
+
+`run_sweep_modal.py`: `stage_panel_history()` now returns
+`(data_staging, root_staging)` — `data_staging` unchanged (both files,
+`"data"` label, for `SimAdapter`/the canonical `_data_root_cached()`
+resolver); `root_staging` is a new, separate staging directory containing
+ONLY `sec_fundamentals_daily.parquet` (17.5 MB — small, so duplicating it
+is cheap), passed to `sync_data()` under the empty-string label
+(`local_paths[""]`) so it lands at the Volume root — exactly where the
+stale bundled `job_panel_scoring.py` copy's `parents[4]`-based resolution
+looks. `alpha158_291_fundamental_dataset.parquet` is NOT duplicated (it's
+792 MB and only needed at the one path it already correctly lands at).
+
+Did not touch the umbrella tree (`RenQuant/backtesting/renquant_104/
+kernel/panel_pipeline/job_panel_scoring.py` itself is out of bounds per
+this repo's hard rule against writing to that live checkout) — the fix
+is entirely on the sync/staging side, duplicating the small file to a
+second path rather than patching the stale consumer's resolution logic
+in place.
+
+### Verification
+
+- 2 tests renamed/restructured, 1 new test added in
+  `tests/test_run_sweep_modal.py::TestStagePanelHistory`:
+  `test_sec_fundamentals_daily_is_also_staged_at_modern_path` (existing
+  assertion, renamed for clarity that this is the canonical-resolver
+  path, not necessarily what's actually executing), and
+  `test_sec_fundamentals_daily_is_also_staged_at_legacy_root_path` (new —
+  asserts the file lands in `root_staging` and that `build_local_manifest`
+  with an empty label produces `"sec_fundamentals_daily.parquet"` with NO
+  `"data/"` prefix). Existing missing-file/one-file-missing tests updated
+  for the new two-directory return signature.
+- All new/changed assertions confirmed to fail against round-5-only code
+  via targeted revert of `sync_data.py`/`run_sweep_modal.py` alone
+  (keeping the new tests): 4 failures, including
+  `TypeError: cannot unpack non-iterable PosixPath object` (proving the
+  single-return-value signature was genuinely different before) and
+  `AssertionError` on the missing root-level staged file.
+- Full suite: 3253 passed, 1 pre-existing unrelated failure
+  (`test_parking_sleeve_cli_computes_allocation`, same as every prior
+  round, unrelated to this change).
+- **Did NOT run a fresh real Modal smoke test on this fix** — the
+  round-6 real smoke test (already in flight, predates this fix) was
+  inspected read-only for diagnosis only; no additional spend incurred by
+  this investigation/fix. A fresh bounded smoke test against this fix is
+  still the next required step. Given this is now the THIRD distinct
+  fundamentals-data-path issue found across three consecutive real smoke
+  tests, a genuinely comprehensive trace of every consumer's resolution
+  convention (rather than fixing one gap per round as discovered) may be
+  warranted before further real spend, to reduce the risk of a fourth.

@@ -224,46 +224,67 @@ def run_sweep(
     }
 
 
-def stage_panel_history(repo_root: Path, base_config: dict[str, Any]) -> Path:
+def stage_panel_history(
+    repo_root: Path, base_config: dict[str, Any],
+) -> tuple[Path, Path]:
     """Stage the fundamentals inputs SimAdapter/job_panel_scoring need for Volume sync.
 
-    Two independent consumers read files under repo_root/"data" on the
-    remote worker, and both were silently unsynced (first Modal smoke test
-    round found the first; a second real run found the second still
-    fail-closing after the first fix landed):
+    THREE independent consumers read fundamentals files, and all three were
+    silently unsynced or misrouted (rounds 1-3 of real bounded Modal smoke
+    tests each found one):
 
     1. SimAdapter._load_panel_history_cache() resolves "panel_history_path"
        (default "data/alpha158_291_fundamental_dataset.parquet", not
        overridden in any config this sweep uses) relative to
        strategy_dir.parent.parent, i.e. the same repo_root already used
-       for ohlcv_dir.
+       for ohlcv_dir. Fixed by staging under the "data" label
+       (-> /data/data/<file> once the Volume is mounted at /data).
+
     2. renquant_pipeline.kernel.panel_pipeline.job_panel_scoring's
        XGBoost-scorer fund-feature lookup (needed whenever
        scorer.feature_cols includes earnings_yield/book_to_price/
        gross_profitability/roe/asset_growth — true for this sweep's
-       panel_ltr_xgboost scorer) reads
-       renquant_pipeline...panel_pipeline._data_root.data_root() / "data" /
-       "sec_fundamentals_daily.parquet". That resolver's own fallback chain
-       (RENQUANT_DATA_ROOT env var, else sibling-checkout / home-dir /
-       package-root candidates — none of which exist inside the Modal
-       container) never lands on this repo_root; modal_app.py now pins
-       RENQUANT_DATA_ROOT="/data" explicitly on the remote worker so this
-       resolver targets the same root SimAdapter already uses, but that
-       root still needs the file physically present.
+       panel_ltr_xgboost scorer) reads its OWN "data" / "sec_fundamentals_
+       daily.parquet" relative to renquant_pipeline...panel_pipeline.
+       _data_root.data_root() — which resolves RENQUANT_DATA_ROOT if set
+       (modal_app.py pins it to "/data"), landing at the SAME
+       /data/data/... path as (1). Covered by the same "data"-label stage.
 
-    Selectively stage just these two files (792 MB + 17.5 MB) rather than
-    the full data/ dir (24 GB) — same rationale as the OHLCV subsetting
-    elsewhere in main().
+    3. A THIRD, genuinely separate implementation: RenQuant/backtesting/
+       renquant_104/kernel/panel_pipeline/job_panel_scoring.py — a stale
+       bundled COPY (predates the _data_root.py refactor entirely) that
+       adapters/sim.py actually imports via `from kernel.panel_pipeline
+       import PanelScorer` (a different top-level import path than
+       renquant_pipeline.kernel.panel_pipeline — confirmed by direct
+       inspection, NOT the same module object). It hardcodes
+       `Path(__file__).resolve().parents[4]`, which for this file bundled
+       at /data/app/kernel/panel_pipeline/job_panel_scoring.py resolves to
+       "/" (the container filesystem root) — so it looks for
+       /data/sec_fundamentals_daily.parquet, ONE level shallower than (2)'s
+       path, completely independent of RENQUANT_DATA_ROOT. THIS is the
+       consumer that's actually exercised by this sweep's real backtest
+       execution (confirmed: round 3's real smoke test showed neither of
+       (1)/(2)'s file-not-found errors, yet panel_fundamentals_missing
+       still fired — because this third path was never covered at all).
 
-    Returns the staging directory to pass as local_paths["data"]; any
-    individual source file that's missing is skipped with a warning
-    (caller decides whether that is fatal) rather than raising.
+    Selectively stage just these files (792 MB + 17.5 MB, the latter
+    duplicated at two paths since it's small) rather than the full data/
+    dir (24 GB) — same rationale as the OHLCV subsetting elsewhere in
+    main().
+
+    Returns (data_staging, root_staging): data_staging is for
+    local_paths["data"] (consumers 1+2); root_staging is for
+    local_paths[""] (consumer 3 — empty label means no path prefix, so
+    the file lands directly at the Volume root). Any individual source
+    file that's missing is skipped with a warning (caller decides whether
+    that is fatal) rather than raising.
     """
     panel_history_path = base_config.get("ranking", {}).get("panel_scoring", {}).get(
         "panel_history_path",
         base_config.get("panel_history_path", "data/alpha158_291_fundamental_dataset.parquet"),
     )
     data_staging = Path(tempfile.mkdtemp(prefix="data_sync_"))
+    root_staging = Path(tempfile.mkdtemp(prefix="data_sync_root_"))
     for rel_path in (panel_history_path, "data/sec_fundamentals_daily.parquet"):
         src = repo_root / rel_path
         if src.exists():
@@ -274,7 +295,15 @@ def stage_panel_history(repo_root: Path, base_config: dict[str, Any]) -> Path:
         else:
             print(f"  WARNING: {rel_path} not found at {src} "
                   f"— panel scoring will fail-closed on the remote worker")
-    return data_staging
+
+    sec_fund_src = repo_root / "data" / "sec_fundamentals_daily.parquet"
+    if sec_fund_src.exists():
+        dst = root_staging / sec_fund_src.name
+        shutil.copy2(sec_fund_src, dst)
+        print(f"  Staged data/sec_fundamentals_daily.parquet at Volume root "
+              f"(legacy kernel/panel_pipeline consumer): {dst.name} "
+              f"({sec_fund_src.stat().st_size / 1e6:.0f} MB)")
+    return data_staging, root_staging
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -371,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     # relative to strategy_dir.parent.parent (== repo_root here). Missing this
     # caused every simulated day to fail-closed on panel scoring
     # (panel_fundamentals_missing) until the remote task hit its timeout.
-    data_staging = stage_panel_history(repo_root, base_config)
+    data_staging, root_staging = stage_panel_history(repo_root, base_config)
 
     # Copy artifacts into bundle at kernel/artifacts/... so they appear at the
     # path SimAdapter expects (strategy_dir/artifacts/...) without symlinks.
@@ -398,6 +427,13 @@ def main(argv: list[str] | None = None) -> int:
         "ohlcv": str(ohlcv_staging),
         "app": str(bundle_dir),
         "data": str(data_staging),
+        # Empty label -> no path prefix -> lands at Volume root. Needed for
+        # the stale bundled kernel/panel_pipeline/job_panel_scoring.py copy
+        # (see stage_panel_history's docstring, consumer 3) which resolves
+        # its own root via a hardcoded parents[4] rather than
+        # RENQUANT_DATA_ROOT, landing one directory level shallower than
+        # the "data" label above.
+        "": str(root_staging),
     }
 
     data_manifest = executor.sync_data(local_paths)
