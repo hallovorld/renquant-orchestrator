@@ -28,7 +28,7 @@ WORKER_MEM_GIB = 16
 # seconds. The only real data point available is the pre-reconciliation
 # smoke test's cached-run worker time (5558s / 93min) for ONE pod running
 # ALL 3 seeds serially on the OLD architecture — see
-# doc/progress/2026-07-08-modal-sweep-validated.md. Under the per-seed
+# doc/progress/2026-07-08-modal-sweep-reconciled.md. Under the per-seed
 # fan-out design each pod now runs exactly ONE seed, so the true per-pod
 # time is very likely lower (perhaps close to 5558/3 if backtest compute
 # dominates), but that has NOT been re-measured on the reconciled code, and
