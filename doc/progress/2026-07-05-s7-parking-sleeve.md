@@ -28,3 +28,19 @@ docstring to match the code exactly, and made "integration pending" explicit
 in the module docstring itself (was already explicit in this doc's NEXT line,
 but not in the code's own docstring). No executable-code change; 23/23 tests
 unchanged.
+
+ROUND 3 (Codex review): added an informational `S7_parking_sleeve_shadow`
+readiness surface in `readiness_monitor.py`. It reports distinct session dates
+observed in the canonical shadow log, file freshness, and whether the log is
+still legacy direct-allocation JSON or the newer runtime-wrapped schema. This
+is intentionally NOT an authoritative READY gate: a 10-session count alone does
+not prove the full S7 AC (`sweep and fund legs both exercised`, `reserve never
+breached`). It gives the program a real-time accrual surface without pretending
+to authorize live enablement.
+
+ROUND 4 (Codex review): tightened that readiness surface so the 10-session
+milestone counts only **runtime-wrapped** sessions (the post-#423 plumbing
+shape with `book_state` + `runtime` provenance), not legacy module-only
+direct-allocation rows. Mixed logs now report both the wrapped-session accrual
+and the count of legacy-only sessions, so the monitor stops overstating
+"plumbing progress" just because old shadow rows exist.
