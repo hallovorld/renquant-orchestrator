@@ -52,7 +52,7 @@ def bundle_subrepos(
         dst = subrepos_out / repo_name / "src"
         _copy_tree(src, dst, manifest, f"subrepos/{repo_name}/src")
 
-    for subdir_name in ("kernel", "sim"):
+    for subdir_name in ("kernel", "sim", "adapters", "training_panel"):
         src = strategy_dir / subdir_name
         if src.is_dir():
             dst = output_dir / subdir_name

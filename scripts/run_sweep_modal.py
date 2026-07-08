@@ -118,6 +118,7 @@ def run_sweep(
 
     if incumbent.name not in completed:
         print(f"\nStep 6: Running incumbent ({incumbent.name})...")
+        print("  (first run builds Docker image on Modal — may take 3-5 min, cached after)")
         executor.execute_batch(
             [variant_to_request(incumbent)],
             on_result=persist,
@@ -237,6 +238,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--placebo-json", action="append", default=[])
     parser.add_argument("--volume-name", default="renquant-sweep-data")
     parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--max-variants", type=int, default=None,
+                        help="Limit total variants (incumbent + N-1 candidates) for smoke testing")
     args = parser.parse_args(argv)
 
     repo_root = default_repo_root()
@@ -292,8 +295,6 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     ohlcv_dir = repo_root / "data" / "ohlcv"
-    artifacts_dir = strat_dir / "artifacts"
-    model_dir = strat_dir / "models"
 
     # Only sync OHLCV for symbols the sweep actually uses (16 MB vs 250 MB)
     base_config = json.loads(base_config_path.read_text())
@@ -310,11 +311,31 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copy2(src_pq, dst / "1d.parquet")
     print(f"  Staged {len(list(ohlcv_staging.iterdir()))} symbols for sync")
 
-    local_paths: dict[str, str] = {"ohlcv": str(ohlcv_staging)}
-    if artifacts_dir.is_dir():
-        local_paths["artifacts"] = str(artifacts_dir)
-    if model_dir.is_dir():
-        local_paths["models"] = str(model_dir)
+    # Copy artifacts into bundle at kernel/artifacts/... so they appear at the
+    # path SimAdapter expects (strategy_dir/artifacts/...) without symlinks.
+    wf_manifest = json.loads(manifest_abs_path.read_text())
+    staged_count = 0
+    for retrain in wf_manifest.get("retrains", []):
+        for key in ("artifact_uri", "calibrator_uri"):
+            uri = retrain.get(key)
+            if not uri:
+                continue
+            src = strat_dir / uri
+            if src.exists():
+                dst = bundle_dir / "kernel" / uri
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                staged_count += 1
+    manifest_dst = bundle_dir / "kernel" / args.manifest_path
+    manifest_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(manifest_abs_path, manifest_dst)
+    staged_count += 1
+    print(f"  Staged {staged_count} artifact files into bundle")
+
+    local_paths: dict[str, str] = {
+        "ohlcv": str(ohlcv_staging),
+        "app": str(bundle_dir),
+    }
 
     data_manifest = executor.sync_data(local_paths)
     print(f"  Volume commit={data_manifest.commit_id}, "
@@ -346,6 +367,13 @@ def main(argv: list[str] | None = None) -> int:
     grid_variants = build_grid_variants(
         base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
     )
+    if args.max_variants is not None:
+        incumbent = next(v for v in grid_variants if v.role == "incumbent")
+        candidates = [v for v in grid_variants if v.role == "candidate"]
+        n_cand = max(0, args.max_variants - 1)
+        grid_variants = [incumbent] + candidates[:n_cand]
+        print(f"  Smoke mode: limited to {len(grid_variants)} variants "
+              f"(incumbent + {n_cand} candidates)")
     aa_variant = build_aa_variant(
         base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
     )
