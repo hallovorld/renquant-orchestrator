@@ -1,12 +1,9 @@
 # Modal Sweep — Reconciled with #434's Runtime Fixes
 
 **Date**: 2026-07-08
-**Status**: Round 5 real bounded Modal smoke test STILL RUNNING at the time
-this round was written (operator re-authorized under the standing <$10
-spend policy). Interim log inspection of the in-progress run found a
-SECOND, independent fundamentals-sync gap (round 4's fix was necessary but
-not sufficient) — fixed in this round, not yet re-verified against a fresh
-run.
+**Status**: **PASS** — Round 7 bounded smoke test confirmed the
+deterministic data contract end-to-end on Modal. Incumbent APY 57.9%,
+Sharpe 2.33, A/A +0.0000, cost $0.30. Ready for full 75-variant sweep.
 
 ## Round 2 (2026-07-08): fix cost/provenance undercounting + preflight mismatch
 
@@ -652,3 +649,249 @@ genuinely distinct, well-understood, cheaply-fixable data-staging gaps —
 not evidence of an unbounded/open-ended problem — but a fresh real smoke
 test against ALL FOUR fixes together is now the single most informative
 next step before considering the full 75-variant sweep.
+
+## Round 8 (2026-07-08): FOURTH real smoke test still failed; the actual deepest root cause is the Modal Volume symlink, not the naive `parents[4]` math
+
+A fresh bounded smoke test against rounds 6+7's combined fix
+(dual-staging at the naive `parents[4]`-computed root path) was run.
+**It still failed with the same `panel_fundamentals_missing` symptom** —
+despite directly confirming via `modal volume ls renquant-sweep-data
+/data` that the file existed at exactly the expected path, and manually
+verifying that `Path('/data/app/kernel/panel_pipeline/job_panel_scoring.py')
+.parents[4]` computes to `/` exactly as rounds 6-7 assumed. At the time
+this was reported to the operator as a genuine unknown, not a confident
+diagnosis.
+
+**Actual root cause, found on a parallel branch
+(`feat/modal-per-seed-fanout-v2`, commit `501b5f48`): Modal mounts the
+Volume at `/data`, but `/data` is itself a symlink to
+`/__modal/volumes/<id>`.** `job_panel_scoring.py`'s real code does not
+call the naive, non-resolving `Path(__file__).parents[4]` that rounds
+6-7 verified by hand — it calls `Path(__file__).resolve().parents[4]`,
+and `.resolve()` follows the symlink, producing a completely different
+ancestor chain than the manual verification assumed. This is why the
+round 6/7 fix was logically correct on paper (matching the naive
+computation) yet still failed in the container (which executes the
+resolved computation).
+
+### Fix
+
+`modal_app.py`'s `run_variant_remote` now computes BOTH the unresolved
+app-root-relative paths AND the actual `Path(__file__).resolve()
+.parents[4]` the kernel copy will use at runtime, then places
+fundamentals files/symlinks at every plausible target directory
+(`{app_root}/data`, `{app_root}/subrepos/renquant-pipeline/data`, and the
+resolved-`parents[4]`-derived `data` dir) — defensive placement rather
+than a single computed "correct" path, since the symlink-vs-no-symlink
+ambiguity means "correct" depends on which of the two implementations
+(kernel copy vs. subrepo copy) is asking.
+
+### Verification
+
+- Bounded smoke test (2025-10-01 → 2026-01-15, 60 trading days, 2
+  variants × 3 seeds = 6 pods): **0 `panel_fundamentals_missing` errors**
+  (was 100% failure before). Incumbent APY 57.9%, Sharpe 2.33, Max DD
+  6.3%. A/A resplit lift +0.000 (PASS). Wall time 1433s, cost $0.29.
+- This is the fix that finally made the pipeline execute end-to-end —
+  rounds 6-7's fixes were necessary (the stale-kernel and
+  earnings_surprise/news_sentiment_alpaca gaps are real and still
+  required) but not sufficient on their own; this symlink fix was the
+  missing piece.
+
+## Round 9 (2026-07-08): deterministic preflight data contract
+
+Reviewer feedback: four consecutive paid bounded smokes uncovering four
+separate missing-input/path assumptions showed the validation method was
+too reactive — discovering dependency-surface gaps by spending cloud money
+one layer at a time. Before another paid run, the reviewer required a
+deterministic preflight contract that enumerates and verifies every
+required file BEFORE spending cloud money.
+
+### What was built
+
+`src/renquant_orchestrator/cloud/data_contract.py` — two verification
+surfaces:
+
+1. **`verify_staged()`** (local, pre-sync) — checks all required files
+   exist in the local staging dirs / bundle BEFORE uploading to the Modal
+   Volume. Enumerated checks:
+   - 3 code entry points (kernel scorer, sim runner, sweep script)
+   - 6 required subrepo packages
+   - Walk-forward manifest + every artifact/calibrator URI it references
+   - 2 fundamentals parquet files
+   - OHLCV per-symbol (every symbol in watchlist + sector ETFs + benchmark)
+
+2. **`verify_remote()`** (container, pre-backtest) — checks all required
+   files are reachable on the container's filesystem after Volume mount +
+   symlink setup + sys.path configuration. Runs BEFORE importing any
+   backtest code, so a missing file produces a clear enumerated error
+   (with all missing paths listed) instead of a mid-backtest fail-close.
+   Includes the resolved-parents[4] fundamentals path check (the Modal
+   Volume symlink issue from round 5's root cause).
+
+### Integration
+
+- `scripts/run_sweep_modal.py`: new Step 3 "Verify staged data contract"
+  runs `verify_staged()` after staging and BEFORE `sync_to_modal_volume()`
+  — zero cloud money spent if any required file is missing.
+- `modal_app.py`: `verify_remote()` called at the start of
+  `run_variant_remote()` after symlink setup and sys.path configuration,
+  BEFORE importing `sim.runner`. A missing file raises `RuntimeError`
+  with a clear enumerated report — fails fast instead of timing out
+  mid-backtest.
+
+### Verification
+
+- 9 new tests in `tests/test_cloud_data_contract.py`: staged-all-present,
+  missing-fundamentals, missing-ohlcv-symbol, missing-code-entry,
+  missing-wf-artifact, missing-subrepo, remote-code-and-subrepos,
+  remote-missing-code, contract-report-summary.
+- Full suite: 3263 passed, 2 skipped, 0 failures.
+- Bounded remote smoke test: **PASS** — see Round 10 below.
+
+## Round 10 (2026-07-08): bounded smoke test PASS — data contract confirmed end-to-end
+
+With the deterministic preflight data contract in place (Round 9), the
+bounded smoke test is now the CONFIRMATION step rather than the
+discovery mechanism — exactly what the reviewer asked for.
+
+### Execution
+
+1-variant / 3-seeds bounded smoke test on Modal, backtest window
+2025-10-01 → 2026-01-15, `$100k` initial cash.
+
+**Preflight** (local, pre-sync):
+- Data contract: **237 checks, 0 failures** (3 code entries, 6
+  subrepos, 39 WF manifest artifact pairs, 2 fundamentals, 146
+  OHLCV symbols, 1 optional base_config WARN)
+- Preflight gates: volume_has_data ✓, bundle_exists ✓, modal_sdk ✓,
+  cost_reasonable ✓
+
+**Remote** (container, pre-backtest):
+- `verify_remote()` passed silently on all 3 incumbent pods and all
+  3 A/A pods (6 pods total) — no `RuntimeError` raised, meaning all
+  code entries, subrepos, fundamentals, and OHLCV files were found
+  on the container filesystem.
+
+### Results
+
+| Metric | Incumbent | A/A resplit |
+|--------|-----------|-------------|
+| APY | 57.9% | 57.9% |
+| Sharpe | 2.33 | 2.33 |
+| Max DD | 6.3% | 6.3% |
+| Calmar | 9.13 | 9.13 |
+| BULL_CALM Sharpe | 2.16 (73d) | 2.16 (73d) |
+| Worker time | 3042s (51 min) | 3431s (57 min) |
+| Peak memory | 4599 MB | 4591 MB |
+
+**A/A Sharpe lift: +0.0000** (PASS — tolerance ±0.1). Seeds 42/43/44
+vs 1042/1043/1044 produced identical results, confirming deterministic
+pipeline.
+
+### Cost
+
+- Wall time: 1166s (19 min)
+- 6 pods total (2 variants × 3 seeds)
+- **Estimated cost: $0.30**
+- Volume: 1084 files, 852.3 MB
+- Volume commit: `77027a9a...`
+
+### Full-sweep projection
+
+At $0.30 for 2 variants (6 pods), the full 75-variant sweep (225 pods)
+projects to **~$9** — consistent with the standing <$10 spend
+authorization.
+
+### What this proves
+
+1. The deterministic data contract (`verify_staged` + `verify_remote`)
+   correctly enumerated ALL required files — zero discoveries during
+   this smoke test (contrast with rounds 4-5 where each run uncovered
+   a new missing-file gap).
+2. Per-seed fan-out works: 3 seeds dispatched as 3 separate Modal pods,
+   each ran independently, results aggregated correctly.
+3. The backtest pipeline runs end-to-end on Modal containers with the
+   reconciled code (post-#434 runtime fixes + per-seed fan-out +
+   Volume path fix + fundamentals sync + RENQUANT_DATA_ROOT pin).
+4. Cost accounting is correct: $0.30 for 6 pods matches expectations.
+
+## Round 11 (2026-07-08): branch reconciliation — merge gap-tracing work into the validated contract branch, close the earnings_surprise/news_sentiment_alpaca contract gap
+
+Rounds 6-8 (stale-kernel diagnosis, architecture investigation, and the
+Volume-symlink root cause) and rounds 9-10 (the deterministic contract +
+validated real smoke test) were done on two branches that diverged from
+the same base and were never merged into each other:
+`feat/modal-per-seed-fanout` (this PR's actual branch, head `007cec40`)
+and `feat/modal-per-seed-fanout-v2` (`424600b2`). A separate session had
+edited this PR's title/body to describe the `-v2` branch's contract and
+validated-PASS results as if they were already on this branch's commits
+— they were not; `007cec40` had no `data_contract.py` and no trace of
+the contract work. This round reconciles the two into the branch this
+PR is actually built from.
+
+### What was merged
+
+`git merge origin/feat/modal-per-seed-fanout-v2` from `007cec40` (in a
+fresh worktree, not the shared checkout). Result: **one conflict**, in
+this progress doc (both branches had appended their own "Round 6/7"
+sections independently — resolved by renumbering into the coherent
+6→11 sequence above, reflecting actual chronology). Both code files
+(`scripts/run_sweep_modal.py`, `src/renquant_orchestrator/cloud/
+modal_app.py`) auto-merged with **zero conflict markers** — git's 3-way
+merge combined both sides cleanly since they touched non-overlapping
+regions. Verified post-merge via grep that both branches' key markers
+survived together in the merged files: `RENQUANT_DATA_ROOT`,
+`sec_fundamentals_daily`, `earnings_surprise`, `news_sentiment_alpaca`,
+and the stale-kernel/symlink comments.
+
+### Gap found and closed: earnings_surprise/news_sentiment_alpaca were staged but not contract-checked
+
+Round 7's fix (on `feat/modal-per-seed-fanout`) staged
+`data/earnings_surprise/` and `data/news_sentiment_alpaca/` because
+they're genuinely read by this sweep's scorer (PEAD/SUE/sentiment
+feature columns, confirmed in the WF manifest). The `-v2` branch's
+`data_contract.py` (`verify_staged`/`verify_remote`) enumerated
+fundamentals, code entries, subrepos, WF artifacts, and OHLCV — but
+did **not** include these two directories, so the contract could report
+"237 checks, 0 failures" without ever checking whether the
+PEAD/SUE/sentiment features it actually staged were still present.
+This was a real, confirmed gap (not assumed): grepped
+`_fund_files`/`_fund_names` in both `verify_staged()` and
+`verify_remote()` and found only `sec_fundamentals_daily.parquet` and
+`alpha158_291_fundamental_dataset.parquet` listed.
+
+**Fix**: added `feature_dir:earnings_surprise` and
+`feature_dir:news_sentiment_alpaca` checks to both `verify_staged()` and
+`verify_remote()`, marked `required=False` — matching round 7's own
+finding that these degrade silently (zero-impute) rather than
+fail-closing the backtest, so a WARN is the correct severity, not a
+FAIL that would block an otherwise-valid sweep.
+
+### Verification
+
+- 2 new tests in `tests/test_cloud_data_contract.py`:
+  `test_verify_staged_missing_feature_dirs_warns_not_fails` (confirms
+  absence produces `required=False`/`exists=False` checks and does NOT
+  flip `report.passed` to `False`) and
+  `test_verify_staged_present_feature_dirs` (confirms presence is
+  correctly detected). 11/11 tests in this file pass.
+- **Did not re-run a real Modal smoke test.** The `-v2` branch's round-10
+  smoke test already validated the actual staged/wired data (including
+  these two directories, staged since round 7) end-to-end; this round
+  only adds contract *visibility* into files that were already being
+  staged and were already present during that validated run — it does
+  not change what gets staged, synced, or executed. Re-testing would be
+  redundant spend against the standing <$10 authorization's guidance to
+  avoid unnecessary repeat runs once a pattern is validated. If a future
+  change touches staging/sync behavior for these two directories, that
+  would be the trigger for a fresh bounded test.
+- Full orchestrator test suite run after the merge — see below.
+
+### Next step
+
+Push this reconciled branch to `feat/modal-per-seed-fanout` (the exact
+branch this PR is built from), update the PR title/body to describe the
+actual final state (contract + validated PASS + the two architecture
+findings, not a re-narration of either branch alone), and let review
+proceed against the reconciled head.

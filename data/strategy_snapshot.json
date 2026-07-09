@@ -74,6 +74,7 @@
     "cli",
     "cloud.__init__",
     "cloud.bundle",
+    "cloud.data_contract",
     "cloud.executor",
     "cloud.local_executor",
     "cloud.modal_app",
