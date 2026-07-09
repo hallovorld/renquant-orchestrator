@@ -340,8 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     bundle_fp = compute_bundle_fingerprint(bundle_manifest)
     print(f"  Bundled {len(bundle_manifest)} files, fingerprint={bundle_fp[:12]}")
 
-    # ── Step 2: Sync data to Modal Volume ──
-    print("Step 2: Syncing data to Modal Volume...")
+    # ── Step 2: Stage data for sync ──
+    print("Step 2: Staging data...")
     from renquant_orchestrator.cloud.modal_executor import ModalExecutor
 
     executor = ModalExecutor(
@@ -400,21 +400,35 @@ def main(argv: list[str] | None = None) -> int:
         "data": str(data_staging),
     }
 
+    # ── Step 3: Verify staged data contract ──
+    print("Step 3: Verifying staged data contract...")
+    from renquant_orchestrator.cloud.data_contract import verify_staged
+
+    contract = verify_staged(
+        bundle_dir=bundle_dir,
+        ohlcv_staging=ohlcv_staging,
+        data_staging=data_staging,
+        base_config=base_config,
+        manifest_path=args.manifest_path,
+    )
+    print(contract.summary())
+    if not contract.passed:
+        n_fail = len(contract.failed)
+        print(f"\nData contract FAILED — {n_fail} required file(s) missing. "
+              "Fix before syncing to Modal Volume.")
+        return 1
+    print(f"  Data contract PASSED: {len(contract.checks)} checks, "
+          f"0 failures")
+
+    # ── Step 4: Sync to Modal Volume ──
+    print("Step 4: Syncing data to Modal Volume...")
     data_manifest = executor.sync_data(local_paths)
     print(f"  Volume commit={data_manifest.commit_id}, "
           f"{len(data_manifest.files)} files, "
           f"{data_manifest.total_bytes / 1e6:.1f} MB")
 
-    # ── Step 3: Preflight check ──
-    print("Step 3: Preflight check...")
-    # Cheap grid-size lookup from the frozen grid constants — cost/pod-count
-    # must reflect the ACTUAL per-seed fan-out plan (one pod per variant per
-    # seed), not an assumption made before the grid was known. Avoids fully
-    # materializing build_grid_variants() (which writes 75 config files to
-    # disk) just to count them. Mirrors Step 4's --max-variants limiting
-    # logic (limited grid size == args.max_variants itself: 1 incumbent +
-    # max(0, args.max_variants - 1) candidates), plus the always-run A/A
-    # resplit variant.
+    # ── Step 5: Preflight check ──
+    print("Step 5: Preflight check...")
     n_grid_variants = len(ENTRY_CAPS) * len(DRIFT_BUFFERS) * len(TOPUP_THRESHOLDS)
     n_variants_planned = (
         args.max_variants if args.max_variants is not None else n_grid_variants
@@ -441,8 +455,8 @@ def main(argv: list[str] | None = None) -> int:
         print("\nDry run complete. Add --execute to run, or --preflight to check only.")
         return 0
 
-    # ── Step 4: Build variant grid ──
-    print("Step 4: Building variant grid...")
+    # ── Step 6: Build variant grid ──
+    print("Step 6: Building variant grid...")
     grid_variants = build_grid_variants(
         base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
     )
@@ -460,7 +474,7 @@ def main(argv: list[str] | None = None) -> int:
     variant_by_name = {v.name: v for v in grid_variants}
     variant_by_name[aa_variant.name] = aa_variant
 
-    # ── Step 5: initialize ResultStore ──
+    # ── Step 7: initialize ResultStore ──
     from renquant_orchestrator.cloud.result_store import ResultStore
 
     sweep_id = args.resume or f"concentration-cap-sweep-modal-{stamp}"

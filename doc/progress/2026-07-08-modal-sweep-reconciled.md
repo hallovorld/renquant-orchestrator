@@ -427,3 +427,56 @@ stopping:
   incurred by this round). A genuinely fresh bounded smoke test against
   BOTH fixes together is still the next required step before this PR can
   be treated as execution-proven.
+
+## Round 6 (2026-07-08): deterministic preflight data contract
+
+Reviewer feedback: four consecutive paid bounded smokes uncovering four
+separate missing-input/path assumptions showed the validation method was
+too reactive — discovering dependency-surface gaps by spending cloud money
+one layer at a time. Before another paid run, the reviewer required a
+deterministic preflight contract that enumerates and verifies every
+required file BEFORE spending cloud money.
+
+### What was built
+
+`src/renquant_orchestrator/cloud/data_contract.py` — two verification
+surfaces:
+
+1. **`verify_staged()`** (local, pre-sync) — checks all required files
+   exist in the local staging dirs / bundle BEFORE uploading to the Modal
+   Volume. Enumerated checks:
+   - 3 code entry points (kernel scorer, sim runner, sweep script)
+   - 6 required subrepo packages
+   - Walk-forward manifest + every artifact/calibrator URI it references
+   - 2 fundamentals parquet files
+   - OHLCV per-symbol (every symbol in watchlist + sector ETFs + benchmark)
+
+2. **`verify_remote()`** (container, pre-backtest) — checks all required
+   files are reachable on the container's filesystem after Volume mount +
+   symlink setup + sys.path configuration. Runs BEFORE importing any
+   backtest code, so a missing file produces a clear enumerated error
+   (with all missing paths listed) instead of a mid-backtest fail-close.
+   Includes the resolved-parents[4] fundamentals path check (the Modal
+   Volume symlink issue from round 5's root cause).
+
+### Integration
+
+- `scripts/run_sweep_modal.py`: new Step 3 "Verify staged data contract"
+  runs `verify_staged()` after staging and BEFORE `sync_to_modal_volume()`
+  — zero cloud money spent if any required file is missing.
+- `modal_app.py`: `verify_remote()` called at the start of
+  `run_variant_remote()` after symlink setup and sys.path configuration,
+  BEFORE importing `sim.runner`. A missing file raises `RuntimeError`
+  with a clear enumerated report — fails fast instead of timing out
+  mid-backtest.
+
+### Verification
+
+- 9 new tests in `tests/test_cloud_data_contract.py`: staged-all-present,
+  missing-fundamentals, missing-ohlcv-symbol, missing-code-entry,
+  missing-wf-artifact, missing-subrepo, remote-code-and-subrepos,
+  remote-missing-code, contract-report-summary.
+- Full suite: 3263 passed, 2 skipped, 0 failures.
+- Bounded remote smoke test: PENDING (this round's deliverable is the
+  contract itself; the smoke test is now the CONFIRMATION step, not the
+  discovery mechanism).

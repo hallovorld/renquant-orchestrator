@@ -164,6 +164,18 @@ def run_variant_remote(request_json: str) -> str:
         if p not in sys.path:
             sys.path.insert(0, p)
 
+    # Verify the remote data contract before importing backtest code.
+    # This is the container-side half of the deterministic preflight: if any
+    # required file is missing, fail immediately with a clear enumerated
+    # report instead of discovering it mid-backtest via a fail-close.
+    from renquant_orchestrator.cloud.data_contract import verify_remote
+    _contract = verify_remote(app_root=app_root)
+    if not _contract.passed:
+        raise RuntimeError(
+            f"Remote data contract FAILED — {len(_contract.failed)} "
+            f"required file(s) missing:\n{_contract.summary()}"
+        )
+
     config = json.loads(request["config_json"])
     config["_strategy_dir"] = f"{app_root}/kernel"
     config["_strategy_config_name"] = f"remote_{request['variant_name']}"
