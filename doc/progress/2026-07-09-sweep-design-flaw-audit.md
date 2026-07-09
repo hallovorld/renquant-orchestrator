@@ -95,14 +95,18 @@ JointActionJob) and stamps `kelly_target_pct` on candidates. But the QP's
 optimization objective uses `_qp_mu` (expected returns) and `_qp_w_upper`
 (from `max_position_pct`), not `kelly_target_pct`.
 
-### 4. Swept parameter only reaches post-QP secondary tasks
+### 4. Swept parameter only reaches one post-QP secondary task
 
-After JointActionJob, two Kelly-driven tasks run:
-- `TopUpHeldTask` (line 486) — reads `kelly_target_pct` (affected by sweep)
-- `TrimHeldTask` (line 493) — reads `kelly_target_pct` + `trim_threshold` (affected)
+After JointActionJob, two Kelly-driven tasks are wired:
+- `TopUpHeldTask` (line 486) — **SKIPPED when `solver=qp`**.
+  `_joint_qp_owns_topups()` (task_topup.py:68-76) returns True when
+  `joint_actions.solver=qp`, causing TopUpHeldTask to bail at line 115-119.
+- `TrimHeldTask` (line 493) — reads `kelly_target_pct` + `trim_threshold`.
+  This is the ONLY surviving channel for `max_concentration` to affect
+  the sweep output.
 
-These are post-QP adjustments that rarely fire because the QP has already
-sized positions.
+The sweep effectively tested a single secondary interaction: Kelly-driven
+trim behavior, not the primary allocator cap.
 
 ### 5. Why drift00 differs
 
@@ -117,8 +121,8 @@ different outcome from `cap10-20`.
 ```
 max_concentration (SWEPT: 0.08–0.20)
   → kelly_target_pct on candidates
-    → TopUpHeldTask (post-QP, rarely fires)
-    → TrimHeldTask  (post-QP, only fires at drift00)
+    → TopUpHeldTask: SKIPPED (solver=qp owns top-ups)
+    → TrimHeldTask:  ONLY surviving channel (fires at drift00 only)
 
 max_position_pct (NOT SWEPT: constant 0.15)
   → _qp_w_upper
@@ -167,11 +171,11 @@ The `min_share_floor` experiment exists (tasks.py:3057-3082) but is **off by def
 **K1. Kelly targets are computed but mostly discarded when QP is active.**
 `ApplyKellySizingTask` runs inside `PanelScoringJob` (before JointActionJob) and
 stamps `kelly_target_pct` on every candidate and holding. When `joint_actions.enabled
-= true`, the QP makes the primary allocation using its own Markowitz objective —
-Kelly's per-name `μ/σ²` targets are thrown away. Only the post-QP `TopUpHeldTask` and
-`TrimHeldTask` read them.
+= true` and `solver=qp`, the QP makes the primary allocation — Kelly targets are
+thrown away. `TopUpHeldTask` is explicitly skipped when `solver=qp`
+(`_joint_qp_owns_topups()`, task_topup.py:68-76). Only `TrimHeldTask` reads them.
 
-**K2. Post-QP Kelly adjustments can fight the QP.**
+**K2. Post-QP Trim fights the QP.**
 Scenario: QP allocates 10% to AAPL. Kelly target is 8% (`max_concentration=0.08`).
 `TrimHeldTask` (drift00) sees `current(10%) > kelly_target(8%)` → forces sell down
 to 8%. Next bar, QP sees AAPL underweight → buys back toward 10%. This is the
@@ -205,16 +209,18 @@ and even then, only through the post-QP TopUp/Trim channel.
                          │ orders emitted
                          ▼
 ┌─────────────────────────────────────────────────────┐
-│ TopUpHeldTask / TrimHeldTask                        │
-│   reads kelly_target_pct (from step 1)              │ ← POST-HOC fix
-│   can ADD or REMOVE shares vs QP allocation         │ ← FIGHTS QP
+│ TopUpHeldTask: SKIPPED (solver=qp owns top-ups)     │
+│ TrimHeldTask                                        │
+│   reads kelly_target_pct (from step 1)              │ ← ONLY survivor
+│   can REMOVE shares vs QP allocation                │ ← FIGHTS QP
 └─────────────────────────────────────────────────────┘
 ```
 
 Two independent sizing philosophies (Kelly f* vs Markowitz MV) run simultaneously.
-Kelly computes targets → QP ignores them → TopUp/Trim retroactively apply them.
-This is not "defense in depth"; it's two systems with different objectives fighting
-over the same portfolio, with the post-hoc system occasionally winning (drift00).
+Kelly computes targets → QP ignores them → TopUp is skipped (QP owns it) → only
+Trim retroactively applies Kelly targets. This is not "defense in depth"; it's two
+systems with different objectives fighting over the same portfolio, with the post-hoc
+Trim occasionally winning (drift00).
 
 ### Cash drag implications
 
