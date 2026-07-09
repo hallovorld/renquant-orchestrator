@@ -84,7 +84,13 @@ class BacktestExecutor(Protocol):
         max_concurrent: int = 100,
     ) -> BatchSummary: ...
 
-    def preflight(self, data_manifest: DataManifest) -> PreflightReport: ...
+    def preflight(
+        self,
+        data_manifest: DataManifest,
+        *,
+        n_variants: int = 0,
+        n_seeds_per_variant: int = 0,
+    ) -> PreflightReport: ...
 
     def sync_data(self, local_paths: dict[str, str]) -> DataManifest: ...
 

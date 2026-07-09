@@ -118,6 +118,7 @@ def run_sweep(
 
     if incumbent.name not in completed:
         print(f"\nStep 6: Running incumbent ({incumbent.name})...")
+        print("  (first run builds Docker image on Modal — may take 3-5 min, cached after)")
         executor.execute_batch(
             [variant_to_request(incumbent)],
             on_result=persist,
@@ -223,6 +224,147 @@ def run_sweep(
     }
 
 
+def stage_panel_history(
+    repo_root: Path, base_config: dict[str, Any],
+) -> tuple[Path, Path]:
+    """Stage the fundamentals inputs SimAdapter/job_panel_scoring need for Volume sync.
+
+    THREE independent consumers read fundamentals files, and all three were
+    silently unsynced or misrouted (rounds 1-3 of real bounded Modal smoke
+    tests each found one):
+
+    1. SimAdapter._load_panel_history_cache() resolves "panel_history_path"
+       (default "data/alpha158_291_fundamental_dataset.parquet", not
+       overridden in any config this sweep uses) relative to
+       strategy_dir.parent.parent, i.e. the same repo_root already used
+       for ohlcv_dir. Fixed by staging under the "data" label
+       (-> /data/data/<file> once the Volume is mounted at /data).
+
+    2. renquant_pipeline.kernel.panel_pipeline.job_panel_scoring's
+       XGBoost-scorer fund-feature lookup (needed whenever
+       scorer.feature_cols includes earnings_yield/book_to_price/
+       gross_profitability/roe/asset_growth — true for this sweep's
+       panel_ltr_xgboost scorer) reads its OWN "data" / "sec_fundamentals_
+       daily.parquet" relative to renquant_pipeline...panel_pipeline.
+       _data_root.data_root() — which resolves RENQUANT_DATA_ROOT if set
+       (modal_app.py pins it to "/data"), landing at the SAME
+       /data/data/... path as (1). Covered by the same "data"-label stage.
+
+    3. A THIRD, genuinely separate implementation: RenQuant/backtesting/
+       renquant_104/kernel/panel_pipeline/job_panel_scoring.py — a stale
+       bundled COPY (predates the _data_root.py refactor entirely) that
+       adapters/sim.py actually imports via `from kernel.panel_pipeline
+       import PanelScorer` (a different top-level import path than
+       renquant_pipeline.kernel.panel_pipeline — confirmed by direct
+       inspection, NOT the same module object). It hardcodes
+       `Path(__file__).resolve().parents[4]`, which for this file bundled
+       at /data/app/kernel/panel_pipeline/job_panel_scoring.py resolves to
+       "/" (the container filesystem root) — so it looks for
+       /data/sec_fundamentals_daily.parquet, ONE level shallower than (2)'s
+       path, completely independent of RENQUANT_DATA_ROOT. THIS is the
+       consumer that's actually exercised by this sweep's real backtest
+       execution (confirmed: round 3's real smoke test showed neither of
+       (1)/(2)'s file-not-found errors, yet panel_fundamentals_missing
+       still fired — because this third path was never covered at all).
+
+    IMPORTANT (round 7 — confirmed by direct architecture investigation,
+    not assumption): RenQuant/backtesting/renquant_104/kernel/ is NOT a
+    forgotten/stale accidental duplicate of renquant_pipeline. It has its
+    own long, active, independent git history (decomposition refactors as
+    recently as 2026-06-12, one day before other sibling files in the same
+    tree were touched 2026-06-14) — this is the genuine, deliberately
+    separate backtesting/sim kernel, not a mistake to "fix" by redirecting
+    the import to canonical. Eliminating or aliasing it would risk breaking
+    every local (non-Modal) backtest that currently depends on it. The
+    correct, safe fix given this constraint is exactly what rounds 4-7 do:
+    stage the specific data files/dirs this kernel's own hardcoded
+    `parents[4]`-relative paths expect, not touch the import itself.
+
+    Round 7 also found this same stale kernel's job_panel_scoring.py has
+    TWO MORE `data/`-relative dependencies exercised by this sweep's actual
+    XGBoost artifact (confirmed via the walk-forward manifest's
+    feature_cols: pead_signal/pead_quintile_rank/days_since_earnings/
+    sue_signal/surprise_momentum/surprise_streak + sentiment_*):
+    data/earnings_surprise/ and data/news_sentiment_alpaca/ (per-ticker
+    parquet directories, ~3MB/~4MB total — small, same selective-staging
+    rationale). These do NOT hard fail-closed the way the fund-feature
+    check does (job_panel_scoring.py's own "Feature-health check" only
+    logs a warning for all-zero PEAD/SUE columns, it does not block the
+    day) — so their absence would not have caused another timeout, but it
+    would have silently degraded these features to zero, giving a
+    misleadingly weaker smoke-test result than what round 4-6's fixes
+    alone would produce. Staged proactively here rather than waiting for
+    a fourth expensive real Modal test to reveal it as a "the model looks
+    worse than expected" symptom instead of an outright failure.
+
+    Selectively stage just these files/dirs (792 MB + 17.5 MB + ~3MB +
+    ~4MB — the 17.5MB file duplicated at two paths since it's small)
+    rather than the full data/ dir (24 GB) — same rationale as the OHLCV
+    subsetting elsewhere in main().
+
+    Returns (data_staging, root_staging): data_staging is for
+    local_paths["data"] (consumers 1+2, plus earnings_surprise/
+    news_sentiment_alpaca for the canonical resolver's own equivalent
+    lookups); root_staging is for local_paths[""] (consumer 3 — empty
+    label means no path prefix, so files land directly at the Volume
+    root). Any individual source file/dir that's missing is skipped with
+    a warning (caller decides whether that is fatal) rather than raising.
+    """
+    panel_history_path = base_config.get("ranking", {}).get("panel_scoring", {}).get(
+        "panel_history_path",
+        base_config.get("panel_history_path", "data/alpha158_291_fundamental_dataset.parquet"),
+    )
+    data_staging = Path(tempfile.mkdtemp(prefix="data_sync_"))
+    root_staging = Path(tempfile.mkdtemp(prefix="data_sync_root_"))
+    for rel_path in (panel_history_path, "data/sec_fundamentals_daily.parquet"):
+        src = repo_root / rel_path
+        if src.exists():
+            dst = data_staging / Path(rel_path).name
+            shutil.copy2(src, dst)
+            print(f"  Staged {rel_path}: {dst.name} "
+                  f"({src.stat().st_size / 1e6:.0f} MB)")
+        else:
+            print(f"  WARNING: {rel_path} not found at {src} "
+                  f"— panel scoring will fail-closed on the remote worker")
+
+    for dir_name in ("earnings_surprise", "news_sentiment_alpaca"):
+        src_dir = repo_root / "data" / dir_name
+        if src_dir.is_dir():
+            # Flat under data_staging (matching the two files above), NOT
+            # nested under an extra "data" subdir — the "data" LABEL itself
+            # already contributes that path segment once uploaded
+            # (label "data" + rel "earnings_surprise/X" -> /data/data/
+            # earnings_surprise/X on the Volume, matching repo/"data"/
+            # "earnings_surprise" where repo == RENQUANT_DATA_ROOT == /data).
+            dst_dir = data_staging / dir_name
+            shutil.copytree(src_dir, dst_dir)
+            n_files = sum(1 for _ in dst_dir.iterdir())
+            total_mb = sum(f.stat().st_size for f in dst_dir.iterdir()) / 1e6
+            print(f"  Staged data/{dir_name}/: {n_files} files ({total_mb:.1f} MB)")
+        else:
+            print(f"  WARNING: data/{dir_name} not found at {src_dir} "
+                  f"— PEAD/SUE/sentiment features will silently zero-impute "
+                  f"(warning-only, not fail-closed, but degrades result quality)")
+
+    sec_fund_src = repo_root / "data" / "sec_fundamentals_daily.parquet"
+    if sec_fund_src.exists():
+        dst = root_staging / sec_fund_src.name
+        shutil.copy2(sec_fund_src, dst)
+        print(f"  Staged data/sec_fundamentals_daily.parquet at Volume root "
+              f"(legacy kernel/panel_pipeline consumer): {dst.name} "
+              f"({sec_fund_src.stat().st_size / 1e6:.0f} MB)")
+
+    for dir_name in ("earnings_surprise", "news_sentiment_alpaca"):
+        src_dir = repo_root / "data" / dir_name
+        if src_dir.is_dir():
+            dst_dir = root_staging / dir_name
+            shutil.copytree(src_dir, dst_dir)
+            print(f"  Staged data/{dir_name}/ at Volume root "
+                  f"(legacy kernel/panel_pipeline consumer): "
+                  f"{sum(1 for _ in dst_dir.iterdir())} files")
+    return data_staging, root_staging
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
@@ -237,6 +379,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--placebo-json", action="append", default=[])
     parser.add_argument("--volume-name", default="renquant-sweep-data")
     parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--max-variants", type=int, default=None,
+                        help="Limit total variants (incumbent + N-1 candidates) for smoke testing")
     args = parser.parse_args(argv)
 
     repo_root = default_repo_root()
@@ -263,6 +407,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.path.insert(0, str(strat_dir.parent.parent / "scripts"))
     from run_concentration_cap_sweep import (
+        ENTRY_CAPS,
+        DRIFT_BUFFERS,
+        TOPUP_THRESHOLDS,
         FROZEN_SEEDS,
         build_grid_variants,
         build_aa_variant,
@@ -281,8 +428,8 @@ def main(argv: list[str] | None = None) -> int:
     bundle_fp = compute_bundle_fingerprint(bundle_manifest)
     print(f"  Bundled {len(bundle_manifest)} files, fingerprint={bundle_fp[:12]}")
 
-    # ── Step 2: Sync data to Modal Volume ──
-    print("Step 2: Syncing data to Modal Volume...")
+    # ── Step 2: Stage data for sync ──
+    print("Step 2: Staging data...")
     from renquant_orchestrator.cloud.modal_executor import ModalExecutor
 
     executor = ModalExecutor(
@@ -292,8 +439,6 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     ohlcv_dir = repo_root / "data" / "ohlcv"
-    artifacts_dir = strat_dir / "artifacts"
-    model_dir = strat_dir / "models"
 
     # Only sync OHLCV for symbols the sweep actually uses (16 MB vs 250 MB)
     base_config = json.loads(base_config_path.read_text())
@@ -310,20 +455,84 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copy2(src_pq, dst / "1d.parquet")
     print(f"  Staged {len(list(ohlcv_staging.iterdir()))} symbols for sync")
 
-    local_paths: dict[str, str] = {"ohlcv": str(ohlcv_staging)}
-    if artifacts_dir.is_dir():
-        local_paths["artifacts"] = str(artifacts_dir)
-    if model_dir.is_dir():
-        local_paths["models"] = str(model_dir)
+    # SimAdapter._load_panel_history_cache() resolves "panel_history_path"
+    # relative to strategy_dir.parent.parent (== repo_root here). Missing this
+    # caused every simulated day to fail-closed on panel scoring
+    # (panel_fundamentals_missing) until the remote task hit its timeout.
+    data_staging, root_staging = stage_panel_history(repo_root, base_config)
 
+    # Copy artifacts into bundle at kernel/artifacts/... so they appear at the
+    # path SimAdapter expects (strategy_dir/artifacts/...) without symlinks.
+    wf_manifest = json.loads(manifest_abs_path.read_text())
+    staged_count = 0
+    for retrain in wf_manifest.get("retrains", []):
+        for key in ("artifact_uri", "calibrator_uri"):
+            uri = retrain.get(key)
+            if not uri:
+                continue
+            src = strat_dir / uri
+            if src.exists():
+                dst = bundle_dir / "kernel" / uri
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                staged_count += 1
+    manifest_dst = bundle_dir / "kernel" / args.manifest_path
+    manifest_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(manifest_abs_path, manifest_dst)
+    staged_count += 1
+    print(f"  Staged {staged_count} artifact files into bundle")
+
+    local_paths: dict[str, str] = {
+        "ohlcv": str(ohlcv_staging),
+        "app": str(bundle_dir),
+        "data": str(data_staging),
+        # Empty label -> no path prefix -> lands at Volume root. Needed for
+        # the stale bundled kernel/panel_pipeline/job_panel_scoring.py copy
+        # (see stage_panel_history's docstring, consumer 3) which resolves
+        # its own root via a hardcoded parents[4] rather than
+        # RENQUANT_DATA_ROOT, landing one directory level shallower than
+        # the "data" label above.
+        "": str(root_staging),
+    }
+
+    # ── Step 3: Verify staged data contract ──
+    print("Step 3: Verifying staged data contract...")
+    from renquant_orchestrator.cloud.data_contract import verify_staged
+
+    contract = verify_staged(
+        bundle_dir=bundle_dir,
+        ohlcv_staging=ohlcv_staging,
+        data_staging=data_staging,
+        base_config=base_config,
+        manifest_path=args.manifest_path,
+    )
+    print(contract.summary())
+    if not contract.passed:
+        n_fail = len(contract.failed)
+        print(f"\nData contract FAILED — {n_fail} required file(s) missing. "
+              "Fix before syncing to Modal Volume.")
+        return 1
+    print(f"  Data contract PASSED: {len(contract.checks)} checks, "
+          f"0 failures")
+
+    # ── Step 4: Sync to Modal Volume ──
+    print("Step 4: Syncing data to Modal Volume...")
     data_manifest = executor.sync_data(local_paths)
     print(f"  Volume commit={data_manifest.commit_id}, "
           f"{len(data_manifest.files)} files, "
           f"{data_manifest.total_bytes / 1e6:.1f} MB")
 
-    # ── Step 3: Preflight check ──
-    print("Step 3: Preflight check...")
-    report = executor.preflight(data_manifest)
+    # ── Step 5: Preflight check ──
+    print("Step 5: Preflight check...")
+    n_grid_variants = len(ENTRY_CAPS) * len(DRIFT_BUFFERS) * len(TOPUP_THRESHOLDS)
+    n_variants_planned = (
+        args.max_variants if args.max_variants is not None else n_grid_variants
+    ) + 1
+    report = executor.preflight(
+        data_manifest,
+        n_variants=n_variants_planned,
+        n_seeds_per_variant=len(FROZEN_SEEDS),
+    )
     for check, passed in report.checks.items():
         status = "PASS" if passed else "FAIL"
         detail = report.details.get(check, "")
@@ -341,11 +550,18 @@ def main(argv: list[str] | None = None) -> int:
         print("\nDry run complete. Add --execute to run, or --preflight to check only.")
         return 0
 
-    # ── Step 4: Build variant grid ──
-    print("Step 4: Building variant grid...")
+    # ── Step 6: Build variant grid ──
+    print("Step 6: Building variant grid...")
     grid_variants = build_grid_variants(
         base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
     )
+    if args.max_variants is not None:
+        incumbent = next(v for v in grid_variants if v.role == "incumbent")
+        candidates = [v for v in grid_variants if v.role == "candidate"]
+        n_cand = max(0, args.max_variants - 1)
+        grid_variants = [incumbent] + candidates[:n_cand]
+        print(f"  Smoke mode: limited to {len(grid_variants)} variants "
+              f"(incumbent + {n_cand} candidates)")
     aa_variant = build_aa_variant(
         base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
     )
@@ -353,7 +569,7 @@ def main(argv: list[str] | None = None) -> int:
     variant_by_name = {v.name: v for v in grid_variants}
     variant_by_name[aa_variant.name] = aa_variant
 
-    # ── Step 5: initialize ResultStore ──
+    # ── Step 7: initialize ResultStore ──
     from renquant_orchestrator.cloud.result_store import ResultStore
 
     sweep_id = args.resume or f"concentration-cap-sweep-modal-{stamp}"
