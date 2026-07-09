@@ -2,7 +2,7 @@
 
 **Date**: 2026-07-08
 **Severity**: P0 (silent universe collapse, affects 104 + 105)
-**Status**: Live-fixed; prevention pending
+**Status**: Live-fixed; prevention tracked at hallovorld/RenQuant#453 (owning repo, not this one)
 
 ## Root cause
 
@@ -46,12 +46,17 @@ Applied at 10:23 PT, 3.5h before daily_104 (13:55 PT).
 | `manual_no_rules` | 11 | GOOG (no manual-rules.json) |
 | `no_dir` | 9 | SPY, XLI, XLY (ETFs, expected) |
 
-## Prevention needed (umbrella repo)
+## Prevention needed (owned by RenQuant, not this repo)
+
+**This document is an orchestrator-side incident record only.** The retrain
+workflow, its atomic-write fix, and any regression test for it belong to
+`RenQuant` (umbrella/backtesting model artifacts), not to
+`renquant-orchestrator`. Tracked at hallovorld/RenQuant#453.
 
 The retrain script must be atomic: do not update `policy-metadata.json` unless
 the corresponding weight files are successfully written. Currently metadata is
 written first, and if weight-file generation fails/skips, the metadata declares
-artifacts that don't exist.
+artifacts that don't exist. This PR/doc does not fix that — hallovorld/RenQuant#453 does.
 
 Note: per-ticker models are LEGACY (panel scorer is the production scorer).
 `LoadArtifactsTask` gates admission on these legacy artifacts — a structural
