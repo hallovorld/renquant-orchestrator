@@ -14,10 +14,9 @@ its position upper bound from `regime_params.*.max_position_pct` — a completel
 separate config key that was **never varied**. The QP code contains zero
 references to `max_concentration`.
 
-The sweep conclusion ("cap tuning does not solve cash drag") is **still correct**
-— but for a different reason than PR #439 documented. 59/74 identical results
-are not because "the cap never binds"; they are because the swept parameter is
-invisible to the primary allocator.
+The prior sweep (PR #439) is **non-decision-grade evidence for production cash
+drag**. Its results cannot support any lane-closing verdict because it tested
+a fundamentally different system than production.
 
 ## Flaw 0 (most severe): sweep tested a different system than production
 
@@ -133,11 +132,11 @@ max_position_pct (NOT SWEPT: constant 0.15)
 
 | Question | Answer |
 |---|---|
-| Is "cap tuning doesn't help" still correct? | **YES** — even the QP's own cap (0.15) is non-binding; positions are far below it |
-| Is the experiment methodologically sound? | **NO** — it varied a parameter invisible to the primary allocator |
-| Would sweeping `max_position_pct` change the result? | **Almost certainly not** — 69.8% cash means average position ~3%, far below any realistic cap |
-| What are the real binding constraints? | Whole-share rounding (`int()` truncation in `_shares_from_dw`, tasks.py:2224), too few names passing conviction gates |
-| Does this change Phase 2 Lane A priority? | **No** — reinforces it as the correct next step |
+| Is the experiment methodologically sound? | **NO** — wrong config (XGB+QP vs prod PatchTST+Kelly), wrong parameter (Kelly cap vs QP cap) |
+| Can the sweep support "cap tuning doesn't help"? | **NO** — non-decision-grade evidence for production |
+| Is the cap likely non-binding in production? | **PLAUSIBLE** but unproven — 69.8% cash suggests positions far below any cap, but no direct instrumentation |
+| What are the likely real binding constraints? | Whole-share rounding (`int()` truncation in `_shares_from_dw`, tasks.py:2224), too few names passing conviction gates |
+| Does Phase 2 Lane A remain the priority? | **YES** — independent of cap tuning verdict |
 
 ## Deeper issue: QP and Kelly are two disconnected sizing systems
 
@@ -249,9 +248,9 @@ The architectural incoherence CONTRIBUTES to cash drag in two ways:
 3. Is the `min_share_floor` experiment the correct fix for the whole-share truncation
    cash drag, or should we pursue mixed-integer optimization or fractional shares?
 
-4. The sweep conclusion (Phase 4 NEGATIVE) stands. But it accidentally discovered
-   that Trim-vs-QP oscillation improves Sharpe by +0.06. Is that worth investigating
-   as a deliberate rebalancing mechanism?
+4. The drift00 variants accidentally discovered that Trim-vs-QP oscillation
+   improves Sharpe by +0.06 (in the XGB+QP system). Is that worth investigating
+   as a deliberate rebalancing mechanism in the production system?
 
 ## Additional experiment-level issues
 
@@ -275,36 +274,40 @@ only one primary regime (BULL_CALM). This was acknowledged as a "DEV run" caveat
 | 0 | System | Sweep tested XGB+QP+conviction — production uses PatchTST+Kelly+no-conviction | **FATAL** |
 | 1 | QP design | QP ignores `max_concentration`, uses separate `max_position_pct` | HIGH |
 | 2 | QP design | QP was disabled in production because it sizes all buys <2% | HIGH |
-| 3 | Kelly design | Kelly targets discarded when QP active; TopUp/Trim fight QP | MEDIUM |
+| 3 | Kelly design | Kelly targets discarded when QP active; TopUp skipped, only Trim survives and fights QP | MEDIUM |
 | 4 | Kelly design | In production, max_conc=max_pct=0.12 already aligned; cap15/20 would = cap12 | MEDIUM |
 | 5 | QP design | Whole-share `int()` truncation; min_share_floor=0 (off) | MEDIUM |
 | 6 | Experiment | No cash drag metric (Sharpe proxy only) | MEDIUM |
 | 7 | Experiment | Unanimity gate structurally unpassable | LOW |
 | 8 | Experiment | 6-month/1-seed DEV run vs 27-month/3-seed contract | LOW |
 
-## Revised conclusion
+## Conclusion
 
-The sweep conclusion "cap tuning does not solve cash drag" is **likely still
-correct** but **cannot be claimed from this experiment**:
+The prior concentration cap sweep (PR #439) is **non-decision-grade evidence
+for production cash drag**. It cannot support any lane-closing verdict because:
 
-1. The experiment tested a different system (XGB+QP) than production (PatchTST+Kelly)
+1. It tested a different system (XGB+QP) than production (PatchTST+Kelly)
 2. The swept parameter (`max_concentration`) is invisible to the active allocator
    in the sweep config (QP), AND is already equal to `max_position_pct` in the
    production config (0.12 = 0.12)
-3. No cash-drag-specific metric was measured
+3. `TopUpHeldTask` is skipped when `solver=qp` — the only surviving channel for
+   `max_concentration` is a secondary trim interaction
+4. No cash-drag-specific metric was measured
 
-The correct next step is Phase 2 Lane A (whole-share sizing, buy_top_n,
-one-share floor) — these address the KNOWN binding constraints regardless of
-cap tuning. A properly designed cap sweep (if ever needed) would use the
-production config with PatchTST + greedy Kelly and measure cash utilization
-directly.
+Whether cap tuning actually matters for production cash drag remains an **open
+question**. Answering it requires a properly designed experiment with the
+production config (PatchTST + greedy Kelly), direct cash utilization metrics,
+and the contracted 27-month/3-seed OOS window.
+
+Phase 2 Lane A (whole-share sizing, buy_top_n, one-share floor) remains the
+priority regardless — these address known binding constraints that are
+independent of cap tuning.
 
 ## Recommended actions
 
-1. Mark PR #439 sweep findings as scientifically VOID (not just caveated)
-2. Phase 4 remains CLOSED — but the reason changes from "cap doesn't help" to
-   "experiment uninformative; cap unlikely to help given upstream constraints"
+1. Close PR #439 as superseded by this audit (pointer to #440)
+2. Phase 4 status changes from "NEGATIVE" to **OPEN (no decision-grade evidence)**
 3. Future sweeps MUST use the production config or document deviations explicitly
 4. Open design discussion on QP/Kelly unification (items Q1–K3 above)
-5. If cap tuning is ever re-investigated, use production config + direct cash
+5. If cap tuning is re-investigated, use production config + direct cash
    utilization metrics
