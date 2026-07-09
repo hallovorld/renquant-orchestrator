@@ -407,7 +407,7 @@ class TestModalTimeoutRetriesConfigurability:
 
         self._fresh_import(monkeypatch, captured)
 
-        assert captured["timeout"] == 3600
+        assert captured["timeout"] == 10800
         assert captured["retries"] == 1
 
     def test_execute_batch_sets_env_vars_before_first_import(self, monkeypatch, tmp_path: Path):
@@ -476,7 +476,7 @@ def _install_fake_modal_sdk_with_map(monkeypatch, per_seed_results_json):
         def __init__(self, results):
             self._results = results
 
-        def map(self, requests, kwargs=None):
+        def map(self, requests, kwargs=None, **extra):
             return iter(self._results)
 
     class _FakeApp:
