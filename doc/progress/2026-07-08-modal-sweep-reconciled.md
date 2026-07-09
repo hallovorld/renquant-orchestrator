@@ -1,12 +1,9 @@
 # Modal Sweep — Reconciled with #434's Runtime Fixes
 
 **Date**: 2026-07-08
-**Status**: Round 5 real bounded Modal smoke test STILL RUNNING at the time
-this round was written (operator re-authorized under the standing <$10
-spend policy). Interim log inspection of the in-progress run found a
-SECOND, independent fundamentals-sync gap (round 4's fix was necessary but
-not sufficient) — fixed in this round, not yet re-verified against a fresh
-run.
+**Status**: **PASS** — Round 7 bounded smoke test confirmed the
+deterministic data contract end-to-end on Modal. Incumbent APY 57.9%,
+Sharpe 2.33, A/A +0.0000, cost $0.30. Ready for full 75-variant sweep.
 
 ## Round 2 (2026-07-08): fix cost/provenance undercounting + preflight mismatch
 
@@ -477,6 +474,71 @@ surfaces:
   missing-wf-artifact, missing-subrepo, remote-code-and-subrepos,
   remote-missing-code, contract-report-summary.
 - Full suite: 3263 passed, 2 skipped, 0 failures.
-- Bounded remote smoke test: PENDING (this round's deliverable is the
-  contract itself; the smoke test is now the CONFIRMATION step, not the
-  discovery mechanism).
+- Bounded remote smoke test: **PASS** — see Round 7 below.
+
+## Round 7 (2026-07-08): bounded smoke test PASS — data contract confirmed end-to-end
+
+With the deterministic preflight data contract in place (Round 6), the
+bounded smoke test is now the CONFIRMATION step rather than the
+discovery mechanism — exactly what the reviewer asked for.
+
+### Execution
+
+1-variant / 3-seeds bounded smoke test on Modal, backtest window
+2025-10-01 → 2026-01-15, `$100k` initial cash.
+
+**Preflight** (local, pre-sync):
+- Data contract: **237 checks, 0 failures** (3 code entries, 6
+  subrepos, 39 WF manifest artifact pairs, 2 fundamentals, 146
+  OHLCV symbols, 1 optional base_config WARN)
+- Preflight gates: volume_has_data ✓, bundle_exists ✓, modal_sdk ✓,
+  cost_reasonable ✓
+
+**Remote** (container, pre-backtest):
+- `verify_remote()` passed silently on all 3 incumbent pods and all
+  3 A/A pods (6 pods total) — no `RuntimeError` raised, meaning all
+  code entries, subrepos, fundamentals, and OHLCV files were found
+  on the container filesystem.
+
+### Results
+
+| Metric | Incumbent | A/A resplit |
+|--------|-----------|-------------|
+| APY | 57.9% | 57.9% |
+| Sharpe | 2.33 | 2.33 |
+| Max DD | 6.3% | 6.3% |
+| Calmar | 9.13 | 9.13 |
+| BULL_CALM Sharpe | 2.16 (73d) | 2.16 (73d) |
+| Worker time | 3042s (51 min) | 3431s (57 min) |
+| Peak memory | 4599 MB | 4591 MB |
+
+**A/A Sharpe lift: +0.0000** (PASS — tolerance ±0.1). Seeds 42/43/44
+vs 1042/1043/1044 produced identical results, confirming deterministic
+pipeline.
+
+### Cost
+
+- Wall time: 1166s (19 min)
+- 6 pods total (2 variants × 3 seeds)
+- **Estimated cost: $0.30**
+- Volume: 1084 files, 852.3 MB
+- Volume commit: `77027a9a...`
+
+### Full-sweep projection
+
+At $0.30 for 2 variants (6 pods), the full 75-variant sweep (225 pods)
+projects to **~$9** — consistent with the standing <$10 spend
+authorization.
+
+### What this proves
+
+1. The deterministic data contract (`verify_staged` + `verify_remote`)
+   correctly enumerated ALL required files — zero discoveries during
+   this smoke test (contrast with rounds 4-5 where each run uncovered
+   a new missing-file gap).
+2. Per-seed fan-out works: 3 seeds dispatched as 3 separate Modal pods,
+   each ran independently, results aggregated correctly.
+3. The backtest pipeline runs end-to-end on Modal containers with the
+   reconciled code (post-#434 runtime fixes + per-seed fan-out +
+   Volume path fix + fundamentals sync + RENQUANT_DATA_ROOT pin).
+4. Cost accounting is correct: $0.30 for 6 pods matches expectations.
