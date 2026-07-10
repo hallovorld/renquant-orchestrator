@@ -1,21 +1,60 @@
-# S0 Phase-1 — Baseline allocator replay results (preregistered)
+# Exploratory baseline-allocator replay diagnostics (NOT preregistered, NOT decision-grade)
 
 **Date**: 2026-07-09
-**Protocol**: [`doc/design/2026-07-09-governor-prereg-replay-protocol.md`](../design/2026-07-09-governor-prereg-replay-protocol.md) (D6, PR #443)
-**Status**: replay evidence on historical WF-trace sessions. Hypothesis-generation
-window (2026-06-23 → 2026-07-09) excluded by construction. Phase-2 (governor arm)
-pending D2 — this memo runs the 7 registered Phase-1 baseline arms only, no new code.
-**Verdict (bottom line)**: **NOTHING meets the promotion bar** (≥ +1 bp/day paired
-mean AND HAC 95% CI excluding 0 AND DSR ≥ 0.95 AND PBO ≤ 0.10) against either
-naive-diversification floor. The QP family (current_qp / hybrid_option_f /
-hard_only) leads equal_weight by +2.5–2.6 bp/day but the HAC CI includes 0; it
-leads inverse_vol by +5.1–5.2 bp/day with HAC CI excluding 0 and DSR ≈ 1.0, but
+**Status**: EXPLORATORY DIAGNOSTICS ONLY. This is **not** a valid D6 S0 run.
+
+**Why this is not S0** (per Codex review): D6 preregistration requires an
+independently committed freeze — pushed as its own artifact, BEFORE any arm
+executes, against an APPROVED protocol. Neither condition holds here: the
+freeze record and the results below were introduced together in this single
+PR, and D6's own governing RFC (**#443**) was still under `CHANGES_REQUESTED`
+when this ran. A timestamp inside an unmerged, still-editable artifact is not
+a tamper-proof pre-run commitment — it cannot rule out the freeze having been
+written after the results were already known. This label change does not
+allege that actually happened; it says the current artifact structure cannot
+prove it didn't, which is what preregistration exists to guarantee.
+
+**What this IS**: a real, reproducible run of the 7 registered Phase-1
+baseline allocators through the existing `run_ab_replay.py` harness
+(unmodified — no new pipeline code). Every number below is independently
+verifiable: the source DB and strategy-config sha256 hashes in the evidence
+JSON were re-derived directly against the live files as part of this review
+and matched exactly, and the reported session count/date range are
+reproducible from the committed evidence. Useful as harness/allocator
+engineering diagnostics.
+
+**What this is NOT, and cannot be used for**: it cannot select an L2
+allocator, validate Governor deployment behavior, or satisfy any D6
+promotion gate. A genuine S0 run requires, in order: #443 approved and
+merged, then a freeze record committed on its own — before any arm executes
+— against that approved protocol.
+
+**Protocol referenced for context (not satisfied by this run)**:
+[`doc/design/2026-07-09-governor-prereg-replay-protocol.md`](../design/2026-07-09-governor-prereg-replay-protocol.md)
+(D6, PR #443).
+
+**Diagnostic observation, not a protocol verdict**: retroactively applying
+D6's promotion-bar math (≥ +1 bp/day paired mean AND HAC 95% CI excluding 0
+AND DSR ≥ 0.95 AND PBO ≤ 0.10) to this exploratory run, none of the seven
+baseline arms would have cleared it against either naive-diversification
+floor. The QP family (current_qp / hybrid_option_f / hard_only) leads
+equal_weight by +2.5–2.6 bp/day but the HAC CI includes 0; it leads
+inverse_vol by +5.1–5.2 bp/day with HAC CI excluding 0 and DSR ≈ 1.0, but
 pooled PBO = 0.171 > 0.10 fails the bar. The prior clean-signal finding that
-Stage-A A2 α-tilt dominates current_qp is **NOT confirmed** on the WF manifold.
+Stage-A A2 α-tilt dominates current_qp does **not** reproduce in this
+exploratory replay. None of this authorizes an L2/Governor decision; it is
+recorded here only as a diagnostic prior for whoever runs the real S0.
 
 ---
 
-## 0. Session freeze record (protocol §1 — recorded BEFORE any arm ran)
+## 0. Freeze record (committed alongside results — NOT an independent pre-run freeze)
+
+This record was written into the same PR as the results below, not pushed as
+its own prior commit against an approved protocol — see the status note
+above for why that means it does not satisfy D6 preregistration. It is
+included because it makes every number below independently reproducible
+(source DB / config pinned by sha256, exact session ID list), which is
+useful regardless of preregistration status.
 
 Full machine-readable record with **all exact session IDs**:
 [`evidence/s0_phase1/session_freeze_record.json`](evidence/s0_phase1/session_freeze_record.json)
@@ -33,7 +72,7 @@ Full machine-readable record with **all exact session IDs**:
 | Sessions, fwd_60d (research) | 483 sessions, 2024-01-02 → 2026-03-09 |
 | Data cutoff | 2026-03-27 (last session with μ/σ + realized fwd_1d overlap) — every session predates the exclusion window by ≥ 88 days |
 | #442-inspected sessions | all fall inside the exclusion window (2026-06-23 → 2026-07-09); none exist in the replay range, so no additional exclusions were required |
-| Freeze timestamp | 2026-07-09T13:46Z (see JSON), before the first full arm run |
+| Freeze timestamp (self-reported, not independently verifiable) | 2026-07-09T13:46Z (see JSON) — an in-artifact timestamp, not a prior committed record; see status note above |
 | Regime mix (497 sessions) | BULL_CALM 90.3%, BULL_VOLATILE 5.6%, CHOPPY 3.0%, BEAR 1.0% |
 
 Frozen conventions honored by the harness: 5 bps linear cost per traded dollar per
@@ -68,9 +107,18 @@ fractional_kelly_top_k,equal_weight_top_k,inverse_vol_top_k,stage_a_a2_long_only
 
 Raw evidence JSON: [`evidence/s0_phase1/`](evidence/s0_phase1/).
 
-## 2. Per-arm results — fwd_1d primary pass (497 sessions, decision-grade)
+## 2. Per-arm results — fwd_1d primary pass (497 sessions)
 
-Deployed fraction is per protocol §3 estimand 1, computed from each arm's
+The harness stamps this horizon `decision_grade_daily_return: true` (its own
+internal flag meaning "non-overlapping, so statistically valid for daily
+paired inference" — distinct from the fwd_60d overlapping-horizon pass in
+§6). That is a harness-level statistical-validity flag, not a claim that
+this run is D6 decision-grade; per the status note above, no output here can
+be used to make an allocator/Governor decision.
+
+Deployed fraction is computed per the D6 protocol's §3 estimand-1 definition
+(referenced for terminology only, since this run does not satisfy D6), from
+each arm's
 `target_w` on the identical bar sequence
 ([`evidence/s0_phase1/s0_phase1_deployed_fraction_and_gates.json`](evidence/s0_phase1/s0_phase1_deployed_fraction_and_gates.json)).
 Note the replay is stateless (w_current = 0 each session), so deployed fraction ≡
@@ -136,29 +184,36 @@ win-rate z > 2) selects `hybrid_option_f_allocator` as promotion candidate over
 current_qp in all three incumbent passes. That is a harness verdict, not a
 protocol-bar pass — recorded for completeness only.
 
-## 4. Ordering verdict (the question this phase was registered to answer)
+## 4. Ordering observation (diagnostic only — this phase does not authorize an answer)
 
 **Order (fwd_1d, mean daily return):**
 `hybrid_option_f ≈ hard_only_qp ≈ current_qp (+17.8–17.9 bp/day) > stage_a_a2 (+16.3) > equal_weight (+15.3) > fractional_kelly (+13.3) > inverse_vol (+12.7)`
 
-1. **Nothing beats the naive floors at the promotion bar.** Binding failures:
-   HAC CI vs equal_weight includes 0 (t ≈ 0.85), and PBO = 0.171 > 0.10
-   everywhere (including vs inverse_vol where the CI does exclude 0).
+These are diagnostic observations from an exploratory run, not a resolved
+protocol question — this run does not satisfy D6, so nothing below is a
+sanctioned decision:
+
+1. **Nothing clears D6's promotion-bar math, applied retroactively.** Binding
+   failures: HAC CI vs equal_weight includes 0 (t ≈ 0.85), and PBO = 0.171 >
+   0.10 everywhere (including vs inverse_vol where the CI does exclude 0).
 2. **The DeMiguel naive floor does NOT dominate here** — direction favors the QP
    family over equal-weight/inverse-vol, opposite to the ordering that would
-   justify "ship equal-weight" — but the evidence is not promotion-grade.
-3. **α-tilt-dominates-QP is refuted on this manifold** (§3.3): the Phase-1
-   registered purpose "confirm/refute the prior clean-signal finding" resolves
-   to **refute**.
+   suggest "ship equal-weight" — but the evidence is not promotion-grade,
+   preregistered, or authorized for that call.
+3. **α-tilt-dominates-QP does not reproduce on this manifold** (§3.3): the
+   prior clean-signal finding does not hold up in this exploratory replay —
+   worth a genuine, properly preregistered re-check, not treated as settled.
 4. Per-regime: 90.3% of sessions are BULL_CALM; BEAR (5), CHOPPY (15) and
    BULL_VOLATILE (28) are all undersampled (< 30 bars) — per-regime ordering is
-   diagnostic-only.
+   diagnostic-only regardless of preregistration status.
 
-Consequence for the Governor program: Phase-2 (governor_kelly arm, pending D2)
-inherits a floor set where the QP family is the strongest baseline but no
-allocator clears the bar; per protocol §5, if the governor arm cannot beat
-equal_weight/inverse_vol at the bar either, the L2 answer defaults to naive
-under the L1 E* overlay.
+Possible consequence for the Governor program, stated as a hypothesis to be
+tested by a real S0, not a conclusion: Phase-2 (governor_kelly arm, pending
+D2) may inherit a floor set where the QP family is the strongest baseline
+but no allocator clears the bar; if that holds under a genuine preregistered
+run, D6 §5's own rule is that the L2 answer defaults to naive under the L1
+E* overlay. This run cannot be cited as evidence for that outcome — only as
+a reason to prioritize running the real S0 before D2 lands.
 
 ## 5. §4 non-degradation gates, measured on the Phase-1 arms (fwd_1d)
 
@@ -180,8 +235,17 @@ consistent with fwd_1d: current_qp/hybrid lead equal_weight by +177 bp/60d
 [`evidence/s0_phase1/s0_phase1_fwd60d_research.json`](evidence/s0_phase1/s0_phase1_fwd60d_research.json)
 and the two 60d incumbent re-pairings; no conclusion is drawn from this pass.
 
-## 7. Protocol deviations (explicit, complete)
+## 7. Why this is not valid D6 evidence (explicit, complete)
 
+0. **Preregistration integrity (the disqualifying issue, per Codex review)**:
+   the freeze record in §0 and the results in §§2-6 were committed together
+   in this single PR, and D6's governing RFC (#443) was still under
+   `CHANGES_REQUESTED` when this ran. Preregistration requires the freeze to
+   be an independently committed artifact, pushed before any arm executes,
+   against an approved protocol — an in-PR timestamp cannot prove that
+   ordering. This alone means nothing in this document can stand in for S0,
+   regardless of the additional deviations below (which a real S0 would also
+   need to fix).
 1. **"Manifest SHA"** — the registered loader consumes the sim decision-trace DB
    (`data/sim_runs.db`), not the `walkforward_*` cut manifests under
    `backtesting/renquant_104/artifacts`. The freeze SHA is therefore the SHA256
