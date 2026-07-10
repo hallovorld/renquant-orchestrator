@@ -28,8 +28,17 @@ Checked (session days only):
 
                              intraday_quote_logger (CONTINUOUS, self-loops all session):
                                row_event_time basis — top-level ts/source_ts/tick_time, must be
-                               within a tight <=10-minute bound of wall-clock now. This IS the
-                               right signal here: a healthy sampler's last row is always recent.
+                               within a tight <=10-minute bound of a reference time that is
+                               min(wall-clock now, today's NYSE session close) (round-5 fix —
+                               this check itself runs at 14:00 PT, ~1hr after the 13:00 PT
+                               close, so a healthy sampler that correctly stopped at close would
+                               otherwise be judged "stale" against raw wall-clock now EVERY
+                               single day; capping the reference at session close asks the
+                               right question, "did it run through the end of the session",
+                               instead of "is it fresh relative to whenever this check happens
+                               to run". During session hours the cap is a no-op (now < close),
+                               so this is unchanged from the original tight-bound behavior while
+                               the feed is actually live.
 
                              intraday_pairing_logger / entry_timing_shadow (POST-CLOSE ONE-SHOT
                              BATCH — run_postclose_loggers.sh fires once at 13:15 PT, liveness
@@ -353,6 +362,7 @@ def _last_complete_jsonl_row(
 
 def _data_output_fresh(
     path: str, today_iso: str, extract_ts, freshness_basis: str,
+    session_close_utc: dt.datetime | None = None,
 ) -> tuple[bool, str, dict | None]:
     """Returns ``(ok, reason, selected_row)`` — ``selected_row`` is the exact
     dict that determined the verdict (the same object ``_last_complete_
@@ -379,16 +389,22 @@ def _data_output_fresh(
 
     if freshness_basis == _ROW_EVENT_TIME:
         # Continuously-sampled feed: the row's own event timestamp IS the
-        # freshness signal — a healthy sampler's last row is always recent.
+        # freshness signal — a healthy sampler's last row is always recent
+        # relative to whichever comes first, wall-clock now or today's
+        # session close (round-5 fix; see module docstring — this check
+        # runs post-close, so an uncapped "now" reference would fail every
+        # healthy day once the sampler correctly stops at close).
         assert has_timestamp  # _last_complete_jsonl_row only returns a row this basis if it has one
         ts_val = extract_ts(row)
         assert ts_val is not None
-        age = dt.datetime.now(dt.timezone.utc) - ts_val
-        if age < -_CLOCK_SKEW_TOLERANCE:
+        now = dt.datetime.now(dt.timezone.utc)
+        if now - ts_val < -_CLOCK_SKEW_TOLERANCE:
             return False, (
-                f"{path} last complete row timestamp is {-age} in the FUTURE, beyond the "
+                f"{path} last complete row timestamp is {ts_val - now} in the FUTURE, beyond the "
                 f"{_CLOCK_SKEW_TOLERANCE} clock-skew tolerance — treated as corrupt/clock "
                 f"issue, not freshness{corrupt_note}"), row
+        reference = min(now, session_close_utc) if session_close_utc is not None else now
+        age = max(dt.timedelta(0), reference - ts_val)
         if age > _TIGHT_AGE_BOUND:
             return False, f"{path} last complete row age={age} exceeds {_TIGHT_AGE_BOUND} bound{corrupt_note}", row
     else:
@@ -481,8 +497,13 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
     selected (missing/empty file, or no parseable complete row at all)."""
     out: dict[str, dict] = {}
     today_iso = as_of.isoformat()
+    bounds = _session_calendar().session_bounds(as_of)
+    session_close_utc = bounds.close.astimezone(dt.timezone.utc) if bounds is not None else None
     for name, full_path, extract_ts, freshness_basis in _data_outputs(data_root):
-        ok, reason, row = _data_output_fresh(str(full_path), today_iso, extract_ts, freshness_basis)
+        ok, reason, row = _data_output_fresh(
+            str(full_path), today_iso, extract_ts, freshness_basis,
+            session_close_utc=session_close_utc,
+        )
         row_hash = (
             hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()
             if row is not None else None)
