@@ -14,7 +14,7 @@ WHY/DIR:   Operator mandate (GOAL-2, 2026-07-10): enable crypto trading for
            D6/shadow-AB lanes (separate design track, same repo).
 EVIDENCE:  n/a (design doc, not a model/data claim — see RFC §2 for the
            file:line gap audit and §2.7 for direct SDK-surface verification)
-NEXT:      Codex re-review of the r1 fixes below; on approval, implementation
+NEXT:      Codex re-review of the r2 fixes below; on approval, implementation
            PRs D-C1..D-C13 per RFC §7 (strict merge order, orchestrator last,
            default-OFF).
 
@@ -82,6 +82,58 @@ Additional tightening:
 
 §9's three open questions are now resolved/frozen decisions, not open
 questions (renamed accordingly).
+
+## r2 update (2026-07-10) — second Codex review, two decision-grade blockers
+
+Codex accepted the r1 ownership map and controls as materially better, and
+narrowed to two remaining decision-grade blockers:
+
+1. **Operational readiness vs economic efficacy conflated (§6, NEW §6.1)**:
+   the 14-day shadow + 2-week canary window was being read as if it could
+   substantiate a 20-calendar-day-horizon model — it cannot; at most ONE
+   complete non-overlapping 20-day block fits in either window. Fixed:
+   explicitly relabeled Stages 1-2 as OPERATIONAL-ONLY gates (scheduler/
+   stop/reconciliation reliability), and added a NEW Stage 2.5 —
+   prospective economic evaluation, capital HELD at $500 (not scaled) —
+   worked exactly like the Deployment Governor RFC's own analogous power
+   problem (§1.2/§2a, merged orchestrator#443): non-overlapping 20-day
+   blocks as the unit of inference, an 8-block absolute floor (160 days,
+   ~5.3 months) below which no variance estimate is trustworthy, a labeled
+   conservative-proxy power check (50%/100% annualized vol proxy → N* ≈
+   212/847 blocks ≈ 11.6/46 years — both plainly impractical, the SAME
+   honest conclusion the Governor RFC reached with its own proxy), and a
+   blinded sample-size re-estimation at the 8-block checkpoint (95% UCB on
+   realized variance, freeze `N_blocks ≥ max(8, N*)`) rather than a single
+   fixed-N guess. NO-GO (indefinite $500/descriptive-only) is a frozen,
+   first-class, acceptable outcome if the re-estimated N* is impractical —
+   the exploratory survivor panel is explicitly forbidden from setting
+   these thresholds. Stage 3 (full sleeve) now requires Stage 2.5's NO-GO
+   check to clear, not operator sign-off alone.
+2. **Stage-0 paper-fill calibration boundary (§4.4)**: paper fills validate
+   fee schedule, increment rounding, and order-acceptance/rejection/resting
+   RATES (real API behavior) — they do NOT calibrate spread/slippage or
+   stop-limit non-fill/gap-through risk, since a paper fill has no real
+   market impact. Fixed: spread/slippage and non-fill/gap bounds are now
+   sourced as conservative EX-ANTE bounds from Alpaca's own quote/trade
+   market data (not paper simulation), added as a Stage-0 deliverable
+   (§6's Stage 0 row). A frozen update rule allows ONLY realized live-
+   canary fills to later tighten those bounds (monotonically more
+   conservative unless a pre-registered minimum sample is met), and
+   explicitly FORBIDS retroactively re-scoring the historical WF gate or
+   Stage-1 shadow evidence with updated bounds — the same post-selection/
+   laundering problem this RFC's label freeze and the D6-§2a protocol both
+   guard against elsewhere.
+
+Additional tightening (ledger, §5.3): added idempotency-key semantics to
+`reserve()` (keyed on `parent_intent_id`, already unique — a retried call is
+a no-op, never a double reservation) with a TTL surfaced through the
+existing orphan sweep rather than silent auto-release; added a broker-cash
+RECHECK immediately before order submit (the local ledger cannot atomically
+reserve real Alpaca buying power, and external/manual orders remain
+possible) — a recheck failure is a real reconciliation mismatch, not a soft
+warning, and triggers fail-closed-for-new-entries across EVERY sleeve
+sharing the account (not just the sleeve that noticed), matching the
+existing orphan/leak response.
 
 ## Basis
 

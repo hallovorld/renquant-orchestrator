@@ -425,12 +425,43 @@ we should not carry into a new asset class on day one.
   QP/rotation cost-kappa — one number, every consumer, per §4.7's turnover-
   sensitivity risk). Net evaluation: `net = gross − cost_model(...)` at the
   strategy's realized rebalance turnover. A crypto model that passes gross
-  and fails net is a FAIL. **Stage 0 calibrates and bounds EACH component**
-  from the paper battery (§6): fee bps from fill receipts, spread/slippage
-  from paper-order fill-price-vs-quote deltas, rounding loss computed exactly
-  from the pinned increment snapshot (§3.1, deterministic, no calibration
-  needed), and resting/rejected-order rates from the battery's own order
-  outcomes — no component ships uncalibrated.
+  and fails net is a FAIL.
+  - **Calibration source split (CORRECTED — Codex review round 2,
+    2026-07-10; paper fills cannot stand in for real market friction)**:
+    the paper battery (§6 Stage 0) EMPIRICALLY calibrates only the
+    components a simulated fill genuinely exercises — fee bps from fill
+    receipts, rounding loss computed exactly from the pinned increment
+    snapshot (§3.1, deterministic, no calibration needed), and
+    resting/rejected-order RATES from the battery's own order outcomes
+    (does the order type get accepted, does it rest, does it get rejected —
+    all real API behavior regardless of fill realism). Paper fills do
+    **NOT** calibrate spread/slippage or stop-limit non-fill/gap risk: a
+    paper fill typically executes at the requested price or best quote
+    with no real market impact, so "paper-order fill-price-vs-quote deltas"
+    is not a measurement of real slippage — it is a measurement of the
+    paper simulator's own fill model, which tells us nothing about how a
+    real order moves a thin, 24/7, weekend-illiquid crypto book.
+  - **Ex-ante bounds for real market friction (NEW)**: spread/slippage and
+    stop-limit non-fill/gap-through risk are instead bounded CONSERVATIVELY
+    ex-ante from Alpaca's own quote/trade market data (bid-ask spread
+    distribution and trade-size-vs-quote-depth observed over the Stage 0
+    backfill window, per pair) — NOT from paper simulation. These ex-ante
+    bounds, not a paper-fill measurement, are what Stage 0's cost model
+    ships with for the initial canary (Stage 2).
+  - **Frozen update rule**: only REALIZED live-canary fills (Stage 2+, real
+    money, real market impact) may tighten these ex-ante bounds, and only
+    under a rule frozen before Stage 2 begins (e.g. after N canary fills
+    accumulate per pair, recompute the bound from realized slippage,
+    monotonically — a bound may only be replaced by a MORE conservative or
+    equally-conservative estimate unless a pre-registered minimum sample is
+    met). **Retroactively re-scoring the historical WF gate or the Stage-1
+    shadow evidence with updated canary-derived bounds is explicitly
+    FORBIDDEN** — that would launder live-only information into evidence
+    that predates it, the same post-selection problem this RFC's label
+    freeze (§4.3) and the D6-§2a protocol both guard against elsewhere. The
+    WF gate and shadow stage stand on the Stage-0 ex-ante bounds only, for
+    all time — a later, better slippage estimate informs FUTURE canary/
+    live sizing, never a retroactive re-verdict.
   - **Repo split (D-C8, CORRECTED)**: the generic cost-accounting PRIMITIVE
     (the shared math above) lives in `renquant-model`-common/shared code, so
     equities inherit it later without a crypto-specific gate polluting
@@ -623,23 +654,59 @@ stop price. See the residual-risk note below and §4.7 item 2.
   (`data/account_cash_ledger.<account>.db`, WAL mode for concurrent
   readers/writers from the 104 batch process and the crypto 24/7 loop) with
   a single-writer-transaction reserve/release protocol:
-  - `reserve(sleeve_tag, parent_intent_id, amount) -> bool`: atomically
-    checks `broker_cash - SUM(all active reservations across all tags) -
-    amount >= 0` and, if true, inserts the reservation row in the SAME
-    transaction; returns `False` (reservation refused) on insufficient
-    headroom — the caller's order placement must not proceed. This is the
-    ONLY path either sleeve may size a buy against; `OrderStateBook.
-    reserved_cash()` becomes a PER-TAG diagnostic view, no longer the
-    headroom source of truth.
+  - `reserve(sleeve_tag, parent_intent_id, amount) -> bool`: `parent_intent_id`
+    IS the idempotency key (it already uniquely identifies one order intent,
+    §5.3 above) — `reserve()` is defined as UPSERT-then-check: if a
+    reservation row for this exact `parent_intent_id` already exists (a
+    retried call after a timeout, a crash-and-resubmit), it is a no-op
+    returning the SAME result as the original call, never a second
+    reservation of the same cash. Otherwise it atomically checks
+    `broker_cash - SUM(all active, non-expired reservations across all
+    tags) - amount >= 0` and, if true, inserts the reservation row (with a
+    `reserved_at` timestamp) in the SAME transaction; returns `False`
+    (reservation refused) on insufficient headroom — the caller's order
+    placement must not proceed. This is the ONLY path either sleeve may
+    size a buy against; `OrderStateBook.reserved_cash()` becomes a PER-TAG
+    diagnostic view, no longer the headroom source of truth.
+  - **Reservation TTL**: every reservation carries a `reserved_at` +
+    `expires_at` (default: order timeout budget + a fixed grace margin —
+    reuse whatever order-submission timeout convention already exists in
+    `order_state_machine.py`, not a fresh number). An EXPIRED reservation
+    (past `expires_at` with no corresponding fill/cancel/reject transition)
+    is NOT auto-released silently — it is surfaced by the orphan sweep
+    below as a reportable event, since an expired-but-unreleased
+    reservation is exactly the crashed-process case that sweep exists to
+    catch; the TTL bounds how long a crash can hold phantom headroom before
+    it's caught, it does not substitute for the sweep.
   - `release(parent_intent_id)`: called on fill/cancel/reject, in the same
     transaction as the state-machine transition that already handles that
     event — a reservation that's never released on every terminal path is
     the fail mode this ledger exists to prevent, so release is wired into
     the SAME lifecycle hooks `OrderStateBook` already has for fill/cancel/
-    reject, not a separate cleanup pass.
+    reject, not a separate cleanup pass. `release()` on an already-released
+    or unknown `parent_intent_id` is a no-op (idempotent), not an error —
+    lifecycle hooks may legitimately race to release the same intent.
   - `broker_cash` is re-fetched from the broker (not cached) at the START of
     each `reserve()` transaction, so a real balance change (a fill on either
     sleeve) is visible to the next reservation attempt from EITHER sleeve.
+  - **Broker-cash recheck immediately before submit (NEW — Codex review
+    round 2, 2026-07-10)**: the local ledger cannot atomically reserve REAL
+    Alpaca buying power — it is a local accounting view, and the broker's
+    actual balance can move for reasons the ledger never sees (a manual
+    order placed outside this system, an external API client, a margin/
+    interest event). Therefore, immediately before the actual order-submit
+    API call (not just at `reserve()` time, which may be seconds to minutes
+    earlier), re-fetch `broker_cash` and re-verify `broker_cash -
+    SUM(all active reservations) >= 0` still holds for the account as a
+    whole. A recheck failure (broker cash has moved below what the ledger
+    believes is reserved) is a REAL reconciliation mismatch, not a soft
+    warning: **the submitting sleeve's entry is refused for this order, and
+    the mismatch triggers the same fail-closed-for-new-entries-across-every-
+    sleeve response as the orphan/leak cases below** — an unrecognized
+    balance change is symptomatically identical to an unrecognized open buy
+    (some path is moving cash the ledger doesn't know about), so it gets
+    the same conservative response: halt all sleeves' new entries pending
+    reconciliation, never just the sleeve that happened to notice.
   - **Ledger reconciliation (orphan sweep)**: every sleeve's existing
     reconcile-before-emit step additionally reconciles the ledger — an
     ACTIVE reservation whose `parent_intent_id` has no corresponding broker
@@ -649,8 +716,13 @@ stop price. See the residual-risk note below and §4.7 item 2.
     reportable defect (it means a lifecycle hook missed a terminal path);
     sustained orphans are a Tier-1 halt for the sleeve producing them.
     Inversely, a broker open buy order with NO ledger reservation is the
-    graver defect (headroom leak — some path submitted without reserving)
-    and halts that sleeve's entries immediately.
+    graver defect (headroom leak — some path submitted without reserving,
+    or an external/manual order was placed against this account) — since
+    this means the ledger's SUM no longer reflects real committed cash for
+    the WHOLE account, not just the sleeve that discovered it, it halts new
+    entries for EVERY sleeve sharing the account (the same fail-closed-
+    across-every-sleeve response as the pre-submit broker-cash recheck
+    above), not just the sleeve whose reconcile pass happened to notice.
   - Both 104's existing sizing path and the new crypto sizing path (D-C4)
     call `reserve()` before submitting any buy order; a `False` return is
     treated as `insufficient_buying_power_headroom` (the existing
@@ -684,16 +756,101 @@ verbatim).
 
 ## 6. Staged rollout (each stage gated; capital steps = operator sign-off)
 
-| Stage | What runs | Gate to advance | Est. duration |
+**Operational readiness ≠ economic efficacy (CORRECTED — Codex review round
+2, 2026-07-10).** Stages 0–2 below gate whether the SYSTEM works
+(scheduler reliability, order/stop mechanics, reconciliation, fee/increment
+correctness) — they say NOTHING about whether the MODEL is economically
+sound, and must not be read as if they did. A 14-day shadow window and a
+2-week canary cannot substantiate a model whose primary label horizon is
+h=20 calendar days: at most ONE complete non-overlapping 20-day outcome
+window fits inside either stage, so neither can produce a single
+statistically meaningful net-of-cost observation, let alone enough to
+compare against a BTC baseline. Economic promotion to full sleeve size is
+gated SEPARATELY, in the new Stage 2.5 below, which is NOT satisfied by
+operator sign-off alone.
+
+| Stage | What runs | Gate to advance (OPERATIONAL) | Est. duration |
 |---|---|---|---|
-| **0 — Prereqs + paper battery** | Operator enables crypto agreement (live + paper); `crypto_status==ACTIVE` recorded; paper battery verifies EMPIRICALLY: pair list + increments snapshot, GTC/IOC acceptance, **GTC stop_limit acceptance per pair**, fee schedule from fill receipts, non-marginable BP behavior; data backfill + two-source parity | All [GUESS] rows of §2.7 converted to [VERIFIED] in a recorded battery report | ~1 week |
-| **1 — Shadow 24/7** | Scheduler in shadow (no orders, `assert_shadow_never_submits`); full decisions logged; model trained + WF-gated (net-of-fees + BTC baseline) in parallel; Codex adversarial review of model card | ≥ 14 consecutive clean shadow days incl. 2 weekends; replay audit green; model promoted through the 3-tier gate | 2–3 weeks |
-| **2 — $500 canary** | Live entries, allowlist = BTC/USD + ETH/USD + top-3 liquidity; loss budget $75 sticky; all §5 rails armed; broker stops verified live on first fill | ≥ 2 weeks incl. 2 full weekends, zero Tier-1 defects, realized fees within battery estimate; **operator sign-off** | 2+ weeks |
-| **3 — Sleeve full** | $1–2k (operator sets number), full ~20-pair universe | **Operator sign-off**; thereafter monthly review vs BTC baseline; persistent underperformance net of fees = wind-down trigger | ongoing |
+| **0 — Prereqs + paper battery** | Operator enables crypto agreement (live + paper); `crypto_status==ACTIVE` recorded; paper battery verifies EMPIRICALLY: pair list + increments snapshot, GTC/IOC acceptance, **GTC stop_limit acceptance per pair**, fee schedule from fill receipts, non-marginable BP behavior; data backfill + two-source parity; **ex-ante spread/slippage bounds derived from Alpaca quote/trade data per pair (§4.4 — NOT from paper fills)** | All [GUESS] rows of §2.7 converted to [VERIFIED] in a recorded battery report; ex-ante cost bounds recorded per pair | ~1 week |
+| **1 — Shadow 24/7 (OPERATIONAL ONLY)** | Scheduler in shadow (no orders, `assert_shadow_never_submits`); full decisions logged; model trained + WF-gated (net-of-fees + BTC baseline, historical evidence per §4.4) in parallel; Codex adversarial review of model card | ≥ 14 consecutive clean shadow days incl. 2 weekends; replay audit green; model promoted through the 3-tier gate. **This gate is scheduler/logging/model-card readiness — it is NOT prospective economic evidence** | 2–3 weeks |
+| **2 — $500 canary (OPERATIONAL ONLY)** | Live entries, allowlist = BTC/USD + ETH/USD + top-3 liquidity; loss budget $75 sticky; all §5 rails armed; broker stops verified live on first fill | ≥ 2 weeks incl. 2 full weekends, zero Tier-1 defects, realized fees within battery estimate; **operator sign-off that OPERATIONS are sound**. **This gate authorizes CONTINUING at $500 into Stage 2.5 — it does NOT authorize scaling capital** | 2+ weeks |
+| **2.5 — Prospective economic evaluation (NEW — capital HELD at $500, not scaled)** | Same $500 canary continues unchanged; sleeve-level net-of-cost return is tracked per non-overlapping 20-day block (§4.3's frozen horizon) against a BTC baseline matched to the sleeve's own risk/capital (same dollar notional, vol-scaled if the sleeve runs below 100% crypto exposure) | See derivation below — **absolute floor: 8 complete non-overlapping 20-day blocks (160 calendar days, ~5.3 months) before ANY confirmatory verdict; NO-GO if the blinded-re-estimated required block count is impractically large, or if the realized net-of-cost mean fails the BTC-baseline margin at that checkpoint** | ≥ 160 days (floor); more if the blinded re-estimate at the 8-block checkpoint requires it |
+| **3 — Sleeve full** | $1–2k (operator sets number), full ~20-pair universe | Stage 2.5 clears its NO-GO check (economic evidence) **AND operator sign-off** (capital-risk decision); thereafter monthly review vs BTC baseline; persistent underperformance net of fees = wind-down trigger | ongoing |
+
+### 6.1 Stage 2.5 derivation (prospective economic evaluation — worked honestly)
+
+This mirrors the Deployment Governor RFC's own resolution to the identical
+problem (`doc/design/2026-07-09-governor-prereg-replay-protocol.md` §1.2/§2a,
+merged as orchestrator#443) — non-overlapping outcome blocks as the valid
+unit of inference for a forward-return horizon, an honest power derivation
+from the best available (even if conservative/proxy) variance estimate, and
+a blinded re-estimation mechanism rather than a single fixed-N guess.
+
+- **Unit of inference**: one non-overlapping 20-calendar-day block = one
+  independent sleeve-level net-of-cost return observation. `N_blocks =
+  floor(canary_days / 20)`. Overlapping/rolling 20-day windows are NOT valid
+  observations for the same reason established in the Governor RFC — a
+  block whose forward window spans past its own boundary is not independent
+  of its neighbor.
+- **Absolute floor (frozen, from the SAME general statistical principle the
+  Governor RFC established — not crypto-specific)**: fewer than 8 complete
+  blocks is not enough for ANY variance estimate to be trustworthy,
+  regardless of technique. `8 blocks × 20 days = 160 calendar days (~5.3
+  months, ~23 weeks)` is the minimum canary duration before ANY confirmatory
+  economic read — this is a floor, not a power-justified target.
+- **Conservative proxy power check (labeled as such, not a measured
+  estimate — this sleeve has never run, so there is no real prior variance
+  to draw on)**: using this RFC's own §2.2 vol-clip range for individual
+  crypto names (realized vol 60–150%+ annualized) as an upper-bound-style
+  proxy, and a representative 50% annualized SLEEVE-level vol (lower than
+  any single name's, reflecting partial diversification across 5–8
+  effective breadth — labeled a proxy, not measured): `σ_block ≈ 50% ×
+  √(20/365) ≈ 11.7% (1170 bps)`. At `α=0.05` (one-sided, `z_α=1.645`),
+  `power=0.80` (`z_β=0.8416`), and a `δ=200 bps/block` non-inferiority
+  margin vs the BTC baseline (an illustrative round number — order-of-
+  magnitude consistent with round-trip fee costs, not itself derived from
+  data): `N* = ((z_α+z_β)·σ_block/δ)² ≈ (2.485×1170/200)² ≈ 212 blocks ≈
+  4,240 days ≈ 11.6 years`. At the upper end of the vol-clip range (100%
+  annualized), `N* ≈ 847 blocks ≈ 46 years`. **Both are plainly
+  impractical as a fixed target** — the same honest conclusion the
+  Governor RFC reached with its own conservative proxy.
+- **Resolution — blinded sample-size re-estimation at the 8-block
+  checkpoint (same mechanism as the Governor RFC, not a new invention)**: at
+  exactly 8 complete blocks (160 days), compute the REALIZED
+  (variance-only, sign-blind) block-return standard deviation from the
+  sleeve's own actual data — this is very likely much lower than the
+  conservative proxy above, since the proxy assumes near-worst-case crypto
+  volatility and ignores the model's own risk controls (vol-scaled caps,
+  drawdown halt). Use a one-sided 95% upper confidence bound on that
+  realized variance (chi-square, df=7) as `σ²_input` — NOT the raw point
+  estimate, for the same reason the Governor RFC's r9 correction required a
+  95% (not 80%) confidence level on a nuisance-parameter plug-in feeding an
+  80%-power target. Recompute `N*` from `σ_input`; freeze the confirmatory
+  gate at `N_blocks ≥ max(8, N*)`. This re-estimation happens EXACTLY ONCE
+  and is recorded in the verdict memo with all inputs.
+- **NO-GO (frozen, first-class outcome)**: if the re-estimated `N*` at the
+  8-block checkpoint is impractically large (say, requiring years of
+  continued $500-only operation for a sleeve this small), OR if the
+  realized net-of-cost mean block return fails the BTC-baseline
+  non-inferiority margin once `N_blocks ≥ max(8, N*)` is reached, the sleeve
+  does NOT scale to Stage 3 — it stays at $500 indefinitely
+  (descriptive-only) or winds down, exactly the same honest default the
+  Governor RFC adopted for its own analogous power shortfall. This is an
+  ACCEPTABLE outcome, not a design failure — a small, high-vol, 20-day-
+  horizon sleeve may simply never accumulate a defensible confirmatory
+  sample size on any human timescale, and the capital-scaling decision must
+  say so rather than force a verdict at a weaker bar.
+- **Symmetric no-early-scale**: an equally favorable early read (e.g. a
+  strongly positive point estimate at fewer than `max(8, N*)` blocks)
+  authorizes NOTHING — no early Stage 3, no shortened evaluation. Only the
+  operational Tier-1-defect halts (§5.4) and the sticky drawdown halt may
+  stop the canary early; nothing may advance it early.
 
 Rollback at every stage: kill switch → cancel non-protective orders → exits per
 rails → stage frozen pending review. No stage may be skipped; no capital step
-without the operator.
+without the operator; Stage 3 additionally requires Stage 2.5's NO-GO check to
+have cleared (see above) — operator sign-off alone is necessary but not
+sufficient for the capital step.
 
 ---
 
