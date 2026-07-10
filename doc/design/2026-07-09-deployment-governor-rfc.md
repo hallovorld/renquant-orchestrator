@@ -188,15 +188,39 @@ which cannot starve new entries by construction).
   objective terms) as a feasibility repair IF the cheap projection order proves
   insufficient in replay. Default OFF.
 
-### 2.3 L3 — integer-aware execution
+### 2.3 L3 — integer-aware execution (executed-state invariant)
 
 At $10.7k, whole-share granularity is first-order: BLK is 9.3%/share. Order
-generation becomes a small greedy knapsack: sort by conviction, allocate
-`round(w_i·PV/p_i)` shares with the residual-cash pass re-offering leftover cash to
-the next-highest-conviction affordable name (generalizes the one-share floor's
-deferred-rescue pass, strategy-104 PR #49, which stays as the interim measure).
+generation is a greedy pass in conviction order with a residual-cash re-offer
+(generalizing the one-share floor's deferred-rescue pass, strategy-104 PR #49,
+which stays as the interim measure).
+
+r2 review point 1 accepted — naive rounding of `w_i·PV/p_i` can push an order
+ABOVE its L2 target or cap, and a portfolio of rounded orders can breach cash,
+sector, or concentration constraints. L3 therefore carries its own invariant,
+mirroring the one-share floor's explicit cap/headroom guarantees:
+
+- **Round DOWN by default** (`floor(w_i·PV/p_i)` shares). A round UP (the
+  one-share rescue case) is permitted only under the deferred-rescue conditions:
+  one share ≤ per-name cap × PV AND ≤ remaining investable headroom, evaluated
+  AFTER all round-down orders are funded.
+- **Post-round recheck**: after integer quantities are fixed, cash (incl. reserve
+  and tax-reserve conventions), single-name cap, sector cap, and correlation-pair
+  constraints are re-verified on the EXECUTED quantities; any violating order is
+  capped down or rejected — never submitted in breach.
+- **Separate ledger fields**: `E_executed = Σ(shares_i·p_i)/PV` and
+  `integer_residual = E_final − E_executed` are stamped per session, distinct from
+  L2's continuous `E_final` and L1's `E*` — three auditable numbers, one per layer.
+
 Fractional shares would collapse this layer to exact execution — analyzed in the
 separate reopen memo (§5); this RFC does not depend on it.
+
+**Conviction, defined** (r2 minor point): "conviction" throughout this RFC is
+`raw_i` — the shrunk fractional-Kelly score itself — used ONLY as an ordering key
+(top-k membership, constraint-trim priority, greedy funding order, residual
+re-offer order). It never multiplies a weight: μ̂ and σ̂ enter position size exactly
+once, inside `raw_i`. Ordering by `raw_i` is a monotone rank, so it cannot
+reintroduce the μ/σ double-count under another name.
 
 ### 2.4 L4 — long-short extension (staged, NOT in initial scope)
 

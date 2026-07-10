@@ -68,18 +68,30 @@ hysteresis active).
    requires positive paired mean with DSR ≥ 0.95 and PBO ≤ 0.10 (the harness's
    existing promotion bar).
 
-**Quality of marginal capital** (Codex requirement from #442): the Governor arm's
-EXTRA exposure vs the incumbent-deployment proxy must itself earn ≥ 0 net forward
-return — measured as paired return difference between the Governor arm and a
-synthetic arm holding the incumbent's E* with the Governor's weights renormalized.
-More invested but worse risk-adjusted = REJECT.
+**Decomposed design (r2 point 2 accepted — the L1 deployment question and the L2
+allocator question are separate, answered by separate paired comparisons):**
+
+- **(a) L1 — does Governor-selected E* beat incumbent deployment?** SAME allocator
+  on both sides (the winner/simplest from (b), equal-weight if (b) inconclusive):
+  `allocator@E*_governor` vs `allocator@E*_incumbent`, where incumbent E* is the
+  session's realized live deployment from run bundles.
+- **(b) L2 — which allocator, at MATCHED exposure?** All allocator variants run at
+  the SAME session E*; allocator skill judged independent of deployment level.
+- **(c) Combined system vs incumbent**: `governor + chosen allocator` end-to-end vs
+  incumbent greedy+Kelly+multipliers. The enable decision references (c), with
+  (a)/(b) as its decomposition — if (c) wins but (a) is flat, the win is
+  allocator-only and the Governor layer must not claim it, and vice versa.
+
+**Quality of marginal capital** (Codex requirement from #442): the EXTRA exposure
+in (a) must itself earn ≥ 0 net forward return — computed as the paired return
+difference between (a)'s two registered arms. This is exactly reproducible (same
+allocator, same sessions, only E* differs); no separately-constructed synthetic
+portfolio exists. More invested but worse risk-adjusted = REJECT.
 
 **Risk-normalization rule**: raising deployment mechanically raises portfolio
 volatility; that risk appetite is the operator's granted mandate, NOT an estimand.
-Comparisons between arms are made AT MATCHED E* (all Phase-1/2 arms allocate the
-same session E*), so the allocator choice is evaluated separately from the
-deployment-level choice. The deployment-level choice is evaluated by the marginal-
-capital estimand above plus the hard gates below.
+(b) isolates allocator skill at matched E*; (a) isolates the deployment decision;
+the §4 gates bound the risk of both.
 
 ## 4. Non-degradation gates (tolerances frozen now)
 
@@ -107,8 +119,13 @@ negative (deploying more of this signal destroys value — then the cash-drag an
 is "the signal doesn't support more deployment", and the honest next move is the
 parking sleeve (RS-1) for idle cash, not forced equity exposure).
 
-**Stop rule**: any mid-run gate breach aborts the arm immediately; partial results
-are reported as diagnostic only.
+**Stop rule** (r2 point 2 accepted — split by venue):
+- **Historical replay**: NO mid-window abort — aborting an arm on a
+  drawdown/turnover breach censors returns asymmetrically. Every arm runs the FULL
+  registered horizon; a gate breach is RECORDED and fails promotion, but the
+  series completes.
+- **Live shadow / canary (S1/S2)**: immediate stop on any gate breach — safety
+  dominates statistical cleanliness once real or near-real capital is involved.
 
 ## 6. What this protocol does NOT authorize
 
