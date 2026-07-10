@@ -141,6 +141,40 @@ def test_session_enumeration_matches_loader_rule(env):
     assert rec["data_cutoff"]["fwd_60d_max_session"] == max(CLEAN_DATES)
 
 
+def test_session_enumeration_has_parity_with_real_loader(env):
+    """Codex review (#446): the freeze tool's session-selection SQL is a
+    separately-written copy of the real loader's join/filter rule, not a
+    shared primitive — nothing previously proved they can't silently drift
+    apart, which would let a freeze record certify a session universe the
+    real replay harness doesn't actually use. Run the ACTUAL
+    ``load_replay_bars_from_sim_db`` against the same fixture DB and assert
+    the emitted session dates are exactly the ``enumerate_sessions`` set,
+    for both horizons this protocol uses."""
+    from renquant_pipeline.kernel.portfolio_qp.wf_replay_loader import (
+        load_replay_bars_from_sim_db,
+    )
+
+    conn = d6.connect_readonly(env["db"])
+    try:
+        for horizon in (1, 60):
+            freeze_tool_dates = set(d6.enumerate_sessions(conn, horizon))
+            real_bars = load_replay_bars_from_sim_db(
+                env["db"], "0001-01-01", "9999-12-31",
+                fwd_horizon_days=horizon,
+            )
+            loader_dates = {bar.bar_date for bar in real_bars}
+            assert freeze_tool_dates == loader_dates, (
+                f"horizon={horizon}: freeze tool and the real loader "
+                f"disagree on which sessions are usable — "
+                f"freeze_tool-only={freeze_tool_dates - loader_dates}, "
+                f"loader-only={loader_dates - freeze_tool_dates}. A freeze "
+                "record generated from this drift would not define the "
+                "sessions the replay harness actually consumes."
+            )
+    finally:
+        conn.close()
+
+
 def test_db_is_not_written(env):
     before = d6.sha256_file(env["db"])
     _generate(env)
