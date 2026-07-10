@@ -372,8 +372,17 @@ permanent fallback for Governor failure semantics (§2.1).
 
 Boundary compliance: pipeline owns kernel primitives (D2–D4); strategy-104 owns
 policy/config (D5); orchestrator owns orchestration, evaluation, and cross-repo
-design (D1, D6–D8). No broker-adapter changes; no model-training changes; nothing
-touches the umbrella live tree.
+design (D1, D6–D8). No broker-adapter changes; no model-training changes; this
+RFC's OWN deliverables (D1-D8) touch nothing in the umbrella live tree.
+**Caveat (r5, D6 §2a)**: D6's breadth-lever shadow A/B documents a
+PREREQUISITE it does not itself build — a second isolated shadow broker tag —
+which requires a small umbrella-side call-site change (parameterizing an
+already-hardcoded `ReadOnlyBrokerWrapper.broker_name`, cutting over to the
+already execution-repo-resident `renquant_execution.readonly_broker` instead
+of the umbrella's local copy) as its OWN separately-gated follow-up PR, same
+shape as the `RenQuant#454`→`renquant-execution#25` precedent. That follow-up
+is not part of this RFC's D1-D8 deliverable set and is not authorized by this
+RFC's approval — it needs its own review.
 
 ## 6. Non-goals
 

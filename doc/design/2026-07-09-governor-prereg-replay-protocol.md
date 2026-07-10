@@ -22,8 +22,8 @@ sign-off void the run and require a new protocol version.
   subset ID lists are frozen in the same commit. The evaluation subset is never used
   to choose any parameter; a parameter change after seeing evaluation results
   requires a new protocol version and a fresh evaluation subset. The mechanical
-  construction of the tuning/evaluation split (contiguous blocks, embargo, exact
-  assignment rule) is specified in §2's Evaluation scheme, Phase 2.
+  construction of the tuning/evaluation split (two contiguous ranges, embargo,
+  exact assignment rule) is specified in §2's Evaluation scheme, Phase 2.
 - **Live confirmation set**: S1 shadow sessions are future-only by construction.
 
 ## 1.1 Cost, tax, and fill conventions (frozen)
@@ -38,15 +38,72 @@ sign-off void the run and require a new protocol version.
 
 ## 1.2 Statistical contract (frozen)
 
-- Paired daily returns per arm-pair; inference on the paired series with
-  HAC/Newey-West standard errors (forward-return overlap at the 60d horizon makes
-  iid inference invalid).
-- Promotion bar per comparison: paired mean advantage point estimate ≥ +1 bp/day
-  AND HAC 95% CI excluding 0 AND DSR ≥ 0.95 AND PBO ≤ 0.10 (the harness's existing
-  significance pass).
-- Marginal-capital estimand: same bar (CI excluding 0) on the paired difference
-  series defined in §3.
-- "Governor ≥ baseline" without meeting this bar is NOT enable-grade evidence.
+- **Two distinct quantities, two distinct inference units — do not conflate them:**
+  - **(i) Realized daily paired portfolio returns** (e.g. Governor arm's daily P&L
+    minus baseline arm's daily P&L, same session, same everything else): each
+    day's value is NOT a forward-looking label — it's what actually happened that
+    day. Ordinary daily-lag HAC/Newey-West (short lag, e.g. Newey-West with
+    `lag = floor(4*(T/100)^(2/9))`, the standard Newey-West 1994 plug-in rule) is
+    valid here — there is no forward-window overlap to correct for beyond normal
+    short-range serial correlation. This is the unit for the §3(a)/(b)/(c) L1/L2
+    allocator promotion-bar comparisons and the marginal-capital estimand.
+  - **(ii) h-day-ahead FORWARD-return estimands** (e.g. §2a's P2 marginal-entrant
+    20d/60d forward-return quality): a rolling daily series of h-day-forward
+    returns has each consecutive pair of observations sharing `h-1` days of the
+    same forward window — HAC/Newey-West on the raw daily series does NOT fix
+    this (r5 review, correcting the r4 fix): with h=60 and any calendar-block
+    scheme shorter than several times h, a block's forward window spans past its
+    own boundary into the next block's data (the blocks are NOT actually
+    independent as the r4 fix claimed), and within a block of n≈60 daily
+    observations there is only ~1 independent 60d-forward outcome anyway — HAC
+    corrects small-sample bias, it does not manufacture information the
+    overlapping series doesn't contain.
+    **Corrected unit — non-overlapping OUTCOME blocks**: partition the eligible
+    session range into consecutive, NON-OVERLAPPING windows of exactly `h`
+    trading days each. Each window contributes exactly ONE outcome observation:
+    the actual h-day holding-period return realized from that window's start to
+    `h` trading days later. Consecutive blocks share zero calendar days, so their
+    outcome windows cannot overlap by construction — the resulting sample IS
+    genuinely independent (to first order; residual regime-persistence
+    autocorrelation across blocks, if any, is a second-order concern not
+    addressed by HAC either way). `N_eff` = the actual count of complete
+    non-overlapping `h`-day blocks in the eligible range — a real count, not the
+    `N/h` heuristic used in the (now superseded) r4 draft. Ordinary (non-HAC)
+    inference — a paired t-test on the block-return sample, or its exact
+    permutation-test analogue for small `N_eff` — is the valid tool here; a HAC
+    correction is neither necessary (no within-sample overlap left) nor
+    sufficient (it cannot rescue a sample this small). This is the unit for
+    §2a's P2 estimand and for any other h-day-forward-return estimand in this
+    protocol (superseding the "60-trading-day calendar block + per-block
+    Newey-West + inverse-variance pooling" scheme from the r4 draft, which
+    conflated units (i) and (ii) above).
+- **Promotion bar, unit (i)**: paired mean advantage point estimate ≥ +1 bp/day
+  AND (short-lag) HAC 95% CI excluding 0 AND DSR ≥ 0.95 AND PBO ≤ 0.10 (the
+  harness's existing significance pass, `compute_significance_verdicts`).
+- **Promotion bar, unit (ii)**: paired mean block-return advantage point estimate
+  ≥ 0 (net of cost) AND, ONLY once `N_eff` is large enough for the CI itself to
+  be trustworthy (§2a Tier 2's matured-block gate), a t-test/permutation-test CI
+  excluding a value below the predeclared non-inferiority margin. Below that
+  `N_eff` gate, report the point estimate as directional-only — no CI, no
+  DSR/PBO (both require a stable variance estimate that a handful of blocks
+  cannot supply) — per §2a Tier 1.
+- **DSR/PBO applicability**: DSR (mean/std of the realized return sample,
+  deflated for the number of configurations actually tried) applies to BOTH
+  units once N is adequate — for unit (i), N = trading days in the evaluation
+  window; for unit (ii), N = `N_eff` non-overlapping blocks, and the DSR trials
+  count is the number of arms/configurations actually compared in that Phase-2
+  family (named per-family in §2/§2a, not a generic constant). **PBO does NOT
+  apply to §2a's breadth-lever comparison**: PBO's combinatorially-symmetric
+  cross-validation (CSCV) procedure needs many candidate strategies split across
+  many train/test combinations to estimate an overfitting probability; §2a is a
+  single paired 2-arm comparison (S-0.5 vs S-1.0) with one preregistered
+  treatment, not a multi-strategy search — there is no combinatorial structure
+  for CSCV to run over. PBO IS retained for the general Phase-2 L1/L2/cap-grid
+  family (§2, ~14 named configurations across baselines + L1 candidates +
+  cap-family variants — a genuine multi-strategy selection scenario), computed
+  via CSCV over the unit-(i) daily paired-return series for each configuration.
+- "Governor ≥ baseline" (or "S-1.0-floor ≥ S-0.5-floor") without meeting the
+  applicable bar above is NOT enable-grade evidence.
 
 ## 2. Arms
 
@@ -121,15 +178,27 @@ the floor:**
   floor differs.
 - **Estimand (A) — floor effect (the causal claim, THIS protocol's decision
   rule)**: paired S-0.5 vs S-1.0, same session dates, same everything else.
-  P1 (deployed fraction) and P2 (20d/60d forward-return quality of the
-  marginal-entrant set, defined identically to #52 §4 P2) are both computed
-  on this pair. Because both arms actually execute their admitted sets in
-  real (isolated, simulated) broker state, **there is no hypothetical
-  portfolio and no separate cost/tax model is needed for this estimand** —
-  each arm's own fills carry the funnel's real simulated transaction cost and
-  tax-drag mechanics automatically. This dissolves the "cost/tax accounting
-  for the hypothetical entrant portfolio" problem in the superseded design:
-  nothing here is hypothetical.
+  **P1 (deployed fraction)**: shadow vs shadow_b end-of-chain deployed
+  fraction per session, paired by session date. **P2 (quality of the marginal
+  entrants, frozen HERE, not by cross-reference)**: on the pre-veto scored
+  cross-section common to both arms (same scorer, same session, so the
+  cross-section is identical before the floor is applied), three sets: (a)
+  marginal entrants — `mean + 0.5σ ≤ rank_score < mean + 1.0σ` (admitted by
+  S-0.5, rejected by S-1.0); (b) incumbent admits — `rank_score ≥ mean +
+  1.0σ` (admitted by both arms); (c) rejects — `rank_score < mean + 0.5σ`
+  (rejected by both, sanity check). Forward returns at 20d and 60d horizons,
+  SPY-relative, computed per §1.2 unit (ii)'s non-overlapping-block method.
+  **Quality bar (frozen)**: the marginal-entrant set's mean forward return
+  must be (i) ≥ 0 net of the §1.1 cost/tax conventions, AND (ii) not more
+  than the §2a non-inferiority margin below the incumbent set's mean, per the
+  Tier 2 test below. "More deployed" with quality failing this bar = REJECT.
+  Because both arms actually execute their admitted sets in real (isolated,
+  simulated) broker state, **there is no hypothetical portfolio and no
+  separate cost/tax model is needed for this estimand** — each arm's own
+  fills carry the funnel's real simulated transaction cost and tax-drag
+  mechanics automatically. This dissolves the "cost/tax accounting for the
+  hypothetical entrant portfolio" problem in the superseded design: nothing
+  here is hypothetical.
 - **Estimand (B) — residual environment effect (a SEPARATE diagnostic
   estimand, NOT part of the ENABLE/REJECT decision for the floor)**: paired
   S-1.0 vs actual production, same session dates. S-1.0 matches production's
@@ -138,92 +207,145 @@ the floor:**
   Kelly, regime cap, one-share floor) — holding the floor fixed. This is a
   prerequisite DIAGNOSTIC before any future live-enablement PR can claim the
   floor conclusion generalizes from shadow to production (scorer-transfer
-  risk, #52 §7 point 2); it is not evidence for or against the floor itself,
-  and a bad reading here blocks *generalizing* the S-0.5-vs-S-1.0 result to
-  production, not the shadow-only verdict.
-- **Explicitly retired**: the #52 P3 "production-XGB counterfactual" estimand
+  risk — the 2026-06-11 audit found `adaptive_mean_std` shape-unstable on
+  Platt-compressed PatchTST scores, rank_score IQR 0.039, 1.0σ dropping 86%
+  admits that day; the σ-multiplier treatment is scale-free per-session,
+  which mitigates but does not eliminate this); it is not evidence for or
+  against the floor itself, and a bad reading here blocks *generalizing* the
+  S-0.5-vs-S-1.0 result to production, not the shadow-only verdict.
+- **Explicitly retired**: a "production-XGB counterfactual" estimand
   (computing the marginal-entrant set on logged production scores that were
-  never actually traded) is superseded by estimand (B) above, which uses a
-  REAL executed comparison arm instead of a computed counterfactual. Do not
-  compute P3 in addition to (B) — it would answer a strictly weaker version
-  of the same question with a hypothetical portfolio where a real one is
-  available.
+  never actually traded, as the superseded design proposed) is superseded by
+  estimand (B) above, which uses a REAL executed comparison arm instead of a
+  computed counterfactual. Do not compute a counterfactual P3 in addition to
+  (B) — it would answer a strictly weaker version of the same question with
+  a hypothetical portfolio where a real one is available.
 
-**Infrastructure this requires (NOT YET BUILT — a prerequisite for this
-protocol to run, tracked as follow-up work, not implemented in this doc-only
-PR):**
+**Infrastructure this requires (NOT YET BUILT — researched at r5, not merely
+asserted; a prerequisite for this protocol to run, tracked as follow-up work
+in the OWNING repos, not implemented in this doc-only PR):**
+
+Direct inspection (r5) of the actual multi-repo boundary, rather than
+assuming one: `renquant-pipeline`'s `state_paths.py` (`ALLOWED_BROKERS`) is
+already a generic, broker-agnostic path-construction allowlist — adding
+`"alpaca_shadow_b"` there is a one-line pipeline-repo change, no new
+capability. The state-path CONSUMER, however, is genuinely different: the
+umbrella's `live/runner.py` already exposes a generic `--strategy-config-name`
+override (so S-1.0's CONFIG selection needs zero new umbrella code — the
+existing flag already does this), but the BROKER-STATE tag is a separate axis
+that is NOT independently selectable today: `ReadOnlyBrokerWrapper.broker_name`
+is a hardcoded class attribute (`"alpaca_shadow"`, verified in both the
+umbrella's `live/broker_readonly.py` AND its as-yet-unwired port at
+`renquant_execution.readonly_broker.ReadOnlyBrokerWrapper` — same hardcoded
+value in both places). Running a second `--broker readonly-alpaca` process
+today, even with `--strategy-config-name strategy_config.shadow_b.json`,
+would still resolve `broker_name="alpaca_shadow"` and COLLIDE with S-0.5's
+existing state files (`live_state.alpaca_shadow.json` /
+`runs_alpaca_shadow.db`) — a real correctness bug, not a style objection.
+**No existing multi-repo interface supports a second broker tag without ANY
+code change** — confirmed by inspection, not assumed. The minimal owning-repo
+addition, per the `RenQuant#454`→`renquant-execution#25` precedent (move
+umbrella-resident logic to its owning repo rather than extend it in place):
 1. `renquant-pipeline` `state_paths.py` (and its `kernel/state_paths.py`
    duplicate — both copies, per this project's known duplication pattern):
-   add `"alpaca_shadow_b"` to `ALLOWED_BROKERS`.
-2. Umbrella `live/broker_readonly.py`: `ReadOnlyBrokerWrapper.broker_name` is
-   currently a HARDCODED class attribute (`"alpaca_shadow"`), not a
-   constructor parameter — verified by direct inspection. Needs
-   `__init__(self, underlying, broker_name="alpaca_shadow")` so a second
-   instantiation can tag itself `"alpaca_shadow_b"` without touching the
-   default (backward-compatible) behavior.
-3. Umbrella `live/runner.py`: a new CLI surface to select the second shadow
-   arm (e.g. a `--broker readonly-alpaca-b` choice, or a `--shadow-tag`
-   flag) defaulting its config to `strategy_config.shadow_b.json` and
-   constructing `ReadOnlyBrokerWrapper(real, broker_name="alpaca_shadow_b")`.
-4. `daily_104.sh`: a third invocation (Step 5, alongside the existing Step 4
-   shadow pass) running S-1.0. Non-fatal to the prod cycle, same as the
-   existing shadow step.
-5. `strategy-104`: add `configs/strategy_config.shadow_b.json` (the S-1.0
-   config described above) and a config-drift pin test alongside the
-   existing `strategy_config.shadow.json` pin, verifying prod/golden stay
-   untouched and shadow_b differs from shadow ONLY in `buy_floor_std_mult`.
-   This is the "config-only treatment PR" `strategy-104#52` will become,
-   scoped strictly to items 5 (+ whatever of 1-4 lands in strategy-104's own
-   repo boundary) — never bundled with protocol design, per Codex's
-   sequencing objection.
+   add `"alpaca_shadow_b"` to `ALLOWED_BROKERS`. Zero umbrella involvement.
+2. `renquant-execution`'s `readonly_broker.ReadOnlyBrokerWrapper` (already
+   execution-repo-resident, currently unwired into the live runner): make
+   `broker_name` a constructor parameter (`__init__(self, underlying,
+   broker_name="alpaca_shadow")`), entirely within execution's own repo
+   boundary — zero orchestrator/umbrella code touched for this change.
+3. **Separate prerequisite, explicitly out of THIS protocol's scope**: cutting
+   `live/runner.py`'s `readonly-alpaca` branch over to import
+   `ReadOnlyBrokerWrapper` from `renquant_execution.readonly_broker` (now
+   parameterizable) instead of its local hardcoded copy, and adding a second
+   CLI invocation for S-1.0. This is a thin delegating call-site change of the
+   SAME shape as `RenQuant#454` (import the owning repo's capability, fail-
+   closed fallback to the existing single-arm behavior if the import fails) —
+   not a new umbrella capability, but it is still a change to umbrella code,
+   so it is tracked as its own follow-up PR under the adapter-migration
+   program, gated on its own review, and is NOT a design decision this
+   protocol PR makes. This protocol documents what that follow-up PR must
+   satisfy (parameterized broker_name, isolated `alpaca_shadow_b` state, fail-
+   closed to single-arm behavior on any wiring failure); it does not build it.
+4. `strategy-104`: add `configs/strategy_config.shadow_b.json` (byte-for-byte
+   clone of `shadow.json` except `buy_floor_std_mult = 1.0`) and a config-
+   drift pin test alongside the existing `strategy_config.shadow.json` pin,
+   verifying prod/golden stay untouched and shadow_b differs from shadow
+   ONLY in `buy_floor_std_mult`. This is the "config-only treatment PR"
+   `strategy-104#52` will become, scoped strictly to item 4 — never bundled
+   with protocol or broker-wrapper design, per Codex's sequencing objection.
 
-**Statistical power (honest treatment — the superseded design's ≥10-session
-HAC test on 20d/60d overlapping returns is NOT adequately powered; showing
-the reasoning rather than asserting a fix):**
+**Statistical power (r5 correction: the r4 draft's `N_eff ≈ N/h` was a
+heuristic for a DIFFERENT problem — overlapping daily observations. §1.2 now
+defines the correct unit for an h-day-forward estimand as a non-overlapping
+`h`-day OUTCOME BLOCK; applying that unit here, the concrete session counts
+below are unchanged from r4 but are now an EXACT count, not an approximation,
+and the inference tool is a plain t-test/permutation-test on the block
+sample, not HAC):**
 
-For a daily paired series with an `h`-day-ahead overlapping return horizon,
-consecutive observations share `h-1` days of the same forward window, so the
-number of *effectively independent* blocks is roughly `N_eff ≈ N / h` (the
-standard heuristic for non-overlapping-block decomposition of
-serially-overlapping return series). HAC/Newey-West standard errors correct
-the *bias* from this overlap but do not manufacture power the data doesn't
-contain: with too few effective blocks, the corrected SE is itself unstable.
-Common econometric guidance treats fewer than ~5-10 effective blocks as
-unreliable for cluster/HAC-robust inference.
+Each `h`-day non-overlapping block (both arms run the SAME calendar sessions,
+so a block is `h` consecutive trading days on which both S-0.5 and S-1.0
+executed) yields exactly one paired block-return observation for estimand
+(A). `N_eff` = the number of complete such blocks that have accumulated since
+both arms went live — an exact count of independent data points, not a ratio.
+Common econometric guidance treats fewer than ~5-10 independent blocks as
+unreliable for any CI (t-test, permutation, or HAC — none of them manufacture
+power a too-small independent sample doesn't contain).
 
-- At `N=10` sessions and `h=20`: `N_eff ≈ 0.5`. At `h=60`: `N_eff ≈ 0.17`.
-  Both are far below the reliability floor — the superseded design's
-  ≥10-session HAC test was not analyzing noise correctly; it was analyzing a
-  sample too small for the standard error itself to be trustworthy at all.
-- Reaching even a conservative `N_eff = 8` (the low end of the "unreliable
-  below" guidance, not a fully-powered target) requires `N ≈ 8h` sessions:
-  **~160 sessions (~8 months) for the 20d estimand, ~480 sessions (~2 years)
-  for the 60d estimand.** A fully-powered target (`N_eff ≈ 30`) would need
-  ~600 and ~1800 sessions respectively — multi-year, impractical for a
-  shadow gate meant to unblock a breadth-bound deployment problem now.
+- At `N=10` live sessions: `N_eff = floor(10/20) = 0` complete 20d blocks,
+  `floor(10/60) = 0` complete 60d blocks. Zero complete blocks means zero
+  independent data points — the superseded design's ≥10-session HAC test was
+  attempting inference on a sample that, correctly counted, contains no
+  complete non-overlapping outcome at all yet.
+- Reaching a conservative `N_eff = 8` complete blocks (the low end of the
+  "unreliable below" guidance, not a fully-powered target) requires
+  `N = 8h` live sessions: **160 sessions (~8 months) for the 20d estimand,
+  480 sessions (~2 years) for the 60d estimand.** A fully-powered target
+  (`N_eff ≈ 30`) would need 600 and 1800 sessions respectively — multi-year,
+  impractical for a shadow gate meant to unblock a breadth-bound deployment
+  problem now.
 
 **Resolution — two-tier reporting, not a single fixed-N verdict:**
-- **Tier 1 — early operational read, `N ≥ 10` sessions (unchanged trigger
-  from #52 §5)**: report P1/P2 as DIRECTIONAL POINT ESTIMATES ONLY, explicitly
-  labeled "underpowered, not significance-tested" — no HAC CI is computed or
-  reported at this tier because at `N_eff < 1` a computed CI would be
-  false precision, not honest uncertainty. Used only for a coarse kill
-  check: if the point estimate is grossly adverse (e.g. marginal-entrant mean
-  return sharply negative net of cost, or any §6 gate breach), REJECT early
-  rather than waiting out a multi-month confirmatory window for a treatment
-  that is already failing directionally. A favorable or neutral Tier-1 read
-  does NOT authorize ENABLE — it authorizes continuing to Tier 2.
-- **Tier 2 — confirmatory read, matured-observation-gated (replaces the fixed
-  "+10 extension" rule)**: continue running both arms until `N_eff ≥ 8` matured
-  observations accumulate per estimand (a matured observation is one whose
-  full `h`-day forward-return window has elapsed) — concretely, ~160 sessions
-  for the 20d estimand and ~480 for the 60d estimand, per the arithmetic
-  above. At that point compute the preregistered HAC significance test (#52
-  §4 P2's bar: marginal-entrant mean ≥ 0 net of cost AND not significantly
-  below the incumbent set) for real. This is the earliest point at which a
-  RECOMMEND-ENABLE or REJECT verdict may be issued; a verdict issued before
-  Tier 2's matured-N gate is not decision-grade regardless of what the point
-  estimate shows.
+- **Tier 1 — early operational read, a SINGLE predeclared look at exactly
+  `N = 10` live sessions (frozen HERE at this session count; NOT a repeated or
+  continuously-monitored check — a single predeclared inspection point is not
+  optional stopping, since the analyst cannot choose when to look; the
+  optional-stopping failure mode Codex flagged requires either an undisclosed
+  choice of when to peek or a vague, elastic threshold — both are closed by
+  fixing both the session count AND the numeric bound below, in advance)**:
+  at exactly N=10, report estimand (A)'s P2 (marginal-entrant mean forward
+  return, NET of the §1.1 transaction-cost and tax-drag conventions — same
+  net-of-cost basis as the Tier-2 bar below, for consistency) as a
+  DIRECTIONAL POINT ESTIMATE ONLY — no CI, no DSR/PBO (zero complete blocks
+  exist at N=10, so no variance estimate is available to compute one; a
+  computed CI here would be false precision). **Frozen early-REJECT
+  threshold**: REJECT early iff the N=10 point estimate is worse than −50
+  bps/period net of cost — the SAME magnitude as the Tier-2 non-inferiority
+  margin below, chosen for consistency rather than inventing a second number.
+  This is checked in BOTH directions symmetrically at the single N=10 look
+  (a point estimate at or better than −50bps, whether positive or mildly
+  negative, does NOT trigger early REJECT and does NOT authorize ENABLE
+  either — it authorizes continuing to Tier 2 either way). This closes the
+  "grossly adverse is an example, not a threshold" gap from r5.
+- **Tier 2 — confirmatory read, matured-block-gated (replaces the fixed
+  "+10 extension" rule)**: continue running both arms until `N_eff ≥ 8`
+  complete non-overlapping `h`-day blocks accumulate per estimand — 160
+  sessions for the 20d estimand, 480 sessions for the 60d estimand, per the
+  arithmetic above. At that point compute the preregistered t-test /
+  permutation-test on the block-return sample (§1.2 unit (ii); the P2 quality
+  bar frozen above: marginal-entrant mean ≥ 0 net of cost AND not
+  significantly below the incumbent set by more than the non-inferiority
+  margin) for real. This is
+  the earliest point at which a RECOMMEND-ENABLE or REJECT verdict may be
+  issued; a verdict issued before Tier 2's matured-block gate is not
+  decision-grade regardless of what the point estimate shows. DSR is computed
+  on this same block-return sample once `N_eff ≥ 8`, deflated for the 2 arms
+  actually compared (S-0.5, S-1.0 — a small trials-correction, named
+  explicitly since it's non-zero). **PBO does not apply to this comparison**
+  (§1.2) — a single preregistered 2-arm paired design has no combinatorial
+  train/test structure for CSCV to run over; PBO is not computed for
+  estimand (A) or (B), and its absence is not a gap, it is the correct
+  treatment of a 2-arm design per §1.2.
 - **Non-inferiority margin (predeclared, Tier 2)**: the marginal-entrant set's
   mean forward return must not be more than 50 bps/period below the
   incumbent set's mean (one-sided non-inferiority margin, chosen as roughly
@@ -233,84 +355,161 @@ unreliable for cluster/HAC-robust inference.
   gives the test a concrete margin rather than testing a point null the
   data can't resolve at any reachable N.
 - Given the 20d estimand matures ~3× faster than 60d, Tier 2 MAY report the
-  20d verdict first (at ~160 sessions) while continuing to accumulate toward
-  the 60d gate (~480 sessions) — the two horizons are not required to mature
+  20d verdict first (at 160 sessions, `N_eff=8` complete 20d blocks) while
+  continuing to accumulate toward the 60d gate (480 sessions, `N_eff=8`
+  complete 60d blocks) — the two horizons are not required to mature
   together, and the 20d-only interim verdict is explicitly labeled as
   covering only the shorter horizon.
 
-**Run-bundle fingerprint (closes the gap flagged in the prior draft of this
-section)**: each shadow session for BOTH arms stamps: (i) a config hash —
-sha256 of the resolved `strategy_config.shadow.json` /
+**Run-bundle fingerprint (closes the fingerprint-gap flagged in the r4 draft;
+missingness rule added at r5)**: each shadow session for BOTH arms stamps:
+(i) a config hash — sha256 of the resolved `strategy_config.shadow.json` /
 `strategy_config.shadow_b.json` content; (ii) a model-artifact hash — reusing
 the project's existing unified `model_content_sha256` /
 `model_content_sha256_from_path` convention
 (`renquant_pipeline.kernel.panel_pipeline.fingerprint_dispatch`), not a
 bespoke scheme; (iii) the broker-state identity tag (`alpaca_shadow` /
 `alpaca_shadow_b`); (iv) the code commit SHA of `renquant-strategy-104` and
-`renquant-pipeline` at run time. A session whose stamped fingerprint doesn't
-match the frozen treatment's expected values is excluded from both Tier 1 and
-Tier 2 counts, not silently included — reusing this project's own
-`panel_scorer_config_mismatch` fail-closed convention rather than treating a
-config-drifted session as a valid observation.
+`renquant-pipeline` at run time; (v) the frozen data/feature manifest hash
+used by that session's scoring pass (the same manifest SHA convention as §1's
+freeze-rule commit); (vi) this orchestrator repo's own commit SHA (so the
+protocol version a session was run under is unambiguous even after this doc
+changes again).
 
-**Decision rule (supersedes #52 §9 for the floor-effect claim; #52 §9's
-overall structure — verdict-as-memo, live enablement as a separate gated PR,
-single-config-revert rollback — is unchanged and reused as-is):**
-RECOMMEND-ENABLE iff, at Tier 2 maturity: estimand (A)'s P1 shows a deployed-
-fraction lift AND P2 passes the ≥0-net-of-cost + non-inferiority bar on the
-20d horizon (60d if matured) AND every #52 §6 gate is green on both arms AND
-run-bundle fingerprints are clean for every counted session. Estimand (B) is
-reported alongside as a scorer-transfer-risk diagnostic but is NOT a gating
-condition for this verdict — it gates whether a SEPARATE future live-
-enablement PR may cite this shadow evidence as externally valid for
-production, which is that future PR's decision to make, not this protocol's.
+**Fingerprint-mismatch missingness rule (r5 — was previously "silently
+excluded," now bounded and paired)**: a fingerprint mismatch on EITHER arm
+invalidates that SESSION-PAIR in BOTH arms — a paired design requires paired
+inclusion, so a clean S-1.0 session paired with a drifted S-0.5 session (or
+vice versa) is excluded entirely, not half-counted. Track a running excluded-
+pair count against the running attempted-pair count. **Predeclared bounds**:
+if excluded pairs exceed 2 of the `h` sessions needed to complete a given
+non-overlapping outcome block, that ENTIRE block is void and does not count
+toward `N_eff` (it is not patched with a partial window); if cumulative
+excluded pairs exceed 20% of all session-pairs attempted since the protocol
+version's start, the experiment is void — do not continue accumulating under
+a version with a demonstrated systemic drift problem; restart §2a under a new
+protocol version with a fresh fingerprint freeze and reset session counters
+(both thresholds are operator-judgment defaults, consistent in spirit with
+the §2 turnover-tax gate's frozen-default treatment: no clean empirical basis
+exists yet for a data-derived number, so a defensible round number is frozen
+now and not adjusted after seeing how often mismatches actually occur).
+
+**§2a non-degradation gates (frozen HERE, self-contained — not a cross-
+reference to strategy-104#52, which is now config-only and cannot alter this
+contract by drifting):**
+
+| Gate | Tolerance | Applies to |
+|---|---|---|
+| Per-name concentration | both arms' configured cap unchanged from `shadow.json` (this protocol changes no cap; the D6 §4 cap-grid gate is a separate comparison) | S-0.5, S-1.0 |
+| Sector concentration | ≤ 35% per sector, max 6 names/sector | S-0.5, S-1.0 |
+| Session turnover | each arm ≤ 2× the OTHER arm's same-session turnover (paired, not vs production — S-0.5/S-1.0 differ only in the floor, so a turnover blowout on one side signals a funnel bug, not a floor effect) | S-0.5 vs S-1.0 pair |
+| Drawdown | either arm's MDD over the accumulated window ≤ 0.30 (regime `drawdown_halt_pct` 0.35 minus ≥5pp headroom, matching D6 §4) | S-0.5, S-1.0 |
+| Fingerprint cleanliness | every counted session-pair passes the run-bundle fingerprint match above; the missingness rule's block/experiment-void bounds are not breached | S-0.5, S-1.0 |
+
+**Stop rule**: immediate stop on ANY gate breach (live-shadow venue, per D6
+§5's venue split) — the breach is recorded and the verdict pathway is
+REJECT/REDESIGN; no gate tolerance may be relaxed mid-run.
+
+**Decision rule (self-contained; supersedes the superseded design's §9 for
+the floor-effect claim)**:
+- **Verdict = recommendation memo** (`doc/research/`, in this orchestrator
+  repo), issued only at Tier 2 maturity (`N_eff ≥ 8` complete blocks per
+  estimand, per matured-block gate above). RECOMMEND-ENABLE iff: estimand
+  (A)'s P1 shows a deployed-fraction lift AND P2 passes the ≥0-net-of-cost +
+  non-inferiority bar on the 20d horizon (60d if matured) AND every §2a gate
+  above is green on both arms for every counted session-pair AND run-bundle
+  fingerprints are clean (missingness bounds not breached). Anything less:
+  REJECT, or one declared extension of the accumulation window (no fixed
+  "+10" — extend until the NEXT matured-block milestone, declared before
+  inspecting any session in the extension).
+- Estimand (B) is reported alongside as a scorer-transfer-risk diagnostic but
+  is NOT a gating condition for THIS verdict — it gates whether a SEPARATE
+  future live-enablement PR may cite this shadow evidence as externally valid
+  for production, which is that future PR's decision to make, not this
+  protocol's.
+- **Live enablement is a SEPARATE, gated decision**: its own PR flipping
+  PRODUCTION `buy_floor_std_mult` (not shadow), carrying this memo, a pre-
+  registration gate, and Codex review — a live-book behavior change is never
+  bundled with this protocol or with strategy-104#52's eventual config-only
+  PR. Neither this protocol nor #52 authorizes anything on the live book.
+- **Rollback**: a single config value — revert `shadow_b.json`'s
+  `buy_floor_std_mult` (or simply stop running the S-1.0 arm). Blast radius is
+  zero by construction: both arms run on isolated shadow broker state
+  (`alpaca_shadow` / `alpaca_shadow_b`) and place no live orders.
+
+**[End of §2a.] The remaining bullets below (fractional-shares dependency
+through the arm-specific concentration contract) are the GENERAL Phase-2
+L1/L2/cap-grid Governor evaluation — a separate comparison family from §2a's
+breadth-lever shadow A/B, sharing this §2 heading only because no new
+subsection break existed in the r4 draft. They do not gate or depend on §2a,
+and §2a does not gate or depend on them.**
+
 - **Fractional-shares dependency quantified**: integer flooring shaves 3.1-4.1pp
   of deployment at $10.7k PV in every arm; P(E_exec ≥ 0.90) is stuck at 10-12%
   regardless of cap — reaching ~90% living deployment requires breadth ≥ 5-8
   PLUS fractional execution (S-FRAC v2 stage-3) or larger PV. Cross-references
   the D7 memo (#444).
 - **Controls**: cash/parking-sleeve arm (idle capital at T-bill yield).
-- **Evaluation scheme — deterministic contiguous fold construction** (r4 review:
-  the exploratory grid's non-contiguous 30%-random-hash session sampling forced
-  an off-universe liquidation on 140-141/149 sessions every arm, per
-  `cap_grid_tuning/results.md` limitation #6 — normal multi-session holding
-  continuity never existed in that sample. Contiguous blocks fix this by
-  construction: within a block, positions carry over session-to-session like a
-  real book):
-  - **Block construction (mechanical, no discretion)**: take the full frozen
-    WF-cut session range from §1 (all available cuts, excluding the
-    2026-06-23 → 2026-07-09 hypothesis window and the individually-inspected
-    #442 sessions), ordered chronologically, and partition it into contiguous
-    blocks of 60 trading days each (long enough to contain a full 60d
-    forward-return cycle plus buffer; the final partial block, if any, is
-    dropped rather than padded).
-  - **Train/eval assignment (walk-forward, no discretion)**: the earliest
-    ⌈N/2⌉ blocks (chronologically) are the TUNING subset — used ONLY for the
-    §1 nested-selection hyperparameter choices (`E_ceil` table, hysteresis
-    band, top-k, shrinkage `s`, Kelly fraction `λ`). A 30-trading-day embargo
-    gap follows (consistent with this project's existing WF-gate embargo
-    convention on 60d-horizon labels). The remaining blocks (chronologically
-    after the embargo) are the EVALUATION subset — used ONLY for §3
-    estimands, §4 gates, and the §5 decision rule. Neither subset is ever
-    used for the other's purpose; a parameter change after inspecting any
-    evaluation-subset result voids the run (§1's existing nested-selection
-    rule applies unchanged to this fold structure).
-  - **Fold aggregation and HAC treatment** (r4 review): forward-return overlap
-    creates autocorrelation WITHIN a contiguous block (up to the 60d horizon
-    length) but NOT across blocks (blocks are chronologically separated by
-    construction, and the embargo additionally separates tuning from
-    evaluation). Per-arm-pair inference therefore: (i) computes HAC/Newey-West
-    standard errors (§1.2's existing lag convention, matching
-    `compute_significance_verdicts`) SEPARATELY on each evaluation block's own
-    paired daily-return series; (ii) combines the per-block point estimates
-    via inverse-variance-weighted (fixed-effect) pooling into one overall
-    paired-mean-advantage estimate and CI. This models the real
-    within-block autocorrelation without falsely assuming autocorrelation
-    across block boundaries where none exists.
-  - Concretely with ~497 total frozen sessions (the #442/cap-grid freeze
-    record's scale) and 60-day blocks: roughly 8 blocks total, ~4 tuning / ~4
-    evaluation after the embargo — the exact count is whatever the frozen
-    session list and this mechanical rule produce; it is not hand-picked.
+- **Evaluation scheme — contiguous simulation, corrected inference unit** (r4
+  review, corrected again at r5 — the r4 fix conflated two separate problems
+  and got the second one wrong; see below):
+  - **Problem 1 (r4's actual target, still fixed the same way): portfolio
+    continuity.** The exploratory grid's non-contiguous 30%-random-hash session
+    sampling forced an off-universe liquidation on 140-141/149 sessions every
+    arm (`cap_grid_tuning/results.md` limitation #6) — normal multi-session
+    holding continuity never existed in that sample. **Fix**: take the full
+    frozen WF-cut session range from §1 (excluding the 2026-06-23 → 2026-07-09
+    hypothesis window and the individually-inspected #442 sessions), ordered
+    chronologically, and split it into exactly TWO contiguous ranges — not
+    multiple 60-day blocks, which was r4's over-construction and the root of
+    the r5 bug below: the earliest ⌈N/2⌉ sessions are the TUNING range (used
+    ONLY for the §1 nested-selection hyperparameter choices), followed by a
+    30-trading-day embargo (this project's existing WF-gate embargo convention
+    on 60d-horizon labels), followed by the EVALUATION range (remaining
+    sessions, used ONLY for §3 estimands, §4 gates, and the §5 decision rule).
+    Each range is simulated as ONE continuous book — positions carry over
+    session-to-session within a range like a real book, with zero internal
+    gaps — which is what actually fixes the off-universe liquidation problem;
+    it does not require chopping the evaluation range into further sub-blocks.
+  - **Problem 2 (r5 correction — r4 got this wrong): the unit of statistical
+    inference is NOT the same thing as the unit of portfolio-continuity
+    simulation.** r4's draft additionally chopped the evaluation range into
+    60-trading-day CALENDAR blocks and ran per-block Newey-West on each block's
+    ~60 daily paired-return observations, then inverse-variance-pooled across
+    blocks — Codex's r5 review correctly identified that this is broken twice
+    over: (a) a session near a block's end has its h-day (up to 60d) forward
+    return window spanning PAST that block boundary into the next block's
+    data, so blocks are NOT actually independent as claimed; (b) even ignoring
+    (a), a 60-day block of daily 60d-forward-labeled observations contains
+    only ~1 independent outcome (every observation in the block shares nearly
+    the same forward window) — Newey-West on n≈60 such observations estimates
+    a standard error from data that doesn't contain enough independent
+    information for the SE itself to be trustworthy, regardless of the
+    correction technique.
+  - **Fix — apply §1.2's non-overlapping-outcome-block method to whichever
+    quantity is actually being estimated**: for the §3 realized daily paired
+    portfolio-return promotion bar (§1.2 unit (i) — NOT forward-looking),
+    compute directly on the EVALUATION range's full continuous daily series
+    with ordinary short-lag HAC — no sub-blocking needed, since there's no
+    forward-window overlap in a same-day realized return. For any h-day-forward
+    estimand computed over that range (§1.2 unit (ii) — e.g. §2a's P2), slice
+    the EVALUATION range into non-overlapping `h`-day OUTCOME blocks (a pure
+    accounting unit for the estimand, separate from the continuous portfolio
+    simulation underneath it) and use `N_eff` = the actual number of complete
+    such blocks, per §1.2.
+  - **Concretely**, with ~497 total frozen sessions (the #442/cap-grid freeze
+    record's scale): tuning ≈ 249 sessions, 30-day embargo, evaluation ≈ 218
+    sessions (497 − 249 − 30). Within that 218-session evaluation range:
+    20d non-overlapping outcome blocks: `N_eff = floor(218/20) = 10`. 60d
+    non-overlapping outcome blocks: `N_eff = floor(218/60) = 3`. Per §1.2's
+    reliability floor (~5-10 blocks minimum for any HAC/t-test CI), the 20d
+    estimand sits right at the usable floor (report a point estimate + a wide
+    CI, explicitly labeled low-power) and the **60d estimand, at `N_eff = 3`,
+    cannot support ANY significance test on this frozen historical pool** —
+    report the 60d point estimate as directional-only, indefinitely, unless a
+    future protocol version re-freezes a longer WF-cut history. This is an
+    honest capacity limit of the available ~497-session pool, not something
+    a smarter estimator can fix.
 - **Additional gates** (r4 review — formulas and thresholds, not just names):
   - **Concentration-event gate**: per-session worst-single-name loss
     contribution, `min over held names of (w_i × r_i)`, at the p5 percentile
@@ -332,7 +531,7 @@ production, which is that future PR's decision to make, not this protocol's.
     window's own tax/cost ratio was contaminated by forced off-universe
     liquidations (140-141/149 sessions, cap_grid_tuning/results.md limitation
     #6) — an artifact of that grid's non-contiguous random-hash session
-    sampling, which the contiguous-fold evaluation scheme below is
+    sampling, which the contiguous-simulation evaluation scheme above is
     specifically designed to eliminate. A clean empirical baseline is not yet
     available; 0.50 is frozen now per protocol discipline and is not to be
     adjusted after seeing evaluation-fold results.
@@ -387,9 +586,13 @@ allocator question are separate, answered by separate paired comparisons):**
 
 **Quality of marginal capital** (Codex requirement from #442): the EXTRA exposure
 in (a) must itself earn ≥ 0 net forward return — computed as the paired return
-difference between (a)'s two registered arms. This is exactly reproducible (same
-allocator, same sessions, only E* differs); no separately-constructed synthetic
-portfolio exists. More invested but worse risk-adjusted = REJECT.
+difference between (a)'s two registered arms, using §1.2 unit (ii)'s
+non-overlapping-block method (this is an h-day-forward estimand, the same
+class as §2a's P2 — subject to the same r5 correction, not the daily-return
+unit (i) treatment used for the DSR/PBO promotion bar above). This is exactly
+reproducible (same allocator, same sessions, only E* differs); no
+separately-constructed synthetic portfolio exists. More invested but worse
+risk-adjusted = REJECT.
 
 **Risk-normalization rule**: raising deployment mechanically raises portfolio
 volatility; that risk appetite is the operator's granted mandate, NOT an estimand.

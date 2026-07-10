@@ -94,3 +94,53 @@ new CLI surface, a `daily_104.sh` step, and strategy-104's `shadow_b.json`) is
 specified concretely but NOT built in this doc-only PR — tracked as follow-up.
 `strategy-104#52` will be resubmitted as a config-only treatment PR (just the
 `shadow_b.json` + pin test) once §2a itself is reviewed and merged.
+
+## r5 update (2026-07-10, same day)
+
+Codex's r5 review accepted the r4-correction's two-arm causal structure but
+raised four new blockers against §2a's implementation/inference contracts —
+all addressed, with two honest capacity limits surfaced rather than papered
+over:
+
+1. **Repo boundary**: researched (not assumed) where broker/state abstractions
+   actually live. Found: `state_paths.py`'s `ALLOWED_BROKERS` is already
+   generic (adding a tag is a one-line pipeline change); `--strategy-config-name`
+   already lets the CLI pick S-1.0's config with zero new umbrella code; but
+   `ReadOnlyBrokerWrapper.broker_name` is a hardcoded class attribute in BOTH
+   the umbrella's local copy AND an already execution-repo-resident,
+   currently-unwired port (`renquant_execution.readonly_broker`) — no existing
+   interface supports a second broker tag without a code change. Minimal fix:
+   parameterize `broker_name` in the execution-repo copy (zero umbrella touch),
+   and treat cutting `live/runner.py` over to import it (the actual umbrella
+   change) as its OWN separately-gated follow-up PR — same shape as
+   `RenQuant#454`→`renquant-execution#25` — not this protocol's decision to
+   make. Added a caveat to the main RFC doc's repo-boundary table noting this
+   explicitly, since the RFC's own "touches nothing in the umbrella" claim
+   needed the same caveat.
+2. **Self-containment**: inlined #52 §4's P2 definition, §6's gate table (now
+   §2a's own dedicated table, not a cross-reference), and §9's decision-rule
+   structure directly into D6 §2a, so a later strategy-104 config-only PR
+   cannot alter the experiment contract by drifting. Added the fingerprint
+   missingness rule: a mismatch invalidates the SESSION-PAIR in both arms (not
+   just one), a block voids if >2 of its sessions are excluded, and the whole
+   experiment voids (restart under a new protocol version) if cumulative
+   exclusions exceed 20% of attempted pairs.
+3. **Statistical redesign (the substantial fix)**: the r4 draft's "60-day
+   calendar block + per-block Newey-West + inverse-variance pooling" was wrong
+   on two counts — forward windows spill past block boundaries, and a block of
+   daily 60d-forward-labeled observations contains only ~1 independent outcome
+   regardless. Replaced with non-overlapping `h`-day OUTCOME blocks (one
+   independent observation per block, ordinary t-test/permutation inference,
+   no HAC needed) as a general method in §1.2, applied to both the general
+   Phase-2 replay and §2a. Recomputed honestly on the ~497-session frozen pool:
+   20d gives `N_eff=10` (usable, low-power); **60d gives `N_eff=3` — not enough
+   for ANY significance test on this historical pool**, reported as
+   directional-only indefinitely rather than forcing a number. PBO explicitly
+   does not apply to §2a's 2-arm design (no combinatorial structure for CSCV);
+   DSR does, deflated for 2 arms.
+4. **Tier 1 threshold**: froze the vague "grossly adverse" language to an exact
+   number — REJECT early iff the N=10 point estimate (P2, net of cost) is worse
+   than −50bps/period (same magnitude as the Tier-2 non-inferiority margin, for
+   consistency), checked at a SINGLE predeclared N=10 look (not repeated
+   monitoring) — with the reasoning stated for why a single fixed look avoids
+   the optional-stopping problem Codex flagged.
