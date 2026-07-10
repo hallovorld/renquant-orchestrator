@@ -1,0 +1,536 @@
+{
+  "method": "window mid (IEX) vs official opening print (OHLCV 1d open); positive bps = buying in that window cost MORE than the open fill",
+  "n_ticker_sessions_with_open": 864,
+  "windows_vs_official_open_bps_ALL_names": {
+    "open_plus5_0935_0940": {
+      "raw": {
+        "n": 708,
+        "mean": 5.2,
+        "p50": -2.6,
+        "p25": -77.4,
+        "p75": 79.3,
+        "p5": -215.2,
+        "p95": 243.8
+      },
+      "spy_adjusted": {
+        "n": 285,
+        "mean": -10.2,
+        "p50": -11.0,
+        "p25": -89.8,
+        "p75": 57.4,
+        "p5": -212.7,
+        "p95": 193.5
+      }
+    },
+    "midday_1100_1300": {
+      "raw": {
+        "n": 864,
+        "mean": -11.5,
+        "p50": -17.6,
+        "p25": -116.8,
+        "p75": 106.8,
+        "p5": -342.4,
+        "p95": 332.5
+      },
+      "spy_adjusted": {
+        "n": 864,
+        "mean": -8.6,
+        "p50": -8.6,
+        "p25": -121.3,
+        "p75": 104.3,
+        "p5": -338.8,
+        "p95": 327.1
+      }
+    },
+    "close_minus30_1525_1535": {
+      "raw": {
+        "n": 862,
+        "mean": -12.1,
+        "p50": -11.4,
+        "p25": -142.0,
+        "p75": 122.5,
+        "p5": -410.8,
+        "p95": 388.2
+      },
+      "spy_adjusted": {
+        "n": 718,
+        "mean": -17.5,
+        "p50": -23.0,
+        "p25": -147.5,
+        "p75": 100.8,
+        "p5": -350.0,
+        "p95": 365.2
+      }
+    },
+    "near_close_1550_1600": {
+      "raw": {
+        "n": 858,
+        "mean": -9.0,
+        "p50": -11.5,
+        "p25": -128.5,
+        "p75": 120.9,
+        "p5": -398.8,
+        "p95": 370.3
+      },
+      "spy_adjusted": {
+        "n": 432,
+        "mean": -28.3,
+        "p50": -48.8,
+        "p25": -151.5,
+        "p75": 79.6,
+        "p5": -371.7,
+        "p95": 365.1
+      }
+    }
+  },
+  "windows_vs_official_open_bps_TIGHT_subset": {
+    "open_plus5_0935_0940": {
+      "raw": {
+        "n": 209,
+        "mean": 13.8,
+        "p50": 5.6,
+        "p25": -37.6,
+        "p75": 58.1,
+        "p5": -127.4,
+        "p95": 180.3
+      },
+      "spy_adjusted": {
+        "n": 85,
+        "mean": 1.9,
+        "p50": -3.1,
+        "p25": -44.6,
+        "p75": 46.7,
+        "p5": -139.8,
+        "p95": 145.2
+      }
+    },
+    "midday_1100_1300": {
+      "raw": {
+        "n": 264,
+        "mean": 3.4,
+        "p50": 1.8,
+        "p25": -87.6,
+        "p75": 90.4,
+        "p5": -247.1,
+        "p95": 243.3
+      },
+      "spy_adjusted": {
+        "n": 264,
+        "mean": 6.2,
+        "p50": 7.3,
+        "p25": -90.9,
+        "p75": 99.4,
+        "p5": -220.1,
+        "p95": 236.7
+      }
+    },
+    "close_minus30_1525_1535": {
+      "raw": {
+        "n": 262,
+        "mean": 9.8,
+        "p50": 2.7,
+        "p25": -87.7,
+        "p75": 96.8,
+        "p5": -226.7,
+        "p95": 291.0
+      },
+      "spy_adjusted": {
+        "n": 218,
+        "mean": -7.8,
+        "p50": -19.9,
+        "p25": -119.7,
+        "p75": 74.0,
+        "p5": -214.5,
+        "p95": 258.0
+      }
+    },
+    "near_close_1550_1600": {
+      "raw": {
+        "n": 259,
+        "mean": 17.7,
+        "p50": 14.1,
+        "p25": -87.4,
+        "p75": 104.4,
+        "p5": -257.3,
+        "p95": 329.2
+      },
+      "spy_adjusted": {
+        "n": 132,
+        "mean": -3.9,
+        "p50": -25.6,
+        "p25": -123.3,
+        "p75": 73.7,
+        "p5": -224.4,
+        "p95": 323.1
+      }
+    }
+  },
+  "per_session_median_bps_vs_open_TIGHT": {
+    "2026-07-02": {
+      "midday_1100_1300": 12.4,
+      "close_minus30_1525_1535": 26.5,
+      "near_close_1550_1600": 20.2
+    },
+    "2026-07-06": {
+      "open_plus5_0935_0940": 0.9,
+      "midday_1100_1300": 16.6,
+      "close_minus30_1525_1535": 27.0,
+      "near_close_1550_1600": 31.3
+    },
+    "2026-07-07": {
+      "open_plus5_0935_0940": 26.2,
+      "midday_1100_1300": -7.8,
+      "close_minus30_1525_1535": -41.6,
+      "near_close_1550_1600": -45.0
+    },
+    "2026-07-08": {
+      "open_plus5_0935_0940": -5.5,
+      "midday_1100_1300": -20.5,
+      "close_minus30_1525_1535": -35.6,
+      "near_close_1550_1600": -18.1
+    },
+    "2026-07-09": {
+      "open_plus5_0935_0940": -0.6,
+      "midday_1100_1300": 40.2,
+      "close_minus30_1525_1535": 35.3,
+      "near_close_1550_1600": 29.9
+    },
+    "2026-07-10": {
+      "open_plus5_0935_0940": 12.4,
+      "midday_1100_1300": 8.1,
+      "close_minus30_1525_1535": 31.2,
+      "near_close_1550_1600": 37.9
+    }
+  },
+  "recent_buys": [
+    {
+      "ticker": "AMZN",
+      "decision_date": "2026-06-22",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 233.02,
+      "fill_session": "2026-06-23",
+      "open_fill_proxy": 232.55,
+      "overnight_slip_bps": -20.2,
+      "spy_overnight_bps": -142.1,
+      "excess_slip_bps": 122.0
+    },
+    {
+      "ticker": "CRWD",
+      "decision_date": "2026-06-22",
+      "fill_session": "2026-06-23",
+      "note": "EXCLUDED: split after decision date back-adjusts OHLCV; ref price incomparable"
+    },
+    {
+      "ticker": "CSCO",
+      "decision_date": "2026-06-22",
+      "shares": 4.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 121.55,
+      "fill_session": "2026-06-23",
+      "open_fill_proxy": 118.54,
+      "overnight_slip_bps": -247.6,
+      "spy_overnight_bps": -142.1,
+      "excess_slip_bps": -105.5
+    },
+    {
+      "ticker": "NFLX",
+      "decision_date": "2026-06-22",
+      "shares": 3.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 72.88,
+      "fill_session": "2026-06-23",
+      "open_fill_proxy": 73.26,
+      "overnight_slip_bps": 52.1,
+      "spy_overnight_bps": -142.1,
+      "excess_slip_bps": 194.3
+    },
+    {
+      "ticker": "ZM",
+      "decision_date": "2026-06-22",
+      "shares": 2.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 84.34,
+      "fill_session": "2026-06-23",
+      "open_fill_proxy": 84.34,
+      "overnight_slip_bps": 0.0,
+      "spy_overnight_bps": -142.1,
+      "excess_slip_bps": 142.1
+    },
+    {
+      "ticker": "AMZN",
+      "decision_date": "2026-06-23",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 234.23,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 233.85,
+      "overnight_slip_bps": -16.2,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": -37.9
+    },
+    {
+      "ticker": "AVGO",
+      "decision_date": "2026-06-23",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 380.15,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 386.62,
+      "overnight_slip_bps": 170.2,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": 148.5
+    },
+    {
+      "ticker": "CRWD",
+      "decision_date": "2026-06-23",
+      "fill_session": "2026-06-24",
+      "note": "EXCLUDED: split after decision date back-adjusts OHLCV; ref price incomparable"
+    },
+    {
+      "ticker": "CSCO",
+      "decision_date": "2026-06-23",
+      "shares": 5.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 121.15,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 120.57,
+      "overnight_slip_bps": -47.9,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": -69.5
+    },
+    {
+      "ticker": "NFLX",
+      "decision_date": "2026-06-23",
+      "shares": 3.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 72.82,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 72.69,
+      "overnight_slip_bps": -17.9,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": -39.5
+    },
+    {
+      "ticker": "PANW",
+      "decision_date": "2026-06-23",
+      "shares": 3.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 290.92,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 289.62,
+      "overnight_slip_bps": -44.5,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": -66.2
+    },
+    {
+      "ticker": "SPG",
+      "decision_date": "2026-06-23",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 216.75,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 216.93,
+      "overnight_slip_bps": 8.3,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": -13.4
+    },
+    {
+      "ticker": "ZM",
+      "decision_date": "2026-06-23",
+      "shares": 2.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 86.44,
+      "fill_session": "2026-06-24",
+      "open_fill_proxy": 85.22,
+      "overnight_slip_bps": -141.7,
+      "spy_overnight_bps": 21.7,
+      "excess_slip_bps": -163.4
+    },
+    {
+      "ticker": "AMZN",
+      "decision_date": "2026-06-24",
+      "shares": 2.0,
+      "order_type": "TOP_UP",
+      "ref_price": 234.27,
+      "fill_session": "2026-06-25",
+      "open_fill_proxy": 232.02,
+      "overnight_slip_bps": -96.0,
+      "spy_overnight_bps": 77.3,
+      "excess_slip_bps": -173.4
+    },
+    {
+      "ticker": "CME",
+      "decision_date": "2026-06-24",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 231.62,
+      "fill_session": "2026-06-25",
+      "open_fill_proxy": 231.32,
+      "overnight_slip_bps": -13.0,
+      "spy_overnight_bps": 77.3,
+      "excess_slip_bps": -90.3
+    },
+    {
+      "ticker": "NFLX",
+      "decision_date": "2026-06-24",
+      "shares": 9.0,
+      "order_type": "TOP_UP",
+      "ref_price": 71.85,
+      "fill_session": "2026-06-25",
+      "open_fill_proxy": 71.33,
+      "overnight_slip_bps": -71.7,
+      "spy_overnight_bps": 77.3,
+      "excess_slip_bps": -149.0
+    },
+    {
+      "ticker": "NEE",
+      "decision_date": "2026-06-29",
+      "shares": 4.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 88.62,
+      "fill_session": "2026-06-30",
+      "open_fill_proxy": 88.28,
+      "overnight_slip_bps": -38.4,
+      "spy_overnight_bps": 3.9,
+      "excess_slip_bps": -42.3
+    },
+    {
+      "ticker": "SOFI",
+      "decision_date": "2026-06-29",
+      "shares": 26.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 18.19,
+      "fill_session": "2026-06-30",
+      "open_fill_proxy": 18.1,
+      "overnight_slip_bps": -49.5,
+      "spy_overnight_bps": 3.9,
+      "excess_slip_bps": -53.4
+    },
+    {
+      "ticker": "OXY",
+      "decision_date": "2026-07-01",
+      "shares": 7.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 47.94,
+      "fill_session": "2026-07-02",
+      "open_fill_proxy": 48.44,
+      "overnight_slip_bps": 104.3,
+      "spy_overnight_bps": 22.0,
+      "excess_slip_bps": 82.3,
+      "alt_open_plus5_0935_0940_bps_vs_open": null,
+      "alt_midday_1100_1300_bps_vs_open": 7.5,
+      "alt_close_minus30_1525_1535_bps_vs_open": 48.9,
+      "alt_near_close_1550_1600_bps_vs_open": 59.9
+    },
+    {
+      "ticker": "GRMN",
+      "decision_date": "2026-07-02",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 239.76,
+      "fill_session": "2026-07-06",
+      "open_fill_proxy": 240.48,
+      "overnight_slip_bps": 30.0,
+      "spy_overnight_bps": 53.2,
+      "excess_slip_bps": -23.1,
+      "alt_open_plus5_0935_0940_bps_vs_open": -119.2,
+      "alt_midday_1100_1300_bps_vs_open": 102.7,
+      "alt_close_minus30_1525_1535_bps_vs_open": -43.2,
+      "alt_near_close_1550_1600_bps_vs_open": 21.4
+    },
+    {
+      "ticker": "AVGO",
+      "decision_date": "2026-07-06",
+      "shares": 1.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 373.91,
+      "fill_session": "2026-07-07",
+      "open_fill_proxy": 366.56,
+      "overnight_slip_bps": -196.6,
+      "spy_overnight_bps": -14.1,
+      "excess_slip_bps": -182.5,
+      "alt_open_plus5_0935_0940_bps_vs_open": 16.9,
+      "alt_midday_1100_1300_bps_vs_open": 57.9,
+      "alt_close_minus30_1525_1535_bps_vs_open": 205.3,
+      "alt_near_close_1550_1600_bps_vs_open": 180.9
+    },
+    {
+      "ticker": "MCHP",
+      "decision_date": "2026-07-06",
+      "shares": 3.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 87.59,
+      "fill_session": "2026-07-07",
+      "open_fill_proxy": 83.96,
+      "overnight_slip_bps": -414.4,
+      "spy_overnight_bps": -14.1,
+      "excess_slip_bps": -400.3,
+      "alt_open_plus5_0935_0940_bps_vs_open": -85.3,
+      "alt_midday_1100_1300_bps_vs_open": -47.1,
+      "alt_close_minus30_1525_1535_bps_vs_open": 51.8,
+      "alt_near_close_1550_1600_bps_vs_open": 26.9
+    },
+    {
+      "ticker": "ZM",
+      "decision_date": "2026-07-07",
+      "shares": 2.0,
+      "order_type": "NEW_BUY",
+      "ref_price": 85.68,
+      "fill_session": "2026-07-08",
+      "open_fill_proxy": 85.78,
+      "overnight_slip_bps": 11.7,
+      "spy_overnight_bps": -60.9,
+      "excess_slip_bps": 72.5,
+      "alt_open_plus5_0935_0940_bps_vs_open": 2.8,
+      "alt_midday_1100_1300_bps_vs_open": 190.7,
+      "alt_close_minus30_1525_1535_bps_vs_open": 184.3,
+      "alt_near_close_1550_1600_bps_vs_open": 164.0
+    },
+    {
+      "ticker": "APH",
+      "decision_date": "2026-07-10",
+      "shares": 1.0,
+      "ref_price": 159.06,
+      "fill_session": null,
+      "note": "not yet filled (next session beyond data)"
+    },
+    {
+      "ticker": "FTNT",
+      "decision_date": "2026-07-10",
+      "shares": 2.0,
+      "ref_price": 157.51,
+      "fill_session": null,
+      "note": "not yet filled (next session beyond data)"
+    },
+    {
+      "ticker": "NFLX",
+      "decision_date": "2026-07-10",
+      "shares": 2.0,
+      "ref_price": 73.37,
+      "fill_session": null,
+      "note": "not yet filled (next session beyond data)"
+    },
+    {
+      "ticker": "ZM",
+      "decision_date": "2026-07-10",
+      "shares": 2.0,
+      "ref_price": 89.76,
+      "fill_session": null,
+      "note": "not yet filled (next session beyond data)"
+    }
+  ],
+  "recent_buys_summary": {
+    "n_filled": 21,
+    "overnight_slip_bps": {
+      "mean": -49.5,
+      "p50": -20.2,
+      "min": -414.4,
+      "max": 170.2
+    },
+    "excess_over_spy_bps": {
+      "mean": -40.4,
+      "p50": -42.3
+    }
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "entry_timing_shadow": {
+    "n_records": 3480,
+    "sessions": [
+      "2026-07-02",
+      "2026-07-06",
+      "2026-07-07",
+      "2026-07-08",
+      "2026-07-09",
+      "2026-07-10"
+    ],
+    "note": "hypothetical BUY entries for ALL 145 watchlist names each session; baseline = immediate_first_eligible_tick (~09:35 ET); positive bps = later policy paid more",
+    "policies_vs_immediate": {
+      "vwap_cross": {
+        "n_eligible": 867,
+        "censored": {
+          "no_vwap_cross": 3
+        },
+        "entry_vs_immediate_bps_ALL": {
+          "n": 867,
+          "mean": 87.8,
+          "p50": 17.6,
+          "p25": 0.0,
+          "p75": 212.1,
+          "p5": -66.5,
+          "p95": 321.0
+        },
+        "entry_vs_immediate_bps_TIGHT": {
+          "n": 268,
+          "mean": 29.6,
+          "p50": 7.1,
+          "p25": 0.0,
+          "p75": 33.4,
+          "p5": -62.6,
+          "p95": 244.7
+        }
+      },
+      "opening_range_breakout": {
+        "n_eligible": 442,
+        "censored": {
+          "no_opening_range": 147,
+          "no_breakout": 281
+        },
+        "entry_vs_immediate_bps_ALL": {
+          "n": 442,
+          "mean": 259.8,
+          "p50": 251.2,
+          "p25": 95.5,
+          "p75": 351.2,
+          "p5": 20.1,
+          "p95": 615.8
+        },
+        "entry_vs_immediate_bps_TIGHT": {
+          "n": 131,
+          "mean": 157.7,
+          "p50": 106.6,
+          "p25": 37.5,
+          "p75": 247.9,
+          "p5": 15.1,
+          "p95": 546.4
+        }
+      },
+      "pullback_to_ref": {
+        "n_eligible": 758,
+        "censored": {
+          "no_pullback": 112
+        },
+        "entry_vs_immediate_bps_ALL": {
+          "n": 758,
+          "mean": -144.4,
+          "p50": -99.9,
+          "p25": -258.2,
+          "p75": 0.0,
+          "p5": -433.3,
+          "p95": 0.0
+        },
+        "entry_vs_immediate_bps_TIGHT": {
+          "n": 204,
+          "mean": -99.6,
+          "p50": -45.2,
+          "p25": -175.0,
+          "p75": 0.0,
+          "p5": -296.6,
+          "p95": 0.0
+        }
+      }
+    }
+  },
+  "entry_timing_policy_shadow": {
+    "n_records": 18,
+    "sessions": [
+      "2026-07-06",
+      "2026-07-08"
+    ],
+    "tickers": [
+      "BLK",
+      "CAT",
+      "FTNT",
+      "GRMN",
+      "NFLX",
+      "ZM"
+    ],
+    "saved_vs_baseline_bps_by_policy": {
+      "baseline_open_delay": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "delay_fixed": [
+        0.0,
+        0.0,
+        0.0,
+        316.9,
+        0.0,
+        55.1
+      ],
+      "gap_reversion_trigger": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "note": "tiny sample (real parent intents, 2 sessions); listed for completeness only"
+  }
+}
