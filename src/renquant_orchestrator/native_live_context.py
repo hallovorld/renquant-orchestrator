@@ -4,7 +4,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from collections.abc import Sequence
+import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -169,6 +170,162 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def default_model_fingerprint_from_path() -> "Callable[[str | Path], str]":
+    """The project's ONE unified model/calibrator fingerprint authority.
+
+    Never reimplement this hash locally: three independently hand-copied
+    ``model_content_sha256`` implementations hashing different field sets is
+    a recurring live incident (2026-05-27 / 06-22 / 07-01). This is the
+    SINGLE plumbing wrapper — ``shadow_ab_runner`` (the producing side) and
+    this module (the consuming side) both use it. Fails closed if the shared
+    implementation is unavailable.
+    """
+    try:
+        from renquant_common.model_fingerprint import (  # noqa: PLC0415
+            model_content_sha256_from_path,
+        )
+    except ImportError as exc:  # pragma: no cover - environment guard
+        raise RuntimeError(
+            "paired-world fingerprinting requires the unified "
+            "renquant_common.model_fingerprint implementation; refusing to "
+            "substitute a bespoke hash (triple-impl mismatch history)"
+        ) from exc
+
+    import warnings  # noqa: PLC0415
+
+    def _fingerprint(path: str | Path) -> str:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return model_content_sha256_from_path(path)
+
+    return _fingerprint
+
+
+def panel_artifact_refs(config: dict[str, Any]) -> tuple[str, str | None]:
+    """Extract the (model ref, calibrator ref or None) a strategy config's
+    active panel-scoring section declares. Single shared extraction — the
+    two-arm runner's precheck and this module's consumption-side check must
+    read the SAME keys or the verification proves nothing.
+
+    Raises ``ValueError`` when the config declares no model artifact, or an
+    enabled calibration without an artifact path (fail-closed).
+    """
+    panel = (
+        (config.get("ranking") or {}).get("panel_scoring")
+        or config.get("panel_ltr")
+        or {}
+    )
+    model_ref = panel.get("artifact_path")
+    if not model_ref:
+        raise ValueError(
+            "config has no ranking.panel_scoring.artifact_path; cannot "
+            "identify the model artifact (paired-world rule needs it)"
+        )
+    calibrator_ref: str | None = None
+    global_calibration = panel.get("global_calibration") or {}
+    if global_calibration.get("enabled"):
+        calibrator_ref = global_calibration.get("artifact_path")
+        if not calibrator_ref:
+            raise ValueError(
+                "config enables global_calibration without an artifact_path; "
+                "cannot identify the calibrator artifact"
+            )
+    return str(model_ref), calibrator_ref
+
+
+def verify_config_artifact_shas(
+    *,
+    strategy_config_json: str | Path,
+    config: dict[str, Any],
+    model_content_sha256: str,
+    calibrator_content_sha256: str | None,
+    strategy_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    fingerprint_from_path: "Callable[[str | Path], str] | None" = None,
+) -> dict[str, Any]:
+    """Verify the handed-in model/calibrator shas against the artifacts this
+    context ACTUALLY resolves from the strategy config it loaded.
+
+    Resolution goes through the single artifact-resolution authority
+    (:mod:`renquant_orchestrator.artifact_resolver`), anchored at the SAME
+    (``strategy_dir``, ``repo_root``) pair the producing runner used — the
+    two-arm runner threads its own anchors into this call precisely so both
+    sides resolve identically (divergent resolution order between two call
+    sites is the incident class ``artifact_resolver`` exists to kill). When
+    the anchors are not handed in, they default to the config file's own
+    parent directory and the default repo root. ANY inconsistency —
+    unresolvable ref, sha mismatch, calibrator declared-but-not-handed-in or
+    handed-in-but-not-declared — raises ``DecisionSnapshotMismatchError``
+    (fail-closed; the arm's nonzero exit is what triggers the runner's
+    both-arms invalidation).
+    """
+    from .artifact_resolver import resolve_artifact  # noqa: PLC0415
+    from .runtime_paths import default_repo_root  # noqa: PLC0415
+
+    fingerprint = fingerprint_from_path or default_model_fingerprint_from_path()
+    strategy_dir = (
+        Path(strategy_dir) if strategy_dir is not None
+        else Path(strategy_config_json).resolve().parent
+    )
+    repo_root = Path(repo_root) if repo_root is not None else default_repo_root()
+
+    try:
+        model_ref, calibrator_ref = panel_artifact_refs(config)
+    except ValueError as exc:
+        raise DecisionSnapshotMismatchError(
+            f"paired-world artifact check failed: {exc}"
+        ) from exc
+
+    def _resolved_sha(ref: str, kind: str) -> str:
+        try:
+            resolved = resolve_artifact(
+                ref,
+                strategy_dir=strategy_dir,
+                repo_root=repo_root,
+                verify_sha=False,
+            )
+        except FileNotFoundError as exc:
+            raise DecisionSnapshotMismatchError(
+                f"paired-world artifact check failed: {kind} artifact "
+                f"unresolvable from this context's anchors: {exc}"
+            ) from exc
+        return fingerprint(resolved.path)
+
+    actual_model_sha = _resolved_sha(model_ref, "model")
+    if actual_model_sha != model_content_sha256:
+        raise DecisionSnapshotMismatchError(
+            "paired-world model sha mismatch: the config's resolved model "
+            f"artifact fingerprints to {actual_model_sha}, but "
+            f"{model_content_sha256} was frozen before either arm ran"
+        )
+
+    actual_calibrator_sha: str | None = None
+    if calibrator_ref is None and calibrator_content_sha256 is not None:
+        raise DecisionSnapshotMismatchError(
+            "paired-world calibrator mismatch: a calibrator sha was frozen "
+            "but this config declares no enabled calibrator"
+        )
+    if calibrator_ref is not None:
+        if calibrator_content_sha256 is None:
+            raise DecisionSnapshotMismatchError(
+                "paired-world calibrator mismatch: this config declares an "
+                "enabled calibrator but no calibrator sha was frozen"
+            )
+        actual_calibrator_sha = _resolved_sha(calibrator_ref, "calibrator")
+        if actual_calibrator_sha != calibrator_content_sha256:
+            raise DecisionSnapshotMismatchError(
+                "paired-world calibrator sha mismatch: the config's resolved "
+                f"calibrator artifact fingerprints to {actual_calibrator_sha}, "
+                f"but {calibrator_content_sha256} was frozen before either "
+                "arm ran"
+            )
+
+    return {
+        "model_content_sha256": actual_model_sha,
+        "calibrator_content_sha256": actual_calibrator_sha,
+    }
+
+
 def build_native_live_context(
     *,
     strategy_config_json: str | Path,
@@ -180,23 +337,34 @@ def build_native_live_context(
     model_content_sha256: str | None = None,
     calibrator_content_sha256: str | None = None,
     session_date: str | None = None,
+    strategy_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    fingerprint_from_path: Callable[[str | Path], str] | None = None,
 ) -> dict[str, Any]:
     """Build an already-hydrated native context JSON for inference rehearsal.
 
     When ``decision_snapshot_digest`` is given (the §2a shadow A/B path),
-    this independently RECOMPUTES the digest from BOTH files this call
-    actually consumes — the sealed market snapshot AND the sealed account
-    snapshot are re-read and re-hashed via ``decision_snapshot_identity``
-    (``model_content_sha256``/``session_date`` are then required too) — and
-    raises ``DecisionSnapshotMismatchError`` if it doesn't match the
-    expected value handed in: the consumption-side half of the frozen
-    decision-snapshot contract (orchestrator#443 D6 §2a; r8 dual-hash). A
-    mismatch fails this arm's context step, and the two-arm runner's paired
-    inclusion rule then invalidates BOTH arms. Callers outside that path
-    simply omit these arguments and get the unchanged pre-existing behavior.
+    this independently VERIFIES the paired world this arm actually consumes
+    (``model_content_sha256``/``session_date`` are then required too):
+
+    * the digest is RECOMPUTED from BOTH files this call consumes — the
+      sealed market snapshot AND the sealed account snapshot are re-read
+      and re-hashed via ``decision_snapshot_identity`` — and compared to
+      the expected value handed in;
+    * the handed-in model/calibrator shas are verified against the
+      artifacts this context ACTUALLY resolves from the strategy config it
+      loaded (``verify_config_artifact_shas``).
+
+    Any mismatch raises ``DecisionSnapshotMismatchError``: the
+    consumption-side half of the frozen decision-snapshot contract
+    (orchestrator#443 D6 §2a; r8 dual-hash). That failure exits this arm's
+    context step nonzero, and the two-arm runner's paired inclusion rule
+    then invalidates BOTH arms. Callers outside that path simply omit these
+    arguments and get the unchanged pre-existing behavior.
     """
     metadata = _load_json_object(metadata_json) if metadata_json else {}
     market_snapshot = _load_json_object(market_snapshot_json)
+    config = _load_json_object(strategy_config_json)
 
     decision_snapshot_meta: dict[str, Any] = {}
     if decision_snapshot_digest is not None:
@@ -205,13 +373,20 @@ def build_native_live_context(
                 "decision_snapshot_digest requires model_content_sha256 and "
                 "session_date to independently recompute and verify it"
             )
-        identity = decision_snapshot_identity(
-            market_snapshot_json=market_snapshot_json,
-            account_snapshot_json=account_snapshot_json,
-            session_date=session_date,
-            model_content_sha256=model_content_sha256,
-            calibrator_content_sha256=calibrator_content_sha256,
-        )
+        try:
+            identity = decision_snapshot_identity(
+                market_snapshot_json=market_snapshot_json,
+                account_snapshot_json=account_snapshot_json,
+                session_date=session_date,
+                model_content_sha256=model_content_sha256,
+                calibrator_content_sha256=calibrator_content_sha256,
+            )
+        except DecisionSnapshotMismatchError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise DecisionSnapshotMismatchError(
+                f"paired-world inputs unreadable or invalid: {exc}"
+            ) from exc
         if identity["digest"] != decision_snapshot_digest:
             raise DecisionSnapshotMismatchError(
                 "decision-snapshot digest mismatch: this arm's actually-"
@@ -221,17 +396,27 @@ def build_native_live_context(
                 "(frozen before either arm ran); refusing to proceed on a "
                 "different-from-frozen input world"
             )
+        verify_config_artifact_shas(
+            strategy_config_json=strategy_config_json,
+            config=config,
+            model_content_sha256=model_content_sha256,
+            calibrator_content_sha256=calibrator_content_sha256,
+            strategy_dir=strategy_dir,
+            repo_root=repo_root,
+            fingerprint_from_path=fingerprint_from_path,
+        )
         decision_snapshot_meta = {
             "decision_snapshot_digest": identity["digest"],
             "decision_snapshot_verified": True,
             "market_snapshot_sha256": identity["market_snapshot_sha256"],
             "account_snapshot_sha256": identity["account_snapshot_sha256"],
+            "config_artifact_shas_verified": True,
         }
 
     payload = {
         "schema_version": 1,
         "source": "native_live_context_fixture",
-        "config": _load_json_object(strategy_config_json),
+        "config": config,
         "market_snapshot": market_snapshot,
         "account_snapshot": _load_json_object(account_snapshot_json),
         "metadata": {
@@ -260,19 +445,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model-content-sha256", default=None)
     parser.add_argument("--calibrator-content-sha256", default=None)
     parser.add_argument("--session-date", default=None)
+    parser.add_argument("--strategy-dir", default=None)
+    parser.add_argument("--repo-root", default=None)
     args = parser.parse_args(argv)
 
-    payload = build_native_live_context(
-        strategy_config_json=args.strategy_config_json,
-        market_snapshot_json=args.market_snapshot_json,
-        account_snapshot_json=args.account_snapshot_json,
-        metadata_json=args.metadata_json,
-        output_json=args.output_json,
-        decision_snapshot_digest=args.decision_snapshot_digest,
-        model_content_sha256=args.model_content_sha256,
-        calibrator_content_sha256=args.calibrator_content_sha256,
-        session_date=args.session_date,
-    )
+    try:
+        payload = build_native_live_context(
+            strategy_config_json=args.strategy_config_json,
+            market_snapshot_json=args.market_snapshot_json,
+            account_snapshot_json=args.account_snapshot_json,
+            metadata_json=args.metadata_json,
+            output_json=args.output_json,
+            decision_snapshot_digest=args.decision_snapshot_digest,
+            model_content_sha256=args.model_content_sha256,
+            calibrator_content_sha256=args.calibrator_content_sha256,
+            session_date=args.session_date,
+            strategy_dir=args.strategy_dir,
+            repo_root=args.repo_root,
+        )
+    except DecisionSnapshotMismatchError as exc:
+        # Nonzero with an unambiguous marker: this exit is what triggers the
+        # two-arm runner's both-arms (paired) invalidation.
+        print(f"PAIRED-WORLD MISMATCH: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
@@ -285,8 +480,11 @@ __all__ = [
     "canonical_json_sha256",
     "compute_decision_snapshot_digest",
     "decision_snapshot_identity",
+    "default_model_fingerprint_from_path",
     "main",
     "market_snapshot_identity",
+    "panel_artifact_refs",
+    "verify_config_artifact_shas",
 ]
 
 

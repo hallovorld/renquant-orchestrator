@@ -736,15 +736,24 @@ def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
     market.write_text(json.dumps({"as_of": "2026-07-10"}), encoding="utf-8")
     account = tmp_path / "account.json"
     account.write_text(json.dumps({"positions": {}}), encoding="utf-8")
+    model = tmp_path / "model.pt"
+    model.write_text("m-content", encoding="utf-8")
+    calibrator = tmp_path / "calibrator.json"
+    calibrator.write_text("c-content", encoding="utf-8")
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"k": "v"}), encoding="utf-8")
+    config.write_text(json.dumps({"ranking": {"panel_scoring": {
+        "artifact_path": str(model),
+        "global_calibration": {"enabled": True, "artifact_path": str(calibrator)},
+    }}}), encoding="utf-8")
+    model_sha = _fake_fingerprint(model)
+    calibrator_sha = _fake_fingerprint(calibrator)
 
     expected = decision_snapshot_identity(
         market_snapshot_json=market,
         account_snapshot_json=account,
         session_date="2026-07-10",
-        model_content_sha256="m1",
-        calibrator_content_sha256="c1",
+        model_content_sha256=model_sha,
+        calibrator_content_sha256=calibrator_sha,
     )["digest"]
     payload = build_native_live_context(
         strategy_config_json=config,
@@ -752,12 +761,14 @@ def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
         account_snapshot_json=account,
         output_json=tmp_path / "out.json",
         decision_snapshot_digest=expected,
-        model_content_sha256="m1",
-        calibrator_content_sha256="c1",
+        model_content_sha256=model_sha,
+        calibrator_content_sha256=calibrator_sha,
         session_date="2026-07-10",
+        fingerprint_from_path=_fake_fingerprint,
     )
     assert payload["metadata"]["decision_snapshot_digest"] == expected
     assert payload["metadata"]["decision_snapshot_verified"] is True
+    assert payload["metadata"]["config_artifact_shas_verified"] is True
     assert payload["metadata"]["market_snapshot_sha256"].startswith("sha256:")
     assert payload["metadata"]["account_snapshot_sha256"].startswith("sha256:")
 
@@ -1102,3 +1113,85 @@ def test_no_umbrella_module_imported_by_a_hermetic_session(tmp_path: Path) -> No
     assert payload["exit_code"] == EXIT_VALID
     after = {name for name in _sys.modules if "RenQuant" in name or "renquant_104" in name}
     assert after == set()
+
+
+# --- CLI surface contract (2026-07-10 first-real-session incident) ---------------------------
+
+
+def test_every_runner_emitted_command_parses_and_dispatches_through_cli(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """The first REAL two-arm session (2026-07-10 bundle) failed because
+    build_arm_plan emitted paired-world flags the TOP-LEVEL cli.py subparser
+    never declared ("unrecognized arguments: --decision-snapshot-digest ...")
+    and the native-live-run subcommand did not exist at all — the module
+    main()s accepted the args, but the runner invokes `python -m
+    renquant_orchestrator <subcommand>`, which goes through cli.py. Pin:
+    EVERY command the runner emits parses through cli.main and reaches its
+    dispatch target, with the paired-world flags threaded through."""
+    import renquant_orchestrator.native_live_context as nlc
+    import renquant_orchestrator.native_live_inference as nli
+    import renquant_orchestrator.native_live_run as nlr
+    import renquant_orchestrator.native_live_snapshots as nls
+    from renquant_orchestrator.cli import main as cli_main
+
+    received: dict[str, list[str]] = {}
+
+    def _stub(name: str):
+        def _main(argv=None):
+            received[name] = list(argv or [])
+            return 0
+        return _main
+
+    monkeypatch.setattr(nlc, "main", _stub("native-live-context"))
+    monkeypatch.setattr(nli, "main", _stub("native-live-inference"))
+    monkeypatch.setattr(nlr, "main", _stub("native-live-run"))
+    monkeypatch.setattr(nls, "account_main", _stub("native-live-account-snapshot"))
+
+    plan = build_arm_plan(
+        tag=FROZEN_TAG_A,
+        config_path=tmp_path / "strategy_config.shadow.json",
+        arm_dir=tmp_path / f"arm_{FROZEN_TAG_A}",
+        market_snapshot_json=tmp_path / "sealed" / "market_snapshot.json",
+        account_snapshot_json=tmp_path / "sealed" / "account_snapshot.json",
+        strategy_dir=tmp_path / "configs",
+        session_date="2026-07-10",
+        decision_snapshot_digest="d" * 64,
+        model_content_sha256="sha256:m",
+        calibrator_content_sha256="sha256:c",
+        repo_root=tmp_path / "runtime-root",
+    )
+    shared_fetch = [
+        "renquant-orchestrator", "native-live-account-snapshot",
+        "--broker-name", "readonly-alpaca",
+        "--output-json", str(tmp_path / "account_snapshot.fetched.json"),
+    ]
+
+    for command in [shared_fetch, *plan]:
+        assert command[0] == "renquant-orchestrator"
+        rc = cli_main(list(command[1:]))
+        assert rc == 0, f"cli rejected runner-emitted command: {command}"
+
+    assert set(received) == {
+        "native-live-account-snapshot",
+        "native-live-context",
+        "native-live-inference",
+        "native-live-run",
+    }
+    # the paired-world flags AND the runner's own resolution anchors reach
+    # the context module intact (the context must resolve artifacts through
+    # EXACTLY the anchors the runner's precheck used)
+    context_argv = received["native-live-context"]
+    for flag, value in (
+        ("--decision-snapshot-digest", "d" * 64),
+        ("--model-content-sha256", "sha256:m"),
+        ("--calibrator-content-sha256", "sha256:c"),
+        ("--session-date", "2026-07-10"),
+        ("--strategy-dir", str(tmp_path / "configs")),
+        ("--repo-root", str(tmp_path / "runtime-root")),
+    ):
+        assert value == context_argv[context_argv.index(flag) + 1]
+    # the arm-isolation args reach the native run module intact
+    run_argv = received["native-live-run"]
+    assert FROZEN_TAG_A == run_argv[run_argv.index("--broker-name") + 1]
+    assert FROZEN_TAG_A == run_argv[run_argv.index("--live-state-broker-name") + 1]

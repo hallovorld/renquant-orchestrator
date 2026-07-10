@@ -75,13 +75,17 @@ import os
 import subprocess
 import sys
 import time
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .native_live_context import canonical_json_sha256, decision_snapshot_identity
+from .native_live_context import (
+    canonical_json_sha256,
+    decision_snapshot_identity,
+    default_model_fingerprint_from_path,
+    panel_artifact_refs,
+)
 from .runtime_paths import default_github_root, default_repo_root
 
 # --- frozen protocol constants (§2a) -----------------------------------------
@@ -268,30 +272,15 @@ class ArmFingerprints:
 
 
 def _default_fingerprint_from_path() -> Callable[[str | Path], str]:
-    """The project's ONE unified model/calibrator fingerprint authority.
-
-    Never reimplement this hash locally: three independently hand-copied
-    ``model_content_sha256`` implementations hashing different field sets is
-    a recurring live incident (2026-05-27 / 06-22 / 07-01). Fail closed if
-    the shared implementation is unavailable.
-    """
+    """The project's ONE unified model/calibrator fingerprint authority —
+    the SAME plumbing wrapper the consumption side uses
+    (``native_live_context.default_model_fingerprint_from_path``), never a
+    second local copy (triple-impl mismatch history). Fails closed if the
+    shared implementation is unavailable."""
     try:
-        from renquant_common.model_fingerprint import (  # noqa: PLC0415
-            model_content_sha256_from_path,
-        )
-    except ImportError as exc:  # pragma: no cover - environment guard
-        raise ShadowABContractError(
-            "shadow A/B fingerprinting requires the unified "
-            "renquant_common.model_fingerprint implementation; refusing to "
-            "substitute a bespoke hash (triple-impl mismatch history)"
-        ) from exc
-
-    def _fingerprint(path: str | Path) -> str:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            return model_content_sha256_from_path(path)
-
-    return _fingerprint
+        return default_model_fingerprint_from_path()
+    except RuntimeError as exc:  # pragma: no cover - environment guard
+        raise ShadowABContractError(str(exc)) from exc
 
 
 def resolve_arm_fingerprints(
@@ -318,17 +307,13 @@ def resolve_arm_fingerprints(
     config = json.loads(raw)
     config_sha = _sha256_bytes(raw)
 
-    panel = (
-        (config.get("ranking") or {}).get("panel_scoring")
-        or config.get("panel_ltr")
-        or {}
-    )
-    model_ref = panel.get("artifact_path")
-    if not model_ref:
-        raise ShadowABContractError(
-            f"{config_file}: no ranking.panel_scoring.artifact_path; cannot "
-            "fingerprint the arm's model (same-world rule needs it)"
-        )
+    try:
+        # Single shared ref extraction — the consumption side
+        # (native_live_context.verify_config_artifact_shas) must read the
+        # SAME keys or its verification proves nothing.
+        model_ref, calibrator_ref = panel_artifact_refs(config)
+    except ValueError as exc:
+        raise ShadowABContractError(f"{config_file}: {exc}") from exc
     model = resolve_artifact(
         model_ref,
         strategy_dir=strategy_dir,
@@ -338,14 +323,7 @@ def resolve_arm_fingerprints(
     model_sha = fingerprint(model.path)
 
     calibrator_sha: str | None = None
-    global_calibration = panel.get("global_calibration") or {}
-    if global_calibration.get("enabled"):
-        calibrator_ref = global_calibration.get("artifact_path")
-        if not calibrator_ref:
-            raise ShadowABContractError(
-                f"{config_file}: global_calibration.enabled without an "
-                "artifact_path; cannot fingerprint the arm's calibrator"
-            )
+    if calibrator_ref is not None:
         calibrator = resolve_artifact(
             calibrator_ref,
             strategy_dir=strategy_dir,
@@ -597,6 +575,7 @@ def build_arm_plan(
     decision_snapshot_digest: str,
     model_content_sha256: str,
     calibrator_content_sha256: str | None,
+    repo_root: Path | None = None,
 ) -> list[list[str]]:
     """Build one arm's command sequence from the SHARED template.
 
@@ -611,6 +590,11 @@ def build_arm_plan(
     before either arm runs — r7 point 1) and threaded into
     ``native-live-context`` so it can independently recompute and verify the
     digest against what it actually loaded, failing closed on a mismatch.
+    The runner's OWN artifact-resolution anchors (``strategy_dir`` and,
+    when given, ``repo_root``) are threaded into the context command too, so
+    the consumption-side artifact verification resolves through EXACTLY the
+    anchors the runner's precheck used — divergent resolution between the
+    two sides is the incident class ``artifact_resolver`` exists to kill.
     """
     context_json = arm_dir / "native_context.json"
     inference_json = arm_dir / "native_inference.json"
@@ -627,9 +611,12 @@ def build_arm_plan(
         "--decision-snapshot-digest", decision_snapshot_digest,
         "--model-content-sha256", model_content_sha256,
         "--session-date", session_date,
+        "--strategy-dir", str(strategy_dir),
     ]
     if calibrator_content_sha256 is not None:
         context_command += ["--calibrator-content-sha256", calibrator_content_sha256]
+    if repo_root is not None:
+        context_command += ["--repo-root", str(repo_root)]
     return [
         context_command,
         [
@@ -1215,6 +1202,7 @@ def run_shadow_ab_session(
         decision_snapshot_digest=digest_token,
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
+        repo_root=repo_root,
     )
     plan_b = build_arm_plan(
         tag=arm_b.tag,
@@ -1227,6 +1215,7 @@ def run_shadow_ab_session(
         decision_snapshot_digest=digest_token,
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
+        repo_root=repo_root,
     )
     try:
         assert_preflight_symmetry(
