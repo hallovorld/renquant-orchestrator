@@ -79,30 +79,191 @@ here per the #447 review, before any evaluation run):**
   treatments run in the live SHADOW pipeline (which executes the full funnel
   incl. veto). Breadth is the PRIMARY remaining lever per the identity
   `deployable ≤ breadth × cap` and the cap result above.
-  **The dedicated protocol (r4 review) is `renquant-strategy-104#52`**
-  (`doc/design/2026-07-10-admission-breadth-shadow-ab.md`, frozen at merge):
-  configurations (`buy_floor_std_mult` 1.0σ prod vs 0.5σ shadow, both keys
-  moving together), exposure estimand (P1: end-of-chain deployed fraction,
-  with a marginal-entrant vs floor-incumbent decomposition), return estimand
-  (P2: 20d/60d SPY-relative forward returns on the marginal-entrant set,
-  HAC-inferred, explicit REJECT bar; P3: production-XGB counterfactual so the
-  PatchTST-shadow instrument alone cannot justify enablement), safety stop
-  rules (§6: 12% cap / 35% sector / turnover ≤2× / MDD ≤0.30, immediate stop
-  on breach per the live-shadow venue in D6 §5), comparison window (≥10
-  future-only sessions, one declared +10 extension), and promotion rule (§9:
-  RECOMMEND-ENABLE iff P1 lift is floor-attributable AND P2 passes on both
-  the shadow instrument and the P3 counterfactual AND every §6 gate is green;
-  live enablement is a separate gated PR, never bundled with the verdict).
-  **One open gap** (not yet in #52, flagged for a follow-up to that PR, not
-  fixed here since #52 is a different repo's PR): no run-bundle fingerprint
-  (config hash + code commit + model-artifact hash) is stamped per shadow
-  session. This project has hit exactly this failure mode before (shadow
-  `panel_scorer_config_mismatch` silently fail-closing to "no trade" on
-  config drift) — without a stamped fingerprint, a silent config drift
-  mid-run could contaminate the ≥10-session comparison window without being
-  detected. Until that gap closes, the verdict memo must manually confirm
-  each session's shadow config hash matches the frozen treatment before
-  counting it.
+  **The dedicated protocol is §2a below** (revised from the r4 note in this
+  section, which pointed at `renquant-strategy-104#52`
+  (`doc/design/2026-07-10-admission-breadth-shadow-ab.md`) as the satisfying
+  artifact — Codex's DIRECT review of that PR, posted after this section was
+  first drafted, found the within-shadow marginal-entrant decomposition +
+  prod-counterfactual design in #52 cannot actually identify the floor's
+  causal effect once QP/sizing interactions change portfolio weights, and
+  that the cross-repo protocol belongs in orchestrator, not bundled with a
+  strategy-config PR. §2a is the corrected design. `strategy-104#52` is now
+  DRAFT, held pending §2a's review, and will be resubmitted as a **config-only
+  treatment PR** referencing §2a once §2a itself merges — it must not flip any
+  shadow config before then.
+
+### §2a. Breadth-lever admission A/B — true isolated design (supersedes #52's within-shadow decomposition)
+
+**Problem with the superseded design**: a single shadow arm (PatchTST scorer,
+Kelly 0.5/0.35, regime cap 0.15, one-share floor ON, `buy_floor_std_mult`=0.5)
+compared against production (XGB, Kelly 0.3/0.12, cap 0.12, floor OFF, mult=1.0)
+confounds the floor treatment with four other pre-existing deltas. A
+within-shadow marginal-entrant decomposition (splitting shadow's own admitted
+set into "would-pass-at-1.0σ" vs "marginal") plus a scores-only production
+counterfactual cannot recover the true floor effect, because QP and Kelly
+sizing are nonlinear in the admitted set — changing which names are admitted
+changes every other name's weight too, so "hold everything constant except the
+floor" is not actually achieved by decomposing one arm's output after the fact.
+
+**Corrected design — two simultaneous isolated shadow arms, identical except
+the floor:**
+
+- **Arm S-0.5 (existing)**: `configs/strategy_config.shadow.json` as `#52`
+  already defines it — PatchTST, Kelly 0.5/0.35, regime cap 0.15, one-share
+  floor ON, `buy_floor_std_mult = 0.5`. Broker state: `alpaca_shadow`
+  (existing, `live_state.alpaca_shadow.json` + `runs_alpaca_shadow.db`).
+- **Arm S-1.0 (NEW)**: `configs/strategy_config.shadow_b.json` — a byte-for-byte
+  clone of `shadow.json` with exactly ONE key different:
+  `buy_floor_std_mult = 1.0` (and `buy_floor` left at `adaptive_mean_std`,
+  matching S-0.5). Every other key (scorer, Kelly, regime cap, one-share
+  floor, sector caps, slots) is IDENTICAL to S-0.5. This is the true control
+  arm for the floor treatment: same environment, same session, only the
+  floor differs.
+- **Estimand (A) — floor effect (the causal claim, THIS protocol's decision
+  rule)**: paired S-0.5 vs S-1.0, same session dates, same everything else.
+  P1 (deployed fraction) and P2 (20d/60d forward-return quality of the
+  marginal-entrant set, defined identically to #52 §4 P2) are both computed
+  on this pair. Because both arms actually execute their admitted sets in
+  real (isolated, simulated) broker state, **there is no hypothetical
+  portfolio and no separate cost/tax model is needed for this estimand** —
+  each arm's own fills carry the funnel's real simulated transaction cost and
+  tax-drag mechanics automatically. This dissolves the "cost/tax accounting
+  for the hypothetical entrant portfolio" problem in the superseded design:
+  nothing here is hypothetical.
+- **Estimand (B) — residual environment effect (a SEPARATE diagnostic
+  estimand, NOT part of the ENABLE/REJECT decision for the floor)**: paired
+  S-1.0 vs actual production, same session dates. S-1.0 matches production's
+  floor (1.0σ) exactly, so this comparison isolates the effect of everything
+  ELSE that differs between the shadow environment and production (scorer,
+  Kelly, regime cap, one-share floor) — holding the floor fixed. This is a
+  prerequisite DIAGNOSTIC before any future live-enablement PR can claim the
+  floor conclusion generalizes from shadow to production (scorer-transfer
+  risk, #52 §7 point 2); it is not evidence for or against the floor itself,
+  and a bad reading here blocks *generalizing* the S-0.5-vs-S-1.0 result to
+  production, not the shadow-only verdict.
+- **Explicitly retired**: the #52 P3 "production-XGB counterfactual" estimand
+  (computing the marginal-entrant set on logged production scores that were
+  never actually traded) is superseded by estimand (B) above, which uses a
+  REAL executed comparison arm instead of a computed counterfactual. Do not
+  compute P3 in addition to (B) — it would answer a strictly weaker version
+  of the same question with a hypothetical portfolio where a real one is
+  available.
+
+**Infrastructure this requires (NOT YET BUILT — a prerequisite for this
+protocol to run, tracked as follow-up work, not implemented in this doc-only
+PR):**
+1. `renquant-pipeline` `state_paths.py` (and its `kernel/state_paths.py`
+   duplicate — both copies, per this project's known duplication pattern):
+   add `"alpaca_shadow_b"` to `ALLOWED_BROKERS`.
+2. Umbrella `live/broker_readonly.py`: `ReadOnlyBrokerWrapper.broker_name` is
+   currently a HARDCODED class attribute (`"alpaca_shadow"`), not a
+   constructor parameter — verified by direct inspection. Needs
+   `__init__(self, underlying, broker_name="alpaca_shadow")` so a second
+   instantiation can tag itself `"alpaca_shadow_b"` without touching the
+   default (backward-compatible) behavior.
+3. Umbrella `live/runner.py`: a new CLI surface to select the second shadow
+   arm (e.g. a `--broker readonly-alpaca-b` choice, or a `--shadow-tag`
+   flag) defaulting its config to `strategy_config.shadow_b.json` and
+   constructing `ReadOnlyBrokerWrapper(real, broker_name="alpaca_shadow_b")`.
+4. `daily_104.sh`: a third invocation (Step 5, alongside the existing Step 4
+   shadow pass) running S-1.0. Non-fatal to the prod cycle, same as the
+   existing shadow step.
+5. `strategy-104`: add `configs/strategy_config.shadow_b.json` (the S-1.0
+   config described above) and a config-drift pin test alongside the
+   existing `strategy_config.shadow.json` pin, verifying prod/golden stay
+   untouched and shadow_b differs from shadow ONLY in `buy_floor_std_mult`.
+   This is the "config-only treatment PR" `strategy-104#52` will become,
+   scoped strictly to items 5 (+ whatever of 1-4 lands in strategy-104's own
+   repo boundary) — never bundled with protocol design, per Codex's
+   sequencing objection.
+
+**Statistical power (honest treatment — the superseded design's ≥10-session
+HAC test on 20d/60d overlapping returns is NOT adequately powered; showing
+the reasoning rather than asserting a fix):**
+
+For a daily paired series with an `h`-day-ahead overlapping return horizon,
+consecutive observations share `h-1` days of the same forward window, so the
+number of *effectively independent* blocks is roughly `N_eff ≈ N / h` (the
+standard heuristic for non-overlapping-block decomposition of
+serially-overlapping return series). HAC/Newey-West standard errors correct
+the *bias* from this overlap but do not manufacture power the data doesn't
+contain: with too few effective blocks, the corrected SE is itself unstable.
+Common econometric guidance treats fewer than ~5-10 effective blocks as
+unreliable for cluster/HAC-robust inference.
+
+- At `N=10` sessions and `h=20`: `N_eff ≈ 0.5`. At `h=60`: `N_eff ≈ 0.17`.
+  Both are far below the reliability floor — the superseded design's
+  ≥10-session HAC test was not analyzing noise correctly; it was analyzing a
+  sample too small for the standard error itself to be trustworthy at all.
+- Reaching even a conservative `N_eff = 8` (the low end of the "unreliable
+  below" guidance, not a fully-powered target) requires `N ≈ 8h` sessions:
+  **~160 sessions (~8 months) for the 20d estimand, ~480 sessions (~2 years)
+  for the 60d estimand.** A fully-powered target (`N_eff ≈ 30`) would need
+  ~600 and ~1800 sessions respectively — multi-year, impractical for a
+  shadow gate meant to unblock a breadth-bound deployment problem now.
+
+**Resolution — two-tier reporting, not a single fixed-N verdict:**
+- **Tier 1 — early operational read, `N ≥ 10` sessions (unchanged trigger
+  from #52 §5)**: report P1/P2 as DIRECTIONAL POINT ESTIMATES ONLY, explicitly
+  labeled "underpowered, not significance-tested" — no HAC CI is computed or
+  reported at this tier because at `N_eff < 1` a computed CI would be
+  false precision, not honest uncertainty. Used only for a coarse kill
+  check: if the point estimate is grossly adverse (e.g. marginal-entrant mean
+  return sharply negative net of cost, or any §6 gate breach), REJECT early
+  rather than waiting out a multi-month confirmatory window for a treatment
+  that is already failing directionally. A favorable or neutral Tier-1 read
+  does NOT authorize ENABLE — it authorizes continuing to Tier 2.
+- **Tier 2 — confirmatory read, matured-observation-gated (replaces the fixed
+  "+10 extension" rule)**: continue running both arms until `N_eff ≥ 8` matured
+  observations accumulate per estimand (a matured observation is one whose
+  full `h`-day forward-return window has elapsed) — concretely, ~160 sessions
+  for the 20d estimand and ~480 for the 60d estimand, per the arithmetic
+  above. At that point compute the preregistered HAC significance test (#52
+  §4 P2's bar: marginal-entrant mean ≥ 0 net of cost AND not significantly
+  below the incumbent set) for real. This is the earliest point at which a
+  RECOMMEND-ENABLE or REJECT verdict may be issued; a verdict issued before
+  Tier 2's matured-N gate is not decision-grade regardless of what the point
+  estimate shows.
+- **Non-inferiority margin (predeclared, Tier 2)**: the marginal-entrant set's
+  mean forward return must not be more than 50 bps/period below the
+  incumbent set's mean (one-sided non-inferiority margin, chosen as roughly
+  the round-trip transaction-cost convention doubled — a conservative
+  buffer against a treatment that is merely "not better" being mistaken for
+  "materially worse"), in addition to the existing ≥0-net-of-cost bar. This
+  gives the test a concrete margin rather than testing a point null the
+  data can't resolve at any reachable N.
+- Given the 20d estimand matures ~3× faster than 60d, Tier 2 MAY report the
+  20d verdict first (at ~160 sessions) while continuing to accumulate toward
+  the 60d gate (~480 sessions) — the two horizons are not required to mature
+  together, and the 20d-only interim verdict is explicitly labeled as
+  covering only the shorter horizon.
+
+**Run-bundle fingerprint (closes the gap flagged in the prior draft of this
+section)**: each shadow session for BOTH arms stamps: (i) a config hash —
+sha256 of the resolved `strategy_config.shadow.json` /
+`strategy_config.shadow_b.json` content; (ii) a model-artifact hash — reusing
+the project's existing unified `model_content_sha256` /
+`model_content_sha256_from_path` convention
+(`renquant_pipeline.kernel.panel_pipeline.fingerprint_dispatch`), not a
+bespoke scheme; (iii) the broker-state identity tag (`alpaca_shadow` /
+`alpaca_shadow_b`); (iv) the code commit SHA of `renquant-strategy-104` and
+`renquant-pipeline` at run time. A session whose stamped fingerprint doesn't
+match the frozen treatment's expected values is excluded from both Tier 1 and
+Tier 2 counts, not silently included — reusing this project's own
+`panel_scorer_config_mismatch` fail-closed convention rather than treating a
+config-drifted session as a valid observation.
+
+**Decision rule (supersedes #52 §9 for the floor-effect claim; #52 §9's
+overall structure — verdict-as-memo, live enablement as a separate gated PR,
+single-config-revert rollback — is unchanged and reused as-is):**
+RECOMMEND-ENABLE iff, at Tier 2 maturity: estimand (A)'s P1 shows a deployed-
+fraction lift AND P2 passes the ≥0-net-of-cost + non-inferiority bar on the
+20d horizon (60d if matured) AND every #52 §6 gate is green on both arms AND
+run-bundle fingerprints are clean for every counted session. Estimand (B) is
+reported alongside as a scorer-transfer-risk diagnostic but is NOT a gating
+condition for this verdict — it gates whether a SEPARATE future live-
+enablement PR may cite this shadow evidence as externally valid for
+production, which is that future PR's decision to make, not this protocol's.
 - **Fractional-shares dependency quantified**: integer flooring shaves 3.1-4.1pp
   of deployment at $10.7k PV in every arm; P(E_exec ≥ 0.90) is stuck at 10-12%
   regardless of cap — reaching ~90% living deployment requires breadth ≥ 5-8

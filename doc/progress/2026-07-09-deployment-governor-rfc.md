@@ -64,3 +64,33 @@ justification needed correcting):
    which was independently found to satisfy configurations/estimands/stop-rules/
    window/promotion-rule — with one flagged gap (no run-bundle fingerprint
    stamped per shadow session) noted as a follow-up to that PR, not fixed here.
+
+## r4-correction update (2026-07-10, same day)
+
+Codex then reviewed `strategy-104#52` DIRECTLY and found the r4 cross-reference
+above premature: the within-shadow marginal-entrant decomposition + prod-XGB
+counterfactual in #52 cannot identify the floor's causal effect once QP/sizing
+interactions change portfolio weights, and the cross-repo protocol belongs in
+orchestrator, approved BEFORE any strategy config is armed — not bundled into
+a strategy-104 PR. `strategy-104#52` is now DRAFT pending this correction.
+
+D6 §2a (new) replaces the #52 cross-reference with the actual protocol:
+**two simultaneous isolated shadow arms** (S-0.5 = existing `shadow.json`;
+S-1.0 = new `shadow_b.json`, identical except `buy_floor_std_mult`) instead of
+one shadow arm decomposed after the fact — this makes the floor-effect
+estimand (A) a true paired comparison with no hypothetical portfolio (both
+arms actually execute, so real cost/tax applies automatically), and separates
+it from a residual-environment diagnostic estimand (B: S-1.0 vs production)
+that Codex's review showed the superseded design had conflated with the causal
+claim. Also worked out, with the reasoning shown: the original ≥10-session HAC
+test on 20d/60d overlapping returns is not adequately powered (effective
+independent blocks `N_eff ≈ N/h` is ~0.5 at N=10,h=20 — far below the ~5-10
+block reliability floor for HAC inference); replaced with a two-tier scheme
+(directional-only kill-check at N=10, confirmatory HAC verdict gated on
+`N_eff ≥ 8` matured observations, ~160 sessions for 20d / ~480 for 60d) plus a
+predeclared 50bps/period non-inferiority margin. Infrastructure this requires
+(new `alpaca_shadow_b` broker tag, parameterized `ReadOnlyBrokerWrapper`, a
+new CLI surface, a `daily_104.sh` step, and strategy-104's `shadow_b.json`) is
+specified concretely but NOT built in this doc-only PR — tracked as follow-up.
+`strategy-104#52` will be resubmitted as a config-only treatment PR (just the
+`shadow_b.json` + pin test) once §2a itself is reviewed and merged.
