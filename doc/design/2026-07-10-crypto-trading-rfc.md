@@ -186,6 +186,12 @@ validator, drift detector, pointer manifest, tests. Owns:
 New crypto order validation seam next to the existing fractional validators
 (`broker.py`), plus Alpaca adapter changes:
 
+- **Account-scoped cash reservation ledger (§5.3 CORRECTED, NEW)**: a single
+  `AccountCashLedger` keyed by the real brokerage account (not by broker tag)
+  replaces per-book `reserved_cash()` as the sizing headroom source of truth
+  for BOTH the 104 equity lane and the crypto sleeve — see §5.3 for the full
+  design. This is the one place 104's existing sizing path gains a new call;
+  everything else in this table is crypto-only.
 - **Asset-class classifier**: pair-form symbol (or `get_asset().asset_class ==
   CRYPTO`) → crypto order rules; equities take the existing path untouched.
 - **TIF policy (E1/E2)**: crypto orders = GTC (resting limit / protective stops)
@@ -246,10 +252,25 @@ New crypto order validation seam next to the existing fractional validators
   holding-period model applies to crypto as-is; the crypto config simply omits
   wash-sale knobs. A test pins that crypto sell decisions never consult
   wash-sale state.
-- **Vol handling (P7)**: crypto config gets its own σ clip (proposed
-  [0.20, 3.00] annualized-365) and a BTC-proxied (not SPY) or absolute vol
-  target; per-name vol-scaled caps (§3.1) do the risk discrimination the pinned
-  clip can't.
+- **Vol handling (P7, CORRECTED — Codex review, 2026-07-10)**: crypto config
+  gets its own σ clip (proposed [0.20, 3.00] annualized-365). The prior
+  "BTC-proxied (not SPY) OR absolute" phrasing left an unresolved ambiguity
+  identical to the one Codex's review just corrected on the Deployment
+  Governor RFC's "voltarget" L1 candidate: a benchmark-proxied portfolio-vol
+  target is WRONG whenever the selected slate's own correlation structure
+  diverges from the proxy's (here: a slate concentrated in low-BTC-beta alts
+  would have its true portfolio vol systematically mis-estimated by a
+  BTC-proxy). This RFC has no real selected-portfolio covariance estimator
+  today (the Governor RFC's own resolution was to REMOVE its analogous
+  voltarget arm rather than ship a proxy, for the same reason — no portfolio-
+  covariance infrastructure exists yet in this codebase). Frozen resolution:
+  **ABSOLUTE vol target only** (a fixed annualized-365 target level, no
+  benchmark/proxy comparison of any kind) — the per-name vol-scaled caps
+  (§3.1) already do the cross-sectional risk discrimination the pinned clip
+  can't; a portfolio-level BENCHMARK-relative vol target is explicitly OUT
+  OF SCOPE for v1 and would need a real portfolio-covariance estimator
+  (reusing whatever the Governor track eventually builds, if it does) before
+  being reconsidered.
 - **Gate bypasses (P8/P10)**: P-FUND-FRESHNESS, sector-map gate, SPY regime/
   market gates are disabled by asset class (not by hand-editing shared
   defaults); panel scorer runs in a declared "no-fundamentals feature set" mode
@@ -269,9 +290,54 @@ on every tick (`intraday_session_scheduler.py:354-383`). What changes:
   (00:00–24:00 UTC) — this is a bookkeeping boundary for manifests/ledger/
   liveness, not a market boundary. `SessionWindows` in always-open mode has no
   open-delay or close-cutoff (`entry_open_delay`/`close_cutoff` are equity
-  concepts, O1); instead a **signal-swap quiet window**: no NEW entries for
-  N min (proposed 15) around the daily class-A signal refresh (§4.5) so a tick
-  never straddles two signal vintages.
+  concepts, O1).
+- **Leakage-proof session contract (FROZEN — Codex review, 2026-07-10; a clock
+  boundary alone is not a leakage proof)**: reuses the decision-snapshot-
+  digest PATTERN already established for the D6-§2a shadow-A/B protocol
+  (`doc/design/2026-07-09-governor-prereg-replay-protocol.md` §2a) — freeze a
+  digest of the exact inputs a decision may consume, verify consumption
+  against it, fail closed on mismatch — applied here to the daily crypto
+  signal instead of a paired-arm experiment:
+  - **Watermark**: session D's class-A signal may consume price bars ONLY up
+    through the daily bar that CLOSES at `D 00:00:00 UTC` (i.e. day D-1's
+    full UTC day). A bar is eligible only once base-data's ingestion job has
+    marked it "closed and fetched" — not merely "timestamp has passed" — so
+    a late-arriving vendor bar cannot silently backfill into an
+    already-frozen signal.
+  - **Quiet interval (exact endpoints)**: `[D 00:00:00 UTC, D 00:15:00 UTC)`
+    — no NEW entries may be submitted in this 15-minute window, every day,
+    regardless of when the signal computation actually finishes inside it.
+    Exits and protective-stop maintenance are NEVER subject to this window
+    (105 §10 precedence rule, §5.4). If signal computation has not produced
+    a valid, digest-verified snapshot by `D 00:15:00 UTC`, entries stay
+    fail-closed (see below) until it does — the window is a minimum, not a
+    guarantee the signal is ready.
+  - **Signal snapshot digest (concrete)**: at signal-compute time, materialize
+    an immutable snapshot file containing: the frozen bar-close watermark
+    timestamp, the pinned pair-universe list + its snapshot hash (§3.1), the
+    model+calibrator artifact identity (same `model_content_sha256`/
+    `calibrator_content_sha256` convention already unified elsewhere in this
+    project), and the session date D. Hash this canonically
+    (sha256, sorted-keys JSON — same construction style as
+    `compute_decision_snapshot_digest` in orchestrator's
+    `native_live_context.py`) into `signal_snapshot_digest`. Every entry
+    decision within session D must load the signal via this digest and
+    independently re-verify it; a mismatch (mutated snapshot file, wrong
+    model identity, stale watermark) fails that decision closed.
+  - **Fail-closed / retry**: if no valid `signal_snapshot_digest` exists for
+    session D (compute job hasn't run, failed, or produced a rejected
+    watermark), ALL entries for session D are blocked — not degraded, not
+    retried with a stale prior-day signal. The compute job itself may retry
+    on transient failure (e.g. a data-fetch timeout) up to a bounded number
+    of attempts within the quiet window and shortly after; once session D's
+    watermark has passed without a valid snapshot, D is a no-entry day,
+    logged and alerted, not silently rolled forward to D+1's signal.
+  - **Persistence**: `signal_snapshot_digest` (plus its full input identity:
+    watermark, universe hash, model/calibrator identity, session date) is
+    stamped into every tick's bundle for session D — not just once per
+    session — so a replay audit can verify every entry decision that day
+    actually consumed the frozen snapshot, the same way the D6-§2a run
+    bundle is verified per-session.
 - **Cadence**: default 900 s (15-min tick). Rationale: 105 uses 180 s for
   equity-session hours; 24/7 at 180 s = 480 ticks/day of API load for a sleeve
   whose signal is daily — 15 min bounds cost/rate-limit exposure while keeping
@@ -323,9 +389,19 @@ we should not carry into a new asset class on day one.
 
 ### 4.3 Label + horizon
 
-- **Label**: raw forward return over **h = 20 calendar days** on the daily UTC
-  bar axis, cross-sectionally ranked at scoring time. No benchmark-excess label
-  (no SPY analog; BTC-excess would hard-wire a beta bet — open question §Q2).
+- **Label (FROZEN — Codex review, 2026-07-10; not a post-hoc choice)**: raw
+  forward return over **h = 20 calendar days** on the daily UTC bar axis,
+  cross-sectionally ranked at scoring time, is the PRIMARY label, frozen
+  BEFORE any WF evidence is consulted. BTC-excess return is registered as a
+  PRE-REGISTERED DIAGNOSTIC ONLY — computed and reported alongside the
+  primary result, never substituted for it, and never used to select which
+  label "worked better" after seeing WF output (that would be the exact
+  post-selection bias this freeze exists to prevent). Rationale for raw-as-
+  primary: cross-sectional ranking already keeps BTC beta implicit in every
+  score without hard-wiring an explicit alt-tilt the way a BTC-excess label
+  would; BTC-excess risks systematically rewarding low-BTC-beta names
+  regardless of their own raw quality, which is a design choice, not a
+  free diagnostic swap.
 - Why 20d (vs the equity 60td ≈ 3 months): crypto regime/momentum cycles are
   faster and 365-day markets compound faster; h=20 keeps ≥ 60 non-overlapping
   label windows over 5 years for WF evaluation. h ∈ {10, 20, 40} is swept in
@@ -338,15 +414,33 @@ we should not carry into a new asset class on day one.
   placebos, DSR/PBO, 3-tier promotion — the identical discipline, run in the
   model factory. The equity embargo-leakage-floor lesson applies: trust
   placebo-clean DIFFERENCES, not absolute IC.
-- **Fee-adjusted cost model (NEW — M1)**: the gate must evaluate net-of-cost:
-  `net = gross − (taker_bps × 2 × turnover)` at the strategy's realized
-  rebalance turnover, using the Stage-0-verified fee schedule. A crypto model
-  that passes gross and fails net is a FAIL. This is a new capability in the
-  factory/common evaluation harness and is deliberately built generic (equities
-  get it for free later).
+- **ONE authoritative net-cost model (CORRECTED — Codex review, 2026-07-10;
+  fee-only is insufficient for a stop-limit, thin-weekend venue)**: a single
+  cost-accounting primitive — fees (taker/maker bps), spread/slippage,
+  increment rounding (loss from `min_trade_increment` truncation), and
+  rejected/unfilled/resting-order handling (an order that rests and never
+  fills is a zero-fee, zero-fill outcome that a naive "assume it fills at
+  mid" backtest would over-credit) — used IDENTICALLY by WF-gate replay
+  evaluation AND live runtime accounting (paper P&L, reservation sizing,
+  QP/rotation cost-kappa — one number, every consumer, per §4.7's turnover-
+  sensitivity risk). Net evaluation: `net = gross − cost_model(...)` at the
+  strategy's realized rebalance turnover. A crypto model that passes gross
+  and fails net is a FAIL. **Stage 0 calibrates and bounds EACH component**
+  from the paper battery (§6): fee bps from fill receipts, spread/slippage
+  from paper-order fill-price-vs-quote deltas, rounding loss computed exactly
+  from the pinned increment snapshot (§3.1, deterministic, no calibration
+  needed), and resting/rejected-order rates from the battery's own order
+  outcomes — no component ships uncalibrated.
+  - **Repo split (D-C8, CORRECTED)**: the generic cost-accounting PRIMITIVE
+    (the shared math above) lives in `renquant-model`-common/shared code, so
+    equities inherit it later without a crypto-specific gate polluting
+    shared code. The BTC-baseline comparison and the crypto promotion
+    DECISION (below) stay entirely in `renquant-model`, asset-specific,
+    consuming the shared primitive rather than reimplementing it.
 - **Small-breadth honesty**: 20 names with high mutual BTC correlation is an
   effective breadth of maybe 5–8 — IR = IC·√breadth punishes this. The gate
-  must therefore include a **BTC-only baseline**: the panel model must beat
+  must therefore include a **BTC-only baseline** (renquant-model-owned, not
+  shared code — see repo split above): the panel model must beat
   buy-and-hold BTC and a naive BTC-timing rule net of fees on the WF windows,
   or it does not promote. If the panel cannot beat the trivial baselines, the
   sleeve does not deserve a model — that is a legitimate NO-GO outcome and the
@@ -356,10 +450,11 @@ we should not carry into a new asset class on day one.
 ### 4.5 Serving
 
 Daily cadence, 105-style split: the panel scores once per UTC day after the
-00:00 UTC daily bar closes (class-A frozen signal for the whole UTC session);
-the 24/7 loop consumes the frozen ranking and does entry timing + risk rails
-intraday (class C/D). No intraday re-scoring in v1 (mirrors the 105 Stage-1/
-Stage-3 boundary and keeps the leakage proof trivial).
+`D 00:00:00 UTC` daily bar closes (the watermark defined in §3.5's frozen
+leakage-proof session contract), producing the `signal_snapshot_digest` that
+governs every entry decision for session D; the 24/7 loop consumes the frozen
+ranking and does entry timing + risk rails intraday (class C/D). No intraday
+re-scoring in v1 (mirrors the 105 Stage-1/Stage-3 boundary).
 
 ### 4.6 Training data
 
@@ -368,9 +463,49 @@ Stage-3 boundary and keeps the leakage proof trivial).
   most majors 2017+ `[GUESS]`). Two-source parity check (B-audit pattern) is a
   hard prerequisite to the first training run; disagreements > tolerance
   quarantine the pair.
-- Survivorship: the universe is Alpaca's CURRENT list — delisted pairs are
-  absent. Recorded as a known optimism bias in the model card; mitigated (not
-  cured) by the BTC-baseline gate and placebos.
+- **Survivorship bias (CORRECTED — Codex review, 2026-07-10)**: the original
+  proposal ("universe = Alpaca's CURRENT list, bias mitigated by the
+  BTC-baseline gate") understated the problem. A current active-pair list
+  cannot define a defensible 5–9 year cross-sectional training universe:
+  delisted/rug-pulled/late-listed pairs are absent from that list EXACTLY
+  when their history would hurt the model, and no BTC-baseline comparison
+  corrects for the panel itself being built from survivors.
+
+  **Investigated and confirmed unavailable**: no point-in-time
+  listing/tradability data source exists for this. `alpaca-py`'s
+  `TradingClient.get_all_assets` (§2.7) returns only the CURRENT asset list
+  and status — there is no historical-snapshot or as-of-date endpoint in the
+  SDK surface, and no archival vendor for "which pairs were Alpaca-tradeable
+  on date X" is identified. This is a genuine data-availability gap, not
+  something this RFC can engineer around; pre-registering a WEAKER, honest
+  claim is the correct response (per Codex's explicit fallback), not
+  building a point-in-time system that has no real data behind it.
+
+  **Frozen resolution — two separate, explicitly-scoped evidence tiers,
+  never conflated**:
+  1. **Historical WF panel (EXPLORATORY, survivor-only by construction)**:
+     restricted to a SMALL, explicitly-labeled subset of pairs that have
+     been continuously major/liquid across the FULL evaluation window on
+     BOTH Alpaca and the yfinance cross-check (expected: BTC, ETH, and a
+     short list of long-established large-caps — the exact list is
+     determined at Stage 0 from the actual two-source coverage overlap, not
+     guessed here). This is NOT a "5-year panel validation" of the current
+     ~20-pair universe — it is directional, hypothesis-generating evidence
+     on a deliberately survivor-biased subset, labeled as such everywhere it
+     is reported (model card, WF gate output, any operator-facing summary).
+     It may inform model-family/feature choices; it may NOT alone justify a
+     promotion decision for the full universe.
+  2. **Full current-universe validation (PROSPECTIVE, not survivorship-
+     biased)**: the actual ~20-pair CURRENT universe is validated ONLY
+     forward — Stage 1's ≥14-day shadow window and Stage 2's canary weeks
+     (§6) are genuinely out-of-sample with respect to which pairs exist
+     today, so they carry none of the historical panel's bias. The
+     BTC-baseline gate (§4.4) and placebos apply to BOTH tiers, but tier 2
+     is the decision-grade evidence for whether the full-universe strategy
+     is promoted to canary/full sleeve — not tier 1.
+  - The model card must state which tier any reported metric comes from; a
+    metric from tier 1 must never be presented as if it were tier 2
+    evidence.
 
 ### 4.7 Named crypto-specific risks (pre-registered in the model card)
 
@@ -399,8 +534,16 @@ stops need whole shares, E8) inverts for crypto: **every filled crypto position
 gets a broker-resident GTC stop-limit sell** in native fractional qty
 ([VERIFIED] SDK supports stop_limit for crypto + GTC TIF, §2.7; server-side
 acceptance paper-verified at Stage 0). If this Mac dies, sleeps, or loses
-network, downside protection persists at the broker — strictly BETTER than the
-current equity fractional case.
+network, a RESTING ORDER persists at the broker — strictly BETTER than the
+current equity fractional case, where no order rests at all. **This is NOT an
+execution guarantee (CORRECTED — Codex review, 2026-07-10; the original
+phrasing "downside protection persists" implied broker-residency alone
+bounds loss, which it does not)**: a stop-LIMIT can gap through in a fast
+move without filling at all — the order rests, triggers, and then may not
+execute if the market gaps past the limit price before it can. The honest
+claim is narrower: broker residency means the STOP ORDER survives machine
+death; it does not mean the position is guaranteed to exit at or near the
+stop price. See the residual-risk note below and §4.7 item 2.
 
 - Stop distance: vol-scaled from the per-name realized σ (proposed
   stop = entry − 2.0×σ_20d,daily, floored at −10% and capped at −25% from
@@ -435,14 +578,65 @@ current equity fractional case.
   equity intents. Zero writes to any equity state file, DB, or config.
 - **Ledger**: crypto decisions go to the sleeve DB with `asset_class` stamped;
   equity dashboards/attribution are unaffected.
-- **Cash**: the sleeve shares the brokerage cash pool. Double-spend is bounded
-  by (a) the HARD sleeve budget cap (crypto side can never take more than
-  $1–2k) and (b) cadence separation (the 104 batch sizes once post-close;
-  crypto entries are budget-capped). The 104 lane needs NO change: from its
-  view the sleeve is simply $1–2k less idle cash. Documented, monitored via the
-  existing cash reconciliation.
+- **Cash (CORRECTED — Codex review, 2026-07-10)**: the sleeve shares the ONE
+  brokerage buying-power balance with the 104 equity lane. The original
+  proposal ("cadence separation + a local sleeve cap means 104 needs no
+  change") is FALSE under concurrent snapshots: `OrderStateBook` is
+  per-`account` (i.e. per broker TAG — `alpaca` for equity, `alpaca_crypto`
+  for the sleeve, `order_state_machine.py:486-488`), and `reserved_cash()`
+  (`:830-843`) is computed from ONLY that book's own open parent intents.
+  Two independent books sizing `broker_cash - reserved_cash` from two
+  independent LOCAL views of the same real account can each believe headroom
+  exists that the other has already spent — a genuine concurrent
+  double-reservation, not a documentation gap. Cadence separation (104 sizes
+  once post-close; crypto ticks every 15 min) does NOT bound this: the crypto
+  loop can submit between two 104 batch runs, and 104's own batch can start
+  mid-way through a crypto entry's order lifecycle.
+
+  **Fix — account-scoped reservation ledger (execution-owned, NEW, D-C4)**:
+  a single `AccountCashLedger`, keyed by the REAL brokerage account (not by
+  broker tag), tracking the SUM of all open buy-order cash reservations
+  across every sleeve/tag sharing that account. Backed by one SQLite table
+  (`data/account_cash_ledger.<account>.db`, WAL mode for concurrent
+  readers/writers from the 104 batch process and the crypto 24/7 loop) with
+  a single-writer-transaction reserve/release protocol:
+  - `reserve(sleeve_tag, parent_intent_id, amount) -> bool`: atomically
+    checks `broker_cash - SUM(all active reservations across all tags) -
+    amount >= 0` and, if true, inserts the reservation row in the SAME
+    transaction; returns `False` (reservation refused) on insufficient
+    headroom — the caller's order placement must not proceed. This is the
+    ONLY path either sleeve may size a buy against; `OrderStateBook.
+    reserved_cash()` becomes a PER-TAG diagnostic view, no longer the
+    headroom source of truth.
+  - `release(parent_intent_id)`: called on fill/cancel/reject, in the same
+    transaction as the state-machine transition that already handles that
+    event — a reservation that's never released on every terminal path is
+    the fail mode this ledger exists to prevent, so release is wired into
+    the SAME lifecycle hooks `OrderStateBook` already has for fill/cancel/
+    reject, not a separate cleanup pass.
+  - `broker_cash` is re-fetched from the broker (not cached) at the START of
+    each `reserve()` transaction, so a real balance change (a fill on either
+    sleeve) is visible to the next reservation attempt from EITHER sleeve.
+  - Both 104's existing sizing path and the new crypto sizing path (D-C4)
+    call `reserve()` before submitting any buy order; a `False` return is
+    treated as `insufficient_buying_power_headroom` (the existing
+    `EntryDecision` reason string, `:470` — reused, not duplicated) and the
+    order is not placed, exactly like today's per-book headroom check, only
+    now consulting a shared account-level source of truth instead of a
+    per-tag local one.
+  - **Alternative considered — broker-side segregated sub-account**: Alpaca
+    does not expose sub-accounts for a single retail account (verified
+    against the SDK surface cited in §2.7 — no segregation/sub-account
+    endpoint exists in `alpaca-py` 0.43.4's `TradingClient`); this option is
+    not available and is dropped, not merely deprioritized.
+  - This ledger is D-C4 scope (renquant-execution), landing BEFORE the
+    crypto order-validation seam goes live, and 104's existing sizing path
+    gains exactly one new call (`reserve()`) — a small, testable change, not
+    the "NO change" the original proposal claimed.
 - **Blast radius**: worst-case total loss of the sleeve = 9–19% of the account
-  — bounded by construction, before any rail fires.
+  — bounded by construction (the HARD sleeve budget cap, now enforced via the
+  reservation ledger rather than a locally-checked soft view), before any
+  rail fires.
 
 ### 5.4 Halts (most-restrictive-wins, entries only — exits always allowed)
 
@@ -479,14 +673,15 @@ everything above is merged AND pinned (105 §8 pattern).
 | D-C1 | renquant-common | ALWAYS_OPEN calendar mode in `market_calendar` + `pair_slug` symbol helper (M2, P9/B5) | M |
 | D-C2 | renquant-base-data | Crypto bars ingestion (daily+intraday, v1beta3) + slug store + manifests (`asset_class:"crypto"`) + yfinance cross-check job (B1/B2/B3/B6) | M |
 | D-C3 | renquant-base-data | Crypto panel builder: price/volume alpha158 subset + crypto-native features + h=20 calendar-day label sidecar (B4/B7, §4.2–4.3) | M |
-| D-C4 | renquant-execution | Crypto order validation: asset-class classifier, GTC/IOC TIF policy, no-short assert, increment/min-notional snapshot enforcement, fee model, DAY-sweep exclusion + resting-age watchdog, reconciliation asset-class fix (E1–E7, E9–E11) | L |
+| D-C4 | renquant-execution | Account-scoped cash reservation ledger (§5.3 CORRECTED — touches 104's existing sizing path with one new `reserve()` call); crypto order validation: asset-class classifier, GTC/IOC TIF policy, no-short assert, increment/min-notional snapshot enforcement, fee model, DAY-sweep exclusion + resting-age watchdog, reconciliation asset-class fix (E1–E7, E9–E11) | L |
 | D-C5 | renquant-execution | Crypto GTC stop-limit protective path, fractional qty + cancel/replace + missing-stop Tier-1 check (E8, §5.1) | M |
 | D-C6 | renquant-pipeline | `asset_class` config field + calendar-mode threading: freshness, hold clocks, settlement=0, annualization 365 (P1–P4, P11) | L |
 | D-C7 | renquant-pipeline | Asset-class gate bypasses: wash-sale (+QP mask), fundamentals, sector/SPY gates; crypto σ-clip + vol-target params; equity behavior byte-identical tests (P5, P7, P8, P10) | M |
-| D-C8 | renquant-model (+common) | Fee-aware net-of-cost WF evaluation + BTC-baseline comparison in the gate harness (M1, §4.4) | L |
+| D-C8a | renquant-model-common (shared) | Generic net-of-cost accounting primitive: fees/spread-slippage/increment-rounding/rejected-order cost model, consumed identically by replay and runtime (M1, §4.4 CORRECTED) — asset-agnostic, no crypto-specific logic | M |
+| D-C8b | renquant-model | Crypto net-of-cost WF evaluation (consumes D-C8a) + BTC-baseline comparison + crypto promotion decision in the gate harness — asset-specific, not shared code (M1, §4.4) | M |
 | D-C9 | renquant-model | Crypto XGB panel training config + model card + artifact publication (§4) | M |
 | D-C10 | NEW repo `renquant-strategy-crypto` | Scaffold: configs (active/golden/shadow), validator, drift detector, universe+increment snapshot, sleeve budget cap, risk rails, stop policy (§3.1) | M |
-| D-C11 | renquant-orchestrator | 24/7 crypto session scheduler (fork of 105 bones): always-open sessions, signal-swap quiet window, kill switch + env flag, ntfy topic, run bundles, launchd KeepAlive ops, liveness (§3.5, §5.2) | L |
+| D-C11 | renquant-orchestrator | 24/7 crypto session scheduler (fork of 105 bones): always-open sessions, frozen leakage-proof session contract (watermark + quiet window + signal_snapshot_digest, §3.5), kill switch + env flag, ntfy topic, run bundles, launchd KeepAlive ops, liveness (§3.5, §5.2) | L |
 | D-C12 | renquant-orchestrator | Stage-0 paper battery runner + report format; Stage-1 shadow replay audit for crypto sessions (§6) | M |
 | D-C13 | renquant-artifacts | Crypto model registry entry + promotion contract (consumes existing schema) | S |
 
@@ -501,9 +696,15 @@ Every PR: own progress doc, Codex review, never self-merge — unchanged rules.
 - **No margin, no shorting, no leverage** — long-only spot, 1× cash.
 - **No cross-exchange anything** — Alpaca custody only; no wallets, no
   transfers, no arbitrage, no on-chain data in v1.
-- **No effect on equity strategies** — zero changes to 104/105 behavior; every
-  pipeline change is bypass-by-asset-class with equity-path byte-identical
-  tests; separate state/DB/ntfy/kill-switch.
+- **No behavior change to equity strategies' decisions** — every pipeline
+  change is bypass-by-asset-class with equity-path byte-identical tests;
+  separate state/DB/ntfy/kill-switch. ONE exception, load-bearing not
+  incidental: 104's sizing path gains a single new call into the shared
+  `AccountCashLedger.reserve()` (§5.3 CORRECTED) — this is REQUIRED for
+  crypto to safely share the account's cash, not an optional touch; it is
+  tested to be a no-op headroom-wise for 104 when the crypto sleeve is
+  disabled (ledger with zero crypto reservations reduces to the existing
+  per-book check byte-for-byte).
 - **No cash-drag lane coupling** — this RFC does not touch the Deployment
   Governor / D6 protocol / shadow-AB lanes, and its implementation PRs may not
   either.
@@ -516,16 +717,27 @@ Every PR: own progress doc, Codex review, never self-merge — unchanged rules.
 
 ---
 
-## 9. Open design questions (for Codex / operator review)
+## 9. Resolved design questions (Codex review, 2026-07-10 — no longer open)
 
-1. **UTC-day session + signal-swap quiet window (§3.5, §4.5)**: is the
-   00:00-UTC daily bar the right class-A freeze boundary, and is a 15-min quiet
-   window sufficient to make the leakage/replay proof as clean as 105's?
-2. **Label benchmark (§4.3)**: raw forward return (proposed) vs BTC-excess.
-   Raw + cross-sectional rank implicitly keeps BTC beta in every score;
-   BTC-excess hard-wires an alt-tilt. Proposal: raw primary, BTC-excess as a
-   pre-registered diagnostic, decide on WF evidence.
-3. **Fee-aware gate placement (§4.4, D-C8)**: build net-of-cost evaluation into
-   the shared factory harness (generic, larger blast radius) vs a crypto-only
-   sidecar gate (contained, but a second gate implementation — the
-   triple-implementation fingerprint bug family argues against duplicates).
+The three questions this section originally posed are now FROZEN decisions,
+not open questions, per Codex's first review round:
+
+1. **Leakage-proof session contract (§3.5)**: RESOLVED — not just "a clock
+   boundary," but the full frozen contract in §3.5 (exact watermark, a
+   `[D 00:00, D 00:15)` UTC quiet interval, an immutable
+   `signal_snapshot_digest` reusing the D6-§2a decision-snapshot pattern,
+   fail-closed entries with no stale-signal fallback, per-tick bundle
+   persistence). See §3.5 for the full mechanism — it is no longer a design
+   question but a specified contract an implementation PR must satisfy
+   exactly.
+2. **Label benchmark (§4.3)**: RESOLVED — raw 20-day forward return is the
+   FROZEN primary label, decided before any WF evidence; BTC-excess is a
+   pre-registered diagnostic only, never a post-hoc substitute. See §4.3.
+3. **Fee-aware gate placement (§4.4, D-C8)**: RESOLVED — split, per Codex's
+   explicit instruction: generic net-of-cost evaluation PRIMITIVES (the fee/
+   slippage/rounding/rejected-order cost-accounting math itself) live in
+   shared `renquant-model`-common code so equities inherit them for free
+   later without an asset-specific gate in shared code; the BTC-baseline
+   comparison and the crypto promotion DECISION stay entirely in
+   `renquant-model`, asset-specific and never in the shared common path. See
+   the revised D-C8a/D-C8b split in §7 and §4.4.
