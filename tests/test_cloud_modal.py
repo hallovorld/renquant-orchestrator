@@ -604,3 +604,92 @@ class TestPerSeedCostAggregation:
         # whichever pod happened to report first.
         assert len(result.per_seed) == 3
         assert {s["seed"] for s in result.per_seed} == {42, 43, 44}
+
+
+class TestPartialFailureHandling:
+    """Prove `return_exceptions=True` actually protects the batch: when
+    Modal's real `.map(..., return_exceptions=True)` hits a dead/failed pod,
+    it yields the raised exception object in place of a JSON string rather
+    than raising it into the iterator — codex's #438 review blocked on this
+    path being unverified. `execute_batch` must not crash, must report the
+    failure via `on_error`/`n_failed`, and must keep draining the remaining
+    (successful) pods rather than abandoning the batch."""
+
+    def _fake_pod_result(self, variant_name, seed, worker_id):
+        return json.dumps({
+            "variant_name": variant_name,
+            "role": "candidate",
+            "config_fingerprint": "fp",
+            "worker_id": worker_id,
+            "volume_commit_id": "vc1",
+            "code_image_id": "img1",
+            "started_at": "2026-07-08T00:00:00+00:00",
+            "finished_at": "2026-07-08T00:10:00+00:00",
+            "elapsed_seconds": 300.0,
+            "peak_memory_mb": 1000.0 + seed,
+            "seeds": [seed],
+            "per_seed": [{"seed": seed, "apy": 0.1, "sharpe": 1.0}],
+            "equity_curves": None,
+            "trade_logs": None,
+            "result_checksum": f"chk{seed}",
+        })
+
+    def test_exception_item_is_reported_not_raised_and_batch_keeps_draining(
+        self, monkeypatch, tmp_path
+    ):
+        import sys as _sys
+        from renquant_orchestrator.cloud.executor import BacktestRequest
+
+        module_name = "renquant_orchestrator.cloud.modal_app"
+        monkeypatch.delitem(_sys.modules, module_name, raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("RENQUANT_MODAL_RETRIES", raising=False)
+
+        pod_failure = RuntimeError("pod task-b died: OOMKilled")
+        # Modal's own map(return_exceptions=True) yields the raw Exception
+        # object interleaved with normal results — not a JSON string, not a
+        # wrapper. The fake here mirrors that exactly.
+        per_seed = [
+            self._fake_pod_result("cap12_driftinf_topup05", 42, "task-a"),
+            pod_failure,
+            self._fake_pod_result("cap12_driftinf_topup05", 44, "task-c"),
+        ]
+        _install_fake_modal_sdk_with_map(monkeypatch, per_seed)
+
+        executor = ModalExecutor(bundle_dir=str(tmp_path))
+        request = BacktestRequest(
+            variant_name="cap12_driftinf_topup05",
+            role="candidate",
+            config_json="{}",
+            volume_commit_id="vc1",
+            seeds=[42, 43, 44],
+            start="2024-01-01",
+            end="2026-03-28",
+            initial_cash=100_000.0,
+            incumbent_turnover=None,
+        )
+
+        results = []
+        errors = []
+        # No lambda-that-raises here (unlike the sibling test above) —
+        # proving execute_batch itself must not propagate the pod's
+        # exception; on_error is just a recording callback.
+        summary = executor.execute_batch(
+            [request],
+            on_result=results.append,
+            on_error=lambda name, exc: errors.append((name, exc)),
+        )
+
+        # The failed pod must be reported, not swallowed silently and not
+        # allowed to crash execute_batch.
+        assert len(errors) == 1
+        assert errors[0][1] is pod_failure
+        assert summary.n_failed == 1
+
+        # The batch must keep draining: seeds 42 and 44 (the two pods that
+        # did NOT fail) still reach the final aggregated result. A batch
+        # that aborted on the first exception would lose seed 44 entirely.
+        assert len(results) == 1
+        result = results[0]
+        assert {s["seed"] for s in result.per_seed} == {42, 44}
+        assert len(result.per_seed) == 2

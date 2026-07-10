@@ -104,3 +104,50 @@ lower concurrent load), or (c) wait and retry once system load in this
 environment drops. Not re-attempting a 4th blind retry under the same
 conditions since the last check showed memory pressure had gotten worse,
 not better, between attempts.
+
+## Round 3 (deterministic unit test for `return_exceptions=True`, no Modal required)
+
+STATUS: fixed
+WHAT: codex's r2/r3 review on #438 asked for "one short, intentionally
+failing bounded batch to directly validate the `return_exceptions=True`
+claim" without waiting on a full >50min pod completion. Operator has since
+put a hard rule in place (no Modal API/CLI calls until the open questions
+across the cash-drag PR family are resolved and there's an explicit
+experiment plan), so a real cloud-side failing-pod run is not available
+right now. The claim is fully deterministic given Modal's own documented
+`.map(return_exceptions=True)` contract (failed pods yield the raised
+exception object in place of a result, not a wrapper) — that's exactly
+what a mock can prove without touching the network.
+WHY-DIR: `ModalExecutor.execute_batch`'s iteration loop (modal_executor.py)
+checks `isinstance(result_json, Exception)` before attempting
+`json.loads()`. Whether that specific branch actually fires end-to-end
+(reports the real exception via `on_error`, increments `n_failed`, and
+keeps draining subsequent pods) was previously asserted only by code
+reading, not exercised by any test — every existing `.map()` mock returned
+only well-formed JSON strings.
+EVIDENCE:
+- New test `TestPartialFailureHandling::test_exception_item_is_reported_not_raised_and_batch_keeps_draining`
+  (`tests/test_cloud_modal.py`): fake `.map()` yields
+  `[success(seed=42), RuntimeError("pod task-b died: OOMKilled"), success(seed=44)]`
+  — mirroring Modal's real interleaving of exception objects with normal
+  results. Asserts `execute_batch` does not raise, `on_error` receives the
+  *actual* exception instance (not a rewrapped one), `summary.n_failed == 1`,
+  and both successful seeds (42 and 44) still reach the final aggregated
+  result — proving the batch keeps draining past the failure instead of
+  abandoning it.
+- Confirmed the test is meaningful, not tautological: reverted only
+  `modal_executor.py` to its pre-#438 state (test kept post-fix) and reran
+  — it fails, and not just by crashing: the pre-fix code's generic
+  `except Exception` around `json.loads()` silently converts the failure
+  into `TypeError("the JSON object must be str, bytes or bytearray, not
+  RuntimeError")`, losing the real pod-failure reason
+  (`RuntimeError('pod task-b died: OOMKilled')`) entirely. The fix isn't
+  just crash-prevention — it's the difference between reporting the true
+  cause of a pod failure and reporting a misleading parse error.
+- Full suite: 3263 passed, 3 skipped, 0 failed (`make test` equivalent,
+  run with the multi-repo `PYTHONPATH` — same as CI).
+NEXT: this closes the `return_exceptions=True` half of codex's ask via a
+fast, deterministic unit test. The remaining half — one durable multi-pod
+*completion* on Modal from an environment that can sustain the run — is
+still blocked on the operator's standing no-Modal-calls rule and is not
+attempted here.
