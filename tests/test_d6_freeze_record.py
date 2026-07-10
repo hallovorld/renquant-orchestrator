@@ -5,18 +5,20 @@ Covers: loader-faithful session enumeration (min-rows rule, NULL handling),
 a PARITY test against the ACTUAL pipeline loader
 (renquant_pipeline...wf_replay_loader.load_replay_bars_from_sim_db — codex
 review on PR #446: the loader is ground truth for what the replay consumes),
-exclusion-window + manual-exclusion honoring, deterministic seeded-hash split
-(exact floor count, nested cross-horizon consistency, seed sensitivity),
-read-only DB discipline, and --verify (clean pass, DB drift, artifact drift,
-tampered session lists, path-override exemption).
+exclusion-window + manual-exclusion honoring, the deterministic CHRONOLOGICAL
+split (merged D6 §2: exact ceil(N/2) tuning boundary, explicit purged-embargo
+IDs, nested cross-horizon consistency, and a true-default-60-trading-day
+embargo purge on a larger synthetic corpus), read-only DB discipline, and
+--verify (clean pass, DB drift, artifact drift, tampered session lists,
+path-override exemption).
 """
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import sqlite3
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -130,12 +132,19 @@ def env(tmp_path):
     }
 
 
-def _gen_args(env, seed=43, out=None, extra=()):
+# Small fixture has 24 union-kept dates (see EXPECTED_FWD1D/60D below); an
+# embargo of 3 gives non-trivial tuning/embargo/evaluation buckets on ALL
+# tests that don't care about the specific embargo length. The true
+# production default (60) is exercised separately, on a larger corpus, by
+# test_embargo_purge_true_default_60_days.
+TEST_EMBARGO_DAYS = 3
+
+
+def _gen_args(env, embargo_trading_days=TEST_EMBARGO_DAYS, out=None, extra=()):
     return [
         "--db", str(env["db"]),
         "--exclude-window", WINDOW,
-        "--tuning-frac", "0.3",
-        "--seed", str(seed),
+        "--embargo-trading-days", str(embargo_trading_days),
         "--artifacts-root", str(env["art_root"]),
         "--artifact", "artifacts/prod/model.json",
         "--artifact", "artifacts/prod/calibrator.json",
@@ -144,8 +153,8 @@ def _gen_args(env, seed=43, out=None, extra=()):
     ]
 
 
-def _generate(env, seed=43, out=None, extra=()) -> dict:
-    rc = d6.main(_gen_args(env, seed=seed, out=out, extra=extra))
+def _generate(env, embargo_trading_days=TEST_EMBARGO_DAYS, out=None, extra=()) -> dict:
+    rc = d6.main(_gen_args(env, embargo_trading_days=embargo_trading_days, out=out, extra=extra))
     assert rc == 0
     return json.loads(Path(out or env["record"]).read_text())
 
@@ -157,8 +166,8 @@ def test_session_enumeration_matches_loader_rule(env):
     fwd60 = rec["horizons"]["fwd_60d"]
     assert fwd1["n_available"] == len(EXPECTED_FWD1D)
     assert fwd60["n_available"] == len(EXPECTED_FWD60D)
-    all_ids = (fwd1["tuning"]["ids"] + fwd1["evaluation"]["ids"]
-               + fwd60["tuning"]["ids"] + fwd60["evaluation"]["ids"])
+    all_ids = (fwd1["tuning"]["ids"] + fwd1["embargo"]["ids"] + fwd1["evaluation"]["ids"]
+               + fwd60["tuning"]["ids"] + fwd60["embargo"]["ids"] + fwd60["evaluation"]["ids"])
     for date in NEVER_SESSIONS:
         assert date not in all_ids
     # boundary (=2 rows) and duplicate-run sessions ARE included
@@ -215,10 +224,10 @@ def test_exclusion_window_honored(env):
     rec = _generate(env)
     for horizon in ("fwd_1d", "fwd_60d"):
         h = rec["horizons"][horizon]
-        kept = h["tuning"]["ids"] + h["evaluation"]["ids"]
-        for date in WINDOW_DATES:
-            assert date not in kept
-            assert date in rec["exclusion"]["excluded_session_ids"][horizon]
+        kept = h["tuning"]["ids"] + h["embargo"]["ids"] + h["evaluation"]["ids"]
+        for win_date in WINDOW_DATES:
+            assert win_date not in kept
+            assert win_date in rec["exclusion"]["excluded_session_ids"][horizon]
         # window endpoints inclusive
         assert "2026-06-23" in rec["exclusion"]["excluded_session_ids"][horizon]
         assert "2026-07-09" in rec["exclusion"]["excluded_session_ids"][horizon]
@@ -230,58 +239,173 @@ def test_manual_session_exclusion_honored(env):
     rec = _generate(env, extra=("--exclude-session", inspected))
     for horizon in ("fwd_1d", "fwd_60d"):
         h = rec["horizons"][horizon]
-        assert inspected not in h["tuning"]["ids"] + h["evaluation"]["ids"]
+        kept = h["tuning"]["ids"] + h["embargo"]["ids"] + h["evaluation"]["ids"]
+        assert inspected not in kept
         assert inspected in rec["exclusion"]["excluded_session_ids"][horizon]
     assert rec["exclusion"]["manual_exclude_sessions"] == [inspected]
 
 
 # ------------------------------------------------------------------- split
 def test_split_deterministic_and_exact(env, tmp_path):
-    rec_a = _generate(env, seed=43)
-    rec_b = _generate(env, seed=43, out=tmp_path / "again.json")
+    rec_a = _generate(env)
+    rec_b = _generate(env, out=tmp_path / "again.json")
     # identical apart from the generation timestamp
     assert not d6.diff_records(rec_a, rec_b, set())
-    # exact floor(tuning_frac * union_n), disjoint, exhaustive
+    # exact ceil(N/2) tuning boundary, disjoint, exhaustive (tuning + embargo
+    # + evaluation == kept) at the union level and per horizon
     union_n = rec_a["split"]["union_n"]
-    assert rec_a["split"]["tuning_n"] == int(union_n * 0.3)
+    assert rec_a["split"]["tuning_n"] == -(-union_n // 2)  # ceil via negation
+    assert rec_a["split"]["embargo_n"] == TEST_EMBARGO_DAYS
+    assert (rec_a["split"]["tuning_n"] + rec_a["split"]["embargo_n"]
+            + rec_a["split"]["evaluation_n"]) == union_n
     for horizon in ("fwd_1d", "fwd_60d"):
         h = rec_a["horizons"][horizon]
-        tuning, evaluation = set(h["tuning"]["ids"]), set(h["evaluation"]["ids"])
-        assert not tuning & evaluation
-        assert len(tuning) + len(evaluation) == h["n_kept"]
+        tuning = set(h["tuning"]["ids"])
+        embargo = set(h["embargo"]["ids"])
+        evaluation = set(h["evaluation"]["ids"])
+        assert not (tuning & embargo)
+        assert not (tuning & evaluation)
+        assert not (embargo & evaluation)
+        assert len(tuning) + len(embargo) + len(evaluation) == h["n_kept"]
 
 
-def test_split_changes_with_seed(env, tmp_path):
-    rec_a = _generate(env, seed=43)
-    rec_b = _generate(env, seed=44, out=tmp_path / "other-seed.json")
-    assert (set(rec_a["horizons"]["fwd_1d"]["tuning"]["ids"])
-            != set(rec_b["horizons"]["fwd_1d"]["tuning"]["ids"]))
+def test_split_is_chronological_ordering(env):
+    """Every tuning date is strictly earlier than every embargo date, which
+    is strictly earlier than every evaluation date (chronological two-range
+    rule with a purged embargo, merged D6 §2 — NOT a hash/random split)."""
+    rec = _generate(env)
+    for horizon in ("fwd_1d", "fwd_60d"):
+        h = rec["horizons"][horizon]
+        tuning, embargo, evaluation = h["tuning"]["ids"], h["embargo"]["ids"], h["evaluation"]["ids"]
+        assert tuning == sorted(tuning)
+        assert embargo == sorted(embargo)
+        assert evaluation == sorted(evaluation)
+        if tuning and embargo:
+            assert max(tuning) < min(embargo)
+        if embargo and evaluation:
+            assert max(embargo) < min(evaluation)
+        if tuning and evaluation:
+            assert max(tuning) < min(evaluation)
 
 
 def test_split_nested_across_horizons(env):
-    """A date present at both horizons lands in the SAME subset (protocol §1
-    nested selection) — tuning at one horizon never touches the other's
-    evaluation sessions."""
+    """A date present at both horizons lands in the SAME subset (protocol
+    D6 §2 nested selection) — tuning/embargo at one horizon never touches
+    the other's evaluation sessions, since the split is computed once on
+    the union and only then intersected per horizon."""
     rec = _generate(env)
     t1 = set(rec["horizons"]["fwd_1d"]["tuning"]["ids"])
+    b1 = set(rec["horizons"]["fwd_1d"]["embargo"]["ids"])
     e1 = set(rec["horizons"]["fwd_1d"]["evaluation"]["ids"])
     t60 = set(rec["horizons"]["fwd_60d"]["tuning"]["ids"])
+    b60 = set(rec["horizons"]["fwd_60d"]["embargo"]["ids"])
     e60 = set(rec["horizons"]["fwd_60d"]["evaluation"]["ids"])
-    assert not t1 & e60
-    assert not t60 & e1
+    assert not t1 & (b60 | e60)
+    assert not t60 & (b1 | e1)
+    assert not b1 & (t60 | e60)
+    assert not b60 & (t1 | e1)
     # and the fwd_60d subsets are exactly the restriction of the union split
-    assert t60 == t1 & (t60 | e60)
+    all60 = t60 | b60 | e60
+    assert t60 == t1 & all60
+    assert b60 == b1 & all60
 
 
-def test_assign_tuning_dates_is_pure_hash_rank():
-    dates = [f"2026-01-{d:02d}" for d in range(1, 21)]
-    got = d6.assign_tuning_dates(dates, seed=7, tuning_frac=0.3)
-    ranked = sorted(
-        dates,
-        key=lambda d: (hashlib.sha256(f"7|{d}".encode()).hexdigest(), d))
-    assert got == set(ranked[: int(len(dates) * 0.3)])
-    # shuffling input order must not matter
-    assert d6.assign_tuning_dates(list(reversed(dates)), 7, 0.3) == got
+def test_assign_chronological_split_is_pure_function():
+    """Deterministic, order-independent-on-output (input must already be
+    sorted), exact ceil(N/2) boundary for both even and odd N, and the
+    embargo count is exactly what's requested (or truncates evaluation to
+    empty if the embargo is longer than what's left, rather than erroring)."""
+    dates_even = [f"2026-01-{d:02d}" for d in range(1, 21)]  # N=20
+    tuning, embargo, evaluation = d6.assign_chronological_split(dates_even, 3)
+    assert len(tuning) == 10 and len(embargo) == 3 and len(evaluation) == 7
+    assert tuning + embargo + evaluation == dates_even
+
+    dates_odd = dates_even + ["2026-01-21"]  # N=21
+    tuning_o, embargo_o, evaluation_o = d6.assign_chronological_split(dates_odd, 3)
+    assert len(tuning_o) == 11  # ceil(21/2) == 11
+    assert len(embargo_o) == 3
+    assert len(evaluation_o) == 7
+
+    # deterministic: calling twice with the same input gives the same output
+    again = d6.assign_chronological_split(dates_even, 3)
+    assert again == (tuning, embargo, evaluation)
+
+    # embargo longer than what's left after tuning: truncates, evaluation empty
+    t_over, e_over, ev_over = d6.assign_chronological_split(dates_even, 100)
+    assert len(t_over) == 10 and len(e_over) == 10 and len(ev_over) == 0
+
+
+def test_embargo_purge_true_default_60_days(tmp_path):
+    """End-to-end on the TRUE production default (60 trading days), not the
+    small test embargo — verifies the exact purge count and that none of
+    the purged sessions land in tuning or evaluation, on a corpus large
+    enough for the default to matter (merged D6 §2's actual frozen value)."""
+    db = tmp_path / "big_sim_runs.db"
+    art_root = tmp_path / "strategy_dir"
+    (art_root / "artifacts/prod").mkdir(parents=True)
+    (art_root / "artifacts/prod/model.json").write_text('{"model": 1}')
+
+    # 300 consecutive weekday sessions, well clear of the default exclusion
+    # window (which only matters for the small fixture's 2026-06/07 dates).
+    start = date(2027, 1, 4)  # a Monday
+    big_dates: list[str] = []
+    d = start
+    while len(big_dates) < 300:
+        if d.weekday() < 5:  # Mon-Fri only
+            big_dates.append(d.isoformat())
+        d += timedelta(days=1)
+
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE score_distribution (
+            run_id TEXT NOT NULL, date TEXT NOT NULL, ticker TEXT NOT NULL,
+            mu REAL, sigma REAL, regime TEXT,
+            PRIMARY KEY (run_id, ticker)
+        );
+        CREATE TABLE ticker_forward_returns (
+            as_of_date DATE NOT NULL, ticker TEXT NOT NULL,
+            close_price REAL, fwd_1d REAL, fwd_5d REAL, fwd_10d REAL,
+            fwd_20d REAL, fwd_60d REAL,
+            PRIMARY KEY (as_of_date, ticker)
+        );
+        """
+    )
+    rows_score, rows_fwd = [], []
+    for dt in big_dates:
+        for t in TICKERS:
+            rows_score.append((f"run-{dt}", dt, t, 0.01, 0.1, "BULL_CALM"))
+            rows_fwd.append((dt, t, 100.0, 0.001, 0.002, 0.003, 0.004, 0.02))
+    conn.executemany("INSERT INTO score_distribution VALUES (?,?,?,?,?,?)", rows_score)
+    conn.executemany(
+        "INSERT INTO ticker_forward_returns VALUES (?,?,?,?,?,?,?,?)", rows_fwd)
+    conn.commit()
+    conn.close()
+
+    out = tmp_path / "big_freeze.json"
+    rc = d6.main([
+        "--db", str(db),
+        "--exclude-window", "1900-01-01:1900-01-02",  # no overlap with big_dates
+        "--horizons", "60",
+        "--artifacts-root", str(art_root),
+        "--artifact", "artifacts/prod/model.json",
+        "--out", str(out),
+    ])
+    assert rc == 0
+    rec = json.loads(out.read_text())
+    assert rec["split"]["embargo_trading_days"] == d6.DEFAULT_EMBARGO_TRADING_DAYS
+    assert d6.DEFAULT_EMBARGO_TRADING_DAYS == 60
+    assert rec["split"]["union_n"] == 300
+    assert rec["split"]["tuning_n"] == 150  # ceil(300/2)
+    assert rec["split"]["embargo_n"] == 60
+    assert rec["split"]["evaluation_n"] == 90  # 300 - 150 - 60
+    assert len(rec["split"]["embargo_session_ids"]) == 60
+
+    h = rec["horizons"]["fwd_60d"]
+    tuning, embargo, evaluation = set(h["tuning"]["ids"]), set(h["embargo"]["ids"]), set(h["evaluation"]["ids"])
+    assert len(embargo) == 60
+    assert not (tuning & embargo) and not (embargo & evaluation) and not (tuning & evaluation)
+    assert max(tuning) < min(embargo) < max(embargo) < min(evaluation)
 
 
 # ------------------------------------------------------------------ verify
@@ -345,22 +469,14 @@ def test_verify_missing_record_is_exit_2(env):
 
 
 # --------------------------------------------------------------- interface
-def test_seed_required_for_generation(env):
-    args = _gen_args(env)
-    idx = args.index("--seed")
-    del args[idx:idx + 2]
-    with pytest.raises(SystemExit):
-        d6.main(args)
-
-
 def test_record_carries_provenance(env):
     rec = _generate(env)
     assert rec["freeze_record_version"] == d6.RECORD_VERSION
     assert rec["generator"]["script"] == "scripts/d6_freeze_record.py"
     assert rec["generator"]["version"] == d6.GENERATOR_VERSION
     args = rec["generator"]["args"]
-    assert args["seed"] == 43
-    assert args["tuning_frac"] == 0.3
+    assert args["embargo_trading_days"] == TEST_EMBARGO_DAYS
+    assert rec["split"]["rule_version"] == d6.SPLIT_RULE_VERSION
     assert args["exclude_window"] == ["2026-06-23", "2026-07-09"]
     assert rec["source_db"]["sha256"] == d6.sha256_file(env["db"])
     items = {i["rel_path"]: i for i in rec["artifacts"]["items"]}

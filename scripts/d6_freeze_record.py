@@ -25,17 +25,27 @@ Freeze rule (§1, mechanical):
   2. EXCLUDE every session inside the hypothesis-generation window
      (default 2026-06-23 → 2026-07-09, endpoints inclusive) and any
      individually inspected session passed via --exclude-session;
-  3. deterministically split the remainder into TUNING and EVALUATION
-     subsets by seeded hash (nested selection): each session date is ranked
-     by sha256("<seed>|<date>"); the first floor(tuning_frac * N) dates of
-     the ranked UNION of horizon session dates form the tuning set. Ranking
-     on the union guarantees a date lands in the SAME subset for every
-     horizon — tuning at one horizon can never touch evaluation sessions of
-     another.
-  4. emit a freeze-record JSON carrying exact session IDs per subset, the
-     DB sha256, the per-horizon data cutoff, as-of artifact stats
-     (path + mtime + sha256) for the live model/calibrator bundle, and the
-     generator version + args.
+  3. deterministically split the remainder into TUNING, EMBARGO, and
+     EVALUATION ranges by CHRONOLOGICAL ORDER (merged D6 §2 fold-
+     construction rule, codex review on PR #446 — this replaces an earlier
+     seeded-hash nested-selection draft that this protocol never froze):
+     sort the UNION of kept horizon session dates chronologically; the
+     earliest ceil(N/2) dates are TUNING (used only for the §1 nested-
+     selection hyperparameter choices); the following
+     DEFAULT_EMBARGO_TRADING_DAYS (60) dates are a PURGED embargo, excluded
+     from both subsets (long enough to exceed the longest forward horizon
+     evaluated, so no evaluation-range forward-return window shares
+     calendar days with the tuning range); the remainder is EVALUATION
+     (used only for §3 estimands, §4 gates, and the §5 decision rule).
+     Assignment is computed ONCE on the union and then intersected per
+     horizon, so a date lands in the SAME subset for every horizon — tuning
+     at one horizon can never touch evaluation sessions of another.
+  4. emit a freeze-record JSON carrying exact session IDs per subset
+     (tuning / embargo / evaluation, embargo IDs explicit, not just a
+     count), the DB sha256, the per-horizon data cutoff, as-of artifact
+     stats (path + mtime + sha256) for the live model/calibrator bundle,
+     and the generator version + args (including the embargo length,
+     frozen into the record so it can be reproduced later).
 
 Verify mode (--verify RECORD.json) recomputes the record from the args
 stored inside it (paths overridable with --db / --artifacts-root) and diffs
@@ -43,7 +53,7 @@ every field except the generation timestamp. Exit 0 = no drift, 1 = drift,
 2 = could not evaluate.
 
 Usage:
-  d6_freeze_record.py --seed 43 --out doc/research/evidence/d6/freeze.json
+  d6_freeze_record.py --out doc/research/evidence/d6/freeze.json
   d6_freeze_record.py --verify doc/research/evidence/d6/freeze.json
 """
 from __future__ import annotations
@@ -51,23 +61,25 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
-RECORD_VERSION = "d6-freeze-v1"
+RECORD_VERSION = "d6-freeze-v2"
 GENERATOR_SCRIPT = "scripts/d6_freeze_record.py"
-GENERATOR_VERSION = "1.0.0"
+GENERATOR_VERSION = "2.0.0"
 PROTOCOL_REF = (
     "doc/design/2026-07-09-governor-prereg-replay-protocol.md "
-    "(D6 §1; orchestrator PR #443)"
+    "(D6 §2 fold construction; orchestrator PR #443)"
 )
+SPLIT_RULE_VERSION = "chronological-ceil-half-embargo-v1"
 
 DEFAULT_DB = "/Users/renhao/git/github/RenQuant/data/sim_runs.db"
 DEFAULT_EXCLUDE_WINDOW = "2026-06-23:2026-07-09"
-DEFAULT_TUNING_FRAC = 0.3
+DEFAULT_EMBARGO_TRADING_DAYS = 60
 DEFAULT_HORIZONS = "1,60"
 # The live model bundle the replay's mu/sigma trace was produced by — the
 # umbrella strategy dir (same resolution base as
@@ -175,25 +187,33 @@ def enumerate_sessions(conn: sqlite3.Connection, horizon_days: int) -> list[str]
 
 
 # -------------------------------------------------------- deterministic split
-def session_rank_key(seed: int, session_id: str) -> str:
-    """Deterministic per-(seed, session) hash used for subset assignment."""
-    return hashlib.sha256(f"{seed}|{session_id}".encode("utf-8")).hexdigest()
+def assign_chronological_split(
+    union_dates: Sequence[str], embargo_trading_days: int
+) -> tuple[list[str], list[str], list[str]]:
+    """Chronological two-range split with a purged embargo (merged D6 §2).
 
+    ``union_dates`` MUST already be sorted chronologically (the caller
+    builds it that way). The earliest ``ceil(N/2)`` dates are TUNING; the
+    following ``embargo_trading_days`` dates are a PURGED embargo excluded
+    from both subsets; the remainder is EVALUATION. This is a pure
+    accounting split over the UNION of kept horizon dates — the same three
+    date sets are then intersected per horizon, so assignment is identical
+    across horizons (the protocol's nested-selection rule): tuning at one
+    horizon can never touch evaluation (or embargo) sessions of another.
 
-def assign_tuning_dates(union_dates: Sequence[str], seed: int, tuning_frac: float) -> set[str]:
-    """Seeded-hash nested split over the UNION of horizon session dates.
-
-    Rank every date by sha256("<seed>|<date>") (ties broken by date, though
-    sha256 collisions are not a practical concern); the first
-    floor(tuning_frac * N) ranked dates are TUNING, the rest EVALUATION.
-    Assignment depends only on (seed, date) ranking within the union, so it
-    is identical across horizons — the protocol's nested-selection rule.
+    Returns (tuning_ids, embargo_ids, evaluation_ids), each chronologically
+    ordered and mutually disjoint; their union is exactly ``union_dates``.
     """
-    if not 0.0 <= tuning_frac < 1.0:
-        raise ValueError(f"--tuning-frac must be in [0, 1), got {tuning_frac}")
-    ranked = sorted(union_dates, key=lambda d: (session_rank_key(seed, d), d))
-    n_tuning = int(len(ranked) * tuning_frac)  # floor: exact, deterministic
-    return set(ranked[:n_tuning])
+    if embargo_trading_days < 0:
+        raise ValueError(
+            f"--embargo-trading-days must be >= 0, got {embargo_trading_days}"
+        )
+    n = len(union_dates)
+    n_tuning = math.ceil(n / 2)
+    tuning = list(union_dates[:n_tuning])
+    embargo = list(union_dates[n_tuning:n_tuning + embargo_trading_days])
+    evaluation = list(union_dates[n_tuning + embargo_trading_days:])
+    return tuning, embargo, evaluation
 
 
 # ------------------------------------------------------------------ artifacts
@@ -219,8 +239,7 @@ def build_record(
     db_path: Path,
     exclude_window: tuple[str, str],
     exclude_sessions: Sequence[str],
-    tuning_frac: float,
-    seed: int,
+    embargo_trading_days: int,
     horizons: Sequence[int],
     artifacts_root: Path,
     artifacts: Sequence[str],
@@ -250,13 +269,19 @@ def build_record(
         excluded_by_horizon[h] = [d for d in ids if _is_excluded(d)]
 
     union_dates = sorted({d for ids in kept_by_horizon.values() for d in ids})
-    tuning_dates = assign_tuning_dates(union_dates, seed, tuning_frac)
+    tuning_ids_union, embargo_ids_union, eval_ids_union = assign_chronological_split(
+        union_dates, embargo_trading_days
+    )
+    tuning_set = set(tuning_ids_union)
+    embargo_set = set(embargo_ids_union)
+    eval_set = set(eval_ids_union)
 
     horizons_out = {}
     for h in horizons:
         kept = kept_by_horizon[h]
-        tuning_ids = [d for d in kept if d in tuning_dates]
-        eval_ids = [d for d in kept if d not in tuning_dates]
+        tuning_ids = [d for d in kept if d in tuning_set]
+        embargo_ids = [d for d in kept if d in embargo_set]
+        eval_ids = [d for d in kept if d in eval_set]
         horizons_out[f"fwd_{h}d"] = {
             "n_available": len(sessions_by_horizon[h]),
             "n_excluded": len(excluded_by_horizon[h]),
@@ -264,6 +289,7 @@ def build_record(
             "first": kept[0] if kept else None,
             "last": kept[-1] if kept else None,
             "tuning": {"n": len(tuning_ids), "ids": tuning_ids},
+            "embargo": {"n": len(embargo_ids), "ids": embargo_ids},
             "evaluation": {"n": len(eval_ids), "ids": eval_ids},
         }
 
@@ -278,8 +304,7 @@ def build_record(
                 "db": str(db_path),
                 "exclude_window": [win_start, win_end],
                 "exclude_sessions": sorted(manual_excluded),
-                "tuning_frac": tuning_frac,
-                "seed": seed,
+                "embargo_trading_days": embargo_trading_days,
                 "horizons": list(horizons),
                 "artifacts_root": str(artifacts_root),
                 "artifacts": list(artifacts),
@@ -294,10 +319,12 @@ def build_record(
             "load_replay_bars_from_sim_db"
         ),
         "split_rule": (
-            "rank union of kept session dates by sha256('<seed>|<date>'); first "
-            "floor(tuning_frac * N) dates = TUNING, remainder = EVALUATION; "
-            "assignment is per-date, identical across horizons (nested selection, "
-            "protocol §1)"
+            f"[{SPLIT_RULE_VERSION}] sort the union of kept session dates "
+            "chronologically; earliest ceil(N/2) dates = TUNING; the following "
+            f"{embargo_trading_days} trading days = PURGED EMBARGO (excluded from "
+            "both subsets); remainder = EVALUATION. Assignment is computed once "
+            "on the union and intersected per horizon, so it is identical across "
+            "horizons (nested selection, protocol D6 §2)"
         ),
         "source_db": {
             "path": str(db_path),
@@ -314,11 +341,13 @@ def build_record(
             },
         },
         "split": {
-            "seed": seed,
-            "tuning_frac": tuning_frac,
+            "rule_version": SPLIT_RULE_VERSION,
+            "embargo_trading_days": embargo_trading_days,
             "union_n": len(union_dates),
-            "tuning_n": len(tuning_dates),
-            "evaluation_n": len(union_dates) - len(tuning_dates),
+            "tuning_n": len(tuning_ids_union),
+            "embargo_n": len(embargo_ids_union),
+            "evaluation_n": len(eval_ids_union),
+            "embargo_session_ids": embargo_ids_union,
         },
         "data_cutoff": {
             f"fwd_{h}d_max_session": (
@@ -390,14 +419,13 @@ def _record_from_args(args: argparse.Namespace, stored: Optional[dict] = None) -
             db_path=Path(args.db),
             exclude_window=parse_window(args.exclude_window),
             exclude_sessions=args.exclude_session,
-            tuning_frac=args.tuning_frac,
-            seed=args.seed,
+            embargo_trading_days=args.embargo_trading_days,
             horizons=parse_horizons(args.horizons),
             artifacts_root=Path(args.artifacts_root),
             artifacts=args.artifact or list(DEFAULT_ARTIFACTS),
         )
     gen_args = stored.get("generator", {}).get("args", {})
-    required = ("db", "exclude_window", "tuning_frac", "seed", "horizons",
+    required = ("db", "exclude_window", "embargo_trading_days", "horizons",
                 "artifacts_root", "artifacts")
     missing = [k for k in required if k not in gen_args]
     if missing:
@@ -406,8 +434,7 @@ def _record_from_args(args: argparse.Namespace, stored: Optional[dict] = None) -
         db_path=Path(args.db if args.db_overridden else gen_args["db"]),
         exclude_window=tuple(gen_args["exclude_window"]),
         exclude_sessions=gen_args.get("exclude_sessions", []),
-        tuning_frac=float(gen_args["tuning_frac"]),
-        seed=int(gen_args["seed"]),
+        embargo_trading_days=int(gen_args["embargo_trading_days"]),
         horizons=[int(h) for h in gen_args["horizons"]],
         artifacts_root=Path(
             args.artifacts_root if args.artifacts_root_overridden
@@ -437,10 +464,11 @@ def build_parser() -> argparse.ArgumentParser:
                         metavar="YYYY-MM-DD",
                         help="individually inspected session to exclude (repeatable; "
                              "protocol §1 evidence-memo rule)")
-    parser.add_argument("--tuning-frac", type=float, default=DEFAULT_TUNING_FRAC,
-                        help=f"tuning-subset fraction (default: {DEFAULT_TUNING_FRAC})")
-    parser.add_argument("--seed", type=int, default=None,
-                        help="split seed (REQUIRED for generation; frozen into the record)")
+    parser.add_argument("--embargo-trading-days", type=int,
+                        default=DEFAULT_EMBARGO_TRADING_DAYS,
+                        help="purged-embargo length in trading days between the "
+                             "tuning and evaluation ranges (default: "
+                             f"{DEFAULT_EMBARGO_TRADING_DAYS}, protocol D6 §2)")
     parser.add_argument("--horizons", default=DEFAULT_HORIZONS,
                         help=f"comma-separated fwd horizons in days (default: {DEFAULT_HORIZONS})")
     parser.add_argument("--artifacts-root", default=DEFAULT_ARTIFACTS_ROOT,
@@ -504,6 +532,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"VERIFY OK: {record_path} — no drift "
                   f"(db sha256 {stored['source_db']['sha256'][:12]}..., "
                   f"{stored['split']['tuning_n']} tuning / "
+                  f"{stored['split']['embargo_n']} embargo / "
                   f"{stored['split']['evaluation_n']} evaluation sessions)")
             return 0
         print(f"VERIFY FAILED: {record_path} — {len(drifts)} drifted field(s):",
@@ -516,8 +545,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     # ---- generation mode
-    if args.seed is None:
-        parser.error("--seed is required to generate a freeze record")
     try:
         record = _record_from_args(args)
     except ValueError as exc:
@@ -533,8 +560,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     split = record["split"]
     print(
         f"sessions: union={split['union_n']} tuning={split['tuning_n']} "
-        f"evaluation={split['evaluation_n']} (seed={args.seed}, "
-        f"tuning_frac={args.tuning_frac}); db sha256 "
+        f"embargo={split['embargo_n']} evaluation={split['evaluation_n']} "
+        f"(embargo_trading_days={args.embargo_trading_days}); db sha256 "
         f"{record['source_db']['sha256'][:12]}...",
         file=sys.stderr,
     )
