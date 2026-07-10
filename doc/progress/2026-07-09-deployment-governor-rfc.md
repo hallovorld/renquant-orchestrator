@@ -402,15 +402,25 @@ contract; all three points fixed in D6:
 
 1. **Conservative variance re-estimation**: the raw 3-block `σ̂_block`
    plug-in is withdrawn. Frozen re-estimator at a minimum of 4 blind blocks,
-   exactly once: `σ²_input = MAX( chi-square one-sided 80% UCB of the
-   blind-block variance (df = N_blind−1; ≈3× the point estimate at 4
-   blocks), 1.5 × the paired-arm block variance from the exploratory TUNING
-   run (doc/research/evidence/deploy_policy_tuning + cap_grid — disjoint
-   historical proxy, never part of eval; numeric floor recorded in the S0
-   freeze commit before arms run) )`. `N*` from the frozen α/power/δ; gate =
+   exactly once: `σ²_input = chi-square one-sided 80% UCB of the
+   blind-block variance` (df = `N_blind−1`; ≈3× the point estimate at 4
+   blocks). `N*` from the frozen α/power/δ; gate =
    `N_blocks ≥ max(8, N*)` AND `ESS ≥ 6` — a variance estimate can never
    relax the gate below the frozen minimums. Declared feasible horizon = 24
    blocks; frozen outcome if `N* > 24`: DESCRIPTIVE / NO-ENABLE.
+   **Correction (same round, verify-before-report catch)**: an earlier
+   version of this fix combined the UCB with `MAX(UCB, 1.5× a historical
+   proxy floor)`, citing `doc/research/evidence/deploy_policy_tuning/` —
+   that path does not exist anywhere in this repo (only `cap_grid_tuning/`
+   does). Substituting the real cap-grid figure into that floor formula
+   gives `N* ≈ 254` from the floor alone (verified by direct computation)
+   — over 10× the declared 24-block horizon, which would make the live
+   UCB branch dead code and silently predetermine DESCRIPTIVE/NO-ENABLE
+   regardless of what real blind data shows, contradicting this section's
+   own "N* waits for real data" rationale. The floor is dropped; the live
+   UCB80 estimator alone satisfies Codex's ask (an upper confidence bound
+   was one of two options offered, not a mandatory combination) without
+   this self-defeating property.
 2. **P1 minimum lift data-anchored**: the arithmetic +2pp (40% of the
    unrelated kill threshold) is replaced by +10pp absolute deployed
    fraction, anchored to the smallest deployment change previously measured
