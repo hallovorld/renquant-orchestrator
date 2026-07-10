@@ -1,0 +1,18 @@
+{
+  "recent_buy_notional_usd": {
+    "n_buys_since_2026-05-25": 39,
+    "median": 335.58,
+    "mean": 495.91,
+    "min": 146.74,
+    "max": 2285.62
+  },
+  "assumption": "~250 entries/yr at current sizes (buys only; improvement applies per entry)",
+  "annual_value_usd_of_X_bps_improvement": {
+    "5bps": 61.99,
+    "10bps": 123.98,
+    "20bps": 247.95,
+    "30bps": 371.93,
+    "50bps": 619.88
+  },
+  "account_equity_usd_2026_07_10": 10753
+}
