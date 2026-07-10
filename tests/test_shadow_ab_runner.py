@@ -13,6 +13,11 @@ from pathlib import Path
 import pytest
 
 from renquant_orchestrator import shadow_ab_runner as sab
+from renquant_orchestrator.native_live_context import (
+    DecisionSnapshotMismatchError,
+    build_native_live_context,
+    compute_decision_snapshot_digest,
+)
 from renquant_orchestrator.shadow_ab_runner import (
     EXIT_PRECHECK_ABORT,
     EXIT_SESSION_INVALIDATED,
@@ -21,6 +26,7 @@ from renquant_orchestrator.shadow_ab_runner import (
     EXPERIMENT_PIN_REPOS,
     FROZEN_TAG_A,
     FROZEN_TAG_B,
+    FROZEN_TREATMENT_KEY,
     LEGACY_SHADOW_TAG,
     SHADOW_PREFLIGHT_ENV,
     SPEC_2A_ARM_FIELDS,
@@ -29,7 +35,9 @@ from renquant_orchestrator.shadow_ab_runner import (
     ShadowABContractError,
     assert_preflight_symmetry,
     build_arm_plan,
+    default_experiment_strategy_dir,
     run_shadow_ab_session,
+    treatment_key_violations,
     validate_ntfy_topic,
     validate_output_root,
     validate_tags,
@@ -320,6 +328,9 @@ def test_assert_preflight_symmetry_rejects_tag_keyed_asymmetry(tmp_path: Path) -
         account_snapshot_json=tmp_path / "account.json",
         strategy_dir=tmp_path / "strategy",
         session_date="2026-07-10",
+        decision_snapshot_digest="deadbeef",
+        model_content_sha256="sha256:model",
+        calibrator_content_sha256="sha256:cal",
     )
     plan_a = build_arm_plan(tag=arm_a.tag, config_path=arm_a.config_path, arm_dir=dir_a, **common)
     plan_b = build_arm_plan(tag=arm_b.tag, config_path=arm_b.config_path, arm_dir=dir_b, **common)
@@ -476,6 +487,7 @@ def test_cli_shadow_ab_plan_only(tmp_path: Path, capsys, monkeypatch) -> None:
         "--account-snapshot-json", str(world["account"]),
         "--session-date", "2026-07-10",
         "--repo-root", str(tmp_path / "umbrella"),
+        "--strategy-dir", str(tmp_path / "umbrella" / "backtesting" / "renquant_104"),
         "--plan-only",
     ])
     assert rc == 0
@@ -519,3 +531,287 @@ def test_excluded_pair_counter_accumulates(tmp_path: Path) -> None:
     assert second["counters"]["attempted_pairs"] == 2
     assert second["counters"]["excluded_pairs"] == 1
     assert second["counters"]["excluded_fraction"] == 0.5
+
+
+# --- treatment-key isolation (Codex review on #451, point 3) --------------------------------
+
+
+def test_treatment_key_violations_accepts_only_the_frozen_key() -> None:
+    config_a = {"ranking": {"panel_scoring": {"buy_floor_std_mult": 0.5, "artifact_path": "m"}}}
+    config_b = {"ranking": {"panel_scoring": {"buy_floor_std_mult": 1.0, "artifact_path": "m"}}}
+    assert treatment_key_violations(config_a, config_b) == []
+
+
+def test_treatment_key_violations_tolerates_reason_annotation_keys() -> None:
+    config_a = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 0.5, "artifact_path": "m",
+        "buy_floor_std_mult_reason": "treatment arm",
+    }}}
+    config_b = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 1.0, "artifact_path": "m",
+        "buy_floor_std_mult_reason": "control arm",
+    }}}
+    assert treatment_key_violations(config_a, config_b) == []
+
+
+def test_treatment_key_violations_rejects_an_extra_delta() -> None:
+    """Negative test (explicitly requested by Codex review on #451): a later
+    config edit that changes an UNRELATED key alongside the frozen treatment
+    key must be caught, not waved through because the two config paths are
+    merely distinct files."""
+    config_a = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 0.5, "artifact_path": "m", "max_concentration": 0.35,
+    }}}
+    config_b = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 1.0, "artifact_path": "m", "max_concentration": 0.40,
+    }}}
+    violations = treatment_key_violations(config_a, config_b)
+    assert violations
+    assert any("max_concentration" in v for v in violations)
+
+
+def test_treatment_key_violations_rejects_no_delta_at_all() -> None:
+    config = {"ranking": {"panel_scoring": {"buy_floor_std_mult": 1.0, "artifact_path": "m"}}}
+    violations = treatment_key_violations(config, dict(config))
+    assert violations
+    assert any(FROZEN_TREATMENT_KEY in v for v in violations)
+
+
+def test_run_aborts_when_config_diff_has_an_extra_delta(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    # sneak an unrelated additional delta into arm B's config
+    config_b = json.loads(world["config_b"].read_text(encoding="utf-8"))
+    config_b["ranking"]["panel_scoring"]["max_concentration"] = 0.40
+    world["config_b"].write_text(json.dumps(config_b), encoding="utf-8")
+
+    runner = RecordingRunner()
+    payload = _run(world, tmp_path / "sessions", command_runner=runner)
+    assert payload["exit_code"] == EXIT_PRECHECK_ABORT
+    assert payload["status"] == "invalidated"
+    assert any("treatment_key_violation" in r for r in payload["reasons"])
+    assert runner.calls == []  # neither arm ran
+    for label in ("a", "b"):
+        assert any(
+            "treatment-key isolation" in r
+            for r in payload["arms"][label]["invalidation_reasons"]
+        )
+
+
+# --- decision-snapshot digest (Codex review on #451, point 1) -------------------------------
+
+
+def test_decision_snapshot_digest_is_deterministic_and_order_independent() -> None:
+    market = {"as_of": "2026-07-10", "tickers": ["AAPL", "MSFT"]}
+    d1 = compute_decision_snapshot_digest(
+        market_snapshot=market, model_content_sha256="m1",
+        calibrator_content_sha256="c1", session_date="2026-07-10",
+    )
+    d2 = compute_decision_snapshot_digest(
+        market_snapshot=dict(market), model_content_sha256="m1",
+        calibrator_content_sha256="c1", session_date="2026-07-10",
+    )
+    assert d1 == d2
+
+    d_diff_market = compute_decision_snapshot_digest(
+        market_snapshot={**market, "tickers": ["AAPL"]}, model_content_sha256="m1",
+        calibrator_content_sha256="c1", session_date="2026-07-10",
+    )
+    assert d_diff_market != d1
+
+
+def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
+    market = tmp_path / "market.json"
+    market.write_text(json.dumps({"as_of": "2026-07-10"}), encoding="utf-8")
+    account = tmp_path / "account.json"
+    account.write_text(json.dumps({"positions": {}}), encoding="utf-8")
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"k": "v"}), encoding="utf-8")
+
+    expected = compute_decision_snapshot_digest(
+        market_snapshot={"as_of": "2026-07-10"},
+        model_content_sha256="m1", calibrator_content_sha256="c1",
+        session_date="2026-07-10",
+    )
+    payload = build_native_live_context(
+        strategy_config_json=config,
+        market_snapshot_json=market,
+        account_snapshot_json=account,
+        output_json=tmp_path / "out.json",
+        decision_snapshot_digest=expected,
+        model_content_sha256="m1",
+        calibrator_content_sha256="c1",
+        session_date="2026-07-10",
+    )
+    assert payload["metadata"]["decision_snapshot_digest"] == expected
+    assert payload["metadata"]["decision_snapshot_verified"] is True
+
+
+def test_native_live_context_rejects_a_mismatched_digest(tmp_path: Path) -> None:
+    """Consumption-side verification (r7 point 1): if this arm's actually-
+    resolved inputs hash to something other than what was frozen before
+    either arm ran, refuse to proceed rather than silently continue on a
+    different-from-frozen input world."""
+    market = tmp_path / "market.json"
+    market.write_text(json.dumps({"as_of": "2026-07-10"}), encoding="utf-8")
+    account = tmp_path / "account.json"
+    account.write_text(json.dumps({"positions": {}}), encoding="utf-8")
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"k": "v"}), encoding="utf-8")
+
+    with pytest.raises(DecisionSnapshotMismatchError):
+        build_native_live_context(
+            strategy_config_json=config,
+            market_snapshot_json=market,
+            account_snapshot_json=account,
+            output_json=tmp_path / "out.json",
+            decision_snapshot_digest="not-the-real-digest",
+            model_content_sha256="m1",
+            calibrator_content_sha256="c1",
+            session_date="2026-07-10",
+        )
+    # a failed verification must not have written a stale/misleading output
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_run_shadow_ab_session_hands_both_arms_the_identical_digest(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    payload = _run(world, tmp_path / "sessions")
+    assert payload["exit_code"] == EXIT_VALID
+
+    digest_a = payload["arms"]["a"]["decision_snapshot_digest"]
+    digest_b = payload["arms"]["b"]["decision_snapshot_digest"]
+    assert digest_a and digest_a == digest_b
+
+    def extract_digest(commands: list[list[str]]) -> str:
+        for cmd in commands:
+            if "native-live-context" in cmd:
+                return cmd[cmd.index("--decision-snapshot-digest") + 1]
+        raise AssertionError("no native-live-context command found")
+
+    plan_a_digest = extract_digest(payload["arms"]["a"]["planned_commands"])
+    plan_b_digest = extract_digest(payload["arms"]["b"]["planned_commands"])
+    assert plan_a_digest == plan_b_digest == digest_a
+
+
+# --- pin/commit drift (Codex review on #451, point 2) ---------------------------------------
+
+
+def test_pin_drift_invalidates_pair_without_voiding(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    first = _run(world, out_root)
+    assert first["exit_code"] == EXIT_VALID
+
+    drifted_pins = dict(PINS)
+    drifted_pins["renquant-execution"] = "changed-mid-experiment"
+    runner = RecordingRunner()
+    second = _run(
+        world, out_root, command_runner=runner, session_date="2026-07-13",
+        pins_resolver=lambda: drifted_pins,
+    )
+    assert second["exit_code"] == EXIT_PRECHECK_ABORT
+    assert second["status"] == "invalidated"
+    assert second["void"] is False
+    assert any("subrepo_pins" in r for r in second["reasons"])
+    assert runner.calls == []
+
+
+def test_orchestrator_commit_drift_invalidates_pair_without_voiding(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    first = _run(world, out_root)
+    assert first["exit_code"] == EXIT_VALID
+
+    runner = RecordingRunner()
+    second = _run(
+        world, out_root, command_runner=runner, session_date="2026-07-13",
+        orchestrator_commit_resolver=lambda: "a-different-commit",
+    )
+    assert second["exit_code"] == EXIT_PRECHECK_ABORT
+    assert second["status"] == "invalidated"
+    assert second["void"] is False
+    assert any("orchestrator_commit" in r for r in second["reasons"])
+    assert runner.calls == []
+
+
+def test_freeze_payload_records_pins_and_orchestrator_commit(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    payload = _run(world, out_root)
+    assert payload["exit_code"] == EXIT_VALID
+
+    freeze = json.loads((out_root / "shadow_ab_freeze.json").read_text(encoding="utf-8"))
+    assert freeze["subrepo_pins"] == PINS
+    assert freeze["orchestrator_commit"] == ORCH_COMMIT
+
+
+# --- no umbrella-layout fallback (Codex review on #451, point 4) ----------------------------
+
+
+def test_default_experiment_strategy_dir_fails_closed_without_pinned_checkout(
+    tmp_path: Path,
+) -> None:
+    """The §2a experiment path may never fall back to an umbrella-layout
+    path (RFC frozen rule) -- if the pinned renquant-strategy-104 checkout
+    isn't there, fail loudly instead of silently resolving somewhere else."""
+    empty_github_root = tmp_path / "no-repos-here"
+    empty_github_root.mkdir()
+    with pytest.raises(ShadowABContractError, match="renquant-strategy-104"):
+        default_experiment_strategy_dir(github_root=empty_github_root)
+
+
+def test_default_experiment_strategy_dir_resolves_the_pinned_checkout(
+    tmp_path: Path,
+) -> None:
+    github_root = tmp_path / "github"
+    pinned = github_root / "renquant-strategy-104" / "configs"
+    pinned.mkdir(parents=True)
+    assert default_experiment_strategy_dir(github_root=github_root) == pinned
+
+
+def test_run_shadow_ab_session_never_defaults_to_umbrella_layout_path(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """No umbrella checkout is required to construct/validate the runner:
+    when strategy_dir is omitted, resolution must go through
+    default_experiment_strategy_dir(), never repo_root / "backtesting" /
+    "renquant_104" directly. Hermetic: the resolver itself is monkeypatched
+    to a sentinel so this doesn't depend on real sibling checkouts existing
+    on the machine running the tests."""
+    world = _write_world(tmp_path)
+    sentinel = tmp_path / "pinned-strategy-104-configs"
+    sentinel.mkdir()
+    monkeypatch.setattr(sab, "default_experiment_strategy_dir", lambda: sentinel)
+
+    payload = _run(world, tmp_path / "sessions", strategy_dir=None)
+    assert payload["exit_code"] == EXIT_VALID
+    for label in ("a", "b"):
+        assert any(
+            str(sentinel) in cmd
+            for cmd in payload["arms"][label]["planned_commands"]
+        )
+    umbrella_layout_fragment = str(Path("backtesting") / "renquant_104")
+    for label in ("a", "b"):
+        assert not any(
+            umbrella_layout_fragment in " ".join(cmd)
+            for cmd in payload["arms"][label]["planned_commands"]
+        )
+
+
+def test_no_umbrella_module_imported_by_a_hermetic_session(tmp_path: Path) -> None:
+    """Static/runtime guard: this module's own import graph and a full
+    hermetic session (RecordingRunner -- no real subprocess) must never
+    reach anything importable from the umbrella package tree. This does
+    NOT prove a real subprocess invocation stays umbrella-free (that
+    requires the actual native-live-run integration, out of this module's
+    scope) -- it proves shadow_ab_runner + native_live_context themselves
+    never import umbrella code to do their own orchestration."""
+    import sys as _sys
+
+    world = _write_world(tmp_path)
+    before = {name for name in _sys.modules if "RenQuant" in name or "renquant_104" in name}
+    assert before == set()
+    payload = _run(world, tmp_path / "sessions", command_runner=RecordingRunner())
+    assert payload["exit_code"] == EXIT_VALID
+    after = {name for name in _sys.modules if "RenQuant" in name or "renquant_104" in name}
+    assert after == set()

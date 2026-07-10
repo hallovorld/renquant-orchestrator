@@ -20,7 +20,8 @@ Frozen review contract (doc/design/2026-07-09-governor-prereg-replay-protocol.md
   (iii) a per-session run bundle is stamped for BOTH arms with the full §2a
         fingerprint list: config sha, model sha, calibrator sha, broker-state
         tag, strategy/pipeline/execution pin shas, data/feature manifest sha,
-        and this orchestrator repo's own commit;
+        this orchestrator repo's own commit, and the shared decision-snapshot
+        digest (both arms verified to have consumed the SAME input world);
   (iv)  symmetric labeling/notification for both arms on a DEDICATED shadow
         ntfy topic (the live topic is rejected);
   (v)   fail-closed: any wiring or contract failure invalidates the
@@ -70,7 +71,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .runtime_paths import default_repo_root
+from .native_live_context import compute_decision_snapshot_digest
+from .runtime_paths import default_github_root, default_repo_root
 
 # --- frozen protocol constants (§2a) -----------------------------------------
 
@@ -119,6 +121,7 @@ SPEC_2A_ARM_FIELDS = (
     "subrepo_pins",               # (v)  strategy/pipeline/execution pin shas
     "data_manifest_sha256",       # (vi) frozen data/feature manifest sha
     "orchestrator_commit",        # (vii) invoking runner's own commit
+    "decision_snapshot_digest",   # (viii) r7 point 1: shared frozen input-world digest
 )
 
 CommandRunner = Callable[[Sequence[str], Mapping[str, str]], "subprocess.CompletedProcess[str]"]
@@ -196,6 +199,32 @@ def validate_output_root(output_root: Path, *, repo_root: Path) -> None:
             f"--output-root {out} lives inside the umbrella runtime tree "
             f"{repo}; experiment session state must live outside prod paths"
         )
+
+
+def default_experiment_strategy_dir(*, github_root: str | Path | None = None) -> Path:
+    """Resolve the PINNED renquant-strategy-104 config dir — NO umbrella fallback.
+
+    Unlike :func:`renquant_orchestrator.runtime_paths.default_strategy_config_path`
+    (a general migration helper that falls back to the umbrella-layout path
+    while other call sites still transition), the §2a experiment path may
+    NEVER depend on the umbrella checkout — that is a frozen protocol rule
+    (doc/design/2026-07-09-governor-prereg-replay-protocol.md §2a: "no
+    umbrella runner or call-site change is permitted for this experiment —
+    not as a prerequisite, not as a separately-gated follow-up, not as a
+    fallback"). Fail closed instead of silently falling back to
+    ``repo_root / "backtesting" / "renquant_104"``.
+    """
+    github = Path(github_root) if github_root is not None else default_github_root()
+    strategy_dir = github / "renquant-strategy-104" / "configs"
+    if not strategy_dir.is_dir():
+        raise ShadowABContractError(
+            f"pinned renquant-strategy-104 configs dir not found at "
+            f"{strategy_dir}; the §2a experiment path resolves strategy_dir "
+            "from the pinned subrepo checkout ONLY — it never falls back to "
+            "an umbrella-layout path (RFC frozen rule: umbrella is not on "
+            "the experiment path)"
+        )
+    return strategy_dir
 
 
 # --- arm model -----------------------------------------------------------------
@@ -332,6 +361,70 @@ def same_world_violations(fp_a: ArmFingerprints, fp_b: ArmFingerprints) -> list[
     return violations
 
 
+#: §2a frozen treatment key (orchestrator#443 D6 §2a, r7 point 3): the ONLY
+#: functional key the two arms' configs may differ in. Distinct config file
+#: PATHS are not sufficient evidence of this — the actual JSON content must
+#: be diffed and the diff set asserted to be exactly this one dotted path.
+FROZEN_TREATMENT_KEY = "ranking.panel_scoring.buy_floor_std_mult"
+
+_MISSING = object()
+
+
+def _flatten_config(config: Mapping[str, Any], *, prefix: str = "") -> dict[str, Any]:
+    """Flatten a nested config dict to {dotted.path: leaf_value}.
+
+    Keys (at any depth) ending in ``_reason`` are dropped — the protocol
+    explicitly permits inert annotation-string deltas alongside the one
+    frozen treatment key (doc/design/2026-07-09-governor-prereg-replay-
+    protocol.md §2a: "a clone ... differing in exactly ONE functional key
+    (plus inert `_reason` annotation strings)").
+    """
+    flat: dict[str, Any] = {}
+    for key, value in config.items():
+        if key.endswith("_reason"):
+            continue
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, Mapping):
+            flat.update(_flatten_config(value, prefix=path))
+        else:
+            flat[path] = value
+    return flat
+
+
+def treatment_key_violations(
+    config_a: Mapping[str, Any], config_b: Mapping[str, Any]
+) -> list[str]:
+    """§2a treatment-isolation rule: the ONLY functional config delta allowed
+    between the two arms is :data:`FROZEN_TREATMENT_KEY`.
+
+    Mechanically diffs the two (flattened, ``_reason``-stripped) configs and
+    asserts the diff set is exactly ``{FROZEN_TREATMENT_KEY}`` — catching
+    both an accidental additional delta (returns a violation) and a missing
+    treatment delta (arms would otherwise be identical, also a violation:
+    this is not a valid A/B pair).
+    """
+    flat_a = _flatten_config(config_a)
+    flat_b = _flatten_config(config_b)
+    all_keys = set(flat_a) | set(flat_b)
+    diff_keys = {k for k in all_keys if flat_a.get(k, _MISSING) != flat_b.get(k, _MISSING)}
+
+    violations: list[str] = []
+    unexpected = diff_keys - {FROZEN_TREATMENT_KEY}
+    if unexpected:
+        violations.append(
+            "config diff includes key(s) beyond the frozen treatment key "
+            f"{FROZEN_TREATMENT_KEY!r}: {sorted(unexpected)} — a later config "
+            "edit introduced an untracked behavior delta"
+        )
+    if FROZEN_TREATMENT_KEY not in diff_keys:
+        violations.append(
+            "config diff does NOT include the frozen treatment key "
+            f"{FROZEN_TREATMENT_KEY!r} — arms are not a valid treatment/"
+            "control pair without it"
+        )
+    return violations
+
+
 # --- pins / commit resolution ---------------------------------------------------
 
 
@@ -386,6 +479,9 @@ def build_arm_plan(
     account_snapshot_json: Path,
     strategy_dir: Path,
     session_date: str,
+    decision_snapshot_digest: str,
+    model_content_sha256: str,
+    calibrator_content_sha256: str | None,
 ) -> list[list[str]]:
     """Build one arm's command sequence from the SHARED template.
 
@@ -394,6 +490,12 @@ def build_arm_plan(
     session-shared snapshots, run native inference, then build the readonly
     native run bundle with the arm's broker-state tag threaded into the
     live-state contract and the arm-isolated runs DB.
+
+    ``decision_snapshot_digest``/``model_content_sha256``/
+    ``calibrator_content_sha256`` are IDENTICAL for both arms (frozen once,
+    before either arm runs — r7 point 1) and threaded into
+    ``native-live-context`` so it can independently recompute and verify the
+    digest against what it actually loaded, failing closed on a mismatch.
     """
     context_json = arm_dir / "native_context.json"
     inference_json = arm_dir / "native_inference.json"
@@ -401,14 +503,20 @@ def build_arm_plan(
     native_bundle_json = arm_dir / "native_bundle.json"
     live_state_contract_json = arm_dir / "live_state_contract.json"
     runs_db = arm_dir / f"runs.{tag}.db"
+    context_command = [
+        "renquant-orchestrator", "native-live-context",
+        "--strategy-config-json", str(config_path),
+        "--market-snapshot-json", str(market_snapshot_json),
+        "--account-snapshot-json", str(account_snapshot_json),
+        "--output-json", str(context_json),
+        "--decision-snapshot-digest", decision_snapshot_digest,
+        "--model-content-sha256", model_content_sha256,
+        "--session-date", session_date,
+    ]
+    if calibrator_content_sha256 is not None:
+        context_command += ["--calibrator-content-sha256", calibrator_content_sha256]
     return [
-        [
-            "renquant-orchestrator", "native-live-context",
-            "--strategy-config-json", str(config_path),
-            "--market-snapshot-json", str(market_snapshot_json),
-            "--account-snapshot-json", str(account_snapshot_json),
-            "--output-json", str(context_json),
-        ],
+        context_command,
         [
             "renquant-orchestrator", "native-live-inference",
             "--context-json", str(context_json),
@@ -528,6 +636,8 @@ def _freeze_payload(
     arm_b: ArmSpec,
     fp_a: ArmFingerprints,
     fp_b: ArmFingerprints,
+    pins: Mapping[str, str],
+    orchestrator_commit: str,
 ) -> dict[str, Any]:
     return {
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -540,6 +650,11 @@ def _freeze_payload(
         "model_content_sha256": fp_a.model_content_sha256,
         "calibrator_content_sha256": fp_a.calibrator_content_sha256,
         "data_manifest_sha256": fp_a.data_manifest_sha256,
+        # Codex review on #451: a code/pin change mid-experiment must not
+        # silently change the decision path while passing the other
+        # frozen-world checks — freeze both identities alongside the rest.
+        "subrepo_pins": dict(pins),
+        "orchestrator_commit": orchestrator_commit,
     }
 
 
@@ -566,14 +681,29 @@ def _config_drift(
 def _frozen_world_mismatches(
     freeze: Mapping[str, Any],
     fp: ArmFingerprints,
+    *,
+    pins: Mapping[str, str] | None = None,
+    orchestrator_commit: str | None = None,
 ) -> list[str]:
-    """Non-config drift vs the freeze — excludes the pair (bounded missingness)."""
+    """Non-config drift vs the freeze — excludes the pair (bounded missingness).
+
+    Includes the strategy/pipeline/execution pin shas and the invoking
+    orchestrator commit (Codex review on #451): these are part of the same
+    "every fingerprint in both bundles matches the values frozen at
+    experiment start" condition as model/calibrator/manifest — a pin or
+    code change mid-experiment must not silently pass by only checking the
+    config/model/calibrator/manifest subset.
+    """
     mismatches: list[str] = []
-    checks = (
+    checks: list[tuple[str, Any]] = [
         ("model_content_sha256", fp.model_content_sha256),
         ("calibrator_content_sha256", fp.calibrator_content_sha256),
         ("data_manifest_sha256", fp.data_manifest_sha256),
-    )
+    ]
+    if pins is not None:
+        checks.append(("subrepo_pins", dict(pins)))
+    if orchestrator_commit is not None:
+        checks.append(("orchestrator_commit", orchestrator_commit))
     for key, current in checks:
         if freeze.get(key) != current:
             mismatches.append(
@@ -606,6 +736,7 @@ def _arm_entry(
     *,
     pins: Mapping[str, str] | None,
     orchestrator_commit: str | None,
+    decision_snapshot_digest: str | None = None,
 ) -> dict[str, Any]:
     return {
         "arm": arm.label,
@@ -617,6 +748,7 @@ def _arm_entry(
         "subrepo_pins": dict(pins) if pins else None,
         "data_manifest_sha256": fp.data_manifest_sha256 if fp else None,
         "orchestrator_commit": orchestrator_commit,
+        "decision_snapshot_digest": decision_snapshot_digest,
         "completed": False,
         "invalidated": True,
         "invalidation_reasons": [],
@@ -678,7 +810,7 @@ def run_shadow_ab_session(
     constants) and, for non-plan runs, ``bundle_path``.
     """
     repo_root = Path(repo_root or default_repo_root())
-    strategy_dir = Path(strategy_dir or repo_root / "backtesting" / "renquant_104")
+    strategy_dir = Path(strategy_dir) if strategy_dir else default_experiment_strategy_dir()
     output_root = Path(output_root)
     session_date = session_date or dt.date.today().isoformat()
 
@@ -721,8 +853,14 @@ def run_shadow_ab_session(
         "freeze_created": False,
         "shared_steps": [],
         "arms": {
-            "a": _arm_entry(arm_a, None, pins=None, orchestrator_commit=None),
-            "b": _arm_entry(arm_b, None, pins=None, orchestrator_commit=None),
+            "a": _arm_entry(
+                arm_a, None, pins=None, orchestrator_commit=None,
+                decision_snapshot_digest=None,
+            ),
+            "b": _arm_entry(
+                arm_b, None, pins=None, orchestrator_commit=None,
+                decision_snapshot_digest=None,
+            ),
         },
     }
 
@@ -792,6 +930,21 @@ def run_shadow_ab_session(
             )
         return _finish(EXIT_PRECHECK_ABORT, "invalidated")
 
+    # -- treatment-key isolation (the ONLY functional config delta allowed) -----
+    treatment_violations = treatment_key_violations(
+        json.loads(config_a.read_bytes()), json.loads(config_b.read_bytes()),
+    )
+    if treatment_violations:
+        bundle["reasons"].extend(
+            f"treatment_key_violation: {v}" for v in treatment_violations
+        )
+        for entry in bundle["arms"].values():
+            entry["invalidation_reasons"].append(
+                "paired_invalidation: treatment-key isolation violated; "
+                "neither arm ran"
+            )
+        return _finish(EXIT_PRECHECK_ABORT, "invalidated")
+
     # -- frozen-at-start fingerprints: drift => VOID, mismatch => excluded ------
     freeze_path = output_root / FREEZE_FILENAME
     if freeze_path.exists():
@@ -807,7 +960,9 @@ def run_shadow_ab_session(
                     "experiment VOID under this protocol version"
                 )
             return _finish(EXIT_VOID, "void")
-        world_mismatches = _frozen_world_mismatches(freeze, fp_a)
+        world_mismatches = _frozen_world_mismatches(
+            freeze, fp_a, pins=pins, orchestrator_commit=orchestrator_commit,
+        )
         if world_mismatches:
             bundle["reasons"].extend(
                 f"frozen_fingerprint_mismatch: {m}" for m in world_mismatches
@@ -821,7 +976,10 @@ def run_shadow_ab_session(
     elif not plan_only:
         _write_json_atomic(
             freeze_path,
-            _freeze_payload(arm_a=arm_a, arm_b=arm_b, fp_a=fp_a, fp_b=fp_b),
+            _freeze_payload(
+                arm_a=arm_a, arm_b=arm_b, fp_a=fp_a, fp_b=fp_b,
+                pins=pins, orchestrator_commit=orchestrator_commit,
+            ),
         )
         bundle["freeze_created"] = True
 
@@ -839,6 +997,18 @@ def run_shadow_ab_session(
     account_snapshot_json = Path(account_snapshot_json)
     market_snapshot_json = Path(market_snapshot_json)
 
+    # -- the shared decision snapshot (r7 point 1): ONE digest, computed once
+    # before either arm runs, handed to BOTH — never independently resolved
+    # by each arm at its own invocation time. ------------------------------
+    decision_snapshot_digest = compute_decision_snapshot_digest(
+        market_snapshot=json.loads(market_snapshot_json.read_bytes()),
+        model_content_sha256=fp_a.model_content_sha256,
+        calibrator_content_sha256=fp_a.calibrator_content_sha256,
+        session_date=session_date,
+    )
+    bundle["arms"]["a"]["decision_snapshot_digest"] = decision_snapshot_digest
+    bundle["arms"]["b"]["decision_snapshot_digest"] = decision_snapshot_digest
+
     plan_a = build_arm_plan(
         tag=arm_a.tag,
         config_path=arm_a.config_path,
@@ -847,6 +1017,9 @@ def run_shadow_ab_session(
         account_snapshot_json=account_snapshot_json,
         strategy_dir=strategy_dir,
         session_date=session_date,
+        decision_snapshot_digest=decision_snapshot_digest,
+        model_content_sha256=fp_a.model_content_sha256,
+        calibrator_content_sha256=fp_a.calibrator_content_sha256,
     )
     plan_b = build_arm_plan(
         tag=arm_b.tag,
@@ -856,6 +1029,9 @@ def run_shadow_ab_session(
         account_snapshot_json=account_snapshot_json,
         strategy_dir=strategy_dir,
         session_date=session_date,
+        decision_snapshot_digest=decision_snapshot_digest,
+        model_content_sha256=fp_a.model_content_sha256,
+        calibrator_content_sha256=fp_a.calibrator_content_sha256,
     )
     try:
         assert_preflight_symmetry(
@@ -961,7 +1137,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--session-date", default=None, help="ISO session date (default: today)")
     parser.add_argument("--repo-root", default=None, help="umbrella runtime root (pins lock; default: resolver)")
-    parser.add_argument("--strategy-dir", default=None, help="strategy dir for artifact/state resolution")
+    parser.add_argument(
+        "--strategy-dir", default=None,
+        help=(
+            "strategy dir for artifact/state resolution; default resolves "
+            "the PINNED renquant-strategy-104/configs dir ONLY, never an "
+            "umbrella-layout fallback (RFC frozen rule)"
+        ),
+    )
     parser.add_argument("--snapshot-broker-name", default="readonly-alpaca")
     parser.add_argument(
         "--ntfy-topic", default=None,
@@ -990,7 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
             ntfy_topic=args.ntfy_topic,
             plan_only=args.plan_only,
         )
-    except ValueError as exc:
+    except (ValueError, ShadowABContractError) as exc:
         parser.error(str(exc))
     print(json.dumps(payload, indent=2, sort_keys=True))
     if payload.get("void"):
@@ -1006,6 +1189,7 @@ __all__ = [
     "EXPERIMENT_PIN_REPOS",
     "FROZEN_TAG_A",
     "FROZEN_TAG_B",
+    "FROZEN_TREATMENT_KEY",
     "LEGACY_SHADOW_TAG",
     "SHADOW_PREFLIGHT_ENV",
     "SPEC_2A_ARM_FIELDS",
@@ -1015,11 +1199,13 @@ __all__ = [
     "ShadowABContractError",
     "assert_preflight_symmetry",
     "build_arm_plan",
+    "default_experiment_strategy_dir",
     "main",
     "resolve_arm_fingerprints",
     "resolve_experiment_pins",
     "run_shadow_ab_session",
     "same_world_violations",
+    "treatment_key_violations",
     "validate_ntfy_topic",
     "validate_output_root",
     "validate_tags",
