@@ -32,6 +32,7 @@
     "native-live-context",
     "native-live-inference",
     "native-live-market-snapshot",
+    "native-live-run",
     "observe-outcomes",
     "outcome-backfill",
     "parking-sleeve",

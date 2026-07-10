@@ -325,6 +325,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_context.add_argument("--account-snapshot-json", required=True)
     native_context.add_argument("--metadata-json", default=None)
     native_context.add_argument("--output-json", required=True)
+    # §2a paired-world verification args (optional; emitted by the shadow-ab
+    # runner's build_arm_plan): the module main() accepted these but this
+    # subparser never did, so the first REAL two-arm session died with
+    # "unrecognized arguments" + paired invalidation (2026-07-10 session
+    # bundle). Keep this surface in lockstep with what build_arm_plan emits.
+    native_context.add_argument("--decision-snapshot-digest", default=None)
+    native_context.add_argument("--model-content-sha256", default=None)
+    native_context.add_argument("--calibrator-content-sha256", default=None)
+    native_context.add_argument("--session-date", default=None)
+    native_context.add_argument("--strategy-dir", default=None)
+    native_context.add_argument("--repo-root", default=None)
+
+    native_run = sub.add_parser(
+        "native-live-run",
+        help="build a readonly native live run bundle (§2a shadow-ab arm step)",
+    )
+    # Exactly the surface the shadow-ab runner's build_arm_plan emits — no
+    # more (the module's live-commit flags stay off the top-level CLI); this
+    # subcommand did not exist at all, which was the second latent break on
+    # the two-arm session path.
+    native_run.add_argument("--inference-json", required=True)
+    native_run.add_argument("--execution-output-json", default=None)
+    native_run.add_argument("--output-json", required=True)
+    native_run.add_argument("--broker-name", default="readonly-native")
+    native_run.add_argument("--run-id", default=None)
+    native_run.add_argument("--strategy-dir", default=None)
+    native_run.add_argument("--runs-db", default=None)
+    native_run.add_argument("--live-state-broker-name", default=None)
+    native_run.add_argument("--live-state-contract-output-json", default=None)
 
     account_snapshot = sub.add_parser(
         "native-live-account-snapshot",
@@ -1043,7 +1072,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         ]
         if args.metadata_json:
             native_context_argv.extend(["--metadata-json", args.metadata_json])
+        if args.decision_snapshot_digest:
+            native_context_argv.extend(
+                ["--decision-snapshot-digest", args.decision_snapshot_digest]
+            )
+        if args.model_content_sha256:
+            native_context_argv.extend(
+                ["--model-content-sha256", args.model_content_sha256]
+            )
+        if args.calibrator_content_sha256:
+            native_context_argv.extend(
+                ["--calibrator-content-sha256", args.calibrator_content_sha256]
+            )
+        if args.session_date:
+            native_context_argv.extend(["--session-date", args.session_date])
+        if args.strategy_dir:
+            native_context_argv.extend(["--strategy-dir", args.strategy_dir])
+        if args.repo_root:
+            native_context_argv.extend(["--repo-root", args.repo_root])
         return native_context_main(native_context_argv)
+    if args.command == "native-live-run":
+        from .native_live_run import main as native_run_main
+
+        native_run_argv = [
+            "--inference-json",
+            args.inference_json,
+            "--output-json",
+            args.output_json,
+            "--broker-name",
+            args.broker_name,
+        ]
+        for flag, value in (
+            ("--execution-output-json", args.execution_output_json),
+            ("--run-id", args.run_id),
+            ("--strategy-dir", args.strategy_dir),
+            ("--runs-db", args.runs_db),
+            ("--live-state-broker-name", args.live_state_broker_name),
+            (
+                "--live-state-contract-output-json",
+                args.live_state_contract_output_json,
+            ),
+        ):
+            if value:
+                native_run_argv.extend([flag, value])
+        return native_run_main(native_run_argv)
     if args.command == "native-live-account-snapshot":
         from .native_live_snapshots import account_main
 
