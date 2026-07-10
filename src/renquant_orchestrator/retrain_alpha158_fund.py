@@ -166,6 +166,11 @@ class RetrainContext:
     # panel inventory (tier_A + tier_B) exactly as the panel build reads it.
     panel_universe: list[str] | None = None
     inventory_path: Path | None = None
+    # Supplementary exclude list (CLI --exclude-tickers) merged with inventory
+    # delisted_tickers at universe resolution time. Use for newly-delisted names
+    # whose removal hasn't reached the versioned inventory yet — a single
+    # delisted ticker with zero-tolerance freshness blocks the entire retrain.
+    exclude_tickers: "set[str]" = field(default_factory=set)
     # Dependency-injected incremental fetch callable. When None it resolves to
     # the real ``renquant_base_data.loaders.data.fetch_ohlcv_incremental`` at
     # runtime (import-resolved via the retrain subrepo PYTHONPATH). Injected in
@@ -369,6 +374,7 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
     delisted: set[str] = set()
     for key in _INVENTORY_DELISTED_KEYS:
         delisted |= {str(t) for t in inv.get(key, [])}
+    delisted |= ctx.exclude_tickers
     universe = [t for t in declared if t not in delisted]
     if not universe:
         raise InventoryUnavailableError(
@@ -376,12 +382,16 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
             f"(declared={len(declared)}, delisted-excluded={len(delisted & set(declared))}) "
             f"(fail-closed)"
         )
+    cli_excluded = ctx.exclude_tickers & set(declared)
+    inv_delisted = (delisted - ctx.exclude_tickers) & set(declared)
     prov = {
         "source": str(inv_path),
         "kind": inv.get("kind"),
         "generated_utc": inv.get("generated_utc"),
         "n_declared": len(declared),
-        "n_delisted_excluded": len(delisted & set(declared)),
+        "n_delisted_excluded": len(inv_delisted),
+        "n_cli_excluded": len(cli_excluded),
+        "cli_excluded": sorted(cli_excluded),
         "n_universe": len(universe),
         "fingerprint": _fingerprint(
             {
@@ -392,6 +402,12 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
             }
         ),
     }
+    if cli_excluded:
+        log.info(
+            "panel universe: %d ticker(s) excluded via --exclude-tickers: %s",
+            len(cli_excluded),
+            ", ".join(sorted(cli_excluded)),
+        )
     return universe, prov
 
 
@@ -1589,6 +1605,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--ntfy-topic", default=DEFAULT_NTFY_TOPIC)
+    parser.add_argument(
+        "--exclude-tickers",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated tickers to exclude from the panel universe "
+            "(supplementary to the inventory's delisted_tickers). Use for "
+            "newly-delisted names that haven't been pruned from the versioned "
+            "inventory yet — a single stale ticker blocks the entire retrain "
+            "at freshness_max_stale_fraction=0.0."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1633,6 +1661,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.as_of is not None:
         _as_of = args.as_of
         now_fn = lambda: _as_of  # noqa: E731 - tiny closure over the pinned clock
+    exclude_tickers = {
+        t.strip().upper() for t in args.exclude_tickers.split(",") if t.strip()
+    }
     ctx = RetrainContext(
         repo_dir=repo_dir,
         xgb_artifact_out=xgb_artifact_out,
@@ -1645,6 +1676,7 @@ def main(argv: list[str] | None = None) -> int:
         refresh_rawlabel=args.refresh_rawlabel,
         panel_universe=panel_universe,
         inventory_path=inventory_path,
+        exclude_tickers=exclude_tickers,
         ohlcv_timeout_sec=args.ohlcv_timeout_sec,
         freshness_stale_after_days=args.freshness_stale_after_days,
         freshness_max_stale_fraction=args.freshness_max_stale_fraction,
