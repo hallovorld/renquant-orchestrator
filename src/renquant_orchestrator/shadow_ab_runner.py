@@ -15,8 +15,13 @@ Frozen review contract (doc/design/2026-07-09-governor-prereg-replay-protocol.md
         template; a tag-keyed asymmetry is structurally impossible and is
         additionally rejected by :func:`assert_preflight_symmetry`;
   (ii)  arms run SEQUENTIALLY, never concurrently, against the same session's
-        inputs (the shared market/account snapshots are resolved once and both
-        arms consume the same files);
+        inputs: BOTH the market and the account snapshot are materialized
+        into the run bundle as immutable copies (atomic temp + fsync +
+        rename seal) BEFORE either arm starts, and the arms are handed the
+        sealed paths + the decision digest — never the caller-supplied
+        paths; the sealed paired world is independently re-verified
+        (re-read + canonical re-hash + digest recompute) before each arm
+        and after both, failing BOTH arms on any mutation;
   (iii) a per-session run bundle is stamped for BOTH arms with the full §2a
         fingerprint list: config sha, model sha, calibrator sha, broker-state
         tag, strategy/pipeline/execution pin shas, data/feature manifest sha,
@@ -35,11 +40,16 @@ Frozen review contract (doc/design/2026-07-09-governor-prereg-replay-protocol.md
 
 Same-world rule: both arms must resolve IDENTICAL model / calibrator /
 data-manifest shas before anything runs; a mismatch aborts the session with
-neither arm invoked. Config-hash drift against the experiment's
-frozen-at-start hashes VOIDS the session (``SHADOW-AB VOID``) — a config
-change never reinterprets the experiment, it terminates it. Any other
-fingerprint drift against the freeze invalidates the session-pair (bounded
-missingness, not VOID).
+neither arm invoked. The paired input world is additionally proven by the
+``decision_snapshot_digest`` — computed once, before either arm, over BOTH
+sealed-input canonical hashes (market AND account) PLUS the as-of / session /
+universe / corporate-action identity AND the starting-state convention — so
+an account-only difference between two invocations of the same session is a
+same-world violation, not a silent re-run. Config-hash drift against the
+experiment's frozen-at-start hashes VOIDS the session (``SHADOW-AB VOID``) —
+a config change never reinterprets the experiment, it terminates it. Any
+other fingerprint drift against the freeze invalidates the session-pair
+(bounded missingness, not VOID).
 
 Broker-state tags are FROZEN by the protocol: ``alpaca_shadow_a`` (S-0.5
 treatment) / ``alpaca_shadow_b`` (S-1.0 control). The legacy ``alpaca_shadow``
@@ -71,7 +81,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .native_live_context import compute_decision_snapshot_digest
+from .native_live_context import canonical_json_sha256, decision_snapshot_identity
 from .runtime_paths import default_github_root, default_repo_root
 
 # --- frozen protocol constants (§2a) -----------------------------------------
@@ -104,6 +114,18 @@ SHADOW_PREFLIGHT_ENV: dict[str, str] = {
 FREEZE_FILENAME = "shadow_ab_freeze.json"
 COUNTERS_FILENAME = "shadow_ab_counters.json"
 BUNDLE_FILENAME = "shadow_ab_session_bundle.json"
+
+#: Immutable per-session copies of the shared inputs (r8: BOTH market and
+#: account snapshots are materialized into the run bundle before either arm
+#: starts; the arms are handed THESE paths, never the caller-supplied ones).
+SEALED_DIRNAME = "sealed"
+SEALED_MARKET_FILENAME = "market_snapshot.json"
+SEALED_ACCOUNT_FILENAME = "account_snapshot.json"
+DECISION_SNAPSHOT_FILENAME = "decision_snapshot.json"
+
+#: The three consumption points at which the sealed paired world is
+#: independently re-verified (re-read + re-hash + digest recompute).
+PAIRED_WORLD_VERIFICATION_STAGES = ("pre_arm_a", "pre_arm_b", "post_arms")
 
 VOID_MARKER = "SHADOW-AB VOID"
 
@@ -359,6 +381,94 @@ def same_world_violations(fp_a: ArmFingerprints, fp_b: ArmFingerprints) -> list[
             f"{fp_a.data_manifest_sha256} != {fp_b.data_manifest_sha256}"
         )
     return violations
+
+
+# --- sealed decision snapshot (r8: paired-world proof) ---------------------------
+
+
+def seal_snapshot(source: str | Path, dest: Path) -> str:
+    """Materialize one immutable copy of a session input into the run bundle.
+
+    Atomic by construction: the canonical content is written to a temp file,
+    fsync'd, then renamed over ``dest`` (no reader can ever observe a torn
+    copy). The file is then best-effort marked read-only. Returns the
+    canonical content sha (formatting-independent — the same convention the
+    consumption side recomputes with).
+    """
+    payload = json.loads(Path(source).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ShadowABContractError(f"session input must be a JSON object: {source}")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + f".tmp.{os.getpid()}.{int(time.time() * 1000)}")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, dest)
+    try:
+        os.chmod(dest, 0o444)
+    except OSError:  # pragma: no cover - permission bits are best-effort
+        pass
+    return canonical_json_sha256(payload)
+
+
+def verify_decision_snapshot(snapshot: Mapping[str, Any]) -> list[str]:
+    """Independently re-verify the sealed paired world at a consumption point.
+
+    Re-reads BOTH sealed files from disk, re-hashes their canonical
+    contents, recomputes the decision digest through the single shared
+    implementation (:func:`renquant_orchestrator.native_live_context.
+    decision_snapshot_identity` — never a second hand-copied hash), and
+    additionally re-checks that the caller-supplied SOURCE files still
+    match what was sealed (a source mutating mid-session signals the
+    snapshot may have been torn/unstable when sealed — the pair is not
+    trustworthy). Any problem fails the session in BOTH arms.
+    """
+    problems: list[str] = []
+    try:
+        identity = decision_snapshot_identity(
+            market_snapshot_json=snapshot["sealed_market_snapshot"],
+            account_snapshot_json=snapshot["sealed_account_snapshot"],
+            session_date=snapshot["session_date"],
+            model_content_sha256=snapshot["model_content_sha256"],
+            calibrator_content_sha256=snapshot.get("calibrator_content_sha256"),
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        return [f"sealed session inputs unreadable or invalid: {exc}"]
+    if identity["market_snapshot_sha256"] != snapshot["market_snapshot_sha256"]:
+        problems.append(
+            "sealed market snapshot mutated: "
+            f"{snapshot['market_snapshot_sha256']} -> {identity['market_snapshot_sha256']}"
+        )
+    if identity["account_snapshot_sha256"] != snapshot["account_snapshot_sha256"]:
+        problems.append(
+            "sealed account snapshot mutated: "
+            f"{snapshot['account_snapshot_sha256']} -> {identity['account_snapshot_sha256']}"
+        )
+    if identity["digest"] != snapshot["digest"]:
+        problems.append(
+            "decision_snapshot_digest recompute mismatch: "
+            f"{snapshot['digest']} -> {identity['digest']}"
+        )
+    for name, source_key, sha_key in (
+        ("market", "market_snapshot_source", "market_snapshot_sha256"),
+        ("account", "account_snapshot_source", "account_snapshot_sha256"),
+    ):
+        try:
+            current = canonical_json_sha256(
+                json.loads(Path(snapshot[source_key]).read_text(encoding="utf-8"))
+            )
+        except (OSError, ValueError) as exc:
+            problems.append(f"{name} snapshot source unreadable during session: {exc}")
+            continue
+        if current != snapshot[sha_key]:
+            problems.append(
+                f"{name} snapshot source mutated during session: sealed "
+                f"{snapshot[sha_key]} != current {current}"
+            )
+    return problems
 
 
 #: §2a frozen treatment key (orchestrator#443 D6 §2a, r7 point 3): the ONLY
@@ -983,41 +1093,121 @@ def run_shadow_ab_session(
         )
         bundle["freeze_created"] = True
 
-    # -- shared session inputs (both arms consume the SAME files) ---------------
+    # -- shared session inputs: materialize BOTH snapshots BEFORE either arm ----
+    # (r8: the arms are handed immutable sealed copies inside the run bundle,
+    # never the caller-supplied paths)
     session_dir_a = session_dir / f"arm_{arm_a.tag}"
     session_dir_b = session_dir / f"arm_{arm_b.tag}"
+    sealed_dir = session_dir / SEALED_DIRNAME
+    sealed_market = sealed_dir / SEALED_MARKET_FILENAME
+    sealed_account = sealed_dir / SEALED_ACCOUNT_FILENAME
+    market_source = Path(market_snapshot_json)
+
     shared_steps: list[list[str]] = []
-    if account_snapshot_json is None:
-        account_snapshot_json = session_dir / "account_snapshot.json"
+    account_source: Path | None = (
+        Path(account_snapshot_json) if account_snapshot_json is not None else None
+    )
+    if account_source is None:
+        fetched_account = session_dir / "account_snapshot.fetched.json"
         shared_steps.append([
             "renquant-orchestrator", "native-live-account-snapshot",
             "--broker-name", snapshot_broker_name,
-            "--output-json", str(account_snapshot_json),
+            "--output-json", str(fetched_account),
         ])
-    account_snapshot_json = Path(account_snapshot_json)
-    market_snapshot_json = Path(market_snapshot_json)
+        if not plan_only:
+            steps, shared_ok = _run_steps(shared_steps, run=run, env=env)
+            bundle["shared_steps"] = steps
+            if not shared_ok:
+                bundle["reasons"].append(
+                    "shared_input_failure: account snapshot could not be "
+                    "materialized; neither arm ran"
+                )
+                for entry in bundle["arms"].values():
+                    entry["invalidation_reasons"].append(
+                        "paired_invalidation: shared session inputs failed; "
+                        "neither arm ran"
+                    )
+                return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
+            account_source = fetched_account
+    bundle["shared_planned_commands"] = [list(c) for c in shared_steps]
 
-    # -- the shared decision snapshot (r7 point 1): ONE digest, computed once
-    # before either arm runs, handed to BOTH — never independently resolved
-    # by each arm at its own invocation time. ------------------------------
-    decision_snapshot_digest = compute_decision_snapshot_digest(
-        market_snapshot=json.loads(market_snapshot_json.read_bytes()),
-        model_content_sha256=fp_a.model_content_sha256,
-        calibrator_content_sha256=fp_a.calibrator_content_sha256,
-        session_date=session_date,
-    )
-    bundle["arms"]["a"]["decision_snapshot_digest"] = decision_snapshot_digest
-    bundle["arms"]["b"]["decision_snapshot_digest"] = decision_snapshot_digest
+    # -- the shared decision snapshot: ONE identity block (both sealed-input
+    # hashes + as-of/session/universe/corporate-action identity + starting-
+    # state convention), computed once before either arm runs, handed to
+    # BOTH — never independently resolved by each arm at its own invocation
+    # time. -----------------------------------------------------------------
+    decision_snapshot: dict[str, Any]
+    if account_source is None:
+        # plan-only without a pre-fetched account snapshot: the fetch step is
+        # planned, so the digest can only be computed (and sealed) at run time.
+        decision_snapshot = {
+            "planned": True,
+            "digest": None,
+            "note": (
+                "account snapshot is fetched + sealed at run time; the "
+                "decision digest is computed then, before either arm runs"
+            ),
+            "sealed_market_snapshot": str(sealed_market),
+            "sealed_account_snapshot": str(sealed_account),
+        }
+        digest_token = "<sealed-at-run-time>"
+    else:
+        try:
+            decision_snapshot = decision_snapshot_identity(
+                market_snapshot_json=market_source,
+                account_snapshot_json=account_source,
+                session_date=session_date,
+                model_content_sha256=fp_a.model_content_sha256,
+                calibrator_content_sha256=fp_a.calibrator_content_sha256,
+            )
+        except (OSError, ValueError) as exc:
+            bundle["reasons"].append(f"seal_failure: {exc}")
+            for entry in bundle["arms"].values():
+                entry["invalidation_reasons"].append(
+                    "paired_invalidation: session inputs could not be "
+                    "digested; neither arm ran"
+                )
+            return _finish(EXIT_PRECHECK_ABORT, "invalidated")
+        decision_snapshot.update({
+            "sealed": False,
+            "sealed_market_snapshot": str(sealed_market),
+            "sealed_account_snapshot": str(sealed_account),
+            "market_snapshot_source": str(market_source),
+            "account_snapshot_source": str(account_source),
+        })
+        digest_token = decision_snapshot["digest"]
+    bundle["decision_snapshot"] = decision_snapshot
+    bundle["arms"]["a"]["decision_snapshot_digest"] = decision_snapshot["digest"]
+    bundle["arms"]["b"]["decision_snapshot_digest"] = decision_snapshot["digest"]
+
+    # -- same-date paired-world conflict: re-invoking an already-recorded
+    # session under a DIFFERENT world (e.g. same market, different account
+    # snapshot) must abort, not silently re-run — the digest is the proof. ----
+    if not plan_only and bundle_path.exists():
+        prior = json.loads(bundle_path.read_text(encoding="utf-8"))
+        prior_digest = (prior.get("decision_snapshot") or {}).get("digest")
+        if prior_digest and prior_digest != decision_snapshot["digest"]:
+            bundle["reasons"].append(
+                "same_world_violation: decision_snapshot_digest conflicts "
+                f"with this session date's already-recorded bundle: "
+                f"{prior_digest} != {decision_snapshot['digest']}"
+            )
+            for entry in bundle["arms"].values():
+                entry["invalidation_reasons"].append(
+                    "paired_invalidation: session re-invoked under a "
+                    "different input world; neither arm ran"
+                )
+            return _finish(EXIT_PRECHECK_ABORT, "invalidated")
 
     plan_a = build_arm_plan(
         tag=arm_a.tag,
         config_path=arm_a.config_path,
         arm_dir=session_dir_a,
-        market_snapshot_json=market_snapshot_json,
-        account_snapshot_json=account_snapshot_json,
+        market_snapshot_json=sealed_market,
+        account_snapshot_json=sealed_account,
         strategy_dir=strategy_dir,
         session_date=session_date,
-        decision_snapshot_digest=decision_snapshot_digest,
+        decision_snapshot_digest=digest_token,
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
     )
@@ -1025,11 +1215,11 @@ def run_shadow_ab_session(
         tag=arm_b.tag,
         config_path=arm_b.config_path,
         arm_dir=session_dir_b,
-        market_snapshot_json=market_snapshot_json,
-        account_snapshot_json=account_snapshot_json,
+        market_snapshot_json=sealed_market,
+        account_snapshot_json=sealed_account,
         strategy_dir=strategy_dir,
         session_date=session_date,
-        decision_snapshot_digest=decision_snapshot_digest,
+        decision_snapshot_digest=digest_token,
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
     )
@@ -1054,7 +1244,6 @@ def run_shadow_ab_session(
 
     bundle["arms"]["a"]["planned_commands"] = [list(c) for c in plan_a]
     bundle["arms"]["b"]["planned_commands"] = [list(c) for c in plan_b]
-    bundle["shared_planned_commands"] = [list(c) for c in shared_steps]
 
     if plan_only:
         bundle["status"] = "plan_only"
@@ -1064,25 +1253,76 @@ def run_shadow_ab_session(
     session_dir_a.mkdir(parents=True, exist_ok=True)
     session_dir_b.mkdir(parents=True, exist_ok=True)
 
-    # -- shared inputs, then arms SEQUENTIALLY (never concurrently) --------------
-    shared_ok = True
-    if shared_steps:
-        steps, shared_ok = _run_steps(shared_steps, run=run, env=env)
-        bundle["shared_steps"] = steps
-        if not shared_ok:
-            bundle["reasons"].append("shared_input_failure: session input step failed")
+    # -- atomically seal the immutable copies (temp + fsync + rename), then
+    # confirm the sealed canonical hashes equal the digested ones — a source
+    # racing between digest computation and sealing is a torn world. ----------
+    try:
+        sealed_market_sha = seal_snapshot(market_source, sealed_market)
+        sealed_account_sha = seal_snapshot(account_source, sealed_account)
+    except (ShadowABContractError, OSError, ValueError) as exc:
+        bundle["reasons"].append(f"seal_failure: {exc}")
+        for entry in bundle["arms"].values():
+            entry["invalidation_reasons"].append(
+                "paired_invalidation: session inputs could not be sealed; "
+                "neither arm ran"
+            )
+        return _finish(EXIT_PRECHECK_ABORT, "invalidated")
+    if (
+        sealed_market_sha != decision_snapshot["market_snapshot_sha256"]
+        or sealed_account_sha != decision_snapshot["account_snapshot_sha256"]
+    ):
+        bundle["reasons"].append(
+            "seal_failure: a snapshot source changed between digest "
+            "computation and sealing (torn world); neither arm ran"
+        )
+        for entry in bundle["arms"].values():
+            entry["invalidation_reasons"].append(
+                "paired_invalidation: torn session inputs; neither arm ran"
+            )
+        return _finish(EXIT_PRECHECK_ABORT, "invalidated")
+    decision_snapshot["sealed"] = True
+    decision_snapshot["sealed_at"] = _utc_now_iso()
+    _write_json_atomic(sealed_dir / DECISION_SNAPSHOT_FILENAME, decision_snapshot)
+
+    # -- verified, SEQUENTIAL arm execution (never concurrent): the sealed
+    # paired world is independently re-verified at every consumption point;
+    # any failure fails BOTH arms. --------------------------------------------
+    def _verify_paired_world(stage: str) -> bool:
+        problems = verify_decision_snapshot(decision_snapshot)
+        bundle.setdefault("paired_world_verifications", []).append(
+            {"stage": stage, "ok": not problems, "problems": problems}
+        )
+        if problems:
+            bundle["reasons"].extend(
+                f"paired_world_violation[{stage}]: {p}" for p in problems
+            )
             for entry in bundle["arms"].values():
+                entry["invalidated"] = True
                 entry["invalidation_reasons"].append(
-                    "paired_invalidation: shared session inputs failed; neither arm ran"
+                    "paired_invalidation: sealed decision snapshot failed "
+                    f"verification at {stage}; both arms fail"
                 )
-            return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
+        return not problems
+
+    if not _verify_paired_world("pre_arm_a"):
+        return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
 
     arm_ok: dict[str, bool] = {}
-    for label, plan in (("a", plan_a), ("b", plan_b)):
-        steps, ok = _run_steps(plan, run=run, env=env)
-        bundle["arms"][label]["steps"] = steps
-        bundle["arms"][label]["completed"] = ok
-        arm_ok[label] = ok
+    steps_a, ok_a = _run_steps(plan_a, run=run, env=env)
+    bundle["arms"]["a"]["steps"] = steps_a
+    bundle["arms"]["a"]["completed"] = ok_a
+    arm_ok["a"] = ok_a
+
+    if not _verify_paired_world("pre_arm_b"):
+        return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
+
+    steps_b, ok_b = _run_steps(plan_b, run=run, env=env)
+    bundle["arms"]["b"]["steps"] = steps_b
+    bundle["arms"]["b"]["completed"] = ok_b
+    arm_ok["b"] = ok_b
+
+    if not _verify_paired_world("post_arms"):
+        return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
 
     failed = sorted(label for label, ok in arm_ok.items() if not ok)
     if failed:
@@ -1196,6 +1436,10 @@ __all__ = [
     "VOID_MARKER",
     "ArmFingerprints",
     "ArmSpec",
+    "PAIRED_WORLD_VERIFICATION_STAGES",
+    "SEALED_ACCOUNT_FILENAME",
+    "SEALED_DIRNAME",
+    "SEALED_MARKET_FILENAME",
     "ShadowABContractError",
     "assert_preflight_symmetry",
     "build_arm_plan",
@@ -1205,10 +1449,12 @@ __all__ = [
     "resolve_experiment_pins",
     "run_shadow_ab_session",
     "same_world_violations",
+    "seal_snapshot",
     "treatment_key_violations",
     "validate_ntfy_topic",
     "validate_output_root",
     "validate_tags",
+    "verify_decision_snapshot",
 ]
 
 

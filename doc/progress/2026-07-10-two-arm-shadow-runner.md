@@ -132,3 +132,48 @@ unaffected (new params are optional, backward compatible). Full suite: 3310 pass
 skipped, 1 pre-existing failure unrelated to this PR (`test_parking_sleeve_cli_
 computes_allocation`, a worktree-path artifact in a file this PR never touches — confirmed
 via `git diff --stat` showing zero changes to that file).
+
+## r8 review round (Codex CHANGES_REQUESTED #2): sealed paired world
+
+The r7 digest was market-only and the arms still consumed caller-supplied
+snapshot paths. Fixed:
+
+1. **Immutable materialization before either arm** — the runner now
+   materializes BOTH shared inputs into the run bundle
+   (`<session>/sealed/market_snapshot.json` + `sealed/account_snapshot.json`)
+   via `seal_snapshot()`: write temp + fsync + atomic rename, then hash the
+   CANONICAL contents (`canonical_json_sha256` — formatting-independent),
+   best-effort read-only. When `--account-snapshot-json` is omitted, the
+   single shared fetch step now runs BEFORE sealing/digesting, so the fetched
+   account is sealed like any other source.
+2. **Dual-hash decision digest** — `compute_decision_snapshot_digest` (still
+   the ONE shared implementation in `native_live_context`, digest schema v2)
+   now covers: BOTH sealed-input canonical hashes (market AND account) +
+   `as_of` + session date + candidate universe + corporate-action identity
+   (extracted as NAMED components by `market_snapshot_identity`, fail-closed
+   on a missing `as_of`) + model/calibrator identity + the frozen
+   starting-state-convention marker.
+3. **Arms get sealed paths + digest, never caller paths** — `build_arm_plan`
+   receives only the sealed copies; a test asserts no arm command ever
+   contains a caller-supplied snapshot path.
+4. **Independent consumption-side recompute from BOTH files** —
+   `decision_snapshot_identity()` re-reads both files fresh and recomputes;
+   it is called (i) by `build_native_live_context` inside each arm (raises
+   `DecisionSnapshotMismatchError` → arm fails → paired invalidation fails
+   BOTH arms) and (ii) by the runner's `verify_decision_snapshot()` at three
+   consumption points (`pre_arm_a` / `pre_arm_b` / `post_arms`), which also
+   re-checks SOURCE stability (a source mutating mid-session = torn-world
+   signal). A same-date re-invocation whose digest conflicts with the
+   already-recorded session bundle is a same-world abort.
+5. **Negative tests added** (per review): (a) caller mutates the account file
+   after precheck → caught at `pre_arm_b`, both arms invalidated, arm B never
+   invoked; (b) identical market + different account across two invocations
+   of the same session → digest differs → same-world abort, neither arm runs;
+   (c) mid-run mutation of a sealed bundle file → caught at `post_arms`, both
+   arms invalidated; plus seal-atomicity/canonicality, account-substitution
+   rejection at the native-context boundary, and per-component digest
+   sensitivity (every identity component moves the digest).
+
+Tests: 46 in `tests/test_shadow_ab_runner.py`; full suite 3318 passed, 3
+skipped (the previously-noted parking-sleeve worktree artifact no longer
+reproduces).

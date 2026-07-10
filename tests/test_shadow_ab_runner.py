@@ -16,7 +16,9 @@ from renquant_orchestrator import shadow_ab_runner as sab
 from renquant_orchestrator.native_live_context import (
     DecisionSnapshotMismatchError,
     build_native_live_context,
+    canonical_json_sha256,
     compute_decision_snapshot_digest,
+    decision_snapshot_identity,
 )
 from renquant_orchestrator.shadow_ab_runner import (
     EXIT_PRECHECK_ABORT,
@@ -28,6 +30,10 @@ from renquant_orchestrator.shadow_ab_runner import (
     FROZEN_TAG_B,
     FROZEN_TREATMENT_KEY,
     LEGACY_SHADOW_TAG,
+    PAIRED_WORLD_VERIFICATION_STAGES,
+    SEALED_ACCOUNT_FILENAME,
+    SEALED_DIRNAME,
+    SEALED_MARKET_FILENAME,
     SHADOW_PREFLIGHT_ENV,
     SPEC_2A_ARM_FIELDS,
     VOID_MARKER,
@@ -37,10 +43,12 @@ from renquant_orchestrator.shadow_ab_runner import (
     build_arm_plan,
     default_experiment_strategy_dir,
     run_shadow_ab_session,
+    seal_snapshot,
     treatment_key_violations,
     validate_ntfy_topic,
     validate_output_root,
     validate_tags,
+    verify_decision_snapshot,
 )
 
 
@@ -67,6 +75,25 @@ class RecordingRunner:
         if self.fail_on and any(self.fail_on in token for token in command):
             rc = 1
         return subprocess.CompletedProcess(list(command), rc, stdout="", stderr="")
+
+
+class MutatingRunner(RecordingRunner):
+    """Fires ``side_effect`` once, right after the first command containing
+    ``trigger`` executes — simulates a producer/interloper mutating a session
+    input file mid-run, between the runner's verification points."""
+
+    def __init__(self, *, trigger: str, side_effect) -> None:
+        super().__init__()
+        self.trigger = trigger
+        self.side_effect = side_effect
+        self.fired = False
+
+    def __call__(self, command, env) -> subprocess.CompletedProcess[str]:
+        result = super().__call__(command, env)
+        if not self.fired and any(self.trigger in token for token in command):
+            self.fired = True
+            self.side_effect()
+        return result
 
 
 def _write_world(tmp_path: Path, *, model_b: str | None = None) -> dict[str, Path]:
@@ -171,6 +198,22 @@ def test_valid_session_writes_complete_bundle(tmp_path: Path) -> None:
     counters = bundle["counters"]
     assert counters["attempted_pairs"] == 1
     assert counters["excluded_pairs"] == 0
+    # the decision snapshot is sealed and dual-hashed (r8): both immutable
+    # copies exist in the run bundle, both content hashes + the identity
+    # components are recorded, and every consumption-point verification ran
+    snapshot = bundle["decision_snapshot"]
+    assert snapshot["sealed"] is True
+    sealed_market = Path(snapshot["sealed_market_snapshot"])
+    sealed_account = Path(snapshot["sealed_account_snapshot"])
+    assert sealed_market.exists() and sealed_account.exists()
+    assert snapshot["market_snapshot_sha256"].startswith("sha256:")
+    assert snapshot["account_snapshot_sha256"].startswith("sha256:")
+    assert snapshot["as_of"] == "2026-07-10"
+    assert snapshot["starting_state_convention"]
+    assert snapshot["digest"] == bundle["arms"]["a"]["decision_snapshot_digest"]
+    stages = [v["stage"] for v in bundle["paired_world_verifications"]]
+    assert stages == list(PAIRED_WORLD_VERIFICATION_STAGES)
+    assert all(v["ok"] for v in bundle["paired_world_verifications"])
 
 
 def test_arms_run_sequentially_and_consume_same_inputs(tmp_path: Path) -> None:
@@ -185,12 +228,17 @@ def test_arms_run_sequentially_and_consume_same_inputs(tmp_path: Path) -> None:
     b_indexes = [i for i, c in enumerate(commands) if any(FROZEN_TAG_B in t for t in c)]
     assert a_indexes and b_indexes
     assert max(a_indexes) < min(b_indexes)
-    # both arms consume the SAME session-shared snapshot files
+    # both arms consume the SAME sealed immutable copies from the run
+    # bundle — NEVER the caller-supplied paths (r8)
+    sealed_dir = tmp_path / "sessions" / "2026-07-10" / SEALED_DIRNAME
     context_cmds = [c for c in commands if "native-live-context" in c]
     assert len(context_cmds) == 2
     for cmd in context_cmds:
-        assert str(world["market"]) in cmd
-        assert str(world["account"]) in cmd
+        assert str(sealed_dir / SEALED_MARKET_FILENAME) in cmd
+        assert str(sealed_dir / SEALED_ACCOUNT_FILENAME) in cmd
+    for cmd in commands:
+        assert str(world["market"]) not in cmd
+        assert str(world["account"]) not in cmd
 
 
 # --- same-world rule -------------------------------------------------------------
@@ -600,23 +648,49 @@ def test_run_aborts_when_config_diff_has_an_extra_delta(tmp_path: Path) -> None:
 # --- decision-snapshot digest (Codex review on #451, point 1) -------------------------------
 
 
-def test_decision_snapshot_digest_is_deterministic_and_order_independent() -> None:
-    market = {"as_of": "2026-07-10", "tickers": ["AAPL", "MSFT"]}
-    d1 = compute_decision_snapshot_digest(
-        market_snapshot=market, model_content_sha256="m1",
-        calibrator_content_sha256="c1", session_date="2026-07-10",
+def test_decision_snapshot_digest_is_deterministic_and_dual_hash(tmp_path: Path) -> None:
+    kwargs = dict(
+        market_snapshot_sha256="sha256:m",
+        account_snapshot_sha256="sha256:a",
+        as_of="2026-07-10T15:55:00Z",
+        session_date="2026-07-10",
+        universe=["MSFT", "AAPL"],
+        corporate_action_identity="none_declared",
+        model_content_sha256="m1",
+        calibrator_content_sha256="c1",
     )
-    d2 = compute_decision_snapshot_digest(
-        market_snapshot=dict(market), model_content_sha256="m1",
-        calibrator_content_sha256="c1", session_date="2026-07-10",
-    )
-    assert d1 == d2
+    d1 = compute_decision_snapshot_digest(**kwargs)
+    d2 = compute_decision_snapshot_digest(**{**kwargs, "universe": ["AAPL", "MSFT"]})
+    assert d1 == d2  # deterministic; universe order-independent
 
-    d_diff_market = compute_decision_snapshot_digest(
-        market_snapshot={**market, "tickers": ["AAPL"]}, model_content_sha256="m1",
-        calibrator_content_sha256="c1", session_date="2026-07-10",
-    )
-    assert d_diff_market != d1
+    # EVERY identity component moves the digest — market hash, ACCOUNT hash
+    # (r8: not market-only), as-of, session, universe, corporate actions
+    for delta in (
+        {"market_snapshot_sha256": "sha256:m2"},
+        {"account_snapshot_sha256": "sha256:a2"},
+        {"as_of": "2026-07-09T15:55:00Z"},
+        {"session_date": "2026-07-09"},
+        {"universe": ["AAPL"]},
+        {"corporate_action_identity": "sha256:split"},
+        {"model_content_sha256": "m2"},
+        {"calibrator_content_sha256": None},
+    ):
+        assert compute_decision_snapshot_digest(**{**kwargs, **delta}) != d1, delta
+
+
+def test_decision_snapshot_identity_requires_as_of(tmp_path: Path) -> None:
+    market = tmp_path / "market.json"
+    market.write_text(json.dumps({"prices": {"AAPL": 200.0}}), encoding="utf-8")
+    account = tmp_path / "account.json"
+    account.write_text(json.dumps({"positions": {}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="as_of"):
+        decision_snapshot_identity(
+            market_snapshot_json=market,
+            account_snapshot_json=account,
+            session_date="2026-07-10",
+            model_content_sha256="m1",
+            calibrator_content_sha256="c1",
+        )
 
 
 def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
@@ -627,11 +701,13 @@ def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"k": "v"}), encoding="utf-8")
 
-    expected = compute_decision_snapshot_digest(
-        market_snapshot={"as_of": "2026-07-10"},
-        model_content_sha256="m1", calibrator_content_sha256="c1",
+    expected = decision_snapshot_identity(
+        market_snapshot_json=market,
+        account_snapshot_json=account,
         session_date="2026-07-10",
-    )
+        model_content_sha256="m1",
+        calibrator_content_sha256="c1",
+    )["digest"]
     payload = build_native_live_context(
         strategy_config_json=config,
         market_snapshot_json=market,
@@ -644,6 +720,42 @@ def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
     )
     assert payload["metadata"]["decision_snapshot_digest"] == expected
     assert payload["metadata"]["decision_snapshot_verified"] is True
+    assert payload["metadata"]["market_snapshot_sha256"].startswith("sha256:")
+    assert payload["metadata"]["account_snapshot_sha256"].startswith("sha256:")
+
+
+def test_native_live_context_rejects_account_substitution(tmp_path: Path) -> None:
+    """r8: the consumption side recomputes from BOTH files — swapping in a
+    different ACCOUNT snapshot while keeping the market snapshot identical
+    must fail the arm, not pass a market-only digest check."""
+    market = tmp_path / "market.json"
+    market.write_text(json.dumps({"as_of": "2026-07-10"}), encoding="utf-8")
+    account = tmp_path / "account.json"
+    account.write_text(json.dumps({"positions": {}}), encoding="utf-8")
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"k": "v"}), encoding="utf-8")
+
+    expected = decision_snapshot_identity(
+        market_snapshot_json=market,
+        account_snapshot_json=account,
+        session_date="2026-07-10",
+        model_content_sha256="m1",
+        calibrator_content_sha256="c1",
+    )["digest"]
+    # the account file is mutated after the digest was frozen
+    account.write_text(json.dumps({"positions": {"AAPL": 10}}), encoding="utf-8")
+    with pytest.raises(DecisionSnapshotMismatchError, match="account sha"):
+        build_native_live_context(
+            strategy_config_json=config,
+            market_snapshot_json=market,
+            account_snapshot_json=account,
+            output_json=tmp_path / "out.json",
+            decision_snapshot_digest=expected,
+            model_content_sha256="m1",
+            calibrator_content_sha256="c1",
+            session_date="2026-07-10",
+        )
+    assert not (tmp_path / "out.json").exists()
 
 
 def test_native_live_context_rejects_a_mismatched_digest(tmp_path: Path) -> None:
@@ -691,6 +803,143 @@ def test_run_shadow_ab_session_hands_both_arms_the_identical_digest(tmp_path: Pa
     plan_a_digest = extract_digest(payload["arms"]["a"]["planned_commands"])
     plan_b_digest = extract_digest(payload["arms"]["b"]["planned_commands"])
     assert plan_a_digest == plan_b_digest == digest_a
+
+
+# --- sealed paired world (Codex r8 review on #451) -------------------------------------------
+
+
+def test_seal_snapshot_is_atomic_canonical_and_readonly(tmp_path: Path) -> None:
+    source = tmp_path / "source.json"
+    # non-canonical formatting on purpose: odd key order + extra whitespace
+    source.write_text('{\n  "b": 2,   "a": 1\n}\n', encoding="utf-8")
+    dest = tmp_path / "sealed" / "snapshot.json"
+
+    sha = seal_snapshot(source, dest)
+    assert dest.exists()
+    # hash is over CANONICAL content, so it matches the parsed payload
+    assert sha == canonical_json_sha256({"a": 1, "b": 2})
+    # the sealed copy parses back to the same semantic content
+    assert json.loads(dest.read_text(encoding="utf-8")) == {"a": 1, "b": 2}
+    # no temp files leak from the atomic write
+    assert [p.name for p in dest.parent.iterdir()] == [dest.name]
+    # best-effort immutability
+    assert not (dest.stat().st_mode & 0o222)
+
+
+def test_verify_decision_snapshot_detects_sealed_mutation(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    payload = _run(world, out_root)
+    assert payload["exit_code"] == EXIT_VALID
+    snapshot = payload["decision_snapshot"]
+
+    assert verify_decision_snapshot(snapshot) == []
+
+    sealed_account = Path(snapshot["sealed_account_snapshot"])
+    sealed_account.chmod(0o644)
+    sealed_account.write_text(json.dumps({"positions": {"TAMPERED": 1}}), encoding="utf-8")
+    problems = verify_decision_snapshot(snapshot)
+    assert any("sealed account snapshot mutated" in p for p in problems)
+    assert any("decision_snapshot_digest recompute mismatch" in p for p in problems)
+
+
+def test_source_account_mutation_after_precheck_fails_both_arms(tmp_path: Path) -> None:
+    """Negative test (a), Codex r8: the caller mutates the ACCOUNT file after
+    the precheck sealed/digested it -> the paired-world verification between
+    the arms catches it and BOTH arms fail; arm B is never invoked."""
+    world = _write_world(tmp_path)
+    runner = MutatingRunner(
+        trigger=f"arm_{FROZEN_TAG_A}",
+        side_effect=lambda: world["account"].write_text(
+            json.dumps({"positions": {"MUTATED-MID-RUN": 1}}), encoding="utf-8",
+        ),
+    )
+    payload = _run(world, tmp_path / "sessions", command_runner=runner)
+
+    assert payload["exit_code"] == EXIT_SESSION_INVALIDATED
+    assert payload["status"] == "invalidated"
+    assert any(
+        "paired_world_violation[pre_arm_b]" in r and "account snapshot source mutated" in r
+        for r in payload["reasons"]
+    )
+    for label in ("a", "b"):
+        assert payload["arms"][label]["invalidated"] is True
+    # arm B never ran: no recorded invocation touches its arm dir/tag
+    assert not any(
+        any(FROZEN_TAG_B in token for token in cmd) for cmd, _ in runner.calls
+    )
+    # ... and the arms only ever consumed the SEALED copy, which is intact:
+    # the failure is the SOURCE destabilizing mid-session (torn-world signal),
+    # detected without ever handing arms the caller path
+    snapshot = payload["decision_snapshot"]
+    sealed_account_sha = canonical_json_sha256(
+        json.loads(Path(snapshot["sealed_account_snapshot"]).read_text(encoding="utf-8"))
+    )
+    assert sealed_account_sha == snapshot["account_snapshot_sha256"]
+
+
+def test_account_only_difference_changes_digest_and_aborts_rerun(tmp_path: Path) -> None:
+    """Negative test (b), Codex r8: two invocations of the SAME session with
+    an IDENTICAL market snapshot but DIFFERENT account snapshots must produce
+    different decision digests -> same-world abort, neither arm runs."""
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    first = _run(world, out_root)
+    assert first["exit_code"] == EXIT_VALID
+    first_digest = first["decision_snapshot"]["digest"]
+
+    # identical market, different account
+    world["account"].write_text(
+        json.dumps({"positions": {"NEW-POSITION": 5}}), encoding="utf-8",
+    )
+    runner = RecordingRunner()
+    second = _run(world, out_root, command_runner=runner)  # same session_date
+
+    assert second["exit_code"] == EXIT_PRECHECK_ABORT
+    assert second["status"] == "invalidated"
+    assert second["decision_snapshot"]["digest"] != first_digest
+    assert second["decision_snapshot"]["market_snapshot_sha256"] == (
+        first["decision_snapshot"]["market_snapshot_sha256"]
+    )
+    assert any(
+        "same_world_violation" in r and "decision_snapshot_digest" in r
+        for r in second["reasons"]
+    )
+    assert runner.calls == []  # neither arm ran
+    for label in ("a", "b"):
+        assert second["arms"][label]["invalidated"] is True
+
+
+def test_mid_run_mutation_of_sealed_bundle_file_detected(tmp_path: Path) -> None:
+    """Negative test (c), Codex r8: a sealed run-bundle file mutated MID-RUN
+    (here during arm B, after pre_arm_b passed) is caught by the post-arms
+    verification and the session-pair fails in BOTH arms."""
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    sealed_account = out_root / "2026-07-10" / SEALED_DIRNAME / SEALED_ACCOUNT_FILENAME
+
+    def tamper_sealed() -> None:
+        sealed_account.chmod(0o644)
+        sealed_account.write_text(
+            json.dumps({"positions": {"TAMPERED": 1}}), encoding="utf-8",
+        )
+
+    runner = MutatingRunner(trigger=f"arm_{FROZEN_TAG_B}", side_effect=tamper_sealed)
+    payload = _run(world, out_root, command_runner=runner)
+
+    assert payload["exit_code"] == EXIT_SESSION_INVALIDATED
+    assert payload["status"] == "invalidated"
+    assert any(
+        "paired_world_violation[post_arms]" in r and "sealed account snapshot mutated" in r
+        for r in payload["reasons"]
+    )
+    for label in ("a", "b"):
+        assert payload["arms"][label]["invalidated"] is True
+    # the verification trail shows exactly where it was caught
+    stages = {v["stage"]: v["ok"] for v in payload["paired_world_verifications"]}
+    assert stages["pre_arm_a"] is True
+    assert stages["pre_arm_b"] is True
+    assert stages["post_arms"] is False
 
 
 # --- pin/commit drift (Codex review on #451, point 2) ---------------------------------------
