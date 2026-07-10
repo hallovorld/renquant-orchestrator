@@ -1,29 +1,43 @@
-# Cash drag binding constraints — updated evidence (2026-07-09)
+# Cash drag binding constraints — working diagnosis (2026-07-09)
 
-STATUS: research memo  
+STATUS: research memo — **working diagnosis; all constraint rankings are HYPOTHESES
+pending end-of-chain counterfactual replay** (per Codex r1/r2 review)  
 DATE: 2026-07-09  
 CONTEXT: follows RFC #421 (merged 07-07); Phase 4 VOID (sweep design flaw, PR #440);
 tournament retrain completed same day (staleness no-trade root cause RESOLVED).
+SUPERSESSION NOTE: knob-level tactical priority in this memo is the EVIDENCE BASE for
+the sizing-architecture redesign (Deployment Governor RFC, in progress) — not a
+standalone fix plan. Tactical design PRs #47/#48 (strategy-104) were CLOSED in favor
+of the redesign.
 
 ## Bottom line
 
 Lane A's A-1 (`qp_cash_drag_lambda`) is **dead code** — QP path is disabled in production
 (config: `joint_actions.enabled: false`, solver note: "QP path sizes all new buys <2%...
 legacy SelectionJob+Kelly path until fixed"). The active sizing path is Kelly + SelectionJob.
+This one claim is [VERIFIED] (config + code inspection, not funnel inference).
 
-The two largest cash-drag binding constraints are **not addressed in the current Lane A
-plan** (A-1/A-2/A-3):
+The following constraints are observed at high attrition rates in the diagnostic window.
+**Sequential funnel kill rates are NOT marginal effect estimates** — downstream gates act
+on survivors, so ranking these as causes requires holding other knobs fixed in replay and
+measuring end-of-chain deployed-fraction lift. Until that replay exists, this table is
+hypothesis-generating:
 
-| Constraint | Kill rate | Mechanism | In Lane A? |
+| Constraint (hypothesis) | Observed attrition | Mechanism | In Lane A? |
 |---|---|---|---|
-| VetoWeakBuys adaptive floor | **80%** (66/83 on 07-02) | `rank_score floor = mean + 1σ ≈ 0.575` | NO |
-| Rotation threshold | **100%** structural | `min_expected_advantage_pct=0.06` > model max ER (0.051) | NO |
-| Whole-share quantization | ~30% of survivors | Kelly 2-7% → $200-750; BLK/AVGO > price | YES (A-3) |
-| QP cash penalty (A-1) | 0% | QP disabled; dead code | YES but dead |
+| VetoWeakBuys adaptive floor | 80% of scored (66/83 on 07-02) | `rank_score floor = mean + 1σ ≈ 0.575` | NO |
+| Rotation threshold | 0 rotations in 6 eligible days | threshold 0.06 > max observed net_adv 0.043 | NO |
+| Whole-share quantization | 2 of top-3 slots on 07-02 | Kelly 2-7% → $200-750; BLK/AVGO > price | YES (A-3) |
+| QP cash penalty (A-1) | n/a | QP disabled; dead code | YES but dead |
 
 ---
 
-## 1. Evidence: the full funnel (11 trading days, 06-23 → 07-09)
+## 1. Evidence: the full funnel (11 trading days, 06-23 → 07-09) — DIAGNOSTIC ONLY
+
+The window mixes THREE regimes and must not be averaged as one production baseline
+(Codex r1 point 1). Split:
+
+**Normal decision-flow days (8):**
 
 | Date | Equity | Cash % | Candidates | Post-vol | Post-veto | Kelly>0 | Orders |
 |---|---|---|---|---|---|---|---|
@@ -33,20 +47,26 @@ plan** (A-1/A-2/A-3):
 | 06-26 | $10,631 | 62% | 101 | 79 | 14 | 1 | 0 |
 | 06-29 | $10,799 | 61% | 65 | 43 | 6 | 0 | 0 |
 | 06-30 | $10,855 | 54% | 0 | 0 | 0 | 0 | 0 |
-| 07-01 | $10,810 | 57% | 114 | 83 | — | — | 0† |
-| 07-02 | $10,709 | 65% | 115 | 83 | **17** | **17** | 0 |
+| 07-02 | $10,709 | 65% | 115 | 83 | **17** | **17** | 1 (GRMN $240) |
 | 07-07 | $10,666 | 61% | 51 | 33 | 5 | 3 | 0 |
-| 07-08 | $10,628 | **71%** | 0‡ | 0 | 0 | 0 | 0 |
-| 07-09 | $10,768 | **70%** | 0‡ | 0 | 0 | 0 | 0 |
 
-\* 06-24: CSCO/PANW/AVGO entered (fills visible as cash drop)  
-† 07-01: calibrator fingerprint mismatch → sell-only fallback  
-‡ 07-08/09: per-ticker staleness gate blocked all candidates (FIXED this session)
+**Outage / fallback days (3) — excluded from structural-constraint summaries:**
 
-### Key ratios
-- **Veto kill rate**: 66/83 = 80% (07-02), 55/73 = 75% (06-24), 58/76 = 76% (06-25)
-- **Average cash**: 65% of equity over 11 days
-- **Best-case deployment**: 54% cash (06-30, 7 positions) — still >50% idle
+| Date | Cash % | Failure mode |
+|---|---|---|
+| 07-01 | 57% | calibrator fingerprint mismatch → sell-only fallback |
+| 07-08 | 71% | per-ticker staleness gate blocked all candidates (FIXED 07-09) |
+| 07-09 | 70% | same staleness outage |
+
+\* 06-24: CSCO/PANW/AVGO entered (fills visible as cash drop)
+
+### Key ratios (normal-flow days ONLY)
+- **Veto attrition**: 66/83 = 80% (07-02), 55/73 = 75% (06-24), 58/76 = 76% (06-25)
+  — sequential attrition at one gate, NOT a marginal deployment effect
+- **Average cash on the 8 normal-flow days**: 65% of equity (the finding survives
+  the regime split — outage days do not drive it)
+- **Best-case deployment**: 54% cash (06-30, 7 positions) — still >50% idle on the
+  system's best day
 
 ---
 
@@ -76,34 +96,41 @@ genuinely positive.
 - OR switch to percentile-based floor (top 30-40%)
 - Requires preregistered A/B per RS-2 protocol
 
-### 2.2 Rotation threshold (SECONDARY — structural block)
+### 2.2 Rotation threshold (hypothesis: mis-scaled to net-advantage distribution)
 
 Config: `rotation.min_expected_advantage_pct: 0.06`, `rotation.transaction_cost_pct: 0`
 
-On 07-02, the best candidate (FTNT) had `er=+0.0511`. The rotation threshold is 0.06.
-**No candidate can trigger a rotation** because the model's maximum calibrated ER is below
-the threshold.
+The decision variable is **candidate-minus-incumbent NET advantage** (raw ER advantage
+minus tax drag minus transaction cost), not candidate ER alone (Codex r1 point 3
+accepted — earlier drafts overstated this from candidate ER). Measured from the
+ROTATION_TREE logs, best net_adv per rotation-eligible day:
 
-| Candidate | ER | Threshold | Gap | Result |
-|---|---|---|---|---|
-| FTNT | +0.0511 | 0.06 | -0.0089 | BLOCKED |
-| BLK | +0.0459 | 0.06 | -0.0141 | BLOCKED |
-| GRMN | +0.0367 | 0.06 | -0.0233 | BLOCKED |
+| Date | Best pair | raw_adv | tax drag | **net_adv** | vs 0.06 |
+|---|---|---|---|---|---|
+| 06-23 | PANW→MU | +0.008 | 0.544 | −0.536 | tax-dominated |
+| 06-24 | CAT→AMZN | +0.002 | 0.002 | +0.000 | tiny edge |
+| 06-26 | FTNT→AMZN | +0.043 | 0.000 | **+0.043** | threshold-blocked |
+| 06-29 | FTNT→AMZN | +0.029 | 0.017 | +0.013 | threshold-blocked |
+| 07-02 | FTNT→CSCO | +0.029 | 0.000 | **+0.029** | threshold-blocked |
+| 07-07 | ZM→CSCO | +0.002 | 0.000 | +0.003 | tiny edge |
 
-With `transaction_cost_pct=0`, the threshold represents a pure edge hurdle with NO cost
-justification. The 6% hurdle is not anchored to the XGB panel scorer's actual output
-distribution — model max calibrated ER is 0.051, below the threshold.
+Observed: 0 rotations fired in 6 eligible days; max observed net_adv = 0.043 < 0.06.
+On 3 of 6 days the binding blocker was tax drag or a genuinely tiny edge — the
+threshold is NOT the sole blocker. Claim status: **hypothesis** — "0.06 exceeded every
+observed net_adv in this window" is verified for the window, but "structurally
+unreachable in general" requires the net_adv distribution over a preregistered session
+set.
 
 **Theory**: Perold (1988) and DeMiguel & Nogales (2009) establish that optimal rebalancing
 thresholds should be proportional to sqrt(transaction costs × holding period). With zero
 configured transaction costs, the threshold should be near zero (only estimation
-uncertainty justifies a positive band). 6% is not anchored to any parameter.
+uncertainty justifies a positive band). 6% is not anchored to any parameter. Code default
+is 0.03 (rotation.py:447); the production 2× override is undocumented.
 
-**Potential fix (strategy-104 config):**
-- Lower to 0.03 (where FTNT would clear: 0.0511 - 0.0225 = 0.0287 > 0.03 after
-  deducting held CSCO's ER)
-- OR make it dynamic: `threshold = f(model_output_std, transaction_cost)`
-- Requires preregistered A/B per RS-2 protocol
+**Disposition**: strategy-104 PR #48 (0.06→0.02 knob patch) was CLOSED — under the
+Deployment Governor redesign, rotation emerges from portfolio-level weight targets
+rather than a pairwise threshold tree, so tuning this knob patches a structure the
+redesign replaces.
 
 ### 2.3 Kelly × sigma_sizing compression (TERTIARY — sizing)
 
@@ -132,38 +159,31 @@ This is NOT a miscalibration — it's the model's intrinsically-negative output 
 
 ---
 
-## 3. Revised Lane A priority (updated: A-0 deprioritized)
+## 3. Disposition: knob-level patching SUPERSEDED by architecture redesign
 
-On 07-02, all 17 post-veto candidates had Kelly>0 but only 1 order fired. The
-binding constraints are DOWNSTREAM of veto: rotation threshold blocks replacing
-held positions (FTNT +5.1% < threshold 6%), and whole-share quantization blocks
-high-price names (BLK $995, AVGO $360). Lowering the veto floor would admit more
-mediocre candidates that hit the same downstream bottleneck. Priority: unblock
-deployment of the ALREADY-qualified top candidates first.
+The observations above share one structural root: **no component in the pipeline owns
+the deployment decision.** Kelly × conviction × σ-mult is a bottom-up multiplicative
+chain where each conservative factor compounds (0.5 × ~0.5 × ~0.5 ≈ tiny positions);
+the greedy SelectionJob funds slots sequentially with no portfolio-level target; the
+actual portfolio optimizer (QP) is disabled dead code; and whole-share rounding is a
+first-class problem at $10.7k that the design treats as an edge case.
 
-| Priority | Knob | Owner repo | Impact estimate | Status |
-|---|---|---|---|---|
-| **P0** | Rotation threshold 0.06 → 0.02 | strategy-104 | portfolio quality (not cash drag) | **PR #48 design** |
-| **P1** | One-share initiation floor | pipeline + strategy-104 | **−13pp cash** (BLK/AVGO deploy) | **PR #49 config PREPARE** |
-| **P2** | Kelly fractional / sigma_sizing floor | strategy-104 | bigger positions in top names | needs analysis |
-| ~~P3~~ | VetoWeakBuys floor 1σ → 0.5σ | strategy-104 | reassess after P0-P2 | DEFERRED — not binding |
-| ~~A-1~~ | ~~`qp_cash_drag_lambda`~~ | ~~strategy-104~~ | ~~0%~~ | ~~DEAD CODE — QP disabled~~ |
-| ~~A-2~~ | ~~`panel_buy_top_n` 3 → 5-6~~ | ~~strategy-104~~ | ~~deferred~~ | ~~DEFERRED (per RS-2)~~ |
+Operator direction (2026-07-09): full sizing-architecture redesign authorized —
+dynamic regime-linked deployment (algorithmic, not a fixed number), concentrated
+conviction-weighted allocation, long-short extension staged behind its own gate.
 
-**Key insight (07-09 correction)**: rotation is sell-one-buy-one, net cash ≈ 0 —
-it fixes portfolio QUALITY but not cash drag. The true cash drag lever is P1
-(one-share floor: BLK $995 + AVGO $360 = $1,355 deployment, cash 65% → 52%)
-plus P2 (bigger positions via Kelly/sigma sizing).
+| Item | Status |
+|---|---|
+| Deployment Governor RFC (top-down capital budget → concentrated allocation → integer execution) | IN PROGRESS |
+| Fractional-shares reopen analysis (prereqs: active-path wiring, software stops) | memo pending, operator decides |
+| One-share floor PREPARE (strategy-104 PR #49) | OPEN — interim L3 measure, shadow=ON |
+| Veto-floor knob PR #47, rotation-threshold knob PR #48 | CLOSED — superseded |
+| Sequential-funnel → causal ranking | retracted to hypothesis status (this memo) |
 
----
+## 4. What this memo IS and IS NOT
 
-## 4. Next actions (repo-correct)
-
-1. ✅ **Design PR in strategy-104**: rotation threshold 0.06 → 0.02 (P0) — PR #48
-2. ✅ **Config PREPARE in strategy-104**: one-share floor key added (P1) — PR #49
-   (production=OFF, shadow=ON; pipeline code already implemented/tested)
-3. **Shadow data collection**: daily shadow runs with floor ON will accumulate
-   RS-2 preregistered comparison data (concentration, cash use, exposure)
-4. **Analysis**: Kelly fractional / sigma_sizing floor impact (P2) — how much position
-   size increase is needed to deploy cash into qualified candidates
-5. **Reassess A-0**: after P0-P2 deployed, measure if veto floor is still binding
+- IS: the diagnostic evidence base (funnel attrition, net_adv distribution, dead-code
+  QP finding, whole-share blocking) feeding the Deployment Governor RFC
+- IS NOT: a validated causal ranking of constraints — that requires end-of-chain
+  counterfactual replay, which the RFC's evaluation protocol will specify
+- IS NOT: a knob-tuning plan — the knob-level Lane A framing (A-0/A-0b) is retired
