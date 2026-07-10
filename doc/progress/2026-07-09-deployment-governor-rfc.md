@@ -232,3 +232,55 @@ RFC caveat:
    N_blocks ≥ 8. Historical 20d evidence is declared directional/low-power
    support that cannot alone clear promotion — the §5 ENABLE rule now
    requires the live shadow arm-level endpoint to meet its own bar.
+
+## r7 update (2026-07-10)
+
+Codex r7 kept two r6 fixes (multi-repo-only execution; arm-level primary
+endpoint) but retained a final design block on four executability gaps, all
+fixed in D6 §2a:
+
+1. **Paired-world input synchronization**: added a "decision snapshot"
+   concept — P-2 materializes ONE digest (as-of timestamp, candidate
+   universe hash, price/corporate-action snapshot, model+calibrator
+   identity, starting-state convention, session ID) before EITHER arm runs,
+   passes it to BOTH invocations, and each arm's actual consumption is
+   verified against it (fail-closed on mismatch). Extends the run-bundle
+   fingerprint to 8 fields and the paired-exclusion rule to cover digest
+   mismatches. Specified 4 integration tests (shared-digest, distinct-state-
+   path/no-collision, no-umbrella-import, pair-fail-closed) precisely enough
+   for a future implementation PR to satisfy the intent, not just the letter.
+2. **Complete hypothesis test**: froze α=0.05 one-sided (matching the
+   project's existing DSR≥0.95 convention, `replay_significance.py:36`), the
+   exact test statistic (paired mean of geometrically-compounded block
+   differences), a concrete stationary-bootstrap spec (10,000 resamples,
+   seed 0 — reusing `pbo_rng_seed`'s existing default), and an explicit
+   disagreement rule (NW vs bootstrap conflict ⇒ DISAGREEMENT, not
+   enable-grade). Added a minimum effect size to P1 (≥2pp, not just ">0"),
+   closing the "arbitrarily small noisy lift" gap.
+3. **Real power analysis (the substantial one)**: derived the actual power
+   formula, and — since the true treatment (buy_floor_std_mult 0.5 vs 1.0,
+   same cap) has never run and has no real prior variance estimate — used
+   the cap-grid tuning data as an explicitly labeled, likely-CONSERVATIVE
+   proxy (a structurally larger perturbation, cap12 vs cap20, than the
+   actual subtler admission-floor treatment). That proxy implies ~170
+   effective blocks (~13-14 years) for 80% power at the frozen 50bps margin
+   — confirming this design is very plausibly unable to reach a fully-
+   powered verdict in any practical timeframe. Resolution: BLINDED
+   sample-size re-estimation — at the existing 3-block checkpoint, compute
+   the REALIZED (variance-only, sign-blind) block-difference std and derive
+   the real required `N*`; freeze Tier 2's gate as `N_blocks ≥ max(8, N*)`.
+   If `N*` is impractically large, the protocol explicitly authorizes
+   indefinite DESCRIPTIVE-ONLY / NO-ENABLE-BY-DEFAULT rather than forcing a
+   verdict at a weaker bar — stated as a first-class possible outcome, not
+   hidden.
+4. **Fixed the rolling-window optional-stopping bug**: "any 5 consecutive
+   sessions ending at/after session 10" was re-evaluated fresh every
+   session — genuine repeated looking. Both Tier-1 kill rules are now
+   SINGLE predeclared inspections at fixed, non-overlapping windows
+   (P1-kill: sessions 6-10, evaluated once; P2-kill: blocks 1-3, evaluated
+   once), retired after their one look. Added an explicit distinction:
+   safety-breach stops (cap/turnover/drawdown/fingerprint gates) are
+   engineering checks evaluated every session with no look-count
+   restriction; statistical-efficacy stops (the two kill rules) are subject
+   to the single-look discipline — these are different failure modes and no
+   longer share ambiguous language.
