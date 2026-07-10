@@ -24,21 +24,24 @@ small code gap, two config merges + pin bumps, and the stage-3 process gate.
 
 ## Remaining gap inventory
 
-1. **`runner_execmath.py:36`** (umbrella): `affordable = int(cash // price)` in
-   `cap_buy_order_to_cash` — the ONLY remaining integer truncation on the buy path.
-   Fires only when a buy exceeds available cash; under fractional sizing it would
-   silently truncate a cash-capped resize to whole shares. Fix = fractional-aware
-   6dp floor, conditional on the flag (flag-off byte-identical); extend the AST
-   auditor (`check_commit_path_no_int_truncation.py`) to order-sizing casts.
-   **Repo-ownership note (review point accepted)**: this logic lives in the
-   umbrella because the entire RunnerAdapter layer is umbrella-resident legacy —
-   the fix must land where the bug lives. This is a TIME-BOUNDED MIGRATION
-   EXCEPTION, not a proposed architecture: the target owner for execution math is
-   renquant-execution, and the adapter-migration program (moving RunnerAdapter
-   order math into the execution repo) is the removal plan. Until that migration,
-   any change to umbrella-resident order math must carry this exception label and
-   must not add NEW umbrella-owned capabilities beyond closing the S-FRAC v2
-   contract gap.
+1. **`runner_execmath.py:36`** — **CLOSED 2026-07-10**. The last integer
+   truncation on the buy path (`affordable = int(cash // price)` in
+   `cap_buy_order_to_cash`) is fixed AND owned by the correct repo, not carried
+   under an exception. Sequence: Codex's r2 review on this PR correctly rejected
+   labelling umbrella#454 a "time-bounded migration exception" — no owner PR,
+   milestone, or removal path existed, so the label was rhetoric. The cash-cap
+   sizing math was moved to `renquant-execution#25`
+   (`src/renquant_execution/order_math.py::cap_affordable_qty`, MERGED
+   2026-07-10T06:17:59Z), importing `MIN_FRACTIONAL_NOTIONAL_USD` from that
+   repo's own `broker.py` rather than duplicating a cross-repo constant.
+   `RenQuant#454` (MERGED 2026-07-10T06:38:28Z) was reworked into a thin
+   delegating call-site in `cap_buy_order_to_cash`: it imports
+   `cap_affordable_qty` from `renquant_execution.order_math` and calls it;
+   `ImportError` fail-closes to the pre-existing whole-share `int()` cap (never
+   local fractional math) with `log.warning("EXECMATH-CASHCAP-FALLBACK: ...")`.
+   Both "owner present" and "owner absent" scenarios are test-verified. The
+   umbrella no longer owns this math — no exception, no removal plan needed,
+   because there is nothing left to remove.
 2. **strategy-104 PR #46** (`execution.fractional_shares` block, default OFF):
    already APPROVED, unmerged. Merge + add `execution.software_stops.enabled` key.
 3. **Pin bumps**: strategy pin predates merged #49 (one-share floor) and #46.
@@ -71,19 +74,20 @@ small code gap, two config merges + pin bumps, and the stage-3 process gate.
 ## Conclusion: capability inventory (not a readiness claim)
 
 This memo is a CAPABILITY INVENTORY. The live path is NOT ready: prerequisites are
-complete only after (1) the execmath fix merges under the documented migration
-exception, (2) strategy-104 #46 + a `software_stops` config key merge, (3) pins
-bump, and (4) the recorded stage-3 shadow + pager gates pass.
+complete only after (1) strategy-104 #46 + a `software_stops` config key merge,
+(2) pins bump, and (3) the recorded stage-3 shadow + pager gates pass. The
+execmath gap (former prerequisite 1) is CLOSED — no exception pending, no
+architectural detour outstanding.
 
-**PROCEED with the prerequisites** [recommendation]. Marginal cost is one small
-flag-conditional fix + config merges + a shadow window; the A-3 arm-B ledger
-provides a free before/after baseline and S-FRAC v2 §7.6 success criteria are
-already frozen (PnL-independent).
+**PROCEED with the remaining prerequisites** [recommendation]. Marginal cost is
+config merges + a shadow window; the A-3 arm-B ledger provides a free
+before/after baseline and S-FRAC v2 §7.6 success criteria are already frozen
+(PnL-independent).
 
 Operator decisions requested:
-1. Approve the `runner_execmath.py:36` fix PR (umbrella #454, flag-conditional,
-   flag-off byte-identical test-pinned) under the time-bounded migration exception
-2. Merge strategy-104 #46 (already codex-APPROVED) + software_stops key
-3. Start the stage-3 shadow window (calendar time; runs parallel to Governor S1)
-4. At enable time (NOT now): sign off the machine-death risk ASSUMPTION with the
+1. Merge strategy-104 #46 (already codex-APPROVED, structurally blocked on the
+   `require_last_push_approval` deadlock — separate operator-level fix needed)
+   + software_stops key
+2. Start the stage-3 shadow window (calendar time; runs parallel to Governor S1)
+3. At enable time (NOT now): sign off the machine-death risk ASSUMPTION with the
    tail scenarios above on record
