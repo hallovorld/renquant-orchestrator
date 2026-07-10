@@ -1,0 +1,73 @@
+{
+  "comment": "R0 twin-parity pins (#454). Pinned STATE only \u2014 the checked twin/constant SPEC lives in scripts/check_twin_parity.py. Updating this file is the deliberate review act that acknowledges a twin-side change; regenerate with `python scripts/check_twin_parity.py --write-manifest` and review the diff.",
+  "constants": {
+    "MIN_FRACTIONAL_NOTIONAL_USD": 1.0
+  },
+  "diverged_twins": {
+    "alpaca_broker": {
+      "execution_path": "src/renquant_execution/alpaca_broker.py",
+      "execution_sha256": "e6bb206ec5ca6e0a39b69b0c82f92563708b05d5f56e22df94b63be73702461e",
+      "umbrella_path": "live/alpaca_broker.py",
+      "umbrella_sha256": "1dd7ccc06f1d1eececbef636912aa06ac5bd5a3bb97f6eb2de4e54fe83036fbd"
+    },
+    "broker": {
+      "execution_path": "src/renquant_execution/broker.py",
+      "execution_sha256": "e73be81acd6de7ac939cda9ebce40325943b3ee22ded0e7e83487f438fd1915d",
+      "umbrella_path": "live/broker.py",
+      "umbrella_sha256": "4a9dc2092e9f7b176497c0781217432ea63cf278ccc67f655cce000a5064c943"
+    },
+    "paper_broker": {
+      "execution_path": "src/renquant_execution/paper_broker.py",
+      "execution_sha256": "dbcba45415dd1fb9cb978e1900f9398a77ae0a3d895ad02fdbf811b87b022717",
+      "umbrella_path": "live/paper_broker.py",
+      "umbrella_sha256": "d7a32e5fa99741ccd49aee74f92033d062af10c76440b2048a29f134e5b8d1f9"
+    },
+    "readonly_broker": {
+      "execution_path": "src/renquant_execution/readonly_broker.py",
+      "execution_sha256": "fb4a1179557d69e863042125dad7d066a5818b701d46565fad11c341ce5331f6",
+      "umbrella_path": "live/broker_readonly.py",
+      "umbrella_sha256": "ee4b634cacdcd766674f659f3537e441f84c7e77721f7ffb194978b57e191f06"
+    }
+  },
+  "function_pins": {
+    "compute_parent_intent_id": {
+      "execution_path": "src/renquant_execution/order_state_machine.py",
+      "execution_sha256": "a9466a59196edcbfbda8599c3ff356f9a758c5d21cfe6972dfe4bfa75ab9676e",
+      "pipeline_path": "src/renquant_pipeline/intraday_decisioning.py",
+      "pipeline_sha256": "ddafb0302995ad145edbbe945f28fc98e1d6509846afc2da773fafe691ca74fb"
+    }
+  },
+  "tax_conventions": {
+    "comment": "R6 unifies; this pin makes further silent drift fail. Three divergent tax families coexist in the pipeline kernel (audit B SS4): rotation tax_drag ST/LT cliff 0.50/0.32, QP Brown-Smith bridge 0.30/0.15, selection flat 0.30 \u2014 the same sell is costed differently per leg.",
+    "qp_tax_rate_lt": {
+      "count": 1,
+      "values": [
+        0.15
+      ]
+    },
+    "qp_tax_rate_st": {
+      "count": 1,
+      "values": [
+        0.3
+      ]
+    },
+    "rotation_long_term_rate": {
+      "count": 3,
+      "values": [
+        0.32
+      ]
+    },
+    "rotation_short_term_rate": {
+      "count": 3,
+      "values": [
+        0.5
+      ]
+    },
+    "selection_tax_rate": {
+      "count": 2,
+      "values": [
+        0.3
+      ]
+    }
+  }
+}
