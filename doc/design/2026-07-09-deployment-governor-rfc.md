@@ -106,30 +106,65 @@ only what happens between "ranked admitted candidates" and "orders".
 
 ### 2.1 L1 — the deployment algorithm
 
-Per operator mandate: no fixed number. The theoretically correct aggregate deployment
-for a Kelly bettor IS the sum of per-name Kelly fractions — it rises when the model
-sees many strong, low-vol opportunities and falls when edges are weak. The Governor
-computes:
+Per operator mandate: no fixed number. §2 Phase-2 of D6 runs THREE L1 candidates as
+independent, mutually exclusive arms (r4 review: each must be exactly and separately
+defined — none is a special case of another, and only one has an analytic bound
+relative to raw conviction):
 
 ```
 raw_i  = λ · max(μ̂_i − s·σ_i, 0) / σ_i²        shrunk fractional Kelly per name
                                                   (λ = kelly fraction, s = μ-shrinkage;
                                                    both existing, trusted params)
-E_raw  = Σ_{i ∈ top-k} min(raw_i, w_cap)         aggregate desired exposure
-E*     = min(E_raw, E_ceil(regime))              ceiling only — NO exposure floor
+E_raw  = Σ_{i ∈ top-k} min(raw_i, w_cap)         aggregate raw conviction (NOT an L1
+                                                  candidate itself — an input to two
+                                                  of the three below)
+
+(A) E*_ceil      = E_ceil(regime)                 PREREGISTERED CANDIDATE for the
+                                                    confirmatory evaluation (post-#447:
+                                                    aggregate-Kelly E* transmits μ̂
+                                                    noise and is second-order to the
+                                                    breadth×cap ceiling). Independent
+                                                    of E_raw by construction — on a
+                                                    weak-signal day with a permissive
+                                                    regime, E*_ceil can EXCEED E_raw.
+
+(B) E*_kelly     = min(E_raw, E_ceil(regime))      COMPARISON ARM (the original
+                                                    Σ-shrunk-Kelly formula). This is
+                                                    the ONLY one of the three with
+                                                    E* ≤ E_raw guaranteed by
+                                                    construction — the min() makes it
+                                                    so directly.
+
+(C) E*_voltarget = min(E_vol, E_ceil(regime))       COMPARISON ARM, where
+      E_vol = σ_target / σ̂_pf                       σ̂_pf = realized/forecast
+                                                    portfolio-level vol at the
+                                                    CURRENT top-k weights (iterated
+                                                    once: weights from E_raw-capped
+                                                    Kelly, then σ̂_pf computed on those
+                                                    weights before applying the
+                                                    vol-target scale); σ_target is a
+                                                    regime-indexed constant (existing
+                                                    regime-vol-band table). Like (A),
+                                                    independent of E_raw — a low-σ̂_pf
+                                                    slate can push E_vol above E_raw.
 ```
 
-**L1-candidate amendment (post-#447)**: the exploratory tuning run (research memo
-#447) found aggregate-Kelly E* transmits μ̂ noise AND is second-order to the
-`breadth × per-name-cap` deployment ceiling. The PREREGISTERED L1 CANDIDATE for
-the confirmatory evaluation is therefore the simpler **regime-ceiling-riding
-rule** — `E* = E_ceil(regime)`, with fail-closed, hysteresis, and the weak-slate/
-model-fault distinction below all retained; the Σshrunk-Kelly formula above and a
-vol-targeted variant run as comparison ARMS (D6 §2 Phase-2, locked before
-evaluation). Whichever candidate the confirmatory run selects becomes the D2
-default; the others remain implemented behind the same config surface.
+**Arm-name cross-reference to D6 §2 Phase-2** (same candidates, protocol-doc names):
+(A) `E*_ceil` = the "regime-ceiling-riding" arm; (B) `E*_kelly` = `governor_kelly`;
+(C) `E*_voltarget` = `voltarget`.
 
-with:
+**Whichever of (A)/(B)/(C) the confirmatory run selects becomes the D2 default; the
+others remain implemented behind the same config surface** (D6 §2 Phase-2, all three
+locked before evaluation — no candidate is added or dropped after seeing results).
+
+**The three candidates are NOT interchangeable with respect to L2's feasibility
+property** (r4 review, point 1): only (B) is bounded by E_raw by construction. Under
+(A) or (C), E* can legitimately exceed E_raw — that is not a bug, it is the expected
+outcome whenever the regime (or the vol-target) is more permissive than the model's
+own conviction supports. §2.2 restates the L2 allocator's actual behavior under all
+three candidates without assuming (B)'s bound.
+
+with (applying to all three L1 candidates):
 
 - **Ceiling only, no floor** (r1 review, point 2 accepted): an exposure floor is
   forced deployment whenever the signal slate is weak — exactly the systematic
@@ -171,15 +206,51 @@ the exposure it declares is computed AFTER all constraints:
                                          never a promise
 5. residual = E* − E_final ≥ 0           routes to the parking sleeve; stamped in
                                          the ledger with the binding constraint
-                                         that produced it (cap / sector / corr /
-                                         weak slate)
+                                         that produced it (cap_sector / cap_corr /
+                                         mask / low_conviction / breadth_bound —
+                                         see the corrected feasibility statement
+                                         below for the full tag taxonomy)
 ```
 
-Since E* ≤ E_raw = Σ min(raw_i, w_cap) by §2.1 (no floor), the "cannot reach E*"
-case arises only from step-2 projections (sector/corr/masks) — and then E_final <
-E* is the correct, declared outcome with explicit residual-cash semantics. There is
-no upward water-fill anywhere: capital never flows to a name beyond what its own
-conviction (raw_i) and caps justify.
+**Corrected feasibility statement (r4 review — the prior claim "E* ≤ E_raw by §2.1"
+was true only for candidate (B) and silently assumed away candidates (A) and (C),
+where E* is independent of E_raw and can exceed it on a routine basis):**
+
+Let `E_proj = Σw` after step 2 (post sector/corr/mask projection, so `E_proj ≤
+E_raw` always, by construction — step 1 already caps each weight, step 2 only
+reduces). Step 3 gives:
+
+```
+E_final = min(E_proj, E*)
+```
+
+This holds for ALL THREE L1 candidates and is a trivial identity (step 3 only
+fires — and clamps exactly to E* — when `E_proj > E*`), not a proof requiring
+`E* ≤ E_raw`. `E_final` is always achievable and no weight ever exceeds its cap,
+regardless of which L1 candidate is active — the allocator's down-only safety
+property does NOT depend on E*'s relationship to E_raw.
+
+**"Cannot reach declared E*" (`E_final < E*`) now has THREE distinct sources, each
+stamped separately in the ledger (extending step 5's binding-constraint tag)**:
+
+1. **Step-2 projections** (sector/corr/mask): `E_proj < E_raw` and `E* ≥ E_proj`,
+   so `E_final = E_proj`. Tag: `cap_sector` / `cap_corr` / `mask`.
+2. **Low aggregate conviction** (only possible under candidates (A)/(C), where
+   `E* > E_raw ≥ E_proj` is routine on a weak-signal day with a permissive regime
+   or low realized vol): `E_final = E_proj ≤ E_raw < E*`. This is the CORRECT,
+   expected "weak slate" output from §2.1 — not a defect, and not attributable to
+   step-2 projections. Tag: `low_conviction`.
+3. **Breadth** (fewer than k names pass admission): folded into `E_raw` itself
+   (the top-k sum has fewer than k terms), surfaces identically to source 2 but is
+   tagged separately (`breadth_bound`) since it reflects the SELECT stage, not L1
+   or L2.
+
+Under candidate (B) only, source 2 cannot occur (`E* ≤ E_raw` by construction), so
+the original claim ("cannot-reach-E* arises only from projections") was correct
+for (B) alone — it does not generalize to (A)/(C), which are the confirmatory
+run's actual preregistered L1 candidate and one of its comparison arms. There is
+no upward water-fill anywhere under any candidate: capital never flows to a name
+beyond what its own conviction (raw_i) and caps justify.
 
 This is `fractional_kelly_top_k` + the existing constraint set — analytic, per-name,
 **no shared turnover budget** (turnover control lives in the per-name no-trade band,
