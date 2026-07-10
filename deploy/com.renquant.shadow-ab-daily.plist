@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  D6-§2a two-arm shadow experiment — daily paired session at 14:35 PT
+  (post-close, after the daily prod cycle completes).
+
+  TEMPLATE ONLY: merging this file does NOT install anything. Arming is a
+  separately-granted operator landing step:
+
+      cp deploy/com.renquant.shadow-ab-daily.plist ~/Library/LaunchAgents/
+      launchctl load ~/Library/LaunchAgents/com.renquant.shadow-ab-daily.plist
+
+  The wrapper (scripts/shadow_ab_daily.sh) is readonly by construction: it
+  never writes prod state, never places orders, and a failure only marks the
+  session-pair invalid (exit 4) or VOID (exit 5, config drift).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.renquant.shadow-ab-daily</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator/scripts/shadow_ab_daily.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>14</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/renhao/renquant-shadow-ab/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/renhao/renquant-shadow-ab/logs/launchd.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

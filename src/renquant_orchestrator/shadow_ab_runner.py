@@ -617,13 +617,24 @@ def build_arm_plan(
         context_command += ["--calibrator-content-sha256", calibrator_content_sha256]
     if repo_root is not None:
         context_command += ["--repo-root", str(repo_root)]
+    inference_command = [
+        "renquant-orchestrator", "native-live-inference",
+        "--context-json", str(context_json),
+        "--output-json", str(inference_json),
+        # Hydrate the pinned pipeline's REAL InferenceContext (GOAL-1 fix:
+        # the 2026-07-10 first real session died on ctx.today because a bare
+        # namespace was handed to InferencePipeline.run). Anchors mirror the
+        # context command's so both steps resolve identically.
+        "--hydrate-pipeline-context",
+        "--session-date", session_date,
+        "--broker-name", tag,
+        "--strategy-dir", str(strategy_dir),
+    ]
+    if repo_root is not None:
+        inference_command += ["--repo-root", str(repo_root)]
     return [
         context_command,
-        [
-            "renquant-orchestrator", "native-live-inference",
-            "--context-json", str(context_json),
-            "--output-json", str(inference_json),
-        ],
+        inference_command,
         [
             "renquant-orchestrator", "native-live-run",
             "--inference-json", str(inference_json),

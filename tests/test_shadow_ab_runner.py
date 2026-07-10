@@ -1195,3 +1195,15 @@ def test_every_runner_emitted_command_parses_and_dispatches_through_cli(
     run_argv = received["native-live-run"]
     assert FROZEN_TAG_A == run_argv[run_argv.index("--broker-name") + 1]
     assert FROZEN_TAG_A == run_argv[run_argv.index("--live-state-broker-name") + 1]
+    # the pipeline-context hydration args reach the inference module intact
+    # (GOAL-1: without them the pinned pipeline gets a bare namespace and
+    # dies on ctx.today)
+    inference_argv = received["native-live-inference"]
+    assert "--hydrate-pipeline-context" in inference_argv
+    for flag, value in (
+        ("--session-date", "2026-07-10"),
+        ("--broker-name", FROZEN_TAG_A),
+        ("--strategy-dir", str(tmp_path / "configs")),
+        ("--repo-root", str(tmp_path / "runtime-root")),
+    ):
+        assert value == inference_argv[inference_argv.index(flag) + 1]
