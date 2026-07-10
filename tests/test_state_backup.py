@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gzip
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -200,6 +202,125 @@ def test_main_prints_json_summary(monkeypatch, tmp_path: Path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["backup_repo"] == str(backup.resolve())
     assert payload["pushed"] is False
+
+
+def test_oversized_sqlite_is_compressed_and_commit_proceeds(tmp_path: Path) -> None:
+    # Regression: data/runs.alpaca.db crossed GitHub's 100MB push limit, so the
+    # hourly backup copied it raw and then refused to commit (rc=1 forever).
+    # Oversized SQLite DBs must be gzipped instead, with the stale raw copy
+    # removed so the size gate cannot trip on it.
+    repo = _make_repo(tmp_path)
+    backup = tmp_path / "backup"
+    _init_git_repo(backup)
+    big = repo / "data" / "runs.alpaca.db"
+    _write_sqlite(big)
+    with sqlite3.connect(big) as conn:
+        conn.execute("insert into t(value) values (?)", ("x" * 200_000,))
+    _write_sqlite(repo / "data" / "runs.db")
+    stale_raw = backup / "data" / "runs.alpaca.db"
+    stale_raw.parent.mkdir(parents=True)
+    stale_raw.write_bytes(b"stale oversized raw copy from a failed run")
+
+    ctx = mod.StateBackupContext(
+        repo_root=repo,
+        backup_repo=backup,
+        push=False,
+        # Between the sizes of the two fixture DBs: runs.db (a few pages) stays
+        # raw, runs.alpaca.db (~200KB payload) crosses the threshold.
+        compress_threshold_bytes=100_000,
+    )
+    result = mod.build_pipeline().run(ctx)
+
+    assert result.ok is True
+    gz = backup / "data" / "runs.alpaca.db.gz"
+    assert gz.exists()
+    assert not stale_raw.exists()
+    assert ctx.committed is True
+    (entry,) = ctx.compressed
+    assert entry["path"] == str(gz)
+    assert str(gz) in ctx.copied
+    restored = gzip.decompress(gz.read_bytes())
+    assert hashlib.sha256(restored).hexdigest() == entry["sha256"]
+    assert entry["uncompressed_bytes"] == len(restored)
+    restored_db = tmp_path / "restored.db"
+    restored_db.write_bytes(restored)
+    with sqlite3.connect(restored_db) as conn:
+        assert conn.execute("select count(*) from t").fetchone()[0] == 2
+    # The under-threshold DB stays a raw uncompressed copy.
+    assert (backup / "data" / "runs.db").exists()
+    assert not (backup / "data" / "runs.db.gz").exists()
+
+
+def test_under_threshold_files_unchanged_and_stale_gz_cleaned(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path)
+    backup = tmp_path / "backup"
+    _init_git_repo(backup)
+    _write_sqlite(repo / "data" / "runs.db")
+    live = repo / "backtesting" / "renquant_104" / "live_state.alpaca.json"
+    live.write_text(json.dumps({"cash": 1}), encoding="utf-8")
+    stale_gz = backup / "data" / "runs.db.gz"
+    stale_gz.parent.mkdir(parents=True)
+    stale_gz.write_bytes(b"stale gz from an oversized era")
+
+    ctx = mod.StateBackupContext(repo_root=repo, backup_repo=backup, push=False)
+    result = mod.build_pipeline().run(ctx)
+
+    assert result.ok is True
+    assert ctx.compressed == []
+    # Plain-copied files are byte-for-byte identical to the source.
+    assert (backup / "live_state.alpaca.json").read_bytes() == live.read_bytes()
+    # The under-threshold SQLite DB is stored raw (online-backup copy, same
+    # code path as before the oversized policy), never compressed.
+    dst = backup / "data" / "runs.db"
+    assert mod.is_sqlite_file(dst)
+    with sqlite3.connect(dst) as conn:
+        assert conn.execute("select value from t").fetchone()[0] == "ok"
+    # A DB that shrank back under the threshold drops its stale gz twin.
+    assert not stale_gz.exists()
+
+
+def test_non_sqlite_oversized_still_refuses_commit(tmp_path: Path, monkeypatch, capsys) -> None:
+    repo = _make_repo(tmp_path)
+    backup = tmp_path / "backup"
+    _init_git_repo(backup)
+    (repo / "backtesting" / "renquant_104" / "live_state.alpaca.json").write_text(
+        json.dumps({"pad": "x" * 64}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mod, "HARD_LIMIT_BYTES", 8)
+
+    rc = mod.main([
+        "--repo-root",
+        str(repo),
+        "--backup-repo",
+        str(backup),
+        "--no-push",
+        "--quiet",
+        "--compress-threshold-mb",
+        "0.000001",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert payload["committed"] is False
+    assert "exceed GitHub 100MB push limit" in payload["error"]
+
+
+def test_compress_threshold_configurable_via_cli_and_env(monkeypatch) -> None:
+    assert mod.parse_args([]).compress_threshold_mb == 95.0
+    assert mod.parse_args(["--compress-threshold-mb", "50"]).compress_threshold_mb == 50.0
+    monkeypatch.setenv("RQ_BACKUP_COMPRESS_THRESHOLD_MB", "12")
+    assert mod.parse_args([]).compress_threshold_mb == 12.0
+
+
+def test_is_sqlite_file_detects_header(tmp_path: Path) -> None:
+    db = tmp_path / "a.db"
+    _write_sqlite(db)
+    other = tmp_path / "b.bin"
+    other.write_bytes(b"not a database")
+    assert mod.is_sqlite_file(db) is True
+    assert mod.is_sqlite_file(other) is False
+    assert mod.is_sqlite_file(tmp_path / "missing") is False
 
 
 def test_main_prints_json_summary_on_pipeline_failure(monkeypatch, tmp_path: Path, capsys) -> None:
