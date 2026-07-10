@@ -70,8 +70,13 @@ as candidate vs `current_qp` incumbent.
 
 - **Pairwise rotation tree** (`min_expected_advantage_pct=0.06` vs max observed
   net_adv 0.043; 0 rotations in 6 eligible days): under a portfolio-level allocator,
-  rotation IS the weight delta between sessions — a separate pairwise-swap search with
-  a hand-tuned threshold is redundant structure.
+  rotation IS the weight delta between sessions. r1 review point 4 accepted: the tree
+  is a RETIREMENT CANDIDATE, not pre-committed — it stays in place until replay shows
+  the allocator's tax-aware target-delta execution dominates it. Concrete execution
+  policy for delta orders: every exit leg is charged its lot-level tax drag (existing
+  `tax_drag()` helper) + transaction cost at order generation; an exit+entry pair is
+  emitted only if the post-cost improvement is positive; min-hold and wash-sale masks
+  apply unchanged (they enter L2 as no-sell masks).
 - **`panel_buy_top_n`**: not read anywhere in the active path (joint-actions-only
   knob); the live initiation cap is `open_slots`. Documenting to kill the recurring
   misattribution.
@@ -111,32 +116,61 @@ raw_i  = λ · max(μ̂_i − s·σ_i, 0) / σ_i²        shrunk fractional Kell
                                                   (λ = kelly fraction, s = μ-shrinkage;
                                                    both existing, trusted params)
 E_raw  = Σ_{i ∈ top-k} min(raw_i, w_cap)         aggregate desired exposure
-E*     = clip(E_raw, E_floor(regime), E_ceil(regime))
+E*     = min(E_raw, E_ceil(regime))              ceiling only — NO exposure floor
 ```
 
 with:
 
-- **Regime bounds, not regime targets**: `E_floor/E_ceil` per regime (e.g. BULL_CALM
-  [0.5, 0.95], CHOPPY [0.2, 0.7], BEAR [0, 0.4] — exact values are config, frozen at
-  protocol sign-off). Inside the bounds the SIGNAL decides — this is the "dynamic
-  algorithm, not a number" requirement.
+- **Ceiling only, no floor** (r1 review, point 2 accepted): an exposure floor is
+  forced deployment whenever the signal slate is weak — exactly the systematic
+  low-quality exposure this design must not create. Shrunk Kelly already contracts
+  when edges are weak; a weak slate → low E* is the CORRECT output, not a failure.
+  Regime enters through `E_ceil` (risk-off regimes cap exposure) and through μ̂/σ̂
+  themselves. Residual cash above E* is not "drag" — it routes to the parking
+  sleeve (RS-1, S7 shadow already built) as the explicit idle-capital home.
+- **Weak slate vs model fault are distinguished states**: model fault (staleness,
+  fingerprint mismatch, calibrator contract failure) → Governor emits NO target,
+  pipeline falls back to current behavior (fail-closed). Healthy model with a weak
+  admitted slate → Governor emits the LOW E* the signal supports, with the slate
+  quality (count of admitted names, Σ raw Kelly, μ̂ dispersion) stamped in the
+  decision ledger so weak-slate sessions are auditable, not silent.
 - **Hysteresis**: E* moves toward target through a no-trade band — reallocate only
   when `|E*_new − E_current| > band` (Davis-Norman closed form already in
   `davis_norman.py`), preventing daily churn from noise in μ̂.
 - **Confidence scaling**: regime classifier confidence multiplies the distance E* may
   move per session (existing `confidence_to_size_multiplier` concept, relocated here).
-- **Failure semantics**: if the model/calibrator is stale or fingerprint-mismatched,
-  the Governor emits NO target and the pipeline falls back to current behavior
-  (fail-closed = today's status quo, never forced deployment on a broken signal).
 
-### 2.2 L2 — concentrated allocation
+### 2.2 L2 — concentrated allocation (achievable-exposure operator)
+
+r1 review point 1 accepted: proportional scaling can push weights above per-name
+caps, and projection can make a declared E* unattainable. The allocator is therefore
+a deterministic DOWN-ONLY operator — it never scales any weight above its cap, and
+the exposure it declares is computed AFTER all constraints:
 
 ```
-w_i = min(raw_i, w_cap) · E* / E_raw             proportional scale to hit E*
+1. w_i   = min(raw_i, w_cap_i)          per-name capped Kelly, top-k by conviction
+2. w_i  ← project(w)                    sector cap, correlation-pair cap,
+                                         no-sell/wash-sale masks — each applied by
+                                         reducing the offending weights only
+                                         (conviction-ordered: lowest conviction
+                                         trimmed first), never raising any weight
+3. if Σw > E*:  w ← w · E*/Σw           proportional scale-DOWN only (safe: every
+                                         factor ≤ 1, caps preserved)
+4. E_final = Σw                          the DECLARED exposure — always achievable
+                                         by construction; E* is a ceiling input,
+                                         never a promise
+5. residual = E* − E_final ≥ 0           routes to the parking sleeve; stamped in
+                                         the ledger with the binding constraint
+                                         that produced it (cap / sector / corr /
+                                         weak slate)
 ```
 
-subject to (applied as a cheap projection, in order): per-name cap (regime
-`max_position_pct`), sector cap, correlation-pair cap, held-position no-sell masks.
+Since E* ≤ E_raw = Σ min(raw_i, w_cap) by §2.1 (no floor), the "cannot reach E*"
+case arises only from step-2 projections (sector/corr/masks) — and then E_final <
+E* is the correct, declared outcome with explicit residual-cash semantics. There is
+no upward water-fill anywhere: capital never flows to a name beyond what its own
+conviction (raw_i) and caps justify.
+
 This is `fractional_kelly_top_k` + the existing constraint set — analytic, per-name,
 **no shared turnover budget** (turnover control lives in the per-name no-trade band,
 which cannot starve new entries by construction).

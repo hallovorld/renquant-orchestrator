@@ -1,0 +1,118 @@
+# D6: Preregistered replay protocol — Deployment Governor evaluation
+
+STATUS: preregistration (companion to the Deployment Governor RFC, same PR)
+DATE: 2026-07-09
+DISCIPLINE: every rule, arm, estimand, and tolerance below is FROZEN at protocol
+sign-off (PR merge), BEFORE any evaluation arm is run or inspected. Changes after
+sign-off void the run and require a new protocol version.
+
+## 1. Data and session freeze rule
+
+- **Source**: the WF-cut loader used by `run_ab_replay.py` (renquant-pipeline
+  `portfolio_qp/`), which refuses synthetic placeholder bars by construction.
+- **Freeze rule** (mechanical, no discretion): all WF manifold cuts available at
+  sign-off, EXCLUDING any session in the hypothesis-generation window
+  **2026-06-23 → 2026-07-09** and excluding any session individually inspected in
+  the evidence memo (#442). The concrete cut list (exact session IDs), manifest SHA,
+  data cutoff date, and as-of feature/model artifact timestamps are committed in the
+  S0 results PR header BEFORE arms run.
+- **Nested selection** (r1 point 3): ALL Governor hyperparameters — regime `E_ceil`
+  values, hysteresis band width, top-k, shrinkage `s`, Kelly fraction `λ` — are
+  chosen on a TUNING subset of sessions disjoint from the evaluation subset. Both
+  subset ID lists are frozen in the same commit. The evaluation subset is never used
+  to choose any parameter; a parameter change after seeing evaluation results
+  requires a new protocol version and a fresh evaluation subset.
+- **Live confirmation set**: S1 shadow sessions are future-only by construction.
+
+## 1.1 Cost, tax, and fill conventions (frozen)
+
+- Linear transaction cost: 5 bps per side on every traded dollar, both directions.
+- Tax drag: realized-gain tax at configured rates (short 50% / long 32%) charged on
+  every exit leg's realized PnL, via the existing `tax_drag()` convention.
+- Whole-share quantization applied in all arms' execution layer (no fractional
+  assumption anywhere in the replay).
+- Fill convention: full fill at the session close price (replay convention; the
+  S1 live shadow measures real-world deviation from this assumption).
+
+## 1.2 Statistical contract (frozen)
+
+- Paired daily returns per arm-pair; inference on the paired series with
+  HAC/Newey-West standard errors (forward-return overlap at the 60d horizon makes
+  iid inference invalid).
+- Promotion bar per comparison: paired mean advantage point estimate ≥ +1 bp/day
+  AND HAC 95% CI excluding 0 AND DSR ≥ 0.95 AND PBO ≤ 0.10 (the harness's existing
+  significance pass).
+- Marginal-capital estimand: same bar (CI excluding 0) on the paired difference
+  series defined in §3.
+- "Governor ≥ baseline" without meeting this bar is NOT enable-grade evidence.
+
+## 2. Arms
+
+**Phase 1 (runs immediately — no new code required):** the registered baseline
+allocators: `equal_weight_top_k`, `inverse_vol_top_k`, `fractional_kelly_top_k`,
+`hybrid_option_f_allocator`, `hard_only_qp_allocator`, `current_qp` (reference),
+`stage_a_a2_long_only`.
+Purpose: establish the naive-diversification floor ordering (DeMiguel 2009) and
+confirm/refute the prior clean-signal finding that α-tilt dominates current_qp.
+
+**Phase 2 (after D2 lands, flag OFF):** + `governor_kelly` = fractional Kelly SIZE
+stage under the L1 E* overlay (aggregate shrunk-Kelly clipped to regime bounds,
+hysteresis active).
+
+## 3. Estimands
+
+**Primary:**
+1. End-of-chain deployed fraction (mean and per-session distribution).
+2. Paired daily portfolio returns vs each baseline arm, significance via the
+   existing DSR / PBO pass (`compute_significance_verdicts`) — promotion-grade
+   requires positive paired mean with DSR ≥ 0.95 and PBO ≤ 0.10 (the harness's
+   existing promotion bar).
+
+**Quality of marginal capital** (Codex requirement from #442): the Governor arm's
+EXTRA exposure vs the incumbent-deployment proxy must itself earn ≥ 0 net forward
+return — measured as paired return difference between the Governor arm and a
+synthetic arm holding the incumbent's E* with the Governor's weights renormalized.
+More invested but worse risk-adjusted = REJECT.
+
+**Risk-normalization rule**: raising deployment mechanically raises portfolio
+volatility; that risk appetite is the operator's granted mandate, NOT an estimand.
+Comparisons between arms are made AT MATCHED E* (all Phase-1/2 arms allocate the
+same session E*), so the allocator choice is evaluated separately from the
+deployment-level choice. The deployment-level choice is evaluated by the marginal-
+capital estimand above plus the hard gates below.
+
+## 4. Non-degradation gates (tolerances frozen now)
+
+| Gate | Tolerance | Rationale |
+|---|---|---|
+| Max single-name weight | ≤ 12% | existing operator sizing mandate |
+| Max sector weight | ≤ 35% | existing regime cap |
+| Session turnover | ≤ 2× the equal-weight arm's | churn control without a shared L1 cap |
+| Max drawdown (replay window) | ≤ regime `drawdown_halt_pct` (0.35) with ≥ 5pp headroom (i.e. ≤ 0.30) | never design to the halt line |
+| Fail-closed behavior | Governor emits no target on stale/mismatched model in 100% of injected-failure cases | RFC §2.1 semantics |
+
+## 5. Decision rules
+
+ENABLE the Governor (proceed S1 → S2) iff ALL of:
+- Governor arm beats `equal_weight_top_k` and `inverse_vol_top_k` on paired returns
+  at the DSR/PBO bar (if it cannot beat naive diversification, ship equal-weight
+  under the same E* governor — the L1 layer can still be right when the L2 answer
+  is "naive");
+- marginal-capital estimand ≥ 0;
+- every gate in §4 passes;
+- no single session violates the concentration caps.
+
+REJECT / REDESIGN iff any gate breaches, or the marginal-capital estimand is
+negative (deploying more of this signal destroys value — then the cash-drag answer
+is "the signal doesn't support more deployment", and the honest next move is the
+parking sleeve (RS-1) for idle cash, not forced equity exposure).
+
+**Stop rule**: any mid-run gate breach aborts the arm immediately; partial results
+are reported as diagnostic only.
+
+## 6. What this protocol does NOT authorize
+
+- No live enablement: S2 canary and S3 enable each require their own recorded
+  decision (S3 = behavior change → pre-registration gate + operator notification).
+- No long-short: L4 has its own future protocol.
+- No fractional shares: D7 memo → operator decision, independent of this.
