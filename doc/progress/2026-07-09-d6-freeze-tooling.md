@@ -45,3 +45,26 @@ contract); production DB and umbrella artifacts touched read-only.
 **Next**: after RFC #443 approval — run the generator with an agreed seed,
 commit + push the record (the freeze commit), then `--verify` immediately
 before Phase-1 arm execution.
+
+## Addendum 2026-07-10 — loader-parity gate (codex review)
+
+Codex flagged that the tool's session-enumeration SQL duplicates the pipeline
+loader's logic, so semantic drift could freeze inputs the replay never
+consumes. Closed by making the loader the mechanically-enforced ground truth:
+
+- `test_session_parity_with_pipeline_loader` imports the ACTUAL loader
+  (`renquant_pipeline.kernel.portfolio_qp.wf_replay_loader.
+  load_replay_bars_from_sim_db`, on PYTHONPATH in the make-test env;
+  `importorskip` elsewhere) and asserts identical session lists per horizon
+  on a synthetic fixture covering: exactly 1 vs >= 2 joined rows (boundary),
+  NULL mu, NULL sigma, missing fwd rows entirely, fwd column NULL at one
+  horizon, and one ticker under two run_ids (the loader counts ROWS, not
+  distinct tickers — bar carries the ticker twice; the tool agrees).
+- No discrepancy existed; no SQL change was needed. The tool's
+  `enumerate_sessions` docstring now marks the parity gate so future loader
+  changes route back here.
+- Real-data parity (byte-identical scratch copy of `sim_runs.db`, primary
+  never touched): loader vs tool identical at both horizons — 497 fwd_1d
+  (2024-01-02 → 2026-03-27), 483 fwd_60d (2024-01-02 → 2026-03-09).
+- Status: the tool remains DRAFT until RFC #443 merges (design-first
+  ruling); this addendum only closes the parity gap.

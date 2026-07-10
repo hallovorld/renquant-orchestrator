@@ -148,6 +148,12 @@ def enumerate_sessions(conn: sqlite3.Connection, horizon_days: int) -> list[str]
     (mu, sigma non-NULL) with ticker_forward_returns (fwd col non-NULL),
     counting joined ROWS per date (the loader counts rows, not distinct
     tickers) and requiring >= MIN_ROWS_PER_SESSION.
+
+    PARITY GATE (codex review, PR #446): this enumeration is asserted equal
+    to the ACTUAL pipeline loader's output in tests/test_d6_freeze_record.py
+    ::test_session_parity_with_pipeline_loader. If the loader's session
+    semantics ever change, that test fails and THIS query must be updated to
+    match — the loader is ground truth for what the replay consumes.
     """
     fwd_col = _fwd_column(horizon_days)
     cur = conn.execute(
