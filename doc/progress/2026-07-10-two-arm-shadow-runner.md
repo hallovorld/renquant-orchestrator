@@ -8,16 +8,14 @@ WHAT:      Implements the §2a two-arm shadow session runner
            schedule, no daily_104 change.
 WHY/DIR:   Prerequisite P-2 for orchestrator#443's D6-§2a breadth-lever
            shadow A/B (now MERGED). Depends on P-1 (renquant-execution
-           readonly-broker parameterization, execution#26) and P-1b
-           (pipeline ALLOWED_BROKERS entries, pipeline#181); the strategy-104
-           config-only `shadow_b` PR (the #52 successor) is the remaining
-           prerequisite before arming.
+           readonly-broker parameterization, execution#26, MERGED) and P-1b
+           (pipeline ALLOWED_BROKERS entries, pipeline#181, MERGED); the
+           strategy-104 config-only `shadow_a`/`shadow_b` PR (#53, MERGED)
+           is done too. This PR (P-2) is the last prerequisite before arming.
 EVIDENCE:  n/a (code-structure/contract-enforcement PR; no model/data claim)
-NEXT:      Codex review of this post-#443-merge revision (decision-snapshot
-           digest, pin/commit drift checks, treatment-key isolation, no
-           umbrella-layout fallback — see "Post-#443-merge fixes" below).
-           Once approved: the strategy-104 config-only PR, then arming
-           (a separately-gated step).
+NEXT:      Codex review of this revision (account-snapshot sealing +
+           digest coverage — see "Paired-world sealing fix" below). Once
+           approved: arming is a separately-gated step.
 
 ## Bottom line
 
@@ -132,3 +130,54 @@ unaffected (new params are optional, backward compatible). Full suite: 3310 pass
 skipped, 1 pre-existing failure unrelated to this PR (`test_parking_sleeve_cli_
 computes_allocation`, a worktree-path artifact in a file this PR never touches — confirmed
 via `git diff --stat` showing zero changes to that file).
+
+## Paired-world sealing fix (Codex review on #451, "paired-world proof is still incomplete")
+
+Codex's next review found the point-1 fix above real but incomplete: the digest covered
+only the market snapshot + model/calibrator + date, never the account snapshot, and
+nothing MATERIALIZED (immutably copied) either snapshot before either arm consumed it —
+a caller could mutate the account file after the freeze, or (in principle) a future
+caller could pass genuinely different account snapshots per arm while the market-only
+digest looked identical.
+
+Fixed both halves:
+
+- **`native_live_context.compute_decision_snapshot_digest()`** gains a required
+  `account_snapshot` parameter, included in the canonical digest alongside the market
+  snapshot. `STARTING_STATE_CONVENTION`'s docstring is corrected: the RULE (each arm
+  reads its own prior-EOD state) is shared, but that never meant the account snapshot's
+  CONTENT was excluded from integrity checking — it now is, per-arm.
+- **New `native_live_context.seal_json_snapshot()`**: loads a JSON snapshot and writes a
+  canonical immutable copy to a dedicated path. `run_shadow_ab_session` now seals both
+  the market and account snapshots into `<session_dir>/sealed_market_snapshot.json` /
+  `sealed_account_snapshot.json` BEFORE computing the digest or building either arm's
+  plan, and both arms are handed the SEALED paths, never the original caller-supplied
+  ones — a mutation of the original after sealing has zero effect on what either arm
+  reads. (Plan-only mode does no sealing — no writes are permitted under `output_root`
+  in that mode — and reads the given paths directly instead, which requires them to
+  already exist; an auto-generated account snapshot that hasn't been materialized yet is
+  a plan-only caller error now, not a silent gap, since it never worked correctly before
+  either.)
+- **`build_native_live_context()`** already loaded the account snapshot for its own
+  payload; it now also feeds that same loaded dict into its digest recomputation, so
+  consumption-side verification catches a mutated/mismatched account file exactly the
+  same way it already caught a mutated market file — no new CLI flags needed.
+- The one existing case where an account snapshot needs auto-generation
+  (`account_snapshot_json=None`) is now run EAGERLY (before the digest, not deferred to
+  the later shared-steps batch) so real content exists to seal — the single call site
+  that used to defer this is unchanged in the explicit-path case (by far the common one;
+  every existing test uses it).
+
+Tests: `tests/test_shadow_ab_runner.py` grew from 39 to 43 — a module-level
+account-only-difference test proving two otherwise-identical inputs with different
+account content get different digests, a module-level mutation test on
+`build_native_live_context` proving a post-freeze account mutation fails closed, and two
+session-level integration tests (digest changes with account content;
+sealed copies survive a post-hoc mutation of the originals). One existing test
+(`test_arms_run_sequentially_and_consume_same_inputs`) updated to assert both arms
+reference the SEALED paths, not the originals. Full suite: 3314 passed, 3 skipped, the
+same 1 pre-existing unrelated failure (confirmed reproducible across 3 repeated full-suite
+runs; an earlier single run showed 5 additional failures that did not reproduce in
+isolation or in 3 subsequent full-suite runs — a flaky/ordering artifact, not a real
+regression, since the unmodified branch also passes those 5 tests both in isolation and
+across repeated full-suite runs).

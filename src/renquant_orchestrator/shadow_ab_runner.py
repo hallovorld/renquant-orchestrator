@@ -71,7 +71,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .native_live_context import compute_decision_snapshot_digest
+from .native_live_context import compute_decision_snapshot_digest, seal_json_snapshot
 from .runtime_paths import default_github_root, default_repo_root
 
 # --- frozen protocol constants (§2a) -----------------------------------------
@@ -987,7 +987,8 @@ def run_shadow_ab_session(
     session_dir_a = session_dir / f"arm_{arm_a.tag}"
     session_dir_b = session_dir / f"arm_{arm_b.tag}"
     shared_steps: list[list[str]] = []
-    if account_snapshot_json is None:
+    account_needs_generation = account_snapshot_json is None
+    if account_needs_generation:
         account_snapshot_json = session_dir / "account_snapshot.json"
         shared_steps.append([
             "renquant-orchestrator", "native-live-account-snapshot",
@@ -997,11 +998,57 @@ def run_shadow_ab_session(
     account_snapshot_json = Path(account_snapshot_json)
     market_snapshot_json = Path(market_snapshot_json)
 
-    # -- the shared decision snapshot (r7 point 1): ONE digest, computed once
-    # before either arm runs, handed to BOTH — never independently resolved
-    # by each arm at its own invocation time. ------------------------------
+    shared_planned_commands = list(shared_steps)
+    if not plan_only and account_needs_generation:
+        # The digest (below) needs REAL content to seal/hash, so an
+        # auto-generated account snapshot must be materialized NOW rather
+        # than deferred to the later shared-steps batch. Run it eagerly and
+        # do not re-run it there (shared_planned_commands still records it
+        # for the bundle's plan-review display).
+        session_dir.mkdir(parents=True, exist_ok=True)
+        gen_steps, gen_ok = _run_steps(shared_steps, run=run, env=env)
+        bundle["shared_steps"] = gen_steps
+        if not gen_ok:
+            bundle["reasons"].append("shared_input_failure: session input step failed")
+            for entry in bundle["arms"].values():
+                entry["invalidation_reasons"].append(
+                    "paired_invalidation: shared session inputs failed; neither arm ran"
+                )
+            return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
+        shared_steps = []
+
+    # -- the shared decision snapshot (r7/r8 points): ONE digest per arm,
+    # computed once before either arm runs, from SEALED (immutably copied)
+    # snapshot content -- never independently resolved by each arm at its
+    # own invocation time, and never trusting the original caller-supplied
+    # paths to stay unmutated for the run's duration. ------------------------
+    if plan_only:
+        # No writes allowed in plan-only mode (nothing under output_root may
+        # be created) -- read the given paths directly; this requires both
+        # to already exist (true for every explicit-path caller; an
+        # unmaterialized auto-generated account snapshot in plan-only mode
+        # is a caller error, not a silent gap).
+        if not account_snapshot_json.exists():
+            raise ShadowABContractError(
+                "plan_only requires an existing account_snapshot_json; "
+                "auto-generation only happens during a real run"
+            )
+        market_snapshot_for_digest = json.loads(market_snapshot_json.read_bytes())
+        account_snapshot_for_digest = json.loads(account_snapshot_json.read_bytes())
+        market_snapshot_for_plan = market_snapshot_json
+        account_snapshot_for_plan = account_snapshot_json
+    else:
+        session_dir.mkdir(parents=True, exist_ok=True)
+        sealed_market_path = session_dir / "sealed_market_snapshot.json"
+        sealed_account_path = session_dir / "sealed_account_snapshot.json"
+        market_snapshot_for_digest = seal_json_snapshot(market_snapshot_json, sealed_market_path)
+        account_snapshot_for_digest = seal_json_snapshot(account_snapshot_json, sealed_account_path)
+        market_snapshot_for_plan = sealed_market_path
+        account_snapshot_for_plan = sealed_account_path
+
     decision_snapshot_digest = compute_decision_snapshot_digest(
-        market_snapshot=json.loads(market_snapshot_json.read_bytes()),
+        market_snapshot=market_snapshot_for_digest,
+        account_snapshot=account_snapshot_for_digest,
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
         session_date=session_date,
@@ -1013,8 +1060,8 @@ def run_shadow_ab_session(
         tag=arm_a.tag,
         config_path=arm_a.config_path,
         arm_dir=session_dir_a,
-        market_snapshot_json=market_snapshot_json,
-        account_snapshot_json=account_snapshot_json,
+        market_snapshot_json=market_snapshot_for_plan,
+        account_snapshot_json=account_snapshot_for_plan,
         strategy_dir=strategy_dir,
         session_date=session_date,
         decision_snapshot_digest=decision_snapshot_digest,
@@ -1025,8 +1072,8 @@ def run_shadow_ab_session(
         tag=arm_b.tag,
         config_path=arm_b.config_path,
         arm_dir=session_dir_b,
-        market_snapshot_json=market_snapshot_json,
-        account_snapshot_json=account_snapshot_json,
+        market_snapshot_json=market_snapshot_for_plan,
+        account_snapshot_json=account_snapshot_for_plan,
         strategy_dir=strategy_dir,
         session_date=session_date,
         decision_snapshot_digest=decision_snapshot_digest,
@@ -1054,7 +1101,7 @@ def run_shadow_ab_session(
 
     bundle["arms"]["a"]["planned_commands"] = [list(c) for c in plan_a]
     bundle["arms"]["b"]["planned_commands"] = [list(c) for c in plan_b]
-    bundle["shared_planned_commands"] = [list(c) for c in shared_steps]
+    bundle["shared_planned_commands"] = [list(c) for c in shared_planned_commands]
 
     if plan_only:
         bundle["status"] = "plan_only"

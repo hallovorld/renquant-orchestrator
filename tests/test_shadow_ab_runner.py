@@ -185,12 +185,22 @@ def test_arms_run_sequentially_and_consume_same_inputs(tmp_path: Path) -> None:
     b_indexes = [i for i, c in enumerate(commands) if any(FROZEN_TAG_B in t for t in c)]
     assert a_indexes and b_indexes
     assert max(a_indexes) < min(b_indexes)
-    # both arms consume the SAME session-shared snapshot files
+    # both arms consume the SAME session-shared snapshot files -- the SEALED
+    # (immutably copied) versions, not the original caller-supplied paths
+    # (r8 correction: a mutation of the original after sealing must have no
+    # effect on what either arm actually reads).
     context_cmds = [c for c in commands if "native-live-context" in c]
     assert len(context_cmds) == 2
+    sealed_market = tmp_path / "sessions" / "2026-07-10" / "sealed_market_snapshot.json"
+    sealed_account = tmp_path / "sessions" / "2026-07-10" / "sealed_account_snapshot.json"
+    assert sealed_market.exists() and sealed_account.exists()
+    assert json.loads(sealed_market.read_text()) == json.loads(world["market"].read_text())
+    assert json.loads(sealed_account.read_text()) == json.loads(world["account"].read_text())
     for cmd in context_cmds:
-        assert str(world["market"]) in cmd
-        assert str(world["account"]) in cmd
+        assert str(sealed_market) in cmd
+        assert str(sealed_account) in cmd
+        assert str(world["market"]) not in cmd
+        assert str(world["account"]) not in cmd
 
 
 # --- same-world rule -------------------------------------------------------------
@@ -602,21 +612,46 @@ def test_run_aborts_when_config_diff_has_an_extra_delta(tmp_path: Path) -> None:
 
 def test_decision_snapshot_digest_is_deterministic_and_order_independent() -> None:
     market = {"as_of": "2026-07-10", "tickers": ["AAPL", "MSFT"]}
+    account = {"positions": {}, "cash": 1000.0}
     d1 = compute_decision_snapshot_digest(
-        market_snapshot=market, model_content_sha256="m1",
+        market_snapshot=market, account_snapshot=account, model_content_sha256="m1",
         calibrator_content_sha256="c1", session_date="2026-07-10",
     )
     d2 = compute_decision_snapshot_digest(
-        market_snapshot=dict(market), model_content_sha256="m1",
+        market_snapshot=dict(market), account_snapshot=dict(account), model_content_sha256="m1",
         calibrator_content_sha256="c1", session_date="2026-07-10",
     )
     assert d1 == d2
 
     d_diff_market = compute_decision_snapshot_digest(
-        market_snapshot={**market, "tickers": ["AAPL"]}, model_content_sha256="m1",
-        calibrator_content_sha256="c1", session_date="2026-07-10",
+        market_snapshot={**market, "tickers": ["AAPL"]}, account_snapshot=account,
+        model_content_sha256="m1", calibrator_content_sha256="c1", session_date="2026-07-10",
     )
     assert d_diff_market != d1
+
+
+def test_decision_snapshot_digest_changes_when_only_account_differs() -> None:
+    """r8 correction (Codex review on #451): two 'arms' with identical
+    market/model/calibrator/date but DIFFERENT account snapshots must get
+    DIFFERENT digests — proving the account snapshot's content is a real
+    input to the digest, not silently ignored as the pre-r8 implementation
+    did."""
+    market = {"as_of": "2026-07-10", "tickers": ["AAPL"]}
+    common = dict(model_content_sha256="m1", calibrator_content_sha256="c1", session_date="2026-07-10")
+
+    d_account_1 = compute_decision_snapshot_digest(
+        market_snapshot=market, account_snapshot={"positions": {}, "cash": 1000.0}, **common,
+    )
+    d_account_2 = compute_decision_snapshot_digest(
+        market_snapshot=market, account_snapshot={"positions": {"AAPL": 10}, "cash": 500.0}, **common,
+    )
+    assert d_account_1 != d_account_2
+
+    # same account content (even a fresh dict instance) -> same digest
+    d_account_1_again = compute_decision_snapshot_digest(
+        market_snapshot=market, account_snapshot={"positions": {}, "cash": 1000.0}, **common,
+    )
+    assert d_account_1 == d_account_1_again
 
 
 def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
@@ -629,6 +664,7 @@ def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
 
     expected = compute_decision_snapshot_digest(
         market_snapshot={"as_of": "2026-07-10"},
+        account_snapshot={"positions": {}},
         model_content_sha256="m1", calibrator_content_sha256="c1",
         session_date="2026-07-10",
     )
@@ -644,6 +680,42 @@ def test_native_live_context_verifies_matching_digest(tmp_path: Path) -> None:
     )
     assert payload["metadata"]["decision_snapshot_digest"] == expected
     assert payload["metadata"]["decision_snapshot_verified"] is True
+
+
+def test_native_live_context_rejects_a_mutated_account_snapshot(tmp_path: Path) -> None:
+    """r8 mutation test (Codex review on #451): freeze a digest from ONE
+    account snapshot's content, then mutate the account file on disk before
+    consumption — verification must fail closed even though the market
+    snapshot, model, calibrator, and date are all unchanged."""
+    market = tmp_path / "market.json"
+    market.write_text(json.dumps({"as_of": "2026-07-10"}), encoding="utf-8")
+    account = tmp_path / "account.json"
+    account.write_text(json.dumps({"positions": {}, "cash": 1000.0}), encoding="utf-8")
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"k": "v"}), encoding="utf-8")
+
+    frozen_digest = compute_decision_snapshot_digest(
+        market_snapshot={"as_of": "2026-07-10"},
+        account_snapshot={"positions": {}, "cash": 1000.0},
+        model_content_sha256="m1", calibrator_content_sha256="c1",
+        session_date="2026-07-10",
+    )
+
+    # Mutate the account file AFTER the digest was frozen, BEFORE consumption.
+    account.write_text(json.dumps({"positions": {}, "cash": 999.0}), encoding="utf-8")
+
+    with pytest.raises(DecisionSnapshotMismatchError):
+        build_native_live_context(
+            strategy_config_json=config,
+            market_snapshot_json=market,
+            account_snapshot_json=account,
+            output_json=tmp_path / "out.json",
+            decision_snapshot_digest=frozen_digest,
+            model_content_sha256="m1",
+            calibrator_content_sha256="c1",
+            session_date="2026-07-10",
+        )
+    assert not (tmp_path / "out.json").exists()
 
 
 def test_native_live_context_rejects_a_mismatched_digest(tmp_path: Path) -> None:
@@ -691,6 +763,53 @@ def test_run_shadow_ab_session_hands_both_arms_the_identical_digest(tmp_path: Pa
     plan_a_digest = extract_digest(payload["arms"]["a"]["planned_commands"])
     plan_b_digest = extract_digest(payload["arms"]["b"]["planned_commands"])
     assert plan_a_digest == plan_b_digest == digest_a
+
+
+def test_run_shadow_ab_session_digest_changes_with_account_snapshot_content(
+    tmp_path: Path,
+) -> None:
+    """r8 correction (Codex review on #451, point 1): the decision-snapshot
+    digest must depend on the account snapshot's content, not just the
+    market snapshot -- run the same session world twice, differing only in
+    account_snapshot content, and confirm the digests differ."""
+    world = _write_world(tmp_path)
+    payload_1 = _run(world, tmp_path / "sessions_1")
+    assert payload_1["exit_code"] == EXIT_VALID
+
+    world["account"].write_text(
+        json.dumps({"positions": {"AAPL": 5}}), encoding="utf-8",
+    )
+    payload_2 = _run(world, tmp_path / "sessions_2")
+    assert payload_2["exit_code"] == EXIT_VALID
+
+    assert (
+        payload_1["arms"]["a"]["decision_snapshot_digest"]
+        != payload_2["arms"]["a"]["decision_snapshot_digest"]
+    )
+
+
+def test_run_shadow_ab_session_seals_snapshots_before_arms_run(tmp_path: Path) -> None:
+    """r8 mutation test (Codex review on #451, point 1): once
+    run_shadow_ab_session has sealed the market/account snapshots, mutating
+    the ORIGINAL caller-supplied files must have NO effect -- the sealed
+    copies (not the originals) are what the arm commands reference, and
+    they must retain the pre-mutation content."""
+    world = _write_world(tmp_path)
+    out_root = tmp_path / "sessions"
+    payload = _run(world, out_root)
+    assert payload["exit_code"] == EXIT_VALID
+
+    sealed_market = out_root / "2026-07-10" / "sealed_market_snapshot.json"
+    sealed_account = out_root / "2026-07-10" / "sealed_account_snapshot.json"
+    original_market_content = json.loads(sealed_market.read_text())
+    original_account_content = json.loads(sealed_account.read_text())
+
+    # Mutate the ORIGINAL files post-hoc -- the sealed copies must be unaffected.
+    world["market"].write_text(json.dumps({"as_of": "MUTATED"}), encoding="utf-8")
+    world["account"].write_text(json.dumps({"positions": {"MUTATED": 1}}), encoding="utf-8")
+
+    assert json.loads(sealed_market.read_text()) == original_market_content
+    assert json.loads(sealed_account.read_text()) == original_account_content
 
 
 # --- pin/commit drift (Codex review on #451, point 2) ---------------------------------------
