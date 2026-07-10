@@ -845,9 +845,25 @@ prospective test).
   1. **Capital-at-risk**: the Stage-2.5 canary is HELD at $500 (§6, Stage
      2.5 row) — this RFC's evaluation capital, not the eventual $1–2k Stage-3
      figure (§1 op. decision 1), which Stage 2.5 explicitly does not use.
-  2. **Stage-0 ex-ante cost bound**: this RFC's own frozen fee schedule is
-     ~25 bps taker per side (§2.7, §4.7 point 3) — worst-case round-trip
-     (one entry + one exit) = `2 × 25 = 50 bps`.
+     Capital-at-risk enters the derivation as a ONE-SIDED CHECK, not a rate
+     input: at $500, even the full 18%/yr objective below is ≈ $91/yr — no
+     dollar-materiality argument can justify a LARGER δ (a larger δ would
+     assert that more dollars are required to "matter," which shrinks N* and
+     accelerates scale-up — exactly the anti-conservative lever the round-4
+     review prohibits). The dollar scale also states plainly what Stage 2.5
+     is: an EVIDENCE stage, not a profit stage — its output is information
+     about the model, purchased for a bounded, immaterial dollar exposure.
+  2. **Stage-0 ex-ante cost bound**: the FULL friction bound, not fees alone —
+     `RT_friction = 2 × (fee + spread/2 + slippage allowance)` per §4.4's
+     ex-ante bounds. The fee component is known now (~25 bps taker per side,
+     §2.7) giving a fee-only FLOOR of `2 × 25 = 50 bps` round-trip; the
+     spread/slippage components are instantiated ONCE from the Stage-0
+     quote/trade-data bounds at Stage-0 completion (which precedes any
+     Stage-2.5 data, preserving the freeze-before-data rule) and NEVER
+     updated from canary fills. Until that instantiation, the derivation
+     below uses the fee-only floor — meaning the frozen δ below is itself a
+     FLOOR: the Stage-0 instantiation can only raise it (more friction ⇒
+     larger δ ⇒ larger N* ⇒ more conservative), never lower it.
   3. **Minimum economically-material annualized excess-return objective**:
      reusing this document family's OWN established convention rather than
      picking a fresh number — the Deployment Governor RFC (merged #443, r9)
@@ -855,16 +871,16 @@ prospective test).
      transaction-cost convention doubled," reasoning that an edge smaller
      than about two round-trips is not economically distinguishable from
      noise around the cost floor. Applying the SAME convention here:
-     `MDE = 2 × 50 bps = 100 bps/block`. Sanity-checked against an
-     annualized objective (simple/linear conversion — `100 bps × (365/20 ≈
-     18.25 blocks/yr) ≈ 1,825 bps ≈ 18.25%/yr`; the compounded equivalent is
-     `≈ 92.3 bps/block`, within ~8% of the linear figure at this magnitude,
-     confirming the linear approximation is adequate for an MDE — a
-     detection threshold, not a compounding NAV path): an 18%/yr excess over
-     simply holding BTC is a defensible bar for "worth the operational
-     complexity and risk of a 24/7 automated sleeve instead of a buy-and-hold
-     position," neither so small that noise around the cost floor would
-     satisfy it nor picked to make `N*` convenient.
+     `MDE = 2 × RT_friction`, instantiated at the fee-only floor as
+     `2 × 50 bps = 100 bps/block`. **The annual↔block mapping is itself
+     FROZEN as the linear form** `r_ann = δ_block × 365/20` (the compounded
+     form `(1+r_ann)^(20/365)−1 ≈ 92.3 bps/block` differs by ~8% at this
+     magnitude and is recorded as a one-time sanity check only — a detection
+     threshold is not a compounding NAV path): `100 bps/block ⇒ ≈ 18.25%/yr`
+     excess over simply holding BTC — a defensible bar for "worth the
+     operational complexity and risk of a 24/7 automated sleeve instead of a
+     buy-and-hold position," neither so small that noise around the cost
+     floor would satisfy it nor picked to make `N*` convenient.
   - **FROZEN**: `δ = 100 bps/block`. **Owner: operator (same role that owns
     every other capital-risk freeze in this RFC, §6). Version: MDE v1, frozen
     2026-07-10 (this commit). Immutability rule: this value MAY NOT be
