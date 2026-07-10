@@ -14,7 +14,7 @@ WHY/DIR:   Operator mandate (GOAL-2, 2026-07-10): enable crypto trading for
            D6/shadow-AB lanes (separate design track, same repo).
 EVIDENCE:  n/a (design doc, not a model/data claim — see RFC §2 for the
            file:line gap audit and §2.7 for direct SDK-surface verification)
-NEXT:      Codex re-review of the r3 fix below; on approval, implementation
+NEXT:      Codex re-review of the r4 fix below; on approval, implementation
            PRs D-C1..D-C13 per RFC §7 (strict merge order, orchestrator last,
            default-OFF).
 
@@ -198,3 +198,38 @@ demoted to secondary/descriptive status for the Stage 2.5 decision (no
 multiplicity-correction plan is frozen or needed, since the WF gate is a
 cheap exploratory historical screen, not the decision-grade prospective
 test).
+
+## r4 update (2026-07-10) — fourth Codex review, MDE governance
+
+Codex accepted the r3 superiority-endpoint correction but caught a subtler
+problem: the `δ=200 bps/block` MDE was still un-derived ("a plausible...
+edge, not itself derived from data"). Since `N* ∝ 1/δ²`, an operator could
+pick an arbitrarily LARGER δ to shrink `N*` and reach Stage-3 eligibility
+sooner — even though the actual pass/fail bar (lower CI bound > 0) never
+depends on δ. An un-derived δ is a hidden lever on the *timeline*, and had
+to be frozen from principled inputs before any Stage-2.5 data, not picked
+for tractability.
+
+Fixed: derived `δ` from the three inputs Codex named — (1) capital-at-risk
+= the $500 Stage-2.5 canary (not the eventual $1-2k Stage-3 figure); (2)
+Stage-0 ex-ante cost bound = 25 bps taker/side, round-trip = 50 bps; (3)
+minimum economically-material annualized objective, reusing this document
+family's OWN established convention (the Deployment Governor RFC's r9 "2x
+round-trip cost" non-inferiority-margin sizing rule) rather than inventing
+a fresh number: `δ = 2 × 50 bps = 100 bps/block` (≈18.25%/yr simple,
+≈92.3 bps/block compounded — within ~8%, confirming the linear
+approximation is adequate for a detection threshold). Recomputed `N*` under
+the frozen, more conservative δ: `≈847 blocks ≈46.4 years` at 50% sleeve
+vol, `≈3,388 blocks ≈185.6 years` at 100% — MORE impractical than the
+withdrawn illustrative 200bps figures (212/847 blocks), which is the
+correct honest direction: a properly-derived, more conservative MDE makes
+the sample-size requirement larger, not smaller, exactly what Codex's
+round-4 review expected and explicitly sanctioned ("if no defensible MDE
+exists, retain the conservative NO-GO rather than select one for
+tractability" — this derivation didn't need that fallback, but lands on the
+same qualitative NO-GO-favoring conclusion). Froze governance: owner =
+operator (same role as every other capital-risk freeze in this RFC),
+version = "MDE v1, frozen 2026-07-10," and an explicit immutability rule —
+`δ` cannot change once the first Stage-2.5 block is collected; revising it
+requires a new RFC version applied only to a future attempt, never
+retroactively.

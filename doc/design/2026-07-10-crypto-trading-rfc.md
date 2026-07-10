@@ -832,6 +832,48 @@ prospective test).
   regardless of technique. `8 blocks × 20 days = 160 calendar days (~5.3
   months, ~23 weeks)` is the minimum canary duration before ANY confirmatory
   economic read — this is a floor, not a power-justified target.
+- **MDE derivation — FROZEN, not illustrative (CORRECTED — Codex review
+  round 4, 2026-07-10)**: round 3 correctly fixed the PROMOTION rule
+  (superiority, not non-inferiority) but left `δ=200 bps/block` picked "as a
+  plausible... edge, not itself derived from data" — Codex's round-4 point:
+  since `N* ∝ 1/δ²`, an arbitrarily LARGER δ shrinks `N*` and can accelerate
+  Stage-3 eligibility even though the actual pass/fail bar (`lower CI bound
+  > 0`) never depends on δ. An un-derived δ is therefore a hidden lever on
+  the *timeline*, not just an arithmetic input, and must be frozen from
+  principled inputs BEFORE any Stage-2.5 data — not selected for
+  tractability. Derivation, from the three inputs Codex named:
+  1. **Capital-at-risk**: the Stage-2.5 canary is HELD at $500 (§6, Stage
+     2.5 row) — this RFC's evaluation capital, not the eventual $1–2k Stage-3
+     figure (§1 op. decision 1), which Stage 2.5 explicitly does not use.
+  2. **Stage-0 ex-ante cost bound**: this RFC's own frozen fee schedule is
+     ~25 bps taker per side (§2.7, §4.7 point 3) — worst-case round-trip
+     (one entry + one exit) = `2 × 25 = 50 bps`.
+  3. **Minimum economically-material annualized excess-return objective**:
+     reusing this document family's OWN established convention rather than
+     picking a fresh number — the Deployment Governor RFC (merged #443, r9)
+     froze its own non-inferiority margin at "roughly the round-trip
+     transaction-cost convention doubled," reasoning that an edge smaller
+     than about two round-trips is not economically distinguishable from
+     noise around the cost floor. Applying the SAME convention here:
+     `MDE = 2 × 50 bps = 100 bps/block`. Sanity-checked against an
+     annualized objective (simple/linear conversion — `100 bps × (365/20 ≈
+     18.25 blocks/yr) ≈ 1,825 bps ≈ 18.25%/yr`; the compounded equivalent is
+     `≈ 92.3 bps/block`, within ~8% of the linear figure at this magnitude,
+     confirming the linear approximation is adequate for an MDE — a
+     detection threshold, not a compounding NAV path): an 18%/yr excess over
+     simply holding BTC is a defensible bar for "worth the operational
+     complexity and risk of a 24/7 automated sleeve instead of a buy-and-hold
+     position," neither so small that noise around the cost floor would
+     satisfy it nor picked to make `N*` convenient.
+  - **FROZEN**: `δ = 100 bps/block`. **Owner: operator (same role that owns
+    every other capital-risk freeze in this RFC, §6). Version: MDE v1, frozen
+    2026-07-10 (this commit). Immutability rule: this value MAY NOT be
+    changed once the first Stage-2.5 block is collected** — the same
+    discipline already applied to every other pre-registered Stage-2.5
+    parameter (see "exploratory survivor panel sets NONE of these
+    thresholds," below). Revising `δ` requires a new RFC version, applied
+    only to a FUTURE Stage-2.5 attempt, never retroactively to data already
+    in hand.
 - **Conservative proxy power check (labeled as such, not a measured
   estimate — this sleeve has never run, so there is no real prior variance
   to draw on)**: using this RFC's own §2.2 vol-clip range for individual
@@ -840,23 +882,24 @@ prospective test).
   any single name's, reflecting partial diversification across 5–8
   effective breadth — labeled a proxy, not measured): `σ_block ≈ 50% ×
   √(20/365) ≈ 11.7% (1170 bps)`. At `α=0.05` (one-sided, `z_α=1.645`),
-  `power=0.80` (`z_β=0.8416`), power-sizing against a `δ=200 bps/block`
-  MINIMUM DETECTABLE EFFECT (MDE — **not a loss-allowance margin, CORRECTED
-  round 3**: this is the smallest genuinely-positive sleeve outperformance
-  over BTC that the test is sized to detect with 80% power; it does NOT
-  relax the promotion threshold, which stays fixed at "lower CI bound > 0"
-  regardless of this number — order-of-magnitude consistent with round-trip
-  fee costs, chosen as a plausible minimum economically-material edge, not
-  itself derived from data): `N* = ((z_α+z_β)·σ_block/δ)² ≈
-  (2.485×1170/200)² ≈ 212 blocks ≈ 4,240 days ≈ 11.6 years`. At the upper
-  end of the vol-clip range (100% annualized), `N* ≈ 847 blocks ≈ 46
-  years`. **Both are plainly impractical as a fixed target** — the same
-  honest conclusion the Governor RFC reached with its own conservative
-  proxy. (The arithmetic is unchanged from the withdrawn non-inferiority
-  framing — only δ's MEANING and the promotion decision rule changed; a
-  sample-size formula for a superiority test still needs an assumed effect
-  size to size N against, exactly as a non-inferiority formula needs a
-  margin — the bug was in what the test PASSES on, not in this equation.)
+  `power=0.80` (`z_β=0.8416`), power-sizing against the FROZEN
+  `δ=100 bps/block` MDE (**not a loss-allowance margin**: the smallest
+  genuinely-positive sleeve outperformance over BTC the test is sized to
+  detect with 80% power; does NOT relax the promotion threshold, which
+  stays fixed at "lower CI bound > 0" regardless of δ): `N* =
+  ((z_α+z_β)·σ_block/δ)² ≈ (2.485×1170/100)² ≈ 847 blocks ≈ 16,940 days ≈
+  46.4 years`. At the upper end of the vol-clip range (100% annualized),
+  `N* ≈ 3,388 blocks ≈ 185.6 years`. **Both are even more plainly
+  impractical than the withdrawn illustrative-δ figures (212/46 years)** —
+  correctly so: a principled, more conservative δ (100 bps, half the
+  un-derived 200 bps) makes the honest sample-size requirement LARGER, not
+  smaller, which is the direction Codex's round-4 review explicitly
+  expected and endorsed ("if no defensible MDE exists, retain the
+  conservative NO-GO rather than select one for tractability") — this
+  derivation did not need to fall back to that clause, but it lands on the
+  same qualitative conclusion the Governor RFC reached with its own
+  conservative proxy, now on a properly-frozen basis rather than an
+  illustrative one.
 - **Resolution — blinded sample-size re-estimation at the 8-block
   checkpoint (same mechanism as the Governor RFC, not a new invention)**: at
   exactly 8 complete blocks (160 days), compute the REALIZED
