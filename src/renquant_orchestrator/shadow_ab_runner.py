@@ -483,15 +483,20 @@ _MISSING = object()
 def _flatten_config(config: Mapping[str, Any], *, prefix: str = "") -> dict[str, Any]:
     """Flatten a nested config dict to {dotted.path: leaf_value}.
 
-    Keys (at any depth) ending in ``_reason`` are dropped — the protocol
-    explicitly permits inert annotation-string deltas alongside the one
-    frozen treatment key (doc/design/2026-07-09-governor-prereg-replay-
-    protocol.md §2a: "a clone ... differing in exactly ONE functional key
-    (plus inert `_reason` annotation strings)").
+    Keys (at any depth) ending in ``_reason`` OR starting with ``_`` are
+    dropped — the protocol explicitly permits inert annotation-string deltas
+    alongside the one frozen treatment key (doc/design/2026-07-09-governor-
+    prereg-replay-protocol.md §2a: "a clone ... differing in exactly ONE
+    functional key (plus inert `_reason` annotation strings)"), and the
+    house-wide config convention treats every ``_``-prefixed key as an inert
+    annotation (the same rule the strategy-104 active==golden semantic-match
+    test applies; the merged #53 arm configs carry a documented inert
+    ``_arm`` annotation that codex's review endorsed as such). No reader in
+    any repo consumes ``_``-prefixed keys as behavior.
     """
     flat: dict[str, Any] = {}
     for key, value in config.items():
-        if key.endswith("_reason"):
+        if key.endswith("_reason") or key.startswith("_"):
             continue
         path = f"{prefix}.{key}" if prefix else key
         if isinstance(value, Mapping):

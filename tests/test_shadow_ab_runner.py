@@ -602,6 +602,44 @@ def test_treatment_key_violations_tolerates_reason_annotation_keys() -> None:
     assert treatment_key_violations(config_a, config_b) == []
 
 
+def test_treatment_key_violations_tolerates_underscore_annotation_keys() -> None:
+    """House convention: every ``_``-prefixed key is an inert annotation (the
+    active==golden semantic-match rule; the merged strategy-104 #53 arm
+    configs carry a documented ``_arm`` annotation). The validator must not
+    count them as behavior deltas — caught live on the first plan-only run
+    2026-07-10, where the real pinned arm configs were invalidated solely by
+    their ``_arm`` strings."""
+    config_a = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 0.5, "artifact_path": "m",
+        "_arm": "S-0.5 TREATMENT",
+    }}}
+    config_b = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 1.0, "artifact_path": "m",
+        "_arm": "S-1.0 CONTROL",
+    }}}
+    assert treatment_key_violations(config_a, config_b) == []
+
+
+def test_underscore_keys_cannot_hide_a_functional_delta() -> None:
+    """The annotation exemption must not become a laundering channel: a
+    functional key nested UNDER an underscore-prefixed mapping is still
+    stripped with its parent, so the only way to differ functionally remains
+    a non-underscore path — assert a plain functional delta is still caught
+    when an ``_arm`` annotation also differs."""
+    config_a = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 0.5, "artifact_path": "m",
+        "_arm": "a", "max_concentration": 0.35,
+    }}}
+    config_b = {"ranking": {"panel_scoring": {
+        "buy_floor_std_mult": 1.0, "artifact_path": "m",
+        "_arm": "b", "max_concentration": 0.40,
+    }}}
+    violations = treatment_key_violations(config_a, config_b)
+    assert violations
+    assert any("max_concentration" in v for v in violations)
+    assert not any("_arm" in v for v in violations)
+
+
 def test_treatment_key_violations_rejects_an_extra_delta() -> None:
     """Negative test (explicitly requested by Codex review on #451): a later
     config edit that changes an UNRELATED key alongside the frozen treatment
