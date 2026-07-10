@@ -288,6 +288,52 @@ def test_inventory_delisted_excluded_via_versioned_universe(tmp_path) -> None:
     assert prov["fingerprint"].startswith("sha256:")
 
 
+def test_exclude_tickers_cli_prunes_from_universe(tmp_path) -> None:
+    """--exclude-tickers supplements the inventory's delisted list so a
+    newly-delisted ticker can be excluded without updating the inventory."""
+    data = tmp_path / "data"
+    data.mkdir(parents=True)
+    (data / "transformer_universe_inventory.json").write_text(
+        json.dumps(
+            {
+                "kind": "transformer_universe_inventory",
+                "generated_utc": "2026-06-30T00:00:00+00:00",
+                "tier_A_tickers": ["AAPL", "IAC", "MSFT"],
+                "tier_B_tickers": ["XYZ"],
+            }
+        )
+    )
+    ctx = _ctx(tmp_path, exclude_tickers={"IAC"})
+    universe, prov = mod._resolve_panel_universe(ctx)
+    assert "IAC" not in universe
+    assert universe == ["AAPL", "MSFT", "XYZ"]
+    assert prov["n_cli_excluded"] == 1
+    assert prov["cli_excluded"] == ["IAC"]
+    assert prov["n_universe"] == 3
+
+
+def test_exclude_tickers_stacks_with_inventory_delisted(tmp_path) -> None:
+    """CLI excludes and inventory delisted tickers both apply."""
+    data = tmp_path / "data"
+    data.mkdir(parents=True)
+    (data / "transformer_universe_inventory.json").write_text(
+        json.dumps(
+            {
+                "kind": "transformer_universe_inventory",
+                "generated_utc": "2026-06-30T00:00:00+00:00",
+                "tier_A_tickers": ["AAPL", "IAC", "MSFT", "OLDCO"],
+                "tier_B_tickers": [],
+                "delisted_tickers": ["OLDCO"],
+            }
+        )
+    )
+    ctx = _ctx(tmp_path, exclude_tickers={"IAC"})
+    universe, prov = mod._resolve_panel_universe(ctx)
+    assert universe == ["AAPL", "MSFT"]
+    assert prov["n_cli_excluded"] == 1
+    assert prov["n_delisted_excluded"] == 1
+
+
 def test_explicit_empty_universe_fails_closed(tmp_path) -> None:
     ctx = _ctx(tmp_path, panel_universe=[])
     with pytest.raises(mod.InventoryUnavailableError, match="empty"):
@@ -463,6 +509,49 @@ def test_guard_counts_missing_bars_as_stale(tmp_path, monkeypatch) -> None:
         mod.PanelUniverseFreshnessGuardTask().run(ctx)
     assert ctx.freshness_report["n_missing"] == 3
     assert ctx.freshness_report["n_stale"] == 3
+
+
+def test_exclude_tickers_unblocks_freshness_guard(tmp_path, monkeypatch) -> None:
+    """A single stale ticker (e.g. IAC delisted) with strict 0.0 tolerance
+    blocks the entire retrain. --exclude-tickers removes it from the universe
+    so the guard passes."""
+    data = tmp_path / "data"
+    data.mkdir(parents=True)
+    (data / "transformer_universe_inventory.json").write_text(
+        json.dumps(
+            {
+                "kind": "transformer_universe_inventory",
+                "generated_utc": "2026-06-30T00:00:00+00:00",
+                "tier_A_tickers": ["AAPL", "IAC", "MSFT"],
+                "tier_B_tickers": [],
+            }
+        )
+    )
+    md = {"AAPL": FRONTIER, "MSFT": FRONTIER, "IAC": FROZEN}
+    posted: list = []
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: posted.append(a))
+
+    # Without exclude: IAC is stale, 1/3 > 0.0 → FAIL
+    ctx_fail = _guard_ctx(
+        tmp_path,
+        ohlcv_max_dates=md,
+        freshness_max_stale_fraction=0.0,
+        freshness_fail_on_stale=True,
+    )
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx_fail)
+
+    # With exclude: IAC pruned from universe, 0/2 stale → PASS
+    ctx_pass = _guard_ctx(
+        tmp_path,
+        exclude_tickers={"IAC"},
+        ohlcv_max_dates=md,
+        freshness_max_stale_fraction=0.0,
+        freshness_fail_on_stale=True,
+    )
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx_pass) is True
+    assert ctx_pass.freshness_report["n_stale"] == 0
+    assert "IAC" not in ctx_pass.freshness_report.get("stale_names", {})
 
 
 def test_guard_uses_injected_ohlcv_reader(tmp_path, monkeypatch) -> None:
