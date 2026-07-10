@@ -19,7 +19,7 @@ small code gap, two config merges + pin bumps, and the stage-3 process gate.
 | Objection (06-30) | Status now |
 |---|---|
 | Active path (RunnerAdapter.commit) untested/unwired | **CLOSED**: stage 0 (umbrella #439) made commit float-preserving end-to-end with a machine-verifiable `fractional_capability_gate` + per-buy fail-close + `commit_path_fingerprint=fractional-v2-stage0`; 44 tests. The historic `int(filled_qty)` cast is gone (`normalize_fill_qty`, eps-guarded) |
-| Fractional needs software stops | **BUILT, unarmed**: ratchet-only `software_stops.py` registry + `SoftwareStopExitTask` wired into SellOnlyPipeline; Z9 routes fractional to it. Alpaca structural fact: fractional = TIF DAY only, no GTC → broker-side dead-box stop impossible; residual machine-death risk bounded by design at **2% of PV** (10% fractional book cap × 20% worst-case move) with 15-min pager SLA. Pager demonstration = hard pre-enable kill condition, NOT yet done |
+| Fractional needs software stops | **BUILT, unarmed**: ratchet-only `software_stops.py` registry + `SoftwareStopExitTask` wired into SellOnlyPipeline; Z9 routes fractional to it. Alpaca structural fact: fractional = TIF DAY only, no GTC → broker-side dead-box stop impossible. Machine-death loss is an **operator risk ASSUMPTION, not a mechanical bound**: 10% fractional book cap × an ASSUMED ≤20% adverse move during the unprotected window ≈ 2% PV; a 40% gap scenario ≈ 4% PV. The only hard levers are lowering `fractional_max_book_pct` or an intraday kill-switch flatten. Pager SLA demonstration = hard pre-enable kill condition, NOT yet done |
 | Uncertain EV | **Dissolved by re-scoping**: fractional no longer claims cash-drag deployment (parking sleeve owns that; Governor L1 owns deployment). Its value is SIZING FIDELITY — measured ~2.9× round-up overshoot on BLK ($950 share vs $324 target) and ~11% undershoot on cheap names under whole-share + one-share floor |
 
 ## Remaining gap inventory
@@ -30,6 +30,15 @@ small code gap, two config merges + pin bumps, and the stage-3 process gate.
    silently truncate a cash-capped resize to whole shares. Fix = fractional-aware
    6dp floor, conditional on the flag (flag-off byte-identical); extend the AST
    auditor (`check_commit_path_no_int_truncation.py`) to order-sizing casts.
+   **Repo-ownership note (review point accepted)**: this logic lives in the
+   umbrella because the entire RunnerAdapter layer is umbrella-resident legacy —
+   the fix must land where the bug lives. This is a TIME-BOUNDED MIGRATION
+   EXCEPTION, not a proposed architecture: the target owner for execution math is
+   renquant-execution, and the adapter-migration program (moving RunnerAdapter
+   order math into the execution repo) is the removal plan. Until that migration,
+   any change to umbrella-resident order math must carry this exception label and
+   must not add NEW umbrella-owned capabilities beyond closing the S-FRAC v2
+   contract gap.
 2. **strategy-104 PR #46** (`execution.fractional_shares` block, default OFF):
    already APPROVED, unmerged. Merge + add `execution.software_stops.enabled` key.
 3. **Pin bumps**: strategy pin predates merged #49 (one-share floor) and #46.
@@ -55,18 +64,26 @@ small code gap, two config merges + pin bumps, and the stage-3 process gate.
 - Reconciliation: LOW — partial-fill float accumulation, cancel-replace sums, and
   restart stop-routing re-derivation are regression-pinned (stage-0 tests).
 - DB schema: NONE — `trades.shares` is already REAL.
-- The real accepted risk is the bounded machine-death window (2% PV) — an operator
-  sign-off item, not engineering.
+- The real accepted risk is the machine-death window — an operator sign-off item
+  on an ASSUMPTION (≈2% PV at an assumed ≤20% adverse move; ≈4% at a 40% gap),
+  not an engineered bound.
 
-## Recommendation and decision asks
+## Conclusion: capability inventory (not a readiness claim)
 
-**PROCEED** [recommendation]. Marginal cost is one small umbrella PR + config merges
-+ a shadow window; the A-3 arm-B ledger provides a free before/after baseline and
-S-FRAC v2 §7.6 success criteria are already frozen (PnL-independent).
+This memo is a CAPABILITY INVENTORY. The live path is NOT ready: prerequisites are
+complete only after (1) the execmath fix merges under the documented migration
+exception, (2) strategy-104 #46 + a `software_stops` config key merge, (3) pins
+bump, and (4) the recorded stage-3 shadow + pager gates pass.
+
+**PROCEED with the prerequisites** [recommendation]. Marginal cost is one small
+flag-conditional fix + config merges + a shadow window; the A-3 arm-B ledger
+provides a free before/after baseline and S-FRAC v2 §7.6 success criteria are
+already frozen (PnL-independent).
 
 Operator decisions requested:
-1. Approve the `runner_execmath.py:36` fix PR (umbrella, flag-conditional,
-   flag-off byte-identical) — being prepared now
+1. Approve the `runner_execmath.py:36` fix PR (umbrella #454, flag-conditional,
+   flag-off byte-identical test-pinned) under the time-bounded migration exception
 2. Merge strategy-104 #46 (already codex-APPROVED) + software_stops key
 3. Start the stage-3 shadow window (calendar time; runs parallel to Governor S1)
-4. Sign off the 2%-of-PV machine-death bound at enable time (NOT now)
+4. At enable time (NOT now): sign off the machine-death risk ASSUMPTION with the
+   tail scenarios above on record
