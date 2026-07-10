@@ -180,23 +180,32 @@ Two levers, both OUTSIDE the L1 formula:
    ceiling. Its end-of-chain deployment effect is now measurable with this
    harness, which is exactly the evidence codex required before touching it.
 
-## 5. Revised recommendation (data-driven)
+## 5. Revised recommendation (hypotheses for confirmatory evaluation — NOT
+promotions; per review, nothing in this tuning result authorizes a change)
 
-1. **L1 simplifies**: on current evidence the best deployment rule is the
-   SIMPLEST — ride `E_ceil(regime)` (deploy fully within regime ceiling in
-   BULL; the regime brake does the risk work). Vol-targeting is NOT justified
-   by the tuning data as a return improver; retain `voltarget_*` as eval arms
-   (hypothesis: earns its keep in BEAR/VOLATILE, undersampled here) and as the
-   candidate MDD-reducer if the operator ever wants smoother equity.
-2. **The real unlock is breadth × cap**: add to the D6 eval grid: per-name cap
-   {12%, 20%, 25%} × veto floor {1.0σ, 0.5σ} × weights {equal, capped-Kelly},
-   deployment = regime-ceiling. This directly measures the only two levers that
-   can lift the deployment ceiling.
-3. **Cap raise is an operator sign-off item** (capital-risk); this memo
-   requests that decision AFTER the eval run quantifies the tradeoff.
-4. RFC #443 L1 amendment: E* = regime-ceiling-riding with fail-closed and
-   hysteresis retained; drop the Σshrunk-Kelly formula (transmits μ̂ noise AND
-   is second-order to the breadth×cap ceiling anyway).
+1. **L1 candidate rule** (preregistered candidate, pending confirmatory eval):
+   ride `E_ceil(regime)` — the simplest rule consistent with the tuning
+   evidence. Vol-targeting retained as eval arms (hypothesis: earns its keep in
+   BEAR/VOLATILE, undersampled here; candidate MDD-reducer). Σshrunk-Kelly
+   dropped as the default candidate (transmits μ̂ noise; second-order to the
+   breadth×cap ceiling).
+2. **The breadth × cap grid** becomes the D6 Phase-2 treatment family, LOCKED
+   in the protocol BEFORE evaluation: per-name cap {12%, 20%, 25%} × veto
+   floor {1.0σ, 0.5σ} × weights {equal, capped-Kelly}, deployment =
+   regime-ceiling; PLUS a cash/parking-sleeve control arm; evaluation on
+   rolling CONTIGUOUS train/eval folds (predeclared, dependence-aware); gates
+   extended with a concentration-event gate and a turnover-tax gate.
+3. **Cap raise remains an operator risk decision AFTER confirmatory evidence** —
+   not a result of this memo.
+
+## 5a. Status of the committed freeze record (per review — relabeled)
+
+`d6_freeze_20260709.json` is an **EXPLORATORY split record only**. It predates
+protocol approval, predates the §5.2 treatment family, and predates the move to
+contiguous windows. Its "evaluation" subset is hereby **RETIRED** — it will NOT
+serve as the confirmatory evaluation set. A fresh exact-session freeze will be
+generated and pushed only after RFC #443 is amended and the final D6 protocol
+commits the arms, windows, costs, safety gates, and selection rule.
 
 ## 6. Decision asks (for codex discussion on this PR)
 

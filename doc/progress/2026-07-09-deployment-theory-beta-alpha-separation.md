@@ -1,19 +1,23 @@
 # Deployment theory: beta/alpha separation — research
 
 **Date**: 2026-07-09
-**Status**: Research memo r1 (theory complete; empirical section pending — 6-arm
-tuning-subset replay running)
+**Status**: Research memo r3 (theory + tuning-subset results; EXPLORATORY —
+nothing herein authorizes a behavior change)
 
 ## Bottom line
 
-The 65% cash drag is a CATEGORY error, not a calibration error: the system makes
-beta exposure conditional on alpha confidence. Theory (Merton separation,
-Grinold-Kahn, Moreira-Muir vol-managed portfolios, MacLean-Thorp-Ziemba,
-DeMiguel) says deployment should be a risk-budget decision on estimable
-quantities (realized vol), with the weak-IC signal deciding SELECTION and
-IC-scaled tilts only. Proposes amending RFC #443 L1 from signal-driven
-(Σ shrunk-Kelly) to vol-targeted E* = min(σ_target/σ̂_pf, E_ceil(regime)).
-The signal-driven governor stays as a falsifiable experimental arm.
+The 65% cash drag is a CATEGORY error (beta exposure conditional on alpha
+confidence) — but the tuning-subset experiment (149 sessions, full
+stateful/tax/integer conventions) REFUTED this memo's own vol-targeting prior
+(voltarget −3.8..−5.1% vs fully-deployed naive +4.7%; nothing significant,
+PBO 0.61) and surfaced the structural finding: deployment is hard-ceilinged by
+`admitted breadth × per-name cap` (median 4 names × 12% = 48%; even the 95%-
+target arm achieved only 52% deployed). The two real levers — per-name cap and
+admission breadth — become the locked D6 Phase-2 treatment grid; the L1
+candidate simplifies to regime-ceiling-riding. Cap raise = operator risk
+decision after confirmatory evidence. The committed freeze record is relabeled
+EXPLORATORY and its eval subset RETIRED; a fresh freeze follows the amended
+protocol.
 
 ## Changes
 
