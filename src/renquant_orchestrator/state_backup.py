@@ -1,9 +1,32 @@
-"""State-backup pipeline for RenQuant operator state."""
+"""State-backup pipeline for RenQuant operator state.
+
+Oversized SQLite policy
+-----------------------
+GitHub rejects pushes containing files over 100MB. Any SQLite database whose
+source exceeds ``compress_threshold_bytes`` (default 95MB, configurable via
+``--compress-threshold-mb`` / ``RQ_BACKUP_COMPRESS_THRESHOLD_MB``) is no longer
+raw-copied. Instead it is snapshotted to a temp file with the SQLite online
+backup API, ``VACUUM``-ed best-effort, then gzipped into the backup repo as
+``<name>.gz`` (e.g. ``data/runs.alpaca.db.gz``). Any stale raw copy of the same
+name is removed from the backup repo tree so it cannot trip the size gate. The
+sha256 of the uncompressed snapshot (the exact bytes gunzip restores) is
+recorded in the emitted JSON under ``compressed``.
+
+Restore path for a compressed snapshot::
+
+    gunzip -k data/runs.alpaca.db.gz          # yields data/runs.alpaca.db
+    shasum -a 256 data/runs.alpaca.db          # must match the recorded sha256
+
+Non-SQLite files over the GitHub hard limit keep the refuse-with-error
+behavior (``CheckFileSizeLimitsTask`` raises before commit).
+"""
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
 import datetime as dt
+import gzip
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +34,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 
 from renquant_common import Job, Pipeline, Task
 from renquant_common.notify import send as _send_notification
@@ -26,6 +50,8 @@ DEFAULT_REPO_ROOT = default_data_root()
 DEFAULT_BACKUP_REPO = Path.home() / ".renquant-state-backup"
 HARD_LIMIT_BYTES = 99 * 1024 * 1024
 WARN_LIMIT_BYTES = 90 * 1024 * 1024
+COMPRESS_THRESHOLD_BYTES = 95 * 1024 * 1024
+SQLITE_MAGIC = b"SQLite format 3\x00"
 
 
 @dataclass
@@ -46,6 +72,8 @@ class StateBackupContext:
     quiet: bool = False
     committed: bool = False
     pushed: bool = False
+    compress_threshold_bytes: int = COMPRESS_THRESHOLD_BYTES
+    compressed: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def data_dir(self) -> Path:
@@ -126,6 +154,23 @@ def backup_sqlite(src: Path, dst: Path) -> bool:
     return True
 
 
+def is_sqlite_file(path: Path) -> bool:
+    """True when ``path`` starts with the SQLite 3 magic header."""
+    try:
+        with path.open("rb") as fh:
+            return fh.read(len(SQLITE_MAGIC)) == SQLITE_MAGIC
+    except OSError:
+        return False
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class EnsureBackupRepoTask(Task):
     def run(self, ctx: StateBackupContext) -> bool | None:
         git_dir = ctx.backup_repo / ".git"
@@ -177,14 +222,62 @@ class BackupSqliteTask(Task):
         for name in self.sources:
             src = ctx.data_dir / name
             dst = ctx.backup_repo / "data" / name
+            dst_gz = dst.with_name(dst.name + ".gz")
+            oversized = (
+                src.exists()
+                and src.stat().st_size > ctx.compress_threshold_bytes
+                and is_sqlite_file(src)
+            )
             if ctx.dry_run:
-                ctx.copied.append(str(dst))
+                ctx.copied.append(str(dst_gz if oversized else dst))
                 continue
-            if backup_sqlite(src, dst):
-                ctx.copied.append(str(dst))
-            else:
+            if not src.exists():
                 ctx.skipped.append(str(src))
+                continue
+            if oversized:
+                self._compress_backup(ctx, src, dst, dst_gz)
+                continue
+            backup_sqlite(src, dst)
+            ctx.copied.append(str(dst))
+            if dst_gz.exists():
+                # DB shrank back under the threshold: drop the stale gz so the
+                # backup repo never carries two divergent copies of one DB.
+                dst_gz.unlink()
         return True
+
+    @staticmethod
+    def _compress_backup(ctx: StateBackupContext, src: Path, dst: Path, dst_gz: Path) -> None:
+        """Snapshot ``src`` (online backup API), VACUUM best-effort, gzip into
+        the backup repo as ``<name>.gz``, and drop any stale raw copy so the
+        GitHub 100MB size gate cannot trip on it."""
+        with tempfile.TemporaryDirectory(prefix="state-backup-") as tmpdir:
+            snapshot = Path(tmpdir) / src.name
+            backup_sqlite(src, snapshot)
+            try:
+                conn = sqlite3.connect(snapshot)
+                try:
+                    conn.execute("VACUUM")
+                finally:
+                    conn.close()
+            except sqlite3.Error as exc:
+                ctx.warnings.append(f"VACUUM failed for {src}: {exc}; compressing unvacuumed snapshot")
+            sha = sha256_file(snapshot)
+            uncompressed_bytes = snapshot.stat().st_size
+            dst_gz.parent.mkdir(parents=True, exist_ok=True)
+            # mtime=0 keeps the gzip output deterministic for identical inputs.
+            with snapshot.open("rb") as fin, dst_gz.open("wb") as fout:
+                with gzip.GzipFile(fileobj=fout, mode="wb", mtime=0) as gz:
+                    shutil.copyfileobj(fin, gz)
+        if dst.exists():
+            dst.unlink()
+        ctx.copied.append(str(dst_gz))
+        ctx.compressed.append({
+            "path": str(dst_gz),
+            "source": str(src),
+            "sha256": sha,
+            "uncompressed_bytes": uncompressed_bytes,
+            "compressed_bytes": dst_gz.stat().st_size,
+        })
 
 
 class CopyLiveStateTask(Task):
@@ -293,6 +386,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--topic", default=os.environ.get("NTFY_TOPIC", "renquant"))
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--compress-threshold-mb",
+        type=float,
+        default=float(os.environ.get("RQ_BACKUP_COMPRESS_THRESHOLD_MB", "95")),
+        help="SQLite DBs larger than this are gzipped into the backup repo "
+        "instead of raw-copied (GitHub rejects files over 100MB).",
+    )
     return parser.parse_args(argv)
 
 
@@ -306,6 +406,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         topic=args.topic,
         quiet=args.quiet,
+        compress_threshold_bytes=int(args.compress_threshold_mb * 1024 * 1024),
     )
     error: str | None = None
     rc = 0
@@ -320,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         "alerts": ctx.alerts,
         "backup_repo": str(ctx.backup_repo),
         "committed": ctx.committed,
+        "compressed": ctx.compressed,
         "error": error,
         "pushed": ctx.pushed,
         "copied": ctx.copied,
