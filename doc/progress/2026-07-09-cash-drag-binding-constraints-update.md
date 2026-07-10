@@ -16,9 +16,8 @@ floor and rotation threshold are the primary levers (not in original Lane A plan
 
 ## Key findings
 
-1. VetoWeakBuys adaptive floor (mean+1σ≈0.575) kills 80% of candidates — designed
-   for XGB-era wider score distribution, too aggressive for PatchTST's compressed
-   [0.45, 0.65] range
+1. VetoWeakBuys adaptive floor (mean+1σ≈0.575) kills 80% of candidates — too
+   aggressive for the XGB panel scorer's calibrated [0.45, 0.65] range
 2. Rotation threshold 0.06 > model max ER 0.051 — structurally unreachable, no
    rotation possible regardless of candidate quality
 3. Kelly × sigma_sizing → 2-7% positions ($200-750), whole-share blocks high-price

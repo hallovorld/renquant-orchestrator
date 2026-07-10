@@ -57,7 +57,7 @@ plan** (A-1/A-2/A-3):
 Config: `buy_floor: adaptive_mean_std`, `buy_floor_std_mult: 1`, `buy_floor_min: 0.2`
 
 The adaptive floor computes `max(0.20, mean + 1.0 × std)` of the cross-sectional
-calibrated `rank_score` distribution each day. With PatchTST's compressed scores clustering
+calibrated `rank_score` distribution each day. With the XGB panel scorer's calibrated scores clustering
 in [0.45, 0.65], this floor sits at ~0.54-0.58 and admits only the far-right tail.
 
 On 07-02 (representative day with 83 scored candidates):
@@ -65,12 +65,11 @@ On 07-02 (representative day with 83 scored candidates):
 - Candidates above floor: 17 (20%)
 - Candidates killed: 66 (80%)
 
-**Theory**: the floor was designed for the GBDT-era XGB model whose scores had wider
-dispersion. PatchTST's output compresses into a narrower band (the calibrator's ER=0
-neutral sits at raw=-0.24, confirming intrinsically-negative scores). The 1σ threshold
-was appropriate for a wider distribution but is too aggressive for PatchTST's compressed
-output — it mechanically filters out the MIDDLE of the calibrated distribution, not just
-noise.
+**Theory**: the 1σ threshold is too aggressive for the XGB panel scorer's compressed
+calibrated output — it mechanically filters out the MIDDLE of the distribution, not
+just noise. The calibrator's ER=0 neutral sits at raw≈−0.29, and a rank_score of 0.55
+maps to a positive ER (~+3%), meaning the floor rejects candidates the model considers
+genuinely positive.
 
 **Potential fix (strategy-104 config, NOT orchestrator):**
 - Lower `buy_floor_std_mult` from 1.0 to 0.5 (admits ~35-40% instead of ~20%)
@@ -92,8 +91,8 @@ the threshold.
 | GRMN | +0.0367 | 0.06 | -0.0233 | BLOCKED |
 
 With `transaction_cost_pct=0`, the threshold represents a pure edge hurdle with NO cost
-justification. The 6% hurdle was set before PatchTST's adoption; its scores produce
-lower calibrated ERs than the prior XGB model.
+justification. The 6% hurdle is not anchored to the XGB panel scorer's actual output
+distribution — model max calibrated ER is 0.051, below the threshold.
 
 **Theory**: Perold (1988) and DeMiguel & Nogales (2009) establish that optimal rebalancing
 thresholds should be proportional to sqrt(transaction costs × holding period). With zero
@@ -111,7 +110,7 @@ uncertainty justifies a positive band). 6% is not anchored to any parameter.
 Config: `fractional: 0.5`, `sigma_sizing.floor: 0.3`, `max_concentration: 0.12`
 
 Effective sizing: Kelly_f × conviction_mult × equity. The `sigma_sizing` maps panel score
-to a conviction multiplier in [0.3, 1.0]. With PatchTST scores near the floor,
+to a conviction multiplier in [0.3, 1.0]. With XGB panel scores near the floor,
 conviction_mult ≈ 0.48-0.60 → effective fractional ≈ 0.24-0.30.
 
 Result on 07-02: GRMN sized at 2.2% target ($240 on $10.7k). At $240 per position:
@@ -125,7 +124,7 @@ A-3 (one-share floor) addresses the 0-share blocking but not the tiny position s
 
 45/83 candidates (54%) on 07-02 had calibrated ER of OPPOSITE sign to their raw signal
 (calibrator neutral_raw = -0.29). These are candidates in the [-0.29, 0] raw zone where
-PatchTST says "slightly bearish" but the calibrator maps to "slightly positive." The
+the XGB scorer says "slightly bearish" but the calibrator maps to "slightly positive." The
 signal-direction gate correctly rejects these ambiguous signals.
 
 This is NOT a miscalibration — it's the model's intrinsically-negative output distribution
