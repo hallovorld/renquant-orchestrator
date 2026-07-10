@@ -115,8 +115,12 @@ narrowed to two remaining decision-grade blockers:
    stop-limit non-fill/gap-through risk, since a paper fill has no real
    market impact. Fixed: spread/slippage and non-fill/gap bounds are now
    sourced as conservative EX-ANTE bounds from Alpaca's own quote/trade
-   market data (not paper simulation), added as a Stage-0 deliverable
-   (§6's Stage 0 row). A frozen update rule allows ONLY realized live-
+   market data (not paper simulation) — concretely: per-pair spread
+   percentiles (median/p95/worst-weekend-hour), depth-vs-order-size, and
+   GAP STATISTICS (max adverse excursion between consecutive bars/ticks,
+   weekends included), the last of which also sizes the §5.1 stop-limit
+   band and its residual gap-through probability — added as a Stage-0
+   deliverable (§6's Stage 0 row). A frozen update rule allows ONLY realized live-
    canary fills to later tighten those bounds (monotonically more
    conservative unless a pre-registered minimum sample is met), and
    explicitly FORBIDS retroactively re-scoring the historical WF gate or

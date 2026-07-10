@@ -443,11 +443,17 @@ we should not carry into a new asset class on day one.
     real order moves a thin, 24/7, weekend-illiquid crypto book.
   - **Ex-ante bounds for real market friction (NEW)**: spread/slippage and
     stop-limit non-fill/gap-through risk are instead bounded CONSERVATIVELY
-    ex-ante from Alpaca's own quote/trade market data (bid-ask spread
-    distribution and trade-size-vs-quote-depth observed over the Stage 0
-    backfill window, per pair) — NOT from paper simulation. These ex-ante
-    bounds, not a paper-fill measurement, are what Stage 0's cost model
-    ships with for the initial canary (Stage 2).
+    ex-ante from Alpaca's own quote/trade market data over the Stage 0
+    backfill window, per pair: bid-ask spread PERCENTILES (median / p95 /
+    worst-weekend-hour), trade-size-vs-quote-depth for the sleeve's actual
+    order sizes, and GAP STATISTICS — the per-pair distribution of maximum
+    adverse excursion between consecutive bars/ticks (weekends and thin
+    hours included), which quantifies the probability that a triggered
+    stop-limit's band is gapped through without filling (§5.1) — NOT from
+    paper simulation. These ex-ante bounds, not a paper-fill measurement,
+    are what Stage 0's cost model ships with for the initial canary
+    (Stage 2), and the same gap statistics feed the stop-band sizing in
+    §5.1.
   - **Frozen update rule**: only REALIZED live-canary fills (Stage 2+, real
     money, real market impact) may tighten these ex-ante bounds, and only
     under a rule frozen before Stage 2 begins (e.g. after N canary fills
@@ -603,6 +609,12 @@ stop price. See the residual-risk note below and §4.7 item 2.
   stop = entry − 2.0×σ_20d,daily, floored at −10% and capped at −25% from
   entry); limit band below stop by a config bps buffer (crypto has no LULD;
   a pure stop-market does not exist for crypto per the SDK order-type matrix).
+  **The limit-band width and the residual gap-through probability are set
+  ex-ante from the Stage-0 per-pair GAP STATISTICS (§4.4 calibration-source
+  split — maximum adverse excursion between consecutive bars/ticks, weekends
+  included), NOT assumed benign and NOT calibrated from paper fills**; only
+  realized live-canary outcomes may update them, under §4.4's frozen
+  monotone update rule, never retroactively re-scoring earlier evidence.
 - Lifecycle: cancel/replace on position change; protective stops are exempt
   from the resting-age watchdog (§3.2); reconcile-before-emit treats a missing
   protective stop as a Tier-1 defect (alert + re-place before any new entry).
@@ -771,7 +783,7 @@ operator sign-off alone.
 
 | Stage | What runs | Gate to advance (OPERATIONAL) | Est. duration |
 |---|---|---|---|
-| **0 — Prereqs + paper battery** | Operator enables crypto agreement (live + paper); `crypto_status==ACTIVE` recorded; paper battery verifies EMPIRICALLY: pair list + increments snapshot, GTC/IOC acceptance, **GTC stop_limit acceptance per pair**, fee schedule from fill receipts, non-marginable BP behavior; data backfill + two-source parity; **ex-ante spread/slippage bounds derived from Alpaca quote/trade data per pair (§4.4 — NOT from paper fills)** | All [GUESS] rows of §2.7 converted to [VERIFIED] in a recorded battery report; ex-ante cost bounds recorded per pair | ~1 week |
+| **0 — Prereqs + paper battery** | Operator enables crypto agreement (live + paper); `crypto_status==ACTIVE` recorded; paper battery verifies EMPIRICALLY: pair list + increments snapshot, GTC/IOC acceptance, **GTC stop_limit acceptance per pair**, fee schedule from fill receipts, non-marginable BP behavior; data backfill + two-source parity; **ex-ante spread-percentile/slippage + stop-gap-statistics bounds derived from Alpaca quote/trade data per pair (§4.4 — paper fills validate API acceptance/fees/increments/reservation bookkeeping ONLY, never market friction)** | All [GUESS] rows of §2.7 converted to [VERIFIED] in a recorded battery report; ex-ante friction bounds (spread percentiles, depth-vs-size, gap statistics) recorded per pair | ~1 week |
 | **1 — Shadow 24/7 (OPERATIONAL ONLY)** | Scheduler in shadow (no orders, `assert_shadow_never_submits`); full decisions logged; model trained + WF-gated (net-of-fees + BTC baseline, historical evidence per §4.4) in parallel; Codex adversarial review of model card | ≥ 14 consecutive clean shadow days incl. 2 weekends; replay audit green; model promoted through the 3-tier gate. **This gate is scheduler/logging/model-card readiness — it is NOT prospective economic evidence** | 2–3 weeks |
 | **2 — $500 canary (OPERATIONAL ONLY)** | Live entries, allowlist = BTC/USD + ETH/USD + top-3 liquidity; loss budget $75 sticky; all §5 rails armed; broker stops verified live on first fill | ≥ 2 weeks incl. 2 full weekends, zero Tier-1 defects, realized fees within battery estimate; **operator sign-off that OPERATIONS are sound**. **This gate authorizes CONTINUING at $500 into Stage 2.5 — it does NOT authorize scaling capital** | 2+ weeks |
 | **2.5 — Prospective economic evaluation (NEW — capital HELD at $500, not scaled)** | Same $500 canary continues unchanged; sleeve-level net-of-cost return is tracked per non-overlapping 20-day block (§4.3's frozen horizon) against a BTC baseline matched to the sleeve's own risk/capital (same dollar notional, vol-scaled if the sleeve runs below 100% crypto exposure) | See derivation below — **absolute floor: 8 complete non-overlapping 20-day blocks (160 calendar days, ~5.3 months) before ANY confirmatory verdict; NO-GO if the blinded-re-estimated required block count is impractically large, or if the realized net-of-cost mean fails the BTC-baseline margin at that checkpoint** | ≥ 160 days (floor); more if the blinded re-estimate at the 8-block checkpoint requires it |
@@ -845,6 +857,14 @@ a blinded re-estimation mechanism rather than a single fixed-N guess.
   authorizes NOTHING — no early Stage 3, no shortened evaluation. Only the
   operational Tier-1-defect halts (§5.4) and the sticky drawdown halt may
   stop the canary early; nothing may advance it early.
+- **The exploratory survivor panel sets NONE of these thresholds**: the
+  §4.6 tier-1 historical panel (survivor-only by construction) may not
+  supply the non-inferiority margin δ, the variance input σ²_input, the
+  required block count `N*`, the endpoint definition, or any other Stage-2.5
+  parameter — every threshold above comes from either a pre-registered
+  constant (frozen in this RFC before any data), or the sleeve's OWN
+  realized prospective blocks via the blinded re-estimation. Survivor-panel
+  numbers appear in the model card as exploratory context only.
 
 Rollback at every stage: kill switch → cancel non-protective orders → exits per
 rails → stage frozen pending review. No stage may be skipped; no capital step
