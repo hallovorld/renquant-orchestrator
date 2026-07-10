@@ -597,55 +597,73 @@ an honest accounting of what variance estimate is and isn't available):**
     (standard blinded sample-size re-estimation: recalculating N from a
     nuisance parameter makes no decision about the effect's direction, so
     it does not reopen the optional-stopping problem).
-  - **Frozen variance input — never the raw point estimate**:
-    `σ²_input = UCB80(σ̂²_blind)`, where
-    `UCB80(σ̂²_blind) = (N_blind − 1) · σ̂²_blind / χ²(0.20, N_blind − 1)`
-    — the one-sided 80% upper confidence bound of the blind-block
-    variance (chi-square based, df = `N_blind − 1`; at `N_blind = 4`,
-    `χ²(0.20, 3) ≈ 1.005`, so the UCB is ≈ 3× the point estimate —
-    deliberately punitive at small df, shrinking toward the point
-    estimate only as blind data grows). **No historical-proxy floor is
-    combined with the live UCB (correction to an earlier draft of this
-    section — verify-before-report caught two problems with it): (1) it
-    cited `doc/research/evidence/deploy_policy_tuning/` as an existing
-    frozen artifact; no such path exists in this repo — only
-    `doc/research/evidence/cap_grid_tuning/` does, and that data already
-    has a proper, real citation in the power derivation above. (2) Even
-    substituting the real cap-grid figure, a floor of `1.5 ×
-    (262 bps)² ≈ 102,966 bps²` implies `N* ≈ 254` from the floor ALONE
-    (verified by direct computation:
-    `N = ((z_α+z_β)·σ/δ)² = (2.485·√102966/50)² ≈ 254`) — more than 10×
-    the declared 24-block feasible horizon below. A floor that size would
-    make the live UCB branch dead code: `MAX(UCB, floor)` would equal the
-    floor regardless of what real blind data shows, silently
-    predetermining DESCRIPTIVE/NO-ENABLE before the experiment starts and
-    directly contradicting this section's own stated rationale ("N* waits
-    for real blind data... a subtler treatment may have far lower variance
-    in reality"). The live UCB80 estimator alone is enough to satisfy
-    Codex's ask (an upper confidence bound is one of the two options
-    Codex offered, not a mandatory "and"), and it does not have this
-    self-defeating property.**
-  - `N* = ((z_α + z_β) · σ_input / δ)²` with the same frozen `α = 0.05`,
-    `power = 0.80`, `δ = 50 bps`. **Tier-2 gate: `N_blocks ≥ max(8, N*)`
-    AND `ESS ≥ 6`.** A variance estimate can NEVER relax the gate below the
-    frozen minimums: `N*` only raises the bar above 8, never lowers it, and
-    the UCB may not be waived or recomputed after seeing data. All inputs
-    (`σ̂²_blind`, `UCB80`, `N*`) are
+  - **Frozen variance input — never the raw point estimate. Assurance level
+    raised 80% → 95% (11:30Z review: a one-sided 80% UCB leaves a 20%
+    chance that the TRUE variance exceeds the input, i.e. `N*` is
+    underestimated with probability 0.20 before the efficacy test even
+    begins — incompatible with a claimed 80% power gate, especially at 4
+    blind blocks; the variance-assurance level must be compatible with the
+    decision risk and is NOT tunable to preserve a feasible timeline):**
+    `σ²_input = UCB95(σ̂²_blind)`, where
+    **`UCB95(σ̂²_blind) = (N_blind − 1) · σ̂²_blind / χ²(0.05, N_blind − 1)`**
+    — the one-sided **95%** upper confidence bound of the blind-block
+    variance, chi-square based, df = `N_blind − 1`, using the LOWER 0.05
+    quantile of the chi-square distribution. At `N_blind = 4` (df = 3),
+    **`χ²(0.05, 3) = 0.3518`, so `UCB95 = 3 · σ̂²_blind / 0.3518 ≈ 8.53 ×
+    σ̂²_blind`** — written out: the variance input is roughly eight and a
+    half times the 4-block point-estimate variance. Deliberately punitive
+    at small df; the multiplier shrinks only as blind data grows. **No
+    historical-proxy floor is combined with the live UCB** (per the prior
+    correction, which the 11:30Z review accepted as necessary; one factual
+    amendment for the record: `doc/research/evidence/deploy_policy_tuning/`
+    DOES exist on origin/main — added by commit 85cc29dc, after this
+    branch's fork point — the prior note's "no such path exists in this
+    repo" checked only this branch's tree. The decisive dead-code reason
+    stands unchanged: any floor built from the available structurally-
+    mismatched proxies — e.g. `1.5 × (262 bps)² ≈ 102,966 bps²` ⇒ `N* ≈
+    254` from the floor alone, >10× the 24-block horizon — would make the
+    live UCB branch unreachable in `MAX(UCB, floor)` and silently
+    predetermine DESCRIPTIVE/NO-ENABLE before any blind data is seen. The
+    UCB95, at ≈8.53× the point estimate, carries the conservatism alone.)
+  - **`N* = ceil( ((z_α + z_β) · σ_input / δ)² )` — rounded UPWARD (ceil),
+    always** — with frozen `α = 0.05` (`z_α = 1.645`), **target `β = 0.20`
+    (80% conditional power)** at the declared non-inferiority margin
+    `δ = 50 bps`. **Tier-2 gate: `N_blocks ≥ max(8, N*)` AND `ESS ≥ 6`.** A
+    variance estimate can NEVER relax the gate below the frozen minimums:
+    `N*` only raises the bar above 8, never lowers it, and the UCB may not
+    be waived, relabeled, or recomputed after seeing data. All inputs
+    (`σ̂²_blind`, `UCB95`, `σ²_input`, `N*`) are
     recorded in the verdict memo at the moment of computation.
+  - **Honest power labeling (frozen)**: the gate is labeled **"80%
+    conditional power given true variance ≤ UCB95, with ≥ 95% variance
+    assurance"**, and the resulting UNCONDITIONAL assurance is stated
+    explicitly: **≥ 0.80 × 0.95 ≈ ≥ 76% unconditional assurance** — a
+    lower bound: in the ≥95%-probability event that the true variance is
+    at or below the UCB, `N*` was sized against a variance at least as
+    large as the truth, so realized conditional power is ≥ 80%. An
+    unqualified "80% power" claim is not made anywhere in this protocol.
   - **Declared feasible horizon (frozen): 24 blocks** (≈ 480 valid
     sessions, ~2 years — beyond that the experiment is not a practical gate
     for the breadth-bound deployment problem it exists to unblock).
     **Frozen outcome: if `N* > 24` blocks, the experiment result is
-    DESCRIPTIVE / NO-ENABLE** — reported with point estimates and
-    explicitly-labeled-untrustworthy CIs for operator awareness, same as
-    the 60d-horizon treatment; NOT a forced verdict at a weaker bar, and
-    NOT a license to re-estimate at a later checkpoint. This is a
-    first-class possible outcome, not a design failure: the conservative
-    proxy above lands near 170 blocks, but a subtler same-cap
-    admission-floor treatment may have far lower variance in reality —
-    which is exactly why `N*` waits for real blind data instead of being
-    frozen from the proxy, while the UCB/floor construction guarantees the
-    wait can only err toward MORE data, never less.
+    DESCRIPTIVE / NO-ENABLE — and the LIKELY consequence of a 95%
+    assurance level applied at 4 blind blocks is exactly `N* > 24`. That
+    is an acceptable scientific result; the confidence level must not be
+    tuned to preserve a feasible timeline.** Reported with point estimates
+    and explicitly-labeled-untrustworthy CIs for operator awareness, same
+    as the 60d-horizon treatment; NOT a forced verdict at a weaker bar,
+    and NOT a license to re-estimate at a later checkpoint. **Explicit
+    boundary (anti-laundering)**: this means the live two-arm experiment
+    likely CANNOT produce an ENABLE on its own within the declared
+    horizon. If enablement is still wanted at that point, exactly two
+    routes exist, and both lie OUTSIDE this protocol's verdict: (a) the
+    operator extends the horizon under a NEW protocol version, predeclared
+    before inspecting any further outcome data; or (b) the operator makes
+    a recorded descriptive-evidence + operator-risk decision — an explicit
+    risk acceptance, not a statistical verdict. A DESCRIPTIVE result must
+    never be cited later as a protocol-passing enable; any future
+    live-enablement PR that cites this experiment must state which of the
+    two routes it took.
 
 **Resolution — two-tier reporting, not a single fixed-N verdict (Tier-1 kill
 rules FROZEN, r5 point 4: "grossly adverse"/"sharply negative" were examples,
@@ -720,8 +738,11 @@ not thresholds, and are WITHDRAWN as discretionary):**
   **`N_blocks ≥ max(8, N*)` complete non-overlapping 20d blocks AND `ESS ≥
   6`** accumulate, where `N*` is the ONE-TIME conservative blinded power
   re-estimate computed at the 4-block checkpoint (frozen re-estimator
-  above: the chi-square 80% upper confidence bound on the blind-block
-  variance — never the raw point-estimate variance) — 160 valid sessions
+  above: the chi-square one-sided 95% upper confidence bound on the
+  blind-block variance, ≈ 8.53× the point estimate at 4 blocks, `N*`
+  rounded upward — never the raw point-estimate variance; labeled "80%
+  conditional power given true variance ≤ UCB95, ≥95% variance assurance",
+  i.e. ≥ ~76% unconditional assurance) — 160 valid sessions
   is the ABSOLUTE FLOOR (≈ 200 scheduled
   under the 20% missingness bound); if `N* > 8`, the real target is `N*`
   blocks, recorded in the verdict memo with all re-estimator inputs the

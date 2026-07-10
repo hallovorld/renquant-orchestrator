@@ -441,3 +441,30 @@ Note: the P-1/P-1b/P-2 implementation PRs (execution #26, pipeline #181,
 orchestrator #451) were converted to DRAFT pending this RFC's merge — built
 ahead purely to eliminate post-approval latency; their review happens after
 the design freezes.
+
+## r9 update (2026-07-10, 11:30Z review — one statistical blocker)
+
+The 80% variance UCB was incompatible with a claimed 80% power gate (20%
+chance the true variance exceeds the input ⇒ N* underestimated before the
+efficacy test begins). Fixed in D6:
+
+- **95% variance assurance**: `σ²_input = UCB95 = (N_blind−1)·s²_blind /
+  χ²(0.05, N_blind−1)` — exact quantile stated; at N_blind=4 (df=3),
+  χ²(0.05,3)=0.3518 ⇒ UCB95 ≈ 8.53× the point estimate (multiplier written
+  out). No historical-proxy floor (removal accepted by the review; factual
+  amendment recorded: deploy_policy_tuning DOES exist on origin/main past
+  this branch's fork point, but the dead-code reason for dropping the floor
+  stands).
+- **`N* = ceil(((z_α+z_β)·σ_input/δ)²)`** — rounded upward always; target
+  β = 0.20 (80% conditional power) at δ = 50 bps.
+- **Honest labeling (frozen)**: "80% conditional power given true variance
+  ≤ UCB95, ≥95% variance assurance" ⇒ stated unconditional assurance
+  ≥ 0.80×0.95 ≈ ≥76%. No unqualified "80% power" claim anywhere.
+- **Acceptance + anti-laundering boundary**: the likely consequence is
+  N* > 24 blocks ⇒ frozen DESCRIPTIVE / NO-ENABLE — an acceptable
+  scientific result; the confidence level is not tunable to preserve a
+  timeline. If enablement is still wanted, exactly two routes exist OUTSIDE
+  this protocol: horizon extension under a new predeclared protocol
+  version, or a recorded descriptive-evidence + operator-risk decision. A
+  descriptive result must never be cited later as a protocol-passing
+  enable.
