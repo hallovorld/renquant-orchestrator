@@ -14,9 +14,9 @@ WHY/DIR:   Operator mandate (GOAL-2, 2026-07-10): enable crypto trading for
            D6/shadow-AB lanes (separate design track, same repo).
 EVIDENCE:  n/a (design doc, not a model/data claim — see RFC §2 for the
            file:line gap audit and §2.7 for direct SDK-surface verification)
-NEXT:      Codex re-review of the r4 fix below; on approval, implementation
-           PRs D-C1..D-C13 per RFC §7 (strict merge order, orchestrator last,
-           default-OFF).
+NEXT:      Codex re-review of the r5 fix below (N*/δ direction correction);
+           on approval, implementation PRs D-C1..D-C13 per RFC §7 (strict
+           merge order, orchestrator last, default-OFF).
 
 ## r1 update (2026-07-10) — first Codex review, four blockers + cost-model tightening
 
@@ -233,3 +233,40 @@ version = "MDE v1, frozen 2026-07-10," and an explicit immutability rule —
 `δ` cannot change once the first Stage-2.5 block is collected; revising it
 requires a new RFC version applied only to a future attempt, never
 retroactively.
+
+## r4 refinement (2026-07-10, same day) — cost-input tightening
+
+A concurrent pass on the r4 fix tightened the cost-input derivation before
+Codex's r5 review landed: switched from a fee-only cost figure to the FULL
+Stage-0 friction bound (fee + spread/2 + slippage) as the eventual basis for
+δ once Stage-0 completes, kept capital-at-risk as a one-sided check only
+(cannot justify a larger δ), and confirmed the linear annual↔block mapping
+as primary (compounded kept as a one-time sanity check). This introduced
+the bug r5 corrects below: it framed the Stage-0 full-friction instantiation
+as something that could RAISE δ from the fee-only figure, calling that "more
+conservative."
+
+## r5 update (2026-07-10, same day) — fifth Codex review, N*/δ direction bug
+
+Codex caught a real mathematical error in the r4 refinement: `N* ∝ 1/δ²` (already
+established in r4) means a LARGER δ gives a SMALLER N* — raising δ from
+Stage-0 friction data would SHORTEN the sample-size requirement and pull
+Stage-3 eligibility FORWARD, not push it back. The r4-refinement text's
+"more friction ⇒ larger δ ⇒ larger N* ⇒ more conservative" reasoning had the
+direction backwards — it wasn't a valid escape from the round-4 prohibition
+on an upward-adjustable δ; it reintroduced exactly that anti-conservative
+lever under different packaging.
+
+Fixed: `δ` is frozen at the fee-only figure (`100 bps/block`) permanently
+for this Stage-2.5 attempt — from this commit forward, not just after the
+first block — and neither the Stage-0 full-friction instantiation NOR any
+canary/shadow data may raise (or lower) it, ever. The full-friction bound
+still governs two things this derivation does not touch: (a) the net-of-cost
+return computation itself (higher realized friction correctly shows up in
+the measured excess return, which is what the superiority test already
+evaluates), and (b) initial canary position sizing/risk budgeting.
+Conflating "the cost bound used to size positions and compute net returns"
+with "the MDE used to size the sample" was the r4-refinement's error. `N*`
+arithmetic is unchanged (100 bps/block was already the fee-only figure used
+in the original r4 derivation): `≈847 blocks ≈46.4 years` at 50% vol,
+`≈3,388 blocks ≈185.6 years` at 100%.
