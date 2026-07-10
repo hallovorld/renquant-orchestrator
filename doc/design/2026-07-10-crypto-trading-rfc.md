@@ -471,15 +471,38 @@ re-scoring in v1 (mirrors the 105 Stage-1/Stage-3 boundary).
   when their history would hurt the model, and no BTC-baseline comparison
   corrects for the panel itself being built from survivors.
 
-  **Investigated and confirmed unavailable**: no point-in-time
-  listing/tradability data source exists for this. `alpaca-py`'s
-  `TradingClient.get_all_assets` (§2.7) returns only the CURRENT asset list
-  and status — there is no historical-snapshot or as-of-date endpoint in the
-  SDK surface, and no archival vendor for "which pairs were Alpaca-tradeable
-  on date X" is identified. This is a genuine data-availability gap, not
-  something this RFC can engineer around; pre-registering a WEAKER, honest
-  claim is the correct response (per Codex's explicit fallback), not
-  building a point-in-time system that has no real data behind it.
+  **PIT source inventory (candidates named, each marked)**: the ideal fix is
+  point-in-time listing/tradability INTERVALS per pair, so the eligible
+  universe can be snapshotted at every training/replay date. Candidates:
+  - **Alpaca assets endpoint**: [VERIFIED — NO history] `TradingClient.
+    get_all_assets` (§2.7) returns only the CURRENT asset list/status; no
+    historical-snapshot or as-of-date parameter exists anywhere in the
+    alpaca-py 0.43.4 surface. Cannot provide PIT intervals by itself.
+  - **Alpaca listing/delisting announcements** (blog / changelog / release
+    notes): [GUESS] listing dates likely reconstructible by hand;
+    COMPLETENESS (quiet delistings, temporary halts) unverified. Stage-0
+    investigation item.
+  - **Web-archive snapshots of Alpaca's supported-crypto docs page**:
+    [GUESS] snapshot density over 2021–2026 unverified; if dense, yields
+    coarse (weeks-granularity) tradability intervals. Stage-0 item.
+  - **CoinGecko exchange-tickers/listings history**: [GUESS] CoinGecko
+    tracks per-exchange tickers, but whether Alpaca is covered as an
+    exchange and whether HISTORICAL intervals (not just current state) are
+    exposed via API is unverified. Stage-0 item.
+  - **CoinMarketCap historical universe snapshots**: [GUESS] market-wide
+    PIT rank/cap snapshots exist but say nothing about Alpaca tradability —
+    usable only as an upper-bound eligibility screen, never as the
+    tradability source.
+  **Stage-0 bounded investigation (timeboxed ≤1 day, part of the paper
+  battery report)**: attempt to reconstruct per-pair tradability intervals
+  from the sources above. If a defensible interval table results (every
+  pair's listing date sourced; delistings/halts accounted for), tier 1
+  below is UPGRADED to a PIT-gated panel (eligible universe re-snapshotted
+  at every training/replay date) and the model card says so. If not, the
+  pre-registered WEAKER claim below stands (per Codex's explicit fallback)
+  — we do not build a point-in-time system with no real data behind it,
+  and we never call the result a 5-year panel validation of the current
+  universe.
 
   **Frozen resolution — two separate, explicitly-scoped evidence tiers,
   never conflated**:
@@ -617,6 +640,17 @@ stop price. See the residual-risk note below and §4.7 item 2.
   - `broker_cash` is re-fetched from the broker (not cached) at the START of
     each `reserve()` transaction, so a real balance change (a fill on either
     sleeve) is visible to the next reservation attempt from EITHER sleeve.
+  - **Ledger reconciliation (orphan sweep)**: every sleeve's existing
+    reconcile-before-emit step additionally reconciles the ledger — an
+    ACTIVE reservation whose `parent_intent_id` has no corresponding broker
+    open order AND no in-flight local lifecycle state is an ORPHAN (crashed
+    process between reserve and submit, or a missed release): it is
+    released, counted, and alerted. Orphaned-reservation count > 0 is a
+    reportable defect (it means a lifecycle hook missed a terminal path);
+    sustained orphans are a Tier-1 halt for the sleeve producing them.
+    Inversely, a broker open buy order with NO ledger reservation is the
+    graver defect (headroom leak — some path submitted without reserving)
+    and halts that sleeve's entries immediately.
   - Both 104's existing sizing path and the new crypto sizing path (D-C4)
     call `reserve()` before submitting any buy order; a `False` return is
     treated as `insufficient_buying_power_headroom` (the existing

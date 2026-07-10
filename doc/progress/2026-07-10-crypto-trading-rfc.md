@@ -34,14 +34,19 @@ decisions (doc-only PR, no code):
    104's existing sizing path gains exactly one new `reserve()` call.
    Evaluated and dropped the broker-side segregated-sub-account alternative
    (not available in the Alpaca SDK surface).
-2. **Survivorship bias (§4.6)**: investigated point-in-time crypto listing
-   data availability — confirmed none exists (the SDK only returns current
-   asset status, no historical-snapshot endpoint). Per Codex's explicit
-   fallback, downgraded to two separate evidence tiers: an EXPLORATORY
-   survivor-only historical panel (small continuously-listed subset, never
-   called a "5-year validation" of the full universe) vs. the actual
-   decision-grade evidence, which is PROSPECTIVE (Stage-1 shadow + Stage-2
-   canary, not survivorship-biased since it's forward).
+2. **Survivorship bias (§4.6)**: named the candidate PIT
+   listing/tradability sources, each marked — Alpaca assets endpoint
+   [VERIFIED — no history in the SDK surface], Alpaca listing
+   announcements / web-archive doc snapshots / CoinGecko exchange-listings
+   history [all GUESS — Stage-0 investigation items], CoinMarketCap
+   snapshots [GUESS — upper-bound screen only, no Alpaca tradability].
+   Stage 0 gets a timeboxed (≤1 day) reconstruction attempt: a defensible
+   interval table upgrades the historical panel to PIT-gated; otherwise the
+   pre-registered WEAKER claim stands — two separate evidence tiers: an
+   EXPLORATORY survivor-only historical panel (small continuously-listed
+   subset, never called a "5-year validation" of the full universe) vs. the
+   decision-grade PROSPECTIVE evidence (Stage-1 shadow + Stage-2 canary,
+   forward, hence not survivorship-biased).
 3. **Leakage-proof session contract (§3.5, §4.5)**: replaced the vague
    "00:00 UTC + 15-min quiet window" with an exact frozen contract — a
    `[D 00:00, D 00:15)` UTC quiet interval, a precise bar-close watermark,
