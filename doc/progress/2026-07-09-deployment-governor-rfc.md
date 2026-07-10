@@ -394,3 +394,40 @@ literal §4(b) 5-line evidence-block format. Fixed: this doc's header now
 follows the C5 template exactly; the three flagged claims each have a
 proper §4(b) block above. No design/statistical content changed in this
 round — this is a documentation-format compliance fix only.
+
+## r8 update (2026-07-10 — review of 11:06Z, three narrow decision-rule fixes)
+
+Codex retained the final block on the blinded sample-size re-estimation
+contract; all three points fixed in D6:
+
+1. **Conservative variance re-estimation**: the raw 3-block `σ̂_block`
+   plug-in is withdrawn. Frozen re-estimator at a minimum of 4 blind blocks,
+   exactly once: `σ²_input = MAX( chi-square one-sided 80% UCB of the
+   blind-block variance (df = N_blind−1; ≈3× the point estimate at 4
+   blocks), 1.5 × the paired-arm block variance from the exploratory TUNING
+   run (doc/research/evidence/deploy_policy_tuning + cap_grid — disjoint
+   historical proxy, never part of eval; numeric floor recorded in the S0
+   freeze commit before arms run) )`. `N*` from the frozen α/power/δ; gate =
+   `N_blocks ≥ max(8, N*)` AND `ESS ≥ 6` — a variance estimate can never
+   relax the gate below the frozen minimums. Declared feasible horizon = 24
+   blocks; frozen outcome if `N* > 24`: DESCRIPTIVE / NO-ENABLE.
+2. **P1 minimum lift data-anchored**: the arithmetic +2pp (40% of the
+   unrelated kill threshold) is replaced by +10pp absolute deployed
+   fraction, anchored to the smallest deployment change previously measured
+   as material — the one-share floor effect on 07-02 (BLK $995 + AVGO $360
+   blocked at 0 shares ⇒ +$1,355 ≈ +12.7pp of $10,709 PV; cash-drag memo
+   #442) — and ≈15% relative reduction of the 65%-cash 8-normal-day
+   baseline. Matched uncertainty rule: NW(lag ≤ 10) 90% CI on the
+   full-duration daily paired deployment series must exclude zero AND the
+   point estimate must be ≥ +10pp (co-required; a noisy point estimate
+   cannot satisfy the pair by construction).
+3. **DSR removed from the live two-arm enable path entirely** (Codex's
+   offered branch taken): live enable relies on the NW-on-blocks +
+   stationary-bootstrap conjunction, the non-inferiority margins, and the
+   power gate; DSR remains a replay-family metric only (§1.2 unit (i));
+   no small-sample dependent-block DSR variant is defined.
+
+Note: the P-1/P-1b/P-2 implementation PRs (execution #26, pipeline #181,
+orchestrator #451) were converted to DRAFT pending this RFC's merge — built
+ahead purely to eliminate post-approval latency; their review happens after
+the design freezes.

@@ -150,13 +150,21 @@ sign-off void the run and require a new protocol version.
   ENABLE additionally requires the LIVE shadow arm-level endpoint (§2a P2,
   future-only sessions) to meet its own bar under the same dependence-robust
   method. Replay ranks and screens; live shadow confirms.
-- **DSR/PBO applicability**: DSR (mean/std of the realized return sample,
-  deflated for the number of configurations actually tried) applies to BOTH
-  units once N is adequate — for unit (i), N = trading days in the evaluation
-  window; for unit (ii), N = `N_blocks` non-overlapping blocks (subject to
-  the `ESS` criterion), and the DSR trials
-  count is the number of arms/configurations actually compared in that Phase-2
-  family (named per-family in §2/§2a, not a generic constant). **PBO does NOT
+- **DSR/PBO applicability — REPLAY-FAMILY ONLY (r8: DSR is REMOVED from the
+  live two-arm enable path entirely, taking Codex's offered branch — at
+  eight dependent 20-session blocks, DSR is not a reliable extra
+  confirmation unless a bespoke small-sample/serial-dependence variant were
+  specified and defended, and any such variant would only conflict with, or
+  spuriously double-count, the NW/bootstrap conjunction that already governs
+  that path)**: DSR (mean/std of the realized return sample, deflated for
+  the number of configurations actually tried) applies to unit (i) — the
+  historical-replay daily paired-return series, N = trading days in the
+  evaluation window, trials count = the number of arms/configurations in
+  that Phase-2 family (named per-family in §2, not a generic constant). DSR
+  is NOT computed anywhere in §2a's live two-arm experiment, at any tier or
+  block count: §2a's live enable relies on the NW-on-blocks +
+  stationary-bootstrap conjunction, the non-inferiority margins, and the
+  `max(8, N*)`/`ESS` power gate — nothing else. **PBO likewise does NOT
   apply to §2a's breadth-lever comparison**: PBO's combinatorially-symmetric
   cross-validation (CSCV) procedure needs many candidate strategies split across
   many train/test combinations to estimate an overfitting probability; §2a is a
@@ -576,40 +584,58 @@ an honest accounting of what variance estimate is and isn't available):**
   built on a structurally mismatched comparison and cannot be frozen as the
   real requirement either. Neither number (8, nor ~170) is fit to freeze as
   THE sample-size target before the actual treatment has produced any data.
-- **Resolution — blinded sample-size re-estimation (frozen mechanism, not a
-  frozen number)**: at the SAME predeclared checkpoint already frozen for
-  the Tier-1 P2-kill inspection (the first 3 complete blocks — see Tier 1
-  below), compute the REALIZED sample standard deviation of the `d_i` block
-  series accumulated so far, `σ̂_block`, using ONLY the squared deviations
-  of the observed `d_i` values (a variance-only computation, BLIND to the
-  sign/magnitude of the mean — this is standard "blinded sample-size
-  re-estimation" practice: recalculating the required N from a nuisance
-  parameter, not from the treatment-effect estimate itself, does not
-  reopen the optional-stopping problem because no decision about the
-  DIRECTION of the effect is made at this checkpoint). Plug `σ̂_block` into
-  the formula above with the same frozen `α = 0.05`, `power = 0.80`, `δ =
-  50 bps` to obtain `N*`, the REAL required effective sample size for THIS
-  experiment's actual data. **Freeze the Tier-2 gate as `N_blocks ≥ max(8,
-  N*)` AND `ESS ≥ 6`** — the fixed 8-block floor from §1.2 remains a floor;
-  `N*` can only raise the bar, never lower it below 8. This re-estimation
-  happens EXACTLY ONCE (at 3 complete blocks), is recorded in the verdict
-  memo with its inputs (`σ̂_block`, `N*`), and is never redone at a later
-  block count.
-- **If `N*` is impractically large** (plausible, given the conservative
-  proxy above lands near 170): the protocol's honest posture, per this
-  finding, is that the live shadow arm-level 20d endpoint may not reach a
-  statistically defensible ENABLE within a practical timeframe at this
-  margin. The default outcome in that case is NOT a forced ENABLE at a
-  weaker bar — it is **DESCRIPTIVE-ONLY / NO-ENABLE-BY-DEFAULT**,
-  indefinitely, with the point estimate and its (untrustworthy, wide) CI
-  reported for operator awareness, same as the existing 60d-horizon
-  treatment. This is stated as a first-class possible outcome of running
-  this experiment, not a design failure: a subtler treatment effect
-  (admission-floor multiplier, same cap) may in reality have much lower
-  variance than the cap-grid proxy implies, in which case `N*` computed
-  from REAL data at the 3-block checkpoint could turn out far more
-  tractable than 170 — this is exactly why the re-estimation is deferred to
-  real accumulated data rather than frozen from the proxy now.
+- **Resolution — CONSERVATIVE blinded sample-size re-estimation (frozen
+  mechanism, not a frozen number; r8 hardening of the r7 draft: a variance
+  estimated from only 3 blocks is itself too unstable to set `N*` — a
+  randomly LOW realized variance would shrink `N*` and let an underpowered
+  enable through, so the raw 3-block `σ̂_block` plug-in is WITHDRAWN and
+  replaced with the following frozen conservative re-estimator):**
+  - **Minimum blind sample (frozen)**: no re-estimation before **4 complete
+    blind blocks** exist. The re-estimation happens EXACTLY ONCE, when
+    block 4 completes; it is never redone at a later block count. It is a
+    variance-only computation, BLIND to the sign/magnitude of the mean
+    (standard blinded sample-size re-estimation: recalculating N from a
+    nuisance parameter makes no decision about the effect's direction, so
+    it does not reopen the optional-stopping problem).
+  - **Frozen variance input — never the raw point estimate**:
+    `σ²_input = MAX( UCB80(σ̂²_blind), σ²_floor )`, where
+    - `UCB80(σ̂²_blind) = (N_blind − 1) · σ̂²_blind / χ²(0.20, N_blind − 1)`
+      — the one-sided 80% upper confidence bound of the blind-block
+      variance (chi-square based, df = `N_blind − 1`; at `N_blind = 4`,
+      `χ²(0.20, 3) ≈ 1.005`, so the UCB is ≈ 3× the point estimate —
+      deliberately punitive at small df, shrinking toward the point
+      estimate only as blind data grows);
+    - `σ²_floor = 1.5 ×` the paired-arm block variance measured on the
+      EXPLORATORY TUNING run — computed from the frozen artifacts in
+      `doc/research/evidence/deploy_policy_tuning/` (149 paired tuning
+      sessions, `evidence_tuning_fwd1d.json`) together with the cap-grid
+      record (`doc/research/evidence/cap_grid_tuning/`): a DISJOINT
+      historical proxy drawn from the tuning subset, never part of any
+      evaluation range. The numeric `σ²_floor` value is computed from those
+      artifacts and recorded in the §1 S0 freeze commit BEFORE any arm runs
+      (pre-experiment historical data only, so computing it up front costs
+      no blinding).
+  - `N* = ((z_α + z_β) · σ_input / δ)²` with the same frozen `α = 0.05`,
+    `power = 0.80`, `δ = 50 bps`. **Tier-2 gate: `N_blocks ≥ max(8, N*)`
+    AND `ESS ≥ 6`.** A variance estimate can NEVER relax the gate below the
+    frozen minimums: `N*` only raises the bar above 8, never lowers it, and
+    neither the UCB nor the floor may be waived or recomputed after seeing
+    data. All inputs (`σ̂²_blind`, `UCB80`, `σ²_floor`, `σ_input`, `N*`) are
+    recorded in the verdict memo at the moment of computation.
+  - **Declared feasible horizon (frozen): 24 blocks** (≈ 480 valid
+    sessions, ~2 years — beyond that the experiment is not a practical gate
+    for the breadth-bound deployment problem it exists to unblock).
+    **Frozen outcome: if `N* > 24` blocks, the experiment result is
+    DESCRIPTIVE / NO-ENABLE** — reported with point estimates and
+    explicitly-labeled-untrustworthy CIs for operator awareness, same as
+    the 60d-horizon treatment; NOT a forced verdict at a weaker bar, and
+    NOT a license to re-estimate at a later checkpoint. This is a
+    first-class possible outcome, not a design failure: the conservative
+    proxy above lands near 170 blocks, but a subtler same-cap
+    admission-floor treatment may have far lower variance in reality —
+    which is exactly why `N*` waits for real blind data instead of being
+    frozen from the proxy, while the UCB/floor construction guarantees the
+    wait can only err toward MORE data, never less.
 
 **Resolution — two-tier reporting, not a single fixed-N verdict (Tier-1 kill
 rules FROZEN, r5 point 4: "grossly adverse"/"sharply negative" were examples,
@@ -679,14 +705,16 @@ not thresholds, and are WITHDRAWN as discretionary):**
   Tier-1 output is the two kill-rule booleans plus point estimates
   explicitly labeled "underpowered, not significance-tested".
 - **Tier 2 — confirmatory read, block-gated (replaces the fixed
-  "+10 extension" rule; gate revised at r7 point 3 to include the blinded
-  power re-estimation above)**: continue running both arms until
+  "+10 extension" rule; gate includes the CONSERVATIVE blinded power
+  re-estimation above)**: continue running both arms until
   **`N_blocks ≥ max(8, N*)` complete non-overlapping 20d blocks AND `ESS ≥
-  6`** accumulate, where `N*` is the ONE-TIME blinded power re-estimate
-  computed at the 3-block checkpoint (above) — 160 valid sessions is the
-  ABSOLUTE FLOOR (≈ 200 scheduled under the 20% missingness bound); if `N*
-  > 8`, the real target is `N*` blocks, recorded in the verdict memo
-  alongside `σ̂_block` the moment it's computed. The realized endpoint has
+  6`** accumulate, where `N*` is the ONE-TIME conservative blinded power
+  re-estimate computed at the 4-block checkpoint (frozen re-estimator
+  above: `MAX(chi-square 80% UCB, 1.5× tuning-run floor)` — never the raw
+  variance) — 160 valid sessions is the ABSOLUTE FLOOR (≈ 200 scheduled
+  under the 20% missingness bound); if `N* > 8`, the real target is `N*`
+  blocks, recorded in the verdict memo with all re-estimator inputs the
+  moment it's computed. The realized endpoint has
   no maturation lag. At that point compute the preregistered §1.2 unit-(ii)
   dependence-robust test on the paired arm-level block series (NW-on-blocks
   small-sample CI AND stationary bootstrap, in conjunction, plus the `ESS ≥
@@ -698,14 +726,15 @@ not thresholds, and are WITHDRAWN as discretionary):**
   estimate shows. **If, at any scheduled review point, complete blocks <
   max(8, N*) or ESS < 6, the outcome is NO-ENABLE-BY-DEFAULT** with exactly
   one predeclared extension: keep running until both minima are met (no
-  peeking-based stop, no parameter change) — **if `N*` is impractically
-  large (the statistical-power section above's conservative proxy suggests
-  this is plausible), this extension may never practically complete, in
-  which case the honest, first-class outcome is an indefinite
-  DESCRIPTIVE-ONLY read, not a forced verdict at a weaker bar.** DSR is
-  computed on this same block series once the minima are met, deflated for
-  the 2 arms actually compared (S-0.5, S-1.0 — a small trials-correction,
-  named explicitly since it's non-zero). **PBO does not apply to this
+  peeking-based stop, no parameter change) — **and if `N*` exceeds the
+  declared feasible horizon of 24 blocks, the frozen outcome is
+  DESCRIPTIVE / NO-ENABLE per the re-estimator rule above — no extension
+  race, no weaker bar.** **DSR is REMOVED from this live two-arm enable
+  path entirely (r8, §1.2)**: live enable relies on the NW-on-blocks +
+  stationary-bootstrap conjunction, the non-inferiority margins, and the
+  `max(8, N*)`/`ESS` power gate — DSR remains a replay-family metric only,
+  and no small-sample dependent-block DSR variant is defined or used here.
+  **PBO likewise does not apply to this
   comparison** (§1.2) — a single preregistered 2-arm paired design has no
   combinatorial train/test structure for CSCV to run over; PBO is not
   computed for estimand (A) or (B), and its absence is not a gap, it is the
@@ -802,19 +831,28 @@ the floor-effect claim)**:
 - **Verdict = recommendation memo** (`doc/research/`, in this orchestrator
   repo), issued only at Tier 2 maturity (`N_blocks ≥ 8` complete 20d blocks
   AND `ESS ≥ 6`, per the block gate above). RECOMMEND-ENABLE iff ALL of:
-  1. **P1 (r7 point 2 — minimum effect size added; "> 0" alone permitted an
-     arbitrarily small noisy increase to satisfy a capital-deployment
-     claim)**: the daily paired deployed-fraction mean difference is **≥ 2
-     percentage points absolute** (a practically meaningful lift — the whole
-     point of loosening the floor is materially more deployment, not a
-     statistically-detectable-but-trivial nudge; chosen as roughly 40% of
-     the 5pp P1-kill threshold below — small enough to be achievable given
-     the floor relaxation's modest expected magnitude, large enough to move
-     the needle toward the ~90%-deployment target this lever exists to
-     serve) AND its NW (§1.2 unit (i) lag rule, capped at 10) one-sided 95%
-     CI (`α = 0.05`, consistent with §1.2's frozen level) excludes both 0
-     AND the 2pp threshold — i.e. the CI's lower bound must clear 2pp, not
-     merely exclude 0;
+  1. **P1 (r8 — DATA-ANCHORED minimum lift, replacing the r7 draft's
+     arithmetic +2pp, which was defined as 40% of the unrelated 5pp kill
+     threshold — arithmetic, not an economic decision rule)**: the smallest
+     deployment change previously measured as MATERIAL in this program is
+     the one-share floor effect: on 07-02, whole-share quantization blocked
+     BLK ($995/share) and AVGO ($360/share) at 0 shares, so a one-share
+     floor rescues **+$1,355 ≈ +12.7pp of the $10,709 PV**
+     (`doc/research/2026-07-09-cash-drag-binding-constraints-update.md`,
+     #442 — the 07-02 constraint table and §2.3 sizing walkthrough).
+     Frozen minimum economically meaningful lift: **+10 percentage points
+     absolute deployed fraction** — a round, conservative threshold vs
+     that anchor, and ≈ a 15% relative reduction of the 65%-cash baseline
+     measured on the same memo's 8-normal-flow-day diagnostic. **Matched
+     uncertainty rule on the declared unit**: the NW (§1.2 unit (i) lag
+     rule, capped at 10) **90% CI on the full-duration daily paired
+     deployment series must exclude zero AND the point estimate must be
+     ≥ +10pp**. The two conditions are co-required and play different
+     roles — the CI condition demands statistical reliability on the
+     declared time unit, the point-estimate condition demands economic
+     materiality — so a noisy point estimate cannot satisfy the enable
+     condition by construction, and neither condition substitutes for the
+     other;
   2. **P2 — the PRIMARY arm-level endpoint, 20d blocks ONLY** (60d is
      descriptive-only, never gating; the P2d cohort diagnostic and the
      score-band report gate NOTHING): the paired arm-level net realized
@@ -827,7 +865,7 @@ the floor-effect claim)**:
      missingness bounds are not breached, and zero treatment-fingerprint
      drift occurred.
   Anything less: REJECT — or, where the only failure is complete blocks <
-  max(8, N*) (the r7 blinded power re-estimation floor, §2a Statistical
+  max(8, N*) (the r8 conservative blinded power re-estimation floor, §2a Statistical
   power) or ESS < 6, the honestly-underpowered NO-ENABLE-BY-DEFAULT with its
   single predeclared extension (keep running until both minima are met; no other
   extension mechanism exists).
