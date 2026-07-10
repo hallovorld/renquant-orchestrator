@@ -72,7 +72,7 @@ The window mixes THREE regimes and must not be averaged as one production baseli
 
 ## 2. Constraint decomposition
 
-### 2.1 VetoWeakBuys floor (PRIMARY — 80% kill)
+### 2.1 VetoWeakBuys floor (diagnostic hypothesis — 80% kill)
 
 Config: `buy_floor: adaptive_mean_std`, `buy_floor_std_mult: 1`, `buy_floor_min: 0.2`
 
@@ -176,7 +176,7 @@ conviction-weighted allocation, long-short extension staged behind its own gate.
 |---|---|
 | Deployment Governor RFC (top-down capital budget → concentrated allocation → integer execution) | IN PROGRESS |
 | Fractional-shares reopen analysis (prereqs: active-path wiring, software stops) | memo pending, operator decides |
-| One-share floor PREPARE (strategy-104 PR #49) | OPEN — interim L3 measure, shadow=ON |
+| One-share floor PREPARE (strategy-104 PR #49) | MERGED — prod/golden `false` (byte-identical), shadow-only `true`; interim L3 measure pending RS-2 shadow-gate pass before prod enablement |
 | Veto-floor knob PR #47, rotation-threshold knob PR #48 | CLOSED — superseded |
 | Sequential-funnel → causal ranking | retracted to hypothesis status (this memo) |
 
