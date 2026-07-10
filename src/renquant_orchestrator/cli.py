@@ -510,6 +510,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to transfer_coefficient.main",
     )
 
+    shadow_ab = sub.add_parser(
+        "shadow-ab",
+        help="two-arm shadow A/B session runner (D6-§2a P-2; uninvoked prerequisite)",
+    )
+    shadow_ab.add_argument(
+        "shadow_ab_args", nargs=argparse.REMAINDER,
+        help="pass-through args to shadow_ab_runner.main",
+    )
+
     readiness = sub.add_parser(
         "readiness-monitor",
         help="data-accumulation readiness dashboard — check all gates and "
@@ -759,7 +768,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args, unknown = parser.parse_known_args(raw_argv)
     _remainder_commands = {
         "live-bridge", "daily-bridge", "edgar-harvest", "parking-sleeve",
-        "transfer-coefficient", "readiness-monitor", "entry-timing",
+        "transfer-coefficient", "shadow-ab", "readiness-monitor", "entry-timing",
         "train-gbdt", "patchtst-cutoff", "risk-budget-report",
         "conviction-replay", "m6-restamp",
     }
@@ -1291,6 +1300,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         tc_argv = unknown + (args.tc_args or [])
         return tc_main(tc_argv or None)
+    if args.command == "shadow-ab":
+        from .shadow_ab_runner import main as shadow_ab_main
+
+        shadow_ab_argv = unknown + (args.shadow_ab_args or [])
+        return shadow_ab_main(shadow_ab_argv or None)
     if args.command == "readiness-monitor":
         from .readiness_monitor import main as rm_main
 
