@@ -118,10 +118,22 @@ class ModalExecutor:
             variant_seeds: dict[str, list[dict]] = {}
             variant_meta: dict[str, dict] = {}
 
+            n_received = 0
             for result_json in run_variant_remote.map(
                 per_seed_requests,
                 kwargs={},
+                order_outputs=False,
+                return_exceptions=True,
             ):
+                n_received += 1
+                if isinstance(result_json, Exception):
+                    log.error(
+                        "Pod %d/%d raised: %s", n_received, n_tasks, result_json
+                    )
+                    on_error("unknown", result_json)
+                    summary.n_failed += 1
+                    continue
+                log.info("Pod %d/%d returned", n_received, n_tasks)
                 try:
                     result_dict = json.loads(result_json)
                     vname = result_dict["variant_name"]
