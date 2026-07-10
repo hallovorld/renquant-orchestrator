@@ -331,9 +331,13 @@ counts are hypotheses; the decision standard is END-OF-CHAIN counterfactual repl
   future-only shadow sessions + a held-out historical window not previously inspected.
 - **Primary estimands**: end-of-chain deployed fraction (daily paired series —
   no forward window, NW lag ≤ 10 valid) and paired daily realized returns;
-  forward portfolio return is enable-grade at the 20d horizon ONLY, computed
-  on non-overlapping complete windows (60d is descriptive-only) — units of
-  inference are defined once, in D6 §1.2, and this RFC defers to them.
+  block-aggregated return endpoints are enable-grade at the 20d block length
+  ONLY, computed on non-overlapping complete blocks with DEPENDENCE-ROBUST
+  inference — the blocks are not independent (60d is descriptive-only) —
+  units, method, and the `N_blocks`/`ESS` minima are defined once, in D6
+  §1.2, and this RFC defers to them. Historical replay evidence is
+  directional/low-power support; enablement additionally requires the live
+  shadow arm-level endpoint (D6 §5).
 - **Non-degradation gates** (tolerances frozen at protocol sign-off, before data):
   turnover, max single-name concentration (≤12%), sector concentration, max drawdown,
   realized volatility.
@@ -377,19 +381,18 @@ Boundary compliance: pipeline owns kernel primitives (D2–D4); strategy-104 own
 policy/config (D5); orchestrator owns orchestration, evaluation, and cross-repo
 design (D1, D6–D8). No broker-adapter changes; no model-training changes; this
 RFC's OWN deliverables (D1-D8) touch nothing in the umbrella live tree.
-**Caveat (r5, D6 §2a)**: D6's breadth-lever shadow A/B documents a
-PREREQUISITE it does not itself build — a second isolated shadow broker tag.
-Per D6 §2a's implementation contract, that prerequisite lands entirely
-outside the umbrella (pipeline `ALLOWED_BROKERS` one-liner + an
-orchestrator-bridge arm-tag flag and orchestrator-owned scheduled invocation
-+ a strategy-104 config file): the experiment runs with ZERO umbrella code
-change. A separate, optional durable-ownership migration (parameterizing the
-already execution-repo-resident `renquant_execution.readonly_broker` and
-cutting the umbrella call-site over to it, same shape as the
-`RenQuant#454`→`renquant-execution#25` precedent) is tracked as its OWN
-separately-gated follow-up PR under the adapter-migration program — it is
-NOT a dependency of D6 §2a, is not part of this RFC's D1-D8 deliverable set,
-and is not authorized by this RFC's approval.
+**Caveat (r6, D6 §2a)**: D6's breadth-lever shadow A/B carries a frozen
+boundary rule — **no umbrella runner or call-site change is permitted for
+that experiment, and the umbrella runner is not invoked on its path; the
+umbrella remains a deprecated pin consumer**. Its entry is multi-repo-owned:
+renquant-execution owns the parameterized read-only wrapper
+(`renquant_execution.readonly_broker`, prerequisite PR P-1),
+renquant-orchestrator owns the daily two-arm orchestration entrypoint
+(prerequisite PR P-2), renquant-pipeline owns the (already parameterized)
+broker-tagged state paths plus two allowlist entries, and strategy-104
+contributes the config-only treatment PR. P-1 and P-2 are D6-§2a build
+items, each subject to normal review; they are not part of this RFC's D1-D8
+deliverable set and are not authorized by this RFC's approval.
 
 ## 6. Non-goals
 

@@ -187,3 +187,48 @@ scheme from the first pass are kept in full) and resolves the divergences:
    (marginal-entrant net 20d matured mean < −300 bps with ≥ 3 matured
    blocks), plus an explicit symmetric no-early-ENABLE clause (equal-sized
    favorable reads authorize nothing; enable only at ≥ 8 matured blocks).
+
+## r6 update (2026-07-10)
+
+Codex r6 kept the RFC blocked on three points; all three fixed in D6 + the
+RFC caveat:
+
+1. **Umbrella changes PROHIBITED, not separately gated**: §2a's execution
+   plan is now fully multi-repo-owned — renquant-execution owns the
+   parameterized `ReadOnlyBrokerWrapper` (the existing unwired
+   `renquant_execution.readonly_broker` port, hardcoded tag at
+   `readonly_broker.py:14`, becomes the required owner; prerequisite PR P-1);
+   renquant-pipeline owns broker-tagged state paths (verified already
+   parameterized — only two `ALLOWED_BROKERS` entries needed);
+   renquant-orchestrator owns a NEW daily two-arm entrypoint invoking the
+   pinned pipeline decisioning entry twice with (config, tag) pairs
+   (prerequisite PR P-2, review contract frozen in §2a). The frozen rule "no
+   umbrella runner or call-site change is permitted; the umbrella remains a
+   deprecated pin consumer" is written into the protocol; the r5 bridge-tag
+   monkeypatch route and the daily_104.sh fallback are withdrawn. Because
+   the untouched Step-4 legacy shadow keeps writing `alpaca_shadow` state,
+   the experiment arms get their own tags (`alpaca_shadow_a`/`_b`) — both
+   produced by the same P-2 entrypoint; the `live.preflight.strict` config
+   shim is withdrawn (config delta back to exactly one key), preflight
+   symmetry now a required P-2 property.
+2. **P2 restructured to an end-to-end treatment estimand**: PRIMARY quality/
+   non-inferiority endpoint = paired ARM-LEVEL NET REALIZED portfolio return
+   (S-0.5 − S-1.0) read off the two actual ledgers (actual fills, realized
+   tax, actual costs, after reweighting/turnover; no hypothetical convention
+   anywhere; no maturation lag). The cohort analysis is demoted to a
+   diagnostic (P2d) with cohorts defined as EXECUTED ENTRY LOTS; pre-veto
+   score-threshold cohorts are descriptive-only with their cost/tax
+   accounting labeled hypothetical. Kill/decision thresholds keep the frozen
+   number structure, re-pointed to the arm-level endpoint (P2-kill: paired
+   arm-level net 20d block mean < −300 bps with ≥ 3 complete blocks).
+3. **Purged embargo + honest dependence**: replay tuning/eval embargo raised
+   30d → 60d (≥ longest forward horizon; counts restated: tuning ≈ 249,
+   embargo 60, evaluation ≈ 188 → 9 twenty-day blocks, 3 sixty-day). The
+   "independent by construction" claim is withdrawn; frozen
+   dependence-robust method: NW(lag 1) on the block series with
+   t(N_blocks−1) small-sample correction AND a stationary block bootstrap
+   (expected length 2, 10k resamples) in conjunction, plus an
+   effective-sample-size criterion ESS = N_blocks·(1−ρ̂₁)/(1+ρ̂₁) ≥ 6 with
+   N_blocks ≥ 8. Historical 20d evidence is declared directional/low-power
+   support that cannot alone clear promotion — the §5 ENABLE rule now
+   requires the live shadow arm-level endpoint to meet its own bar.
