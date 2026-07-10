@@ -130,38 +130,128 @@ constants); extend the boundary AST tests to base-data/artifacts; unknown-key
 warning counter (not yet strict) on config load. Rationale: every migration
 below is then protected by an alarm instead of review vigilance.
 
-**R1 — launchd cutover (M, ~week).** Flip the 18 plists to the already-
-registered native orchestrator jobs one leg at a time (shadow-compare each leg
-per the D6-§2a paired-bundle pattern before cutting the next). Kills T2's
-operational core with no new design. Prereq for R2 (removes umbrella-script
-consumers of the umbrella kernel).
+**Kernel-identity invariant (frozen HERE, gates every R1/R2 cutover step —
+CORRECTED, Codex review round 1, 2026-07-10):** the R1 draft below let a
+scheduler change silently double as a kernel cutover. Freezing this now so
+that mistake cannot recur.
+
+- **Identity tuple**: `(pipeline_repo_sha, kernel_module_content_hash)` —
+  the pinned `renquant-pipeline` commit SHA plus a content hash of the
+  kernel module tree, computed with the SAME `model_content_sha256`-style
+  convention this project already uses in exactly one place
+  (`renquant_common.model_fingerprint.model_content_sha256`, per audit B
+  §1 — the single surviving implementation after the fingerprint-triple
+  incident; reused here, not reinvented) and the same "compute once,
+  independently re-verify at every consumption point" discipline the
+  merged Deployment Governor RFC's decision-snapshot digest already
+  established (`doc/design/2026-07-09-governor-prereg-replay-protocol.md`,
+  "Paired-world input synchronization").
+- **The rule**: no production live cutover — meaning any change to WHICH
+  KERNEL COPY live actually executes — is permitted unless BOTH (a) the
+  originating decision/run bundle and (b) the corresponding WF-gate/sim/
+  promote evidence carry the IDENTICAL identity tuple, AND (c) that tuple
+  has passed a pre-registered golden-vector/shadow comparison: the same
+  frozen set of historical inputs run through both the live-consumed
+  kernel and the evidence-consumed kernel, asserting byte-identical (or an
+  explicitly pre-registered tolerance-bounded) output on every vector.
+  "Shadow-compare each leg" alone (the R1 draft's acceptance rule) is NOT
+  this comparison — it checks behavioral similarity on live shadow
+  traffic, not kernel-identity equality against a frozen reference set.
+- **Persistence, fail-closed**: the matched identity tuple and the
+  golden-vector comparison's pass/fail result are stamped into BOTH the
+  promotion record (artifacts-side) AND the live run bundle. A mismatch at
+  either side FAILS CLOSED — blocks the cutover if not yet executed,
+  blocks promotion/live continuation if discovered after — never a
+  logged-and-continue warning.
+
+**R1 — launchd cutover (M, ~week) — RESCOPED (Codex review round 1):** the
+draft above proposed flipping the 18 plists to "the already-registered
+native orchestrator jobs" as a scheduler-only change. That is false for any
+plist whose native replacement is the native/orchestrator path T1 already
+identified as running the PINNED kernel — flipping launchd to invoke it
+would be a live kernel cutover disguised as a scheduling change, landing
+before R2 has moved WF-gate/sim/promote onto that same kernel, and would
+re-create T1's evidence≠live split in the opposite direction (evidence
+stale, live current) rather than closing it.
+
+R1's scope is therefore restricted to launchd→native-scheduler changes that
+DEMONSTRABLY preserve the existing execution implementation: verified via
+the kernel-identity tuple above — the native replacement job, at cutover
+time, must resolve to the SAME identity tuple the umbrella-script path
+resolved to immediately before the flip (i.e., still the umbrella kernel
+copy, invoked through a different scheduling mechanism). Any leg whose
+native replacement would instead resolve to a DIFFERENT identity tuple is
+explicitly OUT of R1's scope — its cutover is deferred to R2, where it is
+bundled with the corresponding evidence-path cutover in the same slice (see
+below). R1's acceptance test per leg is therefore: (1) kernel-identity match
+against pre-flip, checked mechanically, not asserted; (2) shadow-compare
+per the D6-§2a paired-bundle pattern, retained as a secondary behavioral
+check. Kills T2's operational (scheduling) core with no new design; does
+NOT by itself remove any umbrella-kernel consumer — that is R2's job.
 
 **R2 — Kernel cutover (L, staged, the P0).** Per-module: pin-parity shims in
 the umbrella kernel that IMPORT the pinned pipeline module and assert
 golden-vector equality in shadow for N sessions, then delete the local copy.
-Order by blast radius: exits → sizing → preflight → runner stems. The WF
-gate/sim/promote chain moves to the pinned kernel in the SAME slice as live
-(never let evidence and live diverge again — that is T1's lesson). Progress
-metric: the 113-file diff count, published per slice, must go DOWN
-monotonically to zero.
+Order by blast radius: exits → sizing → preflight → runner stems. **The
+first native execution cutover for each module — the point where live
+starts consuming a DIFFERENT kernel identity than before — IS an R2 slice,
+and the WF-gate/sim/promote chain for that module moves to the SAME
+identity in the SAME slice, always** (never let evidence and live diverge
+again, in either direction — that is T1's lesson, generalized per the
+kernel-identity invariant above). This absorbs any launchd leg R1 deferred
+for exactly this reason. Progress metric: the 113-file diff count,
+published per slice, must go DOWN monotonically to zero.
 
 **R3 — Broker stack unification (M).** Execution repo is the owner. Port the
 two umbrella-only protective features (paper_broker Z9 stop-sim, agent_breaker
 G2 caps) INTO renquant-execution first, THEN retire the twins behind the R0
 parity alarms. The #454/#26 pattern (owner implementation + umbrella
-delegating call-site with fallback) is the proven migration shape.
+delegating call-site with fallback) is the proven migration shape. **Every
+umbrella-delegating call-site left behind by this pattern is a temporary
+migration shim (governance fields below) — not a permanent second home.**
 
 **R4 — Training migration (L).** Reconcile the diverged umbrella↔model
 factories (diff-audit first slice), then move the Sunday tournament to
 renquant-model invoked via pins; umbrella keeps only the schedule shim until
 R1 retires it. Do not attempt in one PR; the 07-02 fractional staging pattern
-(stages, flag-off, certification marker unchanged) applies.
+(stages, flag-off, certification marker unchanged) applies. **The schedule
+shim is a temporary migration shim (governance fields below).**
+
+**Temporary migration mechanism governance (applies to every shim in R1–R5:
+the R1 umbrella-invoking scheduler wrapper, R2's pin-parity shims, R3's
+umbrella-delegating call-sites, R4's schedule shim, R5's override token
+below — CORRECTED, Codex review round 1):** none of these may be an
+undated, unowned bridge. Each MUST declare, at the point it is introduced:
+- **Owner**: a named role (operator — the same accountability convention
+  already used for every capital-risk freeze elsewhere in this project's
+  design docs), not "the team" or unspecified.
+- **Expiry**: either a calendar date or an explicit MEASURABLE migration
+  milestone (e.g. "R2's exits-module diff count reaches 0"), whichever the
+  shim's own removal condition actually depends on — a milestone-based
+  expiry where one exists (most of these do; they retire when their
+  specific R-stage slice completes) rather than a generic calendar date.
+- **Telemetry**: an observable signal that the shim is still in use (a
+  counter, a log line, or a per-run stamp — reusing whatever this
+  project's existing observability convention is, not a new one) so its
+  continued necessity is visible, not assumed.
+- **Fail-closed retirement**: what happens if the shim is still present
+  past its expiry — it must FAIL CLOSED (block the path it bridges) at
+  that point, not continue silently. A shim past expiry is a stopped
+  migration, not a permanent architecture decision, and must surface as
+  such.
 
 **R5 — Fingerprint fail-closed (M, behavior change → pre-registration gate).**
-Bridge pin-drift default flips to fail-closed with an explicit, logged, alarmed
-override env; run bundle always-on; native_live_run gains the same gate. This
-is a behavior change on the production path: shadow the fail-closed verdicts
-for N sessions first (count would-have-blocked days), then flip via the gate.
+Bridge pin-drift default flips to fail-closed; run bundle always-on;
+native_live_run gains the same gate. **Override mechanism, CORRECTED
+(Codex review round 1): NOT a static "explicit override env" that, once
+set, permanently disables the check.** The override requires an EXPIRING,
+operator-authorized incident token/record: a specific, time-bounded,
+logged authorization tied to a named incident (not a standing environment
+variable), which automatically expires and must be re-authorized for any
+further use — governed by the same owner/expiry/telemetry/fail-closed
+fields above. This is a behavior change on the production path: shadow the
+fail-closed verdicts for N sessions first (count would-have-blocked days),
+then flip via the gate.
 
 **R6 — Single-source contracts (M).** Tax → one implementation in common
 (rotation's is canonical; QP/selection import it); calendar → adopt
@@ -194,7 +284,12 @@ prerequisite); both goals' pins ride R2's parity discipline.
    section per release; dead keys deleted with the same PR discipline.
 4. A "migration exception" label with expiry (the #454 time-bounded exception
    worked because it was explicit; make expiry mechanical — CI warns when an
-   exception file is older than its declared sunset).
+   exception file is older than its declared sunset) — this is the general
+   mechanism the R1–R5 "temporary migration mechanism governance" fields
+   above (owner/expiry/telemetry/fail-closed retirement) instantiate for
+   every shim named in this roadmap; the CI warning should escalate to a
+   fail-closed block, not stay a warning, once a shim's declared expiry
+   passes (per that section).
 5. The kernel-diff counter (T1) published in the weekly ops summary until zero.
 
 ## 6. Non-goals
