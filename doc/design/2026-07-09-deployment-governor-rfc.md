@@ -8,6 +8,9 @@ the highest-conviction names; long-short extension on the table behind its own g
 fractional-shares reopen decided separately after analysis.
 EVIDENCE BASE: `doc/research/2026-07-09-cash-drag-binding-constraints-update.md` (PR #442),
 QP forensics + active-path map (this session, summarized in §2), RFC #421 (merged).
+§4(b)-formatted evidence blocks for the two verified claims below (idle-cash/
+deployment-owner diagnosis, QP root cause) are in
+`doc/progress/2026-07-09-deployment-governor-rfc.md` ("§4(b) evidence blocks").
 
 ---
 

@@ -564,7 +564,9 @@ an honest accounting of what variance estimate is and isn't available):**
     262 bps` per 20-day block.
   - Plugging into the formula: `N ≈ (2.485 · 262/50)² ≈ (13.0)² ≈ 170`
     effective blocks (`ESS ≈ 170`) — roughly **170 × 20 ≈ 3,400 sessions
-    (~13-14 years)** at this conservative proxy. This is grossly impractical
+    (~13-14 years)** at this conservative proxy (§4(b)-formatted evidence
+    block for this derivation: `doc/progress/2026-07-09-deployment-governor-rfc.md`,
+    "§4(b) evidence blocks"). This is grossly impractical
     and, being a conservative (likely over-stated) proxy, an UPPER bound on
     the true requirement — not a number to freeze as the actual target.
 - **Honest conclusion**: the frozen `N_blocks ≥ 8`/`ESS ≥ 6` minima are an

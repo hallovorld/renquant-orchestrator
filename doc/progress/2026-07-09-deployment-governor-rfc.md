@@ -1,9 +1,105 @@
-# Deployment Governor RFC — design
+# Deployment Governor RFC — design   (PR #443)
 
-**Date**: 2026-07-09
-**Status**: Design RFC (no behavior change)
+STATUS:    in-progress
+WHAT:      Full sizing-architecture redesign RFC: replace the bottom-up
+           multiplicative sizing chain (no deployment owner, 65% idle cash)
+           with a four-layer top-down design — dynamic regime-bounded
+           deployment algorithm, concentrated conviction-weighted allocation,
+           integer-aware execution, staged long-short extension — plus a
+           preregistered replay protocol (D6) including a true isolated
+           shadow A/B for the admission-breadth lever (D6 §2a).
+WHY/DIR:   Operator mandate 2026-07-09 (full sizing redesign authorized).
+           Supersedes knob-level Lane A framing (strategy-104 #47/#48
+           closed; #49 one-share floor stays as an interim L3 measure).
+           Feeds the D7 fractional-shares reopen analysis (orchestrator
+           #444) and the D6 freeze-record tooling (orchestrator #446), both
+           drafted pending this RFC's design freeze.
+EVIDENCE:  See "§4(b) evidence blocks" below — two claims this doc/its
+           sibling design docs assert as verified conclusions.
+NEXT:      Codex review (r8+) of the r7 fixes (decision-snapshot sync,
+           complete hypothesis test, real power analysis, single-look kill
+           rules — pushed commit 9c8b5d98). Once approved: pipeline #179/
+           #180 and orchestrator #446 (currently draft, blocked on this PR)
+           come off draft; strategy-104 #52 resubmits as a config-only
+           treatment PR referencing D6 §2a.
 
-## Bottom line
+---
+
+## §4(b) evidence blocks
+
+**Claim: "No component owns the deployment decision; idle cash is an
+emergent residual" (`doc/design/2026-07-09-deployment-governor-rfc.md`
+§1, and item 1 in "Key evidence" below)**
+```
+artifact:      src/renquant_pipeline/kernel/{sizing,qp}/*.py (active sizing
+               chain) + strategy-104 runtime config (this session's
+               code-inspection pass, 2026-07-09)
+prod or exp:   prod (the active bottom-up multiplicative sizing chain and
+               the disabled QP are both the real, currently-deployed code)
+existing data: grepped the active codebase for any "target_invested" /
+               "deploy toward X%" concept outside the QP; none found in the
+               active (non-QP) sizing path. Idle-cash observation: 65%
+               average across 8 sampled normal-flow trading days (this
+               session's live-state inspection, not a formal backtest)
+best-known?:   this is the CURRENT production sizing architecture — not a
+               comparison against a better-known alternative; the claim is
+               structural (no deployment-target owner exists), not a
+               performance comparison
+scope:         this is a code-structure finding from prod, [VERIFIED] by
+               direct inspection of the active (non-QP) sizing chain and
+               the disabled QP's target_invested/qp_cash_drag_lambda=0
+               state — not re-derived from an independent data pull
+```
+
+**Claim: "QP root cause: hard L1 turnover cap + 2% min-Δw floor pins new
+buys at ≈1.5%" (item 2 in "Key evidence" below)**
+```
+artifact:      QP solver config + constraint trace (this session's forensic
+               pass on the disabled QP path, 2026-07-09)
+prod or exp:   prod (the QP is real production code, currently disabled —
+               both the turnover cap and min-Δw floor are live constraint
+               definitions, not experimental)
+existing data: traced the QP's constraint set directly; no separate
+               training-run/IC artifact applies (this is a solver-
+               constraint-interaction finding, not a model-quality claim)
+best-known?:   n/a — structural constraint-interaction finding, not a
+               model/variant comparison
+scope:         this is a QP-config/constraint-trace finding, prod (disabled
+               path), [VERIFIED] by direct constraint inspection; the
+               proposed replacement (`hybrid_option_f_allocator`,
+               `fractional_kelly_top_k`) already exists in-repo with its
+               own replay harness and live shadow telemetry — cited, not
+               re-verified fresh in this pass
+```
+
+**Claim: "~170 effective blocks (~13-14 years) needed for 80% power at the
+frozen 50bps margin" (`doc/design/2026-07-09-governor-prereg-replay-protocol.md`,
+r7 power-analysis fix)**
+```
+artifact:      doc/research/evidence/cap_grid_tuning/results.md (cap12_ew
+               vs cap20_ew arm comparison, 149 daily paired sessions)
+prod or exp:   experiment (exploratory/tuning-subset cap-grid sweep — NOT
+               the actual S-0.5-vs-S-1.0 treatment, which has never run)
+existing data: HAC t=-1.09 over 149 sessions, net returns +4.70%/-3.08%;
+               back-solved sigma_daily ~58.5bps, scaled to sigma_block
+               ~262bps at a 20-day block, N ~ (z_a+z_b)^2 * (sigma/delta)^2
+               ~ (13.0)^2 ~ 170 blocks
+best-known?:   this is a CONSERVATIVE PROXY, not the best-known estimate of
+               the true treatment's variance — the cap-grid perturbation
+               (12%->20% cap) is structurally larger than the actual
+               same-cap admission-floor treatment (buy_floor_std_mult
+               0.5->1.0), so this number is explicitly expected to
+               OVERSTATE the true required N (labeled as such in the doc)
+scope:         this is an exploratory/tuning-subset artifact used as an
+               explicitly-labeled upper-bound proxy for a sample-size
+               floor, not a decision-grade conclusion about the actual
+               treatment; the protocol's resolution does not freeze 170 as
+               a target — it freezes a blinded re-estimation MECHANISM
+               (N_blocks >= max(8, N*), N* computed from the real
+               treatment's own realized variance at the 3-block checkpoint)
+```
+
+## Full round-by-round history
 
 Full sizing-architecture redesign RFC per operator mandate (2026-07-09): replace
 bottom-up multiplicative sizing (no deployment owner, 65% idle cash) with a
@@ -11,15 +107,17 @@ four-layer top-down design — dynamic regime-bounded deployment algorithm (aggr
 shrunk-Kelly, NOT a fixed number), concentrated conviction-weighted allocation,
 integer-aware execution, staged long-short extension.
 
-## Key evidence feeding the design
+### Key evidence feeding the design
 
-1. [VERIFIED] No component owns deployment — the only target-deployment concepts in
-   the codebase are in the disabled QP and the passive benchmark sleeve
-2. [VERIFIED] QP root cause: hard L1 turnover cap + 2% min-Δw floor interaction pins
-   all new buys at ≈1.5% → dropped; both mitigations OFF in prod. Judgment: replace
-   as primary sizer (keep as optional constraints-only projection), not repair —
-   the replacement (`hybrid_option_f_allocator`, `fractional_kelly_top_k`) already
-   exists in-repo with a replay harness and live shadow telemetry
+1. [VERIFIED — see §4(b) block above] No component owns deployment — the only
+   target-deployment concepts in the codebase are in the disabled QP and the
+   passive benchmark sleeve
+2. [VERIFIED — see §4(b) block above] QP root cause: hard L1 turnover cap + 2%
+   min-Δw floor interaction pins all new buys at ≈1.5% → dropped; both mitigations
+   OFF in prod. Judgment: replace as primary sizer (keep as optional
+   constraints-only projection), not repair — the replacement
+   (`hybrid_option_f_allocator`, `fractional_kelly_top_k`) already exists in-repo
+   with a replay harness and live shadow telemetry
 3. [VERIFIED] conviction × sigma multipliers double-count μ/σ² on top of Kelly;
    `min_mult=0` zeroes at-floor names (cliff)
 4. [VERIFIED] `panel_buy_top_n` is not in the active path — live initiation cap is
@@ -27,20 +125,20 @@ integer-aware execution, staged long-short extension.
 5. Config drift (ops note): umbrella-tree strategy_config.json copy is stale
    (fractional 0.5) vs pinned runtime config (0.3) — "merged ≠ deployed" again
 
-## Changes
+### Changes
 
 - `doc/design/2026-07-09-deployment-governor-rfc.md` — the RFC: architecture (L1–L4),
   deployment algorithm, evaluation protocol (end-of-chain preregistered replay with
   DeMiguel naive-diversification baseline arms), staged rollout (S0–S3), deliverable
   split across pipeline/strategy-104/orchestrator (D1–D8)
 
-## Context
+### Context
 
 Supersedes knob-level Lane A framing (strategy-104 PRs #47/#48 closed; #49 one-share
 floor stays as interim L3 measure). Evidence memo PR #442 reworked to
 working-diagnosis status per Codex review and feeds this RFC.
 
-## r4 update (2026-07-10)
+### r4 update (2026-07-10)
 
 Codex's r4 review (post cap-grid exploratory tuning run) raised four blockers, all
 addressed in this round without touching the design's actual mechanics (the L2
@@ -65,7 +163,7 @@ justification needed correcting):
    window/promotion-rule — with one flagged gap (no run-bundle fingerprint
    stamped per shadow session) noted as a follow-up to that PR, not fixed here.
 
-## r4-correction update (2026-07-10, same day)
+### r4-correction update (2026-07-10, same day)
 
 Codex then reviewed `strategy-104#52` DIRECTLY and found the r4 cross-reference
 above premature: the within-shadow marginal-entrant decomposition + prod-XGB
@@ -95,7 +193,7 @@ specified concretely but NOT built in this doc-only PR — tracked as follow-up.
 `strategy-104#52` will be resubmitted as a config-only treatment PR (just the
 `shadow_b.json` + pin test) once §2a itself is reviewed and merged.
 
-## r5 update (2026-07-10, same day)
+### r5 update (2026-07-10, same day)
 
 Codex's r5 review accepted the r4-correction's two-arm causal structure but
 raised four new blockers against §2a's implementation/inference contracts —
@@ -145,7 +243,7 @@ over:
    monitoring) — with the reasoning stated for why a single fixed look avoids
    the optional-stopping problem Codex flagged.
 
-## r5 reconciliation (2026-07-10, second pass — two parallel r5 fixes merged)
+### r5 reconciliation (2026-07-10, second pass — two parallel r5 fixes merged)
 
 Two sessions produced r5 fixes concurrently; this pass merges them (the
 non-overlapping-outcome-block statistics and the two-contiguous-range replay
@@ -188,7 +286,7 @@ scheme from the first pass are kept in full) and resolves the divergences:
    blocks), plus an explicit symmetric no-early-ENABLE clause (equal-sized
    favorable reads authorize nothing; enable only at ≥ 8 matured blocks).
 
-## r6 update (2026-07-10)
+### r6 update (2026-07-10)
 
 Codex r6 kept the RFC blocked on three points; all three fixed in D6 + the
 RFC caveat:
@@ -233,7 +331,7 @@ RFC caveat:
    support that cannot alone clear promotion — the §5 ENABLE rule now
    requires the live shadow arm-level endpoint to meet its own bar.
 
-## r7 update (2026-07-10)
+### r7 update (2026-07-10)
 
 Codex r7 kept two r6 fixes (multi-repo-only execution; arm-level primary
 endpoint) but retained a final design block on four executability gaps, all
@@ -284,3 +382,15 @@ fixed in D6 §2a:
    restriction; statistical-efficacy stops (the two kill rules) are subject
    to the single-look discipline — these are different failure modes and no
    longer share ambiguous language.
+
+### r8 update (2026-07-10) — progress-doc / evidence-block contract compliance
+
+A second, distinct Codex review (submitted 8 minutes after r7, same commit)
+flagged this progress doc as non-conforming to the C5 template
+(`doc/AGENT-RETROSPECTIVE.md` §4(c): required fields `STATUS:`/`WHAT:`/
+`WHY/DIR:`/`EVIDENCE:`/`NEXT:`) and flagged three specific conclusions
+(idle-cash/QP diagnosis, cap-grid power-analysis proxy) as lacking the
+literal §4(b) 5-line evidence-block format. Fixed: this doc's header now
+follows the C5 template exactly; the three flagged claims each have a
+proper §4(b) block above. No design/statistical content changed in this
+round — this is a documentation-format compliance fix only.
