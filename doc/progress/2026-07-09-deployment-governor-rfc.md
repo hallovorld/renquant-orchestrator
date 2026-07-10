@@ -94,3 +94,39 @@ new CLI surface, a `daily_104.sh` step, and strategy-104's `shadow_b.json`) is
 specified concretely but NOT built in this doc-only PR — tracked as follow-up.
 `strategy-104#52` will be resubmitted as a config-only treatment PR (just the
 `shadow_b.json` + pin test) once §2a itself is reviewed and merged.
+
+## r5 update (2026-07-10)
+
+Codex r5 accepted the two-arm causal structure but kept the design blocked on
+four contract defects; all four are fixed in D6 (protocol doc) + one RFC line:
+
+1. **No new umbrella capability**: §2a's prior infrastructure items 2-4
+   (parameterized `ReadOnlyBrokerWrapper`, new umbrella runner CLI, a
+   `daily_104.sh` step) are WITHDRAWN. Verified by read-only inspection: the
+   Step-4 shadow invocation is already orchestrator-mediated
+   (`renquant_orchestrator live-bridge`, `daily_104.sh:599-609`), the config
+   already resolves from the pinned strategy-104 subrepo
+   (`_with_pinned_strategy_config`), and `kernel.state_paths` is aliased to
+   the pinned pipeline under the bridge. Second arm = strategy-104 config file
+   + pipeline `ALLOWED_BROKERS` one-liner + an orchestrator bridge arm-tag
+   flag and orchestrator-owned scheduled invocation. Zero umbrella code; the
+   #454 time-bounded-exception route is documented only as a dispreferred
+   fallback.
+2. **§2a self-contained**: all safety gates (exact tolerances), estimand
+   definitions, the paired-session inclusion rule, fingerprint-invalidates-
+   both-arms, bounded missingness (>20% invalidated ⇒ VOID; any
+   treatment-fingerprint drift ⇒ VOID), and the full per-session bundle field
+   list (incl. calibrator sha, execution pin, orchestrator commit,
+   data/feature manifest sha) are frozen inline; #52 demoted to provenance.
+3. **Valid units of inference**: per-block NW + fixed-effect pooling
+   WITHDRAWN. Primary = daily deployed-fraction (and realized-return) paired
+   series, NW lag ≤ 10; forward quality enable-grade at 20d only on
+   non-overlapping complete windows (~12 replay units; shadow units of 20
+   valid sessions, minimum 8 matured); 60d descriptive-only; honestly-
+   underpowered ⇒ NO-ENABLE-BY-DEFAULT with predeclared extension; DSR/PBO
+   declared replay-only (daily realized series), never on forward windows.
+4. **Frozen early-reject**: Tier-1 kill rules are now exact and NET-declared —
+   P1-kill: treatment deployed fraction < control − 5pp absolute as a
+   5-consecutive-session mean; P2-kill: marginal-entrant net 20d matured mean
+   < −300 bps with ≥ 3 matured units. Symmetric no-early-ENABLE: favorable
+   reads of equal size authorize nothing; enable only at full Tier-2 maturity.

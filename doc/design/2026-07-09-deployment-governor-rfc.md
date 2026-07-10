@@ -329,8 +329,11 @@ counts are hypotheses; the decision standard is END-OF-CHAIN counterfactual repl
 - **Session set**: frozen BEFORE inspection; hypothesis-generation window (06-23 →
   07-09, used throughout this RFC) is EXCLUDED from evaluation; evaluation uses
   future-only shadow sessions + a held-out historical window not previously inspected.
-- **Primary estimands**: end-of-chain deployed fraction; realized 20d/60d forward
-  portfolio return vs baseline arms.
+- **Primary estimands**: end-of-chain deployed fraction (daily paired series —
+  no forward window, NW lag ≤ 10 valid) and paired daily realized returns;
+  forward portfolio return is enable-grade at the 20d horizon ONLY, computed
+  on non-overlapping complete windows (60d is descriptive-only) — units of
+  inference are defined once, in D6 §1.2, and this RFC defers to them.
 - **Non-degradation gates** (tolerances frozen at protocol sign-off, before data):
   turnover, max single-name concentration (≤12%), sector concentration, max drawdown,
   realized volatility.
