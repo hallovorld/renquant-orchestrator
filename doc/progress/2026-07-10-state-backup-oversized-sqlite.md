@@ -1,8 +1,19 @@
-# State backup: compress oversized SQLite DBs instead of refusing to commit
+# State backup: compress oversized SQLite DBs instead of refusing to commit   (PR #452)
 
-- **Date**: 2026-07-10
-- **Kind**: ops fix (hourly state-backup pipeline broken)
-- **Status**: PR open
+STATUS:    delivered
+WHAT:      `state_backup.py` gzips any SQLite source over a configurable
+           size threshold (default 95MB) instead of refusing to commit;
+           non-SQLite oversized files keep the existing refuse-with-error
+           behavior unchanged.
+WHY/DIR:   Ops fix — the hourly multirepo state backup has been failing
+           rc=1 every run since `data/runs.alpaca.db` grew past GitHub's
+           100MB per-file push limit. Companion fix in the umbrella repo
+           (`RenQuant#457`) addresses `backup_to_github.sh` swallowing this
+           rc and reporting false success to launchd.
+EVIDENCE:  n/a (ops/infra fix, not a model/data claim)
+NEXT:      Merged ≠ deployed — the hourly job unblocks only after this
+           machine syncs to the pin (separate operator-authorized landing
+           action) and `RenQuant#457` lands.
 
 ## Problem [VERIFIED]
 
