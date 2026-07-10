@@ -407,7 +407,7 @@ class TestModalTimeoutRetriesConfigurability:
 
         self._fresh_import(monkeypatch, captured)
 
-        assert captured["timeout"] == 3600
+        assert captured["timeout"] == 10800
         assert captured["retries"] == 1
 
     def test_execute_batch_sets_env_vars_before_first_import(self, monkeypatch, tmp_path: Path):
