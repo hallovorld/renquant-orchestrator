@@ -14,7 +14,7 @@ WHY/DIR:   Operator mandate (GOAL-2, 2026-07-10): enable crypto trading for
            D6/shadow-AB lanes (separate design track, same repo).
 EVIDENCE:  n/a (design doc, not a model/data claim — see RFC §2 for the
            file:line gap audit and §2.7 for direct SDK-surface verification)
-NEXT:      Codex re-review of the r2 fixes below; on approval, implementation
+NEXT:      Codex re-review of the r3 fix below; on approval, implementation
            PRs D-C1..D-C13 per RFC §7 (strict merge order, orchestrator last,
            default-OFF).
 
@@ -171,3 +171,30 @@ validation is prospective-only, see r1 point 2) · 24/7 loop on this Mac.
 
 No Deployment Governor / D6 / shadow-AB files touched; design-first — this
 RFC merges before any implementation PR.
+
+## r3 update (2026-07-10) — third Codex review, one statistical blocker
+
+Codex caught a real methodological bug in the r2 Stage 2.5 derivation: a
+"200 bps/block non-inferiority margin" vs BTC meant the sleeve would PASS
+the economic gate even while reliably LOSING up to 200 bps every 20 days to
+simply holding BTC — incompatible with this RFC's own stated purpose
+(§4.4: "the panel model must beat buy-and-hold BTC... or it does not
+promote").
+
+Fixed: reframed §6.1's endpoint as a SUPERIORITY test (`H0: excess_return ≤
+0`), with the promotion rule now "one-sided lower confidence bound of
+realized net-of-cost excess return over BTC must exceed 0" — not "must not
+be too far below BTC." The 200 bps figure is retained but reframed as a
+MINIMUM DETECTABLE EFFECT (MDE) for power-sizing purposes only — it no
+longer relaxes the promotion threshold, which is fixed at zero. The
+underlying arithmetic is unchanged (`N* ≈ 212 blocks ≈ 11.6 years` at 50%
+sleeve vol, `≈ 847 blocks ≈ 46 years` at 100%) since a superiority test's
+sample-size formula needs an assumed effect size to size N against, exactly
+as the withdrawn non-inferiority formula needed a margin — the bug was in
+the DECISION RULE (what the test passes on), not the equation. BTC
+buy-and-hold is now explicitly the SOLE primary baseline for Stage 2.5; the
+§4.4 historical WF gate's secondary "naive BTC-timing rule" is explicitly
+demoted to secondary/descriptive status for the Stage 2.5 decision (no
+multiplicity-correction plan is frozen or needed, since the WF gate is a
+cheap exploratory historical screen, not the decision-grade prospective
+test).

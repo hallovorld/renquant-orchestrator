@@ -786,7 +786,7 @@ operator sign-off alone.
 | **0 — Prereqs + paper battery** | Operator enables crypto agreement (live + paper); `crypto_status==ACTIVE` recorded; paper battery verifies EMPIRICALLY: pair list + increments snapshot, GTC/IOC acceptance, **GTC stop_limit acceptance per pair**, fee schedule from fill receipts, non-marginable BP behavior; data backfill + two-source parity; **ex-ante spread-percentile/slippage + stop-gap-statistics bounds derived from Alpaca quote/trade data per pair (§4.4 — paper fills validate API acceptance/fees/increments/reservation bookkeeping ONLY, never market friction)** | All [GUESS] rows of §2.7 converted to [VERIFIED] in a recorded battery report; ex-ante friction bounds (spread percentiles, depth-vs-size, gap statistics) recorded per pair | ~1 week |
 | **1 — Shadow 24/7 (OPERATIONAL ONLY)** | Scheduler in shadow (no orders, `assert_shadow_never_submits`); full decisions logged; model trained + WF-gated (net-of-fees + BTC baseline, historical evidence per §4.4) in parallel; Codex adversarial review of model card | ≥ 14 consecutive clean shadow days incl. 2 weekends; replay audit green; model promoted through the 3-tier gate. **This gate is scheduler/logging/model-card readiness — it is NOT prospective economic evidence** | 2–3 weeks |
 | **2 — $500 canary (OPERATIONAL ONLY)** | Live entries, allowlist = BTC/USD + ETH/USD + top-3 liquidity; loss budget $75 sticky; all §5 rails armed; broker stops verified live on first fill | ≥ 2 weeks incl. 2 full weekends, zero Tier-1 defects, realized fees within battery estimate; **operator sign-off that OPERATIONS are sound**. **This gate authorizes CONTINUING at $500 into Stage 2.5 — it does NOT authorize scaling capital** | 2+ weeks |
-| **2.5 — Prospective economic evaluation (NEW — capital HELD at $500, not scaled)** | Same $500 canary continues unchanged; sleeve-level net-of-cost return is tracked per non-overlapping 20-day block (§4.3's frozen horizon) against a BTC baseline matched to the sleeve's own risk/capital (same dollar notional, vol-scaled if the sleeve runs below 100% crypto exposure) | See derivation below — **absolute floor: 8 complete non-overlapping 20-day blocks (160 calendar days, ~5.3 months) before ANY confirmatory verdict; NO-GO if the blinded-re-estimated required block count is impractically large, or if the realized net-of-cost mean fails the BTC-baseline margin at that checkpoint** | ≥ 160 days (floor); more if the blinded re-estimate at the 8-block checkpoint requires it |
+| **2.5 — Prospective economic evaluation (NEW — capital HELD at $500, not scaled)** | Same $500 canary continues unchanged; sleeve-level net-of-cost EXCESS return over a BTC buy-and-hold baseline matched to the sleeve's own risk/capital (same dollar notional, vol-scaled if the sleeve runs below 100% crypto exposure) is tracked per non-overlapping 20-day block (§4.3's frozen horizon) | See derivation below — **absolute floor: 8 complete non-overlapping 20-day blocks (160 calendar days, ~5.3 months) before ANY confirmatory verdict; SUPERIORITY test (H0: excess return ≤ 0) — NO-GO if the blinded-re-estimated required block count is impractically large, or if the one-sided lower confidence bound of realized net-of-cost excess return does not exceed 0 at that checkpoint. A sleeve that merely ties or loses to buy-and-hold BTC does NOT pass — non-inferiority framing is explicitly rejected (Codex review round 3)** | ≥ 160 days (floor); more if the blinded re-estimate at the 8-block checkpoint requires it |
 | **3 — Sleeve full** | $1–2k (operator sets number), full ~20-pair universe | Stage 2.5 clears its NO-GO check (economic evidence) **AND operator sign-off** (capital-risk decision); thereafter monthly review vs BTC baseline; persistent underperformance net of fees = wind-down trigger | ongoing |
 
 ### 6.1 Stage 2.5 derivation (prospective economic evaluation — worked honestly)
@@ -797,6 +797,28 @@ merged as orchestrator#443) — non-overlapping outcome blocks as the valid
 unit of inference for a forward-return horizon, an honest power derivation
 from the best available (even if conservative/proxy) variance estimate, and
 a blinded re-estimation mechanism rather than a single fixed-N guess.
+
+**Endpoint framing — SUPERIORITY, not non-inferiority (CORRECTED — Codex
+review round 3, 2026-07-10)**: an earlier draft of this section sized a
+"200 bps/block non-inferiority margin" — meaning the sleeve would PASS even
+if it reliably lost up to 200 bps every 20 days to simply holding BTC. That
+is incoherent with this RFC's own stated purpose (§4.4: "the panel model
+must beat buy-and-hold BTC... or it does not promote") and would let a
+value-destroying sleeve scale capital. **The primary endpoint is now a
+superiority test**: `H0: excess_return ≤ 0` vs `Ha: excess_return > 0`,
+where `excess_return` = sleeve net-of-cost block return minus the
+risk/capital-matched BTC buy-and-hold block return. **The promotion
+decision rule is: the one-sided lower confidence bound of the realized mean
+excess return must exceed 0** — not "must exceed −200 bps," not "must not
+be too far below BTC." A sleeve that ties or underperforms BTC does not
+promote, full stop. **BTC buy-and-hold is the SOLE primary baseline** for
+this decision; the "naive BTC-timing rule" used alongside buy-and-hold in
+§4.4's EXPLORATORY historical WF gate is demoted to secondary/descriptive
+status for Stage 2.5 — it is not co-primary and does not factor into the
+Stage 2.5 promotion decision, since no multiplicity-correction plan across
+the two comparisons is frozen here (and none is warranted: the WF gate's
+dual-baseline bar is a cheap historical screen, not the decision-grade
+prospective test).
 
 - **Unit of inference**: one non-overlapping 20-calendar-day block = one
   independent sleeve-level net-of-cost return observation. `N_blocks =
@@ -818,14 +840,23 @@ a blinded re-estimation mechanism rather than a single fixed-N guess.
   any single name's, reflecting partial diversification across 5–8
   effective breadth — labeled a proxy, not measured): `σ_block ≈ 50% ×
   √(20/365) ≈ 11.7% (1170 bps)`. At `α=0.05` (one-sided, `z_α=1.645`),
-  `power=0.80` (`z_β=0.8416`), and a `δ=200 bps/block` non-inferiority
-  margin vs the BTC baseline (an illustrative round number — order-of-
-  magnitude consistent with round-trip fee costs, not itself derived from
-  data): `N* = ((z_α+z_β)·σ_block/δ)² ≈ (2.485×1170/200)² ≈ 212 blocks ≈
-  4,240 days ≈ 11.6 years`. At the upper end of the vol-clip range (100%
-  annualized), `N* ≈ 847 blocks ≈ 46 years`. **Both are plainly
-  impractical as a fixed target** — the same honest conclusion the
-  Governor RFC reached with its own conservative proxy.
+  `power=0.80` (`z_β=0.8416`), power-sizing against a `δ=200 bps/block`
+  MINIMUM DETECTABLE EFFECT (MDE — **not a loss-allowance margin, CORRECTED
+  round 3**: this is the smallest genuinely-positive sleeve outperformance
+  over BTC that the test is sized to detect with 80% power; it does NOT
+  relax the promotion threshold, which stays fixed at "lower CI bound > 0"
+  regardless of this number — order-of-magnitude consistent with round-trip
+  fee costs, chosen as a plausible minimum economically-material edge, not
+  itself derived from data): `N* = ((z_α+z_β)·σ_block/δ)² ≈
+  (2.485×1170/200)² ≈ 212 blocks ≈ 4,240 days ≈ 11.6 years`. At the upper
+  end of the vol-clip range (100% annualized), `N* ≈ 847 blocks ≈ 46
+  years`. **Both are plainly impractical as a fixed target** — the same
+  honest conclusion the Governor RFC reached with its own conservative
+  proxy. (The arithmetic is unchanged from the withdrawn non-inferiority
+  framing — only δ's MEANING and the promotion decision rule changed; a
+  sample-size formula for a superiority test still needs an assumed effect
+  size to size N against, exactly as a non-inferiority formula needs a
+  margin — the bug was in what the test PASSES on, not in this equation.)
 - **Resolution — blinded sample-size re-estimation at the 8-block
   checkpoint (same mechanism as the Governor RFC, not a new invention)**: at
   exactly 8 complete blocks (160 days), compute the REALIZED
@@ -842,16 +873,18 @@ a blinded re-estimation mechanism rather than a single fixed-N guess.
   and is recorded in the verdict memo with all inputs.
 - **NO-GO (frozen, first-class outcome)**: if the re-estimated `N*` at the
   8-block checkpoint is impractically large (say, requiring years of
-  continued $500-only operation for a sleeve this small), OR if the
-  realized net-of-cost mean block return fails the BTC-baseline
-  non-inferiority margin once `N_blocks ≥ max(8, N*)` is reached, the sleeve
-  does NOT scale to Stage 3 — it stays at $500 indefinitely
-  (descriptive-only) or winds down, exactly the same honest default the
-  Governor RFC adopted for its own analogous power shortfall. This is an
-  ACCEPTABLE outcome, not a design failure — a small, high-vol, 20-day-
-  horizon sleeve may simply never accumulate a defensible confirmatory
-  sample size on any human timescale, and the capital-scaling decision must
-  say so rather than force a verdict at a weaker bar.
+  continued $500-only operation for a sleeve this small), OR if, once
+  `N_blocks ≥ max(8, N*)` is reached, the one-sided lower confidence bound
+  of the realized net-of-cost EXCESS return over BTC does NOT exceed 0
+  (the superiority test fails — this includes the case where the sleeve
+  ties or underperforms BTC, which the withdrawn non-inferiority framing
+  would have wrongly passed), the sleeve does NOT scale to Stage 3 — it
+  stays at $500 indefinitely (descriptive-only) or winds down, exactly the
+  same honest default the Governor RFC adopted for its own analogous power
+  shortfall. This is an ACCEPTABLE outcome, not a design failure — a small,
+  high-vol, 20-day-horizon sleeve may simply never accumulate a defensible
+  confirmatory sample size on any human timescale, and the capital-scaling
+  decision must say so rather than force a verdict at a weaker bar.
 - **Symmetric no-early-scale**: an equally favorable early read (e.g. a
   strongly positive point estimate at fewer than `max(8, N*)` blocks)
   authorizes NOTHING — no early Stage 3, no shortened evaluation. Only the
@@ -859,12 +892,12 @@ a blinded re-estimation mechanism rather than a single fixed-N guess.
   stop the canary early; nothing may advance it early.
 - **The exploratory survivor panel sets NONE of these thresholds**: the
   §4.6 tier-1 historical panel (survivor-only by construction) may not
-  supply the non-inferiority margin δ, the variance input σ²_input, the
-  required block count `N*`, the endpoint definition, or any other Stage-2.5
-  parameter — every threshold above comes from either a pre-registered
-  constant (frozen in this RFC before any data), or the sleeve's OWN
-  realized prospective blocks via the blinded re-estimation. Survivor-panel
-  numbers appear in the model card as exploratory context only.
+  supply the MDE δ, the variance input σ²_input, the required block count
+  `N*`, the endpoint definition, or any other Stage-2.5 parameter — every
+  threshold above comes from either a pre-registered constant (frozen in
+  this RFC before any data), or the sleeve's OWN realized prospective
+  blocks via the blinded re-estimation. Survivor-panel numbers appear in
+  the model card as exploratory context only.
 
 Rollback at every stage: kill switch → cancel non-protective orders → exits per
 rails → stage frozen pending review. No stage may be skipped; no capital step
