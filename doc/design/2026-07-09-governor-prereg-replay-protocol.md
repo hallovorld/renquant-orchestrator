@@ -62,8 +62,28 @@ here per the #447 review, before any evaluation run):**
   to comparison arms — the #447 tuning result showed both are second-order to
   the breadth×cap ceiling, but that finding is exploratory and all three run in
   the confirmatory evaluation.
-- **Breadth×cap grid**: per-name cap {12%, 20%, 25%} × veto floor {1.0σ, 0.5σ}
-  × weights {equal_weight, capped-Kelly}, deployment = regime-ceiling.
+- **Breadth×cap grid (amended after the cap-grid exploratory run,
+  doc/research/evidence/cap_grid_tuning/)**: per-name cap {12%, 20%} × weights
+  {equal_weight, capped-Kelly}, deployment = regime-ceiling. Cap 25% is DROPPED
+  from the confirmatory family: on the tuning subset it bought +18pp deployment
+  at −8.2% net return (vs +4.7% at cap 12), doubled the single-name loss tail
+  (p5 −0.97% → −1.98% of PV), and deepened MDD — dominated on every axis except
+  raw deployment; carrying it into eval would spend a multiplicity budget on a
+  dominated arm.
+- **Veto-floor arms MOVE to a shadow A/B protocol** (design flaw in the r3 grid,
+  found by the same run): replay bars contain only post-admission survivors
+  (median breadth 4) — pre-veto candidates are not in the sim DB, so a veto
+  {1.0σ, 0.5σ} arm CANNOT be replayed with existing data. Admission-breadth
+  treatments run in the live SHADOW pipeline (which executes the full funnel
+  incl. veto) under their own preregistered protocol: shadow config veto at
+  0.5σ vs prod 1.0σ, end-of-chain deployed fraction + forward-return ledger
+  comparison, same non-degradation gates. Breadth is the PRIMARY remaining
+  lever per the identity `deployable ≤ breadth × cap` and the cap result above.
+- **Fractional-shares dependency quantified**: integer flooring shaves 3.1-4.1pp
+  of deployment at $10.7k PV in every arm; P(E_exec ≥ 0.90) is stuck at 10-12%
+  regardless of cap — reaching ~90% living deployment requires breadth ≥ 5-8
+  PLUS fractional execution (S-FRAC v2 stage-3) or larger PV. Cross-references
+  the D7 memo (#444).
 - **Controls**: cash/parking-sleeve arm (idle capital at T-bill yield).
 - **Evaluation scheme**: rolling CONTIGUOUS train/evaluation folds (predeclared;
   kills the off-universe churn × tax artifact that dominated the exploratory
