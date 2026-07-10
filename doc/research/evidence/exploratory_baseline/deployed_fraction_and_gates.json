@@ -1,0 +1,131 @@
+{
+  "n_bars": 497,
+  "per_arm": {
+    "current_qp": {
+      "deployed_fraction": {
+        "max": 0.9500000027648758,
+        "mean": 0.4595591306161106,
+        "median": 0.36547088412705137,
+        "min": 0.011169718338784202,
+        "p05": 0.11951179288987057,
+        "p25": 0.20000000192291706,
+        "p75": 0.6997222735822037,
+        "p95": 0.9499999998274677
+      },
+      "max_sector_weight_overall": 0.49999999795939953,
+      "max_single_name_weight_overall": 0.10000000314994623,
+      "mean_turnover": 0.4595591306161106,
+      "sessions_breaching_12pct_name": 0,
+      "sessions_breaching_35pct_sector": 32,
+      "turnover_ratio_vs_equal_weight": 1.247410638537449
+    },
+    "equal_weight_top_k": {
+      "deployed_fraction": {
+        "max": 0.5,
+        "mean": 0.36841046277666,
+        "median": 0.4,
+        "min": 0.1,
+        "p05": 0.2,
+        "p25": 0.2,
+        "p75": 0.5,
+        "p95": 0.5
+      },
+      "max_sector_weight_overall": 0.4,
+      "max_single_name_weight_overall": 0.1,
+      "mean_turnover": 0.36841046277666,
+      "sessions_breaching_12pct_name": 0,
+      "sessions_breaching_35pct_sector": 1,
+      "turnover_ratio_vs_equal_weight": 1.0
+    },
+    "fractional_kelly_top_k": {
+      "deployed_fraction": {
+        "max": 0.5,
+        "mean": 0.3528126379762457,
+        "median": 0.39289847725585203,
+        "min": 0.018787516397484938,
+        "p05": 0.13767872829093672,
+        "p25": 0.2,
+        "p75": 0.5,
+        "p95": 0.5
+      },
+      "max_sector_weight_overall": 0.399316600498658,
+      "max_single_name_weight_overall": 0.1,
+      "mean_turnover": 0.3528126379762457,
+      "sessions_breaching_12pct_name": 0,
+      "sessions_breaching_35pct_sector": 1,
+      "turnover_ratio_vs_equal_weight": 0.9576618300065215
+    },
+    "hard_only_qp_allocator": {
+      "deployed_fraction": {
+        "max": 0.9500000029592027,
+        "mean": 0.4448454231002576,
+        "median": 0.34882532591121956,
+        "min": 1.3192989231489016e-06,
+        "p05": 0.10000169844163759,
+        "p25": 0.20000000025430476,
+        "p75": 0.6540221068154923,
+        "p95": 0.9499999997441598
+      },
+      "max_sector_weight_overall": 0.4999999535493952,
+      "max_single_name_weight_overall": 0.10000000422073327,
+      "mean_turnover": 0.4448454231002576,
+      "sessions_breaching_12pct_name": 0,
+      "sessions_breaching_35pct_sector": 25,
+      "turnover_ratio_vs_equal_weight": 1.2074722844392571
+    },
+    "hybrid_option_f_allocator": {
+      "deployed_fraction": {
+        "max": 0.9500000000000001,
+        "mean": 0.4529023741994535,
+        "median": 0.36034004126162267,
+        "min": 0.0,
+        "p05": 0.09365393944510726,
+        "p25": 0.2,
+        "p75": 0.6997222735822037,
+        "p95": 0.9499999997712862
+      },
+      "max_sector_weight_overall": 0.49999999795939953,
+      "max_single_name_weight_overall": 0.1,
+      "mean_turnover": 0.4529023741994535,
+      "sessions_breaching_12pct_name": 0,
+      "sessions_breaching_35pct_sector": 32,
+      "turnover_ratio_vs_equal_weight": 1.2293417803229294
+    },
+    "inverse_vol_top_k": {
+      "deployed_fraction": {
+        "max": 0.5,
+        "mean": 0.3588023518067597,
+        "median": 0.4,
+        "min": 0.1,
+        "p05": 0.2,
+        "p25": 0.2,
+        "p75": 0.4893039973559542,
+        "p95": 0.5
+      },
+      "max_sector_weight_overall": 0.39471796481133015,
+      "max_single_name_weight_overall": 0.1,
+      "mean_turnover": 0.3588023518067597,
+      "sessions_breaching_12pct_name": 0,
+      "sessions_breaching_35pct_sector": 1,
+      "turnover_ratio_vs_equal_weight": 0.9739200920150712
+    },
+    "stage_a_a2_long_only": {
+      "deployed_fraction": {
+        "max": 0.9499999999999998,
+        "mean": 0.3220932477189629,
+        "median": 0.3,
+        "min": 0.15,
+        "p05": 0.15,
+        "p25": 0.15,
+        "p75": 0.407709821260772,
+        "p95": 0.7276535553186557
+      },
+      "max_sector_weight_overall": 0.47296661889171165,
+      "max_single_name_weight_overall": 0.2,
+      "mean_turnover": 0.3220932477189629,
+      "sessions_breaching_12pct_name": 497,
+      "sessions_breaching_35pct_sector": 25,
+      "turnover_ratio_vs_equal_weight": 0.8742782311104563
+    }
+  }
+}
