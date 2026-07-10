@@ -1,7 +1,9 @@
 # RS: The deployment decision — beta/alpha separation and vol-targeted exposure
 
-STATUS: research memo, r1 — THEORY COMPLETE, EMPIRICAL SECTION PENDING (a 6-arm
-tuning-subset replay is running; results land in this PR before merge).
+STATUS: research memo, r2 — theory + tuning-subset empirical results. The data
+PARTIALLY REFUTES this memo's own vol-targeting prior (§4a) and surfaces a
+structural finding the theory missed (§4b). Recommendation revised accordingly
+(§5). [EXPLORATORY / TUNING SUBSET — eval subset untouched.]
 DATE: 2026-07-09
 RELATION TO RFC #443: this memo proposes a MATERIAL REVISION to the RFC's L1
 formula. The RFC's L2/L3/L4 layers and all invariants are unaffected.
@@ -127,13 +129,81 @@ multiplier removal): its realized Σw distribution answers, with data, what that
 change would actually deploy — a number previously (wrongly) asserted by
 extrapolation.
 
-## 5. Decision asks (for codex discussion on this PR)
+## 4a. RESULTS (149 tuning sessions, fwd_1d, full conventions) — vol-targeting prior NOT supported
 
-1. Accept the beta/alpha separation as the L1 design principle (amending RFC
-   #443 §2.1 from signal-driven to vol-targeted E* with regime ceilings)?
-2. σ_target as an explicit operator risk-appetite parameter — agree this is the
-   correct location for the "aggressive" mandate to enter the system?
-3. Agree the signal-driven governor stays as an experimental ARM (falsifiable),
-   not the default?
-4. Any additional arm or estimand required before this memo's empirical section
-   can support the RFC amendment?
+| arm | mean E_dep | net ret | Sharpe | MDD | HAC t vs ew_full (p) |
+|---|---|---|---|---|---|
+| **ew_full** (0.95 target) | **0.523** | **+4.70%** | +0.38 | −15.8% | — |
+| kelly_raw (bridge) | 0.498 | +0.62% | +0.17 | −12.1% | −0.69 (0.49) |
+| govern_kelly | 0.496 | +0.58% | +0.16 | −12.0% | −0.69 (0.49) |
+| voltarget_ew 15% | 0.413 | −5.08% | −0.31 | −10.3% | −1.03 (0.30) |
+| voltarget_kelly 15% | 0.422 | −3.80% | −0.21 | −9.7% | −0.86 (0.39) |
+| voltarget_ew 12% | 0.361 | −4.14% | −0.29 | −8.2% | −0.87 (0.39) |
+
+- **This memo's prior is not supported on the tuning sample**: vol-targeted arms
+  lose −3.8..−5.1% while the fully-deployed naive baseline gains +4.7%. They win
+  60-68% of SESSIONS but lose the mean on the right tail — the classic cost of
+  vol-managed exposure in a bull-heavy sample. What vol-targeting buys is MDD
+  (−8..−10% vs −16%) and lower tax/turnover, not return.
+- Nothing separates at significance (all |t| ≤ 1.03; PBO 0.61) — orderings are
+  noise-prone; treat as hypothesis-generating.
+- **The "bridge" audited**: kelly_raw deploys mean 54% (p5-p95: 20%-96%) — NOT
+  the asserted "cash→10-30%". Mechanism: raw 0.3·μ/σ² wants ~2.4× leverage, so
+  the 12% cap binds on 96% of sessions and Σw ≈ 0.12 × candidate breadth.
+- Hysteresis is inert at 0.05 band (breadth moves E* in ~0.12 steps).
+- Caveat: universe churn × asymmetric tax dominates ALL arms (137-141/149 forced
+  off-universe liquidations; tax ≈ 20× linear cost) — partly a non-contiguous-
+  session artifact; the eval-run design must use contiguous windows.
+
+## 4b. The structural finding the theory missed: the BREADTH × CAP ceiling
+
+Even ew_full — which TARGETS 95% gross — only achieves mean 52% deployed.
+Median admitted breadth is ~4 names; 4 × 12% per-name cap = 48% **hard ceiling
+on deployment, regardless of any E* policy**. Every deployment policy is
+second-order to this identity:
+
+```
+max deployable = (admitted breadth) × (per-name cap)
+```
+
+Two levers, both OUTSIDE the L1 formula:
+1. **Per-name cap** (concentration): 12% → 20-25% would let 4-5 names carry
+   80-100%. Aligns with the operator's concentration mandate; it is a
+   capital-risk change (single-name event risk: a −20% gap on a 25% position =
+   −5% book) requiring explicit operator sign-off. Note: the June cap sweep
+   (Phase 4, VOID) found "cap never binds" — TRUE under the old multiplier
+   stack (2-7% positions); remove the multipliers and the cap binds 96% of
+   sessions. The sweep's null was an artifact of testing the cap behind the
+   compression it never got to bind against.
+2. **Admission breadth** (the veto floor returns, correctly this time): A-0 was
+   closed as "not binding" — TRUE for order count, FALSE for deployable
+   ceiling. Its end-of-chain deployment effect is now measurable with this
+   harness, which is exactly the evidence codex required before touching it.
+
+## 5. Revised recommendation (data-driven)
+
+1. **L1 simplifies**: on current evidence the best deployment rule is the
+   SIMPLEST — ride `E_ceil(regime)` (deploy fully within regime ceiling in
+   BULL; the regime brake does the risk work). Vol-targeting is NOT justified
+   by the tuning data as a return improver; retain `voltarget_*` as eval arms
+   (hypothesis: earns its keep in BEAR/VOLATILE, undersampled here) and as the
+   candidate MDD-reducer if the operator ever wants smoother equity.
+2. **The real unlock is breadth × cap**: add to the D6 eval grid: per-name cap
+   {12%, 20%, 25%} × veto floor {1.0σ, 0.5σ} × weights {equal, capped-Kelly},
+   deployment = regime-ceiling. This directly measures the only two levers that
+   can lift the deployment ceiling.
+3. **Cap raise is an operator sign-off item** (capital-risk); this memo
+   requests that decision AFTER the eval run quantifies the tradeoff.
+4. RFC #443 L1 amendment: E* = regime-ceiling-riding with fail-closed and
+   hysteresis retained; drop the Σshrunk-Kelly formula (transmits μ̂ noise AND
+   is second-order to the breadth×cap ceiling anyway).
+
+## 6. Decision asks (for codex discussion on this PR)
+
+1. Accept §4b's breadth×cap ceiling as the primary finding, and the §5.2 eval
+   grid as the D6 Phase-2 arm set?
+2. Accept the L1 simplification (regime-ceiling-riding; vol-target demoted to
+   eval arm / MDD option)?
+3. Agree the per-name-cap decision route: eval quantifies → operator signs off?
+4. Eval-run design: contiguous session windows to kill the churn/tax artifact —
+   any objection?
