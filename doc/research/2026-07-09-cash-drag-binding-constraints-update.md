@@ -143,22 +143,27 @@ deployment of the ALREADY-qualified top candidates first.
 
 | Priority | Knob | Owner repo | Impact estimate | Status |
 |---|---|---|---|---|
-| **P0** | Rotation threshold 0.06 → 0.03 | strategy-104 | unblocks rotation into top candidates | design PR |
-| **P1** | One-share initiation floor | pipeline | unblocks BLK/AVGO price tier | READY for shadow |
+| **P0** | Rotation threshold 0.06 → 0.02 | strategy-104 | portfolio quality (not cash drag) | **PR #48 design** |
+| **P1** | One-share initiation floor | pipeline + strategy-104 | **−13pp cash** (BLK/AVGO deploy) | **PR #49 config PREPARE** |
 | **P2** | Kelly fractional / sigma_sizing floor | strategy-104 | bigger positions in top names | needs analysis |
 | ~~P3~~ | VetoWeakBuys floor 1σ → 0.5σ | strategy-104 | reassess after P0-P2 | DEFERRED — not binding |
 | ~~A-1~~ | ~~`qp_cash_drag_lambda`~~ | ~~strategy-104~~ | ~~0%~~ | ~~DEAD CODE — QP disabled~~ |
 | ~~A-2~~ | ~~`panel_buy_top_n` 3 → 5-6~~ | ~~strategy-104~~ | ~~deferred~~ | ~~DEFERRED (per RS-2)~~ |
 
+**Key insight (07-09 correction)**: rotation is sell-one-buy-one, net cash ≈ 0 —
+it fixes portfolio QUALITY but not cash drag. The true cash drag lever is P1
+(one-share floor: BLK $995 + AVGO $360 = $1,355 deployment, cash 65% → 52%)
+plus P2 (bigger positions via Kelly/sigma sizing).
+
 ---
 
 ## 4. Next actions (repo-correct)
 
-1. **Design PR in strategy-104**: preregistered A/B protocol for rotation threshold
-   calibration (P0) — `min_expected_advantage_pct` 0.06 → 0.03, shadow replay
-2. **Shadow implementation in pipeline**: one-share initiation floor (P1) — per RS-2
-   preregistered protocol (already designed)
-3. **Analysis**: Kelly fractional / sigma_sizing floor impact (P2) — how much position
+1. ✅ **Design PR in strategy-104**: rotation threshold 0.06 → 0.02 (P0) — PR #48
+2. ✅ **Config PREPARE in strategy-104**: one-share floor key added (P1) — PR #49
+   (production=OFF, shadow=ON; pipeline code already implemented/tested)
+3. **Shadow data collection**: daily shadow runs with floor ON will accumulate
+   RS-2 preregistered comparison data (concentration, cash use, exposure)
+4. **Analysis**: Kelly fractional / sigma_sizing floor impact (P2) — how much position
    size increase is needed to deploy cash into qualified candidates
-4. **Close A-1**: document QP-disabled status; A-1 is blocked until QP path is repaired
 5. **Reassess A-0**: after P0-P2 deployed, measure if veto floor is still binding
