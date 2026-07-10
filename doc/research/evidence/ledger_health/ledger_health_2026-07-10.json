@@ -1,0 +1,1463 @@
+{
+  "as_of": "2026-07-10",
+  "generated_by": "doc/research/evidence/ledger_health/analyze_ledger_health_2026-07-10.py",
+  "inputs": {
+    "decision_ledger_db": "/Users/renhao/renquant-data/decision_ledger.db",
+    "active_runs_db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
+    "shadow_runs_db": "/Users/renhao/git/github/RenQuant/data/runs.alpaca_shadow.db (immutable=1 snapshot read)"
+  },
+  "ledger_health": {
+    "db_path": "/Users/renhao/renquant-data/decision_ledger.db",
+    "tables": [
+      "decision_ledger"
+    ],
+    "decision_outcomes_table_present": false,
+    "total_rows": 142,
+    "rows_pre_enable": 4,
+    "pre_enable_rows": [
+      {
+        "run_id": "2026-06-11-live-f68231b0",
+        "as_of": "2026-06-11",
+        "scope": "book",
+        "gate": "bear_override",
+        "verdict": "block",
+        "reason": "hard_bear via 5d_vol route"
+      },
+      {
+        "run_id": "2026-06-11-live-f68231b0",
+        "as_of": "2026-06-11",
+        "scope": "book",
+        "gate": "drawdown_breaker",
+        "verdict": "block",
+        "reason": "dd 5.94% > BEAR halt 5%"
+      },
+      {
+        "run_id": "2026-06-11-live-f68231b0",
+        "as_of": "2026-06-11",
+        "scope": "book",
+        "gate": "kelly_sizing",
+        "verdict": "block",
+        "reason": "capped_zero all 12 candidates"
+      },
+      {
+        "run_id": "2026-06-11-live-f68231b0",
+        "as_of": "2026-06-11",
+        "scope": "book",
+        "gate": "transition_window",
+        "verdict": "block",
+        "reason": "regime flip cooldown"
+      }
+    ],
+    "sessions": {
+      "2026-07-06": {
+        "n_rows": 18,
+        "n_runs": 3
+      },
+      "2026-07-07": {
+        "n_rows": 12,
+        "n_runs": 2
+      },
+      "2026-07-08": {
+        "n_rows": 12,
+        "n_runs": 2
+      },
+      "2026-07-09": {
+        "n_rows": 24,
+        "n_runs": 4
+      },
+      "2026-07-10": {
+        "n_rows": 72,
+        "n_runs": 12
+      }
+    },
+    "gate_verdict_distribution": [
+      {
+        "gate": "conviction",
+        "verdict": "allow",
+        "n": 18
+      },
+      {
+        "gate": "conviction",
+        "verdict": "block",
+        "n": 5
+      },
+      {
+        "gate": "model_admission",
+        "verdict": "allow",
+        "n": 23
+      },
+      {
+        "gate": "regime",
+        "verdict": "allow",
+        "n": 23
+      },
+      {
+        "gate": "rotation",
+        "verdict": "halve",
+        "n": 23
+      },
+      {
+        "gate": "vol_gate",
+        "verdict": "allow",
+        "n": 23
+      },
+      {
+        "gate": "wash_sale",
+        "verdict": "allow",
+        "n": 23
+      }
+    ],
+    "scopes": [
+      "strategy-104"
+    ],
+    "runs_with_6_gates": 23,
+    "runs_total_post_enable": 23,
+    "run_attribution": [
+      {
+        "run_id": "2026-07-06-live-a917e646",
+        "as_of": "2026-07-06",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-06-live-b95b8670",
+        "as_of": "2026-07-06",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "as_of": "2026-07-06",
+        "in_active_db": true,
+        "in_shadow_db": false
+      },
+      {
+        "run_id": "2026-07-07-live-67405d9a",
+        "as_of": "2026-07-07",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-07-live-dc2a3247",
+        "as_of": "2026-07-07",
+        "in_active_db": true,
+        "in_shadow_db": false
+      },
+      {
+        "run_id": "2026-07-08-live-369734c3",
+        "as_of": "2026-07-08",
+        "in_active_db": true,
+        "in_shadow_db": false
+      },
+      {
+        "run_id": "2026-07-08-live-3f4bb944",
+        "as_of": "2026-07-08",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-09-live-192fbca9",
+        "as_of": "2026-07-09",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-09-live-40e2dbd0",
+        "as_of": "2026-07-09",
+        "in_active_db": true,
+        "in_shadow_db": false
+      },
+      {
+        "run_id": "2026-07-09-live-4da09d12",
+        "as_of": "2026-07-09",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-09-live-a22c14c7",
+        "as_of": "2026-07-09",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-32f020f4",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-50ee8f01",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-6a08aec2",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-6f9d5284",
+        "as_of": "2026-07-10",
+        "in_active_db": true,
+        "in_shadow_db": false
+      },
+      {
+        "run_id": "2026-07-10-live-7dce4e34",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-8dcbc739",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-a1fe2a90",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-b3e1c87c",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-bc8c73e8",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-cc049cfc",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-live-e3449e82",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": true
+      },
+      {
+        "run_id": "2026-07-10-unscoped",
+        "as_of": "2026-07-10",
+        "in_active_db": false,
+        "in_shadow_db": false
+      }
+    ],
+    "n_active_runs": 5,
+    "n_shadow_runs": 17,
+    "n_orphan_runs": 1,
+    "conviction_mu_floor_stamped_values": [
+      0.0
+    ],
+    "conviction_mu_floor_expected_from_config": 0.03,
+    "vol_gate_all_none_blocked": true,
+    "wash_sale_all_none_blocked": true,
+    "rotation_halve_with_zero_considered": 23,
+    "rotation_rows_post_enable": 23,
+    "runs_db_gate_verdicts_rows": 0
+  },
+  "per_name_substrate": {
+    "post_enable_active_runs": [
+      {
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "roles": {
+          "candidate": 35,
+          "holding": 6
+        },
+        "field_coverage": {
+          "n": 41,
+          "mu_nn": 41,
+          "raw_nn": 35,
+          "rank_nn": 41,
+          "sigma_nn": 12,
+          "er_nn": 41,
+          "sel": 0
+        },
+        "blocked_by": {
+          "<null>": 6,
+          "broker_pending_submitted": 2,
+          "candidate_not_selected": 4,
+          "conviction:mu_below_floor": 1,
+          "veto:rank_score_below_floor": 28
+        },
+        "trades": [
+          {
+            "ticker": "AVGO",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          },
+          {
+            "ticker": "MCHP",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          },
+          {
+            "ticker": "SOFI",
+            "action": "sell_pending",
+            "exit_reason": "model_protection"
+          }
+        ]
+      },
+      {
+        "run_id": "2026-07-07-live-dc2a3247",
+        "roles": {
+          "candidate": 33,
+          "holding": 7
+        },
+        "field_coverage": {
+          "n": 40,
+          "mu_nn": 40,
+          "raw_nn": 33,
+          "rank_nn": 40,
+          "sigma_nn": 10,
+          "er_nn": 40,
+          "sel": 0
+        },
+        "blocked_by": {
+          "<null>": 7,
+          "broker_pending_submitted": 1,
+          "candidate_not_selected": 2,
+          "conviction:mu_below_floor": 2,
+          "veto:rank_score_below_floor": 28
+        },
+        "trades": [
+          {
+            "ticker": "ZM",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          }
+        ]
+      },
+      {
+        "run_id": "2026-07-08-live-369734c3",
+        "roles": {
+          "holding": 5
+        },
+        "field_coverage": {
+          "n": 5,
+          "mu_nn": 5,
+          "raw_nn": 0,
+          "rank_nn": 5,
+          "sigma_nn": 5,
+          "er_nn": 5,
+          "sel": 0
+        },
+        "blocked_by": {
+          "<null>": 5
+        },
+        "trades": []
+      },
+      {
+        "run_id": "2026-07-09-live-40e2dbd0",
+        "roles": {
+          "holding": 5
+        },
+        "field_coverage": {
+          "n": 5,
+          "mu_nn": 5,
+          "raw_nn": 0,
+          "rank_nn": 5,
+          "sigma_nn": 5,
+          "er_nn": 5,
+          "sel": 0
+        },
+        "blocked_by": {
+          "<null>": 5
+        },
+        "trades": []
+      },
+      {
+        "run_id": "2026-07-10-live-6f9d5284",
+        "roles": {
+          "candidate": 85,
+          "holding": 3
+        },
+        "field_coverage": {
+          "n": 88,
+          "mu_nn": 88,
+          "raw_nn": 85,
+          "rank_nn": 88,
+          "sigma_nn": 10,
+          "er_nn": 88,
+          "sel": 0
+        },
+        "blocked_by": {
+          "<null>": 3,
+          "broker_pending_submitted": 4,
+          "candidate_not_selected": 1,
+          "conviction:mu_below_floor": 11,
+          "correlation": 1,
+          "size_insufficient_cash": 1,
+          "veto:rank_score_below_floor": 67
+        },
+        "trades": [
+          {
+            "ticker": "FTNT",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          },
+          {
+            "ticker": "APH",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          },
+          {
+            "ticker": "ZM",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          },
+          {
+            "ticker": "NFLX",
+            "action": "buy_pending",
+            "exit_reason": "accepted"
+          }
+        ]
+      }
+    ],
+    "window_trades": [
+      {
+        "trade_date": "2026-07-06",
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "ticker": "AVGO",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-06",
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "ticker": "MCHP",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-06",
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "ticker": "SOFI",
+        "action": "sell_pending",
+        "exit_reason": "model_protection",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-07",
+        "run_id": "2026-07-07-live-dc2a3247",
+        "ticker": "ZM",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-08",
+        "run_id": "2026-07-08-live-946b2c1d",
+        "ticker": "MCHP",
+        "action": "sell_pending",
+        "exit_reason": "model_protection",
+        "run_in_ledger": false
+      },
+      {
+        "trade_date": "2026-07-08",
+        "run_id": "2026-07-08-live-243608f1",
+        "ticker": "AMZN",
+        "action": "sell_pending",
+        "exit_reason": "model_protection",
+        "run_in_ledger": false
+      },
+      {
+        "trade_date": "2026-07-10",
+        "run_id": "2026-07-10-live-44e4dbcf",
+        "ticker": "CSCO",
+        "action": "sell_pending",
+        "exit_reason": "model_protection",
+        "run_in_ledger": false
+      },
+      {
+        "trade_date": "2026-07-10",
+        "run_id": "2026-07-10-live-8a387765",
+        "ticker": "PANW",
+        "action": "sell_pending",
+        "exit_reason": "model_protection",
+        "run_in_ledger": false
+      },
+      {
+        "trade_date": "2026-07-10",
+        "run_id": "2026-07-10-live-6f9d5284",
+        "ticker": "FTNT",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-10",
+        "run_id": "2026-07-10-live-6f9d5284",
+        "ticker": "APH",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-10",
+        "run_id": "2026-07-10-live-6f9d5284",
+        "ticker": "ZM",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      },
+      {
+        "trade_date": "2026-07-10",
+        "run_id": "2026-07-10-live-6f9d5284",
+        "ticker": "NFLX",
+        "action": "buy_pending",
+        "exit_reason": "accepted",
+        "run_in_ledger": true
+      }
+    ],
+    "window_exit_trades_outside_ledger_runs": 4,
+    "window_exit_trades_total": 5,
+    "forward_return_population": [
+      {
+        "as_of_date": "2026-07-06",
+        "n": 42,
+        "f1": 42,
+        "f5": 0,
+        "f20": 0,
+        "f60": 0,
+        "last_update": "2026-07-10 20:55:19",
+        "candidate_names_that_day": 35
+      },
+      {
+        "as_of_date": "2026-07-07",
+        "n": 41,
+        "f1": 41,
+        "f5": 0,
+        "f20": 0,
+        "f60": 0,
+        "last_update": "2026-07-10 20:55:19",
+        "candidate_names_that_day": 33
+      },
+      {
+        "as_of_date": "2026-07-08",
+        "n": 8,
+        "f1": 8,
+        "f5": 0,
+        "f20": 0,
+        "f60": 0,
+        "last_update": "2026-07-10 20:55:19",
+        "candidate_names_that_day": 0
+      },
+      {
+        "as_of_date": "2026-07-09",
+        "n": 6,
+        "f1": 6,
+        "f5": 0,
+        "f20": 0,
+        "f60": 0,
+        "last_update": "2026-07-10 20:55:19",
+        "candidate_names_that_day": 0
+      },
+      {
+        "as_of_date": "2026-07-10",
+        "n": 6,
+        "f1": 0,
+        "f5": 0,
+        "f20": 0,
+        "f60": 0,
+        "last_update": "2026-07-10 20:55:19",
+        "candidate_names_that_day": 85
+      }
+    ]
+  },
+  "retro_veto_post_enable": {
+    "label": "post-enable sessions 07-06..07-10 (fwd_1d matured for 07-06/07-07 only)",
+    "per_run": [
+      {
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "run_date": "2026-07-06",
+        "n_scored": 35,
+        "mean": 0.5142,
+        "std": 0.0507,
+        "floor": 0.5649,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 7,
+          "marginal_0p5_to_1p0_sigma": 7,
+          "deep_veto": 21
+        }
+      },
+      {
+        "run_id": "2026-07-07-live-dc2a3247",
+        "run_date": "2026-07-07",
+        "n_scored": 33,
+        "mean": 0.5068,
+        "std": 0.0471,
+        "floor": 0.5539,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 5,
+          "marginal_0p5_to_1p0_sigma": 7,
+          "deep_veto": 21
+        }
+      },
+      {
+        "run_id": "2026-07-10-live-6f9d5284",
+        "run_date": "2026-07-10",
+        "n_scored": 85,
+        "mean": 0.4928,
+        "std": 0.0513,
+        "floor": 0.5441,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 18,
+          "marginal_0p5_to_1p0_sigma": 10,
+          "deep_veto": 57
+        }
+      }
+    ],
+    "floor_reconstruction_agreement": 1.0,
+    "bands": {
+      "admitted_core": {
+        "fwd_1d": {
+          "n": 12,
+          "mean": -0.005945,
+          "median": -0.00282,
+          "hit_rate": 0.5
+        },
+        "rel_fwd_1d": {
+          "n": 12,
+          "mean": -0.001886,
+          "median": 0.001632,
+          "hit_rate": 0.5
+        },
+        "fwd_5d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_5d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "n_names": 30
+      },
+      "marginal_0p5_to_1p0_sigma": {
+        "fwd_1d": {
+          "n": 14,
+          "mean": -0.001666,
+          "median": -0.002998,
+          "hit_rate": 0.4286
+        },
+        "rel_fwd_1d": {
+          "n": 14,
+          "mean": 0.002255,
+          "median": 0.000922,
+          "hit_rate": 0.5
+        },
+        "fwd_5d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_5d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "n_names": 24
+      },
+      "deep_veto": {
+        "fwd_1d": {
+          "n": 42,
+          "mean": -0.002502,
+          "median": -0.004586,
+          "hit_rate": 0.4524
+        },
+        "rel_fwd_1d": {
+          "n": 42,
+          "mean": 0.001418,
+          "median": -0.000306,
+          "hit_rate": 0.5
+        },
+        "fwd_5d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_5d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "n_names": 99
+      }
+    }
+  },
+  "retro_veto_xgb_era": {
+    "label": "XGB-era canonical runs 2026-06-23..2026-07-10 (fwd_5d matured through 07-02; fwd_20d pending for all)",
+    "per_run": [
+      {
+        "run_id": "2026-06-23-live-844746ad",
+        "run_date": "2026-06-23",
+        "n_scored": 81,
+        "mean": 0.5012,
+        "std": 0.0559,
+        "floor": 0.5571,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 18,
+          "marginal_0p5_to_1p0_sigma": 9,
+          "deep_veto": 54
+        }
+      },
+      {
+        "run_id": "2026-06-25-live-6c3aa3fa",
+        "run_date": "2026-06-25",
+        "n_scored": 76,
+        "mean": 0.4939,
+        "std": 0.045,
+        "floor": 0.5388,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 18,
+          "marginal_0p5_to_1p0_sigma": 5,
+          "deep_veto": 53
+        }
+      },
+      {
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "run_date": "2026-06-26",
+        "n_scored": 79,
+        "mean": 0.5439,
+        "std": 0.037,
+        "floor": 0.5809,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 14,
+          "marginal_0p5_to_1p0_sigma": 13,
+          "deep_veto": 52
+        }
+      },
+      {
+        "run_id": "2026-06-30-live-b616357c",
+        "run_date": "2026-06-30",
+        "n_scored": 83,
+        "mean": 0.5393,
+        "std": 0.04,
+        "floor": 0.5792,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 14,
+          "marginal_0p5_to_1p0_sigma": 18,
+          "deep_veto": 51
+        }
+      },
+      {
+        "run_id": "2026-07-01-live-01c54b39",
+        "run_date": "2026-07-01",
+        "n_scored": 83,
+        "mean": 0.5372,
+        "std": 0.0355,
+        "floor": 0.5727,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 14,
+          "marginal_0p5_to_1p0_sigma": 16,
+          "deep_veto": 53
+        }
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "run_date": "2026-07-02",
+        "n_scored": 83,
+        "mean": 0.5392,
+        "std": 0.036,
+        "floor": 0.5752,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 17,
+          "marginal_0p5_to_1p0_sigma": 13,
+          "deep_veto": 53
+        }
+      },
+      {
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "run_date": "2026-07-06",
+        "n_scored": 35,
+        "mean": 0.5142,
+        "std": 0.0507,
+        "floor": 0.5649,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 7,
+          "marginal_0p5_to_1p0_sigma": 7,
+          "deep_veto": 21
+        }
+      },
+      {
+        "run_id": "2026-07-07-live-dc2a3247",
+        "run_date": "2026-07-07",
+        "n_scored": 33,
+        "mean": 0.5068,
+        "std": 0.0471,
+        "floor": 0.5539,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 5,
+          "marginal_0p5_to_1p0_sigma": 7,
+          "deep_veto": 21
+        }
+      },
+      {
+        "run_id": "2026-07-10-live-6f9d5284",
+        "run_date": "2026-07-10",
+        "n_scored": 85,
+        "mean": 0.4928,
+        "std": 0.0513,
+        "floor": 0.5441,
+        "floor_is_min_failsafe": false,
+        "band_counts": {
+          "admitted_core": 18,
+          "marginal_0p5_to_1p0_sigma": 10,
+          "deep_veto": 57
+        }
+      }
+    ],
+    "floor_reconstruction_agreement": 1.0,
+    "bands": {
+      "admitted_core": {
+        "fwd_1d": {
+          "n": 107,
+          "mean": 0.000736,
+          "median": 0.0,
+          "hit_rate": 0.4953
+        },
+        "rel_fwd_1d": {
+          "n": 107,
+          "mean": -0.000708,
+          "median": -0.002542,
+          "hit_rate": 0.4953
+        },
+        "fwd_5d": {
+          "n": 95,
+          "mean": 0.026793,
+          "median": 0.021379,
+          "hit_rate": 0.7368
+        },
+        "rel_fwd_5d": {
+          "n": 95,
+          "mean": 0.01283,
+          "median": 0.011606,
+          "hit_rate": 0.6211
+        },
+        "fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "n_names": 125
+      },
+      "marginal_0p5_to_1p0_sigma": {
+        "fwd_1d": {
+          "n": 88,
+          "mean": 0.001439,
+          "median": 0.00127,
+          "hit_rate": 0.5114
+        },
+        "rel_fwd_1d": {
+          "n": 88,
+          "mean": -0.000687,
+          "median": 0.000101,
+          "hit_rate": 0.5
+        },
+        "fwd_5d": {
+          "n": 74,
+          "mean": 0.008049,
+          "median": 0.004469,
+          "hit_rate": 0.5405
+        },
+        "rel_fwd_5d": {
+          "n": 74,
+          "mean": -0.004149,
+          "median": -0.009537,
+          "hit_rate": 0.4054
+        },
+        "fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "n_names": 98
+      },
+      "deep_veto": {
+        "fwd_1d": {
+          "n": 358,
+          "mean": 0.002711,
+          "median": 0.002312,
+          "hit_rate": 0.5419
+        },
+        "rel_fwd_1d": {
+          "n": 358,
+          "mean": 0.001014,
+          "median": 0.000422,
+          "hit_rate": 0.5168
+        },
+        "fwd_5d": {
+          "n": 316,
+          "mean": 0.005093,
+          "median": 0.002523,
+          "hit_rate": 0.5411
+        },
+        "rel_fwd_5d": {
+          "n": 316,
+          "mean": -0.008735,
+          "median": -0.010282,
+          "hit_rate": 0.4082
+        },
+        "fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "rel_fwd_20d": {
+          "n": 0,
+          "mean": null,
+          "median": null,
+          "hit_rate": null
+        },
+        "n_names": 415
+      }
+    }
+  },
+  "retro_conviction_post_enable": {
+    "label": "post-enable sessions (fwd_1d only)",
+    "mu_floor": 0.03,
+    "per_run": [
+      {
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "run_date": "2026-07-06",
+        "n_candidates": 35,
+        "xs_mean_mu": 0.0096,
+        "max_mu": 0.0399,
+        "n_veto_survivors": 7,
+        "n_admit_demean_off": 6,
+        "n_admit_demean_on": 1,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0303
+      },
+      {
+        "run_id": "2026-07-07-live-dc2a3247",
+        "run_date": "2026-07-07",
+        "n_candidates": 33,
+        "xs_mean_mu": 0.0069,
+        "max_mu": 0.0336,
+        "n_veto_survivors": 5,
+        "n_admit_demean_off": 3,
+        "n_admit_demean_on": 0,
+        "zero_admission_under_demean_on": true,
+        "headroom_max_mu_minus_xsmean": 0.0267
+      },
+      {
+        "run_id": "2026-07-10-live-6f9d5284",
+        "run_date": "2026-07-10",
+        "n_candidates": 85,
+        "xs_mean_mu": 0.002,
+        "max_mu": 0.0459,
+        "n_veto_survivors": 18,
+        "n_admit_demean_off": 7,
+        "n_admit_demean_on": 5,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0439
+      }
+    ],
+    "admitted_demean_off": {
+      "fwd_1d": {
+        "n": 9,
+        "mean": -0.002623,
+        "median": 0.002105,
+        "hit_rate": 0.5556
+      },
+      "rel_fwd_1d": {
+        "n": 9,
+        "mean": 0.001575,
+        "median": 0.006857,
+        "hit_rate": 0.5556
+      },
+      "fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "dropped_by_demean_on": {
+      "fwd_1d": {
+        "n": 8,
+        "mean": -0.001907,
+        "median": 0.005286,
+        "hit_rate": 0.625
+      },
+      "rel_fwd_1d": {
+        "n": 8,
+        "mean": 0.002221,
+        "median": 0.009207,
+        "hit_rate": 0.625
+      },
+      "fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "added_by_demean_on": {
+      "fwd_1d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_1d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "actual_conviction_blocked": {
+      "fwd_1d": {
+        "n": 3,
+        "mean": -0.015912,
+        "median": -0.017343,
+        "hit_rate": 0.3333
+      },
+      "rel_fwd_1d": {
+        "n": 3,
+        "mean": -0.012268,
+        "median": -0.014254,
+        "hit_rate": 0.3333
+      },
+      "fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "n_dropped_by_demean_names": 10,
+    "n_added_by_demean_names": 0,
+    "n_actual_conviction_blocked": 14
+  },
+  "retro_conviction_xgb_era": {
+    "label": "XGB-era canonical runs 2026-06-23..2026-07-10",
+    "mu_floor": 0.03,
+    "per_run": [
+      {
+        "run_id": "2026-06-23-live-844746ad",
+        "run_date": "2026-06-23",
+        "n_candidates": 81,
+        "xs_mean_mu": 0.0051,
+        "max_mu": 0.0624,
+        "n_veto_survivors": 18,
+        "n_admit_demean_off": 8,
+        "n_admit_demean_on": 4,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0572
+      },
+      {
+        "run_id": "2026-06-25-live-6c3aa3fa",
+        "run_date": "2026-06-25",
+        "n_candidates": 76,
+        "xs_mean_mu": 0.0026,
+        "max_mu": 0.0319,
+        "n_veto_survivors": 18,
+        "n_admit_demean_off": 6,
+        "n_admit_demean_on": 0,
+        "zero_admission_under_demean_on": true,
+        "headroom_max_mu_minus_xsmean": 0.0293
+      },
+      {
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "run_date": "2026-06-26",
+        "n_candidates": 79,
+        "xs_mean_mu": 0.0201,
+        "max_mu": 0.0505,
+        "n_veto_survivors": 14,
+        "n_admit_demean_off": 14,
+        "n_admit_demean_on": 1,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0303
+      },
+      {
+        "run_id": "2026-06-30-live-b616357c",
+        "run_date": "2026-06-30",
+        "n_candidates": 83,
+        "xs_mean_mu": 0.0185,
+        "max_mu": 0.0532,
+        "n_veto_survivors": 14,
+        "n_admit_demean_off": 14,
+        "n_admit_demean_on": 1,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0347
+      },
+      {
+        "run_id": "2026-07-01-live-01c54b39",
+        "run_date": "2026-07-01",
+        "n_candidates": 83,
+        "xs_mean_mu": 0.0182,
+        "max_mu": 0.0524,
+        "n_veto_survivors": 14,
+        "n_admit_demean_off": 14,
+        "n_admit_demean_on": 1,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0342
+      },
+      {
+        "run_id": "2026-07-02-live-85496d1c",
+        "run_date": "2026-07-02",
+        "n_candidates": 83,
+        "xs_mean_mu": 0.0189,
+        "max_mu": 0.0511,
+        "n_veto_survivors": 17,
+        "n_admit_demean_off": 17,
+        "n_admit_demean_on": 1,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0322
+      },
+      {
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "run_date": "2026-07-06",
+        "n_candidates": 35,
+        "xs_mean_mu": 0.0096,
+        "max_mu": 0.0399,
+        "n_veto_survivors": 7,
+        "n_admit_demean_off": 6,
+        "n_admit_demean_on": 1,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0303
+      },
+      {
+        "run_id": "2026-07-07-live-dc2a3247",
+        "run_date": "2026-07-07",
+        "n_candidates": 33,
+        "xs_mean_mu": 0.0069,
+        "max_mu": 0.0336,
+        "n_veto_survivors": 5,
+        "n_admit_demean_off": 3,
+        "n_admit_demean_on": 0,
+        "zero_admission_under_demean_on": true,
+        "headroom_max_mu_minus_xsmean": 0.0267
+      },
+      {
+        "run_id": "2026-07-10-live-6f9d5284",
+        "run_date": "2026-07-10",
+        "n_candidates": 85,
+        "xs_mean_mu": 0.002,
+        "max_mu": 0.0459,
+        "n_veto_survivors": 18,
+        "n_admit_demean_off": 7,
+        "n_admit_demean_on": 5,
+        "zero_admission_under_demean_on": false,
+        "headroom_max_mu_minus_xsmean": 0.0439
+      }
+    ],
+    "admitted_demean_off": {
+      "fwd_1d": {
+        "n": 82,
+        "mean": -0.000764,
+        "median": -0.000273,
+        "hit_rate": 0.4878
+      },
+      "rel_fwd_1d": {
+        "n": 82,
+        "mean": -0.003896,
+        "median": -0.003641,
+        "hit_rate": 0.4878
+      },
+      "fwd_5d": {
+        "n": 73,
+        "mean": 0.023843,
+        "median": 0.020115,
+        "hit_rate": 0.7123
+      },
+      "rel_fwd_5d": {
+        "n": 73,
+        "mean": 0.010481,
+        "median": 0.011606,
+        "hit_rate": 0.6164
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "dropped_by_demean_on": {
+      "fwd_1d": {
+        "n": 73,
+        "mean": -0.001373,
+        "median": 0.0,
+        "hit_rate": 0.4932
+      },
+      "rel_fwd_1d": {
+        "n": 73,
+        "mean": -0.004673,
+        "median": -0.003689,
+        "hit_rate": 0.4932
+      },
+      "fwd_5d": {
+        "n": 65,
+        "mean": 0.020825,
+        "median": 0.019585,
+        "hit_rate": 0.7077
+      },
+      "rel_fwd_5d": {
+        "n": 65,
+        "mean": 0.007699,
+        "median": 0.010251,
+        "hit_rate": 0.6154
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "added_by_demean_on": {
+      "fwd_1d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_1d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_5d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "actual_conviction_blocked": {
+      "fwd_1d": {
+        "n": 44,
+        "mean": -0.000261,
+        "median": -0.003016,
+        "hit_rate": 0.4318
+      },
+      "rel_fwd_1d": {
+        "n": 44,
+        "mean": -0.001817,
+        "median": -0.007488,
+        "hit_rate": 0.4091
+      },
+      "fwd_5d": {
+        "n": 41,
+        "mean": 0.028622,
+        "median": 0.023657,
+        "hit_rate": 0.6829
+      },
+      "rel_fwd_5d": {
+        "n": 41,
+        "mean": 0.008276,
+        "median": 0.004323,
+        "hit_rate": 0.5366
+      },
+      "fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      },
+      "rel_fwd_20d": {
+        "n": 0,
+        "mean": null,
+        "median": null,
+        "hit_rate": null
+      }
+    },
+    "n_dropped_by_demean_names": 75,
+    "n_added_by_demean_names": 0,
+    "n_actual_conviction_blocked": 55
+  }
+}
