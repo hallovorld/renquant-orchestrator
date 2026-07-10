@@ -8,9 +8,12 @@ replay protocol draft [`doc/design/2026-07-09-governor-prereg-replay-protocol.md
 >
 > This run **predates approval of the D6 protocol** (RFC #443 is still under
 > review), and the run-input inventory below was committed **together with the
-> results**, not pushed before execution. It therefore is **not** a
-> preregistered run and **MUST NOT be used to select the L2 allocator or to
-> clear any D6 / Deployment Governor gate**.
+> results**, not pushed before execution. A timestamp inside a still-editable
+> PR artifact is not a tamper-proof pre-run commitment — the artifact structure
+> cannot prove the inventory preceded the results, which is exactly what
+> preregistration exists to guarantee. It therefore is **not** a preregistered
+> run and **MUST NOT be used to select the L2 allocator or to clear any
+> D6 / Deployment Governor gate**.
 >
 > A valid D6 evaluation begins only after RFC #443 approval, with:
 > 1. a freeze commit **pushed BEFORE execution** (session IDs + input hashes),
