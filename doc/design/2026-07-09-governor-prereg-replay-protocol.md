@@ -55,9 +55,24 @@ allocators: `equal_weight_top_k`, `inverse_vol_top_k`, `fractional_kelly_top_k`,
 Purpose: establish the naive-diversification floor ordering (DeMiguel 2009) and
 confirm/refute the prior clean-signal finding that α-tilt dominates current_qp.
 
-**Phase 2 (after D2 lands, flag OFF):** + `governor_kelly` = fractional Kelly SIZE
-stage under the L1 E* overlay (aggregate shrunk-Kelly clipped to regime bounds,
-hysteresis active).
+**Phase 2 (after D2 lands + this protocol is finalized; treatment family LOCKED
+here per the #447 review, before any evaluation run):**
+- **L1 candidate**: regime-ceiling-riding E* (fail-closed + hysteresis retained);
+  `governor_kelly` (Σ shrunk-Kelly E*) and `voltarget` (σ_target/σ̂_pf) demoted
+  to comparison arms — the #447 tuning result showed both are second-order to
+  the breadth×cap ceiling, but that finding is exploratory and all three run in
+  the confirmatory evaluation.
+- **Breadth×cap grid**: per-name cap {12%, 20%, 25%} × veto floor {1.0σ, 0.5σ}
+  × weights {equal_weight, capped-Kelly}, deployment = regime-ceiling.
+- **Controls**: cash/parking-sleeve arm (idle capital at T-bill yield).
+- **Evaluation scheme**: rolling CONTIGUOUS train/evaluation folds (predeclared;
+  kills the off-universe churn × tax artifact that dominated the exploratory
+  tuning run).
+- **Additional gates**: concentration-event gate (per-session max single-name
+  loss contribution) and turnover-tax gate (total tax+cost as a fraction of
+  gross return), tolerances frozen at protocol sign-off.
+- Any cap value above 12% reaching ENABLE additionally requires recorded
+  operator sign-off (capital-risk change), after this confirmatory evidence.
 
 ## 3. Estimands
 
@@ -72,9 +87,12 @@ hysteresis active).
 allocator question are separate, answered by separate paired comparisons):**
 
 - **(a) L1 — does Governor-selected E* beat incumbent deployment?** SAME allocator
-  on both sides (the winner/simplest from (b), equal-weight if (b) inconclusive):
-  `allocator@E*_governor` vs `allocator@E*_incumbent`, where incumbent E* is the
-  session's realized live deployment from run bundles.
+  on both sides, and that allocator is PREREGISTERED HERE as `equal_weight_top_k`
+  (r3 review accepted — choosing (b)'s winner on the evaluation subset would make
+  (a) post-selection; equal-weight is fixed a priori as the DeMiguel-floor
+  default, independent of any evaluation outcome):
+  `equal_weight@E*_governor` vs `equal_weight@E*_incumbent`, where incumbent E*
+  is the session's realized live deployment from run bundles.
 - **(b) L2 — which allocator, at MATCHED exposure?** All allocator variants run at
   the SAME session E*; allocator skill judged independent of deployment level.
 - **(c) Combined system vs incumbent**: `governor + chosen allocator` end-to-end vs

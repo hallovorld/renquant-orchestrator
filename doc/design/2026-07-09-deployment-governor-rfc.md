@@ -119,6 +119,16 @@ E_raw  = Σ_{i ∈ top-k} min(raw_i, w_cap)         aggregate desired exposure
 E*     = min(E_raw, E_ceil(regime))              ceiling only — NO exposure floor
 ```
 
+**L1-candidate amendment (post-#447)**: the exploratory tuning run (research memo
+#447) found aggregate-Kelly E* transmits μ̂ noise AND is second-order to the
+`breadth × per-name-cap` deployment ceiling. The PREREGISTERED L1 CANDIDATE for
+the confirmatory evaluation is therefore the simpler **regime-ceiling-riding
+rule** — `E* = E_ceil(regime)`, with fail-closed, hysteresis, and the weak-slate/
+model-fault distinction below all retained; the Σshrunk-Kelly formula above and a
+vol-targeted variant run as comparison ARMS (D6 §2 Phase-2, locked before
+evaluation). Whichever candidate the confirmatory run selects becomes the D2
+default; the others remain implemented behind the same config surface.
+
 with:
 
 - **Ceiling only, no floor** (r1 review, point 2 accepted): an exposure floor is
@@ -256,7 +266,10 @@ counts are hypotheses; the decision standard is END-OF-CHAIN counterfactual repl
 - **Quality estimand for marginal capital** (Codex requirement): forward-return
   spread of positions the Governor adds vs baseline's idle cash + the names baseline
   held — i.e., does the ADDITIONAL deployment earn its risk, not just exist.
-- **Stop rule**: any mid-run gate breach aborts the arm.
+- **Stop rule**: defined SOLELY by D6 §5 (r3 review accepted — the two documents
+  must not both define it): historical replay arms always run the FULL
+  registered horizon with breaches recorded (no asymmetric censoring);
+  immediate abort applies only to live shadow/canary.
 - **Decision**: ENABLE requires (b) ≥ (a) on primary estimands AND all gates pass
   AND (b) not dominated by (c)/(d) — if equal-weight matches the Governor, ship
   equal-weight (simplicity wins).
