@@ -132,25 +132,33 @@ This is NOT a miscalibration — it's the model's intrinsically-negative output 
 
 ---
 
-## 3. Revised Lane A priority
+## 3. Revised Lane A priority (updated: A-0 deprioritized)
+
+On 07-02, all 17 post-veto candidates had Kelly>0 but only 1 order fired. The
+binding constraints are DOWNSTREAM of veto: rotation threshold blocks replacing
+held positions (FTNT +5.1% < threshold 6%), and whole-share quantization blocks
+high-price names (BLK $995, AVGO $360). Lowering the veto floor would admit more
+mediocre candidates that hit the same downstream bottleneck. Priority: unblock
+deployment of the ALREADY-qualified top candidates first.
 
 | Priority | Knob | Owner repo | Impact estimate | Status |
 |---|---|---|---|---|
-| **A-0** | VetoWeakBuys `buy_floor_std_mult` 1.0 → 0.5 | strategy-104 | +60% candidates surviving | NEW — needs design PR |
-| **A-0b** | Rotation threshold 0.06 → 0.03 | strategy-104 | unblocks ALL rotations | NEW — needs design PR |
+| **P0** | Rotation threshold 0.06 → 0.03 | strategy-104 | unblocks rotation into top candidates | design PR |
+| **P1** | One-share initiation floor | pipeline | unblocks BLK/AVGO price tier | READY for shadow |
+| **P2** | Kelly fractional / sigma_sizing floor | strategy-104 | bigger positions in top names | needs analysis |
+| ~~P3~~ | VetoWeakBuys floor 1σ → 0.5σ | strategy-104 | reassess after P0-P2 | DEFERRED — not binding |
 | ~~A-1~~ | ~~`qp_cash_drag_lambda`~~ | ~~strategy-104~~ | ~~0%~~ | ~~DEAD CODE — QP disabled~~ |
-| **A-2** | `panel_buy_top_n` 3 → 5-6 | strategy-104 | +3 entries/day | DEFERRED (per RS-2) |
-| **A-3** | One-share initiation floor | pipeline | +2-3 high-price names | READY for shadow |
+| ~~A-2~~ | ~~`panel_buy_top_n` 3 → 5-6~~ | ~~strategy-104~~ | ~~deferred~~ | ~~DEFERRED (per RS-2)~~ |
 
 ---
 
 ## 4. Next actions (repo-correct)
 
-1. **Design PR in strategy-104**: preregistered A/B protocol for VetoWeakBuys floor
-   calibration (A-0) — shadow replay comparing `std_mult=1.0` vs `std_mult=0.5` on
-   frozen session set, measuring deployed fraction + turnover + concentration
-2. **Design PR in strategy-104**: rotation threshold calibration (A-0b) — shadow replay
-   comparing `min_expected_advantage_pct=0.06` vs `0.03`
-3. **Shadow implementation in pipeline**: one-share initiation floor (A-3) — per RS-2
+1. **Design PR in strategy-104**: preregistered A/B protocol for rotation threshold
+   calibration (P0) — `min_expected_advantage_pct` 0.06 → 0.03, shadow replay
+2. **Shadow implementation in pipeline**: one-share initiation floor (P1) — per RS-2
    preregistered protocol (already designed)
+3. **Analysis**: Kelly fractional / sigma_sizing floor impact (P2) — how much position
+   size increase is needed to deploy cash into qualified candidates
 4. **Close A-1**: document QP-disabled status; A-1 is blocked until QP path is repaired
+5. **Reassess A-0**: after P0-P2 deployed, measure if veto floor is still binding
