@@ -687,8 +687,13 @@ has a stated rollback that does not require the previous stage to be undone.
 - **No relocation of `.subrepo_runtime` materialized CLONES** — R-PIN moves
   pin-plane STATE to the neutral root (§5.2); relocating the materialized
   checkouts themselves is R1/R2 territory.
-- **The umbrella repo is not deleted or emptied** (LONG ledger #9); it
-  remains the machine anchor and rollback source, minus pin authority.
+- **The umbrella repo is not deleted or emptied** (LONG ledger #9) — but
+  its remaining role is strictly: an undeleted HISTORICAL repository and a
+  TEMPORARY legacy-mirror consumer, bounded by the Stage-5 retirement
+  condition. It is NOT a machine-state root and NOT a rollback authority:
+  the designated rollback sources for the pin plane are the orchestrator
+  deployment manifest + its origin/main remote ledger, plus the neutral
+  host state root (§5.2 backup pairs under `~/.renquant/deploy/`).
 
 ## 12. Open questions for review
 

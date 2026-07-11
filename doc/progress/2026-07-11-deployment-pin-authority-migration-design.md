@@ -115,3 +115,11 @@ emergency candidate may be constructed — origin/main ahead or hash-divergent
 remains the bounded in-transaction exception). Added the Stage-4 rejection
 drill for the origin-ahead emergency attempt. PR description updated to the
 record-first protocol (the stale apply-then-record summary removed).
+
+## r6 (Codex r5 — revised personally)
+
+§11 corrected: the umbrella's residual role is strictly historical repo +
+temporary legacy-mirror consumer (Stage-5-bounded); rollback authority =
+orchestrator manifest + origin/main remote ledger + the neutral host state
+root. No umbrella machine-state or rollback authority remains anywhere in
+the doc.
