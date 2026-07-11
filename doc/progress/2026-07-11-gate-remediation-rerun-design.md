@@ -1,7 +1,8 @@
 # Gate remediation + rerun — design RFC
 
-STATUS:    in-review, r2 posted (design-only PR; do not merge without Codex
-           approval)
+STATUS:    in-review, r3 posted (design-only PR; do not merge without Codex
+           approval) — r3 fixed a P0 contradiction between P6 and the
+           execution-safety state machine, see Correction (r3) below
 WHAT:      Full three-plane gate inventory (renquant-pipeline kernel gates +
            data_availability.v1/funnel_integrity.v1, umbrella daily_104 path
            + preflight P-* consumption + retrain/re-stamp tooling,
@@ -112,3 +113,64 @@ No section was deleted; the two worked examples (§6.1/§6.2) are preserved
 and now cross-reference the formalized mechanisms (§5.3, §5.6) instead of
 standing alone. New open decisions D9 (lease store implementation) and D10
 (historical replay set scope) added to §8.
+
+## Correction (r3 — Codex review response, 2026-07-11, P0)
+
+Codex's second-pass CHANGES_REQUESTED found one P0 contradiction and three
+smaller corrections. The P0 required real architecture research (two
+separate read-only traces of renquant-pipeline and the umbrella's live
+runner, no code changes), not just a doc rewrite:
+
+1. **P0 — P6 vs §5.3/§6.1 contradiction.** P6 claimed reruns happen "only
+   after the failed run's exit pass completed," while §5.3.1/5.3.4 required
+   `lifecycle_events == []` (no order submitted, buy OR sell) before the
+   controller may act. A normal completed daily-full run cannot satisfy
+   both. Traced the real order-submission path
+   (`RenQuant/live/runner.py` → `RunnerAdapter.commit()`,
+   `.../adapters/runner.py` sells ~1177 / buys ~1509): submission is
+   SYNCHRONOUS and same-run — there is no code-level gap between decision
+   and broker submission for either side. Since the remediation controller
+   is deliberately scheduled AFTER the daily run (§5.1, unchanged), it can
+   only ever observe a completed run in phase (b) or later for any gate
+   that fires at or after `enforce_buy_block`'s position (verified: strictly
+   after `TickerSellJob` and its exit-refinement chain, §5.3.4) — which is
+   most of the gate table, including the flagship §6.1 example.
+   **Resolution:** split remediation into Class A (gate aborts BEFORE the
+   sell pass — `commit()` never reached — a genuine same-day chained rerun
+   is safe) and Class B (gate sets a soft block, run completes normally
+   through `commit()` — remediation repairs the input same-day, but only
+   the NEXT regularly-scheduled session resumes trading; no rerun, no new
+   `run_id`, no resubmitted order). §2 (P6), every row in §4's gate table,
+   §5.2's action registry schema, §5.3.4/5.3.5/5.3.7/5.4, and §6.1's entire
+   worked-example walkthrough are corrected to this model. §6.2 was already
+   Class A in substance (both its detection planes precede `commit()`) and
+   now says so explicitly. §4.3's preflight rows (20-28) are left as
+   Class TBD with an honest caveat — their interaction with `daily_104.sh`'s
+   sell-only fallback needs the same rigor as a follow-up trace, not a
+   guess; they default to Class B (no same-day rerun) until traced.
+   Also closed Codex's specific sub-point: `orders_submitted` must be
+   stamped by the EXECUTION owner (`RunnerAdapter.commit()` itself, at its
+   `broker.place_order` call sites) — never inferred by the controller from
+   a separate log or count — and a missing/unavailable stamp fails closed
+   to phase (b), never defaults to phase (a).
+2. **D4 reversed.** "Pipeline emits, umbrella forwards" would have added new
+   forwarding code to a repo being actively deprecated. Reversed: pipeline
+   emits `preflight_verdicts.v1` directly into the shared run bundle the
+   orchestrator already reads; orchestrator consumes it directly; no new
+   umbrella code.
+3. **Neutral runtime root.** `~/renquant-data/remediation_log.jsonl` was a
+   separate, undocumented state authority. Standardized under the R-PIN
+   neutral root: `~/.renquant/remediation/remediation_log.jsonl`, sibling to
+   `~/.renquant/deploy/` and orchestrator#481's `~/.renquant/ops/`.
+4. **R0 vendor-refetch eligibility.** Added an explicit constraint to §5.6:
+   a refetch action is only eligible for the same-session remediation lane
+   when its vendor source can supply a versioned/as-of-queryable snapshot;
+   a mutable "latest"-only source has no after-the-fact no-leakage proof
+   and must be treated as next-session preparation only, never a
+   same-session remediation+rerun, regardless of its Class A/B tag.
+
+No section was deleted. This correction personally authored (not delegated
+to a fork) per the design-review-fixes-personal convention; two research
+passes (order-submission timing, sell-pass/buy-gate ordering) were run to
+ground the fix in the real codebase rather than in the RFC's own prior
+narrative.
