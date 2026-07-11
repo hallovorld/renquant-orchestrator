@@ -32,13 +32,19 @@
         <string>/bin/bash</string>
         <string>/Users/renhao/git/github/renquant-orchestrator/scripts/shadow_ab_daily.sh</string>
     </array>
+    <!-- Weekday-gated (Mon-Fri): a weekend firing re-observes Friday's
+         close - a paired duplicate world adding zero information to the
+         D6-2a series (discovered when the 2026-07-11 Saturday firing was
+         about to duplicate the Friday world). Same convention as
+         com.renquant.daily104.plist. -->
     <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>14</integer>
-        <key>Minute</key>
-        <integer>35</integer>
-    </dict>
+    <array>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>35</integer><key>Weekday</key><integer>1</integer></dict>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>35</integer><key>Weekday</key><integer>2</integer></dict>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>35</integer><key>Weekday</key><integer>3</integer></dict>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>35</integer><key>Weekday</key><integer>4</integer></dict>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>35</integer><key>Weekday</key><integer>5</integer></dict>
+    </array>
     <key>StandardOutPath</key>
     <string>/Users/renhao/renquant-shadow-ab/logs/launchd.out.log</string>
     <key>StandardErrorPath</key>
