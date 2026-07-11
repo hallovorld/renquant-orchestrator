@@ -63,11 +63,31 @@ r2 — the explicit contract, orchestrator-only, all additive/opt-in:
 
 1. Orchestrator pin bump (promote_pin dry-run → apply → verify).
 2. Add to `/Users/renhao/renquant-shadow-ab/run_manifest.json`:
-   `"artifact_store": {"path": "/Users/renhao/git/github/RenQuant/artifacts"}`
-   — the same umbrella-tree store prod loads from (deploy mechanism: config
-   from pinned subrepo, artifacts from umbrella tree). Blob identity remains
+   `"artifact_store": {"repo": "renquant-artifacts", "path": "store"}` plus
+   the renquant-artifacts pin at the #13 merge commit (superseding the r2
+   free-path form — see the r3 section below). Blob identity remains
    sha-stamped per artifact; freeze drift VOIDs the pair. No freeze exists yet
    (`freeze_created: false`), so amending the manifest before the first valid
    session is protocol-clean.
 3. `launchctl kickstart` re-preflight; a full valid pair (exit=0) is the
    acceptance evidence before the first counted session (2026-07-11 14:35 PT).
+
+## r3 (Codex on r2: bind the store to a pinned owner)
+
+r2's `artifact_store: {path}` was still an untyped directory that could point
+back at the deprecated umbrella tree. r3 closes it:
+
+- `artifact_store` must be `{"repo": <manifest repo name>, "path": <relative
+  subdir>}`. A bare path, an unknown repo, an absolute subdir, or a `..`
+  segment are all load-time contract errors.
+- The store root resolves INSIDE the named repo's checkout only AFTER
+  `verify_run_manifest` proves that checkout is at the pinned commit with a
+  CLEAN tree — commit binding by construction (test: tampering with the store
+  repo's tree aborts the session before either arm). The bundle records
+  {repo, path, root, commit}.
+- The blobs got a pinned subrepo owner: renquant-artifacts PR #13 adds
+  `store/` with fingerprint-verified byte-copies (model + sidecars +
+  calibrator; the calibrator's only committed home had been the umbrella
+  strategy dir — audit T1 divergence made visible). Landing pins that commit
+  in the experiment manifest: `artifact_store: {"repo": "renquant-artifacts",
+  "path": "store"}`.

@@ -588,15 +588,46 @@ def load_run_manifest(path: str | Path) -> dict[str, Any]:
             f"{', '.join(missing)}"
         )
     store = payload.get("artifact_store")
-    if store is not None and (
-        not isinstance(store, dict) or not store.get("path")
-    ):
-        raise ShadowABContractError(
-            f"run manifest {manifest_file}: artifact_store must be an object "
-            "with a 'path' (the explicitly declared artifact-store root that "
-            "store-addressed config refs resolve against)"
-        )
+    if store is not None:
+        # The store is NOT an arbitrary path — it must name a manifest repo
+        # (r3, Codex on #464 r2: an untyped path can point straight back at
+        # the deprecated umbrella tree). The named repo goes through the same
+        # commit+clean verification as every other manifest repo, so the
+        # store root is inside a pinned checkout by construction.
+        if not isinstance(store, dict) or not store.get("repo"):
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: artifact_store must be "
+                "{'repo': <manifest repo name>, 'path': <relative subdir>} — "
+                "a bare path is not a pinned owner"
+            )
+        if store["repo"] not in repos:
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: artifact_store.repo "
+                f"{store['repo']!r} is not a manifest repo — the store must "
+                "live inside a pinned, verified checkout"
+            )
+        subdir = store.get("path") or ""
+        sub_path = Path(subdir)
+        if sub_path.is_absolute() or ".." in sub_path.parts:
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: artifact_store.path must be "
+                f"a relative subdir inside the named repo, got {subdir!r}"
+            )
     return payload
+
+
+def resolve_manifest_artifact_store(manifest: Mapping[str, Any]) -> Path | None:
+    """The declared store root INSIDE the named manifest repo, or ``None``.
+
+    Callers must run :func:`verify_run_manifest` first — the binding this
+    provides (commit + clean tree) is exactly why the store names a manifest
+    repo instead of carrying a free path.
+    """
+    store = manifest.get("artifact_store")
+    if store is None:
+        return None
+    repo_entry = manifest["repos"][store["repo"]]
+    return Path(repo_entry["path"]) / (store.get("path") or "")
 
 
 def verify_run_manifest(
@@ -1177,26 +1208,35 @@ def run_shadow_ab_session(
             )
             store_entry = manifest_payload.get("artifact_store")
             if store_entry is not None:
-                # The manifest-declared artifact-store root: prod configs
-                # author store refs as umbrella-layout parent walks
+                # The manifest-declared artifact store: prod configs author
+                # store refs as umbrella-layout parent walks
                 # (../../artifacts/<...>), which resolve to nothing from a
-                # pinned checkout — the manifest declares WHERE the store is
-                # instead of the checkout reconstructing umbrella geometry.
-                # Blob identity is never trusted from the path: every
-                # resolved artifact is fingerprint-stamped into the arm
-                # record and freeze drift VOIDs the pair.
-                artifact_store = Path(store_entry["path"])
-                if not artifact_store.is_dir():
+                # pinned checkout. The store names a MANIFEST REPO (r3) —
+                # verify_run_manifest above already proved that checkout is
+                # at the pinned commit with a CLEAN tree, so the store root
+                # is commit-bound by construction; per-artifact fingerprint
+                # stamping + freeze drift VOID cover the blob level.
+                artifact_store = resolve_manifest_artifact_store(
+                    manifest_payload
+                )
+                if artifact_store is None or not artifact_store.is_dir():
                     raise ShadowABContractError(
-                        "run manifest artifact_store path does not exist "
-                        f"or is not a directory: {artifact_store}"
+                        "run manifest artifact_store does not resolve to a "
+                        f"directory inside repo {store_entry.get('repo')!r}: "
+                        f"{artifact_store}"
                     )
             bundle["run_manifest"] = {
                 "path": str(run_manifest),
                 "data_revision": manifest_payload.get("data_revision"),
                 "verified": True,
                 "artifact_store": (
-                    str(artifact_store) if artifact_store is not None else None
+                    {
+                        "repo": store_entry["repo"],
+                        "path": store_entry.get("path") or "",
+                        "root": str(artifact_store),
+                        "commit": resolved_repos[store_entry["repo"]],
+                    }
+                    if store_entry is not None else None
                 ),
                 "repos": {
                     name: {
@@ -1691,6 +1731,7 @@ __all__ = [
     "build_run_manifest_payload",
     "default_experiment_strategy_dir",
     "load_run_manifest",
+    "resolve_manifest_artifact_store",
     "main",
     "resolve_arm_fingerprints",
     "resolve_experiment_pins",
