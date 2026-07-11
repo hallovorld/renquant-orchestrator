@@ -212,13 +212,18 @@ extends the proven run-manifest conventions (§2.3):
   "repos": {
     "<name>": {
       "remote": "…", "branch": "main", "commit": "<sha>",
-      "role": "…", "test_command": "…", "status": "…"
+      "role": "…", "status": "…"
     }
   },
   "artifact_store": { "repo": "renquant-artifacts", "path": "…" },
   "deployment": {
     "deployed_at": "<iso8601>", "deployed_by": "<agent|operator>",
-    "verify": { "cmd": "…", "exit": 0, "evidence_ref": "<run-bundle/log ref>" },
+    "verify": {
+      "profile": "readonly-e2e",
+      "args": { "min_admits": 1 },
+      "exit": 0,
+      "evidence_ref": "store://<content-addressed artifact record>"
+    },
     "state": "deployed",
     "supersedes_sha256": "<sha256 of prior manifest content>"
   }
@@ -243,8 +248,18 @@ extends the proven run-manifest conventions (§2.3):
   expected-generation record (§5.2).
 - `artifact_store` reuses the #464 binding so the deployment plane and the
   D6-§2a experiment plane express artifact anchoring identically.
-- `deployment.verify` makes the e2e-verify evidence part of the record —
-  what #460/#461 could never carry.
+- **No free-form shell in the authority document** (Codex r2 point 3):
+  `deployment.verify.profile` names an entry in a code-owned ALLOWLIST of
+  verification profiles (defined and reviewed in renquant-orchestrator;
+  args are structured data validated per profile) — a reviewed manifest
+  can never smuggle deployment-side code execution. The lock's legacy
+  `test_command` strings likewise do NOT enter the authority document;
+  the mirror composes them from a versioned compatibility table in
+  orchestrator code (§5.3).
+- `deployment.verify.evidence_ref` is a **pinned content-addressed
+  artifact record** (`store://` in renquant-artifacts, the #13/#14
+  mechanism — full sha256 in its STORE-MANIFEST), never a local log path
+  (Codex r2 point 4): the evidence outlives the host.
 - `supersedes_sha256` chains records so history is tamper-evident beyond
   git itself.
 
@@ -281,7 +296,29 @@ repo). It holds:
   abort with a named error; recovery is the explicit
   `deploy-pin reconcile-generation` flow, which re-verifies the machine
   manifest against orchestrator `origin/main` before moving the record.
-- `receipts/` — append-only emergency-lane receipts (§7).
+
+  **The epoch's durable anchor is REMOTE, not this file** (Codex r2
+  point 1 — a full host-root backup restore rolls manifest, mirror,
+  expected-generation, and receipts back TOGETHER, so a local record
+  alone cannot witness its own rollback): the recorded manifest on
+  orchestrator `origin/main` carries the generation, and that
+  branch-protected remote ref is the independent ledger. Enforcement:
+  every MUTATION (`apply`, `reconcile-generation`) verifies the local
+  epoch against `origin/main` and FAILS CLOSED when the anchor is
+  unreachable or disagrees; the daily preflight/doctor does the same
+  comparison and alarms on divergence or anchor-unreachability. Pure
+  READ paths remain offline-capable against the local record — with the
+  threat model stated honestly: a full host-root rollback in the window
+  between network checks, with every alarm ignored, is detected at the
+  next anchor comparison (≤ 1 trading session), not instantaneously;
+  instantaneous offline rollback-detection would require remote round
+  trips on the hot read path and is explicitly out of scope. Local
+  content addressing is integrity, not immutability — immutability
+  comes from the remote ledger.
+- `receipts/` — emergency-lane receipts, written locally BEFORE mutation
+  and durably anchored by inclusion (content + sha) in the mandatory
+  reconciliation PR (§7) — the git remote is the immutable home; the
+  local copy is operational convenience, same threat model as above.
 
 Transitional note: the on-disk umbrella lock remains — as the generated
 **mirror for legacy readers only** (§5.3) — until the Stage 5 tombstone;
@@ -290,11 +327,27 @@ state ownership. The bounded migration OFF the umbrella for state is
 Stage 1 (the neutral root exists from the first `capture`), not a distant
 promise.
 
-### 5.3 The umbrella lock becomes a generated mirror
+### 5.3 The umbrella lock becomes a generated mirror — first mirror write
+IS the authority flip
 
-During transition, `RenQuant/subrepos.lock.json` **on disk** is regenerated
-from the manifest by the promote CLI — byte-compatible with today's schema
-plus two additive provenance fields:
+**No mirror is generated before the Stage 4 flip** (Codex r2 point 2: a
+generated lock is a derivative; writing one while the lock is still called
+authority would create ambiguous dual authority). Read/write semantics,
+exactly: pre-flip, the on-disk lock is the authority and the ONLY writer is
+the legacy promote path; the Stage-3-armed verification at choke points is
+**conditional** — a lock WITHOUT provenance fields is the pre-flip
+authority and passes through; a lock WITH provenance fields MUST verify
+against the machine manifest (hash + generation) or the consumer aborts.
+The first provenance-stamped write, performed by `deploy-pin apply` at the
+Stage 4 cutover, is therefore BY CONSTRUCTION the moment authority flips —
+there is no instant at which a generated mirror exists while the lock is
+authority, and no instant at which a stamped mirror goes unverified.
+Fault-injection for the conditional semantics runs against SYNTHETIC
+mirrors in scratch copies during Stage 3 (never a production write).
+
+From the flip onward, `RenQuant/subrepos.lock.json` **on disk** is
+regenerated from the manifest by the promote CLI — byte-compatible with
+today's schema plus two additive provenance fields:
 
 ```json
   "generated_from": "renquant-orchestrator deployment manifest (R-PIN)",
@@ -307,7 +360,11 @@ any of the 19 umbrella readers or 18 launchd jobs**; Stage 3 changes ONLY
 the choke points + direct shell readers — and does so to install
 verification BEFORE the authority flip (§8/§9), while they still read the
 authority lock. For everyone else the mirror is exactly the file they
-already read, now with a verifiable pedigree. Note
+already read, now with a verifiable pedigree. Legacy-only lock fields the
+portable authority no longer carries (`local_path`, `test_command`) are
+composed into the mirror from the host runtime inventory (§5.2) plus a
+versioned compatibility table in orchestrator code — reviewed code, not
+authority-document strings. Note
 this matches current operational reality: the on-disk lock already diverges
 from the committed lock and production runs from disk; the mirror only makes
 the on-disk file machine-written and provenance-stamped instead of
@@ -374,7 +431,12 @@ faster default:
   reason, expiry ≤ 24h, scope = the exact target repo/commit pairs) +
   detached `ssh-keygen -Y` signature verified against the committed
   allowed_signers; the signing key is operator-held and unavailable to any
-  agent;
+  agent. **Arming prerequisite (Codex r2 point 4): the emergency lane is
+  DISABLED until the operator's REAL public key is committed** — the lane's
+  verifier hard-rejects any allowed_signers entry carrying the PLACEHOLDER/
+  fixture label (and the #465 test-fixture principal names), with a
+  dedicated rejection test; fixture keys exist for tests only and can never
+  authorize a production apply;
 - emits an **immutable receipt** (append-only under
   `~/.renquant/deploy/receipts/`, content-addressed, referenced by the
   next recording PR) BEFORE mutating anything;
@@ -418,8 +480,8 @@ point 2: the invariant must hold BEFORE the flip, or the stage must say
 |---|---|---|---|---|
 | 1 | on-disk lock | read authority directly (no derivative exists) | read authority directly | manifest = **unverified shadow record**, consumed by nothing |
 | 2 | on-disk lock | read authority directly | dual-read: lock (authoritative) + manifest (compared, report-only → fail-closed after N=5) | manifest = verified shadow for orchestrator paths only |
-| 3 | on-disk lock | **choke-point verification INSTALLED AND ARMED** (mirror↔manifest hash + generation), while still reading the authority lock | fail-closed dual-read | mirror generation begins; parity/drill mode |
-| 4 | **manifest** (the flip) | verify the mirror against the manifest at every choke-point read — armed one stage BEFORE the flip | manifest-first | lock = generated, verified mirror |
+| 3 | on-disk lock | **choke-point verification INSTALLED AND ARMED, conditional** (§5.3: unstamped lock = authority, pass through; stamped lock MUST verify) — no production mirror exists yet; fault-injection on synthetic mirrors | fail-closed dual-read | NO mirror; CLI in parity/drill mode |
+| 4 | **manifest** (the flip) | first provenance-stamped mirror write IS the flip event (§5.3); from that instant every choke-point read verifies hash + generation | manifest-first | lock = generated, verified mirror |
 | 5 | manifest | tombstoned committed lock; grep-zero tripwire | manifest only | mirror retired with the last legacy reader |
 
 The flip is a single, named, verified cutover event inside Stage 4 (§9),
@@ -434,6 +496,7 @@ Divergence handling matrix (all fail-closed once armed):
 | manifest generation ≠ expected-generation record | every choke-point read; daily preflight | stale/replayed pair (less) or torn apply (greater) — abort + named recovery (`deploy-pin reconcile-generation`, §5.2) |
 | materialized `.subrepo_runtime` clone HEAD ≠ manifest commit | `subrepo_pin_guard` (existing, re-pointed) | existing strict-pin behavior, unchanged semantics |
 | machine manifest ≠ orchestrator main manifest | recording-SLA tripwire (§7) | report from first second → block further applies past SLA / on stacking |
+| local epoch ≠ origin/main recorded generation, or anchor unreachable | every MUTATION (fail-closed) + daily preflight/doctor (alarm) | the remote-ledger rollback witness (§5.2) — applies refuse; reads alarm within ≤ 1 session |
 | committed umbrella lock ≠ anything | none needed after Stage 5 tombstone | committed lock carries no pin data; any residual parser fails loudly on the tombstone schema |
 
 ## 9. Staged rollout (each stage individually shippable and revertible)
@@ -452,7 +515,9 @@ disagreement between them — and emits the PORTABLE manifest (identity
 only, §5.1) plus the host inventory; the first manifest
 committed via orchestrator PR, **recording today's §2.2 deployed state
 durably for the first time**, with `deployment.verify.evidence_ref`
-pointing at the 07-10/11 readonly-e2e verification evidence.
+pointing at a content-addressed record of the 07-10/11 readonly-e2e
+verification evidence sealed into renquant-artifacts `store://` (the
+#13/#14 mechanism) — never a local log path.
 Gate: capture output matches on-disk lock AND clone HEADs exactly
 (read-only re-verification in PR evidence); `make test` green.
 Rollback: delete a file no one consumes yet. Risk: none (additive).
@@ -476,7 +541,8 @@ Deliverables:
 (i) full `deploy-pin` per §6/§7 (plan/apply/revert/capture/
 reconcile-generation, record-first flow, emergency lane, SLA tripwire) —
 operated in parity/drill mode only; `promote_pin.py` stays native;
-(ii) mirror generation + provenance fields + generation record wiring;
+(ii) generation-record wiring + mirror-COMPOSITION code (exercised only
+against scratch copies; no production mirror write before the flip, §5.3);
 (iii) the single narrow umbrella PR, per Codex's "narrow, generated,
 independently verified" instruction: the 3 choke-point modules + the 3
 direct shell readers (§4.2) gain mirror↔manifest hash+generation
@@ -484,11 +550,12 @@ verification at entry — **installed and armed one full stage BEFORE the
 authority flip** (Codex r1 point 2), while they still read the authority
 lock; doctor/contract/reporting readers re-pointed through
 `subrepo_paths`.
-Gate: choke-point verification proven by fault injection (hand-edited
-mirror, stale-pair restore, torn generation — each must abort the consumer
-with the named error); green `daily_104` + `weekly_wf_promote` with
-verification armed. Rollback: env-flag the verification off; CLI touches
-nothing real in this stage.
+Gate: choke-point verification proven by fault injection on SYNTHETIC
+stamped mirrors in scratch copies (hand-edited mirror, stale-pair restore,
+torn generation, unstamped-lock pass-through — each must produce the named
+outcome); green `daily_104` + `weekly_wf_promote` with the conditional
+verification armed against the real (unstamped) lock. Rollback: env-flag
+the verification off; CLI touches nothing real in this stage.
 
 **Stage 4 — authority flips (M; the named cutover event).**
 Pre-flip gates (all mechanical, evidenced in the Stage 4 PR):
@@ -502,7 +569,17 @@ backup pair must be REJECTED by the generation check at first consumer
 touch (the Codex r1 point-3 replay test, automated);
 (iv) M9 snapshot backstop demonstrably invoked (scratch render) in both
 bump and revert paths;
-(v) Stage 3 verification live in production for ≥ 3 green sessions.
+(v) Stage 3 verification live in production for ≥ 3 green sessions;
+(vi) **host-root restore drill** — restoring a full scratch state-root
+backup (manifest + mirror + epoch + receipts together) must be refused at
+the next mutation by the remote-anchor comparison (§5.2) and alarmed by
+the preflight;
+(vii) **anchor-unreachable drill** — mutation with origin/main unreachable
+must fail closed; read path must alarm-and-continue per the stated threat
+model;
+(viii) **fixture-signer rejection test** — an emergency token signed by
+the test/PLACEHOLDER key must be rejected with the dedicated error; the
+lane stays disabled until the real operator key lands (§7).
 The **cutover**: first record-first `deploy-pin apply` on a real pin bump,
 after which the manifest is authority and the lock is the verified mirror;
 `promote_pin.py` becomes the delegating shim; `check_lock_pins_ci_green.py`

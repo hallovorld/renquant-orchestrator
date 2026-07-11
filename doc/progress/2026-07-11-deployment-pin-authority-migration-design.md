@@ -69,3 +69,25 @@ All five objections incorporated:
 5. **Portable authority** (§5.1): no host paths in the durable manifest —
    repo identity only; paths live in the per-host verified runtime
    inventory.
+
+## r3 (Codex r2 review — revised personally)
+
+1. **Remote epoch anchor** (§5.2): a full host-root restore rolls all local
+   state back together, so orchestrator origin/main's recorded generation is
+   the independent ledger — mutations fail closed on anchor divergence or
+   unreachability; reads stay offline-capable with the ≤1-session detection
+   window stated as the explicit threat model. Local content addressing
+   labeled as integrity, not immutability. Receipts anchored via the
+   mandatory reconciliation PR.
+2. **First mirror write IS the flip** (§5.3): no production mirror exists
+   before Stage 4; Stage-3 verification is conditional (unstamped lock =
+   authority, stamped mirror must verify) — no ambiguous dual authority at
+   any instant; fault injection runs on synthetic mirrors.
+3. **Named verification profiles** (§5.1): no free-form shell in the
+   authority document — allowlisted profiles with structured args;
+   legacy lock strings composed into the mirror from reviewed code.
+4. **Durable evidence + real-key arming** (§5.1/§7/§9): evidence_ref must be
+   a renquant-artifacts store:// content-addressed record; the emergency
+   lane hard-rejects fixture/PLACEHOLDER signers and stays disabled until
+   the operator's real key lands. New Stage-4 drills: host-root restore,
+   anchor-unreachable, fixture-signer rejection.
