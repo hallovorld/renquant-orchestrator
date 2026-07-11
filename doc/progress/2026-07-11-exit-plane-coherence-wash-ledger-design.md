@@ -58,3 +58,49 @@ code/ownership map) merged into the design doc's §2.2 and §2.1/§3.1-3.2.
   wash Phase 0 backfill, …) is its own PR against the owners in design §4.
 - Memory tier: mid-term workstream file added
   (`doc/memory/mid-term/exit-and-state-integrity.md`, status proposed).
+
+## Correction (r2 — Codex review response, 2026-07-11)
+
+Codex found two safety-contract gaps; both are now first-class in the
+design, not implied:
+
+1. **D1 coherence predicate was too permissive.** The original predicate let
+   a promoted, fresher successor substitute for the admitting model based
+   only on artifact freshness + a promotion record — it never checked
+   whether the successor represented the SAME scoring thesis. Fixed:
+   `ScoringPlaneIdentity` gains `config_schema_sha256`/`feature_recipe_version`
+   fields, and the coherence predicate now requires them to match — a
+   promotion to a different feature recipe (e.g. renquant-model#44's
+   `vol_trend_v2`) is never coherent regardless of promotion status (§2.5).
+   A pre-registered successor-vs-original counterfactual comparison is now
+   a stated Stage-2 precondition, not merely implied by the shadow record.
+   Separately, §2.6's "0 resets in 620 runs" claim is now explicitly split
+   from policy: it is currently an INFERENCE from log timestamps, not a
+   code-verified defect, and the design states exactly what code-level
+   proof (scheduler/evaluation-timestamp trace; reset-branch
+   reachability) is required before session-grain accrual is adopted as a
+   fix rather than a guess. The 9-firing evidence table is now explicitly
+   scoped as incident motivation, not the validation population — Stage 1
+   advance now additionally requires a full holding-evaluation population
+   replay with transaction costs (§2.6, §2.7).
+2. **D2's ledger durability was asserted, not shown.** The original draft
+   specified a hand-rolled append-only hash-chained JSONL file under three
+   concurrent writer cadences with no single-writer lease, no atomic-
+   append/fsync/rotation protocol, no recovery semantics, and no proof
+   `broker_activity_id` is unique per partial fill. Per Codex's exact
+   instruction, moved to a SQLite-backed transactional store instead of
+   trying to hand-build those properties (§3.3) — single-writer enforcement
+   and atomicity now come from the database engine (`BEGIN IMMEDIATE`
+   transactions), matching the concurrency-control class already relied on
+   elsewhere in this stack. Reconciliation is now explicit that conflicting
+   (not merely correctable) broker facts are preserved as parallel active
+   rows pending human resolution, never silently resolved by supersession
+   (new I-W7, §3.4/§3.6). `wash_view`'s account scope, timezone rule, and
+   30-day boundary semantics are now pinned as explicit, stated properties
+   (§3.5) rather than implicit in the comparison arithmetic. The
+   orchestrator checker's "alarm, never repair" role is now a stated hard
+   rule (§3.6), not an implication of "monitor layer".
+
+No section was deleted; both worked-example replays (§2.2's table, §3.1's
+failure record) are preserved. All phases remain DARK — nothing in this
+revision relaxes the existing staged-rollout gates (§2.7, §3.7).

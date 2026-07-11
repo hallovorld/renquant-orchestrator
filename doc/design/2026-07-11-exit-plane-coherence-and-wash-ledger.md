@@ -2,6 +2,37 @@
 
 STATUS: DESIGN ONLY — no implementation, no runtime change in this PR.
 DATE: 2026-07-11
+
+> **Revision note (Codex CHANGES_REQUESTED, r1).** Two safety contracts were
+> underspecified in the original draft. **D1**: the coherence predicate
+> allowed a promoted-and-fresher successor to substitute for the admitting
+> model without checking whether it represented the SAME scoring thesis —
+> fixed by adding a config-schema/feature-recipe identity component to
+> `ScoringPlaneIdentity` and requiring it to match (§2.5), plus a
+> pre-registered successor-vs-original counterfactual comparison before
+> Stage 2 enforcement. The apparent scheduler/strike-reset bug (§2.6) is now
+> explicitly separated from the session-grain-accrual POLICY fix — the bug
+> claim requires code-level proof, not a timestamp inference — and the
+> hybrid rule's validation requirement is expanded from the 9 firings that
+> happened to occur to a replay against the FULL holding-evaluation
+> population with transaction costs. **D2**: the wash-sale ledger moves from
+> a hand-specified append-only hash-chained JSONL file (whose durability
+> under concurrent writers was asserted, not shown) to a SQLite-backed
+> transactional store (§3.3), which gets single-writer serialization and
+> atomicity from the database engine rather than a bespoke lease/fsync/
+> recovery protocol this design would otherwise have had to prove correct
+> from scratch; broker-account scope, the NY-timezone rule, and the exact
+> 30-day boundary semantics are now pinned explicitly in `wash_view` (§3.5)
+> rather than left implicit in the comparison arithmetic; reconciliation is
+> now explicit that conflicting (not merely correctable) broker facts are
+> preserved as parallel active rows pending human resolution, never
+> silently resolved by supersession (§3.4, new I-W7); and the orchestrator
+> checker's monitor-only role (alarm, never repair) is now a stated hard
+> rule (§3.6), not an implication. **All phases remain DARK** — no stage of
+> either fix executes until a preregistered replay (the historical window)
+> plus prospective shadow coverage has validated completeness, duplicate
+> handling, and the absence of false blocks, per the existing staged-rollout
+> gates in §2.7/§3.7, which this revision does not relax.
 SCOPE: the two remaining fixes from the ZM/NFLX forensics (orchestrator #484
 §8, fixes 5 and 6): (1) scoring-plane coherence for `ModelProtectionExitTask`;
 (2) a durable, broker-reconciled, append-only wash-sale ledger replacing the
@@ -293,15 +324,27 @@ Identity is threaded as a new stamped fact (nothing today carries it, §2.1):
 
 - **`ScoringPlaneIdentity`** (new frozen dataclass, renquant-pipeline
   `kernel/models.py`): `{plane: "panel"|"per_ticker", artifact_path,
-  artifact_sha256, trained_date, train_end_axis}` where `train_end_axis` is
-  the first present field of `TRAINING_DATA_FIELDS` (reusing the
-  FilterStalenessTask axis contract; `trained_date` stays display-only,
-  never an axis — the AMZN `trained 07-08 / train_end 04-23` row is the
-  proof it must not be). `artifact_sha256` MUST come from the one shared
-  file-hash implementation the run bundle already uses
-  (`artifact_contract.py:331` `sha256_file`) — explicitly NOT a new
-  hand-copied fingerprint (the calibrator triple-impl lesson: three
+  artifact_sha256, config_schema_sha256, feature_recipe_version, trained_date,
+  train_end_axis}` where `train_end_axis` is the first present field of
+  `TRAINING_DATA_FIELDS` (reusing the FilterStalenessTask axis contract;
+  `trained_date` stays display-only, never an axis — the AMZN `trained
+  07-08 / train_end 04-23` row is the proof it must not be). `artifact_sha256`
+  MUST come from the one shared file-hash implementation the run bundle
+  already uses (`artifact_contract.py:331` `sha256_file`) — explicitly NOT a
+  new hand-copied fingerprint (the calibrator triple-impl lesson: three
   independent hash impls made mismatch permanent by construction).
+  **`config_schema_sha256`/`feature_recipe_version` (Codex review, r1 —
+  added; NOT in the original draft): a hash of the SCORING CONFIG (feature
+  set, transform pipeline, calibration recipe — whatever the artifact
+  contract already records as the model's config identity) and the feature-
+  recipe version tag (e.g. `vol_trend_v2`'s own `feature_set_version`,
+  renquant-model#44). These exist SPECIFICALLY to distinguish "the same
+  thesis, refreshed on newer data" from "a different model design that
+  happens to have a newer train-end" — a promotion event alone does not
+  prove the latter is absent. A promoted successor whose
+  `config_schema_sha256`/`feature_recipe_version` differ from the admitting
+  identity is NEVER coherent, regardless of promotion status or freshness —
+  see the tightened predicate below.
 - **Stamp at admission**: when a fresh buy is recorded, extend
   `entry_signals[t]` (runner.py:1593-1598) and `HoldingState`
   (`kernel/exits.py:148-214`) with `admitted_by: ScoringPlaneIdentity`. The
@@ -319,24 +362,87 @@ Identity is threaded as a new stamped fact (nothing today carries it, §2.1):
   EVERY evaluation (strike or exit) into the run bundle and the decision
   ledger — closing two observability holes §2.2 hit: per-strike mu values
   are currently never persisted, and one firing (NEE) has no log at all.
-- **Coherence predicate** (pure function, unit-testable):
+- **Coherence predicate** (pure function, unit-testable; Codex review, r1 —
+  tightened from the original draft, which allowed ANY promoted-and-fresher
+  successor to substitute regardless of whether it represented the same
+  scoring thesis):
   `coherent(produced_by, admitted_by)` :=
   `produced_by.artifact_sha256 == admitted_by.artifact_sha256`
-  OR (`produced_by.train_end_axis >= admitted_by.train_end_axis` AND
+  OR (`produced_by.config_schema_sha256 == admitted_by.config_schema_sha256`
+  AND `produced_by.feature_recipe_version == admitted_by.feature_recipe_version`
+  AND `produced_by.train_end_axis >= admitted_by.train_end_axis` AND
   `produced_by` passes the buy-path staleness axes AND `produced_by` has a
   promotion/override record). A fresher but never-promoted artifact (the
   05-18 silent-regression class — it re-entered primary with *no gate event
-  of any kind*, #484 §6) is NOT coherent by construction.
+  of any kind*, #484 §6) is NOT coherent by construction. **Nor is a
+  promoted-and-fresher successor whose config schema or feature recipe
+  differs from what admitted the position** — e.g. a promotion to
+  `vol_trend_v2` (renquant-model#44) or any other feature-recipe change is a
+  DIFFERENT THESIS, not a refresh of the one the position was entered under,
+  even if the promotion record itself is entirely legitimate. Only an
+  identical-recipe retrain (same config schema, same feature recipe, newer
+  data) may substitute for the admitting model; a genuine recipe change
+  always falls through to §2.4's deferral/fail-closed path, exactly as if no
+  coherent successor existed. This is deliberately conservative: it is
+  cheaper to fall back to panel-plane deferral or a paged fail-closed than
+  to silently apply a different model's exit policy to an already-open
+  position that never consented to it.
 
-### 2.6 Strike integrity (same defect, second face)
+  **Pre-registered counterfactual comparison (Codex review, r1 — required
+  before Stage 2 enforcement, not merely implied by the Stage 0/1 telemetry):**
+  before `enforce: true` may ever be set (§2.7), the Stage 1 shadow record
+  must include, for every evaluation where `produced_by != admitted_by`
+  (i.e. every case where the coherence predicate's fresher-successor branch
+  was exercised, not just the same-artifact branch), an explicit comparison
+  of the exit decision the SUCCESSOR plane would have produced against the
+  decision the ORIGINAL admitting identity would have produced had it still
+  been evaluable (reconstructed from its own persisted scores, where
+  available) — reported as its own named metric (successor-vs-original
+  agreement rate), not folded into the aggregate would-have-differed diff.
+  A stage-1 review that cannot show this comparison for at least the
+  cases where it fired is not sufficient evidence for Stage 2, regardless of
+  how many total sessions were observed.
+
+### 2.6 Strike integrity (same defect, second face) — Codex review, r1: bug proof required before policy
 
 The config's own contract is "N=3 CONSECUTIVE **daily** evaluations"
 (strategy-104 `risk.model_protection._reason`, citing the CUSUM/SPRT
-debounce). In production, strikes accrue per *pipeline run*
+debounce). In production, strikes APPEAR to accrue per *pipeline run*
 (`protection_breaches` round-trips live_state on every cadence —
-task_sell.py:514-518; runner.py:330, 1947): §2.2 measured three exits at 3
-strikes in 24 minutes (three consecutive 12-min intraday bars) and zero
-resets ever. Two rules restore the stated contract:
+task_sell.py:514-518; runner.py:330, 1947): §2.2's log sweep observed three
+exits at 3 strikes in 24 minutes (three consecutive 12-min intraday bars)
+and zero resets across the whole window.
+
+**This is currently an inference from log timestamps, not a proven defect
+in the scheduler/reset code path — Codex correctly separates the two.**
+Before this section's session-grain-accrual rule is treated as a policy fix
+rather than a bug description, the following must be established BY CODE
+INSPECTION (not further log inference) and stated here as `[VERIFIED]` or
+retracted:
+
+1. **Scheduler/evaluation-timestamp proof**: trace the exact call path that
+   invokes `ModelProtectionExitTask` on each pipeline run (daily-full,
+   intraday sell-only, any other cadence) and confirm each invocation truly
+   constitutes a distinct "evaluation" under the config's own stated
+   CUSUM/SPRT semantics — i.e. rule out that the "24-minute, 3-strike"
+   observation is instead an artifact of, for example, a single logical
+   evaluation being logged multiple times, or a scheduler retry/duplicate
+   invocation being miscounted as three independent readings.
+2. **Reset-semantics proof**: read `protection_breaches`' actual reset
+   condition (the "recovering readings" branch referenced in §2.2) and
+   confirm — by constructing or citing a real historical case where the
+   underlying mu genuinely recovered above `tau` between evaluations —
+   that the reset branch is reachable and was simply never triggered in
+   this window (consistent with "0 resets because thesis breaches were
+   monotonic in this sample"), as opposed to the reset condition itself
+   being unreachable/miswired (a genuine code defect, independent of
+   whether run-grain vs session-grain accrual is the right policy).
+
+**Only once both are established as code-verified facts** should
+session-grain accrual and identity-scoped strikes be adopted as the fix —
+and even then, as a POLICY change layered on top of a diagnosed mechanism,
+not a guess at what "must" be happening from timestamps alone. Two rules
+restore the stated contract, contingent on the above:
 
 - **Session-grain accrual**: at most one strike increment per NY trading
   session per ticker (mirror `last_streak_inc_date`, which `sell_streak`
@@ -350,7 +456,26 @@ resets ever. Two rules restore the stated contract:
   measures deployment churn, not thesis breach.
 
 This section is separable into its own PR if review prefers (it changes
-exit *timing* even when the plane is coherent).
+exit *timing* even when the plane is coherent) — and should land AFTER,
+not bundled with, the scheduler/reset-semantics proof above.
+
+**Population-scale validation requirement (Codex review, r1):** §2.2's 9
+firings are the ONLY evaluations that happened to cross the exit threshold;
+they are not the full population the hybrid rule must be validated
+against. Before Stage 1 may be reviewed as sufficient evidence for Stage 2
+(§2.7), the hybrid rule (§2.4's resolution order) must be REPLAYED against
+the FULL holding-evaluation population from the same window — every
+`ModelProtectionExitTask` evaluation of every held name, not only the ones
+that reached 3 strikes — reporting, in addition to the 9 firing outcomes
+already tabulated: (a) how many additional evaluations the hybrid rule
+would have newly caused to fire that did NOT fire under status quo (false-
+positive risk of the coherence/deferral logic itself), (b) transaction
+costs and any wash-sale-clock interaction for every exit the replay
+produces (not just the 9 realized ones), and (c) the same tally for
+holdings that were NEVER protection-exited, to confirm the rule does not
+introduce spurious strikes on names that correctly never fired. A 9-row
+table is the incident evidence motivating this design; it is not the
+validation population.
 
 ### 2.7 Decision (c) — staged rollout, shadow first
 
@@ -368,10 +493,18 @@ config; absent key = today's behavior + telemetry only):
   the would-be fail-closed state, daily would-have-differed diff in the
   briefing. Advance criteria: ≥15 sessions AND ≥6 shadowed firings reviewed
   (at the measured 0.45/day base rate both bind in ~3 weeks) AND 0
-  unexplained divergences between shadow verdicts and the §2.5 predicate.
+  unexplained divergences between shadow verdicts and the §2.5 predicate
+  AND (Codex review, r1, additive — not a substitute for the above) the
+  §2.6 population-scale replay against every holding evaluation (not just
+  firings) is complete with costs, AND every evaluation where a fresher
+  successor plane was used (`produced_by != admitted_by`) has its
+  successor-vs-original counterfactual comparison (§2.5) reported.
 - **Stage 2 — enforce.** Flip `enforce: true`: deferral + fail-closed
   become live decision paths. Rollback = flag off (one config revert, no
-  code). Separate PR, separate approval.
+  code). Separate PR, separate approval. Requires the §2.6 code-level
+  scheduler/reset-semantics proof to be on file (not merely inferred from
+  logs) before session-grain/identity-scoped strike changes (if bundled)
+  take effect.
 
 Verification fixtures the Stage 0 PR must include: (i) NFLX 06-25 replay →
 `deferred(panel_mu>0) → no exit, no strike` + WARN on 63d staleness;
@@ -459,52 +592,96 @@ renquant-pipeline stays the *consumer* (§3.5) — it must not own
 broker-truth ingestion (repo boundary: no broker adapters outside
 execution). renquant-orchestrator owns the **checker** (§3.6) —
 verification, not state (its monitor role, sibling of the #473 §8 alert).
-The ledger FILE lives on the state plane beside the runs DB
-(`backtesting/renquant_104/wash_sale_ledger.alpaca.jsonl` on the live
-machine) — a data-path placement, not code ownership; it moves with the
-state plane whenever the execution-repo migration relocates it.
+The ledger TABLE lives in a SQLite database on the state plane beside the
+runs DB (`backtesting/renquant_104/wash_sale_ledger.alpaca.db` on the live
+machine, per §3.3's revision to a transactional store — Codex review, r1) —
+a data-path placement, not code ownership; it moves with the state plane
+whenever the execution-repo migration relocates it.
 
-### 3.3 Ledger specification
+### 3.3 Ledger specification — Codex review, r1: moved from a bare JSONL file to a transactional store
 
-Append-only JSONL, one broker **fill event** per row — sells AND buys (the
-block predicate needs both, §3.5); the broker activity feed is the truth
-source. Per-broker file, like every other state artifact.
+**The original draft specified a hand-rolled, append-only, hash-chained
+JSONL file and asserted it was durable under three concurrent writer
+cadences without specifying HOW: no single-writer lease, no atomic-append/
+fsync/rotation protocol, no recovery semantics for an interrupted write, and
+no proof that `broker_activity_id` is unique per PARTIAL fill (as opposed to
+per order). Per Codex's exact instruction — "prefer a transactional
+execution-owned event ledger if these properties cannot be shown" — this
+revision does that instead of trying to hand-build filesystem-level
+durability guarantees that a hash-chained flat file cannot cheaply provide
+under concurrent writers.**
 
-Row schema:
+**Storage: a SQLite table, execution-repo-owned, not a JSONL file.** The
+INSERT-only/hash-chain/idempotency PRINCIPLES from the original draft are
+unchanged and are exactly as important; only the physical mechanism moves
+to a store that already gives ACID durability instead of one this design
+would have to prove is durable from scratch:
+
+- **Single-writer enforcement**: every append runs inside a SQLite
+  `BEGIN IMMEDIATE` (exclusive-write) transaction — SQLite's own engine
+  serializes concurrent writers; the three concurrent runner cadences
+  (§3.1) that make a bare-file lock necessary become a non-issue, because
+  the database, not this design, owns mutual exclusion. This reuses the
+  same class of guarantee `renquant-execution`'s existing
+  `live_persistence.py` snapshot writes and the runs-DB's own
+  `INSERT OR REPLACE` pattern already depend on (persistence.py) — no new
+  concurrency primitive is invented.
+- **Atomicity / recovery**: a row is either fully committed (transaction
+  committed) or entirely absent (transaction rolled back on any failure,
+  including a crash mid-write, per SQLite's own WAL/rollback-journal
+  guarantees) — there is no partial-row state to detect or recover from,
+  which the JSONL draft would have needed an explicit "last line may be
+  truncated" recovery procedure for and did not specify one.
+- **Unique key for partial fills (explicit verification required, not
+  assumed)**: the idempotency key is `(broker_account_id, broker_activity_id)`
+  — the reconciler's job before this design may proceed to Phase 1 is to
+  CONFIRM, against the actual broker API in use (Alpaca), that a distinct
+  `broker_activity_id` is issued per partial-fill EVENT (not merely per
+  parent order) — if the broker's activity feed instead reuses one id
+  across multiple partial fills of the same order, the key must be
+  extended (e.g. `(broker_account_id, broker_activity_id, fill_sequence_no)`
+  using whatever ordinal/timestamp field the feed provides for that case).
+  This verification is a Phase-0 prerequisite (§3.7), not an assumption
+  baked into the schema now.
+- **Hash chain, unchanged in spirit**: each row still commits
+  `row_sha = sha256(prev_row_sha + canonical_row_body)`, stored as a column;
+  the chain is still what the checker (§3.6, I-W3) verifies end-to-end. A
+  transactional store does not remove the value of the hash chain — it
+  additionally guards against an out-of-band edit to the DB file itself
+  (a restored backup, a manual `UPDATE`), which SQLite's own durability
+  guarantees do not by themselves detect.
+- **INSERT-only, supersession, no compaction**: unchanged from the original
+  draft — no row is ever `UPDATE`d or `DELETE`d; corrections/duplicates/
+  mis-dates are handled by inserting a supersession row; a row is *active*
+  iff no active row supersedes it; compaction (if ever needed at higher
+  volume) is a new genesis segment referencing the old head sha, never a
+  rewrite of existing rows.
+
+Row schema (columns, not JSONL fields):
 
 ```
-{
-  "seq":                monotonically increasing int,
-  "row_sha":            sha256 over (prev_row_sha + canonical row body),
-  "prev_row_sha":       row_sha of the previous line ("" for genesis),
-  "broker_activity_id": broker activity/order id — idempotency key,
-  "symbol": str, "side": "sell"|"buy", "qty": float, "fill_price": float,
-  "fill_timestamp_utc": broker timestamp (raw),
-  "fill_trade_date_ny": NY trade date via _ny_trade_date_from_aware_timestamp (#428),
-  "realized_pnl":       float|null (sells; compute_recent_realized_pnl lineage),
-  "source":             "broker_reconciler" | "runner_provisional" | "backfill",
-  "supersedes":         row_sha|null, "supersede_reason": str|null,
-  "recorded_at_utc":    str, "producer_run_id": str
-}
+seq                monotonically increasing int (SQLite AUTOINCREMENT or
+                   equivalent monotone key — the transaction serializes
+                   assignment, so no external sequencing is needed)
+row_sha            sha256 over (prev_row_sha + canonical row body)
+prev_row_sha        row_sha of the previous row ("" for genesis)
+broker_account_id  explicit account scope (Codex review — §3.5 pins this;
+                   never inferred from context)
+broker_activity_id broker activity/order id — idempotency key component
+                   (see partial-fill verification note above)
+symbol, side ("sell"|"buy"), qty, fill_price
+fill_timestamp_utc broker timestamp (raw)
+fill_trade_date_ny NY trade date via _ny_trade_date_from_aware_timestamp (#428)
+realized_pnl       nullable (sells; compute_recent_realized_pnl lineage)
+source             "broker_reconciler" | "runner_provisional" | "backfill"
+supersedes         row_sha|null, supersede_reason str|null
+recorded_at_utc, producer_run_id
 ```
 
-Rules (the "erasure impossible by construction" set):
-
-- **INSERT-only.** No row is ever mutated or deleted; the file never
-  shrinks. Corrections/duplicates/mis-dates are handled by appending a
-  supersession row (`supersedes` = old `row_sha`); a row is *active* iff no
-  active row supersedes it.
-- **Hash chain.** Each row commits to its predecessor; truncation, in-place
-  edit, or a restored-older-copy is detected by the checker (§3.6, I-W3)
-  against its independently stored `(last_seq, head_sha)` cursor.
-- **Idempotent appends.** The reconciler keys on `broker_activity_id`;
-  re-running never duplicates an active row.
-- **No compaction.** Volume is trivial at this account's fill rate; if that
-  changes, compaction = a new genesis segment referencing the old head sha,
-  never a rewrite.
-- A mirror table in the runs DB (INSERT-only — explicitly not the
-  `INSERT OR REPLACE` pattern the snapshots use) may be added for query
-  convenience; the JSONL file is the authority.
+A mirror JSONL export (read-only, regenerated, never the authority) may
+still be produced for human/audit inspection if useful — the SQLite table
+is the sole write authority and the sole input to `wash_view` (§3.5) and
+the checker (§3.6).
 
 ### 3.4 Nightly reconciler (broker truth in; #428 as the date foundation)
 
@@ -523,12 +700,63 @@ with their broker-truth twin — or pages if none arrives (I-W4). The #428
 `no_fill_fallback` ("today" only when truly nothing is known) survives only
 inside provisional rows and MUST be superseded within one session.
 
+**Monotonic reconciliation, conflict preservation (Codex review, r1 —
+explicit; "reconciliation must be monotonic and preserve unresolved/
+conflicting broker facts rather than rewriting history"):** a supersession
+is only ever a CORRECTION of the reconciler's own prior belief (e.g. a
+provisional row replaced by its broker-confirmed twin) — never a decision
+that discards a previously observed fact because it appears inconvenient.
+If the nightly reconciler observes a broker fact that CONTRADICTS an
+already-active non-provisional row (e.g. two broker records disagree on the
+same activity id's fill price/quantity — a genuine data conflict, not a
+provisional-vs-confirmed correction), the reconciler MUST NOT silently pick
+one and supersede the other. Instead it inserts BOTH as active,
+non-superseding rows tagged `source=broker_reconciler` with a shared
+`conflict_group_id`, and raises a NEW invariant, **I-W7 (unresolved broker
+conflict)**, which pages and blocks `wash_view` from resolving that
+symbol's clock until a human reconciles which record is authoritative (at
+which point the human resolution is itself recorded as an explicit
+supersession row, never a silent edit). "Monotonic" means: the set of
+recorded facts only ever grows (via appends) or has append-only
+supersession pointers added to it — it is never true that information
+present in the ledger yesterday is simply absent today.
+
 ### 3.5 Gate derivation — the block decision as a pure function
 
-`wash_view(ledger, asof) -> {symbol: last_sell_info}` (renquant-pipeline,
-pure, unit-testable): per symbol, over *active* rows — the most recent sell
-fill with `fill_trade_date_ny > asof − wash_sale_days(30)` and **no later
-buy fill** (re-expressing today's buy-pop semantics, runner.py:1583-1587,
+`wash_view(ledger, asof, *, broker_account_id) -> {symbol: last_sell_info}`
+(renquant-pipeline, pure, unit-testable) — **pinned rules (Codex review,
+r1 — "account, timezone and 30-day-boundary rules pinned", made explicit
+rather than left implicit in the arithmetic)**:
+
+- **Account scope**: `broker_account_id` is a MANDATORY, explicit parameter
+  — never inferred from ambient config or "the only account this runs
+  against today". The view only ever considers ledger rows whose
+  `broker_account_id` (§3.3 schema) matches. This is a single-account
+  system today, but the function's contract does not silently assume that
+  will remain true, and a future multi-account extension cannot
+  accidentally commingle wash-sale clocks across accounts because the
+  scope is a required argument, not an omitted one.
+- **Timezone rule**: the ONLY timestamp used for the 30-day comparison is
+  `fill_trade_date_ny`, produced exclusively by the shared
+  `_ny_trade_date_from_aware_timestamp` (#428) — no other timezone
+  conversion is ever performed inside `wash_view` itself; the function
+  takes pre-converted NY trade dates as input and does no timezone math of
+  its own.
+- **30-day boundary rule, pinned exactly**: the comparison is
+  `fill_trade_date_ny > asof − wash_sale_days(30)` using CALENDAR-day
+  subtraction on NY trade dates (not business days — this matches the
+  house §1091 hygiene convention already in the pinned strategy-104 config,
+  `wash_sale_days`, and is NOT re-derived here) and is a strict inequality:
+  a sell that occurred EXACTLY `wash_sale_days` calendar days before `asof`
+  is OUTSIDE the block window (the boundary date itself does not block),
+  matching the existing gate's own current semantics — this design does not
+  change the boundary convention, only makes it an explicit, tested
+  property of `wash_view` rather than an implicit consequence of whatever
+  arithmetic happens to be written.
+
+Per symbol, over *active* rows (within the pinned account scope) — the most
+recent sell fill passing the 30-day rule above and **no later buy fill**
+(re-expressing today's buy-pop semantics, runner.py:1583-1587,
 declaratively: a subsequent fresh buy consumes the clock; nothing is ever
 popped). The view returns exactly the mapping shape
 `WashSaleFilterTask` / `is_wash_sale_blocked_with_cost`
@@ -548,7 +776,15 @@ transitional belt-and-braces only.
 ### 3.6 Invariant set + the orchestrator checker
 
 Nightly job in renquant-orchestrator (monitor layer; read-only against
-broker API + ledger + run bundles), paging on failure:
+broker API + ledger + run bundles), paging on failure. **Hard rule (Codex
+review, r1, made explicit rather than left as an implication of "monitor
+layer"): the checker may ALARM on any invariant failure below; it MUST
+NEVER write to the ledger, the runs DB, `live_state`, or any other
+production path, and it never triggers, requests, or performs a repair of
+any kind. Every invariant failure's remedy is a human action (or, in the
+already-separately-designed remediation-controller lane, orchestrator#482,
+a SEPARATE explicitly-enabled action under that design's own budget/
+approval — never something this checker invokes directly).**
 
 - **I-W1 completeness**: every broker sell fill in the last 45d ⇒ exactly
   one active ledger row (broker-feed diff; would have caught the NFLX
@@ -558,8 +794,9 @@ broker API + ledger + run bundles), paging on failure:
   both directions (catches the NFLX under-block AND the GE over-block
   classes).
 - **I-W3 durability**: hash chain verifies end-to-end; `(seq, head_sha)`
-  strictly advances vs the checker's stored cursor; file never shrank. Any
-  violation = CRITICAL (tamper/restore/truncation evidence).
+  strictly advances vs the checker's stored cursor; the ledger table's row
+  count for any already-observed `seq` never decreases. Any violation =
+  CRITICAL (tamper/restore/truncation evidence).
 - **I-W4 date truth**: no active `runner_provisional` row older than one
   session; every non-provisional active row's date derives from a broker
   timestamp (the #428 foundation).
@@ -568,6 +805,10 @@ broker API + ledger + run bundles), paging on failure:
   runs on `merge()` per §3.5, never silently on live_state alone.
 - **I-W6 migration consistency** (Phases 1-2): symbol-level diff of
   `wash_view` vs `live_state.last_sell_dates`, reported daily.
+- **I-W7 unresolved broker conflict** (§3.4): any `conflict_group_id`
+  present with no human-resolution supersession row ⇒ page, and the
+  affected symbol's `wash_view` entry is reported as UNRESOLVED (block,
+  fail-toward-safety) rather than computed from either conflicting row.
 
 ### 3.7 Migration path from `live_state.last_sell_dates`
 
@@ -631,12 +872,20 @@ in the orchestrator; nothing lands in the umbrella beyond consumer glue.
    fail-closed (§2.2's counterfactual prices what that costs: EQIX-class
    good saves).
 2. Approve identity threading via `ScoringPlaneIdentity` incl. the
-   shared-sha256 requirement (§2.5).
+   shared-sha256 requirement AND the config-schema/feature-recipe match
+   requirement (§2.5, r1) — or direct a different coherence relation.
 3. Approve execution-repo ownership of the ledger + orchestrator checker
-   split (§3.2) and the phase gates (§3.7).
+   split (§3.2), the phase gates (§3.7), and the SQLite-backed storage
+   revision (§3.3, r1) in place of the original JSONL-file design.
 4. Say whether §2.6 (session-grain strikes) ships with Stage 2 or as its
    own PR — it changes exit timing even on coherent planes and is fully
-   separable.
+   separable, and is contingent either way on the code-level scheduler/
+   reset-semantics proof §2.6 now requires before any policy fix.
+5. Confirm the population-scale replay requirement (§2.6, r1 — full
+   holding-evaluation population with costs, not the 9 firings alone) and
+   the pre-registered successor-vs-original counterfactual comparison
+   (§2.5, r1) as the evidence bar for Stage 2, on top of the existing
+   session-count criteria in §2.7.
 
 ## 6. Known limitations
 
