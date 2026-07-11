@@ -25,11 +25,14 @@ from renquant_orchestrator.deploy_pin import (
     capture_deployed_state,
     main as deploy_pin_main,
     read_lock_subrepo_identity,
+    resolve_evidence_bundle_path,
     run_capture,
+    verify_deployment_manifest,
 )
 from renquant_orchestrator.deployment_manifest import (
     load_deployment_manifest,
     read_expected_generation,
+    repo_identity_digest,
     sha256_of_bytes,
 )
 
@@ -152,9 +155,15 @@ def test_capture_dry_run_writes_nothing(tmp_path: Path, capsys) -> None:
     assert not state_root.exists()
 
 
-def test_capture_write_persists_and_reverifies(tmp_path: Path, capsys) -> None:
+def test_capture_write_persists_and_reverifies(tmp_path: Path, capsys, monkeypatch) -> None:
     lock, _ = make_umbrella(tmp_path)
     state_root = tmp_path / "deploy-root"
+    # --evidence-ref supplied ⇒ evidence_repo_commit is stamped from the
+    # artifact_store sibling checkout's ACTUAL HEAD — a real git checkout,
+    # never a mock (this file's fixture philosophy).
+    github_root = tmp_path / "siblings"
+    artifacts_commit = _make_repo(github_root / "renquant-artifacts", "artifacts-sibling")
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
     rc, report = _run_json(
         _capture_argv(
             lock, state_root, "--write",
@@ -171,12 +180,37 @@ def test_capture_write_persists_and_reverifies(tmp_path: Path, capsys) -> None:
     # sealed evidence ⇒ durable 'deployed' state; loader accepts the file
     loaded = load_deployment_manifest(manifest_path)
     assert loaded["deployment"]["state"] == "deployed"
+    # evidence_repo_commit is DERIVED automatically (never user-supplied) —
+    # never null once evidence_ref is sealed (Codex #483 follow-up)
+    assert loaded["deployment"]["verify"]["evidence_repo_commit"] == artifacts_commit
     # epoch record matches the file bytes exactly
     record = read_expected_generation(state_root)
     assert record["generation"] == 1
     assert record["manifest_sha256"] == sha256_of_bytes(manifest_path.read_bytes())
     # the read-only re-verification ran and resolved every repo
     assert set(report["reverified"]["repos"]) == set(REPO_NAMES)
+
+
+def test_capture_evidence_ref_without_resolvable_sibling_fails_closed(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """A capture supplying --evidence-ref must NEVER silently emit a null
+    evidence_repo_commit — if the artifact_store sibling checkout cannot be
+    resolved, the whole capture fails closed (nothing written)."""
+    lock, _ = make_umbrella(tmp_path)
+    state_root = tmp_path / "deploy-root"
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(tmp_path / "no-such-siblings"))
+    rc = deploy_pin_main(
+        _capture_argv(
+            lock, state_root, "--write",
+            "--evidence-ref", "store://records/readonly-e2e-20260711",
+        )
+    )
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "cannot stamp deployment.verify.evidence_repo_commit" in err
+    assert "sibling checkout" in err
+    assert not state_root.exists()
 
 
 def test_second_capture_advances_the_epoch(tmp_path: Path, capsys) -> None:
@@ -327,3 +361,377 @@ def test_run_capture_stdout_injectable(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert json.loads(buffer.getvalue())["mode"] == "dry-run"
+
+
+def test_run_capture_stamps_evidence_repo_commit_from_sibling_head(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A capture supplying evidence_ref must stamp evidence_repo_commit from
+    the artifact_store sibling checkout's ACTUAL current HEAD — derived
+    automatically via the injected git_probe, never user-supplied. The
+    probe here wraps the REAL git subprocess (this file never mocks git
+    state) while still proving the injection point is exercised."""
+    lock, _ = make_umbrella(tmp_path)
+    github_root = tmp_path / "siblings"
+    artifacts_commit = _make_repo(github_root / "renquant-artifacts", "sibling-head")
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+
+    probe_calls: list[list[str]] = []
+
+    def recording_probe(args):
+        probe_calls.append(list(args))
+        return subprocess.run(
+            ["git", *args],
+            check=False, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+
+    buffer = io.StringIO()
+    rc = run_capture(
+        lock_path=lock,
+        runtime_root=None,
+        state_root=tmp_path / "deploy-root",
+        write=False,
+        deployed_by="operator",
+        deployed_at=None,
+        evidence_ref="store://records/readonly-e2e-20260711",
+        artifact_store_repo="renquant-artifacts",
+        artifact_store_path="",
+        git_probe=recording_probe,
+        stdout=buffer,
+    )
+    assert rc == 0
+    report = json.loads(buffer.getvalue())
+    verify_block = report["manifest"]["deployment"]["verify"]
+    assert verify_block["evidence_repo_commit"] == artifacts_commit
+    assert report["manifest"]["deployment"]["state"] == "deployed"
+    # the injected probe (not some other git invocation) resolved the HEAD
+    assert [
+        "-C", str(github_root / "renquant-artifacts"), "rev-parse", "HEAD"
+    ] in probe_calls
+
+
+def test_run_capture_evidence_ref_none_leaves_commit_null(tmp_path: Path) -> None:
+    lock, _ = make_umbrella(tmp_path)
+    buffer = io.StringIO()
+    rc = run_capture(
+        lock_path=lock,
+        runtime_root=None,
+        state_root=tmp_path / "deploy-root",
+        write=False,
+        deployed_by="operator",
+        deployed_at=None,
+        evidence_ref=None,
+        artifact_store_repo="renquant-artifacts",
+        artifact_store_path="",
+        stdout=buffer,
+    )
+    assert rc == 0
+    verify_block = json.loads(buffer.getvalue())["manifest"]["deployment"]["verify"]
+    assert verify_block["evidence_ref"] is None
+    assert verify_block["evidence_repo_commit"] is None
+
+
+# --- deploy-pin verify: evidence_ref cross-check (Codex #483 follow-up) -----------
+
+
+def _seal_evidence_bundle(
+    github_root: Path,
+    *,
+    repo: str = "renquant-artifacts",
+    store_subdir: str = "store",
+    rel: str = "experiments/verify-test/RUN-LOCK.json",
+    lock_identity_digest: str,
+    inventory_identity_digest: str,
+    corrupt_store_manifest_hash: bool = False,
+) -> str:
+    """Materialize a REAL git sibling checkout with a sealed evidence
+    bundle COMMITTED at ``<github_root>/<repo>/<store_subdir>/<rel>`` plus
+    its STORE-MANIFEST.json content-hash entry (the renquant-artifacts
+    #13/#14 convention) — real git state throughout (never mocks),
+    consistent with the rest of this fixture set. Returns the checkout's
+    resulting HEAD commit — the exact value a real ``deploy-pin capture``
+    stamps as ``deployment.verify.evidence_repo_commit`` when it resolves
+    this same sibling checkout."""
+    repo_path = github_root / repo
+    store_root = repo_path / store_subdir
+    bundle_path = store_root / rel
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    data = (
+        json.dumps(
+            {
+                "lock_identity_digest": lock_identity_digest,
+                "inventory_identity_digest": inventory_identity_digest,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    bundle_path.write_text(data, encoding="utf-8")
+    store_manifest_path = store_root / "STORE-MANIFEST.json"
+    store_manifest = (
+        json.loads(store_manifest_path.read_text(encoding="utf-8"))
+        if store_manifest_path.exists()
+        else {}
+    )
+    store_manifest[rel] = (
+        "0" * 64 if corrupt_store_manifest_hash else sha256_of_bytes(data.encode("utf-8"))
+    )
+    store_manifest_path.write_text(
+        json.dumps(store_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    if not (repo_path / ".git").is_dir():
+        subprocess.run(["git", "init", "-q", str(repo_path)], check=True)
+        _git(repo_path, "config", "user.email", "t@example.com")
+        _git(repo_path, "config", "user.name", "t")
+    _git(repo_path, "add", "-A")
+    _git(repo_path, "commit", "-qm", f"seal {rel}")
+    return _git(repo_path, "rev-parse", "HEAD")
+
+
+_VERIFY_EVIDENCE_REF = "store://experiments/verify-test/RUN-LOCK.json"
+
+
+def test_verify_accepts_matching_evidence_bundle(tmp_path: Path, capsys, monkeypatch) -> None:
+    """Also the exact pre-#21-pin-vs-post-#21-evidence case: the manifest's
+    PINNED renquant-artifacts commit (repos[...].commit, from the on-disk
+    lock/.subrepo_runtime clone) and the sibling-checkout revision the
+    evidence was sealed from (evidence_repo_commit, from a wholly separate
+    checkout under github_root) are DIFFERENT commits below — an evidence
+    bundle sealed by a PR that lands AFTER the pinned commit is legitimate,
+    and verify must still PASS as long as the sibling checkout is exactly
+    AT the declared evidence_repo_commit."""
+    lock, _ = make_umbrella(tmp_path)
+    digest = repo_identity_digest(read_lock_subrepo_identity(lock))
+    github_root = tmp_path / "siblings"
+    sealed_commit = _seal_evidence_bundle(
+        github_root, lock_identity_digest=digest, inventory_identity_digest=digest
+    )
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    assert report["manifest"]["deployment"]["state"] == "deployed"
+    assert report["manifest"]["deployment"]["verify"]["evidence_repo_commit"] == sealed_commit
+    # the PIN (repos[...].commit) and the evidence revision are independent
+    pinned_artifacts_commit = report["manifest"]["repos"]["renquant-artifacts"]["commit"]
+    assert pinned_artifacts_commit != sealed_commit
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    verify_report = verify_deployment_manifest(manifest_path, github_root=github_root)
+    assert verify_report["state"] == "deployed"
+    assert verify_report["lock_identity_digest"] == digest
+    assert verify_report["inventory_identity_digest"] == digest
+    assert verify_report["expected_repo_identity_digest"] == digest
+
+    # CLI surface, too.
+    rc, cli_report = _run_json(
+        [
+            "verify",
+            "--manifest", str(manifest_path),
+            "--github-root", str(github_root),
+        ],
+        capsys,
+    )
+    assert rc == 0
+    assert cli_report["state"] == "deployed"
+
+
+def test_verify_rejects_checkout_identity_mismatch(tmp_path: Path, capsys, monkeypatch) -> None:
+    """The core regression test for the Codex #483 checkout-identity gap:
+    the sibling checkout's bytes are UNCHANGED (no tamper — the same
+    bundle content the STORE-MANIFEST.json hash still matches) but its HEAD
+    has since moved past the revision the evidence was actually sealed
+    from. This must be rejected on checkout identity ALONE, since a
+    content-hash-only check cannot see it."""
+    lock, _ = make_umbrella(tmp_path)
+    digest = repo_identity_digest(read_lock_subrepo_identity(lock))
+    github_root = tmp_path / "siblings"
+    sealed_commit = _seal_evidence_bundle(
+        github_root, lock_identity_digest=digest, inventory_identity_digest=digest
+    )
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    assert report["manifest"]["deployment"]["verify"]["evidence_repo_commit"] == sealed_commit
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    # the sibling checkout advances PAST the sealed revision (e.g. main
+    # moved on with an unrelated commit) — the evidence bundle bytes are
+    # completely untouched, so content-hash-only tamper checks see nothing
+    artifacts_repo = github_root / "renquant-artifacts"
+    (artifacts_repo / "unrelated.txt").write_text("later, unrelated change", encoding="utf-8")
+    _git(artifacts_repo, "add", "unrelated.txt")
+    _git(artifacts_repo, "commit", "-qm", "later, unrelated commit")
+    assert _git(artifacts_repo, "rev-parse", "HEAD") != sealed_commit
+
+    with pytest.raises(DeployPinError, match="checkout-identity gap"):
+        verify_deployment_manifest(manifest_path, github_root=github_root)
+
+    rc = deploy_pin_main(
+        ["verify", "--manifest", str(manifest_path), "--github-root", str(github_root)]
+    )
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "checkout-identity gap" in err
+    assert sealed_commit[:12] in err
+
+
+def test_verify_rejects_dirty_sibling_checkout(tmp_path: Path, capsys, monkeypatch) -> None:
+    """require_clean=True: an uncommitted local edit anywhere in the
+    sibling checkout must not be silently trusted even when HEAD still
+    equals evidence_repo_commit — a dirty checkout risks an uncommitted
+    edit to the evidence bundle defeating the content-hash tamper check
+    too."""
+    lock, _ = make_umbrella(tmp_path)
+    digest = repo_identity_digest(read_lock_subrepo_identity(lock))
+    github_root = tmp_path / "siblings"
+    _seal_evidence_bundle(
+        github_root, lock_identity_digest=digest, inventory_identity_digest=digest
+    )
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    # HEAD is unchanged; the working tree is merely dirty
+    (github_root / "renquant-artifacts" / "scratch.txt").write_text(
+        "uncommitted", encoding="utf-8"
+    )
+
+    with pytest.raises(DeployPinError, match="checkout-identity gap"):
+        verify_deployment_manifest(manifest_path, github_root=github_root)
+
+
+def test_verify_rejects_lock_inventory_digest_mismatch(tmp_path: Path, capsys, monkeypatch) -> None:
+    """A sealed bundle that attests to a DIFFERENT lock/clone set than the
+    manifest's own recorded commits must be rejected — the exact Codex
+    #483 concern: a list of commit hashes can be edited without proving it
+    was the lock and clone set actually observed on the production host."""
+    lock, _ = make_umbrella(tmp_path)
+    github_root = tmp_path / "siblings"
+    wrong_digest = "0" * 64
+    _seal_evidence_bundle(
+        github_root,
+        lock_identity_digest=wrong_digest,
+        inventory_identity_digest=wrong_digest,
+    )
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    with pytest.raises(DeployPinError, match="identity digest mismatch"):
+        verify_deployment_manifest(manifest_path, github_root=github_root)
+
+    rc = deploy_pin_main(
+        ["verify", "--manifest", str(manifest_path), "--github-root", str(github_root)]
+    )
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "identity digest mismatch" in err
+    assert "source-lock" in err
+    assert "materialized-runtime-inventory" in err
+
+
+def test_verify_rejects_null_evidence_ref(tmp_path: Path, capsys) -> None:
+    lock, _ = make_umbrella(tmp_path)
+    state_root = tmp_path / "deploy-root"
+    rc, report = _run_json(_capture_argv(lock, state_root, "--write"), capsys)
+    assert rc == 0
+    assert report["manifest"]["deployment"]["state"] == "captured"
+    manifest_path = state_root / "deployment-manifest.json"
+    with pytest.raises(DeployPinError, match="evidence_ref is null"):
+        verify_deployment_manifest(manifest_path, github_root=tmp_path / "siblings")
+
+
+def test_verify_rejects_missing_artifact_store_sibling(tmp_path: Path, capsys, monkeypatch) -> None:
+    lock, _ = make_umbrella(tmp_path)
+    github_root = tmp_path / "siblings"
+    _make_repo(github_root / "renquant-artifacts", "sibling-for-capture")
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    with pytest.raises(DeployPinError, match="sibling checkout not found"):
+        verify_deployment_manifest(manifest_path, github_root=tmp_path / "no-such-siblings")
+
+
+def test_verify_rejects_store_manifest_content_tamper(tmp_path: Path, capsys, monkeypatch) -> None:
+    """A self-inconsistent seal: the COMMITTED STORE-MANIFEST.json entry
+    does not match the bundle bytes it names — distinct from (and still
+    needed alongside) the checkout-identity check above, which only proves
+    WHICH commit was read, not that the commit's own recorded hash matches
+    its own bundle bytes. (A post-commit, uncommitted edit is instead
+    caught earlier, by the checkout-identity check's require_clean=True —
+    see test_verify_rejects_dirty_sibling_checkout.)"""
+    lock, _ = make_umbrella(tmp_path)
+    digest = repo_identity_digest(read_lock_subrepo_identity(lock))
+    github_root = tmp_path / "siblings"
+    _seal_evidence_bundle(
+        github_root,
+        lock_identity_digest=digest,
+        inventory_identity_digest=digest,
+        corrupt_store_manifest_hash=True,
+    )
+    monkeypatch.setenv("RENQUANT_GITHUB_ROOT", str(github_root))
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    with pytest.raises(DeployPinError, match="possible tamper"):
+        resolve_evidence_bundle_path(report["manifest"], github_root=github_root)

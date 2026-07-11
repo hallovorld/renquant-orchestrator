@@ -40,6 +40,7 @@ from renquant_orchestrator.deployment_manifest import (
 
 SHA_A = "a" * 40
 SHA_B = "b" * 40
+SHA_C = "c" * 40
 DIGEST_1 = "1" * 64
 DIGEST_2 = "2" * 64
 
@@ -75,6 +76,7 @@ def make_manifest(**overrides) -> dict:
                 "args": {"min_admits": 1},
                 "exit": 0,
                 "evidence_ref": "store://records/readonly-e2e-20260711",
+                "evidence_repo_commit": SHA_C,
             },
             "state": "deployed",
             "supersedes_sha256": None,
@@ -108,6 +110,7 @@ def test_captured_state_permits_null_evidence_ref() -> None:
     payload = make_manifest()
     payload["deployment"]["state"] = "captured"
     payload["deployment"]["verify"]["evidence_ref"] = None
+    payload["deployment"]["verify"]["evidence_repo_commit"] = None
     assert problems_of(payload) == []
 
 
@@ -268,6 +271,55 @@ def test_null_evidence_ref_rejected_for_deployed_state() -> None:
     payload["deployment"]["verify"]["evidence_ref"] = None
     joined = "; ".join(problems_of(payload))
     assert "required for state 'deployed'" in joined
+
+
+# --- schema: evidence_repo_commit (Codex #483 checkout-identity follow-up) ----------
+
+
+def test_evidence_repo_commit_required_when_evidence_ref_sealed() -> None:
+    """A sealed evidence_ref without the sibling-checkout revision it was
+    resolved from is exactly the checkout-identity gap Codex flagged —
+    schema-invalid, not just a verify-time concern."""
+    payload = make_manifest()
+    payload["deployment"]["verify"]["evidence_repo_commit"] = None
+    joined = "; ".join(problems_of(payload))
+    assert "evidence_repo_commit must be a full 40-hex" in joined
+
+
+@pytest.mark.parametrize(
+    "bad_commit",
+    ["", "not-a-sha", "a" * 39, "A" * 40, "z" * 40, 12, ["a" * 40]],
+)
+def test_evidence_repo_commit_must_be_full_lowercase_sha(bad_commit) -> None:
+    payload = make_manifest()
+    payload["deployment"]["verify"]["evidence_repo_commit"] = bad_commit
+    joined = "; ".join(problems_of(payload))
+    assert "evidence_repo_commit must be a full 40-hex" in joined
+
+
+def test_evidence_repo_commit_forbidden_when_evidence_ref_null() -> None:
+    """The pre-seal 'captured' state has nothing to bind yet: a non-null
+    evidence_repo_commit without a sealed evidence_ref is rejected too —
+    the two fields may never travel one without the other."""
+    payload = make_manifest()
+    payload["deployment"]["state"] = "captured"
+    payload["deployment"]["verify"]["evidence_ref"] = None
+    payload["deployment"]["verify"]["evidence_repo_commit"] = SHA_C
+    joined = "; ".join(problems_of(payload))
+    assert "evidence_repo_commit must be null when evidence_ref is null" in joined
+
+
+def test_evidence_repo_commit_may_differ_from_pinned_artifacts_commit() -> None:
+    """The exact pre-#21-pin-vs-post-#21-evidence case: the pinned
+    renquant-artifacts commit (repos[...].commit) and the sibling-checkout
+    revision the evidence was sealed from (evidence_repo_commit) are
+    INDEPENDENT fields — an evidence bundle sealed by a later PR than the
+    pinned commit is legitimate and must remain schema-valid."""
+    payload = make_manifest()
+    assert payload["repos"]["renquant-artifacts"]["commit"] == SHA_B
+    payload["deployment"]["verify"]["evidence_repo_commit"] = SHA_C
+    assert SHA_C != SHA_B
+    assert problems_of(payload) == []
 
 
 # --- schema: generation chaining (supersedes_sha256) ---------------------------------

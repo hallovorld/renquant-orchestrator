@@ -21,6 +21,12 @@ Two manifest kinds share those conventions:
   ``deployment`` record whose ``verify`` names an ALLOWLISTED profile with
   structured args and whose ``evidence_ref`` is a ``store://``
   content-addressed record — never free-form shell, never a local log path.
+  ``evidence_ref`` always travels with ``evidence_repo_commit`` — the exact
+  40-hex commit of the ``artifact_store`` sibling checkout the evidence was
+  resolved from (Codex CHANGES_REQUESTED follow-up on orchestrator#483: an
+  evidence bundle sealed by a LATER PR than the pinned artifacts commit is
+  legitimate, but ``deploy-pin verify`` must resolve that EXACT revision,
+  never whichever sibling checkout happens to be currently on disk).
 
 Host-side state lives in the NEUTRAL deployed-state root (§5.2 — default
 ``~/.renquant/deploy/``, override ``RENQUANT_DEPLOY_STATE_ROOT``; not inside
@@ -86,7 +92,7 @@ _DEPLOYMENT_KEYS = (
     "state",
     "supersedes_sha256",
 )
-_VERIFY_KEYS = ("profile", "args", "exit", "evidence_ref")
+_VERIFY_KEYS = ("profile", "args", "exit", "evidence_ref", "evidence_repo_commit")
 
 #: ``deployment.state`` values. ``deployed`` is the durable record state
 #: (§5.1) and REQUIRES a sealed ``store://`` evidence_ref. ``captured`` is
@@ -297,6 +303,48 @@ def sha256_of_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def repo_identity_digest(entries: Sequence[Mapping[str, str]]) -> str:
+    """sha256 binding repo IDENTITY rows to one canonical digest.
+
+    ``entries`` is a list of ``{"name", *REPO_IDENTITY_KEYS}`` dicts — the
+    shape both :func:`~renquant_orchestrator.deploy_pin.read_lock_subrepo_identity`
+    (an on-disk lock reading) and :func:`manifest_repo_identity_entries` (a
+    committed deployment manifest's own ``repos`` reading) produce.
+
+    Used by ``deploy-pin verify`` (R-PIN Stage 1 evidence-binding follow-up,
+    Codex CHANGES_REQUESTED on orchestrator#483) to bind a sealed evidence
+    bundle's INDEPENDENTLY read source-lock digest and materialized-runtime
+    -inventory digest to the manifest's own recorded commits, without
+    requiring host filesystem access (the lock file, the ``.subrepo_runtime``
+    clones) at verify time — only the manifest and the sealed bundle."""
+    canonical = sorted(
+        (
+            {
+                "name": str(entry["name"]),
+                **{key: str(entry[key]) for key in REPO_IDENTITY_KEYS},
+            }
+            for entry in entries
+        ),
+        key=lambda entry: entry["name"],
+    )
+    data = (json.dumps(canonical, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def manifest_repo_identity_entries(manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    """A committed deployment manifest's own ``repos`` mapping, reshaped into
+    :func:`repo_identity_digest` input form (name + the 5 identity fields),
+    sorted by name."""
+    repos = manifest.get("repos") or {}
+    return [
+        {
+            "name": str(name),
+            **{key: str(entry[key]) for key in REPO_IDENTITY_KEYS},
+        }
+        for name, entry in sorted(repos.items())
+    ]
+
+
 def _utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -407,31 +455,73 @@ def _verify_block_problems(verify: Any) -> list[str]:
     return problems
 
 
-def _evidence_ref_problems(evidence_ref: Any, state: Any) -> list[str]:
+def _evidence_ref_problems(
+    evidence_ref: Any, evidence_repo_commit: Any, state: Any
+) -> list[str]:
+    """Schema problems for the ``evidence_ref``/``evidence_repo_commit`` pair.
+
+    Codex CHANGES_REQUESTED follow-up on orchestrator#483 (the
+    checkout-identity gap): a sealed ``evidence_ref`` alone only proves the
+    referenced bytes exist somewhere in the named ``artifact_store`` repo —
+    ``deploy-pin verify`` used to resolve it through whatever sibling
+    checkout happened to be currently on disk, which can be arbitrarily
+    AHEAD of the revision the evidence was actually sealed at (exactly the
+    case here: the manifest pins ``renquant-artifacts`` at one commit, but
+    the evidence bundle was added later by a follow-up PR). Binding
+    ``evidence_repo_commit`` — the artifact_store sibling checkout's exact
+    HEAD at capture time — lets ``deploy-pin verify`` reject a sibling
+    checkout that has since moved on, instead of silently trusting it.
+
+    The two fields travel together: whenever ``evidence_ref`` is sealed
+    (non-null), ``evidence_repo_commit`` MUST also be a full 40-hex commit
+    naming the exact artifact_store revision it was resolved from; in the
+    pre-seal ``captured`` state (``evidence_ref`` null) there is nothing to
+    bind yet, so ``evidence_repo_commit`` must be null too — one may never
+    be present without the other."""
     if evidence_ref is None:
-        if state == "captured":
-            return []
-        return [
-            "deployment.verify.evidence_ref is required for state "
-            f"{state!r} — a deployed record must reference sealed "
-            "store:// evidence (null is allowed only in the pre-seal "
-            "'captured' state)"
-        ]
+        problems: list[str] = []
+        if state != "captured":
+            problems.append(
+                "deployment.verify.evidence_ref is required for state "
+                f"{state!r} — a deployed record must reference sealed "
+                "store:// evidence (null is allowed only in the pre-seal "
+                "'captured' state)"
+            )
+        if evidence_repo_commit is not None:
+            problems.append(
+                "deployment.verify.evidence_repo_commit must be null when "
+                "evidence_ref is null — a resolved artifact_store sibling-"
+                "checkout revision cannot exist without the sealed evidence "
+                "it was resolved for (pre-seal 'captured' state only)"
+            )
+        return problems
+    problems = []
     if not isinstance(evidence_ref, str) or not evidence_ref.startswith(
         EVIDENCE_REF_PREFIX
     ):
-        return [
+        problems.append(
             "deployment.verify.evidence_ref must be a content-addressed "
             f"{EVIDENCE_REF_PREFIX!r} record (never a local log path), "
             f"got {evidence_ref!r}"
-        ]
-    remainder = evidence_ref[len(EVIDENCE_REF_PREFIX):]
-    if not remainder or remainder.startswith("/") or ".." in Path(remainder).parts:
-        return [
-            f"deployment.verify.evidence_ref {evidence_ref!r} has an "
-            "empty or non-relative store record reference"
-        ]
-    return []
+        )
+    else:
+        remainder = evidence_ref[len(EVIDENCE_REF_PREFIX):]
+        if not remainder or remainder.startswith("/") or ".." in Path(remainder).parts:
+            problems.append(
+                f"deployment.verify.evidence_ref {evidence_ref!r} has an "
+                "empty or non-relative store record reference"
+            )
+    if (
+        not isinstance(evidence_repo_commit, str)
+        or not _FULL_SHA_RE.match(evidence_repo_commit)
+    ):
+        problems.append(
+            "deployment.verify.evidence_repo_commit must be a full 40-hex "
+            "lowercase sha naming the EXACT artifact_store sibling-checkout "
+            "revision the sealed evidence_ref was resolved from (never null "
+            f"once evidence_ref is sealed), got {evidence_repo_commit!r}"
+        )
+    return problems
 
 
 def _deployment_block_problems(deployment: Any, generation: Any) -> list[str]:
@@ -454,7 +544,11 @@ def _deployment_block_problems(deployment: Any, generation: Any) -> list[str]:
     verify = deployment.get("verify")
     problems.extend(_verify_block_problems(verify))
     if isinstance(verify, dict):
-        problems.extend(_evidence_ref_problems(verify.get("evidence_ref"), state))
+        problems.extend(
+            _evidence_ref_problems(
+                verify.get("evidence_ref"), verify.get("evidence_repo_commit"), state
+            )
+        )
     supersedes = deployment.get("supersedes_sha256")
     if supersedes is None:
         if _is_int(generation) and generation != 1:
