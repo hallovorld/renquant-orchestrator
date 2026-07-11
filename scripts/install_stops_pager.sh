@@ -28,7 +28,12 @@ WRAPPER="$REPO_ROOT/scripts/stops_liveness_pager.sh"
 AGENT_DIR="${RENQUANT_STOPS_PAGER_AGENT_DIR:-$HOME/Library/LaunchAgents}"
 PLIST_DST="$AGENT_DIR/$LABEL.plist"
 LAUNCHCTL="${RENQUANT_STOPS_PAGER_LAUNCHCTL:-launchctl}"
-LOG_DIR="${RENQUANT_STOPS_PAGER_LOG_DIR:-/Users/renhao/git/github/RenQuant/logs/stops_liveness}"
+# Neutral, orchestrator-owned operational root — sibling to R-PIN's
+# ~/.renquant/deploy/ neutral machine-state root (doc/design/
+# 2026-07-11-deployment-pin-authority-migration.md §5.2) — NOT the
+# umbrella's logs/ tree (Codex review of this package's prior revision,
+# 2026-07-11: no new umbrella log path).
+LOG_DIR="${RENQUANT_STOPS_PAGER_LOG_DIR:-$HOME/.renquant/ops/stops-liveness}"
 GUI_DOMAIN="gui/$(id -u)"
 
 CMD="${1:-}"

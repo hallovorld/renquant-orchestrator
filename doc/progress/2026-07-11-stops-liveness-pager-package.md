@@ -1,17 +1,18 @@
 # Software-stop liveness pager — complete landing package, staged dark
 
-Date: 2026-07-11
+Date: 2026-07-11 (round 2 — ownership + SLA-honesty correction)
 PR: ops(stops): software-stop liveness pager package (#471 shortlist item 2)
 Status: MERGE = NOTHING RUNS. Installing is a separately-granted operator
-landing step.
+landing step. **Staged dark, NOT stage-3-ready** (see the SLA section below —
+this is the load-bearing correction in this revision).
 
 ## Bottom line
 
 #471's evidence packet found the S-FRAC stage-3 pager **scheduled nowhere and
 never test-fired** (the one missing ops half of the otherwise-verified
 software-stops machinery). This PR ships the complete landing package —
-launchd template + echo-first installer + test-fire SLA drill + 17 hermetic
-tests — without installing anything.
+launchd template + echo-first installer + test-fire drill + hermetic tests —
+without installing anything.
 
 **Landing one-liner (after operator grant):**
 
@@ -19,56 +20,140 @@ tests — without installing anything.
 scripts/install_stops_pager.sh install --apply && scripts/install_stops_pager.sh test-fire STALE
 ```
 
-then record page-delivery + operator response time vs the design §3.4 SLA
-(page ≤15m of a missed sell-only pass; runbook response ≤60m of the page) —
-#471 operator shortlist item 2.
+then record ACTUAL page-delivery latency + operator response time (see the
+honest SLA section — this drill is evidence for a sign-off decision, not a
+demonstration that the design's 15-minute target is met).
 
-## What ships
+## Round 2: Codex CHANGES_REQUESTED and what changed
+
+Codex reviewed the round-1 head commit (`3ee232d`) and requested changes on
+two independent grounds:
+
+1. **Ownership.** The round-1 wrapper invoked
+   `RenQuant/scripts/check_software_stops_liveness.py` through
+   `RenQuant/.venv`, writing logs under the umbrella `logs/` tree — a new
+   production scheduling/runtime dependency on the deprecated umbrella,
+   despite this package living in orchestrator.
+2. **SLA honesty.** The round-1 doc already disclosed an ~18-28 minute
+   alert-latency envelope against the design's 15-minute target, but the PR
+   framing ("landing one-liner... vs the design §3.4 SLA") read as though
+   this package satisfied or was ready to satisfy that SLA. Codex ruled that
+   DARK packaging may document the gap but must not call the landing package
+   stage-3-ready or claim it supports `strategy-104#55` enablement.
+
+**What changed in round 2:**
+
+- The liveness **checker** moved to `renquant-execution` —
+  [renquant-execution#29](https://github.com/hallovorld/renquant-execution/pull/29)
+  (`src/renquant_execution/software_stops_liveness.py` + 21 tests). It is a
+  faithful port of the umbrella script's watchdog logic (market-session gate
+  + staleness computation delegating to `renquant_pipeline.software_stops` +
+  the 0/1/2 exit contract) — not a re-derivation. See that PR / its progress
+  doc for why the `renquant_pipeline` import is lazy and why that repo's CI
+  does not need to install pipeline's dependency chain (cvxpy /
+  renquant-base-data / renquant-artifacts) for this thin wrapper.
+- `scripts/stops_liveness_pager.sh` now resolves the pinned
+  `renquant-execution` / `renquant-pipeline` / `renquant-common` `src/` roots
+  via `renquant_orchestrator.runtime_paths.resolve_subrepo_src_roots` — the
+  SAME mechanism every other multi-repo orchestrator entrypoint already uses
+  (`live_bridge.bootstrap_multirepo`), never a hardcoded umbrella path — and
+  invokes `python -m renquant_execution.software_stops_liveness`. The
+  interpreter and registry data root are still explicit, reviewed
+  arming-time plist configuration (RUNTIME CONTRACT, same discipline as
+  `shadow_ab_daily.sh`) — the wrapper script itself has no default pointing
+  at any repo. A `RENQUANT_STOPS_PAGER_CHECKER_CMD` test-only override lets
+  the hermetic tests substitute a fake checker without touching a real lock
+  file, git, or `renquant_pipeline`.
+- Logs/state moved to the **neutral, orchestrator-owned operational root**
+  `~/.renquant/ops/stops-liveness/` — sibling to R-PIN's
+  `~/.renquant/deploy/` neutral machine-state root
+  (`doc/design/2026-07-11-deployment-pin-authority-migration.md` §5.2) —
+  replacing the umbrella `logs/stops_liveness/` path. The plist's
+  `WorkingDirectory` key (previously the umbrella root) was dropped; the
+  wrapper never depends on cwd.
+- The SLA language is corrected everywhere (plist comment, wrapper
+  `--test-fire` message, this doc): the package states plainly that it is
+  **not stage-3-ready** and does **not** support `strategy-104#55/#56`
+  enablement by itself. See the SLA section below for the full framing,
+  unchanged in substance from round 1's honest disclosure but no longer
+  paired with language that could be read as claiming readiness.
+- `max_staleness_minutes` (the pipeline-owned arming-time knob) is
+  UNCHANGED — tightening it is explicitly out of scope for this ops-tooling
+  package, called out as the first of two possible paths to closing the SLA
+  gap (see below).
+
+## What ships (this repo)
 
 | File | Role |
 |---|---|
-| `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash` (rq105 ops-wrapper convention), logs to umbrella `logs/stops_liveness/`, live ops topic pinned as explicit plist config |
-| `scripts/stops_liveness_pager.sh` | wrapper: pinned-runtime `PYTHONPATH`, runs the umbrella checker, pages ntfy on STALE(1)/CORRUPT(2)/**crash(any other)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure |
-| `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent (re-copy only on drift, bootout-then-bootstrap converges) |
-| `tests/test_stops_liveness_pager.py` | 17 hermetic tests: plist shape + live-topic pin, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, installer dry-run/apply/uninstall/status with a recording launchctl stub |
+| `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash`, logs to the neutral `~/.renquant/ops/stops-liveness/` root, explicit `RENQUANT_STOPS_PAGER_PYTHON` / `RENQUANT_STOPS_PAGER_DATA_ROOT` / `RENQUANT_STOPS_PAGER_NTFY_TOPIC` configuration (never a script default) |
+| `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common `src` roots via `runtime_paths.resolve_subrepo_src_roots`, runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or pin-resolution-failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure |
+| `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root |
+| `tests/test_stops_liveness_pager.py` | 20 hermetic tests: plist shape + live-topic pin + explicit-python/data-root pin (no umbrella `.venv` reference) + neutral log root, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, RUNTIME-CONTRACT fail-closed check, a REAL (non-faked) exercise of the pin-resolution path against a deliberately empty repo root proving a resolution failure pages rather than dying dark, installer dry-run/apply/uninstall/status with a recording launchctl stub |
 
-## Design facts (verified 2026-07-11, read-only)
+## Companion PR (renquant-execution)
 
-- Checker: `RenQuant/scripts/check_software_stops_liveness.py` (umbrella ops
-  tooling; watchdog arithmetic lives in the pinned
-  `renquant_pipeline.software_stops` so checker and heartbeat-stamper share
-  one implementation). Exit contract 0 OK / 1 STALE / 2 CORRUPT.
-- `renquant_pipeline` is NOT installed in the umbrella venv — bare invocation
-  is `ModuleNotFoundError` (this is precisely why "scheduled nowhere" also
-  meant "would not have run"). The wrapper exports
-  `.subrepo_runtime/repos/renquant-pipeline/src` + `renquant-common/src`;
-  verified invocation returns exit 0,
-  `OK: no software-stop registry … the layer has never armed a stop`.
+[renquant-execution#29](https://github.com/hallovorld/renquant-execution/pull/29)
+adds `src/renquant_execution/software_stops_liveness.py` + 21 tests. Ownership
+split (unchanged by this round, restated for clarity):
+
+- `renquant-pipeline` — registry data model + staleness arithmetic
+  (`software_stops.py`, RenQuant#440, 2026-07-04) + the decision-time arming
+  task (`kernel/pipeline/task_software_stops.py`). Untouched.
+- `renquant-execution` — the liveness CHECKER (new).
+- `renquant-orchestrator` (this repo) — pinned schedule + notification
+  consumer wrapper. Does not reimplement checker logic.
+
+## Design facts
+
+- Checker: `renquant_execution.software_stops_liveness` (moved from the
+  umbrella's `RenQuant/scripts/check_software_stops_liveness.py`; watchdog
+  arithmetic still delegates to the pinned `renquant_pipeline.software_stops`
+  so checker and heartbeat-stamper share one implementation). Exit contract
+  unchanged: 0 OK / 1 STALE / 2 CORRUPT.
 - Live ops topic: `renquant` — same channel as the live sell-only loop
   (`intraday_sell_104.sh` `NTFY_TOPIC="renquant"`). Pinned in the plist env
   AND the wrapper default; test-asserted equal.
 - Schedule: all-day 600s `StartInterval` (simplest robust schedule); the
   checker itself returns OK off-session via the canonical market calendar, so
-  market-hours gating lives in exactly one place. Registry default:
-  `RenQuant/data/rq105/software_stops.alpaca.json`.
+  market-hours gating lives in exactly one place.
+- Registry data location: the software-stop registry file itself
+  (`data/rq105/software_stops.alpaca.json`) is still written by the live
+  sell-only loop under the (still umbrella-anchored) runtime data root today
+  — migrating THAT anchor is R-PIN scope, out of bounds for this ops-tooling
+  package. `RENQUANT_STOPS_PAGER_DATA_ROOT` is explicit plist configuration
+  reflecting that current fact, not a wrapper-script default.
 - The wrapper — not the checker's best-effort `--ntfy-topic` — owns paging,
-  so delivery failure is detectable (exit 70) and a checker *crash* pages
-  instead of dying dark. No double-page: the checker is invoked without
-  `--ntfy-topic`.
+  so delivery failure is detectable (exit 70) and a checker *crash or
+  pin-resolution failure* pages instead of dying dark. No double-page: the
+  checker is invoked without `--ntfy-topic`.
 
-## Honest alert-latency envelope vs the §3.4 15m number
+## Honest alert-latency envelope — NOT stage-3-ready
 
 The staleness budget rides in the registry snapshot
 (`max_staleness_minutes`, default 30; sell-loop heartbeat cadence 12m).
 STALE therefore flips ~18m after the FIRST missed pass (i.e. on the second
 consecutive miss), and this pager adds ≤10m detection cadence: **first page
-lands ~18–28m after the first missed pass**. Meeting the literal §3.4
-"page ≤15m of the scheduled pass" requires the ARMING side to stamp a
-tighter `max_staleness_minutes` into the registry (pipeline-owned knob,
-carried per-snapshot by design) or an operator sign-off accepting this
-envelope — a policy decision recorded at stage-3 enablement, not something
-this ops package can decide. The 60m response half of the SLA is exactly
-what the test-fire drill measures.
+lands ~18–28m after the first missed pass**. This does **not** meet the
+design's "page ≤15m of the scheduled pass" target.
+
+**This package must not be described as stage-3-ready and does not by
+itself support `strategy-104#55`/`#56` software-stop enablement.** Closing
+the gap needs ONE of:
+
+1. An **arming-side change** (out of scope here, not made in this PR):
+   stamp a tighter `max_staleness_minutes` into the registry snapshot — a
+   pipeline/strategy-104 production risk-parameter decision, not an
+   ops-tooling one.
+2. A **separately-signed operator acceptance** of the current ~18-28 minute
+   envelope, recorded explicitly at stage-3 enablement time — not implied by
+   merging or landing this package.
+
+The `--test-fire` drill (the "define an explicit experiment: test-fire plus
+measured page delivery and operator acknowledgement" Codex asked for) is the
+landing-step experiment that produces the ACTUAL numbers needed for either
+decision above. It runs only after operator grant, per the landing sequence
+below — this PR does not run it and does not claim its outcome.
 
 ## Landing sequence (operator grant required — landing-actions ask-first)
 
@@ -76,11 +161,15 @@ what the test-fire drill measures.
 2. `scripts/install_stops_pager.sh install` — review the echoed commands.
 3. `scripts/install_stops_pager.sh install --apply`.
 4. `scripts/install_stops_pager.sh test-fire STALE` — one marked synthetic
-   page to the live topic; record page-delivery timestamp and operator
-   response time vs the 15m/60m §3.4 SLA (#471 shortlist item 2's required
-   demo). Nonzero exit = delivery failed = landing NOT done.
+   page to the live topic; record the ACTUAL page-delivery latency and
+   operator response time. This is evidence for the stage-3 sign-off
+   decision (tighten `max_staleness_minutes`, or accept the ~18-28m
+   envelope) — not a claim that either decision is already made.
 5. `scripts/install_stops_pager.sh status` on the next market day — confirm
-   scheduled checks are logging.
+   scheduled checks are logging under `~/.renquant/ops/stops-liveness/`.
+6. `strategy-104#55`/`#56` software-stop enablement stays OFF regardless of
+   this landing — that is a separate, later decision gated on the SLA
+   resolution above.
 
 ## Discipline
 

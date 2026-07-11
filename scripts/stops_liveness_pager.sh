@@ -2,55 +2,102 @@
 # stops_liveness_pager.sh — software-stop registry liveness pager wrapper.
 #
 # S-FRAC stage-3 ops (#471 operator shortlist item 2). Scheduled by
-# deploy/com.renquant.stops-liveness.plist (10-minute StartInterval); the
-# umbrella checker (RenQuant/scripts/check_software_stops_liveness.py) does
-# the actual watchdog arithmetic against the PINNED runtime module
+# deploy/com.renquant.stops-liveness.plist (10-minute StartInterval). Invokes
+# the EXECUTION-repo liveness checker
+# (renquant_execution.software_stops_liveness — renquant-execution#29) which
+# does the actual watchdog arithmetic against the PINNED runtime module
 # (renquant_pipeline.software_stops — the same code the sell-only loop uses
 # to stamp the heartbeat, so checker and stamper can never disagree).
 #
+# OWNERSHIP SPLIT (Codex review of this package's prior revision,
+# 2026-07-11): the prior revision invoked a THIN umbrella script through
+# the deprecated umbrella's own Python virtualenv, creating a new
+# production dependency on that umbrella. That checker moved to
+# renquant-execution (a proper broker/order-management runtime-monitoring
+# module). This wrapper now resolves the pinned renquant-execution /
+# renquant-pipeline / renquant-common src roots the SAME way every other
+# multi-repo orchestrator entrypoint does
+# (renquant_orchestrator.runtime_paths.resolve_subrepo_src_roots /
+# live_bridge.bootstrap_multirepo convention) and runs
+# `python -m renquant_execution.software_stops_liveness` — never a
+# hardcoded umbrella path or venv.
+#
+#   renquant-pipeline    — registry data model + staleness arithmetic
+#                          (software_stops.py) + decision-time arming task.
+#                          Unchanged, not touched by this package.
+#   renquant-execution   — the liveness CHECKER
+#                          (software_stops_liveness.py, renquant-execution#29).
+#   renquant-orchestrator (HERE) — pinned schedule + notification-consumer
+#                          wrapper. Does not reimplement checker logic.
+#
 # Why a wrapper (and why the checker's own --ntfy-topic is NOT used):
-#   1. rq105 ops convention (tests/test_rq105_ops_wrappers.py): plists call a
-#      shell wrapper so PYTHONPATH is set up consistently — the checker
-#      imports the pinned renquant_pipeline, which is NOT installed in the
-#      umbrella venv (verified 2026-07-11: bare invocation ModuleNotFoundError).
-#   2. The checker's builtin _post_ntfy is best-effort (a delivery failure
-#      only prints to stderr). The wrapper owns paging via curl -f so a
-#      delivery failure is DETECTABLE (exit 70) — and a checker CRASH
-#      (import error after a pin move, etc.) also pages instead of dying
-#      silently, which is exactly the failure class #471 flagged.
+#   The checker's builtin ntfy post is best-effort (a delivery failure only
+#   prints to stderr). The wrapper owns paging via curl -f so a delivery
+#   failure is DETECTABLE (exit 70) — and a checker CRASH (import error
+#   after a pin move, pin-resolution failure, etc.) also pages instead of
+#   dying silently, which is exactly the failure class #471 flagged.
+#
+# RUNTIME CONTRACT (same discipline as scripts/shadow_ab_daily.sh, Codex r2
+# on #460): every python interpreter and data-root input is an EXPLICIT
+# externally-supplied value; this script has NO default that points at the
+# deprecated RenQuant umbrella (or at any sibling directory). The plist
+# supplies the values as reviewed arming-time configuration; the script
+# fails closed (hard abort, matching shadow_ab_daily.sh's own required-var
+# checks) when one is missing.
+#
+# Required environment (supplied by the plist):
+#   RENQUANT_STOPS_PAGER_PYTHON      interpreter to run the checker with
+#                                    (must have the pinned renquant-execution
+#                                    + renquant-pipeline + renquant-common
+#                                    stack importable via the PYTHONPATH
+#                                    this script constructs)
+#   RENQUANT_STOPS_PAGER_DATA_ROOT   explicit runtime data root the
+#                                    software-stop registry lives under
+#                                    (passed straight through as
+#                                    --data-root; today this is wherever
+#                                    the live sell-only loop writes it —
+#                                    migrating that anchor off the
+#                                    umbrella is R-PIN territory, out of
+#                                    scope here)
+# Optional:
+#   RENQUANT_STOPS_PAGER_BROKER        broker tag (default: alpaca)
+#   RENQUANT_STOPS_PAGER_NTFY_BASE     ntfy base URL (default: https://ntfy.sh)
+#   RENQUANT_STOPS_PAGER_NTFY_TOPIC    ntfy topic (default: renquant — the
+#                                      LIVE ops topic, same as the live
+#                                      sell-only loop's alerts)
+#   RENQUANT_STOPS_PAGER_CHECKER_CMD   TEST-ONLY override: when set, this
+#                                      whole command replaces the pin-resolved
+#                                      "$PYTHON -m
+#                                      renquant_execution.software_stops_liveness"
+#                                      invocation (hermetic tests substitute a
+#                                      fake checker so they never touch a
+#                                      real lock file, git, or renquant_pipeline).
 #
 # Exit codes:
 #   0   OK (no page needed)
 #   1   STALE   — page delivered (checker exit propagated)
 #   2   CORRUPT — page delivered (checker exit propagated)
 #   70  page delivery FAILED (alarm or test-fire could not reach ntfy)
-#   *   checker crashed with that code — ERROR page delivered
+#   *   checker crashed (or pin resolution failed) with that code — ERROR
+#       page delivered
 #
-# Test-fire mode (SLA drill, #471 shortlist item 2 / design §3.4):
+# Test-fire mode (delivery + response drill, #471 shortlist item 2):
 #   stops_liveness_pager.sh --test-fire STALE
 # emits ONE clearly-marked synthetic page to the live ops topic and exits
-# nonzero (70) on delivery failure, 0 on delivered. Record the operator
-# response time against the §3.4 SLA (page <=15m of missed pass; runbook
-# response <=60m of page).
-#
-# Every default below is env-overridable (RENQUANT_STOPS_PAGER_*) so the
-# hermetic tests can substitute a fake checker and a local ntfy recorder.
+# nonzero (70) on delivery failure, 0 on delivered. This measures ACTUAL
+# delivery latency + operator response time as evidence for the stage-3
+# sign-off decision — see doc/progress/2026-07-11-stops-liveness-pager-package.md
+# for why the honest current envelope (~18-28min) does not itself satisfy
+# the design's 15-minute target, and what happens after this drill.
 set -uo pipefail
 
-RQ_ROOT="${RENQUANT_STOPS_PAGER_RQ_ROOT:-/Users/renhao/git/github/RenQuant}"
-PYTHON="${RENQUANT_STOPS_PAGER_PYTHON:-$RQ_ROOT/.venv/bin/python}"
-CHECKER="${RENQUANT_STOPS_PAGER_CHECKER:-$RQ_ROOT/scripts/check_software_stops_liveness.py}"
-SUBREPO_RT="${RENQUANT_STOPS_PAGER_SUBREPO_ROOT:-$RQ_ROOT/.subrepo_runtime/repos}"
+ORCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NTFY_BASE="${RENQUANT_STOPS_PAGER_NTFY_BASE:-https://ntfy.sh}"
 # LIVE ops topic — same channel as the live sell-only loop's alerts
 # (umbrella scripts/intraday_sell_104.sh NTFY_TOPIC="renquant").
 NTFY_TOPIC="${RENQUANT_STOPS_PAGER_NTFY_TOPIC:-renquant}"
 BROKER="${RENQUANT_STOPS_PAGER_BROKER:-alpaca}"
 TITLE="RenQuant SOFTWARE-STOP watchdog"
-
-# Pinned runtime modules: the checker imports renquant_pipeline (+ the market
-# calendar from renquant_common), neither installed in the umbrella venv.
-export PYTHONPATH="$SUBREPO_RT/renquant-pipeline/src:$SUBREPO_RT/renquant-common/src:${PYTHONPATH:-}"
 
 page() { # $1 = title, $2 = body; returns curl's status (nonzero = not delivered)
     curl -fsS --max-time 15 \
@@ -67,20 +114,80 @@ if [ "${1:-}" = "--test-fire" ]; then
     kind="${2:-STALE}"
     body="[TEST-FIRE $kind] $(stamp) synthetic software-stop pager drill — \
 NOT a real alarm, no position is unprotected. Purpose: prove the page path \
-end-to-end and measure operator response vs the S-FRAC design §3.4 SLA \
-(page <=15m of a missed sell-only pass; runbook response <=60m of the page). \
-RECORD your response time."
+end-to-end and measure the ACTUAL delivery latency + operator response \
+time. NOTE: the current alarm envelope is ~18-28 minutes after the first \
+missed pass, which does NOT meet the S-FRAC design's 15-minute target — \
+this drill's measured numbers are evidence for the operator sign-off \
+decision (tighten the arming-side max_staleness_minutes, or accept this \
+envelope) BEFORE any stage-3 / #55 enablement decision. RECORD your \
+response time."
     echo "test-fire: posting synthetic $kind page to $NTFY_BASE/$NTFY_TOPIC"
     if page "$TITLE [TEST-FIRE]" "$body"; then
-        echo "test-fire: page DELIVERED at $(stamp) — record operator response time vs the 15m/60m SLA"
+        echo "test-fire: page DELIVERED at $(stamp) — record delivery latency + operator response time"
         exit 0
     fi
     echo "test-fire: PAGE DELIVERY FAILED to $NTFY_BASE/$NTFY_TOPIC" >&2
     exit 70
 fi
 
-out="$("$PYTHON" "$CHECKER" --broker "$BROKER" 2>&1)"
-code=$?
+if [ -n "${RENQUANT_STOPS_PAGER_CHECKER_CMD:-}" ]; then
+    # TEST-ONLY escape hatch — see header doc. Production never sets this.
+    out="$(eval "$RENQUANT_STOPS_PAGER_CHECKER_CMD" 2>&1)"
+    code=$?
+else
+    PYTHON="${RENQUANT_STOPS_PAGER_PYTHON:?RENQUANT_STOPS_PAGER_PYTHON must be supplied (no default runtime — RUNTIME CONTRACT)}"
+    DATA_ROOT="${RENQUANT_STOPS_PAGER_DATA_ROOT:?RENQUANT_STOPS_PAGER_DATA_ROOT must be supplied (explicit registry data root — RUNTIME CONTRACT)}"
+
+    # Resolve the pinned renquant-execution / renquant-pipeline /
+    # renquant-common src roots — the SAME mechanism every other multi-repo
+    # orchestrator entrypoint uses (runtime_paths.resolve_subrepo_src_roots,
+    # as used by live_bridge.bootstrap_multirepo), never a hardcoded
+    # umbrella path. Honors RENQUANT_REPO_ROOT / RENQUANT_GITHUB_ROOT /
+    # RENQUANT_SUBREPO_ROOT overrides exactly like every other scheduled
+    # entrypoint in this repo.
+    export PYTHONPATH="$ORCH_DIR/src:${PYTHONPATH:-}"
+    # NOTE: stdout carries ONLY the final ":"-joined roots line on success;
+    # any pin-drift warnings (enforce_or_warn, non-strict mode) go to
+    # stderr so they never corrupt the PYTHONPATH we parse below — they
+    # still surface in the launchd stderr log for debugging.
+    pin_out="$("$PYTHON" - <<'PY'
+import sys
+
+from renquant_orchestrator.runtime_paths import (
+    default_repo_root,
+    enforce_or_warn,
+    resolve_subrepo_root,
+    resolve_subrepo_src_roots,
+    strict_clean_enabled,
+)
+
+repo_root = default_repo_root()
+roots, issues = resolve_subrepo_src_roots(
+    lock_file=repo_root / "subrepos.lock.json",
+    names=["renquant-common", "renquant-pipeline", "renquant-execution"],
+    siblings=repo_root.parent,
+    root_override=str(resolve_subrepo_root(repo_root)),
+    check_dirty=strict_clean_enabled(),
+)
+missing = [i.repo for i in issues if i.reason == "missing local src root"]
+if missing:
+    print(f"missing pinned src roots: {missing}", file=sys.stderr)
+    raise SystemExit(1)
+enforce_or_warn(issues)
+print(":".join(str(r) for r in roots))
+PY
+)"
+    pin_rc=$?
+    if [ "$pin_rc" -ne 0 ]; then
+        out="PIN RESOLUTION FAILED (exit=$pin_rc) — see launchd stderr log for the missing/drifted repo detail"
+        code=90
+    else
+        export PYTHONPATH="$pin_out:$ORCH_DIR/src:${PYTHONPATH:-}"
+        out="$("$PYTHON" -m renquant_execution.software_stops_liveness \
+            --data-root "$DATA_ROOT" --broker "$BROKER" 2>&1)"
+        code=$?
+    fi
+fi
 echo "$(stamp) checker exit=$code: $out"
 
 case "$code" in
@@ -97,10 +204,11 @@ case "$code" in
         exit 70
         ;;
     *)
-        # Checker crashed (import error, bad env, ...): registry state is
-        # UNKNOWN, which is itself a liveness failure — page, don't die dark.
+        # Checker crashed (import error, bad env, pin-resolution failure,
+        # ...): registry state is UNKNOWN, which is itself a liveness
+        # failure — page, don't die dark.
         body="ERROR: software-stop liveness checker crashed (exit=$code) at $(stamp). \
-Registry state UNKNOWN — treat as a liveness failure and run the §3.4 runbook. \
+Registry state UNKNOWN — treat as a liveness failure and investigate. \
 Output: $out"
         if page "$TITLE" "$body"; then
             exit "$code"

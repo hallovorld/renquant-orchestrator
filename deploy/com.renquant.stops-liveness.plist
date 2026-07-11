@@ -5,21 +5,32 @@
   shortlist item 2: "pager scheduled nowhere, page never test-fired").
 
   Runs scripts/stops_liveness_pager.sh every 10 minutes. The wrapper invokes
-  the umbrella checker (RenQuant/scripts/check_software_stops_liveness.py)
-  against the PINNED runtime modules and pages the LIVE ops ntfy topic on
-  STALE / CORRUPT / checker-crash. The checker itself returns OK off-session,
-  so a simple all-day StartInterval is the robust schedule: market-hours
-  gating lives in ONE place (the checker), not duplicated here.
+  the EXECUTION-repo liveness checker (renquant_execution.software_stops_liveness,
+  renquant-execution#29 — moved out of the deprecated umbrella per the
+  Codex review of this package's prior revision) through the pinned
+  sibling-checkout PYTHONPATH convention this repo already uses for
+  multi-repo entrypoints (renquant_orchestrator.runtime_paths), and pages
+  the LIVE ops ntfy topic on STALE / CORRUPT / checker-crash. The checker
+  itself returns OK off-session, so a simple all-day StartInterval is the
+  robust schedule: market-hours gating lives in ONE place (the checker),
+  not duplicated here.
 
   TEMPLATE ONLY: merging this file does NOT install anything. Arming is a
   separately-granted operator landing step (the "apply" flag is two hyphens;
   XML comments cannot contain a double hyphen):
 
       scripts/install_stops_pager.sh install [apply flag]
-      scripts/install_stops_pager.sh test-fire STALE   (SLA drill, record response time)
+      scripts/install_stops_pager.sh test-fire STALE   (delivery + response drill)
 
-  See doc/progress/2026-07-11-stops-liveness-pager-package.md for the landing
-  sequence and the alert-latency envelope vs the design §3.4 15m/60m SLA.
+  IMPORTANT (2026-07-11 Codex review of the prior revision): the honest
+  alert-latency envelope is ~18-28 minutes after the first missed pass,
+  which does NOT meet the design's 15-minute target. This package is
+  staged dark and is NOT stage-3-ready and does NOT by itself support
+  strategy-104#55/#56 enablement — see
+  doc/progress/2026-07-11-stops-liveness-pager-package.md for the full
+  gap analysis and the required follow-up (either a tighter
+  max_staleness_minutes on the arming side, out of scope here, or a
+  separately-signed operator acceptance of this envelope).
 -->
 <plist version="1.0">
 <dict>
@@ -34,12 +45,10 @@
     <integer>600</integer>
     <key>RunAtLoad</key>
     <false/>
-    <key>WorkingDirectory</key>
-    <string>/Users/renhao/git/github/RenQuant</string>
     <key>StandardOutPath</key>
-    <string>/Users/renhao/git/github/RenQuant/logs/stops_liveness/launchd.out.log</string>
+    <string>/Users/renhao/.renquant/ops/stops-liveness/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/renhao/git/github/RenQuant/logs/stops_liveness/launchd.err.log</string>
+    <string>/Users/renhao/.renquant/ops/stops-liveness/launchd.err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -52,6 +61,23 @@
              scripts/intraday_sell_104.sh NTFY_TOPIC) alerts on. -->
         <key>RENQUANT_STOPS_PAGER_NTFY_TOPIC</key>
         <string>renquant</string>
+        <!-- RUNTIME CONTRACT: the wrapper script has NO default interpreter
+             or data root (Codex r2 on #460 / this package's 2026-07-11
+             re-review) — both are explicit, reviewed arming-time
+             configuration here, never a hardcoded default in the script. -->
+        <!-- Same interpreter the live pipeline stack already runs under
+             (the conda env RenQuant/.venv/bin/python symlinks to),
+             referenced directly, NOT through the umbrella .venv path. -->
+        <key>RENQUANT_STOPS_PAGER_PYTHON</key>
+        <string>/Users/renhao/miniconda3/envs/renquant/bin/python</string>
+        <!-- Where the live sell-only loop currently writes the software-stop
+             registry. This is STILL umbrella-anchored today as a matter of
+             fact (the live runner has not migrated its data root) — that
+             is the R-PIN migration's job, not this ops package's; this
+             value is explicit, reviewed plist configuration, not a
+             wrapper-script default. -->
+        <key>RENQUANT_STOPS_PAGER_DATA_ROOT</key>
+        <string>/Users/renhao/git/github/RenQuant</string>
     </dict>
 </dict>
 </plist>
