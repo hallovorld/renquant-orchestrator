@@ -8,10 +8,11 @@ even when neither ``timeout`` nor ``gtimeout`` is on PATH (Codex r1).
 These exercise the script via subprocess against a fully hermetic fake
 multi-repo layout (temp dirs, each a REAL git checkout so the run-manifest
 verification in shadow_ab_runner.verify_run_manifest exercises real git
-plumbing) — no umbrella checkout, no real broker, no network. The two
-repos the market-snapshot Python steps must actually IMPORT for real
-(renquant-common, renquant-pipeline) point at this machine's real sibling
-checkouts (read-only; never written to) rather than a fake git repo.
+plumbing) — no umbrella checkout, no real broker, no network. The four
+repos in the market-snapshot Python import closure (renquant-common,
+renquant-base-data, renquant-artifacts, and renquant-pipeline) point at
+this machine's real sibling checkouts (read-only; never written to) rather
+than fake git repos.
 """
 from __future__ import annotations
 
@@ -44,7 +45,15 @@ _ALL_REPOS = (
     "renquant-model", "renquant-pipeline", "renquant-execution",
     "renquant-strategy-104", "renquant-backtesting",
 )
-_REAL_IMPORT_REPOS = ("renquant-common", "renquant-pipeline")
+# Importing ``renquant_pipeline.kernel.data`` initializes the package first.
+# The exercised snapshot path imports these sibling source trees. Model extras
+# are lazy imports and do not participate in this path.
+_REAL_IMPORT_REPOS = (
+    "renquant-common",
+    "renquant-base-data",
+    "renquant-artifacts",
+    "renquant-pipeline",
+)
 
 
 def _real_repo_head(name: str) -> str:
