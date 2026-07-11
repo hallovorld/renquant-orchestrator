@@ -71,3 +71,66 @@ uncorrected framing: 7/28). Per-date dollar math is otherwise unchanged
 for every date that survives the corrected filter — mean $911.13 (r1:
 $916.71, entirely the loss of 06-29's $950.17, which is now correctly
 excluded as ambiguous rather than picked by outcome).
+
+## r3 (2026-07-11): run_type filter, sealed config provenance, n_buys check
+
+Codex re-review of r2's sealed bundle found two more validity gaps:
+
+1. The canonical query never constrained `run_type='live'` — a shadow or
+   other candidate-scoring run could in principle become the claimed
+   production representative solely because `n_candidates>0`. Fixed:
+   both the date-population and canonical-candidate queries in
+   `build_canonical_manifest` now explicitly filter `run_type='live'`,
+   sealed per canonical row. No-op on this dataset (all 915 in-window
+   `pipeline_runs` rows are already `'live'`), but now a real, checked
+   constraint rather than an unstated assumption.
+2. `REGIME_CAP`/`RESERVE` were a hardcoded table with no fingerprinted
+   proof they were the operative pinned strategy-104 config — and this
+   genuinely mattered in principle: `BULL_CALM.max_position_pct` was
+   **0.15 at the window's start (2026-06-01) and dropped to 0.12 on
+   2026-06-09** (commit `5ce58af`). A naive "use current config"
+   assumption would have been silently wrong for part of the window.
+   Fixed: new `resolve_regime_sizing_config()` resolves, per canonical
+   run, the EXACT `renquant-strategy-104` git commit active at that
+   run's `created_at` (via `git log --before=<ts>`), extracts
+   `regime_params[regime].{max_position_pct,cash_reserve_pct}` from that
+   commit's `configs/strategy_config.json`, and seals both the commit
+   sha and the file's content sha256 alongside the extracted values.
+   `compute_replay` now reads `cap_pct`/`res_pct` from each run's sealed
+   `regime_sizing_config`, never a hardcoded table. All 11 canonical
+   dates happen to postdate the 06-09 change, so the resolved value is
+   0.12/0.0 throughout and the corrected numbers are unchanged — but
+   this is now a proven per-run fact, not an assumed constant.
+3. Added an explicit `n_buys==0` check the "zero admission distortion"
+   claim structurally depends on but r1/r2 never verified. A canonical
+   run with `n_buys != 0` is now excluded (`excluded_nonzero_n_buys`),
+   not silently assumed non-displacing — this replay does not
+   reconstruct normal-buy cash state for that case. All 17
+   candidate-scoring runs in the window (not just the 11 canonical ones)
+   already have `n_buys=0`, so nothing is newly excluded.
+
+`renquant-artifacts#15`'s `RUN-LOCK.json` was re-sealed with the corrected
+bundle (`run_type`, `regime_sizing_config` per run, `strategy_config_repo`
+input, `excluded_nonzero_n_buys` in results); fingerprint updated to
+`sha256:db81fa1...` and `STORE-MANIFEST.json`/the registry entry updated
+to match — verified via `renquant-artifacts`' own
+`test_store_manifest.py`/`test_no_large_artifacts.py` (hash-consistency
+checks pass against the recomputed fingerprint).
+
+Both PRs' framing corrected per Codex's explicit wording: this is
+**retrospective exploratory replay evidence**, not an RS-2 preregistration
+substitute — it can inform a recorded deviation decision but cannot
+itself satisfy the preregistered gate.
+
+Numbers unchanged from r2 (6/11 unambiguous canonical dates, $392.13–
+$1,356.18/session, mean $911.13) — now independently verifiable from
+sealed, fingerprinted inputs rather than an unverified table + an
+unstated filter.
+
+Tests: orchestrator suite unaffected (`floor_replay.py` has no dedicated
+test file; verified via direct re-extraction + diff against r2's
+`floor_replay_result.json` — same 11/6/6 counts and identical per-date
+dollar deltas; the JSON structure itself gained the new sealed fields
+(`regime_sizing_config`, `excluded_nonzero_n_buys`), so it is not a
+byte-identical file, but the underlying replay result is numerically
+unchanged). `renquant-artifacts` `pytest tests/` — 22 passed.

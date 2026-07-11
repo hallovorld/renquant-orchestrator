@@ -10,7 +10,7 @@ umbrella OHLCV, launchd state, and operational tests run entirely in the scratch
 No production path was written; no order was placed; no config was changed.
 Raw method + outputs: `doc/research/evidence/2026-07-11-enablement/`.
 
-**r2 (2026-07-11, this revision):** Codex's review found r1's floor-replay evidence
+**r2 (2026-07-11):** Codex's review found r1's floor-replay evidence
 non-reproducible (hardcoded `/private/tmp` scratch and `/Users/renhao/.../RenQuant`
 absolute paths) and outcome-selected (per-date representative run picked by
 `max(deployment_delta_usd)` among up to 36 same-day rows, denominator mismatched
@@ -21,11 +21,35 @@ closed on ambiguity rather than picking by outcome. Corrected result: 6/11 unamb
 canonical dates rescued (was 7/28 in r1's uncorrected framing) — see §2.3 for the full
 accounting of what changed and why.
 
+**r3 (2026-07-11, this revision):** Codex's re-review found two more validity gaps in
+r2's sealed bundle. (1) The canonical query never constrained `run_type='live'` — a
+shadow or other candidate-scoring run could in principle become the claimed production
+representative solely because `n_candidates>0`. Fixed: both the date-population and
+canonical-candidate queries now explicitly filter `run_type='live'`, sealed per row (in
+this dataset all 915 `pipeline_runs` rows in the window are already `'live'`, so the
+corrected numbers are unchanged, but the constraint is now real and checked rather than
+an unstated assumption). (2) `REGIME_CAP`/`RESERVE` were a hardcoded table with no
+fingerprinted proof they were the operative pinned strategy-104 config — and indeed,
+`BULL_CALM.max_position_pct` was **0.15 at the window's start (2026-06-01) and changed
+to 0.12 on 2026-06-09**, so a naive "use current config" assumption would have been
+silently wrong for part of the window. Fixed: each canonical run's
+`max_position_pct`/`cash_reserve_pct` is now resolved from the EXACT
+renquant-strategy-104 git commit active at that run's timestamp (commit sha + file
+content sha256 sealed per run); every one of the 11 canonical dates happens to postdate
+the 06-09 change, so the corrected values are all 0.12/0.0 and the numbers are
+unchanged, but this is now a proven fact per-run, not an assumption. Also added an
+explicit `n_buys==0` assertion the "zero admission distortion" claim depends on but r1/
+r2 never checked (all 11 canonical runs already satisfy it; a future re-extraction with
+a nonzero-`n_buys` run would now be excluded, not silently assumed non-displacing).
+**This is retrospective exploratory replay evidence, not an RS-2 preregistration
+substitute — it can inform a recorded deviation decision but cannot itself satisfy the
+preregistered gate** (Codex's framing, r3 review).
+
 ## Bottom line
 
 | Feature | Verdict | One number |
 |---|---|---|
-| One-share floor (#55) | **Evidence SUBSTANTIAL, prereg gate not literally met** — offline prod-ledger replay quantifies the enable delta and bounds; the armed shadow instrument is structurally unable to satisfy RS-2 §A-3 as written (scorer mismatch), so the operator must either accept the replay as the gate instrument (recorded deviation) or order a prod-mirror shadow arm | +$392–$1,356/session recaptured deployment (mean $911 ≈ 8.5% PV) on 6 of 11 unambiguous canonical sessions (r2, sealed bundle — see §2.3) |
+| One-share floor (#55) | **Retrospective exploratory replay evidence, not an RS-2 preregistration substitute** — offline prod-ledger replay quantifies the enable delta and bounds from sealed, fingerprinted inputs (run_type-filtered, per-run config-provenance-proven, n_buys-checked); the armed shadow instrument is structurally unable to satisfy RS-2 §A-3 as written (scorer mismatch). This evidence can inform a recorded deviation decision but cannot itself satisfy the preregistered gate — the operator must either accept it as the gate instrument (recorded deviation) or order a prod-mirror shadow arm | +$392–$1,356/session recaptured deployment (mean $911 ≈ 8.5% PV) on 6 of 11 unambiguous canonical sessions (r3, sealed + fingerprinted bundle — see §2.3) |
 | software_stops (#55) | **Machinery VERIFIED, stage-3 operational evidence MISSING** — 12/12 operational tests pass against the pinned runtime code incl. the registry-freshness watchdog; but the pager is not scheduled anywhere, page-on-missed-pass never fired, 0 armed-shadow sessions, machine-death sign-off absent | pager launchd entries: **0** |
 | Fractional (#56) | **NOT READY — mechanically premature, would fail-close ALL buys** — the live runner's broker adapter lacks the `broker_fractional_contract` methods the capability gate requires, and the stop layer is unarmed; enabling today halts every buy (fail-closed by design), which is *worse* than status quo | prereg fractional shadow sessions: **0** |
 
@@ -115,8 +139,25 @@ content-addressed bundle (renquant-artifacts, `enablement-floor-replay-20260711`
 both the selection rule and every row it touches independently verifiable without DB or
 OHLCV access.
 
+**r3 validity fixes (Codex re-review, 2026-07-11):** two gaps remained in r2's sealed
+bundle. (1) The canonical query never constrained `run_type='live'` — filtered now,
+explicitly, on both the date-population and canonical-candidate queries, and sealed per
+row; a no-op on this dataset (all 915 in-window `pipeline_runs` rows are already
+`'live'`) but now a real, checked constraint. (2) `REGIME_CAP`/`RESERVE` were a
+hardcoded table — replaced with a per-run resolution of the EXACT
+`renquant-strategy-104` git commit active at each canonical run's timestamp
+(`config_commit_sha` + `config_file_sha256` sealed alongside the extracted
+`max_position_pct`/`cash_reserve_pct`). This mattered in principle: `BULL_CALM.
+max_position_pct` was 0.15 at the window's start and dropped to 0.12 on 2026-06-09 —
+every one of the 11 canonical dates happens to postdate that change, so the resolved
+value is 0.12 throughout and the numbers are unchanged, but this is now a proven,
+per-run fact rather than an assumed constant. Also added an explicit `n_buys==0`
+assertion the "zero admission distortion" claim depends on (§2.4) — all 11 canonical
+runs satisfy it; a future re-extraction with a nonzero-`n_buys` run would be excluded
+(`results.excluded_nonzero_n_buys`), not silently assumed non-displacing.
+
 **Results (window 2026-06-01 → 2026-07-10, 11 unambiguous canonical dates of 28
-calendar dates)** [VERIFIED, sealed]:
+calendar dates)** [VERIFIED, sealed, run_type-filtered, config-fingerprinted]:
 
 | Date | Rescued (1 share) | Not rescued | Deployment Δ | Cash % before → after | Max rescue as %PV |
 |---|---|---|---|---|---|
@@ -143,9 +184,13 @@ coverage.
 - **Cap boundedness demonstrated by counter-example** [VERIFIED]: ASML ($1,929 on
   06-22) exceeds the 12%×PV regime cap (~$1,268) and is correctly NOT rescued — the
   floor is not an unconditional round-up.
-- **Zero admission distortion** [VERIFIED]: `n_buys=0` in every affected canonical run,
-  so no normally-sized candidate existed to displace; every rescue fits leftover cash
-  (reserve=0 in BULL_CALM); max single-name rescue 9.3% PV < 12% cap; post-rescue cash
+- **Zero admission distortion** [VERIFIED, now an enforced check not an assumption —
+  r3]: `n_buys==0` is explicitly asserted for every canonical run before its rescue
+  counts (a nonzero-`n_buys` run would be excluded, `results.excluded_nonzero_n_buys`,
+  since this replay does not reconstruct normal-buy cash state to prove non-displacement
+  in that case); all 11 canonical runs satisfy it, so no normally-sized candidate existed
+  to displace. Every rescue fits leftover cash (reserve=0 in BULL_CALM, per-run sealed
+  config — see §2.3's r3 fix); max single-name rescue 9.3% PV < 12% cap; post-rescue cash
   never below 65%.
 - **Cross-validation against the live measurement** [VERIFIED]: replay 07-02 =
   BLK $995.73 + AVGO $360.45 = $1,356.18 vs the independently recorded 07-02 live
@@ -306,20 +351,25 @@ blocks the very shadow-session accumulation several gates above depend on.
 
 ## 7. Evidence artifacts
 
-- **Sealed, content-addressed, independently reproducible** (Codex review, r2):
+- **Sealed, content-addressed, independently reproducible** (Codex review, r2/r3):
   `renquant-artifacts` `enablement-floor-replay-20260711`
   (`store://experiments/enablement-floor-replay-20260711/RUN-LOCK.json`,
-  `sha256:afbe91db01018f46a4c7320649c85c36a597fc3818e2341296be1ff16bfaf14e`, registry
-  entry `registry/enablement-floor-replay-20260711.json`) — the exact
-  `candidate_scores`/`pipeline_runs` rows and OHLCV closes this replay touches, the
-  predeclared canonical-run manifest, and the corrected results, all inline. No DB or
-  OHLCV file access needed to verify; a clean checkout only needs this bundle + the
-  script below.
+  `sha256:db81fa15ed05f1a05144d00bc3ca2a422f7f5ea5b44fcbc8ce07277156bdc498` (r3 —
+  updated fingerprint after adding `run_type`, per-run sealed sizing-config
+  provenance, and the `n_buys` check), registry entry
+  `registry/enablement-floor-replay-20260711.json`) — the exact `candidate_scores`/
+  `pipeline_runs` rows (with `run_type`), the per-run sealed sizing config
+  (`config_commit_sha`/`config_file_sha256`/`max_position_pct`/`cash_reserve_pct`),
+  OHLCV closes this replay touches, the predeclared canonical-run manifest, and the
+  corrected results, all inline. No DB, OHLCV file, or renquant-strategy-104 checkout
+  access needed to verify; a clean checkout only needs this bundle + the script below.
 - `doc/research/evidence/2026-07-11-enablement/floor_replay.py` — two modes: `--extract`
-  (READ-ONLY, queries a live decision-ledger DB + OHLCV parquet given explicit
-  `--db-path`/`--ohlcv-dir` — no hardcoded paths, no default runtime — and writes the
-  sealed bundle) and the default pure-compute mode (`--bundle <path>`, no DB/OHLCV/
-  umbrella access at all — recomputes results from the sealed bundle alone).
+  (READ-ONLY, queries a live decision-ledger DB + OHLCV parquet + the
+  renquant-strategy-104 git history given explicit `--db-path`/`--ohlcv-dir`/
+  `--strategy-repo` — no hardcoded paths, no default runtime — and writes the sealed
+  bundle) and the default pure-compute mode (`--bundle <path>`, no DB/OHLCV/
+  strategy-config/umbrella access at all — recomputes results from the sealed bundle
+  alone, failing closed on any canonical run with sealed `n_buys != 0`).
 - `doc/research/evidence/2026-07-11-enablement/floor_replay_result.json` — full
   per-run verdicts incl. every not-rescued reason string, recomputed from the sealed
   bundle (byte-identical to recomputing directly from the renquant-artifacts checkout).

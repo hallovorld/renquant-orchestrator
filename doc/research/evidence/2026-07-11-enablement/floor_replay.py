@@ -19,56 +19,113 @@ renquant-pipeline/src/renquant_pipeline/kernel/pipeline/task_selection.py
 Price source: daily close of the run date (intent-time quote unavailable
 offline; caveat recorded in the packet).
 
-Two modes (Codex review of orchestrator#471, 2026-07-11 — r1 hardcoded a
+Three modes (Codex review of orchestrator#471, 2026-07-11 — r1 hardcoded a
 one-off /private/tmp scratch path and /Users/renhao/git/github/RenQuant,
 and picked each date's "representative" run by MAXIMUM outcome among all
-same-day rows with a denominator mismatched against that selection):
+same-day rows with a denominator mismatched against that selection; r2
+fixed both but Codex's r3 review found two more validity gaps: the
+canonical query never constrained run_type='live' (a shadow/candidate-
+scoring run could become "the representative" solely on n_candidates>0),
+and the regime cap/reserve values were a hardcoded table with no
+fingerprinted proof they were the operative pinned config — this revision
+fixes both, plus adds an explicit n_buys==0 assertion the "zero admission
+distortion" claim depends on but never checked):
 
-  --extract   READ-ONLY: queries the live decision ledger (--db-path) and
-              OHLCV parquet (--ohlcv-dir), predeclares exactly one
-              canonical run_id per date via a STRUCTURAL rule blind to
-              outcome (the unique pipeline_runs row with n_candidates>0
-              that date — real daily-full candidate-scoring sessions,
-              distinct from renquant105's zero-candidate intraday
-              decisioning ticks), fails closed to EXCLUDED on any date
-              with zero or 2+ such rows, and writes a self-contained
-              sealed bundle (--out-bundle) — no DB/OHLCV access needed to
-              reproduce results from it afterward.
+  --extract   READ-ONLY: queries the live decision ledger (--db-path),
+              OHLCV parquet (--ohlcv-dir), and the renquant-strategy-104
+              git history (--strategy-repo) to resolve, per canonical run,
+              the EXACT pinned regime_params.{max_position_pct,
+              cash_reserve_pct} operative at that run's created_at
+              timestamp (git commit + file content sha256 sealed
+              alongside the extracted values — never a hand-copied
+              table). Predeclares exactly one canonical run_type='live'
+              run_id per date via a STRUCTURAL rule blind to outcome (the
+              unique pipeline_runs row with run_type='live' AND
+              n_candidates>0 that date), fails closed to EXCLUDED on any
+              date with zero or 2+ such LIVE rows, and writes a
+              self-contained sealed bundle (--out-bundle) — no DB/OHLCV/
+              strategy-config access needed to reproduce results from it
+              afterward.
 
   (default)   Computes results PURELY from a sealed bundle (--bundle,
               e.g. a renquant-artifacts store:// checkout) — no DB,
-              OHLCV file, or umbrella path needed. This is the
-              reproducible, verifiable path; a clean checkout with only
-              this script and the sealed bundle produces byte-identical
-              results.
+              OHLCV file, strategy-config checkout, or umbrella path
+              needed. This is the reproducible, verifiable path; a clean
+              checkout with only this script and the sealed bundle
+              produces byte-identical results. Fails closed (excludes the
+              date, does not silently continue) on any canonical run
+              whose sealed n_buys != 0 — the "zero admission distortion"
+              claim depends on n_buys==0 and this script does not
+              reconstruct normal-buy cash state for the nonzero case.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sqlite3
 import sys
 from collections import defaultdict
 from pathlib import Path
 
-REGIME_CAP = {"BULL_CALM": 0.12, "BULL_VOLATILE": 0.20, "CHOPPY": 0.15, "BEAR": 0.0}
-RESERVE = {"BULL_CALM": 0.0, "BULL_VOLATILE": 0.2, "CHOPPY": 0.3, "BEAR": 1.0}
+
+def resolve_regime_sizing_config(strategy_repo: str, created_at: str, regime: str) -> dict:
+    """Resolve the EXACT pinned regime_params.{max_position_pct,
+    cash_reserve_pct} operative in renquant-strategy-104's
+    configs/strategy_config.json as of `created_at` (the commit most
+    recently touching that file at or before the run's timestamp) — never
+    a hand-copied constant. Seals the commit sha + file content sha256 as
+    an independently-verifiable ref alongside the extracted values."""
+    commit = subprocess.run(
+        ["git", "-C", strategy_repo, "log", "-1", "--format=%H",
+         f"--before={created_at}", "--", "configs/strategy_config.json"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    if not commit:
+        raise SystemExit(
+            f"no configs/strategy_config.json commit found at or before "
+            f"{created_at!r} in {strategy_repo!r} — cannot resolve the "
+            "operative sizing config, refusing to guess"
+        )
+    file_bytes = subprocess.run(
+        ["git", "-C", strategy_repo, "show", f"{commit}:configs/strategy_config.json"],
+        capture_output=True, check=True,
+    ).stdout
+    cfg = json.loads(file_bytes)
+    regime_cfg = cfg.get("regime_params", {}).get(regime)
+    if regime_cfg is None or "max_position_pct" not in regime_cfg or "cash_reserve_pct" not in regime_cfg:
+        raise SystemExit(
+            f"commit {commit} configs/strategy_config.json has no "
+            f"regime_params.{regime}.{{max_position_pct,cash_reserve_pct}} "
+            "— cannot resolve the operative sizing config, refusing to guess"
+        )
+    return {
+        "config_commit_sha": commit,
+        "config_file_sha256": hashlib.sha256(file_bytes).hexdigest(),
+        "max_position_pct": float(regime_cfg["max_position_pct"]),
+        "cash_reserve_pct": float(regime_cfg["cash_reserve_pct"]),
+    }
 
 
 def build_canonical_manifest(conn: sqlite3.Connection, start: str, end: str) -> dict:
-    """Predeclare exactly one canonical (real daily-full, candidate-scoring)
-    run_id per calendar date — a structural rule blind to outcome, never
-    chosen by which run looks best. Fails closed (EXCLUDED, with the
-    concrete reason) on any date with zero or 2+ qualifying rows."""
+    """Predeclare exactly one canonical (real daily-full, LIVE,
+    candidate-scoring) run_id per calendar date — a structural rule blind
+    to outcome, never chosen by which run looks best. run_type='live' is
+    an explicit filter (Codex r3): a shadow/other candidate-scoring run
+    must never become "the representative" solely because it has
+    candidates. Fails closed (EXCLUDED, with the concrete reason) on any
+    date with zero or 2+ qualifying LIVE rows."""
     all_dates = [
         r[0] for r in conn.execute(
-            "SELECT DISTINCT run_date FROM pipeline_runs WHERE run_date >= ? AND run_date <= ? ORDER BY run_date",
+            "SELECT DISTINCT run_date FROM pipeline_runs "
+            "WHERE run_date >= ? AND run_date <= ? AND run_type = 'live' ORDER BY run_date",
             (start, end),
         ).fetchall()
     ]
     cand_runs = conn.execute(
         """SELECT run_date, run_id, created_at, n_candidates FROM pipeline_runs
-           WHERE run_date >= ? AND run_date <= ? AND n_candidates > 0
+           WHERE run_date >= ? AND run_date <= ? AND run_type = 'live' AND n_candidates > 0
            ORDER BY run_date, created_at""",
         (start, end),
     ).fetchall()
@@ -82,23 +139,26 @@ def build_canonical_manifest(conn: sqlite3.Connection, start: str, end: str) -> 
         if len(runs) == 0:
             dates[d] = {
                 "status": "EXCLUDED_NO_CANDIDATE_RUN",
-                "reason": "no pipeline_runs row with n_candidates>0 on this date "
-                          "(no daily-full candidate-scoring session found)",
+                "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this "
+                          "date (no daily-full live candidate-scoring session found)",
             }
         elif len(runs) == 1:
-            dates[d] = {"status": "CANONICAL", "run_id": runs[0]["run_id"], "created_at": runs[0]["created_at"]}
+            dates[d] = {
+                "status": "CANONICAL", "run_id": runs[0]["run_id"],
+                "created_at": runs[0]["created_at"], "run_type": "live",
+            }
         else:
             dates[d] = {
                 "status": "EXCLUDED_AMBIGUOUS",
-                "reason": f"{len(runs)} candidate-scoring runs on this date with no principled "
-                          "tie-break rule available; excluded per fail-closed policy rather "
-                          "than picking by outcome",
+                "reason": f"{len(runs)} run_type='live' candidate-scoring runs on this date "
+                          "with no principled tie-break rule available; excluded per "
+                          "fail-closed policy rather than picking by outcome",
                 "candidate_run_ids": runs,
             }
     return {"window": f"{start}..{end}", "dates": dates}
 
 
-def extract_bundle(db_path: str, ohlcv_dir: str, start: str, end: str) -> dict:
+def extract_bundle(db_path: str, ohlcv_dir: str, strategy_repo: str, start: str, end: str) -> dict:
     import pandas as pd
 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -113,11 +173,15 @@ def extract_bundle(db_path: str, ohlcv_dir: str, start: str, end: str) -> dict:
     run_meta = {
         r["run_id"]: dict(r)
         for r in conn.execute(
-            f"SELECT run_id, run_date, regime, portfolio_value, cash, n_buys "
+            f"SELECT run_id, run_date, run_type, regime, portfolio_value, cash, n_buys, created_at "
             f"FROM pipeline_runs WHERE run_id IN ({placeholders})",
             canonical_run_ids,
         ).fetchall()
     }
+    for run_id, meta in run_meta.items():
+        meta["regime_sizing_config"] = resolve_regime_sizing_config(
+            strategy_repo, meta["created_at"], meta["regime"],
+        )
     blocked_rows = [
         dict(r)
         for r in conn.execute(
@@ -151,10 +215,10 @@ def extract_bundle(db_path: str, ohlcv_dir: str, start: str, end: str) -> dict:
         "window": f"{start}..{end}",
         "canonical_run_selection_rule": (
             "For each calendar date, the canonical production run is the UNIQUE "
-            "pipeline_runs row with n_candidates>0 on that date (structural, "
-            "outcome-blind). Zero such rows = no daily-full session that day "
-            "(excluded). 2+ such rows = AMBIGUOUS, excluded per fail-closed "
-            "policy rather than picked by any heuristic."
+            "run_type='live' pipeline_runs row with n_candidates>0 on that date "
+            "(structural, outcome-blind). Zero such rows = no daily-full live "
+            "session that day (excluded). 2+ such rows = AMBIGUOUS, excluded per "
+            "fail-closed policy rather than picked by any heuristic."
         ),
         "canonical_run_manifest": manifest,
         "pipeline_run_metadata": run_meta,
@@ -164,8 +228,8 @@ def extract_bundle(db_path: str, ohlcv_dir: str, start: str, end: str) -> dict:
 
 
 def compute_replay(bundle: dict) -> dict:
-    """Pure function: no DB, no OHLCV file, no live path — everything it
-    needs is already inline in `bundle`."""
+    """Pure function: no DB, no OHLCV file, no strategy-config checkout,
+    no live path — everything it needs is already inline in `bundle`."""
     manifest = bundle["canonical_run_manifest"]
     run_meta = bundle["pipeline_run_metadata"]
     closes = bundle["ohlcv_closes"]
@@ -175,13 +239,29 @@ def compute_replay(bundle: dict) -> dict:
         by_run[row["run_id"]].append(row)
 
     per_date: dict[str, dict] = {}
+    excluded_nonzero_n_buys: dict[str, dict] = {}
     for run_id, cands in by_run.items():
         meta = run_meta[run_id]
+        # The "zero admission distortion" claim (a deferred floor rescue
+        # never displaces a normal-sized buy) structurally depends on
+        # n_buys==0 for this run — this script does not reconstruct the
+        # normal-buy cash state for the nonzero case, so it fails closed
+        # (excludes the date) rather than silently assuming non-
+        # displacement (Codex r3 review).
+        if int(meta.get("n_buys") or 0) != 0:
+            excluded_nonzero_n_buys[meta["run_date"]] = {
+                "run_id": run_id, "n_buys": meta["n_buys"],
+                "reason": "n_buys != 0 — zero-admission-distortion claim unverified for "
+                          "this run without cash-state reconstruction (not implemented); "
+                          "excluded rather than assumed",
+            }
+            continue
         regime = meta["regime"]
         pv = float(meta["portfolio_value"])
         cash = float(meta["cash"])
-        cap_pct = REGIME_CAP.get(regime, 0.15)
-        res_pct = RESERVE.get(regime, 0.0)
+        sizing = meta["regime_sizing_config"]
+        cap_pct = sizing["max_position_pct"]
+        res_pct = sizing["cash_reserve_pct"]
         cap_dollars = cap_pct * pv
         leftover = max(cash - res_pct * pv, 0.0)
         rescued, not_rescued = [], []
@@ -208,6 +288,7 @@ def compute_replay(bundle: dict) -> dict:
         per_date[meta["run_date"]] = {
             "run_id": run_id,
             "regime": regime,
+            "regime_sizing_config": sizing,
             "rescued": rescued,
             "not_rescued": not_rescued,
             "delta_usd": sum(r["price"] for r in rescued),
@@ -222,7 +303,7 @@ def compute_replay(bundle: dict) -> dict:
     return {
         "window": window,
         "canonical_unambiguous_dates": len(canonical_dates),
-        "canonical_dates_with_blocked_candidate": len(per_date),
+        "canonical_dates_with_blocked_candidate": len(per_date) + len(excluded_nonzero_n_buys),
         "canonical_dates_with_rescue": sum(1 for v in per_date.values() if v["rescued"]),
         "per_session_deployment_delta_usd": {
             "min": min(deltas) if deltas else 0,
@@ -231,6 +312,7 @@ def compute_replay(bundle: dict) -> dict:
         },
         "per_date": per_date,
         "excluded_dates": {d: v for d, v in manifest["dates"].items() if v["status"] != "CANONICAL"},
+        "excluded_nonzero_n_buys": excluded_nonzero_n_buys,
     }
 
 
@@ -239,6 +321,8 @@ def main() -> None:
     parser.add_argument("--extract", action="store_true", help="Build the sealed bundle from the live ledger + OHLCV.")
     parser.add_argument("--db-path", help="Decision-ledger sqlite path (required with --extract).")
     parser.add_argument("--ohlcv-dir", help="OHLCV parquet root, <dir>/<TICKER>/1d.parquet (required with --extract).")
+    parser.add_argument("--strategy-repo", help="renquant-strategy-104 git checkout, for resolving the exact pinned "
+                                                 "regime cap/reserve config per run (required with --extract).")
     parser.add_argument("--start", default="2026-06-01")
     parser.add_argument("--end", default="2026-07-10")
     parser.add_argument("--bundle", help="Sealed bundle JSON to compute from (required without --extract).")
@@ -247,9 +331,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.extract:
-        if not args.db_path or not args.ohlcv_dir:
-            parser.error("--extract requires --db-path and --ohlcv-dir (no default runtime)")
-        bundle = extract_bundle(args.db_path, args.ohlcv_dir, args.start, args.end)
+        if not args.db_path or not args.ohlcv_dir or not args.strategy_repo:
+            parser.error("--extract requires --db-path, --ohlcv-dir, and --strategy-repo (no default runtime)")
+        bundle = extract_bundle(args.db_path, args.ohlcv_dir, args.strategy_repo, args.start, args.end)
         if args.out_bundle:
             with open(args.out_bundle, "w") as f:
                 json.dump(bundle, f, indent=1, sort_keys=True, default=str)
