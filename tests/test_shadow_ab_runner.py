@@ -159,6 +159,36 @@ def _run(world: dict[str, Path], out_root: Path, **overrides):
     return run_shadow_ab_session(**kwargs)
 
 
+def _git_pinned_repos(tmp_path: Path) -> tuple[Path, dict[str, dict[str, str]]]:
+    """Real tiny git checkouts + a run manifest capturing their HEADs."""
+    import subprocess as sp
+
+    repos: dict[str, dict[str, str]] = {}
+    for name in EXPERIMENT_PIN_REPOS:
+        rd = tmp_path / "pins" / name
+        (rd / "configs").mkdir(parents=True)
+        (rd / "configs" / "marker.txt").write_text(name, encoding="utf-8")
+        sp.run(["git", "init", "-q", str(rd)], check=True)
+        sp.run(["git", "-C", str(rd), "add", "."], check=True)
+        sp.run(
+            ["git", "-C", str(rd), "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "-qm", "init"],
+            check=True,
+        )
+        head = sp.run(
+            ["git", "-C", str(rd), "rev-parse", "HEAD"],
+            check=True, text=True, stdout=sp.PIPE,
+        ).stdout.strip()
+        repos[name] = {"path": str(rd), "commit": head}
+    manifest = tmp_path / "run_manifest.json"
+    manifest.write_text(json.dumps({
+        "schema_version": 1,
+        "repos": repos,
+        "data_revision": "ohlcv-refresh-2026-07-10",
+    }), encoding="utf-8")
+    return manifest, repos
+
+
 # --- bundle completeness (§2a manifest list) -----------------------------------
 
 
@@ -525,6 +555,7 @@ def test_cli_shadow_ab_plan_only(tmp_path: Path, capsys, monkeypatch) -> None:
 
     from renquant_orchestrator.cli import main as cli_main
 
+    run_manifest, _ = _git_pinned_repos(tmp_path)
     rc = cli_main([
         "shadow-ab",
         "--config-a", str(world["config_a"]),
@@ -536,6 +567,7 @@ def test_cli_shadow_ab_plan_only(tmp_path: Path, capsys, monkeypatch) -> None:
         "--session-date", "2026-07-10",
         "--repo-root", str(tmp_path / "umbrella"),
         "--strategy-dir", str(tmp_path / "umbrella" / "backtesting" / "renquant_104"),
+        "--run-manifest", str(run_manifest),
         "--plan-only",
     ])
     assert rc == 0
@@ -550,6 +582,7 @@ def test_cli_rejects_live_ntfy_topic(tmp_path: Path) -> None:
     world = _write_world(tmp_path)
     from renquant_orchestrator.cli import main as cli_main
 
+    run_manifest, _ = _git_pinned_repos(tmp_path)
     with pytest.raises(SystemExit) as excinfo:
         cli_main([
             "shadow-ab",
@@ -558,6 +591,7 @@ def test_cli_rejects_live_ntfy_topic(tmp_path: Path) -> None:
             "--data-manifest", str(world["manifest"]),
             "--output-root", str(tmp_path / "sessions"),
             "--market-snapshot-json", str(world["market"]),
+            "--run-manifest", str(run_manifest),
             "--ntfy-topic", "renquant",
             "--plan-only",
         ])
@@ -1195,3 +1229,103 @@ def test_every_runner_emitted_command_parses_and_dispatches_through_cli(
     run_argv = received["native-live-run"]
     assert FROZEN_TAG_A == run_argv[run_argv.index("--broker-name") + 1]
     assert FROZEN_TAG_A == run_argv[run_argv.index("--live-state-broker-name") + 1]
+    # the pipeline-context hydration args reach the inference module intact
+    # (GOAL-1: without them the pinned pipeline gets a bare namespace and
+    # dies on ctx.today)
+    inference_argv = received["native-live-inference"]
+    assert "--hydrate-pipeline-context" in inference_argv
+    for flag, value in (
+        ("--session-date", "2026-07-10"),
+        ("--broker-name", FROZEN_TAG_A),
+        ("--strategy-dir", str(tmp_path / "configs")),
+        ("--repo-root", str(tmp_path / "runtime-root")),
+    ):
+        assert value == inference_argv[inference_argv.index(flag) + 1]
+
+
+# --- immutable run manifest (Codex r2 on #460) ------------------------------------------------
+
+
+def test_e2e_unpinned_sibling_rejected(tmp_path: Path) -> None:
+    """Named e2e (r2): a checkout that merely EXISTS is not a pinned repo.
+    A manifest-commit mismatch (an 'unpinned sibling') and a dirty working
+    tree must both abort the session-pair BEFORE either arm runs."""
+    import subprocess as sp
+
+    world = _write_world(tmp_path)
+    run_manifest, repos = _git_pinned_repos(tmp_path)
+
+    # (a) unpinned: rewrite the manifest to expect a different commit
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["repos"]["renquant-pipeline"]["commit"] = "f" * 40
+    unpinned = tmp_path / "run_manifest_unpinned.json"
+    unpinned.write_text(json.dumps(payload), encoding="utf-8")
+
+    runner = RecordingRunner()
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=unpinned, command_runner=runner, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert result["status"] == "invalidated"
+    assert any(
+        "run manifest verification failed" in r and "checkout HEAD" in r
+        for r in result["reasons"]
+    )
+    assert runner.calls == []  # neither arm ran
+
+    # (b) dirty tree at the RIGHT commit is still rejected
+    dirty_repo = Path(repos["renquant-execution"]["path"])
+    (dirty_repo / "untracked-experiment.py").write_text("dirty", encoding="utf-8")
+    runner = RecordingRunner()
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, command_runner=runner, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("DIRTY" in r for r in result["reasons"])
+    assert runner.calls == []
+    (dirty_repo / "untracked-experiment.py").unlink()
+
+
+def test_run_manifest_verified_session_records_commits_and_data_revision(
+    tmp_path: Path,
+) -> None:
+    world = _write_world(tmp_path)
+    run_manifest, repos = _git_pinned_repos(tmp_path)
+    payload = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert payload["exit_code"] == EXIT_VALID
+    record = payload["run_manifest"]
+    assert record["verified"] is True
+    assert record["data_revision"] == "ohlcv-refresh-2026-07-10"
+    for name in EXPERIMENT_PIN_REPOS:
+        assert record["repos"][name]["commit"] == repos[name]["commit"]
+        # the pins in every arm entry come FROM the manifest
+        assert payload["arms"]["a"]["subrepo_pins"][name] == repos[name]["commit"]
+    # ... and the SEALED decision snapshot carries the same record
+    sealed = json.loads(
+        (tmp_path / "sessions" / "2026-07-10" / SEALED_DIRNAME /
+         "decision_snapshot.json").read_text(encoding="utf-8")
+    )
+    assert sealed["run_manifest"]["repos"] == record["repos"]
+    assert sealed["run_manifest"]["data_revision"] == "ohlcv-refresh-2026-07-10"
+    # the inference step is handed the manifest's data revision
+    plan_a = payload["arms"]["a"]["planned_commands"]
+    inference_cmd = next(c for c in plan_a if "native-live-inference" in c)
+    assert "ohlcv-refresh-2026-07-10" == (
+        inference_cmd[inference_cmd.index("--data-revision") + 1]
+    )
+
+
+def test_run_manifest_missing_required_repo_is_a_usage_error(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    bad = tmp_path / "bad_manifest.json"
+    bad.write_text(json.dumps({
+        "schema_version": 1,
+        "repos": {"renquant-pipeline": {"path": str(tmp_path), "commit": "a" * 40}},
+    }), encoding="utf-8")
+    with pytest.raises(ShadowABContractError, match="missing required repo"):
+        _run(world, tmp_path / "sessions", run_manifest=bad, pins_resolver=None)

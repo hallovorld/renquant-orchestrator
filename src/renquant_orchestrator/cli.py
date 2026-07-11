@@ -315,6 +315,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_inference.add_argument("--output-json", required=True)
     native_inference.add_argument("--metadata-json", default=None)
     native_inference.add_argument("--sell-only", action="store_true")
+    # §2a arm path (emitted by shadow_ab_runner.build_arm_plan): hydrate the
+    # pinned pipeline's REAL InferenceContext before InferencePipeline.run —
+    # the 2026-07-10 first real session proved a bare namespace cannot drive
+    # the pinned pipeline (ctx.today AttributeError, pp_inference.py:307).
+    native_inference.add_argument("--hydrate-pipeline-context", action="store_true")
+    native_inference.add_argument("--session-date", default=None)
+    native_inference.add_argument("--broker-name", default=None)
+    native_inference.add_argument("--strategy-dir", default=None)
+    native_inference.add_argument("--repo-root", default=None)
+    native_inference.add_argument("--ohlcv-dir", default=None)
+    native_inference.add_argument("--data-revision", default=None)
 
     native_context = sub.add_parser(
         "native-live-context",
@@ -1056,6 +1067,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             native_inference_argv.extend(["--metadata-json", args.metadata_json])
         if args.sell_only:
             native_inference_argv.append("--sell-only")
+        if args.hydrate_pipeline_context:
+            native_inference_argv.append("--hydrate-pipeline-context")
+        for flag, value in (
+            ("--session-date", args.session_date),
+            ("--broker-name", args.broker_name),
+            ("--strategy-dir", args.strategy_dir),
+            ("--repo-root", args.repo_root),
+            ("--ohlcv-dir", args.ohlcv_dir),
+            ("--data-revision", args.data_revision),
+        ):
+            if value:
+                native_inference_argv.extend([flag, value])
         return native_inference_main(native_inference_argv)
     if args.command == "native-live-context":
         from .native_live_context import main as native_context_main

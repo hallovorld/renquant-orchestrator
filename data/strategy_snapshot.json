@@ -132,6 +132,7 @@
     "model_freshness_monitor",
     "model_sanity_compare",
     "model_staging_registry",
+    "native_context_hydration",
     "native_execution_payload",
     "native_live_account_snapshot",
     "native_live_bundle",
