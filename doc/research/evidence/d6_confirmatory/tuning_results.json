@@ -1,0 +1,1245 @@
+{
+  "bar_dates_first_last": [
+    "2024-01-02",
+    "2025-01-08"
+  ],
+  "chosen": {
+    "e_ceil_by_regime": {
+      "BEAR": 0.35,
+      "BULL_CALM": 0.95,
+      "BULL_VOLATILE": 0.7,
+      "CHOPPY": 0.6
+    },
+    "e_ceil_profile": "P_D5",
+    "gate_flags": {
+      "stage_i": true,
+      "stage_ii": true,
+      "stage_iii": true
+    },
+    "hysteresis_band": 0.1,
+    "kelly_fraction_lambda": 0.3,
+    "max_step_per_session_FIXED": 0.15,
+    "mu_shrinkage_s": 0.2,
+    "sigma_target_annual": 0.18,
+    "top_k": 8
+  },
+  "conventions": {
+    "enforce_caps": true,
+    "execution_fidelity": "L3_FULL",
+    "initial_capital": 10700.0,
+    "integer_shares": true,
+    "long_term_threshold_days": 365,
+    "n_sector_mapped_tickers": 159,
+    "per_name_cap": 0.12,
+    "promotion_eligible": true,
+    "sector_cap": 0.35,
+    "sector_coverage": "fail_closed",
+    "sector_map_supplied": true,
+    "stateful": true,
+    "tax": true,
+    "tax_long_rate": 0.32,
+    "tax_short_rate": 0.5
+  },
+  "db_sha256": "72b25fdbd3f246fa5fbefb679349d7e7bd6206d511090bef37602e1b8498827d",
+  "declared_grids": {
+    "bands": [
+      0.02,
+      0.05,
+      0.1
+    ],
+    "e_ceil_profiles": {
+      "P_D5": {
+        "BEAR": 0.35,
+        "BULL_CALM": 0.95,
+        "BULL_VOLATILE": 0.7,
+        "CHOPPY": 0.6
+      },
+      "P_cons": {
+        "BEAR": 0.1,
+        "BULL_CALM": 0.8,
+        "BULL_VOLATILE": 0.6,
+        "CHOPPY": 0.4
+      },
+      "P_derisk": {
+        "BEAR": 0.2,
+        "BULL_CALM": 0.9,
+        "BULL_VOLATILE": 0.7,
+        "CHOPPY": 0.45
+      },
+      "P_flat95": {
+        "BEAR": 0.95,
+        "BULL_CALM": 0.95,
+        "BULL_VOLATILE": 0.95,
+        "CHOPPY": 0.95
+      },
+      "P_mid": {
+        "BEAR": 0.3,
+        "BULL_CALM": 0.95,
+        "BULL_VOLATILE": 0.8,
+        "CHOPPY": 0.6
+      }
+    },
+    "ks": [
+      4,
+      6,
+      8
+    ],
+    "lambdas": [
+      0.3,
+      0.5
+    ],
+    "max_step_fixed": 0.15,
+    "shrinks": [
+      0.0,
+      0.1,
+      0.2
+    ],
+    "sigma_targets": [
+      0.12,
+      0.15,
+      0.18
+    ]
+  },
+  "freeze_commit": "d5c570e52060af62c7518a03009a658167406794",
+  "freeze_record": "freeze_20260710.json",
+  "label": "D6 CONFIRMATORY \u2014 TUNING PHASE (nested selection, tuning subset only)",
+  "n_tuning_bars": 249,
+  "protocol": "doc/design/2026-07-09-governor-prereg-replay-protocol.md @ 1de64df9",
+  "regime_counts": {
+    "BULL_CALM": 224,
+    "BULL_VOLATILE": 10,
+    "CHOPPY": 15
+  },
+  "results": {
+    "stage_i_rider": [
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5384.427730530043,
+          "max_drawdown": -0.13397767211288372,
+          "mean_E_executed": 0.40670494213119784,
+          "mean_deployed_fraction": 0.4071878362306781,
+          "mean_session_turnover": 0.15869473813809631,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5034592704952189,
+          "total_cost_usd": 215.4359528602335,
+          "total_net_return": 0.08261309182271681,
+          "total_tax_usd": 4285.031695166745,
+          "turnover_tax_ratio": 0.8358302633553877
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5896.285350292468,
+          "max_drawdown": -0.14055843996910194,
+          "mean_E_executed": 0.4412377076877048,
+          "mean_deployed_fraction": 0.4416351690519317,
+          "mean_session_turnover": 0.15642239135679512,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6424649586921561,
+          "total_cost_usd": 216.28860800254077,
+          "total_net_return": 0.11652798129039099,
+          "total_tax_usd": 4433.147342482723,
+          "turnover_tax_ratio": 0.7885364554574419
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5384.427730530043,
+          "max_drawdown": -0.13397767211288372,
+          "mean_E_executed": 0.40670494213119784,
+          "mean_deployed_fraction": 0.4071878362306781,
+          "mean_session_turnover": 0.15869473813809631,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5034592704952189,
+          "total_cost_usd": 215.4359528602335,
+          "total_net_return": 0.08261309182271681,
+          "total_tax_usd": 4285.031695166745,
+          "turnover_tax_ratio": 0.8358302633553877
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5896.285350292468,
+          "max_drawdown": -0.14055843996910194,
+          "mean_E_executed": 0.4412377076877048,
+          "mean_deployed_fraction": 0.4416351690519317,
+          "mean_session_turnover": 0.15642239135679512,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6424649586921561,
+          "total_cost_usd": 216.28860800254077,
+          "total_net_return": 0.11652798129039099,
+          "total_tax_usd": 4433.147342482723,
+          "turnover_tax_ratio": 0.7885364554574419
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5384.427730530043,
+          "max_drawdown": -0.13397767211288372,
+          "mean_E_executed": 0.40670494213119784,
+          "mean_deployed_fraction": 0.4071878362306781,
+          "mean_session_turnover": 0.15869473813809631,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5034592704952189,
+          "total_cost_usd": 215.4359528602335,
+          "total_net_return": 0.08261309182271681,
+          "total_tax_usd": 4285.031695166745,
+          "turnover_tax_ratio": 0.8358302633553877
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5896.285350292468,
+          "max_drawdown": -0.14055843996910194,
+          "mean_E_executed": 0.4412377076877048,
+          "mean_deployed_fraction": 0.4416351690519317,
+          "mean_session_turnover": 0.15642239135679512,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6424649586921561,
+          "total_cost_usd": 216.28860800254077,
+          "total_net_return": 0.11652798129039099,
+          "total_tax_usd": 4433.147342482723,
+          "turnover_tax_ratio": 0.7885364554574419
+        },
+        "profile": "P_flat95",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5381.72788953144,
+          "max_drawdown": -0.13420011462762063,
+          "mean_E_executed": 0.4062964886009778,
+          "mean_deployed_fraction": 0.40678038942218725,
+          "mean_session_turnover": 0.1584741595010135,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5023723797629563,
+          "total_cost_usd": 215.09111432935552,
+          "total_net_return": 0.08238563076980898,
+          "total_tax_usd": 4285.110525965127,
+          "turnover_tax_ratio": 0.8362001447617396
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5897.935270303087,
+          "max_drawdown": -0.14059393661601918,
+          "mean_E_executed": 0.4403553034151297,
+          "mean_deployed_fraction": 0.4407537137949932,
+          "mean_session_turnover": 0.15584450825328872,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6423532075775331,
+          "total_cost_usd": 215.46704458011942,
+          "total_net_return": 0.11651095109064258,
+          "total_tax_usd": 4435.801049053104,
+          "turnover_tax_ratio": 0.7886265074920364
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5383.731544464369,
+          "max_drawdown": -0.1339917047306061,
+          "mean_E_executed": 0.4065713438766457,
+          "mean_deployed_fraction": 0.4070541910913542,
+          "mean_session_turnover": 0.1586478758282166,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5033780039540787,
+          "total_cost_usd": 215.37030095326634,
+          "total_net_return": 0.08259837769880352,
+          "total_tax_usd": 4284.558602133908,
+          "turnover_tax_ratio": 0.8358382779531544
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5895.708915441775,
+          "max_drawdown": -0.14054944356516477,
+          "mean_E_executed": 0.44070600831274237,
+          "mean_deployed_fraction": 0.4411030330485878,
+          "mean_session_turnover": 0.15600156426550457,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6427349199296546,
+          "total_cost_usd": 215.72818475222317,
+          "total_net_return": 0.11658676101759102,
+          "total_tax_usd": 4432.502387801326,
+          "turnover_tax_ratio": 0.7884091021487023
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5384.92987772777,
+          "max_drawdown": -0.13395831114751897,
+          "mean_E_executed": 0.4065182690628189,
+          "mean_deployed_fraction": 0.40700121085708024,
+          "mean_session_turnover": 0.15873168795571374,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5035554831463577,
+          "total_cost_usd": 215.4897903350565,
+          "total_net_return": 0.08263402391030295,
+          "total_tax_usd": 4285.2560315524715,
+          "turnover_tax_ratio": 0.8358039796400593
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5920.748334377551,
+          "max_drawdown": -0.14056701521799012,
+          "mean_E_executed": 0.4398326180697727,
+          "mean_deployed_fraction": 0.4402320020606148,
+          "mean_session_turnover": 0.15568518071553802,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6515619550974703,
+          "total_cost_usd": 215.47092713653774,
+          "total_net_return": 0.1184135662648389,
+          "total_tax_usd": 4438.252248207249,
+          "turnover_tax_ratio": 0.7860025308495118
+        },
+        "profile": "P_D5",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5381.72788953144,
+          "max_drawdown": -0.13420011462762063,
+          "mean_E_executed": 0.4062964886009778,
+          "mean_deployed_fraction": 0.40678038942218725,
+          "mean_session_turnover": 0.1584741595010135,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5023723797629563,
+          "total_cost_usd": 215.09111432935552,
+          "total_net_return": 0.08238563076980898,
+          "total_tax_usd": 4285.110525965127,
+          "turnover_tax_ratio": 0.8362001447617396
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5897.456941836669,
+          "max_drawdown": -0.1405991999474017,
+          "mean_E_executed": 0.4404874236784415,
+          "mean_deployed_fraction": 0.440885842775982,
+          "mean_session_turnover": 0.15595849579781862,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.642177180761233,
+          "total_cost_usd": 215.61572374345616,
+          "total_net_return": 0.11647470404423532,
+          "total_tax_usd": 4435.5618848198965,
+          "turnover_tax_ratio": 0.7886751280145536
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5385.441540926238,
+          "max_drawdown": -0.1339240343484801,
+          "mean_E_executed": 0.4066215943223722,
+          "mean_deployed_fraction": 0.4071044099369776,
+          "mean_session_turnover": 0.15864147991185218,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5037728482164737,
+          "total_cost_usd": 215.3742259516689,
+          "total_net_return": 0.0826783845425203,
+          "total_tax_usd": 4285.40860036961,
+          "turnover_tax_ratio": 0.8357314422815539
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5919.143334835315,
+          "max_drawdown": -0.14057243440953246,
+          "mean_E_executed": 0.44010055629073747,
+          "mean_deployed_fraction": 0.44049979834379976,
+          "mean_session_turnover": 0.1556354033231283,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6513638314794555,
+          "total_cost_usd": 215.39630398857327,
+          "total_net_return": 0.118373090726281,
+          "total_tax_usd": 4437.154960075535,
+          "turnover_tax_ratio": 0.7860176719632611
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5385.441540926238,
+          "max_drawdown": -0.1339240343484801,
+          "mean_E_executed": 0.4066215943223722,
+          "mean_deployed_fraction": 0.4071044099369776,
+          "mean_session_turnover": 0.15864147991185218,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5037728482164737,
+          "total_cost_usd": 215.3742259516689,
+          "total_net_return": 0.0826783845425203,
+          "total_tax_usd": 4285.40860036961,
+          "turnover_tax_ratio": 0.8357314422815539
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5919.143334835315,
+          "max_drawdown": -0.14057243440953246,
+          "mean_E_executed": 0.44010055629073747,
+          "mean_deployed_fraction": 0.44049979834379976,
+          "mean_session_turnover": 0.1556354033231283,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6513638314794555,
+          "total_cost_usd": 215.39630398857327,
+          "total_net_return": 0.118373090726281,
+          "total_tax_usd": 4437.154960075535,
+          "turnover_tax_ratio": 0.7860176719632611
+        },
+        "profile": "P_mid",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4759.538209992371,
+          "max_drawdown": -0.11386203421408166,
+          "mean_E_executed": 0.34015188504048866,
+          "mean_deployed_fraction": 0.3404937953410005,
+          "mean_session_turnover": 0.140233712900432,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5966274094595121,
+          "total_cost_usd": 190.58066750822636,
+          "total_net_return": 0.0888973980317469,
+          "total_tax_usd": 3617.7553835444505,
+          "turnover_tax_ratio": 0.8001482251066498
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5375.313836587199,
+          "max_drawdown": -0.13495668725499263,
+          "mean_E_executed": 0.40450142003578204,
+          "mean_deployed_fraction": 0.40498819399906233,
+          "mean_session_turnover": 0.15817674506489088,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.49756769075552143,
+          "total_cost_usd": 214.51528906637816,
+          "total_net_return": 0.0813366108379967,
+          "total_tax_usd": 4290.496811554252,
+          "turnover_tax_ratio": 0.838092851427048
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5781.768658293019,
+          "max_drawdown": -0.14092558961449525,
+          "mean_E_executed": 0.43634532508700413,
+          "mean_deployed_fraction": 0.43675125912258933,
+          "mean_session_turnover": 0.15527629065415768,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6143225175592454,
+          "total_cost_usd": 214.1532042785921,
+          "total_net_return": 0.10952305094204995,
+          "total_tax_usd": 4395.718808934509,
+          "turnover_tax_ratio": 0.797311737231302
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4759.538209992371,
+          "max_drawdown": -0.11386203421408166,
+          "mean_E_executed": 0.34015188504048866,
+          "mean_deployed_fraction": 0.3404937953410005,
+          "mean_session_turnover": 0.140233712900432,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5966274094595121,
+          "total_cost_usd": 190.58066750822636,
+          "total_net_return": 0.0888973980317469,
+          "total_tax_usd": 3617.7553835444505,
+          "turnover_tax_ratio": 0.8001482251066498
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5375.313836587199,
+          "max_drawdown": -0.13495668725499263,
+          "mean_E_executed": 0.40450142003578204,
+          "mean_deployed_fraction": 0.40498819399906233,
+          "mean_session_turnover": 0.15817674506489088,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.49756769075552143,
+          "total_cost_usd": 214.51528906637816,
+          "total_net_return": 0.0813366108379967,
+          "total_tax_usd": 4290.496811554252,
+          "turnover_tax_ratio": 0.838092851427048
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5781.768658293019,
+          "max_drawdown": -0.14092558961449525,
+          "mean_E_executed": 0.43634532508700413,
+          "mean_deployed_fraction": 0.43675125912258933,
+          "mean_session_turnover": 0.15527629065415768,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6143225175592454,
+          "total_cost_usd": 214.1532042785921,
+          "total_net_return": 0.10952305094204995,
+          "total_tax_usd": 4395.718808934509,
+          "turnover_tax_ratio": 0.797311737231302
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4759.538209992371,
+          "max_drawdown": -0.11386203421408166,
+          "mean_E_executed": 0.34015188504048866,
+          "mean_deployed_fraction": 0.3404937953410005,
+          "mean_session_turnover": 0.140233712900432,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5966274094595121,
+          "total_cost_usd": 190.58066750822636,
+          "total_net_return": 0.0888973980317469,
+          "total_tax_usd": 3617.7553835444505,
+          "turnover_tax_ratio": 0.8001482251066498
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5375.313836587199,
+          "max_drawdown": -0.13495668725499263,
+          "mean_E_executed": 0.40450142003578204,
+          "mean_deployed_fraction": 0.40498819399906233,
+          "mean_session_turnover": 0.15817674506489088,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.49756769075552143,
+          "total_cost_usd": 214.51528906637816,
+          "total_net_return": 0.0813366108379967,
+          "total_tax_usd": 4290.496811554252,
+          "turnover_tax_ratio": 0.838092851427048
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5781.768658293019,
+          "max_drawdown": -0.14092558961449525,
+          "mean_E_executed": 0.43634532508700413,
+          "mean_deployed_fraction": 0.43675125912258933,
+          "mean_session_turnover": 0.15527629065415768,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6143225175592454,
+          "total_cost_usd": 214.1532042785921,
+          "total_net_return": 0.10952305094204995,
+          "total_tax_usd": 4395.718808934509,
+          "turnover_tax_ratio": 0.797311737231302
+        },
+        "profile": "P_derisk",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4731.238033883641,
+          "max_drawdown": -0.11495650561676858,
+          "mean_E_executed": 0.33959358585089805,
+          "mean_deployed_fraction": 0.3399360143821425,
+          "mean_session_turnover": 0.14013238922018387,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.58848940262333,
+          "total_cost_usd": 190.24756735087058,
+          "total_net_return": 0.08740796261608419,
+          "total_tax_usd": 3605.725266540692,
+          "turnover_tax_ratio": 0.8023212543325863
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5367.078458089616,
+          "max_drawdown": -0.13493670846683695,
+          "mean_E_executed": 0.4032626587547439,
+          "mean_deployed_fraction": 0.40374919315472396,
+          "mean_session_turnover": 0.15812528481447236,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.4978147396927926,
+          "total_cost_usd": 214.4451069559336,
+          "total_net_return": 0.08135755991324345,
+          "total_tax_usd": 4282.107460061988,
+          "turnover_tax_ratio": 0.8378026522493666
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.02,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5505.2296399066645,
+          "max_drawdown": -0.137674126652034,
+          "mean_E_executed": 0.42316983117915663,
+          "mean_deployed_fraction": 0.4236067293477665,
+          "mean_session_turnover": 0.15245819449211023,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.5669088712112541,
+          "total_cost_usd": 209.3629785631776,
+          "total_net_return": 0.09629780187164805,
+          "total_tax_usd": 4265.480181316814,
+          "turnover_tax_ratio": 0.8128349683076722
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4731.238033883641,
+          "max_drawdown": -0.11495650561676858,
+          "mean_E_executed": 0.33959358585089805,
+          "mean_deployed_fraction": 0.3399360143821425,
+          "mean_session_turnover": 0.14013238922018387,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.58848940262333,
+          "total_cost_usd": 190.24756735087058,
+          "total_net_return": 0.08740796261608419,
+          "total_tax_usd": 3605.725266540692,
+          "turnover_tax_ratio": 0.8023212543325863
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5366.058404226089,
+          "max_drawdown": -0.1349763306273528,
+          "mean_E_executed": 0.4030919460532186,
+          "mean_deployed_fraction": 0.4035784941973277,
+          "mean_session_turnover": 0.15808202910013958,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.4976277956092284,
+          "total_cost_usd": 214.3796269850016,
+          "total_net_return": 0.08131601346830619,
+          "total_tax_usd": 4281.597433130225,
+          "turnover_tax_ratio": 0.8378546637834539
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.05,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5504.209586043137,
+          "max_drawdown": -0.13771374881254983,
+          "mean_E_executed": 0.42299987472074513,
+          "mean_deployed_fraction": 0.4234367660586584,
+          "mean_session_turnover": 0.15241466741111534,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.566727700489661,
+          "total_cost_usd": 209.2974985922456,
+          "total_net_return": 0.09625625542671301,
+          "total_tax_usd": 4264.9701543850515,
+          "turnover_tax_ratio": 0.8128810473210479
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 4,
+        "metrics": {
+          "gross_usd": 4768.216307911231,
+          "max_drawdown": -0.11341503199832845,
+          "mean_E_executed": 0.3404074708503837,
+          "mean_deployed_fraction": 0.3407489141058617,
+          "mean_session_turnover": 0.1403241954755367,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 78,
+          "sharpe_annual_net": 0.5994280849848035,
+          "total_cost_usd": 190.78283463583656,
+          "total_net_return": 0.0893858739959339,
+          "total_tax_usd": 3621.0046215188686,
+          "turnover_tax_ratio": 0.7994158003759901
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 6,
+        "metrics": {
+          "gross_usd": 5386.661757215442,
+          "max_drawdown": -0.13452290143643655,
+          "mean_E_executed": 0.4044366647504494,
+          "mean_deployed_fraction": 0.404922887262933,
+          "mean_session_turnover": 0.1584512964016612,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 101,
+          "sharpe_annual_net": 0.5014803658146464,
+          "total_cost_usd": 215.00037912702777,
+          "total_net_return": 0.08216769408425173,
+          "total_tax_usd": 4292.467051386924,
+          "turnover_tax_ratio": 0.8367830826719705
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      },
+      {
+        "band": 0.1,
+        "fail_closed_sessions": 0,
+        "k": 8,
+        "metrics": {
+          "gross_usd": 5516.935114845215,
+          "max_drawdown": -0.13752183031191392,
+          "mean_E_executed": 0.42426084720690926,
+          "mean_deployed_fraction": 0.4246953259968279,
+          "mean_session_turnover": 0.15291687575896842,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.5673032780937374,
+          "total_cost_usd": 210.0340867422841,
+          "total_net_return": 0.0963825848453701,
+          "total_tax_usd": 4275.607370257469,
+          "turnover_tax_ratio": 0.8130676478194547
+        },
+        "profile": "P_cons",
+        "sanity_pass": false
+      }
+    ],
+    "stage_ii_kelly": [
+      {
+        "fail_closed_sessions": 0,
+        "lam": 0.3,
+        "metrics": {
+          "gross_usd": 5844.652481412293,
+          "max_drawdown": -0.12608705824335345,
+          "mean_E_executed": 0.41484182032152095,
+          "mean_deployed_fraction": 0.41525719408798295,
+          "mean_session_turnover": 0.15035059598547612,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6135571627019794,
+          "total_cost_usd": 207.52253526738738,
+          "total_net_return": 0.10554105932471347,
+          "total_tax_usd": 4507.840611370474,
+          "turnover_tax_ratio": 0.8067824668163073
+        },
+        "s": 0.0,
+        "sanity_pass": false
+      },
+      {
+        "fail_closed_sessions": 0,
+        "lam": 0.5,
+        "metrics": {
+          "gross_usd": 5775.994510193208,
+          "max_drawdown": -0.1249085058180282,
+          "mean_E_executed": 0.42066186787901577,
+          "mean_deployed_fraction": 0.42105472428372187,
+          "mean_session_turnover": 0.15008443811527405,
+          "no_candidates_sessions": 0,
+          "off_universe_liquidations": 114,
+          "sharpe_annual_net": 0.6031813493674797,
+          "total_cost_usd": 207.52190807692116,
+          "total_net_return": 0.10409657471895994,
+          "total_tax_usd": 4454.639252623409,
+          "turnover_tax_ratio": 0.8071616329400528
+        },
+        "s": 0.0,
+        "sanity_pass": false
+      },
+      {
+        "fail_closed_sessions": 0,
+        "lam": 0.3,
+        "metrics": {
+          "gross_usd": 5202.262709633366,
+          "max_drawdown": -0.12559060312798667,
+          "mean_E_executed": 0.33904794394666277,
+          "mean_deployed_fraction": 0.33939073500227035,
+          "mean_session_turnover": 0.13409401705863927,
+          "no_candidates_sessions": 6,
+          "off_universe_liquidations": 91,
+          "sharpe_annual_net": 0.6333846036817156,
+          "total_cost_usd": 184.90169899988962,
+          "total_net_return": 0.09700697699018535,
+          "total_tax_usd": 3979.386356838466,
+          "turnover_tax_ratio": 0.8004763096886811
+        },
+        "s": 0.1,
+        "sanity_pass": false
+      },
+      {
+        "fail_closed_sessions": 0,
+        "lam": 0.5,
+        "metrics": {
+          "gross_usd": 5428.569288346214,
+          "max_drawdown": -0.1340912023106195,
+          "mean_E_executed": 0.34794262895610417,
+          "mean_deployed_fraction": 0.3483252563979987,
+          "mean_session_turnover": 0.13856291321441205,
+          "no_candidates_sessions": 6,
+          "off_universe_liquidations": 91,
+          "sharpe_annual_net": 0.659095096942911,
+          "total_cost_usd": 190.92255074183794,
+          "total_net_return": 0.10357280446942063,
+          "total_tax_usd": 4129.417729781588,
+          "turnover_tax_ratio": 0.7958524707049645
+        },
+        "s": 0.1,
+        "sanity_pass": false
+      },
+      {
+        "fail_closed_sessions": 0,
+        "lam": 0.3,
+        "metrics": {
+          "gross_usd": 4039.877805230687,
+          "max_drawdown": -0.06964237631666004,
+          "mean_E_executed": 0.21037306474520726,
+          "mean_deployed_fraction": 0.21053837942884518,
+          "mean_session_turnover": 0.09032580697717801,
+          "no_candidates_sessions": 39,
+          "off_universe_liquidations": 64,
+          "sharpe_annual_net": 0.9101852601561496,
+          "total_cost_usd": 127.68305082321052,
+          "total_net_return": 0.11292398494415501,
+          "total_tax_usd": 2703.9081155050144,
+          "turnover_tax_ratio": 0.7009101024446788
+        },
+        "s": 0.2,
+        "sanity_pass": false
+      },
+      {
+        "fail_closed_sessions": 0,
+        "lam": 0.5,
+        "metrics": {
+          "gross_usd": 4141.576450107163,
+          "max_drawdown": -0.07077566524394849,
+          "mean_E_executed": 0.2193527298399541,
+          "mean_deployed_fraction": 0.21953547451839814,
+          "mean_session_turnover": 0.09686801446459033,
+          "no_candidates_sessions": 39,
+          "off_universe_liquidations": 64,
+          "sharpe_annual_net": 0.8442427168507436,
+          "total_cost_usd": 136.36683194744472,
+          "total_net_return": 0.1076835689988207,
+          "total_tax_usd": 2852.99542987231,
+          "turnover_tax_ratio": 0.7217933310738246
+        },
+        "s": 0.2,
+        "sanity_pass": false
+      }
+    ],
+    "stage_iii_voltarget": [
+      {
+        "fail_closed_sessions": 0,
+        "metrics": {
+          "gross_usd": 3731.5810450727963,
+          "max_drawdown": -0.06019774550199038,
+          "mean_E_executed": 0.2057922815873236,
+          "mean_deployed_fraction": 0.20594758796526894,
+          "mean_session_turnover": 0.09323508711477384,
+          "no_candidates_sessions": 39,
+          "off_universe_liquidations": 64,
+          "sharpe_annual_net": 0.83240922875124,
+          "total_cost_usd": 130.77572878797926,
+          "total_net_return": 0.09842955373109308,
+          "total_tax_usd": 2547.6090913621224,
+          "turnover_tax_ratio": 0.7177613959870062
+        },
+        "sanity_pass": false,
+        "sigma_target": 0.12
+      },
+      {
+        "fail_closed_sessions": 0,
+        "metrics": {
+          "gross_usd": 3904.9988004381808,
+          "max_drawdown": -0.06652482569683828,
+          "mean_E_executed": 0.21862248114686275,
+          "mean_deployed_fraction": 0.21877278946719794,
+          "mean_session_turnover": 0.09555792231615888,
+          "no_candidates_sessions": 39,
+          "off_universe_liquidations": 64,
+          "sharpe_annual_net": 0.9096144136386238,
+          "total_cost_usd": 134.74062196048177,
+          "total_net_return": 0.11405138665126224,
+          "total_tax_usd": 2549.9083413091935,
+          "turnover_tax_ratio": 0.6874903426265919
+        },
+        "sanity_pass": false,
+        "sigma_target": 0.15
+      },
+      {
+        "fail_closed_sessions": 0,
+        "metrics": {
+          "gross_usd": 3987.6513156111328,
+          "max_drawdown": -0.06935327009689489,
+          "mean_E_executed": 0.22288893073838137,
+          "mean_deployed_fraction": 0.2230391742733549,
+          "mean_session_turnover": 0.09631684796525072,
+          "no_candidates_sessions": 39,
+          "off_universe_liquidations": 64,
+          "sharpe_annual_net": 0.9251719421919038,
+          "total_cost_usd": 136.04942599042334,
+          "total_net_return": 0.11886867069100204,
+          "total_tax_usd": 2579.7071132270135,
+          "turnover_tax_ratio": 0.6810416268307126
+        },
+        "sanity_pass": false,
+        "sigma_target": 0.18
+      }
+    ]
+  },
+  "runtime_seconds": 1.27,
+  "selection_criterion": "max net annualized Sharpe on tuning subset s.t. |MDD|<=0.30 and turnover-tax ratio<=0.50; ties: total net return desc, turnover asc; if no config passes, best Sharpe chosen and flagged"
+}
