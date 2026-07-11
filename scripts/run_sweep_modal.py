@@ -10,14 +10,22 @@ the cloud executor pipeline:
 
 Usage::
 
-    # Preflight check (no execution)
-    python scripts/run_sweep_modal.py --preflight
+    # 1. Capture the CURRENT plan as a pre-registration manifest for
+    #    operator approval (local only — makes NO Modal calls)
+    python scripts/run_sweep_modal.py \
+        --write-workload-manifest sweep_workload.json --region us-east
 
-    # Execute full 75-variant sweep on Modal
-    python scripts/run_sweep_modal.py --execute
+    # 2. Preflight against the approved manifest + operator-approved cap
+    python scripts/run_sweep_modal.py --preflight \
+        --workload-manifest sweep_workload.json --approved-cost-cap-usd 5.00
+
+    # 3. Execute (dispatch aborts on ANY deviation from the manifest)
+    python scripts/run_sweep_modal.py --execute \
+        --workload-manifest sweep_workload.json --approved-cost-cap-usd 5.00
 
     # Resume a crashed/interrupted sweep
-    python scripts/run_sweep_modal.py --execute --resume <sweep_id>
+    python scripts/run_sweep_modal.py --execute --resume <sweep_id> \
+        --workload-manifest sweep_workload.json --approved-cost-cap-usd 5.00
 """
 from __future__ import annotations
 
@@ -29,13 +37,62 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from renquant_orchestrator.cloud.executor import BacktestRequest
+from renquant_orchestrator.cloud.modal_executor import (
+    HARD_COST_SAFETY_GATE_USD,
+    WorkloadManifest,
+    WorkloadManifestError,
+    write_workload_manifest,
+)
 
 from renquant_orchestrator.runtime_paths import default_repo_root
+
+
+def build_backtest_request(
+    v: Any,
+    *,
+    strat_dir: Path,
+    manifest_path: str,
+    start: str,
+    end: str,
+    initial_cash: float,
+    volume_commit_id: str | None,
+    incumbent_turnover: float | None = None,
+) -> BacktestRequest:
+    """Build the exact BacktestRequest a variant dispatches with.
+
+    Module-level (not a run_sweep closure) so the pre-registration manifest
+    writer fingerprints the IDENTICAL config_json bytes that execution will
+    later produce — one code path, no parallel reimplementation to drift.
+    """
+    config = json.loads(v.config_path.read_text())
+    config["_strategy_dir"] = str(strat_dir)
+    config["initial_cash"] = float(initial_cash)
+    config["backtest_start"] = start
+    config["backtest_end"] = end
+    config["persistence"] = {"enabled": False}
+    config.setdefault("data_freshness", {})["enabled"] = False
+    if manifest_path:
+        wf = config.setdefault("walkforward", {})
+        wf["enabled"] = True
+        wf["manifest_path"] = manifest_path
+        wf.setdefault("fail_on_no_model", True)
+
+    return BacktestRequest(
+        variant_name=v.name,
+        role=v.role,
+        config_json=json.dumps(config),
+        volume_commit_id=volume_commit_id,
+        seeds=list(v.seeds),
+        start=start,
+        end=end,
+        initial_cash=initial_cash,
+        incumbent_turnover=incumbent_turnover,
+    )
 
 
 def run_sweep(
@@ -52,6 +109,7 @@ def run_sweep(
     start: str,
     end: str,
     initial_cash: float,
+    preflight_report: Any | None = None,
 ) -> dict[str, Any]:
     """Run incumbent + candidates + A/A resplit through `executor`, persist
     every result to `store`, then compute and store unanimity verdicts.
@@ -61,33 +119,28 @@ def run_sweep(
     unit-testing each piece (ResultStore, executor, verdict math) in
     isolation — which is exactly what let the original CLI/store API
     mismatch go undetected.
+
+    ``preflight_report`` (a ModalPreflightReport) is threaded through to
+    every execute_batch call — ModalExecutor refuses to dispatch without a
+    passing report carrying the operator-approved cost cap + workload
+    manifest. Executors that don't take it (local/fake) are called without.
     """
     sys.path.insert(0, str(strat_dir.parent.parent / "scripts"))
     from run_concentration_cap_sweep import AA_MAX_ABS_SHARPE_LIFT, _mean, unanimity_verdict
 
-    def variant_to_request(v, incumbent_turnover=None):
-        config = json.loads(v.config_path.read_text())
-        config["_strategy_dir"] = str(strat_dir)
-        config["initial_cash"] = float(initial_cash)
-        config["backtest_start"] = start
-        config["backtest_end"] = end
-        config["persistence"] = {"enabled": False}
-        config.setdefault("data_freshness", {})["enabled"] = False
-        if manifest_path:
-            wf = config.setdefault("walkforward", {})
-            wf["enabled"] = True
-            wf["manifest_path"] = manifest_path
-            wf.setdefault("fail_on_no_model", True)
+    dispatch_kwargs: dict[str, Any] = {}
+    if preflight_report is not None:
+        dispatch_kwargs["preflight"] = preflight_report
 
-        return BacktestRequest(
-            variant_name=v.name,
-            role=v.role,
-            config_json=json.dumps(config),
-            volume_commit_id=data_manifest.commit_id,
-            seeds=list(v.seeds),
+    def variant_to_request(v, incumbent_turnover=None):
+        return build_backtest_request(
+            v,
+            strat_dir=strat_dir,
+            manifest_path=manifest_path,
             start=start,
             end=end,
             initial_cash=initial_cash,
+            volume_commit_id=data_manifest.commit_id,
             incumbent_turnover=incumbent_turnover,
         )
 
@@ -123,6 +176,7 @@ def run_sweep(
             [variant_to_request(incumbent)],
             on_result=persist,
             on_error=lambda n, e: print(f"  INCUMBENT FAILED: {e}"),
+            **dispatch_kwargs,
         )
         inc_result = all_results.get(incumbent.name)
         if inc_result is not None:
@@ -163,7 +217,9 @@ def run_sweep(
         print(f"  [{n_done}/{len(requests)}] {name} FAILED: {exc}")
 
     t0 = time.monotonic()
-    summary = executor.execute_batch(requests, on_result=on_result, on_error=on_error)
+    summary = executor.execute_batch(
+        requests, on_result=on_result, on_error=on_error, **dispatch_kwargs
+    )
     wall = time.monotonic() - t0
 
     print(f"\nDone: {summary.n_completed} completed, {summary.n_failed} failed")
@@ -381,7 +437,85 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--max-variants", type=int, default=None,
                         help="Limit total variants (incumbent + N-1 candidates) for smoke testing")
+    parser.add_argument(
+        "--write-workload-manifest", default=None, metavar="PATH",
+        help="Capture the CURRENT plan (exact variant identifiers, per-variant "
+             "config fingerprints, seed values, bundle/volume/data fingerprints, "
+             "data interval, region, image identity) into a pre-registration "
+             "manifest JSON for operator approval, then exit. Makes NO Modal "
+             "calls. Cannot be combined with --preflight/--execute.")
+    parser.add_argument(
+        "--workload-manifest", default=None, metavar="PATH",
+        help="Path to the operator-APPROVED pre-registration manifest "
+             "(REQUIRED for --preflight/--execute/dry-run; any deviation of "
+             "the actual workload from it aborts before dispatch).")
+    parser.add_argument(
+        "--approved-cost-cap-usd", type=float, default=None,
+        help="Explicit operator-approved spend cap in USD (REQUIRED for "
+             f"--preflight/--execute/dry-run; enforced as min(hard "
+             f"${HARD_COST_SAFETY_GATE_USD:.0f} safety gate, this cap) — "
+             "there is no cap-less path).")
+    parser.add_argument(
+        "--region", default=None,
+        help="Modal region to pin (REQUIRED with --write-workload-manifest; "
+             "otherwise defaults to the approved manifest's recorded region).")
     args = parser.parse_args(argv)
+
+    if args.write_workload_manifest:
+        if args.execute or args.preflight:
+            parser.error("--write-workload-manifest captures a plan for "
+                         "operator approval; it cannot be combined with "
+                         "--preflight/--execute")
+        if not args.region:
+            parser.error("--region is required with --write-workload-manifest "
+                         "— an unknown region is an abort condition, not a "
+                         "post-hoc note")
+    else:
+        if not args.workload_manifest:
+            parser.error("--workload-manifest is required (generate one for "
+                         "operator approval with --write-workload-manifest)")
+        if args.approved_cost_cap_usd is None:
+            parser.error("--approved-cost-cap-usd is required — pass the "
+                         "explicit operator-approved spend cap; there is no "
+                         "default and no fallback to the fixed safety gate")
+
+    if args.execute:
+        # Codex round-2 review of #463 (2026-07-11T04:20:37Z): the spend
+        # cap + workload manifest here are still self-service — any caller
+        # with Modal credentials can write a manifest, choose a cap, pass
+        # preflight, and dispatch. That does not meet the standing rule
+        # that an agent cannot self-authorize a Modal run. --execute is
+        # unconditionally disabled, before any bundling/staging/sync work,
+        # until BOTH controls named in doc/design/2026-07-11-modal-bounded-
+        # run-experiment-plan.md's BLOCKING PREREQUISITE exist: (1) an
+        # independently verifiable, cryptographically signed operator-
+        # authorization artifact (binding manifest sha256, approved cap,
+        # expiry, run scope, and signer identity, verified against a key
+        # this process cannot access) and (2) an enforced no-live/deploy
+        # assertion. Neither exists yet.
+        print(
+            "\nERROR: --execute is disabled. Operator authorization "
+            "(a signed approval artifact this process cannot forge) and "
+            "the no-live/deploy assertion are not yet implemented — see "
+            "doc/design/2026-07-11-modal-bounded-run-experiment-plan.md "
+            "and the #463 review. No code path in this script may reach "
+            "Modal (bundling, data sync, or dispatch) while --execute is "
+            "requested. Use --preflight to validate locally, or "
+            "--write-workload-manifest to capture a plan for operator "
+            "review."
+        )
+        return 1
+
+    workload: WorkloadManifest | None = None
+    if not args.write_workload_manifest:
+        try:
+            workload = WorkloadManifest.load(args.workload_manifest)
+        except (OSError, WorkloadManifestError) as exc:
+            print(f"ERROR: workload manifest rejected: {exc}")
+            return 1
+        print(f"Loaded workload manifest {args.workload_manifest} "
+              f"(sha256={workload.sha256[:12]}, {len(workload.variants)} "
+              f"variants, region={workload.region})")
 
     repo_root = default_repo_root()
     strat_dir = repo_root / "backtesting" / "renquant_104"
@@ -396,6 +530,23 @@ def main(argv: list[str] | None = None) -> int:
     manifest_abs_path = strat_dir / args.manifest_path
     if not manifest_abs_path.exists():
         print(f"ERROR: walkforward manifest not found: {manifest_abs_path}")
+        return 1
+
+    # Model/WF-artifact provenance leg (distinct from bundle_fp, which is the
+    # *source-code* bundle fingerprint — see doc/design/2026-07-07-cloud-
+    # backtest-compute.md §7's pinned-multirepo-assembly contract).
+    artifact_manifest_fingerprint = hashlib.sha256(
+        manifest_abs_path.read_bytes()
+    ).hexdigest()
+    if workload is not None and (
+        artifact_manifest_fingerprint != workload.artifact_manifest_sha256
+    ):
+        print("ERROR: walk-forward artifact manifest fingerprint "
+              f"{artifact_manifest_fingerprint[:12]} differs from the "
+              f"pre-registered {workload.artifact_manifest_sha256[:12]} — "
+              "the model artifacts changed since the operator approved this "
+              "workload. Re-capture with --write-workload-manifest and get "
+              "fresh approval.")
         return 1
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -419,6 +570,28 @@ def main(argv: list[str] | None = None) -> int:
 
     subrepo_root = bootstrap_subrepo_imports(repo_root)
 
+    def build_plan_variants(plan_output_dir: Path):
+        """Grid + A/A variants for the CURRENT plan — one code path shared
+        by capture (--write-workload-manifest) and execution, so the
+        pre-registered identities are computed exactly like the dispatched
+        ones."""
+        gv = build_grid_variants(
+            base_config_path=base_config_path, output_dir=plan_output_dir,
+            seeds=FROZEN_SEEDS,
+        )
+        if args.max_variants is not None:
+            incumbent = next(v for v in gv if v.role == "incumbent")
+            candidates = [v for v in gv if v.role == "candidate"]
+            n_cand = max(0, args.max_variants - 1)
+            gv = [incumbent] + candidates[:n_cand]
+            print(f"  Smoke mode: limited to {len(gv)} variants "
+                  f"(incumbent + {n_cand} candidates)")
+        aa = build_aa_variant(
+            base_config_path=base_config_path, output_dir=plan_output_dir,
+            seeds=FROZEN_SEEDS,
+        )
+        return gv, aa
+
     # ── Step 1: Bundle subrepo source ──
     print("Step 1: Bundling subrepo source code...")
     from renquant_orchestrator.cloud.bundle import bundle_subrepos, compute_bundle_fingerprint
@@ -436,6 +609,10 @@ def main(argv: list[str] | None = None) -> int:
         bundle_dir=str(bundle_dir),
         volume_name=args.volume_name,
         timeout=args.timeout,
+        # The pre-registered region governs; an explicit --region that
+        # disagrees with the approved manifest fails preflight's
+        # region_pinned check rather than silently winning.
+        region=args.region or (workload.region if workload else None),
     )
 
     ohlcv_dir = repo_root / "data" / "ohlcv"
@@ -515,10 +692,81 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Data contract PASSED: {len(contract.checks)} checks, "
           f"0 failures")
 
-    # ── Step 4: Sync to Modal Volume ──
-    print("Step 4: Syncing data to Modal Volume...")
-    data_manifest = executor.sync_data(local_paths)
-    print(f"  Volume commit={data_manifest.commit_id}, "
+    if args.write_workload_manifest:
+        # ── Capture mode: pre-register the CURRENT plan. NO Modal calls —
+        # the volume commit id is content-coupled (sync_data computes it
+        # from local content, not from a Modal API response), so it can be
+        # pinned before anything is uploaded. ──
+        from renquant_orchestrator.cloud.sync_data import (
+            build_local_manifest,
+            compute_manifest_commit_id,
+        )
+
+        local_manifest, _sources = build_local_manifest(
+            {k: Path(v) for k, v in local_paths.items()}
+        )
+        volume_commit = compute_manifest_commit_id(local_manifest)
+        data_manifest_sha = hashlib.sha256(
+            json.dumps(local_manifest, sort_keys=True).encode()
+        ).hexdigest()
+
+        grid_variants, aa_variant = build_plan_variants(output_dir)
+        variants_payload = []
+        for v in grid_variants + [aa_variant]:
+            req = build_backtest_request(
+                v,
+                strat_dir=strat_dir,
+                manifest_path=args.manifest_path,
+                start=args.start,
+                end=args.end,
+                initial_cash=args.initial_cash,
+                volume_commit_id=volume_commit,
+            )
+            variants_payload.append({
+                "name": v.name,
+                "role": v.role,
+                "config_sha256": hashlib.sha256(
+                    req.config_json.encode()
+                ).hexdigest(),
+                "seeds": list(v.seeds),
+            })
+
+        manifest_obj = write_workload_manifest(
+            args.write_workload_manifest,
+            region=args.region,
+            volume_name=args.volume_name,
+            volume_commit_id=volume_commit,
+            data_manifest_sha256=data_manifest_sha,
+            bundle_fingerprint=bundle_fp,
+            artifact_manifest_sha256=artifact_manifest_fingerprint,
+            start=args.start,
+            end=args.end,
+            variants=variants_payload,
+        )
+        print(f"\nWorkload manifest written: {args.write_workload_manifest}")
+        print(f"  sha256={manifest_obj.sha256}")
+        print(f"  {len(manifest_obj.variants)} variants, "
+              f"region={manifest_obj.region}, "
+              f"volume_commit={manifest_obj.volume_commit_id[:12]}")
+        print("  Submit for operator approval. --execute requires "
+              "--workload-manifest pointing at the APPROVED file; any drift "
+              "(code bundle, data content, variant configs, seeds) aborts "
+              "before dispatch.")
+        return 0
+
+    # ── Step 4: Compute data manifest — LOCAL ONLY, no Modal calls ──
+    # --execute is unconditionally blocked above (before this point is ever
+    # reached), so nothing downstream may need a real Modal Volume upload;
+    # local_data_manifest() produces a byte-identical DataManifest (same
+    # commit_id/files/total_bytes a real sync would) without importing
+    # `modal` at all — see its docstring in cloud/sync_data.py.
+    print("Step 4: Computing local data manifest (no Modal calls)...")
+    from renquant_orchestrator.cloud.sync_data import local_data_manifest
+
+    data_manifest, _local_sources = local_data_manifest(
+        {k: Path(v) for k, v in local_paths.items()}
+    )
+    print(f"  Content commit={data_manifest.commit_id}, "
           f"{len(data_manifest.files)} files, "
           f"{data_manifest.total_bytes / 1e6:.1f} MB")
 
@@ -532,11 +780,20 @@ def main(argv: list[str] | None = None) -> int:
         data_manifest,
         n_variants=n_variants_planned,
         n_seeds_per_variant=len(FROZEN_SEEDS),
+        approved_cost_cap_usd=args.approved_cost_cap_usd,
+        workload_manifest=workload,
     )
     for check, passed in report.checks.items():
         status = "PASS" if passed else "FAIL"
         detail = report.details.get(check, "")
         print(f"  [{status}] {check}" + (f" — {detail}" if detail else ""))
+    if report.approval is not None:
+        a = report.approval
+        print(f"  Spend gate: projected ${a.projected_cost_usd:.2f} < "
+              f"effective ${a.effective_cost_gate_usd:.2f} = min(hard "
+              f"${HARD_COST_SAFETY_GATE_USD:.2f}, approved cap "
+              f"${a.approved_cost_cap_usd:.2f})")
+        print(f"  Workload manifest sha256={a.workload_manifest_sha256}")
 
     if not report.passed:
         print("\nPreflight FAILED — fix the above issues and re-run.")
@@ -546,25 +803,20 @@ def main(argv: list[str] | None = None) -> int:
         print("\nPreflight passed. Add --execute to run the sweep.")
         return 0
 
+    # args.execute is unconditionally rejected earlier in this function,
+    # before any bundling/staging/sync work — this `if` is a structural
+    # backstop, not the primary guard, kept as a normal conditional (not a
+    # bare assert) so a future PR re-enabling --execute only has to change
+    # the single early block above, and so this branch stays reachable to
+    # static analysis rather than reading as dead code.
     if not args.execute:
-        print("\nDry run complete. Add --execute to run, or --preflight to check only.")
+        print("\nDry run complete. --execute is currently disabled (see "
+              "above); use --preflight to validate only.")
         return 0
 
     # ── Step 6: Build variant grid ──
     print("Step 6: Building variant grid...")
-    grid_variants = build_grid_variants(
-        base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
-    )
-    if args.max_variants is not None:
-        incumbent = next(v for v in grid_variants if v.role == "incumbent")
-        candidates = [v for v in grid_variants if v.role == "candidate"]
-        n_cand = max(0, args.max_variants - 1)
-        grid_variants = [incumbent] + candidates[:n_cand]
-        print(f"  Smoke mode: limited to {len(grid_variants)} variants "
-              f"(incumbent + {n_cand} candidates)")
-    aa_variant = build_aa_variant(
-        base_config_path=base_config_path, output_dir=output_dir, seeds=FROZEN_SEEDS,
-    )
+    grid_variants, aa_variant = build_plan_variants(output_dir)
     placebo = load_placebo_evidence(args.placebo_json)
     variant_by_name = {v.name: v for v in grid_variants}
     variant_by_name[aa_variant.name] = aa_variant
@@ -578,12 +830,6 @@ def main(argv: list[str] | None = None) -> int:
     subrepo_pins = _collect_subrepo_pins(subrepo_root)
     subrepo_pins_sha = hashlib.sha256(
         json.dumps(subrepo_pins, sort_keys=True).encode()
-    ).hexdigest()
-    # Model/WF-artifact provenance leg (distinct from bundle_fp, which is the
-    # *source-code* bundle fingerprint — see doc/design/2026-07-07-cloud-
-    # backtest-compute.md §7's pinned-multirepo-assembly contract).
-    artifact_manifest_fingerprint = hashlib.sha256(
-        manifest_abs_path.read_bytes()
     ).hexdigest()
 
     store.init_sweep(
@@ -606,6 +852,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"  sweep_id={sweep_id}, db={store._db_path}")
 
+    # Immutable dispatch-approval evidence stamped into the run outputs:
+    # the approved cap + workload manifest sha this run was gated on.
+    approval = report.approval
+    approval_evidence = {
+        "stamped_at": datetime.now(timezone.utc).isoformat(),
+        "sweep_id": sweep_id,
+        "workload_manifest_path": str(Path(args.workload_manifest).resolve()),
+        "workload_manifest_sha256": approval.workload_manifest_sha256,
+        "approved_cost_cap_usd": approval.approved_cost_cap_usd,
+        "effective_cost_gate_usd": approval.effective_cost_gate_usd,
+        "hard_cost_safety_gate_usd": HARD_COST_SAFETY_GATE_USD,
+        "projected_cost_usd": approval.projected_cost_usd,
+        "n_pods": approval.n_pods,
+        "region": workload.region,
+        "volume_commit": data_manifest.commit_id,
+        "preflight_checks": report.checks,
+        "preflight_issued_at": approval.issued_at,
+    }
+    approval_path = store.base / "dispatch_approval.json"
+    approval_path.write_text(
+        json.dumps(approval_evidence, indent=2, sort_keys=True) + "\n"
+    )
+    print(f"  Dispatch approval evidence: {approval_path}")
+
     run_sweep(
         executor=executor,
         store=store,
@@ -619,6 +889,7 @@ def main(argv: list[str] | None = None) -> int:
         start=args.start,
         end=args.end,
         initial_cash=args.initial_cash,
+        preflight_report=report,
     )
 
     print(f"\nResults persisted to {store._db_path}")
