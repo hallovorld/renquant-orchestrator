@@ -1,6 +1,11 @@
 # Design (F4): Regime-scoped consequences for freshness-override promotions
 
-STATUS: **design for review — operator decision required at merge.** This document
+STATUS: **DISCUSSION DRAFT — not merge-ready. Requires an actual operator
+decision (§6) before this document may be finalized or any implementation PR
+opened.** Codex review (2026-07-11): correct design location and
+disclosure-first staging, but do not treat this as awaiting only a Codex
+approval — the operator decision is the actual gate, not a formality. This
+document
 AMENDS the operator's recorded 2026-06-30 model-freshness directive ("freshness >
 strict gate; if a fresh retrain fails its gate, use the best model from the last
 10 days" — RFC #210 lineage, `doc/design/2026-06-30-model-freshness-governance.md`).
@@ -21,16 +26,26 @@ live artifact's `wf_gate_metadata`, sealed in hallovorld/renquant-artifacts#19):
     was **inverted: −13.7pp** (top-ranked entries UNDERPERFORMED bottom-ranked),
   - `manual_override = true`, promoted **2026-07-06**.
 - Four days later (2026-07-10) the META misread — the model held a top-decile-fading
-  score on META through a +12% week — happened **exactly in BULL_CALM**, the one
-  regime its own gate metadata had flagged as failing on BOTH the regime-IC and
-  monotonicity axes (PR #475/#476 forensics).
+  score on META through a +12% week — **coincided with a BULL_CALM session**, the
+  one regime its own gate metadata had flagged as failing on BOTH the regime-IC and
+  monotonicity axes (PR #475/#476 forensics). **This is an observed temporal/regime
+  association, not a demonstrated causal mechanism** — PR #476 is explicit that
+  whether the gate's BULL_CALM failure and this specific misread share a common
+  cause (vs. coincidence, vs. a distinct confound) remains an open, unvalidated
+  hypothesis (H2/H3 in that PR), not an established fact. Nothing in this document
+  depends on the causal link being true: the argument below rests only on the
+  independently-verified fact that the gate NAMED this regime as failing before
+  promotion, and the override discarded that information regardless of whether it
+  turns out to be causally load-bearing.
 
 The gate did its job: it named the failing regimes before promotion. The 06-30
 policy, as written, then promoted the model **for all regimes uniformly** — the
-override discarded exactly the per-regime information the gate had produced. This
-is not an argument against the override (staleness is still the more certain risk,
-per RFC #210 §1); it is an argument that an override should not silently grant a
-gate-FAILING model full authority in the regimes where it demonstrably failed.
+override discarded exactly the per-regime information the gate had produced,
+independent of whether that discarded information turns out to have been
+predictive of this specific incident. This is not an argument against the
+override (staleness is still the more certain risk, per RFC #210 §1); it is an
+argument that an override should not silently grant a gate-FAILING model full
+authority in the regimes where it demonstrably failed a validation check.
 
 ## 2. Principle
 
@@ -119,7 +134,9 @@ config at decision time.
 - Disclosure is NOT a selectable level — it is the floor under B and A too:
   whatever consequence is configured, the block + marker are always emitted.
 
-**Option B — reduced buy budget.**
+**Option B — reduced buy budget.** May not go live off this document alone —
+contingent on a separately approved, preregistered shadow evaluation (§4);
+exits are never touched during that evaluation or afterward.
 - In a degraded regime, the buy-side deployment budget is multiplied by
   `budget_factor` (default **0.5**, range (0,1]) INSIDE the existing governor
   sizing step — i.e. effectively `e_ceil_by_regime[regime] × budget_factor` for
@@ -181,8 +198,19 @@ config at decision time.
 |---|---|---|
 | 0 | Stamp only (§3.1) — promotion tooling writes `override_consequences`; no consumer | stamp visible on next override; consistency check in CI |
 | 1 | Option C disclosure (observe-only): pipeline ctx block + orchestrator bundle/ntfy rendering | ≥1 override soak; operator confirms marker fidelity (no false OVERRIDE-DEGRADED on gate-passing models) |
-| 2 | Option B, shadow-first: governor logs the would-be budget haircut for ≥5 degraded-regime sessions without applying it; then live with `budget_factor=0.5` | operator sign-off on shadow log; pre-registered rollback trigger: revert to `disclose` if degraded-regime sessions show the haircut binding against subsequently-validated winners |
-| 3 | Option A — separate design PR (availability audit + fingerprint-parity plan required) | operator decision; not scheduled by this document |
+| 2 | Option B — **contingent on a separately approved, preregistered shadow evaluation** (see below), NOT on an ad hoc session count | operator sign-off on the preregistered evaluation's protocol BEFORE shadow logging begins, then a second operator sign-off on the shadow results before `budget_factor` is ever applied live |
+| 3 | Option A — separate design PR (availability audit + fingerprint-parity plan required), itself contingent on its own separately approved, preregistered shadow evaluation | operator decision; not scheduled by this document |
+
+**Neither B nor A may go live off this document alone.** Each requires its own
+preregistered evaluation protocol (predeclared: minimum degraded-regime session
+count, the exact comparison metric — e.g. degraded-regime realized return with
+vs. without the haircut/demote applied in shadow — and an explicit stop/rollback
+rule), approved by the operator BEFORE shadow logging starts. "≥5 sessions" is
+illustrative only; the real minimum is whatever the approved protocol specifies,
+and shadow logging that runs before an operator has approved the protocol does
+not count toward it. **Exits are never touched by any stage, including during
+the shadow-evaluation period itself** — the shadow log observes buy-side
+scoring/sizing counterfactuals only (§2, hard invariant 1).
 
 Each stage is independently revertible by config (`consequence` downgrade or
 `enabled=false`); no stage touches exits at any point.
