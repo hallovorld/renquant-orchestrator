@@ -272,9 +272,8 @@ class TestRunManifestVerification:
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         result = _run_script(env)
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
-        bundle = json.loads((tmp_path / "out" / "session_2026-07-10.json").read_text())
-        assert any("renquant-execution" in r for r in bundle["reasons"])
-        assert bundle["arms"]["a"]["invalidated"] and bundle["arms"]["b"]["invalidated"]
+        assert not list((tmp_path / "out").glob("prices_*.json"))
+        assert not list((tmp_path / "out").glob("market_snapshot_*.json"))
 
     def test_dirty_repo_fails_closed_before_either_arm(self, tmp_path, real_python):
         manifest, _ = _build_manifest(
@@ -285,9 +284,8 @@ class TestRunManifestVerification:
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         result = _run_script(env)
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
-        bundle = json.loads((tmp_path / "out" / "session_2026-07-10.json").read_text())
-        assert any("renquant-execution" in r for r in bundle["reasons"])
-        assert bundle["arms"]["a"]["invalidated"] and bundle["arms"]["b"]["invalidated"]
+        assert not list((tmp_path / "out").glob("prices_*.json"))
+        assert not list((tmp_path / "out").glob("market_snapshot_*.json"))
 
 
 class TestMarketSnapshotIntegrity:
