@@ -1,9 +1,21 @@
 # PR #106 model-capability roadmap — completion audit + cross-stock attention verdict
 
-STATUS: research audit (GOAL-7a). Freeze-first: §5 (pilot pre-registration) is committed
-BEFORE the pilot runs; results land in a later commit on this branch (verifiable in commit
+STATUS: research audit (GOAL-7a). Freeze-first: §5 (run pre-registration) is committed
+BEFORE the runs; results land in a later commit on this branch (verifiable in commit
 order, same convention as `doc/research/2026-07-03-msig-c4-trendscan.md`).
-DATE: 2026-07-10.
+DATE: 2026-07-10 (r1); r2 2026-07-11 (Codex CHANGES_REQUESTED, 4 objections accepted:
+(1) seeds 44/45 were pre-known-positive from #126 → the run is reclassified throughout as
+a **TARGETED CONFIRMATION**, never a fresh replication, and a deterministic independent
+seed-selection rule is preregistered in §5a; (2) evidence moved out of the session
+scratchpad into a sealed content-addressed bundle in renquant-artifacts (PR #14, commit
+`82ad63ee8`, `store://experiments/xstock-pilot-20260711/RUN-LOCK.json`, fingerprint
+`sha256:86b06dec…` — cited from §7); (3) input/code identity rebound to pinned artifacts
+and exact commits, with the umbrella-path consumption recorded as a limitation of THIS run
+rather than rewritten (§5, RUN-LOCK.json `code_identity`/`inputs`); (4) §6's "≥8 weekly
+pairs" replaced with a defined analysis protocol — fixed window, overlap treatment,
+no-peeking rule, forward-data OOS gate named precisely — plus the plain statement that
+the n=2 result justifies NO live or shadow promotion. Frozen §5 parameters are unchanged;
+r2 edits are annotations and reclassifications, with r1 preserved in branch history.)
 SCOPE: audit every actionable lead in merged orchestrator PR #106
 (`research: model capability roadmap`, merged 2026-06-12; body deleted from main in the
 2026-06-16 consolidation c5506281 — final text incl. the post-merge errata recoverable at
@@ -36,13 +48,16 @@ it honestly.
    outcome — and PatchTST is currently the **shadow**, not the primary (`kind: xgb` in the
    pinned `strategy_config.json`; shadow pin = `pt07_strict_trainfit_embargo60_20260522/
    seed_44`, cross_stock=False) `[VERIFIED — renquant-strategy-104/configs]`.
-4. **The executable remnant is cheap and is executed here:** a frozen 2-seed paired pilot
-   on the CURRENT corpus vintage under the exact weekly-rail recipe (§5, ~15–40 min/run,
-   local MPS, scratch outputs only), plus a pre-registered **weekly-rail ride-along spec**
-   (§6) that adds the paired cross-stock arm to the already-scheduled PatchTST weekly
-   retrain at near-zero marginal cost — promotion authority stays exactly where it is
-   (validated served-pin promote + production WF gate + scorer-lineup reopen triggers).
-   Pilot results: §7.
+4. **The executable remnant is cheap and is executed here:** a frozen 2-seed paired
+   **targeted confirmation** on the CURRENT corpus vintage under the exact weekly-rail
+   recipe (§5 — r2: seeds 44/45 are pre-known-positive from #126, so this tests
+   vintage-robustness only, never seed-generalization), plus a pre-registered
+   **weekly-rail ride-along spec with a defined analysis protocol** (§6/§6a: fixed
+   16-week window, forward-data-only confirmatory estimand, no-peeking rule, deterministic
+   independent-seed secondary set, named OOS gate) — promotion authority stays exactly
+   where it is (validated served-pin promote + production WF gate + scorer-lineup reopen
+   triggers), and **the n=2 result justifies NO live or shadow promotion**. Results +
+   sealed evidence bundle (renquant-artifacts PR #14): §7.
 
 Decision needed from operator/Codex: none to trade — this PR changes no production path.
 Approve/deny the §6 ride-along wiring as a follow-up implementation PR.
@@ -53,7 +68,7 @@ Approve/deny the §6 ride-along wiring as a follow-up implementation PR.
 
 | # | #106 lead | Claim then | Status TODAY (verified) |
 |---|---|---|---|
-| 1.1 | **Cross-stock attention** (`--cross-stock-attn`, `HFPatchTSTRanker`) | "highest-variance structural lead", DOE max 0.2035; errata: mean +0.0507, 12/25 neg | Flag exists and is live code (`renquant-model src/renquant_model_patchtst/hf_trainer.py:222,814`; orchestrator `build_patchtst_wf_manifest.py` passes it through). Evidence chain in §2: refuted as headline; suggestive-but-unresolved as a paired delta; parked by 2026-06-23 roadmap re-scope. **This memo completes it** (pilot §5/§7 + ride-along §6). |
+| 1.1 | **Cross-stock attention** (`--cross-stock-attn`, `HFPatchTSTRanker`) | "highest-variance structural lead", DOE max 0.2035; errata: mean +0.0507, 12/25 neg | Flag exists and is live code (`renquant-model src/renquant_model_patchtst/hf_trainer.py:222,814`; orchestrator `build_patchtst_wf_manifest.py` passes it through). Evidence chain in §2: refuted as headline; suggestive-but-unresolved as a paired delta; parked by 2026-06-23 roadmap re-scope. **This memo completes it** (targeted confirmation §5/§7 + ride-along protocol §6/§6a). |
 | 1.2 | **Scale sweep** (0.07M params, d_model/layers/seq_len grid, "~26-min trains") | pre-register 6-cell grid ≈ 4 h | **NEVER RUN.** Sits in `doc/roadmap-backlog.json` as `model-scale-sweep`, status `pending`, tagged OPERATOR-ONLY (burns GPU). Trainer + rail intact (weekly retrain ≈ 15 min/model on MPS), so still nearly free to *train* — but it faces the same judge-power ceiling as §3; a sweep without a resolvable judge selects winners by noise. Recommendation: keep pending until the gate-power problem (S-REL/C4 line) is resolved; then run as pre-registered. |
 | 1.3 | **Multi-horizon multi-task heads** (5d/20d auxiliary heads on the 60d head) | "standard multi-task lift", cheap | Aux-head variant itself never built. The adjacent evidence went the other way: 20d label val IC −0.07 / gate FAIL (`2026-06-19-patchtst-edge-recovery-experiment.md`); multi-horizon **ensemble/sleeves** REJECTED and closed (PR #149; 2026-06-23 roadmap "do-not-redo" list; `win-rate-is-backtest-not-live` record). Backlog `model-horizon-decision` = `blocked`. **Deprioritized with evidence; do not revive without a new label-side result.** |
 | 1.4 | **Label engineering** (triple-barrier, overlap-aware weights; WS-5) | approved ride-along | Partially superseded by the stronger label result: trend-scanning label (2026-06-23, 3/3 seeds beat raw on BULL_CALM placebo-clean, mean +0.0149) → frozen as **M-SIG C4** → run through the REPAIRED gate 2026-07-03: **INCONCLUSIVE on all 3 seeds** (point estimates +0.033 mean, above margin; CI lower bound < 0 — honestly underpowered). Triple-barrier per se: not run. Label work now lives in the M-SIG program, not #106. |
@@ -124,17 +139,36 @@ post-repair judge or on fresh data. That residue is what §5–§7 executes.
 
 1. This audit memo (the #106 completion record) + a VERDICTS.md row for the cross-stock
    lead.
-2. §5: a FROZEN 2-seed paired pilot on the current corpus vintage — run locally after the
-   freeze commit; results in §7.
-3. §6: the pre-registered ride-along spec — the only justified execution path; wiring it is
-   a small follow-up PR gated on operator/Codex approval of this memo.
+2. §5: a FROZEN 2-seed paired **targeted confirmation** (pre-known seeds; bias stated) on
+   the current corpus vintage — run locally after the freeze commit; results + sealed
+   evidence bundle in §7.
+3. §6/§6a: the pre-registered ride-along spec with its full analysis protocol — the only
+   justified execution path; wiring it is a small follow-up PR gated on operator/Codex
+   approval of this memo.
 
-## 5. Pilot pre-registration (FROZEN before any run in this branch)
+## 5. Run pre-registration (FROZEN before any run in this branch) — r2: this is a TARGETED CONFIRMATION, not a replication
 
-**Question**: does the #126 paired cross-stock lift reproduce on the CURRENT corpus
-vintage under the exact weekly-rail recipe? (Exploratory: informs §6 go/no-go only. NOT a
-gate run, NOT promotion evidence — per #126's own discipline, "IC deltas are evidence for
-running the gate, not a substitute".)
+**Question**: does the #126 paired cross-stock lift hold up on the CURRENT corpus vintage
+under the exact weekly-rail recipe, at the same seeds #126 measured? (Exploratory: informs
+§6 go/no-go only. NOT a gate run, NOT promotion evidence — per #126's own discipline, "IC
+deltas are evidence for running the gate, not a substitute".)
+
+**r2 — selection-bias statement (plain):** seeds 44 and 45 were **already reported
+positive in #126**. Re-running pre-known favorable seeds tests only whether those specific
+results are *vintage-robust* (fresh data, current recipe); it is structurally incapable of
+testing seed-generalization and MUST NOT be described as a fresh or independent
+replication. Anywhere this memo says "confirmation," read "targeted confirmation on
+pre-known seeds." The r1 text's "reproduce on fresh vintage" framing understated this;
+corrected here.
+
+### 5a. Deterministic independent seed rule (preregistered for ALL future runs)
+
+Any future run claiming seed-independence (including the §6 secondary set) uses seeds from
+this rule, fixed BEFORE results: take `sha256("d6-xstock-ridealong-2026")` =
+`ad0666c93dc1bd933139f23f4227295dec9a784792a1135156e09d4a9449d564`; read successive
+4-hex-char groups as integers mod 10000; skip duplicates and the previously-inspected set
+{42, 43, 44, 45, 46}; the first N survivors are the seeds. First five, precomputed and
+binding: **4294, 6313, 5809, 8531, 2601**.
 
 - **Arms**: base vs `--cross-stock-attn`; NOTHING else differs.
 - **Recipe** (mirrors `build_patchtst_wf_manifest.build_train_cmd` exactly — the canonical
@@ -144,12 +178,27 @@ running the gate, not a substitute".)
   Cutoff 2026-03-30 = the rail's own derivation
   (`renquant_orchestrator.patchtst_weekly_cutoff` on the refreshed corpus, Monday-quantized)
   `[VERIFIED — command output 2026-07-10]`.
-- **Data (read-only)**: `RenQuant/data/transformer_v4_wl200_clean.parquet`
-  (sha256 `46da7f431ccc7db228abf9162ac36b0af2d03c0013575c48e35562dec35ce197`, mtime
-  2026-07-03, frontier 2026-04-02); SPY at `RenQuant/data/ohlcv/SPY/1d.parquet`. Outputs to
-  the session scratchpad ONLY — no production path is written.
-- **Code**: renquant-model @ `45e42a1` (main), orchestrator @ `40c51d33` (origin/main),
-  umbrella venv python (torch 2.11.0, MPS).
+- **Data identity (r2 — rebound to artifact identity, consumption-path limitation
+  recorded)**: training corpus = `transformer_v4_wl200_clean.parquet` identified by
+  **content sha256 `46da7f431ccc7db228abf9162ac36b0af2d03c0013575c48e35562dec35ce197`**
+  (401,398,353 bytes; 351,134 rows, 342,330 after label dropna; labeled frontier
+  2026-04-02; recipe owner = renquant-base-data `transformer_corpus.py`, runtime pin
+  `fef604bff`). SPY OHLCV identified by sha256 `ab9f5d4a…9125` (122,481 bytes). **Recorded
+  limitation of THIS run (not rewritten): both blobs were genuinely consumed READ-ONLY
+  from the local umbrella working copy (`RenQuant/data/`), not resolved through a pinned
+  artifact-store binding.** The §6 wiring MUST resolve inputs by recipe commit + content
+  sha256 via the `artifact_store` mechanism (renquant-artifacts `store/README.md`), never
+  a local umbrella path. No production path was written (outputs isolated; now sealed in
+  the §7 evidence bundle).
+- **Code identity (r2 — exact commits)**: imports resolved via `subrepo_env.sh` to the
+  **pinned runtime checkouts** `RenQuant/.subrepo_runtime/repos/*` (all clean trees):
+  renquant-model `84a3c1864` (trainer files byte-identical to renquant-model main
+  `45e42a1e3` — verified empty diff), renquant-common `f5cb6ab2c`, renquant-orchestrator
+  `690c82fc6` (cutoff derivation), renquant-base-data `fef604bff`; full 9-repo pin map in
+  the bundle's `RUN-LOCK.json`. Strategy config read from renquant-strategy-104 primary @
+  `6d205fd41` (fingerprint stamp only, no training effect). Python 3.10.20 / torch 2.11.0
+  / transformers 5.8.1, device MPS, via the umbrella-managed venv (recorded limitation:
+  environment is umbrella-managed, not a pinned image — same remediation path as inputs).
 - **Seeds**: {44, 45}, paired same-seed. 4 runs total. If wallclock exceeds ~3 h, report
   completed PAIRS only; never report a single arm of a pair.
 - **Metric**: paired Δ `best_val_ic` (cross_stock − base) from each run's summary.json
@@ -164,42 +213,112 @@ running the gate, not a substitute".)
     window (last 10% of dates before 2026-01-02 data end, 60-bday embargo) is regime-narrow
     — this is acknowledged as a pilot limitation either way.
 
-## 6. Ride-along spec (pre-registered; implementation = follow-up PR, needs approval)
+## 6. Ride-along spec (pre-registered; implementation = follow-up PR, needs approval) — r2: full analysis protocol
+
+**Plain statement first (r2, per review): the §7 n=2 targeted confirmation justifies NO
+live and NO shadow promotion.** It justifies exactly one thing: spending ~25 min/week of
+already-scheduled compute on a paired arm plus an append-only ledger, adjudicated by the
+protocol below.
 
 - **What**: the weekly PatchTST retrain (`weekly_retrain_patchtst.sh` → orchestrator
   `build_patchtst_wf_manifest`) trains ONE extra arm per week: same derived cutoff, same
   seed, `--cross-stock-attn` (builder already accepts the flag — zero new training code;
   the change is a loop + summary side-car in the orchestrator pipeline + an opt-in env
-  flag `RQ_PATCHTST_XSTOCK_RIDEALONG=1`, default OFF).
-- **Cost**: ≈ +15–40 min/week on the already-scheduled rail; no new schedule, no Modal.
-- **Ledger**: append `{cutoff, seed, base_best_val_ic, xstock_best_val_ic, delta}` to a
-  side-car JSONL in the WF output dir (research artifact, not a served path).
-- **Promotion criteria (frozen NOW)**: unchanged from production. The ride-along arm may
-  be pin-promoted to the SHADOW config only through the existing
-  `promote_shadow_patchtst.py` validated gate, and only after ≥8 weekly pairs with
-  (a) mean paired Δ > 0 and ≥6/8 pairs positive, AND (b) the cross-stock arm passes the
-  same §3.4 load/parity/non-degenerate/sanity gates the base arm must pass. PRIMARY
-  promotion is out of scope entirely (scorer-lineup decision + reopen triggers unchanged).
-  If after 12 weeks the paired mean is ≤ 0, the arm is retired and the VERDICTS row closed
-  as refuted.
-- **Why this and not more**: it converts an unresolved 3/3-positive residue into a
-  continuous, near-free, judge-aligned measurement instead of a one-shot underpowered
+  flag `RQ_PATCHTST_XSTOCK_RIDEALONG=1`, default OFF). **Wiring requirement (r2, per
+  review objection 3): both arms' inputs must resolve from pinned artifacts (recipe commit
+  + content sha256 via the renquant-artifacts `artifact_store` binding), never a local
+  umbrella path.**
+- **Cost**: ≈ +15–40 min/week on the already-scheduled rail (+2 runs every 4th week for
+  the independent-seed set below); no new schedule, no Modal.
+- **Ledger**: append `{cutoff, seed, base_best_val_ic, xstock_best_val_ic, delta,
+  run_bundle_hashes}` to an append-only side-car JSONL in the WF output dir (research
+  artifact, not a served path).
+
+### 6a. Analysis protocol (fixed BEFORE enable; replaces r1's bare "≥8 weekly pairs")
+
+1. **Fixed analysis window.** Enable date E = the first scheduled weekly run after the
+   wiring PR merges and its pin advances. The confirmatory window is the **16 scheduled
+   weekly runs in [E, E+16 weeks)**; missed weeks are recorded as missed, never backfilled.
+   **One readout**, on the first Monday ≥ E+16w. If the inference machinery refuses for
+   small-n (below), the window EXTENDS by further preregistered 16-week blocks — the test
+   is never relaxed.
+2. **Overlap/dedup treatment (why weekly pairs are NOT 16 trials).** Consecutive weekly
+   val tails share ~98% of their dates (the tail advances ~5 BDays/week across a
+   ~227-session window) and adjacent 60d label windows overlap. Therefore the weekly
+   val-side Δ series is treated as **one autocorrelated series — monitoring only** (sign
+   consistency, dead-seed incidence). It carries **zero confirmatory weight**, which also
+   forecloses satisfying the gate by repeated validation-tail selection.
+3. **Confirmatory estimand = FORWARD data only.** Each week, both arms shadow-score the
+   forward sessions strictly AFTER that week's train date (scores only; no order path).
+   Dedup rule: each calendar session counts once, attributed to the most recent weekly
+   pair trained before it (deterministic). At readout: per-date paired ΔIC
+   (xstock − base, cross-sectional Spearman) over the deduplicated forward sessions;
+   inference = moving-block bootstrap, **block = 60 sessions** (label horizon; house
+   convention per `research_panel_exit_predictiveness.py::_moving_block_bootstrap`),
+   n_boot = 2000, seeds {42,43,44} all reported. **GO statistic: one-sided 95% CI lower
+   bound of the mean forward ΔIC > 0.** Honest power note: 16 weeks ≈ 80 forward sessions
+   ≈ 1.3 independent 60-session blocks — expect the small-n refusal (expkit convention) to
+   extend the window at least once; that is the designed behavior, not a failure.
+4. **Seed handling.** The weekly pair runs at the rail seed (44) for served-pin
+   comparability — seed 44 is pre-known-favorable (§5a), so its val-side deltas are doubly
+   non-confirmatory. Every 4th scheduled week, the pair ALSO trains at the next unused
+   seed from the §5a deterministic schedule (4294, 6313, 5809, 8531, …). These
+   independent-seed pairs (≥4 by first readout) form the **secondary confirmation set**:
+   reported as a sign test on paired Δ, no tuning, no exclusion.
+5. **No-peeking rule.** Arm deltas are written by the rail to the append-only ledger and
+   are **not consulted before the readout date**. Automated integrity checks (run
+   succeeded/failed, artifact hashes) are permitted — they reveal no deltas. Any interim
+   inspection of deltas must itself be logged in the ledger and **downgrades the readout
+   from confirmatory to exploratory** (S-REL discipline); the window then restarts.
+6. **Out-of-sample gate (named precisely).** Any promotion of the xstock arm to the
+   SHADOW pin requires ALL of: (a) the §6a.3 forward-data GO statistic; (b) the §6a.4
+   secondary set not contradicting (no majority-negative sign); (c) the existing validated
+   served-pin gate — `RenQuant scripts/promote_shadow_patchtst.py` §3.4 per
+   `doc/design/2026-06-30-shadow-scorer-freshness.md`: load / parity / non-degenerate /
+   resource / sanity checks, fail-closed, executed against the candidate ARTIFACT and the
+   current panel (not training-val tails). **PRIMARY promotion is out of scope entirely**
+   (scorer-lineup decision + reopen triggers unchanged).
+7. **Kill rule.** If at the first readout the forward ΔIC point estimate is ≤ 0, or the
+   secondary seed set is majority-negative, the arm is retired, the flag removed, and the
+   VERDICTS row closed as refuted — no second window, no re-pitch without a new mechanism
+   argument.
+
+- **Why this and not more**: it converts an unresolved suggestive residue into a
+  continuous, near-free, forward-data measurement instead of a one-shot underpowered
   campaign — and it cannot touch the live book without passing the same gates as today.
 
-## 7. Pilot results (appended AFTER the §5 freeze commit; see commit order)
+## 7. Targeted-confirmation results (appended AFTER the §5 freeze commit; see commit order)
+
+**Classification (r2): TARGETED CONFIRMATION on pre-known seeds — seeds 44/45 were
+already positive in #126 (§5 bias statement). This section evidences vintage-robustness
+of those specific paired deltas ONLY; it is not a replication and justifies no
+promotion.**
 
 **Outcome: 2/2 paired deltas POSITIVE → per the frozen §5 rule, the §6 ride-along
-recommendation STANDS.** Runs executed 2026-07-11 05:28–07:13Z, local MPS, outputs in the
-session scratchpad only (`xstock_pilot/{base,xstock}_s{44,45}/`, summary.json + val-preds
-parquet + checkpoint each).
+recommendation STANDS (subject to the §6a protocol).** Runs executed 2026-07-11
+05:28–07:13Z, local MPS.
+
+**Evidence of record (r2 — sealed, content-addressed; scratchpad paths are no longer part
+of the evidence chain):** renquant-artifacts PR #14, commit `82ad63ee8`, bundle
+`store://experiments/xstock-pilot-20260711/` — registry entry
+`registry/xstock-pilot-20260711.json`, fingerprint
+`sha256:86b06dec1c2dec3a04a37eb278bf995b52bd31a17a0fc445b921b107b21fd01d`
+(= sha256 of the bundle's `RUN-LOCK.json`). The bundle contains the four run summaries +
+metadata sidecars, the four val-preds parquets (per-date per-ticker predictions + labels —
+every number below is independently recomputable from the bundle alone), cleaned
+stdout/stderr logs + raw-log hashes + the exact runner scripts, the argv/env lock, the
+9-repo runtime-pin code identity, the data-artifact identity, the interruption/restart
+record, and sha256+size of the four excluded model checkpoints. All 20 blobs are
+sha256-listed in `store/STORE-MANIFEST.json` (CI-verified).
 
 | seed | base `best_val_ic` | xstock `best_val_ic` | paired Δ | binding (min) regime |
 |---|---|---|---|---|
 | 44 | +0.0420 | +0.0627 | **+0.0207** | BULL_CALM (both arms) |
 | 45 | **−0.0076** | +0.0095 | **+0.0172** | CHOPPY (both arms) |
 
-Mean paired Δ = **+0.0189** — consistent with #126's +0.0160 (its seed-44 delta was
-+0.0215; ours +0.0207 on data ~10 months fresher).
+Mean paired Δ = **+0.0189** — consistent with #126's +0.0160 *at the same pre-known
+seeds* (its seed-44 delta was +0.0215; ours +0.0207 on data ~10 months fresher). This is
+vintage-robustness of the seed-44/45 deltas, NOT seed-independent evidence.
 
 Per-regime val-IC deltas (xstock − base), all four regimes, both seeds:
 
@@ -211,12 +330,13 @@ Per-regime val-IC deltas (xstock − base), all four regimes, both seeds:
 **8/8 per-regime deltas ≥ 0** — the lift is not a single-regime artifact on this split.
 
 Secondary observations (frozen-scope, exploratory):
-- **The dead-seed pattern reproduced exactly**: the base arm produced a dead seed
-  (s45 −0.0076, min regime CHOPPY) while cross-stock produced none (min +0.0095) — the
-  same robustness asymmetry #126 flagged (baseline dead seed 46 ≈ −0.0015, cross-stock min
-  +0.0237). Two independent vintages now show base-arm training fragility that the
-  cross-stock arm does not exhibit; for a weekly rail whose product is a servable shadow
-  pin, fewer dead trainings is operational value independent of any IC claim.
+- **The dead-seed asymmetry recurred** (observation, not a preregistered test): the base
+  arm produced a dead seed here (s45 −0.0076, min regime CHOPPY) while cross-stock did not
+  (min +0.0095) — the same asymmetry #126 flagged on a DIFFERENT seed (its baseline dead
+  seed was 46 ≈ −0.0015; cross-stock min +0.0237). Two vintages, two distinct dead base
+  seeds, zero dead cross-stock seeds so far; for a weekly rail whose product is a servable
+  shadow pin, fewer dead trainings is operational value independent of any IC claim. The
+  §6a.4 independent-seed set is the proper test of this.
 - **Cost**: 17–28 min/run on MPS (s45 runs early-stopped at epoch 4) — the #106 "26-minute
   train" claim is still accurate; the weekly ride-along arm costs ≈ 20–30 min/week.
 - Params 67,908 → 101,381 (+49%); identical data, split, seed, and hyperparameters per arm
@@ -225,10 +345,13 @@ Secondary observations (frozen-scope, exploratory):
 Honest run-integrity note: the first attempt at the seed-45 pair was killed mid-training
 by session tooling (background-task stop, ~06:20Z); it was relaunched detached at 06:28Z
 with the IDENTICAL frozen argv and ran to completion. No spec parameter changed; the
-seed-44 pair was unaffected. Interpretation limits (unchanged from the freeze): these are
-val-tail ICs on one split/vintage — paired differences only, no absolute-IC or gate claim,
-n=2 seeds, no DSR/PBO. The next evidence must come from the §6 ride-along ledger, judged
-by the existing validated promote + production WF gate.
+seed-44 pair was unaffected (the exact record, with both attempts' timestamps and the
+relaunch script, is in the bundle's `RUN-LOCK.json` `interruption_record`). Interpretation
+limits (unchanged from the freeze, tightened by r2): these are val-tail ICs on one
+split/vintage at pre-known seeds — paired differences only, no absolute-IC or gate claim,
+n=2, no DSR/PBO, **no live or shadow promotion justified**. The next admissible evidence
+is the §6a protocol: forward-data paired ΔIC at readout + the independent-seed secondary
+set, gated by `promote_shadow_patchtst.py` §3.4.
 
 ## 8. VERDICTS.md row added in this PR
 

@@ -16,15 +16,41 @@ BRANCH: `research/goal7a-106-audit-xstock` (isolated worktree off origin/main @ 
    since 06-16) → 06-16 campaign "helps but doesn't pass alone / B3<B2" → 06-23 re-scope
    to long-term. Verdict: not neglected; residue real but ~4× below the repaired gate's
    measured resolution → dedicated campaign refuted (§3).
-3. **Executed the cheap remnant**: frozen 2-seed paired pilot (base vs `--cross-stock-attn`)
-   on the CURRENT corpus vintage (frontier 2026-04-02, rail-derived cutoff 2026-03-30),
-   exact weekly-rail recipe, local MPS, scratch outputs only, spec committed BEFORE the
-   runs (§5). **Result: 2/2 paired deltas POSITIVE** (+0.0207 / +0.0172, mean +0.0189,
-   8/8 per-regime deltas ≥ 0; the base arm reproduced a dead seed −0.0076, the cross-stock
-   arm did not) → per the frozen rule the ride-along recommendation STANDS (§7).
-   Pre-registered the weekly-rail ride-along spec with frozen promotion criteria (§6) —
-   implementation is a separate follow-up PR, needs approval.
+3. **Executed the cheap remnant**: frozen 2-seed paired **TARGETED CONFIRMATION** (base
+   vs `--cross-stock-attn`) on the CURRENT corpus vintage (frontier 2026-04-02,
+   rail-derived cutoff 2026-03-30), exact weekly-rail recipe, local MPS, spec committed
+   BEFORE the runs (§5). r2 (Codex): seeds 44/45 were pre-known-positive from #126, so
+   this is vintage-robustness evidence only — never a replication.
+   **Result: 2/2 paired deltas POSITIVE** (+0.0207 / +0.0172, mean +0.0189, 8/8
+   per-regime deltas ≥ 0; a base-arm dead seed recurred, the cross-stock arm produced
+   none) → per the frozen rule the ride-along recommendation STANDS under the §6a
+   protocol. **The n=2 result justifies NO live or shadow promotion.**
 4. Added the VERDICTS.md row (same PR as the memo, per ledger rule).
+
+## r2 (2026-07-11) — Codex CHANGES_REQUESTED, all four objections addressed
+
+1. Run reclassified as a targeted confirmation on pre-known seeds; selection bias stated
+   plainly (§5); deterministic independent seed rule preregistered (§5a:
+   sha256("d6-xstock-ridealong-2026") → 4294, 6313, 5809, 8531, 2601).
+2. Evidence sealed out of the scratchpad: content-addressed run bundle in
+   **renquant-artifacts PR #14** (commit `82ad63ee8`,
+   `store://experiments/xstock-pilot-20260711/RUN-LOCK.json`, fingerprint
+   `sha256:86b06dec…`; 20 blobs sha256-listed in STORE-MANIFEST.json; val-preds parquets
+   make every reported number independently recomputable; checkpoints excluded by policy,
+   hashes recorded; 22/22 artifacts-repo tests pass). Memo §7 cites the bundle; scratchpad
+   paths removed from the evidence chain.
+3. Input/code identity rebound to pinned artifacts + exact commits (corpus content sha256
+   + recipe owner renquant-base-data `transformer_corpus.py` @ `fef604bff`; 9-repo runtime
+   pin map, renquant-model `84a3c1864` with trainer byte-identical to `45e42a1e3`); the
+   umbrella-working-copy consumption is recorded as a limitation of THIS run; the §6
+   wiring requirement mandates pinned-artifact resolution.
+4. §6a analysis protocol replaces "≥8 weekly pairs": fixed 16-week window + single
+   readout date, weekly val-side series demoted to monitoring-only (98% overlap → not
+   independent trials), confirmatory estimand = deduplicated FORWARD-session paired ΔIC
+   with 60-session moving-block bootstrap (extend-don't-relax on small-n refusal),
+   no-peeking rule with logged-downgrade, independent-seed secondary set every 4th week,
+   OOS gate named = `promote_shadow_patchtst.py` §3.4 (fail-closed, artifact + current
+   panel), kill rule at readout.
 
 ## Boundaries honored
 
