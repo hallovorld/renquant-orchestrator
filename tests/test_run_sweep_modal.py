@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from renquant_orchestrator.cloud.executor import BacktestResult, BatchSummary, DataManifest
 from renquant_orchestrator.cloud.result_store import ResultStore
 
-from run_sweep_modal import run_sweep, stage_panel_history
+from run_sweep_modal import build_backtest_request, main, run_sweep, stage_panel_history
 
 
 FROZEN_SEEDS = (42, 43, 44)
@@ -537,3 +537,187 @@ class TestStagePanelHistory:
         assert (staging / "sec_fundamentals_daily.parquet").exists()
         assert not (staging / "alpha158_291_fundamental_dataset.parquet").exists()
         assert (root_staging / "sec_fundamentals_daily.parquet").exists()
+
+
+class TestPreflightReportThreading:
+    """run_sweep must thread the preflight report (the dispatch token
+    carrying the approved cost cap + workload manifest) into EVERY
+    execute_batch call — the incumbent's own first batch included. A
+    ModalExecutor refuses to dispatch without it; a run_sweep that dropped
+    it on any path would turn the guardrail into dead code."""
+
+    def test_run_sweep_threads_preflight_report_to_every_batch(
+        self, tmp_path, variants, store
+    ):
+        received: list = []
+
+        class _RecordingExecutor(_FakeExecutor):
+            def execute_batch(
+                self, requests, *, on_result, on_error, max_concurrent=100,
+                preflight=None,
+            ):
+                received.append(preflight)
+                return super().execute_batch(
+                    requests, on_result=on_result, on_error=on_error,
+                    max_concurrent=max_concurrent,
+                )
+
+        canned = {
+            name: [_seed_row(s, sharpe=1.0, bull_calm_sharpe=1.0) for s in FROZEN_SEEDS]
+            for name in ("incumbent", "cap12_drift00_topup05",
+                          "cap20_drift00_topup05", "cap30_drift00_topup05",
+                          "aa_resplit")
+        }
+        executor = _RecordingExecutor(canned)
+        grid_variants = [variants["incumbent"], variants["winner"],
+                          variants["loser"], variants["failing"]]
+        aa_variant = variants["aa"]
+        variant_by_name = {v.name: v for v in grid_variants}
+        variant_by_name[aa_variant.name] = aa_variant
+        data_manifest = DataManifest(
+            commit_id="deadbeef", timestamp="2026-01-01T00:00:00Z", files={},
+            total_bytes=0,
+        )
+
+        sentinel = object()
+        run_sweep(
+            executor=executor, store=store, grid_variants=grid_variants,
+            aa_variant=aa_variant,
+            placebo={"provided": False, "passed": False, "items": []},
+            variant_by_name=variant_by_name, data_manifest=data_manifest,
+            strat_dir=tmp_path, manifest_path="", start="2024-01-02",
+            end="2026-03-28", initial_cash=100_000.0,
+            preflight_report=sentinel,
+        )
+
+        # Two batches (incumbent-first, then candidates+A/A) — BOTH must
+        # carry the token.
+        assert len(received) == 2
+        assert all(r is sentinel for r in received)
+
+
+class TestGuardrailCliArgs:
+    """The runner's guardrail arguments are hard usage requirements, not
+    conventions: no cap-less/manifest-less execute path exists."""
+
+    def test_execute_without_workload_manifest_is_a_usage_error(self, capsys):
+        with pytest.raises(SystemExit):
+            main(["--execute", "--approved-cost-cap-usd", "5"])
+        assert "--workload-manifest is required" in capsys.readouterr().err
+
+    def test_execute_without_cost_cap_is_a_usage_error(self, tmp_path, capsys):
+        wm = tmp_path / "wm.json"
+        wm.write_text("{}")
+        with pytest.raises(SystemExit):
+            main(["--execute", "--workload-manifest", str(wm)])
+        assert "--approved-cost-cap-usd is required" in capsys.readouterr().err
+
+    def test_write_manifest_requires_region(self, tmp_path, capsys):
+        with pytest.raises(SystemExit):
+            main(["--write-workload-manifest", str(tmp_path / "out.json")])
+        assert "--region is required" in capsys.readouterr().err
+
+    def test_write_manifest_cannot_be_combined_with_execute(self, tmp_path, capsys):
+        with pytest.raises(SystemExit):
+            main([
+                "--write-workload-manifest", str(tmp_path / "out.json"),
+                "--region", "us-east", "--execute",
+            ])
+        assert "cannot be combined" in capsys.readouterr().err
+
+    def test_invalid_workload_manifest_is_rejected_before_any_work(
+        self, tmp_path, capsys
+    ):
+        wm = tmp_path / "wm.json"
+        wm.write_text(json.dumps({"region": "unknown"}))
+        rc = main([
+            "--preflight", "--workload-manifest", str(wm),
+            "--approved-cost-cap-usd", "5",
+        ])
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "workload manifest rejected" in out
+
+    def test_execute_is_disabled_pending_authorization_and_no_live_guard(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """#463 round-2 (Codex 2026-07-11T04:20:37Z): the spend cap +
+        workload manifest are still self-service — any caller with Modal
+        credentials could write a manifest, choose a cap, pass preflight,
+        and dispatch. --execute must unconditionally fail closed, before
+        ANY bundling/staging/sync work, until a real signed operator-
+        authorization artifact and a no-live/deploy assertion exist.
+
+        Proves the block fires before Step 1 even starts: the workload
+        manifest path is deliberately nonexistent (would raise on load if
+        that code ever ran) and bundle_subrepos is patched to explode if
+        called — neither is reached.
+        """
+        def _boom(*_a, **_k):
+            raise AssertionError(
+                "bundle_subrepos must not be called while --execute is disabled"
+            )
+        monkeypatch.setattr(
+            "renquant_orchestrator.cloud.bundle.bundle_subrepos", _boom,
+        )
+        rc = main([
+            "--execute",
+            "--workload-manifest", str(tmp_path / "nonexistent_wm.json"),
+            "--approved-cost-cap-usd", "5",
+        ])
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "disabled" in out.lower()
+        assert "no-live" in out.lower() or "no-live/deploy" in out.lower()
+
+    def test_execute_disabled_error_precedes_manifest_load(self, tmp_path, capsys):
+        """The --execute block must fire before WorkloadManifest.load — a
+        malformed manifest must not change the error the caller sees."""
+        wm = tmp_path / "malformed.json"
+        wm.write_text("not json at all")
+        rc = main([
+            "--execute", "--workload-manifest", str(wm),
+            "--approved-cost-cap-usd", "5",
+        ])
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "disabled" in out.lower()
+        assert "workload manifest rejected" not in out
+
+
+class TestBuildBacktestRequestDeterminism:
+    """The pre-registered config fingerprint is sha256(config_json) of the
+    request the manifest writer builds; execution later rebuilds the request
+    through the SAME function — byte-identical output is what makes the
+    fingerprint check meaningful rather than permanently mismatched."""
+
+    def test_same_variant_builds_byte_identical_config_json(self, tmp_path, variants):
+        v = variants["winner"]
+        kwargs = dict(
+            strat_dir=tmp_path, manifest_path="artifacts/sim/wf.json",
+            start="2024-01-02", end="2026-03-28", initial_cash=100_000.0,
+            volume_commit_id="vc1",
+        )
+        first = build_backtest_request(v, **kwargs)
+        second = build_backtest_request(v, **kwargs)
+        assert first.config_json == second.config_json
+        assert (
+            hashlib.sha256(first.config_json.encode()).hexdigest()
+            == hashlib.sha256(second.config_json.encode()).hexdigest()
+        )
+
+    def test_incumbent_turnover_does_not_perturb_config_fingerprint(
+        self, tmp_path, variants
+    ):
+        """incumbent_turnover is only known AFTER the incumbent batch runs —
+        it must ride on the request (not inside config_json), or every
+        candidate's fingerprint would differ from its pre-registration."""
+        v = variants["winner"]
+        kwargs = dict(
+            strat_dir=tmp_path, manifest_path="", start="2024-01-02",
+            end="2026-03-28", initial_cash=100_000.0, volume_commit_id="vc1",
+        )
+        without = build_backtest_request(v, **kwargs)
+        with_turnover = build_backtest_request(v, incumbent_turnover=3.5, **kwargs)
+        assert without.config_json == with_turnover.config_json
+        assert with_turnover.incumbent_turnover == 3.5
