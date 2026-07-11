@@ -1,0 +1,21 @@
+# Persistence-guard incident-token allowed signers (ssh-keygen -Y verify format).
+#
+# !!! PLACEHOLDER — TEST-ONLY ENTRY. NOT A REAL AUTHORIZATION KEY !!!
+#
+# The single entry below is a throwaway keypair whose PRIVATE half is
+# deliberately committed at tests/fixtures/persistence_guard_test_key so the
+# guard's signature path is exercised hermetically in CI. Because that private
+# key is public, a signature from it proves NOTHING in production.
+#
+# Before the R5 enforcement flip (guard mandatory for --commit-persistence),
+# the operator MUST replace this entry with their own public key, generated
+# and held OUTSIDE any agent-accessible location (see the preregistered
+# rollout plan in doc/progress/2026-07-10-r5-native-persistence-guard.md).
+# That replacement is itself a tracked rollout step.
+#
+# Sign:   ssh-keygen -Y sign -f <operator_private_key> \
+#           -n renquant-persistence-guard <token>.json
+# Verify: ssh-keygen -Y verify -f security/persistence_guard_allowed_signers \
+#           -I <operator-principal> -n renquant-persistence-guard \
+#           -s <token>.json.sig < <token>.json
+persistence-guard-test-operator namespaces="renquant-persistence-guard" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPO5J7gSqF0HTuNE0ui3BpkzokegefHK/g0giFLW8D5S PLACEHOLDER-TEST-ONLY-KEY persistence-guard

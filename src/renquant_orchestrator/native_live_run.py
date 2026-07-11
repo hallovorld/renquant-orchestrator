@@ -1,21 +1,29 @@
 """Native live-run candidate assembled from native payload contracts.
 
-R5 persistence guard (T6/D6-F3, doc/design/2026-07-10-architecture-compliance-
-registry.md): because ``--execute-live`` submits broker orders and
-``--commit-persistence`` (#107) mutates live-state/trade-journal artifacts,
-this module supports an ARMED fail-closed identity gate: pass
-``--run-manifest-json`` + ``--strategy-config-json`` + ``--model-content-
-sha256`` (plus optionally ``--calibrator-content-sha256`` /
-``--decision-snapshot-digest`` / ``--incident-token-json``) and every
+R5 persistence guard — SHADOW-SOAK STAGE (T6/D6-F3, doc/design/2026-07-10-
+architecture-compliance-registry.md; scope corrected per Codex r1 on #465):
+because ``--execute-live`` submits broker orders and ``--commit-persistence``
+(#107) mutates live-state/trade-journal artifacts, this module supports an
+OPT-IN fail-closed identity gate: pass ``--run-manifest-json`` +
+``--strategy-config-json`` + ``--model-content-sha256`` (plus optionally
+``--calibrator-content-sha256`` / ``--decision-snapshot-digest`` /
+``--incident-token-json`` [+ ``--incident-token-signature``]) and every
 verification in :mod:`renquant_orchestrator.native_persistence_guard` runs
 BEFORE any broker submission or persistence mutation, failing closed on any
-mismatch unless a valid, expiring, single-run operator incident token covers
-the failure. The verified identities are stamped into the bundle metadata's
-``persistence_audit``. Callers that pass none of the guard arguments get the
-pre-existing behavior unchanged (arming is a deliberate caller step; the R5
-default-flip is a later, pre-registered gate) — except that an UNGUARDED
-persistence commit is now visibly marked ``persistence_guard.armed: false``
-in the bundle audit (R5 telemetry: unverified mutation must be observable).
+mismatch unless a SIGNED, expiring, single-run, identity-bound operator
+incident token covers the failure. The verified identities are stamped into
+the bundle metadata's ``persistence_audit``.
+
+**This stage does NOT protect the path.** Arming is a caller decision: an
+invocation without the guard arguments still submits orders and mutates
+persistence UNVERIFIED, exactly as before — it is only stamped
+``persistence_guard.armed: false`` in the bundle audit so the unverified
+state is observable per run. No unarmed broker submit or persistence
+mutation may be characterized as guarded. The enforcement default-flip
+(guard REQUIRED for ``--commit-persistence``) is a separate, pre-registered
+behavior-change step; its frozen rollout plan (soak criteria, operator key
+replacement, orchestrator self-pin) lives in
+``doc/progress/2026-07-10-r5-native-persistence-guard.md``.
 """
 from __future__ import annotations
 
@@ -290,18 +298,21 @@ def run_native_live_candidate(
     calibrator_content_sha256: str | None = None,
     decision_snapshot_digest: str | None = None,
     incident_token_json: str | Path | None = None,
+    incident_token_signature: str | Path | None = None,
     repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build a native live bundle without importing umbrella live.runner.
 
     Passing ANY of ``run_manifest_json`` / ``strategy_config_json`` /
     ``model_content_sha256`` / ``calibrator_content_sha256`` /
-    ``decision_snapshot_digest`` / ``incident_token_json`` ARMS the R5
-    persistence guard (see module docstring): the first three are then all
+    ``decision_snapshot_digest`` / ``incident_token_json`` /
+    ``incident_token_signature`` ARMS the R5 persistence guard (see module
+    docstring — shadow-soak stage, opt-in): the first three are then all
     required (partial arming fails closed), and verification runs before any
     broker or persistence side effect. On ``--execute-live`` a failing
     verdict raises; on readonly invocations it is recorded as
-    ``would_have_blocked`` (shadow soak).
+    ``would_have_blocked`` (shadow soak). Without any of them, this call is
+    the pre-existing UNVERIFIED #107 behavior, only made visible in the audit.
     """
     guard_inputs = {
         "run_manifest_json": run_manifest_json,
@@ -310,6 +321,7 @@ def run_native_live_candidate(
         "calibrator_content_sha256": calibrator_content_sha256,
         "decision_snapshot_digest": decision_snapshot_digest,
         "incident_token_json": incident_token_json,
+        "incident_token_signature": incident_token_signature,
     }
     guard_armed = any(value is not None for value in guard_inputs.values())
     if guard_armed:
@@ -369,6 +381,7 @@ def run_native_live_candidate(
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             incident_token_json=incident_token_json,
+            incident_token_signature=incident_token_signature,
             enforce=bool(execute_live),
         )
 
@@ -512,8 +525,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--incident-token-json",
         default=None,
-        help="expiring, single-run operator incident token (the ONLY guard "
-        "override; expired/malformed tokens never unblock)",
+        help="SIGNED expiring single-run operator incident token (the ONLY "
+        "guard override; unsigned/forged/expired/mis-scoped tokens never "
+        "unblock)",
+    )
+    parser.add_argument(
+        "--incident-token-signature",
+        default=None,
+        help="detached ssh-keygen -Y signature over the token file "
+        "(default: <token>.sig), verified against the committed "
+        "security/persistence_guard_allowed_signers",
     )
     parser.add_argument("--repo-root", default=None)
     args = parser.parse_args(argv)
@@ -546,6 +567,7 @@ def main(argv: list[str] | None = None) -> int:
         calibrator_content_sha256=args.calibrator_content_sha256,
         decision_snapshot_digest=args.decision_snapshot_digest,
         incident_token_json=args.incident_token_json,
+        incident_token_signature=args.incident_token_signature,
         repo_root=args.repo_root,
     )
     print(json.dumps(bundle, indent=2, sort_keys=True))

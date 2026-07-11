@@ -1,17 +1,29 @@
-"""R5 fail-closed persistence guard for the native live path.
+"""R5 persistence guard for the native live path — SHADOW-SOAK STAGE.
 
-Closes T6/D6-F3 (doc/design/2026-07-10-architecture-compliance-registry.md):
+Addresses T6/D6-F3 (doc/design/2026-07-10-architecture-compliance-registry.md):
 ``native_live_run.py`` — the module that, since #107, can submit live orders
 AND commit live-state/trade-journal persistence mutations — had NO
 strategy/data/artifact fingerprint gate at all, against the orchestrator
 CLAUDE.md hard rule ("do not silently continue without strategy/data/artifact
-fingerprints"). This module is that gate.
+fingerprints"). This module implements that gate.
+
+**Honest scope statement (Codex review r1 on #465): this stage ships
+OBSERVABILITY plus OPT-IN enforcement — it does NOT protect the path.**
+Arming the guard is a caller decision; an invocation that passes no guard
+inputs still submits orders and mutates persistence UNVERIFIED, and is merely
+stamped ``persistence_guard.armed: false`` in the audit so the unverified
+state is visible per run. No unarmed broker submit or persistence mutation
+may be characterized as guarded. Making the guard mandatory for
+``--commit-persistence`` is the R5 default-flip — a separate, pre-registered
+behavior-change step whose rollout plan (soak criteria, operator key
+replacement, orchestrator self-pin) is frozen in
+``doc/progress/2026-07-10-r5-native-persistence-guard.md``.
 
 Design (the approved R5 remediation shape, verbatim from the registry):
 
-* **Fail-closed verification before any mutation.** Reuses the project's
-  existing verification primitives — never a new hash implementation
-  (calibrator/scorer triple-impl incident history):
+* **Fail-closed verification (when armed) before any mutation.** Reuses the
+  project's existing verification primitives — never a new hash
+  implementation (calibrator/scorer triple-impl incident history):
 
   - :func:`renquant_orchestrator.shadow_ab_runner.load_run_manifest` /
     :func:`~renquant_orchestrator.shadow_ab_runner.verify_run_manifest`
@@ -27,17 +39,34 @@ Design (the approved R5 remediation shape, verbatim from the registry):
     by the digest-verified ``native-live-context`` step) — binding the order
     intents about to be executed/persisted to the verified input world.
 
-* **Expiring operator incident token — the ONLY override.** NOT a standing
-  environment variable (rejected by Codex review round 1 on the registry).
-  A token is a specific, time-bounded, logged authorization tied to a named
-  incident: it must name the incident, the authorizing operator, a reason,
-  an ``issued_at``/``expires_at`` window no longer than
-  :data:`MAX_INCIDENT_TOKEN_TTL`, and the exact ``run_id`` it authorizes
-  (single-run scope — any further use requires re-authorization). Expired,
-  malformed, wrongly-scoped, or over-long tokens NEVER unblock. Every
-  override is stamped in full into the guard result (and from there into the
-  persistence audit) so it is logged, not silent. Issuing tokens is an
-  operator action; this module only validates them.
+* **SIGNED expiring operator incident token — the ONLY override.** NOT a
+  standing environment variable (rejected by Codex review round 1 on the
+  registry), and NOT a bare JSON file any caller could fabricate (rejected by
+  Codex review r1 on #465). A token is a specific, time-bounded,
+  independently verifiable authorization tied to a named incident:
+
+  - **payload**: incident, operator, reason, ``issued_at``/``expires_at``
+    (window no longer than :data:`MAX_INCIDENT_TOKEN_TTL`), and a ``scope``
+    binding the EXACT ``run_id`` (single-run — any further use requires
+    re-authorization), the specific failed ``checks`` being overridden, and
+    the identities being overridden (``model_content_sha256`` +
+    ``strategy_config_sha256``) so a token cannot be replayed against a
+    different run, failure, model, or config;
+  - **signature**: a detached OpenSSH signature (``ssh-keygen -Y sign``,
+    namespace :data:`SIGNATURE_NAMESPACE`) over the exact token file bytes,
+    verified (``ssh-keygen -Y verify``) against the COMMITTED
+    ``security/persistence_guard_allowed_signers`` file with the token's
+    ``operator`` as the principal. The operator's private key never exists
+    in any agent-accessible location; the committed entry is a clearly
+    labeled TEST-ONLY placeholder the operator must replace before the
+    enforcement flip (see the rollout plan). ``ssh-keygen`` ships with
+    macOS/OpenSSH — zero new runtime dependencies.
+
+  Unsigned, forged, expired, mis-scoped, over-long, or wrong-key tokens
+  NEVER unblock. Every override is stamped in full (payload + signature
+  provenance) into the guard result and from there into the persistence
+  audit — logged, never silent. Issuing tokens is an operator action; this
+  module only validates them.
 
 * **Shadow soak support** (R5: "shadow the fail-closed verdicts for N
   sessions first"): with ``enforce=False`` (the readonly native path) a
@@ -53,6 +82,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -78,6 +108,28 @@ INCIDENT_TOKEN_SCHEMA_VERSION = 1
 #: outlives an incident window is a standing override by construction — the
 #: exact mechanism the R5 correction forbids.
 MAX_INCIDENT_TOKEN_TTL = dt.timedelta(hours=24)
+
+#: OpenSSH signature namespace for incident tokens. Domain-separates these
+#: signatures from every other use of the same key (a signature made for any
+#: other purpose can never validate a token, and vice versa).
+SIGNATURE_NAMESPACE = "renquant-persistence-guard"
+
+#: The committed public-key registry the token signature is verified against.
+#: The as-committed content is a clearly labeled TEST-ONLY placeholder; the
+#: operator replaces it with their real public key before the enforcement
+#: flip (rollout step — see the progress doc).
+ALLOWED_SIGNERS_RELPATH = Path("security") / "persistence_guard_allowed_signers"
+
+
+def default_allowed_signers_path() -> Path:
+    """The committed allowed_signers file at this orchestrator checkout's root.
+
+    Deliberately NOT a CLI flag on the run surface: the execution agent must
+    not be able to point verification at a self-supplied key registry via
+    arguments. (Residual risk — a locally edited checkout — is closed by the
+    rollout plan's orchestrator self-pin step; see the progress doc.)
+    """
+    return Path(__file__).resolve().parents[2] / ALLOWED_SIGNERS_RELPATH
 
 CHECK_RUN_MANIFEST = "run_manifest"
 CHECK_ARTIFACT_SHA = "artifact_sha"
@@ -143,21 +195,116 @@ def load_incident_token(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def verify_incident_token_signature(
+    token_path: str | Path,
+    *,
+    operator: str,
+    signature_path: str | Path | None = None,
+    allowed_signers: str | Path | None = None,
+    namespace: str = SIGNATURE_NAMESPACE,
+) -> dict[str, Any]:
+    """Verify the token file's detached OpenSSH signature (fail-closed).
+
+    The signature must cover the EXACT token file bytes (default detached
+    signature path: ``<token>.sig``, the ``ssh-keygen -Y sign`` convention),
+    validate in :data:`SIGNATURE_NAMESPACE`, and chain to the token's
+    ``operator`` principal in the committed allowed_signers registry. Any
+    missing file, tool failure, principal mismatch, tampered payload, or
+    wrong key raises :class:`IncidentTokenError` — an unsigned or unverifiable
+    token is exactly as blocking as no token.
+
+    Returns the signature provenance block stamped into the audit.
+    """
+    token_file = Path(token_path)
+    sig_file = (
+        Path(signature_path)
+        if signature_path is not None
+        else token_file.with_name(token_file.name + ".sig")
+    )
+    signers = (
+        Path(allowed_signers) if allowed_signers is not None else default_allowed_signers_path()
+    )
+    if not sig_file.is_file():
+        raise IncidentTokenError(
+            f"incident token has NO detached signature ({sig_file}); unsigned "
+            "tokens never unblock — sign with: ssh-keygen -Y sign "
+            f"-f <operator_private_key> -n {namespace} {token_file}"
+        )
+    if not signers.is_file():
+        raise IncidentTokenError(
+            f"allowed_signers registry missing ({signers}); cannot verify any "
+            "incident token"
+        )
+    try:
+        token_bytes = token_file.read_bytes()
+    except OSError as exc:
+        raise IncidentTokenError(f"incident token unreadable: {exc}") from exc
+    try:
+        proc = subprocess.run(
+            [
+                "ssh-keygen",
+                "-Y",
+                "verify",
+                "-f",
+                str(signers),
+                "-I",
+                operator,
+                "-n",
+                namespace,
+                "-s",
+                str(sig_file),
+            ],
+            input=token_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError as exc:
+        raise IncidentTokenError(
+            f"cannot run ssh-keygen for signature verification: {exc}"
+        ) from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise IncidentTokenError(
+            "incident token signature verification FAILED for principal "
+            f"{operator!r} in namespace {namespace!r} against {signers} "
+            f"(forged, tampered, wrong-key, or wrong-principal tokens never "
+            f"unblock): {detail}"
+        )
+    return {
+        "signature_path": str(sig_file),
+        "allowed_signers": str(signers),
+        "principal": operator,
+        "namespace": namespace,
+        "verified": True,
+    }
+
+
 def validate_incident_token(
     token: Mapping[str, Any],
     *,
     run_id: str | None,
+    model_content_sha256: str,
+    strategy_config_sha256: str,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     """Validate an operator incident token against the R5 override contract.
 
     Returns the normalized token record on success; raises
     :class:`IncidentTokenError` listing EVERY problem otherwise. The contract
-    (registry R5, Codex-corrected): named incident + named operator + reason,
-    explicit ``issued_at``/``expires_at`` (UTC-offset-carrying ISO-8601)
-    bounded by :data:`MAX_INCIDENT_TOKEN_TTL`, not yet expired, not
-    future-dated, and ``scope.run_id`` equal to THIS run's id (single-run
-    authorization — reuse requires a new token).
+    (registry R5, Codex-corrected; #465 r1 identity binding): named incident
+    + named operator + reason, explicit ``issued_at``/``expires_at``
+    (UTC-offset-carrying ISO-8601) bounded by :data:`MAX_INCIDENT_TOKEN_TTL`,
+    not yet expired, not future-dated, and a scope binding ``run_id`` (equal
+    to THIS run's id — single-run authorization, reuse requires a new token),
+    the REQUIRED explicit ``checks`` list being overridden, and the REQUIRED
+    ``model_content_sha256`` / ``strategy_config_sha256`` identities this run
+    is actually using — a token cannot authorize a different run, failure
+    class, model, or config than the operator saw when signing.
+
+    Signature verification is a SEPARATE mandatory step
+    (:func:`verify_incident_token_signature`); this function validates the
+    already-authenticated payload.
     """
     now = now if now is not None else _utc_now()
     if now.tzinfo is None:
@@ -184,7 +331,10 @@ def validate_incident_token(
     checks: list[str] | None = None
     scope = token.get("scope")
     if not isinstance(scope, Mapping):
-        problems.append("scope must be an object naming the authorized run_id")
+        problems.append(
+            "scope must be an object binding run_id, checks, "
+            "model_content_sha256, and strategy_config_sha256"
+        )
     else:
         scope_run_id = scope.get("run_id")
         if not isinstance(scope_run_id, str) or not scope_run_id.strip():
@@ -196,19 +346,42 @@ def validate_incident_token(
                 "use requires re-authorization"
             )
         raw_checks = scope.get("checks")
-        if raw_checks is not None:
-            if (
-                not isinstance(raw_checks, list)
-                or not raw_checks
-                or not all(isinstance(c, str) for c in raw_checks)
-                or not set(raw_checks) <= set(OVERRIDABLE_CHECKS)
-            ):
-                problems.append(
-                    "scope.checks, when present, must be a non-empty list "
-                    f"drawn from {sorted(OVERRIDABLE_CHECKS)}"
-                )
-            else:
-                checks = sorted(set(raw_checks))
+        if (
+            not isinstance(raw_checks, list)
+            or not raw_checks
+            or not all(isinstance(c, str) for c in raw_checks)
+            or not set(raw_checks) <= set(OVERRIDABLE_CHECKS)
+        ):
+            problems.append(
+                "scope.checks is REQUIRED: a non-empty list of the specific "
+                f"failed checks being overridden, drawn from "
+                f"{sorted(OVERRIDABLE_CHECKS)}"
+            )
+        else:
+            checks = sorted(set(raw_checks))
+        scope_model_sha = scope.get("model_content_sha256")
+        if not isinstance(scope_model_sha, str) or not scope_model_sha.strip():
+            problems.append(
+                "scope.model_content_sha256 is REQUIRED (identity binding)"
+            )
+        elif scope_model_sha != model_content_sha256:
+            problems.append(
+                f"scope.model_content_sha256 {scope_model_sha!r} does not "
+                f"match this run's frozen model sha {model_content_sha256!r}; "
+                "a token cannot authorize a different model"
+            )
+        scope_config_sha = scope.get("strategy_config_sha256")
+        if not isinstance(scope_config_sha, str) or not scope_config_sha.strip():
+            problems.append(
+                "scope.strategy_config_sha256 is REQUIRED (identity binding)"
+            )
+        elif scope_config_sha != strategy_config_sha256:
+            problems.append(
+                f"scope.strategy_config_sha256 {scope_config_sha!r} does not "
+                "match the canonical sha of the strategy config this run "
+                f"actually loaded ({strategy_config_sha256!r}); a token "
+                "cannot authorize a different config"
+            )
 
     if issued_at is not None and expires_at is not None:
         if expires_at <= issued_at:
@@ -230,6 +403,7 @@ def validate_incident_token(
         raise IncidentTokenError("incident token rejected: " + "; ".join(problems))
 
     assert issued_at is not None and expires_at is not None
+    assert checks is not None
     return {
         "kind": INCIDENT_TOKEN_KIND,
         "schema_version": INCIDENT_TOKEN_SCHEMA_VERSION,
@@ -238,7 +412,12 @@ def validate_incident_token(
         "reason": str(token["reason"]).strip(),
         "issued_at": _iso(issued_at),
         "expires_at": _iso(expires_at),
-        "scope": {"run_id": str(run_id), "checks": checks},
+        "scope": {
+            "run_id": str(run_id),
+            "checks": checks,
+            "model_content_sha256": model_content_sha256,
+            "strategy_config_sha256": strategy_config_sha256,
+        },
     }
 
 
@@ -246,9 +425,7 @@ def _assert_scope_covers(
     token_record: Mapping[str, Any],
     failures: list[dict[str, str]],
 ) -> None:
-    checks = (token_record.get("scope") or {}).get("checks")
-    if checks is None:
-        return
+    checks = (token_record.get("scope") or {}).get("checks") or []
     uncovered = sorted({f["check"] for f in failures} - set(checks))
     if uncovered:
         raise IncidentTokenError(
@@ -269,6 +446,8 @@ def verify_persistence_guard(
     strategy_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
     incident_token_json: str | Path | None = None,
+    incident_token_signature: str | Path | None = None,
+    allowed_signers: str | Path | None = None,
     enforce: bool = True,
     git_probe: GitProbe | None = None,
     fingerprint_from_path: Callable[[str | Path], str] | None = None,
@@ -277,12 +456,17 @@ def verify_persistence_guard(
     """Run every guard check and return the verified-identities block.
 
     With ``enforce=True`` (any ``--execute-live`` invocation) a failing
-    verdict raises :class:`PersistenceGuardError` unless a VALID unexpired
-    incident token scoped to this ``run_id`` covers every failed check — in
-    which case the full token record is stamped into the result's
+    verdict raises :class:`PersistenceGuardError` unless a SIGNED, valid,
+    unexpired incident token — signature verified against the committed
+    allowed_signers registry, scope bound to this ``run_id`` and this run's
+    model/config identities — covers every failed check; in which case the
+    full token record plus signature provenance is stamped into the result's
     ``override`` field (logged authorization, never silent). With
     ``enforce=False`` (readonly soak) failures are recorded with
     ``would_have_blocked: true`` and nothing raises.
+
+    ``allowed_signers`` is injectable for tests only; the run surface never
+    exposes it (see :func:`default_allowed_signers_path`).
 
     The returned block is what :mod:`renquant_orchestrator.native_live_run`
     stamps into the run bundle's ``persistence_audit`` — the audit thereby
@@ -397,19 +581,39 @@ def verify_persistence_guard(
             "persistence guard FAILED CLOSED (no incident token): " + summary
         )
 
+    token_payload = load_incident_token(incident_token_json)
+    operator = token_payload.get("operator")
+    if not isinstance(operator, str) or not operator.strip():
+        raise IncidentTokenError(
+            "incident token has no operator principal; signature cannot be "
+            "verified and the token never unblocks"
+        )
+    # Signature FIRST: only an authenticated payload's claims are examined.
+    signature_info = verify_incident_token_signature(
+        incident_token_json,
+        operator=operator.strip(),
+        signature_path=incident_token_signature,
+        allowed_signers=allowed_signers,
+    )
     token_record = validate_incident_token(
-        load_incident_token(incident_token_json), run_id=run_id, now=now
+        token_payload,
+        run_id=run_id,
+        model_content_sha256=model_content_sha256,
+        strategy_config_sha256=result["strategy_config_sha256"],
+        now=now,
     )
     _assert_scope_covers(token_record, failures)
     result["override"] = {
         "token_path": str(incident_token_json),
         **token_record,
+        "signature": signature_info,
         "overridden_checks": sorted({f["check"] for f in failures}),
     }
     return result
 
 
 __all__ = [
+    "ALLOWED_SIGNERS_RELPATH",
     "CHECK_ARTIFACT_SHA",
     "CHECK_DECISION_SNAPSHOT",
     "CHECK_RUN_MANIFEST",
@@ -420,7 +624,10 @@ __all__ = [
     "MAX_INCIDENT_TOKEN_TTL",
     "OVERRIDABLE_CHECKS",
     "PersistenceGuardError",
+    "SIGNATURE_NAMESPACE",
+    "default_allowed_signers_path",
     "load_incident_token",
     "validate_incident_token",
+    "verify_incident_token_signature",
     "verify_persistence_guard",
 ]

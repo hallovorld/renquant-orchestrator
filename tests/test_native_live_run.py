@@ -620,13 +620,15 @@ def test_native_live_candidate_source_does_not_import_umbrella_live_runner() -> 
     assert "live.runner" not in imported_modules
     assert "live" not in imported_modules
 
-# --- R5 persistence guard on the native live path (T6/D6-F3) --------------------
+# --- R5 persistence guard on the native live path (T6/D6-F3, shadow-soak) --------
 #
 # The guard is armed by passing run-manifest + strategy-config + model-sha
-# inputs; legacy invocations (none of them) are unchanged. These tests drive
-# the REAL guard implementation (native_persistence_guard) with injected git
-# probe / fingerprint authorities, wrapped through the module's
-# _verify_persistence_guard indirection.
+# inputs; legacy invocations (none of them) are unchanged — and, per the
+# honest-scope statement, UNPROTECTED. These tests drive the REAL guard
+# implementation (native_persistence_guard) with injected git probe /
+# fingerprint authorities, wrapped through the module's
+# _verify_persistence_guard indirection. Incident tokens are REAL detached
+# OpenSSH signatures made with the committed placeholder test key.
 
 import datetime as _dt
 import hashlib as _hashlib
@@ -634,15 +636,27 @@ import subprocess as _subprocess
 
 import pytest
 
+from renquant_orchestrator.native_live_context import (
+    canonical_json_sha256 as _canonical_json_sha256,
+)
 from renquant_orchestrator.native_persistence_guard import (
+    CHECK_RUN_MANIFEST as _CHECK_RUN_MANIFEST,
     IncidentTokenError,
     PersistenceGuardError,
+    SIGNATURE_NAMESPACE as _SIGNATURE_NAMESPACE,
     verify_persistence_guard,
 )
 from renquant_orchestrator.shadow_ab_runner import EXPERIMENT_PIN_REPOS
 
 _GUARD_RUN_ID = "native-live-20260612"
 _GUARD_MODEL_SHA = "sha256:fp-model-1"
+_GUARD_ALLOWED_SIGNERS = (
+    Path(__file__).resolve().parents[1] / "security" / "persistence_guard_allowed_signers"
+)
+_GUARD_FIXTURE_KEY = (
+    Path(__file__).resolve().parent / "fixtures" / "persistence_guard_test_key"
+)
+_GUARD_TEST_PRINCIPAL = "persistence-guard-test-operator"
 
 
 def _guard_commit(name: str) -> str:
@@ -695,28 +709,56 @@ def _install_guard_authorities(
 
     def guarded(**kwargs):
         return verify_persistence_guard(
-            **kwargs, git_probe=probe, fingerprint_from_path=fake_fingerprint
+            **kwargs,
+            git_probe=probe,
+            fingerprint_from_path=fake_fingerprint,
+            allowed_signers=_GUARD_ALLOWED_SIGNERS,
         )
 
     monkeypatch.setattr(native_live_run, "_verify_persistence_guard", guarded)
 
 
-def _guard_incident_token(tmp_path: Path, *, expired: bool = False) -> Path:
+def _guard_incident_token(
+    tmp_path: Path, world: dict[str, Path], *, expired: bool = False
+) -> Path:
+    """A SIGNED incident token bound to this run's id, failed check, and
+    model/config identities (the #465 r1 signed-override contract)."""
     now = _dt.datetime.now(_dt.timezone.utc)
     issued = now - _dt.timedelta(hours=2)
     expires = (now - _dt.timedelta(hours=1)) if expired else (now + _dt.timedelta(hours=1))
+    config_sha = _canonical_json_sha256(
+        json.loads(world["config"].read_text(encoding="utf-8"))
+    )
     token = {
         "schema_version": 1,
         "kind": "persistence_guard_incident_token",
         "incident": "INC-2026-07-10-pin-migration",
-        "operator": "renhao",
+        "operator": _GUARD_TEST_PRINCIPAL,
         "reason": "planned pin bump mid-incident; verified manually",
         "issued_at": issued.isoformat(),
         "expires_at": expires.isoformat(),
-        "scope": {"run_id": _GUARD_RUN_ID},
+        "scope": {
+            "run_id": _GUARD_RUN_ID,
+            "checks": [_CHECK_RUN_MANIFEST],
+            "model_content_sha256": _GUARD_MODEL_SHA,
+            "strategy_config_sha256": config_sha,
+        },
     }
     path = tmp_path / "incident_token.json"
     path.write_text(json.dumps(token), encoding="utf-8")
+    key_copy = tmp_path / "signing_key"
+    key_copy.write_bytes(_GUARD_FIXTURE_KEY.read_bytes())
+    key_copy.chmod(0o600)
+    _subprocess.run(
+        [
+            "ssh-keygen", "-Y", "sign",
+            "-f", str(key_copy),
+            "-n", _SIGNATURE_NAMESPACE,
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
     return path
 
 
@@ -822,7 +864,7 @@ def test_guard_override_with_valid_incident_token_is_stamped(
         lifecycle_journal=tmp_path / "lifecycle.jsonl",
         runs_db=tmp_path / "runs.alpaca.db",
     )
-    token = _guard_incident_token(tmp_path)
+    token = _guard_incident_token(tmp_path, world)
 
     payload, _, _ = _run_guarded_persistence(
         tmp_path, world, incident_token_json=token
@@ -831,8 +873,11 @@ def test_guard_override_with_valid_incident_token_is_stamped(
     guard = payload["metadata"]["persistence_audit"]["persistence_guard"]
     assert guard["verified"] is False
     assert guard["override"]["incident"] == "INC-2026-07-10-pin-migration"
-    assert guard["override"]["operator"] == "renhao"
+    assert guard["override"]["operator"] == _GUARD_TEST_PRINCIPAL
     assert guard["override"]["overridden_checks"] == ["run_manifest"]
+    assert guard["override"]["signature"]["verified"] is True
+    assert guard["override"]["signature"]["principal"] == _GUARD_TEST_PRINCIPAL
+    assert guard["override"]["scope"]["model_content_sha256"] == _GUARD_MODEL_SHA
     assert guard["failures"][0]["check"] == "run_manifest"
 
 
@@ -844,9 +889,27 @@ def test_guard_expired_token_blocks_mutation(monkeypatch, tmp_path: Path) -> Non
         "_live_commit_execution_payload",
         lambda **_k: (_ for _ in ()).throw(AssertionError("broker must not be reached")),
     )
-    token = _guard_incident_token(tmp_path, expired=True)
+    token = _guard_incident_token(tmp_path, world, expired=True)
 
     with pytest.raises(IncidentTokenError, match="EXPIRED"):
+        _run_guarded_persistence(tmp_path, world, incident_token_json=token)
+
+    assert not (tmp_path / "live_state.alpaca.json").exists()
+
+
+def test_guard_unsigned_token_blocks_mutation(monkeypatch, tmp_path: Path) -> None:
+    """A fabricated (unsigned) token JSON never unblocks a live mutation."""
+    world = _guard_world(tmp_path)
+    _install_guard_authorities(monkeypatch, world["manifest"], drift={"renquant-pipeline"})
+    monkeypatch.setattr(
+        native_live_run,
+        "_live_commit_execution_payload",
+        lambda **_k: (_ for _ in ()).throw(AssertionError("broker must not be reached")),
+    )
+    token = _guard_incident_token(tmp_path, world)
+    Path(str(token) + ".sig").unlink()  # fabricate: payload without signature
+
+    with pytest.raises(IncidentTokenError, match="NO detached signature"):
         _run_guarded_persistence(tmp_path, world, incident_token_json=token)
 
     assert not (tmp_path / "live_state.alpaca.json").exists()
@@ -955,6 +1018,7 @@ def test_native_live_run_cli_accepts_guard_args(monkeypatch, tmp_path: Path, cap
         "--calibrator-content-sha256", "sha256:fp-cal-1",
         "--decision-snapshot-digest", "digest-1",
         "--incident-token-json", str(tmp_path / "token.json"),
+        "--incident-token-signature", str(tmp_path / "token.json.sig"),
         "--repo-root", str(tmp_path),
     ])
 
@@ -965,4 +1029,5 @@ def test_native_live_run_cli_accepts_guard_args(monkeypatch, tmp_path: Path, cap
     assert captured["calibrator_content_sha256"] == "sha256:fp-cal-1"
     assert captured["decision_snapshot_digest"] == "digest-1"
     assert captured["incident_token_json"] == str(tmp_path / "token.json")
+    assert captured["incident_token_signature"] == str(tmp_path / "token.json.sig")
     assert captured["repo_root"] == str(tmp_path)
