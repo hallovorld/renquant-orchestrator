@@ -141,6 +141,7 @@
     "native_live_market_snapshot",
     "native_live_run",
     "native_live_snapshots",
+    "native_persistence_guard",
     "outcome_backfiller",
     "outcome_observer",
     "parking_sleeve",
