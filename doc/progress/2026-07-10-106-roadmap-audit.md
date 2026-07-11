@@ -63,3 +63,32 @@ BRANCH: `research/goal7a-106-audit-xstock` (isolated worktree off origin/main @ 
 
 Approve/deny the §6 ride-along wiring PR (opt-in env flag on the weekly rail). Nothing in
 this PR changes any production behavior.
+
+## 2026-07-11 r3 addendum: label-availability cutoff + honest umbrella scoping
+
+Codex round-2 (2026-07-11T08:11:56Z), one remaining blocker: §6a treated the 16-week
+scoring window as ~80 forward ΔIC observations available at an E+16w readout, but the
+estimand is `fwd_60d_excess` — a 60-business-day-forward label. At E+16w only the first
+~20 business days of the cohort have mature labels; the rest would require look-ahead.
+The stated 60-session block bootstrap literally cannot form one block from ~20
+observations, so the "80 observations, 1.3 blocks" power note was materially wrong at
+the stated readout date.
+
+Fixed in `doc/research/2026-07-10-106-roadmap-audit-xstock-verdict.md` §6a.1/§6a.3: added
+an explicit inclusion rule (`score_date + 60 business days <= as_of_date`) and moved the
+readout date from E+16w to **E+16w+60 business days** (≈32 weeks after enable) — the
+point at which the FULL 16-week scoring cohort's labels have genuinely matured. At that
+corrected date the ~80-observation / ~1.3-block count is valid; every window extension
+(if the small-n refusal fires) applies the same +60bd wait before its own readout.
+`VERDICTS.md`'s row and the progress-doc bullet above were phrased loosely ("fixed
+16-week window") — not literally wrong, but the readout timing needed the same
+correction; `VERDICTS.md`'s reopening-condition cell now states the corrected date
+explicitly.
+
+Also replaced the `RenQuant scripts/promote_shadow_patchtst.py` local-path reference
+(§6a.6) with the actual citation: `renquant-orchestrator doc/design/2026-06-30-shadow-
+scorer-freshness.md` §5 (RFC r2, orchestrator PR #212), which documents that the script
+is INTENTIONALLY umbrella-owned per that RFC's own ownership split (§5) — not a
+mis-scoped runtime dependency. Made explicit that this is a deployment-time-only
+operational gate invoked after §6a.3's analysis independently produces a GO verdict from
+pinned artifacts; no computation in the protocol itself reads or executes umbrella code.

@@ -236,29 +236,49 @@ protocol below.
 
 ### 6a. Analysis protocol (fixed BEFORE enable; replaces r1's bare "≥8 weekly pairs")
 
-1. **Fixed analysis window.** Enable date E = the first scheduled weekly run after the
-   wiring PR merges and its pin advances. The confirmatory window is the **16 scheduled
-   weekly runs in [E, E+16 weeks)**; missed weeks are recorded as missed, never backfilled.
-   **One readout**, on the first Monday ≥ E+16w. If the inference machinery refuses for
-   small-n (below), the window EXTENDS by further preregistered 16-week blocks — the test
-   is never relaxed.
+1. **Fixed analysis window and label-availability cutoff (r3, per review: the estimand
+   is `fwd_60d_excess` — a 60-BUSINESS-DAY-forward label — so the scoring window and the
+   readout date are NOT the same date).** Enable date E = the first scheduled weekly run
+   after the wiring PR merges and its pin advances. The confirmatory SCORING window is the
+   **16 scheduled weekly runs in [E, E+16 weeks)**; missed weeks are recorded as missed,
+   never backfilled. A scored forward session is includable in the readout only once its
+   realized label has matured: `score_date + 60 business days <= as_of_date`. Because the
+   LAST scored date in the cohort is at E+16w, its label does not mature until
+   E+16w+60 business days — so **the readout cannot happen at E+16w** (at that date only
+   the first ~20 business days of the cohort have mature labels, well under the block-
+   bootstrap's 60-session block size; the bootstrap literally cannot form one block).
+   **One readout**, on the first Monday ≥ **E + 16 weeks + 60 business days** (≈32 weeks
+   after enable) — by which point every scored session in the [E, E+16w) cohort has a
+   mature label and the full ~80-session sample is genuinely usable. If the inference
+   machinery refuses for small-n (below), the window EXTENDS by further preregistered
+   16-week blocks, each with the SAME +60-business-day maturity wait before its own
+   readout — the test is never relaxed and immature-label sessions are never substituted
+   in to hit a readout date early.
 2. **Overlap/dedup treatment (why weekly pairs are NOT 16 trials).** Consecutive weekly
    val tails share ~98% of their dates (the tail advances ~5 BDays/week across a
    ~227-session window) and adjacent 60d label windows overlap. Therefore the weekly
    val-side Δ series is treated as **one autocorrelated series — monitoring only** (sign
    consistency, dead-seed incidence). It carries **zero confirmatory weight**, which also
    forecloses satisfying the gate by repeated validation-tail selection.
-3. **Confirmatory estimand = FORWARD data only.** Each week, both arms shadow-score the
-   forward sessions strictly AFTER that week's train date (scores only; no order path).
-   Dedup rule: each calendar session counts once, attributed to the most recent weekly
-   pair trained before it (deterministic). At readout: per-date paired ΔIC
-   (xstock − base, cross-sectional Spearman) over the deduplicated forward sessions;
-   inference = moving-block bootstrap, **block = 60 sessions** (label horizon; house
-   convention per `research_panel_exit_predictiveness.py::_moving_block_bootstrap`),
-   n_boot = 2000, seeds {42,43,44} all reported. **GO statistic: one-sided 95% CI lower
-   bound of the mean forward ΔIC > 0.** Honest power note: 16 weeks ≈ 80 forward sessions
-   ≈ 1.3 independent 60-session blocks — expect the small-n refusal (expkit convention) to
-   extend the window at least once; that is the designed behavior, not a failure.
+3. **Confirmatory estimand = FORWARD data only, mature labels only.** Each week, both arms
+   shadow-score the forward sessions strictly AFTER that week's train date (scores only;
+   no order path). Dedup rule: each calendar session counts once, attributed to the most
+   recent weekly pair trained before it (deterministic). **Inclusion rule (r3, per
+   review): a scored session is includable at readout iff `score_date + 60 business days
+   <= as_of_date`** — this is what pins the readout date to E+16w+60bd in §6a.1, and it
+   applies again identically at every extended window's own readout. At readout: per-date
+   paired ΔIC (xstock − base, cross-sectional Spearman) over the deduplicated,
+   label-mature forward sessions; inference = moving-block bootstrap, **block = 60
+   sessions** (label horizon; house convention per
+   `research_panel_exit_predictiveness.py::_moving_block_bootstrap`), n_boot = 2000, seeds
+   {42,43,44} all reported. **GO statistic: one-sided 95% CI lower bound of the mean
+   forward ΔIC > 0.** Honest power note: at the corrected readout (E+16w+60bd), the full
+   16-week scoring cohort's labels have matured, so 16 weeks ≈ 80 forward sessions ≈ 1.3
+   independent 60-session blocks IS the valid count at that date (it was NOT valid at the
+   uncorrected E+16w readout — at that earlier date only ~20 sessions would have mature
+   labels, under one full block, and the bootstrap could not even start). Expect the
+   small-n refusal (expkit convention) to extend the window at least once even with the
+   corrected count; that is the designed behavior, not a failure.
 4. **Seed handling.** The weekly pair runs at the rail seed (44) for served-pin
    comparability — seed 44 is pre-known-favorable (§5a), so its val-side deltas are doubly
    non-confirmatory. Every 4th scheduled week, the pair ALSO trains at the next unused
@@ -273,11 +293,17 @@ protocol below.
 6. **Out-of-sample gate (named precisely).** Any promotion of the xstock arm to the
    SHADOW pin requires ALL of: (a) the §6a.3 forward-data GO statistic; (b) the §6a.4
    secondary set not contradicting (no majority-negative sign); (c) the existing validated
-   served-pin gate — `RenQuant scripts/promote_shadow_patchtst.py` §3.4 per
-   `doc/design/2026-06-30-shadow-scorer-freshness.md`: load / parity / non-degenerate /
-   resource / sanity checks, fail-closed, executed against the candidate ARTIFACT and the
-   current panel (not training-val tails). **PRIMARY promotion is out of scope entirely**
-   (scorer-lineup decision + reopen triggers unchanged).
+   served-pin gate — `renquant-orchestrator doc/design/2026-06-30-shadow-scorer-freshness.md`
+   §5 (RFC r2, orchestrator PR #212) §3.4: load / parity / non-degenerate / resource /
+   sanity checks, fail-closed, executed against the candidate ARTIFACT and the current
+   panel (not training-val tails). **The gate's implementing script is intentionally
+   umbrella-owned per that RFC's §5 ownership split** ("the umbrella owns the script +
+   launchd schedule; the served `artifact_path` pin lives in strategy-104 config") — this
+   is a deployment-time operational step invoked only AFTER this protocol's own §6a.3
+   analysis has independently produced a GO verdict from pinned artifacts; it is not a
+   runtime dependency of the analysis itself, and no computation in §6a reads or executes
+   umbrella code. **PRIMARY promotion is out of scope entirely** (scorer-lineup decision +
+   reopen triggers unchanged).
 7. **Kill rule.** If at the first readout the forward ΔIC point estimate is ≤ 0, or the
    secondary seed set is majority-negative, the arm is retired, the flag removed, and the
    VERDICTS row closed as refuted — no second window, no re-pitch without a new mechanism
@@ -350,8 +376,9 @@ relaunch script, is in the bundle's `RUN-LOCK.json` `interruption_record`). Inte
 limits (unchanged from the freeze, tightened by r2): these are val-tail ICs on one
 split/vintage at pre-known seeds — paired differences only, no absolute-IC or gate claim,
 n=2, no DSR/PBO, **no live or shadow promotion justified**. The next admissible evidence
-is the §6a protocol: forward-data paired ΔIC at readout + the independent-seed secondary
-set, gated by `promote_shadow_patchtst.py` §3.4.
+is the §6a protocol: forward-data paired ΔIC at readout (E+16w+60bd, per the label-
+availability cutoff in §6a.1/§6a.3) + the independent-seed secondary set, gated by the
+served-pin promote script per §6a.6.
 
 ## 8. VERDICTS.md row added in this PR
 
