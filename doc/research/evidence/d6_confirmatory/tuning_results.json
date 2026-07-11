@@ -1240,6 +1240,6 @@
       }
     ]
   },
-  "runtime_seconds": 1.27,
+  "runtime_seconds": 1.07,
   "selection_criterion": "max net annualized Sharpe on tuning subset s.t. |MDD|<=0.30 and turnover-tax ratio<=0.50; ties: total net return desc, turnover asc; if no config passes, best Sharpe chosen and flagged"
 }
