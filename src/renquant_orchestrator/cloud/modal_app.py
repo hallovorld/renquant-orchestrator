@@ -27,10 +27,26 @@ WORKER_TIMEOUT_SECONDS = int(
     os.environ.get("RENQUANT_MODAL_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
 )
 WORKER_RETRIES = int(os.environ.get("RENQUANT_MODAL_RETRIES", DEFAULT_RETRIES))
+# Pre-registered region pin (a REQUIRED recorded field of the workload
+# manifest — see modal_executor.WorkloadManifest). Baked into the decorator
+# the same env-var way as timeout/retries. None (unset) preserves the
+# legacy unpinned behavior byte-for-byte; when set, the region is genuinely
+# REQUESTED from Modal, so the recorded value is what actually governs
+# placement — if the workspace plan does not support region selection,
+# Modal fails loudly at dispatch (fail-closed beats silently running in an
+# unrecorded region).
+WORKER_REGION = os.environ.get("RENQUANT_MODAL_REGION") or None
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
+# Image build inputs MUST stay in lockstep with
+# modal_executor.IMAGE_SPEC (the fingerprint recorded in every workload
+# manifest) — tests/test_cloud_modal.py asserts the decoration-time values
+# below match IMAGE_SPEC exactly. Kept as literals here (rather than
+# importing modal_executor at module scope) so this module's container-side
+# re-import surface stays exactly os + modal, as it was when the real Modal
+# smoke tests validated it.
 _BASE_IMAGE = (
     modal.Image.debian_slim(python_version="3.10")
     .pip_install(
@@ -55,8 +71,7 @@ _BASE_IMAGE = (
 WORKER_CORES = 4
 WORKER_MEM_GIB = 16
 
-
-@app.function(
+_WORKER_FUNCTION_KWARGS: dict = dict(
     image=_BASE_IMAGE,
     volumes={"/data": data_volume},
     cpu=WORKER_CORES * 2,
@@ -64,6 +79,11 @@ WORKER_MEM_GIB = 16
     timeout=WORKER_TIMEOUT_SECONDS,
     retries=WORKER_RETRIES,
 )
+if WORKER_REGION:
+    _WORKER_FUNCTION_KWARGS["region"] = WORKER_REGION
+
+
+@app.function(**_WORKER_FUNCTION_KWARGS)
 def run_variant_remote(request_json: str) -> str:
     """Execute ONE (variant, seed) backtest on a Modal worker.
 

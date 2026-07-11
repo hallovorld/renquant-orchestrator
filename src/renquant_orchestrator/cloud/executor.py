@@ -49,6 +49,10 @@ class BacktestResult:
     equity_curves: dict[int, bytes] | None = None
     trade_logs: dict[int, bytes] | None = None
     result_checksum: str = ""
+    # sha256 of the operator-approved pre-registration (workload manifest)
+    # the dispatching executor verified this run against; empty for
+    # backends that don't pre-register (e.g. local).
+    workload_manifest_sha256: str = ""
 
 
 @dataclass
