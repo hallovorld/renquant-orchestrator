@@ -1,4 +1,22 @@
-"""Native live-run candidate assembled from native payload contracts."""
+"""Native live-run candidate assembled from native payload contracts.
+
+R5 persistence guard (T6/D6-F3, doc/design/2026-07-10-architecture-compliance-
+registry.md): because ``--execute-live`` submits broker orders and
+``--commit-persistence`` (#107) mutates live-state/trade-journal artifacts,
+this module supports an ARMED fail-closed identity gate: pass
+``--run-manifest-json`` + ``--strategy-config-json`` + ``--model-content-
+sha256`` (plus optionally ``--calibrator-content-sha256`` /
+``--decision-snapshot-digest`` / ``--incident-token-json``) and every
+verification in :mod:`renquant_orchestrator.native_persistence_guard` runs
+BEFORE any broker submission or persistence mutation, failing closed on any
+mismatch unless a valid, expiring, single-run operator incident token covers
+the failure. The verified identities are stamped into the bundle metadata's
+``persistence_audit``. Callers that pass none of the guard arguments get the
+pre-existing behavior unchanged (arming is a deliberate caller step; the R5
+default-flip is a later, pre-registered gate) — except that an UNGUARDED
+persistence commit is now visibly marked ``persistence_guard.armed: false``
+in the bundle audit (R5 telemetry: unverified mutation must be observable).
+"""
 from __future__ import annotations
 
 import argparse
@@ -96,6 +114,31 @@ def _commit_persistence_payload(
         strategy=live_state_strategy,
         lifecycle_journal_path=lifecycle_journal_output_json,
     )
+
+
+def _verify_persistence_guard(**kwargs: Any) -> dict[str, Any]:
+    """Indirection point (same convention as ``_commit_live_persistence``) so
+    tests can inject probes/fingerprints; the real implementation is the R5
+    guard module."""
+    from .native_persistence_guard import verify_persistence_guard  # noqa: PLC0415
+
+    return verify_persistence_guard(**kwargs)
+
+
+def _unguarded_persistence_marker() -> dict[str, Any]:
+    """Telemetry stamp for a persistence commit that ran WITHOUT identity
+    verification (guard not armed). R5 requires the unverified state to be
+    observable per run, not assumed."""
+    return {
+        "armed": False,
+        "verified": False,
+        "note": (
+            "UNGUARDED persistence commit: no run-manifest/artifact "
+            "verification was performed on this mutation (R5 guard not "
+            "armed; see doc/design/2026-07-10-architecture-compliance-"
+            "registry.md T6/R5 and native_persistence_guard.py)"
+        ),
+    }
 
 
 def _post_live_persistence_alert(ntfy_url: str, execution_payload: dict[str, Any]) -> bool:
@@ -241,8 +284,51 @@ def run_native_live_candidate(
     trade_journal_output_json: str | Path | None = None,
     lifecycle_journal_output_json: str | Path | None = None,
     persistence_ntfy_url: str | None = None,
+    run_manifest_json: str | Path | None = None,
+    strategy_config_json: str | Path | None = None,
+    model_content_sha256: str | None = None,
+    calibrator_content_sha256: str | None = None,
+    decision_snapshot_digest: str | None = None,
+    incident_token_json: str | Path | None = None,
+    repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Build a native live bundle without importing umbrella live.runner."""
+    """Build a native live bundle without importing umbrella live.runner.
+
+    Passing ANY of ``run_manifest_json`` / ``strategy_config_json`` /
+    ``model_content_sha256`` / ``calibrator_content_sha256`` /
+    ``decision_snapshot_digest`` / ``incident_token_json`` ARMS the R5
+    persistence guard (see module docstring): the first three are then all
+    required (partial arming fails closed), and verification runs before any
+    broker or persistence side effect. On ``--execute-live`` a failing
+    verdict raises; on readonly invocations it is recorded as
+    ``would_have_blocked`` (shadow soak).
+    """
+    guard_inputs = {
+        "run_manifest_json": run_manifest_json,
+        "strategy_config_json": strategy_config_json,
+        "model_content_sha256": model_content_sha256,
+        "calibrator_content_sha256": calibrator_content_sha256,
+        "decision_snapshot_digest": decision_snapshot_digest,
+        "incident_token_json": incident_token_json,
+    }
+    guard_armed = any(value is not None for value in guard_inputs.values())
+    if guard_armed:
+        missing = [
+            name
+            for name in (
+                "run_manifest_json",
+                "strategy_config_json",
+                "model_content_sha256",
+            )
+            if guard_inputs[name] is None
+        ]
+        if missing:
+            raise ValueError(
+                "persistence guard is armed but incomplete (fail-closed): "
+                "--run-manifest-json, --strategy-config-json, and "
+                "--model-content-sha256 are required together; missing: "
+                + ", ".join(missing)
+            )
     if execute_live and execution_json:
         raise ValueError("--execute-live cannot be combined with --execution-json")
     if persistence_ntfy_url and not commit_persistence:
@@ -265,6 +351,27 @@ def run_native_live_candidate(
         )
     inference_payload = _load_json(inference_json)
     metadata_payload = _load_json(metadata_json) if metadata_json else None
+
+    # R5: verification happens HERE — before the live-state contract output,
+    # before any broker submission, and before any persistence mutation. A
+    # PersistenceGuardError from this call means nothing was touched.
+    guard_result: dict[str, Any] | None = None
+    if guard_armed:
+        raw_meta = inference_payload.get("metadata")
+        guard_result = _verify_persistence_guard(
+            run_manifest_json=run_manifest_json,
+            strategy_config_json=strategy_config_json,
+            model_content_sha256=model_content_sha256,
+            calibrator_content_sha256=calibrator_content_sha256,
+            decision_snapshot_digest=decision_snapshot_digest,
+            inference_metadata=raw_meta if isinstance(raw_meta, dict) else None,
+            run_id=run_id,
+            strategy_dir=strategy_dir,
+            repo_root=repo_root,
+            incident_token_json=incident_token_json,
+            enforce=bool(execute_live),
+        )
+
     inference_payload, metadata_payload = _attach_live_state_contract(
         inference_payload,
         metadata_payload,
@@ -311,7 +418,18 @@ def run_native_live_candidate(
         _write_json(commit_plan_output_json, _commit_plan_payload(execution_payload))
     if execution_payload.get("persistence_audit"):
         metadata_payload = dict(metadata_payload or {})
-        metadata_payload["persistence_audit"] = dict(execution_payload["persistence_audit"])
+        audit = dict(execution_payload["persistence_audit"])
+        # Bind the audit to VERIFIED identities (or visibly mark it
+        # unverified): the audit row for a live mutation must say which
+        # pins/artifact shas were checked, by what, and with what verdict —
+        # not merely that a mutation happened.
+        audit["persistence_guard"] = (
+            dict(guard_result) if guard_result is not None else _unguarded_persistence_marker()
+        )
+        metadata_payload["persistence_audit"] = audit
+    if guard_result is not None:
+        metadata_payload = dict(metadata_payload or {})
+        metadata_payload["persistence_guard"] = dict(guard_result)
     if persistence_alert:
         metadata_payload = dict(metadata_payload or {})
         metadata_payload["persistence_alert"] = persistence_alert
@@ -369,6 +487,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--live-state-strategy", default="renquant_104")
     parser.add_argument("--max-live-state-age-days", type=int, default=None)
     parser.add_argument("--live-state-contract-output-json", default=None)
+    # R5 persistence-guard surface (module main only, like the live-commit
+    # flags; the top-level cli.py subparser stays readonly-only by design).
+    parser.add_argument(
+        "--run-manifest-json",
+        default=None,
+        help="immutable run manifest (repos+commits); arms fail-closed pin "
+        "verification before any live/persistence mutation",
+    )
+    parser.add_argument(
+        "--strategy-config-json",
+        default=None,
+        help="strategy config whose resolved model/calibrator artifacts must "
+        "match the frozen shas (unified fingerprint impl)",
+    )
+    parser.add_argument("--model-content-sha256", default=None)
+    parser.add_argument("--calibrator-content-sha256", default=None)
+    parser.add_argument(
+        "--decision-snapshot-digest",
+        default=None,
+        help="optional frozen decision-snapshot digest the inference payload "
+        "metadata must carry as verified",
+    )
+    parser.add_argument(
+        "--incident-token-json",
+        default=None,
+        help="expiring, single-run operator incident token (the ONLY guard "
+        "override; expired/malformed tokens never unblock)",
+    )
+    parser.add_argument("--repo-root", default=None)
     args = parser.parse_args(argv)
 
     bundle = run_native_live_candidate(
@@ -393,6 +540,13 @@ def main(argv: list[str] | None = None) -> int:
         live_state_strategy=args.live_state_strategy,
         max_live_state_age_days=args.max_live_state_age_days,
         live_state_contract_output_json=args.live_state_contract_output_json,
+        run_manifest_json=args.run_manifest_json,
+        strategy_config_json=args.strategy_config_json,
+        model_content_sha256=args.model_content_sha256,
+        calibrator_content_sha256=args.calibrator_content_sha256,
+        decision_snapshot_digest=args.decision_snapshot_digest,
+        incident_token_json=args.incident_token_json,
+        repo_root=args.repo_root,
     )
     print(json.dumps(bundle, indent=2, sort_keys=True))
     return 0
