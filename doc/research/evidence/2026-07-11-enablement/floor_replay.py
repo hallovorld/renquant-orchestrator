@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """Offline one-share-floor ON-vs-OFF replay over the production decision ledger.
 
-READ-ONLY: reads a scratchpad COPY of runs.alpaca.db + the umbrella OHLCV
-parquet files. Places no orders, writes only to the scratchpad.
-
 Replays the exact A-3 rescue semantics of
 renquant-pipeline/src/renquant_pipeline/kernel/pipeline/task_selection.py
 (SizeAndEmitTask, floor branch at lines 571-611 + deferred pass 641-673):
@@ -21,176 +18,255 @@ renquant-pipeline/src/renquant_pipeline/kernel/pipeline/task_selection.py
 
 Price source: daily close of the run date (intent-time quote unavailable
 offline; caveat recorded in the packet).
+
+Two modes (Codex review of orchestrator#471, 2026-07-11 — r1 hardcoded a
+one-off /private/tmp scratch path and /Users/renhao/git/github/RenQuant,
+and picked each date's "representative" run by MAXIMUM outcome among all
+same-day rows with a denominator mismatched against that selection):
+
+  --extract   READ-ONLY: queries the live decision ledger (--db-path) and
+              OHLCV parquet (--ohlcv-dir), predeclares exactly one
+              canonical run_id per date via a STRUCTURAL rule blind to
+              outcome (the unique pipeline_runs row with n_candidates>0
+              that date — real daily-full candidate-scoring sessions,
+              distinct from renquant105's zero-candidate intraday
+              decisioning ticks), fails closed to EXCLUDED on any date
+              with zero or 2+ such rows, and writes a self-contained
+              sealed bundle (--out-bundle) — no DB/OHLCV access needed to
+              reproduce results from it afterward.
+
+  (default)   Computes results PURELY from a sealed bundle (--bundle,
+              e.g. a renquant-artifacts store:// checkout) — no DB,
+              OHLCV file, or umbrella path needed. This is the
+              reproducible, verifiable path; a clean checkout with only
+              this script and the sealed bundle produces byte-identical
+              results.
 """
+from __future__ import annotations
+
+import argparse
 import json
 import sqlite3
 import sys
 from collections import defaultdict
+from pathlib import Path
 
-import pandas as pd
-
-DB = "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/2244bd05-9699-4a07-8836-2b6d9e43ca5f/scratchpad/dbs/runs.alpaca.db"
-OHLCV = "/Users/renhao/git/github/RenQuant/data/ohlcv/{t}/1d.parquet"
-
-# Pinned prod config (strategy-104 @ 8b2a592, verified from the live pinned
-# runtime checkout): regime_params.BULL_CALM
 REGIME_CAP = {"BULL_CALM": 0.12, "BULL_VOLATILE": 0.20, "CHOPPY": 0.15, "BEAR": 0.0}
 RESERVE = {"BULL_CALM": 0.0, "BULL_VOLATILE": 0.2, "CHOPPY": 0.3, "BEAR": 1.0}
 
-START = "2026-06-01"
 
-conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-conn.row_factory = sqlite3.Row
-rows = conn.execute(
-    """
-    SELECT pr.run_date, pr.run_id, pr.run_type, pr.regime, pr.portfolio_value,
-           pr.cash, pr.n_buys, cs.ticker, cs.kelly_target_pct, cs.mu, cs.sigma,
-           cs.rank_score
-    FROM candidate_scores cs JOIN pipeline_runs pr ON cs.run_id = pr.run_id
-    WHERE cs.blocked_by = 'size_insufficient_cash'
-      AND cs.role = 'candidate'
-      AND pr.run_date >= ?
-    ORDER BY pr.run_date, pr.run_id, cs.rank_score DESC
-    """,
-    (START,),
-).fetchall()
+def build_canonical_manifest(conn: sqlite3.Connection, start: str, end: str) -> dict:
+    """Predeclare exactly one canonical (real daily-full, candidate-scoring)
+    run_id per calendar date — a structural rule blind to outcome, never
+    chosen by which run looks best. Fails closed (EXCLUDED, with the
+    concrete reason) on any date with zero or 2+ qualifying rows."""
+    all_dates = [
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT run_date FROM pipeline_runs WHERE run_date >= ? AND run_date <= ? ORDER BY run_date",
+            (start, end),
+        ).fetchall()
+    ]
+    cand_runs = conn.execute(
+        """SELECT run_date, run_id, created_at, n_candidates FROM pipeline_runs
+           WHERE run_date >= ? AND run_date <= ? AND n_candidates > 0
+           ORDER BY run_date, created_at""",
+        (start, end),
+    ).fetchall()
+    by_date: dict[str, list] = defaultdict(list)
+    for r in cand_runs:
+        by_date[r[0]].append({"run_id": r[1], "created_at": r[2], "n_candidates": r[3]})
 
-# total daily-full sessions in window for denominator
-n_sessions = conn.execute(
-    "SELECT COUNT(DISTINCT run_date) FROM pipeline_runs WHERE run_date >= ?",
-    (START,),
-).fetchone()[0]
+    dates: dict[str, dict] = {}
+    for d in all_dates:
+        runs = by_date.get(d, [])
+        if len(runs) == 0:
+            dates[d] = {
+                "status": "EXCLUDED_NO_CANDIDATE_RUN",
+                "reason": "no pipeline_runs row with n_candidates>0 on this date "
+                          "(no daily-full candidate-scoring session found)",
+            }
+        elif len(runs) == 1:
+            dates[d] = {"status": "CANONICAL", "run_id": runs[0]["run_id"], "created_at": runs[0]["created_at"]}
+        else:
+            dates[d] = {
+                "status": "EXCLUDED_AMBIGUOUS",
+                "reason": f"{len(runs)} candidate-scoring runs on this date with no principled "
+                          "tie-break rule available; excluded per fail-closed policy rather "
+                          "than picking by outcome",
+                "candidate_run_ids": runs,
+            }
+    return {"window": f"{start}..{end}", "dates": dates}
 
-closes = {}
-def close_of(ticker, date):
-    if ticker not in closes:
-        df = pd.read_parquet(OHLCV.format(t=ticker))
-        df.index = pd.to_datetime(df.index).strftime("%Y-%m-%d")
-        closes[ticker] = df["close"]
-    s = closes[ticker]
-    if date in s.index:
-        return float(s.loc[date]), "close(run_date)"
-    prior = s[s.index <= date]
-    if len(prior):
-        return float(prior.iloc[-1]), f"close({prior.index[-1]}, last<=run_date)"
-    return None, "missing"
 
-by_run = defaultdict(list)
-for r in rows:
-    by_run[r["run_id"]].append(r)
+def extract_bundle(db_path: str, ohlcv_dir: str, start: str, end: str) -> dict:
+    import pandas as pd
 
-out_runs = []
-for run_id, cands in by_run.items():
-    meta = cands[0]
-    regime = meta["regime"]
-    pv = float(meta["portfolio_value"])
-    cash = float(meta["cash"])
-    cap_pct = REGIME_CAP.get(regime, 0.15)
-    res_pct = RESERVE.get(regime, 0.0)
-    cap_dollars = cap_pct * pv
-    n_buys = int(meta["n_buys"] or 0)
-    leftover = max(cash - res_pct * pv, 0.0)  # n_buys==0 verified below
-    rescued, dropped = [], []
-    for c in cands:
-        price, src = close_of(c["ticker"], c["run_date"])
-        rec = {
-            "ticker": c["ticker"],
-            "price": price,
-            "price_source": src,
-            "kelly_target_pct": c["kelly_target_pct"],
-            "kelly_target_usd": (c["kelly_target_pct"] or 0) * pv,
-            "mu": c["mu"],
-        }
-        if price is None:
-            rec["verdict"] = "UNPRICED (no ohlcv row)"
-            dropped.append(rec)
-            continue
-        if not (c["kelly_target_pct"] or 0) > 0:
-            rec["verdict"] = "no-rescue: max_pct == 0 (genuine zero-target)"
-            dropped.append(rec)
-            continue
-        if regime == "BEAR":
-            rec["verdict"] = "no-rescue: BEAR defensive override keeps legacy drop"
-            dropped.append(rec)
-            continue
-        if price > cap_dollars + 1e-6:
-            rec["verdict"] = (
-                f"no-rescue: 1 share ${price:,.2f} > regime cap "
-                f"{cap_pct:.0%}*PV = ${cap_dollars:,.2f}"
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    manifest = build_canonical_manifest(conn, start, end)
+    canonical_run_ids = [v["run_id"] for v in manifest["dates"].values() if v["status"] == "CANONICAL"]
+    if not canonical_run_ids:
+        raise SystemExit("no canonical runs found in window — refusing to seal an empty bundle")
+    placeholders = ",".join("?" * len(canonical_run_ids))
+
+    run_meta = {
+        r["run_id"]: dict(r)
+        for r in conn.execute(
+            f"SELECT run_id, run_date, regime, portfolio_value, cash, n_buys "
+            f"FROM pipeline_runs WHERE run_id IN ({placeholders})",
+            canonical_run_ids,
+        ).fetchall()
+    }
+    blocked_rows = [
+        dict(r)
+        for r in conn.execute(
+            f"""SELECT run_id, ticker, kelly_target_pct, mu, sigma, rank_score
+                FROM candidate_scores
+                WHERE run_id IN ({placeholders}) AND blocked_by = 'size_insufficient_cash' AND role = 'candidate'
+                ORDER BY run_id, rank_score DESC""",
+            canonical_run_ids,
+        ).fetchall()
+    ]
+
+    needed = {(row["ticker"], run_meta[row["run_id"]]["run_date"]) for row in blocked_rows}
+    closes: dict[str, dict] = {}
+    ohlcv_root = Path(ohlcv_dir)
+    for ticker, date in sorted(needed):
+        df = pd.read_parquet(ohlcv_root / ticker / "1d.parquet")
+        s = df["close"]
+        s.index = pd.to_datetime(df.index).strftime("%Y-%m-%d")
+        key = f"{ticker}|{date}"
+        if date in s.index:
+            closes[key] = {"close": float(s.loc[date]), "source": "close(run_date)"}
+        else:
+            prior = s[s.index <= date]
+            closes[key] = (
+                {"close": float(prior.iloc[-1]), "source": f"close({prior.index[-1]},last<=run_date)"}
+                if len(prior)
+                else {"close": None, "source": "missing"}
             )
-            dropped.append(rec)
-            continue
-        if price > leftover + 1e-6:
-            rec["verdict"] = f"no-rescue: 1 share > leftover investable ${leftover:,.2f}"
-            dropped.append(rec)
-            continue
-        leftover -= price
-        rec["verdict"] = "RESCUED: 1 share"
-        rec["pv_pct"] = price / pv
-        rescued.append(rec)
-    out_runs.append(
-        {
-            "run_date": meta["run_date"],
-            "run_id": run_id,
-            "run_type": meta["run_type"],
-            "regime": regime,
-            "pv": pv,
-            "cash": cash,
-            "cash_pct": cash / pv,
-            "n_buys_actual": n_buys,
-            "regime_cap_usd": cap_dollars,
-            "rescued": rescued,
-            "not_rescued": dropped,
-            "deployment_delta_usd": sum(r["price"] for r in rescued),
-            "cash_pct_after": (cash - sum(r["price"] for r in rescued)) / pv,
-            "max_rescue_pv_pct": max((r["pv_pct"] for r in rescued), default=0.0),
-        }
-    )
 
-out_runs.sort(key=lambda r: (r["run_date"], r["run_id"]))
-dates = sorted({r["run_date"] for r in out_runs})
-dates_with_rescue = sorted({r["run_date"] for r in out_runs if r["rescued"]})
-per_date_delta = {}
-for d in dates:
-    day = [r for r in out_runs if r["run_date"] == d]
-    # one decision session per day: take the run with the largest delta as the
-    # daily-full representative (intraday re-runs repeat the same block)
-    rep = max(day, key=lambda r: r["deployment_delta_usd"])
-    per_date_delta[d] = {
-        "delta_usd": rep["deployment_delta_usd"],
-        "rescued": [x["ticker"] for x in rep["rescued"]],
-        "not_rescued": [x["ticker"] for x in rep["not_rescued"]],
-        "cash_pct_before": rep["cash_pct"],
-        "cash_pct_after": rep["cash_pct_after"],
-        "max_rescue_pv_pct": rep["max_rescue_pv_pct"],
-        "run_id": rep["run_id"],
+    return {
+        "window": f"{start}..{end}",
+        "canonical_run_selection_rule": (
+            "For each calendar date, the canonical production run is the UNIQUE "
+            "pipeline_runs row with n_candidates>0 on that date (structural, "
+            "outcome-blind). Zero such rows = no daily-full session that day "
+            "(excluded). 2+ such rows = AMBIGUOUS, excluded per fail-closed "
+            "policy rather than picked by any heuristic."
+        ),
+        "canonical_run_manifest": manifest,
+        "pipeline_run_metadata": run_meta,
+        "candidate_rows_blocked_by_size": blocked_rows,
+        "ohlcv_closes": closes,
     }
 
-deltas = [v["delta_usd"] for v in per_date_delta.values() if v["delta_usd"] > 0]
-summary = {
-    "window": f"{START}..2026-07-10",
-    "prod_session_dates_in_window": n_sessions,
-    "dates_with_sizing_stage_zero_share_block": len(dates),
-    "dates_with_at_least_one_rescue": len(dates_with_rescue),
-    "distinct_rescued_tickers": sorted(
-        {x["ticker"] for r in out_runs for x in r["rescued"]}
-    ),
-    "distinct_not_rescued": sorted(
-        {x["ticker"]: x["verdict"] for r in out_runs for x in r["not_rescued"]}.items()
-    ),
-    "per_session_deployment_delta_usd": {
-        "min": min(deltas) if deltas else 0,
-        "max": max(deltas) if deltas else 0,
-        "mean": sum(deltas) / len(deltas) if deltas else 0,
-    },
-    "normal_buys_displaced": 0 if all(r["n_buys_actual"] == 0 for r in out_runs) else "CHECK",
-    "n_buys_all_zero_in_affected_runs": all(r["n_buys_actual"] == 0 for r in out_runs),
-    "per_date": per_date_delta,
-}
 
-result = {"summary": summary, "runs": out_runs}
-outpath = sys.argv[1] if len(sys.argv) > 1 else "/dev/stdout"
-with open(outpath, "w") as f:
-    json.dump(result, f, indent=1, default=str)
-print(f"wrote {outpath}", file=sys.stderr)
-print(json.dumps(summary, indent=1, default=str)[:4000], file=sys.stderr)
+def compute_replay(bundle: dict) -> dict:
+    """Pure function: no DB, no OHLCV file, no live path — everything it
+    needs is already inline in `bundle`."""
+    manifest = bundle["canonical_run_manifest"]
+    run_meta = bundle["pipeline_run_metadata"]
+    closes = bundle["ohlcv_closes"]
+
+    by_run: dict[str, list] = defaultdict(list)
+    for row in bundle["candidate_rows_blocked_by_size"]:
+        by_run[row["run_id"]].append(row)
+
+    per_date: dict[str, dict] = {}
+    for run_id, cands in by_run.items():
+        meta = run_meta[run_id]
+        regime = meta["regime"]
+        pv = float(meta["portfolio_value"])
+        cash = float(meta["cash"])
+        cap_pct = REGIME_CAP.get(regime, 0.15)
+        res_pct = RESERVE.get(regime, 0.0)
+        cap_dollars = cap_pct * pv
+        leftover = max(cash - res_pct * pv, 0.0)
+        rescued, not_rescued = [], []
+        for c in cands:
+            key = f"{c['ticker']}|{meta['run_date']}"
+            price = closes.get(key, {}).get("close")
+            if price is None:
+                not_rescued.append({"ticker": c["ticker"], "reason": "UNPRICED"})
+                continue
+            if not (c["kelly_target_pct"] or 0) > 0:
+                not_rescued.append({"ticker": c["ticker"], "reason": "max_pct==0"})
+                continue
+            if regime == "BEAR":
+                not_rescued.append({"ticker": c["ticker"], "reason": "BEAR override"})
+                continue
+            if price > cap_dollars + 1e-6:
+                not_rescued.append({"ticker": c["ticker"], "reason": f"1sh ${price:.2f} > cap ${cap_dollars:.2f}"})
+                continue
+            if price > leftover + 1e-6:
+                not_rescued.append({"ticker": c["ticker"], "reason": f"1sh > leftover ${leftover:.2f}"})
+                continue
+            leftover -= price
+            rescued.append({"ticker": c["ticker"], "price": price})
+        per_date[meta["run_date"]] = {
+            "run_id": run_id,
+            "regime": regime,
+            "rescued": rescued,
+            "not_rescued": not_rescued,
+            "delta_usd": sum(r["price"] for r in rescued),
+        }
+
+    deltas = [v["delta_usd"] for v in per_date.values() if v["delta_usd"] > 0]
+    canonical_dates = [d for d, v in manifest["dates"].items() if v["status"] == "CANONICAL"]
+    # The sealed renquant-artifacts RUN-LOCK.json only carries "window" nested
+    # under canonical_run_manifest; this script's own --extract-produced
+    # bundle also stamps a top-level copy. Accept either.
+    window = bundle.get("window") or manifest.get("window")
+    return {
+        "window": window,
+        "canonical_unambiguous_dates": len(canonical_dates),
+        "canonical_dates_with_blocked_candidate": len(per_date),
+        "canonical_dates_with_rescue": sum(1 for v in per_date.values() if v["rescued"]),
+        "per_session_deployment_delta_usd": {
+            "min": min(deltas) if deltas else 0,
+            "max": max(deltas) if deltas else 0,
+            "mean": sum(deltas) / len(deltas) if deltas else 0,
+        },
+        "per_date": per_date,
+        "excluded_dates": {d: v for d, v in manifest["dates"].items() if v["status"] != "CANONICAL"},
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--extract", action="store_true", help="Build the sealed bundle from the live ledger + OHLCV.")
+    parser.add_argument("--db-path", help="Decision-ledger sqlite path (required with --extract).")
+    parser.add_argument("--ohlcv-dir", help="OHLCV parquet root, <dir>/<TICKER>/1d.parquet (required with --extract).")
+    parser.add_argument("--start", default="2026-06-01")
+    parser.add_argument("--end", default="2026-07-10")
+    parser.add_argument("--bundle", help="Sealed bundle JSON to compute from (required without --extract).")
+    parser.add_argument("--out-bundle", help="Where to write the extracted bundle (with --extract).")
+    parser.add_argument("--out", default="/dev/stdout", help="Where to write the computed results JSON.")
+    args = parser.parse_args()
+
+    if args.extract:
+        if not args.db_path or not args.ohlcv_dir:
+            parser.error("--extract requires --db-path and --ohlcv-dir (no default runtime)")
+        bundle = extract_bundle(args.db_path, args.ohlcv_dir, args.start, args.end)
+        if args.out_bundle:
+            with open(args.out_bundle, "w") as f:
+                json.dump(bundle, f, indent=1, sort_keys=True, default=str)
+            print(f"wrote bundle: {args.out_bundle}", file=sys.stderr)
+        results = compute_replay(bundle)
+    else:
+        if not args.bundle:
+            parser.error("--bundle is required unless --extract is given (no default runtime)")
+        with open(args.bundle) as f:
+            bundle = json.load(f)
+        results = compute_replay(bundle)
+
+    with open(args.out, "w") as f:
+        json.dump(results, f, indent=1, sort_keys=True, default=str)
+    print(f"wrote results: {args.out}", file=sys.stderr)
+    print(json.dumps(results["per_session_deployment_delta_usd"], indent=1), file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

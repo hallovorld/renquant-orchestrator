@@ -1,5 +1,5 @@
 {
- "ran_at": "2026-07-11T05:09:18.482248-07:00",
+ "ran_at": "2026-07-11T06:05:21.872874-07:00",
  "pinned_pipeline_src": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src",
  "live_book_mirrored": {
   "MU": {
@@ -24,7 +24,7 @@
   {
    "test": "from_config(enabled=true) arms",
    "pass": true,
-   "detail": "registry file target /private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/2244bd05-9699-4a07-8836-2b6d9e43ca5f/scratchpad/stops_test/software_stops.alpaca.json"
+   "detail": "registry file target /private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/9dae5814-b019-4162-a435-86d47c7d6865/scratchpad/stops_test_scratch/stops_test/software_stops.alpaca.json"
   },
   {
    "test": "register: 3 stops persisted matching current live book",
@@ -34,7 +34,7 @@
   {
    "test": "evaluate: no false trigger at current prices; heartbeat fresh",
    "pass": true,
-   "detail": "intents=[] staleness={'stale': False, 'age_minutes': 4.15e-06, 'n_stops': 3}"
+   "detail": "intents=[] staleness={'stale': False, 'age_minutes': 3.6166666666666666e-06, 'n_stops': 3}"
   },
   {
    "test": "ratchet-only: lowering refused",
@@ -59,17 +59,17 @@
   {
    "test": "liveness CLI: 45m-old heartbeat (missed 12m passes) -> exit 1 STALE",
    "pass": true,
-   "detail": "STALE: 3 ARMED software stop(s) in /private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/2244bd05-9699-4a07-8836-2b6d9e43ca5f/scratchpad/stops_test/software_stops.alpaca.json but the "
+   "detail": "STALE: 3 ARMED software stop(s) in /private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/9dae5814-b019-4162-a435-86d47c7d6865/scratchpad/stops_test_scratch/stops_test/software_stops.a"
   },
   {
    "test": "liveness CLI: off-session (Saturday) stale -> exit 0 by design",
    "pass": true,
-   "detail": "OK: market session closed \u2014 3 armed stop(s) cannot be evaluated off-session by design (heartbeat age: 275.7m). Overnight gap risk parity is the design's \u00a73.3 an"
+   "detail": "OK: market session closed \u2014 3 armed stop(s) cannot be evaluated off-session by design (heartbeat age: 219.7m). Overnight gap risk parity is the design's \u00a73.3 an"
   },
   {
    "test": "liveness CLI: corrupt registry -> exit 2 CORRUPT",
    "pass": true,
-   "detail": "CORRUPT: software-stop registry /private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/2244bd05-9699-4a07-8836-2b6d9e43ca5f/scratchpad/stops_tes"
+   "detail": "CORRUPT: software-stop registry /private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/9dae5814-b019-4162-a435-86d47c7d6865/scratchpad/stops_tes"
   },
   {
    "test": "liveness CLI vs PROD default path: no registry (layer never armed) -> exit 0",

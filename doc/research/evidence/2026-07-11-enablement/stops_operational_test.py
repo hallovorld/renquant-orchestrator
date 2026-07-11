@@ -3,13 +3,23 @@
 evidence item "registry freshness operational test").
 
 READ-ONLY on all production paths: imports the PINNED runtime pipeline module
-(the exact code the live loop would run), builds a registry in the SCRATCHPAD
+(the exact code the live loop would run), builds a registry in a SCRATCH dir
 that mirrors the current live book (MU/GRMN/AVGO, 1 share each, broker-truth
 qty from the 2026-07-10 intraday log + runs DB), and exercises the full
 lifecycle: arm -> evaluate/heartbeat -> ratchet-refuse -> trigger -> gc
 (registry-vs-positions) -> staleness watchdog -> liveness CLI exit codes.
 No orders are placed anywhere; the readonly wrapper is not even loaded.
+
+Reproducibility (Codex review of orchestrator#471, 2026-07-11): this script
+previously hardcoded a one-off /private/tmp scratch path and
+/Users/renhao/git/github/RenQuant absolute umbrella paths, making it
+non-rerunnable from a clean checkout. All repo/scratch roots are now
+REQUIRED CLI arguments — no default runtime, matching the "no default
+runtime" convention used elsewhere in this repo family (e.g.
+RENQUANT_SHADOW_AB_PYTHON). A clean checkout with its own umbrella tree and
+a scratch directory of its choosing can rerun this unmodified.
 """
+import argparse
 import datetime
 import json
 import os
@@ -17,13 +27,33 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCRATCH = Path("/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/2244bd05-9699-4a07-8836-2b6d9e43ca5f/scratchpad")
-PINNED_PIPELINE_SRC = "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src"
-LIVENESS_CLI = "/Users/renhao/git/github/RenQuant/scripts/check_software_stops_liveness.py"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--umbrella-root", required=True,
+    help="Path to the RenQuant umbrella checkout (no default runtime). "
+         "Provides .subrepo_runtime/repos/<name>/src for the pinned "
+         "pipeline/common imports, data/ohlcv/<TICKER>/1d.parquet for the "
+         "live-book close prices, and scripts/check_software_stops_liveness.py.",
+)
+parser.add_argument(
+    "--scratch-dir", required=True,
+    help="Writable scratch directory for the test registry + result JSON "
+         "(no default runtime; never a production path).",
+)
+args = parser.parse_args()
+
+UMBRELLA = Path(args.umbrella_root)
+SCRATCH = Path(args.scratch_dir)
+_RUNTIME_REPOS = str(UMBRELLA / ".subrepo_runtime" / "repos")
+PINNED_PIPELINE_SRC = str(UMBRELLA / ".subrepo_runtime" / "repos" / "renquant-pipeline" / "src")
+LIVENESS_CLI = str(UMBRELLA / "scripts" / "check_software_stops_liveness.py")
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, PINNED_PIPELINE_SRC)
-sys.path.insert(0, "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-common/src")
+# Same sibling-repo set the liveness-CLI subprocess below needs on
+# PYTHONPATH (renquant_pipeline.__init__ transitively imports all of these).
+for _r in ("renquant-pipeline", "renquant-common", "renquant-artifacts",
+           "renquant-execution", "renquant-base-data"):
+    sys.path.insert(0, f"{_RUNTIME_REPOS}/{_r}/src")
 from renquant_pipeline.software_stops import (  # noqa: E402
     SoftwareStopRegistry,
     compute_staleness,
@@ -48,7 +78,7 @@ import pandas as pd  # noqa: E402
 
 quotes = {}
 for t in ["MU", "GRMN", "AVGO"]:
-    df = pd.read_parquet(f"/Users/renhao/git/github/RenQuant/data/ohlcv/{t}/1d.parquet")
+    df = pd.read_parquet(str(UMBRELLA / "data" / "ohlcv" / t / "1d.parquet"))
     quotes[t] = float(df["close"].iloc[-1])
 book = {t: 1.0 for t in quotes}
 
@@ -119,11 +149,10 @@ record(
 )
 
 # 7. liveness CLI — fresh heartbeat, forced in-session -> OK(0)
-_RT = "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos"
 env = dict(
     os.environ,
     PYTHONPATH=":".join(
-        f"{_RT}/{r}/src"
+        f"{_RUNTIME_REPOS}/{r}/src"
         for r in (
             "renquant-pipeline", "renquant-common", "renquant-artifacts",
             "renquant-execution", "renquant-base-data",

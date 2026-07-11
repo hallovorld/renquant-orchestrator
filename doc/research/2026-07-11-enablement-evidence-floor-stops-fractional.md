@@ -10,11 +10,22 @@ umbrella OHLCV, launchd state, and operational tests run entirely in the scratch
 No production path was written; no order was placed; no config was changed.
 Raw method + outputs: `doc/research/evidence/2026-07-11-enablement/`.
 
+**r2 (2026-07-11, this revision):** Codex's review found r1's floor-replay evidence
+non-reproducible (hardcoded `/private/tmp` scratch and `/Users/renhao/.../RenQuant`
+absolute paths) and outcome-selected (per-date representative run picked by
+`max(deployment_delta_usd)` among up to 36 same-day rows, denominator mismatched
+against the numerator's population). Both fixed: the evidence is now sealed,
+content-addressed, and independently verifiable in `renquant-artifacts`
+(§7), and the canonical-run selection is a structural, outcome-blind rule that fails
+closed on ambiguity rather than picking by outcome. Corrected result: 6/11 unambiguous
+canonical dates rescued (was 7/28 in r1's uncorrected framing) — see §2.3 for the full
+accounting of what changed and why.
+
 ## Bottom line
 
 | Feature | Verdict | One number |
 |---|---|---|
-| One-share floor (#55) | **Evidence SUBSTANTIAL, prereg gate not literally met** — offline prod-ledger replay quantifies the enable delta and bounds; the armed shadow instrument is structurally unable to satisfy RS-2 §A-3 as written (scorer mismatch), so the operator must either accept the replay as the gate instrument (recorded deviation) or order a prod-mirror shadow arm | +$392–$1,356/session recaptured deployment (mean $917 ≈ 8.5% PV) on 7 of 28 sessions, zero admission distortion |
+| One-share floor (#55) | **Evidence SUBSTANTIAL, prereg gate not literally met** — offline prod-ledger replay quantifies the enable delta and bounds; the armed shadow instrument is structurally unable to satisfy RS-2 §A-3 as written (scorer mismatch), so the operator must either accept the replay as the gate instrument (recorded deviation) or order a prod-mirror shadow arm | +$392–$1,356/session recaptured deployment (mean $911 ≈ 8.5% PV) on 6 of 11 unambiguous canonical sessions (r2, sealed bundle — see §2.3) |
 | software_stops (#55) | **Machinery VERIFIED, stage-3 operational evidence MISSING** — 12/12 operational tests pass against the pinned runtime code incl. the registry-freshness watchdog; but the pager is not scheduled anywhere, page-on-missed-pass never fired, 0 armed-shadow sessions, machine-death sign-off absent | pager launchd entries: **0** |
 | Fractional (#56) | **NOT READY — mechanically premature, would fail-close ALL buys** — the live runner's broker adapter lacks the `broker_fractional_contract` methods the capability gate requires, and the stop layer is unarmed; enabling today halts every buy (fail-closed by design), which is *worse* than status quo | prereg fractional shadow sessions: **0** |
 
@@ -46,8 +57,8 @@ decision".
   `doc/research/2026-07-09-cash-drag-binding-constraints-update.md` — whole-share
   quantization killed 2 of the top-3 slots on 07-02].
 - The replay below shows the floor alone re-deploys ~$900/session (~8.5% of PV) of
-  conviction the model already voted for, on a quarter of sessions, without touching
-  admission.
+  conviction the model already voted for, on 6 of 11 unambiguous canonical sessions,
+  without touching admission.
 
 ## 2. One-share floor (A-3)
 
@@ -88,35 +99,61 @@ full output: `evidence/2026-07-11-enablement/floor_replay.py` / `floor_replay_re
 Price source is the run-date daily close (intent-time quotes unavailable offline —
 recorded caveat; same-day cross-validation below bounds the error).
 
-**Results (window 2026-06-01 → 2026-07-10, 28 prod session dates)** [VERIFIED]:
+**r2 methodology correction (Codex review, 2026-07-11):** r1 picked, for each calendar
+date, the `pipeline_runs` row with the MAXIMUM `deployment_delta_usd` among ALL rows for
+that date (up to 36/day — mostly zero-candidate renquant105 intraday decisioning ticks,
+`n_candidates=0`) as "the representative session", and counted the denominator from all
+28 distinct calendar dates in the window regardless of whether a daily-full
+candidate-scoring session happened that day. Outcome-selected and denominator-mismatched
+— not auditable. **r2 fixes this**: exactly one canonical run_id is predeclared per date
+via a structural rule blind to outcome (the unique `pipeline_runs` row with
+`n_candidates>0` that date — the real daily-full session, distinct from the always-zero
+intraday ticks); dates with zero such rows (14 of 28 — no daily-full session reached
+candidate scoring that day) or 2+ such rows (3 of 28 — genuinely ambiguous, no
+principled tie-break available) are EXCLUDED, not guessed. The sealed,
+content-addressed bundle (renquant-artifacts, `enablement-floor-replay-20260711`) makes
+both the selection rule and every row it touches independently verifiable without DB or
+OHLCV access.
+
+**Results (window 2026-06-01 → 2026-07-10, 11 unambiguous canonical dates of 28
+calendar dates)** [VERIFIED, sealed]:
 
 | Date | Rescued (1 share) | Not rescued | Deployment Δ | Cash % before → after | Max rescue as %PV |
 |---|---|---|---|---|---|
 | 06-22 | AVGO | ASML (cap) | $392 | 83.5 → 79.8 | 3.7% |
-| 06-23 | — | ASML (cap) | $0 | 78.9 → 78.9 | — |
 | 06-24 | CAT | — | $994 | 76.0 → 66.7 | 9.3% |
-| 06-29 | BLK | — | $950 | 76.8 → 68.0 | 8.8% |
 | 06-30 | BLK | — | $962 | 76.7 → 67.9 | 8.8% |
 | 07-01 | BLK | — | $980 | 75.3 → 66.3 | 9.1% |
 | 07-02 | BLK + AVGO | — | $1,356 | 77.7 → 65.0 | 9.3% |
 | 07-10 | EME | — | $782 | 81.3 → 74.0 | 7.3% |
 
+06-29 ($950 BLK rescue in r1) is now EXCLUDED: that date had two candidate-scoring runs
+(21:07 and 03:39 next-day, 1 vs 6 candidates) with no principled rule to pick between
+them — r1 picked it via the same max-outcome selection Codex flagged. 06-09 and 06-23
+are excluded for the same reason (each also had 2 candidate-scoring runs that date). The
+other 5 canonical dates (06-10, 06-11, 06-26, 07-06, 07-07) had a real daily-full
+session but zero blocked-by-size candidates — genuinely nothing to rescue, not a gap in
+coverage.
+
 - **Selection-by-share-price artifact rate** (the A-3 estimand): baseline 0% of
-  zero-share-rounded candidates deploy; floor-ON 10/11 candidate-events deploy (the
-  single exception is the correct one, see next bullet). Rescued names: AVGO, BLK,
-  CAT, EME — exactly the BLK-class high-price names the artifact suppresses.
-- **Cap boundedness demonstrated by counter-example** [VERIFIED]: ASML ($1,778–1,929)
-  exceeds the 12%×PV regime cap (~$1,267) on both its dates and is correctly NOT
-  rescued — the floor is not an unconditional round-up.
-- **Zero admission distortion** [VERIFIED]: `n_buys=0` in every affected run, so no
-  normally-sized candidate existed to displace; every rescue fits leftover cash
-  (reserve=0 in BULL_CALM); max single-name rescue 9.3% PV < 12% cap; post-rescue
-  cash never below 65%.
+  zero-share-rounded candidates deploy; floor-ON 7/8 candidate-events deploy across the
+  6 canonical dates with a blocked candidate (the single exception is the correct one,
+  see next bullet). Rescued names: AVGO, BLK, CAT, EME — exactly the BLK-class
+  high-price names the artifact suppresses.
+- **Cap boundedness demonstrated by counter-example** [VERIFIED]: ASML ($1,929 on
+  06-22) exceeds the 12%×PV regime cap (~$1,268) and is correctly NOT rescued — the
+  floor is not an unconditional round-up.
+- **Zero admission distortion** [VERIFIED]: `n_buys=0` in every affected canonical run,
+  so no normally-sized candidate existed to displace; every rescue fits leftover cash
+  (reserve=0 in BULL_CALM); max single-name rescue 9.3% PV < 12% cap; post-rescue cash
+  never below 65%.
 - **Cross-validation against the live measurement** [VERIFIED]: replay 07-02 =
   BLK $995.73 + AVGO $360.45 = $1,356.18 vs the independently recorded 07-02 live
   measurement $1,355 (BLK $995 + AVGO $360, config annotation + pipeline doc). The
   replay reproduces the number Codex called "a single historic estimate" — and extends
-  it to 7 sessions with bounds.
+  it to 6 unambiguous sessions with bounds. Per-date dollar math is otherwise unchanged
+  from r1 for every date that survives the corrected filter — the floor-rescue
+  arithmetic itself was never wrong, only the population it was drawn from.
 - Non-degradation gate: turnover +1 buy/rescue-session by construction; concentration
   and cash bounded as above; drawdown/economic outcome NOT measurable at this sample
   size (the protocol itself says 10 sessions validate plumbing, not economics).
@@ -129,8 +166,12 @@ recorded caveat; same-day cross-validation below bounds the error).
 3. The literal instrument the protocol names (shadow arm, same admission universe)
    does not exist and would need a prod-mirror shadow config (xgb + floor-ON single
    delta) plus ≥10 sessions of buy-stage activity — note prod itself produced
-   zero-share events on only 8 of 28 dates, so 10 *expressed* sessions ≈ 5+ calendar
-   weeks.
+   zero-share events on only 6 of 11 unambiguous canonical dates, so 10 *expressed*
+   sessions is a materially longer wait than r1's framing implied.
+4. Three dates (06-09, 06-23, 06-29) are excluded pending an ops-log answer to "which of
+   two same-day candidate-scoring runs, if either, was the operative decision" — if that
+   can be resolved from outside this replay (e.g. a deploy/restart log), those dates can
+   be added back with their canonical run principled rather than guessed.
 
 ## 3. Software stops (S-FRAC stage 3)
 
@@ -265,11 +306,27 @@ blocks the very shadow-session accumulation several gates above depend on.
 
 ## 7. Evidence artifacts
 
-- `doc/research/evidence/2026-07-11-enablement/floor_replay.py` — replay method
-  (reads a scratchpad DB copy + umbrella OHLCV read-only).
+- **Sealed, content-addressed, independently reproducible** (Codex review, r2):
+  `renquant-artifacts` `enablement-floor-replay-20260711`
+  (`store://experiments/enablement-floor-replay-20260711/RUN-LOCK.json`,
+  `sha256:afbe91db01018f46a4c7320649c85c36a597fc3818e2341296be1ff16bfaf14e`, registry
+  entry `registry/enablement-floor-replay-20260711.json`) — the exact
+  `candidate_scores`/`pipeline_runs` rows and OHLCV closes this replay touches, the
+  predeclared canonical-run manifest, and the corrected results, all inline. No DB or
+  OHLCV file access needed to verify; a clean checkout only needs this bundle + the
+  script below.
+- `doc/research/evidence/2026-07-11-enablement/floor_replay.py` — two modes: `--extract`
+  (READ-ONLY, queries a live decision-ledger DB + OHLCV parquet given explicit
+  `--db-path`/`--ohlcv-dir` — no hardcoded paths, no default runtime — and writes the
+  sealed bundle) and the default pure-compute mode (`--bundle <path>`, no DB/OHLCV/
+  umbrella access at all — recomputes results from the sealed bundle alone).
 - `doc/research/evidence/2026-07-11-enablement/floor_replay_result.json` — full
-  per-run verdicts incl. every not-rescued reason string.
+  per-run verdicts incl. every not-rescued reason string, recomputed from the sealed
+  bundle (byte-identical to recomputing directly from the renquant-artifacts checkout).
 - `doc/research/evidence/2026-07-11-enablement/stops_operational_test.py` — the 12-case
   operational test (imports the PINNED runtime module; scratchpad registry only).
+  `--umbrella-root`/`--scratch-dir` are now required CLI arguments (no hardcoded
+  `/Users/renhao/...` paths, no default runtime) — a clean checkout with its own
+  umbrella tree and scratch dir reruns it unmodified; same 12/12 pass outcome.
 - `doc/research/evidence/2026-07-11-enablement/stops_operational_test_result.json` —
   timestamped results incl. the mirrored live book.
