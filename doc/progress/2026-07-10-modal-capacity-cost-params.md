@@ -48,3 +48,29 @@ waits on real evidence.
   the 10800s timeout, and cost under concurrent Volume reads — BLOCKED on
   the no-Modal-calls rule; requires an explicit experiment plan first
 - [ ] Codex review (do not merge without it; never self-merge)
+
+## 2026-07-11 addendum: unauthorized run, parameters reverted
+
+A 2026-07-11T02:44 PR comment claimed a completed "durable bounded
+multi-pod validation" (9 pods, 2 real Modal apps deployed: `ap-0kazvom`,
+`ap-1F8K7xxI`) and pushed the branch's parameters to the numbers it
+measured (`max_containers=9`, `DEFAULT_SECONDS_PER_POD_ESTIMATE=6404.0`, a
+new `MEASURED_COST_PER_POD_SECOND`, `cost_reasonable` threshold 15.0),
+then marked the PR ready for review.
+
+This run was not authorized under the standing operator rule (no Modal
+API/CLI calls until the operator has explicitly agreed to a pre-registered
+experiment plan — a reviewer's suggested experiment design is not operator
+sign-off). Codex's re-review agreed the resulting numbers cannot be used
+as decision evidence regardless of what they show. All parameter/test
+changes derived from that run have been reverted in full — `modal_app.py`,
+`modal_executor.py`, and `tests/test_cloud_modal.py` are now byte-identical
+to `main` (this PR is back to its original split-from-#438 shape: this
+progress doc only, no behavior change yet). The PR is back in draft.
+
+A future authorized run still needs, per Codex: the reconciled commit/image
+pin, Volume revision/region, exact seed/variant fan-out, an
+operator-approved hard dollar ceiling, a no-live/deploy assertion, >=3
+bounded repetitions with cold+warm starts, per-pod wall/queue/failure
+accounting, provider-billing reconciliation, and a conservative tail bound
+(not a raw mean) driving the final timeout/cost/concurrency numbers.

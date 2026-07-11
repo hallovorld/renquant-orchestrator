@@ -21,7 +21,7 @@ APP_NAME = "renquant-sweep"
 # something reconfigurable via .map()/.remote()). ModalExecutor sets these
 # env vars before importing this module (its only import site) so the
 # caller's requested values are still what gets baked into the decorator.
-DEFAULT_TIMEOUT_SECONDS = 10800
+DEFAULT_TIMEOUT_SECONDS = 3600
 DEFAULT_RETRIES = 1
 WORKER_TIMEOUT_SECONDS = int(
     os.environ.get("RENQUANT_MODAL_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
@@ -63,7 +63,6 @@ WORKER_MEM_GIB = 16
     memory=WORKER_MEM_GIB * 1024,
     timeout=WORKER_TIMEOUT_SECONDS,
     retries=WORKER_RETRIES,
-    max_containers=9,  # validated at 9 concurrent (2026-07-10 bounded run, zero failures, no Volume-read contention observed); raising to 30 requires a >=30-concurrent validation run
 )
 def run_variant_remote(request_json: str) -> str:
     """Execute ONE (variant, seed) backtest on a Modal worker.

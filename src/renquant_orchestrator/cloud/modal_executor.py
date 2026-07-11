@@ -24,18 +24,25 @@ MODAL_MEM_RATE = 0.00000222  # $/GiB-sec
 WORKER_CORES = 4
 WORKER_MEM_GIB = 16
 
-# Measured from the round-7 bounded smoke test (2026-07-08, commit 424600b2):
-# incumbent pod = 3042s, A/A pod = 3431s. Use the higher (A/A) value as
-# the conservative estimate — it includes any cold-start overhead.
-DEFAULT_SECONDS_PER_POD_ESTIMATE = 6404.0  # MEASURED 2026-07-10 bounded run: 9 pods, per-pod range 5873-6719s (mean 6404); replaces the pre-reconciliation 3431 smoke claim, which measurement REFUTED
-
-
-MEASURED_COST_PER_POD_SECOND = 0.00001545
-"""Empirical rate from round-7 smoke test: $0.30 / (6 pods × ~3237s avg)."""
+# Conservative per-pod runtime estimate for the preflight cost gate, in
+# seconds. The only real data point available is the pre-reconciliation
+# smoke test's cached-run worker time (5558s / 93min) for ONE pod running
+# ALL 3 seeds serially on the OLD architecture — see
+# doc/progress/2026-07-08-modal-sweep-reconciled.md. Under the per-seed
+# fan-out design each pod now runs exactly ONE seed, so the true per-pod
+# time is very likely lower (perhaps close to 5558/3 if backtest compute
+# dominates), but that has NOT been re-measured on the reconciled code, and
+# fixed per-pod overhead (image pull, data load from the Volume) may not
+# scale down linearly with fewer seeds. Using the full un-split figure is
+# the conservative (non-optimistic) choice until a fresh bounded smoke test
+# on THIS code produces a real per-seed-pod number to replace it.
+DEFAULT_SECONDS_PER_POD_ESTIMATE = 5558.0
 
 
 def _estimate_cost_usd(elapsed_seconds: float) -> float:
-    return elapsed_seconds * MEASURED_COST_PER_POD_SECOND
+    return elapsed_seconds * (
+        WORKER_CORES * MODAL_CPU_RATE + WORKER_MEM_GIB * MODAL_MEM_RATE
+    )
 
 
 class ModalExecutor:
@@ -266,7 +273,7 @@ class ModalExecutor:
         # ACTUAL pod count, not a stale one-pod-per-variant assumption.
         n_pods = n_variants * n_seeds_per_variant
         projected = _estimate_cost_usd(seconds_per_pod) * n_pods
-        checks["cost_reasonable"] = projected < 15.0
+        checks["cost_reasonable"] = projected < 20.0
         if not checks["cost_reasonable"]:
             details["cost_reasonable"] = (
                 f"Projected: ${projected:.2f} ({n_pods} pods = "

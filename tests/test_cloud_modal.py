@@ -314,7 +314,7 @@ class TestModalExecutor:
         bigger_cost = float(
             bigger.details["cost_reasonable"].split("$")[1].split(" ")[0]
         )
-        assert bigger_cost == pytest.approx(big_cost * 3, abs=0.02)  # figures are parsed from 2-dp display strings; exact x3 holds pre-rounding
+        assert bigger_cost == pytest.approx(big_cost * 3, rel=1e-6)
 
 
 def _install_fake_modal_sdk(monkeypatch):
@@ -407,7 +407,7 @@ class TestModalTimeoutRetriesConfigurability:
 
         self._fresh_import(monkeypatch, captured)
 
-        assert captured["timeout"] == 10800
+        assert captured["timeout"] == 3600
         assert captured["retries"] == 1
 
     def test_execute_batch_sets_env_vars_before_first_import(self, monkeypatch, tmp_path: Path):
