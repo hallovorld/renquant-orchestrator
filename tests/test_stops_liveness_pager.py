@@ -18,16 +18,21 @@ real ntfy.sh delivery, real launchd bootstrap, and the checker running end
 -to-end against the pinned renquant-execution/renquant-pipeline checkouts
 with real dependencies installed. Tests here pin the contract: plist shape,
 live-topic wiring, page/no-page per checker exit class, delivery-failure exit
-codes, echo-first dry-run, and that the wrapper resolves the pinned sibling
-src roots via renquant_orchestrator.runtime_paths (never a hardcoded
-umbrella/.venv path) — including the pin-resolution-failure page path,
-exercised for real against a deliberately empty repo root (no lock file),
-using only stdlib (runtime_paths.py has no third-party dependency).
+codes, echo-first dry-run, and that the wrapper resolves the pinned
+checkouts through the R-PIN Stage-1 runtime inventory via
+renquant_orchestrator.deployment_manifest.load_runtime_inventory (never a
+hardcoded umbrella/.venv path, never the umbrella lock file) — including a
+REAL end-to-end resolution against a schema-valid fake inventory pointing
+at a stub execution checkout, and the resolution-failure page path against
+an empty state root, using only stdlib (deployment_manifest.py has no
+third-party dependency).
 """
 from __future__ import annotations
 
+import json
 import plistlib
 import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -164,15 +169,23 @@ def test_wrapper_defaults_match_the_plist_topic_and_execution_repo_checker():
     # ad hoc invocation (no plist env) must page the same live topic
     assert f'NTFY_TOPIC:-{LIVE_OPS_TOPIC}}}' in content
     # the checker now lives in renquant-execution, invoked as a module via
-    # the pinned sibling-checkout PYTHONPATH resolver (runtime_paths), never
-    # the deprecated umbrella script or its venv.
+    # the R-PIN runtime-inventory reader (deployment_manifest), never the
+    # deprecated umbrella script, its venv, or its lock file.
     assert "renquant_execution.software_stops_liveness" in content
-    assert "resolve_subrepo_src_roots" in content
+    assert "load_runtime_inventory" in content, (
+        "resolution must go through the deployment_manifest reader API, "
+        "not ad-hoc JSON parsing"
+    )
+    assert "deploy_state_root" in content
     assert "check_software_stops_liveness.py" not in content
     assert "RenQuant/.venv" not in content
     assert ".subrepo_runtime" not in content, (
         "no hardcoded umbrella subrepo_runtime path — resolution goes "
-        "through runtime_paths.resolve_subrepo_src_roots instead"
+        "through the runtime inventory instead"
+    )
+    assert "subrepos.lock" not in content, (
+        "no umbrella lock-file dependency — the inventory is the neutral "
+        "per-host path map"
     )
 
 
@@ -249,23 +262,126 @@ def test_wrapper_requires_python_and_data_root_without_test_override(tmp_path):
     assert "RENQUANT_STOPS_PAGER_PYTHON" in proc.stderr
 
 
-def test_wrapper_resolves_pinned_sibling_src_roots_via_runtime_paths(tmp_path, ntfy_server):
-    """Real (non-fake) exercise of the production PYTHONPATH-resolution
-    path — no RENQUANT_STOPS_PAGER_CHECKER_CMD override — against a
-    deliberately empty repo root (no subrepos.lock.json). runtime_paths.py
-    has no third-party dependency, so this runs with plain python3: the
-    resolver fails (no lock file), which the wrapper must treat exactly
-    like a checker crash (page, don't die dark) rather than silently
-    exiting clean."""
+_STUB_CLI = """\
+import os
+import sys
+
+print(os.environ.get("FAKE_STOPS_MSG", "OK: stub"), "argv=" + " ".join(sys.argv[1:]))
+sys.exit(int(os.environ.get("FAKE_STOPS_EXIT", "0")))
+"""
+
+
+def _fake_state_root(tmp_path: Path) -> Path:
+    """A fake R-PIN state root whose runtime inventory (REAL schema v1,
+    validated by the real reader) points at stub pinned checkouts. The stub
+    execution checkout carries a fake
+    ``renquant_execution.software_stops_liveness`` driven by env vars."""
+    exec_pkg = tmp_path / "pin-exec" / "src" / "renquant_execution"
+    exec_pkg.mkdir(parents=True)
+    (exec_pkg / "__init__.py").write_text("", encoding="utf-8")
+    (exec_pkg / "software_stops_liveness.py").write_text(_STUB_CLI, encoding="utf-8")
+    stub_repos = {"renquant-execution": {"path": str(tmp_path / "pin-exec")}}
+    # the wrapper resolves the checker's full first-party import closure
+    for name in (
+        "renquant-common", "renquant-base-data", "renquant-artifacts",
+        "renquant-model", "renquant-pipeline",
+    ):
+        (tmp_path / name / "src").mkdir(parents=True)
+        stub_repos[name] = {"path": str(tmp_path / name)}
+
+    state_root = tmp_path / "deploy-state"
+    state_root.mkdir()
+    inventory = {
+        "schema_version": 1,
+        "kind": "runtime-inventory",
+        "generated_at": "2026-07-11T00:00:00Z",
+        "host": "test-host",
+        "repos": stub_repos,
+    }
+    (state_root / "runtime-inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
+    return state_root
+
+
+def test_wrapper_resolves_pinned_checkouts_via_runtime_inventory(tmp_path, ntfy_server):
+    """Real (non-fake) exercise of the production resolution path — no
+    RENQUANT_STOPS_PAGER_CHECKER_CMD override. The wrapper reads a
+    schema-valid runtime inventory through the REAL deployment_manifest
+    reader, builds PYTHONPATH from the inventory's checkout paths, and
+    invokes `python -m renquant_execution.software_stops_liveness` (a stub
+    module in the fake pinned checkout) with the explicit --data-root."""
     base, requests = ntfy_server
-    empty_repo_root = tmp_path / "empty-repo-root"
-    empty_repo_root.mkdir()
+    state_root = _fake_state_root(tmp_path)
+    data_root = tmp_path / "data-root"
+    data_root.mkdir()
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin",
         "HOME": str(tmp_path),
-        "RENQUANT_STOPS_PAGER_PYTHON": "python3",
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_NTFY_BASE": base,
+        "RENQUANT_STOPS_PAGER_NTFY_TOPIC": "test-topic",
+        "FAKE_STOPS_EXIT": "0",
+        "FAKE_STOPS_MSG": "OK: stub registry fresh",
+    }
+    proc = subprocess.run(
+        ["bash", str(WRAPPER)], env=env, text=True, capture_output=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert requests == []
+    # the stub CLI received the explicit data root + broker args
+    assert "--data-root" in proc.stdout
+    assert str(data_root) in proc.stdout
+    assert "--broker alpaca" in proc.stdout
+
+
+def test_wrapper_stale_pin_pages_resolution_failure_not_false_stale(tmp_path, ntfy_server):
+    """Stale-pin guard (found by live smoke 2026-07-11): the host's pinned
+    renquant-execution checkout predates renquant-execution#29, and
+    `python -m <missing module>` exits 1 — which would masquerade as a
+    STALE verdict and page a FALSE alarm. The resolver must classify a
+    missing checker module as a resolution failure (crash-class page with
+    the pin-not-advanced detail), never as STALE."""
+    base, requests = ntfy_server
+    state_root = _fake_state_root(tmp_path)
+    module_file = (
+        tmp_path / "pin-exec" / "src" / "renquant_execution"
+        / "software_stops_liveness.py"
+    )
+    module_file.unlink()
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "HOME": str(tmp_path),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
         "RENQUANT_STOPS_PAGER_DATA_ROOT": str(tmp_path),
-        "RENQUANT_REPO_ROOT": str(empty_repo_root),
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_NTFY_BASE": base,
+        "RENQUANT_STOPS_PAGER_NTFY_TOPIC": "test-topic",
+    }
+    proc = subprocess.run(
+        ["bash", str(WRAPPER)], env=env, text=True, capture_output=True, timeout=60,
+    )
+    assert proc.returncode not in (0, 1, 2), proc.stderr
+    assert len(requests) == 1
+    assert "PIN RESOLUTION FAILED" in requests[0]["body"]
+    assert "STALE" not in requests[0]["body"], "must not page a false STALE"
+
+
+def test_wrapper_missing_inventory_pages_resolution_failure(tmp_path, ntfy_server):
+    """The reader API fail-closes on a missing/invalid runtime inventory;
+    the wrapper must treat that exactly like a checker crash (page, don't
+    die dark) rather than silently exiting clean."""
+    base, requests = ntfy_server
+    empty_state_root = tmp_path / "empty-state-root"
+    empty_state_root.mkdir()
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "HOME": str(tmp_path),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(tmp_path),
+        "RENQUANT_DEPLOY_STATE_ROOT": str(empty_state_root),
         "RENQUANT_STOPS_PAGER_NTFY_BASE": base,
         "RENQUANT_STOPS_PAGER_NTFY_TOPIC": "test-topic",
     }

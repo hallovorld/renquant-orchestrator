@@ -7,10 +7,13 @@
   Runs scripts/stops_liveness_pager.sh every 10 minutes. The wrapper invokes
   the EXECUTION-repo liveness checker (renquant_execution.software_stops_liveness,
   renquant-execution#29 — moved out of the deprecated umbrella per the
-  Codex review of this package's prior revision) through the pinned
-  sibling-checkout PYTHONPATH convention this repo already uses for
-  multi-repo entrypoints (renquant_orchestrator.runtime_paths), and pages
-  the LIVE ops ntfy topic on STALE / CORRUPT / checker-crash. The checker
+  Codex review of this package's prior revision), resolving the pinned
+  execution/pipeline/common checkouts through the R-PIN Stage-1 runtime
+  inventory (~/.renquant/deploy/runtime-inventory.json, read via
+  renquant_orchestrator.deployment_manifest.load_runtime_inventory — the
+  neutral per-host repo-name to checkout-path map, no umbrella lock-file
+  dependency), and pages the LIVE ops ntfy topic on STALE / CORRUPT /
+  checker-crash / inventory-resolution failure. The checker
   itself returns OK off-session, so a simple all-day StartInterval is the
   robust schedule: market-hours gating lives in ONE place (the checker),
   not duplicated here.
@@ -67,7 +70,13 @@
              configuration here, never a hardcoded default in the script. -->
         <!-- Same interpreter the live pipeline stack already runs under
              (the conda env RenQuant/.venv/bin/python symlinks to),
-             referenced directly, NOT through the umbrella .venv path. -->
+             referenced directly, NOT through the umbrella .venv path.
+             Verified live 2026-07-11: the BARE conda interpreter suffices
+             because the wrapper puts the checker's full first-party import
+             closure (common/base-data/artifacts/model/pipeline/execution)
+             on PYTHONPATH from the runtime inventory - only the third-party
+             scientific stack comes from this env; none of the umbrella
+             venv's editable installs are needed. -->
         <key>RENQUANT_STOPS_PAGER_PYTHON</key>
         <string>/Users/renhao/miniconda3/envs/renquant/bin/python</string>
         <!-- Where the live sell-only loop currently writes the software-stop

@@ -53,17 +53,26 @@ two independent grounds:
   does not need to install pipeline's dependency chain (cvxpy /
   renquant-base-data / renquant-artifacts) for this thin wrapper.
 - `scripts/stops_liveness_pager.sh` now resolves the pinned
-  `renquant-execution` / `renquant-pipeline` / `renquant-common` `src/` roots
-  via `renquant_orchestrator.runtime_paths.resolve_subrepo_src_roots` — the
-  SAME mechanism every other multi-repo orchestrator entrypoint already uses
-  (`live_bridge.bootstrap_multirepo`), never a hardcoded umbrella path — and
-  invokes `python -m renquant_execution.software_stops_liveness`. The
-  interpreter and registry data root are still explicit, reviewed
-  arming-time plist configuration (RUNTIME CONTRACT, same discipline as
-  `shadow_ab_daily.sh`) — the wrapper script itself has no default pointing
-  at any repo. A `RENQUANT_STOPS_PAGER_CHECKER_CMD` test-only override lets
-  the hermetic tests substitute a fake checker without touching a real lock
-  file, git, or `renquant_pipeline`.
+  `renquant-execution` / `renquant-pipeline` / `renquant-common` checkouts
+  through the **R-PIN Stage-1 runtime inventory**
+  (`~/.renquant/deploy/runtime-inventory.json`, override
+  `RENQUANT_DEPLOY_STATE_ROOT`) read via this repo's own reader API
+  (`renquant_orchestrator.deployment_manifest.deploy_state_root` /
+  `state_root_paths` / `load_runtime_inventory` — one reader implementation,
+  never ad-hoc JSON parsing; the calibrator-fingerprint triple-impl lesson)
+  and invokes `python -m renquant_execution.software_stops_liveness`. No
+  umbrella path, no umbrella venv, and no umbrella lock-file dependency: the
+  inventory is the NEUTRAL per-host repo-name → checkout-path map, consumed
+  exactly as that (R-PIN Stage 1 defines no pin-authority semantics and this
+  job uses none; `deployment_manifest.py` is stdlib-only so resolution runs
+  before any pinned `PYTHONPATH` exists). The interpreter and registry data
+  root are still explicit, reviewed arming-time plist configuration (RUNTIME
+  CONTRACT, same discipline as `shadow_ab_daily.sh`) — the wrapper script
+  itself has no default pointing at any repo. A
+  `RENQUANT_STOPS_PAGER_CHECKER_CMD` test-only override lets the hermetic
+  tests substitute a fake checker; a second, non-faked test exercises the
+  REAL inventory resolution against a schema-valid fake inventory pointing
+  at a stub execution checkout.
 - Logs/state moved to the **neutral, orchestrator-owned operational root**
   `~/.renquant/ops/stops-liveness/` — sibling to R-PIN's
   `~/.renquant/deploy/` neutral machine-state root
@@ -87,9 +96,9 @@ two independent grounds:
 | File | Role |
 |---|---|
 | `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash`, logs to the neutral `~/.renquant/ops/stops-liveness/` root, explicit `RENQUANT_STOPS_PAGER_PYTHON` / `RENQUANT_STOPS_PAGER_DATA_ROOT` / `RENQUANT_STOPS_PAGER_NTFY_TOPIC` configuration (never a script default) |
-| `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common `src` roots via `runtime_paths.resolve_subrepo_src_roots`, runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or pin-resolution-failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure |
+| `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common checkouts through the R-PIN runtime inventory (`deployment_manifest.load_runtime_inventory`), runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or inventory-resolution failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure |
 | `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root |
-| `tests/test_stops_liveness_pager.py` | 20 hermetic tests: plist shape + live-topic pin + explicit-python/data-root pin (no umbrella `.venv` reference) + neutral log root, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, RUNTIME-CONTRACT fail-closed check, a REAL (non-faked) exercise of the pin-resolution path against a deliberately empty repo root proving a resolution failure pages rather than dying dark, installer dry-run/apply/uninstall/status with a recording launchctl stub |
+| `tests/test_stops_liveness_pager.py` | 22 hermetic tests: plist shape + live-topic pin + explicit-python/data-root pin (no umbrella `.venv` reference) + neutral log root, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, RUNTIME-CONTRACT fail-closed check, a REAL (non-faked) exercise of the runtime-inventory resolution path — success against a schema-valid fake inventory + stub execution checkout, and failure against an empty state root proving a resolution failure pages rather than dying dark — installer dry-run/apply/uninstall/status with a recording launchctl stub |
 
 ## Companion PR (renquant-execution)
 
@@ -130,33 +139,57 @@ split (unchanged by this round, restated for clarity):
 
 ## Honest alert-latency envelope — NOT stage-3-ready
 
-The staleness budget rides in the registry snapshot
-(`max_staleness_minutes`, default 30; sell-loop heartbeat cadence 12m).
-STALE therefore flips ~18m after the FIRST missed pass (i.e. on the second
-consecutive miss), and this pager adds ≤10m detection cadence: **first page
-lands ~18–28m after the first missed pass**. This does **not** meet the
+The worst-case page latency after a pass missed at T0 is mechanical:
+
+```
+page_time = T0 + (B − C) + I + D
+  C = 12m   sell-only loop heartbeat cadence (com.renquant.intraday104)
+  B = max_staleness_minutes — rides in the registry SNAPSHOT, stamped by
+      the ARMING side (pipeline default 30)
+  I = this plist's StartInterval (600s = 10m)
+  D = page delivery time (seconds; measured by the test-fire drill)
+```
+
+With today's values (B=30, C=12, I=10): STALE flips 18m after the FIRST
+missed pass (i.e. on the second consecutive miss) and the **first page lands
+18–28m (+D) after the first missed pass**. This does **not** meet the
 design's "page ≤15m of the scheduled pass" target.
 
 **This package must not be described as stage-3-ready and does not by
 itself support `strategy-104#55`/`#56` software-stop enablement.** Closing
 the gap needs ONE of:
 
-1. An **arming-side change** (out of scope here, not made in this PR):
-   stamp a tighter `max_staleness_minutes` into the registry snapshot — a
-   pipeline/strategy-104 production risk-parameter decision, not an
-   ops-tooling one.
-2. A **separately-signed operator acceptance** of the current ~18-28 minute
+1. An **arming-side + interval change — the exact values that mathematically
+   satisfy 15m**: `max_staleness_minutes = 20` (pipeline arming-side; out of
+   scope here, not made in this PR — a production risk-parameter decision)
+   together with `StartInterval = 300` (a one-line change to this plist at
+   decision time). Worst case: (20 − 12) + 5 + D = **13m + D ≤ 15m for any
+   D ≤ 2m**, keeping B − C = 8m of tolerance for a slow-but-alive loop pass
+   before a false page. (B=20 with the current I=10 gives 18m+D and still
+   fails; B below ~17 starts false-paging on ordinary pass jitter — both
+   knobs must move together.)
+2. A **separately-signed operator acceptance** of the current 18–28m (+D)
    envelope, recorded explicitly at stage-3 enablement time — not implied by
-   merging or landing this package.
+   merging or landing this package. This doc states the bound; it does not
+   accept it.
 
 The `--test-fire` drill (the "define an explicit experiment: test-fire plus
 measured page delivery and operator acknowledgement" Codex asked for) is the
 landing-step experiment that produces the ACTUAL numbers needed for either
-decision above. It runs only after operator grant, per the landing sequence
-below — this PR does not run it and does not claim its outcome.
+decision above — measured D (page delivery) and measured operator
+acknowledgement time against the 60m response half of the SLA. It runs only
+after operator grant, per the landing sequence below — this PR does not run
+it and does not claim its outcome.
 
 ## Landing sequence (operator grant required — landing-actions ask-first)
 
+0. **Prerequisite — pin advance**: the runtime inventory's
+   `renquant-execution` checkout must contain the checker (merged
+   renquant-execution#29). Verified live 2026-07-11 that today's pinned
+   checkout predates #29; the wrapper's resolver detects this and pages
+   "PIN RESOLUTION FAILED" (the pin-not-advanced detail goes to the launchd
+   stderr log) rather than a false STALE, but landing before the pin
+   advance just produces that page every 10 minutes.
 1. Operator grant.
 2. `scripts/install_stops_pager.sh install` — review the echoed commands.
 3. `scripts/install_stops_pager.sh install --apply`.

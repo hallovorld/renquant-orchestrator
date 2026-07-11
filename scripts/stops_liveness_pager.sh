@@ -14,13 +14,17 @@
 # the deprecated umbrella's own Python virtualenv, creating a new
 # production dependency on that umbrella. That checker moved to
 # renquant-execution (a proper broker/order-management runtime-monitoring
-# module). This wrapper now resolves the pinned renquant-execution /
-# renquant-pipeline / renquant-common src roots the SAME way every other
-# multi-repo orchestrator entrypoint does
-# (renquant_orchestrator.runtime_paths.resolve_subrepo_src_roots /
-# live_bridge.bootstrap_multirepo convention) and runs
+# module). This wrapper resolves the pinned renquant-execution /
+# renquant-pipeline / renquant-common checkouts through the R-PIN Stage-1
+# RUNTIME INVENTORY (~/.renquant/deploy/runtime-inventory.json, override
+# RENQUANT_DEPLOY_STATE_ROOT) read via the orchestrator's own reader API
+# (renquant_orchestrator.deployment_manifest.load_runtime_inventory — one
+# reader implementation, never ad-hoc JSON parsing), and runs
 # `python -m renquant_execution.software_stops_liveness` — never a
-# hardcoded umbrella path or venv.
+# hardcoded umbrella path or venv, and no dependency on the umbrella's
+# pin lock file either: the inventory is the NEUTRAL per-host
+# repo-name -> checkout-path map (used exactly as that — Stage 1 defines
+# no pin-authority semantics, and this job consumes none).
 #
 #   renquant-pipeline    — registry data model + staleness arithmetic
 #                          (software_stops.py) + decision-time arming task.
@@ -139,47 +143,79 @@ else
     DATA_ROOT="${RENQUANT_STOPS_PAGER_DATA_ROOT:?RENQUANT_STOPS_PAGER_DATA_ROOT must be supplied (explicit registry data root — RUNTIME CONTRACT)}"
 
     # Resolve the pinned renquant-execution / renquant-pipeline /
-    # renquant-common src roots — the SAME mechanism every other multi-repo
-    # orchestrator entrypoint uses (runtime_paths.resolve_subrepo_src_roots,
-    # as used by live_bridge.bootstrap_multirepo), never a hardcoded
-    # umbrella path. Honors RENQUANT_REPO_ROOT / RENQUANT_GITHUB_ROOT /
-    # RENQUANT_SUBREPO_ROOT overrides exactly like every other scheduled
-    # entrypoint in this repo.
+    # renquant-common checkouts through the R-PIN Stage-1 RUNTIME INVENTORY
+    # (~/.renquant/deploy/runtime-inventory.json; RENQUANT_DEPLOY_STATE_ROOT
+    # override honored by the reader itself) via the orchestrator's own
+    # reader API — deployment_manifest.load_runtime_inventory validates the
+    # schema and fail-closes on an unreadable/invalid inventory. The
+    # inventory is the NEUTRAL per-host repo-name -> path map: no umbrella
+    # lock file, no sibling-directory guessing. deployment_manifest.py is
+    # stdlib-only, so this resolution step runs before any pinned
+    # PYTHONPATH exists.
     export PYTHONPATH="$ORCH_DIR/src:${PYTHONPATH:-}"
     # NOTE: stdout carries ONLY the final ":"-joined roots line on success;
-    # any pin-drift warnings (enforce_or_warn, non-strict mode) go to
-    # stderr so they never corrupt the PYTHONPATH we parse below — they
-    # still surface in the launchd stderr log for debugging.
+    # errors go to stderr so they never corrupt the PYTHONPATH we parse
+    # below — they still surface in the launchd stderr log for debugging.
     pin_out="$("$PYTHON" - <<'PY'
 import sys
+from pathlib import Path
 
-from renquant_orchestrator.runtime_paths import (
-    default_repo_root,
-    enforce_or_warn,
-    resolve_subrepo_root,
-    resolve_subrepo_src_roots,
-    strict_clean_enabled,
+from renquant_orchestrator.deployment_manifest import (
+    deploy_state_root,
+    load_runtime_inventory,
+    state_root_paths,
 )
 
-repo_root = default_repo_root()
-roots, issues = resolve_subrepo_src_roots(
-    lock_file=repo_root / "subrepos.lock.json",
-    names=["renquant-common", "renquant-pipeline", "renquant-execution"],
-    siblings=repo_root.parent,
-    root_override=str(resolve_subrepo_root(repo_root)),
-    check_dirty=strict_clean_enabled(),
+inventory = load_runtime_inventory(state_root_paths(deploy_state_root())["inventory"])
+repos = inventory["repos"]
+# The full first-party import closure, all from pinned checkouts: the
+# checker imports renquant_pipeline.software_stops, and the pipeline
+# package __init__ pulls renquant_artifacts / renquant_base_data /
+# renquant_model / renquant_common. Verified live 2026-07-11: with these
+# on PYTHONPATH the checker runs green under the bare conda interpreter —
+# no venv and no umbrella-venv editable installs required.
+# (NOTE for editors: no apostrophes or backticks inside this heredoc —
+# bash 3.2 command-substitution parsing treats them as quote openers.)
+needed = (
+    "renquant-common",
+    "renquant-base-data",
+    "renquant-artifacts",
+    "renquant-model",
+    "renquant-pipeline",
+    "renquant-execution",
 )
-missing = [i.repo for i in issues if i.reason == "missing local src root"]
+missing = [name for name in needed if name not in repos]
 if missing:
-    print(f"missing pinned src roots: {missing}", file=sys.stderr)
+    print(f"runtime inventory is missing repos: {missing}", file=sys.stderr)
     raise SystemExit(1)
-enforce_or_warn(issues)
-print(":".join(str(r) for r in roots))
+absent = [
+    name for name in needed if not (Path(repos[name]["path"]) / "src").is_dir()
+]
+if absent:
+    print(f"inventory checkout src roots absent on disk: {absent}", file=sys.stderr)
+    raise SystemExit(1)
+# Guard against a stale pin: python -m with a missing module exits 1,
+# which would masquerade as a STALE verdict downstream. Verified live
+# 2026-07-11: the pinned renquant-execution checkout predates
+# renquant-execution#29, so without this check the very first scheduled
+# run would page a FALSE "STALE" instead of the honest resolution failure.
+module_file = (
+    Path(repos["renquant-execution"]["path"])
+    / "src" / "renquant_execution" / "software_stops_liveness.py"
+)
+if not module_file.is_file():
+    print(
+        f"pinned renquant-execution checkout lacks the liveness checker "
+        f"({module_file}) — pin not yet advanced past renquant-execution#29",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+print(":".join(str(Path(repos[name]["path"]) / "src") for name in needed))
 PY
 )"
     pin_rc=$?
     if [ "$pin_rc" -ne 0 ]; then
-        out="PIN RESOLUTION FAILED (exit=$pin_rc) — see launchd stderr log for the missing/drifted repo detail"
+        out="PIN RESOLUTION FAILED (exit=$pin_rc) — runtime-inventory resolution; see launchd stderr log for the missing repo/inventory detail"
         code=90
     else
         export PYTHONPATH="$pin_out:$ORCH_DIR/src:${PYTHONPATH:-}"
