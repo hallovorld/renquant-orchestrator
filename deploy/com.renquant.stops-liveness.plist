@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Software-stop registry liveness pager — S-FRAC stage-3 ops (#471 operator
+  shortlist item 2: "pager scheduled nowhere, page never test-fired").
+
+  Runs scripts/stops_liveness_pager.sh every 10 minutes. The wrapper invokes
+  the umbrella checker (RenQuant/scripts/check_software_stops_liveness.py)
+  against the PINNED runtime modules and pages the LIVE ops ntfy topic on
+  STALE / CORRUPT / checker-crash. The checker itself returns OK off-session,
+  so a simple all-day StartInterval is the robust schedule: market-hours
+  gating lives in ONE place (the checker), not duplicated here.
+
+  TEMPLATE ONLY: merging this file does NOT install anything. Arming is a
+  separately-granted operator landing step (the "apply" flag is two hyphens;
+  XML comments cannot contain a double hyphen):
+
+      scripts/install_stops_pager.sh install [apply flag]
+      scripts/install_stops_pager.sh test-fire STALE   (SLA drill, record response time)
+
+  See doc/progress/2026-07-11-stops-liveness-pager-package.md for the landing
+  sequence and the alert-latency envelope vs the design §3.4 15m/60m SLA.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.renquant.stops-liveness</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator/scripts/stops_liveness_pager.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>WorkingDirectory</key>
+    <string>/Users/renhao/git/github/RenQuant</string>
+    <key>StandardOutPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/stops_liveness/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/stops_liveness/launchd.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <!-- Explicit operator configuration (deploy-plist convention set by
+             Codex r2 on #460 / deploy/com.renquant.shadow-ab-daily.plist):
+             the paging topic is configuration owned by this plist and
+             reviewed at arming time. "renquant" is the LIVE ops topic — the
+             same channel the live sell-only loop (umbrella
+             scripts/intraday_sell_104.sh NTFY_TOPIC) alerts on. -->
+        <key>RENQUANT_STOPS_PAGER_NTFY_TOPIC</key>
+        <string>renquant</string>
+    </dict>
+</dict>
+</plist>
