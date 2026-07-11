@@ -35,6 +35,27 @@
 # state isolated under the experiment root). Prod state/db are never written.
 # A failure here must never affect the prod cycle — the exit code only marks
 # the session-pair invalid.
+#
+# SESSION GATE (Codex review of #488; ordering fixed per Codex round 3): the
+# D6 experiment unit is a trading SESSION, not a calendar weekday. The
+# plist's Mon-Fri StartCalendarInterval is a cost optimization only (fewer
+# wasted weekend launchd wake-ups) — it still fires on NYSE full-closure
+# holidays that land on a weekday. THIS script is authoritative: it resolves
+# $SESSION_DATE against the canonical shared renquant_common.market_calendar
+# (pandas_market_calendars-backed) and exits 0 with no observation written on
+# a non-session date (weekend or holiday); half-day/early-close sessions are
+# real sessions and proceed normally.
+#
+# FAIL-CLOSED ORDERING (P0 fix, Codex round 3): the run-manifest / pin-
+# identity precheck (verify_run_manifest) runs FIRST — immediately after
+# PYTHONPATH is assembled from the manifest, before any pinned-repo code is
+# imported. Only once every pinned checkout (including the one
+# renquant_common.market_calendar itself is imported from) is confirmed
+# clean and at its pinned commit does the trading-session calendar check
+# run. Importing market_calendar before that identity check would let a
+# dirty or wrong-commit sibling checkout silently return "not a session"
+# (SKIP, exit 0) for what is actually a real trading day — the identity
+# failure must always win over a SKIP.
 set -uo pipefail
 
 PYTHON="${RENQUANT_SHADOW_AB_PYTHON:?RENQUANT_SHADOW_AB_PYTHON must be supplied (no default runtime)}"
@@ -89,10 +110,17 @@ export RENQUANT_REPO_ROOT="$REPO_ROOT"
 export RENQUANT_OHLCV_DIR="$DATA_ROOT"
 export RENQUANT_SUPPRESS_PREFLIGHT_NTFY=1
 
-# Verify the immutable pin set before reading market data or writing either
-# snapshot artifact. The runner repeats this immediately before arming; this
-# wrapper-level check prevents a malformed/dirty manifest from being hidden by
-# an unrelated market-data setup error.
+# Verify the immutable pin set BEFORE importing ANY pinned-repo code (P0
+# fix, Codex round 3 on #488) — this must run FIRST, immediately after
+# PYTHONPATH is assembled from the manifest above, and before the trading-
+# session gate below. The runner repeats this same check immediately before
+# arming; this wrapper-level check ALSO prevents a malformed/dirty manifest
+# from being hidden by an unrelated market-data setup error. Ordering
+# matters: the session gate below imports renquant_common.market_calendar,
+# itself resolved from a manifest-pinned sibling checkout — running that
+# import before this precheck would let a dirty or wrong-commit checkout
+# silently decide "not a session" (SKIP, exit 0) instead of failing closed
+# with the identity error. This block must stay first.
 "$PYTHON" - "$RUN_MANIFEST" <<'PY'
 import sys
 
@@ -116,6 +144,46 @@ if [ "$preflight_rc" -ne 0 ]; then
     fi
     echo "SETUP: run manifest preflight failed"
     exit 2
+fi
+
+# Trading-SESSION gate (Codex review of #488): the D6 experiment unit is a
+# trading session, not a calendar weekday. The launchd StartCalendarInterval
+# Mon-Fri filter is a cost optimization ONLY (fewer wasted weekend wake-ups)
+# — it still passes NYSE full-closure holidays that land on a weekday
+# (Independence Day, Thanksgiving, Christmas, ...), which would otherwise
+# re-observe the prior close as a spurious zero-information "paired" world.
+# THIS script is the authoritative gate: resolve the session against the
+# canonical shared calendar (renquant_common.market_calendar, backed by the
+# real pandas_market_calendars holiday/half-day dataset — never a hand-
+# rolled list or an umbrella-path heuristic) before any run bundle, price
+# snapshot, or paired-session record is written. Half-day (early-close)
+# sessions are real sessions and are deliberately NOT skipped here —
+# is_session() already returns True for them. This runs SECOND, only after
+# the run-manifest / pin-identity precheck above has passed cleanly (Codex
+# round 3): renquant_common.market_calendar is imported from a manifest-
+# pinned sibling checkout, so this identity check must clear before that
+# checkout's code is ever imported — a dirty or wrong-commit checkout can
+# then never masquerade as "not a trading session."
+"$PYTHON" - "$SESSION_DATE" <<'PY'
+import sys
+
+try:
+    from renquant_common.market_calendar import is_session
+
+    is_valid_session = is_session(sys.argv[1])
+except Exception as exc:  # noqa: BLE001 - surface any calendar failure as a setup failure
+    print(f"session calendar check failed for {sys.argv[1]}: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+raise SystemExit(0 if is_valid_session else 1)
+PY
+session_rc=$?
+if [ "$session_rc" -eq 2 ]; then
+    setup_fail "session calendar check failed for $SESSION_DATE (see $LOG)"
+elif [ "$session_rc" -ne 0 ]; then
+    skip_msg="SKIP: $SESSION_DATE is not an NYSE trading session (weekend or holiday) — no observation emitted"
+    echo "$skip_msg"
+    echo "$skip_msg" >&3
+    exit 0
 fi
 
 # STRATEGY_DIR (the artifact-fingerprint-resolution anchor) + arm configs +
