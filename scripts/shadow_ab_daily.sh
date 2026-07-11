@@ -35,6 +35,16 @@
 # state isolated under the experiment root). Prod state/db are never written.
 # A failure here must never affect the prod cycle — the exit code only marks
 # the session-pair invalid.
+#
+# SESSION GATE (Codex review of #488): the D6 experiment unit is a trading
+# SESSION, not a calendar weekday. The plist's Mon-Fri StartCalendarInterval
+# is a cost optimization only (fewer wasted weekend launchd wake-ups) — it
+# still fires on NYSE full-closure holidays that land on a weekday. THIS
+# script is authoritative: it resolves $SESSION_DATE against the canonical
+# shared renquant_common.market_calendar (pandas_market_calendars-backed)
+# before doing anything else and exits 0 with no observation written on a
+# non-session date (weekend or holiday); half-day/early-close sessions are
+# real sessions and proceed normally.
 set -uo pipefail
 
 PYTHON="${RENQUANT_SHADOW_AB_PYTHON:?RENQUANT_SHADOW_AB_PYTHON must be supplied (no default runtime)}"
@@ -88,6 +98,41 @@ export PYTHONPATH="$ORCH_DIR/src:$MANIFEST_PYTHONPATH:${PYTHONPATH:-}"
 export RENQUANT_REPO_ROOT="$REPO_ROOT"
 export RENQUANT_OHLCV_DIR="$DATA_ROOT"
 export RENQUANT_SUPPRESS_PREFLIGHT_NTFY=1
+
+# Trading-SESSION gate (Codex review of #488): the D6 experiment unit is a
+# trading session, not a calendar weekday. The launchd StartCalendarInterval
+# Mon-Fri filter is a cost optimization ONLY (fewer wasted weekend wake-ups)
+# — it still passes NYSE full-closure holidays that land on a weekday
+# (Independence Day, Thanksgiving, Christmas, ...), which would otherwise
+# re-observe the prior close as a spurious zero-information "paired" world.
+# THIS script is the authoritative gate: resolve the session against the
+# canonical shared calendar (renquant_common.market_calendar, backed by the
+# real pandas_market_calendars holiday/half-day dataset — never a hand-
+# rolled list or an umbrella-path heuristic) before any run bundle, price
+# snapshot, or paired-session record is written. Half-day (early-close)
+# sessions are real sessions and are deliberately NOT skipped here —
+# is_session() already returns True for them.
+"$PYTHON" - "$SESSION_DATE" <<'PY'
+import sys
+
+try:
+    from renquant_common.market_calendar import is_session
+
+    is_valid_session = is_session(sys.argv[1])
+except Exception as exc:  # noqa: BLE001 - surface any calendar failure as a setup failure
+    print(f"session calendar check failed for {sys.argv[1]}: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+raise SystemExit(0 if is_valid_session else 1)
+PY
+session_rc=$?
+if [ "$session_rc" -eq 2 ]; then
+    setup_fail "session calendar check failed for $SESSION_DATE (see $LOG)"
+elif [ "$session_rc" -ne 0 ]; then
+    skip_msg="SKIP: $SESSION_DATE is not an NYSE trading session (weekend or holiday) — no observation emitted"
+    echo "$skip_msg"
+    echo "$skip_msg" >&3
+    exit 0
+fi
 
 # Verify the immutable pin set before reading market data or writing either
 # snapshot artifact. The runner repeats this immediately before arming; this

@@ -370,3 +370,101 @@ class TestPortableTimeout:
         assert result.returncode == 3
         log = _log_text(tmp_path)
         assert "shadow-ab exit=3" in log
+
+
+class TestSessionCalendarGate:
+    """Codex review of #488: the D6 experiment unit is a trading SESSION,
+    not a calendar weekday — the launchd Mon-Fri ``StartCalendarInterval``
+    filter is a cost optimization only, never the correctness mechanism.
+    These exercise the script's own session-calendar guard directly against
+    the REAL, canonical ``renquant_common.market_calendar`` (backed by
+    ``pandas_market_calendars`` — no hand-rolled holiday list, no umbrella
+    path), using real 2026 NYSE calendar dates:
+
+    * 2026-07-04 is a Saturday (weekend, not a session).
+    * 2026-11-26 (Thanksgiving Day, a Thursday) is a real NYSE full-closure
+      holiday: pandas_market_calendars' NYSE ``schedule()`` has NO row for
+      that date at all.
+    * 2026-11-27 (the day after Thanksgiving, a Friday) is a real NYSE
+      early-close/half-day SESSION: it has a schedule row, with
+      ``market_close`` at 18:00 UTC (13:00 ET) instead of the normal 21:00
+      UTC (16:00 ET) — confirmed via
+      ``pandas_market_calendars.get_calendar("NYSE").early_closes(schedule)``
+      for 2026, which lists exactly 2026-11-27 and 2026-12-24. A half day is
+      a valid paired session and must NOT be skipped.
+    """
+
+    @staticmethod
+    def _env_for_date(tmp_path, *, python, run_manifest, session_date, timeout_sec=60):
+        env = _env_for(tmp_path, python=python, run_manifest=run_manifest,
+                        timeout_sec=timeout_sec)
+        env["RENQUANT_SHADOW_AB_SESSION_DATE"] = session_date
+        return env
+
+    @staticmethod
+    def _log_text_for(tmp_path, session_date):
+        return (tmp_path / "out" / "logs" / f"{session_date}_session.log").read_text()
+
+    @staticmethod
+    def _assert_no_observation_written(tmp_path):
+        out = tmp_path / "out"
+        # No run bundle, price snapshot, or paired-session record of any
+        # kind — the guard must exit before the script's existing
+        # market-snapshot / run-manifest / shadow-ab-invocation logic runs.
+        assert not list(out.glob("prices_*.json"))
+        assert not list(out.glob("market_snapshot_*.json"))
+        assert not list(out.glob("session_*.json"))
+        assert not list(out.glob("session_*_stderr.log"))
+
+    def test_saturday_is_skipped_with_no_observation(self, tmp_path, real_python):
+        session_date = "2026-07-04"
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
+                                  session_date=session_date)
+        result = _run_script(env)
+        assert result.returncode == 0
+        log = self._log_text_for(tmp_path, session_date)
+        assert "SKIP:" in log
+        assert "not an NYSE trading session" in log
+        self._assert_no_observation_written(tmp_path)
+
+    def test_weekday_nyse_holiday_is_skipped_with_no_observation(self, tmp_path, real_python):
+        session_date = "2026-11-26"  # Thanksgiving Day (Thursday)
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
+                                  session_date=session_date)
+        result = _run_script(env)
+        assert result.returncode == 0
+        log = self._log_text_for(tmp_path, session_date)
+        assert "SKIP:" in log
+        assert "not an NYSE trading session" in log
+        self._assert_no_observation_written(tmp_path)
+
+    def test_early_close_half_day_is_not_skipped(self, tmp_path, real_python):
+        # 2026-11-27 (day after Thanksgiving) — a real half-day session.
+        # "Preserve early-close sessions" (Codex): the gate must let this
+        # proceed exactly like any other trading day.
+        session_date = "2026-11-27"
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
+                                  session_date=session_date)
+        _run_script(env)
+        log = self._log_text_for(tmp_path, session_date)
+        assert "SKIP:" not in log
+
+    def test_normal_weekday_is_not_skipped(self, tmp_path, real_python):
+        # 2026-07-10 (Friday) — a normal NYSE trading day, and this test
+        # file's existing default RENQUANT_SHADOW_AB_SESSION_DATE. Fuller
+        # end-to-end progression past the gate on this same date (sealed
+        # snapshot, universe assertion, full stubbed session) is already
+        # exercised by TestMarketSnapshotIntegrity /
+        # TestExplicitRuntimeInputs / TestPortableTimeout above; this test
+        # only pins down that the NEW session-calendar guard itself does
+        # not fire for it.
+        session_date = "2026-07-10"
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
+                                  session_date=session_date)
+        _run_script(env)
+        log = self._log_text_for(tmp_path, session_date)
+        assert "SKIP:" not in log
