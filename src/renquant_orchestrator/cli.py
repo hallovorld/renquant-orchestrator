@@ -595,6 +595,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to outage_monitor.main",
     )
 
+    tripwire = sub.add_parser(
+        "identity-tripwire",
+        help="compare the latest run bundle's model identity against the "
+             "previous session's and the deployment manifest; page OUTAGE "
+             "on an unexplained model swap (#484 §7.2a consumer; DARK — no "
+             "scheduled job yet)",
+    )
+    tripwire.add_argument(
+        "tripwire_args", nargs=argparse.REMAINDER,
+        help="pass-through args to model_identity_tripwire.main",
+    )
+
     edgar = sub.add_parser(
         "edgar-harvest",
         help="schedule a SEC EDGAR companyfacts harvest (N3 data collection)",
@@ -837,6 +849,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "transfer-coefficient", "shadow-ab", "readiness-monitor", "entry-timing",
         "train-gbdt", "patchtst-cutoff", "risk-budget-report",
         "conviction-replay", "m6-restamp", "deploy-pin", "outage-monitor",
+        "identity-tripwire",
     }
     if unknown and args.command not in _remainder_commands:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -1445,6 +1458,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         outage_argv = unknown + (args.outage_args or [])
         return outage_main(outage_argv or None)
+    if args.command == "identity-tripwire":
+        from .model_identity_tripwire import main as tripwire_main
+
+        tripwire_argv = unknown + (args.tripwire_args or [])
+        return tripwire_main(tripwire_argv or None)
     if args.command == "edgar-harvest":
         from .sec_edgar_harvester import main as edgar_main
 
