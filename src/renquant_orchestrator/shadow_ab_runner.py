@@ -80,6 +80,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .deployment_manifest import (
+    GitProbe,
+    artifact_store_schema_problems,
+    check_checkout_state,
+    default_git_probe as _default_git_probe,
+    resolve_contained_subdir,
+)
 from .native_live_context import (
     canonical_json_sha256,
     decision_snapshot_identity,
@@ -547,20 +554,14 @@ def resolve_experiment_pins(lock_path: str | Path) -> dict[str, str]:
 
 
 # --- immutable run manifest (Codex r2 on #460) -----------------------------------
+#
+# The git probe, checkout-verification core, and artifact_store schema/
+# containment conventions are the SHARED implementations in
+# deployment_manifest.py (R-PIN Stage 1 lift, design §2.3) — imported above,
+# never re-copied here. GitProbe/_default_git_probe remain importable from
+# this module for existing callers (native_persistence_guard, tests).
 
 RUN_MANIFEST_SCHEMA_VERSION = 1
-
-GitProbe = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
-
-
-def _default_git_probe(args: Sequence[str]) -> "subprocess.CompletedProcess[str]":
-    return subprocess.run(
-        ["git", *args],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
 
 
 def load_run_manifest(path: str | Path) -> dict[str, Any]:
@@ -593,25 +594,14 @@ def load_run_manifest(path: str | Path) -> dict[str, Any]:
         # (r3, Codex on #464 r2: an untyped path can point straight back at
         # the deprecated umbrella tree). The named repo goes through the same
         # commit+clean verification as every other manifest repo, so the
-        # store root is inside a pinned checkout by construction.
-        if not isinstance(store, dict) or not store.get("repo"):
+        # store root is inside a pinned checkout by construction. The schema
+        # check is the SHARED implementation in deployment_manifest.py.
+        store_problems = artifact_store_schema_problems(
+            store, repo_names=set(repos)
+        )
+        if store_problems:
             raise ShadowABContractError(
-                f"run manifest {manifest_file}: artifact_store must be "
-                "{'repo': <manifest repo name>, 'path': <relative subdir>} — "
-                "a bare path is not a pinned owner"
-            )
-        if store["repo"] not in repos:
-            raise ShadowABContractError(
-                f"run manifest {manifest_file}: artifact_store.repo "
-                f"{store['repo']!r} is not a manifest repo — the store must "
-                "live inside a pinned, verified checkout"
-            )
-        subdir = store.get("path") or ""
-        sub_path = Path(subdir)
-        if sub_path.is_absolute() or ".." in sub_path.parts:
-            raise ShadowABContractError(
-                f"run manifest {manifest_file}: artifact_store.path must be "
-                f"a relative subdir inside the named repo, got {subdir!r}"
+                f"run manifest {manifest_file}: {store_problems[0]}"
             )
     return payload
 
@@ -777,14 +767,12 @@ def resolve_manifest_artifact_store(manifest: Mapping[str, Any]) -> Path | None:
     if store is None:
         return None
     repo_entry = manifest["repos"][store["repo"]]
-    repo_root_resolved = Path(repo_entry["path"]).resolve()
-    store_root = (Path(repo_entry["path"]) / (store.get("path") or "")).resolve()
-    if not store_root.is_relative_to(repo_root_resolved):
-        raise ShadowABContractError(
-            f"artifact_store escapes its named repo (fail-closed): "
-            f"{store!r} resolves to {store_root}, outside {repo_root_resolved}"
-        )
-    return store_root
+    return resolve_contained_subdir(
+        repo_entry["path"],
+        store.get("path") or "",
+        error_cls=ShadowABContractError,
+        store_repr=repr(store),
+    )
 
 
 def verify_run_manifest(
@@ -803,39 +791,21 @@ def verify_run_manifest(
     problems: list[str] = []
     resolved: dict[str, str] = {}
     for name, entry in sorted((manifest.get("repos") or {}).items()):
-        path = Path(entry["path"])
-        expected = str(entry["commit"]).strip()
-        if not path.is_dir():
-            problems.append(f"{name}: path {path} does not exist")
-            continue
-        head = probe(["-C", str(path), "rev-parse", "HEAD"])
-        if head.returncode != 0:
-            problems.append(
-                f"{name}: not a git checkout ({(head.stderr or '').strip()})"
-            )
-            continue
-        actual = (head.stdout or "").strip()
-        matches = actual == expected or (
-            len(expected) >= 12 and actual.startswith(expected)
+        # The exists/HEAD/clean core is the SHARED check in
+        # deployment_manifest.py (R-PIN Stage 1 lift) — identical checks,
+        # identical fail-closed messages.
+        commit, problem = check_checkout_state(
+            name,
+            Path(entry["path"]),
+            str(entry["commit"]),
+            git_probe=probe,
+            require_clean=True,
         )
-        if not matches:
-            problems.append(
-                f"{name}: checkout HEAD {actual[:12]} != manifest commit "
-                f"{expected[:12]}"
-            )
+        if problem is not None:
+            problems.append(problem)
             continue
-        status = probe(["-C", str(path), "status", "--porcelain"])
-        if status.returncode != 0:
-            problems.append(f"{name}: git status failed")
-            continue
-        if (status.stdout or "").strip():
-            dirty = (status.stdout or "").strip().splitlines()
-            problems.append(
-                f"{name}: working tree DIRTY ({len(dirty)} path(s), e.g. "
-                f"{dirty[0][:60]!r})"
-            )
-            continue
-        resolved[name] = actual
+        assert commit is not None
+        resolved[name] = commit
     if problems:
         raise ShadowABContractError(
             "run manifest verification failed: " + "; ".join(problems)
