@@ -229,30 +229,52 @@ current failure behavior. Verdicts are the PROPOSED policy.
 
 ### 5.1 Ownership split (respects existing repo boundaries)
 
-- **renquant-pipeline — gates EMIT structured remediation hints; they never act.** Extend the
-  two existing v1 blocks rather than adding plumbing:
-  - `data_availability.v1`: each axis's reviewed `data_contracts.axes[<name>]` entry gains an
-    optional `remediation` object; the axis result and each `fired[]` entry mirror it.
-  - `funnel_integrity.v1`: each detector may attach `remediation` to its `fired[]` finding
-    (config-declared per invariant, not computed).
-  - Preflight: `PreflightCheck.details` gains the same optional object, and the preflight
-    verdict set gets stamped into the run bundle (today it is only greppable from logs —
-    `daily_104.sh` pattern-matching on log text is the current "API"; open decision D4).
+- **renquant-pipeline — gates EMIT structured remediation hints; they never act.** Publish a
+  **new, separately-versioned** `remediation_hints.v1` block alongside (never inside) the
+  existing v1 blocks — see the contract-compatibility note below for why this is a separate
+  block rather than an additive field in `data_availability.v1`/`funnel_integrity.v1`:
+  - Keyed by `(source_block, axis_or_invariant_name)` so a hint unambiguously maps back to the
+    `data_availability.v1` axis or `funnel_integrity.v1` finding that triggered it, without
+    touching either schema.
+  - Preflight: `PreflightCheck.details` stays untouched; preflight verdicts get stamped into a
+    THIRD new block, `preflight_verdicts.v1` (today they are only greppable from logs —
+    `daily_104.sh` pattern-matching on log text is the current "API"; open decision D4), and
+    preflight hints key off that block the same way.
 
   Hint shape (declarative — the pipeline names an action, it never carries a command):
 
   ```json
-  "remediation": {
-    "action_id": "admission_tournament_retrain",
-    "risk_class": "R3",
-    "transience": "T2",
-    "hint_evidence": {"top_rejection_reasons": {"stale_76d_limit_60:live_train_end": 133}}
+  {
+    "schema": "remediation_hints.v1",
+    "as_of": "2026-07-08",
+    "hints": [
+      {
+        "source_block": "data_availability.v1",
+        "axis_or_invariant": "admission_model_metadata",
+        "action_id": "admission_tournament_retrain",
+        "risk_class": "R3",
+        "transience": "T2",
+        "hint_evidence": {"top_rejection_reasons": {"stale_76d_limit_60:live_train_end": 133}}
+      }
+    ]
   }
   ```
 
-  The field is **additive-optional inside v1** (consumers are already tolerant of missing
-  keys — `outage_monitor` degrades gracefully); no schema bump, no new block. An axis/invariant
-  without a hint is implicitly STOP/ALARM — absence of a hint can never be less safe.
+  **Contract compatibility (Codex review, r1 — reversed from an earlier additive-inside-v1
+  draft):** an optional field added inside the EXISTING `data_availability.v1`/
+  `funnel_integrity.v1` blocks is only safe if every current producer, consumer, and validator
+  of those exact schemas is proven forward-compatible — this RFC has not audited every consumer
+  across three repos, and asserting tolerance from one reader (`outage_monitor`) is not proof for
+  the others (decision-ledger writers, run-bundle persistence, any future consumer). Rather than
+  claim an unaudited compatibility property, the hint publishes as a **separate, additively
+  versioned block**, `remediation_hints.v1`, keyed by the same `(axis_or_invariant_name)` the
+  parent block already uses — never mutating `data_availability.v1`/`funnel_integrity.v1`
+  themselves. A cross-repo compatibility test (renquant-pipeline emits both blocks against a
+  fixture; renquant-orchestrator's existing `data_availability.v1`/`funnel_integrity.v1`
+  consumers are re-run unmodified against that fixture and asserted byte-identical in their
+  existing fields) is a **precondition for Stage 0**, not a nice-to-have — see §7bis. An
+  axis/invariant with no corresponding `remediation_hints.v1` entry is implicitly STOP/ALARM;
+  absence of a hint can never be less safe.
 
 - **renquant-orchestrator — the remediation controller (net-new `remediation_controller.py`).**
   Consumes the failed run's bundle from the same source `outage_monitor` (#480) already reads
@@ -279,6 +301,10 @@ action_id -> {
   verify[],                 # post-action checks — MUST include re-running the very
                             # check that fired, via its authoritative implementation
   archives[],               # what the action must back up before overwriting
+  fidelity_contract: {...}, # §5.6 — MANDATORY; an action with no fidelity_contract is not
+                            # eligible for any stage beyond Stage 0 shadow
+  eval_protocol: {...},     # §7bis — MANDATORY; the falsifiable pre-registration this action's
+                            # enablement decision is judged against
   enabled: false            # per-action kill switch; global remediation.enabled too
 }
 ```
@@ -290,40 +316,128 @@ Seed registry (maps §4 verdicts): `ohlcv_refetch` (R0), `broker_snapshot_repoll
 `washsale_broker_truth_reconcile` (R2, Stage 4, default disabled), `session_rerun` (crash
 retry, no body).
 
-### 5.3 Rerun semantics and identity (the sharp edges found in the inventory)
+### 5.3 Run lifecycle, idempotency, and the execution-safety state machine
 
-- **Run identity.** The umbrella `RunnerAdapter` mints `YYYY-MM-DD-live-<hex8>`; a rerun is a
-  NEW run-id by construction. The chain is recorded twice: the controller's remediation record
-  carries `parent_run_id`, and the rerun invocation passes `RENQUANT_REMEDIATION_PARENT=<id>`
-  which the runner stamps into `run_bundle_json.remediation_parent` (small umbrella PR). For
-  104 daily there is no separate session id — `as_of` is the day key; the chain is
-  `as_of + parent link`.
-- **Decision-ledger supersession (prerequisite, not optional).** Ledger PK is
-  `(run_id, scope, gate)` (`decision_ledger.py:28`) and the autopsy query `verdicts_for()`
-  filters by `as_of`+`scope` ONLY — after a rerun it would return both runs' verdicts
-  interleaved with nothing marking the loser. Before any rerun is enabled, the ledger needs
-  explicit supersession (a `superseded_by` stamp written by the controller when the chained
-  rerun completes, or a canonical-run view mirroring `tc_measurement._canonical_daily_runs`'s
-  latest-per-day rule — which is already the de-facto consumer behavior for the manual reruns
-  of 06-09/06-10/07-06). Same for the run-scoped-verdicts vs day-scoped-`decision_outcomes`
-  asymmetry: outcomes must join the CANONICAL run's verdicts. Coordinate with the S5 wiring PR
-  (ledger is not live-wired yet — cheapest moment to land this).
-- **Broker safety / book idempotency.** Rerun precondition: the parent run placed
-  **zero buy orders** (`funnel_integrity.funnel.n_buy_orders == 0` — true by construction for
-  every gate in the REMEDIATE+RERUN class, since they fire before/instead of buys). Exits are
-  senior and already executed in the parent run's protected sell pass; the rerun's own sell
-  pass re-reconciles against live positions, so completed exits are structural no-ops. If the
-  parent somehow placed orders → controller SKIPs and pages (human decides). The 105 executor's
-  `parent_intent_id` dedup (excludes `run_id`) is the model for making this contractual on the
-  native path.
-- **Timing.** The daily-full runs post-close (13:55 PT launchd). The remediation window is
-  post-close → a hard cutoff (default 21:00 PT same day); heavyweight actions (tournament
-  retrain ≤ ~1 h at `parallel_ticker_timeout_seconds=3600`) fit comfortably. Intraday runs get
-  NO remediation lane in v1 (exits-always-allowed only; intraday retry semantics are a
-  renquant-105 question).
-- **Same-date bundle/monitor collisions are already handled:** `FunnelIntegrityTask`'s
-  monitor-state history REPLACES the same-date record on rerun (idempotent by design), and
-  bundle consumers pick latest-per-day.
+Codex review (r1), P0: decision-ledger supersession (below) closes an ANALYTICAL duplicate-row
+problem only. It does not, by itself, prevent duplicate broker orders, duplicate notifications,
+duplicate artifact publication, or a rerun that observes a later external state than the
+decision it is meant to re-derive. This subsection replaces the prior narrative treatment with a
+mechanical state machine that is first-class and independently checkable.
+
+**5.3.1 Run phases and the pre-side-effect cutoff.**
+
+Every run (parent or child) passes through exactly these phases, in order, and the controller's
+entire authority to act is scoped to phase (a):
+
+| Phase | Definition | Controller may |
+|---|---|---|
+| (a) PRE_SIDE_EFFECT | No order intent has been formed, no broker submission has occurred, no operator-facing notification has been sent, and no shared artifact (run bundle, decision ledger row, remediation-hints/preflight-verdicts blocks) has been PUBLISHED (a partial in-memory or scratch-local write that never reached the shared store/ledger/ntfy is not a publish). | Execute a remediation action and/or request a rerun. |
+| (b) SIDE_EFFECT_BEGUN | ANY of: an order was submitted to the broker (buy OR sell/exit — see 5.3.4), a notification was sent, or a shared artifact was published. | **Nothing.** The controller MUST NOT execute an action or request a rerun for a run once it has left phase (a), regardless of which gate is currently red. |
+| (c) TERMINAL | The run has exited (success, crash, or STOP). | n/a — post-mortem only. |
+
+**The pre-side-effect cutoff is the boundary between (a) and (b).** A run's own bundle carries a
+monotonically-appended `lifecycle_events` list (`{event, at}` — e.g. `orders_submitted`,
+`notification_sent`, `artifact_published`) stamped at the FIRST occurrence of each; the
+controller's phase check is `bundle.lifecycle_events == []` ⇒ (a), else ⇒ (b). This is a stronger
+predicate than the existing `funnel_integrity.funnel.n_buy_orders == 0` check (which only covers
+buy orders) — see 5.3.4.
+
+**Once a run is in phase (b), remediation is not offered.** A gate that turns red after the run
+has already produced a durable external effect requires the operator's normal STOP+page path and
+a manually reconciled execution-state review — never a generic "just rerun it" — because the
+system can no longer prove what the world already contains as a result of the failed run. This is
+the mechanical form of Codex's ask: "post-cutoff failures must STOP and require a reconciled
+execution-state path, never a generic rerun."
+
+**5.3.2 Idempotency key and single-writer lease (pre-cutoff retries only).**
+
+Every remediation episode is keyed by `episode_key = sha256(as_of, parent_run_id, action_id)`.
+Before executing an action, the controller must acquire an **exclusive, expiring lease** on
+`episode_key` (a row in a new orchestrator-owned `remediation_leases` table/file, `INSERT ...
+WHERE NOT EXISTS`-style compare-and-set, TTL = the action's `timeout_s` + a grace margin) —
+this is the mechanism that makes "one remediation episode, chain depth 1" (§5.4) enforceable
+against concurrent controller invocations (a second scheduled tick, a manual re-trigger, a
+retried cron), not just a documented convention. A lease acquisition failure is a SKIP, not a
+retry-with-backoff: at most one execution of `episode_key` is ever attempted. The lease is
+released (or left to expire) only after the episode's `remediation.v1` record reaches a terminal
+`outcome`; while held, a duplicate trigger for the same `episode_key` observes the lease and
+no-ops.
+
+**5.3.3 Decision-ledger supersession (prerequisite, not optional — unchanged from the prior
+draft, restated here as one input to phase tracking, not the whole safety story).** Ledger PK is
+`(run_id, scope, gate)` (`decision_ledger.py:28`) and the autopsy query `verdicts_for()` filters
+by `as_of`+`scope` ONLY — after a rerun it would return both runs' verdicts interleaved with
+nothing marking the loser. Before any rerun is enabled, the ledger needs explicit supersession (a
+`superseded_by` stamp written by the controller when the chained rerun completes, or a
+canonical-run view mirroring `tc_measurement._canonical_daily_runs`'s latest-per-day rule — which
+is already the de-facto consumer behavior for the manual reruns of 06-09/06-10/07-06). Same for
+the run-scoped-verdicts vs day-scoped-`decision_outcomes` asymmetry: outcomes must join the
+CANONICAL run's verdicts. Coordinate with the S5 wiring PR (ledger is not live-wired yet —
+cheapest moment to land this).
+
+**5.3.4 Broker safety / book idempotency — buys AND exits.** Rerun precondition (checked against
+the phase-(a) predicate in 5.3.1, not restated as a separate ad hoc check): the parent run's
+`lifecycle_events` contains no `orders_submitted` event of ANY kind — this supersedes and
+strictly subsumes the earlier buy-only `funnel_integrity.funnel.n_buy_orders == 0` check, because
+a parent run that already executed even a SELL/exit order has begun an irreversible external
+effect and must not be rerun (the rerun's own sell pass would then be evaluating a book the
+parent run already changed, which is exactly the "later external state" hazard below). In
+practice this is true by construction for every T2/REMEDIATE+RERUN gate in §4 (they fire
+before/instead of the sell pass — the pipeline's post-#187 ordering already guarantees a
+fail-closed data axis cannot cancel `TickerSellJob`, so a run that reached and executed exits has
+already left phase (a) BEFORE any remediable gate could fire). If a parent run somehow both
+executed an exit and later hit a REMEDIATE-eligible gate, the phase-(b) rule in 5.3.1 makes this
+a hard SKIP+page regardless — there is no separate carve-out for exits being "senior". The 105
+executor's `parent_intent_id` dedup (excludes `run_id`) is the model for making order-level
+idempotency contractual on the native path; the 104 wrapper needs the equivalent explicit
+dedup key (`(as_of, ticker, side, intent_hash)`) recorded before broker submission, not inferred
+after the fact from order counts.
+
+**5.3.5 No duplicate notifications, no duplicate artifact publication.** Because remediation is
+scoped to phase (a) (5.3.1), the parent run — by definition — has not yet sent a notification or
+published a shared artifact when the controller acts. The ONLY notification for the episode is
+the child (rerun)'s own terminal notification, tagged per §5.5 (`SELF-HEALED` /
+`REMEDIATION_FAILED` / `RERUN_STILL_RED`); the parent run's notification path is suppressed for
+any run still in phase (a) at controller handoff (a small wrapper-script change: `daily_104.sh`
+defers its own ntfy call until AFTER the controller has had a chance to intercept — open item,
+tracked as an implementation-PR precondition, not assumed here). Shared artifacts (run bundle,
+decision-ledger rows) are written ONLY under the run's own `run_id` — a rerun is a NEW `run_id`
+by construction (below), so there is no shared mutable artifact path for a duplicate publish to
+collide with; the ONLY cross-run write is the supersession stamp in 5.3.3, which is explicitly
+idempotent (repeated stamping of the same `superseded_by` value is a no-op).
+
+**5.3.6 The "later external state" hazard (data/model fidelity, cross-referenced from §5.6).**
+A rerun that executes minutes-to-an-hour after its parent is, by construction, evaluating
+whatever OHLCV/fundamentals/broker state is CURRENT at rerun time — which may differ from what
+was available at the parent's original decision time if any R0/R1 action (refetch, feed rebuild)
+ran in between, or if the operator or another process changed broker state independently. This
+is NOT itself a bug (the point of a remediation+rerun is to re-derive the decision from CURRENT,
+now-healthy inputs) but it must never be silently conflated with "the 13:55 PT decision, just
+delayed" framing. Every `remediation.v1` record therefore also stamps `input_snapshot_delta`:
+a diff between the parent's recorded input fingerprints (OHLCV as-of, fundamentals as-of, broker
+snapshot as-of — already present in each gate's evidence per §5.6) and the child's, so a reviewer
+can see exactly what changed between decision attempts. This is why §5.6 makes an immutable
+failed-run input snapshot + fingerprint diff a MECHANICAL precondition for every action, not
+optional forensics.
+
+**5.3.7 Run identity.** The umbrella `RunnerAdapter` mints `YYYY-MM-DD-live-<hex8>`; a rerun is a
+NEW run-id by construction — this is also what makes 5.3.5's "no shared mutable artifact" claim
+true. The chain is recorded twice: the controller's remediation record carries `parent_run_id`,
+and the rerun invocation passes `RENQUANT_REMEDIATION_PARENT=<id>` which the runner stamps into
+`run_bundle_json.remediation_parent` (small umbrella PR). For 104 daily there is no separate
+session id — `as_of` is the day key; the chain is `as_of + parent link`.
+
+**5.3.8 Timing.** The daily-full runs post-close (13:55 PT launchd). The remediation window is
+post-close → a hard cutoff (default 21:00 PT same day); heavyweight actions (tournament retrain
+≤ ~1 h at `parallel_ticker_timeout_seconds=3600`) fit comfortably. Intraday runs get NO
+remediation lane in v1 (exits-always-allowed only; intraday retry semantics are a renquant-105
+question — and per 5.3.1/5.3.4, an intraday run has typically already executed exits well before
+any remediable gate could fire, so it would fail the phase-(a) precondition immediately even if
+the lane existed).
+
+**5.3.9 Same-date bundle/monitor collisions are already handled:** `FunnelIntegrityTask`'s
+monitor-state history REPLACES the same-date record on rerun (idempotent by design), and bundle
+consumers pick latest-per-day.
 
 ### 5.4 Loop protection (hard, mechanical)
 
@@ -361,9 +475,15 @@ query surfaces it):
               "started_at": "...", "finished_at": "...", "exit_code": 0,
               "archives": ["..."], "log_path": "..."},
   "verification": {"evidence_after": {}, "gate_recheck": "pass|fail"},
+  "fidelity": {"input_snapshot_ref": "<immutable parent-run input snapshot id, §5.6>",
+                "as_of_cutoff": "...", "source_fingerprints_before": {}, "source_fingerprints_after": {},
+                "output_fingerprints_before": {}, "output_fingerprints_after": {},
+                "input_snapshot_delta": {"changed": [], "unchanged": []}},
   "budget": {"actions_used": 1, "wallclock_s": 0, "cutoff": "..."},
+  "episode_key": "sha256(as_of, parent_run_id, action_id)",
   "outcome": "SELF_HEALED | REMEDIATION_FAILED | RERUN_STILL_RED |
-              SKIPPED_PRECONDITION | SKIPPED_BUDGET | SKIPPED_POISONED | SHADOW_WOULD_RUN"
+              SKIPPED_PRECONDITION | SKIPPED_BUDGET | SKIPPED_POISONED | SKIPPED_PHASE_B |
+              SHADOW_WOULD_RUN"
 }
 ```
 
@@ -372,6 +492,51 @@ with one tag: **`SELF-HEALED`** (severity between DEGRADED and NO-TRADE; never q
 clean terminal run after remediation; `REMEDIATION_FAILED`/`RERUN_STILL_RED` page at OUTAGE
 priority (5) carrying BOTH evidence blocks. An auto-remediated session is by definition never
 reportable as a plain no-trade — it inherits registry invariant I10's capability bill.
+
+### 5.6 Data & model fidelity contract (mechanical precondition for EVERY action)
+
+Codex review (r1), P1: an R0 refetch, R1 regen, or R3 retrain can change the information set the
+rerun evaluates against. §6.1's "anti-07-06 consistency precondition" and §6.2's fingerprint
+checks are correct EXAMPLES but were only narrated per-action; this subsection makes the
+underlying contract a MECHANICAL, MANDATORY precondition every action registry entry must
+satisfy — not a pattern to be reinvented per worked example. An action with no
+`fidelity_contract` entry (below) is not eligible for any stage beyond Stage 0 shadow.
+
+Every action registry entry (§5.2) carries a `fidelity_contract`:
+
+```
+fidelity_contract: {
+  input_snapshot: <how the failed run's exact inputs are captured immutably before the action
+                    runs — e.g. a content-addressed copy/manifest of the OHLCV/fundamentals/
+                    model-artifact files the failed run actually read, sealed the same way
+                    renquant-artifacts evidence bundles are sealed this session>,
+  as_of_cutoff: <the authoritative as-of boundary the action's output MUST NOT cross — e.g.
+                 admission retrain's cutoff is the ORIGINAL eligible training cutoff the failed
+                 run itself was entitled to use, not "whatever is available now"; a retrain that
+                 would pull in data past that cutoff is not eligible to run as a remediation
+                 (it would be a different, unauthorized decision, not a re-derivation of the same
+                 one)>,
+  source_fingerprint: <hash/identity of the authoritative upstream source the action reconciles
+                        against (vendor feed snapshot, broker fill history query, pinned config
+                        commit, pinned runtime algorithm identity) — recorded BEFORE the action
+                        runs>,
+  output_fingerprint: <hash/identity of the regenerated artifact — recorded AFTER>,
+  no_leakage_proof: <the mechanical check that no post-decision data or revised history entered
+                      the rerun — e.g. for admission retrain, the §6.1 models-consistency scan
+                      PLUS an explicit assertion that every per-ticker `live_train_end` in the
+                      retrained output is <= the failed run's own recorded cutoff; for the
+                      calibrator re-stamp, the weights-payload-digest-unchanged check already in
+                      §6.2, generalized as the template for any "metadata-only" action>,
+}
+```
+
+**This closes the loop with §5.3.6's `input_snapshot_delta`:** the audit record's fidelity block
+(§5.5) is populated FROM each action's `fidelity_contract` fields, not hand-rolled per action.
+**Auto-retrain specifically:** every R3 retrain action's `as_of_cutoff` is the ORIGINAL eligible
+training cutoff (never "now"), and per P3 (§2) its output remains a CANDIDATE — it re-enters
+through the normal quality/promotion gates (acceptance, WF gate, tournament) exactly like a
+scheduled retrain; the fidelity contract governs what data the retrain is allowed to have SEEN,
+not whether its output is trusted (that is still the promotion gate's job, unchanged).
 
 ## 6. Worked examples (the two mandated replays)
 
@@ -390,18 +555,22 @@ Cost: 2 sessions of zero buy capability, silent.
 1. 07-08 ~14:10 PT, post-run: bundle carries `data_availability.axes.admission_model_metadata =
    violation (fail_closed)` and `funnel_integrity.verdict = STRUCTURAL_BLOCK` with
    `universe_admission_collapse` evidence `top_rejection_reasons = {stale_76d…: 133}` + the
-   `remediation` hint `admission_tournament_retrain` (R3).
+   `remediation_hints.v1` entry `admission_tournament_retrain` (R3, §5.1).
 2. Controller policy pass: no T3 failure in the bundle (checkout guard/pin-align were green —
    honest note: the mutation restored COMMITTED state, so no identity gate could have flagged
-   it; the staleness gate IS the detector for this class); breaker quiet; parent
-   `n_buy_orders == 0`; action enabled; budget clean.
-3. **Precondition (the anti-07-06 check):** a models-dir consistency scan — for every ticker,
-   metadata-declared weight files exist and parse (`load_artifact` dry pass). This
-   distinguishes the two C1 sub-classes with opposite verdicts: **consistent-but-stale ⇒
-   retrain** (this case); **metadata-without-weights ⇒ STOP** (the 07-06 corruption — retraining
-   over a corruption signature destroys the evidence of the producer bug, and the correct 07-06
-   response was human forensics + point-in-time restore, which is a live-tree mutation and
-   therefore never automated — the live-tree-mutation-preflight lesson).
+   it; the staleness gate IS the detector for this class); breaker quiet; parent run is in phase
+   (a) — `lifecycle_events == []`, which subsumes and strictly implies `n_buy_orders == 0`
+   (§5.3.1/5.3.4); action enabled; budget clean; lease acquired for this `episode_key` (§5.3.2).
+3. **Precondition (the anti-07-06 check, formalized as this action's `fidelity_contract.
+   no_leakage_proof`, §5.6):** a models-dir consistency scan — for every ticker, metadata-declared
+   weight files exist and parse (`load_artifact` dry pass), PLUS the assertion that every
+   per-ticker `live_train_end` the retrain WOULD produce is <= the failed run's own recorded
+   training cutoff (`fidelity_contract.as_of_cutoff`). This distinguishes the two C1 sub-classes
+   with opposite verdicts: **consistent-but-stale ⇒ retrain** (this case); **metadata-without-
+   weights ⇒ STOP** (the 07-06 corruption — retraining over a corruption signature destroys the
+   evidence of the producer bug, and the correct 07-06 response was human forensics + point-in-
+   time restore, which is a live-tree mutation and therefore never automated — the
+   live-tree-mutation-preflight lesson).
 4. Evidence-before: admitted 12/145, per-cause counts, `live_train_end` histogram, incumbent
    metadata digests.
 5. Execute `weekly_tournament_retrain.sh` (timeout 3600 s/ticker side-config). Safety comes
@@ -481,7 +650,7 @@ record has been reviewed.
 
 | Stage | What runs | Enablement gate |
 |---|---|---|
-| **0 — shadow** | Pipeline PR: emit `remediation` hints. Orchestrator PR: controller in shadow — full policy pass, writes `remediation.v1` records with `outcome=SHADOW_WOULD_RUN`, executes NOTHING. Weekly digest of would-have-remediated episodes. | ≥ 10 sessions AND: zero would-remediate on healthy sessions (false-positive check), every real incident in the window carries a correct would-have record, operator + Codex review the digest |
+| **0 — shadow** | Pipeline PR: emit `remediation_hints.v1` (§5.1) + the cross-repo compatibility test. Orchestrator PR: controller in shadow — full policy pass, writes `remediation.v1` records with `outcome=SHADOW_WOULD_RUN`, executes NOTHING. Weekly digest of would-have-remediated episodes PLUS the §7bis historical incident replay. | §7bis's full per-action acceptance criteria (below) — NOT just "≥10 sessions", which is necessary but not sufficient |
 | **1 — R0 + crash rerun** | `ohlcv_refetch`, `broker_snapshot_repoll`, heartbeat `session_rerun`. | Stage-0 review; launchd wiring is machine-landing (ask-first, one grant per batch) |
 | **2 — R1** | `fundamentals_feed_rebuild`, `corr_metadata_rebuild`, `sector_map_regen`. | ≥ 5 clean Stage-1 sessions, no budget breaches |
 | **3 — R3 (per-action operator sign-off)** | `admission_tournament_retrain` (after its §6.1 prerequisites), `calibrator_binding_restamp`, async triggers. | Ledger supersession landed; RenQuant#453 verified on the auto path; per-action sign-off (capital-risk-adjacent — the delegation memo's sign-off standard applies) |
@@ -491,18 +660,76 @@ Rollback at any stage = flip the per-action/global kill switch (config, no deplo
 `RERUN_STILL_RED` or precondition anomaly auto-disables the involved action until a human
 re-enables it (breaker semantics, applied to the controller itself).
 
+## 7bis. Falsifiable evaluation protocol (Codex review, r1, P1 — first-class, per-action)
+
+The #474 registry's headline number — 36/56 sessions engineering-blocked — is INCIDENT
+MOTIVATION for why this design exists. It is explicitly NOT an estimate that automation would
+have safely restored 36 runs, and no acceptance decision in this RFC is allowed to cite it as
+one. Every action requires its own pre-registered evaluation protocol, defined BEFORE any shadow
+logging for that action begins (logging that runs before the protocol is registered does not
+count toward it — matching this session's own precedent on preregistered shadow evaluations,
+e.g. `doc/design/2026-07-11-freshness-override-regime-consequences.md` §4).
+
+**Per-action pre-registration (`eval_protocol`, §5.2), required fields:**
+
+- **Eligibility** — the exact machine-checkable condition under which this action is even a
+  candidate (references the gate + transience class from §4).
+- **Expected remediation result** — the specific, falsifiable outcome a correct remediation
+  produces (e.g. "admitted fraction ≥ 0.6× watchlist post-retrain", not "the problem is fixed").
+- **Forbidden side effects** — an explicit list this action must NEVER produce (e.g. "no order
+  submitted by the parent run", "no promotion past the WF gate without its own pass") — these are
+  the assertions the hermetic tests for the controller must encode.
+- **Counterfactual comparator** — what this action's outcome is measured against (e.g. the
+  session's outcome under the CURRENT stop-and-page behavior, or a matched historical incident
+  from the same registry class) — never an uncontrolled before/after on the same incident.
+- **False-positive rate target** — the maximum tolerable rate of the action firing on a session
+  that did NOT need it (measured in shadow against sessions independently known to be healthy).
+- **Rollback rule** — the exact condition that auto-disables the action (this RFC's default:
+  any `RERUN_STILL_RED` or a false-positive-rate breach during shadow).
+
+**Evaluation evidence, required for EVERY action before its stage-3+ enablement (§7):**
+
+1. **Historical incident replay set** — every matching incident already in the #474 registry
+   (or a superset built the same way) is replayed against the action's exact machine logic
+   (offline, read-only, no live effect) to confirm the `eval_protocol`'s expected result would
+   have been produced FOR THAT ACTION SPECIFICALLY. An action whose registry class has zero or
+   one historical incidents (e.g. a rare failure mode) does not get a pass by default — its
+   action-specific minimum event count (below) must still be met, even if that means an
+   extended shadow period or an explicitly accepted "insufficient evidence, hold at Stage 0"
+   verdict.
+2. **Prospective shadow coverage** — live shadow logging (`SHADOW_WOULD_RUN`), continuing
+   alongside (1), with an **action-specific minimum event count** (not a single blanket "≥10
+   sessions" — an action whose trigger condition fires rarely needs a correspondingly longer
+   shadow window; the registry's own historical frequency per class, §1's table, sets this
+   number per action) and an explicit **holdout period** (a trailing window excluded from the
+   acceptance decision and reviewed only AFTER enablement, to catch overfitting the shadow
+   evidence to the exact incidents already known).
+3. **Reported separately, per action** (never aggregated across actions — a good action must not
+   hide a bad one and vice versa): precision/recall of the `remediation_hints.v1` declarative
+   hint against the eligibility criterion, rerun determinism (does re-running the SAME failed
+   input snapshot through the SAME action converge to the same output fingerprint), the page/
+   response latency distribution, and the zero-side-effect invariant (§5.3's forbidden side
+   effects, confirmed to have never fired in shadow).
+
+**Nothing in §7's stage table advances an action past Stage 0 without all of the above on file.**
+This is a stricter, per-action gate than the table's own "≥5 clean sessions" / "per-action sign-
+off" language suggests in isolation — those remain necessary, but §7bis's evidence package is the
+thing operator sign-off is actually reviewing.
+
 ## 8. Open decisions for operator / Codex
 
 | # | Decision | Design default |
 |---|---|---|
 | D1 | R2 wash-sale reconciliation: auto-execute (Stage 4) or permanently notify+one-click? | one-click; revisit on fire-rate evidence |
 | D2 | Ledger supersession shape: `superseded_by` column vs canonical-run view (latest-per-day)? Must land with/before the S5 wiring PR; also fixes the run-scoped-verdicts vs day-scoped-outcomes asymmetry. | explicit `superseded_by` stamp + canonical view for readers |
-| D3 | Rerun buy-safety precondition `parent n_buy_orders == 0` — strict (SKIP+page otherwise) or allow partial-fill sessions with operator ack? | strict |
+| D3 | Rerun buy-safety precondition — strict phase-(a)-only (§5.3.1/5.3.4: SKIP+page on ANY order, buy or sell) or allow partial-fill sessions with operator ack? | strict; no carve-out, per Codex review r1 |
 | D4 | Preflight verdicts into the run bundle (replacing `daily_104.sh` log-grep as the detection API): pipeline PR or umbrella PR first? | pipeline emits, umbrella forwards; small PRs |
 | D5 | Budget defaults: attempts=1/action, ≤2 actions/session, chain depth 1, wall-clock ≤90 min, cutoff 21:00 PT, cooldown 5 sessions. | as stated; revisit after Stage 1 |
-| D6 | Hint field additive inside `data_availability.v1`/`funnel_integrity.v1` vs a version bump? | additive-optional in v1 (consumers already tolerant; absence = STOP) |
+| D6 | Hint field additive inside `data_availability.v1`/`funnel_integrity.v1` vs a separate versioned block? | **REVERSED (Codex review, r1): separate `remediation_hints.v1` block (§5.1), not an additive field in the existing v1 blocks** — no cross-repo consumer-compatibility audit exists to justify the additive claim |
 | D7 | This design supersedes the autonomous-ops-loops §4.2 "diagnose-and-notify, never auto-change" default for the classed lane — needs an explicit LONG-ledger amendment (operator-only tier). | amend at Stage-1 enablement, not before |
 | D8 | `panel_model_artifact` staleness stays async-trigger-only (no same-session rerun), governed by #210 freshness policy — confirm. | confirmed as designed |
+| D9 | Lease store implementation (§5.3.2): a new lightweight file/SQLite table in orchestrator state vs. reusing an existing mechanism (e.g. the decision-ledger DB)? | new lightweight table, orchestrator-owned, alongside `remediation_log.jsonl` — keep the lease store dependency-free of the ledger's own wiring status |
+| D10 | Historical incident replay set (§7bis) — build it as a superset of the #474 registry, or treat #474 itself as sufficient? | superset if any action's registry-class event count is too low for its minimum (§7bis item 2); #474 alone is a floor, not a ceiling |
 
 ## 9. Non-goals
 
