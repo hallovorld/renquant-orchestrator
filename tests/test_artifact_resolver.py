@@ -142,3 +142,165 @@ def test_resolver_class_resolves_distinct_refs(layout):
     r = ArtifactResolver(strategy_dir=strategy_dir, repo_root=repo_root)
     assert r.resolve("primary.pt").source == "strategy_dir"
     assert r.resolve("shadow.pt").source == "repo_root"
+
+
+# --- manifest-declared artifact store (store-addressed refs) ----------------
+#
+# 2026-07-10 shadow-ab first-session precheck abort: prod configs author
+# artifact refs as umbrella-layout parent walks ("../../artifacts/<...>");
+# a pinned checkout has no such geometry. The run manifest declares the
+# store explicitly and the resolver honours it FIRST for store-addressed
+# refs — no symlink shims, no umbrella reconstruction (Codex on #464).
+
+
+def test_store_relative_ref_contract():
+    from renquant_orchestrator.artifact_resolver import store_relative_ref
+
+    assert store_relative_ref("../../artifacts/x/y.pt") == Path("x/y.pt")
+    assert store_relative_ref("artifacts/x.json") == Path("x.json")
+    # interior ".." disqualifies (fail-safe to the geometric contract)
+    assert store_relative_ref("../../artifacts/../x.pt") is None
+    # non-store refs and the bare store itself are not store-addressed
+    assert store_relative_ref("configs/x.json") is None
+    assert store_relative_ref("../../artifacts") is None
+    # absolute refs never store-address
+    assert store_relative_ref("/abs/artifacts/x.pt") is None
+
+
+def test_store_addressed_ref_resolves_from_declared_store(layout, tmp_path):
+    strategy_dir, repo_root = layout
+    store = tmp_path / "declared-store"
+    _write(store / "patchtst/seed_44/model.pt", b"blob")
+    res = resolve_artifact(
+        "../../artifacts/patchtst/seed_44/model.pt",
+        strategy_dir=strategy_dir,
+        repo_root=repo_root,
+        artifact_store=store,
+    )
+    assert res.source == "artifact_store"
+    assert res.path == (store / "patchtst/seed_44/model.pt").resolve()
+    assert res.sha256
+
+
+def test_pinned_checkout_layout_needs_no_umbrella_geometry(tmp_path):
+    # Integration shape: the strategy checkout lives under a runtime repos/
+    # dir (NOT two levels below an artifact store) — exactly the layout the
+    # first real session ran in. Resolution succeeds through the declared
+    # store alone.
+    pinned = tmp_path / "runtime" / "repos" / "renquant-strategy-104"
+    (pinned / "configs").mkdir(parents=True)
+    store = tmp_path / "elsewhere" / "artifact-store"
+    _write(store / "panel/model.pt", b"pinned-blob")
+    res = resolve_artifact(
+        "../../artifacts/panel/model.pt",
+        strategy_dir=pinned,
+        repo_root=tmp_path / "runtime",
+        artifact_store=store,
+    )
+    assert res.source == "artifact_store"
+    assert res.path.read_bytes() == b"pinned-blob"
+
+
+def test_declared_store_wins_over_geometric_accident(layout):
+    strategy_dir, repo_root = layout
+    # both the declared store AND the geometric walk exist with DIFFERENT
+    # bytes — the explicit contract must win deterministically.
+    store = repo_root / "declared"
+    _write(store / "m.pt", b"declared")
+    _write(strategy_dir / "../../artifacts/m.pt", b"geometric")
+    res = resolve_artifact(
+        "../../artifacts/m.pt",
+        strategy_dir=strategy_dir,
+        repo_root=repo_root,
+        artifact_store=store,
+    )
+    assert res.source == "artifact_store"
+    assert res.path.read_bytes() == b"declared"
+
+
+def test_no_store_behaviour_is_unchanged(layout):
+    strategy_dir, repo_root = layout
+    _write(strategy_dir / "artifacts/m.pt", b"x")
+    res = resolve_artifact(
+        "artifacts/m.pt", strategy_dir=strategy_dir, repo_root=repo_root,
+    )
+    assert res.source == "strategy_dir"
+
+
+def test_store_addressed_miss_never_falls_back_to_geometry(layout, tmp_path):
+    # r4 (Codex on #464 r3): once a ref is store-addressed and a store is
+    # declared, resolution happens ONLY inside that store — a miss raises
+    # even when a geometric candidate exists (a recreated umbrella path must
+    # never be silently consumed).
+    strategy_dir, repo_root = layout
+    empty_store = tmp_path / "empty-store"
+    empty_store.mkdir()
+    _write(strategy_dir / "artifacts/m.pt", b"geo")
+    with pytest.raises(FileNotFoundError) as exc:
+        resolve_artifact(
+            "artifacts/m.pt",
+            strategy_dir=strategy_dir,
+            repo_root=repo_root,
+            artifact_store=empty_store,
+        )
+    assert str(empty_store / "m.pt") in str(exc.value)
+    # and the geometric candidate is NOT among the tried paths
+    assert str(strategy_dir / "artifacts/m.pt") not in str(exc.value)
+
+
+def test_artifact_symlink_escaping_the_store_fails_closed(layout, tmp_path):
+    # r4 resolve-and-contain: a committed symlink below the store may not
+    # smuggle resolution outside the verified checkout.
+    strategy_dir, repo_root = layout
+    store = tmp_path / "store"
+    store.mkdir()
+    outside = tmp_path / "outside"
+    _write(outside / "evil.pt", b"external")
+    (store / "m.pt").symlink_to(outside / "evil.pt")
+    with pytest.raises(FileNotFoundError, match="escapes the declared artifact store"):
+        resolve_artifact(
+            "../../artifacts/m.pt",
+            strategy_dir=strategy_dir,
+            repo_root=repo_root,
+            artifact_store=store,
+        )
+
+
+def test_symlink_inside_the_store_is_allowed(layout, tmp_path):
+    strategy_dir, repo_root = layout
+    store = tmp_path / "store"
+    _write(store / "real/m.pt", b"internal")
+    (store / "alias.pt").symlink_to(store / "real/m.pt")
+    res = resolve_artifact(
+        "artifacts/alias.pt",
+        strategy_dir=strategy_dir,
+        repo_root=repo_root,
+        artifact_store=store,
+    )
+    assert res.source == "artifact_store"
+    assert res.path == (store / "real/m.pt").resolve()
+
+
+def test_non_store_ref_ignores_declared_store(layout, tmp_path):
+    strategy_dir, repo_root = layout
+    store = tmp_path / "store"
+    _write(store / "x.json", b"wrong")
+    _write(strategy_dir / "configs/x.json", b"right")
+    res = resolve_artifact(
+        "configs/x.json",
+        strategy_dir=strategy_dir,
+        repo_root=repo_root,
+        artifact_store=store,
+    )
+    assert res.source == "strategy_dir"
+    assert res.path.read_bytes() == b"right"
+
+
+def test_resolver_class_carries_artifact_store(layout, tmp_path):
+    strategy_dir, repo_root = layout
+    store = tmp_path / "store"
+    _write(store / "m.pt", b"s")
+    r = ArtifactResolver(
+        strategy_dir=strategy_dir, repo_root=repo_root, artifact_store=store,
+    )
+    assert r.resolve("../../artifacts/m.pt").source == "artifact_store"

@@ -289,14 +289,16 @@ def resolve_arm_fingerprints(
     strategy_dir: str | Path,
     repo_root: str | Path,
     data_manifest_path: str | Path,
+    artifact_store: str | Path | None = None,
     fingerprint_from_path: Callable[[str | Path], str] | None = None,
 ) -> ArmFingerprints:
     """Resolve the §2a fingerprint set for one arm (fail-closed).
 
     Model/calibrator refs resolve through the single artifact-resolution
     authority (:mod:`renquant_orchestrator.artifact_resolver`) so both arms
-    use the same strategy_dir-then-repo_root contract — divergent resolution
-    order between two call sites is a known incident class.
+    use the same contract (manifest-declared ``artifact_store`` for
+    store-addressed refs, then strategy_dir-then-repo_root) — divergent
+    resolution order between two call sites is a known incident class.
     """
     from .artifact_resolver import resolve_artifact  # noqa: PLC0415
 
@@ -318,6 +320,7 @@ def resolve_arm_fingerprints(
         model_ref,
         strategy_dir=strategy_dir,
         repo_root=repo_root,
+        artifact_store=artifact_store,
         verify_sha=False,
     )
     model_sha = fingerprint(model.path)
@@ -328,6 +331,7 @@ def resolve_arm_fingerprints(
             calibrator_ref,
             strategy_dir=strategy_dir,
             repo_root=repo_root,
+            artifact_store=artifact_store,
             verify_sha=False,
         )
         calibrator_sha = fingerprint(calibrator.path)
@@ -583,7 +587,59 @@ def load_run_manifest(path: str | Path) -> dict[str, Any]:
             f"run manifest {manifest_file}: missing required repo(s): "
             f"{', '.join(missing)}"
         )
+    store = payload.get("artifact_store")
+    if store is not None:
+        # The store is NOT an arbitrary path — it must name a manifest repo
+        # (r3, Codex on #464 r2: an untyped path can point straight back at
+        # the deprecated umbrella tree). The named repo goes through the same
+        # commit+clean verification as every other manifest repo, so the
+        # store root is inside a pinned checkout by construction.
+        if not isinstance(store, dict) or not store.get("repo"):
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: artifact_store must be "
+                "{'repo': <manifest repo name>, 'path': <relative subdir>} — "
+                "a bare path is not a pinned owner"
+            )
+        if store["repo"] not in repos:
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: artifact_store.repo "
+                f"{store['repo']!r} is not a manifest repo — the store must "
+                "live inside a pinned, verified checkout"
+            )
+        subdir = store.get("path") or ""
+        sub_path = Path(subdir)
+        if sub_path.is_absolute() or ".." in sub_path.parts:
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: artifact_store.path must be "
+                f"a relative subdir inside the named repo, got {subdir!r}"
+            )
     return payload
+
+
+def resolve_manifest_artifact_store(manifest: Mapping[str, Any]) -> Path | None:
+    """The declared store root INSIDE the named manifest repo, or ``None``.
+
+    Callers must run :func:`verify_run_manifest` first — the binding this
+    provides (commit + clean tree) is exactly why the store names a manifest
+    repo instead of carrying a free path.
+
+    resolve-and-contain (r4): the returned root is fully resolved and PROVEN
+    to remain inside the named repo's resolved root — a committed symlink at
+    the store subdir may not point resolution outside the verified clean
+    checkout. Escape raises (fail-closed, precheck abort).
+    """
+    store = manifest.get("artifact_store")
+    if store is None:
+        return None
+    repo_entry = manifest["repos"][store["repo"]]
+    repo_root_resolved = Path(repo_entry["path"]).resolve()
+    store_root = (Path(repo_entry["path"]) / (store.get("path") or "")).resolve()
+    if not store_root.is_relative_to(repo_root_resolved):
+        raise ShadowABContractError(
+            f"artifact_store escapes its named repo (fail-closed): "
+            f"{store!r} resolves to {store_root}, outside {repo_root_resolved}"
+        )
+    return store_root
 
 
 def verify_run_manifest(
@@ -704,6 +760,7 @@ def build_arm_plan(
     repo_root: Path | None = None,
     ohlcv_dir: Path | None = None,
     data_revision: str | None = None,
+    artifact_store: Path | None = None,
 ) -> list[list[str]]:
     """Build one arm's command sequence from the SHARED template.
 
@@ -745,6 +802,11 @@ def build_arm_plan(
         context_command += ["--calibrator-content-sha256", calibrator_content_sha256]
     if repo_root is not None:
         context_command += ["--repo-root", str(repo_root)]
+    if artifact_store is not None:
+        # The manifest-declared store — threaded into BOTH resolving steps so
+        # the consumption side resolves through EXACTLY the anchors the
+        # runner's precheck used.
+        context_command += ["--artifact-store", str(artifact_store)]
     inference_command = [
         "renquant-orchestrator", "native-live-inference",
         "--context-json", str(context_json),
@@ -764,6 +826,8 @@ def build_arm_plan(
         inference_command += ["--ohlcv-dir", str(ohlcv_dir)]
     if data_revision is not None:
         inference_command += ["--data-revision", data_revision]
+    if artifact_store is not None:
+        inference_command += ["--artifact-store", str(artifact_store)]
     return [
         context_command,
         inference_command,
@@ -1145,6 +1209,7 @@ def run_shadow_ab_session(
         return bundle
 
     # -- prechecks: resolve every §2a bundle field BEFORE anything runs -------
+    artifact_store: Path | None = None
     try:
         if manifest_payload is not None:
             # Verify every manifest repo (commit match + CLEAN tree) BEFORE
@@ -1153,10 +1218,38 @@ def run_shadow_ab_session(
             resolved_repos = verify_run_manifest(
                 manifest_payload, git_probe=manifest_git_probe,
             )
+            store_entry = manifest_payload.get("artifact_store")
+            if store_entry is not None:
+                # The manifest-declared artifact store: prod configs author
+                # store refs as umbrella-layout parent walks
+                # (../../artifacts/<...>), which resolve to nothing from a
+                # pinned checkout. The store names a MANIFEST REPO (r3) —
+                # verify_run_manifest above already proved that checkout is
+                # at the pinned commit with a CLEAN tree, so the store root
+                # is commit-bound by construction; per-artifact fingerprint
+                # stamping + freeze drift VOID cover the blob level.
+                artifact_store = resolve_manifest_artifact_store(
+                    manifest_payload
+                )
+                if artifact_store is None or not artifact_store.is_dir():
+                    raise ShadowABContractError(
+                        "run manifest artifact_store does not resolve to a "
+                        f"directory inside repo {store_entry.get('repo')!r}: "
+                        f"{artifact_store}"
+                    )
             bundle["run_manifest"] = {
                 "path": str(run_manifest),
                 "data_revision": manifest_payload.get("data_revision"),
                 "verified": True,
+                "artifact_store": (
+                    {
+                        "repo": store_entry["repo"],
+                        "path": store_entry.get("path") or "",
+                        "root": str(artifact_store),
+                        "commit": resolved_repos[store_entry["repo"]],
+                    }
+                    if store_entry is not None else None
+                ),
                 "repos": {
                     name: {
                         "path": str(manifest_payload["repos"][name]["path"]),
@@ -1170,6 +1263,7 @@ def run_shadow_ab_session(
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             data_manifest_path=data_manifest,
+            artifact_store=artifact_store,
             fingerprint_from_path=fingerprint_from_path,
         )
         fp_b = resolve_arm_fingerprints(
@@ -1177,6 +1271,7 @@ def run_shadow_ab_session(
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             data_manifest_path=data_manifest,
+            artifact_store=artifact_store,
             fingerprint_from_path=fingerprint_from_path,
         )
         if manifest_payload is not None:
@@ -1391,6 +1486,7 @@ def run_shadow_ab_session(
         data_revision=(
             (manifest_payload or {}).get("data_revision") if manifest_payload else None
         ),
+        artifact_store=artifact_store,
     )
     plan_b = build_arm_plan(
         tag=arm_b.tag,
@@ -1408,6 +1504,7 @@ def run_shadow_ab_session(
         data_revision=(
             (manifest_payload or {}).get("data_revision") if manifest_payload else None
         ),
+        artifact_store=artifact_store,
     )
     try:
         assert_preflight_symmetry(
@@ -1646,6 +1743,7 @@ __all__ = [
     "build_run_manifest_payload",
     "default_experiment_strategy_dir",
     "load_run_manifest",
+    "resolve_manifest_artifact_store",
     "main",
     "resolve_arm_fingerprints",
     "resolve_experiment_pins",

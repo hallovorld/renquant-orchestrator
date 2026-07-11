@@ -42,6 +42,8 @@ from renquant_orchestrator.shadow_ab_runner import (
     assert_preflight_symmetry,
     build_arm_plan,
     default_experiment_strategy_dir,
+    load_run_manifest,
+    resolve_arm_fingerprints,
     run_shadow_ab_session,
     seal_snapshot,
     treatment_key_violations,
@@ -1329,3 +1331,251 @@ def test_run_manifest_missing_required_repo_is_a_usage_error(tmp_path: Path) -> 
     }), encoding="utf-8")
     with pytest.raises(ShadowABContractError, match="missing required repo"):
         _run(world, tmp_path / "sessions", run_manifest=bad, pins_resolver=None)
+
+
+# --- manifest-declared artifact store (store-addressed refs, Codex on #464) ----
+
+
+def _store_world(tmp_path: Path) -> tuple[dict[str, Path], Path]:
+    """A world whose configs use PROD-STYLE store-addressed refs
+    ("../../artifacts/<...>") that only the declared store can satisfy —
+    the pinned-checkout layout of the first real session, no umbrella
+    geometry anywhere."""
+    world = _write_world(tmp_path)
+    store = tmp_path / "declared-store"
+    (store / "panel").mkdir(parents=True)
+    (store / "panel" / "model.pt").write_text("model-1", encoding="utf-8")
+    (store / "panel" / "calibrator.json").write_text("cal-1", encoding="utf-8")
+    for key in ("config_a", "config_b"):
+        world[key].write_text(json.dumps({
+            "ranking": {"panel_scoring": {
+                "artifact_path": "../../artifacts/panel/model.pt",
+                "buy_floor_std_mult": 0.5 if key == "config_a" else 1.0,
+                "global_calibration": {
+                    "enabled": True,
+                    "artifact_path": "../../artifacts/panel/calibrator.json",
+                },
+            }},
+        }), encoding="utf-8")
+    return world, store
+
+
+def test_resolve_arm_fingerprints_uses_declared_store(tmp_path: Path) -> None:
+    world, store = _store_world(tmp_path)
+    fp = resolve_arm_fingerprints(
+        world["config_a"],
+        strategy_dir=tmp_path / "runtime" / "repos" / "renquant-strategy-104",
+        repo_root=tmp_path / "runtime",
+        data_manifest_path=world["manifest"],
+        artifact_store=store,
+        fingerprint_from_path=_fake_fingerprint,
+    )
+    assert fp.model_content_sha256 == _fake_fingerprint(store / "panel" / "model.pt")
+    assert fp.calibrator_content_sha256 == _fake_fingerprint(
+        store / "panel" / "calibrator.json"
+    )
+
+
+def test_resolve_arm_fingerprints_without_store_fails_closed(tmp_path: Path) -> None:
+    world, _store = _store_world(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        resolve_arm_fingerprints(
+            world["config_a"],
+            strategy_dir=tmp_path / "runtime" / "repos" / "renquant-strategy-104",
+            repo_root=tmp_path / "runtime",
+            data_manifest_path=world["manifest"],
+            fingerprint_from_path=_fake_fingerprint,
+        )
+
+
+def _pinned_store_repo(tmp_path: Path, store: Path, run_manifest: Path) -> Path:
+    """Commit the store dir as its own tiny git repo and register it as a
+    NAMED manifest repo — the r3 binding: the store lives inside a
+    commit-verified, clean checkout, never behind a free path."""
+    import subprocess as sp
+
+    repo = tmp_path / "pins" / "renquant-artifacts"
+    (repo / "store").mkdir(parents=True)
+    for f in store.rglob("*"):
+        if f.is_file():
+            dest = repo / "store" / f.relative_to(store)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(f.read_bytes())
+    sp.run(["git", "init", "-q", str(repo)], check=True)
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "store"],
+        check=True,
+    )
+    head = sp.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, text=True, stdout=sp.PIPE,
+    ).stdout.strip()
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["repos"]["renquant-artifacts"] = {"path": str(repo), "commit": head}
+    payload["artifact_store"] = {"repo": "renquant-artifacts", "path": "store"}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    return repo / "store"
+
+
+def test_manifest_artifact_store_recorded_and_threaded_into_arm_plans(
+    tmp_path: Path,
+) -> None:
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    pinned_store = _pinned_store_repo(tmp_path, store, run_manifest)
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_VALID
+    record = result["run_manifest"]["artifact_store"]
+    assert record["repo"] == "renquant-artifacts"
+    assert record["path"] == "store"
+    assert record["root"] == str(pinned_store)
+    assert record["commit"]  # the verified pin, not a free path
+    for arm in ("a", "b"):
+        plan = result["arms"][arm]["planned_commands"]
+        context_cmd = next(c for c in plan if "native-live-context" in c)
+        inference_cmd = next(c for c in plan if "native-live-inference" in c)
+        for cmd in (context_cmd, inference_cmd):
+            assert cmd[cmd.index("--artifact-store") + 1] == str(pinned_store)
+
+
+def test_store_repo_with_dirty_tree_aborts_before_either_arm(tmp_path: Path) -> None:
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    pinned_store = _pinned_store_repo(tmp_path, store, run_manifest)
+    (pinned_store / "tamper.txt").write_text("dirty", encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("DIRTY" in r for r in result["reasons"])
+
+
+def test_manifest_artifact_store_missing_dir_aborts_precheck(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    # names a verified repo, but the subdir does not exist inside it
+    payload["artifact_store"] = {
+        "repo": "renquant-strategy-104", "path": "no-such-store",
+    }
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("artifact_store" in r for r in result["reasons"])
+
+
+def test_manifest_artifact_store_rejects_untyped_and_unpinned_forms(
+    tmp_path: Path,
+) -> None:
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+
+    # a bare path is not a pinned owner (the r2 rejection: it can point
+    # straight back at the deprecated umbrella tree)
+    payload["artifact_store"] = {"path": "/Users/anyone/RenQuant/artifacts"}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ShadowABContractError, match="pinned owner"):
+        load_run_manifest(run_manifest)
+
+    # naming a repo outside the manifest is rejected
+    payload["artifact_store"] = {"repo": "not-a-manifest-repo", "path": "store"}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ShadowABContractError, match="not a manifest repo"):
+        load_run_manifest(run_manifest)
+
+    # escaping the repo with ".." or an absolute subdir is rejected
+    for bad in ("../outside", "/abs/store"):
+        payload["artifact_store"] = {"repo": "renquant-strategy-104", "path": bad}
+        run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ShadowABContractError, match="relative subdir"):
+            load_run_manifest(run_manifest)
+
+
+def test_store_root_symlink_escaping_repo_aborts_precheck(tmp_path: Path) -> None:
+    # r4 resolve-and-contain: a committed symlink AT the store subdir that
+    # points outside the named clean checkout must precheck-abort.
+    import subprocess as sp
+
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+
+    outside = tmp_path / "outside-store"
+    (outside / "panel").mkdir(parents=True)
+    (outside / "panel" / "model.pt").write_text("model-1", encoding="utf-8")
+    (outside / "panel" / "calibrator.json").write_text("cal-1", encoding="utf-8")
+
+    repo = tmp_path / "pins" / "renquant-artifacts"
+    repo.mkdir(parents=True)
+    (repo / "store").symlink_to(outside)
+    sp.run(["git", "init", "-q", str(repo)], check=True)
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "symlinked store"],
+        check=True,
+    )
+    head = sp.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, text=True, stdout=sp.PIPE,
+    ).stdout.strip()
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["repos"]["renquant-artifacts"] = {"path": str(repo), "commit": head}
+    payload["artifact_store"] = {"repo": "renquant-artifacts", "path": "store"}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("escapes its named repo" in r for r in result["reasons"])
+
+
+def test_artifact_symlink_escaping_store_aborts_precheck(tmp_path: Path) -> None:
+    # r4: a symlinked FILE below the store targeting an external directory
+    # must also precheck-abort (containment enforced per resolved artifact).
+    import subprocess as sp
+
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    pinned_store = _pinned_store_repo(tmp_path, store, run_manifest)
+
+    outside = tmp_path / "outside-blob"
+    outside.mkdir()
+    (outside / "evil.pt").write_text("model-1", encoding="utf-8")
+    repo = pinned_store.parent
+    victim = pinned_store / "panel" / "model.pt"
+    victim.unlink()
+    victim.symlink_to(outside / "evil.pt")
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "symlinked blob"],
+        check=True,
+    )
+    head = sp.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, text=True, stdout=sp.PIPE,
+    ).stdout.strip()
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["repos"]["renquant-artifacts"]["commit"] = head
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("escapes the declared artifact store" in r for r in result["reasons"])

@@ -261,6 +261,75 @@ def validate_market_bars(
     }
 
 
+def rewrite_config_artifact_refs(
+    config: dict[str, Any],
+    *,
+    strategy_dir: str | Path | None,
+    repo_root: str | Path | None,
+    artifact_store: str | Path,
+) -> dict[str, str]:
+    """Rewrite the config's panel model/calibrator refs to RESOLVED absolute
+    paths (in-memory only — the config file on disk is never touched).
+
+    Why: the kernel's ``LoadScorerTask`` joins relative ``artifact_path`` refs
+    lexically against ``config["_strategy_dir"]``; prod configs author them as
+    umbrella-layout parent walks (``../../artifacts/<...>``), which resolve to
+    nothing from a pinned checkout. With a manifest-declared artifact store,
+    the SINGLE resolution authority (:mod:`..artifact_resolver`) resolves the
+    ref here and the kernel receives an absolute path it uses as-is.
+
+    Identity safety: the paired-world config sha is computed from the RAW
+    config file bytes at precheck (unchanged by this rewrite), artifact
+    identity is separately enforced by ``model_content_sha256`` verification
+    against what this config resolves, and ``artifact_path`` is NOT in
+    ``renquant_common.config_consistency._model_relevant_fields`` — so the
+    panel config fingerprint (P-CONFIG-FP) is unaffected. Returns
+    ``{ref: resolved_absolute_path}`` for the hydration report.
+    """
+    from .artifact_resolver import resolve_artifact  # noqa: PLC0415
+    from .native_live_context import panel_artifact_refs  # noqa: PLC0415
+
+    try:
+        model_ref, calibrator_ref = panel_artifact_refs(config)
+    except ValueError as exc:
+        raise HydrationError(f"cannot rewrite artifact refs: {exc}") from exc
+
+    anchor = strategy_dir or repo_root
+    if anchor is None:
+        raise HydrationError(
+            "artifact_store rewrite needs strategy_dir or repo_root as the "
+            "geometric fallback anchor"
+        )
+
+    rewritten: dict[str, str] = {}
+
+    def _resolve(ref: str) -> str:
+        try:
+            resolved = resolve_artifact(
+                ref,
+                strategy_dir=anchor,
+                repo_root=repo_root or anchor,
+                artifact_store=artifact_store,
+                verify_sha=False,
+            )
+        except FileNotFoundError as exc:
+            raise HydrationError(str(exc)) from exc
+        rewritten[ref] = str(resolved.path)
+        return str(resolved.path)
+
+    panel = (
+        (config.get("ranking") or {}).get("panel_scoring")
+        or config.get("panel_ltr")
+        or {}
+    )
+    panel["artifact_path"] = _resolve(model_ref)
+    if calibrator_ref is not None:
+        (panel.get("global_calibration") or {})["artifact_path"] = _resolve(
+            calibrator_ref
+        )
+    return rewritten
+
+
 def hydrate_pipeline_context(
     context_payload: dict[str, Any],
     *,
@@ -271,6 +340,7 @@ def hydrate_pipeline_context(
     ohlcv_dir: str | Path | None = None,
     ohlcv_loader: OhlcvLoader | None = None,
     data_revision: str | None = None,
+    artifact_store: str | Path | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Build the pinned pipeline's real ``InferenceContext`` from the verified
     context JSON payload. Returns ``(ctx, hydration_report)``.
@@ -313,6 +383,15 @@ def hydrate_pipeline_context(
         # against config["_strategy_dir"] — same convention the umbrella
         # adapter uses.
         config.setdefault("_strategy_dir", str(strategy_dir))
+    if artifact_store is not None:
+        rewritten = rewrite_config_artifact_refs(
+            config,
+            strategy_dir=strategy_dir,
+            repo_root=repo_root,
+            artifact_store=artifact_store,
+        )
+    else:
+        rewritten = {}
 
     account_snapshot = context_payload.get("account_snapshot") or {}
     if not isinstance(account_snapshot, dict):
@@ -495,12 +574,17 @@ def hydrate_pipeline_context(
         ),
         "data_revision": data_revision,
         "bar_validity": bar_validity,
+        "artifact_store": (
+            str(artifact_store) if artifact_store is not None else None
+        ),
+        "artifact_refs_rewritten": rewritten,
     }
     return ctx, report
 
 
 __all__ = [
     "ENTRY_DATE_SENTINEL_DAYS",
+    "rewrite_config_artifact_refs",
     "HydrationError",
     "NATIVE_HYDRATION_SOURCE",
     "OPTIONAL_CONTEXT_ARTIFACT_REFS",
