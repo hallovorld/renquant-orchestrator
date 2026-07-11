@@ -75,6 +75,53 @@ quiet under ``--offline``) or, if it is NOT older (a non-monotonic/rollback
 shape), a proven contradiction (OUTAGE — never suppressed). Generation 1
 is the epoch floor: there is no older generation to chain to.
 
+ROUND 3 (Codex #485 follow-up — "make the binding a derived consequence of
+immutable deployment/promotion evidence, not a generic maintenance
+operation"). Rounds 1-2 hardened the READ side (what the tripwire trusts);
+this hardens the WRITE side (what ``--record-expected`` is allowed to
+author). Previously ``record_expected_identity`` trusted whatever
+``(generation, panel_sha)`` pair its caller supplied — extracted straight
+from whatever bundle file ``--latest-bundle``/``--bundle-dir`` pointed at —
+which meant a post-incident operator could run the maintenance command
+against an UNEXPECTED serving bundle and thereby author exactly the
+regression this monitor exists to report. Forward-only generation
+semantics (round 1) prevent a later REBIND, but do not authenticate the
+FIRST bind.
+
+The fix (reusing the orchestrator#483 evidence-pin PATTERN — never a
+second hand-rolled sibling-checkout resolver or ``store://`` convention):
+``record_expected_identity`` now REQUIRES an ``evidence_ref`` naming a
+sealed ``store://<record>`` promotion-evidence bundle (the same
+sibling-checkout convention against ``renquant-artifacts``, tamper-checked
+against that store's own ``STORE-MANIFEST.json`` when present —
+:func:`resolve_promotion_evidence_bundle`). The bundle's OWN JSON payload
+must be a ``kind: "model-identity-promotion"`` record naming, under the
+``generation``/``panel_sha`` keys, EXACTLY the ``(generation, panel_sha)``
+pair this call is trying to bind
+(:func:`_verify_promotion_evidence_payload`) — an evidence bundle that
+merely EXISTS, or that names a DIFFERENT pair, is refused
+(``ExpectedIdentityError``) and NOTHING is written. The evidence's own
+``store://`` reference and a content sha256 of the resolved bytes are
+persisted alongside the binding (``evidence_ref`` / ``evidence_sha256`` in
+``expected-model-identity.json``) so a future auditor can see exactly
+which evidence record authorized a binding without re-resolving a possibly
+-moved sibling checkout. This is additive to, never a replacement of, the
+round-1 forward-only epoch discipline.
+
+Unlike the deployment manifest's own ``evidence_ref``/``evidence_repo_
+commit`` pair (#483), this write path has no earlier-stamped commit to
+re-check a sibling checkout against — this call IS the first read of the
+evidence. ``resolve_promotion_evidence_bundle`` therefore derives the
+sibling checkout's own current HEAD and reuses
+``deployment_manifest.check_checkout_state`` purely for its existence
+/clean-checkout verification (never trust a dirty or non-git directory),
+not to detect drift since a prior read.
+
+Scope note: this round hardens WHO may author a binding; it does not touch
+``build_tripwire_report``'s READ-side chain-adjacency logic (round 2,
+already verified and merged), and it does not arm this monitor in any
+scheduled job — see "DARK by default" below, unchanged.
+
 Properties (house monitor conventions, same as ``outage_monitor``):
 
   * **read-only in check mode** — consumes run-bundle JSONs + state-root
@@ -101,14 +148,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .deploy_pin import DEFAULT_ARTIFACT_STORE_PATH, DEFAULT_ARTIFACT_STORE_REPO
 from .deployment_manifest import (
+    EVIDENCE_REF_PREFIX,
     DeploymentManifestError,
     GENERATION_OK,
+    GitProbe,
     MACHINE_MANIFEST_FILENAME,
+    check_checkout_state,
     classify_generation,
+    default_git_probe,
     deploy_state_root,
     load_deployment_manifest,
     read_expected_generation,
+    resolve_contained_subdir,
+    sha256_of_bytes,
     write_json_canonical,
 )
 from .outage_monitor import (
@@ -117,6 +171,7 @@ from .outage_monitor import (
     emit_alert,
     worst_tag,
 )
+from .runtime_paths import default_github_root
 
 SCHEMA_VERSION = 2
 OWNER_REPO = "renquant-orchestrator"
@@ -130,7 +185,32 @@ HEADLINE_COMPONENT = "MODEL-IDENTITY"
 #: deploys, bound to the manifest generation it deployed under.
 EXPECTED_IDENTITY_FILENAME = "expected-model-identity.json"
 EXPECTED_IDENTITY_KIND = "expected-model-identity"
-EXPECTED_IDENTITY_SCHEMA_VERSION = 1
+#: Bumped 1 -> 2 for round 3 (Codex #485 follow-up): every record WRITTEN
+#: going forward carries ``evidence_ref``/``evidence_sha256`` naming the
+#: sealed promotion evidence that authorized it. ``read_expected_identity``
+#: does NOT enforce this constant (see its docstring) — the two new fields
+#: are validated when present but not required, so a pre-round-3-shape
+#: record (none exist in production; this monitor has never been armed)
+#: would still be accepted rather than crash the reader.
+EXPECTED_IDENTITY_SCHEMA_VERSION = 2
+
+#: The evidence bundle's own JSON payload must self-identify as this kind
+#: for ``record_expected_identity`` to trust it (round 3, Codex #485
+#: follow-up "make the binding a derived consequence of immutable
+#: deployment/promotion evidence, not a generic maintenance operation").
+PROMOTION_EVIDENCE_KIND = "model-identity-promotion"
+#: The keys a sealed promotion-evidence bundle must carry, naming the
+#: EXACT ``(generation, panel_sha)`` pair it authorizes. Chosen to match
+#: the ``expected-model-identity.json`` field names 1:1 (no translation
+#: layer between "what the evidence claims" and "what gets written").
+PROMOTION_EVIDENCE_GENERATION_KEY = "generation"
+PROMOTION_EVIDENCE_PANEL_SHA_KEY = "panel_sha"
+
+#: Default sibling-checkout convention for resolving a sealed promotion-
+#: evidence ``store://`` reference — the SAME artifact-store binding
+#: ``deploy_pin`` uses (never a second hardcode of "renquant-artifacts").
+DEFAULT_PROMOTION_EVIDENCE_STORE_REPO = DEFAULT_ARTIFACT_STORE_REPO
+DEFAULT_PROMOTION_EVIDENCE_STORE_PATH = DEFAULT_ARTIFACT_STORE_PATH
 
 # --- verdict vocabulary -------------------------------------------------------
 VERDICT_UNCHANGED = "identity_unchanged"
@@ -411,7 +491,14 @@ def read_expected_identity(
 
     Returns ``(None, None)`` when the record simply does not exist yet, and
     ``(None, problem_text)`` when it exists but is malformed (that is a lost-
-    coverage condition the caller reports, never an exception)."""
+    coverage condition the caller reports, never an exception).
+
+    ``evidence_ref``/``evidence_sha256`` (round 3, Codex #485 follow-up) are
+    validated WHEN PRESENT but are not required here: every record
+    ``record_expected_identity`` writes going forward carries them, but this
+    reader must not crash on an already-existing pre-round-3-shape record
+    (there are none in production, since this monitor has never been armed
+    — but degrade gracefully rather than assume that stays true forever)."""
     root = deploy_state_root(state_root)
     record_path = root / EXPECTED_IDENTITY_FILENAME
     if not record_path.exists():
@@ -432,6 +519,23 @@ def read_expected_identity(
         sha = payload.get("panel_sha")
         if not isinstance(sha, str) or not _SHA256_RE.match(sha):
             problems.append("panel_sha must be a 64-hex sha256")
+        evidence_ref = payload.get("evidence_ref")
+        if evidence_ref is not None and (
+            not isinstance(evidence_ref, str)
+            or not evidence_ref.startswith(EVIDENCE_REF_PREFIX)
+        ):
+            problems.append(
+                f"evidence_ref must be a {EVIDENCE_REF_PREFIX!r} record when "
+                "present"
+            )
+        evidence_sha256 = payload.get("evidence_sha256")
+        if evidence_sha256 is not None and (
+            not isinstance(evidence_sha256, str)
+            or not _SHA256_RE.match(evidence_sha256)
+        ):
+            problems.append(
+                "evidence_sha256 must be a 64-hex sha256 when present"
+            )
     if problems:
         return None, (
             f"expected-identity record {record_path}: malformed: "
@@ -440,24 +544,201 @@ def read_expected_identity(
     return payload, None
 
 
+def resolve_promotion_evidence_bundle(
+    evidence_ref: str,
+    *,
+    github_root: str | Path | None = None,
+    git_probe: GitProbe | None = None,
+    artifact_store_repo: str = DEFAULT_PROMOTION_EVIDENCE_STORE_REPO,
+    artifact_store_path: str = DEFAULT_PROMOTION_EVIDENCE_STORE_PATH,
+) -> tuple[Path, bytes, Any]:
+    """Resolve + tamper-check a sealed ``store://<record>`` promotion-
+    evidence bundle — the ``record_expected_identity`` authority gate
+    (round 3, Codex #485 follow-up).
+
+    Returns ``(path, raw_bytes, json_payload)`` on success. Raises
+    ``ExpectedIdentityError`` fail-closed on ANY resolution problem: this is
+    the WRITE path's authority gate, never fail-soft like the rest of this
+    module's read side.
+
+    Reuses the orchestrator#483 evidence-pin PATTERN and its shared
+    primitives (``runtime_paths.default_github_root`` sibling-checkout
+    convention, ``deployment_manifest.resolve_contained_subdir``,
+    ``deployment_manifest.check_checkout_state``,
+    ``deployment_manifest.sha256_of_bytes``) rather than reimplementing
+    sibling-checkout resolution or the ``store://`` convention a second
+    time. Unlike ``deploy_pin.resolve_evidence_bundle_path`` — which
+    rejects a sibling checkout whose HEAD differs from a PRE-STAMPED
+    ``deployment.verify.evidence_repo_commit`` recorded at an earlier
+    capture — this call IS the first read of the evidence (there is no
+    earlier stamp to check against), so it derives the sibling checkout's
+    own current HEAD and reuses ``check_checkout_state`` purely for its
+    existence/clean-checkout verification (never trust a dirty or non-git
+    directory), not to detect drift since a prior read.
+    """
+    if not isinstance(evidence_ref, str) or not evidence_ref.startswith(
+        EVIDENCE_REF_PREFIX
+    ):
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence_ref must be a content-addressed "
+            f"{EVIDENCE_REF_PREFIX!r} record, got {evidence_ref!r}"
+        )
+    remainder = evidence_ref[len(EVIDENCE_REF_PREFIX):]
+    if not remainder or remainder.startswith("/") or ".." in Path(remainder).parts:
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence_ref {evidence_ref!r} has an empty "
+            "or non-relative store record reference"
+        )
+    root = Path(github_root) if github_root is not None else default_github_root()
+    repo_path = root / artifact_store_repo
+    probe = git_probe or default_git_probe
+    if not repo_path.is_dir():
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence_ref {evidence_ref!r} cannot be "
+            f"resolved — artifact_store.repo {artifact_store_repo!r} sibling "
+            f"checkout not found at {repo_path} (sibling root {root})"
+        )
+    head_probe = probe(["-C", str(repo_path), "rev-parse", "HEAD"])
+    head = (head_probe.stdout or "").strip()
+    if head_probe.returncode != 0 or not head:
+        raise ExpectedIdentityError(
+            f"expected-identity: {artifact_store_repo!r} sibling checkout at "
+            f"{repo_path} is not a readable git checkout "
+            f"({(head_probe.stderr or '').strip()})"
+        )
+    _, checkout_problem = check_checkout_state(
+        artifact_store_repo, repo_path, head, git_probe=probe,
+        require_clean=True, expected_label="sibling checkout HEAD",
+    )
+    if checkout_problem is not None:
+        raise ExpectedIdentityError(
+            "expected-identity: evidence sibling checkout not verifiable: "
+            f"{checkout_problem}"
+        )
+    store_root = resolve_contained_subdir(
+        repo_path, artifact_store_path, error_cls=ExpectedIdentityError,
+        store_repr=f"{artifact_store_repo}:{artifact_store_path!r}",
+    )
+    evidence_path = store_root / remainder
+    if not evidence_path.is_file():
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence bundle not found at {evidence_path} "
+            f"(from evidence_ref {evidence_ref!r})"
+        )
+    raw_bytes = evidence_path.read_bytes()
+    store_manifest_path = store_root / "STORE-MANIFEST.json"
+    if store_manifest_path.is_file():
+        try:
+            store_manifest = json.loads(
+                store_manifest_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ExpectedIdentityError(
+                f"expected-identity: {store_manifest_path} unreadable ({exc})"
+            ) from exc
+        expected_hash = store_manifest.get(remainder)
+        if expected_hash is not None:
+            actual_hash = sha256_of_bytes(raw_bytes)
+            if actual_hash != expected_hash:
+                raise ExpectedIdentityError(
+                    f"expected-identity: evidence bundle {evidence_path} "
+                    f"content sha256 {actual_hash[:12]} != STORE-MANIFEST.json "
+                    f"entry {str(expected_hash)[:12]} (possible tamper)"
+                )
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence bundle {evidence_path} is not "
+            f"valid JSON ({exc})"
+        ) from exc
+    return evidence_path, raw_bytes, payload
+
+
+def _verify_promotion_evidence_payload(
+    payload: Any, *, generation: int, panel_sha: str,
+) -> None:
+    """Reject (fail-closed) unless the evidence's OWN payload names EXACTLY
+    the ``(generation, panel_sha)`` pair being bound — the crux of round 3:
+    an evidence bundle that merely EXISTS is not enough, it must claim the
+    specific authorization this call is trying to write. ``panel_sha`` is
+    expected already-normalized (lowercase bare hex)."""
+    if not isinstance(payload, Mapping):
+        raise ExpectedIdentityError(
+            "expected-identity: evidence bundle payload must be a JSON object"
+        )
+    if payload.get("kind") != PROMOTION_EVIDENCE_KIND:
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence bundle kind must be "
+            f"{PROMOTION_EVIDENCE_KIND!r}, got {payload.get('kind')!r}"
+        )
+    evidence_generation = payload.get(PROMOTION_EVIDENCE_GENERATION_KEY)
+    if (
+        not isinstance(evidence_generation, int)
+        or isinstance(evidence_generation, bool)
+        or evidence_generation != generation
+    ):
+        raise ExpectedIdentityError(
+            "expected-identity: evidence bundle "
+            f"{PROMOTION_EVIDENCE_GENERATION_KEY} {evidence_generation!r} "
+            f"does not match the generation being bound ({generation!r}) — "
+            "the evidence's OWN payload must name the exact authorization, "
+            "not just exist"
+        )
+    evidence_sha = normalize_sha(payload.get(PROMOTION_EVIDENCE_PANEL_SHA_KEY))
+    if evidence_sha is None or evidence_sha != panel_sha:
+        raise ExpectedIdentityError(
+            "expected-identity: evidence bundle "
+            f"{PROMOTION_EVIDENCE_PANEL_SHA_KEY} "
+            f"{payload.get(PROMOTION_EVIDENCE_PANEL_SHA_KEY)!r} does not "
+            f"match the panel_sha being bound ({panel_sha!r}) — the "
+            "evidence's OWN payload must name the exact authorization, not "
+            "just exist"
+        )
+
+
 def record_expected_identity(
     state_root: str | Path | None = None,
     *,
     generation: int,
     panel_sha: str,
+    evidence_ref: str,
+    github_root: str | Path | None = None,
+    git_probe: GitProbe | None = None,
 ) -> Path:
     """FORWARD-ONLY writer for the authorized-identity binding.
 
+    ROUND 3 (Codex #485 follow-up — "make the binding a derived consequence
+    of immutable deployment/promotion evidence, not a generic maintenance
+    operation"): ``evidence_ref`` is now MANDATORY. It must resolve (via
+    :func:`resolve_promotion_evidence_bundle` — the shared sibling-checkout
+    convention, tamper-checked against ``STORE-MANIFEST.json`` when
+    present) to a sealed ``kind: "model-identity-promotion"`` bundle whose
+    OWN payload names EXACTLY the ``(generation, panel_sha)`` pair this
+    call is trying to bind (:func:`_verify_promotion_evidence_payload`).
+    ANY mismatch, unresolvable reference, or missing/malformed evidence
+    payload raises ``ExpectedIdentityError`` and writes NOTHING — a caller
+    can no longer author a binding purely from a self-supplied bundle file
+    with no matching evidence. The evidence's reference and a content
+    sha256 of the resolved bytes are persisted into the written record
+    (``evidence_ref`` / ``evidence_sha256``) so a future auditor can see
+    exactly which evidence authorized this binding without re-resolving a
+    possibly-moved sibling checkout.
+
     Same epoch discipline as ``deployment_manifest.record_expected_generation``
-    (atomic temp+``os.replace`` write via ``write_json_canonical``): REFUSES a
-    generation decrease (a rollback is a NEW, higher generation that re-binds
-    the older sha — history is never rewound); REFUSES re-binding the SAME
-    generation to a different sha (a torn/duplicate apply, never legitimate);
-    re-recording the identical ``(generation, panel_sha)`` pair — e.g. a
-    same-day re-run of the deploy flow — is an idempotent no-op.
+    (atomic temp+``os.replace`` write via ``write_json_canonical``) as
+    before — UNCHANGED, additive precondition only: REFUSES a generation
+    decrease (a rollback is a NEW, higher generation that re-binds the
+    older sha — history is never rewound); REFUSES re-binding the SAME
+    generation to a different sha (a torn/duplicate apply, never
+    legitimate); re-recording the identical ``(generation, panel_sha)``
+    pair — e.g. a same-day re-run of the deploy flow — is an idempotent
+    no-op (still requires currently-valid evidence: there is no "free
+    pass" out of verification just because the write would be a no-op).
 
     This is the deploy/promote flow's post-verification hook: record the sha
-    you just deployed, under the manifest generation you deployed it with.
+    you just deployed, under the manifest generation you deployed it with,
+    naming the sealed promotion evidence that authorized it.
     """
     normalized = normalize_sha(panel_sha)
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
@@ -470,12 +751,32 @@ def record_expected_identity(
             f"expected-identity: panel_sha must be a 64-hex sha256, got "
             f"{panel_sha!r}"
         )
+    if not isinstance(evidence_ref, str) or not evidence_ref.startswith(
+        EVIDENCE_REF_PREFIX
+    ):
+        raise ExpectedIdentityError(
+            f"expected-identity: evidence_ref must be a content-addressed "
+            f"{EVIDENCE_REF_PREFIX!r} record, got {evidence_ref!r}"
+        )
     root = deploy_state_root(state_root)
     existing, problem = read_expected_identity(root)
     if problem is not None:
         raise ExpectedIdentityError(
             f"refusing to overwrite a malformed record: {problem}"
         )
+
+    # The authority gate: resolve + verify the sealed evidence BEFORE any
+    # forward-only bookkeeping or write — an evidence mismatch must refuse
+    # regardless of whether the (generation, panel_sha) pair would
+    # otherwise be a clean advance or a no-op re-record.
+    _, evidence_bytes, evidence_payload = resolve_promotion_evidence_bundle(
+        evidence_ref, github_root=github_root, git_probe=git_probe,
+    )
+    _verify_promotion_evidence_payload(
+        evidence_payload, generation=generation, panel_sha=normalized,
+    )
+    evidence_sha256 = sha256_of_bytes(evidence_bytes)
+
     record_path = root / EXPECTED_IDENTITY_FILENAME
     if existing is not None:
         prior_generation = existing["generation"]
@@ -500,6 +801,8 @@ def record_expected_identity(
         "generation": generation,
         "panel_sha": normalized,
         "recorded_at": _utc_now_iso(),
+        "evidence_ref": evidence_ref,
+        "evidence_sha256": evidence_sha256,
     }
     write_json_canonical(record_path, payload)
     return record_path
@@ -840,6 +1143,20 @@ def build_tripwire_report(
 
 # --- CLI -------------------------------------------------------------------------
 
+def _validate_evidence_ref_arg(value: str) -> str:
+    """Mirrors ``deploy_pin._validate_evidence_ref_arg`` exactly (same
+    shape, same error message convention) — never a diverging second
+    ``store://`` validator."""
+    if not value.startswith(EVIDENCE_REF_PREFIX) or len(value) <= len(
+        EVIDENCE_REF_PREFIX
+    ):
+        raise argparse.ArgumentTypeError(
+            f"--evidence-ref must be a content-addressed "
+            f"{EVIDENCE_REF_PREFIX}<record> reference, got {value!r}"
+        )
+    return value
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="model-identity-tripwire", description=__doc__,
@@ -889,7 +1206,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="maintenance mode (the deploy-flow hook): record the latest "
              "bundle's panel sha as the authorized binding under the current "
              "manifest generation, then exit. FORWARD-ONLY / atomic; refuses "
-             "generation decreases and same-generation re-binds.",
+             "generation decreases and same-generation re-binds. REQUIRES "
+             "--evidence-ref (round 3, Codex #485): the binding must be a "
+             "derived consequence of sealed promotion evidence, never a "
+             "caller-supplied bundle alone.",
+    )
+    parser.add_argument(
+        "--evidence-ref",
+        type=_validate_evidence_ref_arg,
+        default=None,
+        help="REQUIRED with --record-expected: sealed store://<record> "
+             "promotion-evidence reference (renquant-artifacts sibling-"
+             "checkout convention, same as deploy-pin) whose payload names "
+             "a kind: 'model-identity-promotion' record with the EXACT "
+             "generation/panel_sha being bound; the binding is refused "
+             "(no write) if it doesn't resolve or doesn't match.",
+    )
+    parser.add_argument(
+        "--github-root", default=None,
+        help="checkout parent containing renquant-* sibling repos, used to "
+             "resolve --evidence-ref (default: $RENQUANT_GITHUB_ROOT or "
+             "this repo's sibling root); only meaningful with "
+             "--record-expected",
     )
     parser.add_argument("--as-of", default=None, help="YYYY-MM-DD override")
     parser.add_argument("--topic", default=os.environ.get("NTFY_TOPIC", "renquant"))
@@ -937,9 +1275,21 @@ def _run_record_expected(args: argparse.Namespace, latest_bundle: Any) -> int:
             file=sys.stderr,
         )
         return 3
+    if not args.evidence_ref:
+        print(
+            "identity-tripwire: --record-expected requires --evidence-ref "
+            "(round 3, Codex #485 follow-up) — a sealed store://<record> "
+            "promotion-evidence reference whose payload names this exact "
+            "generation/panel_sha; a caller-supplied bundle file alone can "
+            "no longer authorize a binding",
+            file=sys.stderr,
+        )
+        return 3
     try:
         path = record_expected_identity(
             args.state_root, generation=generation, panel_sha=identity.panel_sha,
+            evidence_ref=args.evidence_ref,
+            github_root=args.github_root,
         )
     except ExpectedIdentityError as exc:
         print(f"identity-tripwire: {exc}", file=sys.stderr)
@@ -948,6 +1298,7 @@ def _run_record_expected(args: argparse.Namespace, latest_bundle: Any) -> int:
         "recorded": str(path),
         "generation": generation,
         "panel_sha": identity.panel_sha,
+        "evidence_ref": args.evidence_ref,
     }, indent=2, sort_keys=True))
     return 0
 
@@ -1001,8 +1352,12 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "EXPECTED_IDENTITY_FILENAME",
     "EXPECTED_IDENTITY_KIND",
+    "EXPECTED_IDENTITY_SCHEMA_VERSION",
     "HEADLINE_COMPONENT",
     "OWNER_REPO",
+    "PROMOTION_EVIDENCE_GENERATION_KEY",
+    "PROMOTION_EVIDENCE_KIND",
+    "PROMOTION_EVIDENCE_PANEL_SHA_KEY",
     "SCHEMA_VERSION",
     "VERDICT_BINDING_MISMATCH",
     "VERDICT_COVERAGE_LOST",
@@ -1023,6 +1378,7 @@ __all__ = [
     "normalize_sha",
     "read_expected_identity",
     "record_expected_identity",
+    "resolve_promotion_evidence_bundle",
     "session_date_of",
 ]
 

@@ -10,16 +10,27 @@ record (or a promotions-ledger entry) naming the NEW sha. Manifest timestamps
 are diagnostic metadata and can never explain a change. Missing inputs page
 DEGRADED by default (a monitor that dies quiet is the #484 failure mode);
 ``--offline`` downgrades them to quiet notes for local forensics.
+
+ROUND 3 (Codex #485 follow-up, "make the binding a derived consequence of
+immutable deployment/promotion evidence"): ``record_expected_identity`` now
+REQUIRES a sealed ``store://<record>`` promotion-evidence bundle whose OWN
+payload names the exact ``(generation, panel_sha)`` being bound.
+``seal_promotion_evidence`` below materializes a REAL git sibling checkout
+(never a mock — matches ``tests/test_deploy_pin.py``'s fixture philosophy)
+with the evidence bundle + its ``STORE-MANIFEST.json`` content-hash entry.
 """
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
 from renquant_orchestrator import model_identity_tripwire as mod
+from renquant_orchestrator.deployment_manifest import sha256_of_bytes
 from renquant_orchestrator.outage_monitor import TAG_DEGRADED, TAG_OUTAGE, emit_alert
 
 
@@ -109,6 +120,66 @@ class PosterSpy:
             "title": title, "body": body, "topic": topic,
             "priority": priority, "tags": tags,
         })
+
+
+# --- promotion-evidence fixture (round 3: the record_expected_identity gate) --------
+
+def _git(cwd: Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    return proc.stdout.strip()
+
+
+def seal_promotion_evidence(
+    github_root: Path,
+    *,
+    generation: int,
+    panel_sha: str,
+    repo: str = "renquant-artifacts",
+    store_subdir: str = "",
+    rel: str = "records/model-identity-promotion-test.json",
+    kind: str = mod.PROMOTION_EVIDENCE_KIND,
+    corrupt_store_manifest_hash: bool = False,
+    extra_payload: dict | None = None,
+) -> str:
+    """Materialize a REAL git sibling checkout with a sealed promotion-
+    evidence bundle COMMITTED at ``<github_root>/<repo>/<store_subdir>/<rel>``
+    plus its ``STORE-MANIFEST.json`` content-hash entry (the
+    renquant-artifacts #13/#14 convention) — real git state throughout
+    (never a mock), matching ``tests/test_deploy_pin.py``'s fixture
+    philosophy. Returns the ``store://<rel>`` evidence_ref ready to pass to
+    ``record_expected_identity``."""
+    repo_path = github_root / repo
+    store_root = (repo_path / store_subdir) if store_subdir else repo_path
+    bundle_path = store_root / rel
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"kind": kind, "generation": generation, "panel_sha": panel_sha}
+    if extra_payload:
+        payload.update(extra_payload)
+    data = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    bundle_path.write_text(data, encoding="utf-8")
+    store_manifest_path = store_root / "STORE-MANIFEST.json"
+    store_manifest = (
+        json.loads(store_manifest_path.read_text(encoding="utf-8"))
+        if store_manifest_path.exists() else {}
+    )
+    store_manifest[rel] = (
+        "0" * 64 if corrupt_store_manifest_hash
+        else sha256_of_bytes(data.encode("utf-8"))
+    )
+    store_manifest_path.write_text(
+        json.dumps(store_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+    )
+    if not (repo_path / ".git").is_dir():
+        repo_path.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", str(repo_path)], check=True)
+        _git(repo_path, "config", "user.email", "t@example.com")
+        _git(repo_path, "config", "user.name", "t")
+    _git(repo_path, "add", "-A")
+    _git(repo_path, "commit", "-qm", f"seal {rel}")
+    return f"store://{rel}"
 
 
 # --- normalize / extract ----------------------------------------------------------
@@ -338,47 +409,135 @@ def test_generation_mismatch_adds_degraded_note():
 # --- the expected-identity record (forward-only, atomic) ----------------------------
 
 class TestExpectedIdentityRecord:
+    """Round 1 (forward-only epoch discipline) + round 3 (Codex #485
+    follow-up: the binding must be a derived consequence of sealed
+    promotion evidence, never a caller-supplied bundle alone). Every call
+    below threads a real, matching evidence fixture through
+    ``seal_promotion_evidence`` — never skipped or weakened."""
+
     def test_record_and_read_roundtrip(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0621,
+        )
         path = mod.record_expected_identity(
             tmp_path, generation=1, panel_sha=f"sha256:{SHA_0621}",
+            evidence_ref=evidence_ref, github_root=github_root,
         )
         assert path.name == mod.EXPECTED_IDENTITY_FILENAME
         record, problem = mod.read_expected_identity(tmp_path)
         assert problem is None
         assert record["panel_sha"] == SHA_0621  # normalized, prefix stripped
         assert record["generation"] == 1
+        # round 3: the evidence reference + a content digest travel with
+        # the binding, so a future auditor never has to re-resolve a
+        # possibly-moved sibling checkout to see what authorized it.
+        assert record["evidence_ref"] == evidence_ref
+        evidence_bytes = (
+            github_root / "renquant-artifacts" / "records"
+            / "model-identity-promotion-test.json"
+        ).read_bytes()
+        assert record["evidence_sha256"] == sha256_of_bytes(evidence_bytes)
 
     def test_rollback_generation_refused(self, tmp_path):
-        mod.record_expected_identity(tmp_path, generation=3, panel_sha=SHA_0621)
+        github_root = tmp_path / "siblings"
+        first = seal_promotion_evidence(
+            github_root, generation=3, panel_sha=SHA_0621,
+            rel="records/gen3.json",
+        )
+        mod.record_expected_identity(
+            tmp_path, generation=3, panel_sha=SHA_0621,
+            evidence_ref=first, github_root=github_root,
+        )
+        # a MATCHING evidence bundle for the rollback attempt itself, so
+        # the failure below is provably the FORWARD-ONLY check, not an
+        # evidence mismatch.
+        rollback = seal_promotion_evidence(
+            github_root, generation=2, panel_sha=SHA_0518,
+            rel="records/gen2-rollback.json",
+        )
         with pytest.raises(mod.ExpectedIdentityError, match="FORWARD-ONLY"):
-            mod.record_expected_identity(tmp_path, generation=2,
-                                         panel_sha=SHA_0518)
+            mod.record_expected_identity(
+                tmp_path, generation=2, panel_sha=SHA_0518,
+                evidence_ref=rollback, github_root=github_root,
+            )
+        record, _ = mod.read_expected_identity(tmp_path)
+        assert record["generation"] == 3  # unchanged: no write occurred
 
     def test_same_generation_rebind_refused_torn_apply(self, tmp_path):
-        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0621)
+        github_root = tmp_path / "siblings"
+        first = seal_promotion_evidence(
+            github_root, generation=2, panel_sha=SHA_0621,
+            rel="records/gen2-a.json",
+        )
+        mod.record_expected_identity(
+            tmp_path, generation=2, panel_sha=SHA_0621,
+            evidence_ref=first, github_root=github_root,
+        )
+        second = seal_promotion_evidence(
+            github_root, generation=2, panel_sha=SHA_0518,
+            rel="records/gen2-b.json",
+        )
         with pytest.raises(mod.ExpectedIdentityError, match="never reused"):
-            mod.record_expected_identity(tmp_path, generation=2,
-                                         panel_sha=SHA_0518)
+            mod.record_expected_identity(
+                tmp_path, generation=2, panel_sha=SHA_0518,
+                evidence_ref=second, github_root=github_root,
+            )
+        record, _ = mod.read_expected_identity(tmp_path)
+        assert record["panel_sha"] == SHA_0621  # unchanged: no write occurred
 
     def test_same_day_rerun_is_idempotent(self, tmp_path):
-        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0621)
-        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0621)
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=2, panel_sha=SHA_0621,
+        )
+        mod.record_expected_identity(
+            tmp_path, generation=2, panel_sha=SHA_0621,
+            evidence_ref=evidence_ref, github_root=github_root,
+        )
+        # the SAME evidence still verifies for the identical re-run — no
+        # "free pass" out of the evidence gate just because it's a no-op.
+        mod.record_expected_identity(
+            tmp_path, generation=2, panel_sha=SHA_0621,
+            evidence_ref=evidence_ref, github_root=github_root,
+        )
         record, problem = mod.read_expected_identity(tmp_path)
         assert problem is None and record["generation"] == 2
 
     def test_advance_rebinds_new_generation(self, tmp_path):
-        mod.record_expected_identity(tmp_path, generation=1, panel_sha=SHA_0621)
-        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0518)
+        github_root = tmp_path / "siblings"
+        first = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0621,
+            rel="records/gen1.json",
+        )
+        mod.record_expected_identity(
+            tmp_path, generation=1, panel_sha=SHA_0621,
+            evidence_ref=first, github_root=github_root,
+        )
+        second = seal_promotion_evidence(
+            github_root, generation=2, panel_sha=SHA_0518,
+            rel="records/gen2.json",
+        )
+        mod.record_expected_identity(
+            tmp_path, generation=2, panel_sha=SHA_0518,
+            evidence_ref=second, github_root=github_root,
+        )
         record, _ = mod.read_expected_identity(tmp_path)
         assert record["panel_sha"] == SHA_0518 and record["generation"] == 2
 
     def test_invalid_inputs_refused(self, tmp_path):
+        # shape checks on generation/panel_sha fire before evidence is ever
+        # resolved, so an unresolvable evidence_ref is fine here.
         with pytest.raises(mod.ExpectedIdentityError, match="generation"):
-            mod.record_expected_identity(tmp_path, generation=0,
-                                         panel_sha=SHA_0621)
+            mod.record_expected_identity(
+                tmp_path, generation=0, panel_sha=SHA_0621,
+                evidence_ref="store://unused",
+            )
         with pytest.raises(mod.ExpectedIdentityError, match="64-hex"):
-            mod.record_expected_identity(tmp_path, generation=1,
-                                         panel_sha="not-a-sha")
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha="not-a-sha",
+                evidence_ref="store://unused",
+            )
 
     def test_read_fail_soft_on_malformed(self, tmp_path):
         (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).write_text(
@@ -392,6 +551,42 @@ class TestExpectedIdentityRecord:
         record, problem = mod.read_expected_identity(tmp_path)
         assert record is None and "malformed" in problem
 
+    def test_read_accepts_pre_round_3_shape_missing_evidence_fields(self, tmp_path):
+        """A record with no ``evidence_ref``/``evidence_sha256`` at all
+        (the pre-round-3 shape; none exist in production, since this
+        monitor has never been armed) must still be accepted rather than
+        crash the reader — see ``read_expected_identity``'s docstring."""
+        (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).write_text(
+            json.dumps({
+                "schema_version": 1,
+                "kind": mod.EXPECTED_IDENTITY_KIND,
+                "generation": 1,
+                "panel_sha": SHA_0621,
+                "recorded_at": "2026-06-01T00:00:00Z",
+            }),
+            encoding="utf-8",
+        )
+        record, problem = mod.read_expected_identity(tmp_path)
+        assert problem is None
+        assert record["panel_sha"] == SHA_0621
+        assert "evidence_ref" not in record
+
+    def test_read_rejects_malformed_evidence_fields_when_present(self, tmp_path):
+        (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).write_text(
+            json.dumps({
+                "schema_version": 2,
+                "kind": mod.EXPECTED_IDENTITY_KIND,
+                "generation": 1,
+                "panel_sha": SHA_0621,
+                "recorded_at": "2026-06-01T00:00:00Z",
+                "evidence_ref": "not-a-store-ref",
+                "evidence_sha256": SHA_0621,
+            }),
+            encoding="utf-8",
+        )
+        record, problem = mod.read_expected_identity(tmp_path)
+        assert record is None and "evidence_ref" in problem
+
     def test_missing_record_is_not_a_problem(self, tmp_path):
         assert mod.read_expected_identity(tmp_path) == (None, None)
 
@@ -400,8 +595,145 @@ class TestExpectedIdentityRecord:
             "{not json", encoding="utf-8",
         )
         with pytest.raises(mod.ExpectedIdentityError, match="malformed|unreadable"):
-            mod.record_expected_identity(tmp_path, generation=1,
-                                         panel_sha=SHA_0621)
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref="store://unused",
+            )
+
+
+# --- the promotion-evidence authority gate (round 3, Codex #485 follow-up) ----------
+
+class TestPromotionEvidenceGate:
+    """The crux of Codex's outstanding review comment: a binding must be a
+    DERIVED CONSEQUENCE of sealed promotion evidence whose OWN payload
+    names the exact (generation, panel_sha) — not just "some evidence
+    exists". Every rejection case below also asserts NOTHING was written."""
+
+    def test_evidence_generation_mismatch_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=99, panel_sha=SHA_0621,  # wrong generation
+        )
+        with pytest.raises(mod.ExpectedIdentityError, match="generation"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref=evidence_ref, github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_panel_sha_mismatch_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0518,  # wrong sha
+        )
+        with pytest.raises(mod.ExpectedIdentityError, match="panel_sha"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref=evidence_ref, github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_wrong_kind_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0621,
+            kind="something-else",
+        )
+        with pytest.raises(mod.ExpectedIdentityError, match="kind"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref=evidence_ref, github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_sibling_checkout_missing_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"  # never created
+        with pytest.raises(mod.ExpectedIdentityError, match="sibling checkout"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref="store://records/nope.json",
+                github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_bundle_file_missing_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        # seal ONE record, then reference a different one that was never sealed
+        seal_promotion_evidence(github_root, generation=1, panel_sha=SHA_0621)
+        with pytest.raises(mod.ExpectedIdentityError, match="not found"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref="store://records/never-sealed.json",
+                github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_store_manifest_tamper_refused_no_write(self, tmp_path):
+        """A self-inconsistent seal: the COMMITTED STORE-MANIFEST.json entry
+        does not match the bundle bytes it names — a tamper signature."""
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0621,
+            corrupt_store_manifest_hash=True,
+        )
+        with pytest.raises(mod.ExpectedIdentityError, match="tamper"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref=evidence_ref, github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_dirty_sibling_checkout_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0621,
+        )
+        # an uncommitted local edit anywhere in the sibling checkout — the
+        # evidence bundle itself is untouched, but the checkout is dirty.
+        (github_root / "renquant-artifacts" / "unrelated.txt").write_text(
+            "uncommitted", encoding="utf-8",
+        )
+        with pytest.raises(mod.ExpectedIdentityError, match="DIRTY|dirty"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref=evidence_ref, github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_malformed_payload_refused_no_write(self, tmp_path):
+        github_root = tmp_path / "siblings"
+        repo_path = github_root / "renquant-artifacts"
+        bundle_path = repo_path / "records" / "garbage.json"
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text("{not json", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo_path)], check=True)
+        _git(repo_path, "config", "user.email", "t@example.com")
+        _git(repo_path, "config", "user.name", "t")
+        _git(repo_path, "add", "-A")
+        _git(repo_path, "commit", "-qm", "garbage")
+        with pytest.raises(mod.ExpectedIdentityError, match="not valid JSON"):
+            mod.record_expected_identity(
+                tmp_path, generation=1, panel_sha=SHA_0621,
+                evidence_ref="store://records/garbage.json",
+                github_root=github_root,
+            )
+        assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+    def test_evidence_happy_path_resolves_via_resolve_promotion_evidence_bundle(
+        self, tmp_path,
+    ):
+        github_root = tmp_path / "siblings"
+        evidence_ref = seal_promotion_evidence(
+            github_root, generation=1, panel_sha=SHA_0621,
+        )
+        path, raw_bytes, payload = mod.resolve_promotion_evidence_bundle(
+            evidence_ref, github_root=github_root,
+        )
+        assert path.is_file()
+        assert payload["kind"] == mod.PROMOTION_EVIDENCE_KIND
+        assert payload["generation"] == 1
+        assert payload["panel_sha"] == SHA_0621
+        assert raw_bytes == path.read_bytes()
 
 
 # --- manifest reader (fail-soft wrapper over the #477 loader) -----------------------
@@ -586,9 +918,16 @@ def _write_inputs(tmp_path):
 
 def test_main_exit_codes_for_the_three_cases(tmp_path, capsys):
     latest, previous, manifest = _write_inputs(tmp_path)
+    github_root = tmp_path / "siblings"
 
     # 1) the 06-25 regression shape (binding names the OLD sha) -> OUTAGE, exit 2
-    mod.record_expected_identity(tmp_path, generation=1, panel_sha=SHA_0621)
+    evidence_1 = seal_promotion_evidence(
+        github_root, generation=1, panel_sha=SHA_0621, rel="records/gen1.json",
+    )
+    mod.record_expected_identity(
+        tmp_path, generation=1, panel_sha=SHA_0621,
+        evidence_ref=evidence_1, github_root=github_root,
+    )
     rc = mod.main([
         "--latest-bundle", str(latest), "--previous-bundle", str(previous),
         "--manifest", str(manifest), "--state-root", str(tmp_path),
@@ -600,7 +939,13 @@ def test_main_exit_codes_for_the_three_cases(tmp_path, capsys):
     # 2) recorded pin advance (binding re-bound to the NEW sha) -> pass, exit 0
     #    (round 2: the chain-adjacency check also needs the PRIOR identity's
     #    own generation binding to certify a fully clean pass)
-    mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0518)
+    evidence_2 = seal_promotion_evidence(
+        github_root, generation=2, panel_sha=SHA_0518, rel="records/gen2.json",
+    )
+    mod.record_expected_identity(
+        tmp_path, generation=2, panel_sha=SHA_0518,
+        evidence_ref=evidence_2, github_root=github_root,
+    )
     ledger = tmp_path / "promotions.json"
     ledger.write_text(
         json.dumps([{"sha": SHA_0621, "generation": 1}]), encoding="utf-8",
@@ -634,20 +979,68 @@ def test_main_exit_codes_for_the_three_cases(tmp_path, capsys):
 
 def test_main_record_expected_mode(tmp_path, capsys):
     latest, _, manifest = _write_inputs(tmp_path)
+    github_root = tmp_path / "siblings"
+    # the manifest fixture (valid_manifest_payload) is generation 1; the
+    # evidence must name the SAME (generation, panel_sha) --record-expected
+    # will extract from --latest-bundle / the manifest.
+    evidence_ref = seal_promotion_evidence(
+        github_root, generation=1, panel_sha=SHA_0518,
+    )
+    rc = mod.main([
+        "--latest-bundle", str(latest), "--manifest", str(manifest),
+        "--state-root", str(tmp_path), "--record-expected", "--quiet",
+        "--evidence-ref", evidence_ref, "--github-root", str(github_root),
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0 and payload["panel_sha"] == SHA_0518
+    assert payload["evidence_ref"] == evidence_ref
+    record, problem = mod.read_expected_identity(tmp_path)
+    assert problem is None and record["panel_sha"] == SHA_0518
+    assert record["evidence_ref"] == evidence_ref
+    assert record["evidence_sha256"]
+    # re-run same day: idempotent (the same evidence still verifies)
+    assert mod.main([
+        "--latest-bundle", str(latest), "--manifest", str(manifest),
+        "--state-root", str(tmp_path), "--record-expected", "--quiet",
+        "--evidence-ref", evidence_ref, "--github-root", str(github_root),
+    ]) == 0
+    capsys.readouterr()
+
+
+def test_main_record_expected_requires_evidence_ref(tmp_path, capsys):
+    """Codex #485 round-3 gap: without --evidence-ref, --record-expected
+    must FAIL CLOSED — a caller-supplied bundle file alone can no longer
+    authorize a binding. Nonzero exit, clear stderr, NO write."""
+    latest, _, manifest = _write_inputs(tmp_path)
     rc = mod.main([
         "--latest-bundle", str(latest), "--manifest", str(manifest),
         "--state-root", str(tmp_path), "--record-expected", "--quiet",
     ])
-    payload = json.loads(capsys.readouterr().out)
-    assert rc == 0 and payload["panel_sha"] == SHA_0518
-    record, problem = mod.read_expected_identity(tmp_path)
-    assert problem is None and record["panel_sha"] == SHA_0518
-    # re-run same day: idempotent
-    assert mod.main([
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "--evidence-ref" in err
+    assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
+
+
+def test_main_record_expected_rejects_mismatched_evidence(tmp_path, capsys):
+    """A caller pointing --evidence-ref at evidence for a DIFFERENT sha
+    than the bundle actually being recorded must be refused — the exact
+    hole Codex named (an unexpected serving bundle authorized against
+    evidence that does not name it)."""
+    latest, _, manifest = _write_inputs(tmp_path)  # latest bundle's sha is SHA_0518
+    github_root = tmp_path / "siblings"
+    wrong_evidence = seal_promotion_evidence(
+        github_root, generation=1, panel_sha=SHA_0621,  # NOT SHA_0518
+    )
+    rc = mod.main([
         "--latest-bundle", str(latest), "--manifest", str(manifest),
         "--state-root", str(tmp_path), "--record-expected", "--quiet",
-    ]) == 0
-    capsys.readouterr()
+        "--evidence-ref", wrong_evidence, "--github-root", str(github_root),
+    ])
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "panel_sha" in err
+    assert not (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).exists()
 
 
 def test_main_unreadable_latest_bundle_exits_3(tmp_path, capsys):

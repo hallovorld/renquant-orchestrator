@@ -4,6 +4,12 @@ STATUS:   done (new module, DARK by default; wire-ready, no scheduled job invoke
           Round 2a after Codex CHANGES_REQUESTED on #485 (see REVIEW below); round 2b
           adds the chain-adjacency supporting check (see ROUND 2b below) — Codex's
           "prove the chain, not just the endpoint" point wasn't yet closed by 2a.
+          Round 3 (see ROUND 3 below) closes Codex's remaining outstanding comment on
+          the WRITE side (`--record-expected` / `record_expected_identity`): a binding
+          must now be a derived consequence of sealed promotion evidence, never a
+          caller-supplied bundle alone. Arming this monitor in a scheduled job (or
+          wiring `--record-expected` into the deploy/promote flow) remains a separate,
+          later, ask-first ops decision — unchanged, this PR does not do or claim that.
 WHAT:     `model_identity_tripwire` (sibling of the #480 outage monitor, same headline
           vocabulary) compares the latest run bundle's `artifact_hashes.panel` against
           (a) the previous session's bundle and (b) the AUTHORIZED identity binding —
@@ -114,3 +120,87 @@ BOUNDARIES: read-only in check mode — consumes run-bundle JSONs + state-root r
           never touches broker, live state, or production paths; the only write path
           is the explicit `--record-expected` maintenance mode, confined to the
           neutral state root.
+
+ROUND 3:  Codex's outstanding CHANGES_REQUESTED on #485 (quoted in full in the PR):
+          `--record-expected` derived `panel_sha` from the latest bundle and the
+          current manifest generation, then wrote a new binding with NO evidence
+          check at all — a post-incident operator could run the maintenance command
+          against an UNEXPECTED serving bundle and thereby authorize exactly the
+          regression the monitor exists to report. Forward-only generation semantics
+          (round 1) prevent a later REBIND but do not authenticate the FIRST bind.
+          Sequenced after orchestrator#483 (merged to `main`), which proved the
+          evidence-binding PATTERN this fix reuses (never reinvented): a
+          `store://<record>` reference resolved via the `renquant-artifacts`
+          sibling-checkout convention, tamper-checked against that store's own
+          `STORE-MANIFEST.json`.
+
+          Fix, scoped to the WRITE path only (`record_expected_identity` /
+          `_run_record_expected` / CLI) — the READ-side chain-adjacency logic (round
+          2b) is untouched:
+          - `record_expected_identity` gains a MANDATORY `evidence_ref: str` param
+            (plus optional `github_root` / `git_probe` injection points, matching
+            `deploy_pin.py`'s own pattern). Before writing anything it resolves the
+            evidence via the new `resolve_promotion_evidence_bundle` (reusing
+            `deployment_manifest.resolve_contained_subdir` /
+            `check_checkout_state` / `sha256_of_bytes` / `EVIDENCE_REF_PREFIX` and
+            `runtime_paths.default_github_root` — no second hand-rolled
+            sibling-checkout resolver or `store://` convention), then verifies the
+            resolved bundle's OWN JSON payload is a `kind: "model-identity-
+            promotion"` record whose `generation`/`panel_sha` fields EXACTLY match
+            what this call is trying to bind (`_verify_promotion_evidence_payload`).
+            ANY mismatch, unresolvable reference, dirty/missing sibling checkout, or
+            malformed payload raises `ExpectedIdentityError` and writes NOTHING.
+            Unlike #483's `deployment.verify.evidence_repo_commit` (which re-checks
+            a sibling checkout against a PRE-STAMPED commit from an earlier capture),
+            this write path has no earlier stamp to check against — it derives the
+            sibling checkout's own current HEAD and reuses `check_checkout_state`
+            purely for its existence/clean-checkout verification.
+          - The evidence's own reference and a content sha256 of the resolved bytes
+            are persisted into the written record (`evidence_ref` / `evidence_sha256`
+            — new, additive fields in `expected-model-identity.json`) so a future
+            auditor can see exactly which evidence authorized a binding without
+            re-resolving a possibly-moved sibling checkout.
+            `EXPECTED_IDENTITY_SCHEMA_VERSION` bumped 1 -> 2 to reflect this (not
+            enforced by the reader — see next point).
+          - `read_expected_identity` validates `evidence_ref`/`evidence_sha256` WHEN
+            PRESENT but does not require them — a pre-round-3-shape record (none
+            exist in production, since this monitor has never been armed) is still
+            accepted rather than crashing the reader; documented explicitly in the
+            docstring as a deliberate choice, not an oversight.
+          - CLI: `--record-expected` now requires a new `--evidence-ref
+            store://<record>` argument (validated by `_validate_evidence_ref_arg`,
+            mirroring `deploy_pin.py`'s own validator exactly — never a diverging
+            second `store://` shape check), plus an optional `--github-root`
+            override. Missing `--evidence-ref` fails closed with a clear stderr
+            message and nonzero exit, before any write is attempted.
+          - Forward-only epoch discipline (no generation decrease, no re-bind to a
+            different sha, idempotent re-record) is UNCHANGED — additive
+            precondition only; the evidence gate runs BEFORE the forward-only
+            checks, so even the idempotent same-day-rerun path re-verifies its
+            evidence rather than getting a free pass.
+
+          EVIDENCE: `tests/test_model_identity_tripwire.py` extended with a
+          `seal_promotion_evidence` fixture helper (materializes a REAL git sibling
+          `renquant-artifacts` checkout with a sealed evidence bundle + its
+          `STORE-MANIFEST.json` entry — real git state throughout, matching
+          `tests/test_deploy_pin.py`'s fixture philosophy, never a mock) plus a new
+          `TestPromotionEvidenceGate` class and updates to every existing
+          `TestExpectedIdentityRecord` forward-only test to thread valid evidence
+          through. 54/54 passed in this file `[VERIFIED]` (was 41; +13 net new:
+          generation-mismatch / panel_sha-mismatch / wrong-kind / missing-sibling-
+          checkout / missing-bundle-file / STORE-MANIFEST tamper / dirty-checkout /
+          malformed-payload rejections — each asserting NO write occurred — plus the
+          happy-path `resolve_promotion_evidence_bundle` roundtrip, a pre-round-3-
+          shape read-compat case, and CLI-level missing-`--evidence-ref` /
+          mismatched-evidence rejection tests). Full repo suite: 3668 passed, 1
+          failed, 3 skipped — the 1 failure
+          (`test_shadow_ab_daily_script.py::TestPortableTimeout::
+          test_hung_session_is_killed_and_marked_pair_invalidated`) reproduces
+          byte-identically on an unmodified worktree of the same pre-round-3 branch
+          tip (`337b424d`) run from the same isolated-worktree location — confirmed a
+          pre-existing environment-only flake, not a regression from this change.
+
+          NOT claimed by this round: this fix does not arm the monitor in any
+          scheduled job, and does not wire `--record-expected` into the deploy/promote
+          flow — both remain separate, later, ask-first ops/machine-landing decisions
+          (unchanged from the "DARK by default" posture documented above).
