@@ -26,3 +26,18 @@ EVIDENCE: `tests/test_model_identity_tripwire.py` — 20/20 passed `[VERIFIED]`:
 NEXT:     wiring into a scheduled job is a separate, ask-first machine landing (same
           posture as #480). Fix D (fill-truth in the runs DB, pipeline-owned) ships as a
           separate renquant-pipeline PR.
+
+CONTRACT:  the classification table, for consumers of the payload:
+
+| case | verdict | page |
+|---|---|---|
+| same panel sha as previous session | `identity_unchanged` | none (INFO line) |
+| changed + manifest `deployed_at` ≥ prev session | `explained_pin_advance` | none (INFO line) |
+| changed + sha in promotions ledger | `explained_promotion` | none (INFO line) |
+| changed + no pin change + no promotion (06-25 shape) | `unexplained_identity_change` | OUTAGE, priority 5, exit 2 |
+| changed + manifest missing / dates unresolvable | `unverifiable_identity_change` | DEGRADED, exit 1 |
+| no latest identity / no previous bundle | `insufficient_evidence` | none (fail-soft; exit 3 only under `--require-inputs`) |
+
+BOUNDARIES: read-only monitor — consumes run-bundle JSONs + the deployment manifest;
+          never touches broker, live state, or production paths; no pipeline/model
+          internals.
