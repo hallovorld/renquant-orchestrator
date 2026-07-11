@@ -19,8 +19,11 @@ BRANCH: `research/goal7a-106-audit-xstock` (isolated worktree off origin/main @ 
 3. **Executed the cheap remnant**: frozen 2-seed paired pilot (base vs `--cross-stock-attn`)
    on the CURRENT corpus vintage (frontier 2026-04-02, rail-derived cutoff 2026-03-30),
    exact weekly-rail recipe, local MPS, scratch outputs only, spec committed BEFORE the
-   runs (§5; results §7). Pre-registered a weekly-rail ride-along spec with frozen
-   promotion criteria (§6) — implementation is a separate follow-up PR, needs approval.
+   runs (§5). **Result: 2/2 paired deltas POSITIVE** (+0.0207 / +0.0172, mean +0.0189,
+   8/8 per-regime deltas ≥ 0; the base arm reproduced a dead seed −0.0076, the cross-stock
+   arm did not) → per the frozen rule the ride-along recommendation STANDS (§7).
+   Pre-registered the weekly-rail ride-along spec with frozen promotion criteria (§6) —
+   implementation is a separate follow-up PR, needs approval.
 4. Added the VERDICTS.md row (same PR as the memo, per ledger rule).
 
 ## Boundaries honored

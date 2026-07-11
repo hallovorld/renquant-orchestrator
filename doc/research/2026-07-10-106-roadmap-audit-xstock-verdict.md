@@ -188,7 +188,47 @@ running the gate, not a substitute".)
 
 ## 7. Pilot results (appended AFTER the §5 freeze commit; see commit order)
 
-_Pending at freeze time._
+**Outcome: 2/2 paired deltas POSITIVE → per the frozen §5 rule, the §6 ride-along
+recommendation STANDS.** Runs executed 2026-07-11 05:28–07:13Z, local MPS, outputs in the
+session scratchpad only (`xstock_pilot/{base,xstock}_s{44,45}/`, summary.json + val-preds
+parquet + checkpoint each).
+
+| seed | base `best_val_ic` | xstock `best_val_ic` | paired Δ | binding (min) regime |
+|---|---|---|---|---|
+| 44 | +0.0420 | +0.0627 | **+0.0207** | BULL_CALM (both arms) |
+| 45 | **−0.0076** | +0.0095 | **+0.0172** | CHOPPY (both arms) |
+
+Mean paired Δ = **+0.0189** — consistent with #126's +0.0160 (its seed-44 delta was
++0.0215; ours +0.0207 on data ~10 months fresher).
+
+Per-regime val-IC deltas (xstock − base), all four regimes, both seeds:
+
+| seed | BULL_CALM | BULL_VOLATILE | BEAR | CHOPPY |
+|---|---|---|---|---|
+| 44 | +0.0207 | +0.0124 | +0.0260 | +0.0106 |
+| 45 | +0.0153 | +0.0088 | +0.0002 | +0.0172 |
+
+**8/8 per-regime deltas ≥ 0** — the lift is not a single-regime artifact on this split.
+
+Secondary observations (frozen-scope, exploratory):
+- **The dead-seed pattern reproduced exactly**: the base arm produced a dead seed
+  (s45 −0.0076, min regime CHOPPY) while cross-stock produced none (min +0.0095) — the
+  same robustness asymmetry #126 flagged (baseline dead seed 46 ≈ −0.0015, cross-stock min
+  +0.0237). Two independent vintages now show base-arm training fragility that the
+  cross-stock arm does not exhibit; for a weekly rail whose product is a servable shadow
+  pin, fewer dead trainings is operational value independent of any IC claim.
+- **Cost**: 17–28 min/run on MPS (s45 runs early-stopped at epoch 4) — the #106 "26-minute
+  train" claim is still accurate; the weekly ride-along arm costs ≈ 20–30 min/week.
+- Params 67,908 → 101,381 (+49%); identical data, split, seed, and hyperparameters per arm
+  (summary.json `params` blocks differ ONLY in `cross_stock_attn`).
+
+Honest run-integrity note: the first attempt at the seed-45 pair was killed mid-training
+by session tooling (background-task stop, ~06:20Z); it was relaunched detached at 06:28Z
+with the IDENTICAL frozen argv and ran to completion. No spec parameter changed; the
+seed-44 pair was unaffected. Interpretation limits (unchanged from the freeze): these are
+val-tail ICs on one split/vintage — paired differences only, no absolute-IC or gate claim,
+n=2 seeds, no DSR/PBO. The next evidence must come from the §6 ride-along ledger, judged
+by the existing validated promote + production WF gate.
 
 ## 8. VERDICTS.md row added in this PR
 
