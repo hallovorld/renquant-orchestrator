@@ -13,11 +13,12 @@
         "min_admits": 1
       },
       "evidence_ref": "store://experiments/deploy-pin-verify-seal-20260711/RUN-LOCK.json",
+      "evidence_repo_commit": "26999f941b319178c5441c4816d666a9b5eda715",
       "exit": 0,
       "profile": "readonly-e2e"
     }
   },
-  "generated_at": "2026-07-11T18:10:06Z",
+  "generated_at": "2026-07-11T19:42:37Z",
   "generation": 1,
   "kind": "deployment-manifest",
   "repos": {

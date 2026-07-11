@@ -36,28 +36,51 @@ the pin authority; the emitted manifest is an unverified shadow record.
 
 Evidence sealing: ``--evidence-ref store://<record>`` stamps the sealed
 readonly-e2e verification evidence reference (the renquant-artifacts
-#13/#14 mechanism). Without it the record is emitted in the pre-seal
-``captured`` state; the durable commit of the first manifest (the Stage-1
-follow-up PR) requires the sealed ``deployed`` state.
+#13/#14 mechanism). When supplied, the capture ALSO resolves and stamps
+``deployment.verify.evidence_repo_commit`` — the artifact_store sibling
+checkout's ACTUAL current HEAD at capture time, derived automatically (git
+``rev-parse HEAD``), never user-suppliable — fail-closed if that sibling
+checkout is missing or unreadable. Without ``--evidence-ref`` the record is
+emitted in the pre-seal ``captured`` state (both fields null); the durable
+commit of the first manifest (the Stage-1 follow-up PR) requires the sealed
+``deployed`` state.
 
 ``deploy-pin verify``
     Codex CHANGES_REQUESTED on orchestrator#483 (the first committed
-    manifest): a list of commit hashes can be edited without proving it was
-    the lock and clone set actually observed on the production host. This
-    subcommand closes that gap for any COMMITTED manifest: it loads the
-    manifest, resolves ``deployment.verify.evidence_ref`` to the sealed
-    evidence bundle in the named ``artifact_store`` repo (sibling-checkout
-    convention, ``runtime_paths.default_github_root`` — same resolution
-    every other cross-repo orchestrator reader uses), verifies the bundle's
-    own content sha256 against the store's ``STORE-MANIFEST.json`` (tamper
-    check), then cross-checks the bundle's independently-sealed
-    source-lock and materialized-runtime-inventory IDENTITY digests both
-    equal the digest recomputed from the manifest's OWN recorded ``repos``
-    (:func:`~renquant_orchestrator.deployment_manifest.repo_identity_digest`).
+    manifest), in two rounds:
+
+    1. A list of commit hashes can be edited without proving it was the
+       lock and clone set actually observed on the production host — closed
+       by resolving ``deployment.verify.evidence_ref`` to the sealed
+       evidence bundle in the named ``artifact_store`` repo (sibling-checkout
+       convention, ``runtime_paths.default_github_root`` — same resolution
+       every other cross-repo orchestrator reader uses) and cross-checking
+       the bundle's independently-sealed source-lock and
+       materialized-runtime-inventory IDENTITY digests both equal the digest
+       recomputed from the manifest's OWN recorded ``repos``
+       (:func:`~renquant_orchestrator.deployment_manifest.repo_identity_digest`).
+    2. A CHECKOUT-IDENTITY follow-up: resolving evidence through "whichever
+       sibling checkout happens to be current" can verify against a NEWER
+       workspace/main checkout than what the deployment record actually
+       observed — a strictly stronger provenance failure than byte tamper,
+       since the evidence bundle CAN legitimately be sealed by a PR that
+       lands after the pinned artifacts commit (evidence postdates the
+       pin). Closed by requiring ``deployment.verify.evidence_repo_commit``
+       (the exact artifact_store revision the evidence was resolved from,
+       stamped at capture time — see above) and REJECTING a sibling
+       checkout whose actual HEAD differs from it, or is dirty
+       (:func:`~renquant_orchestrator.deployment_manifest.check_checkout_state`),
+       BEFORE trusting anything read from it.
+
+    Also verifies the bundle's own content sha256 against the store's
+    ``STORE-MANIFEST.json`` (tamper check) — necessary but NOT sufficient on
+    its own, since a wrong-revision sibling checkout can still serve
+    byte-identical content for a stale/replayed bundle.
     FAILS CLOSED (raises :class:`DeployPinError` / nonzero exit) on a null
-    ``evidence_ref``, an unresolvable/missing bundle, a content-hash tamper,
-    or a digest mismatch. Read-only: never writes anything, on the deployed
-    trees or elsewhere.
+    ``evidence_ref``/``evidence_repo_commit``, a checkout-identity mismatch
+    or dirty checkout, an unresolvable/missing bundle, a content-hash
+    tamper, or a digest mismatch. Read-only: never writes anything, on the
+    deployed trees or elsewhere.
 """
 from __future__ import annotations
 
@@ -277,6 +300,7 @@ def build_deployment_manifest_payload(
     deployed_by: str,
     deployed_at: str | None,
     evidence_ref: str | None,
+    evidence_repo_commit: str | None,
     artifact_store_repo: str,
     artifact_store_path: str,
 ) -> dict[str, Any]:
@@ -309,6 +333,7 @@ def build_deployment_manifest_payload(
                 "args": dict(READONLY_E2E_DEFAULT_ARGS),
                 "exit": 0,
                 "evidence_ref": evidence_ref,
+                "evidence_repo_commit": evidence_repo_commit,
             },
             "state": "deployed" if evidence_ref else "captured",
             "supersedes_sha256": supersedes_sha256,
@@ -317,6 +342,44 @@ def build_deployment_manifest_payload(
     # Self-check: the capture must never emit a document its own loader
     # rejects (schema + allowlisted profile + portability sweep).
     return validate_deployment_manifest(payload, source="captured manifest")
+
+
+def _resolve_evidence_repo_commit(
+    *,
+    artifact_store_repo: str,
+    git_probe: GitProbe,
+) -> str:
+    """Resolve the ``artifact_store`` sibling checkout's ACTUAL current HEAD.
+
+    Stamped as ``deployment.verify.evidence_repo_commit`` whenever a capture
+    supplies ``--evidence-ref`` — DERIVED automatically from the same
+    sibling-checkout convention ``deploy-pin verify`` resolves through
+    (``runtime_paths.default_github_root``), never user-supplied: a
+    user-suppliable value would reopen exactly the "can be edited without
+    proving it was observed" hole Codex flagged on orchestrator#483. Fails
+    closed (raises :class:`DeployPinError`) if the sibling checkout is
+    missing or unreadable — a capture supplying ``--evidence-ref`` must
+    NEVER silently emit ``evidence_repo_commit: null``, since that would
+    defeat the entire point of binding evidence to an immutable revision."""
+    root = default_github_root()
+    repo_path = root / str(artifact_store_repo)
+    if not repo_path.is_dir():
+        raise DeployPinError(
+            "cannot stamp deployment.verify.evidence_repo_commit: "
+            f"artifact_store.repo {artifact_store_repo!r} sibling checkout "
+            f"not found at {repo_path} (sibling root {root}) — a capture "
+            "supplying --evidence-ref must resolve the sibling checkout's "
+            "ACTUAL HEAD, never emit a null evidence_repo_commit"
+        )
+    head = git_probe(["-C", str(repo_path), "rev-parse", "HEAD"])
+    commit = (head.stdout or "").strip()
+    if head.returncode != 0 or not commit:
+        raise DeployPinError(
+            "cannot stamp deployment.verify.evidence_repo_commit: "
+            f"{artifact_store_repo!r} sibling checkout at {repo_path} is "
+            f"not a readable git checkout ({(head.stderr or '').strip()})"
+        )
+    return commit
 
 
 def run_capture(
@@ -339,6 +402,14 @@ def run_capture(
         lock_path=lock_path, runtime_root=runtime_root, git_probe=probe
     )
     generation, supersedes = _next_epoch(state_root)
+    evidence_repo_commit: str | None = None
+    if evidence_ref is not None:
+        # A capture that supplies sealed evidence MUST bind the exact
+        # artifact_store sibling-checkout revision it was resolved from —
+        # never null (Codex #483 checkout-identity follow-up).
+        evidence_repo_commit = _resolve_evidence_repo_commit(
+            artifact_store_repo=artifact_store_repo, git_probe=probe
+        )
     manifest = build_deployment_manifest_payload(
         entries=entries,
         generation=generation,
@@ -346,6 +417,7 @@ def run_capture(
         deployed_by=deployed_by,
         deployed_at=deployed_at,
         evidence_ref=evidence_ref,
+        evidence_repo_commit=evidence_repo_commit,
         artifact_store_repo=artifact_store_repo,
         artifact_store_path=artifact_store_path,
     )
@@ -411,6 +483,7 @@ def resolve_evidence_bundle_path(
     manifest: dict[str, Any],
     *,
     github_root: Path | None = None,
+    git_probe: GitProbe | None = None,
 ) -> Path:
     """Resolve ``deployment.verify.evidence_ref`` to a concrete file path.
 
@@ -418,10 +491,28 @@ def resolve_evidence_bundle_path(
     SAME convention every other cross-repo orchestrator reader uses) plus
     the #464 resolve-and-contain ``artifact_store`` binding
     (:func:`~renquant_orchestrator.deployment_manifest.resolve_contained_subdir`):
-    never a free-form host path. Also checks the bundle's content sha256
-    against the store's own ``STORE-MANIFEST.json`` when present (the
-    renquant-artifacts #13/#14 integrity mechanism) — a tamper-evident
-    precondition to trusting anything read from the bundle."""
+    never a free-form host path.
+
+    BEFORE reading or trusting anything from the sibling checkout, its
+    ACTUAL current HEAD must equal ``deployment.verify.evidence_repo_commit``
+    exactly (:func:`~renquant_orchestrator.deployment_manifest.check_checkout_state`,
+    ``require_clean=True`` — a dirty checkout risks an uncommitted local
+    edit to the evidence bundle defeating the STORE-MANIFEST tamper check
+    below too). This is the Codex CHANGES_REQUESTED follow-up on
+    orchestrator#483: resolving the evidence through "whichever sibling
+    checkout happens to be current" proves nothing about the deployment
+    that was actually recorded — a sibling checkout that has since moved on
+    (or was never at the sealed revision) can serve DIFFERENT bytes than
+    what was sealed, undetectable by content-hash alone.
+
+    Also checks the bundle's content sha256 against the store's own
+    ``STORE-MANIFEST.json`` when present (the renquant-artifacts #13/#14
+    integrity mechanism) — a tamper-evident precondition to trusting
+    anything read from the bundle, but a WEAKER check than checkout
+    identity: byte-for-byte tampering of the bundle is caught either way,
+    but a sibling checkout resolved from the wrong revision entirely (e.g.
+    a newer main that happens to still contain the same bundle bytes) is
+    only caught by the checkout-identity check above."""
     deployment = manifest.get("deployment") or {}
     verify_block = deployment.get("verify") or {}
     evidence_ref = verify_block.get("evidence_ref")
@@ -430,6 +521,14 @@ def resolve_evidence_bundle_path(
             "cannot verify: deployment.verify.evidence_ref is null (state="
             f"{deployment.get('state')!r}) — a pre-seal 'captured' record "
             "has no sealed evidence to cross-check yet"
+        )
+    evidence_repo_commit = verify_block.get("evidence_repo_commit")
+    if not evidence_repo_commit:
+        raise DeployPinError(
+            "cannot verify: deployment.verify.evidence_repo_commit is "
+            "missing/null — a sealed evidence_ref cannot be trusted without "
+            "the exact artifact_store sibling-checkout revision it was "
+            "resolved from"
         )
     store = manifest.get("artifact_store")
     if not isinstance(store, dict) or not store.get("repo"):
@@ -442,6 +541,23 @@ def resolve_evidence_bundle_path(
         raise DeployPinError(
             f"cannot verify: artifact_store.repo {store['repo']!r} sibling "
             f"checkout not found at {repo_path} (sibling root {root})"
+        )
+    _, checkout_problem = check_checkout_state(
+        str(store["repo"]),
+        repo_path,
+        str(evidence_repo_commit),
+        git_probe=git_probe or default_git_probe,
+        require_clean=True,
+        expected_label="evidence_repo_commit",
+    )
+    if checkout_problem is not None:
+        raise DeployPinError(
+            "cannot verify (checkout-identity gap): "
+            f"{checkout_problem} — the manifest's sealed evidence was "
+            f"recorded from artifacts commit {str(evidence_repo_commit)[:12]}; "
+            "a sibling checkout that is not AT that exact revision (clean) "
+            "cannot prove the evidence was resolved from the deployment-"
+            "recorded revision, regardless of content-hash agreement"
         )
     store_root = resolve_contained_subdir(
         repo_path,
@@ -482,19 +598,25 @@ def verify_deployment_manifest(
     manifest_path: Path,
     *,
     github_root: Path | None = None,
+    git_probe: GitProbe | None = None,
 ) -> dict[str, Any]:
     """Cross-check a committed deployment manifest against its sealed
     evidence bundle (fail-closed on ANY mismatch).
 
     Loads + fully schema-validates the manifest, resolves the sealed
-    evidence bundle referenced by ``deployment.verify.evidence_ref``, and
-    asserts the bundle's independently-sealed source-lock and materialized
-    -runtime-inventory IDENTITY digests both equal the digest recomputed
-    from the manifest's OWN recorded ``repos`` — a list of commit hashes
-    edited after the fact cannot smuggle past this check, because the
-    digest the bundle was sealed with will no longer match."""
+    evidence bundle referenced by ``deployment.verify.evidence_ref`` —
+    REJECTING a sibling checkout whose HEAD differs from the declared
+    ``deployment.verify.evidence_repo_commit`` (the Codex #483
+    checkout-identity follow-up) — and asserts the bundle's
+    independently-sealed source-lock and materialized-runtime-inventory
+    IDENTITY digests both equal the digest recomputed from the manifest's
+    OWN recorded ``repos`` — a list of commit hashes edited after the fact
+    cannot smuggle past this check, because the digest the bundle was
+    sealed with will no longer match."""
     manifest = load_deployment_manifest(manifest_path)
-    evidence_path = resolve_evidence_bundle_path(manifest, github_root=github_root)
+    evidence_path = resolve_evidence_bundle_path(
+        manifest, github_root=github_root, git_probe=git_probe
+    )
     try:
         bundle = json.loads(evidence_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -621,7 +743,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "sealed store://<record> reference to the readonly-e2e "
             "verification evidence in renquant-artifacts; without it the "
-            "record is emitted in the pre-seal 'captured' state"
+            "record is emitted in the pre-seal 'captured' state. When "
+            "supplied, deployment.verify.evidence_repo_commit is stamped "
+            "automatically from the artifact_store sibling checkout's "
+            "actual HEAD (never user-supplied)"
         ),
     )
     capture.add_argument(
