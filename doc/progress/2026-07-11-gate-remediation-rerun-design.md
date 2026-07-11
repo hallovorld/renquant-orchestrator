@@ -1,8 +1,10 @@
 # Gate remediation + rerun — design RFC
 
-STATUS:    in-review, r3 posted (design-only PR; do not merge without Codex
-           approval) — r3 fixed a P0 contradiction between P6 and the
-           execution-safety state machine, see Correction (r3) below
+STATUS:    in-review, r4 posted (design-only PR; do not merge without Codex
+           approval) — r4 fixed a P0 architecture-ownership gap (the umbrella
+           cannot be the permanent execution/lifecycle authority) plus an
+           internal Class-TBD verdict contradiction and a P1 experiment-
+           accounting gap, see Correction (r4) below
 WHAT:      Full three-plane gate inventory (renquant-pipeline kernel gates +
            data_availability.v1/funnel_integrity.v1, umbrella daily_104 path
            + preflight P-* consumption + retrain/re-stamp tooling,
@@ -174,3 +176,50 @@ to a fork) per the design-review-fixes-personal convention; two research
 passes (order-submission timing, sell-pass/buy-gate ordering) were run to
 ground the fix in the real codebase rather than in the RFC's own prior
 narrative.
+
+## Correction (r4 — Codex's third review pass on this doc, 2026-07-11)
+
+Codex's review of the r3 (Class A/B) fix called it "a real improvement" but
+found two P0s and one P1 remaining:
+
+1. **P0 — architecture ownership.** The r3 fix's "ownership of the stamp"
+   paragraph traced `orders_submitted` to the umbrella's
+   `RunnerAdapter.commit()` as ground truth — accurate, but Codex correctly
+   held that a forensic trace of legacy code cannot define the DURABLE
+   owner. New §5.1bis states the target-state ownership split
+   (renquant-execution owns lifecycle events + broker-submit idempotency;
+   renquant-pipeline owns `preflight_verdicts.v1` + immutable input
+   snapshots; renquant-orchestrator owns the controller + neutral state;
+   the schedule invokes a multi-repo entrypoint, never `daily_104.sh`
+   directly) and a concrete, machine-checkable CUTOVER PREDICATE (a census,
+   analogous to the existing `engineering_census` AST-scan pattern,
+   confirming zero umbrella-path references in the active schedule and
+   that `orders_submitted` is stamped exclusively from renquant-execution)
+   that must hold before any Class A rerun-capable action is enabled past
+   Stage 0 shadow. §5.3.1 and §7's stage table are corrected to reference
+   it explicitly.
+2. **P0 — internal contradiction.** §4.3's rows 20-23 said "default to
+   Class B until traced" but still carried a live `RERUN`/`REMEDIATE`
+   verdict — directly contradicting Class B's own no-rerun definition.
+   Corrected to an explicit `SHADOW-ONLY` verdict (no action enabled at any
+   stage) until BOTH the sell-only-fallback trace and (for whichever rows
+   resolve to Class A) the new cutover predicate hold. §7's Stage 1/3 rows
+   are corrected to gate `ohlcv_refetch`, `session_rerun`, and
+   `calibrator_binding_restamp` (the Class A actions) on the cutover
+   predicate specifically, while leaving Class B actions
+   (`broker_snapshot_repoll`, the R1/R2/R3 Class B actions) ungated by it.
+3. **P1 — experiment accounting.** New §7bis "Class B estimand" paragraph:
+   a Class B `SELF_HEALED` episode repairs tomorrow's input but cannot
+   recover the triggering session's lost trading. The evaluation plan must
+   report it separately as prevention of a repeated failure (next-session
+   comparator + explicit missed-session opportunity/cost), and no
+   acceptance decision may count a Class B outcome as recovered trading
+   performance for the triggering session.
+
+No section was deleted; §5.1bis is net-new, everything else is a targeted
+correction in place. Personally authored per the design-review-fixes-
+personal convention — no new research pass was needed this round (the
+architecture-ownership and accounting points follow from principles
+already established elsewhere in this session, e.g. the R-PIN/umbrella-
+deprecation trajectory and `artifacts#22`'s independent reaffirmation of
+the same non-authority principle for the umbrella).

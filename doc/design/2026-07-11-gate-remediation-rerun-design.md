@@ -33,6 +33,24 @@ no new umbrella forwarding path, per the umbrella's active deprecation), the `~/
 (standardized under the neutral R-PIN runtime root, §5.5), and R0 vendor-refetch eligibility
 restricted to versioned/as-of-queryable sources (§5.6).
 
+**REVISION NOTE r3 (2026-07-11, Codex's third review pass on this doc — two P0s + one P1,
+personally authored; the progress doc's "Correction (r4)" section covers the same round — its
+numbering tracks correction commits, not Codex review passes, hence the offset):** (1) the
+r2 fix's "ownership of the stamp" paragraph traced `orders_submitted` to the umbrella's
+`RunnerAdapter.commit()` as ground truth, but a forensic trace of legacy code cannot define the
+DURABLE owner — new §5.1bis states the target ownership (renquant-execution owns lifecycle/
+broker-submit idempotency; renquant-pipeline owns `preflight_verdicts.v1`/input snapshots;
+renquant-orchestrator owns the controller/neutral state) and a concrete, machine-checkable
+CUTOVER PREDICATE that must hold before any Class A rerun is enabled — §5.3.1 and §7's Stage
+gates are corrected to reference it. (2) §4.3's rows 20-23 said "default to Class B until traced"
+but still carried a live `RERUN`/`REMEDIATE` verdict, directly contradicting Class B's own
+no-rerun definition — corrected to an explicit `SHADOW-ONLY` verdict until the trace (and now
+also the cutover predicate, for whichever rows resolve to Class A) holds. (3) new §7bis
+"Class B estimand" paragraph: a Class B `SELF_HEALED` episode must be reported as prevention of a
+REPEATED failure (next-session comparator + explicit missed-session opportunity/cost), never as
+recovered trading performance for the triggering session — closing a real risk of overclaiming a
+prevention-only mechanism's value in the eventual acceptance decision.
+
 ---
 
 ## 1. Problem statement — the gates work; the SYSTEM stops where a machine could heal
@@ -221,23 +239,27 @@ current failure behavior. Verdicts are the PROPOSED policy.
 
 ### 4.3 Preflight P-* gates (renquant-pipeline `preflight_pipeline/`, consumed by umbrella `daily_104.sh` → sell-only fallback)
 
-**Phase-class caveat (added 2026-07-11, Codex review r2):** this section's header names the SAME
-sell-only fallback mechanism as row 10 (§4.2) — a preflight failure keeps `daily_104.sh` from
-running the full `InferencePipeline`+`commit()` at all, and a SEPARATE, subsequent sell-only pass
-covers exits instead. Whether that fallback pass itself already submits sell orders BEFORE a
-remediation decision is made — which would foreclose a same-day full rerun exactly like a Class B
-soft-block, since the rerun's own sell pass would then double-evaluate an already-changed book
-(5.3.6) — has NOT been traced with the same rigor §5.3.4 applied to row 5. Do not assign any row
-below Class A until that trace is done (implementation-PR precondition, not assumed here); default
-to Class B (no same-day rerun) for all of 20-28 until proven otherwise. The verdicts below are
-UNCHANGED from the prior draft pending that trace and are flagged, not corrected, here.
+**Phase-class caveat (Codex review r2, corrected r3 — P0 internal contradiction).** This section's
+header names the SAME sell-only fallback mechanism as row 10 (§4.2) — a preflight failure keeps
+`daily_104.sh` from running the full `InferencePipeline`+`commit()` at all, and a SEPARATE,
+subsequent sell-only pass covers exits instead. Whether that fallback pass itself already submits
+sell orders BEFORE a remediation decision is made — which would foreclose a same-day full rerun
+exactly like a Class B soft-block, since the rerun's own sell pass would then double-evaluate an
+already-changed book (5.3.6) — has NOT been traced with the same rigor §5.3.4 applied to row 5. The
+r2 draft correctly said "default to Class B until traced" but then left each row's VERDICT reading
+`RERUN`/`REMEDIATE` — an enableable, rerun-capable action — which directly contradicts Class B's
+own definition (no same-day rerun, §5.3.4/§3.4). Corrected: until the trace is done, rows 20-28 are
+**SHADOW-ONLY** — no action is enabled at any stage; the controller may only log what it WOULD have
+done (`SHADOW_WOULD_RUN`, §5.5), exactly like Stage 0 for every other row. This is in addition to,
+not instead of, §5.1bis's cutover predicate — even a row that traces cleanly to Class A still
+cannot enable a rerun until BOTH the trace AND the cutover predicate hold (§7's Stage 1 gate).
 
 | # | Check | T | Remediation (exists?) | R | Verdict |
 |---|---|---|---|---|---|
-| 20 | P-BROKER-CONNECT | T1 | reconnect/backoff (**yes**, trivial) | R0 | **Class TBD — RERUN** (bounded retry, no remediation body; likely Class A since this almost certainly gates before the sell-only fallback can run either — confirm before enabling) |
-| 21 | P-FUND-FRESHNESS | T2 | feed rebuild (**yes**) | R1 | **Class TBD (default B until traced) — REMEDIATE**, max 1 — still-red ⇒ structural escalation (the 06-29 axis-clip lesson: the rebuild would have proven the builder broken on day one instead of week five) |
-| 22 | P-SECTOR-MAP, P-WATCHLIST, P-CORR-METADATA | T2 | regenerate derived artifacts (**yes/partial**) | R1 | **Class TBD (default B) — REMEDIATE** |
-| 23 | P-CONFIG-FP, P-PANEL-CONTRACT | T2/T3 | known-benign re-stamp only (#11) | R3 | **Class TBD (default B, matches #11's Class B)**: benign signature → REMEDIATE; else **STOP** |
+| 20 | P-BROKER-CONNECT | T1 | reconnect/backoff (**yes**, trivial) | R0 | **SHADOW-ONLY** (bounded retry, no remediation body; likely Class A since this almost certainly gates before the sell-only fallback can run either — but not enableable until BOTH that trace and §5.1bis's cutover predicate hold) |
+| 21 | P-FUND-FRESHNESS | T2 | feed rebuild (**yes**) | R1 | **SHADOW-ONLY** pending the sell-only-fallback trace (default Class B) — the 06-29 axis-clip lesson (the rebuild would have proven the builder broken on day one instead of week five) motivates building this action, not enabling it early |
+| 22 | P-SECTOR-MAP, P-WATCHLIST, P-CORR-METADATA | T2 | regenerate derived artifacts (**yes/partial**) | R1 | **SHADOW-ONLY** pending the sell-only-fallback trace (default Class B) |
+| 23 | P-CONFIG-FP, P-PANEL-CONTRACT | T2/T3 | known-benign re-stamp only (#11) | R3 | **SHADOW-ONLY** pending the sell-only-fallback trace (default Class B, matches #11); a real (non-benign) drift signature is always **STOP**, unconditionally, regardless of shadow/enabled status |
 | 24 | P-CALIBRATOR-HEALTH, P-CALIBRATOR-FLAT-REGION | T2 | staged refit (#7) | R3 | **Class B** (matches #7/#12) — ALARM + TRIGGER |
 | 25 | P-MODEL-STALENESS (soft), P-META-LABEL | T2 | retrain, promotion-gated | R3 | **Class B** — ALARM + async TRIGGER (#210 policy); already no-same-session-rerun by design, unaffected by this section's caveat |
 | 26 | P-WF-GATE, P-REGIME-IC | T4 (historically C5: config tangle) | none safe — the gate IS the protection | — | **STOP**; never auto-bypass, never auto-re-stamp WF metadata (`live_no_wf_gate_once` is a documented anti-pattern, not an action) |
@@ -343,6 +365,47 @@ UNCHANGED from the prior draft pending that trace and are flagged, not corrected
   the re-stamp scripts. The orchestrator invokes commands; it implements no training/broker
   internals (CLAUDE.md hard boundary; the 07-03 repo-boundary lesson).
 
+### 5.1bis Execution/lifecycle ownership — target-state migration contract (Codex review r3, P0)
+
+The phase-(a)/(b) safety machine's ENTIRE authority (§5.3) rests on the `orders_submitted`
+lifecycle stamp, and the r2 fix (correctly) traced WHO stamps it TODAY —
+`RenQuant/backtesting/renquant_104/adapters/runner.py`'s `RunnerAdapter.commit()`, in the
+deprecated umbrella. That trace is accurate ground truth, but Codex correctly held that a
+forensic trace of legacy code cannot define the DURABLE owner: per the adopted multi-repo model
+(the same principle behind D4's `preflight_verdicts.v1` routing above, and independently
+reaffirmed by Codex's review of the R-PIN evidence bundle, `artifacts#22`), the umbrella
+(RenQuant) remains preserved as historical/rollback evidence but is never a runtime, deployment,
+schedule, artifact, or orchestration authority. This design states the TARGET ownership and a
+CUTOVER PREDICATE now, as a precondition this RFC records rather than assumes.
+
+**Target-state ownership (durable, post-cutover):**
+- **renquant-execution** owns lifecycle events and broker-submit idempotency: the
+  `orders_submitted` stamp (5.3.1), the order-level dedup key (5.3.4), and the actual
+  broker-submit call. This is the natural home — renquant-execution already owns "broker
+  execution and order-audit," and `orchestrator#481`'s stops-liveness checker
+  (`software_stops_liveness.py`) already lives there as a precedent for execution-owned runtime
+  monitoring reached from this same orchestrator repo.
+- **renquant-pipeline** owns `preflight_verdicts.v1` (D4, above) and the immutable input
+  snapshot the fidelity contract requires (§5.6) — both are decision-plane artifacts, not
+  execution-plane.
+- **renquant-orchestrator** owns the remediation controller and its neutral state
+  (`~/.renquant/remediation/`, §5.5) — unchanged from this section's existing split.
+- **The schedule** invokes a multi-repo entrypoint composed from first-party imports across
+  these three repos — never `daily_104.sh` or any other umbrella script directly.
+
+**Cutover predicate** (the condition that must hold before this design's rerun-capable Class A
+actions may be enabled past Stage 0 shadow, §7): a machine-checkable census — analogous to the
+existing `renquant_orchestrator.engineering_census` AST-scan pattern already used for the
+GateRegistry single-choke-point invariant — confirming (i) the ACTIVE production schedule
+resolves to zero references to any umbrella (`RenQuant/...`) path, and (ii) `orders_submitted`
+is stamped exclusively from within renquant-execution's own commit path. Until that census
+passes, §5.3's state machine is DEFINED against today's actual umbrella-anchored runtime as the
+necessary interim ground truth (§5.3.1 says so explicitly) — but no Class A rerun may be
+ENABLED past Stage 0 shadow logging until the census passes (§7's Stage 1 gate is corrected to
+require it explicitly). Building the census script and the execution-side stamping change are
+their own future PRs — out of scope for this docs-only RFC, but named here as a concrete,
+tracked precondition, not an aspiration.
+
 ### 5.2 Action registry (orchestrator, reviewed config — the only place commands live)
 
 ```
@@ -409,16 +472,22 @@ monotonically-appended `lifecycle_events` list (`{event, at}` — e.g. `orders_s
 `notification_sent`, `artifact_published`) stamped at the FIRST occurrence of each; the
 controller's phase check is `bundle.lifecycle_events == []` ⇒ (a), else ⇒ (b). This is a stronger
 predicate than the existing `funnel_integrity.funnel.n_buy_orders == 0` check (which only covers
-buy orders) — see 5.3.4. **Ownership of the stamp (Codex review r2):** `orders_submitted` MUST be
-stamped by the EXECUTION owner itself — `RunnerAdapter.commit()`, at the point it calls
-`broker.place_order(...)` (`RenQuant/backtesting/renquant_104/adapters/runner.py`, sells ~line
-1177, buys ~line 1509) — synchronously, before or atomically with the actual broker call, never
-inferred after the fact by the controller from a separate log, an order count, or any
-controller-local bookkeeping. The controller's ENTIRE authority rests on reading this one
-execution-owned stamp; if the stamp is unavailable (bundle missing, write failed, execution-state
-reconciliation cannot be confirmed), the controller MUST refuse to act — a missing stamp is
-treated as phase (b) (fail-closed), never defaulted to phase (a). This is a small execution-side
-PR precondition (stamping the actual `commit()` call sites), not assumed here.
+buy orders) — see 5.3.4. **Ownership of the stamp — durable target vs. today's interim ground
+truth (Codex review r2, corrected r3 — see §5.1bis for the full migration contract):**
+`orders_submitted` MUST be stamped by the EXECUTION owner itself, synchronously, before or
+atomically with the actual broker call, never inferred after the fact by the controller from a
+separate log, an order count, or any controller-local bookkeeping. The DURABLE owner of this
+stamp is renquant-execution (§5.1bis) — TODAY, before that migration lands, the only actual
+broker-submit call site is `RunnerAdapter.commit()` in the deprecated umbrella
+(`RenQuant/backtesting/renquant_104/adapters/runner.py`, sells ~line 1177, buys ~line 1509), which
+this design cites as the necessary INTERIM ground truth for tracing the safety property, never as
+the intended permanent home for the stamp. The controller's ENTIRE authority rests on reading this
+one execution-owned stamp; if the stamp is unavailable (bundle missing, write failed,
+execution-state reconciliation cannot be confirmed), the controller MUST refuse to act — a missing
+stamp is treated as phase (b) (fail-closed), never defaulted to phase (a). Stamping the actual
+commit-path call sites (wherever they durably live, post-migration) is a small execution-side PR
+precondition, not assumed here; §5.1bis's cutover predicate gates when a Class A rerun may be
+enabled on top of this stamp, separately from whether the stamp itself exists.
 
 **Once a run is in phase (b), remediation is not offered.** A gate that turns red after the run
 has already produced a durable external effect requires the operator's normal STOP+page path and
@@ -846,11 +915,11 @@ record has been reviewed.
 
 | Stage | What runs | Enablement gate |
 |---|---|---|
-| **0 — shadow** | Pipeline PR: emit `remediation_hints.v1` (§5.1) + the cross-repo compatibility test. Orchestrator PR: controller in shadow — full policy pass, writes `remediation.v1` records with `outcome=SHADOW_WOULD_RUN`, executes NOTHING. Weekly digest of would-have-remediated episodes PLUS the §7bis historical incident replay. | §7bis's full per-action acceptance criteria (below) — NOT just "≥10 sessions", which is necessary but not sufficient |
-| **1 — R0 + crash rerun** | `ohlcv_refetch`, `broker_snapshot_repoll`, heartbeat `session_rerun`. | Stage-0 review; launchd wiring is machine-landing (ask-first, one grant per batch) |
-| **2 — R1** | `fundamentals_feed_rebuild`, `corr_metadata_rebuild`, `sector_map_regen`. | ≥ 5 clean Stage-1 sessions, no budget breaches |
-| **3 — R3 (per-action operator sign-off)** | `admission_tournament_retrain` (after its §6.1 prerequisites), `calibrator_binding_restamp`, async triggers. | Ledger supersession landed; RenQuant#453 verified on the auto path; per-action sign-off (capital-risk-adjacent — the delegation memo's sign-off standard applies) |
-| **4 — R2 (may stay manual forever)** | `washsale_broker_truth_reconcile` as an EXECUTING nightly job. | Default recommendation: DON'T — ship it as detector + prepared one-click command (notify-not-approve), and let the operator decide if the fire-rate justifies automation |
+| **0 — shadow** | Pipeline PR: emit `remediation_hints.v1` (§5.1) + the cross-repo compatibility test. Orchestrator PR: controller in shadow — full policy pass, writes `remediation.v1` records with `outcome=SHADOW_WOULD_RUN`, executes NOTHING (this applies uniformly, including rows 20-28's SHADOW-ONLY tag, §4.3). Weekly digest of would-have-remediated episodes PLUS the §7bis historical incident replay. | §7bis's full per-action acceptance criteria (below) — NOT just "≥10 sessions", which is necessary but not sufficient |
+| **1 — R0 (+ crash rerun for the Class A subset)** | `broker_snapshot_repoll` (Class B — no rerun, no cutover-predicate dependency). `ohlcv_refetch` and heartbeat `session_rerun` (both Class A — same-day chained rerun) require §5.1bis's cutover predicate to hold, IN ADDITION TO Stage-0 review, before they may be enabled — not before Stage 0 shadow logging, which takes no action regardless of class. | Stage-0 review; **§5.1bis's cutover predicate for the Class A subset (`ohlcv_refetch`, `session_rerun`) specifically** — Codex review r3, P0: no rerun-capable action enables until the execution-owned lifecycle stamp is durable, not merely traced against today's umbrella-anchored interim ground truth; launchd wiring is machine-landing (ask-first, one grant per batch) |
+| **2 — R1** | `fundamentals_feed_rebuild`, `corr_metadata_rebuild`, `sector_map_regen` — all Class B, no rerun, no cutover-predicate dependency. | ≥ 5 clean Stage-1 sessions, no budget breaches |
+| **3 — R3 (per-action operator sign-off)** | `admission_tournament_retrain` (Class B, after its §6.1 prerequisites), `calibrator_binding_restamp` (Class A, §6.2 — ALSO gated on §5.1bis's cutover predicate), async triggers. | Ledger supersession landed; RenQuant#453 verified on the auto path; per-action sign-off (capital-risk-adjacent — the delegation memo's sign-off standard applies); cutover predicate for the Class A subset |
+| **4 — R2 (may stay manual forever)** | `washsale_broker_truth_reconcile` as an EXECUTING nightly job (Class B). | Default recommendation: DON'T — ship it as detector + prepared one-click command (notify-not-approve), and let the operator decide if the fire-rate justifies automation |
 
 Rollback at any stage = flip the per-action/global kill switch (config, no deploy). Any
 `RERUN_STILL_RED` or precondition anomaly auto-disables the involved action until a human
@@ -882,6 +951,24 @@ e.g. `doc/design/2026-07-11-freshness-override-regime-consequences.md` §4).
   that did NOT need it (measured in shadow against sessions independently known to be healthy).
 - **Rollback rule** — the exact condition that auto-disables the action (this RFC's default:
   any `RERUN_STILL_RED` or a false-positive-rate breach during shadow).
+
+**Class B estimand (Codex review r3, P1 — experiment accounting).** A Class B action (§5.3.4 —
+the common case; most of §4's table) repairs TOMORROW's input; it cannot and does not recover the
+session whose exits already reached the broker. The evaluation plan must report a Class B
+`SELF_HEALED` episode's value SEPARATELY from any trading-performance metric, as **prevention of a
+repeated failure** — the correct comparator is the NEXT session's outcome (did the healed input let
+the next regularly-scheduled run trade normally, vs. the counterfactual of the input staying broken
+for however many additional sessions it historically took a human to notice, per the #474
+registry's own per-incident duration) — never as recovered performance for the session that
+triggered it. Every Class B `remediation.v1` record must also carry the ORIGINAL session's missed-
+session opportunity/cost (whatever the standard no-trade-session accounting already produces
+elsewhere, referenced not reinvented here) as an explicit, separately-reported field, so an
+acceptance reviewer sees "session N lost, session N+1 recovered because of this action" rather than
+a single blended number that could be misread as "the action made session N profitable." No
+acceptance decision in this RFC (or any per-action `eval_protocol`) may count a Class B
+`SELF_HEALED` outcome as recovered trading performance for the triggering session, full stop —
+Class A's genuine same-day rerun is the only shape where a "recovered this session" claim is even
+possible, and only for the sessions that actually enable Class A per §5.1bis/§7.
 
 **Evaluation evidence, required for EVERY action before its stage-3+ enablement (§7):**
 
