@@ -468,3 +468,29 @@ class TestSessionCalendarGate:
         _run_script(env)
         log = self._log_text_for(tmp_path, session_date)
         assert "SKIP:" not in log
+
+    def test_dirty_manifest_on_non_session_date_fails_closed_not_skip(self, tmp_path, real_python):
+        # P0 ordering fix (Codex round 3 on #488): the run-manifest / pin-
+        # identity precheck (verify_run_manifest, see TestRunManifestVerification
+        # above) must run BEFORE the trading-session calendar check, because
+        # that check imports renquant_common.market_calendar from a
+        # manifest-pinned sibling checkout. Pair a real non-session date
+        # (Saturday, same as test_saturday_is_skipped_with_no_observation
+        # above) with a DIRTY pinned repo (same _build_manifest(dirty=...)
+        # fixture as test_dirty_repo_fails_closed_before_either_arm) and
+        # assert the identity failure (PRECHECK, exit 3) wins — the script
+        # must NEVER reach the calendar check and silently SKIP as if the
+        # dirty checkout were irrelevant because "today isn't a trading day
+        # anyway."
+        session_date = "2026-07-04"  # Saturday (non-session)
+        manifest, _ = _build_manifest(
+            tmp_path, watchlist=["AAPL"], dirty="renquant-execution",
+        )
+        env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
+                                  session_date=session_date)
+        result = _run_script(env)
+        assert result.returncode == 3, "run-manifest identity failure must win over a SKIP"
+        log = self._log_text_for(tmp_path, session_date)
+        assert "PRECHECK" in log
+        assert "SKIP:" not in log
+        self._assert_no_observation_written(tmp_path)

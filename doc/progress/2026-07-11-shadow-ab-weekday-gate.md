@@ -45,6 +45,35 @@ against `pandas_market_calendars`:
   test cases in this file already exercise fuller progression on this same
   date.
 
+## Round 3 (Codex review — P0 integrity ordering)
+
+Codex flagged the round-2 gate placement itself as a P0 fail-closed
+regression: the session-calendar check ran (and imported
+`renquant_common.market_calendar` from an unverified sibling checkout)
+*before* the run-manifest / pin-identity precheck (`verify_run_manifest`). A
+dirty or wrong-commit sibling checkout could therefore return a false "not a
+session" and make the scheduler silently `SKIP` a real trading day — an
+identity-fingerprint hole, not just a scheduling nicety.
+
+Fix: pure reordering, no logic changes. `scripts/shadow_ab_daily.sh` now runs
+the run-manifest / pin-identity precheck (`verify_run_manifest`) FIRST,
+immediately after `PYTHONPATH` is assembled from the manifest — before any
+pinned-repo code (including `renquant_common.market_calendar`) is ever
+imported. The trading-session calendar gate runs SECOND, only once every
+pinned checkout has been confirmed clean and at its pinned commit. All exit
+codes, comments' internal logic, and gate behavior are unchanged; only the
+order of the two existing blocks moved, plus updated comments (module header
+and each block's own preamble) describing the new order.
+
+Added `test_dirty_manifest_on_non_session_date_fails_closed_not_skip` to
+`TestSessionCalendarGate`: pairs a real non-session date (2026-07-04,
+Saturday) with a dirty pinned repo (same `_build_manifest(dirty=...)`
+fixture `TestRunManifestVerification` already uses) and asserts the
+run-manifest identity failure (`PRECHECK`, exit 3) wins — never a `SKIP`.
+Confirmed the 4 existing `TestSessionCalendarGate` cases (Saturday,
+Thanksgiving, day-after-Thanksgiving half-day, normal Friday) still pass
+unchanged after the reorder.
+
 ## Landing
 
 Merging this PR changes only committed configuration and script source in
