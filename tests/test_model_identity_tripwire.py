@@ -179,12 +179,18 @@ def test_0625_regression_shape_without_binding_record_alerts_outage():
 
 
 def test_recorded_pin_advance_passes_with_info():
-    """Identity changed AND the binding names the NEW sha -> authorized."""
+    """Identity changed AND the binding names the NEW sha -> authorized.
+
+    Round 2: a clean quiet pass ALSO needs the prior identity's own chain
+    position provable (see the chain-adjacency tests below) — supply it
+    here via the promotions ledger so this stays the "fully clean"
+    baseline case."""
     report = mod.build_tripwire_report(
         bundle("2026-06-26", SHA_0518),
         bundle("2026-06-25", SHA_0621),
         expected_identity=binding(SHA_0518, generation=2),
         manifest_info=manifest_info(generation=2),
+        promotion_ledger={SHA_0621: 1},
     )
     assert report.verdict == mod.VERDICT_PIN_ADVANCE
     assert report.title_tag is None and report.title is None
@@ -215,8 +221,8 @@ def test_recorded_promotion_passes_with_info():
         bundle("2026-06-26", SHA_0518),
         bundle("2026-06-25", SHA_0621),
         expected_identity=None,
-        manifest_info=manifest_info(),
-        promotion_shas={SHA_0518},
+        manifest_info=manifest_info(),  # generation=1: the epoch floor
+        promotion_ledger={SHA_0518: 1},
         offline=True,  # quiet the no-binding coverage note
     )
     assert report.verdict == mod.VERDICT_PROMOTION
@@ -422,23 +428,120 @@ def test_load_manifest_info_fail_soft_on_missing_and_invalid(tmp_path):
     assert info is None and "schema validation failed" in problem
 
 
-# --- promotions ledger ---------------------------------------------------------------
+# --- promotions ledger (round 2: sha->generation binding) ---------------------------
 
-def test_load_promotion_shas_json_and_jsonl(tmp_path):
+def test_load_promotion_ledger_binds_sha_to_generation(tmp_path):
     as_json = tmp_path / "promotions.json"
     as_json.write_text(
-        json.dumps([{"panel_sha": f"sha256:{SHA_0518}", "date": "2026-06-26"}]),
+        json.dumps([
+            {"panel_sha": f"sha256:{SHA_0518}", "generation": 2, "date": "2026-06-26"},
+        ]),
         encoding="utf-8",
     )
-    assert mod.load_promotion_shas(as_json) == {SHA_0518}
+    assert mod.load_promotion_ledger(as_json) == {SHA_0518: 2}
     as_jsonl = tmp_path / "promotions.jsonl"
     as_jsonl.write_text(
-        json.dumps({"model_content_sha256": SHA_0621}) + "\nnot-json\n",
+        json.dumps({"model_content_sha256": SHA_0621, "generation": 1}) + "\nnot-json\n",
         encoding="utf-8",
     )
-    assert mod.load_promotion_shas(as_jsonl) == {SHA_0621}
-    assert mod.load_promotion_shas(tmp_path / "missing.json") == set()
-    assert mod.load_promotion_shas(None) == set()
+    assert mod.load_promotion_ledger(as_jsonl) == {SHA_0621: 1}
+    assert mod.load_promotion_ledger(tmp_path / "missing.json") == {}
+    assert mod.load_promotion_ledger(None) == {}
+
+
+def test_load_promotion_ledger_legacy_bare_sha_entries_excluded(tmp_path):
+    """Migration note: a pre-round-2 entry with no ``generation`` key is
+    PARSED (fail-soft — never crashes the loader) but excluded from the
+    returned map, since it cannot anchor the chain-adjacency check."""
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(
+        json.dumps([{"panel_sha": f"sha256:{SHA_0518}"}]),  # no "generation"
+        encoding="utf-8",
+    )
+    assert mod.load_promotion_ledger(legacy) == {}
+
+
+def test_load_promotion_ledger_rejects_bad_generation_values(tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text(
+        json.dumps([
+            {"sha": SHA_0518, "generation": 0},
+            {"sha": SHA_0621, "generation": True},
+            {"sha": "c" * 64, "generation": -1},
+        ]),
+        encoding="utf-8",
+    )
+    assert mod.load_promotion_ledger(bad) == {}
+
+
+# --- chain-adjacency supporting check (round 2) --------------------------------------
+
+def test_chain_verified_when_previous_bound_to_older_generation():
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=binding(SHA_0518, generation=2),
+        manifest_info=manifest_info(generation=2),
+        promotion_ledger={SHA_0621: 1},  # prior identity bound to gen 1 < 2
+    )
+    assert report.verdict == mod.VERDICT_PIN_ADVANCE
+    assert report.title_tag is None
+    assert any("chain verified" in l for l in report.body_lines)
+
+
+def test_chain_coverage_gap_when_previous_has_no_ledger_binding():
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=binding(SHA_0518, generation=2),
+        manifest_info=manifest_info(generation=2),
+        # no ledger entry for SHA_0621 (the previous identity) at all
+    )
+    assert report.verdict == mod.VERDICT_PIN_ADVANCE  # endpoint still proven
+    assert report.title_tag == TAG_DEGRADED  # but the chain gap is alertable
+    assert any("chain coverage gap" in l for l in report.body_lines)
+
+
+def test_chain_coverage_gap_quiet_under_offline():
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=binding(SHA_0518, generation=2),
+        manifest_info=manifest_info(generation=2),
+        offline=True,
+    )
+    assert report.verdict == mod.VERDICT_PIN_ADVANCE
+    assert report.title_tag is None
+
+
+def test_chain_broken_when_previous_binding_is_not_older():
+    """The prior identity's OWN ledger binding is not older than the active
+    generation — a non-monotonic/rollback shape. This is a PROVEN
+    contradiction, so it escalates to OUTAGE and is never suppressed by
+    --offline (unlike the coverage-gap case above)."""
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=binding(SHA_0518, generation=2),
+        manifest_info=manifest_info(generation=2),
+        promotion_ledger={SHA_0621: 2},  # NOT older than the active gen 2
+        offline=True,
+    )
+    assert report.verdict == mod.VERDICT_PIN_ADVANCE  # endpoint still proven
+    assert report.title_tag == TAG_OUTAGE  # chain contradiction: never quiet
+    assert any("chain BROKEN" in l for l in report.body_lines)
+
+
+def test_chain_check_skipped_at_generation_one_floor():
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=binding(SHA_0518, generation=1),
+        manifest_info=manifest_info(generation=1),
+    )
+    assert report.verdict == mod.VERDICT_PIN_ADVANCE
+    assert report.title_tag is None
+    assert any("epoch floor" in l for l in report.body_lines)
 
 
 # --- bundle discovery ----------------------------------------------------------------
@@ -495,10 +598,17 @@ def test_main_exit_codes_for_the_three_cases(tmp_path, capsys):
     assert rc == 2 and payload["verdict"] == mod.VERDICT_BINDING_MISMATCH
 
     # 2) recorded pin advance (binding re-bound to the NEW sha) -> pass, exit 0
+    #    (round 2: the chain-adjacency check also needs the PRIOR identity's
+    #    own generation binding to certify a fully clean pass)
     mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0518)
+    ledger = tmp_path / "promotions.json"
+    ledger.write_text(
+        json.dumps([{"sha": SHA_0621, "generation": 1}]), encoding="utf-8",
+    )
     rc = mod.main([
         "--latest-bundle", str(latest), "--previous-bundle", str(previous),
         "--manifest", str(manifest), "--state-root", str(tmp_path),
+        "--promotions-ledger", str(ledger),
         "--quiet",
     ])
     payload = json.loads(capsys.readouterr().out)

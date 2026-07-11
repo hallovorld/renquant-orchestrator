@@ -57,6 +57,24 @@ contributes a DEGRADED line by default (coverage lost), quiet under
 ``--offline``. The worst tag wins; a DEGRADED contribution never downgrades
 an OUTAGE.
 
+ROUND 2 (Codex #485 follow-up — "prove the chain, not just the endpoint").
+The ``expected-model-identity.json`` binding above is a single, forward-only
+SLOT: it proves the LATEST identity is authorized NOW, but — having no
+history — it cannot say whether the PRIOR identity was itself authorized at
+an earlier generation (a chain that only ever checks its own endpoint could
+still explain a "jump" from an unauthorized past state). ``build_tripwire_
+report`` adds a SUPPORTING check (same pattern as the manifest
+``generation_status`` check below: contributes a note + tag, never
+overrides ``classify_transition``'s verdict) using the generation-bound
+promotions ledger (``load_promotion_ledger`` — ``{sha: generation}``,
+round-2 format) as the historical record: when a change is explained
+(``explained_pin_advance`` / ``explained_promotion``), the PRIOR identity's
+own ledger-recorded generation must be found and must be STRICTLY OLDER
+than the active generation, or the chain is a coverage gap (DEGRADED,
+quiet under ``--offline``) or, if it is NOT older (a non-monotonic/rollback
+shape), a proven contradiction (OUTAGE — never suppressed). Generation 1
+is the epoch floor: there is no older generation to chain to.
+
 Properties (house monitor conventions, same as ``outage_monitor``):
 
   * **read-only in check mode** — consumes run-bundle JSONs + state-root
@@ -323,21 +341,36 @@ def find_session_bundles(root: str | Path) -> tuple[Path | None, Path | None]:
     return latest, previous
 
 
-def load_promotion_shas(path: str | Path | None) -> set[str]:
-    """Normalized shas from an optional promotions ledger (JSON array or JSONL).
+def load_promotion_ledger(path: str | Path | None) -> dict[str, int]:
+    """``{sha: generation}`` for an optional promotions ledger (JSON/JSONL).
 
-    Fail-soft: a missing/unreadable ledger is an empty set — absence of a
-    ledger never crashes the tripwire (it just cannot explain changes via
-    promotions)."""
+    Round-2 hardening (Codex #485 follow-up — "prove the chain, not just the
+    endpoint"): each entry must carry BOTH an artifact sha (any of
+    ``_PROMOTION_SHA_KEYS``) AND an integer ``generation`` naming the
+    manifest generation the promotion was made FOR. This lets
+    ``build_tripwire_report``'s chain-adjacency check answer a question the
+    single-slot ``expected-model-identity.json`` binding cannot: did the
+    PRIOR identity itself belong to an earlier authorized generation (not
+    just "is the NEW identity authorized now")?
+
+    Format note (NOT silently backward compatible for EXPLAINING purposes):
+    a legacy bare-sha entry (no ``generation`` key — the pre-round-2 format,
+    matched on sha alone) is still PARSED without crashing (fail-soft) but
+    is EXCLUDED from the returned map — it can no longer bind a chain
+    position until migrated to add ``generation``. It can still explain a
+    LATEST identity change via the (unchanged) presence-only promotion
+    check in ``classify_transition``; it simply cannot anchor the
+    chain-adjacency supporting check, which degrades to a coverage-gap
+    note rather than silently assuming the chain holds."""
     if path is None:
-        return set()
+        return {}
     p = Path(path)
     if not p.exists() or not p.is_file():
-        return set()
+        return {}
     try:
         text = p.read_text(encoding="utf-8")
     except OSError:
-        return set()
+        return {}
     entries: list[Any] = []
     try:
         payload = json.loads(text)
@@ -351,15 +384,22 @@ def load_promotion_shas(path: str | Path | None) -> set[str]:
                 entries.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
-    shas: set[str] = set()
+    ledger: dict[str, int] = {}
     for entry in entries:
         if not isinstance(entry, Mapping):
             continue
+        sha: str | None = None
         for key in _PROMOTION_SHA_KEYS:
             sha = normalize_sha(entry.get(key))
             if sha:
-                shas.add(sha)
-    return shas
+                break
+        if not sha:
+            continue
+        generation = entry.get("generation")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+            continue  # no (valid) generation binding — see docstring
+        ledger[sha] = generation
+    return ledger
 
 
 # --- the authorized-identity binding record (neutral R-PIN state root) -------------
@@ -513,17 +553,27 @@ def classify_transition(
     previous: ModelIdentity | None,
     *,
     expected_identity: Mapping[str, Any] | None,
-    promotion_shas: set[str] | None = None,
+    promotion_ledger: Mapping[str, int] | None = None,
 ) -> tuple[str, list[str], list[str]]:
     """``(verdict, lines, missing)`` for one session-over-session transition.
 
     The ONLY things that can explain an identity change are (i) the recorded
     authorized binding naming the new sha (``explained_pin_advance``) or
-    (ii) a promotions-ledger entry naming it (``explained_promotion``).
-    A serving identity that CONTRADICTS an existing binding is an OUTAGE even
-    when it did not change session-over-session (both sessions can be wrong).
+    (ii) a promotions-ledger entry naming it (``explained_promotion``) — this
+    gate is presence-only (any generation ever recorded for the sha), same
+    as before round 2. A serving identity that CONTRADICTS an existing
+    binding is an OUTAGE even when it did not change session-over-session
+    (both sessions can be wrong).
+
+    A SEPARATE, additional proof — that the PRIOR identity itself belonged
+    to an authorized generation strictly OLDER than the one active now — is
+    NOT decided here; see ``build_tripwire_report``'s chain-adjacency
+    supporting check (round 2, using ``load_promotion_ledger``'s
+    sha->generation map), which contributes a note/tag WITHOUT overriding
+    the verdict returned by this function (the same pattern the manifest
+    ``generation_status`` supporting check already uses).
     """
-    promotion_shas = promotion_shas or set()
+    promotion_ledger = promotion_ledger or {}
     lines: list[str] = []
     missing: list[str] = []
 
@@ -602,7 +652,7 @@ def classify_transition(
         )
         return VERDICT_PIN_ADVANCE, lines, missing
 
-    if latest.panel_sha in promotion_shas:
+    if latest.panel_sha in promotion_ledger:
         lines.append(
             "INFO explained: the new identity is a recorded promotion "
             f"(promotions ledger names {latest.short_sha}…)"
@@ -639,7 +689,7 @@ def build_tripwire_report(
     expected_identity_problem: str | None = None,
     manifest_info: Mapping[str, Any] | None = None,
     manifest_problem: str | None = None,
-    promotion_shas: set[str] | None = None,
+    promotion_ledger: Mapping[str, int] | None = None,
     latest_path: str | Path | None = None,
     previous_path: str | Path | None = None,
     as_of: str | None = None,
@@ -660,16 +710,72 @@ def build_tripwire_report(
         if isinstance(previous_bundle, Mapping)
         else None
     )
+    promotion_ledger = promotion_ledger or {}
 
     verdict, lines, missing = classify_transition(
         latest,
         previous,
         expected_identity=expected_identity,
-        promotion_shas=promotion_shas,
+        promotion_ledger=promotion_ledger,
     )
     tag = _VERDICT_TO_TAG.get(verdict)
     if verdict == VERDICT_COVERAGE_LOST and not offline:
         tag = TAG_DEGRADED
+
+    # Chain-adjacency supporting check (round 2 — Codex #485 follow-up:
+    # "prove the chain, not just the endpoint"). The binding record above
+    # only proves the LATEST identity is authorized NOW; it is a single,
+    # forward-only slot with no history, so it cannot say whether the PRIOR
+    # identity was itself authorized at an earlier generation. The
+    # generation-bound promotions ledger (load_promotion_ledger) is used
+    # here purely as that history. Scoped to a proven "explained" CHANGE
+    # (PIN_ADVANCE / PROMOTION) — identity_unchanged has no chain to prove,
+    # and the OUTAGE/mismatch verdicts already carry the worst tag.
+    if verdict in (VERDICT_PIN_ADVANCE, VERDICT_PROMOTION) and previous is not None:
+        current_generation = None
+        if isinstance(expected_identity, Mapping):
+            current_generation = expected_identity.get("generation")
+        if not isinstance(current_generation, int) and manifest_info is not None:
+            current_generation = manifest_info.get("generation")
+        if not isinstance(current_generation, int):
+            lines.append(
+                "chain coverage gap: no active generation resolvable from "
+                "the binding record or manifest — cannot certify the prior "
+                "identity belonged to an earlier authorized generation"
+            )
+            if not offline:
+                tag = worst_tag(tag, TAG_DEGRADED)
+        elif current_generation == 1:
+            lines.append(
+                "chain: generation 1 is the epoch floor — no prior "
+                "generation exists to chain the previous identity to"
+            )
+        else:
+            previous_generation = promotion_ledger.get(previous.panel_sha) if previous.panel_sha else None
+            if previous_generation is None:
+                lines.append(
+                    f"chain coverage gap: the promotions ledger carries no "
+                    f"generation binding for the PRIOR identity "
+                    f"{previous.short_sha}… — cannot certify it belonged to "
+                    "an earlier authorized generation"
+                )
+                if not offline:
+                    tag = worst_tag(tag, TAG_DEGRADED)
+            elif previous_generation >= current_generation:
+                lines.append(
+                    f"chain BROKEN: the prior identity's ledger binding "
+                    f"(generation {previous_generation}) is not OLDER than "
+                    f"the active generation {current_generation} — a "
+                    "non-monotonic/rollback shape; a forward chain cannot "
+                    "be certified"
+                )
+                tag = worst_tag(tag, TAG_OUTAGE)  # a proven contradiction, never suppressed
+            else:
+                lines.append(
+                    f"chain verified: prior identity bound to generation "
+                    f"{previous_generation}, strictly older than the active "
+                    f"generation {current_generation}"
+                )
 
     # Coverage-plane notes: an absent binding record or unreadable manifest
     # is lost verification coverage — DEGRADED by default, quiet offline.
@@ -766,8 +872,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--promotions-ledger", default=None,
-        help="optional JSON/JSONL ledger of promotion events; an identity "
-             "change matching a recorded promotion sha passes with INFO",
+        help="optional JSON/JSONL ledger of {sha, generation} promotion "
+             "events; an identity change matching a recorded promotion sha "
+             "passes with INFO, and (round 2) the generation binding also "
+             "anchors the chain-adjacency check for the PRIOR identity — a "
+             "legacy bare-sha entry (no generation) is parsed fail-soft but "
+             "cannot anchor that check, see load_promotion_ledger",
     )
     parser.add_argument(
         "--offline", action="store_true",
@@ -872,7 +982,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_identity_problem=expected_problem,
         manifest_info=manifest_info,
         manifest_problem=manifest_problem,
-        promotion_shas=load_promotion_shas(args.promotions_ledger),
+        promotion_ledger=load_promotion_ledger(args.promotions_ledger),
         latest_path=latest_path,
         previous_path=previous_path,
         as_of=args.as_of,
@@ -908,7 +1018,7 @@ __all__ = [
     "extract_model_identity",
     "find_session_bundles",
     "load_manifest_info",
-    "load_promotion_shas",
+    "load_promotion_ledger",
     "main",
     "normalize_sha",
     "read_expected_identity",
