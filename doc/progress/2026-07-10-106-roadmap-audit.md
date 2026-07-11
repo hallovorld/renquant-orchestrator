@@ -92,3 +92,54 @@ is INTENTIONALLY umbrella-owned per that RFC's own ownership split (§5) — not
 mis-scoped runtime dependency. Made explicit that this is a deployment-time-only
 operational gate invoked after §6a.3's analysis independently produces a GO verdict from
 pinned artifacts; no computation in the protocol itself reads or executes umbrella code.
+
+## r4 (2026-07-11) — Codex CHANGES_REQUESTED again, two design blockers fixed
+
+r3's label-maturity fix was correct but insufficient: "16 weeks ≈ 80 forward sessions ≈
+1.3 independent 60-session blocks" is not a valid basis for a 95% moving-block-bootstrap
+CI — a bare pass of `_moving_block_bootstrap`'s hard `n <= block` refusal is not the
+same as having enough independent blocks for the CI to mean anything. Codex also rejected
+r2's "intentionally umbrella-owned" framing for §6a.6's gate script as inconsistent with
+the required multi-repo target architecture.
+
+**Blocker 1 fix** (§6a.1/§6a.3): found an EXISTING house convention for this exact
+methodology — `doc/research/evidence/2026-07-02-rs5-m7-prereg/prereg_contract.json`
+already specifies `"min_effective_60d_blocks": 10` for the identical
+`moving_block_bootstrap` method (`block_size_sessions: 60`, `n_boot: 2000`, seeds
+{42,43,44}). Adopted that number rather than inventing one. Effective block count =
+`floor(n_mature_sessions / 60)` (non-overlapping count, distinct from the resampler's
+internal overlapping `n_blocks = ceil(n/block)`). Requiring `>= 10` effective blocks
+means `>= 600` mature sessions, which at ~80 sessions/16-week-block needs 8 total blocks
+(the initial window + 7 extensions) = a 128-week scoring window, plus the same +60
+business-day maturity wait from r3 tacked onto the end. **Corrected first valid readout:
+E + 128 weeks + 60 business days (≈2.7 years after enable)** — materially later than
+r3's single-block E+16w+60bd date, which fixed look-ahead but not statistical power.
+Added an extension-and-cap rule: extend one block at a time past 8 if realized session
+counts fall short (missed weeks), hard cap at 12 blocks (192 weeks), close as
+INCONCLUSIVE (a new third VERDICTS.md bucket, distinct from GO/REFUTED) if still short
+at the cap — matching the existing kill rule's "no re-pitch without a new mechanism
+argument" ethos rather than monitoring indefinitely with no stopping rule.
+
+Self-caught and fixed a mistake made while drafting this: initially wrote the GO
+statistic as requiring unanimous pass across all 3 bootstrap seeds {42,43,44}, reasoning
+from the kill rule's symmetry — but the `rs5-m7-prereg` precedent explicitly states
+`"seeds_role": "robustness_check_on_one_corrected_result_not_extra_looks"`. Corrected to
+match: GO gates on seed 42 (primary), with 43/44 reported as a robustness check, not as
+3 independent trials requiring unanimous pass.
+
+**Blocker 2 fix** (§6a.6): rewrote the promotion gate to depend on R-PIN's target
+deployment-authority interface (orchestrator PR #469,
+`doc/design/2026-07-11-deployment-pin-authority-migration.md`, §5.1's allowlisted
+`deployment.verify.profile`) once R-PIN's Stage 4 cutover lands, with the current
+umbrella `promote_shadow_patchtst.py` explicitly named as a TEMPORARY pre-cutover shim
+rather than an accepted permanent umbrella ownership split. Any promotion executed via
+the shim must be recorded in the ledger as using the temporary path, not the target
+architecture. Noted (not load-bearing on the design) that §6a.1's ≈2.7-year minimum
+readout makes it likely R-PIN will have already cut over by the time this protocol's
+first valid readout occurs.
+
+Updated `VERDICTS.md`'s reopening-condition cell and the doc's §7 cross-reference to the
+corrected E+128w+60bd readout date and the R-PIN-dependent gate description.
+
+Tests: `tests/test_require_progress_doc.py` — 6 passed (docs-only change, no code
+touched).
