@@ -313,3 +313,67 @@ def test_validate_market_bars_seals_window_and_timestamps(tmp_path: Path) -> Non
     assert block["bar_timestamps"]["AAA"].startswith(SESSION_DATE)
     assert block["decision_cutoff"] == SESSION_DATE
     assert "session_close_watermark" in block
+
+
+# --- store-addressed config artifact-ref rewrite (Codex on #464) ---------------
+
+
+def test_rewrite_config_artifact_refs_resolves_against_declared_store(tmp_path):
+    from renquant_orchestrator.native_context_hydration import (
+        rewrite_config_artifact_refs,
+    )
+
+    store = tmp_path / "store"
+    (store / "panel").mkdir(parents=True)
+    model = store / "panel" / "model.pt"
+    model.write_bytes(b"m")
+    calibrator = store / "panel" / "cal.json"
+    calibrator.write_bytes(b"c")
+    config = {
+        "ranking": {"panel_scoring": {
+            "artifact_path": "../../artifacts/panel/model.pt",
+            "global_calibration": {
+                "enabled": True,
+                "artifact_path": "../../artifacts/panel/cal.json",
+            },
+        }},
+    }
+    pinned = tmp_path / "runtime" / "repos" / "renquant-strategy-104"
+    pinned.mkdir(parents=True)
+    rewritten = rewrite_config_artifact_refs(
+        config,
+        strategy_dir=pinned,
+        repo_root=tmp_path / "runtime",
+        artifact_store=store,
+    )
+    panel = config["ranking"]["panel_scoring"]
+    # the kernel's LoadScorerTask uses absolute paths as-is — no umbrella
+    # geometry needed downstream.
+    assert panel["artifact_path"] == str(model.resolve())
+    assert panel["global_calibration"]["artifact_path"] == str(calibrator.resolve())
+    assert rewritten == {
+        "../../artifacts/panel/model.pt": str(model.resolve()),
+        "../../artifacts/panel/cal.json": str(calibrator.resolve()),
+    }
+
+
+def test_rewrite_config_artifact_refs_fails_closed_on_unresolvable(tmp_path):
+    from renquant_orchestrator.native_context_hydration import (
+        HydrationError,
+        rewrite_config_artifact_refs,
+    )
+
+    store = tmp_path / "store"
+    store.mkdir()
+    config = {"ranking": {"panel_scoring": {
+        "artifact_path": "../../artifacts/panel/missing.pt",
+    }}}
+    pinned = tmp_path / "runtime" / "repos" / "renquant-strategy-104"
+    pinned.mkdir(parents=True)
+    with pytest.raises(HydrationError, match="fail-closed"):
+        rewrite_config_artifact_refs(
+            config,
+            strategy_dir=pinned,
+            repo_root=tmp_path / "runtime",
+            artifact_store=store,
+        )

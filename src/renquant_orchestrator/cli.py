@@ -324,6 +324,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_inference.add_argument("--broker-name", default=None)
     native_inference.add_argument("--strategy-dir", default=None)
     native_inference.add_argument("--repo-root", default=None)
+    native_inference.add_argument("--artifact-store", default=None)
     native_inference.add_argument("--ohlcv-dir", default=None)
     native_inference.add_argument("--data-revision", default=None)
 
@@ -347,6 +348,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_context.add_argument("--session-date", default=None)
     native_context.add_argument("--strategy-dir", default=None)
     native_context.add_argument("--repo-root", default=None)
+    native_context.add_argument("--artifact-store", default=None)
 
     native_run = sub.add_parser(
         "native-live-run",
@@ -1076,6 +1078,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("--repo-root", args.repo_root),
             ("--ohlcv-dir", args.ohlcv_dir),
             ("--data-revision", args.data_revision),
+            ("--artifact-store", args.artifact_store),
         ):
             if value:
                 native_inference_argv.extend([flag, value])
@@ -1113,6 +1116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             native_context_argv.extend(["--strategy-dir", args.strategy_dir])
         if args.repo_root:
             native_context_argv.extend(["--repo-root", args.repo_root])
+        if args.artifact_store:
+            native_context_argv.extend(["--artifact-store", args.artifact_store])
         return native_context_main(native_context_argv)
     if args.command == "native-live-run":
         from .native_live_run import main as native_run_main

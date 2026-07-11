@@ -42,6 +42,8 @@ from renquant_orchestrator.shadow_ab_runner import (
     assert_preflight_symmetry,
     build_arm_plan,
     default_experiment_strategy_dir,
+    load_run_manifest,
+    resolve_arm_fingerprints,
     run_shadow_ab_session,
     seal_snapshot,
     treatment_key_violations,
@@ -1329,3 +1331,105 @@ def test_run_manifest_missing_required_repo_is_a_usage_error(tmp_path: Path) -> 
     }), encoding="utf-8")
     with pytest.raises(ShadowABContractError, match="missing required repo"):
         _run(world, tmp_path / "sessions", run_manifest=bad, pins_resolver=None)
+
+
+# --- manifest-declared artifact store (store-addressed refs, Codex on #464) ----
+
+
+def _store_world(tmp_path: Path) -> tuple[dict[str, Path], Path]:
+    """A world whose configs use PROD-STYLE store-addressed refs
+    ("../../artifacts/<...>") that only the declared store can satisfy —
+    the pinned-checkout layout of the first real session, no umbrella
+    geometry anywhere."""
+    world = _write_world(tmp_path)
+    store = tmp_path / "declared-store"
+    (store / "panel").mkdir(parents=True)
+    (store / "panel" / "model.pt").write_text("model-1", encoding="utf-8")
+    (store / "panel" / "calibrator.json").write_text("cal-1", encoding="utf-8")
+    for key in ("config_a", "config_b"):
+        world[key].write_text(json.dumps({
+            "ranking": {"panel_scoring": {
+                "artifact_path": "../../artifacts/panel/model.pt",
+                "buy_floor_std_mult": 0.5 if key == "config_a" else 1.0,
+                "global_calibration": {
+                    "enabled": True,
+                    "artifact_path": "../../artifacts/panel/calibrator.json",
+                },
+            }},
+        }), encoding="utf-8")
+    return world, store
+
+
+def test_resolve_arm_fingerprints_uses_declared_store(tmp_path: Path) -> None:
+    world, store = _store_world(tmp_path)
+    fp = resolve_arm_fingerprints(
+        world["config_a"],
+        strategy_dir=tmp_path / "runtime" / "repos" / "renquant-strategy-104",
+        repo_root=tmp_path / "runtime",
+        data_manifest_path=world["manifest"],
+        artifact_store=store,
+        fingerprint_from_path=_fake_fingerprint,
+    )
+    assert fp.model_content_sha256 == _fake_fingerprint(store / "panel" / "model.pt")
+    assert fp.calibrator_content_sha256 == _fake_fingerprint(
+        store / "panel" / "calibrator.json"
+    )
+
+
+def test_resolve_arm_fingerprints_without_store_fails_closed(tmp_path: Path) -> None:
+    world, _store = _store_world(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        resolve_arm_fingerprints(
+            world["config_a"],
+            strategy_dir=tmp_path / "runtime" / "repos" / "renquant-strategy-104",
+            repo_root=tmp_path / "runtime",
+            data_manifest_path=world["manifest"],
+            fingerprint_from_path=_fake_fingerprint,
+        )
+
+
+def test_manifest_artifact_store_recorded_and_threaded_into_arm_plans(
+    tmp_path: Path,
+) -> None:
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["artifact_store"] = {"path": str(store)}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_VALID
+    assert result["run_manifest"]["artifact_store"] == str(store)
+    for arm in ("a", "b"):
+        plan = result["arms"][arm]["planned_commands"]
+        context_cmd = next(c for c in plan if "native-live-context" in c)
+        inference_cmd = next(c for c in plan if "native-live-inference" in c)
+        for cmd in (context_cmd, inference_cmd):
+            assert cmd[cmd.index("--artifact-store") + 1] == str(store)
+
+
+def test_manifest_artifact_store_missing_dir_aborts_precheck(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["artifact_store"] = {"path": str(tmp_path / "nope")}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("artifact_store" in r for r in result["reasons"])
+
+
+def test_manifest_artifact_store_malformed_is_a_usage_error(tmp_path: Path) -> None:
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["artifact_store"] = {"root": "/missing-the-path-key"}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ShadowABContractError, match="artifact_store"):
+        load_run_manifest(run_manifest)

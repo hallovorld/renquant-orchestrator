@@ -61,6 +61,7 @@ def run_native_live_inference(
     repo_root: str | Path | None = None,
     ohlcv_dir: str | Path | None = None,
     data_revision: str | None = None,
+    artifact_store: str | Path | None = None,
     context_hydrator: Any | None = None,
 ) -> dict[str, Any]:
     """Run native inference on a context JSON.
@@ -102,8 +103,7 @@ def run_native_live_inference(
             )
         aliases = install_native_pipeline_aliases()
         hydrator = context_hydrator or _hydrate
-        ctx, hydration_report = hydrator(
-            context_payload,
+        hydrate_kwargs: dict[str, Any] = dict(
             session_date=session_date,
             broker_name=broker_name,
             strategy_dir=strategy_dir,
@@ -111,6 +111,11 @@ def run_native_live_inference(
             ohlcv_dir=ohlcv_dir,
             data_revision=data_revision,
         )
+        if artifact_store is not None:
+            # Only threaded when declared (run-manifest artifact_store) so
+            # legacy hydrator stubs/calls stay byte-identical.
+            hydrate_kwargs["artifact_store"] = artifact_store
+        ctx, hydration_report = hydrator(context_payload, **hydrate_kwargs)
         hydration_report = dict(hydration_report or {})
         hydration_report["pipeline_module_aliases"] = aliases
     else:
@@ -148,6 +153,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo-root", default=None)
     parser.add_argument("--ohlcv-dir", default=None)
     parser.add_argument("--data-revision", default=None)
+    parser.add_argument(
+        "--artifact-store", default=None,
+        help="explicitly declared artifact-store root (run-manifest "
+             "artifact_store) for store-addressed config refs",
+    )
     args = parser.parse_args(argv)
 
     payload = run_native_live_inference(
@@ -162,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         repo_root=args.repo_root,
         ohlcv_dir=args.ohlcv_dir,
         data_revision=args.data_revision,
+        artifact_store=args.artifact_store,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0

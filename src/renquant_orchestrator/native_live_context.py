@@ -241,6 +241,7 @@ def verify_config_artifact_shas(
     calibrator_content_sha256: str | None,
     strategy_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
+    artifact_store: str | Path | None = None,
     fingerprint_from_path: "Callable[[str | Path], str] | None" = None,
 ) -> dict[str, Any]:
     """Verify the handed-in model/calibrator shas against the artifacts this
@@ -282,6 +283,7 @@ def verify_config_artifact_shas(
                 ref,
                 strategy_dir=strategy_dir,
                 repo_root=repo_root,
+                artifact_store=artifact_store,
                 verify_sha=False,
             )
         except FileNotFoundError as exc:
@@ -339,6 +341,7 @@ def build_native_live_context(
     session_date: str | None = None,
     strategy_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
+    artifact_store: str | Path | None = None,
     fingerprint_from_path: Callable[[str | Path], str] | None = None,
 ) -> dict[str, Any]:
     """Build an already-hydrated native context JSON for inference rehearsal.
@@ -403,6 +406,7 @@ def build_native_live_context(
             calibrator_content_sha256=calibrator_content_sha256,
             strategy_dir=strategy_dir,
             repo_root=repo_root,
+            artifact_store=artifact_store,
             fingerprint_from_path=fingerprint_from_path,
         )
         decision_snapshot_meta = {
@@ -447,6 +451,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--session-date", default=None)
     parser.add_argument("--strategy-dir", default=None)
     parser.add_argument("--repo-root", default=None)
+    parser.add_argument(
+        "--artifact-store", default=None,
+        help="explicitly declared artifact-store root (run-manifest "
+             "artifact_store) for store-addressed config refs",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -462,6 +471,7 @@ def main(argv: list[str] | None = None) -> int:
             session_date=args.session_date,
             strategy_dir=args.strategy_dir,
             repo_root=args.repo_root,
+            artifact_store=args.artifact_store,
         )
     except DecisionSnapshotMismatchError as exc:
         # Nonzero with an unambiguous marker: this exit is what triggers the

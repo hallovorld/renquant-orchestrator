@@ -289,14 +289,16 @@ def resolve_arm_fingerprints(
     strategy_dir: str | Path,
     repo_root: str | Path,
     data_manifest_path: str | Path,
+    artifact_store: str | Path | None = None,
     fingerprint_from_path: Callable[[str | Path], str] | None = None,
 ) -> ArmFingerprints:
     """Resolve the §2a fingerprint set for one arm (fail-closed).
 
     Model/calibrator refs resolve through the single artifact-resolution
     authority (:mod:`renquant_orchestrator.artifact_resolver`) so both arms
-    use the same strategy_dir-then-repo_root contract — divergent resolution
-    order between two call sites is a known incident class.
+    use the same contract (manifest-declared ``artifact_store`` for
+    store-addressed refs, then strategy_dir-then-repo_root) — divergent
+    resolution order between two call sites is a known incident class.
     """
     from .artifact_resolver import resolve_artifact  # noqa: PLC0415
 
@@ -318,6 +320,7 @@ def resolve_arm_fingerprints(
         model_ref,
         strategy_dir=strategy_dir,
         repo_root=repo_root,
+        artifact_store=artifact_store,
         verify_sha=False,
     )
     model_sha = fingerprint(model.path)
@@ -328,6 +331,7 @@ def resolve_arm_fingerprints(
             calibrator_ref,
             strategy_dir=strategy_dir,
             repo_root=repo_root,
+            artifact_store=artifact_store,
             verify_sha=False,
         )
         calibrator_sha = fingerprint(calibrator.path)
@@ -583,6 +587,15 @@ def load_run_manifest(path: str | Path) -> dict[str, Any]:
             f"run manifest {manifest_file}: missing required repo(s): "
             f"{', '.join(missing)}"
         )
+    store = payload.get("artifact_store")
+    if store is not None and (
+        not isinstance(store, dict) or not store.get("path")
+    ):
+        raise ShadowABContractError(
+            f"run manifest {manifest_file}: artifact_store must be an object "
+            "with a 'path' (the explicitly declared artifact-store root that "
+            "store-addressed config refs resolve against)"
+        )
     return payload
 
 
@@ -704,6 +717,7 @@ def build_arm_plan(
     repo_root: Path | None = None,
     ohlcv_dir: Path | None = None,
     data_revision: str | None = None,
+    artifact_store: Path | None = None,
 ) -> list[list[str]]:
     """Build one arm's command sequence from the SHARED template.
 
@@ -745,6 +759,11 @@ def build_arm_plan(
         context_command += ["--calibrator-content-sha256", calibrator_content_sha256]
     if repo_root is not None:
         context_command += ["--repo-root", str(repo_root)]
+    if artifact_store is not None:
+        # The manifest-declared store — threaded into BOTH resolving steps so
+        # the consumption side resolves through EXACTLY the anchors the
+        # runner's precheck used.
+        context_command += ["--artifact-store", str(artifact_store)]
     inference_command = [
         "renquant-orchestrator", "native-live-inference",
         "--context-json", str(context_json),
@@ -764,6 +783,8 @@ def build_arm_plan(
         inference_command += ["--ohlcv-dir", str(ohlcv_dir)]
     if data_revision is not None:
         inference_command += ["--data-revision", data_revision]
+    if artifact_store is not None:
+        inference_command += ["--artifact-store", str(artifact_store)]
     return [
         context_command,
         inference_command,
@@ -1145,6 +1166,7 @@ def run_shadow_ab_session(
         return bundle
 
     # -- prechecks: resolve every §2a bundle field BEFORE anything runs -------
+    artifact_store: Path | None = None
     try:
         if manifest_payload is not None:
             # Verify every manifest repo (commit match + CLEAN tree) BEFORE
@@ -1153,10 +1175,29 @@ def run_shadow_ab_session(
             resolved_repos = verify_run_manifest(
                 manifest_payload, git_probe=manifest_git_probe,
             )
+            store_entry = manifest_payload.get("artifact_store")
+            if store_entry is not None:
+                # The manifest-declared artifact-store root: prod configs
+                # author store refs as umbrella-layout parent walks
+                # (../../artifacts/<...>), which resolve to nothing from a
+                # pinned checkout — the manifest declares WHERE the store is
+                # instead of the checkout reconstructing umbrella geometry.
+                # Blob identity is never trusted from the path: every
+                # resolved artifact is fingerprint-stamped into the arm
+                # record and freeze drift VOIDs the pair.
+                artifact_store = Path(store_entry["path"])
+                if not artifact_store.is_dir():
+                    raise ShadowABContractError(
+                        "run manifest artifact_store path does not exist "
+                        f"or is not a directory: {artifact_store}"
+                    )
             bundle["run_manifest"] = {
                 "path": str(run_manifest),
                 "data_revision": manifest_payload.get("data_revision"),
                 "verified": True,
+                "artifact_store": (
+                    str(artifact_store) if artifact_store is not None else None
+                ),
                 "repos": {
                     name: {
                         "path": str(manifest_payload["repos"][name]["path"]),
@@ -1170,6 +1211,7 @@ def run_shadow_ab_session(
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             data_manifest_path=data_manifest,
+            artifact_store=artifact_store,
             fingerprint_from_path=fingerprint_from_path,
         )
         fp_b = resolve_arm_fingerprints(
@@ -1177,6 +1219,7 @@ def run_shadow_ab_session(
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             data_manifest_path=data_manifest,
+            artifact_store=artifact_store,
             fingerprint_from_path=fingerprint_from_path,
         )
         if manifest_payload is not None:
@@ -1391,6 +1434,7 @@ def run_shadow_ab_session(
         data_revision=(
             (manifest_payload or {}).get("data_revision") if manifest_payload else None
         ),
+        artifact_store=artifact_store,
     )
     plan_b = build_arm_plan(
         tag=arm_b.tag,
@@ -1408,6 +1452,7 @@ def run_shadow_ab_session(
         data_revision=(
             (manifest_payload or {}).get("data_revision") if manifest_payload else None
         ),
+        artifact_store=artifact_store,
     )
     try:
         assert_preflight_symmetry(
