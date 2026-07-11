@@ -27,7 +27,7 @@ WORKER_MEM_GIB = 16
 # Measured from the round-7 bounded smoke test (2026-07-08, commit 424600b2):
 # incumbent pod = 3042s, A/A pod = 3431s. Use the higher (A/A) value as
 # the conservative estimate — it includes any cold-start overhead.
-DEFAULT_SECONDS_PER_POD_ESTIMATE = 3431.0
+DEFAULT_SECONDS_PER_POD_ESTIMATE = 6404.0  # MEASURED 2026-07-10 bounded run: 9 pods, per-pod range 5873-6719s (mean 6404); replaces the pre-reconciliation 3431 smoke claim, which measurement REFUTED
 
 
 MEASURED_COST_PER_POD_SECOND = 0.00001545

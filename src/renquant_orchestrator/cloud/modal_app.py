@@ -63,7 +63,7 @@ WORKER_MEM_GIB = 16
     memory=WORKER_MEM_GIB * 1024,
     timeout=WORKER_TIMEOUT_SECONDS,
     retries=WORKER_RETRIES,
-    max_containers=30,
+    max_containers=9,  # validated at 9 concurrent (2026-07-10 bounded run, zero failures, no Volume-read contention observed); raising to 30 requires a >=30-concurrent validation run
 )
 def run_variant_remote(request_json: str) -> str:
     """Execute ONE (variant, seed) backtest on a Modal worker.
