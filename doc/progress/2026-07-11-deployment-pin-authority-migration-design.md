@@ -105,3 +105,13 @@ references the predicate table instead of literal equality (which would
 have rejected every normal record-first apply); §7's receipt wording
 corrected to "locally staged integrity record, immutable only once
 anchored by the reconciliation PR".
+
+## r5 (Codex r4 — revised personally)
+
+Emergency-apply predicate completed: remote steady-state equality
+(gen_main == gen_local AND sha_main == sha_local) is now required before an
+emergency candidate may be constructed — origin/main ahead or hash-divergent
+⇒ refuse and require reconcile (no forked epochs; only failed-verify revert
+remains the bounded in-transaction exception). Added the Stage-4 rejection
+drill for the origin-ahead emergency attempt. PR description updated to the
+record-first protocol (the stale apply-then-record summary removed).

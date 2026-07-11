@@ -477,12 +477,18 @@ snapshot of `main`; predicate failure = fail closed, no partial writes.
 | mutation | permitted iff (ALL of) | writes | remote evidence required |
 |---|---|---|---|
 | **normal apply** (record-first) | anchor reachable; `gen_main == gen_local + 1`; `manifest_main.supersedes_sha256 == sha_local`; candidate executed = `manifest_main` byte-exact | machine manifest := `manifest_main`; expected-generation := `(gen_main, sha_main)` after successful verify | the merged pin-bump PR IS the evidence (already on main) |
-| **emergency apply** (token lane) | anchor reachable; valid signed token whose scope covers the exact repo/commit deltas; candidate built locally with `generation == gen_local + 1` and `supersedes_sha256 == sha_local` | same as normal apply, from the local candidate; local integrity record staged FIRST | reconciliation PR (candidate + token + receipt + verify evidence) opened immediately; SLA per §7 |
+| **emergency apply** (token lane) | anchor reachable; **remote steady-state equality: `gen_main == gen_local` AND `sha_main == sha_local`** (origin/main ahead or hash-divergent ⇒ REFUSE, require reconcile first — an emergency candidate may only extend the epoch both sides agree on, never fork it); valid signed token whose scope covers the exact repo/commit deltas; candidate built locally with `generation == gen_local + 1` and `supersedes_sha256 == sha_local` | same as normal apply, from the local candidate; local integrity record staged FIRST | reconciliation PR (candidate + token + receipt + verify evidence) opened immediately; SLA per §7 |
 | **failed-verify revert** (auto) | triggered only by a failed verify inside an apply; revert candidate has `generation == gen_current + 1`, `supersedes_sha256 == sha_current`, pin values = pre-apply state | machine manifest := revert candidate; expected-generation advances | auto-opened revert-recording PR; applies blocked until merged |
 | **reconcile-generation** (manual recovery) | anchor reachable; machine manifest content hash equals SOME manifest recorded in origin/main history; operator invocation | expected-generation := that record's `(gen, sha)` — forward-only relative to the current record | the matching origin/main commit is cited in the command output and the next doctor report |
 
 Rejected by construction: generation skips (`gen_main > gen_local + 1` —
 someone recorded past this machine: applies halt until reconciled);
+an emergency apply while origin/main is ahead of or hash-divergent from
+the machine (the forked-epoch case — normal candidates already refuse via
+predecessor-exactness; the emergency lane refuses via the steady-state
+equality above, with a dedicated rejection DRILL in Stage 4:
+origin/main advanced to N+1 by a normal candidate, machine at N attempts
+an emergency apply ⇒ refused with the named error);
 rollback to any `gen ≤ gen_local`; a candidate whose declared
 `supersedes_sha256` differs from the machine's actual `sha_local` (the
 machine is not the state the reviewer approved a transition FROM); any
