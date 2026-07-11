@@ -1,0 +1,383 @@
+{
+ "summary": {
+  "window": "2026-06-01..2026-07-10",
+  "prod_session_dates_in_window": 28,
+  "dates_with_sizing_stage_zero_share_block": 8,
+  "dates_with_at_least_one_rescue": 7,
+  "distinct_rescued_tickers": [
+   "AVGO",
+   "BLK",
+   "CAT",
+   "EME"
+  ],
+  "distinct_not_rescued": [
+   [
+    "ASML",
+    "no-rescue: 1 share $1,778.46 > regime cap 12%*PV = $1,267.07"
+   ]
+  ],
+  "per_session_deployment_delta_usd": {
+   "min": 392.1300048828125,
+   "max": 1356.1799926757812,
+   "mean": 916.7071446010044
+  },
+  "normal_buys_displaced": 0,
+  "n_buys_all_zero_in_affected_runs": true,
+  "per_date": {
+   "2026-06-22": {
+    "delta_usd": 392.1300048828125,
+    "rescued": [
+     "AVGO"
+    ],
+    "not_rescued": [
+     "ASML"
+    ],
+    "cash_pct_before": 0.834763674827365,
+    "cash_pct_after": 0.7979927078012239,
+    "max_rescue_pv_pct": 0.03677096702614116,
+    "run_id": "2026-06-22-live-c26c0042"
+   },
+   "2026-06-23": {
+    "delta_usd": 0,
+    "rescued": [],
+    "not_rescued": [
+     "ASML"
+    ],
+    "cash_pct_before": 0.7887908391753745,
+    "cash_pct_after": 0.7887908391753745,
+    "max_rescue_pv_pct": 0.0,
+    "run_id": "2026-06-23-live-59c11399"
+   },
+   "2026-06-24": {
+    "delta_usd": 994.4500122070312,
+    "rescued": [
+     "CAT"
+    ],
+    "not_rescued": [],
+    "cash_pct_before": 0.7603786067631978,
+    "cash_pct_after": 0.6669250969628167,
+    "max_rescue_pv_pct": 0.09345350980038108,
+    "run_id": "2026-06-24-live-710e3805"
+   },
+   "2026-06-29": {
+    "delta_usd": 950.1699829101562,
+    "rescued": [
+     "BLK"
+    ],
+    "not_rescued": [],
+    "cash_pct_before": 0.7680933521584039,
+    "cash_pct_after": 0.6803545506674661,
+    "max_rescue_pv_pct": 0.08773880149093785,
+    "run_id": "2026-06-29-live-0534845a"
+   },
+   "2026-06-30": {
+    "delta_usd": 961.5599975585938,
+    "rescued": [
+     "BLK"
+    ],
+    "not_rescued": [],
+    "cash_pct_before": 0.7672681529441969,
+    "cash_pct_after": 0.6787835065746392,
+    "max_rescue_pv_pct": 0.08848464636955783,
+    "run_id": "2026-06-30-live-b616357c"
+   },
+   "2026-07-01": {
+    "delta_usd": 980.3800048828125,
+    "rescued": [
+     "BLK"
+    ],
+    "not_rescued": [],
+    "cash_pct_before": 0.7532284258792283,
+    "cash_pct_after": 0.6625058410209911,
+    "max_rescue_pv_pct": 0.09072258485823728,
+    "run_id": "2026-07-01-live-01c54b39"
+   },
+   "2026-07-02": {
+    "delta_usd": 1356.1799926757812,
+    "rescued": [
+     "BLK",
+     "AVGO"
+    ],
+    "not_rescued": [],
+    "cash_pct_before": 0.7765199278915758,
+    "cash_pct_after": 0.649846349961631,
+    "max_rescue_pv_pct": 0.09300585465003595,
+    "run_id": "2026-07-02-live-85496d1c"
+   },
+   "2026-07-10": {
+    "delta_usd": 782.0800170898438,
+    "rescued": [
+     "EME"
+    ],
+    "not_rescued": [],
+    "cash_pct_before": 0.8127718541183255,
+    "cash_pct_after": 0.7400374778922356,
+    "max_rescue_pv_pct": 0.07273437622608998,
+    "run_id": "2026-07-10-live-6f9d5284"
+   }
+  }
+ },
+ "runs": [
+  {
+   "run_date": "2026-06-22",
+   "run_id": "2026-06-22-live-c26c0042",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10664.12,
+   "cash": 8902.02,
+   "cash_pct": 0.834763674827365,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1279.6944,
+   "rescued": [
+    {
+     "ticker": "AVGO",
+     "price": 392.1300048828125,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.08075432844061509,
+     "kelly_target_usd": 861.1738490101322,
+     "mu": 0.039406146345729254,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.03677096702614116
+    }
+   ],
+   "not_rescued": [
+    {
+     "ticker": "ASML",
+     "price": 1929.25,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.08075432844061509,
+     "kelly_target_usd": 861.1738490101322,
+     "mu": 0.03350201167975875,
+     "verdict": "no-rescue: 1 share $1,929.25 > regime cap 12%*PV = $1,279.69"
+    }
+   ],
+   "deployment_delta_usd": 392.1300048828125,
+   "cash_pct_after": 0.7979927078012239,
+   "max_rescue_pv_pct": 0.03677096702614116
+  },
+  {
+   "run_date": "2026-06-23",
+   "run_id": "2026-06-23-live-59c11399",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10584.2,
+   "cash": 8348.72,
+   "cash_pct": 0.7887908391753745,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1270.104,
+   "rescued": [],
+   "not_rescued": [
+    {
+     "ticker": "ASML",
+     "price": 1778.4599609375,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.08463646428929958,
+     "kelly_target_usd": 895.8092653308047,
+     "mu": 0.030530857408378322,
+     "verdict": "no-rescue: 1 share $1,778.46 > regime cap 12%*PV = $1,270.10"
+    }
+   ],
+   "deployment_delta_usd": 0,
+   "cash_pct_after": 0.7887908391753745,
+   "max_rescue_pv_pct": 0.0
+  },
+  {
+   "run_date": "2026-06-23",
+   "run_id": "2026-06-23-live-844746ad",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10558.91,
+   "cash": 8780.3,
+   "cash_pct": 0.8315536357445986,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1267.0692,
+   "rescued": [],
+   "not_rescued": [
+    {
+     "ticker": "ASML",
+     "price": 1778.4599609375,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.08463646428929958,
+     "kelly_target_usd": 893.6688091489282,
+     "mu": 0.030095649537772107,
+     "verdict": "no-rescue: 1 share $1,778.46 > regime cap 12%*PV = $1,267.07"
+    }
+   ],
+   "deployment_delta_usd": 0,
+   "cash_pct_after": 0.8315536357445986,
+   "max_rescue_pv_pct": 0.0
+  },
+  {
+   "run_date": "2026-06-24",
+   "run_id": "2026-06-24-live-710e3805",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10641.12,
+   "cash": 8091.28,
+   "cash_pct": 0.7603786067631978,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1276.9344,
+   "rescued": [
+    {
+     "ticker": "CAT",
+     "price": 994.4500122070312,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.08194178155836004,
+     "kelly_target_usd": 871.9523305762963,
+     "mu": 0.0358367725798486,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.09345350980038108
+    }
+   ],
+   "not_rescued": [],
+   "deployment_delta_usd": 994.4500122070312,
+   "cash_pct_after": 0.6669250969628167,
+   "max_rescue_pv_pct": 0.09345350980038108
+  },
+  {
+   "run_date": "2026-06-29",
+   "run_id": "2026-06-29-live-0534845a",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10829.53,
+   "cash": 8318.09,
+   "cash_pct": 0.7680933521584039,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1299.5436,
+   "rescued": [
+    {
+     "ticker": "BLK",
+     "price": 950.1699829101562,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.07320677747562321,
+     "kelly_target_usd": 792.7949928755859,
+     "mu": 0.03925072725697647,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.08773880149093785
+    }
+   ],
+   "not_rescued": [],
+   "deployment_delta_usd": 950.1699829101562,
+   "cash_pct_after": 0.6803545506674661,
+   "max_rescue_pv_pct": 0.08773880149093785
+  },
+  {
+   "run_date": "2026-06-30",
+   "run_id": "2026-06-30-live-b616357c",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10866.97,
+   "cash": 8337.88,
+   "cash_pct": 0.7672681529441969,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1304.0364,
+   "rescued": [
+    {
+     "ticker": "BLK",
+     "price": 961.5599975585938,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.07097447264874385,
+     "kelly_target_usd": 771.2774650397199,
+     "mu": 0.042048666400093374,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.08848464636955783
+    }
+   ],
+   "not_rescued": [],
+   "deployment_delta_usd": 961.5599975585938,
+   "cash_pct_after": 0.6787835065746392,
+   "max_rescue_pv_pct": 0.08848464636955783
+  },
+  {
+   "run_date": "2026-07-01",
+   "run_id": "2026-07-01-live-01c54b39",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10806.35,
+   "cash": 8139.65,
+   "cash_pct": 0.7532284258792283,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1296.762,
+   "rescued": [
+    {
+     "ticker": "BLK",
+     "price": 980.3800048828125,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.07290887182865932,
+     "kelly_target_usd": 787.8787870856327,
+     "mu": 0.04197602133409658,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.09072258485823728
+    }
+   ],
+   "not_rescued": [],
+   "deployment_delta_usd": 980.3800048828125,
+   "cash_pct_after": 0.6625058410209911,
+   "max_rescue_pv_pct": 0.09072258485823728
+  },
+  {
+   "run_date": "2026-07-02",
+   "run_id": "2026-07-02-live-85496d1c",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10706.1,
+   "cash": 8313.5,
+   "cash_pct": 0.7765199278915758,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1284.732,
+   "rescued": [
+    {
+     "ticker": "BLK",
+     "price": 995.72998046875,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.07359247504468312,
+     "kelly_target_usd": 787.888397075882,
+     "mu": 0.045880794497937104,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.09300585465003595
+    },
+    {
+     "ticker": "AVGO",
+     "price": 360.45001220703125,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.07359247504468312,
+     "kelly_target_usd": 787.888397075882,
+     "mu": 0.03562543377625301,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.033667723279908766
+    }
+   ],
+   "not_rescued": [],
+   "deployment_delta_usd": 1356.1799926757812,
+   "cash_pct_after": 0.649846349961631,
+   "max_rescue_pv_pct": 0.09300585465003595
+  },
+  {
+   "run_date": "2026-07-10",
+   "run_id": "2026-07-10-live-6f9d5284",
+   "run_type": "live",
+   "regime": "BULL_CALM",
+   "pv": 10752.55,
+   "cash": 8739.37,
+   "cash_pct": 0.8127718541183255,
+   "n_buys_actual": 0,
+   "regime_cap_usd": 1290.3059999999998,
+   "rescued": [
+    {
+     "ticker": "EME",
+     "price": 782.0800170898438,
+     "price_source": "close(run_date)",
+     "kelly_target_pct": 0.06512927930651183,
+     "kelly_target_usd": 700.3058322072337,
+     "mu": 0.034933206321809795,
+     "verdict": "RESCUED: 1 share",
+     "pv_pct": 0.07273437622608998
+    }
+   ],
+   "not_rescued": [],
+   "deployment_delta_usd": 782.0800170898438,
+   "cash_pct_after": 0.7400374778922356,
+   "max_rescue_pv_pct": 0.07273437622608998
+  }
+ ]
+}
