@@ -60,6 +60,7 @@ def run_native_live_inference(
     strategy_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
     ohlcv_dir: str | Path | None = None,
+    data_revision: str | None = None,
     context_hydrator: Any | None = None,
 ) -> dict[str, Any]:
     """Run native inference on a context JSON.
@@ -108,6 +109,7 @@ def run_native_live_inference(
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             ohlcv_dir=ohlcv_dir,
+            data_revision=data_revision,
         )
         hydration_report = dict(hydration_report or {})
         hydration_report["pipeline_module_aliases"] = aliases
@@ -145,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strategy-dir", default=None)
     parser.add_argument("--repo-root", default=None)
     parser.add_argument("--ohlcv-dir", default=None)
+    parser.add_argument("--data-revision", default=None)
     args = parser.parse_args(argv)
 
     payload = run_native_live_inference(
@@ -158,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         strategy_dir=args.strategy_dir,
         repo_root=args.repo_root,
         ohlcv_dir=args.ohlcv_dir,
+        data_revision=args.data_revision,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0

@@ -325,6 +325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_inference.add_argument("--strategy-dir", default=None)
     native_inference.add_argument("--repo-root", default=None)
     native_inference.add_argument("--ohlcv-dir", default=None)
+    native_inference.add_argument("--data-revision", default=None)
 
     native_context = sub.add_parser(
         "native-live-context",
@@ -1074,6 +1075,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("--strategy-dir", args.strategy_dir),
             ("--repo-root", args.repo_root),
             ("--ohlcv-dir", args.ohlcv_dir),
+            ("--data-revision", args.data_revision),
         ):
             if value:
                 native_inference_argv.extend([flag, value])

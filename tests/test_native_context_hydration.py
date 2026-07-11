@@ -28,10 +28,12 @@ SESSION_DATE = "2026-07-10"
 WATCHLIST = ["AAA", "BBB"]
 
 
-def _write_ohlcv_store(tmp_path: Path, symbols: list[str]) -> Path:
-    """A readonly LocalStore layout: {dir}/{SYM}/1d.parquet through SESSION_DATE."""
+def _write_ohlcv_store(
+    tmp_path: Path, symbols: list[str], *, end_date: str = SESSION_DATE,
+) -> Path:
+    """A readonly LocalStore layout: {dir}/{SYM}/1d.parquet through end_date."""
     store = tmp_path / "ohlcv"
-    end = pd.Timestamp(SESSION_DATE)
+    end = pd.Timestamp(end_date)
     index = pd.bdate_range(end=end, periods=250)
     for offset, symbol in enumerate(symbols):
         base = 100.0 + 10.0 * offset
@@ -171,6 +173,15 @@ def test_hydrated_context_runs_the_real_pinned_inference_pipeline(tmp_path: Path
     assert f"{PANEL_SCORING_ALIAS}<-{PANEL_SCORING_TARGET}" in (
         hydration["pipeline_module_aliases"]
     )
+    # r2: every consumed bar is sealed with its timestamp + the session
+    # window that admitted it
+    validity = hydration["bar_validity"]
+    assert validity["decision_cutoff"] == SESSION_DATE
+    assert validity["required_closed_session"] <= SESSION_DATE
+    assert validity["session_close_watermark"].startswith(SESSION_DATE)
+    assert set(validity["bar_timestamps"]) == {"AAA", "BBB", "SPY"}
+    for ts in validity["bar_timestamps"].values():
+        assert ts.startswith(SESSION_DATE)
     # the production alias is installed: Phase-3 resolves to the kernel scorer
     assert sys.modules[PANEL_SCORING_ALIAS].__name__ == PANEL_SCORING_TARGET
 
@@ -242,3 +253,63 @@ def test_legacy_namespace_path_is_unchanged(tmp_path: Path) -> None:
     )
     assert "pipeline_context_hydration" not in payload["metadata"]
     assert output_json.exists()
+
+
+# --- market-bar validity (Codex r2 on #460) -----------------------------------------------
+
+
+def test_e2e_stale_bar_rejected(tmp_path: Path) -> None:
+    """Named e2e (r2): a store whose last bar predates the required closed
+    NYSE session for SESSION_DATE must be rejected — the arm exits nonzero
+    instead of silently scoring a stale world."""
+    store = _write_ohlcv_store(
+        tmp_path, [*WATCHLIST, "SPY"], end_date="2026-07-08",  # Wed < Fri session
+    )
+    context_json = _context_payload(tmp_path)
+    with pytest.raises(HydrationError, match="stale"):
+        run_native_live_inference(
+            context_json=context_json,
+            output_json=tmp_path / "out.json",
+            hydrate_pipeline_context=True,
+            session_date=SESSION_DATE,
+            strategy_dir=tmp_path / "configs",
+            repo_root=tmp_path,
+            ohlcv_dir=store,
+        )
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_e2e_future_bar_rejected(tmp_path: Path) -> None:
+    """Named e2e (r2): a bar AFTER the decision cutoff (rerun lookahead —
+    e.g. replaying 2026-07-10 against a store already refreshed with Monday
+    bars) must be rejected, not silently consumed."""
+    store = _write_ohlcv_store(
+        tmp_path, [*WATCHLIST, "SPY"], end_date="2026-07-13",  # Mon > Fri session
+    )
+    context_json = _context_payload(tmp_path)
+    with pytest.raises(HydrationError, match="future"):
+        run_native_live_inference(
+            context_json=context_json,
+            output_json=tmp_path / "out.json",
+            hydrate_pipeline_context=True,
+            session_date=SESSION_DATE,
+            strategy_dir=tmp_path / "configs",
+            repo_root=tmp_path,
+            ohlcv_dir=store,
+        )
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_validate_market_bars_seals_window_and_timestamps(tmp_path: Path) -> None:
+    import datetime as dt
+
+    from renquant_orchestrator.native_context_hydration import validate_market_bars
+
+    store = _write_ohlcv_store(tmp_path, ["AAA"])
+    frame = pd.read_parquet(store / "AAA" / "1d.parquet")
+    block = validate_market_bars(
+        {"AAA": frame}, session_date=dt.date.fromisoformat(SESSION_DATE),
+    )
+    assert block["bar_timestamps"]["AAA"].startswith(SESSION_DATE)
+    assert block["decision_cutoff"] == SESSION_DATE
+    assert "session_close_watermark" in block

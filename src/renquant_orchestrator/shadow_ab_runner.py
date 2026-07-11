@@ -542,6 +542,132 @@ def resolve_experiment_pins(lock_path: str | Path) -> dict[str, str]:
     return pins
 
 
+# --- immutable run manifest (Codex r2 on #460) -----------------------------------
+
+RUN_MANIFEST_SCHEMA_VERSION = 1
+
+GitProbe = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
+
+
+def _default_git_probe(args: Sequence[str]) -> "subprocess.CompletedProcess[str]":
+    return subprocess.run(
+        ["git", *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def load_run_manifest(path: str | Path) -> dict[str, Any]:
+    """Load + schema-check the IMMUTABLE run manifest owned by this run.
+
+    The manifest is the single authority for WHERE each required repo lives
+    and WHICH commit it must be at — replacing every sibling/name-based
+    directory lookup on the experiment path (a directory that merely exists
+    is not a pinned checkout: it can hold an arbitrary commit and a dirty
+    working tree)."""
+    manifest_file = Path(path)
+    payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+    repos = payload.get("repos")
+    if not isinstance(repos, dict) or not repos:
+        raise ShadowABContractError(f"run manifest {manifest_file}: no repos map")
+    for name, entry in repos.items():
+        if not isinstance(entry, dict) or not entry.get("path") or not entry.get("commit"):
+            raise ShadowABContractError(
+                f"run manifest {manifest_file}: repo {name!r} needs path + commit"
+            )
+    missing = [name for name in EXPERIMENT_PIN_REPOS if name not in repos]
+    if missing:
+        raise ShadowABContractError(
+            f"run manifest {manifest_file}: missing required repo(s): "
+            f"{', '.join(missing)}"
+        )
+    return payload
+
+
+def verify_run_manifest(
+    manifest: Mapping[str, Any],
+    *,
+    git_probe: GitProbe | None = None,
+) -> dict[str, str]:
+    """Verify EVERY manifest repo checkout before either arm starts.
+
+    Each repo must (i) exist, (ii) be a git checkout whose HEAD matches the
+    manifest commit (exact, or manifest prefix of >= 12 hex chars), and
+    (iii) have a CLEAN working tree. Any failure raises (fail-closed —
+    the session-pair aborts with neither arm invoked). Returns the resolved
+    {repo: full_commit} map for the sealed bundle."""
+    probe = git_probe or _default_git_probe
+    problems: list[str] = []
+    resolved: dict[str, str] = {}
+    for name, entry in sorted((manifest.get("repos") or {}).items()):
+        path = Path(entry["path"])
+        expected = str(entry["commit"]).strip()
+        if not path.is_dir():
+            problems.append(f"{name}: path {path} does not exist")
+            continue
+        head = probe(["-C", str(path), "rev-parse", "HEAD"])
+        if head.returncode != 0:
+            problems.append(
+                f"{name}: not a git checkout ({(head.stderr or '').strip()})"
+            )
+            continue
+        actual = (head.stdout or "").strip()
+        matches = actual == expected or (
+            len(expected) >= 12 and actual.startswith(expected)
+        )
+        if not matches:
+            problems.append(
+                f"{name}: checkout HEAD {actual[:12]} != manifest commit "
+                f"{expected[:12]}"
+            )
+            continue
+        status = probe(["-C", str(path), "status", "--porcelain"])
+        if status.returncode != 0:
+            problems.append(f"{name}: git status failed")
+            continue
+        if (status.stdout or "").strip():
+            dirty = (status.stdout or "").strip().splitlines()
+            problems.append(
+                f"{name}: working tree DIRTY ({len(dirty)} path(s), e.g. "
+                f"{dirty[0][:60]!r})"
+            )
+            continue
+        resolved[name] = actual
+    if problems:
+        raise ShadowABContractError(
+            "run manifest verification failed: " + "; ".join(problems)
+        )
+    return resolved
+
+
+def build_run_manifest_payload(
+    repo_paths: Mapping[str, str | Path],
+    *,
+    data_revision: str | None = None,
+    git_probe: GitProbe | None = None,
+) -> dict[str, Any]:
+    """Capture the CURRENT commits of the given checkouts as a manifest
+    payload (an explicit operator/arming-step action — never called at
+    session run time, where the manifest is immutable input)."""
+    probe = git_probe or _default_git_probe
+    repos: dict[str, Any] = {}
+    for name, path in sorted(repo_paths.items()):
+        head = probe(["-C", str(path), "rev-parse", "HEAD"])
+        if head.returncode != 0:
+            raise ShadowABContractError(
+                f"cannot capture {name} at {path}: {(head.stderr or '').strip()}"
+            )
+        repos[name] = {"path": str(path), "commit": (head.stdout or "").strip()}
+    return {
+        "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+        "created_at": _utc_now_iso(),
+        "repos": repos,
+        "data_revision": data_revision,
+    }
+
+
 def _default_orchestrator_commit() -> str:
     root = Path(__file__).resolve().parents[2]
     proc = subprocess.run(
@@ -576,6 +702,8 @@ def build_arm_plan(
     model_content_sha256: str,
     calibrator_content_sha256: str | None,
     repo_root: Path | None = None,
+    ohlcv_dir: Path | None = None,
+    data_revision: str | None = None,
 ) -> list[list[str]]:
     """Build one arm's command sequence from the SHARED template.
 
@@ -632,6 +760,10 @@ def build_arm_plan(
     ]
     if repo_root is not None:
         inference_command += ["--repo-root", str(repo_root)]
+    if ohlcv_dir is not None:
+        inference_command += ["--ohlcv-dir", str(ohlcv_dir)]
+    if data_revision is not None:
+        inference_command += ["--data-revision", data_revision]
     return [
         context_command,
         inference_command,
@@ -907,12 +1039,15 @@ def run_shadow_ab_session(
     session_date: str | None = None,
     repo_root: str | Path | None = None,
     strategy_dir: str | Path | None = None,
+    ohlcv_dir: str | Path | None = None,
+    run_manifest: str | Path | None = None,
     snapshot_broker_name: str = "readonly-alpaca",
     ntfy_topic: str | None = None,
     plan_only: bool = False,
     command_runner: CommandRunner | None = None,
     fingerprint_from_path: Callable[[str | Path], str] | None = None,
     pins_resolver: Callable[[], Mapping[str, str]] | None = None,
+    manifest_git_probe: GitProbe | None = None,
     orchestrator_commit_resolver: Callable[[], str] | None = None,
     notifier: Notifier | None = None,
     base_env: Mapping[str, str] | None = None,
@@ -923,7 +1058,19 @@ def run_shadow_ab_session(
     constants) and, for non-plan runs, ``bundle_path``.
     """
     repo_root = Path(repo_root or default_repo_root())
-    strategy_dir = Path(strategy_dir) if strategy_dir else default_experiment_strategy_dir()
+    # The IMMUTABLE run manifest (when given) is the single authority for
+    # where every required repo lives — no sibling/name-based lookup.
+    manifest_payload: dict[str, Any] | None = (
+        load_run_manifest(run_manifest) if run_manifest is not None else None
+    )
+    if strategy_dir:
+        strategy_dir = Path(strategy_dir)
+    elif manifest_payload is not None:
+        strategy_dir = (
+            Path(manifest_payload["repos"]["renquant-strategy-104"]["path"]) / "configs"
+        )
+    else:
+        strategy_dir = default_experiment_strategy_dir()
     output_root = Path(output_root)
     session_date = session_date or dt.date.today().isoformat()
 
@@ -999,6 +1146,25 @@ def run_shadow_ab_session(
 
     # -- prechecks: resolve every §2a bundle field BEFORE anything runs -------
     try:
+        if manifest_payload is not None:
+            # Verify every manifest repo (commit match + CLEAN tree) BEFORE
+            # either arm; the resolved commits + data revision are recorded
+            # in the session bundle and the sealed decision snapshot.
+            resolved_repos = verify_run_manifest(
+                manifest_payload, git_probe=manifest_git_probe,
+            )
+            bundle["run_manifest"] = {
+                "path": str(run_manifest),
+                "data_revision": manifest_payload.get("data_revision"),
+                "verified": True,
+                "repos": {
+                    name: {
+                        "path": str(manifest_payload["repos"][name]["path"]),
+                        "commit": commit,
+                    }
+                    for name, commit in resolved_repos.items()
+                },
+            }
         fp_a = resolve_arm_fingerprints(
             config_a,
             strategy_dir=strategy_dir,
@@ -1013,7 +1179,10 @@ def run_shadow_ab_session(
             data_manifest_path=data_manifest,
             fingerprint_from_path=fingerprint_from_path,
         )
-        pins = dict(resolve_pins())
+        if manifest_payload is not None:
+            pins = {name: resolved_repos[name] for name in EXPERIMENT_PIN_REPOS}
+        else:
+            pins = dict(resolve_pins())
         missing_pins = [name for name in EXPERIMENT_PIN_REPOS if not pins.get(name)]
         if missing_pins:
             raise ShadowABContractError(
@@ -1178,6 +1347,10 @@ def run_shadow_ab_session(
             "market_snapshot_source": str(market_source),
             "account_snapshot_source": str(account_source),
         })
+        if bundle.get("run_manifest"):
+            # r2: all resolved commits + data revision live in the SEALED
+            # bundle too, not only the session bundle.
+            decision_snapshot["run_manifest"] = dict(bundle["run_manifest"])
         digest_token = decision_snapshot["digest"]
     bundle["decision_snapshot"] = decision_snapshot
     bundle["arms"]["a"]["decision_snapshot_digest"] = decision_snapshot["digest"]
@@ -1214,6 +1387,10 @@ def run_shadow_ab_session(
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
         repo_root=repo_root,
+        ohlcv_dir=Path(ohlcv_dir) if ohlcv_dir else None,
+        data_revision=(
+            (manifest_payload or {}).get("data_revision") if manifest_payload else None
+        ),
     )
     plan_b = build_arm_plan(
         tag=arm_b.tag,
@@ -1227,6 +1404,10 @@ def run_shadow_ab_session(
         model_content_sha256=fp_a.model_content_sha256,
         calibrator_content_sha256=fp_a.calibrator_content_sha256,
         repo_root=repo_root,
+        ohlcv_dir=Path(ohlcv_dir) if ohlcv_dir else None,
+        data_revision=(
+            (manifest_payload or {}).get("data_revision") if manifest_payload else None
+        ),
     )
     try:
         assert_preflight_symmetry(
@@ -1390,6 +1571,18 @@ def main(argv: list[str] | None = None) -> int:
             "umbrella-layout fallback (RFC frozen rule)"
         ),
     )
+    parser.add_argument(
+        "--run-manifest", required=True,
+        help=(
+            "IMMUTABLE run manifest json: {repos: {name: {path, commit}}, "
+            "data_revision} — every repo is verified (commit + clean tree) "
+            "BEFORE either arm; no sibling/name-based lookup"
+        ),
+    )
+    parser.add_argument(
+        "--ohlcv-dir", default=None,
+        help="explicit readonly OHLCV data root threaded to arm hydration",
+    )
     parser.add_argument("--snapshot-broker-name", default="readonly-alpaca")
     parser.add_argument(
         "--ntfy-topic", default=None,
@@ -1414,6 +1607,8 @@ def main(argv: list[str] | None = None) -> int:
             session_date=args.session_date,
             repo_root=args.repo_root,
             strategy_dir=args.strategy_dir,
+            ohlcv_dir=args.ohlcv_dir,
+            run_manifest=args.run_manifest,
             snapshot_broker_name=args.snapshot_broker_name,
             ntfy_topic=args.ntfy_topic,
             plan_only=args.plan_only,
@@ -1448,7 +1643,9 @@ __all__ = [
     "ShadowABContractError",
     "assert_preflight_symmetry",
     "build_arm_plan",
+    "build_run_manifest_payload",
     "default_experiment_strategy_dir",
+    "load_run_manifest",
     "main",
     "resolve_arm_fingerprints",
     "resolve_experiment_pins",
@@ -1460,6 +1657,7 @@ __all__ = [
     "validate_output_root",
     "validate_tags",
     "verify_decision_snapshot",
+    "verify_run_manifest",
 ]
 
 

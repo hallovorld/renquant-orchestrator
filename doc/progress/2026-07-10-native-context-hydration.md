@@ -94,3 +94,35 @@ fail-closed on missing market data / empty config / empty watchlist / bad date /
 missing session-date, alias idempotence + pinned-repo-only targets, legacy-path
 byte-identical pin. `tests/test_shadow_ab_runner.py` meta-test extended for the new
 inference flags. Full `make test` green.
+
+## r2 review round (Codex CHANGES_REQUESTED): explicit runtime, pinned manifest, bar validity
+
+1. **No umbrella runtime defaults in the wrapper** — `scripts/shadow_ab_daily.sh`
+   rewritten: `RENQUANT_SHADOW_AB_PYTHON` / `_RUN_MANIFEST` / `_REPO_ROOT` /
+   `_STRATEGY_DIR` are REQUIRED env inputs (`:?` fail-closed, zero literal umbrella
+   paths in the script); the data root defaults only off the explicit repo-root
+   input; credentials come from an explicit `_ENV_FILE`; PYTHONPATH is built from
+   the run manifest's repo paths + this orchestrator checkout (no
+   `subrepo_env.sh`, no sibling lookup); arm configs + the frozen data manifest
+   resolve from the manifest's pinned strategy-104 checkout. The plist carries the
+   operator's explicit values as reviewed configuration.
+2. **Immutable run manifest** — new `load_run_manifest` / `verify_run_manifest` /
+   `build_run_manifest_payload` in `shadow_ab_runner`: each required repo is
+   resolved from the manifest (path + commit) and verified — commit match AND
+   clean working tree — BEFORE either arm (any failure = precheck abort, neither
+   arm invoked); resolved commits + `data_revision` are recorded in the session
+   bundle AND the sealed `decision_snapshot.json`; the §2a pins now come from the
+   verified manifest, and the manifest's `data_revision` is threaded to each
+   arm's hydration report. `--run-manifest` is REQUIRED on the shadow-ab CLI.
+   A directory that merely exists is rejected (`test_e2e_unpinned_sibling_rejected`
+   covers both wrong-commit and dirty-tree).
+3. **Market-bar validity** — `validate_market_bars` in the hydration layer: every
+   consumed symbol's last bar is sealed (per-symbol bar timestamps + session-close
+   watermark + window bounds recorded in the run bundle) and must land inside
+   `[required_closed_session, decision_cutoff]`, where the required session comes
+   from the pinned pipeline's own NYSE calendar helper (weekday fallback).
+   A future bar (rerun lookahead) or a stale bar rejects the hydration →
+   the arm exits nonzero → paired invalidation of BOTH arms.
+   `test_e2e_stale_bar_rejected` / `test_e2e_future_bar_rejected` added.
+
+Tests: hydration file 10, shadow-ab runner file 52 (manifest e2e + CLI updates).

@@ -7,12 +7,21 @@
   TEMPLATE ONLY: merging this file does NOT install anything. Arming is a
   separately-granted operator landing step:
 
-      cp deploy/com.renquant.shadow-ab-daily.plist ~/Library/LaunchAgents/
-      launchctl load ~/Library/LaunchAgents/com.renquant.shadow-ab-daily.plist
+      1. Write the IMMUTABLE run manifest for the pinned checkouts (an
+         explicit arming-step action, e.g. via
+         renquant_orchestrator.shadow_ab_runner.build_run_manifest_payload)
+         to ~/renquant-shadow-ab/run_manifest.json.
+      2. Review/adjust EnvironmentVariables below — every runtime, data-root
+         and pin-manifest input is EXPLICIT operator configuration here (the
+         wrapper script has no defaults for them and fails closed if absent).
+      3. cp deploy/com.renquant.shadow-ab-daily.plist ~/Library/LaunchAgents/
+         launchctl load ~/Library/LaunchAgents/com.renquant.shadow-ab-daily.plist
 
   The wrapper (scripts/shadow_ab_daily.sh) is readonly by construction: it
   never writes prod state, never places orders, and a failure only marks the
-  session-pair invalid (exit 4) or VOID (exit 5, config drift).
+  session-pair invalid (exit 4) or VOID (exit 5, config drift). The runner
+  verifies every manifest repo (commit match + clean working tree) BEFORE
+  either arm runs.
 -->
 <plist version="1.0">
 <dict>
@@ -38,6 +47,25 @@
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <!-- Explicit operator configuration (Codex r2 on #460): the wrapper
+             carries NO defaults for these; the values below are configuration
+             owned by this plist and reviewed at arming time. -->
+        <key>RENQUANT_SHADOW_AB_PYTHON</key>
+        <string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
+        <key>RENQUANT_SHADOW_AB_RUN_MANIFEST</key>
+        <string>/Users/renhao/renquant-shadow-ab/run_manifest.json</string>
+        <key>RENQUANT_SHADOW_AB_REPO_ROOT</key>
+        <string>/Users/renhao/git/github/RenQuant</string>
+        <key>RENQUANT_SHADOW_AB_STRATEGY_DIR</key>
+        <string>/Users/renhao/git/github/RenQuant/backtesting/renquant_104</string>
+        <key>RENQUANT_SHADOW_AB_DATA_ROOT</key>
+        <string>/Users/renhao/git/github/RenQuant/data/ohlcv</string>
+        <key>RENQUANT_SHADOW_AB_ENV_FILE</key>
+        <string>/Users/renhao/git/github/RenQuant/.env</string>
+        <key>RENQUANT_SHADOW_AB_ROOT</key>
+        <string>/Users/renhao/renquant-shadow-ab</string>
+        <key>RENQUANT_SHADOW_AB_NTFY_TOPIC</key>
+        <string>renquant-shadow-ab</string>
     </dict>
     <key>RunAtLoad</key>
     <false/>

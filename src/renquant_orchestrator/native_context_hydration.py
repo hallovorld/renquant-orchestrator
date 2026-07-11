@@ -189,6 +189,78 @@ def _load_optional_artifacts(
     return out
 
 
+def _required_closed_session(session_date: "dt.date") -> tuple["dt.date", str]:
+    """The last COMPLETED NYSE session as of the session-close watermark
+    (session_date 16:00:01 America/New_York) — via the pinned pipeline's own
+    calendar helper, weekday fallback if the calendar package is missing.
+    Returns (required_session_date, watermark_iso)."""
+    import pandas as pd  # noqa: PLC0415
+    from renquant_pipeline.kernel.data import (  # noqa: PLC0415
+        _last_completed_nyse_session,
+    )
+
+    watermark = pd.Timestamp(
+        f"{session_date.isoformat()} 16:00:01", tz="America/New_York"
+    )
+    required = _last_completed_nyse_session(watermark)
+    if required is None:  # calendar unavailable — weekday approximation
+        required = session_date
+        while required.weekday() >= 5:
+            required -= dt.timedelta(days=1)
+    return required, watermark.isoformat()
+
+
+def validate_market_bars(
+    ohlcv: dict[str, Any],
+    *,
+    session_date: "dt.date",
+) -> dict[str, Any]:
+    """Seal + validate every consumed bar against the session window (r2).
+
+    Each symbol's LAST bar timestamp must land inside
+    ``[required_closed_session, session_date]``: a bar AFTER the decision
+    cutoff is lookahead (future data on a rerun), a bar BEFORE the required
+    closed session is stale — both REJECT the whole hydration (fail-closed;
+    the arm exits nonzero and the runner's paired rule invalidates BOTH
+    arms). Returns the sealed validity block (per-symbol bar timestamps +
+    session-close watermark + window bounds) for the run bundle."""
+    required_session, watermark_iso = _required_closed_session(session_date)
+    bar_timestamps: dict[str, str] = {}
+    stale: list[str] = []
+    future: list[str] = []
+    for symbol in sorted(ohlcv):
+        frame = ohlcv[symbol]
+        try:
+            last_ts = frame.index[-1]
+            bar_date = last_ts.date() if hasattr(last_ts, "date") else None
+        except Exception:  # noqa: BLE001
+            bar_date = None
+            last_ts = None
+        if bar_date is None:
+            stale.append(f"{symbol}@<unreadable-bar-timestamp>")
+            continue
+        bar_timestamps[symbol] = str(last_ts)
+        if bar_date > session_date:
+            future.append(f"{symbol}@{bar_date.isoformat()}")
+        elif bar_date < required_session:
+            stale.append(f"{symbol}@{bar_date.isoformat()}")
+    if stale or future:
+        raise HydrationError(
+            "market bars outside the valid session window "
+            f"[required_closed_session={required_session.isoformat()}, "
+            f"decision_cutoff={session_date.isoformat()}]: "
+            f"future(lookahead)={future[:5]} ({len(future)} total), "
+            f"stale={stale[:5]} ({len(stale)} total) — refusing to score a "
+            "stale or rerun-poisoned world"
+        )
+    return {
+        "required_closed_session": required_session.isoformat(),
+        "decision_cutoff": session_date.isoformat(),
+        "session_close_watermark": watermark_iso,
+        "bar_timestamps": bar_timestamps,
+    }
+
+
 def hydrate_pipeline_context(
     context_payload: dict[str, Any],
     *,
@@ -198,6 +270,7 @@ def hydrate_pipeline_context(
     repo_root: str | Path | None = None,
     ohlcv_dir: str | Path | None = None,
     ohlcv_loader: OhlcvLoader | None = None,
+    data_revision: str | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Build the pinned pipeline's real ``InferenceContext`` from the verified
     context JSON payload. Returns ``(ctx, hydration_report)``.
@@ -281,6 +354,12 @@ def hydrate_pipeline_context(
             "an empty market (checked readonly local store only; the daily "
             "data jobs own freshness)"
         )
+
+    # r2 (Codex on #460): prove every consumed bar is the last CLOSED bar
+    # for the session — reject stale (before the required closed session)
+    # and future (after the decision cutoff, i.e. rerun lookahead) bars,
+    # and seal the per-symbol bar timestamps + session-close watermark.
+    bar_validity = validate_market_bars(ohlcv, session_date=today)
 
     # prices: broker marks from the sealed account snapshot, local close fallback
     prices: dict[str, float] = {}
@@ -410,6 +489,12 @@ def hydrate_pipeline_context(
         "entry_date_sentinel": sentinel_entry.isoformat(),
         "models_loaded": len(models),
         "model_rejections": len(universe_rejections),
+        "ohlcv_source": str(ohlcv_dir) if ohlcv_dir is not None else (
+            str(Path(repo_root) / "data" / "ohlcv") if repo_root is not None
+            else "<env-resolved LocalStore>"
+        ),
+        "data_revision": data_revision,
+        "bar_validity": bar_validity,
     }
     return ctx, report
 
@@ -426,4 +511,5 @@ __all__ = [
     "hydrate_pipeline_context",
     "install_native_panel_scoring_alias",
     "install_native_pipeline_aliases",
+    "validate_market_bars",
 ]
