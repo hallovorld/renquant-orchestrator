@@ -89,6 +89,35 @@ export RENQUANT_REPO_ROOT="$REPO_ROOT"
 export RENQUANT_OHLCV_DIR="$DATA_ROOT"
 export RENQUANT_SUPPRESS_PREFLIGHT_NTFY=1
 
+# Verify the immutable pin set before reading market data or writing either
+# snapshot artifact. The runner repeats this immediately before arming; this
+# wrapper-level check prevents a malformed/dirty manifest from being hidden by
+# an unrelated market-data setup error.
+"$PYTHON" - "$RUN_MANIFEST" <<'PY'
+import sys
+
+from renquant_orchestrator.shadow_ab_runner import (
+    ShadowABContractError,
+    load_run_manifest,
+    verify_run_manifest,
+)
+
+try:
+    verify_run_manifest(load_run_manifest(sys.argv[1]))
+except ShadowABContractError as exc:
+    print(f"PRECHECK: {exc}", file=sys.stderr)
+    raise SystemExit(3)
+PY
+preflight_rc=$?
+if [ "$preflight_rc" -ne 0 ]; then
+    if [ "$preflight_rc" -eq 3 ]; then
+        echo "PRECHECK: run manifest verification failed"
+        exit 3
+    fi
+    echo "SETUP: run manifest preflight failed"
+    exit 2
+fi
+
 # STRATEGY_DIR (the artifact-fingerprint-resolution anchor) + arm configs +
 # frozen data manifest ALL resolve from the SAME MANIFEST-pinned strategy-104
 # checkout (verified by the runner) — there is deliberately no second,
