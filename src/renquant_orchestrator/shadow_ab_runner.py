@@ -616,6 +616,50 @@ def load_run_manifest(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def quarantine_stray_arm_byproducts(
+    manifest: Mapping[str, Any],
+    *,
+    quarantine_root: Path,
+    git_probe: GitProbe | None = None,
+) -> list[str]:
+    """Post-arm self-healing for the 2026-07-11 self-poisoning incident.
+
+    A successful arm run that writes into a MANIFEST-PINNED checkout (the
+    kernel's strategy-dir-relative log writers) dirties the tree AFTER this
+    session's own verification passed — poisoning the NEXT session's
+    verify_run_manifest. Containment (--log-containment-dir) makes this a
+    no-op normally; this check is the backstop: re-scan every manifest repo
+    after the arms, and quarantine ONLY the known byproduct pattern (an
+    untracked ``logs/`` directory) into the session's quarantine dir,
+    preserving the files as evidence. Anything ELSE left dirty is reported
+    but NOT touched — the next precheck fails closed on it, by design.
+    Returns human-readable notes for the bundle.
+    """
+    probe = git_probe or _default_git_probe
+    notes: list[str] = []
+    for name, entry in sorted((manifest.get("repos") or {}).items()):
+        path = Path(entry["path"])
+        status = probe(["-C", str(path), "status", "--porcelain"])
+        if status.returncode != 0 or not (status.stdout or "").strip():
+            continue
+        lines = (status.stdout or "").strip().splitlines()
+        for line in lines:
+            if line.strip() == "?? logs/":
+                dest = quarantine_root / f"{name}-logs"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                (path / "logs").rename(dest)
+                notes.append(
+                    f"post_arm_quarantine: {name} untracked logs/ moved to "
+                    f"{dest} (write containment missed a writer — fix it)"
+                )
+            else:
+                notes.append(
+                    f"post_arm_tree_dirty: {name}: {line.strip()!r} left in "
+                    "place; next session will fail closed on it"
+                )
+    return notes
+
+
 def resolve_manifest_artifact_store(manifest: Mapping[str, Any]) -> Path | None:
     """The declared store root INSIDE the named manifest repo, or ``None``.
 
@@ -828,6 +872,9 @@ def build_arm_plan(
         inference_command += ["--data-revision", data_revision]
     if artifact_store is not None:
         inference_command += ["--artifact-store", str(artifact_store)]
+    # Write containment: kernel log writers land in the ARM dir, never the
+    # pinned strategy checkout (the 2026-07-11 self-poisoning incident).
+    inference_command += ["--log-containment-dir", str(arm_dir)]
     return [
         context_command,
         inference_command,
@@ -1606,6 +1653,18 @@ def run_shadow_ab_session(
 
     if not _verify_paired_world("post_arms"):
         return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
+
+    if manifest_payload is not None:
+        try:
+            notes = quarantine_stray_arm_byproducts(
+                manifest_payload,
+                quarantine_root=session_dir / "quarantine",
+                git_probe=manifest_git_probe,
+            )
+        except OSError as exc:  # never let self-healing kill a valid pair
+            notes = [f"post_arm_quarantine_error: {exc}"]
+        if notes:
+            bundle["warnings"] = bundle.get("warnings", []) + notes
 
     failed = sorted(label for label, ok in arm_ok.items() if not ok)
     if failed:

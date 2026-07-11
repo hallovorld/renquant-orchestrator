@@ -1579,3 +1579,50 @@ def test_artifact_symlink_escaping_store_aborts_precheck(tmp_path: Path) -> None
     )
     assert result["exit_code"] == EXIT_PRECHECK_ABORT
     assert any("escapes the declared artifact store" in r for r in result["reasons"])
+
+
+# --- write containment + post-arm quarantine (2026-07-11 self-poisoning) -------
+
+
+def test_arm_inference_commands_carry_log_containment_dir(tmp_path: Path) -> None:
+    world = _write_world(tmp_path)
+    result = _run(world, tmp_path / "sessions")
+    for arm in ("a", "b"):
+        plan = result["arms"][arm]["planned_commands"]
+        inference_cmd = next(c for c in plan if "native-live-inference" in c)
+        contained = inference_cmd[inference_cmd.index("--log-containment-dir") + 1]
+        # the arm's OWN directory — never the pinned strategy checkout
+        assert f"arm_" in contained and str(tmp_path / "sessions") in contained
+
+
+def test_post_arm_quarantine_moves_stray_logs_and_warns(tmp_path: Path) -> None:
+    from renquant_orchestrator.shadow_ab_runner import (
+        quarantine_stray_arm_byproducts,
+    )
+    import subprocess as sp
+
+    repo = tmp_path / "pins" / "renquant-strategy-104"
+    (repo / "configs").mkdir(parents=True)
+    (repo / "configs" / "m.txt").write_text("x", encoding="utf-8")
+    sp.run(["git", "init", "-q", str(repo)], check=True)
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+            "commit", "-qm", "init"], check=True)
+    # a session byproduct (the incident shape) + an unrelated dirty file
+    (repo / "logs").mkdir()
+    (repo / "logs" / "admission_shadow.jsonl").write_text("{}", encoding="utf-8")
+    (repo / "configs" / "m.txt").write_text("hand-edit", encoding="utf-8")
+
+    manifest = {"repos": {"renquant-strategy-104": {"path": str(repo), "commit": "x"}}}
+    notes = quarantine_stray_arm_byproducts(
+        manifest, quarantine_root=tmp_path / "q",
+    )
+    # logs/ quarantined with evidence preserved
+    assert not (repo / "logs").exists()
+    assert (tmp_path / "q" / "renquant-strategy-104-logs" /
+            "admission_shadow.jsonl").exists()
+    assert any("post_arm_quarantine" in n for n in notes)
+    # the unrelated dirty file is REPORTED but left in place (fail-closed next
+    # session, by design)
+    assert (repo / "configs" / "m.txt").read_text() == "hand-edit"
+    assert any("post_arm_tree_dirty" in n for n in notes)

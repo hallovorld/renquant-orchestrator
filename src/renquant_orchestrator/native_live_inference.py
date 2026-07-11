@@ -62,6 +62,7 @@ def run_native_live_inference(
     ohlcv_dir: str | Path | None = None,
     data_revision: str | None = None,
     artifact_store: str | Path | None = None,
+    log_containment_dir: str | Path | None = None,
     context_hydrator: Any | None = None,
 ) -> dict[str, Any]:
     """Run native inference on a context JSON.
@@ -115,6 +116,8 @@ def run_native_live_inference(
             # Only threaded when declared (run-manifest artifact_store) so
             # legacy hydrator stubs/calls stay byte-identical.
             hydrate_kwargs["artifact_store"] = artifact_store
+        if log_containment_dir is not None:
+            hydrate_kwargs["log_containment_dir"] = log_containment_dir
         ctx, hydration_report = hydrator(context_payload, **hydrate_kwargs)
         hydration_report = dict(hydration_report or {})
         hydration_report["pipeline_module_aliases"] = aliases
@@ -154,6 +157,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ohlcv-dir", default=None)
     parser.add_argument("--data-revision", default=None)
     parser.add_argument(
+        "--log-containment-dir", default=None,
+        help="redirect strategy-dir-relative kernel log writers into this "
+             "directory (write containment for the pinned checkout)",
+    )
+    parser.add_argument(
         "--artifact-store", default=None,
         help="explicitly declared artifact-store root (run-manifest "
              "artifact_store) for store-addressed config refs",
@@ -173,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         ohlcv_dir=args.ohlcv_dir,
         data_revision=args.data_revision,
         artifact_store=args.artifact_store,
+        log_containment_dir=args.log_containment_dir,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0

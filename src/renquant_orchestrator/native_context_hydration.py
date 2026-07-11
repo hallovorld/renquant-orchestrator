@@ -341,6 +341,7 @@ def hydrate_pipeline_context(
     ohlcv_loader: OhlcvLoader | None = None,
     data_revision: str | None = None,
     artifact_store: str | Path | None = None,
+    log_containment_dir: str | Path | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Build the pinned pipeline's real ``InferenceContext`` from the verified
     context JSON payload. Returns ``(ctx, hydration_report)``.
@@ -392,6 +393,31 @@ def hydrate_pipeline_context(
         )
     else:
         rewritten = {}
+    contained_logs: dict[str, str] = {}
+    if log_containment_dir is not None:
+        # Write containment (2026-07-11 incident): the kernel's
+        # AdmissionShadowLoggerTask defaults its JSONL under
+        # config["_strategy_dir"]/logs — on the §2a arm path that is the
+        # MANIFEST-PINNED strategy checkout, so a successful arm run
+        # dirties the tree and the NEXT session's verify_run_manifest
+        # fails closed (self-poisoning). Redirect every known
+        # strategy-dir-relative WRITER to the arm's own directory —
+        # in-memory only, same identity-safety argument as the artifact
+        # rewrite above (config sha frozen from raw file bytes; these
+        # keys are not in the P-CONFIG-FP projection).
+        containment = Path(log_containment_dir)
+        shadow_cfg = config.get("admission_shadow")
+        if not isinstance(shadow_cfg, dict):
+            shadow_cfg = {}
+            config["admission_shadow"] = shadow_cfg
+        target = str(containment / "admission_shadow.jsonl")
+        shadow_cfg["path"] = target
+        contained_logs["admission_shadow"] = target
+        sleeve_cfg = config.get("sleeve")
+        if isinstance(sleeve_cfg, dict) and sleeve_cfg.get("log_path"):
+            target = str(containment / Path(str(sleeve_cfg["log_path"])).name)
+            sleeve_cfg["log_path"] = target
+            contained_logs["sleeve"] = target
 
     account_snapshot = context_payload.get("account_snapshot") or {}
     if not isinstance(account_snapshot, dict):
@@ -578,6 +604,7 @@ def hydrate_pipeline_context(
             str(artifact_store) if artifact_store is not None else None
         ),
         "artifact_refs_rewritten": rewritten,
+        "log_containment": contained_logs,
     }
     return ctx, report
 
