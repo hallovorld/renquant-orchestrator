@@ -303,10 +303,14 @@ repo). It holds:
   alone cannot witness its own rollback): the recorded manifest on
   orchestrator `origin/main` carries the generation, and that
   branch-protected remote ref is the independent ledger. Enforcement:
-  every MUTATION (`apply`, `reconcile-generation`) verifies the local
-  epoch against `origin/main` and FAILS CLOSED when the anchor is
-  unreachable or disagrees; the daily preflight/doctor does the same
-  comparison and alarms on divergence or anchor-unreachability. Pure
+  every MUTATION (`apply`, `reconcile-generation`) evaluates the anchored
+  TRANSITION PREDICATE for its mutation kind (§7.1 — a record-first apply
+  legitimately sees origin/main one generation AHEAD of the machine, so
+  the rule is predecessor-exactness, not literal equality) and FAILS
+  CLOSED when the anchor is unreachable or the predicate does not hold;
+  the daily preflight/doctor evaluates the STEADY-STATE predicate
+  (machine == origin/main recorded manifest, same generation) and alarms
+  on divergence or anchor-unreachability. Pure
   READ paths remain offline-capable against the local record — with the
   threat model stated honestly: a full host-root rollback in the window
   between network checks, with every alarm ignored, is detected at the
@@ -437,9 +441,11 @@ faster default:
   fixture label (and the #465 test-fixture principal names), with a
   dedicated rejection test; fixture keys exist for tests only and can never
   authorize a production apply;
-- emits an **immutable receipt** (append-only under
-  `~/.renquant/deploy/receipts/`, content-addressed, referenced by the
-  next recording PR) BEFORE mutating anything;
+- stages a **local integrity record** (append-only under
+  `~/.renquant/deploy/receipts/`, content-addressed) BEFORE mutating
+  anything — immutable only once anchored by inclusion in the mandatory
+  reconciliation PR (the git remote is the durable home; the local file
+  shares the §5.2 host threat model);
 - auto-opens the **reconciliation PR** immediately after apply (manifest
   content + token + receipt + verify evidence);
 - reconciliation SLA = 1 trading session; past it, or if a second
@@ -458,6 +464,30 @@ The **recording-SLA tripwire** (daily preflight + `make doctor`) compares
 machine manifest ↔ orchestrator `origin/main` manifest ↔ expected
 generation on every run, reporting divergence from the first second
 regardless of which lane produced it.
+
+## 7.1 Epoch transition contract (the formal state machine)
+
+State: `local = (manifest_local, sha_local, gen_local)` — the machine copy +
+its content hash + generation, with `expected-generation.json` holding
+`(gen_local, sha_local)`; `main = (manifest_main, sha_main, gen_main)` — the
+recorded manifest at orchestrator `origin/main` (fetched ref). Every
+mutation evaluates its predicate ATOMICALLY against a single fetched
+snapshot of `main`; predicate failure = fail closed, no partial writes.
+
+| mutation | permitted iff (ALL of) | writes | remote evidence required |
+|---|---|---|---|
+| **normal apply** (record-first) | anchor reachable; `gen_main == gen_local + 1`; `manifest_main.supersedes_sha256 == sha_local`; candidate executed = `manifest_main` byte-exact | machine manifest := `manifest_main`; expected-generation := `(gen_main, sha_main)` after successful verify | the merged pin-bump PR IS the evidence (already on main) |
+| **emergency apply** (token lane) | anchor reachable; valid signed token whose scope covers the exact repo/commit deltas; candidate built locally with `generation == gen_local + 1` and `supersedes_sha256 == sha_local` | same as normal apply, from the local candidate; local integrity record staged FIRST | reconciliation PR (candidate + token + receipt + verify evidence) opened immediately; SLA per §7 |
+| **failed-verify revert** (auto) | triggered only by a failed verify inside an apply; revert candidate has `generation == gen_current + 1`, `supersedes_sha256 == sha_current`, pin values = pre-apply state | machine manifest := revert candidate; expected-generation advances | auto-opened revert-recording PR; applies blocked until merged |
+| **reconcile-generation** (manual recovery) | anchor reachable; machine manifest content hash equals SOME manifest recorded in origin/main history; operator invocation | expected-generation := that record's `(gen, sha)` — forward-only relative to the current record | the matching origin/main commit is cited in the command output and the next doctor report |
+
+Rejected by construction: generation skips (`gen_main > gen_local + 1` —
+someone recorded past this machine: applies halt until reconciled);
+rollback to any `gen ≤ gen_local`; a candidate whose declared
+`supersedes_sha256` differs from the machine's actual `sha_local` (the
+machine is not the state the reviewer approved a transition FROM); any
+mutation with the anchor unreachable. READ paths never mutate and use the
+steady-state predicate (§5.2) for alarming only.
 
 ## 8. The transition invariant
 

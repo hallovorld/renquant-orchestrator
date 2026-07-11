@@ -91,3 +91,17 @@ All five objections incorporated:
    lane hard-rejects fixture/PLACEHOLDER signers and stays disabled until
    the operator's real key lands. New Stage-4 drills: host-root restore,
    anchor-unreachable, fixture-signer rejection.
+
+## r4 (Codex r3 — revised personally)
+
+Final blocker resolved: §7.1 adds the formal epoch transition contract —
+per-mutation predicates (normal apply = predecessor-exactness with
+gen_main == gen_local+1 and supersedes hash == machine hash; emergency =
+token-bounded local candidate; failed-verify revert and
+reconcile-generation with their required remote evidence), explicit
+rejections (skips, rollbacks, predecessor-hash mismatch, anchor
+unreachable), atomic single-snapshot evaluation. §5.2's mutation rule now
+references the predicate table instead of literal equality (which would
+have rejected every normal record-first apply); §7's receipt wording
+corrected to "locally staged integrity record, immutable only once
+anchored by the reconciliation PR".
