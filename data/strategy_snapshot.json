@@ -177,6 +177,7 @@
     "sign_laundering_harness",
     "signal_pipeline_config",
     "software_stop",
+    "software_stops_registry_contract",
     "state_backup",
     "tc_measurement",
     "tournament_shadow_admission",

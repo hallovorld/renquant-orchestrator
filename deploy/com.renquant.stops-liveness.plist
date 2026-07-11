@@ -25,15 +25,31 @@
       scripts/install_stops_pager.sh install [apply flag]
       scripts/install_stops_pager.sh test-fire STALE   (delivery + response drill)
 
-  IMPORTANT (2026-07-11 Codex review of the prior revision): the honest
-  alert-latency envelope is ~18-28 minutes after the first missed pass,
-  which does NOT meet the design's 15-minute target. This package is
-  staged dark and is NOT stage-3-ready and does NOT by itself support
-  strategy-104#55/#56 enablement — see
-  doc/progress/2026-07-11-stops-liveness-pager-package.md for the full
-  gap analysis and the required follow-up (either a tighter
-  max_staleness_minutes on the arming side, out of scope here, or a
-  separately-signed operator acceptance of this envelope).
+  BLOCKED — NOT MERGEABLE AS "DONE" (Codex round-3 review, 2026-07-11): this
+  package is CORRECT for what it covers (pinned schedule + notification
+  consumer, code resolution through the R-PIN runtime inventory) but it is
+  NOT COMPLETE and must stay in changes-requested/blocked status. Two
+  independent, load-bearing gaps, neither closed by this file:
+
+  (1) DATA-ROOT AUTHORITY (the still-open Codex blocker): the
+      RENQUANT_STOPS_PAGER_DATA_ROOT value below still names the deprecated
+      umbrella checkout — a real production dependency, not a harmless
+      default, even though code imports resolve through pins. This repo
+      defines the neutral contract the writer should eventually satisfy
+      (renquant_orchestrator.software_stops_registry_contract — neutral
+      runtime-state-root convention + a versioned registry-file envelope)
+      and the wrapper now WARNS on every run when the resolved data root is
+      not that neutral root (it is, today). Migrating the ACTUAL writer
+      (the live sell-only loop) off the umbrella path is a SEPARATE,
+      explicitly-authorized, live-tree R-PIN landing change — not made
+      here, not implied by merging this file.
+  (2) SLA HONESTY: the alert-latency envelope is ~18-28 minutes after the
+      first missed pass, which does NOT meet the design's 15-minute
+      target.
+
+  See doc/progress/2026-07-11-stops-liveness-pager-package.md, "BLOCKING
+  FOLLOW-UP", for the full gap analysis and both required follow-ups. This
+  package does NOT by itself support strategy-104#55/#56 enablement.
 -->
 <plist version="1.0">
 <dict>
@@ -79,12 +95,20 @@
              venv's editable installs are needed. -->
         <key>RENQUANT_STOPS_PAGER_PYTHON</key>
         <string>/Users/renhao/miniconda3/envs/renquant/bin/python</string>
-        <!-- Where the live sell-only loop currently writes the software-stop
-             registry. This is STILL umbrella-anchored today as a matter of
-             fact (the live runner has not migrated its data root) — that
-             is the R-PIN migration's job, not this ops package's; this
-             value is explicit, reviewed plist configuration, not a
-             wrapper-script default. -->
+        <!-- INTERIM / BRIDGE VALUE — STILL THE DEPRECATED UMBRELLA (Codex
+             round-3 review, 2026-07-11: "show the deployed plist/wrapper
+             value and prove it does not name the umbrella" — it DOES; this
+             comment does not dispute that). Where the live sell-only loop
+             currently writes the software-stop registry. This value is
+             explicit, reviewed plist configuration, never a wrapper-script
+             default (RUNTIME CONTRACT) — but it is still a real production
+             dependency on the umbrella. Migrating the WRITER to the neutral
+             runtime-state-root contract this repo now defines
+             (renquant_orchestrator.software_stops_registry_contract) is a
+             SEPARATE, out-of-scope, live-tree R-PIN landing change; the
+             wrapper detects and WARNS on this exact interim state every
+             run (see scripts/stops_liveness_pager.sh, "STILL-OPEN
+             BLOCKER"). -->
         <key>RENQUANT_STOPS_PAGER_DATA_ROOT</key>
         <string>/Users/renhao/git/github/RenQuant</string>
     </dict>

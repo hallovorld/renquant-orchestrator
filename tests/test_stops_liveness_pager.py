@@ -337,6 +337,68 @@ def test_wrapper_resolves_pinned_checkouts_via_runtime_inventory(tmp_path, ntfy_
     assert "--broker alpaca" in proc.stdout
 
 
+def test_wrapper_warns_when_data_root_is_legacy_not_neutral(tmp_path, ntfy_server):
+    """Codex round-3 review of PR #481 (2026-07-11): CODE resolution now
+    goes through pins, but the DATA root is still an explicit, reviewed
+    plist value naming the deprecated umbrella in production — a real
+    dependency Codex said must be made observable, not silently accepted.
+    A data root outside the neutral runtime-state-root contract
+    (renquant_orchestrator.software_stops_registry_contract) must produce a
+    CLEARLY LABELED warning on stderr every run, without changing the
+    paging decision (still exit 0, still no page, for an OK checker)."""
+    base, requests = ntfy_server
+    state_root = _fake_state_root(tmp_path)
+    legacy_data_root = tmp_path / "RenQuant"  # umbrella-shaped, not neutral
+    legacy_data_root.mkdir()
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "HOME": str(tmp_path),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(legacy_data_root),
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_NTFY_BASE": base,
+        "RENQUANT_STOPS_PAGER_NTFY_TOPIC": "test-topic",
+        "FAKE_STOPS_EXIT": "0",
+        "FAKE_STOPS_MSG": "OK: stub registry fresh",
+    }
+    proc = subprocess.run(
+        ["bash", str(WRAPPER)], env=env, text=True, capture_output=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert requests == [], "observability warning must not itself page"
+    assert "WARNING: LEGACY/UNVERSIONED" in proc.stderr
+    assert "R-PIN writer migration not yet landed" in proc.stderr
+
+
+def test_wrapper_does_not_warn_when_data_root_is_under_neutral_runtime_root(tmp_path, ntfy_server):
+    """The inverse of the above: a data root that IS under the neutral
+    runtime-state root (the shape a migrated writer would use) must not
+    trip the legacy warning — proving the check is a real classifier, not
+    an always-on notice."""
+    base, requests = ntfy_server
+    state_root = _fake_state_root(tmp_path)
+    neutral_root = tmp_path / ".renquant" / "runtime"
+    neutral_data_root = neutral_root / "software-stops"
+    neutral_data_root.mkdir(parents=True)
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "HOME": str(tmp_path),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(neutral_data_root),
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_NTFY_BASE": base,
+        "RENQUANT_STOPS_PAGER_NTFY_TOPIC": "test-topic",
+        "FAKE_STOPS_EXIT": "0",
+        "FAKE_STOPS_MSG": "OK: stub registry fresh",
+    }
+    proc = subprocess.run(
+        ["bash", str(WRAPPER)], env=env, text=True, capture_output=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert requests == []
+    assert "LEGACY/UNVERSIONED" not in proc.stderr
+
+
 def test_wrapper_stale_pin_pages_resolution_failure_not_false_stale(tmp_path, ntfy_server):
     """Stale-pin guard (found by live smoke 2026-07-11): the host's pinned
     renquant-execution checkout predates renquant-execution#29, and
