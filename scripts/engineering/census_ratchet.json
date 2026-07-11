@@ -1,11 +1,12 @@
 {
-  "_doc": "Gate-writer census ratchet (eng plan S2-PR4 / errata C(iii)). CI fails if the AST census over renquant-pipeline/src exceeds max_buy_blocked_writers. Retirement PRs TIGHTEN this number; it never grows. Authority: renquant_orchestrator.engineering_census.",
-  "max_buy_blocked_writers": 3,
+  "_doc": "Gate-writer census ratchet (eng plan S2-PR4 / errata C(iii)). CI fails if the AST census over renquant-pipeline/src exceeds max_buy_blocked_writers. Retirement PRs TIGHTEN this number; it never grows WITHOUT explicit justification recorded here for a genuinely new, structurally-necessary choke point (see the 2026-07-11 entry below). Authority: renquant_orchestrator.engineering_census.",
+  "max_buy_blocked_writers": 4,
   "breakdown_at_last_update": {
     "kernel/panel_pipeline/job_panel_scoring.py": "1 designated choke point (kernel PanelScoringJob.run, pipeline #128)",
     "kernel/pipeline/job_gates.py": "1 designated choke point (BuyGatesJob.run, #123)",
-    "panel_scoring.py": "1 designated choke point (PanelScoringJob.run, #125)"
+    "panel_scoring.py": "1 designated choke point (PanelScoringJob.run, #125)",
+    "kernel/pipeline/task_data_availability.py": "1 designated choke point (DataAvailabilityGateTask.enforce_buy_block, pipeline #187, 2026-07-11) — runs strictly AFTER the sell/exit pass and BEFORE the buy-candidate scan, a pipeline phase none of the other 3 choke points occupy (they all run earlier in InferencePipeline). This ordering is the entire point of #187's P1 safety fix (a data-availability block must never suppress a risk-reducing sell/exit) and cannot be folded into an existing choke point without breaking that guarantee. Dual-writes the GateRegistry (pipeline #189) like the other three."
   },
-  "floor": 3,
-  "_floor_doc": "3 = the designated job-boundary choke points (one per pipeline with gates). errata C(iii) COMPLETE for the pipeline repo as of #128: every gate submits to the GateRegistry; only the aggregate-application points write buy_blocked."
+  "floor": 4,
+  "_floor_doc": "4 = the designated job-boundary choke points (one per pipeline phase with gates). errata C(iii) COMPLETE for the pipeline repo as of #128 for the original 3; task_data_availability.py is a 4th, added 2026-07-11 for a genuinely new pipeline phase (post-sell/pre-buy-scan input-availability gating), not a regression of the migration. Every gate submits to the GateRegistry; only the aggregate-application (and now phase-boundary) points write buy_blocked."
 }

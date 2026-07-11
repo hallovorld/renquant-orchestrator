@@ -43,4 +43,7 @@ def test_gate_writer_ratchet():
 def test_ratchet_file_well_formed():
     ratchet = json.loads(RATCHET.read_text())
     assert isinstance(ratchet["max_buy_blocked_writers"], int)
-    assert ratchet["floor"] == 3  # the three designated choke points
+    # 4 designated choke points as of 2026-07-11 (pipeline #187/#189 added
+    # task_data_availability.py's post-sell/pre-buy-scan enforce_buy_block —
+    # a genuinely new pipeline phase, not a regression of the migration).
+    assert ratchet["floor"] == 4
