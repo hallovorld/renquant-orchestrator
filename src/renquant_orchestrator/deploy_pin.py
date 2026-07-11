@@ -3,7 +3,7 @@
 Design: doc/design/2026-07-11-deployment-pin-authority-migration.md (§5.1
 schema, §5.2 neutral state root, §9 Stage 1).
 
-Stage 1 ships exactly ONE subcommand:
+Stage 1 ships TWO subcommands:
 
 ``deploy-pin capture``
     Reads the DEPLOYED truth — the on-disk umbrella ``subrepos.lock.json``
@@ -39,6 +39,25 @@ readonly-e2e verification evidence reference (the renquant-artifacts
 #13/#14 mechanism). Without it the record is emitted in the pre-seal
 ``captured`` state; the durable commit of the first manifest (the Stage-1
 follow-up PR) requires the sealed ``deployed`` state.
+
+``deploy-pin verify``
+    Codex CHANGES_REQUESTED on orchestrator#483 (the first committed
+    manifest): a list of commit hashes can be edited without proving it was
+    the lock and clone set actually observed on the production host. This
+    subcommand closes that gap for any COMMITTED manifest: it loads the
+    manifest, resolves ``deployment.verify.evidence_ref`` to the sealed
+    evidence bundle in the named ``artifact_store`` repo (sibling-checkout
+    convention, ``runtime_paths.default_github_root`` — same resolution
+    every other cross-repo orchestrator reader uses), verifies the bundle's
+    own content sha256 against the store's ``STORE-MANIFEST.json`` (tamper
+    check), then cross-checks the bundle's independently-sealed
+    source-lock and materialized-runtime-inventory IDENTITY digests both
+    equal the digest recomputed from the manifest's OWN recorded ``repos``
+    (:func:`~renquant_orchestrator.deployment_manifest.repo_identity_digest`).
+    FAILS CLOSED (raises :class:`DeployPinError` / nonzero exit) on a null
+    ``evidence_ref``, an unresolvable/missing bundle, a content-hash tamper,
+    or a digest mismatch. Read-only: never writes anything, on the deployed
+    trees or elsewhere.
 """
 from __future__ import annotations
 
@@ -65,8 +84,11 @@ from .deployment_manifest import (
     load_deployment_manifest,
     load_runtime_inventory,
     manifest_content_sha256,
+    manifest_repo_identity_entries,
     read_expected_generation,
     record_expected_generation,
+    repo_identity_digest,
+    resolve_contained_subdir,
     sha256_of_bytes,
     state_root_paths,
     validate_deployment_manifest,
@@ -77,6 +99,17 @@ from .deployment_manifest import (
 #: Default on-disk lock = the deployed truth the 18 launchd jobs consume.
 #: Single-sourced from repos.py (no second hardcode of the umbrella path).
 from .repos import DEFAULT_MANIFEST as DEFAULT_LOCK_PATH
+
+#: Sibling-checkout resolution for ``deploy-pin verify`` — the SAME
+#: convention every other cross-repo orchestrator reader uses (never a
+#: second hand-rolled sibling lookup).
+from .runtime_paths import default_github_root
+
+#: The two keys a sealed evidence bundle (renquant-artifacts ``store://``
+#: record) must carry for ``deploy-pin verify`` to cross-check it against a
+#: manifest's own recorded ``repos`` — see ``repo_identity_digest``.
+EVIDENCE_BUNDLE_LOCK_DIGEST_KEY = "lock_identity_digest"
+EVIDENCE_BUNDLE_INVENTORY_DIGEST_KEY = "inventory_identity_digest"
 
 #: Materialized pinned clones live under the umbrella tree (relative to the
 #: lock file's directory) until R1/R2 relocate them (design §11 non-goal).
@@ -371,6 +404,146 @@ def run_capture(
     return 0
 
 
+# --- deploy-pin verify: evidence_ref cross-check (Codex #483 follow-up) -----------
+
+
+def resolve_evidence_bundle_path(
+    manifest: dict[str, Any],
+    *,
+    github_root: Path | None = None,
+) -> Path:
+    """Resolve ``deployment.verify.evidence_ref`` to a concrete file path.
+
+    Sibling-checkout resolution (``runtime_paths.default_github_root`` — the
+    SAME convention every other cross-repo orchestrator reader uses) plus
+    the #464 resolve-and-contain ``artifact_store`` binding
+    (:func:`~renquant_orchestrator.deployment_manifest.resolve_contained_subdir`):
+    never a free-form host path. Also checks the bundle's content sha256
+    against the store's own ``STORE-MANIFEST.json`` when present (the
+    renquant-artifacts #13/#14 integrity mechanism) — a tamper-evident
+    precondition to trusting anything read from the bundle."""
+    deployment = manifest.get("deployment") or {}
+    verify_block = deployment.get("verify") or {}
+    evidence_ref = verify_block.get("evidence_ref")
+    if not evidence_ref:
+        raise DeployPinError(
+            "cannot verify: deployment.verify.evidence_ref is null (state="
+            f"{deployment.get('state')!r}) — a pre-seal 'captured' record "
+            "has no sealed evidence to cross-check yet"
+        )
+    store = manifest.get("artifact_store")
+    if not isinstance(store, dict) or not store.get("repo"):
+        raise DeployPinError(
+            "cannot verify: manifest artifact_store is missing/invalid"
+        )
+    root = github_root if github_root is not None else default_github_root()
+    repo_path = root / str(store["repo"])
+    if not repo_path.is_dir():
+        raise DeployPinError(
+            f"cannot verify: artifact_store.repo {store['repo']!r} sibling "
+            f"checkout not found at {repo_path} (sibling root {root})"
+        )
+    store_root = resolve_contained_subdir(
+        repo_path,
+        store.get("path") or "",
+        error_cls=DeployPinError,
+        store_repr=repr(store),
+    )
+    remainder = str(evidence_ref)[len(EVIDENCE_REF_PREFIX):]
+    evidence_path = store_root / remainder
+    if not evidence_path.is_file():
+        raise DeployPinError(
+            f"cannot verify: evidence bundle not found at {evidence_path} "
+            f"(from evidence_ref {evidence_ref!r})"
+        )
+    store_manifest_path = store_root / "STORE-MANIFEST.json"
+    if store_manifest_path.is_file():
+        try:
+            store_manifest = json.loads(
+                store_manifest_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DeployPinError(
+                f"cannot verify: {store_manifest_path} unreadable ({exc})"
+            ) from exc
+        expected_hash = store_manifest.get(remainder)
+        if expected_hash is not None:
+            actual_hash = sha256_of_bytes(evidence_path.read_bytes())
+            if actual_hash != expected_hash:
+                raise DeployPinError(
+                    f"cannot verify: evidence bundle {evidence_path} content "
+                    f"sha256 {actual_hash[:12]} != STORE-MANIFEST.json entry "
+                    f"{str(expected_hash)[:12]} (possible tamper)"
+                )
+    return evidence_path
+
+
+def verify_deployment_manifest(
+    manifest_path: Path,
+    *,
+    github_root: Path | None = None,
+) -> dict[str, Any]:
+    """Cross-check a committed deployment manifest against its sealed
+    evidence bundle (fail-closed on ANY mismatch).
+
+    Loads + fully schema-validates the manifest, resolves the sealed
+    evidence bundle referenced by ``deployment.verify.evidence_ref``, and
+    asserts the bundle's independently-sealed source-lock and materialized
+    -runtime-inventory IDENTITY digests both equal the digest recomputed
+    from the manifest's OWN recorded ``repos`` — a list of commit hashes
+    edited after the fact cannot smuggle past this check, because the
+    digest the bundle was sealed with will no longer match."""
+    manifest = load_deployment_manifest(manifest_path)
+    evidence_path = resolve_evidence_bundle_path(manifest, github_root=github_root)
+    try:
+        bundle = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DeployPinError(
+            f"evidence bundle {evidence_path}: unreadable ({exc})"
+        ) from exc
+    if not isinstance(bundle, dict):
+        raise DeployPinError(f"evidence bundle {evidence_path}: must be a JSON object")
+    expected_digest = repo_identity_digest(manifest_repo_identity_entries(manifest))
+    problems: list[str] = []
+    for key, label in (
+        (EVIDENCE_BUNDLE_LOCK_DIGEST_KEY, "source-lock"),
+        (EVIDENCE_BUNDLE_INVENTORY_DIGEST_KEY, "materialized-runtime-inventory"),
+    ):
+        sealed = bundle.get(key)
+        if sealed != expected_digest:
+            problems.append(
+                f"{label} identity digest mismatch: sealed bundle "
+                f"{key}={str(sealed)[:12]!r} != manifest-derived "
+                f"{expected_digest[:12]}"
+            )
+    if problems:
+        raise DeployPinError(
+            "evidence cross-check FAILED (fail-closed): " + "; ".join(problems)
+        )
+    return {
+        "manifest": str(manifest_path),
+        "evidence_bundle": str(evidence_path),
+        "generation": manifest["generation"],
+        "state": manifest["deployment"]["state"],
+        "expected_repo_identity_digest": expected_digest,
+        "lock_identity_digest": bundle.get(EVIDENCE_BUNDLE_LOCK_DIGEST_KEY),
+        "inventory_identity_digest": bundle.get(EVIDENCE_BUNDLE_INVENTORY_DIGEST_KEY),
+    }
+
+
+def run_verify(
+    *,
+    manifest_path: Path,
+    github_root: Path | None,
+    stdout: Any = None,
+) -> int:
+    out = stdout or sys.stdout
+    report = verify_deployment_manifest(manifest_path, github_root=github_root)
+    json.dump(report, out, indent=2, sort_keys=True)
+    out.write("\n")
+    return 0
+
+
 def _validate_evidence_ref_arg(value: str) -> str:
     if not value.startswith(EVIDENCE_REF_PREFIX) or len(value) <= len(
         EVIDENCE_REF_PREFIX
@@ -461,29 +634,61 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ARTIFACT_STORE_PATH,
         help="relative store subdir inside the artifact-store repo",
     )
+
+    verify = sub.add_parser(
+        "verify",
+        help=(
+            "cross-check a committed deployment manifest against its "
+            "sealed evidence_ref bundle; fail-closed on digest mismatch"
+        ),
+    )
+    verify.add_argument(
+        "--manifest",
+        type=Path,
+        required=True,
+        help="deployment manifest JSON to verify (e.g. deploy/deployment-manifest.json)",
+    )
+    verify.add_argument(
+        "--github-root",
+        type=Path,
+        default=None,
+        help=(
+            "checkout parent containing renquant-* sibling repos (default: "
+            "RENQUANT_GITHUB_ROOT or this repo's sibling root)"
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.subcommand != "capture":  # pragma: no cover — argparse enforces
-        parser.error(f"unknown subcommand {args.subcommand!r}")
-    state_root = deploy_state_root(args.state_root)
     try:
-        return run_capture(
-            lock_path=args.lock,
-            runtime_root=args.runtime_root,
-            state_root=state_root,
-            write=args.write,
-            deployed_by=args.deployed_by,
-            deployed_at=args.deployed_at,
-            evidence_ref=args.evidence_ref,
-            artifact_store_repo=args.artifact_store_repo,
-            artifact_store_path=args.artifact_store_path,
-        )
+        if args.subcommand == "capture":
+            state_root = deploy_state_root(args.state_root)
+            return run_capture(
+                lock_path=args.lock,
+                runtime_root=args.runtime_root,
+                state_root=state_root,
+                write=args.write,
+                deployed_by=args.deployed_by,
+                deployed_at=args.deployed_at,
+                evidence_ref=args.evidence_ref,
+                artifact_store_repo=args.artifact_store_repo,
+                artifact_store_path=args.artifact_store_path,
+            )
+        if args.subcommand == "verify":
+            return run_verify(
+                manifest_path=args.manifest,
+                github_root=args.github_root,
+            )
+        parser.error(f"unknown subcommand {args.subcommand!r}")  # pragma: no cover
+        return 2  # pragma: no cover — parser.error exits before this
     except (DeployPinError, DeploymentManifestError) as exc:
-        print(f"deploy-pin capture FAILED (fail-closed): {exc}", file=sys.stderr)
+        print(
+            f"deploy-pin {args.subcommand} FAILED (fail-closed): {exc}",
+            file=sys.stderr,
+        )
         return 1
 
 

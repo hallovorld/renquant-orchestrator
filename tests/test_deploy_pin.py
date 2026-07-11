@@ -25,11 +25,14 @@ from renquant_orchestrator.deploy_pin import (
     capture_deployed_state,
     main as deploy_pin_main,
     read_lock_subrepo_identity,
+    resolve_evidence_bundle_path,
     run_capture,
+    verify_deployment_manifest,
 )
 from renquant_orchestrator.deployment_manifest import (
     load_deployment_manifest,
     read_expected_generation,
+    repo_identity_digest,
     sha256_of_bytes,
 )
 
@@ -327,3 +330,191 @@ def test_run_capture_stdout_injectable(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert json.loads(buffer.getvalue())["mode"] == "dry-run"
+
+
+# --- deploy-pin verify: evidence_ref cross-check (Codex #483 follow-up) -----------
+
+
+def _seal_evidence_bundle(
+    github_root: Path,
+    *,
+    repo: str = "renquant-artifacts",
+    store_subdir: str = "store",
+    rel: str = "experiments/verify-test/RUN-LOCK.json",
+    lock_identity_digest: str,
+    inventory_identity_digest: str,
+) -> None:
+    """Materialize a synthetic sibling checkout with a sealed evidence
+    bundle at ``<github_root>/<repo>/<store_subdir>/<rel>`` plus its
+    STORE-MANIFEST.json content-hash entry (the renquant-artifacts #13/#14
+    convention) — never touches any real checkout."""
+    store_root = github_root / repo / store_subdir
+    bundle_path = store_root / rel
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    data = (
+        json.dumps(
+            {
+                "lock_identity_digest": lock_identity_digest,
+                "inventory_identity_digest": inventory_identity_digest,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    bundle_path.write_text(data, encoding="utf-8")
+    store_manifest_path = store_root / "STORE-MANIFEST.json"
+    store_manifest = (
+        json.loads(store_manifest_path.read_text(encoding="utf-8"))
+        if store_manifest_path.exists()
+        else {}
+    )
+    store_manifest[rel] = sha256_of_bytes(data.encode("utf-8"))
+    store_manifest_path.write_text(
+        json.dumps(store_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+_VERIFY_EVIDENCE_REF = "store://experiments/verify-test/RUN-LOCK.json"
+
+
+def test_verify_accepts_matching_evidence_bundle(tmp_path: Path, capsys) -> None:
+    lock, _ = make_umbrella(tmp_path)
+    digest = repo_identity_digest(read_lock_subrepo_identity(lock))
+    github_root = tmp_path / "siblings"
+    _seal_evidence_bundle(
+        github_root, lock_identity_digest=digest, inventory_identity_digest=digest
+    )
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    assert report["manifest"]["deployment"]["state"] == "deployed"
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    verify_report = verify_deployment_manifest(manifest_path, github_root=github_root)
+    assert verify_report["state"] == "deployed"
+    assert verify_report["lock_identity_digest"] == digest
+    assert verify_report["inventory_identity_digest"] == digest
+    assert verify_report["expected_repo_identity_digest"] == digest
+
+    # CLI surface, too.
+    rc, cli_report = _run_json(
+        [
+            "verify",
+            "--manifest", str(manifest_path),
+            "--github-root", str(github_root),
+        ],
+        capsys,
+    )
+    assert rc == 0
+    assert cli_report["state"] == "deployed"
+
+
+def test_verify_rejects_lock_inventory_digest_mismatch(tmp_path: Path, capsys) -> None:
+    """A sealed bundle that attests to a DIFFERENT lock/clone set than the
+    manifest's own recorded commits must be rejected — the exact Codex
+    #483 concern: a list of commit hashes can be edited without proving it
+    was the lock and clone set actually observed on the production host."""
+    lock, _ = make_umbrella(tmp_path)
+    github_root = tmp_path / "siblings"
+    wrong_digest = "0" * 64
+    _seal_evidence_bundle(
+        github_root,
+        lock_identity_digest=wrong_digest,
+        inventory_identity_digest=wrong_digest,
+    )
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    with pytest.raises(DeployPinError, match="identity digest mismatch"):
+        verify_deployment_manifest(manifest_path, github_root=github_root)
+
+    rc = deploy_pin_main(
+        ["verify", "--manifest", str(manifest_path), "--github-root", str(github_root)]
+    )
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "identity digest mismatch" in err
+    assert "source-lock" in err
+    assert "materialized-runtime-inventory" in err
+
+
+def test_verify_rejects_null_evidence_ref(tmp_path: Path, capsys) -> None:
+    lock, _ = make_umbrella(tmp_path)
+    state_root = tmp_path / "deploy-root"
+    rc, report = _run_json(_capture_argv(lock, state_root, "--write"), capsys)
+    assert rc == 0
+    assert report["manifest"]["deployment"]["state"] == "captured"
+    manifest_path = state_root / "deployment-manifest.json"
+    with pytest.raises(DeployPinError, match="evidence_ref is null"):
+        verify_deployment_manifest(manifest_path, github_root=tmp_path / "siblings")
+
+
+def test_verify_rejects_missing_artifact_store_sibling(tmp_path: Path, capsys) -> None:
+    lock, _ = make_umbrella(tmp_path)
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    with pytest.raises(DeployPinError, match="sibling checkout not found"):
+        verify_deployment_manifest(manifest_path, github_root=tmp_path / "no-such-siblings")
+
+
+def test_verify_rejects_store_manifest_content_tamper(tmp_path: Path, capsys) -> None:
+    """The sealed bundle's own bytes must match the store's
+    STORE-MANIFEST.json content hash — catches tampering with the bundle
+    file itself, distinct from the identity-digest cross-check."""
+    lock, _ = make_umbrella(tmp_path)
+    digest = repo_identity_digest(read_lock_subrepo_identity(lock))
+    github_root = tmp_path / "siblings"
+    _seal_evidence_bundle(
+        github_root, lock_identity_digest=digest, inventory_identity_digest=digest
+    )
+
+    rc, report = _run_json(
+        _capture_argv(
+            lock, tmp_path / "deploy-root", "--write",
+            "--evidence-ref", _VERIFY_EVIDENCE_REF,
+            "--artifact-store-path", "store",
+        ),
+        capsys,
+    )
+    assert rc == 0
+    manifest_path = tmp_path / "committed-manifest.json"
+    manifest_path.write_text(json.dumps(report["manifest"]), encoding="utf-8")
+
+    # tamper the bundle bytes AFTER STORE-MANIFEST.json was hashed
+    bundle_path = github_root / "renquant-artifacts" / "store" / "experiments" / "verify-test" / "RUN-LOCK.json"
+    bundle_path.write_text(
+        json.dumps({"lock_identity_digest": "x", "inventory_identity_digest": "x"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DeployPinError, match="possible tamper"):
+        resolve_evidence_bundle_path(report["manifest"], github_root=github_root)

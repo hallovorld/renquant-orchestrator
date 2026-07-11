@@ -297,6 +297,48 @@ def sha256_of_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def repo_identity_digest(entries: Sequence[Mapping[str, str]]) -> str:
+    """sha256 binding repo IDENTITY rows to one canonical digest.
+
+    ``entries`` is a list of ``{"name", *REPO_IDENTITY_KEYS}`` dicts — the
+    shape both :func:`~renquant_orchestrator.deploy_pin.read_lock_subrepo_identity`
+    (an on-disk lock reading) and :func:`manifest_repo_identity_entries` (a
+    committed deployment manifest's own ``repos`` reading) produce.
+
+    Used by ``deploy-pin verify`` (R-PIN Stage 1 evidence-binding follow-up,
+    Codex CHANGES_REQUESTED on orchestrator#483) to bind a sealed evidence
+    bundle's INDEPENDENTLY read source-lock digest and materialized-runtime
+    -inventory digest to the manifest's own recorded commits, without
+    requiring host filesystem access (the lock file, the ``.subrepo_runtime``
+    clones) at verify time — only the manifest and the sealed bundle."""
+    canonical = sorted(
+        (
+            {
+                "name": str(entry["name"]),
+                **{key: str(entry[key]) for key in REPO_IDENTITY_KEYS},
+            }
+            for entry in entries
+        ),
+        key=lambda entry: entry["name"],
+    )
+    data = (json.dumps(canonical, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def manifest_repo_identity_entries(manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    """A committed deployment manifest's own ``repos`` mapping, reshaped into
+    :func:`repo_identity_digest` input form (name + the 5 identity fields),
+    sorted by name."""
+    repos = manifest.get("repos") or {}
+    return [
+        {
+            "name": str(name),
+            **{key: str(entry[key]) for key in REPO_IDENTITY_KEYS},
+        }
+        for name, entry in sorted(repos.items())
+    ]
+
+
 def _utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
