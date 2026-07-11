@@ -45,3 +45,27 @@ at every consumer entry, fail-closed on divergence; the deploy↔record gap
 bounded to one trading session and alarmed, never silent), and lands in
 five individually-shippable, individually-revertible stages — Stage 1 alone
 resolves today's unrecorded-state problem.
+
+## r2 (Codex review, 2026-07-11 — revised PERSONALLY per the design-PR rule)
+
+All five objections incorporated:
+1. **Record-first is the default** (§7 rewritten): pin-bump PR merges before
+   any machine apply; apply executes only a manifest hash-equal to
+   origin/main. The emergency lane is a separately privileged, ssh-signed
+   (#465 pattern), expiring authorization with an immutable receipt and a
+   1-session reconciliation SLA; stacking blocks all applies.
+2. **Invariant honesty** (§8 matrix + stage restructure): choke-point
+   verification is installed and armed in Stage 3, one full stage BEFORE
+   the Stage 4 authority flip; pre-flip, no reader ever consumes an
+   unverifiable derivative (the manifest is explicitly labeled shadow).
+3. **Replay defense**: monotonic `generation` epoch + forward-only
+   expected-generation record (§5.1/§5.2); reverts advance the epoch;
+   stale-pair restore and torn-apply are named failure modes with an
+   explicit `reconcile-generation` recovery and mandated drills.
+4. **No umbrella anchoring of state** (§5.2): neutral host root
+   `~/.renquant/deploy/` from Stage 1; A14's convention explicitly
+   superseded for the pin plane; the on-disk lock survives only as the
+   legacy mirror until the Stage 5 tombstone.
+5. **Portable authority** (§5.1): no host paths in the durable manifest —
+   repo identity only; paths live in the per-host verified runtime
+   inventory.
