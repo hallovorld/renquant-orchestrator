@@ -154,3 +154,40 @@ as the pre-refactor computation, so the identity a manifest is validated
 against didn't silently change). All 4 confirmed meaningful via
 stash-revert against the pre-fix code. Full guardrail suite (`test_cloud_
 modal.py` + `test_run_sweep_modal.py`): 75 passed.
+
+## 2026-07-11 round-3 addendum: block moved into the library, not just the CLI
+
+Codex round-3 (2026-07-11T04:45:20Z): the CLI block is UX, not a safety
+gate — any in-repo Python caller can construct a `ModalExecutor` directly
+and call `execute_batch()`/`sync_data()`, bypassing `run_sweep_modal.py`
+entirely. Both public methods still imported/accessed Modal, and
+`execute_batch` still accepted a self-issued preflight report. Moved the
+block into the one place both methods share:
+
+- New `ModalExecutor._require_modal_execution_enabled()` — unconditionally
+  raises `ModalExecutionDisabledError`, called as the FIRST line of both
+  `execute_batch()` and `sync_data()`, before any other guardrail logic
+  (dispatch-approval check, workload-mismatch check, `modal_app` import,
+  the real `sync_to_modal_volume` upload). A passing, self-issued
+  `preflight` report does not bypass it — that self-issued-authorization
+  gap is exactly what round-3 rejected. A dedicated method (not a bare
+  `raise` inline) so re-enabling this later is a one-line change in one
+  place, and so neither method's body reads as statically unreachable
+  dead code in the meantime.
+- Existing guardrail tests (dispatch-approval nonce, workload-mismatch
+  checks, cost-cap math, partial-failure handling — all still real, valid
+  logic that must keep working the moment this block lifts) now
+  explicitly monkeypatch `_require_modal_execution_enabled` to a no-op via
+  the shared `_passing_preflight` fixture, so they keep exercising that
+  logic rather than being blocked by the new guard.
+- New `TestModalExecutionDisabled` class proves the guard itself: calling
+  `execute_batch()` with a genuinely PASSING, self-issued preflight report,
+  and calling `sync_data()`, both raise `ModalExecutionDisabledError`
+  before touching Modal — proven structurally via a sentinel `modal`
+  module in `sys.modules` that raises `AssertionError` on any attribute
+  access. Confirmed meaningful via stash-revert (ImportError against the
+  pre-fix code, since `ModalExecutionDisabledError` is new).
+
+Full guardrail suite: 77 passed (2 new). Broader suite: 2991 passed / 14
+failed (identical failures to round 2 — same pre-existing env issues,
+unrelated).

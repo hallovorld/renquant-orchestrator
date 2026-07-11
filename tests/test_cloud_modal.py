@@ -20,6 +20,7 @@ from renquant_orchestrator.cloud.executor import BacktestRequest, DataManifest, 
 from renquant_orchestrator.cloud.modal_executor import (
     HARD_COST_SAFETY_GATE_USD,
     IMAGE_SPEC,
+    ModalExecutionDisabledError,
     ModalExecutor,
     ModalPreflightReport,
     WorkloadManifest,
@@ -34,6 +35,12 @@ from renquant_orchestrator.cloud.sync_data import (
     build_local_manifest,
     compute_manifest_commit_id,
 )
+
+# Captured at import time, before any test patches it away, so
+# TestModalExecutionDisabled can restore the REAL check after going
+# through _passing_preflight (which disables it as a convenience for
+# every OTHER test in this file — see that fixture's docstring).
+_REAL_REQUIRE_MODAL_EXECUTION_ENABLED = ModalExecutor._require_modal_execution_enabled
 
 # ── Shared guardrail fixtures: a mutually-consistent (bundle, workload
 # manifest, data manifest) trio so a preflight can genuinely PASS ──
@@ -110,7 +117,19 @@ def _passing_preflight(
 ):
     """Build a fully consistent executor/data/manifest trio and run a
     preflight that passes every check. Returns (executor, data_manifest,
-    report, workload_manifest)."""
+    report, workload_manifest).
+
+    Patches ModalExecutor._require_modal_execution_enabled to a no-op
+    (class-level, so it also covers any second executor a test constructs
+    afterward) — that guard is disabled unconditionally at the library
+    layer (#463 round-3) and is tested on its own in
+    TestModalExecutionDisabled; every OTHER guardrail this fixture powers
+    (dispatch-approval nonce, workload-mismatch checks, cost-cap math,
+    partial-failure handling) is real, still-valid logic that must keep
+    working the moment that guard is lifted, so it stays exercised here."""
+    monkeypatch.setattr(
+        ModalExecutor, "_require_modal_execution_enabled", lambda self: None
+    )
     _ensure_modal_importable(monkeypatch)
     bundle, bundle_fp = _write_bundle_dir(tmp_path)
     files = _DEFAULT_FILES if files is None else files
@@ -1166,7 +1185,10 @@ class TestDispatchGuard:
                 [_request()], on_result=lambda r: None, on_error=lambda n, e: None,
             )
 
-    def test_failed_preflight_report_is_not_a_dispatch_token(self, tmp_path):
+    def test_failed_preflight_report_is_not_a_dispatch_token(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            ModalExecutor, "_require_modal_execution_enabled", lambda self: None
+        )
         bundle, bundle_fp = _write_bundle_dir(tmp_path)
         wm = _load_manifest(tmp_path, _manifest_payload(bundle_fp=bundle_fp))
         executor = ModalExecutor(
@@ -1307,3 +1329,67 @@ class TestDispatchGuard:
         # The pre-registered region genuinely reached the decorator.
         mod = _sys.modules[module_name]
         assert mod.run_variant_remote._modal_function_kwargs["region"] == "us-east"
+
+
+class TestModalExecutionDisabled:
+    """Codex round-3 review of #463 (2026-07-11T04:45:20Z): the CLI's
+    --execute block (run_sweep_modal.py) is UX, not a safety gate — any
+    in-repo Python caller can construct a ModalExecutor directly and call
+    execute_batch()/sync_data(), bypassing the CLI entirely. Both public
+    methods must refuse — before importing/touching modal.App/Volume/map —
+    even with an otherwise passing, self-issued preflight report. This is
+    the ONLY test class in this file that does NOT patch
+    _require_modal_execution_enabled away; every other class proves the
+    guardrail logic is still real and ready for when this block lifts."""
+
+    def test_execute_batch_is_disabled_even_with_a_passing_preflight_report(
+        self, tmp_path, monkeypatch
+    ):
+        import sys as _sys
+
+        class _ExplodingModal:
+            def __getattr__(self, name):
+                raise AssertionError(
+                    f"execute_batch must not touch modal.{name} while disabled"
+                )
+
+        monkeypatch.setitem(_sys.modules, "modal", _ExplodingModal())
+
+        # A genuinely PASSING preflight report — self-issued, exactly the
+        # scenario round-3 rejected as insufficient authorization.
+        executor, _dm, report, _wm = _passing_preflight(tmp_path, monkeypatch)
+        assert report.passed
+        # _passing_preflight disables the guard as a convenience for every
+        # OTHER test; restore the REAL one — that's what this test proves.
+        monkeypatch.setattr(
+            ModalExecutor, "_require_modal_execution_enabled",
+            _REAL_REQUIRE_MODAL_EXECUTION_ENABLED,
+        )
+
+        with pytest.raises(ModalExecutionDisabledError):
+            executor.execute_batch(
+                [_request()], on_result=lambda r: None,
+                on_error=lambda n, e: None, preflight=report,
+            )
+
+    def test_sync_data_is_disabled(self, tmp_path, monkeypatch):
+        import sys as _sys
+
+        class _ExplodingModal:
+            def __getattr__(self, name):
+                raise AssertionError(
+                    f"sync_data must not touch modal.{name} while disabled"
+                )
+
+        monkeypatch.setitem(_sys.modules, "modal", _ExplodingModal())
+
+        bundle, _bundle_fp = _write_bundle_dir(tmp_path)
+        executor = ModalExecutor(
+            bundle_dir=str(bundle), volume_name="test-vol", region="us-east",
+        )
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "a.parquet").write_bytes(b"hi")
+
+        with pytest.raises(ModalExecutionDisabledError):
+            executor.sync_data({"data": str(data_dir)})

@@ -118,6 +118,23 @@ class WorkloadMismatchError(RuntimeError):
     """The actual workload deviates from the operator-approved manifest."""
 
 
+class ModalExecutionDisabledError(RuntimeError):
+    """Modal dispatch/sync is unconditionally disabled at the library layer.
+
+    Codex round-3 review of orchestrator#463 (2026-07-11T04:45:20Z): the
+    CLI's --execute block (run_sweep_modal.py) is UX, not a safety gate —
+    any in-repo Python caller can construct a ModalExecutor directly and
+    call execute_batch()/sync_data(), bypassing the CLI entirely. The
+    standing operator rule (no Modal API/CLI calls at all until an
+    independently verifiable, operator-signed authorization artifact and
+    an enforced no-live/deploy assertion exist) must be enforced here, in
+    the library both callers share, not only in one script's argument
+    parsing. Neither control exists yet — see
+    doc/design/2026-07-11-modal-bounded-run-experiment-plan.md's BLOCKING
+    PREREQUISITE. This is deliberately NOT a self-issued authorization
+    scheme; there is no bypass parameter."""
+
+
 # Placeholder strings that must never pass for a REQUIRED recorded field —
 # an unresolved value is an abort condition, not a post-hoc note.
 _UNRESOLVED_VALUES = {"", "unknown", "none", "null", "tbd", "todo"}
@@ -347,6 +364,15 @@ class ModalExecutor:
         preflight: ModalPreflightReport | None = None,
     ) -> BatchSummary:
         import sys
+
+        # Disabled at the library layer (Codex round-3, #463) — refuse
+        # before ANY other guardrail logic, let alone Modal-facing work.
+        # A passing `preflight` report does not bypass this: self-issued
+        # authorization is exactly what round-3 rejected. A helper method
+        # call (not a bare `raise` here) so re-enabling this in a future
+        # PR is a one-line change and this method's body isn't read as
+        # statically unreachable in the meantime.
+        self._require_modal_execution_enabled()
 
         # Guardrails FIRST — refuse before any Modal-facing work happens.
         approval, manifest = self._require_dispatch_approval(preflight)
@@ -741,6 +767,25 @@ class ModalExecutor:
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             return None
 
+    def _require_modal_execution_enabled(self) -> None:
+        """Unconditionally disabled (Codex round-3, #463, 2026-07-11T04:45:20Z):
+        the CLI's --execute block is UX, not a safety gate — any in-repo
+        Python caller can construct a ModalExecutor directly and reach
+        execute_batch()/sync_data(), bypassing run_sweep_modal.py entirely.
+        This is the ONE place both methods share, so it is the actual
+        enforcement point. There is no parameter, flag, or self-issued
+        report that bypasses this — re-enabling requires editing this
+        method itself, in a dedicated PR, once an independently verifiable
+        operator-signed authorization artifact and an enforced no-live/
+        deploy assertion exist (doc/design/2026-07-11-modal-bounded-run-
+        experiment-plan.md's BLOCKING PREREQUISITE)."""
+        raise ModalExecutionDisabledError(
+            "Modal execution (dispatch or data sync) is disabled: no "
+            "independently verifiable, operator-signed authorization "
+            "artifact and no enforced no-live/deploy assertion exist yet. "
+            "See doc/design/2026-07-11-modal-bounded-run-experiment-plan.md."
+        )
+
     def _require_dispatch_approval(
         self, preflight: ModalPreflightReport | None
     ) -> tuple[DispatchApproval, WorkloadManifest]:
@@ -849,6 +894,14 @@ class ModalExecutor:
             )
 
     def sync_data(self, local_paths: dict[str, str]) -> DataManifest:
+        # Disabled at the library layer (Codex round-3, #463) — see
+        # _require_modal_execution_enabled's docstring. Callers that only
+        # need a DataManifest for local validation (preflight, workload
+        # capture) should use renquant_orchestrator.cloud.sync_data
+        # .local_data_manifest() directly instead — it makes no Modal
+        # calls and is not affected by this block.
+        self._require_modal_execution_enabled()
+
         from .sync_data import sync_to_modal_volume
 
         path_map = {k: Path(v) for k, v in local_paths.items()}
