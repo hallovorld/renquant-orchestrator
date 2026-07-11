@@ -572,6 +572,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to readiness_monitor.main",
     )
 
+    outage = sub.add_parser(
+        "outage-monitor",
+        help="render a run bundle's funnel_integrity/data_availability blocks "
+             "into the OUTAGE/DEGRADED/NO-TRADE/TRADE ntfy session page "
+             "(pipeline #186/#187 consumer; DARK — no scheduled job yet)",
+    )
+    outage.add_argument(
+        "outage_args", nargs=argparse.REMAINDER,
+        help="pass-through args to outage_monitor.main",
+    )
+
     edgar = sub.add_parser(
         "edgar-harvest",
         help="schedule a SEC EDGAR companyfacts harvest (N3 data collection)",
@@ -813,7 +824,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "live-bridge", "daily-bridge", "edgar-harvest", "parking-sleeve",
         "transfer-coefficient", "shadow-ab", "readiness-monitor", "entry-timing",
         "train-gbdt", "patchtst-cutoff", "risk-budget-report",
-        "conviction-replay", "m6-restamp",
+        "conviction-replay", "m6-restamp", "outage-monitor",
     }
     if unknown and args.command not in _remainder_commands:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -1412,6 +1423,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         rm_argv = unknown + (args.readiness_args or [])
         return rm_main(rm_argv or None)
+    if args.command == "outage-monitor":
+        from .outage_monitor import main as outage_main
+
+        outage_argv = unknown + (args.outage_args or [])
+        return outage_main(outage_argv or None)
     if args.command == "edgar-harvest":
         from .sec_edgar_harvester import main as edgar_main
 
