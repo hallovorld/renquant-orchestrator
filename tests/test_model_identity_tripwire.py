@@ -1,8 +1,15 @@
 """Tests for ``model_identity_tripwire`` — the #484 §7.2a consumer.
 
-All bundles/manifests are synthetic tmp-path fixtures; alerts go to an
-injected poster (or ``--quiet``). No test touches ntfy, a broker, live state,
-or production paths.
+All bundles/manifests/records are synthetic tmp-path fixtures; alerts go to
+an injected poster (or ``--quiet``). No test touches ntfy, a broker, live
+state, or production paths.
+
+Contract under test (post Codex review on #485): an identity change is
+explained ONLY by a verifiable binding — the ``expected-model-identity.json``
+record (or a promotions-ledger entry) naming the NEW sha. Manifest timestamps
+are diagnostic metadata and can never explain a change. Missing inputs page
+DEGRADED by default (a monitor that dies quiet is the #484 failure mode);
+``--offline`` downgrades them to quiet notes for local forensics.
 """
 from __future__ import annotations
 
@@ -40,12 +47,22 @@ def bundle(date: str, sha: str | None, run_type: str = "live") -> dict:
     return payload
 
 
-def manifest_info(deployed_at: str, generation: int = 1) -> dict:
+def binding(sha: str, generation: int = 1) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "expected-model-identity",
+        "generation": generation,
+        "panel_sha": sha,
+        "recorded_at": "2026-06-22T21:13:00Z",
+    }
+
+
+def manifest_info(deployed_at: str = "2026-06-20T12:00:00Z",
+                  generation: int = 1) -> dict:
     return {
         "path": "unused",
         "generation": generation,
         "deployed_at": deployed_at,
-        "deployed_date": deployed_at[:10],
         "state": "deployed",
         "generation_status": None,
     }
@@ -124,131 +141,261 @@ def test_extract_identity_fail_soft_on_garbage():
     assert mod.extract_model_identity({}).session_date is None
 
 
-# --- the three contract cases ------------------------------------------------------
+# --- the contract cases -------------------------------------------------------------
 
 def test_0625_regression_shape_alerts_outage():
-    """Identity changed, manifest shows NO pin change -> OUTAGE page."""
+    """Identity changed, binding still names the old sha -> OUTAGE page."""
     report = mod.build_tripwire_report(
         bundle("2026-06-26", SHA_0518),
         bundle("2026-06-25", SHA_0621),
-        manifest_info=manifest_info("2026-06-20T12:00:00Z"),
+        expected_identity=binding(SHA_0621),
+        manifest_info=manifest_info(),
     )
-    assert report.verdict == mod.VERDICT_UNEXPLAINED
+    assert report.verdict == mod.VERDICT_BINDING_MISMATCH
     assert report.title_tag == TAG_OUTAGE
     assert report.title == "RENQUANT-104 OUTAGE MODEL-IDENTITY 2026-06-26"
     assert report.priority == 5
-    # The change line leads the body so ntfy truncation can never hide it.
-    assert report.body_lines[0].startswith("panel identity changed: 04d7a381")
-    assert "UNEXPLAINED" in report.body
+    # The contradiction leads the body so ntfy truncation can never hide it.
+    assert "CONTRADICTS" in report.body_lines[0]
+    assert "unauthorized model is serving" in report.body_lines[0]
 
     poster = PosterSpy()
     fired = emit_alert(report, topic="t", poster=poster, only_alerts=True)
     assert fired and poster.calls[0]["priority"] == 5
 
 
-def test_pin_advance_change_passes_with_info():
-    """Identity changed but the manifest records a deployment at/after the
-    previous session -> legitimate, INFO line, no page."""
+def test_0625_regression_shape_without_binding_record_alerts_outage():
+    """Same shape, no binding recorded at all: still OUTAGE (unexplained)."""
     report = mod.build_tripwire_report(
         bundle("2026-06-26", SHA_0518),
         bundle("2026-06-25", SHA_0621),
-        manifest_info=manifest_info("2026-06-25T21:00:00Z", generation=2),
+        expected_identity=None,
+        manifest_info=manifest_info(),
+    )
+    assert report.verdict == mod.VERDICT_UNEXPLAINED
+    assert report.title_tag == TAG_OUTAGE
+    assert report.body_lines[0].startswith("panel identity changed: 04d7a381")
+    assert "UNEXPLAINED" in report.body
+
+
+def test_recorded_pin_advance_passes_with_info():
+    """Identity changed AND the binding names the NEW sha -> authorized."""
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=binding(SHA_0518, generation=2),
+        manifest_info=manifest_info(generation=2),
     )
     assert report.verdict == mod.VERDICT_PIN_ADVANCE
     assert report.title_tag is None and report.title is None
-    assert any("INFO explained: pin advanced" in l for l in report.body_lines)
+    assert any("recorded pin advance" in l for l in report.body_lines)
 
     poster = PosterSpy()
     assert not emit_alert(report, topic="t", poster=poster, only_alerts=True)
     assert poster.calls == []
 
 
+def test_manifest_timestamp_alone_never_explains_a_change():
+    """Codex #485: deployed_at ordering is diagnostic, not authorization."""
+    report = mod.build_tripwire_report(
+        bundle("2026-06-26", SHA_0518),
+        bundle("2026-06-25", SHA_0621),
+        expected_identity=None,
+        # manifest captured AFTER the previous session — would have passed
+        # the old (unsound) timestamp predicate:
+        manifest_info=manifest_info(deployed_at="2026-06-25T21:00:00Z",
+                                    generation=2),
+    )
+    assert report.verdict == mod.VERDICT_UNEXPLAINED
+    assert report.title_tag == TAG_OUTAGE
+
+
 def test_recorded_promotion_passes_with_info():
     report = mod.build_tripwire_report(
         bundle("2026-06-26", SHA_0518),
         bundle("2026-06-25", SHA_0621),
-        manifest_info=manifest_info("2026-06-20T12:00:00Z"),
+        expected_identity=None,
+        manifest_info=manifest_info(),
         promotion_shas={SHA_0518},
+        offline=True,  # quiet the no-binding coverage note
     )
     assert report.verdict == mod.VERDICT_PROMOTION
     assert report.title_tag is None
     assert any("recorded promotion" in l for l in report.body_lines)
 
 
-def test_unchanged_identity_is_quiet():
+def test_unchanged_identity_matching_binding_is_quiet():
     report = mod.build_tripwire_report(
         bundle("2026-06-24", SHA_0621),
         bundle("2026-06-23", SHA_0621),
-        manifest_info=manifest_info("2026-06-01T12:00:00Z"),
+        expected_identity=binding(SHA_0621),
+        manifest_info=manifest_info(),
     )
     assert report.verdict == mod.VERDICT_UNCHANGED
     assert report.title_tag is None
     assert any("identity unchanged" in l for l in report.body_lines)
+    assert any("matches the recorded authorized binding" in l
+               for l in report.body_lines)
 
 
-# --- fail-soft paths ---------------------------------------------------------------
+def test_unchanged_but_contradicting_binding_is_outage():
+    """Both sessions serving an unauthorized model is still an OUTAGE."""
+    report = mod.build_tripwire_report(
+        bundle("2026-06-27", SHA_0518),
+        bundle("2026-06-26", SHA_0518),
+        expected_identity=binding(SHA_0621),
+        manifest_info=manifest_info(),
+    )
+    assert report.verdict == mod.VERDICT_BINDING_MISMATCH
+    assert report.title_tag == TAG_OUTAGE
+    assert any("unchanged" in l for l in report.body_lines)
 
-def test_missing_previous_bundle_fails_soft():
+
+# --- missing-input posture (DEGRADED by default; quiet under offline) ---------------
+
+def test_missing_previous_bundle_pages_degraded_by_default():
     report = mod.build_tripwire_report(
         bundle("2026-06-26", SHA_0518),
         None,
-        manifest_info=manifest_info("2026-06-20T12:00:00Z"),
+        expected_identity=binding(SHA_0518),
+        manifest_info=manifest_info(),
     )
-    assert report.verdict == mod.VERDICT_INSUFFICIENT
-    assert report.title_tag is None
+    assert report.verdict == mod.VERDICT_COVERAGE_LOST
+    assert report.title_tag == TAG_DEGRADED
     assert "previous_session_identity" in report.missing
 
 
-def test_missing_latest_identity_fails_soft():
+def test_missing_latest_identity_pages_degraded_by_default():
     report = mod.build_tripwire_report(
         bundle("2026-06-26", None),
         bundle("2026-06-25", SHA_0621),
-        manifest_info=manifest_info("2026-06-20T12:00:00Z"),
+        expected_identity=binding(SHA_0621),
+        manifest_info=manifest_info(),
     )
-    assert report.verdict == mod.VERDICT_INSUFFICIENT
+    assert report.verdict == mod.VERDICT_COVERAGE_LOST
+    assert report.title_tag == TAG_DEGRADED
     assert "latest_panel_identity" in report.missing
 
 
-def test_identity_change_with_missing_manifest_degrades_not_pages_outage():
+def test_missing_manifest_pages_degraded_by_default():
     report = mod.build_tripwire_report(
-        bundle("2026-06-26", SHA_0518),
-        bundle("2026-06-25", SHA_0621),
+        bundle("2026-06-24", SHA_0621),
+        bundle("2026-06-23", SHA_0621),
+        expected_identity=binding(SHA_0621),
         manifest_info=None,
         manifest_problem="deployment manifest missing",
     )
-    assert report.verdict == mod.VERDICT_UNVERIFIABLE
-    assert report.title_tag == TAG_DEGRADED
+    assert report.verdict == mod.VERDICT_UNCHANGED
+    assert report.title_tag == TAG_DEGRADED  # coverage contribution
     assert "deployment_manifest" in report.missing
 
 
-def test_unparseable_dates_degrade():
-    latest = bundle("2026-06-26", SHA_0518)
-    previous = bundle("2026-06-25", SHA_0621)
-    previous["run_id"] = "no-date-here"
+def test_offline_mode_records_missing_inputs_quietly():
     report = mod.build_tripwire_report(
-        latest, previous,
-        manifest_info=manifest_info("2026-06-20T12:00:00Z"),
+        bundle("2026-06-26", SHA_0518),
+        None,
+        expected_identity=None,
+        manifest_info=None,
+        offline=True,
     )
-    assert report.verdict == mod.VERDICT_UNVERIFIABLE
-    assert report.title_tag == TAG_DEGRADED
+    assert report.verdict == mod.VERDICT_COVERAGE_LOST
+    assert report.title_tag is None  # fail-soft notes, no page
+    assert {"previous_session_identity", "expected_identity_binding",
+            "deployment_manifest"} <= set(report.missing)
 
 
-def test_generation_mismatch_adds_degraded_note_without_downgrading_outage():
-    info = manifest_info("2026-06-20T12:00:00Z")
-    info["generation_status"] = "stale_or_replayed"
-    outage_report = mod.build_tripwire_report(
+def test_missing_binding_never_downgrades_an_outage():
+    report = mod.build_tripwire_report(
         bundle("2026-06-26", SHA_0518),
         bundle("2026-06-25", SHA_0621),
-        manifest_info=info,
+        expected_identity=None,
+        manifest_info=None,
     )
-    assert outage_report.title_tag == TAG_OUTAGE  # worst wins
-    quiet_report = mod.build_tripwire_report(
+    assert report.verdict == mod.VERDICT_UNEXPLAINED
+    assert report.title_tag == TAG_OUTAGE  # worst wins over DEGRADED notes
+
+
+def test_generation_mismatch_adds_degraded_note():
+    info = manifest_info()
+    info["generation_status"] = "stale_or_replayed"
+    report = mod.build_tripwire_report(
         bundle("2026-06-24", SHA_0621),
         bundle("2026-06-23", SHA_0621),
+        expected_identity=binding(SHA_0621),
         manifest_info=info,
     )
-    assert quiet_report.title_tag == TAG_DEGRADED
-    assert any("stale_or_replayed" in l for l in quiet_report.body_lines)
+    assert report.verdict == mod.VERDICT_UNCHANGED
+    assert report.title_tag == TAG_DEGRADED
+    assert any("stale_or_replayed" in l for l in report.body_lines)
+
+
+# --- the expected-identity record (forward-only, atomic) ----------------------------
+
+class TestExpectedIdentityRecord:
+    def test_record_and_read_roundtrip(self, tmp_path):
+        path = mod.record_expected_identity(
+            tmp_path, generation=1, panel_sha=f"sha256:{SHA_0621}",
+        )
+        assert path.name == mod.EXPECTED_IDENTITY_FILENAME
+        record, problem = mod.read_expected_identity(tmp_path)
+        assert problem is None
+        assert record["panel_sha"] == SHA_0621  # normalized, prefix stripped
+        assert record["generation"] == 1
+
+    def test_rollback_generation_refused(self, tmp_path):
+        mod.record_expected_identity(tmp_path, generation=3, panel_sha=SHA_0621)
+        with pytest.raises(mod.ExpectedIdentityError, match="FORWARD-ONLY"):
+            mod.record_expected_identity(tmp_path, generation=2,
+                                         panel_sha=SHA_0518)
+
+    def test_same_generation_rebind_refused_torn_apply(self, tmp_path):
+        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0621)
+        with pytest.raises(mod.ExpectedIdentityError, match="never reused"):
+            mod.record_expected_identity(tmp_path, generation=2,
+                                         panel_sha=SHA_0518)
+
+    def test_same_day_rerun_is_idempotent(self, tmp_path):
+        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0621)
+        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0621)
+        record, problem = mod.read_expected_identity(tmp_path)
+        assert problem is None and record["generation"] == 2
+
+    def test_advance_rebinds_new_generation(self, tmp_path):
+        mod.record_expected_identity(tmp_path, generation=1, panel_sha=SHA_0621)
+        mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0518)
+        record, _ = mod.read_expected_identity(tmp_path)
+        assert record["panel_sha"] == SHA_0518 and record["generation"] == 2
+
+    def test_invalid_inputs_refused(self, tmp_path):
+        with pytest.raises(mod.ExpectedIdentityError, match="generation"):
+            mod.record_expected_identity(tmp_path, generation=0,
+                                         panel_sha=SHA_0621)
+        with pytest.raises(mod.ExpectedIdentityError, match="64-hex"):
+            mod.record_expected_identity(tmp_path, generation=1,
+                                         panel_sha="not-a-sha")
+
+    def test_read_fail_soft_on_malformed(self, tmp_path):
+        (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).write_text(
+            "{not json", encoding="utf-8",
+        )
+        record, problem = mod.read_expected_identity(tmp_path)
+        assert record is None and "unreadable" in problem
+        (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).write_text(
+            json.dumps({"kind": "wrong"}), encoding="utf-8",
+        )
+        record, problem = mod.read_expected_identity(tmp_path)
+        assert record is None and "malformed" in problem
+
+    def test_missing_record_is_not_a_problem(self, tmp_path):
+        assert mod.read_expected_identity(tmp_path) == (None, None)
+
+    def test_write_refused_over_malformed_record(self, tmp_path):
+        (tmp_path / mod.EXPECTED_IDENTITY_FILENAME).write_text(
+            "{not json", encoding="utf-8",
+        )
+        with pytest.raises(mod.ExpectedIdentityError, match="malformed|unreadable"):
+            mod.record_expected_identity(tmp_path, generation=1,
+                                         panel_sha=SHA_0621)
 
 
 # --- manifest reader (fail-soft wrapper over the #477 loader) -----------------------
@@ -261,7 +408,6 @@ def test_load_manifest_info_reads_valid_manifest(tmp_path):
     )
     assert problem is None
     assert info["generation"] == 1
-    assert info["deployed_date"] == "2026-06-20"
     assert info["generation_status"] is None  # no durable record in tmp root
 
 
@@ -325,54 +471,73 @@ def test_find_session_bundles_fail_soft(tmp_path):
 
 # --- CLI end-to-end -------------------------------------------------------------------
 
-def test_main_exit_codes_for_the_three_cases(tmp_path, capsys):
+def _write_inputs(tmp_path):
     latest = tmp_path / "latest.json"
     latest.write_text(json.dumps(bundle("2026-06-26", SHA_0518)), encoding="utf-8")
     previous = tmp_path / "previous.json"
     previous.write_text(json.dumps(bundle("2026-06-25", SHA_0621)), encoding="utf-8")
+    manifest = tmp_path / "deployment-manifest.json"
+    manifest.write_text(json.dumps(valid_manifest_payload()), encoding="utf-8")
+    return latest, previous, manifest
 
-    stale_manifest = tmp_path / "manifest-stale.json"
-    stale_manifest.write_text(
-        json.dumps(valid_manifest_payload("2026-06-20T12:00:00Z")), encoding="utf-8",
-    )
-    advanced_manifest = tmp_path / "manifest-advanced.json"
-    advanced_manifest.write_text(
-        json.dumps(valid_manifest_payload("2026-06-25T21:00:00Z")), encoding="utf-8",
-    )
 
-    # 1) the 06-25 regression shape -> OUTAGE, exit 2
+def test_main_exit_codes_for_the_three_cases(tmp_path, capsys):
+    latest, previous, manifest = _write_inputs(tmp_path)
+
+    # 1) the 06-25 regression shape (binding names the OLD sha) -> OUTAGE, exit 2
+    mod.record_expected_identity(tmp_path, generation=1, panel_sha=SHA_0621)
     rc = mod.main([
         "--latest-bundle", str(latest), "--previous-bundle", str(previous),
-        "--manifest", str(stale_manifest), "--state-root", str(tmp_path),
+        "--manifest", str(manifest), "--state-root", str(tmp_path),
         "--quiet",
     ])
     payload = json.loads(capsys.readouterr().out)
-    assert rc == 2 and payload["verdict"] == mod.VERDICT_UNEXPLAINED
+    assert rc == 2 and payload["verdict"] == mod.VERDICT_BINDING_MISMATCH
 
-    # 2) pin advance -> pass, exit 0
+    # 2) recorded pin advance (binding re-bound to the NEW sha) -> pass, exit 0
+    mod.record_expected_identity(tmp_path, generation=2, panel_sha=SHA_0518)
     rc = mod.main([
         "--latest-bundle", str(latest), "--previous-bundle", str(previous),
-        "--manifest", str(advanced_manifest), "--state-root", str(tmp_path),
+        "--manifest", str(manifest), "--state-root", str(tmp_path),
         "--quiet",
     ])
     payload = json.loads(capsys.readouterr().out)
     assert rc == 0 and payload["verdict"] == mod.VERDICT_PIN_ADVANCE
 
-    # 3) missing previous bundle -> fail-soft exit 0 (3 under --require-inputs)
+    # 3) missing previous bundle -> coverage lost: DEGRADED (exit 1) by
+    #    default, quiet fail-soft (exit 0) under --offline
     rc = mod.main([
         "--latest-bundle", str(latest),
-        "--manifest", str(stale_manifest), "--state-root", str(tmp_path),
+        "--manifest", str(manifest), "--state-root", str(tmp_path),
         "--quiet",
     ])
     payload = json.loads(capsys.readouterr().out)
-    assert rc == 0 and payload["verdict"] == mod.VERDICT_INSUFFICIENT
+    assert rc == 1 and payload["verdict"] == mod.VERDICT_COVERAGE_LOST
     rc = mod.main([
         "--latest-bundle", str(latest),
-        "--manifest", str(stale_manifest), "--state-root", str(tmp_path),
-        "--quiet", "--require-inputs",
+        "--manifest", str(manifest), "--state-root", str(tmp_path),
+        "--quiet", "--offline",
     ])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0 and payload["verdict"] == mod.VERDICT_COVERAGE_LOST
+
+
+def test_main_record_expected_mode(tmp_path, capsys):
+    latest, _, manifest = _write_inputs(tmp_path)
+    rc = mod.main([
+        "--latest-bundle", str(latest), "--manifest", str(manifest),
+        "--state-root", str(tmp_path), "--record-expected", "--quiet",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0 and payload["panel_sha"] == SHA_0518
+    record, problem = mod.read_expected_identity(tmp_path)
+    assert problem is None and record["panel_sha"] == SHA_0518
+    # re-run same day: idempotent
+    assert mod.main([
+        "--latest-bundle", str(latest), "--manifest", str(manifest),
+        "--state-root", str(tmp_path), "--record-expected", "--quiet",
+    ]) == 0
     capsys.readouterr()
-    assert rc == 3
 
 
 def test_main_unreadable_latest_bundle_exits_3(tmp_path, capsys):
