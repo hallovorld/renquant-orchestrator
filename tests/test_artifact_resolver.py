@@ -227,26 +227,58 @@ def test_no_store_behaviour_is_unchanged(layout):
     assert res.source == "strategy_dir"
 
 
-def test_store_miss_falls_back_to_geometry_and_fail_closed_lists_all(layout, tmp_path):
+def test_store_addressed_miss_never_falls_back_to_geometry(layout, tmp_path):
+    # r4 (Codex on #464 r3): once a ref is store-addressed and a store is
+    # declared, resolution happens ONLY inside that store — a miss raises
+    # even when a geometric candidate exists (a recreated umbrella path must
+    # never be silently consumed).
     strategy_dir, repo_root = layout
     empty_store = tmp_path / "empty-store"
     empty_store.mkdir()
     _write(strategy_dir / "artifacts/m.pt", b"geo")
-    res = resolve_artifact(
-        "artifacts/m.pt",
-        strategy_dir=strategy_dir,
-        repo_root=repo_root,
-        artifact_store=empty_store,
-    )
-    assert res.source == "strategy_dir"
     with pytest.raises(FileNotFoundError) as exc:
         resolve_artifact(
-            "artifacts/gone.pt",
+            "artifacts/m.pt",
             strategy_dir=strategy_dir,
             repo_root=repo_root,
             artifact_store=empty_store,
         )
-    assert str(empty_store / "gone.pt") in str(exc.value)
+    assert str(empty_store / "m.pt") in str(exc.value)
+    # and the geometric candidate is NOT among the tried paths
+    assert str(strategy_dir / "artifacts/m.pt") not in str(exc.value)
+
+
+def test_artifact_symlink_escaping_the_store_fails_closed(layout, tmp_path):
+    # r4 resolve-and-contain: a committed symlink below the store may not
+    # smuggle resolution outside the verified checkout.
+    strategy_dir, repo_root = layout
+    store = tmp_path / "store"
+    store.mkdir()
+    outside = tmp_path / "outside"
+    _write(outside / "evil.pt", b"external")
+    (store / "m.pt").symlink_to(outside / "evil.pt")
+    with pytest.raises(FileNotFoundError, match="escapes the declared artifact store"):
+        resolve_artifact(
+            "../../artifacts/m.pt",
+            strategy_dir=strategy_dir,
+            repo_root=repo_root,
+            artifact_store=store,
+        )
+
+
+def test_symlink_inside_the_store_is_allowed(layout, tmp_path):
+    strategy_dir, repo_root = layout
+    store = tmp_path / "store"
+    _write(store / "real/m.pt", b"internal")
+    (store / "alias.pt").symlink_to(store / "real/m.pt")
+    res = resolve_artifact(
+        "artifacts/alias.pt",
+        strategy_dir=strategy_dir,
+        repo_root=repo_root,
+        artifact_store=store,
+    )
+    assert res.source == "artifact_store"
+    assert res.path == (store / "real/m.pt").resolve()
 
 
 def test_non_store_ref_ignores_declared_store(layout, tmp_path):

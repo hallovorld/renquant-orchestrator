@@ -622,12 +622,24 @@ def resolve_manifest_artifact_store(manifest: Mapping[str, Any]) -> Path | None:
     Callers must run :func:`verify_run_manifest` first — the binding this
     provides (commit + clean tree) is exactly why the store names a manifest
     repo instead of carrying a free path.
+
+    resolve-and-contain (r4): the returned root is fully resolved and PROVEN
+    to remain inside the named repo's resolved root — a committed symlink at
+    the store subdir may not point resolution outside the verified clean
+    checkout. Escape raises (fail-closed, precheck abort).
     """
     store = manifest.get("artifact_store")
     if store is None:
         return None
     repo_entry = manifest["repos"][store["repo"]]
-    return Path(repo_entry["path"]) / (store.get("path") or "")
+    repo_root_resolved = Path(repo_entry["path"]).resolve()
+    store_root = (Path(repo_entry["path"]) / (store.get("path") or "")).resolve()
+    if not store_root.is_relative_to(repo_root_resolved):
+        raise ShadowABContractError(
+            f"artifact_store escapes its named repo (fail-closed): "
+            f"{store!r} resolves to {store_root}, outside {repo_root_resolved}"
+        )
+    return store_root
 
 
 def verify_run_manifest(

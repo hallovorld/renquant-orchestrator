@@ -91,3 +91,16 @@ back at the deprecated umbrella tree. r3 closes it:
   strategy dir — audit T1 divergence made visible). Landing pins that commit
   in the experiment manifest: `artifact_store: {"repo": "renquant-artifacts",
   "path": "store"}`.
+
+## r4 (Codex on r3: no fallback, resolve-and-contain)
+
+- A store-addressed ref with a declared store now resolves ONLY inside that
+  store — a miss raises with no geometric fallback (a missing/misaddressed
+  store object can never silently consume a recreated umbrella artifact).
+  The r3 fallback test is inverted accordingly.
+- resolve-and-contain: the store root is fully resolved and proven inside the
+  named repo's resolved root (`resolve_manifest_artifact_store`), and every
+  resolved artifact is proven inside the resolved store root
+  (`resolve_artifact`). Committed symlinks at the store subdir or below it
+  that target an external directory precheck-abort (two new runner tests +
+  two resolver tests; an intra-store symlink stays legal).

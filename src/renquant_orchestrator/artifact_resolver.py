@@ -118,25 +118,44 @@ def resolve_artifact(
     if ref_path.is_absolute():
         candidates: list[tuple[Path, str]] = [(ref_path, "absolute")]
     else:
-        candidates = [
-            (strategy_dir / ref_path, "strategy_dir"),
-            (repo_root / ref_path, "repo_root"),
-        ]
-        if artifact_store is not None:
-            store_rel = store_relative_ref(ref_path)
-            if store_rel is not None:
-                candidates.insert(
-                    0, (Path(artifact_store) / store_rel, "artifact_store")
-                )
+        store_rel = (
+            store_relative_ref(ref_path) if artifact_store is not None else None
+        )
+        if store_rel is not None:
+            # A store-addressed ref with a declared store resolves ONLY
+            # inside that store (r4, Codex on #464 r3): a geometric fallback
+            # would let a missing/misaddressed store object silently consume
+            # an artifact from a recreated umbrella path. A miss raises.
+            candidates = [(Path(artifact_store) / store_rel, "artifact_store")]
+        else:
+            candidates = [
+                (strategy_dir / ref_path, "strategy_dir"),
+                (repo_root / ref_path, "repo_root"),
+            ]
+
+    store_root_resolved = (
+        Path(artifact_store).resolve() if artifact_store is not None else None
+    )
 
     tried: list[str] = []
     for cand, source in candidates:
         cand = cand.resolve()
         tried.append(str(cand))
-        if cand.exists():
-            sha = _sha256_file(cand) if verify_sha else _UNHASHED
-            return ResolvedArtifact(path=cand, sha256=sha, source=source,
-                                    ref=str(ref))
+        if not cand.exists():
+            continue
+        if source == "artifact_store" and not cand.is_relative_to(
+            store_root_resolved
+        ):
+            # resolve-and-contain (r4): a committed symlink below the store
+            # may not smuggle resolution outside the verified checkout.
+            raise FileNotFoundError(
+                "artifact escapes the declared artifact store (fail-closed): "
+                f"{str(ref)!r} resolves to {cand}, outside "
+                f"{store_root_resolved}"
+            )
+        sha = _sha256_file(cand) if verify_sha else _UNHASHED
+        return ResolvedArtifact(path=cand, sha256=sha, source=source,
+                                ref=str(ref))
     raise FileNotFoundError(
         f"artifact unresolvable (fail-closed): {str(ref)!r} tried {tried}"
     )

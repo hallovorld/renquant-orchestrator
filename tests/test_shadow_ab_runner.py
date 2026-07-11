@@ -1501,3 +1501,81 @@ def test_manifest_artifact_store_rejects_untyped_and_unpinned_forms(
         run_manifest.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(ShadowABContractError, match="relative subdir"):
             load_run_manifest(run_manifest)
+
+
+def test_store_root_symlink_escaping_repo_aborts_precheck(tmp_path: Path) -> None:
+    # r4 resolve-and-contain: a committed symlink AT the store subdir that
+    # points outside the named clean checkout must precheck-abort.
+    import subprocess as sp
+
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+
+    outside = tmp_path / "outside-store"
+    (outside / "panel").mkdir(parents=True)
+    (outside / "panel" / "model.pt").write_text("model-1", encoding="utf-8")
+    (outside / "panel" / "calibrator.json").write_text("cal-1", encoding="utf-8")
+
+    repo = tmp_path / "pins" / "renquant-artifacts"
+    repo.mkdir(parents=True)
+    (repo / "store").symlink_to(outside)
+    sp.run(["git", "init", "-q", str(repo)], check=True)
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "symlinked store"],
+        check=True,
+    )
+    head = sp.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, text=True, stdout=sp.PIPE,
+    ).stdout.strip()
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["repos"]["renquant-artifacts"] = {"path": str(repo), "commit": head}
+    payload["artifact_store"] = {"repo": "renquant-artifacts", "path": "store"}
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("escapes its named repo" in r for r in result["reasons"])
+
+
+def test_artifact_symlink_escaping_store_aborts_precheck(tmp_path: Path) -> None:
+    # r4: a symlinked FILE below the store targeting an external directory
+    # must also precheck-abort (containment enforced per resolved artifact).
+    import subprocess as sp
+
+    world, store = _store_world(tmp_path)
+    run_manifest, _repos = _git_pinned_repos(tmp_path)
+    pinned_store = _pinned_store_repo(tmp_path, store, run_manifest)
+
+    outside = tmp_path / "outside-blob"
+    outside.mkdir()
+    (outside / "evil.pt").write_text("model-1", encoding="utf-8")
+    repo = pinned_store.parent
+    victim = pinned_store / "panel" / "model.pt"
+    victim.unlink()
+    victim.symlink_to(outside / "evil.pt")
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(
+        ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "symlinked blob"],
+        check=True,
+    )
+    head = sp.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, text=True, stdout=sp.PIPE,
+    ).stdout.strip()
+    payload = json.loads(run_manifest.read_text(encoding="utf-8"))
+    payload["repos"]["renquant-artifacts"]["commit"] = head
+    run_manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _run(
+        world, tmp_path / "sessions",
+        run_manifest=run_manifest, pins_resolver=None,
+    )
+    assert result["exit_code"] == EXIT_PRECHECK_ABORT
+    assert any("escapes the declared artifact store" in r for r in result["reasons"])
