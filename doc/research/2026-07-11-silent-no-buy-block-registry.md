@@ -1,15 +1,92 @@
 # Silent no-buy block registry — whole-history retrospective (2026-07-11)
 
 **Status:** research registry (requirements input for the funnel-integrity pipeline step).
+r2 (Codex review, 2026-07-11): evidence sealed to `renquant-artifacts` (mutable DB/log/state
+paths were the r1 evidence citation), denominator formally predeclared and cross-checked,
+GE broker-truth date corrected (was 05-18, a canceled order — true value is 06-01, with a
+downstream correction to the "GE wrongfully blocked in 8 sessions" claim), descriptive-vs-
+validated framing added, and a per-invariant (I1-I10) online-identifiability assessment added.
 **Scope:** every session of the RenQuant-104 live era, 2026-04-21 → 2026-07-10 (56 NYSE
-sessions). READ-ONLY forensic sweep; no production state touched.
+sessions, denominator predeclared and cross-checked three independent ways — see §0).
+READ-ONLY forensic sweep; no production state touched.
+**Sources:** the durable forensic record for this doc is
+[`renquant-artifacts#17`](https://github.com/hallovorld/renquant-artifacts/pull/17)
+(`store://experiments/silent-no-buy-block-registry-20260711/RUN-LOCK.json`) — a sealed,
+content-addressed extract of the population/denominator rule, per-session raw signals for
+all 56 real sessions (each citing its source log's sha256), the C1-C8 classifier rubric, the
+I1-I10 online-identifiability assessment, and fresh broker-truth evidence for GE/HON/EQIX.
+It was built read-only from `data/runs.alpaca.db` (immutable open — `pipeline_runs`,
+`candidate_scores`, `ticker_daily_state`, `live_state_snapshots`, `trades`), all
+`logs/daily_104/*.log` and `logs/intraday_104/*.log`, `live_state.alpaca.json`, and a fresh
+Alpaca `TradingClient.get_orders` read-only query — those live-tree/mutable paths are the
+ORIGINAL sources the sealed bundle was extracted from, not this doc's durable citation.
 **Method:** reused the extraction logic of
 `.claude/skills/decision-tree-review/scripts/extract_decision_tree.py`
-(runs DB `data/runs.alpaca.db` — `pipeline_runs`, `candidate_scores`,
-`ticker_daily_state`, `live_state_snapshots`, `trades` — opened `immutable=1`),
 plus a normalized-template mining pass over all `logs/daily_104/2026-*.log` and
 `logs/intraday_104/*.log`, plus latest `live_state` snapshot vs broker-truth fills.
 Key patterns and queries are in Appendix B so the sweep is reproducible.
+
+---
+
+## 0. Predeclared population & denominator
+
+**Rule (checked, not assumed):** every calendar date in [2026-04-21, 2026-07-10] for which
+`logs/daily_104/<date>.log` (bare filename, no suffix) exists is *cron-fired*. A cron-fired
+date is `MARKET_CLOSED` if the log body is the self-declared "NYSE closed today ... skipping
+run" skip-stub (≤6 lines, no decision content). Every other cron-fired date is `REAL_SESSION`.
+Any weekday-minus-federal-holiday date with **no** log file at all would be `MISSING_LOG` —
+checked for; none exists in this window.
+
+- 61 cron-fired dates total: **56 REAL_SESSION + 5 MARKET_CLOSED** (2026-04-25 Sat,
+  2026-05-25 Memorial Day, 2026-06-07 Sun, 2026-06-19 Juneteenth, 2026-07-03 Independence
+  Day observed) **+ 0 MISSING_LOG**.
+- Cross-check: 56 REAL_SESSION == (59 weekdays in the window) − (3 federal-market holidays:
+  05-25, 06-19, 07-03) == the 56-row per-session table in §3. All three counts agree
+  independently; no session was silently dropped from the denominator.
+- **6 REAL_SESSION dates produced zero decision notification of any kind** (no `ntfy sent:
+  RENQUANT-104 [full|sell-only] {DECISION,TRADE,PENDING,PREFLIGHT-FAIL,BUY-BLOCKED}` line):
+  2026-04-21, 04-22, 04-28, 05-05, 05-07, 06-05. These carry an explicit
+  `MISSING_DECISION_NO_NOTIFICATION` disposition in the sealed bundle and are **never**
+  counted as an economic no-trade decision, per Codex's review. Per-date manual confirmation
+  (sealed in `renquant-artifacts#17`):
+  - **04-21** — pipeline completed twice (0 orders both times, drawdown circuit-breaker halt
+    at 90% ≥ 35%) but never emitted an ntfy line — the very first live session; notification
+    on a zero-order outcome appears not to have been wired yet. A genuine circuit-breaker
+    halt, not a silent crash, but never externally communicated.
+  - **04-22** — **new finding, not in the r1 draft, and more nuanced than a simple crash:**
+    the log shows three same-day script invocations (13:55, 17:33, 22:26 PDT — likely manual
+    reruns during initial live rollout, this being the 2nd live session). The first two
+    completed the inference pipeline in ~0.2s with `SizeAndEmitTask: 0 orders placed` each
+    time, but neither emitted an ntfy line of any kind — the same "0-orders produces no
+    notification" gap seen on 04-21, not obviously any single C1-C8 class. The **third**
+    invocation (22:26) is the one that truncates mid-run at line 421 (last line:
+    `LoadInsiderTradesTask` fetching missing tickers) and never reaches decision-emission —
+    that part is a genuine C8 (run crash). r1 folded the whole day into a generic
+    "degraded-inputs" C4 label without surfacing either of these; this round reclassifies
+    it C4/C8 (mixed) with both mechanisms stated explicitly.
+  - **04-28, 05-05, 05-07** — training pipeline `FAILED` (calibrator-refresh guard /
+    exception); each log ends at the `FAILED` line, same-day decision phase never reached.
+  - **06-05** — process `Terminated` (SIGTERM) mid-run during the news-sentiment-refresh
+    step. Matches the original C8 classification exactly.
+
+**Why this matters — and a second, larger correction it surfaced:** cross-checking every
+zero-buy session against this doc's OWN per-class citations (§2's C4/C7/C8 tables) against
+Appendix A's "27 full-block" list found Appendix A itself under-counts. It only captures the
+abort/sell-only-fallback/scan-collapse style of full block, and silently omits sessions this
+doc's own C7 table already cites as 100%-single-gate kills (**05-04, 05-06**:
+`veto:rank_score_below_floor` → `no_candidates`, independently re-confirmed against the raw
+log this round; **06-25, 06-26**: `risk_gate_vol_dropped(21/22)`, also re-confirmed) and the
+five early training-pipeline-crash sessions this correction round newly verified against raw
+logs (**04-21, 04-22, 04-28, 05-05, 05-07**). All nine have buys=0 and a citation-backed
+engineering cause, by this doc's own taxonomy — they were just never added to Appendix A's
+list, which understates the headline. §1's 27/56, 67%, and 11/33 figures are corrected below;
+see the recomputed accounting there. The two remaining zero-buy sessions not claimed as
+engineering here (**04-24**: `no trade (defensives_filtered(1))`, a portfolio-construction
+decision with 5-6 real candidates, not a funnel kill; **05-11**: the paper/live dual-track
+gap, re-confirmed via `PaperBroker.place_order` lines showing paper-side buys with no live
+counterpart — plausibly a live-specific risk control rather than a bug, not re-classified
+here for lack of evidence either way) are the only sessions this sweep cannot rule out as a
+genuine economic no-trade.
 
 ---
 
@@ -17,35 +94,58 @@ Key patterns and queries are in Appendix B so the sweep is reproducible.
 
 - **The live system is 56 sessions old — a "last 120 sessions" window does not exist.**
   All numbers below are over the full 56-session live history.
-- **27 / 56 sessions (48%): the scheduled buy path was fully dead for a
-  non-economic, engineering cause.** [VERIFIED per-session, §3 + Appendix A]
-  On 5 of those 27 a manual same-day intervention placed buys anyway
-  (05-22, 06-09, 06-10, 06-22, 07-06); **22 / 56 (39%) realized zero buys.**
-- **33 / 56 sessions had zero live buys. 22 of those 33 (67%) were engineering,
-  not economics.** The honest "the model chose not to trade" share of no-buy days
-  is at most 11/33.
-- **8 more sessions were materially degraded** (wrongful wash-sale blocks, admission
-  staleness creep, universe collapsed to 45%, intraday buy path dead all day):
-  **35 / 56 (63%) degraded-or-dead.**
+- **Corrected accounting (r2 — see §0 for the derivation):** Appendix A's original
+  "27 full-block" list under-counted by omitting sessions this doc's own §2 class tables
+  already cite as 100%-engineering-kill. Adding **05-04, 05-06, 06-25, 06-26** (C7,
+  independently re-confirmed against raw logs this round) and **04-21, 04-22, 04-28, 05-05,
+  05-07** (C4/C8 training-pipeline crashes / drawdown-halt / truncated run, newly verified
+  against raw logs) gives **36 / 56 sessions (64%)** where the scheduled buy path was fully
+  dead for a non-economic, engineering cause — not 27/56 (48%) as originally stated.
+- **33 / 56 sessions had zero live buys. 31 of those 33 (94%) are engineering-attributable
+  by this doc's own class citations** — not 22/33 (67%) as originally stated. Only **2/33**
+  (04-24: a portfolio-construction filter with real surviving candidates; 05-11: an
+  unresolved paper/live dual-track gap) are not claimed as engineering here; that is the
+  outer ceiling on genuine economic no-trade days in this history, not 11/33.
+- **8 more sessions were materially non-zero-buy but degraded** (wrongful wash-sale blocks,
+  admission staleness creep, universe collapsed to 45%, intraday buy path dead all day) —
+  this bucket's own count was not re-verified in this correction round (it is disjoint from
+  the corrected 36, since all 9 newly-added sessions are zero-buy). Combining the corrected
+  36 with the original, un-re-verified 8 gives **44 / 56 (79%) degraded-or-dead**; treat the
+  "8" component of that figure with the same descriptive, not re-audited, caveat as the rest
+  of §5.
 - **Input-integrity overlay (fully silent):** the fundamentals actually served to the
   scorer were frozen at 2026-02-10 → 70–121 d stale for every session until 06-12,
   and ~88–92 d stale until 06-23 (~40 sessions). First signal of any kind: a log
   WARNING added 06-11. Zero decision-level signal, ever. [VERIFIED from
   `fundamentals feed STALE` lines 06-11 → 06-23]
-- **Flagged at the time:** of the 27 full blocks — 17 (63%) loud (PREFLIGHT-FAIL /
-  abort ntfy), 6 (22%) semi (block-reason string embedded in a routine-looking
-  "no trade (…)" notification), **4 (15%) fully silent** (06-05: no report at all;
-  06-30, 07-08, 07-09: reported as a normal `no trade (no_candidates)`,
+- **Flagged at the time (corrected for the 36-session full-block figure):** 17 (47%) loud
+  (PREFLIGHT-FAIL / abort ntfy), 10 (28%) semi (block-reason string embedded in a
+  routine-looking "no trade (…)" notification — includes the newly-added 05-04, 05-06,
+  06-25, 06-26), **9 (25%) fully silent** (04-21, 04-22, 04-28, 05-05, 05-07, 06-05: no
+  report at all; 06-30, 07-08, 07-09: reported as a normal `no trade (no_candidates)`,
   indistinguishable from an economic no-trade). Of the 8 degraded sessions and the
   40-session stale-fundamentals overlay: **0% flagged at decision level.**
-- **Still broken today [VERIFIED against 2026-07-10 live_state snapshot]:**
-  `last_sell_dates` stamps GE=2026-06-26 (broker truth 05-18), HON=2026-06-26
-  (truth 06-03), EQIX=2026-06-26 (truth 06-17). GE has been wrongfully
-  wash-blocked in 8 sessions and remains blocked; HON is wrongfully blocked since
-  07-04; EQIX becomes wrongfully blocked 07-18 → ~07-27 unless the stamps are
-  corrected. The code fix (fill-date lookup, `EXT_SELL_LOOKBACK_DAYS=45`) is in the
-  umbrella working tree (`backtesting/renquant_104/adapters/runner_ext_sell.py`),
-  but the state was never retro-corrected for these three names.
+- **Still broken today [VERIFIED against 2026-07-10 live_state snapshot; re-verified fresh
+  2026-07-11 against the live broker, sealed in `renquant-artifacts#17`]:** `last_sell_dates`
+  stamps GE=2026-06-26 (broker truth **2026-06-01**, corrected from an earlier erroneous
+  05-18 citation — that was a canceled order, never filled), HON=2026-06-26 (truth 06-03),
+  EQIX=2026-06-26 (truth 06-17). **Correcting the GE date changes the wrongful-block count:**
+  GE's true 31-day wash window closes 2026-07-02 (06-01 + 31 d); sessions 06-23 → 07-01 were
+  within that true window and would have been correctly blocked even absent the mis-stamp —
+  only **2026-07-10** (39 d since the true sale) is confirmed wrongful in the evidence cited
+  here, not "8 sessions" as originally stated (07-03 → 07-09 were not independently
+  re-audited for a GE wash-drop line in this round, so the true count for that gap is
+  unknown, not zero). HON is wrongfully blocked since 07-04; EQIX becomes wrongfully blocked
+  07-18 → ~07-27 unless the stamps are corrected. The code fix (fill-date lookup,
+  `EXT_SELL_LOOKBACK_DAYS=45`) is in the umbrella working tree
+  (`backtesting/renquant_104/adapters/runner_ext_sell.py`). **Update:** the live-state stamps
+  for all three names were corrected directly on 2026-07-11 (operator-approved, following
+  the same precedent as the META correction; backed up before writing) — GE→06-01,
+  HON→06-03, EQIX→06-17 — re-verified fresh against the live `live_state.alpaca.json` and a
+  fresh read-only broker query as part of sealing `renquant-artifacts#17`. This closes the
+  live-state side of the recurrence; it does not establish these three were the only names
+  affected by the underlying pre-fix reconciliation bug (see the open follow-up in this
+  doc's memory record).
 
 ---
 
@@ -77,17 +177,28 @@ claim where `live_train_end < last_session_date − k` is a hard integrity error
 Cross-check of every `DROP_WashSaleFilter` line (344 drops) against broker-truth sell
 fills reconstructable from the runs DB:
 
-- **06-23 stamp event:** GE / HON / META stamped "sold 8 d ago" (=06-15). Broker truth:
-  GE 05-18, HON 06-03, META 06-02.
+- **06-23 stamp event:** GE / HON / META stamped "sold 8 d ago" (=06-15). Broker truth
+  (corrected — see below): **GE 2026-06-01**, HON 06-03, META 06-02.
 - **06-26 mass re-stamp event:** reconciliation stamped GE, HON, META, EQIX all
   `last_sell_dates = 2026-06-26` ("sold 0d ago") — the heuristic discarded the real
   fetched fill date and stamped "today".
-- **Realized wrongful blocks** (blocked while broker-truth age > 31 d): **GE in 8
-  sessions** (06-23, 24, 25, 26, 29, 07-01, 02, 10) — and ongoing. META's stamp was
-  24 d off; its realized wrongful window (from 07-03) was masked by the C1 universe
-  collapse, then live-corrected ~07-08. HON wrongfully blocked since 07-04 (not yet
-  realized as a candidate-drop — it hasn't reached the wash gate). EQIX pending
-  (wrongful window 07-18 → ~07-27).
+- **Realized wrongful blocks** (blocked while broker-truth age > 31 d) **— corrected**:
+  the original draft cited GE's broker-truth last sell as 05-18 and claimed 8 wrongfully
+  blocked sessions from that. That 05-18 date was a **canceled** order, never filled;
+  re-derived strictly from `status=filled` sell orders, GE's true last sell fill is
+  **2026-06-01**. GE's true 31-day wash window therefore closes **2026-07-02**, not
+  ~06-19 as the wrong date implied — sessions 06-23 through 07-01 were inside the TRUE
+  wash window and would have been correctly blocked even with a bug-free stamp; only
+  **07-10** (39 d since the true sale) is confirmed wrongful in the evidence cited here.
+  Whether GE was wrongfully re-blocked on any of 07-03 → 07-09 is **not established** by
+  this sweep (those sessions' buy-scan universes mostly collapsed to 0 for unrelated C1
+  reasons, so GE likely never reached the wash gate on most of them, but this was not
+  individually re-audited). META's stamp was 24 d off; its realized wrongful window (from
+  07-03) was masked by the C1 universe collapse, then live-corrected 07-01 (same-day,
+  before this sweep). HON wrongfully blocked since 07-04 (not yet realized as a
+  candidate-drop — it hasn't reached the wash gate as of the sessions covered here). EQIX
+  pending (wrongful window 07-18 → ~07-27) as of this sweep's original write-up; both
+  HON and EQIX were corrected in live state 2026-07-11 alongside GE (see §1).
 - **Sub-finding (ledger gap):** sells executed in the 05-26 → 06-05 sell-only era
   (BAC, D, WFC, CSCO, DUK, FTNT, XOM, …) have **no sell rows in `trades`** — fills
   happened at the broker but were never persisted, so stamps from that era are
@@ -97,10 +208,13 @@ fills reconstructable from the runs DB:
   count rather than claimed.
 
 **Looked like:** nothing. Wash drops are INFO log lines; never surfaced in the decision
-notification. **Detected:** 07-08 forensics (META). **Fix today:** code fix present in
-the umbrella working tree (`runner_ext_sell.py`, 45 d fill lookback) [VERIFIED file
-content]; **state NOT retro-corrected — GE/HON/EQIX stamps still wrong in the 07-10
-snapshot [VERIFIED]**.
+notification. **Detected:** 07-01 forensics (META); this sweep (GE/HON/EQIX), 07-11.
+**Fix today:** code fix present in the umbrella working tree (`runner_ext_sell.py`, 45 d
+fill lookback) [VERIFIED file content]; state was NOT retro-corrected as of the 07-10
+snapshot this sweep originally cited [VERIFIED], but **was corrected 2026-07-11** for
+GE/HON/EQIX (operator-approved direct correction, same precedent as META) — re-verified
+fresh against the live state file and a fresh broker query, sealed in
+`renquant-artifacts#17`.
 
 **Invariant I2:** for every ticker, `last_sell_dates[t]` must equal a broker fill date
 (±1 trading day) within the lookback; assert nightly. **Invariant I3:** every position
@@ -212,9 +326,19 @@ must always carry a machine-readable dominant-gate attribution.
 
 - 06-05: daily job terminated mid-run — no decision, no ntfy, nothing. Only visible
   as a 201-line log and an intraday-only DB day (31 intraday rows, no full run).
-- 04-22: one `daily_104 FAILED` invocation (rerun same day succeeded).
-- Training-pipeline crashes (04-21, 04-28, 05-05, 05-07) — decision unaffected same
-  day but they froze the tournament (feeds C1a).
+- **04-22 — corrected r2:** three same-day script invocations; the first two completed
+  the inference pipeline (0 orders, no ntfy — see §0), the third truncates mid-run and
+  never reaches decision-emission. r1's "(rerun same day succeeded)" parenthetical is
+  wrong — no later invocation that day is confirmed to have produced a decision or ntfy
+  line; re-verified against the raw log this round.
+- **Training-pipeline crashes — corrected r2:** 04-28, 05-05, 05-07 each have a log that
+  ends at the `Training pipeline FAILED` line — the SAME-day `daily_104.sh` invocation
+  aborted there and never reached the decision phase at all (r1's "decision unaffected
+  same day" was wrong for these three, re-verified against the raw log this round). They
+  also froze the tournament going forward (feeds C1a). 04-21 is mechanistically different:
+  its inference pipeline DID complete (twice, 0 orders via drawdown-circuit-breaker halt,
+  see §0) — it belongs here only because neither completed run emitted an ntfy line, not
+  because of a training-pipeline crash blocking that day's own decision phase.
 
 **Invariant I9:** end-of-session heartbeat — every NYSE session must have exactly one
 completed daily-full run row + decision notification; absence is a page, not silence.
@@ -274,7 +398,7 @@ no-trade line, `NO` = indistinguishable/absent).
 | 06-17 | 0 | FULL BLOCK — sell-only | C5 | loud |
 | 06-18 | 0 | FULL BLOCK — sell-only | C5 | loud |
 | 06-22 | 5* | FULL BLOCK cron — *recovery-day re-promotion bought | C5 | loud |
-| 06-23 | 10 | degraded — wash mis-stamp (GE 36d), stale creep begins | C1/C2 | NO |
+| 06-23 | 10 | degraded — wash mis-stamp (GE 22d true age, within true wash window — see §2 C2 correction), stale creep begins | C1/C2 | NO |
 | 06-24 | 3 | degraded — wash + stale creep | C1/C2 | NO |
 | 06-25 | 0 | degraded — stacked funnel kill 76/76 + wash | C7/C1/C2 | semi |
 | 06-26 | 0 | degraded — stacked funnel kill 79/79 + mass re-stamp | C7/C1/C2 | semi |
@@ -295,24 +419,63 @@ Alpaca-visible outcome; (2) `trades` has a sell-ledger gap 05-26 → 06-05 (C2);
 
 ## 4. What the funnel-integrity step must assert (requirements)
 
-| Inv | Class | Assertion (per daily-full run, fail = structured alert distinct from no-trade) |
-|---|---|---|
-| I1 | C1 | admitted/universe ≥ floor; n_tournament drop ≤30% d/d; `live_train_end ≥ last_session − k` |
-| I2 | C2 | every `last_sell_dates[t]` equals a broker fill date ±1 trading day |
-| I3 | C2 | broker sell fills ⊆ trades ledger (completeness) |
-| I4 | C3 | fingerprint parity asserted pre-market; mid-run contract failure ⇒ `contract_failure` state, never `no_candidates` |
-| I5 | C4 | serving-axis max-date lag ≤ N per feature family; alert on monotone lag growth |
-| I6 | C5 | buy-capability SLO: ≥2 consecutive dead-buy-path sessions ⇒ page (cause-agnostic) |
-| I7 | C6 | active bars vs max-achievable μ/er/Δw; bar > max for ALL candidates ⇒ `STRUCTURAL_BLOCK` |
-| I8 | C7 | any gate with 100% kill-rate ⇒ `funnel_kill` alert naming the gate; n_buys==0 carries dominant-gate attribution |
-| I9 | C8 | exactly one completed daily-full decision per NYSE session (heartbeat) |
-| I10 | all | the decision notification must carry `capability: FULL / DEGRADED(reason) / BLOCKED(reason)` computed from I1–I9 — a no-trade without a clean capability bill is not reportable as "no trade" |
+| Inv | Class | Assertion (per daily-full run, fail = structured alert distinct from no-trade) | Online-identifiable? |
+|---|---|---|---|
+| I1 | C1 | admitted/universe ≥ floor; n_tournament drop ≤30% d/d; `live_train_end ≥ last_session − k` | **Yes** — pure function of the same session's own admission counters, no hindsight needed |
+| I2 | C2 | every `last_sell_dates[t]` equals a broker fill date ±1 trading day | **Yes** — requires a synchronous broker fill-date fetch at stamp-write time (the lookup already exists as a side query; it just needs to gate the write instead of being discarded) |
+| I3 | C2 | broker sell fills ⊆ trades ledger (completeness) | **Partial** — only checkable on ledger rows that exist; a ledger-write failure (the confirmed 05-26→06-05 gap) is itself invisible to an in-pipeline check without an independent broker reconciliation pass run separately |
+| I4 | C3 | fingerprint parity asserted pre-market; mid-run contract failure ⇒ `contract_failure` state, never `no_candidates` | **Yes** — fingerprint parity is a pure function of already-loaded artifacts, assertable before the pipeline runs |
+| I5 | C4 | serving-axis max-date lag ≤ N per feature family; alert on monotone lag growth | **Yes** — the lag itself is known at feature-load time; the derivative (day-over-day growth) needs one prior session's value persisted, which is a 1-session memory, not hindsight |
+| I6 | C5 | buy-capability SLO: ≥2 consecutive dead-buy-path sessions ⇒ page (cause-agnostic) | **Yes** — a running counter by construction |
+| I7 | C6 | active bars vs max-achievable μ/er/Δw; bar > max for ALL candidates ⇒ `STRUCTURAL_BLOCK` | **Yes** — computable from the same session's candidate set before the decision is emitted |
+| I8 | C7 | any gate with 100% kill-rate ⇒ `funnel_kill` alert naming the gate; n_buys==0 carries dominant-gate attribution | **Yes** — same-session funnel counters; the 3-session-80% variant needs a short rolling window of already-available prior sessions |
+| I9 | C8 | exactly one completed daily-full decision per NYSE session (heartbeat) | **Yes, but only as an EXTERNAL watchdog** — the defining C8 scenario (2026-06-05) is precisely when the run cannot self-report; this invariant cannot live inside the pipeline task it is meant to police |
+| I10 | all | the decision notification must carry `capability: FULL / DEGRADED(reason) / BLOCKED(reason)` computed from I1–I9 — a no-trade without a clean capability bill is not reportable as "no trade" | **Composite** — inherits I9's caveat: if the run never starts or finishes, no in-pipeline task can emit a capability bill, so the external watchdog is a structural prerequisite for I10 on a C8 session, not an optional enhancement |
 
-## Appendix A — full-block session list (27)
+Full derivation sealed in `renquant-artifacts#17` (`online_identifiability_i1_i10` block).
 
-05-19, 05-20, 05-21, 05-22*, 05-26, 05-27, 05-28, 05-29, 06-01, 06-02, 06-03, 06-04,
-06-05, 06-08, 06-09*, 06-10*, 06-11, 06-12, 06-15, 06-16, 06-17, 06-18, 06-22*,
-06-30, 07-06*, 07-08, 07-09.  (* = manual same-day rescue placed buys.)
+## 5. Methodological caveats: descriptive taxonomy, not a validated detector
+
+This registry is a **retrospective, descriptive classification** of one historical
+population (56 sessions, one strategy, one live account). It is NOT:
+
+- **A validated detector performance estimate.** The 36/56, 94%, and per-class percentages
+  above describe what happened in this specific window; they are not precision/recall
+  figures for the I1-I10 invariants, because no online detector existed during this window
+  to measure against. Do not read "94% of no-buy days were engineering" as "a live I1-I10
+  detector would catch 94% of future incidents" — that is an untested claim.
+- **A basis for default-on alert thresholds.** Specific numeric thresholds floated in §2/§4
+  (30% d/d tournament drop, 45-day freshness limit, 2-session dead-path SLO, etc.) are
+  carried over from the incidents that motivated each invariant, not fit or validated
+  against a labeled dataset. `renquant-pipeline#186`'s implementation should treat these as
+  starting points requiring their own validation (e.g. a shadow/observe-only period), not as
+  pre-approved production thresholds.
+- **An exhaustive audit.** The C1-C8 taxonomy and the classifier rubric sealed in
+  `renquant-artifacts#17` are versioned (`silent-no-buy-classifier-v1`) specifically so
+  future revisions are traceable, because this round's own re-verification pass (§0, §2 C2)
+  already found and corrected two classification errors in the r1 draft (the GE broker-date
+  error and the Appendix A under-count) — a strong prior that further undiscovered errors
+  remain, not a signal that the taxonomy is now exhaustively correct.
+
+The correct use of this document is as **requirements input** for `pipeline#186`'s detector
+design (which invariants to implement, in what order, with what online-identifiability
+constraints) — not as a certified measurement of system reliability.
+
+## Appendix A — full-block session list (36, corrected r2)
+
+**Original abort/sell-only/scan-collapse style blocks (27):** 05-19, 05-20, 05-21, 05-22*,
+05-26, 05-27, 05-28, 05-29, 06-01, 06-02, 06-03, 06-04, 06-05, 06-08, 06-09*, 06-10*, 06-11,
+06-12, 06-15, 06-16, 06-17, 06-18, 06-22*, 06-30, 07-06*, 07-08, 07-09.
+(* = manual same-day rescue placed buys.)
+
+**Added r2 (C7 100%-single-gate-kill sessions already cited in §2's C7 table but omitted
+here originally, independently re-confirmed against raw logs):** 05-04, 05-06, 06-25, 06-26.
+
+**Added r2 (C4/C8 training-pipeline-crash / drawdown-halt / truncated-run sessions, newly
+verified against raw logs this round — see §0):** 04-21, 04-22, 04-28, 05-05, 05-07.
+
+Total: 27 + 4 + 5 = **36**. None of the 9 additions carry a rescue asterisk (all 9 remained
+zero-buy).
 
 ## Appendix B — reproduction signatures
 
