@@ -562,6 +562,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to shadow_ab_runner.main",
     )
 
+    deploy_pin = sub.add_parser(
+        "deploy-pin",
+        help=(
+            "R-PIN deployment-pin authority CLI (Stage 1: capture the "
+            "deployed truth into the neutral state root; dry-run default)"
+        ),
+    )
+    deploy_pin.add_argument(
+        "deploy_pin_args", nargs=argparse.REMAINDER,
+        help="pass-through args to deploy_pin.main",
+    )
+
     readiness = sub.add_parser(
         "readiness-monitor",
         help="data-accumulation readiness dashboard — check all gates and "
@@ -813,7 +825,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "live-bridge", "daily-bridge", "edgar-harvest", "parking-sleeve",
         "transfer-coefficient", "shadow-ab", "readiness-monitor", "entry-timing",
         "train-gbdt", "patchtst-cutoff", "risk-budget-report",
-        "conviction-replay", "m6-restamp",
+        "conviction-replay", "m6-restamp", "deploy-pin",
     }
     if unknown and args.command not in _remainder_commands:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -1407,6 +1419,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         shadow_ab_argv = unknown + (args.shadow_ab_args or [])
         return shadow_ab_main(shadow_ab_argv or None)
+    if args.command == "deploy-pin":
+        from .deploy_pin import main as deploy_pin_main
+
+        deploy_pin_argv = unknown + (args.deploy_pin_args or [])
+        return deploy_pin_main(deploy_pin_argv or None)
     if args.command == "readiness-monitor":
         from .readiness_monitor import main as rm_main
 
