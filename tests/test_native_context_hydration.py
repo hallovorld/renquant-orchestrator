@@ -377,3 +377,199 @@ def test_rewrite_config_artifact_refs_fails_closed_on_unresolvable(tmp_path):
             repo_root=tmp_path / "runtime",
             artifact_store=store,
         )
+
+
+# --- write containment (2026-07-11 self-poisoning, r1 review) -----------------
+
+
+def test_rewrite_config_log_containment_redirects_known_writers_only(tmp_path):
+    """Hydration-level proof (Codex r1 review on #470): the in-memory
+    containment rewrite reaches the actual admission-shadow and sleeve
+    writer config, and touches NOTHING else — no field that could change a
+    trading decision or output (sizing, scoring, gating, order generation)
+    is read or modified by this rewrite."""
+    import copy
+
+    from renquant_orchestrator.native_context_hydration import (
+        rewrite_config_log_containment,
+    )
+
+    config = {
+        "benchmark": "SPY",
+        "watchlist": ["AAPL", "MSFT"],
+        "ranking": {"panel_scoring": {"enabled": True, "artifact_path": "x"}},
+        "regime_params": {"BULL_CALM": {"max_position_pct": 0.12}},
+        "sizing": {"one_share_floor_enabled": True},
+        "admission_shadow": {"enabled": True, "some_other_key": "unchanged"},
+        "sleeve": {
+            "enabled": True,
+            "log_path": "logs/parking_sleeve_shadow.jsonl",
+            "beta_pos": 1.0,
+        },
+    }
+    before = copy.deepcopy(config)
+
+    contained = rewrite_config_log_containment(
+        config, log_containment_dir=tmp_path / "arm_a",
+    )
+
+    # the actual admission-shadow and sleeve writer config DID get redirected
+    assert config["admission_shadow"]["path"] == str(
+        tmp_path / "arm_a" / "admission_shadow.jsonl"
+    )
+    assert config["sleeve"]["log_path"] == str(
+        tmp_path / "arm_a" / "parking_sleeve_shadow.jsonl"
+    )
+    assert contained == {
+        "admission_shadow": str(tmp_path / "arm_a" / "admission_shadow.jsonl"),
+        "sleeve": str(tmp_path / "arm_a" / "parking_sleeve_shadow.jsonl"),
+    }
+
+    # every OTHER field, including sibling keys inside the two touched
+    # blocks, is byte-identical to before the rewrite — no decision/output
+    # field was read or changed as a side effect.
+    assert config["benchmark"] == before["benchmark"]
+    assert config["watchlist"] == before["watchlist"]
+    assert config["ranking"] == before["ranking"]
+    assert config["regime_params"] == before["regime_params"]
+    assert config["sizing"] == before["sizing"]
+    assert config["admission_shadow"]["enabled"] == before["admission_shadow"]["enabled"]
+    assert (
+        config["admission_shadow"]["some_other_key"]
+        == before["admission_shadow"]["some_other_key"]
+    )
+    assert config["sleeve"]["enabled"] == before["sleeve"]["enabled"]
+    assert config["sleeve"]["beta_pos"] == before["sleeve"]["beta_pos"]
+    # only the two known path keys differ between before/after
+    diff_keys_admission_shadow = {
+        k for k in config["admission_shadow"]
+        if config["admission_shadow"][k] != before["admission_shadow"].get(k)
+    }
+    assert diff_keys_admission_shadow == {"path"}
+    diff_keys_sleeve = {
+        k for k in config["sleeve"]
+        if config["sleeve"][k] != before["sleeve"].get(k)
+    }
+    assert diff_keys_sleeve == {"log_path"}
+
+
+def test_rewrite_config_log_containment_no_sleeve_log_path_is_a_no_op_for_sleeve(tmp_path):
+    """A config with no sleeve block (or no log_path in it) must not gain
+    one — the rewrite only redirects a writer that's actually configured,
+    it never fabricates config the pipeline didn't already have."""
+    from renquant_orchestrator.native_context_hydration import (
+        rewrite_config_log_containment,
+    )
+
+    config = {"admission_shadow": {"enabled": True}}
+    contained = rewrite_config_log_containment(
+        config, log_containment_dir=tmp_path / "arm_b",
+    )
+    assert "sleeve" not in config
+    assert contained == {
+        "admission_shadow": str(tmp_path / "arm_b" / "admission_shadow.jsonl"),
+    }
+
+
+def test_hydrate_pipeline_context_threads_log_containment_into_admission_shadow_and_sleeve(
+    tmp_path: Path,
+) -> None:
+    """Hydration-level test (Codex r1 review on #470) — not just the
+    unit-level rewrite function above, but hydrate_pipeline_context's OWN
+    call site, exercised through the REAL pinned pipeline exactly like
+    test_hydrate_pipeline_context_builds_the_real_dataclass above. Proves
+    (a) the resulting ctx.config's admission_shadow/sleeve writer paths are
+    genuinely redirected into the arm's containment directory, and (b)
+    every decision/output-relevant field (prices, holdings, cash,
+    portfolio_value, today, regime_state) is IDENTICAL to a hydration run
+    with containment disabled — the rewrite is proven side-effect-free
+    outside the two writer-path keys, at the same fidelity as the existing
+    artifact-ref-rewrite dataclass test."""
+    from renquant_pipeline.context import InferenceContext
+
+    store = _write_ohlcv_store(tmp_path, [*WATCHLIST, "SPY"])
+    positions = {
+        "AAA": {
+            "symbol": "AAA", "quantity": 2.0, "avg_entry_price": 90.0,
+            "market_value": 200.0,
+        },
+    }
+
+    def _payload_with_writers() -> dict:
+        payload = json.loads(
+            _context_payload(tmp_path, positions=positions).read_text()
+        )
+        payload["config"]["admission_shadow"] = {
+            "enabled": True,
+            "path": "logs/admission_shadow.jsonl",
+        }
+        payload["config"]["sleeve"] = {
+            "enabled": True,
+            "log_path": "logs/parking_sleeve_shadow.jsonl",
+            "beta_pos": 1.0,
+        }
+        return payload
+
+    containment_dir = tmp_path / "arm_a"
+
+    ctx_contained, report_contained = hydrate_pipeline_context(
+        _payload_with_writers(),
+        session_date=SESSION_DATE,
+        broker_name="alpaca_shadow_a",
+        strategy_dir=tmp_path / "configs",
+        repo_root=tmp_path,
+        ohlcv_dir=store,
+        log_containment_dir=containment_dir,
+    )
+    ctx_uncontained, _report_uncontained = hydrate_pipeline_context(
+        _payload_with_writers(),
+        session_date=SESSION_DATE,
+        broker_name="alpaca_shadow_a",
+        strategy_dir=tmp_path / "configs",
+        repo_root=tmp_path,
+        ohlcv_dir=store,
+    )
+    assert isinstance(ctx_contained, InferenceContext)
+
+    # the ACTUAL admission-shadow and sleeve writer config reaching the
+    # real pipeline context is redirected — not left at the pinned-checkout
+    # relative path.
+    assert ctx_contained.config["admission_shadow"]["path"] == str(
+        containment_dir / "admission_shadow.jsonl"
+    )
+    assert ctx_contained.config["sleeve"]["log_path"] == str(
+        containment_dir / "parking_sleeve_shadow.jsonl"
+    )
+    assert report_contained["log_containment"] == {
+        "admission_shadow": str(containment_dir / "admission_shadow.jsonl"),
+        "sleeve": str(containment_dir / "parking_sleeve_shadow.jsonl"),
+    }
+
+    # nothing that could change a trading DECISION or OUTPUT differs
+    # between the contained and uncontained hydration of the SAME payload.
+    assert ctx_contained.today == ctx_uncontained.today
+    assert ctx_contained.prices == ctx_uncontained.prices
+    assert set(ctx_contained.holdings) == set(ctx_uncontained.holdings)
+    assert (
+        ctx_contained.holdings["AAA"].shares
+        == ctx_uncontained.holdings["AAA"].shares
+    )
+    assert ctx_contained.cash == ctx_uncontained.cash
+    assert ctx_contained.portfolio_value == ctx_uncontained.portfolio_value
+    assert set(ctx_contained.ohlcv) == set(ctx_uncontained.ohlcv)
+    # the enabled flags and non-path fields of the two touched blocks are
+    # unchanged by containment — only the two writer-path keys differ.
+    assert (
+        ctx_contained.config["admission_shadow"]["enabled"]
+        == ctx_uncontained.config["admission_shadow"]["enabled"]
+    )
+    assert (
+        ctx_contained.config["sleeve"]["enabled"]
+        == ctx_uncontained.config["sleeve"]["enabled"]
+    )
+    assert (
+        ctx_contained.config["sleeve"]["beta_pos"]
+        == ctx_uncontained.config["sleeve"]["beta_pos"]
+    )
+    assert ctx_uncontained.config["admission_shadow"]["path"] == "logs/admission_shadow.jsonl"
+    assert ctx_uncontained.config["sleeve"]["log_path"] == "logs/parking_sleeve_shadow.jsonl"

@@ -616,6 +616,151 @@ def load_run_manifest(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def _quarantine_bundle_record_path(quarantine_root: Path) -> Path:
+    return quarantine_root / "index.jsonl"
+
+
+def _append_quarantine_bundle_record(quarantine_root: Path, record: dict[str, Any]) -> None:
+    """Append-only evidence log for every quarantine attempt — one JSON
+    object per line, mirroring this repo's admission_shadow.jsonl
+    convention. Never overwritten, so N repeated quarantines in one session
+    (retries) leave a full audit trail, not just the latest destination."""
+    quarantine_root.mkdir(parents=True, exist_ok=True)
+    with _quarantine_bundle_record_path(quarantine_root).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def _reserve_unique_quarantine_dest(quarantine_root: Path, name: str) -> Path:
+    """Atomically claim and return an EMPTY destination directory under
+    ``quarantine_root`` that no prior (or concurrent) attempt has claimed.
+
+    ``Path.mkdir(..., exist_ok=False)`` is the atomicity primitive: two
+    processes/attempts racing on the same candidate name can never both
+    "win" it — exactly one ``FileExistsError`` for the loser, which retries
+    the next candidate. A retried or repeated same-session quarantine (the
+    2026-07-11 r1 review finding) therefore always lands in a FRESH
+    directory rather than colliding with an earlier successful move.
+
+    The returned directory is left EXISTING (not removed) — there is no
+    window between "reserved" and "populated" during which another attempt
+    could claim the same path, unlike a reserve-then-rmdir-then-rename
+    scheme. Callers move the source's CONTENTS into it, not the source
+    directory itself onto it.
+    """
+    quarantine_root.mkdir(parents=True, exist_ok=True)
+    for attempt in range(1, 10_000):
+        candidate = quarantine_root / f"{name}-logs-{attempt:04d}"
+        try:
+            candidate.mkdir(parents=False, exist_ok=False)
+        except FileExistsError:
+            continue
+        return candidate
+    raise OSError(
+        f"could not reserve a unique quarantine destination for {name!r} "
+        f"under {quarantine_root} after 9999 attempts"
+    )
+
+
+def quarantine_stray_arm_byproducts(
+    manifest: Mapping[str, Any],
+    *,
+    quarantine_root: Path,
+    git_probe: GitProbe | None = None,
+) -> list[str]:
+    """Post-arm self-healing for the 2026-07-11 self-poisoning incident.
+
+    A successful arm run that writes into a MANIFEST-PINNED checkout (the
+    kernel's strategy-dir-relative log writers) dirties the tree AFTER this
+    session's own verification passed — poisoning the NEXT session's
+    verify_run_manifest. Containment (--log-containment-dir) makes this a
+    no-op normally; this check is the backstop: re-scan every manifest repo
+    after the arms, and quarantine ONLY the known byproduct pattern (an
+    untracked ``logs/`` directory) into the session's quarantine dir,
+    preserving the files as evidence. Anything ELSE left dirty is reported
+    but NOT touched — the next precheck fails closed on it, by design.
+
+    Idempotent/retry-safe (2026-07-11 r1 review): each quarantine attempt
+    claims a UNIQUE destination via ``_reserve_unique_quarantine_dest``
+    (atomic directory creation, never a fixed ``{name}-logs`` path), so a
+    retried or repeated same-session call after an earlier successful move
+    never hits an existing destination — ``rename`` cannot raise on
+    collision, the source is always actually removed, and the next
+    precheck is never poisoned by a swallowed exception. Every attempt
+    (success or failure) is additionally recorded in an append-only bundle
+    record (``quarantine_root/index.jsonl``) so repeated attempts in one
+    session are fully auditable, not silently overwritten.
+
+    A per-repo failure (e.g. an unexpected OSError reserving/renaming) is
+    caught and reported as a note for THAT repo only — it does not abort
+    processing of the other manifest repos or discard their already-
+    recorded quarantine notes (2026-07-11 r1 review: the caller's blanket
+    ``except OSError`` around the whole call previously discarded ALL
+    notes, including already-successful ones, on any single failure).
+    Returns human-readable notes for the bundle.
+    """
+    probe = git_probe or _default_git_probe
+    notes: list[str] = []
+    for name, entry in sorted((manifest.get("repos") or {}).items()):
+        path = Path(entry["path"])
+        status = probe(["-C", str(path), "status", "--porcelain"])
+        if status.returncode != 0 or not (status.stdout or "").strip():
+            continue
+        lines = (status.stdout or "").strip().splitlines()
+        for line in lines:
+            if line.strip() == "?? logs/":
+                try:
+                    dest = _reserve_unique_quarantine_dest(quarantine_root, name)
+                    src = path / "logs"
+                    # Move CONTENTS into the already-reserved dest (never
+                    # rename the source dir onto dest) — dest is held
+                    # exclusively from the moment it was created, so there
+                    # is no window in which another attempt could reclaim
+                    # it. Removing src afterward, not before/racily, is
+                    # what actually clears the pinned checkout.
+                    for child in sorted(src.iterdir()):
+                        child.rename(dest / child.name)
+                    src.rmdir()
+                except OSError as exc:
+                    notes.append(
+                        f"post_arm_quarantine_error: {name}: failed to "
+                        f"quarantine untracked logs/: {exc} — logs/ left "
+                        "in place; next session will fail closed on it"
+                    )
+                    _append_quarantine_bundle_record(
+                        quarantine_root,
+                        {
+                            "repo": name,
+                            "status": "error",
+                            "error": str(exc),
+                            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+                        },
+                    )
+                    continue
+                files = sorted(
+                    str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file()
+                )
+                notes.append(
+                    f"post_arm_quarantine: {name} untracked logs/ moved to "
+                    f"{dest} (write containment missed a writer — fix it)"
+                )
+                _append_quarantine_bundle_record(
+                    quarantine_root,
+                    {
+                        "repo": name,
+                        "status": "quarantined",
+                        "dest": str(dest),
+                        "files": files,
+                        "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    },
+                )
+            else:
+                notes.append(
+                    f"post_arm_tree_dirty: {name}: {line.strip()!r} left in "
+                    "place; next session will fail closed on it"
+                )
+    return notes
+
+
 def resolve_manifest_artifact_store(manifest: Mapping[str, Any]) -> Path | None:
     """The declared store root INSIDE the named manifest repo, or ``None``.
 
@@ -828,6 +973,9 @@ def build_arm_plan(
         inference_command += ["--data-revision", data_revision]
     if artifact_store is not None:
         inference_command += ["--artifact-store", str(artifact_store)]
+    # Write containment: kernel log writers land in the ARM dir, never the
+    # pinned strategy checkout (the 2026-07-11 self-poisoning incident).
+    inference_command += ["--log-containment-dir", str(arm_dir)]
     return [
         context_command,
         inference_command,
@@ -1606,6 +1754,18 @@ def run_shadow_ab_session(
 
     if not _verify_paired_world("post_arms"):
         return _finish(EXIT_SESSION_INVALIDATED, "invalidated")
+
+    if manifest_payload is not None:
+        try:
+            notes = quarantine_stray_arm_byproducts(
+                manifest_payload,
+                quarantine_root=session_dir / "quarantine",
+                git_probe=manifest_git_probe,
+            )
+        except OSError as exc:  # never let self-healing kill a valid pair
+            notes = [f"post_arm_quarantine_error: {exc}"]
+        if notes:
+            bundle["warnings"] = bundle.get("warnings", []) + notes
 
     failed = sorted(label for label, ok in arm_ok.items() if not ok)
     if failed:

@@ -325,6 +325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     native_inference.add_argument("--strategy-dir", default=None)
     native_inference.add_argument("--repo-root", default=None)
     native_inference.add_argument("--artifact-store", default=None)
+    native_inference.add_argument("--log-containment-dir", default=None)
     native_inference.add_argument("--ohlcv-dir", default=None)
     native_inference.add_argument("--data-revision", default=None)
 
@@ -1079,6 +1080,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("--ohlcv-dir", args.ohlcv_dir),
             ("--data-revision", args.data_revision),
             ("--artifact-store", args.artifact_store),
+            ("--log-containment-dir", args.log_containment_dir),
         ):
             if value:
                 native_inference_argv.extend([flag, value])
