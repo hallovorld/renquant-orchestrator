@@ -1,0 +1,237 @@
+{
+ "canonical_dates_with_blocked_candidate": 6,
+ "canonical_dates_with_rescue": 6,
+ "canonical_unambiguous_dates": 11,
+ "excluded_dates": {
+  "2026-06-01": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-02": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-03": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-04": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-05": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-08": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-09": {
+   "candidate_run_ids": [
+    {
+     "created_at": "2026-06-10 04:39:58",
+     "n_candidates": 12,
+     "run_id": "2026-06-09-live-b92892f6"
+    },
+    {
+     "created_at": "2026-06-10 04:58:11",
+     "n_candidates": 12,
+     "run_id": "2026-06-09-live-70c90efc"
+    }
+   ],
+   "reason": "2 run_type='live' candidate-scoring runs on this date with no principled tie-break rule available; excluded per fail-closed policy rather than picking by outcome",
+   "status": "EXCLUDED_AMBIGUOUS"
+  },
+  "2026-06-12": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-15": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-16": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-17": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-18": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-23": {
+   "candidate_run_ids": [
+    {
+     "created_at": "2026-06-23 21:07:21",
+     "n_candidates": 8,
+     "run_id": "2026-06-23-live-844746ad"
+    },
+    {
+     "created_at": "2026-06-24 05:23:08",
+     "n_candidates": 5,
+     "run_id": "2026-06-23-live-59c11399"
+    }
+   ],
+   "reason": "2 run_type='live' candidate-scoring runs on this date with no principled tie-break rule available; excluded per fail-closed policy rather than picking by outcome",
+   "status": "EXCLUDED_AMBIGUOUS"
+  },
+  "2026-06-25": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-06-29": {
+   "candidate_run_ids": [
+    {
+     "created_at": "2026-06-29 21:07:14",
+     "n_candidates": 1,
+     "run_id": "2026-06-29-live-de32ecf4"
+    },
+    {
+     "created_at": "2026-06-30 03:39:25",
+     "n_candidates": 6,
+     "run_id": "2026-06-29-live-0534845a"
+    }
+   ],
+   "reason": "2 run_type='live' candidate-scoring runs on this date with no principled tie-break rule available; excluded per fail-closed policy rather than picking by outcome",
+   "status": "EXCLUDED_AMBIGUOUS"
+  },
+  "2026-07-08": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  },
+  "2026-07-09": {
+   "reason": "no run_type='live' pipeline_runs row with n_candidates>0 on this date (no daily-full live candidate-scoring session found)",
+   "status": "EXCLUDED_NO_CANDIDATE_RUN"
+  }
+ },
+ "excluded_nonzero_n_buys": {},
+ "per_date": {
+  "2026-06-22": {
+   "delta_usd": 392.1300048828125,
+   "not_rescued": [
+    {
+     "reason": "1sh $1929.25 > cap $1279.69",
+     "ticker": "ASML"
+    }
+   ],
+   "regime": "BULL_CALM",
+   "regime_sizing_config": {
+    "cash_reserve_pct": 0.0,
+    "config_commit_sha": "2c2c5e47a832b79be627bf25522154ab418f3e2a",
+    "config_file_sha256": "00b3c9e2caf86dcf05cb66ff975e65cc5f96cd5b63fb6f3463cec2ef54a615d7",
+    "max_position_pct": 0.12
+   },
+   "rescued": [
+    {
+     "price": 392.1300048828125,
+     "ticker": "AVGO"
+    }
+   ],
+   "run_id": "2026-06-22-live-c26c0042"
+  },
+  "2026-06-24": {
+   "delta_usd": 994.4500122070312,
+   "not_rescued": [],
+   "regime": "BULL_CALM",
+   "regime_sizing_config": {
+    "cash_reserve_pct": 0.0,
+    "config_commit_sha": "a15a64b01f8d0d22352524334a4167112a541a5d",
+    "config_file_sha256": "ea4e05dd572d7378dd41c0feefac65be3013a0f6d71a7e765794b4a579e87340",
+    "max_position_pct": 0.12
+   },
+   "rescued": [
+    {
+     "price": 994.4500122070312,
+     "ticker": "CAT"
+    }
+   ],
+   "run_id": "2026-06-24-live-710e3805"
+  },
+  "2026-06-30": {
+   "delta_usd": 961.5599975585938,
+   "not_rescued": [],
+   "regime": "BULL_CALM",
+   "regime_sizing_config": {
+    "cash_reserve_pct": 0.0,
+    "config_commit_sha": "c019b2563c818e653124bb6b18f504c9fdaa8ad4",
+    "config_file_sha256": "89cfd7f942697b1524e5b92f9853a45c5d5060f654bd436c42b97251ddd008e9",
+    "max_position_pct": 0.12
+   },
+   "rescued": [
+    {
+     "price": 961.5599975585938,
+     "ticker": "BLK"
+    }
+   ],
+   "run_id": "2026-06-30-live-b616357c"
+  },
+  "2026-07-01": {
+   "delta_usd": 980.3800048828125,
+   "not_rescued": [],
+   "regime": "BULL_CALM",
+   "regime_sizing_config": {
+    "cash_reserve_pct": 0.0,
+    "config_commit_sha": "a4d99e8adcfdfd24afa06fe98c6a11d205fe111a",
+    "config_file_sha256": "4ba22a742a1ae4bf8257f3f249e3f97edfab30f80cd9ea499d1e2cbf32794b31",
+    "max_position_pct": 0.12
+   },
+   "rescued": [
+    {
+     "price": 980.3800048828125,
+     "ticker": "BLK"
+    }
+   ],
+   "run_id": "2026-07-01-live-01c54b39"
+  },
+  "2026-07-02": {
+   "delta_usd": 1356.1799926757812,
+   "not_rescued": [],
+   "regime": "BULL_CALM",
+   "regime_sizing_config": {
+    "cash_reserve_pct": 0.0,
+    "config_commit_sha": "ab6181db14bedd8a6dc98f28c03d76e08a8ff617",
+    "config_file_sha256": "dde720851daf7c102392a7374dfbb11f49a9431962d2285f1d3ebeda200d5104",
+    "max_position_pct": 0.12
+   },
+   "rescued": [
+    {
+     "price": 995.72998046875,
+     "ticker": "BLK"
+    },
+    {
+     "price": 360.45001220703125,
+     "ticker": "AVGO"
+    }
+   ],
+   "run_id": "2026-07-02-live-85496d1c"
+  },
+  "2026-07-10": {
+   "delta_usd": 782.0800170898438,
+   "not_rescued": [],
+   "regime": "BULL_CALM",
+   "regime_sizing_config": {
+    "cash_reserve_pct": 0.0,
+    "config_commit_sha": "6d205fd413fe6a2f82258dbae33036a904430763",
+    "config_file_sha256": "eeb247f8c5f1305ace0531715e97e52684593d43dd831e11c35658697ed0f174",
+    "max_position_pct": 0.12
+   },
+   "rescued": [
+    {
+     "price": 782.0800170898438,
+     "ticker": "EME"
+    }
+   ],
+   "run_id": "2026-07-10-live-6f9d5284"
+  }
+ },
+ "per_session_deployment_delta_usd": {
+  "max": 1356.1799926757812,
+  "mean": 911.1300048828125,
+  "min": 392.1300048828125
+ },
+ "window": "2026-06-01..2026-07-10"
+}
