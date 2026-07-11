@@ -1617,12 +1617,71 @@ def test_post_arm_quarantine_moves_stray_logs_and_warns(tmp_path: Path) -> None:
     notes = quarantine_stray_arm_byproducts(
         manifest, quarantine_root=tmp_path / "q",
     )
-    # logs/ quarantined with evidence preserved
+    # logs/ quarantined with evidence preserved (destination is a claimed
+    # unique-attempt dir, not a fixed path — see the retry-safety test below)
     assert not (repo / "logs").exists()
-    assert (tmp_path / "q" / "renquant-strategy-104-logs" /
-            "admission_shadow.jsonl").exists()
+    quarantined = list((tmp_path / "q").glob("renquant-strategy-104-logs-*"))
+    assert len(quarantined) == 1
+    assert (quarantined[0] / "admission_shadow.jsonl").exists()
     assert any("post_arm_quarantine" in n for n in notes)
     # the unrelated dirty file is REPORTED but left in place (fail-closed next
     # session, by design)
     assert (repo / "configs" / "m.txt").read_text() == "hand-edit"
     assert any("post_arm_tree_dirty" in n for n in notes)
+
+
+def test_post_arm_quarantine_is_retry_safe_across_repeated_calls(tmp_path: Path) -> None:
+    """2026-07-11 r1 review: a retried or repeated same-session quarantine
+    after an earlier successful move must not find its destination already
+    present. Simulates a retry by calling quarantine_stray_arm_byproducts
+    TWICE in one session, re-creating a stray logs/ byproduct between calls
+    (as a second arm run would) — both calls must succeed and leave the
+    pinned checkout clean, never raising and never leaving logs/ behind."""
+    from renquant_orchestrator.shadow_ab_runner import (
+        quarantine_stray_arm_byproducts,
+    )
+    import subprocess as sp
+
+    repo = tmp_path / "pins" / "renquant-strategy-104"
+    (repo / "configs").mkdir(parents=True)
+    (repo / "configs" / "m.txt").write_text("x", encoding="utf-8")
+    sp.run(["git", "init", "-q", str(repo)], check=True)
+    sp.run(["git", "-C", str(repo), "add", "."], check=True)
+    sp.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t",
+            "commit", "-qm", "init"], check=True)
+
+    manifest = {"repos": {"renquant-strategy-104": {"path": str(repo), "commit": "x"}}}
+    quarantine_root = tmp_path / "q"
+
+    for attempt_content in ('{"attempt": 1}', '{"attempt": 2}'):
+        (repo / "logs").mkdir()
+        (repo / "logs" / "admission_shadow.jsonl").write_text(
+            attempt_content, encoding="utf-8"
+        )
+        notes = quarantine_stray_arm_byproducts(
+            manifest, quarantine_root=quarantine_root,
+        )
+        # the checkout is clean after EVERY attempt, not just the first
+        assert not (repo / "logs").exists(), "logs/ left behind after a retry"
+        assert not any(
+            "post_arm_quarantine_error" in n for n in notes
+        ), f"quarantine raised/errored on retry: {notes}"
+        assert any("post_arm_quarantine:" in n for n in notes)
+
+    # both attempts' evidence survives distinctly — nothing was overwritten
+    quarantined_dirs = sorted((tmp_path / "q").glob("renquant-strategy-104-logs-*"))
+    assert len(quarantined_dirs) == 2
+    contents = sorted(
+        (d / "admission_shadow.jsonl").read_text() for d in quarantined_dirs
+    )
+    assert contents == ['{"attempt": 1}', '{"attempt": 2}']
+
+    # the append-only bundle record has one line per attempt
+    index_path = quarantine_root / "index.jsonl"
+    assert index_path.exists()
+    lines = index_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+    for line in lines:
+        record = json.loads(line)
+        assert record["status"] == "quarantined"
+        assert record["repo"] == "renquant-strategy-104"

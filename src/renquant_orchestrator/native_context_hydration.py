@@ -330,6 +330,59 @@ def rewrite_config_artifact_refs(
     return rewritten
 
 
+def rewrite_config_log_containment(
+    config: dict[str, Any],
+    *,
+    log_containment_dir: str | Path,
+) -> dict[str, str]:
+    """Redirect strategy-dir-relative kernel log WRITERS into
+    ``log_containment_dir`` (in-memory only — the config file on disk is
+    never touched).
+
+    Write containment (2026-07-11 incident): the kernel's
+    ``AdmissionShadowLoggerTask`` defaults its JSONL under
+    ``config["_strategy_dir"]/logs`` — on the §2a arm path that is the
+    MANIFEST-PINNED strategy checkout, so a successful arm run dirties the
+    tree and the NEXT session's ``verify_run_manifest`` fails closed
+    (self-poisoning). This rewrites every known strategy-dir-relative
+    WRITER's target path to live under the arm's own directory instead.
+
+    ONLY known write-destination keys are touched
+    (``admission_shadow.path``, ``sleeve.log_path`` when present) — no
+    other config field is read or modified, so nothing that affects a
+    trading DECISION or OUTPUT (sizing, scoring, gating, order generation)
+    can be altered by this rewrite; see
+    ``test_rewrite_config_log_containment_*`` for the exact-diff proof.
+
+    Identity safety: same argument as :func:`rewrite_config_artifact_refs`
+    — the paired-world config sha is computed from the RAW config file
+    bytes at precheck (unchanged by this in-memory rewrite), and these
+    keys are not in ``renquant_common.config_consistency
+    ._model_relevant_fields`` (the P-CONFIG-FP projection).
+
+    Returns ``{writer_name: contained_absolute_path}`` for the hydration
+    report.
+    """
+    containment = Path(log_containment_dir)
+    contained_logs: dict[str, str] = {}
+
+    shadow_cfg = config.get("admission_shadow")
+    if not isinstance(shadow_cfg, dict):
+        shadow_cfg = {}
+        config["admission_shadow"] = shadow_cfg
+    target = str(containment / "admission_shadow.jsonl")
+    shadow_cfg["path"] = target
+    contained_logs["admission_shadow"] = target
+
+    sleeve_cfg = config.get("sleeve")
+    if isinstance(sleeve_cfg, dict) and sleeve_cfg.get("log_path"):
+        target = str(containment / Path(str(sleeve_cfg["log_path"])).name)
+        sleeve_cfg["log_path"] = target
+        contained_logs["sleeve"] = target
+
+    return contained_logs
+
+
 def hydrate_pipeline_context(
     context_payload: dict[str, Any],
     *,
@@ -393,31 +446,12 @@ def hydrate_pipeline_context(
         )
     else:
         rewritten = {}
-    contained_logs: dict[str, str] = {}
     if log_containment_dir is not None:
-        # Write containment (2026-07-11 incident): the kernel's
-        # AdmissionShadowLoggerTask defaults its JSONL under
-        # config["_strategy_dir"]/logs — on the §2a arm path that is the
-        # MANIFEST-PINNED strategy checkout, so a successful arm run
-        # dirties the tree and the NEXT session's verify_run_manifest
-        # fails closed (self-poisoning). Redirect every known
-        # strategy-dir-relative WRITER to the arm's own directory —
-        # in-memory only, same identity-safety argument as the artifact
-        # rewrite above (config sha frozen from raw file bytes; these
-        # keys are not in the P-CONFIG-FP projection).
-        containment = Path(log_containment_dir)
-        shadow_cfg = config.get("admission_shadow")
-        if not isinstance(shadow_cfg, dict):
-            shadow_cfg = {}
-            config["admission_shadow"] = shadow_cfg
-        target = str(containment / "admission_shadow.jsonl")
-        shadow_cfg["path"] = target
-        contained_logs["admission_shadow"] = target
-        sleeve_cfg = config.get("sleeve")
-        if isinstance(sleeve_cfg, dict) and sleeve_cfg.get("log_path"):
-            target = str(containment / Path(str(sleeve_cfg["log_path"])).name)
-            sleeve_cfg["log_path"] = target
-            contained_logs["sleeve"] = target
+        contained_logs = rewrite_config_log_containment(
+            config, log_containment_dir=log_containment_dir,
+        )
+    else:
+        contained_logs = {}
 
     account_snapshot = context_payload.get("account_snapshot") or {}
     if not isinstance(account_snapshot, dict):
