@@ -183,13 +183,29 @@ def _log_text(tmp_path: Path) -> str:
     return (tmp_path / "out" / "logs" / "2026-07-10_session.log").read_text()
 
 
+def _run_script(env, timeout=30):
+    """Invoke the wrapper and, on ANY completion, print the session log tail —
+    pytest shows it on failure, turning a bare 'exit 2' into a diagnosis
+    (three 2026-07-11 CI flakes were undiagnosable without this)."""
+    result = subprocess.run(
+        [str(SCRIPT)], env=env, capture_output=True, text=True, timeout=timeout,
+    )
+    root = env.get("RENQUANT_SHADOW_AB_ROOT")
+    if root:
+        for log in sorted(Path(root).glob("logs/*_session.log")):
+            print(f"--- wrapper log {log} (rc={result.returncode}) ---")
+            print("\n".join(log.read_text().splitlines()[-25:]))
+    print(f"--- wrapper stderr ---\n{result.stderr}")
+    return result
+
+
 class TestExplicitRuntimeInputs:
     def test_missing_required_env_fails_closed(self, tmp_path, real_python):
         manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
         del env["RENQUANT_SHADOW_AB_REPO_ROOT"]
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         assert result.returncode != 0
         assert "RENQUANT_SHADOW_AB_REPO_ROOT" in result.stderr
 
@@ -232,7 +248,7 @@ class TestExplicitRuntimeInputs:
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=0,
                              argv_capture_path=argv_capture)
         env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         assert result.returncode == 0
         argv_lines = argv_capture.read_text().splitlines()
         idx = argv_lines.index("--strategy-dir")
@@ -254,7 +270,7 @@ class TestRunManifestVerification:
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
         bundle = json.loads((tmp_path / "out" / "session_2026-07-10.json").read_text())
         assert any("renquant-execution" in r for r in bundle["reasons"])
@@ -267,7 +283,7 @@ class TestRunManifestVerification:
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
         bundle = json.loads((tmp_path / "out" / "session_2026-07-10.json").read_text())
         assert any("renquant-execution" in r for r in bundle["reasons"])
@@ -279,7 +295,7 @@ class TestMarketSnapshotIntegrity:
         manifest, _ = _build_manifest(tmp_path, watchlist=["ZZZZ_NO_DATA"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         assert result.returncode == 2
         log = _log_text(tmp_path)
         assert "no local close price" in log
@@ -293,7 +309,7 @@ class TestMarketSnapshotIntegrity:
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "MSFT", 410.0)
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=0)
         env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         snapshot = json.loads((tmp_path / "out" / "market_snapshot_2026-07-10.json").read_text())
         assert sorted(snapshot["prices"]) == ["AAPL", "MSFT"]
         assert snapshot["prices"]["AAPL"] == 190.0
@@ -325,7 +341,7 @@ class TestPortableTimeout:
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=120, exit_code=0)
         env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
         start = time.monotonic()
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         elapsed = time.monotonic() - start
         assert result.returncode == 4
         assert elapsed < 15, "must be killed well before the stub's 120s sleep completes"
@@ -343,7 +359,7 @@ class TestPortableTimeout:
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=3)
         env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
-        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        result = _run_script(env)
         assert result.returncode == 3
         log = _log_text(tmp_path)
         assert "shadow-ab exit=3" in log

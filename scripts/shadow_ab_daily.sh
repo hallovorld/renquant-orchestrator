@@ -49,13 +49,19 @@ TIMEOUT_SEC="${RENQUANT_SHADOW_AB_TIMEOUT_SEC:-3600}"
 LOG_DIR="$OUTPUT_ROOT/logs"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/${SESSION_DATE}_session.log"
+# Keep the ORIGINAL stderr on fd3: SETUP failures and the exit line are
+# mirrored there so a caller (CI test harness, launchd) sees WHY the script
+# exited without needing the log file — three 2026-07-11 CI flakes were
+# undiagnosable because exit 2 arrived with empty stdout/stderr.
+exec 3>&2
 exec >>"$LOG" 2>&1
+setup_fail() { echo "SETUP: $*"; echo "SETUP: $*" >&3; exit 2; }
 echo "=== shadow-ab session $SESSION_DATE start $(date -u +%FT%TZ) ==="
 
-[ -f "$RUN_MANIFEST" ] || { echo "SETUP: run manifest missing: $RUN_MANIFEST"; exit 2; }
+[ -f "$RUN_MANIFEST" ] || setup_fail "run manifest missing: $RUN_MANIFEST"
 # Optional credentials (Alpaca readonly account snapshot) — explicit path only.
 if [ -n "${RENQUANT_SHADOW_AB_ENV_FILE:-}" ]; then
-    [ -f "$RENQUANT_SHADOW_AB_ENV_FILE" ] || { echo "SETUP: env file missing: $RENQUANT_SHADOW_AB_ENV_FILE"; exit 2; }
+    [ -f "$RENQUANT_SHADOW_AB_ENV_FILE" ] || setup_fail "env file missing: $RENQUANT_SHADOW_AB_ENV_FILE"
     set -a; # shellcheck disable=SC1090
     source "$RENQUANT_SHADOW_AB_ENV_FILE"; set +a
 fi
@@ -77,7 +83,7 @@ for entry in manifest.get("repos", {}).values():
         parts.append(str(src))
 print(":".join(parts))
 PY
-)" || { echo "SETUP: manifest unreadable"; exit 2; }
+)" || setup_fail "manifest unreadable"
 export PYTHONPATH="$ORCH_DIR/src:$MANIFEST_PYTHONPATH:${PYTHONPATH:-}"
 export RENQUANT_REPO_ROOT="$REPO_ROOT"
 export RENQUANT_OHLCV_DIR="$DATA_ROOT"
@@ -100,13 +106,13 @@ manifest = json.load(open(sys.argv[1], encoding="utf-8"))
 entry = manifest["repos"]["renquant-strategy-104"]
 print(pathlib.Path(entry["path"]))
 PY
-)" || { echo "SETUP: strategy repo missing from manifest"; exit 2; }
+)" || setup_fail "strategy repo missing from manifest"
 STRATEGY_CONFIGS="$STRATEGY_DIR/configs"
 CONFIG_A="$STRATEGY_CONFIGS/strategy_config.shadow_a.json"
 CONFIG_B="$STRATEGY_CONFIGS/strategy_config.shadow_b.json"
 DATA_MANIFEST="${RENQUANT_SHADOW_AB_DATA_MANIFEST:-$STRATEGY_CONFIGS/xgb_prod_artifact_manifest.json}"
 for f in "$CONFIG_A" "$CONFIG_B" "$DATA_MANIFEST"; do
-    [ -f "$f" ] || { echo "SETUP: missing $f"; exit 2; }
+    [ -f "$f" ] || setup_fail "missing $f"
 done
 
 # Session market snapshot: the canonical native_live_market_snapshot artifact
@@ -123,7 +129,7 @@ done
 MARKET_SNAPSHOT="$OUTPUT_ROOT/market_snapshot_${SESSION_DATE}.json"
 PRICES_JSON="$OUTPUT_ROOT/prices_${SESSION_DATE}.json"
 AS_OF="$(date -u +%FT%TZ)"
-"$PYTHON" - "$CONFIG_A" "$PRICES_JSON" <<'PY' || { echo "SETUP: price snapshot build failed"; exit 2; }
+"$PYTHON" - "$CONFIG_A" "$PRICES_JSON" <<'PY' || setup_fail "price snapshot build failed (see $LOG)"
 import json
 import sys
 
@@ -159,12 +165,12 @@ PY
     --as-of "$AS_OF" \
     --prices-json "$PRICES_JSON" \
     --output-json "$MARKET_SNAPSHOT" \
-    || { echo "SETUP: native-live-market-snapshot build failed"; exit 2; }
+    || setup_fail "native-live-market-snapshot build failed (see $LOG)"
 
 # End-to-end assertion (Codex r1): the sealed snapshot's OWN decision-identity
 # universe (as the runner will derive it) must equal the pinned watchlist
 # exactly — never trust that the artifact says what this script intended.
-"$PYTHON" - "$MARKET_SNAPSHOT" "$CONFIG_A" <<'PY' || { echo "SETUP: market snapshot universe assertion failed"; exit 2; }
+"$PYTHON" - "$MARKET_SNAPSHOT" "$CONFIG_A" <<'PY' || setup_fail "market snapshot universe assertion failed (see $LOG)"
 import json
 import sys
 
@@ -255,6 +261,7 @@ else
 fi
 set -e
 echo "shadow-ab exit=$RC (0=valid pair, 3=precheck abort, 4=pair invalidated, 5=VOID)"
+echo "shadow-ab exit=$RC (log: $LOG)" >&3
 if [ "$RC" -eq 5 ]; then
     echo "SHADOW-AB VOID — config drift against the frozen experiment; operator action required"
 fi
