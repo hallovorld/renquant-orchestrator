@@ -479,6 +479,33 @@ def main(argv: list[str] | None = None) -> int:
                          "explicit operator-approved spend cap; there is no "
                          "default and no fallback to the fixed safety gate")
 
+    if args.execute:
+        # Codex round-2 review of #463 (2026-07-11T04:20:37Z): the spend
+        # cap + workload manifest here are still self-service — any caller
+        # with Modal credentials can write a manifest, choose a cap, pass
+        # preflight, and dispatch. That does not meet the standing rule
+        # that an agent cannot self-authorize a Modal run. --execute is
+        # unconditionally disabled, before any bundling/staging/sync work,
+        # until BOTH controls named in doc/design/2026-07-11-modal-bounded-
+        # run-experiment-plan.md's BLOCKING PREREQUISITE exist: (1) an
+        # independently verifiable, cryptographically signed operator-
+        # authorization artifact (binding manifest sha256, approved cap,
+        # expiry, run scope, and signer identity, verified against a key
+        # this process cannot access) and (2) an enforced no-live/deploy
+        # assertion. Neither exists yet.
+        print(
+            "\nERROR: --execute is disabled. Operator authorization "
+            "(a signed approval artifact this process cannot forge) and "
+            "the no-live/deploy assertion are not yet implemented — see "
+            "doc/design/2026-07-11-modal-bounded-run-experiment-plan.md "
+            "and the #463 review. No code path in this script may reach "
+            "Modal (bundling, data sync, or dispatch) while --execute is "
+            "requested. Use --preflight to validate locally, or "
+            "--write-workload-manifest to capture a plan for operator "
+            "review."
+        )
+        return 1
+
     workload: WorkloadManifest | None = None
     if not args.write_workload_manifest:
         try:
@@ -727,10 +754,19 @@ def main(argv: list[str] | None = None) -> int:
               "before dispatch.")
         return 0
 
-    # ── Step 4: Sync to Modal Volume ──
-    print("Step 4: Syncing data to Modal Volume...")
-    data_manifest = executor.sync_data(local_paths)
-    print(f"  Volume commit={data_manifest.commit_id}, "
+    # ── Step 4: Compute data manifest — LOCAL ONLY, no Modal calls ──
+    # --execute is unconditionally blocked above (before this point is ever
+    # reached), so nothing downstream may need a real Modal Volume upload;
+    # local_data_manifest() produces a byte-identical DataManifest (same
+    # commit_id/files/total_bytes a real sync would) without importing
+    # `modal` at all — see its docstring in cloud/sync_data.py.
+    print("Step 4: Computing local data manifest (no Modal calls)...")
+    from renquant_orchestrator.cloud.sync_data import local_data_manifest
+
+    data_manifest, _local_sources = local_data_manifest(
+        {k: Path(v) for k, v in local_paths.items()}
+    )
+    print(f"  Content commit={data_manifest.commit_id}, "
           f"{len(data_manifest.files)} files, "
           f"{data_manifest.total_bytes / 1e6:.1f} MB")
 
@@ -767,8 +803,15 @@ def main(argv: list[str] | None = None) -> int:
         print("\nPreflight passed. Add --execute to run the sweep.")
         return 0
 
+    # args.execute is unconditionally rejected earlier in this function,
+    # before any bundling/staging/sync work — this `if` is a structural
+    # backstop, not the primary guard, kept as a normal conditional (not a
+    # bare assert) so a future PR re-enabling --execute only has to change
+    # the single early block above, and so this branch stays reachable to
+    # static analysis rather than reading as dead code.
     if not args.execute:
-        print("\nDry run complete. Add --execute to run, or --preflight to check only.")
+        print("\nDry run complete. --execute is currently disabled (see "
+              "above); use --preflight to validate only.")
         return 0
 
     # ── Step 6: Build variant grid ──

@@ -355,6 +355,50 @@ class TestSyncDataLocalManifest:
         assert not any(".env" in k for k in manifest)
         assert not any("rawlabel" in k for k in manifest)
 
+    def test_local_data_manifest_makes_no_modal_calls(self, tmp_path, monkeypatch):
+        """run_sweep_modal.py's Step 4 uses this (not sync_to_modal_volume)
+        while --execute is disabled (#463 round-2, Codex 2026-07-11T04:20:37Z):
+        no code path may reach Modal while dispatch isn't authorized.
+        Structural proof: if local_data_manifest ever imported/touched
+        `modal`, this sentinel raises on first attribute access."""
+        import sys
+
+        from renquant_orchestrator.cloud.sync_data import local_data_manifest
+
+        class _ExplodingModal:
+            def __getattr__(self, name):
+                raise AssertionError(
+                    f"local_data_manifest must not touch modal.{name}"
+                )
+
+        monkeypatch.setitem(sys.modules, "modal", _ExplodingModal())
+
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "a.parquet").write_bytes(b"hello")
+        manifest, sources = local_data_manifest({"data": d})
+
+        assert manifest.files == {"data/a.parquet": hashlib.sha256(b"hello").hexdigest()}
+        assert manifest.total_bytes == len(b"hello")
+        assert manifest.commit_id == compute_manifest_commit_id(manifest.files)
+        assert sources == {"data/a.parquet": d / "a.parquet"}
+
+    def test_local_data_manifest_commit_id_matches_a_real_sync(self, tmp_path):
+        """local_data_manifest's commit_id must be byte-identical to what
+        sync_to_modal_volume would compute for the same content — proving
+        the Step-4 swap to local-only validation doesn't silently change
+        the workload identity a preflight/manifest check is validated
+        against."""
+        from renquant_orchestrator.cloud.sync_data import local_data_manifest
+
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "a.parquet").write_bytes(b"hello")
+
+        manifest, _sources = local_data_manifest({"data": d})
+        raw_manifest, _ = build_local_manifest({"data": d})
+        assert manifest.commit_id == compute_manifest_commit_id(raw_manifest)
+
 
 class TestModalExecutor:
     def test_estimate_cost(self):

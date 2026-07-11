@@ -73,13 +73,25 @@ def build_local_manifest(
     return manifest, sources
 
 
-def sync_to_modal_volume(
+def local_data_manifest(
     local_paths: dict[str, Path],
-    volume_name: str = "renquant-sweep-data",
-) -> DataManifest:
-    """Sync local data to a Modal Volume. Returns a DataManifest."""
-    import modal
+) -> tuple[DataManifest, dict[str, Path]]:
+    """Build a DataManifest from LOCAL file content only — makes NO Modal
+    calls (no import of the `modal` package at all).
 
+    `commit_id` is a deterministic content digest (`compute_manifest_commit_id`),
+    not a Modal Volume commit id — it is identical whether or not the
+    content is ever actually uploaded, which is exactly why
+    `sync_to_modal_volume` below reuses this function rather than
+    duplicating the computation: preflight/validation callers that must
+    never touch Modal (see run_sweep_modal.py's --execute guardrail) can
+    use this directly, and a real upload's resulting DataManifest is
+    byte-identical to what this function alone would have produced.
+
+    Returns (manifest, local_sources); local_sources is the authoritative
+    {relative_path: local_file} lookup a real uploader needs — pure
+    validation callers may discard it.
+    """
     local_manifest, local_sources = build_local_manifest(local_paths)
     total_bytes = sum(
         p.stat().st_size
@@ -87,6 +99,24 @@ def sync_to_modal_volume(
         for p in ([path] if path.is_file() else list(path.rglob("*")))
         if p.is_file() and p.name not in SYNC_EXCLUSIONS
     )
+    manifest = DataManifest(
+        commit_id=compute_manifest_commit_id(local_manifest),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        files=local_manifest,
+        total_bytes=total_bytes,
+    )
+    return manifest, local_sources
+
+
+def sync_to_modal_volume(
+    local_paths: dict[str, Path],
+    volume_name: str = "renquant-sweep-data",
+) -> DataManifest:
+    """Sync local data to a Modal Volume. Returns a DataManifest."""
+    import modal
+
+    manifest, local_sources = local_data_manifest(local_paths)
+    local_manifest = manifest.files
 
     vol = modal.Volume.from_name(volume_name, create_if_missing=True)
 
@@ -98,13 +128,7 @@ def sync_to_modal_volume(
     to_upload = {k: v for k, v in local_manifest.items() if prev.get(k) != v}
     if not to_upload:
         log.info("No changes to sync — reusing existing Volume state")
-        commit_id = compute_manifest_commit_id(local_manifest)
-        return DataManifest(
-            commit_id=commit_id,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            files=local_manifest,
-            total_bytes=total_bytes,
-        )
+        return manifest
 
     log.info("Syncing %d files to Modal Volume '%s'", len(to_upload), volume_name)
 
@@ -114,20 +138,14 @@ def sync_to_modal_volume(
             remote_path = f"/{rel_path}"
             batch.put_file(str(local_file), remote_path)
             log.info("  uploaded %s (%s)", rel_path, checksum[:8])
-    commit_id = compute_manifest_commit_id(local_manifest)
 
     prev_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     prev_manifest_path.write_text(json.dumps(local_manifest, indent=2, sort_keys=True))
 
     log.info("Synced %d files (%.1f MB), commit=%s",
-             len(to_upload), total_bytes / 1e6, commit_id)
+             len(to_upload), manifest.total_bytes / 1e6, manifest.commit_id)
 
-    return DataManifest(
-        commit_id=commit_id,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-        files=local_manifest,
-        total_bytes=total_bytes,
-    )
+    return manifest
 
 
 def _sha256(path: Path) -> str:

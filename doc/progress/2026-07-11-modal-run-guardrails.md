@@ -103,3 +103,54 @@ manifest at execution time.
 - `ResultStore` schema unchanged (evidence goes to the
   `dispatch_approval.json` sidecar + per-result field) to avoid a SQLite
   migration in a guardrail PR.
+
+## 2026-07-11 round-2 addendum: --execute hard-blocked, no unilateral signing design
+
+Codex round-2 (2026-07-11T04:20:37Z): the cap + manifest above are still
+self-service — any caller with Modal credentials can generate a manifest,
+choose a cap, pass preflight, and dispatch; the dispatch token is
+self-issued by that same caller. That does not meet the standing rule
+that an agent cannot self-authorize a Modal run. Codex asked for either a
+real cryptographically-signed operator-authorization artifact (verified
+against a key the execution agent cannot access) or, as an interim,
+unconditionally hard-blocking `--execute` so this PR's useful local-only
+work can merge without granting dispatch capability.
+
+Deliberately did NOT design the signing scheme — deciding where the
+private key lives and what tool/workflow signs the artifact is a
+trust-boundary decision about the execution agent's own constraints, not
+something the agent that control exists to constrain should invent
+unilaterally. Flagged to the operator for input on the signing mechanism.
+
+Implemented the interim hard block instead:
+
+- `run_sweep_modal.py::main`: `--execute` now unconditionally fails closed
+  (clear error, `return 1`) immediately after CLI argument validation —
+  before ANY bundling/staging/sync work, not just before dispatch. A
+  second `if not args.execute` further down (kept as a normal conditional,
+  not a bare assert, so static analysis doesn't read Step 6+ as dead code)
+  is a structural backstop.
+- Also found and fixed a bigger pre-existing gap while implementing this:
+  Step 4 (`executor.sync_data(...)`) ran UNCONDITIONALLY — even for a
+  plain `--preflight` or no-flag dry run, before any `--execute` check —
+  and genuinely called the real Modal API (`modal.Volume.from_name`,
+  `vol.batch_upload`). This predates #463 entirely (present since the
+  original `feat(cloud): Modal executor...` commit on `main`). New
+  `sync_data.local_data_manifest()` computes a byte-identical `DataManifest`
+  (same `commit_id`/`files`/`total_bytes`) from local file content only,
+  with zero `modal` import; `sync_to_modal_volume` now calls it internally
+  too (single source of truth), and `run_sweep_modal.py`'s Step 4 uses it
+  directly instead of the real-upload path. No code path in this script
+  reaches Modal now, regardless of flags.
+
+Tests: `test_execute_is_disabled_pending_authorization_and_no_live_guard`
++ `test_execute_disabled_error_precedes_manifest_load` (block fires before
+any file I/O — a deliberately nonexistent/malformed manifest path proves
+it); `test_local_data_manifest_makes_no_modal_calls` (sentinel `modal`
+module in `sys.modules` that raises on any attribute access — proves
+structurally that Step 4's replacement never touches it);
+`test_local_data_manifest_commit_id_matches_a_real_sync` (same commit_id
+as the pre-refactor computation, so the identity a manifest is validated
+against didn't silently change). All 4 confirmed meaningful via
+stash-revert against the pre-fix code. Full guardrail suite (`test_cloud_
+modal.py` + `test_run_sweep_modal.py`): 75 passed.

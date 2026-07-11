@@ -638,6 +638,52 @@ class TestGuardrailCliArgs:
         out = capsys.readouterr().out
         assert "workload manifest rejected" in out
 
+    def test_execute_is_disabled_pending_authorization_and_no_live_guard(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """#463 round-2 (Codex 2026-07-11T04:20:37Z): the spend cap +
+        workload manifest are still self-service — any caller with Modal
+        credentials could write a manifest, choose a cap, pass preflight,
+        and dispatch. --execute must unconditionally fail closed, before
+        ANY bundling/staging/sync work, until a real signed operator-
+        authorization artifact and a no-live/deploy assertion exist.
+
+        Proves the block fires before Step 1 even starts: the workload
+        manifest path is deliberately nonexistent (would raise on load if
+        that code ever ran) and bundle_subrepos is patched to explode if
+        called — neither is reached.
+        """
+        def _boom(*_a, **_k):
+            raise AssertionError(
+                "bundle_subrepos must not be called while --execute is disabled"
+            )
+        monkeypatch.setattr(
+            "renquant_orchestrator.cloud.bundle.bundle_subrepos", _boom,
+        )
+        rc = main([
+            "--execute",
+            "--workload-manifest", str(tmp_path / "nonexistent_wm.json"),
+            "--approved-cost-cap-usd", "5",
+        ])
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "disabled" in out.lower()
+        assert "no-live" in out.lower() or "no-live/deploy" in out.lower()
+
+    def test_execute_disabled_error_precedes_manifest_load(self, tmp_path, capsys):
+        """The --execute block must fire before WorkloadManifest.load — a
+        malformed manifest must not change the error the caller sees."""
+        wm = tmp_path / "malformed.json"
+        wm.write_text("not json at all")
+        rc = main([
+            "--execute", "--workload-manifest", str(wm),
+            "--approved-cost-cap-usd", "5",
+        ])
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "disabled" in out.lower()
+        assert "workload manifest rejected" not in out
+
 
 class TestBuildBacktestRequestDeterminism:
     """The pre-registered config fingerprint is sha256(config_json) of the
