@@ -75,14 +75,23 @@ def _init_fake_repo(path: Path) -> str:
     return out.stdout.strip()
 
 
-def _stub_python(tmp_path: Path, *, real_python: str, sleep_seconds: float | None, exit_code: int) -> Path:
+def _stub_python(tmp_path: Path, *, real_python: str, sleep_seconds: float | None, exit_code: int,
+                  argv_capture_path: Path | None = None) -> Path:
     """A ``$PYTHON`` stand-in: passes native-live-market-snapshot calls
     through to the REAL interpreter (so the market-snapshot/universe
     assertion logic runs for real), but intercepts ``shadow-ab`` itself so
-    the test never needs a full pinned-model/broker stack."""
+    the test never needs a full pinned-model/broker stack. When
+    ``argv_capture_path`` is given, the intercepted invocation's OWN argv is
+    written there first — lets a test assert on exactly what CLI arguments
+    (e.g. ``--strategy-dir``) the wrapper actually passed downstream,
+    independent of what the (stubbed-out) runner would have done with them."""
     stub = tmp_path / "stub_python.sh"
+    capture_line = (
+        f'printf "%s\\n" "$@" > "{argv_capture_path}"' if argv_capture_path is not None else ""
+    )
     body = f"""#!/usr/bin/env bash
     if [[ "$*" == *"renquant_orchestrator shadow-ab"* ]]; then
+        {capture_line}
         {"sleep " + str(sleep_seconds) + " &" if sleep_seconds is not None else ""}
         {"wait $!" if sleep_seconds is not None else ""}
         echo '{{"exit_hint": {exit_code}}}'
@@ -137,7 +146,7 @@ def _build_manifest(tmp_path: Path, *, watchlist: list[str], dirty: str | None =
     return manifest_path, strategy_104
 
 
-def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path, strategy_dir: Path,
+def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path,
              timeout_sec: int, path_override: str | None = None) -> dict:
     ohlcv_dir = tmp_path / "ohlcv"
     env = dict(os.environ)
@@ -145,7 +154,6 @@ def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path, strategy_dir: 
         "RENQUANT_SHADOW_AB_PYTHON": str(python),
         "RENQUANT_SHADOW_AB_RUN_MANIFEST": str(run_manifest),
         "RENQUANT_SHADOW_AB_REPO_ROOT": str(tmp_path / "runtime_root"),
-        "RENQUANT_SHADOW_AB_STRATEGY_DIR": str(strategy_dir),
         "RENQUANT_SHADOW_AB_DATA_ROOT": str(ohlcv_dir),
         "RENQUANT_SHADOW_AB_ROOT": str(tmp_path / "out"),
         "RENQUANT_SHADOW_AB_SESSION_DATE": "2026-07-10",
@@ -177,9 +185,9 @@ def _log_text(tmp_path: Path) -> str:
 
 class TestExplicitRuntimeInputs:
     def test_missing_required_env_fails_closed(self, tmp_path, real_python):
-        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        strategy_dir=strategy_dir, timeout_sec=60)
+                        timeout_sec=60)
         del env["RENQUANT_SHADOW_AB_REPO_ROOT"]
         result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode != 0
@@ -200,6 +208,38 @@ class TestExplicitRuntimeInputs:
             if "RenQuant" in line:
                 assert stripped.startswith("#"), f"non-comment line references RenQuant: {line!r}"
 
+    def test_rogue_strategy_dir_env_var_cannot_diverge_the_cli_argument(self, tmp_path, real_python):
+        # Codex re-review of #460 r2: a separate RENQUANT_SHADOW_AB_STRATEGY_DIR
+        # input let a caller pair manifest-verified configs with artifacts
+        # resolved from an arbitrary, UNVERIFIED checkout for --strategy-dir
+        # (run_shadow_ab_session's artifact-fingerprint-resolution anchor) --
+        # a pin-integrity hole even though the watchlist/configs themselves
+        # were already correctly manifest-derived. The fix removes the input
+        # entirely. Captures the stub's OWN argv (rather than asserting on
+        # anything the stubbed-out runner would have done with it) to prove
+        # the wrapper passes the value it itself resolved from the verified
+        # manifest to --strategy-dir, regardless of what a rogue env var of
+        # the old (now-unused) name claims.
+        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL"])
+        env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest, timeout_sec=5)
+        _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
+
+        rogue_dir = tmp_path / "rogue_unverified_checkout"
+        rogue_dir.mkdir(parents=True)
+        env["RENQUANT_SHADOW_AB_STRATEGY_DIR"] = str(rogue_dir)
+
+        argv_capture = tmp_path / "captured_argv.txt"
+        stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=0,
+                             argv_capture_path=argv_capture)
+        env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
+        result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0
+        argv_lines = argv_capture.read_text().splitlines()
+        idx = argv_lines.index("--strategy-dir")
+        passed_strategy_dir = argv_lines[idx + 1]
+        assert passed_strategy_dir == str(strategy_dir)
+        assert passed_strategy_dir != str(rogue_dir)
+
 
 class TestRunManifestVerification:
     """Real Python runs `-m renquant_orchestrator shadow-ab` here (no stub) —
@@ -208,11 +248,11 @@ class TestRunManifestVerification:
     not a stand-in that would trivially "pass" regardless of the manifest."""
 
     def test_wrong_commit_repo_fails_closed_before_either_arm(self, tmp_path, real_python):
-        manifest, strategy_dir = _build_manifest(
+        manifest, _ = _build_manifest(
             tmp_path, watchlist=["AAPL"], wrong_commit="renquant-execution",
         )
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        strategy_dir=strategy_dir, timeout_sec=60)
+                        timeout_sec=60)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
@@ -221,11 +261,11 @@ class TestRunManifestVerification:
         assert bundle["arms"]["a"]["invalidated"] and bundle["arms"]["b"]["invalidated"]
 
     def test_dirty_repo_fails_closed_before_either_arm(self, tmp_path, real_python):
-        manifest, strategy_dir = _build_manifest(
+        manifest, _ = _build_manifest(
             tmp_path, watchlist=["AAPL"], dirty="renquant-execution",
         )
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        strategy_dir=strategy_dir, timeout_sec=60)
+                        timeout_sec=60)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
@@ -236,9 +276,9 @@ class TestRunManifestVerification:
 
 class TestMarketSnapshotIntegrity:
     def test_missing_local_close_price_fails_closed(self, tmp_path, real_python):
-        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["ZZZZ_NO_DATA"])
+        manifest, _ = _build_manifest(tmp_path, watchlist=["ZZZZ_NO_DATA"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        strategy_dir=strategy_dir, timeout_sec=60)
+                        timeout_sec=60)
         result = subprocess.run([str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode == 2
         log = _log_text(tmp_path)
@@ -246,9 +286,9 @@ class TestMarketSnapshotIntegrity:
         assert "ZZZZ_NO_DATA" in log
 
     def test_sealed_snapshot_universe_matches_pinned_watchlist(self, tmp_path, real_python):
-        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL", "MSFT"])
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL", "MSFT"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        strategy_dir=strategy_dir, timeout_sec=5)
+                        timeout_sec=5)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "MSFT", 410.0)
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=0)
@@ -275,10 +315,10 @@ class TestPortableTimeout:
         # GNU timeout — e.g. Linux CI's /usr/bin/timeout — fires instead
         # despite the "minimal" PATH below), the OUTCOME must be identical:
         # killed well within the bound and marked exit=4.
-        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
         env = _env_for(
             tmp_path, python=Path(real_python), run_manifest=manifest,
-            strategy_dir=strategy_dir, timeout_sec=2,
+            timeout_sec=2,
             path_override=self._minimal_path_without_timeout(),
         )
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
@@ -294,10 +334,10 @@ class TestPortableTimeout:
         assert "shadow-ab exit=4" in log
 
     def test_fast_session_exit_code_passes_through_under_watchdog(self, tmp_path, real_python):
-        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
         env = _env_for(
             tmp_path, python=Path(real_python), run_manifest=manifest,
-            strategy_dir=strategy_dir, timeout_sec=30,
+            timeout_sec=30,
             path_override=self._minimal_path_without_timeout(),
         )
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)

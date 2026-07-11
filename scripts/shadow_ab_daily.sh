@@ -19,7 +19,6 @@
 #                                    ({repos:{name:{path,commit}}, data_revision})
 #   RENQUANT_SHADOW_AB_REPO_ROOT     runtime data/artifact root (exported as
 #                                    RENQUANT_REPO_ROOT, passed as --repo-root)
-#   RENQUANT_SHADOW_AB_STRATEGY_DIR  artifact-resolution anchor (--strategy-dir)
 # Optional:
 #   RENQUANT_SHADOW_AB_DATA_ROOT     OHLCV parquet root (--ohlcv-dir); defaults
 #                                    to $RENQUANT_SHADOW_AB_REPO_ROOT/data/ohlcv
@@ -41,7 +40,6 @@ set -uo pipefail
 PYTHON="${RENQUANT_SHADOW_AB_PYTHON:?RENQUANT_SHADOW_AB_PYTHON must be supplied (no default runtime)}"
 RUN_MANIFEST="${RENQUANT_SHADOW_AB_RUN_MANIFEST:?RENQUANT_SHADOW_AB_RUN_MANIFEST must be supplied (immutable pin manifest)}"
 REPO_ROOT="${RENQUANT_SHADOW_AB_REPO_ROOT:?RENQUANT_SHADOW_AB_REPO_ROOT must be supplied (runtime data/artifact root)}"
-STRATEGY_DIR="${RENQUANT_SHADOW_AB_STRATEGY_DIR:?RENQUANT_SHADOW_AB_STRATEGY_DIR must be supplied (artifact anchor)}"
 DATA_ROOT="${RENQUANT_SHADOW_AB_DATA_ROOT:-$REPO_ROOT/data/ohlcv}"
 OUTPUT_ROOT="${RENQUANT_SHADOW_AB_ROOT:-$HOME/renquant-shadow-ab}"
 NTFY_TOPIC="${RENQUANT_SHADOW_AB_NTFY_TOPIC:-renquant-shadow-ab}"   # DEDICATED topic (never the live one)
@@ -85,18 +83,25 @@ export RENQUANT_REPO_ROOT="$REPO_ROOT"
 export RENQUANT_OHLCV_DIR="$DATA_ROOT"
 export RENQUANT_SUPPRESS_PREFLIGHT_NTFY=1
 
-# Arm configs + frozen data manifest resolve from the MANIFEST's pinned
-# strategy-104 checkout (verified by the runner), never a sibling path.
-STRATEGY_CONFIGS="$("$PYTHON" - "$RUN_MANIFEST" <<'PY'
+# STRATEGY_DIR (the artifact-fingerprint-resolution anchor) + arm configs +
+# frozen data manifest ALL resolve from the SAME MANIFEST-pinned strategy-104
+# checkout (verified by the runner) — there is deliberately no second,
+# independent strategy-dir input. Codex re-review of #460 r2: a separate
+# RENQUANT_SHADOW_AB_STRATEGY_DIR let a caller pair manifest-verified configs
+# with artifacts resolved from an arbitrary, UNVERIFIED checkout — exactly the
+# pin-integrity hole the manifest exists to close. One resolved path, used
+# for both.
+STRATEGY_DIR="$("$PYTHON" - "$RUN_MANIFEST" <<'PY'
 import json
 import pathlib
 import sys
 
 manifest = json.load(open(sys.argv[1], encoding="utf-8"))
 entry = manifest["repos"]["renquant-strategy-104"]
-print(pathlib.Path(entry["path"]) / "configs")
+print(pathlib.Path(entry["path"]))
 PY
 )" || { echo "SETUP: strategy repo missing from manifest"; exit 2; }
+STRATEGY_CONFIGS="$STRATEGY_DIR/configs"
 CONFIG_A="$STRATEGY_CONFIGS/strategy_config.shadow_a.json"
 CONFIG_B="$STRATEGY_CONFIGS/strategy_config.shadow_b.json"
 DATA_MANIFEST="${RENQUANT_SHADOW_AB_DATA_MANIFEST:-$STRATEGY_CONFIGS/xgb_prod_artifact_manifest.json}"
