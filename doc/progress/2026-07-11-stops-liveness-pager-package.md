@@ -3,11 +3,26 @@
 Date: 2026-07-11, updated 2026-07-12 (round 7 — guard now calls the public execution `--validate-registry` CLI instead of a private import; round 5 — envelope schema removed, install-time fail-closed guard)
 PR: ops(stops): software-stop liveness pager package (#471 shortlist item 2)
 
-**STATUS: MERGEABLE as a staged DARK template.** No umbrella dependency
-remains in committed configuration. Merging installs nothing; arming is a
-separately-granted operator landing step.
+**STATUS: BLOCKED on cross-repo public-API chain.** Code shape is correct
+(reviewer-acknowledged round 7). Blocked on the dependency sequence below
+completing before this PR can merge.
 
-## Enablement prerequisites (arming-time, not merge-time)
+## Merge-blocking dependency sequence
+
+Codex review (round 8, 2026-07-12T12:10:01Z): the installer guard shells
+out to `renquant-execution --validate-registry`, which internally calls
+`renquant_pipeline.software_stops._validate_snapshot` — a private name.
+Until the full chain is public, this PR cannot merge:
+
+1. **renquant-pipeline** exposes and tests a public `software-stops-v1`
+   snapshot-validation contract (replacing `_validate_snapshot`)
+2. **renquant-execution#30** consumes that public API and exposes the
+   `--validate-registry` CLI mode
+3. **renquant-execution#30 merges**
+4. **R-PIN advance** + end-to-end multirepo test of this guard against the
+   pinned real CLI for valid, missing, and corrupt registries
+
+## Additional enablement prerequisites (arming-time, post-merge)
 
 1. **Writer migration**: the sell-only loop must stamp the registry file at
    `~/.renquant/runtime/software-stops/` (the neutral root this plist now
@@ -17,16 +32,6 @@ separately-granted operator landing step.
    arming, run the test-fire drill and either tighten `max_staleness_minutes`
    to meet 15 min, or obtain explicit operator acceptance of the measured
    envelope.
-3. **execution R-PIN advance (round 7)**: `install --apply`'s registry
-   guard now invokes the pinned `renquant-execution`'s public
-   `--validate-registry` CLI mode
-   ([renquant-execution#30](https://github.com/hallovorld/renquant-execution/pull/30))
-   instead of importing a private name. This is only functional once that
-   PR merges AND this host's R-PIN `renquant-execution` pin advances to
-   include it — see "Correction (round 7)" below.
-
-None of these three prerequisites block merging — all three block
-arming/installing.
 
 ## Round 4: data-root resolved (this revision)
 
