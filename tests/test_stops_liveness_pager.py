@@ -633,13 +633,18 @@ def _installer_env(tmp_path: Path) -> dict:
         encoding="utf-8",
     )
     launchctl_stub.chmod(0o755)
-    return {
+    env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin",
         "HOME": str(tmp_path),
         "RENQUANT_STOPS_PAGER_AGENT_DIR": str(tmp_path / "LaunchAgents"),
         "RENQUANT_STOPS_PAGER_LAUNCHCTL": str(launchctl_stub),
         "RENQUANT_STOPS_PAGER_LOG_DIR": str(tmp_path / "logs"),
     }
+    import site
+    user_base = site.getuserbase()
+    if user_base:
+        env["PYTHONUSERBASE"] = user_base
+    return env
 
 
 def _run_installer(
