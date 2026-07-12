@@ -249,15 +249,18 @@ class TestShadowModeNonAdmission:
         assert result.exits_allowed
         assert "shadow" in result.reason
 
-    def test_paper_mode_blocks_entries(self, tmp_path, monkeypatch):
+    def test_paper_mode_allows_entries(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path, mode="paper")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
         result = evaluate_tick(
             config=cfg,
             now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
         )
-        assert not result.entries_allowed
-        assert "paper" in result.reason
+        assert result.entries_allowed
 
 
 # ── Configured quiet interval (review item 4) ────────────────────────────────
