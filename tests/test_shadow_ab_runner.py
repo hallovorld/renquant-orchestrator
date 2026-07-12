@@ -1276,9 +1276,9 @@ def test_e2e_unpinned_sibling_rejected(tmp_path: Path) -> None:
     )
     assert runner.calls == []  # neither arm ran
 
-    # (b) dirty tree at the RIGHT commit is still rejected
+    # (b) dirty tree at the RIGHT commit is still rejected (tracked modification)
     dirty_repo = Path(repos["renquant-execution"]["path"])
-    (dirty_repo / "untracked-experiment.py").write_text("dirty", encoding="utf-8")
+    (dirty_repo / "configs" / "marker.txt").write_text("modified", encoding="utf-8")
     runner = RecordingRunner()
     result = _run(
         world, tmp_path / "sessions",
@@ -1287,7 +1287,8 @@ def test_e2e_unpinned_sibling_rejected(tmp_path: Path) -> None:
     assert result["exit_code"] == EXIT_PRECHECK_ABORT
     assert any("DIRTY" in r for r in result["reasons"])
     assert runner.calls == []
-    (dirty_repo / "untracked-experiment.py").unlink()
+    sp.run(["git", "-C", str(dirty_repo), "checkout", "--", "configs/marker.txt"],
+           capture_output=True, check=True)
 
 
 def test_run_manifest_verified_session_records_commits_and_data_revision(
@@ -1448,7 +1449,7 @@ def test_store_repo_with_dirty_tree_aborts_before_either_arm(tmp_path: Path) -> 
     world, store = _store_world(tmp_path)
     run_manifest, _repos = _git_pinned_repos(tmp_path)
     pinned_store = _pinned_store_repo(tmp_path, store, run_manifest)
-    (pinned_store / "tamper.txt").write_text("dirty", encoding="utf-8")
+    (pinned_store / "panel" / "model.pt").write_text("tampered", encoding="utf-8")
 
     result = _run(
         world, tmp_path / "sessions",

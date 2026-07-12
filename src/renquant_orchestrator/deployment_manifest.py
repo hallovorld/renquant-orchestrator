@@ -159,11 +159,17 @@ def check_checkout_state(
 
     Checks (i) the path exists, (ii) it is a git checkout whose HEAD matches
     ``expected_commit`` (exact, or expected prefix of >= 12 hex chars), and
-    (iii) — when ``require_clean`` — the working tree is CLEAN. Returns
-    ``(resolved_full_commit, None)`` on success or ``(None, problem)`` on
-    the first failure; callers collect problems and fail closed. The problem
-    strings are the exact fail-closed messages the shadow-AB run-manifest
-    verifier has always emitted (behavior-invariant lift).
+    (iii) — when ``require_clean`` — the working tree is CLEAN (including
+    untracked paths — an untracked file can still be import-affecting
+    Python or package metadata, so it is never exempted from the dirty
+    check; a caller that genuinely needs a real sibling checkout free of
+    incidental local cruft must produce one, e.g. a clean detached ``git
+    worktree`` at the expected commit, not ask this verifier to look away).
+    Returns ``(resolved_full_commit, None)`` on success or ``(None,
+    problem)`` on the first failure; callers collect problems and fail
+    closed. The problem strings are the exact fail-closed messages the
+    shadow-AB run-manifest verifier has always emitted (behavior-invariant
+    lift).
     """
     probe = git_probe or default_git_probe
     expected = str(expected_commit).strip()
@@ -185,8 +191,8 @@ def check_checkout_state(
         status = probe(["-C", str(path), "status", "--porcelain"])
         if status.returncode != 0:
             return None, f"{name}: git status failed"
-        if (status.stdout or "").strip():
-            dirty = (status.stdout or "").strip().splitlines()
+        dirty = (status.stdout or "").strip().splitlines()
+        if dirty:
             return None, (
                 f"{name}: working tree DIRTY ({len(dirty)} path(s), e.g. "
                 f"{dirty[0][:60]!r})"

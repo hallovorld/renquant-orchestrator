@@ -10,9 +10,18 @@ multi-repo layout (temp dirs, each a REAL git checkout so the run-manifest
 verification in shadow_ab_runner.verify_run_manifest exercises real git
 plumbing) — no umbrella checkout, no real broker, no network. The four
 repos in the market-snapshot Python import closure (renquant-common,
-renquant-base-data, renquant-artifacts, and renquant-pipeline) point at
-this machine's real sibling checkouts (read-only; never written to) rather
-than fake git repos.
+renquant-base-data, renquant-artifacts, and renquant-pipeline) are the
+repos the wrapper script genuinely imports code from, so they must resolve
+to REAL, importable checkouts rather than fake git repos. Rather than
+pointing directly at this machine's real sibling checkouts (whose working
+trees may carry incidental local dev-environment cruft — packaging
+``.egg-info``, stray debris scripts, ... — that would spuriously fail
+verify_run_manifest's clean-tree check), each is resolved via a clean,
+detached temporary ``git worktree`` of that sibling's current HEAD commit
+(see ``_add_detached_worktree`` / the ``build_manifest`` fixture) — read-only
+against the real checkout (only ``git worktree add``/``remove``, never a
+write inside the checkout's own working tree) but hermetic against whatever
+untracked/dirty state happens to sit in it.
 """
 from __future__ import annotations
 
@@ -68,6 +77,43 @@ def _git(*args: str, cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True)
 
 
+def _add_detached_worktree(source_repo: Path, worktree_path: Path, commit: str) -> None:
+    """Hermetic real-import-repo fixture (Codex blocking review on #489):
+    ``git worktree add --detach`` a FRESH checkout of ``commit`` from the
+    real sibling checkout ``source_repo``, at ``worktree_path`` (must not
+    already exist — git creates it, including parents). A detached worktree
+    only ever contains the tracked files at that exact commit, so it is
+    clean by construction regardless of whatever untracked cruft (packaging
+    ``.egg-info``, stray debris scripts, ...) happens to sit in the
+    developer's actual local sibling checkout — this closes the root cause
+    of the flaky/dirty local runs without weakening verify_run_manifest's
+    clean-tree check at all. ``--detach`` (rather than a branch checkout)
+    means this never conflicts with the source repo's own working tree, or
+    with any other worktree already checked out at the same commit."""
+    worktree_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "-C", str(source_repo), "worktree", "add", "--detach",
+         str(worktree_path), commit],
+        capture_output=True, text=True, check=True,
+    )
+
+
+def _remove_detached_worktree(source_repo: Path, worktree_path: Path) -> None:
+    """Teardown counterpart to ``_add_detached_worktree``. Uses ``--force``
+    (the worktree's own dir lives under a test's ``tmp_path`` and is never
+    reused) so a single leftover lock never masks the rest of a test run's
+    cleanup. Best-effort (capture_output, no ``check=True``): a worktree
+    whose directory pytest already removed, or that was never created
+    because the test failed before creating it, must not turn an unrelated
+    test failure into a teardown crash. Called unconditionally from the
+    ``build_manifest`` fixture's teardown for every worktree it created, on
+    every test, pass or fail."""
+    subprocess.run(
+        ["git", "-C", str(source_repo), "worktree", "remove", "--force", str(worktree_path)],
+        capture_output=True, text=True,
+    )
+
+
 def _init_fake_repo(path: Path) -> str:
     """A minimal REAL git repo (one commit) — satisfies verify_run_manifest's
     existence/commit/clean-tree checks without needing real package code."""
@@ -114,16 +160,31 @@ def _stub_python(tmp_path: Path, *, real_python: str, sleep_seconds: float | Non
 
 
 def _build_manifest(tmp_path: Path, *, watchlist: list[str], dirty: str | None = None,
-                     wrong_commit: str | None = None) -> tuple[Path, Path]:
+                     wrong_commit: str | None = None,
+                     worktree_registry: list[tuple[Path, Path]] | None = None,
+                     ) -> tuple[Path, Path]:
     """Builds the immutable run manifest + the pinned strategy-104 configs it
     points at. ``dirty``/``wrong_commit`` name a repo to deliberately break,
-    for the rejection tests."""
+    for the rejection tests.
+
+    The real-import repos (``_REAL_IMPORT_REPOS``) are pointed at a clean,
+    detached temporary ``git worktree`` of the real sibling checkout's
+    current HEAD (under ``tmp_path``) rather than the real checkout's own
+    working directory directly — see ``_add_detached_worktree``. Callers
+    that want the created worktrees torn down automatically should go
+    through the ``build_manifest`` fixture below instead of calling this
+    directly; ``worktree_registry``, when given, collects
+    ``(source_repo, worktree_path)`` pairs for that fixture's teardown."""
     repos_dir = tmp_path / "repos"
     manifest_repos: dict[str, dict] = {}
     for name in _ALL_REPOS:
         if name in _REAL_IMPORT_REPOS:
-            path = REAL_SIBLINGS_ROOT / name
+            source_repo = REAL_SIBLINGS_ROOT / name
             commit = _real_repo_head(name)
+            path = repos_dir / f"real_worktree_{name}"
+            _add_detached_worktree(source_repo, path, commit)
+            if worktree_registry is not None:
+                worktree_registry.append((source_repo, path))
         elif name == "renquant-strategy-104":
             # Configs must exist BEFORE the initial commit — writing them
             # afterward would leave this checkout permanently "dirty" per
@@ -145,6 +206,13 @@ def _build_manifest(tmp_path: Path, *, watchlist: list[str], dirty: str | None =
         manifest_repos[name] = {"path": str(path), "commit": commit}
 
     if dirty is not None:
+        # Deliberately an UNTRACKED file, not a tracked-file modification —
+        # this is the exact failure mode Codex's round-3 review on #489
+        # centers on: with the (rejected) ignore_untracked=True, this
+        # untracked marker would silently pass verify_run_manifest's
+        # clean-tree check. With strict verification restored, this must
+        # still fail closed, proving the untracked-content coverage gap is
+        # genuinely closed rather than merely routed around.
         target = Path(manifest_repos[dirty]["path"])
         (target / "dirty_marker.txt").write_text("uncommitted\n")
 
@@ -153,6 +221,30 @@ def _build_manifest(tmp_path: Path, *, watchlist: list[str], dirty: str | None =
     manifest_path = tmp_path / "run_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2))
     return manifest_path, strategy_104
+
+
+@pytest.fixture
+def build_manifest(tmp_path):
+    """Factory fixture wrapping ``_build_manifest``: every real-import-repo
+    ``git worktree`` it creates (see ``_add_detached_worktree``) is torn
+    down here on test teardown — success OR failure — so a test run never
+    leaks a stale ``git worktree`` registration into the developer's real
+    sibling checkouts (``renquant-common``/``renquant-base-data``/
+    ``renquant-artifacts``/``renquant-pipeline``), regardless of how long
+    pytest keeps this test's ``tmp_path`` directory around afterward."""
+    created: list[tuple[Path, Path]] = []
+
+    def _factory(*, watchlist: list[str], dirty: str | None = None,
+                 wrong_commit: str | None = None) -> tuple[Path, Path]:
+        return _build_manifest(
+            tmp_path, watchlist=watchlist, dirty=dirty, wrong_commit=wrong_commit,
+            worktree_registry=created,
+        )
+
+    yield _factory
+
+    for source_repo, worktree_path in created:
+        _remove_detached_worktree(source_repo, worktree_path)
 
 
 def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path,
@@ -209,8 +301,8 @@ def _run_script(env, timeout=30):
 
 
 class TestExplicitRuntimeInputs:
-    def test_missing_required_env_fails_closed(self, tmp_path, real_python):
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+    def test_missing_required_env_fails_closed(self, tmp_path, real_python, build_manifest):
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
         del env["RENQUANT_SHADOW_AB_REPO_ROOT"]
@@ -233,7 +325,8 @@ class TestExplicitRuntimeInputs:
             if "RenQuant" in line:
                 assert stripped.startswith("#"), f"non-comment line references RenQuant: {line!r}"
 
-    def test_rogue_strategy_dir_env_var_cannot_diverge_the_cli_argument(self, tmp_path, real_python):
+    def test_rogue_strategy_dir_env_var_cannot_diverge_the_cli_argument(self, tmp_path, real_python,
+                                                                          build_manifest):
         # Codex re-review of #460 r2: a separate RENQUANT_SHADOW_AB_STRATEGY_DIR
         # input let a caller pair manifest-verified configs with artifacts
         # resolved from an arbitrary, UNVERIFIED checkout for --strategy-dir
@@ -245,7 +338,7 @@ class TestExplicitRuntimeInputs:
         # the wrapper passes the value it itself resolved from the verified
         # manifest to --strategy-dir, regardless of what a rogue env var of
         # the old (now-unused) name claims.
-        manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, strategy_dir = build_manifest(watchlist=["AAPL"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest, timeout_sec=5)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
 
@@ -272,9 +365,9 @@ class TestRunManifestVerification:
     would even matter, so these exercise the actual verification code path,
     not a stand-in that would trivially "pass" regardless of the manifest."""
 
-    def test_wrong_commit_repo_fails_closed_before_either_arm(self, tmp_path, real_python):
-        manifest, _ = _build_manifest(
-            tmp_path, watchlist=["AAPL"], wrong_commit="renquant-execution",
+    def test_wrong_commit_repo_fails_closed_before_either_arm(self, tmp_path, real_python, build_manifest):
+        manifest, _ = build_manifest(
+            watchlist=["AAPL"], wrong_commit="renquant-execution",
         )
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
@@ -284,9 +377,9 @@ class TestRunManifestVerification:
         assert not list((tmp_path / "out").glob("prices_*.json"))
         assert not list((tmp_path / "out").glob("market_snapshot_*.json"))
 
-    def test_dirty_repo_fails_closed_before_either_arm(self, tmp_path, real_python):
-        manifest, _ = _build_manifest(
-            tmp_path, watchlist=["AAPL"], dirty="renquant-execution",
+    def test_dirty_repo_fails_closed_before_either_arm(self, tmp_path, real_python, build_manifest):
+        manifest, _ = build_manifest(
+            watchlist=["AAPL"], dirty="renquant-execution",
         )
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
@@ -298,8 +391,8 @@ class TestRunManifestVerification:
 
 
 class TestMarketSnapshotIntegrity:
-    def test_missing_local_close_price_fails_closed(self, tmp_path, real_python):
-        manifest, _ = _build_manifest(tmp_path, watchlist=["ZZZZ_NO_DATA"])
+    def test_missing_local_close_price_fails_closed(self, tmp_path, real_python, build_manifest):
+        manifest, _ = build_manifest(watchlist=["ZZZZ_NO_DATA"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=60)
         result = _run_script(env)
@@ -308,8 +401,8 @@ class TestMarketSnapshotIntegrity:
         assert "no local close price" in log
         assert "ZZZZ_NO_DATA" in log
 
-    def test_sealed_snapshot_universe_matches_pinned_watchlist(self, tmp_path, real_python):
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL", "MSFT"])
+    def test_sealed_snapshot_universe_matches_pinned_watchlist(self, tmp_path, real_python, build_manifest):
+        manifest, _ = build_manifest(watchlist=["AAPL", "MSFT"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
                         timeout_sec=5)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
@@ -332,13 +425,14 @@ class TestPortableTimeout:
         candidates = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
         return ":".join(p for p in candidates if os.path.isdir(p))
 
-    def test_hung_session_is_killed_and_marked_pair_invalidated(self, tmp_path, real_python):
+    def test_hung_session_is_killed_and_marked_pair_invalidated(self, tmp_path, real_python,
+                                                                   build_manifest):
         # Portable across hosts: whether this host's PATH actually excludes
         # timeout/gtimeout (bash-watchdog fallback fires) or not (a real
         # GNU timeout — e.g. Linux CI's /usr/bin/timeout — fires instead
         # despite the "minimal" PATH below), the OUTCOME must be identical:
         # killed well within the bound and marked exit=4.
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = _env_for(
             tmp_path, python=Path(real_python), run_manifest=manifest,
             timeout_sec=2,
@@ -356,8 +450,9 @@ class TestPortableTimeout:
         assert "SHADOW-AB TIMEOUT" in log
         assert "shadow-ab exit=4" in log
 
-    def test_fast_session_exit_code_passes_through_under_watchdog(self, tmp_path, real_python):
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+    def test_fast_session_exit_code_passes_through_under_watchdog(self, tmp_path, real_python,
+                                                                     build_manifest):
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = _env_for(
             tmp_path, python=Path(real_python), run_manifest=manifest,
             timeout_sec=30,
@@ -416,9 +511,9 @@ class TestSessionCalendarGate:
         assert not list(out.glob("session_*.json"))
         assert not list(out.glob("session_*_stderr.log"))
 
-    def test_saturday_is_skipped_with_no_observation(self, tmp_path, real_python):
+    def test_saturday_is_skipped_with_no_observation(self, tmp_path, real_python, build_manifest):
         session_date = "2026-07-04"
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
                                   session_date=session_date)
         result = _run_script(env)
@@ -428,9 +523,10 @@ class TestSessionCalendarGate:
         assert "not an NYSE trading session" in log
         self._assert_no_observation_written(tmp_path)
 
-    def test_weekday_nyse_holiday_is_skipped_with_no_observation(self, tmp_path, real_python):
+    def test_weekday_nyse_holiday_is_skipped_with_no_observation(self, tmp_path, real_python,
+                                                                    build_manifest):
         session_date = "2026-11-26"  # Thanksgiving Day (Thursday)
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
                                   session_date=session_date)
         result = _run_script(env)
@@ -440,19 +536,19 @@ class TestSessionCalendarGate:
         assert "not an NYSE trading session" in log
         self._assert_no_observation_written(tmp_path)
 
-    def test_early_close_half_day_is_not_skipped(self, tmp_path, real_python):
+    def test_early_close_half_day_is_not_skipped(self, tmp_path, real_python, build_manifest):
         # 2026-11-27 (day after Thanksgiving) — a real half-day session.
         # "Preserve early-close sessions" (Codex): the gate must let this
         # proceed exactly like any other trading day.
         session_date = "2026-11-27"
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
                                   session_date=session_date)
         _run_script(env)
         log = self._log_text_for(tmp_path, session_date)
         assert "SKIP:" not in log
 
-    def test_normal_weekday_is_not_skipped(self, tmp_path, real_python):
+    def test_normal_weekday_is_not_skipped(self, tmp_path, real_python, build_manifest):
         # 2026-07-10 (Friday) — a normal NYSE trading day, and this test
         # file's existing default RENQUANT_SHADOW_AB_SESSION_DATE. Fuller
         # end-to-end progression past the gate on this same date (sealed
@@ -462,29 +558,30 @@ class TestSessionCalendarGate:
         # only pins down that the NEW session-calendar guard itself does
         # not fire for it.
         session_date = "2026-07-10"
-        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        manifest, _ = build_manifest(watchlist=["AAPL"])
         env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
                                   session_date=session_date)
         _run_script(env)
         log = self._log_text_for(tmp_path, session_date)
         assert "SKIP:" not in log
 
-    def test_dirty_manifest_on_non_session_date_fails_closed_not_skip(self, tmp_path, real_python):
+    def test_dirty_manifest_on_non_session_date_fails_closed_not_skip(self, tmp_path, real_python,
+                                                                         build_manifest):
         # P0 ordering fix (Codex round 3 on #488): the run-manifest / pin-
         # identity precheck (verify_run_manifest, see TestRunManifestVerification
         # above) must run BEFORE the trading-session calendar check, because
         # that check imports renquant_common.market_calendar from a
         # manifest-pinned sibling checkout. Pair a real non-session date
         # (Saturday, same as test_saturday_is_skipped_with_no_observation
-        # above) with a DIRTY pinned repo (same _build_manifest(dirty=...)
+        # above) with a DIRTY pinned repo (same build_manifest(dirty=...)
         # fixture as test_dirty_repo_fails_closed_before_either_arm) and
         # assert the identity failure (PRECHECK, exit 3) wins — the script
         # must NEVER reach the calendar check and silently SKIP as if the
         # dirty checkout were irrelevant because "today isn't a trading day
         # anyway."
         session_date = "2026-07-04"  # Saturday (non-session)
-        manifest, _ = _build_manifest(
-            tmp_path, watchlist=["AAPL"], dirty="renquant-execution",
+        manifest, _ = build_manifest(
+            watchlist=["AAPL"], dirty="renquant-execution",
         )
         env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
                                   session_date=session_date)
