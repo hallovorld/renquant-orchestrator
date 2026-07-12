@@ -81,8 +81,11 @@ Codex blocked round-4 HEAD (`a83ca971`) with review timestamp
 - `scripts/install_stops_pager.sh`: `install --apply` now runs a fail-closed
   pre-install guard *before* any `mkdir`/`cp`/`launchctl bootstrap` step. It
   resolves `RENQUANT_STOPS_PAGER_DATA_ROOT`/`RENQUANT_STOPS_PAGER_PYTHON`
-  from the environment (test/operator override) or, falling back, parses
-  them out of the committed plist's `EnvironmentVariables` via
+  ~~from the environment (test/operator override) or, falling back, parses
+  them out of the committed plist's `EnvironmentVariables`~~ — **superseded,
+  see "Correction (round 6)" below: this env-preferring resolution let an
+  ambient shell variable diverge from what actually gets armed and was
+  removed; the guard now reads exclusively from the plist** — via
   `python3 -c`+`plistlib` (robust XML parsing, not grep/sed — Python is
   already a hard runtime dependency of this script). It resolves the pinned
   `renquant-pipeline`/`renquant-execution` checkouts through the same R-PIN
@@ -115,6 +118,55 @@ remain separately-authorized follow-ups, exactly as before. This package is
 still staged **DARK** and `strategy-104#55`/`#56` remain **blocked** on
 those — this round closes the "false critical alarm from an unmigrated
 writer path" gap Codex flagged, nothing more.
+
+## Correction (round 6 — guard could validate a different path than it armed)
+
+Codex blocked round-5 HEAD (`d0bfeefb`) with review timestamp
+2026-07-12T10:57:11Z, on the guard implementation itself: `install --apply`
+"can validate a different runtime contract than the launchd job it
+installs." `resolve_pager_env_var` deliberately preferred an already-exported
+`RENQUANT_STOPS_PAGER_DATA_ROOT`/`_PYTHON` over the plist value — but launchd
+does not inherit the interactive shell environment; it executes the *copied
+plist's* `EnvironmentVariables` only. An operator with either variable set
+ambiently (leftover shell state, a different tool, anything) could pass the
+guard against a *valid* registry while installing a job pointed at the
+plist's own (missing or corrupt) path — reproducing exactly the false
+critical-alarm risk the guard exists to prevent. Codex: derive data root and
+interpreter exclusively from the plist that will be copied, and add a
+regression test proving an ambient override pointing at a valid registry
+does not let a plist-pointed-at-a-bad-path installation through.
+
+**What changed:**
+
+- `scripts/install_stops_pager.sh`: `PLIST_SRC` is now itself overridable via
+  `RENQUANT_STOPS_PAGER_PLIST_SRC` (test-only — production always uses the
+  committed plist, so this never differs from the default outside tests).
+  `resolve_pager_env_var` (renamed `plist_env_var`) no longer checks the
+  ambient environment at all for the guard's inputs — it parses
+  `RENQUANT_STOPS_PAGER_DATA_ROOT`/`_PYTHON`/`_BROKER` from `$PLIST_SRC`
+  exclusively, unconditionally. The guard therefore now validates the exact
+  same file it is about to `cp` into `$PLIST_DST` and bootstrap — there is no
+  longer any path by which the guard's answer can diverge from what actually
+  gets armed.
+- `tests/test_stops_liveness_pager.py`: the guard tests (missing/corrupt/
+  zero-armed-stops-valid/happy-path) now point `RENQUANT_STOPS_PAGER_PLIST_SRC`
+  at a throwaway plist (`_write_fake_plist`) carrying a controlled
+  `EnvironmentVariables` dict, rather than setting
+  `RENQUANT_STOPS_PAGER_DATA_ROOT`/`_PYTHON` directly in the subprocess
+  environment (that would now be a no-op, correctly). New regression test
+  `test_install_apply_ignores_ambient_env_and_uses_plist_value_only`: an
+  ambient decoy points at a *valid* registry while the fake plist's own data
+  root has none — install must refuse, and the refusal message must name the
+  plist's data root, not the decoy. **Verified this test actually catches the
+  round-5 bug**: run against the pre-fix `d0bfeefb` script, it fails with
+  `GUARD OK` against the decoy and a successful install (returncode 0); run
+  against the round-6 fix, it passes.
+
+No change to the ownership correction from round 5 (still holds — no
+registry content schema defined in orchestrator, validation still delegates
+to `renquant_execution`/`renquant_pipeline`). Package remains staged DARK;
+writer migration and SLA/authorization gates unchanged; `strategy-104#55`/
+`#56` stay blocked.
 
 ## Bottom line
 

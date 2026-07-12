@@ -38,6 +38,23 @@ corrupt-registry, and the legitimate zero-armed-stops-but-valid case,
 reusing `_fake_state_root`'s fixture machinery with a different stub module
 (`_STUB_REGISTRY_MODULE`) since the guard imports real Python names rather
 than shelling out to a CLI.
+
+Round 6 (Codex CHANGES_REQUESTED, 2026-07-12T10:57:11Z): the round-5 guard's
+`resolve_pager_env_var` let an already-exported ambient environment variable
+win over the plist's own EnvironmentVariables value -- but launchd never
+inherits the interactive shell environment, only the plist it was
+bootstrapped with, so an ambient override could pass the guard against a
+valid registry while installing a job armed against a completely different,
+unverified path. Fixed: the guard (`plist_env_var`) now derives data
+root/interpreter/broker EXCLUSIVELY from `$PLIST_SRC` (now itself
+overridable via `RENQUANT_STOPS_PAGER_PLIST_SRC`, test-only). The install
+guard tests below therefore point that override at a throwaway plist
+(`_write_fake_plist`) carrying a controlled `EnvironmentVariables` dict
+rather than setting `RENQUANT_STOPS_PAGER_DATA_ROOT`/`_PYTHON` directly in
+the subprocess environment; a dedicated regression test
+(`test_install_apply_ignores_ambient_env_and_uses_plist_value_only`) proves
+an ambient decoy pointing at a valid registry is ignored when the plist's
+own value does not resolve to one.
 """
 from __future__ import annotations
 
@@ -576,24 +593,48 @@ def _run_installer(
     )
 
 
+def _write_fake_plist(tmp_path: Path, *, env_vars: dict, name: str = "fake-stops-liveness.plist") -> Path:
+    """A throwaway plist for the install --apply registry guard tests.
+
+    Round 6 (Codex CHANGES_REQUESTED, 2026-07-12T10:57:11Z): the guard now
+    derives RENQUANT_STOPS_PAGER_DATA_ROOT/_PYTHON EXCLUSIVELY from
+    $PLIST_SRC's own EnvironmentVariables dict, never from ambient env —
+    matching exactly what launchd would actually arm. These tests therefore
+    point RENQUANT_STOPS_PAGER_PLIST_SRC at a controlled fake plist rather
+    than the real committed one (whose DATA_ROOT is a real, machine-specific
+    absolute path tests must not write into)."""
+    plist_path = tmp_path / name
+    with open(plist_path, "wb") as fh:
+        plistlib.dump({"EnvironmentVariables": env_vars}, fh)
+    return plist_path
+
+
 def _valid_registry_install_env(tmp_path: Path, *, broker: str = "alpaca") -> dict:
     """The full env the install --apply fail-closed guard (Codex review,
     2026-07-12T04:32:57Z) needs to PASS: a fake R-PIN state root (schema-
     valid runtime inventory pointing at stub pinned renquant-execution /
     renquant-pipeline / ... checkouts — same machinery as
-    ``_fake_state_root`` above, reused rather than reinvented) plus a
-    VALID registry file already present at the resolved data root."""
+    ``_fake_state_root`` above, reused rather than reinvented), a fake plist
+    (round 6: the guard reads data root/interpreter from THIS file only —
+    see ``_write_fake_plist``) declaring a VALID registry's data root, and
+    that VALID registry file actually present there."""
     state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
     data_root = tmp_path / "registry-data-root"
     data_root.mkdir()
     (data_root / f"{broker}.json").write_text(
         json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
     )
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+            "RENQUANT_STOPS_PAGER_BROKER": broker,
+        },
+    )
     return {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
-        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
-        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
-        "RENQUANT_STOPS_PAGER_BROKER": broker,
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
     }
 
 
@@ -612,7 +653,13 @@ def test_install_apply_copies_plist_and_bootstraps(tmp_path):
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     dst = tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist"
-    assert dst.read_bytes() == PLIST_PATH.read_bytes()
+    # Round 6: PLIST_SRC is the fake plist _valid_registry_install_env wrote
+    # (RENQUANT_STOPS_PAGER_PLIST_SRC) rather than the real committed one —
+    # the real plist's DATA_ROOT is a genuine machine-specific absolute path
+    # tests must not write a registry file into. The real committed plist's
+    # own shape/content is separately covered by test_plist_* below, which
+    # read it directly rather than through the installer.
+    assert dst.read_bytes() == Path(env_extra["RENQUANT_STOPS_PAGER_PLIST_SRC"]).read_bytes()
     assert (tmp_path / "logs").is_dir(), "log dir must exist before launchd writes to it"
     calls = (tmp_path / "launchctl_calls.log").read_text().splitlines()
     assert any(c.startswith("bootout ") for c in calls)
@@ -631,15 +678,22 @@ def test_install_apply_refuses_when_registry_missing(tmp_path):
     before the writer migration must be refused, not silently armed against
     a path with no migrated writer (which would later produce a false
     critical alarm). No registry file exists at the configured data root
-    here, so the guard must refuse BEFORE any mkdir/cp/bootstrap step."""
+    here, so the guard must refuse BEFORE any mkdir/cp/bootstrap step.
+    Round 6: the data root comes from the fake plist (RENQUANT_STOPS_PAGER_
+    PLIST_SRC), not ambient env -- see _write_fake_plist."""
     state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
     data_root = tmp_path / "registry-data-root"
     data_root.mkdir()  # directory exists, but no registry file inside it
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+    )
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
-        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
-        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
-        "RENQUANT_STOPS_PAGER_BROKER": "alpaca",
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
     }
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode != 0
@@ -662,11 +716,16 @@ def test_install_apply_refuses_when_registry_corrupt(tmp_path):
     data_root = tmp_path / "registry-data-root"
     data_root.mkdir()
     (data_root / "alpaca.json").write_text("not json{{{", encoding="utf-8")
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+    )
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
-        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
-        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
-        "RENQUANT_STOPS_PAGER_BROKER": "alpaca",
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
     }
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode != 0
@@ -676,6 +735,55 @@ def test_install_apply_refuses_when_registry_corrupt(tmp_path):
     )
     assert not (tmp_path / "launchctl_calls.log").exists(), (
         "must not invoke launchctl bootstrap when the registry guard fails"
+    )
+
+
+def test_install_apply_ignores_ambient_env_and_uses_plist_value_only(tmp_path):
+    """Codex CHANGES_REQUESTED round 6 (2026-07-12T10:57:11Z): "install
+    --apply can validate a different runtime contract than the launchd job
+    it installs" -- launchd never inherits the interactive shell
+    environment, only the EnvironmentVariables baked into the copied plist.
+    Here an ambient RENQUANT_STOPS_PAGER_DATA_ROOT/_PYTHON in the calling
+    shell point at a VALID registry (a decoy an operator's leftover shell
+    state might carry), but the plist that will actually be copied and
+    armed declares a data root with NO registry at all. Install must refuse
+    -- proving the guard derives its answer exclusively from the plist, not
+    from ambient env -- and the refusal message must name the PLIST's data
+    root, not the ambient decoy."""
+    state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
+    decoy_data_root = tmp_path / "decoy-ambient-data-root"
+    decoy_data_root.mkdir()
+    (decoy_data_root / "alpaca.json").write_text(
+        json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
+    )
+    plist_data_root = tmp_path / "plist-data-root-no-writer-yet"
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(plist_data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+    )
+    env_extra = {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        # Ambient decoy -- must be ignored by the guard entirely.
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(decoy_data_root),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+    }
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "no software-stop registry file" in proc.stderr
+    assert str(plist_data_root) in proc.stderr
+    assert str(decoy_data_root) not in proc.stderr, (
+        "guard must report the PLIST's data root, not the ambient decoy -- "
+        "if this fails, the guard is reading ambient env again"
+    )
+    assert not (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists(), (
+        "must not copy the plist when the ambient decoy is the only valid path"
+    )
+    assert not (tmp_path / "launchctl_calls.log").exists(), (
+        "must not invoke launchctl bootstrap when the ambient decoy is the only valid path"
     )
 
 

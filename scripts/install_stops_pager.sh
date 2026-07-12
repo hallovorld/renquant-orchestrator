@@ -23,7 +23,11 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="com.renquant.stops-liveness"
-PLIST_SRC="$REPO_ROOT/deploy/$LABEL.plist"
+# Test-only override (hermetic tests point this at a throwaway plist so the
+# --apply registry guard below can be exercised against controlled
+# EnvironmentVariables without touching the real committed plist). Production
+# never sets this — see require_sources.
+PLIST_SRC="${RENQUANT_STOPS_PAGER_PLIST_SRC:-$REPO_ROOT/deploy/$LABEL.plist}"
 WRAPPER="$REPO_ROOT/scripts/stops_liveness_pager.sh"
 AGENT_DIR="${RENQUANT_STOPS_PAGER_AGENT_DIR:-$HOME/Library/LaunchAgents}"
 PLIST_DST="$AGENT_DIR/$LABEL.plist"
@@ -69,20 +73,29 @@ require_sources() {
 # SAME path (data root + broker) the armed pager will read, verified through
 # the REAL producing-repo validators (never a re-derived schema — see
 # software_stops_registry_contract.py's round-5 correction note).
+#
+# Round-6 correction (Codex CHANGES_REQUESTED, 2026-07-12T10:57:11Z): the
+# first cut of this guard let an ambient environment variable
+# (RENQUANT_STOPS_PAGER_DATA_ROOT / _PYTHON already exported in the
+# operator's shell) win over the plist's own EnvironmentVariables value. That
+# is exactly the divergence bug the guard exists to prevent: launchd does
+# NOT inherit the interactive shell environment — it only ever sees the
+# EnvironmentVariables baked into the COPIED plist — so an ambient override
+# could pass the guard against a valid registry while the job that actually
+# gets bootstrapped is armed against a totally different (missing/corrupt)
+# path. Fixed: the guard now derives data root and interpreter EXCLUSIVELY
+# from $PLIST_SRC (the exact file about to be copied to $PLIST_DST) — no
+# ambient-env fallback, no unpersisted guard input, period.
 
-resolve_pager_env_var() {
-    # $1 = env var name. Prefer an already-set environment value (operator
-    # override / hermetic test injection); otherwise parse it out of the
-    # committed plist's EnvironmentVariables dict — the exact arming-time
-    # configuration `install --apply` is about to bootstrap. Prints the
-    # resolved value and returns 0, or prints nothing and returns 1.
+plist_env_var() {
+    # $1 = env var name. Parses it out of $PLIST_SRC's EnvironmentVariables
+    # dict ONLY — the exact arming-time configuration `install --apply` is
+    # about to copy verbatim into the launchd job. Deliberately ignores any
+    # same-named variable already set in the calling shell: an ambient
+    # override here would validate a path different from what gets armed
+    # (round-6 correction above). Prints the resolved value and returns 0,
+    # or prints nothing and returns 1.
     local var_name="$1"
-    local env_val
-    env_val="${!var_name:-}"
-    if [ -n "$env_val" ]; then
-        printf '%s\n' "$env_val"
-        return 0
-    fi
     python3 - "$PLIST_SRC" "$var_name" <<'PY'
 import plistlib
 import sys
@@ -108,15 +121,22 @@ guard_registry_before_apply() {
     # proceed unless a valid registry file already exists there. Returns
     # nonzero (never raises) on any failure; all diagnostics go to stderr.
     local data_root python_bin broker
-    if ! data_root="$(resolve_pager_env_var RENQUANT_STOPS_PAGER_DATA_ROOT)"; then
-        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_DATA_ROOT (not set in env, not found in $PLIST_SRC EnvironmentVariables)" >&2
+    if ! data_root="$(plist_env_var RENQUANT_STOPS_PAGER_DATA_ROOT)"; then
+        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_DATA_ROOT from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
         return 1
     fi
-    if ! python_bin="$(resolve_pager_env_var RENQUANT_STOPS_PAGER_PYTHON)"; then
-        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_PYTHON (not set in env, not found in $PLIST_SRC EnvironmentVariables)" >&2
+    if ! python_bin="$(plist_env_var RENQUANT_STOPS_PAGER_PYTHON)"; then
+        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_PYTHON from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
         return 1
     fi
-    broker="${RENQUANT_STOPS_PAGER_BROKER:-alpaca}"
+    # Same exclusively-from-plist rule applies to broker: if a future plist
+    # revision starts carrying RENQUANT_STOPS_PAGER_BROKER, an ambient
+    # fallback here would silently reintroduce the same divergence bug this
+    # round fixes for data root/interpreter. The committed plist does not
+    # set it today, so this resolves to the package-wide "alpaca" default
+    # either way — but derive it the same way, not via ambient env.
+    broker="$(plist_env_var RENQUANT_STOPS_PAGER_BROKER || true)"
+    broker="${broker:-alpaca}"
 
     echo "guard: verifying a valid software-stop registry exists at data_root=$data_root broker=$broker before arming..." >&2
     local guard_out guard_rc
