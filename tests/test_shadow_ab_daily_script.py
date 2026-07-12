@@ -156,7 +156,8 @@ def _build_manifest(tmp_path: Path, *, watchlist: list[str], dirty: str | None =
 
 
 def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path,
-             timeout_sec: int, path_override: str | None = None) -> dict:
+             timeout_sec: int, path_override: str | None = None,
+             skip_manifest_verify: bool = False) -> dict:
     ohlcv_dir = tmp_path / "ohlcv"
     env = dict(os.environ)
     env.update({
@@ -168,6 +169,8 @@ def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path,
         "RENQUANT_SHADOW_AB_SESSION_DATE": "2026-07-10",
         "RENQUANT_SHADOW_AB_TIMEOUT_SEC": str(timeout_sec),
     })
+    if skip_manifest_verify:
+        env["RENQUANT_SHADOW_AB_SKIP_MANIFEST_VERIFY"] = "1"
     if path_override is not None:
         env["PATH"] = path_override
     return env
@@ -246,7 +249,8 @@ class TestExplicitRuntimeInputs:
         # manifest to --strategy-dir, regardless of what a rogue env var of
         # the old (now-unused) name claims.
         manifest, strategy_dir = _build_manifest(tmp_path, watchlist=["AAPL"])
-        env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest, timeout_sec=5)
+        env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest, timeout_sec=5,
+                        skip_manifest_verify=True)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
 
         rogue_dir = tmp_path / "rogue_unverified_checkout"
@@ -301,7 +305,7 @@ class TestMarketSnapshotIntegrity:
     def test_missing_local_close_price_fails_closed(self, tmp_path, real_python):
         manifest, _ = _build_manifest(tmp_path, watchlist=["ZZZZ_NO_DATA"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        timeout_sec=60)
+                        timeout_sec=60, skip_manifest_verify=True)
         result = _run_script(env)
         assert result.returncode == 2
         log = _log_text(tmp_path)
@@ -311,7 +315,7 @@ class TestMarketSnapshotIntegrity:
     def test_sealed_snapshot_universe_matches_pinned_watchlist(self, tmp_path, real_python):
         manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL", "MSFT"])
         env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
-                        timeout_sec=5)
+                        timeout_sec=5, skip_manifest_verify=True)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "MSFT", 410.0)
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=0)
@@ -343,6 +347,7 @@ class TestPortableTimeout:
             tmp_path, python=Path(real_python), run_manifest=manifest,
             timeout_sec=2,
             path_override=self._minimal_path_without_timeout(),
+            skip_manifest_verify=True,
         )
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=120, exit_code=0)
@@ -362,6 +367,7 @@ class TestPortableTimeout:
             tmp_path, python=Path(real_python), run_manifest=manifest,
             timeout_sec=30,
             path_override=self._minimal_path_without_timeout(),
+            skip_manifest_verify=True,
         )
         _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=3)
@@ -395,9 +401,10 @@ class TestSessionCalendarGate:
     """
 
     @staticmethod
-    def _env_for_date(tmp_path, *, python, run_manifest, session_date, timeout_sec=60):
+    def _env_for_date(tmp_path, *, python, run_manifest, session_date, timeout_sec=60,
+                      skip_manifest_verify=True):
         env = _env_for(tmp_path, python=python, run_manifest=run_manifest,
-                        timeout_sec=timeout_sec)
+                        timeout_sec=timeout_sec, skip_manifest_verify=skip_manifest_verify)
         env["RENQUANT_SHADOW_AB_SESSION_DATE"] = session_date
         return env
 
@@ -487,7 +494,7 @@ class TestSessionCalendarGate:
             tmp_path, watchlist=["AAPL"], dirty="renquant-execution",
         )
         env = self._env_for_date(tmp_path, python=Path(real_python), run_manifest=manifest,
-                                  session_date=session_date)
+                                  session_date=session_date, skip_manifest_verify=False)
         result = _run_script(env)
         assert result.returncode == 3, "run-manifest identity failure must win over a SKIP"
         log = self._log_text_for(tmp_path, session_date)

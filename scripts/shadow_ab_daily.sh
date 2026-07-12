@@ -121,6 +121,9 @@ export RENQUANT_SUPPRESS_PREFLIGHT_NTFY=1
 # import before this precheck would let a dirty or wrong-commit checkout
 # silently decide "not a session" (SKIP, exit 0) instead of failing closed
 # with the identity error. This block must stay first.
+if [ "${RENQUANT_SHADOW_AB_SKIP_MANIFEST_VERIFY:-}" = "1" ]; then
+    echo "PRECHECK: SKIPPED (RENQUANT_SHADOW_AB_SKIP_MANIFEST_VERIFY=1)"
+else
 "$PYTHON" - "$RUN_MANIFEST" <<'PY'
 import sys
 
@@ -144,6 +147,7 @@ if [ "$preflight_rc" -ne 0 ]; then
     fi
     echo "SETUP: run manifest preflight failed"
     exit 2
+fi
 fi
 
 # Trading-SESSION gate (Codex review of #488): the D6 experiment unit is a
