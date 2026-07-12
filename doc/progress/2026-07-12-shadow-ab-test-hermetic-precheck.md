@@ -94,14 +94,20 @@ Implements Codex's round-3 ask completely — no partial pass:
    the file (code, comments, or docstring).
 2. **`src/renquant_orchestrator/shadow_ab_runner.py`**: reverted
    `verify_run_manifest`'s call to `check_checkout_state` back to the
-   implicit strict default (no `ignore_untracked` argument) — any
-   untracked file, tracked modification, or wrong commit fails closed
-   again. The `ignore_untracked` parameter itself is left on
-   `deployment_manifest.check_checkout_state` (it is a generically useful,
-   safe, opt-in, default-`False` primitive) but no caller uses it — grep
-   confirms `deploy_pin.py` and `model_identity_tripwire.py`'s evidence
-   checkout verification already call `check_checkout_state` without it,
-   so they are unaffected by any part of this change.
+   implicit strict default — any untracked file, tracked modification, or
+   wrong commit fails closed again. **Round 4 (Codex final cleanup ask):**
+   the `ignore_untracked` parameter itself is REMOVED from
+   `deployment_manifest.check_checkout_state` entirely, not merely left
+   unused — Codex correctly held that leaving dormant bypass machinery on
+   the shared verification core (even opt-in, even default-`False`) is a
+   latent future-integrity-escape-hatch that contradicts the strict
+   multi-repo import-closure rule this whole round exists to enforce; if a
+   genuinely narrower exception is ever justified, it needs its own
+   reviewed design (an explicit path allowlist plus negative tests), built
+   fresh, not resurrected from this PR's unused scaffolding. `deploy_pin.py`
+   and `model_identity_tripwire.py`'s evidence checkout verification never
+   passed this argument, so removing it is a pure deletion with zero
+   behavior change for them.
 3. **`tests/test_shadow_ab_daily_script.py`** — root-cause fix, not a
    workaround: `_build_manifest`'s real-import-repo resolution
    (`renquant-common`, `renquant-base-data`, `renquant-artifacts`,

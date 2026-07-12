@@ -153,23 +153,23 @@ def check_checkout_state(
     *,
     git_probe: GitProbe | None = None,
     require_clean: bool = True,
-    ignore_untracked: bool = False,
     expected_label: str = "manifest commit",
 ) -> tuple[str | None, str | None]:
     """The ONE checkout-verification core behind every manifest consumer.
 
     Checks (i) the path exists, (ii) it is a git checkout whose HEAD matches
     ``expected_commit`` (exact, or expected prefix of >= 12 hex chars), and
-    (iii) — when ``require_clean`` — the working tree is CLEAN. Returns
-    ``(resolved_full_commit, None)`` on success or ``(None, problem)`` on
-    the first failure; callers collect problems and fail closed. The problem
-    strings are the exact fail-closed messages the shadow-AB run-manifest
-    verifier has always emitted (behavior-invariant lift).
-
-    When ``ignore_untracked`` is True, untracked files (``??`` in porcelain
-    output) are excluded from the dirty check — only modifications to
-    tracked files count. Untracked files (build artifacts, stray scripts)
-    cannot alter the pinned commit's code.
+    (iii) — when ``require_clean`` — the working tree is CLEAN (including
+    untracked paths — an untracked file can still be import-affecting
+    Python or package metadata, so it is never exempted from the dirty
+    check; a caller that genuinely needs a real sibling checkout free of
+    incidental local cruft must produce one, e.g. a clean detached ``git
+    worktree`` at the expected commit, not ask this verifier to look away).
+    Returns ``(resolved_full_commit, None)`` on success or ``(None,
+    problem)`` on the first failure; callers collect problems and fail
+    closed. The problem strings are the exact fail-closed messages the
+    shadow-AB run-manifest verifier has always emitted (behavior-invariant
+    lift).
     """
     probe = git_probe or default_git_probe
     expected = str(expected_commit).strip()
@@ -191,11 +191,7 @@ def check_checkout_state(
         status = probe(["-C", str(path), "status", "--porcelain"])
         if status.returncode != 0:
             return None, f"{name}: git status failed"
-        raw_lines = (status.stdout or "").strip().splitlines()
-        if ignore_untracked:
-            dirty = [l for l in raw_lines if not l.startswith("?? ")]
-        else:
-            dirty = raw_lines
+        dirty = (status.stdout or "").strip().splitlines()
         if dirty:
             return None, (
                 f"{name}: working tree DIRTY ({len(dirty)} path(s), e.g. "
