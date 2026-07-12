@@ -1,31 +1,16 @@
 """Software-stop registry-file contract — the READ / validation half only.
 
-Context (Codex CHANGES_REQUESTED on PR #481, round 3, 2026-07-11): the
-software-stop registry file — the heartbeat/state file the LIVE sell-only
-loop stamps and ``renquant_execution.software_stops_liveness``
-(renquant-execution#29) reads via ``--data-root`` — is configured TODAY at
-an explicit, umbrella-anchored path
-(``RENQUANT_STOPS_PAGER_DATA_ROOT=/Users/renhao/git/github/RenQuant`` in
-``deploy/com.renquant.stops-liveness.plist``, the deprecated umbrella).
-Round 2 of this PR moved CODE resolution (which checkouts run the checker)
-onto the R-PIN Stage-1 runtime inventory, but Codex correctly held that an
-explicit umbrella DATA root is still a production dependency on the
-umbrella even when code imports resolve through pins. The required fix is
-an execution-owned, versioned registry-file contract at a neutral runtime
-path, with the writer migrated/bridged under a SEPARATE, audited R-PIN
-landing change.
+Context: the software-stop registry file — the heartbeat/state file the
+LIVE sell-only loop stamps and ``renquant_execution.software_stops_liveness``
+(renquant-execution#29) reads via ``--data-root`` — is configured in
+``deploy/com.renquant.stops-liveness.plist`` at the neutral runtime-state
+root (``~/.renquant/runtime/software-stops``). The sell-only loop writer
+must be migrated to stamp there (a separate R-PIN landing change) before
+the pager can be armed.
 
-THIS repo does not own that writer. The live sell-only loop that stamps the
-registry file lives in the umbrella; the registry's DATA schema
-(``software_stops.py`` — per-ticker fields, heartbeat semantics) lives in
-renquant-pipeline; the checker lives in renquant-execution. Per CLAUDE.md's
-hard boundary (no signal/decision-tree or broker internals in this repo)
-and the operator's live-tree ask-first policy, migrating the actual writer
-is OUT OF SCOPE here — see
-``doc/progress/2026-07-11-stops-liveness-pager-package.md`` ("BLOCKING
-FOLLOW-UP") for the tracked follow-up. The canonical definition of the
-registry's business schema belongs in renquant-execution/renquant-pipeline,
-not here.
+The canonical registry DATA schema (``software_stops.py``) belongs to
+renquant-pipeline; the checker belongs to renquant-execution. This repo
+owns LOCATION only — the neutral path convention and classifier below.
 
 What THIS module defines, so "consume the neutral contract" is concrete and
 testable even before that follow-up lands:
