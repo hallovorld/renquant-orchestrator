@@ -86,3 +86,61 @@ require `alpaca-py` to be installed in this repo's own environment.
   `python scripts/generate_strategy_snapshot.py --update`: no diff
   (this script lives under `scripts/`, outside the snapshot's tracked
   surface) `[VERIFIED]`
+
+## Revision note (2026-07-12, after execution#34 landed its 6-point Codex fix)
+
+execution#34 went through a full Codex CHANGES_REQUESTED round after this
+PR was first opened, restructuring its public API materially: the two
+order-placing checks (`_check_gtc_order_acceptance`/
+`_check_stop_limit_acceptance`) became **private** — Codex's finding 4
+required a single sanctioned entry point for anything that can place a
+transactional probe order — and `run_full_battery(broker, *, dry_run=...)`
+is now that one entry point, owning the full 6-step aggregation, the
+fail-closed paper/environment verification, and the required/optional
+step policy (`StepResult.required`, `BatteryReport.all_passed`) itself.
+
+This PR's script and tests are rewritten accordingly:
+
+1. **No more per-step imports.** The script no longer imports the
+   individual `step_*` functions (which don't exist as a public surface
+   anymore) — it imports `AlpacaBroker`, `BatteryReport`, `StepResult`,
+   `StepStatus`, and `run_full_battery` only, and delegates the entire
+   battery run to `run_full_battery`. This repo's `run_battery()` now does
+   exactly two things before delegating: refuse `--paper`-less invocations
+   before any broker object is created, and report a clear FAIL if the
+   execution-repo dependency isn't installed yet (expected during the
+   dependency-ordering window before execution#34 merges).
+2. **Real `AlpacaBroker` construction.** `AlpacaBroker(paper=True)` +
+   `.connect()` replaces the old standalone `get_trading_client(paper=True)`
+   factory (which no longer exists in execution#34's API).
+3. **`StepStatus` enum serialization.** `run_full_battery`'s `StepResult`
+   now types `status` as `StepStatus` (a `str` Enum), not a plain string.
+   `_step_to_jsonable`/`_report_to_jsonable` normalize via
+   `getattr(status, "value", status)` so the JSON report always contains
+   the plain string value regardless of whether the real enum or the
+   fallback plain-string stub is in play.
+4. **Fallback `BatteryReport.all_passed` now computes for real.** The
+   fallback dataclass (used only when `renquant_execution` isn't
+   importable) originally had `all_passed` hardcoded to `False` — caught
+   by my own test suite while verifying this rewrite: since `_HAS_CHECKS`
+   is resolved once at import time, patching it in a test does not
+   retroactively swap the fallback classes back to the real ones, so a
+   test exercising the "dependency present" path with mocked
+   `run_full_battery`/`AlpacaBroker` still constructs `BatteryReport`
+   through the fallback class in this repo's own dev/CI environment
+   (`renquant_execution` isn't installed here). Fixed the fallback to
+   mirror the real `all_passed` logic (`required=True` steps must all be
+   `"PASS"`) so tests behave sensibly in both states, not just whichever
+   one happens to be importable locally.
+5. Test suite rewritten to match: 8 tests covering --paper live-blocking
+   before broker construction, missing-dependency FAIL, broker
+   construction+connection+delegation to `run_full_battery`, enum-status
+   JSON serialization, and `main()`'s exit codes (argparse's own
+   `required=True` on `--paper` makes a `--paper`-less CLI invocation a
+   parse-time `SystemExit`, not a `run_battery`-level FAIL — verified this
+   is pre-existing behavior, not something this rewrite changed, and
+   adjusted the test to assert `SystemExit` rather than a return code).
+- Full orchestrator suite: 3736 passed, 4 pre-existing unrelated failures
+  (Python 3.9 vs `list | tuple | set` PEP-604 syntax in a sibling
+  `renquant-pipeline` module, confirmed via `git stash` to pre-date this
+  change), 5 skipped `[VERIFIED]`.
