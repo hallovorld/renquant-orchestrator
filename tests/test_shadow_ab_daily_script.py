@@ -146,7 +146,7 @@ def _build_manifest(tmp_path: Path, *, watchlist: list[str], dirty: str | None =
 
     if dirty is not None:
         target = Path(manifest_repos[dirty]["path"])
-        (target / "dirty_marker.txt").write_text("uncommitted\n")
+        _git("rm", "-f", "README.md", cwd=target)
 
     strategy_104 = Path(manifest_repos["renquant-strategy-104"]["path"])
     manifest = {"repos": manifest_repos, "data_revision": "test-rev-1"}
@@ -171,6 +171,8 @@ def _env_for(tmp_path: Path, *, python: Path, run_manifest: Path,
     })
     if skip_manifest_verify:
         env["RENQUANT_SHADOW_AB_SKIP_MANIFEST_VERIFY"] = "1"
+    else:
+        env.pop("RENQUANT_SHADOW_AB_SKIP_MANIFEST_VERIFY", None)
     if path_override is not None:
         env["PATH"] = path_override
     return env
@@ -299,6 +301,23 @@ class TestRunManifestVerification:
         assert result.returncode == 3, "run-manifest verification failure is a precheck abort"
         assert not list((tmp_path / "out").glob("prices_*.json"))
         assert not list((tmp_path / "out").glob("market_snapshot_*.json"))
+
+    def test_untracked_files_do_not_trigger_precheck_abort(self, tmp_path, real_python):
+        manifest, _ = _build_manifest(tmp_path, watchlist=["AAPL"])
+        repos_dir = tmp_path / "repos"
+        target = repos_dir / "renquant-execution"
+        (target / "stray_script.py").write_text("# untracked\n")
+        (target / "build_artifact.egg-info").mkdir(exist_ok=True)
+        (target / "build_artifact.egg-info" / "PKG-INFO").write_text("x\n")
+        env = _env_for(tmp_path, python=Path(real_python), run_manifest=manifest,
+                        timeout_sec=60)
+        _write_close_price(Path(env["RENQUANT_SHADOW_AB_DATA_ROOT"]), "AAPL", 190.0)
+        stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=None, exit_code=0)
+        env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
+        result = _run_script(env)
+        assert result.returncode == 0, (
+            "untracked files must not abort the precheck — only tracked modifications matter"
+        )
 
 
 class TestMarketSnapshotIntegrity:
