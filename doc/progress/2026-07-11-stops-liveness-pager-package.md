@@ -385,21 +385,17 @@ Codex reviewed round 7's fix on renquant-execution#30, review timestamp
   isolated worktree (no sibling directories at the resolved parent) both
   tests correctly skip; on a normal dev machine at `.../git/github/` or in
   that CI job they run for real.
-  - **Design correction made while building this**: the initial approach
+  - **Design correction made while building this**: ~~the initial approach
     used `pytest.importorskip("renquant_pipeline")` /
     `pytest.importorskip("renquant_execution")` followed by a bare
     `from renquant_execution.software_stops_liveness import validate_registry`
-    as an "import-time proof the function exists" check, on the assumption
-    that a missing name would just skip. Verified empirically that this is
-    FALSE: a bare `from X import Y` where `Y` doesn't exist raises a plain
-    `ImportError` that pytest does **not** convert to a skip — it's a hard
-    test failure. Fixed by using a dotted-path
-    `pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")`
-    instead: Python's submodule-import machinery raises
-    `ModuleNotFoundError` (an `ImportError` subclass) for a missing
-    attribute treated as a submodule path, which `importorskip` **does**
-    catch and correctly turn into a skip. This is the mechanism that
-    actually delivers "skip if the function doesn't exist yet."
+    as an "import-time proof the function exists" check... Fixed by using a
+    dotted-path `pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")`
+    instead... This is the mechanism that actually delivers "skip if the
+    function doesn't exist yet."~~ — **superseded, see "Correction (round
+    9)" below: that dotted-path mechanism does NOT work as claimed here.
+    It was never independently re-verified against a real passing case
+    before this claim was written.**
   - **Two distinct "not ready" states, handled differently on purpose**: if
     `renquant_execution.software_stops_liveness.validate_registry` itself
     doesn't exist (sibling checkout predates renquant-execution#30, round
@@ -439,6 +435,65 @@ verification is not itself the committed non-skipped test; it confirms the
 committed test's mechanism is sound and will pass for real once Part A/B
 merge and the R-PINs advance in this repo's own CI or on a machine with
 real, up-to-date sibling checkouts.
+
+## Correction (round 9 — the round-8 skip mechanism never actually ran; fixed and independently re-verified passing for real)
+
+Independent re-verification (not a Codex review this time — caught while
+verifying round 8's work before trusting it) found that round 8's two new
+integration tests, as committed, could **never run for real, under any
+circumstances** — they always skip, even against a fully up-to-date,
+correctly-pinned sibling checkout with the real `validate_registry`
+function present. That is a materially worse gap than round 8's own
+"observed SKIPPED in this environment" note implied: round 8 attributed the
+skip to stale local sibling checkouts (a real, transient reason); the
+actual cause is a mechanism bug that would keep skipping even in this
+repo's own "Full multirepo test" CI job once Part A/B merge — i.e. Codex's
+explicit "non-skipped integration compatibility check" ask would still not
+be satisfied post-merge.
+
+Root cause: `pytest.importorskip("pkg.mod.attr")` calls
+`importlib.import_module("pkg.mod.attr")`, which treats every dot-separated
+segment as a **submodule** to import, not `getattr(module, "attr")`. Since
+`renquant_execution.software_stops_liveness` is a plain module (not a
+package), Python cannot even attempt to look for a submodule named
+`validate_registry` inside it, and raises
+`ModuleNotFoundError: ...software_stops_liveness' is not a package`
+**unconditionally** — regardless of whether the `validate_registry`
+function exists as an attribute. Verified empirically both directions: (a)
+against a stub module exposing only `OK = 0` (no `validate_registry`) and
+(b) against the real, current `renquant_execution.software_stops_liveness`
+(with `validate_registry` genuinely present, from a fresh
+`origin/feat/software-stops-registry-validate-cli` worktree) — **both cases
+skip identically**, proving the dotted-path check cannot distinguish
+"exists" from "doesn't exist."
+
+**Fix**: replaced both occurrences with a plain attribute import wrapped in
+`try/except ImportError: pytest.skip(...)` — the standard, correct pattern
+for "skip if this name doesn't exist yet, run for real if it does."
+Verified empirically both directions with the SAME method as above: a
+`from X import name_that_does_not_exist` raises a catchable `ImportError`
+(not silently-wrong submodule-machinery behavior), while
+`from X import name_that_exists` succeeds and execution falls through to
+the real test body.
+
+**Independently re-verified passing for real** (not just "should work"):
+built a complete, genuine sibling-worktree layout under a scratch directory
+— `renquant-common`/`renquant-base-data`/`renquant-artifacts`/`renquant-model`
+at `origin/main`, `renquant-pipeline` at Part A's
+`feat/public-validate-software-stop-snapshot`, `renquant-execution` at Part
+B's `feat/software-stops-registry-validate-cli`, and this repo at this PR's
+head with the round-9 test fix — installed `cvxpy`/`pydantic`/etc. into an
+isolated venv (so package resolution doesn't depend on the ambient `HOME`
+the tests deliberately sandbox), and ran
+`tests/test_stops_liveness_pager.py` from within that layout:
+**`test_install_apply_guard_against_real_pinned_execution_and_pipeline` and
+its `_malformed` counterpart both PASSED** (not skipped) — 40/40 in the
+full touched-suite run. This is the first time this exact chain
+(orchestrator's install guard → execution's real `--validate-registry` CLI
+→ pipeline's real `validate_software_stop_snapshot`) has been proven to
+work end-to-end with real code and a real, passing (not just non-crashing)
+assertion, closing Codex's "non-skipped integration compatibility check"
+ask for real rather than in design intent only.
 
 ## Bottom line
 

@@ -975,19 +975,34 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline(tmp_path
     """
     pytest.importorskip("renquant_pipeline")
     pytest.importorskip("renquant_execution")
-    # Import-time proof the CLI flag's function exists on the REAL pinned
-    # module before building the runtime inventory below. Deliberately a
-    # DOTTED-PATH importorskip, not a bare `from ... import validate_registry`
-    # -- verified empirically: a bare `from X import Y` where Y doesn't
-    # exist raises a plain ImportError that pytest does NOT convert to a
-    # skip (it's a hard test FAILURE), whereas `importorskip("pkg.mod.name")`
-    # triggers Python's submodule-import machinery, which raises
-    # ModuleNotFoundError (an ImportError subclass) that importorskip DOES
-    # catch and turn into a real skip. This is what correctly produces "skip
-    # if the function doesn't exist yet" for a sibling checkout that
-    # predates renquant-execution#30's --validate-registry CLI (round 7),
-    # as opposed to a confusing hard failure.
-    pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")
+    # Round-9 correction: the prior revision used
+    # pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry"),
+    # reasoning that a dotted path would trigger submodule-import machinery
+    # and skip cleanly if the name didn't exist. Verified empirically this
+    # is WRONG: validate_registry is a function attribute, not a submodule,
+    # so `importlib.import_module("...software_stops_liveness.validate_registry")`
+    # fails with "'...software_stops_liveness' is not a package" REGARDLESS
+    # of whether validate_registry exists -- this ALWAYS skipped, even
+    # against a fully up-to-date sibling checkout with the real function
+    # present (reproduced against a live sibling-worktree layout with
+    # renquant-execution#30 round 7+8 checked out and cvxpy installed: still
+    # skipped). That silently defeated the "non-skipped integration check"
+    # Codex explicitly asked for. Fixed: a plain attribute import wrapped in
+    # try/except ImportError -- this DOES correctly distinguish "name
+    # doesn't exist yet" (ImportError, caught, real skip) from "name
+    # exists" (import succeeds, no skip) -- verified empirically both ways.
+    try:
+        from renquant_execution.software_stops_liveness import (  # noqa: F401
+            validate_registry,
+        )
+    except ImportError:
+        pytest.skip(
+            "renquant_execution.software_stops_liveness.validate_registry "
+            "not present on the pinned sibling checkout -- expected before "
+            "renquant-execution#30 (round 7) merges; this test runs for "
+            "real once it does, in this repo's 'Full multirepo test' CI "
+            "job and on a normal dev machine at .../git/github/"
+        )
 
     paths = _real_sibling_repo_paths()
     if paths is None:
@@ -1039,22 +1054,24 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline_malforme
     the resolved path fails the REAL pipeline schema validator (invalid
     JSON), so the guard must refuse: nonzero exit, no plist copied, no
     launchctl call. Proves real CORRUPT detection, not just real VALID
-    detection. Skip rationale identical to the valid-case test above."""
+    detection. Skip rationale identical to the valid-case test above (see
+    its round-9 correction comment for why this uses a plain attribute
+    import wrapped in try/except ImportError rather than a dotted-path
+    importorskip)."""
     pytest.importorskip("renquant_pipeline")
     pytest.importorskip("renquant_execution")
-    # Import-time proof the CLI flag's function exists on the REAL pinned
-    # module before building the runtime inventory below. Deliberately a
-    # DOTTED-PATH importorskip, not a bare `from ... import validate_registry`
-    # -- verified empirically: a bare `from X import Y` where Y doesn't
-    # exist raises a plain ImportError that pytest does NOT convert to a
-    # skip (it's a hard test FAILURE), whereas `importorskip("pkg.mod.name")`
-    # triggers Python's submodule-import machinery, which raises
-    # ModuleNotFoundError (an ImportError subclass) that importorskip DOES
-    # catch and turn into a real skip. This is what correctly produces "skip
-    # if the function doesn't exist yet" for a sibling checkout that
-    # predates renquant-execution#30's --validate-registry CLI (round 7),
-    # as opposed to a confusing hard failure.
-    pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")
+    try:
+        from renquant_execution.software_stops_liveness import (  # noqa: F401
+            validate_registry,
+        )
+    except ImportError:
+        pytest.skip(
+            "renquant_execution.software_stops_liveness.validate_registry "
+            "not present on the pinned sibling checkout -- expected before "
+            "renquant-execution#30 (round 7) merges; this test runs for "
+            "real once it does, in this repo's 'Full multirepo test' CI "
+            "job and on a normal dev machine at .../git/github/"
+        )
 
     paths = _real_sibling_repo_paths()
     if paths is None:
