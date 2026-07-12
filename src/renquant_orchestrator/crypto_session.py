@@ -7,11 +7,15 @@ configurable cadence (default 900s / 15 min) and gates entries via:
 1. Config enabled flag (``crypto_trading.enabled``)
 2. Env flag (``RENQUANT_CRYPTO_TRADING``, default OFF)
 3. Kill-switch file absent (``data/crypto/kill_switch``)
+4. Mode must be ``live`` or ``paper`` for entries (shadow produces records only)
+5. Watermark validated (no future bars)
+6. Signal digest verified against expected value
+7. Protective stop-coverage ready (fail-closed)
 
 Signal leakage prevention:
 - Watermark: session D may only consume bars through D-1's close
 - Quiet interval: [D 00:00, D 00:15) UTC — no new entries
-- Signal snapshot digest verified on every entry decision
+- Signal snapshot digest verified against expected artifact digest
 
 Design reference: crypto RFC §3.5, merged as orchestrator PR #453.
 """
@@ -29,7 +33,7 @@ from typing import Any
 CRYPTO_ENV_FLAG = "RENQUANT_CRYPTO_TRADING"
 CRYPTO_KILL_SWITCH_RELPATH = "data/crypto/kill_switch"
 DEFAULT_TICK_CADENCE_SECONDS = 900
-QUIET_INTERVAL_MINUTES = 15
+DEFAULT_QUIET_INTERVAL_MINUTES = 15
 DEFAULT_NTFY_TOPIC = "renquant-crypto"
 
 
@@ -43,10 +47,10 @@ class SessionWindow:
     quiet_end_utc: dt.datetime
 
     @classmethod
-    def for_date(cls, d: dt.date) -> SessionWindow:
+    def for_date(cls, d: dt.date, *, quiet_minutes: int = DEFAULT_QUIET_INTERVAL_MINUTES) -> SessionWindow:
         open_utc = dt.datetime(d.year, d.month, d.day, tzinfo=dt.timezone.utc)
         close_utc = open_utc + dt.timedelta(days=1)
-        quiet_end = open_utc + dt.timedelta(minutes=QUIET_INTERVAL_MINUTES)
+        quiet_end = open_utc + dt.timedelta(minutes=quiet_minutes)
         return cls(
             session_date=d,
             open_utc=open_utc,
@@ -129,7 +133,7 @@ class CryptoSessionConfig:
     ntfy_topic: str = DEFAULT_NTFY_TOPIC
     sleeve_budget_usd: float = 0.0
     max_drawdown_pct: float = 10.0
-    quiet_interval_minutes: int = QUIET_INTERVAL_MINUTES
+    quiet_interval_minutes: int = DEFAULT_QUIET_INTERVAL_MINUTES
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> CryptoSessionConfig:
@@ -149,7 +153,7 @@ class CryptoSessionConfig:
             sleeve_budget_usd=float(crypto.get("sleeve_budget_usd", 0.0)),
             max_drawdown_pct=float(crypto.get("max_drawdown_pct", 10.0)),
             quiet_interval_minutes=int(
-                crypto.get("quiet_interval_minutes", QUIET_INTERVAL_MINUTES)
+                crypto.get("quiet_interval_minutes", DEFAULT_QUIET_INTERVAL_MINUTES)
             ),
         )
 
@@ -177,24 +181,78 @@ def check_triple_gate(config: CryptoSessionConfig) -> tuple[bool, str]:
     return True, "triple gate passed"
 
 
+def watermark_for_session(session_date: dt.date) -> dt.datetime:
+    """Return the bar-close watermark for a given session date.
+
+    Session D may only consume bars through D-1's close, which is
+    D 00:00:00 UTC (the end of the D-1 UTC day).
+    """
+    return dt.datetime(
+        session_date.year,
+        session_date.month,
+        session_date.day,
+        tzinfo=dt.timezone.utc,
+    )
+
+
+def validate_watermark(
+    snapshot: SignalSnapshot,
+    session_date: dt.date,
+) -> tuple[bool, str]:
+    """Validate that the snapshot's bar watermark does not include future bars."""
+    max_watermark = watermark_for_session(session_date)
+    if snapshot.bar_watermark_utc > max_watermark:
+        return False, (
+            f"bar_watermark_utc {snapshot.bar_watermark_utc.isoformat()} "
+            f"exceeds session {session_date} max {max_watermark.isoformat()} "
+            f"— would include future bars"
+        )
+    return True, "watermark valid"
+
+
+def validate_digest(
+    snapshot: SignalSnapshot,
+    expected_digest: str,
+) -> tuple[bool, str]:
+    """Verify snapshot digest matches the expected artifact-path digest.
+
+    Fail-closed on mismatch.
+    """
+    actual = snapshot.digest()
+    if actual != expected_digest:
+        return False, (
+            f"digest mismatch: expected={expected_digest[:16]}..., "
+            f"actual={actual[:16]}... — signal snapshot may have been modified"
+        )
+    return True, "digest verified"
+
+
 def evaluate_tick(
     *,
     config: CryptoSessionConfig,
     now_utc: dt.datetime | None = None,
     signal_snapshot: SignalSnapshot | None = None,
+    expected_digest: str | None = None,
+    stop_coverage_ok: bool | None = None,
 ) -> TickResult:
     """Evaluate one scheduler tick.
 
     Exits are ALWAYS allowed (§5.4 precedence). Entries are gated by:
     1. Triple gate (config + env + kill switch)
-    2. Quiet interval (first 15 min of each UTC day)
-    3. Valid signal snapshot for the current session
+    2. Mode must be ``live`` or ``paper`` (shadow produces decision records only)
+    3. Quiet interval (configurable, default 15 min of each UTC day)
+    4. Valid signal snapshot for the current session
+    5. Watermark validation (no future bars)
+    6. Digest verification (against expected artifact-path digest)
+    7. Protective stop-coverage ready
     """
     if now_utc is None:
         now_utc = dt.datetime.now(dt.timezone.utc)
 
     session_d = current_session_date(now_utc)
-    window = SessionWindow.for_date(session_d)
+    window = SessionWindow.for_date(
+        session_d, quiet_minutes=config.quiet_interval_minutes
+    )
 
     gate_ok, gate_reason = check_triple_gate(config)
     if not gate_ok:
@@ -205,6 +263,18 @@ def evaluate_tick(
             exits_allowed=True,
             reason=gate_reason,
             is_kill_switched=_kill_switch_active(config),
+        )
+
+    if config.mode not in ("live", "paper"):
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=f"mode={config.mode} — entries blocked (only live/paper admit entries)",
+            signal_snapshot_digest=(
+                signal_snapshot.digest() if signal_snapshot else None
+            ),
         )
 
     if window.in_quiet_interval(now_utc):
@@ -236,6 +306,57 @@ def evaluate_tick(
             entries_allowed=False,
             exits_allowed=True,
             reason=f"signal snapshot date mismatch: {signal_snapshot.session_date} vs {session_d}",
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    wm_ok, wm_reason = validate_watermark(signal_snapshot, session_d)
+    if not wm_ok:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=wm_reason,
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    if expected_digest is not None:
+        digest_ok, digest_reason = validate_digest(signal_snapshot, expected_digest)
+        if not digest_ok:
+            return TickResult(
+                session_date=session_d,
+                tick_utc=now_utc,
+                entries_allowed=False,
+                exits_allowed=True,
+                reason=digest_reason,
+                signal_snapshot_digest=signal_snapshot.digest(),
+            )
+    else:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason="no expected_digest supplied — entries fail-closed (digest verification required)",
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    if stop_coverage_ok is None:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason="stop_coverage_ok not provided — entries fail-closed",
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+    if not stop_coverage_ok:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason="protective stop-coverage not ready — entries blocked",
             signal_snapshot_digest=signal_snapshot.digest(),
         )
 
@@ -272,17 +393,3 @@ def build_session_bundle(
         ),
         "ticks": [t.to_jsonable() for t in tick_results],
     }
-
-
-def watermark_for_session(session_date: dt.date) -> dt.datetime:
-    """Return the bar-close watermark for a given session date.
-
-    Session D may only consume bars through D-1's close, which is
-    D 00:00:00 UTC (the end of the D-1 UTC day).
-    """
-    return dt.datetime(
-        session_date.year,
-        session_date.month,
-        session_date.day,
-        tzinfo=dt.timezone.utc,
-    )

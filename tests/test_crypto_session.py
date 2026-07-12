@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -18,10 +17,30 @@ from renquant_orchestrator.crypto_session import (
     check_triple_gate,
     current_session_date,
     evaluate_tick,
+    validate_digest,
+    validate_watermark,
     watermark_for_session,
 )
 
 UTC = dt.timezone.utc
+
+
+def _enabled_config(tmp_path: Path, *, mode: str = "live") -> CryptoSessionConfig:
+    return CryptoSessionConfig(
+        enabled=True,
+        mode=mode,
+        kill_switch_path=tmp_path / "nonexistent_kill_switch",
+    )
+
+
+def _make_snapshot(session_date: dt.date) -> SignalSnapshot:
+    return SignalSnapshot(
+        session_date=session_date,
+        bar_watermark_utc=watermark_for_session(session_date),
+        universe_hash="test_hash",
+        model_content_sha256="model_sha",
+        calibrator_content_sha256="cal_sha",
+    )
 
 
 # ── SessionWindow ────────────────────────────────────────────────────────────
@@ -46,14 +65,19 @@ class TestSessionWindow:
         w = SessionWindow.for_date(dt.date(2026, 7, 12))
         assert not w.in_quiet_interval(dt.datetime(2026, 7, 12, 0, 15, tzinfo=UTC))
 
+    def test_configured_quiet_interval(self):
+        w = SessionWindow.for_date(dt.date(2026, 7, 12), quiet_minutes=30)
+        assert w.quiet_end_utc == dt.datetime(2026, 7, 12, 0, 30, tzinfo=UTC)
+        assert w.in_quiet_interval(dt.datetime(2026, 7, 12, 0, 25, tzinfo=UTC))
+        assert not w.in_quiet_interval(dt.datetime(2026, 7, 12, 0, 30, tzinfo=UTC))
+
     def test_is_active(self):
         w = SessionWindow.for_date(dt.date(2026, 7, 12))
         assert w.is_active(dt.datetime(2026, 7, 12, 12, 0, tzinfo=UTC))
         assert not w.is_active(dt.datetime(2026, 7, 13, 0, 0, tzinfo=UTC))
 
     def test_weekend_active(self):
-        """Crypto sessions are active on weekends (always-open)."""
-        saturday = dt.date(2026, 7, 11)  # Saturday
+        saturday = dt.date(2026, 7, 11)
         w = SessionWindow.for_date(saturday)
         assert w.is_active(dt.datetime(2026, 7, 11, 15, 0, tzinfo=UTC))
 
@@ -63,17 +87,11 @@ class TestSessionWindow:
 
 class TestSignalSnapshot:
     def test_digest_deterministic(self):
-        snap = SignalSnapshot(
-            session_date=dt.date(2026, 7, 12),
-            bar_watermark_utc=dt.datetime(2026, 7, 12, 0, 0, tzinfo=UTC),
-            universe_hash="abc123",
-            model_content_sha256="model_hash",
-            calibrator_content_sha256="cal_hash",
-        )
+        snap = _make_snapshot(dt.date(2026, 7, 12))
         d1 = snap.digest()
         d2 = snap.digest()
         assert d1 == d2
-        assert len(d1) == 64  # sha256 hex
+        assert len(d1) == 64
 
     def test_digest_changes_with_inputs(self):
         base = dict(
@@ -124,24 +142,198 @@ class TestTripleGate:
         assert ok
 
 
+# ── Watermark validation (review item 1) ─────────────────────────────────────
+
+
+class TestWatermarkValidation:
+    def test_watermark_is_session_midnight(self):
+        wm = watermark_for_session(dt.date(2026, 7, 12))
+        assert wm == dt.datetime(2026, 7, 12, 0, 0, tzinfo=UTC)
+
+    def test_valid_watermark(self):
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        ok, reason = validate_watermark(snap, dt.date(2026, 7, 12))
+        assert ok
+
+    def test_future_watermark_rejected(self):
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=dt.datetime(2026, 7, 12, 6, 0, tzinfo=UTC),
+            universe_hash="h", model_content_sha256="m",
+            calibrator_content_sha256="c",
+        )
+        ok, reason = validate_watermark(snap, dt.date(2026, 7, 12))
+        assert not ok
+        assert "future bars" in reason
+
+    def test_future_watermark_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=dt.datetime(2026, 7, 12, 12, 0, tzinfo=UTC),
+            universe_hash="h", model_content_sha256="m",
+            calibrator_content_sha256="c",
+        )
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
+        )
+        assert not result.entries_allowed
+        assert "future bars" in result.reason
+
+
+# ── Digest verification (review item 2) ──────────────────────────────────────
+
+
+class TestDigestVerification:
+    def test_digest_match(self):
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        ok, reason = validate_digest(snap, snap.digest())
+        assert ok
+
+    def test_digest_mismatch_rejected(self):
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        ok, reason = validate_digest(snap, "wrong_digest_value")
+        assert not ok
+        assert "mismatch" in reason
+
+    def test_missing_expected_digest_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=None,
+            stop_coverage_ok=True,
+        )
+        assert not result.entries_allowed
+        assert "fail-closed" in result.reason
+
+    def test_digest_mismatch_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest="tampered_digest",
+            stop_coverage_ok=True,
+        )
+        assert not result.entries_allowed
+        assert "mismatch" in result.reason
+
+
+# ── Shadow mode blocks entries (review item 3) ───────────────────────────────
+
+
+class TestShadowModeNonAdmission:
+    def test_shadow_mode_blocks_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="shadow")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
+        )
+        assert not result.entries_allowed
+        assert result.exits_allowed
+        assert "shadow" in result.reason
+
+    def test_paper_mode_blocks_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="paper")
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+        )
+        assert not result.entries_allowed
+        assert "paper" in result.reason
+
+
+# ── Configured quiet interval (review item 4) ────────────────────────────────
+
+
+class TestConfiguredQuietInterval:
+    def test_configured_quiet_interval_used(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = CryptoSessionConfig(
+            enabled=True, mode="live",
+            kill_switch_path=tmp_path / "no_kill",
+            quiet_interval_minutes=30,
+        )
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 0, 20, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
+        )
+        assert not result.entries_allowed
+        assert result.is_quiet
+
+    def test_after_configured_quiet_allows_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = CryptoSessionConfig(
+            enabled=True, mode="live",
+            kill_switch_path=tmp_path / "no_kill",
+            quiet_interval_minutes=10,
+        )
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 0, 12, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
+        )
+        assert result.entries_allowed
+
+
+# ── Stop coverage (review item 5) ────────────────────────────────────────────
+
+
+class TestStopCoverage:
+    def test_missing_stop_coverage_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=None,
+        )
+        assert not result.entries_allowed
+        assert "stop_coverage" in result.reason
+
+    def test_false_stop_coverage_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=False,
+        )
+        assert not result.entries_allowed
+        assert "stop-coverage" in result.reason
+
+
 # ── evaluate_tick ────────────────────────────────────────────────────────────
-
-
-def _enabled_config(tmp_path: Path) -> CryptoSessionConfig:
-    return CryptoSessionConfig(
-        enabled=True,
-        kill_switch_path=tmp_path / "nonexistent_kill_switch",
-    )
-
-
-def _make_snapshot(session_date: dt.date) -> SignalSnapshot:
-    return SignalSnapshot(
-        session_date=session_date,
-        bar_watermark_utc=watermark_for_session(session_date),
-        universe_hash="test_hash",
-        model_content_sha256="model_sha",
-        calibrator_content_sha256="cal_sha",
-    )
 
 
 class TestEvaluateTick:
@@ -153,7 +345,7 @@ class TestEvaluateTick:
             now_utc=dt.datetime(2026, 7, 12, 10, 0, tzinfo=UTC),
         )
         assert not result.entries_allowed
-        assert result.exits_allowed  # exits always allowed
+        assert result.exits_allowed
 
     def test_quiet_interval_blocks_entries(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
@@ -163,6 +355,8 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=dt.datetime(2026, 7, 12, 0, 5, tzinfo=UTC),
             signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
         )
         assert not result.entries_allowed
         assert result.exits_allowed
@@ -183,11 +377,13 @@ class TestEvaluateTick:
     def test_wrong_session_date_blocks(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
-        snap = _make_snapshot(dt.date(2026, 7, 11))  # yesterday
+        snap = _make_snapshot(dt.date(2026, 7, 11))
         result = evaluate_tick(
             config=cfg,
             now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
             signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
         )
         assert not result.entries_allowed
         assert "mismatch" in result.reason
@@ -200,13 +396,14 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
             signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
         )
         assert result.entries_allowed
         assert result.exits_allowed
         assert result.signal_snapshot_digest == snap.digest()
 
     def test_weekend_entries_allowed(self, tmp_path, monkeypatch):
-        """24/7: entries work on Saturday."""
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         saturday = dt.date(2026, 7, 11)
@@ -215,6 +412,8 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=dt.datetime(2026, 7, 11, 14, 30, tzinfo=UTC),
             signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
         )
         assert result.entries_allowed
 
@@ -222,7 +421,7 @@ class TestEvaluateTick:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         kill_file = tmp_path / "kill"
         kill_file.touch()
-        cfg = CryptoSessionConfig(enabled=True, kill_switch_path=kill_file)
+        cfg = CryptoSessionConfig(enabled=True, mode="live", kill_switch_path=kill_file)
         result = evaluate_tick(
             config=cfg,
             now_utc=dt.datetime(2026, 7, 12, 10, 0, tzinfo=UTC),
@@ -244,9 +443,11 @@ class TestTickResultSerialization:
             config=cfg,
             now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
             signal_snapshot=snap,
+            expected_digest=snap.digest(),
+            stop_coverage_ok=True,
         )
         j = result.to_jsonable()
-        assert json.dumps(j)  # serializable
+        assert json.dumps(j)
         assert j["entries_allowed"] is True
         assert j["session_date"] == "2026-07-12"
 
@@ -264,6 +465,8 @@ class TestSessionBundle:
                 config=cfg,
                 now_utc=dt.datetime(2026, 7, 12, h, 0, tzinfo=UTC),
                 signal_snapshot=snap,
+                expected_digest=snap.digest(),
+                stop_coverage_ok=True,
             )
             for h in range(1, 4)
         ]
@@ -279,22 +482,7 @@ class TestSessionBundle:
         assert bundle["n_ticks"] == 3
         assert bundle["n_entries_allowed"] == 3
         assert bundle["signal_snapshot_digest"] == snap.digest()
-        assert json.dumps(bundle)  # fully serializable
-
-
-# ── Watermark ────────────────────────────────────────────────────────────────
-
-
-class TestWatermark:
-    def test_watermark_is_session_midnight(self):
-        wm = watermark_for_session(dt.date(2026, 7, 12))
-        assert wm == dt.datetime(2026, 7, 12, 0, 0, tzinfo=UTC)
-
-    def test_watermark_excludes_current_day_bars(self):
-        """Session D's watermark = D 00:00 UTC = end of D-1."""
-        wm = watermark_for_session(dt.date(2026, 7, 12))
-        d_minus_1_close = dt.datetime(2026, 7, 12, 0, 0, tzinfo=UTC)
-        assert wm == d_minus_1_close
+        assert json.dumps(bundle)
 
 
 # ── Config from dict ─────────────────────────────────────────────────────────
@@ -306,6 +494,7 @@ class TestConfigFromDict:
         assert not cfg.enabled
         assert cfg.tick_cadence_seconds == 900
         assert cfg.mode == "shadow"
+        assert cfg.quiet_interval_minutes == 15
 
     def test_full_config(self):
         cfg = CryptoSessionConfig.from_dict({
@@ -316,6 +505,7 @@ class TestConfigFromDict:
                 "ntfy_topic": "test-crypto",
                 "sleeve_budget_usd": 1500.0,
                 "max_drawdown_pct": 8.0,
+                "quiet_interval_minutes": 30,
             }
         })
         assert cfg.enabled
@@ -323,6 +513,7 @@ class TestConfigFromDict:
         assert cfg.mode == "paper"
         assert cfg.sleeve_budget_usd == 1500.0
         assert cfg.max_drawdown_pct == 8.0
+        assert cfg.quiet_interval_minutes == 30
 
 
 # ── current_session_date ─────────────────────────────────────────────────────
