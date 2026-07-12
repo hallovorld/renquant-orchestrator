@@ -145,16 +145,19 @@ def step_crypto_status(client) -> StepResult:
 def step_pair_snapshot(client) -> StepResult:
     """Snapshot all tradable crypto pairs and their increments."""
     try:
-        from alpaca.trading.requests import GetAssetsRequest
-        from alpaca.trading.enums import AssetClass, AssetStatus
+        try:
+            from alpaca.trading.requests import GetAssetsRequest
+            from alpaca.trading.enums import AssetClass, AssetStatus
 
-        assets = client.get_all_assets(
-            GetAssetsRequest(
-                asset_class=AssetClass.CRYPTO,
-                status=AssetStatus.ACTIVE,
+            assets = client.get_all_assets(
+                GetAssetsRequest(
+                    asset_class=AssetClass.CRYPTO,
+                    status=AssetStatus.ACTIVE,
+                )
             )
-        )
-        tradable = [a for a in assets if a.tradable]
+        except ImportError:
+            assets = client.get_all_assets()
+        tradable = [a for a in assets if getattr(a, "tradable", False)]
         pairs = {}
         for a in tradable:
             pairs[a.symbol] = {
@@ -180,6 +183,54 @@ def step_pair_snapshot(client) -> StepResult:
         return StepResult("pair_snapshot", "ERROR", str(e))
 
 
+def _build_limit_order(symbol: str, notional: float) -> Any:
+    """Build a limit order request, returning a dict if alpaca-py is unavailable."""
+    try:
+        from alpaca.trading.requests import LimitOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        return LimitOrderRequest(
+            symbol=symbol,
+            notional=notional,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.GTC,
+            limit_price=0.01,
+        )
+    except ImportError:
+        return {
+            "symbol": symbol,
+            "notional": notional,
+            "side": "buy",
+            "time_in_force": "gtc",
+            "limit_price": 0.01,
+        }
+
+
+def _build_stop_limit_order(symbol: str, notional: float) -> Any:
+    """Build a stop-limit order request."""
+    try:
+        from alpaca.trading.requests import StopLimitOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        return StopLimitOrderRequest(
+            symbol=symbol,
+            notional=notional,
+            side=OrderSide.SELL,
+            time_in_force=TimeInForce.GTC,
+            stop_price=0.01,
+            limit_price=0.01,
+        )
+    except ImportError:
+        return {
+            "symbol": symbol,
+            "notional": notional,
+            "side": "sell",
+            "time_in_force": "gtc",
+            "stop_price": 0.01,
+            "limit_price": 0.01,
+        }
+
+
 def step_order_acceptance(client, *, dry_run: bool) -> StepResult:
     """Test GTC limit order acceptance on canary pairs."""
     if dry_run:
@@ -189,21 +240,12 @@ def step_order_acceptance(client, *, dry_run: bool) -> StepResult:
             "Skipped in dry-run mode (no orders placed)",
         )
     try:
-        from alpaca.trading.requests import LimitOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-
         results_per_pair = {}
         for pair in CANARY_PAIRS:
             symbol = pair.replace("/", "")
             try:
                 order = client.submit_order(
-                    LimitOrderRequest(
-                        symbol=symbol,
-                        notional=TEST_NOTIONAL_USD,
-                        side=OrderSide.BUY,
-                        time_in_force=TimeInForce.GTC,
-                        limit_price=0.01,
-                    )
+                    _build_limit_order(symbol, TEST_NOTIONAL_USD)
                 )
                 client.cancel_order_by_id(order.id)
                 results_per_pair[pair] = {
@@ -234,22 +276,12 @@ def step_stop_limit_acceptance(client, *, dry_run: bool) -> StepResult:
             "Skipped in dry-run mode",
         )
     try:
-        from alpaca.trading.requests import StopLimitOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-
         results_per_pair = {}
         for pair in CANARY_PAIRS:
             symbol = pair.replace("/", "")
             try:
                 order = client.submit_order(
-                    StopLimitOrderRequest(
-                        symbol=symbol,
-                        notional=TEST_NOTIONAL_USD,
-                        side=OrderSide.SELL,
-                        time_in_force=TimeInForce.GTC,
-                        stop_price=0.01,
-                        limit_price=0.01,
-                    )
+                    _build_stop_limit_order(symbol, TEST_NOTIONAL_USD)
                 )
                 client.cancel_order_by_id(order.id)
                 results_per_pair[pair] = {
@@ -270,6 +302,27 @@ def step_stop_limit_acceptance(client, *, dry_run: bool) -> StepResult:
         return StepResult("stop_limit_acceptance", "ERROR", str(e))
 
 
+def _build_market_order(symbol: str, notional: float) -> Any:
+    """Build a market order request."""
+    try:
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        return MarketOrderRequest(
+            symbol=symbol,
+            notional=notional,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.GTC,
+        )
+    except ImportError:
+        return {
+            "symbol": symbol,
+            "notional": notional,
+            "side": "buy",
+            "time_in_force": "gtc",
+        }
+
+
 def step_fee_from_fill(client, *, dry_run: bool) -> StepResult:
     """Place a small market buy to capture fee data from the fill receipt."""
     if dry_run:
@@ -279,17 +332,9 @@ def step_fee_from_fill(client, *, dry_run: bool) -> StepResult:
             "Skipped in dry-run mode",
         )
     try:
-        from alpaca.trading.requests import MarketOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-
         symbol = CANARY_PAIRS[0].replace("/", "")
         order = client.submit_order(
-            MarketOrderRequest(
-                symbol=symbol,
-                notional=TEST_NOTIONAL_USD,
-                side=OrderSide.BUY,
-                time_in_force=TimeInForce.GTC,
-            )
+            _build_market_order(symbol, TEST_NOTIONAL_USD)
         )
         time.sleep(3)
         filled = client.get_order_by_id(order.id)
