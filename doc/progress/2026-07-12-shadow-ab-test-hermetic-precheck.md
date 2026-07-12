@@ -43,6 +43,45 @@ actual test logic ran. CI passed because CI checkouts are always clean.
    worktrees or clones, and preserve the dirty-fails-first regression tests
    on both session and non-session dates.
 
+## Concurrent push during this fix (`5d5d09e1`)
+
+While this fix was in progress, another session pushed
+`5d5d09e1` ("fix(test): use git-rm for dirty fixture to fix CI
+detection") directly to this branch. That commit is preserved in the
+git history (rebased onto, never force-overwritten) but its *content*
+went the opposite direction from Codex's round-3 ask, so it was
+substantively superseded rather than kept:
+
+- It diagnosed the CI failures Codex reported as a filesystem
+  stat-cache timing bug and "fixed" the dirty-repo fixture by using
+  `git rm -f README.md` (a tracked-file deletion) instead of writing an
+  untracked marker file. Codex's own review already identified the real
+  cause precisely: `ignore_untracked=True` filtering out `"?? "` lines,
+  not a timing race. Keeping the tracked-deletion fixture would have
+  silently dropped the ONE regression case that specifically exercises
+  "untracked content must still fail closed" — exactly what round-3 was
+  about — so this fix reverts that hunk back to the untracked-marker-file
+  fixture (`tests/test_shadow_ab_daily_script.py::_build_manifest`).
+- It added `env.pop("RENQUANT_SHADOW_AB_SKIP_MANIFEST_VERIFY", None)` to
+  `_env_for` — moot once the whole `skip_manifest_verify` parameter/env
+  var is removed (this fix removes it entirely; see below).
+- It added a NEW test,
+  `test_untracked_files_do_not_trigger_precheck_abort`, asserting
+  `returncode == 0` for a manifest with untracked stray files — i.e.
+  explicitly codifying the exact behavior Codex's round-3 review says
+  must NOT exist ("do not merge ignore_untracked=True... A blanket
+  ignore can hide untracked Python, package metadata, or other
+  import-affecting content"). This fix removes that test; the correct
+  contract (untracked content DOES fail closed) is already covered by
+  `test_dirty_repo_fails_closed_before_either_arm` /
+  `test_dirty_manifest_on_non_session_date_fails_closed_not_skip`.
+
+Resolved via `git rebase origin/fix/shadow-ab-test-hermetic-precheck`
+(never `--force-overwrite`/`push --force` without `--force-with-lease`,
+never a bare `reset`) — `5d5d09e1` remains a real ancestor commit in this
+branch's history; this fix's commit sits on top of it with the tree
+content corrected back onto Codex's round-3 requirements.
+
 ## Final fix (this pass)
 
 Implements Codex's round-3 ask completely — no partial pass:
