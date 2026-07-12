@@ -800,7 +800,6 @@ def verify_run_manifest(
             str(entry["commit"]),
             git_probe=probe,
             require_clean=True,
-            ignore_untracked=True,
         )
         if problem is not None:
             problems.append(problem)
