@@ -96,6 +96,34 @@ class SignalSnapshot:
         return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+MAX_WATERMARK_STALENESS_DAYS = 2
+
+
+@dataclass(frozen=True)
+class SignalArtifactRef:
+    """Provenance reference for the expected signal artifact."""
+
+    expected_digest: str
+    artifact_path: str
+    schema_version: int
+    producer_run_id: str
+
+
+@dataclass(frozen=True)
+class StopCoverageReport:
+    """Typed execution-side protective-order coverage report."""
+
+    timestamp_utc: dt.datetime
+    environment: str
+    positions_covered: int
+    violations: int
+    source_version: str
+
+    def is_fresh(self, now_utc: dt.datetime, max_age_seconds: int = 300) -> bool:
+        age = (now_utc - self.timestamp_utc).total_seconds()
+        return 0 <= age <= max_age_seconds
+
+
 @dataclass(frozen=True)
 class TickResult:
     """Result of a single scheduler tick."""
@@ -198,14 +226,23 @@ def watermark_for_session(session_date: dt.date) -> dt.datetime:
 def validate_watermark(
     snapshot: SignalSnapshot,
     session_date: dt.date,
+    *,
+    max_staleness_days: int = MAX_WATERMARK_STALENESS_DAYS,
 ) -> tuple[bool, str]:
-    """Validate that the snapshot's bar watermark does not include future bars."""
+    """Validate watermark: no future bars AND not stale beyond threshold."""
     max_watermark = watermark_for_session(session_date)
     if snapshot.bar_watermark_utc > max_watermark:
         return False, (
             f"bar_watermark_utc {snapshot.bar_watermark_utc.isoformat()} "
             f"exceeds session {session_date} max {max_watermark.isoformat()} "
             f"— would include future bars"
+        )
+    min_watermark = max_watermark - dt.timedelta(days=max_staleness_days)
+    if snapshot.bar_watermark_utc < min_watermark:
+        return False, (
+            f"bar_watermark_utc {snapshot.bar_watermark_utc.isoformat()} "
+            f"is stale (>{max_staleness_days}d behind session {session_date} "
+            f"min {min_watermark.isoformat()}) — incomplete data"
         )
     return True, "watermark valid"
 
@@ -232,8 +269,8 @@ def evaluate_tick(
     config: CryptoSessionConfig,
     now_utc: dt.datetime | None = None,
     signal_snapshot: SignalSnapshot | None = None,
-    expected_digest: str | None = None,
-    stop_coverage_ok: bool | None = None,
+    artifact_ref: SignalArtifactRef | None = None,
+    stop_coverage: StopCoverageReport | None = None,
 ) -> TickResult:
     """Evaluate one scheduler tick.
 
@@ -242,9 +279,9 @@ def evaluate_tick(
     2. Mode must be ``live`` or ``paper`` (shadow produces decision records only)
     3. Quiet interval (configurable, default 15 min of each UTC day)
     4. Valid signal snapshot for the current session
-    5. Watermark validation (no future bars)
-    6. Digest verification (against expected artifact-path digest)
-    7. Protective stop-coverage ready
+    5. Watermark validation (no future bars, no stale data)
+    6. Digest verification against ``artifact_ref`` (typed provenance)
+    7. ``stop_coverage`` report: typed, versioned, fresh, zero violations
     """
     if now_utc is None:
         now_utc = dt.datetime.now(dt.timezone.utc)
@@ -320,43 +357,72 @@ def evaluate_tick(
             signal_snapshot_digest=signal_snapshot.digest(),
         )
 
-    if expected_digest is not None:
-        digest_ok, digest_reason = validate_digest(signal_snapshot, expected_digest)
-        if not digest_ok:
-            return TickResult(
-                session_date=session_d,
-                tick_utc=now_utc,
-                entries_allowed=False,
-                exits_allowed=True,
-                reason=digest_reason,
-                signal_snapshot_digest=signal_snapshot.digest(),
-            )
-    else:
+    if artifact_ref is None:
         return TickResult(
             session_date=session_d,
             tick_utc=now_utc,
             entries_allowed=False,
             exits_allowed=True,
-            reason="no expected_digest supplied — entries fail-closed (digest verification required)",
+            reason="no artifact_ref supplied — entries fail-closed (digest verification required)",
             signal_snapshot_digest=signal_snapshot.digest(),
         )
 
-    if stop_coverage_ok is None:
+    digest_ok, digest_reason = validate_digest(
+        signal_snapshot, artifact_ref.expected_digest
+    )
+    if not digest_ok:
         return TickResult(
             session_date=session_d,
             tick_utc=now_utc,
             entries_allowed=False,
             exits_allowed=True,
-            reason="stop_coverage_ok not provided — entries fail-closed",
+            reason=digest_reason,
             signal_snapshot_digest=signal_snapshot.digest(),
         )
-    if not stop_coverage_ok:
+
+    if stop_coverage is None:
         return TickResult(
             session_date=session_d,
             tick_utc=now_utc,
             entries_allowed=False,
             exits_allowed=True,
-            reason="protective stop-coverage not ready — entries blocked",
+            reason="no stop_coverage report — entries fail-closed",
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    if stop_coverage.environment != config.mode:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=(
+                f"stop_coverage environment mismatch: "
+                f"report={stop_coverage.environment} vs config={config.mode}"
+            ),
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    if not stop_coverage.is_fresh(now_utc):
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=(
+                f"stop_coverage report stale: "
+                f"timestamp={stop_coverage.timestamp_utc.isoformat()}"
+            ),
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    if stop_coverage.violations > 0:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=f"stop_coverage has {stop_coverage.violations} violations — entries blocked",
             signal_snapshot_digest=signal_snapshot.digest(),
         )
 

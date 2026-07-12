@@ -11,7 +11,9 @@ from renquant_orchestrator.crypto_session import (
     CRYPTO_ENV_FLAG,
     CryptoSessionConfig,
     SessionWindow,
+    SignalArtifactRef,
     SignalSnapshot,
+    StopCoverageReport,
     TickResult,
     build_session_bundle,
     check_triple_gate,
@@ -40,6 +42,27 @@ def _make_snapshot(session_date: dt.date) -> SignalSnapshot:
         universe_hash="test_hash",
         model_content_sha256="model_sha",
         calibrator_content_sha256="cal_sha",
+    )
+
+
+def _make_artifact_ref(snap: SignalSnapshot) -> SignalArtifactRef:
+    return SignalArtifactRef(
+        expected_digest=snap.digest(),
+        artifact_path="artifacts/crypto/signal.json",
+        schema_version=1,
+        producer_run_id="test-run-001",
+    )
+
+
+def _make_stop_coverage(
+    now_utc: dt.datetime, *, mode: str = "live", violations: int = 0
+) -> StopCoverageReport:
+    return StopCoverageReport(
+        timestamp_utc=now_utc,
+        environment=mode,
+        positions_covered=5,
+        violations=violations,
+        source_version="test-v1",
     )
 
 
@@ -142,7 +165,7 @@ class TestTripleGate:
         assert ok
 
 
-# ── Watermark validation (review item 1) ─────────────────────────────────────
+# ── Watermark validation ────────────────────────────────────────────────────
 
 
 class TestWatermarkValidation:
@@ -166,6 +189,17 @@ class TestWatermarkValidation:
         assert not ok
         assert "future bars" in reason
 
+    def test_stale_watermark_rejected(self):
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=dt.datetime(2026, 7, 9, 0, 0, tzinfo=UTC),
+            universe_hash="h", model_content_sha256="m",
+            calibrator_content_sha256="c",
+        )
+        ok, reason = validate_watermark(snap, dt.date(2026, 7, 12))
+        assert not ok
+        assert "stale" in reason
+
     def test_future_watermark_blocks_entry(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
@@ -175,18 +209,19 @@ class TestWatermarkValidation:
             universe_hash="h", model_content_sha256="m",
             calibrator_content_sha256="c",
         )
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
         assert "future bars" in result.reason
 
 
-# ── Digest verification (review item 2) ──────────────────────────────────────
+# ── Digest verification ─────────────────────────────────────────────────────
 
 
 class TestDigestVerification:
@@ -201,16 +236,17 @@ class TestDigestVerification:
         assert not ok
         assert "mismatch" in reason
 
-    def test_missing_expected_digest_blocks_entry(self, tmp_path, monkeypatch):
+    def test_missing_artifact_ref_blocks_entry(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=None,
-            stop_coverage_ok=True,
+            artifact_ref=None,
+            stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
         assert "fail-closed" in result.reason
@@ -219,18 +255,25 @@ class TestDigestVerification:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        bad_ref = SignalArtifactRef(
+            expected_digest="tampered_digest",
+            artifact_path="artifacts/crypto/signal.json",
+            schema_version=1,
+            producer_run_id="test-run-001",
+        )
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest="tampered_digest",
-            stop_coverage_ok=True,
+            artifact_ref=bad_ref,
+            stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
         assert "mismatch" in result.reason
 
 
-# ── Shadow mode blocks entries (review item 3) ───────────────────────────────
+# ── Shadow mode blocks entries ──────────────────────────────────────────────
 
 
 class TestShadowModeNonAdmission:
@@ -238,12 +281,13 @@ class TestShadowModeNonAdmission:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path, mode="shadow")
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now, mode="shadow"),
         )
         assert not result.entries_allowed
         assert result.exits_allowed
@@ -253,17 +297,18 @@ class TestShadowModeNonAdmission:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path, mode="paper")
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now, mode="paper"),
         )
         assert result.entries_allowed
 
 
-# ── Configured quiet interval (review item 4) ────────────────────────────────
+# ── Configured quiet interval ───────────────────────────────────────────────
 
 
 class TestConfiguredQuietInterval:
@@ -275,12 +320,13 @@ class TestConfiguredQuietInterval:
             quiet_interval_minutes=30,
         )
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 0, 20, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 0, 20, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
         assert result.is_quiet
@@ -293,17 +339,18 @@ class TestConfiguredQuietInterval:
             quiet_interval_minutes=10,
         )
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 0, 12, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 0, 12, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert result.entries_allowed
 
 
-# ── Stop coverage (review item 5) ────────────────────────────────────────────
+# ── Stop coverage ───────────────────────────────────────────────────────────
 
 
 class TestStopCoverage:
@@ -311,29 +358,62 @@ class TestStopCoverage:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=None,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=None,
         )
         assert not result.entries_allowed
         assert "stop_coverage" in result.reason
 
-    def test_false_stop_coverage_blocks_entry(self, tmp_path, monkeypatch):
+    def test_violations_block_entry(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=False,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now, violations=3),
         )
         assert not result.entries_allowed
-        assert "stop-coverage" in result.reason
+        assert "violation" in result.reason
+
+    def test_environment_mismatch_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now, mode="paper"),
+        )
+        assert not result.entries_allowed
+        assert "environment mismatch" in result.reason
+
+    def test_stale_report_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        stale_time = now - dt.timedelta(seconds=600)
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(stale_time),
+        )
+        assert not result.entries_allowed
+        assert "stale" in result.reason
 
 
 # ── evaluate_tick ────────────────────────────────────────────────────────────
@@ -354,12 +434,13 @@ class TestEvaluateTick:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 0, 5, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 0, 5, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
         assert result.exits_allowed
@@ -381,12 +462,13 @@ class TestEvaluateTick:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 11))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
         assert "mismatch" in result.reason
@@ -395,12 +477,13 @@ class TestEvaluateTick:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert result.entries_allowed
         assert result.exits_allowed
@@ -411,12 +494,13 @@ class TestEvaluateTick:
         cfg = _enabled_config(tmp_path)
         saturday = dt.date(2026, 7, 11)
         snap = _make_snapshot(saturday)
+        now = dt.datetime(2026, 7, 11, 14, 30, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 11, 14, 30, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         assert result.entries_allowed
 
@@ -442,12 +526,13 @@ class TestTickResultSerialization:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         result = evaluate_tick(
             config=cfg,
-            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            now_utc=now,
             signal_snapshot=snap,
-            expected_digest=snap.digest(),
-            stop_coverage_ok=True,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now),
         )
         j = result.to_jsonable()
         assert json.dumps(j)
@@ -463,13 +548,16 @@ class TestSessionBundle:
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
+        ref = _make_artifact_ref(snap)
         ticks = [
             evaluate_tick(
                 config=cfg,
                 now_utc=dt.datetime(2026, 7, 12, h, 0, tzinfo=UTC),
                 signal_snapshot=snap,
-                expected_digest=snap.digest(),
-                stop_coverage_ok=True,
+                artifact_ref=ref,
+                stop_coverage=_make_stop_coverage(
+                    dt.datetime(2026, 7, 12, h, 0, tzinfo=UTC)
+                ),
             )
             for h in range(1, 4)
         ]
