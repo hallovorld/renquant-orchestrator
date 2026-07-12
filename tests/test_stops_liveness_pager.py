@@ -148,18 +148,18 @@ def test_plist_pins_the_live_ops_topic():
     assert env["RENQUANT_STOPS_PAGER_NTFY_TOPIC"] == LIVE_OPS_TOPIC
 
 
-def test_plist_supplies_explicit_python_and_data_root_not_via_umbrella_venv():
-    """Codex review (2026-07-11) of this package's prior revision: the
-    checker must not be invoked through RenQuant/.venv. The plist still
-    configures an explicit interpreter + data root (RUNTIME CONTRACT — the
-    wrapper itself has no default), but the interpreter path must not
-    reference the umbrella's .venv, and the checker module must be the
-    execution-repo one."""
+def test_plist_supplies_explicit_python_and_data_root_not_via_umbrella():
+    """The plist configures explicit interpreter + data root (RUNTIME
+    CONTRACT). Neither may reference the deprecated umbrella."""
     with open(PLIST_PATH, "rb") as fh:
         plist = plistlib.load(fh)
     env = plist["EnvironmentVariables"]
     assert "RENQUANT_STOPS_PAGER_PYTHON" in env
     assert "RENQUANT_STOPS_PAGER_DATA_ROOT" in env
+    assert "RenQuant" not in env["RENQUANT_STOPS_PAGER_DATA_ROOT"], (
+        "data root must be the neutral runtime-state path, not the umbrella"
+    )
+    assert ".renquant/runtime/software-stops" in env["RENQUANT_STOPS_PAGER_DATA_ROOT"]
     assert "RenQuant/.venv" not in env["RENQUANT_STOPS_PAGER_PYTHON"]
     assert "RenQuant/.venv" not in plist["ProgramArguments"][-1]
 

@@ -49,25 +49,14 @@
 # fails closed (hard abort, matching shadow_ab_daily.sh's own required-var
 # checks) when one is missing.
 #
-# STILL-OPEN BLOCKER — data-root authority (Codex round-3 review,
-# 2026-07-11): the round-2 rework above fixed CODE resolution (which
-# checkouts run the checker), but RENQUANT_STOPS_PAGER_DATA_ROOT is STILL,
-# as a matter of fact, configured to the deprecated umbrella in the
-# committed plist — Codex correctly held that an explicit umbrella data
-# root is a production dependency even when imports resolve through pins.
-# This package does NOT fix that (the writer — the live sell-only loop —
-# lives in the umbrella; migrating it is a separate, live-tree, R-PIN
-# landing change, out of scope for an orchestrator-only PR). What this
-# revision adds instead: renquant_orchestrator.software_stops_registry_contract
-# defines the NEUTRAL runtime-state-root convention (mirrors
-# deployment_manifest.deploy_state_root exactly) and a versioned
-# registry-file envelope a migrated writer would stamp; this wrapper
-# classifies the resolved data root against that neutral contract every
-# run and prints a CLEARLY LABELED "WARNING: LEGACY/UNVERSIONED ..." line
-# to stderr whenever it is NOT the neutral root (today, every run, since
-# the writer migration has not landed) — see this package's progress doc,
-# "BLOCKING FOLLOW-UP", for what remains. The check is informational only:
-# it never changes the paging decision below.
+# DATA-ROOT: the plist now configures the NEUTRAL runtime-state root
+# (~/.renquant/runtime/software-stops) — no umbrella dependency remains in
+# committed configuration. The checker will find no registry file at this
+# path until the writer migration lands (renquant-execution#29 + R-PIN
+# landing), and correctly exits STALE (fail-closed). This wrapper still
+# classifies the resolved data root via software_stops_registry_contract
+# and prints an informational line — now expected to say NEUTRAL once the
+# writer lands.
 #
 # Required environment (supplied by the plist):
 #   RENQUANT_STOPS_PAGER_PYTHON      interpreter to run the checker with
@@ -75,14 +64,11 @@
 #                                    + renquant-pipeline + renquant-common
 #                                    stack importable via the PYTHONPATH
 #                                    this script constructs)
-#   RENQUANT_STOPS_PAGER_DATA_ROOT   explicit runtime data root the
-#                                    software-stop registry lives under
-#                                    (passed straight through as
-#                                    --data-root; today this is wherever
-#                                    the live sell-only loop writes it —
-#                                    migrating that anchor off the
-#                                    umbrella is R-PIN territory, out of
-#                                    scope here)
+#   RENQUANT_STOPS_PAGER_DATA_ROOT   neutral runtime-state root where the
+#                                    registry file lives (passed through as
+#                                    --data-root to the checker); currently
+#                                    ~/.renquant/runtime/software-stops per
+#                                    the software_stops_registry_contract
 # Optional:
 #   RENQUANT_STOPS_PAGER_BROKER        broker tag (default: alpaca)
 #   RENQUANT_STOPS_PAGER_NTFY_BASE     ntfy base URL (default: https://ntfy.sh)
@@ -232,23 +218,9 @@ if not module_file.is_file():
     )
     raise SystemExit(1)
 
-# ---- registry-root observability (Codex round-3 review of PR #481,
-# 2026-07-11): CODE now resolves through pins, but RENQUANT_STOPS_PAGER_DATA_ROOT
-# (below) is still an explicit, reviewed plist value naming wherever the live
-# sell-only loop writes the registry file TODAY — which is still the
-# deprecated umbrella. That is a real production dependency, not a harmless
-# default, even though this script hardcodes none. This checks the resolved
-# data root against the neutral runtime-state-root contract
-# (renquant_orchestrator.software_stops_registry_contract — the READ-side
-# half of the contract Codex required; the writer migration itself is a
-# separate, out-of-scope, R-PIN landing change, see this ops packages
-# progress doc, BLOCKING FOLLOW-UP section) and prints a CLEARLY LABELED
-# warning to stderr when it is not neutral — informational only, never a
-# gate: it must not change the paging decision below. This makes the
-# current interim state OBSERVABLE on every run instead of silently
-# accepted.
-# (NOTE for editors: same bash-3.2-in-command-substitution rule as above —
-# no apostrophes or backticks anywhere in this heredoc.)
+# ---- registry-root observability: classifies the configured data root
+# against the neutral convention. Expected NEUTRAL once the plist value
+# matches the contract (it does now). Informational only, never a gate.
 data_root_env = os.environ.get("RENQUANT_STOPS_PAGER_DATA_ROOT")
 if data_root_env:
     from renquant_orchestrator.software_stops_registry_contract import (

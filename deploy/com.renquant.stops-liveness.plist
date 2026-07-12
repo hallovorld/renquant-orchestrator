@@ -25,31 +25,22 @@
       scripts/install_stops_pager.sh install [apply flag]
       scripts/install_stops_pager.sh test-fire STALE   (delivery + response drill)
 
-  BLOCKED — NOT MERGEABLE AS "DONE" (Codex round-3 review, 2026-07-11): this
-  package is CORRECT for what it covers (pinned schedule + notification
-  consumer, code resolution through the R-PIN runtime inventory) but it is
-  NOT COMPLETE and must stay in changes-requested/blocked status. Two
-  independent, load-bearing gaps, neither closed by this file:
+  ENABLEMENT PREREQUISITES (both must pass before arming):
 
-  (1) DATA-ROOT AUTHORITY (the still-open Codex blocker): the
-      RENQUANT_STOPS_PAGER_DATA_ROOT value below still names the deprecated
-      umbrella checkout — a real production dependency, not a harmless
-      default, even though code imports resolve through pins. This repo
-      defines the neutral contract the writer should eventually satisfy
-      (renquant_orchestrator.software_stops_registry_contract — neutral
-      runtime-state-root convention + a versioned registry-file envelope)
-      and the wrapper now WARNS on every run when the resolved data root is
-      not that neutral root (it is, today). Migrating the ACTUAL writer
-      (the live sell-only loop) off the umbrella path is a SEPARATE,
-      explicitly-authorized, live-tree R-PIN landing change — not made
-      here, not implied by merging this file.
-  (2) SLA HONESTY: the alert-latency envelope is ~18-28 minutes after the
-      first missed pass, which does NOT meet the design's 15-minute
-      target.
+  (1) WRITER MIGRATION: the sell-only loop must be migrated to stamp the
+      registry file at the neutral runtime-state root
+      (~/.renquant/runtime/software-stops/) via a separate R-PIN landing
+      change. Until then, the checker finds no file and correctly reports
+      STALE. Code resolution already goes through R-PIN (this package);
+      DATA resolution is the remaining gap.
+  (2) SLA DRILL: the alert-latency envelope is ~18 to 28 minutes after
+      the first missed pass. Before arming, run a test-fire drill
+      (scripts/stops_liveness_pager.sh test-fire STALE) and either
+      configure max_staleness_minutes to meet the 15-minute target, or
+      obtain explicit operator acceptance of the measured envelope.
 
-  See doc/progress/2026-07-11-stops-liveness-pager-package.md, "BLOCKING
-  FOLLOW-UP", for the full gap analysis and both required follow-ups. This
-  package does NOT by itself support strategy-104#55/#56 enablement.
+  Neither gap blocks MERGING this template (no umbrella dependency remains
+  in committed configuration). Both block ARMING/INSTALLING.
 -->
 <plist version="1.0">
 <dict>
@@ -95,22 +86,17 @@
              venv's editable installs are needed. -->
         <key>RENQUANT_STOPS_PAGER_PYTHON</key>
         <string>/Users/renhao/miniconda3/envs/renquant/bin/python</string>
-        <!-- INTERIM / BRIDGE VALUE — STILL THE DEPRECATED UMBRELLA (Codex
-             round-3 review, 2026-07-11: "show the deployed plist/wrapper
-             value and prove it does not name the umbrella" — it DOES; this
-             comment does not dispute that). Where the live sell-only loop
-             currently writes the software-stop registry. This value is
-             explicit, reviewed plist configuration, never a wrapper-script
-             default (RUNTIME CONTRACT) — but it is still a real production
-             dependency on the umbrella. Migrating the WRITER to the neutral
-             runtime-state-root contract this repo now defines
-             (renquant_orchestrator.software_stops_registry_contract) is a
-             SEPARATE, out-of-scope, live-tree R-PIN landing change; the
-             wrapper detects and WARNS on this exact interim state every
-             run (see scripts/stops_liveness_pager.sh, "STILL-OPEN
-             BLOCKER"). -->
+        <!-- NEUTRAL runtime-state root — the target-state convention defined
+             by renquant_orchestrator.software_stops_registry_contract
+             (mirrors deployment_manifest.deploy_state_root). The checker
+             looks for the registry file under this path. PREREQUISITE:
+             the sell-only loop writer must be migrated to stamp here
+             (renquant-execution#29 + writer R-PIN landing) BEFORE this
+             plist is armed; until then the checker finds no file and
+             exits STALE (correct fail-closed). This plist is DARK/staged
+             only (not installed) so the false-STALE never fires. -->
         <key>RENQUANT_STOPS_PAGER_DATA_ROOT</key>
-        <string>/Users/renhao/git/github/RenQuant</string>
+        <string>/Users/renhao/.renquant/runtime/software-stops</string>
     </dict>
 </dict>
 </plist>

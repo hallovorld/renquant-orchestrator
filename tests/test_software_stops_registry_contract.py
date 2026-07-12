@@ -85,9 +85,8 @@ def test_classify_data_root_legacy_for_umbrella_path(tmp_path: Path) -> None:
 
 
 def test_classify_data_root_legacy_for_actual_production_value(tmp_path: Path) -> None:
-    """The exact value the committed plist carries today
-    (``/Users/renhao/git/github/RenQuant``) must classify LEGACY against
-    any neutral root — this is the fact Codex asked us to prove."""
+    """A non-neutral path (e.g. the deprecated umbrella) must classify
+    LEGACY against any neutral root."""
     runtime_root = tmp_path / "runtime"
     verdict = classify_data_root(
         "/Users/renhao/git/github/RenQuant", runtime_root=runtime_root

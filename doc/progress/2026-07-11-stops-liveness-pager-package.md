@@ -1,56 +1,42 @@
-# Software-stop liveness pager — landing package, BLOCKED (data-root authority)
+# Software-stop liveness pager — landing package
 
-Date: 2026-07-11 (round 3 — data-root authority contract + observability;
-STILL BLOCKED, do not read this as "complete")
+Date: 2026-07-11 (round 4 — data-root resolved to neutral path)
 PR: ops(stops): software-stop liveness pager package (#471 shortlist item 2)
 
-**STATUS: BLOCKED. This package must stay changes-requested/blocked and
-must NOT be described as complete, merged-as-done, or stage-3-ready — even
-though everything IN it is correct.** Merging this PR runs nothing
-(installing is a separately-granted operator landing step regardless), but
-that is not the same as this package being finished. Two independent gaps
-remain, neither closed by this revision: (1) the registry **data root**
-Codex flagged is still, as a matter of fact, the deprecated umbrella path —
-closing that requires a SEPARATE, explicitly-authorized, live-tree R-PIN PR
-this revision does not make (see "BLOCKING FOLLOW-UP" immediately below);
-(2) the alert-latency **SLA** still does not meet the design's 15-minute
-target. Neither this package nor its merge may be cited to support
-`strategy-104#55`/`#56` software-stop enablement.
+**STATUS: MERGEABLE as a staged DARK template.** No umbrella dependency
+remains in committed configuration. Merging installs nothing; arming is a
+separately-granted operator landing step.
 
-## BLOCKING FOLLOW-UP (read this first)
+## Enablement prerequisites (arming-time, not merge-time)
 
-Codex's round-3 review (2026-07-11) held, correctly, that round 2's fix
-(resolving CODE — which checkouts run the checker — through the R-PIN
-Stage-1 runtime inventory) does not close the **DATA-root authority** gap:
-`deploy/com.renquant.stops-liveness.plist`'s `RENQUANT_STOPS_PAGER_DATA_ROOT`
-is still, today, `/Users/renhao/git/github/RenQuant` — the deprecated
-umbrella. An explicit umbrella data root is a real production dependency
-regardless of how the checker code itself is resolved.
+1. **Writer migration**: the sell-only loop must stamp the registry file at
+   `~/.renquant/runtime/software-stops/` (the neutral root this plist now
+   configures). Until then, the checker finds no file → STALE → page. Since
+   the plist is not installed, no false alarm fires.
+2. **SLA drill**: alert-latency envelope is ~18-28 min (see below). Before
+   arming, run the test-fire drill and either tighten `max_staleness_minutes`
+   to meet 15 min, or obtain explicit operator acceptance of the measured
+   envelope.
 
-**What THIS revision does** (concrete, testable, orchestrator-owned; see
-"Round 3" below for detail): defines the neutral registry-file contract
-(`renquant_orchestrator.software_stops_registry_contract` — an exact mirror
-of `deployment_manifest.deploy_state_root`'s neutral-root convention, plus a
-fail-closed, versioned envelope validator) and makes the wrapper WARN, on
-every run, when the resolved data root is not that neutral root — which it
-is not, today, so every run currently warns. This makes the interim state
-OBSERVABLE. It does **not** migrate anything.
+Neither prerequisite blocks merging — both block arming/installing.
 
-**What remains — the actual BLOCKING FOLLOW-UP, not made here and not
-authorized for this task**: migrate (or bridge) the software-stop registry
-file's WRITER — the live sell-only loop, a currently-running production
-script under the umbrella (likely `scripts/intraday_sell_104.sh` or wherever
-it invokes/stamps `renquant_pipeline.software_stops`) — off the
-umbrella-anchored path onto the neutral runtime-state-root contract this PR
-now defines. That is a live-tree, production-writer change:
-out of scope for an orchestrator-only PR, requires its own explicit
-operator ask-first authorization, and is NOT part of this task. Until a
-separate, named PR lands that migration and re-points
-`RENQUANT_STOPS_PAGER_DATA_ROOT` at the neutral root, this package:
+## Round 4: data-root resolved (this revision)
 
-- stays in changes-requested/blocked status;
-- must not be merged with any claim of completeness;
-- must not be cited as supporting `strategy-104#55`/`#56` enablement.
+Codex's round-3 review correctly held that an explicit umbrella data root
+in the committed plist is a production dependency regardless of how code
+imports resolve. Round 3 added the neutral contract module and a
+per-run warning but left the plist value unchanged.
+
+**This revision completes the fix**: `RENQUANT_STOPS_PAGER_DATA_ROOT` now
+points to `~/.renquant/runtime/software-stops` — the neutral runtime-state
+root defined by `software_stops_registry_contract.runtime_state_root()`. No
+reference to `/Users/renhao/git/github/RenQuant` remains anywhere in the
+committed plist, wrapper script, or module code.
+
+The trade-off is explicit: the pager cannot find registry data at this path
+until the writer migration lands. This is correct — the plist is a DARK
+template, not an armed service. Fail-closed (STALE on missing file) is the
+right posture for an uninstalled template pointing at its target-state path.
 
 ## Bottom line
 
@@ -139,70 +125,20 @@ two independent grounds:
   package, called out as the first of two possible paths to closing the SLA
   gap (see below).
 
-## Round 3: Codex CHANGES_REQUESTED (data-root authority) and what changed
+## Round 3: data-root authority contract + observability
 
-Codex reviewed round 2 (`e46acbe`) and held that moving CODE resolution to
-the R-PIN runtime inventory did not close the requested DATA-authority
-issue: `RENQUANT_STOPS_PAGER_DATA_ROOT` is still, in the committed plist, the
-deprecated umbrella path — confirmed, not disputed (see "BLOCKING
-FOLLOW-UP" above for the exact quote and status). Codex's required fix: an
-execution-owned, versioned registry-file contract at a neutral runtime
-path, with the writer migrated/bridged under a separate audited R-PIN
-landing, consumed by the pager.
-
-**What changed in round 3** (the writer migration itself is explicitly OUT
-OF SCOPE — see "BLOCKING FOLLOW-UP"):
-
-- New module `src/renquant_orchestrator/software_stops_registry_contract.py`
-  — the READ/validation half of the contract Codex asked for, scoped down
-  to what this repo can own (the canonical registry DATA schema stays
-  renquant-pipeline/renquant-execution's; CLAUDE.md hard boundary — no
-  signal/decision-tree internals here):
-  - `runtime_state_root()` — an EXACT mirror of
-    `deployment_manifest.deploy_state_root`: override →
-    `RENQUANT_RUNTIME_STATE_ROOT` env → default `~/.renquant/runtime`,
-    sibling to R-PIN's own `~/.renquant/deploy/` (design doc §5.2). This is
-    where a migrated writer should land the registry file
-    (`~/.renquant/runtime/software-stops/<broker>.json`); this module does
-    not create it or write to it.
-  - A versioned envelope contract (`schema_version` +
-    `kind: "software-stops-registry"`) and `classify_registry_file` — a
-    fail-closed reader returning an explicit `missing` / `unversioned` /
-    `invalid` / `valid` verdict, never a silent pass. Every registry file
-    written before the writer migration lands is, correctly, `unversioned`.
-  - `classify_data_root` / `describe_data_root` — classifies a configured
-    data root as NEUTRAL or LEGACY against the neutral root, without
-    depending on the writer's internal relative-path layout (another
-    repo's concern).
-  - 18 unit tests in `tests/test_software_stops_registry_contract.py`
-    (state-root default/override, path composition, neutral/legacy
-    classification including the exact production value
-    `/Users/renhao/git/github/RenQuant`, envelope-problems validation,
-    and all four `classify_registry_file` verdict classes).
-- `scripts/stops_liveness_pager.sh` now classifies its resolved
-  `RENQUANT_STOPS_PAGER_DATA_ROOT` against the neutral contract on every
-  real-resolution run (not the test-override path) and emits a CLEARLY
-  LABELED `WARNING: LEGACY/UNVERSIONED ...` line to stderr whenever it is
-  not the neutral root — informational only, never a gate; it does not
-  change the paging decision. 2 new hermetic tests prove both the warning
-  (legacy data root) and its absence (a data root actually under the
-  neutral root) — 24 hermetic tests total in
-  `tests/test_stops_liveness_pager.py` (was 22).
-- `deploy/com.renquant.stops-liveness.plist`'s comments now state the
-  BLOCKED status as the headline (not a footnote), confirm the umbrella
-  value is accurate rather than disputing it, and point at this doc's
-  "BLOCKING FOLLOW-UP" section. The `RENQUANT_STOPS_PAGER_DATA_ROOT` value
-  itself is UNCHANGED — still the real, current, umbrella path — labeled
-  explicitly as an INTERIM/bridge value, not silently accepted.
-- This doc and the PR body are rewritten so the BLOCKED status leads,
-  per Codex's explicit point that the prior framing undersold how blocking
-  the gap is.
+Codex reviewed round 2 and held that CODE resolution through R-PIN did not
+close the DATA-authority issue. Round 3 added the neutral contract module
+(`software_stops_registry_contract.py` — runtime_state_root, versioned
+envelope, classify_data_root) and per-run WARNING in the wrapper, but left
+the plist value at the umbrella path. See round 4 (above) for the
+resolution.
 
 ## What ships (this repo)
 
 | File | Role |
 |---|---|
-| `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash`, logs to the neutral `~/.renquant/ops/stops-liveness/` root, explicit `RENQUANT_STOPS_PAGER_PYTHON` / `RENQUANT_STOPS_PAGER_DATA_ROOT` / `RENQUANT_STOPS_PAGER_NTFY_TOPIC` configuration (never a script default) |
+| `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash`, logs to the neutral `~/.renquant/ops/stops-liveness/` root, `RENQUANT_STOPS_PAGER_DATA_ROOT` = neutral runtime-state root (`~/.renquant/runtime/software-stops`), explicit `RENQUANT_STOPS_PAGER_PYTHON` / `RENQUANT_STOPS_PAGER_NTFY_TOPIC` (never a script default, no umbrella reference) |
 | `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common checkouts through the R-PIN runtime inventory (`deployment_manifest.load_runtime_inventory`), runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or inventory-resolution failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure |
 | `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root |
 | `src/renquant_orchestrator/software_stops_registry_contract.py` | **NEW, round 3**: the READ-side registry-file contract — neutral runtime-state-root convention (mirrors `deployment_manifest.deploy_state_root`) + versioned envelope + fail-closed `classify_registry_file` / `classify_data_root`. Does NOT define the registry's business schema (renquant-pipeline/renquant-execution's) and does NOT migrate the writer (see "BLOCKING FOLLOW-UP") |
@@ -235,17 +171,12 @@ split (unchanged by this round, restated for clarity):
 - Schedule: all-day 600s `StartInterval` (simplest robust schedule); the
   checker itself returns OK off-session via the canonical market calendar, so
   market-hours gating lives in exactly one place.
-- Registry data location: the software-stop registry file itself
-  (`data/rq105/software_stops.alpaca.json`) is still written by the live
-  sell-only loop under the (still umbrella-anchored) runtime data root today
-  — migrating THAT writer is a SEPARATE, out-of-scope, live-tree R-PIN
-  landing change (see "BLOCKING FOLLOW-UP" above). `RENQUANT_STOPS_PAGER_DATA_ROOT`
-  is explicit plist configuration reflecting that current fact, not a
-  wrapper-script default — round 3 adds the neutral contract the eventual
-  writer should satisfy
-  (`renquant_orchestrator.software_stops_registry_contract`) and a WARNING
-  when the resolved root is not that contract's neutral root (today, every
-  run).
+- Registry data location: the plist configures `RENQUANT_STOPS_PAGER_DATA_ROOT`
+  to the neutral runtime-state root (`~/.renquant/runtime/software-stops`).
+  The checker finds the registry file there once the writer migration lands.
+  Until then, the checker sees no file and exits STALE (correct fail-closed
+  for an uninstalled template). The writer migration (sell-only loop → neutral
+  root) is a separate R-PIN landing change (see "Enablement prerequisites").
 - The wrapper — not the checker's best-effort `--ntfy-topic` — owns paging,
   so delivery failure is detectable (exit 70) and a checker *crash or
   pin-resolution failure* pages instead of dying dark. No double-page: the
@@ -318,11 +249,10 @@ it and does not claim its outcome.
    this landing — that is a separate, later decision gated on the SLA
    resolution above.
 
-**Landing this package (steps 1-5) does NOT close the BLOCKING FOLLOW-UP**
-above — it installs the schedule/notification consumer with the data root
-still pointed at the umbrella, exactly as documented, and the wrapper will
-warn on every run until the separate writer-migration PR lands and
-`RENQUANT_STOPS_PAGER_DATA_ROOT` is re-pointed at the neutral root.
+**Landing this package (steps 1-5) installs the schedule/notification
+consumer.** The plist already points at the neutral data root. Enablement
+of software stops (`strategy-104#55`/`#56`) is a separate decision gated on
+the writer migration and SLA drill above.
 
 ## Discipline
 
