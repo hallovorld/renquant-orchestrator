@@ -20,6 +20,7 @@ from renquant_orchestrator.crypto_session import (
     current_session_date,
     evaluate_tick,
     validate_digest,
+    validate_signal_contract,
     validate_watermark,
     watermark_for_session,
 )
@@ -45,10 +46,13 @@ def _make_snapshot(session_date: dt.date) -> SignalSnapshot:
     )
 
 
-def _make_artifact_ref(snap: SignalSnapshot) -> SignalArtifactRef:
+def _make_artifact_ref(snap: SignalSnapshot, tmp_path: Path) -> SignalArtifactRef:
+    p = tmp_path / "signal_artifact.json"
+    if not p.exists():
+        p.write_text("{}")
     return SignalArtifactRef(
         expected_digest=snap.digest(),
-        artifact_path="artifacts/crypto/signal.json",
+        artifact_path=str(p),
         schema_version=1,
         producer_run_id="test-run-001",
     )
@@ -60,6 +64,7 @@ def _make_stop_coverage(
     return StopCoverageReport(
         timestamp_utc=now_utc,
         environment=mode,
+        account_id="test-account-123",
         positions_covered=5,
         violations=violations,
         source_version="test-v1",
@@ -214,7 +219,7 @@ class TestWatermarkValidation:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
@@ -256,9 +261,11 @@ class TestDigestVerification:
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
         now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        af = tmp_path / "bad.json"
+        af.write_text("{}")
         bad_ref = SignalArtifactRef(
             expected_digest="tampered_digest",
-            artifact_path="artifacts/crypto/signal.json",
+            artifact_path=str(af),
             schema_version=1,
             producer_run_id="test-run-001",
         )
@@ -286,7 +293,7 @@ class TestShadowModeNonAdmission:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now, mode="shadow"),
         )
         assert not result.entries_allowed
@@ -302,7 +309,7 @@ class TestShadowModeNonAdmission:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now, mode="paper"),
         )
         assert result.entries_allowed
@@ -325,7 +332,7 @@ class TestConfiguredQuietInterval:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
@@ -344,7 +351,7 @@ class TestConfiguredQuietInterval:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert result.entries_allowed
@@ -363,7 +370,7 @@ class TestStopCoverage:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=None,
         )
         assert not result.entries_allowed
@@ -378,7 +385,7 @@ class TestStopCoverage:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now, violations=3),
         )
         assert not result.entries_allowed
@@ -393,7 +400,7 @@ class TestStopCoverage:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now, mode="paper"),
         )
         assert not result.entries_allowed
@@ -409,11 +416,170 @@ class TestStopCoverage:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(stale_time),
         )
         assert not result.entries_allowed
         assert "stale" in result.reason
+
+
+# ── Signal contract validation ──────────────────────────────────────────────
+
+
+class TestSignalContract:
+    def test_valid(self):
+        ok, _ = validate_signal_contract(_make_snapshot(dt.date(2026, 7, 12)))
+        assert ok
+
+    def test_empty_universe_hash(self):
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=watermark_for_session(dt.date(2026, 7, 12)),
+            universe_hash="", model_content_sha256="m",
+            calibrator_content_sha256="c",
+        )
+        ok, reason = validate_signal_contract(snap)
+        assert not ok
+        assert "universe_hash" in reason
+
+    def test_empty_model_hash(self):
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=watermark_for_session(dt.date(2026, 7, 12)),
+            universe_hash="h", model_content_sha256="",
+            calibrator_content_sha256="c",
+        )
+        ok, reason = validate_signal_contract(snap)
+        assert not ok
+        assert "model_content_sha256" in reason
+
+    def test_empty_calibrator_hash(self):
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=watermark_for_session(dt.date(2026, 7, 12)),
+            universe_hash="h", model_content_sha256="m",
+            calibrator_content_sha256="",
+        )
+        ok, reason = validate_signal_contract(snap)
+        assert not ok
+        assert "calibrator_content_sha256" in reason
+
+    def test_naive_watermark(self):
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=dt.datetime(2026, 7, 12, 0, 0),
+            universe_hash="h", model_content_sha256="m",
+            calibrator_content_sha256="c",
+        )
+        ok, reason = validate_signal_contract(snap)
+        assert not ok
+        assert "timezone-aware" in reason
+
+    def test_empty_fingerprint_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = SignalSnapshot(
+            session_date=dt.date(2026, 7, 12),
+            bar_watermark_utc=watermark_for_session(dt.date(2026, 7, 12)),
+            universe_hash="h", model_content_sha256="",
+            calibrator_content_sha256="c",
+        )
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
+            stop_coverage=_make_stop_coverage(now),
+        )
+        assert not result.entries_allowed
+        assert "model_content_sha256" in result.reason
+
+
+# ── Artifact ref validation ─────────────────────────────────────────────────
+
+
+class TestArtifactRefValidation:
+    def test_valid_ref(self, tmp_path):
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        ref = _make_artifact_ref(snap, tmp_path)
+        ok, _ = ref.validate()
+        assert ok
+
+    def test_nonexistent_path(self):
+        ref = SignalArtifactRef(
+            expected_digest="abc123",
+            artifact_path="/nonexistent/path.json",
+            schema_version=1,
+            producer_run_id="run-1",
+        )
+        ok, reason = ref.validate()
+        assert not ok
+        assert "does not exist" in reason
+
+    def test_wrong_schema_version(self, tmp_path):
+        af = tmp_path / "art.json"
+        af.write_text("{}")
+        ref = SignalArtifactRef(
+            expected_digest="abc123",
+            artifact_path=str(af),
+            schema_version=99,
+            producer_run_id="run-1",
+        )
+        ok, reason = ref.validate()
+        assert not ok
+        assert "schema_version" in reason
+
+    def test_invalid_ref_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        bad_ref = SignalArtifactRef(
+            expected_digest=snap.digest(),
+            artifact_path="/nonexistent/a.json",
+            schema_version=1,
+            producer_run_id="run-1",
+        )
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref=bad_ref,
+            stop_coverage=_make_stop_coverage(now),
+        )
+        assert not result.entries_allowed
+        assert "does not exist" in result.reason
+
+
+# ── Stop coverage validation ────────────────────────────────────────────────
+
+
+class TestStopCoverageValidation:
+    def test_valid(self):
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        ok, _ = _make_stop_coverage(now).validate()
+        assert ok
+
+    def test_invalid_environment(self):
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        r = StopCoverageReport(
+            timestamp_utc=now, environment="shadow", account_id="acct",
+            positions_covered=5, violations=0, source_version="v1",
+        )
+        ok, reason = r.validate()
+        assert not ok
+        assert "environment" in reason
+
+    def test_naive_timestamp(self):
+        now = dt.datetime(2026, 7, 12, 1, 0)
+        r = StopCoverageReport(
+            timestamp_utc=now, environment="live", account_id="acct",
+            positions_covered=5, violations=0, source_version="v1",
+        )
+        ok, reason = r.validate()
+        assert not ok
+        assert "timezone-aware" in reason
 
 
 # ── evaluate_tick ────────────────────────────────────────────────────────────
@@ -439,7 +605,7 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
@@ -467,7 +633,7 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert not result.entries_allowed
@@ -482,7 +648,7 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert result.entries_allowed
@@ -499,7 +665,7 @@ class TestEvaluateTick:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         assert result.entries_allowed
@@ -531,7 +697,7 @@ class TestTickResultSerialization:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now),
         )
         j = result.to_jsonable()
@@ -544,11 +710,11 @@ class TestTickResultSerialization:
 
 
 class TestSessionBundle:
-    def test_bundle_structure(self, tmp_path, monkeypatch):
+    def test_bundle_v2(self, tmp_path, monkeypatch):
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
-        ref = _make_artifact_ref(snap)
+        ref = _make_artifact_ref(snap, tmp_path)
         ticks = [
             evaluate_tick(
                 config=cfg,
@@ -571,16 +737,14 @@ class TestSessionBundle:
             artifact_ref=ref,
             stop_coverage=cov,
         )
-        assert bundle["schema_version"] == 1
-        assert bundle["source"] == "crypto_session"
-        assert bundle["session_date"] == "2026-07-12"
+        assert bundle["schema_version"] == 2
+        assert bundle["environment"] == "live"
+        assert bundle["quiet_interval_minutes"] == 15
         assert bundle["n_ticks"] == 3
         assert bundle["n_entries_allowed"] == 3
         assert bundle["signal_snapshot_digest"] == snap.digest()
-        assert bundle["artifact_ref"]["artifact_path"] == ref.artifact_path
-        assert bundle["artifact_ref"]["producer_run_id"] == ref.producer_run_id
-        assert bundle["stop_coverage"]["environment"] == "live"
-        assert bundle["stop_coverage"]["violations"] == 0
+        assert bundle["artifact_ref"]["producer_run_id"] == "test-run-001"
+        assert bundle["stop_coverage"]["account_id"] == "test-account-123"
         assert json.dumps(bundle)
 
     def test_bundle_without_provenance(self, tmp_path, monkeypatch):
@@ -682,32 +846,40 @@ class TestAdversarialStopCoverage:
         with pytest.raises(ValueError, match="violations"):
             StopCoverageReport(
                 timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
-                environment="live", positions_covered=5,
-                violations=-1, source_version="v1",
+                environment="live", account_id="acct",
+                positions_covered=5, violations=-1, source_version="v1",
             )
 
     def test_negative_positions_raises(self):
         with pytest.raises(ValueError, match="positions_covered"):
             StopCoverageReport(
                 timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
-                environment="live", positions_covered=-1,
-                violations=0, source_version="v1",
+                environment="live", account_id="acct",
+                positions_covered=-1, violations=0, source_version="v1",
             )
 
     def test_empty_environment_raises(self):
         with pytest.raises(ValueError, match="environment"):
             StopCoverageReport(
                 timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
-                environment="", positions_covered=5,
-                violations=0, source_version="v1",
+                environment="", account_id="acct",
+                positions_covered=5, violations=0, source_version="v1",
             )
 
     def test_empty_source_version_raises(self):
         with pytest.raises(ValueError, match="source_version"):
             StopCoverageReport(
                 timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
-                environment="live", positions_covered=5,
-                violations=0, source_version="",
+                environment="live", account_id="acct",
+                positions_covered=5, violations=0, source_version="",
+            )
+
+    def test_empty_account_id_raises(self):
+        with pytest.raises(ValueError, match="account_id"):
+            StopCoverageReport(
+                timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+                environment="live", account_id="",
+                positions_covered=5, violations=0, source_version="v1",
             )
 
 
@@ -717,9 +889,11 @@ class TestAdversarialEvaluateTick:
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
         now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        af = tmp_path / "forged.json"
+        af.write_text("{}")
         forged_ref = SignalArtifactRef(
             expected_digest="forged_but_wrong_digest_value_abc",
-            artifact_path="fake/path.json",
+            artifact_path=str(af),
             schema_version=1,
             producer_run_id="forged-run",
         )
@@ -742,7 +916,7 @@ class TestAdversarialEvaluateTick:
             config=cfg,
             now_utc=now,
             signal_snapshot=snap,
-            artifact_ref=_make_artifact_ref(snap),
+            artifact_ref=_make_artifact_ref(snap, tmp_path),
             stop_coverage=_make_stop_coverage(now, mode="paper"),
         )
         assert not result.entries_allowed
