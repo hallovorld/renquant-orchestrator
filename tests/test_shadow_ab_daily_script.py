@@ -144,11 +144,18 @@ def _stub_python(tmp_path: Path, *, real_python: str, sleep_seconds: float | Non
     capture_line = (
         f'printf "%s\\n" "$@" > "{argv_capture_path}"' if argv_capture_path is not None else ""
     )
+    trap_and_sleep = ""
+    if sleep_seconds is not None:
+        trap_and_sleep = (
+            f"sleep {sleep_seconds} &\n"
+            "        _child=$!\n"
+            '        trap "kill $_child 2>/dev/null; exit 143" TERM\n'
+            "        wait $_child"
+        )
     body = f"""#!/usr/bin/env bash
     if [[ "$*" == *"renquant_orchestrator shadow-ab"* ]]; then
         {capture_line}
-        {"sleep " + str(sleep_seconds) + " &" if sleep_seconds is not None else ""}
-        {"wait $!" if sleep_seconds is not None else ""}
+        {trap_and_sleep}
         echo '{{"exit_hint": {exit_code}}}'
         exit {exit_code}
     fi
