@@ -53,6 +53,7 @@
 | `design/2026-06-30-model-freshness-governance.md` | Model freshness RFC #210 |
 | `design/2026-07-03-m4b-relative-conviction-floor.md` | M4-b matched-breadth protocol |
 | `design/2026-07-03-d3-term-br-decision.md` | D3 term BR decision |
+| `design/2026-07-12-cash-drag-prospective-experiment-protocol.md` | 104 paired sizing-fidelity protocol and 105 measurement prerequisite |
 
 ## Superseded / Historical
 
