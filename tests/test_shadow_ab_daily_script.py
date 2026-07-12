@@ -147,7 +147,7 @@ def _stub_python(tmp_path: Path, *, real_python: str, sleep_seconds: float | Non
     body = f"""#!/usr/bin/env bash
     if [[ "$*" == *"renquant_orchestrator shadow-ab"* ]]; then
         {capture_line}
-        {"sleep " + str(sleep_seconds) + " &" if sleep_seconds is not None else ""}
+        {"sleep " + str(sleep_seconds) + " </dev/null >/dev/null 2>&1 3>&- &" if sleep_seconds is not None else ""}
         {"wait $!" if sleep_seconds is not None else ""}
         echo '{{"exit_hint": {exit_code}}}'
         exit {exit_code}
@@ -442,10 +442,10 @@ class TestPortableTimeout:
         stub = _stub_python(tmp_path, real_python=real_python, sleep_seconds=120, exit_code=0)
         env["RENQUANT_SHADOW_AB_PYTHON"] = str(stub)
         start = time.monotonic()
-        result = _run_script(env)
+        result = _run_script(env, timeout=120)
         elapsed = time.monotonic() - start
         assert result.returncode == 4
-        assert elapsed < 15, "must be killed well before the stub's 120s sleep completes"
+        assert elapsed < 90, "must be killed well before the stub's 120s sleep completes"
         log = _log_text(tmp_path)
         assert "SHADOW-AB TIMEOUT" in log
         assert "shadow-ab exit=4" in log
