@@ -1,180 +1,32 @@
-"""Tests for crypto Stage-0 paper battery (D-C12)."""
+"""Tests for the crypto Stage-0 paper battery CLI/orchestration (D-C12).
+
+2026-07-12 ownership split: the 7 broker-facing step checks (and their
+own unit tests) moved to renquant-execution
+(``renquant_execution.crypto_stage0_checks``, renquant-execution#32) —
+see ``scripts/crypto_stage0_battery.py``'s module docstring and
+``doc/progress/2026-07-12-crypto-stage0-battery.md`` for why. This file
+covers only what stays here: CLI argument parsing, --paper live-blocking,
+report aggregation, and JSON serialization — never real (or even
+alpaca-typed) broker calls. Every step-check function this module calls
+is monkeypatched with a fake at the module-qualified name, mirroring this
+file's own pre-existing ``_get_trading_client`` patch pattern (now
+``get_trading_client``) — so this suite needs no ``alpaca-py`` install at
+all (grep the file: it never references ``alpaca``).
+"""
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from scripts.crypto_stage0_battery import (
     BatteryReport,
     StepResult,
     run_battery,
-    step_buying_power,
-    step_crypto_status,
-    step_order_acceptance,
-    step_pair_snapshot,
-    step_stop_limit_acceptance,
 )
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
-
-def _fake_account(*, crypto_status="ACTIVE", **kwargs):
-    defaults = {
-        "id": "test-account-123",
-        "buying_power": "10000.00",
-        "cash": "10000.00",
-        "non_marginable_buying_power": "10000.00",
-        "crypto_buying_power": "10000.00",
-    }
-    defaults.update(kwargs)
-    defaults["crypto_status"] = crypto_status
-    return SimpleNamespace(**defaults)
-
-
-def _fake_crypto_asset(symbol, *, tradable=True):
-    return SimpleNamespace(
-        symbol=symbol,
-        name=f"Test {symbol}",
-        tradable=tradable,
-        min_order_size="0.0001",
-        min_trade_increment="0.0001",
-        price_increment="0.01",
-        fractionable=True,
-        marginable=False,
-        shortable=False,
-    )
-
-
-def _fake_order(order_id="order-abc-123"):
-    return SimpleNamespace(
-        id=order_id,
-        status="filled",
-        filled_avg_price="60000.50",
-        filled_qty="0.0001",
-        notional="6.00",
-    )
-
-
-# ── step_crypto_status ───────────────────────────────────────────────────────
-
-
-class TestCryptoStatus:
-    def test_active(self):
-        client = MagicMock()
-        client.get_account.return_value = _fake_account(crypto_status="ACTIVE")
-        result = step_crypto_status(client)
-        assert result.status == "PASS"
-        assert "ACTIVE" in result.detail
-
-    def test_inactive(self):
-        client = MagicMock()
-        client.get_account.return_value = _fake_account(crypto_status="INACTIVE")
-        result = step_crypto_status(client)
-        assert result.status == "FAIL"
-
-    def test_no_attribute(self):
-        client = MagicMock()
-        acct = SimpleNamespace(id="x")
-        client.get_account.return_value = acct
-        result = step_crypto_status(client)
-        assert result.status == "FAIL"
-        assert "no crypto_status" in result.detail
-
-    def test_api_error(self):
-        client = MagicMock()
-        client.get_account.side_effect = RuntimeError("API down")
-        result = step_crypto_status(client)
-        assert result.status == "ERROR"
-
-
-# ── step_pair_snapshot ───────────────────────────────────────────────────────
-
-
-class TestPairSnapshot:
-    def test_success(self):
-        client = MagicMock()
-        client.get_all_assets.return_value = [
-            _fake_crypto_asset("BTCUSD"),
-            _fake_crypto_asset("ETHUSD"),
-            _fake_crypto_asset("DOGEUSD", tradable=False),
-        ]
-        result = step_pair_snapshot(client)
-        assert result.status == "PASS"
-        assert result.data["pair_count"] == 2
-        assert "BTCUSD" in result.data["pairs"]
-
-    def test_no_tradable(self):
-        client = MagicMock()
-        client.get_all_assets.return_value = [
-            _fake_crypto_asset("BTCUSD", tradable=False),
-        ]
-        result = step_pair_snapshot(client)
-        assert result.status == "FAIL"
-
-
-# ── step_order_acceptance ────────────────────────────────────────────────────
-
-
-class TestOrderAcceptance:
-    def test_dry_run_skips(self):
-        client = MagicMock()
-        result = step_order_acceptance(client, dry_run=True)
-        assert result.status == "SKIP"
-
-    def test_all_accepted(self):
-        client = MagicMock()
-        client.submit_order.return_value = _fake_order()
-        result = step_order_acceptance(client, dry_run=False)
-        assert result.status == "PASS"
-        assert "3/3" in result.detail
-
-    def test_partial_failure(self):
-        client = MagicMock()
-        call_count = 0
-
-        def _side_effect(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 2:
-                raise RuntimeError("rejected")
-            return _fake_order(f"order-{call_count}")
-
-        client.submit_order.side_effect = _side_effect
-        result = step_order_acceptance(client, dry_run=False)
-        assert result.status == "FAIL"
-        assert "2/3" in result.detail
-
-
-# ── step_stop_limit_acceptance ───────────────────────────────────────────────
-
-
-class TestStopLimitAcceptance:
-    def test_dry_run_skips(self):
-        client = MagicMock()
-        result = step_stop_limit_acceptance(client, dry_run=True)
-        assert result.status == "SKIP"
-
-    def test_all_accepted(self):
-        client = MagicMock()
-        client.submit_order.return_value = _fake_order()
-        result = step_stop_limit_acceptance(client, dry_run=False)
-        assert result.status == "PASS"
-
-
-# ── step_buying_power ────────────────────────────────────────────────────────
-
-
-class TestBuyingPower:
-    def test_success(self):
-        client = MagicMock()
-        client.get_account.return_value = _fake_account()
-        result = step_buying_power(client)
-        assert result.status == "PASS"
-        assert "crypto_bp" in result.detail
+def _fake_step(name, status, detail="", data=None):
+    return StepResult(name, status, detail, data or {})
 
 
 # ── run_battery ──────────────────────────────────────────────────────────────
@@ -186,39 +38,103 @@ class TestRunBattery:
         assert report.failed > 0
         assert report.steps[0].name == "safety"
 
-    @patch("scripts.crypto_stage0_battery._get_trading_client")
-    def test_dry_run_completes(self, mock_client_fn):
-        client = MagicMock()
-        client.get_account.return_value = _fake_account()
-        client.get_all_assets.return_value = [
-            _fake_crypto_asset("BTCUSD"),
-            _fake_crypto_asset("ETHUSD"),
-        ]
-        mock_client_fn.return_value = client
+    @patch("scripts.crypto_stage0_battery.step_data_parity")
+    @patch("scripts.crypto_stage0_battery.step_buying_power")
+    @patch("scripts.crypto_stage0_battery.step_fee_from_fill")
+    @patch("scripts.crypto_stage0_battery.step_stop_limit_acceptance")
+    @patch("scripts.crypto_stage0_battery.step_order_acceptance")
+    @patch("scripts.crypto_stage0_battery.step_pair_snapshot")
+    @patch("scripts.crypto_stage0_battery.step_crypto_status")
+    @patch("scripts.crypto_stage0_battery.get_trading_client")
+    def test_dry_run_completes(
+        self,
+        mock_client_fn,
+        mock_crypto_status,
+        mock_pair_snapshot,
+        mock_order_acceptance,
+        mock_stop_limit,
+        mock_fee_from_fill,
+        mock_buying_power,
+        mock_data_parity,
+    ):
+        mock_client_fn.return_value = MagicMock()
+        mock_crypto_status.return_value = _fake_step(
+            "crypto_status", "PASS", "crypto_status=ACTIVE",
+            {"account_id": "test-account-123"},
+        )
+        mock_pair_snapshot.return_value = _fake_step(
+            "pair_snapshot", "PASS", "2 tradable crypto pairs",
+        )
+        mock_order_acceptance.return_value = _fake_step(
+            "order_acceptance", "SKIP", "Skipped in dry-run mode (no orders placed)",
+        )
+        mock_stop_limit.return_value = _fake_step(
+            "stop_limit_acceptance", "SKIP", "Skipped in dry-run mode",
+        )
+        mock_fee_from_fill.return_value = _fake_step(
+            "fee_from_fill", "SKIP", "Skipped in dry-run mode",
+        )
+        mock_buying_power.return_value = _fake_step(
+            "buying_power", "PASS", "cash=10000.00, crypto_bp=10000.00",
+        )
+        mock_data_parity.return_value = _fake_step(
+            "data_parity", "SKIP", "Skipped in dry-run mode",
+        )
 
         report = run_battery(paper=True, dry_run=True)
         assert report.environment == "paper"
         assert report.dry_run is True
         assert len(report.steps) == 7
+        assert report.account_id == "test-account-123"
         assert report.steps[0].status == "PASS"  # crypto_status
         assert report.steps[1].status == "PASS"  # pair_snapshot
         assert report.steps[2].status == "SKIP"  # order_acceptance (dry)
         assert report.steps[3].status == "SKIP"  # stop_limit (dry)
         assert report.steps[4].status == "SKIP"  # fee_from_fill (dry)
         assert report.steps[5].status == "PASS"  # buying_power
+        assert report.steps[6].status == "SKIP"  # data_parity (dry)
+        mock_order_acceptance.assert_called_once_with(mock_client_fn.return_value, dry_run=True)
+        mock_stop_limit.assert_called_once_with(mock_client_fn.return_value, dry_run=True)
+        mock_fee_from_fill.assert_called_once_with(mock_client_fn.return_value, dry_run=True)
+        mock_data_parity.assert_called_once_with(dry_run=True)
 
-    @patch("scripts.crypto_stage0_battery._get_trading_client")
-    def test_summary_json_serializable(self, mock_client_fn):
-        client = MagicMock()
-        client.get_account.return_value = _fake_account()
-        client.get_all_assets.return_value = [_fake_crypto_asset("BTCUSD")]
-        mock_client_fn.return_value = client
+    @patch("scripts.crypto_stage0_battery.step_data_parity")
+    @patch("scripts.crypto_stage0_battery.step_buying_power")
+    @patch("scripts.crypto_stage0_battery.step_fee_from_fill")
+    @patch("scripts.crypto_stage0_battery.step_stop_limit_acceptance")
+    @patch("scripts.crypto_stage0_battery.step_order_acceptance")
+    @patch("scripts.crypto_stage0_battery.step_pair_snapshot")
+    @patch("scripts.crypto_stage0_battery.step_crypto_status")
+    @patch("scripts.crypto_stage0_battery.get_trading_client")
+    def test_summary_json_serializable(
+        self,
+        mock_client_fn,
+        mock_crypto_status,
+        mock_pair_snapshot,
+        mock_order_acceptance,
+        mock_stop_limit,
+        mock_fee_from_fill,
+        mock_buying_power,
+        mock_data_parity,
+    ):
+        mock_client_fn.return_value = MagicMock()
+        mock_crypto_status.return_value = _fake_step(
+            "crypto_status", "PASS", "crypto_status=ACTIVE",
+            {"account_id": "test-account-123"},
+        )
+        mock_pair_snapshot.return_value = _fake_step("pair_snapshot", "PASS")
+        mock_order_acceptance.return_value = _fake_step("order_acceptance", "SKIP")
+        mock_stop_limit.return_value = _fake_step("stop_limit_acceptance", "SKIP")
+        mock_fee_from_fill.return_value = _fake_step("fee_from_fill", "SKIP")
+        mock_buying_power.return_value = _fake_step("buying_power", "PASS")
+        mock_data_parity.return_value = _fake_step("data_parity", "SKIP")
 
         report = run_battery(paper=True, dry_run=True)
         out = json.dumps(report.summary(), default=str)
         parsed = json.loads(out)
         assert parsed["environment"] == "paper"
         assert isinstance(parsed["steps"], list)
+        assert len(parsed["steps"]) == 7
 
 
 # ── BatteryReport ────────────────────────────────────────────────────────────
