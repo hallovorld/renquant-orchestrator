@@ -38,26 +38,37 @@ testable even before that follow-up lands:
    it only names the convention a migrated writer should land under
    (``~/.renquant/runtime/software-stops/<broker>.json``) and reads
    against it.
-2. A **versioned envelope contract** (``schema_version`` +
-   ``kind: "software-stops-registry"``) a migrated writer would stamp into
-   the registry file, plus a fail-closed reader
-   (:func:`classify_registry_file`) that returns an explicit
-   ``unversioned``/``invalid`` verdict — never a silent pass — for a file
-   lacking that envelope. Every registry file written before the writer
-   migration lands is, correctly and by design, ``unversioned``.
-3. A **data-root classifier** (:func:`classify_data_root`) the pager
+2. A **data-root classifier** (:func:`classify_data_root`) the pager
    wrapper uses to observe — not silently accept — whether its configured
    data root is the neutral root or a legacy/umbrella-anchored path,
    producing a clearly labeled message for the latter (today's honest,
    actual production configuration).
+
+Content correction (Codex CHANGES_REQUESTED on PR #481, 2026-07-12T04:32:57Z):
+an earlier revision of this module also invented a versioned "envelope"
+content schema (``schema_version`` / ``kind`` keys, ``classify_registry_file``)
+that this repo does not own and that never corresponded to anything the real
+writer (``renquant_pipeline.software_stops``) actually produces. Codex
+correctly held that the canonical registry CONTENT contract belongs to the
+producing/liveness-owning subsystem — ``renquant-pipeline`` (the schema,
+``software_stops.py``) and ``renquant-execution`` (the liveness checker,
+``software_stops_liveness.py``) — not orchestrator, which should schedule and
+consume a versioned execution CLI/record rather than define a parallel
+read-side schema. That envelope machinery has been removed. Registry CONTENT
+validity is now delegated entirely to
+``renquant_execution.software_stops_liveness.check()`` (and, at a lower
+level, ``renquant_pipeline.software_stops._validate_snapshot`` — the real,
+already-existing schema owned by the producing repo). This module owns
+LOCATION only (the neutral runtime-state-root convention and the
+NEUTRAL-vs-LEGACY path classifier below) — it never owns or re-derives
+content schema. See ``scripts/install_stops_pager.sh`` for where that real
+validator is now invoked as a fail-closed pre-install guard.
 """
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 # --- neutral runtime-state root (mirrors deployment_manifest.deploy_state_root) ------
 
@@ -68,18 +79,6 @@ RUNTIME_STATE_ROOT_ENV = "RENQUANT_RUNTIME_STATE_ROOT"
 DEFAULT_RUNTIME_STATE_ROOT = Path("~/.renquant/runtime")
 
 SOFTWARE_STOPS_REGISTRY_DIRNAME = "software-stops"
-
-#: The versioned envelope a migrated writer would stamp into the registry
-#: file. NOT the registry's business schema (per-ticker fields, heartbeat
-#: semantics) — that stays renquant-pipeline/renquant-execution's; this is
-#: only the location/versioning wrapper this repo can own.
-REGISTRY_ENVELOPE_SCHEMA_VERSION = 1
-REGISTRY_ENVELOPE_KIND = "software-stops-registry"
-
-VERDICT_MISSING = "missing"
-VERDICT_UNVERSIONED = "unversioned"
-VERDICT_INVALID = "invalid"
-VERDICT_VALID = "valid"
 
 
 def runtime_state_root(override: str | Path | None = None) -> Path:
@@ -163,62 +162,3 @@ def describe_data_root(
     """One-line status string — lets a caller (the bash wrapper) do a
     single function call instead of unpacking the dataclass itself."""
     return classify_data_root(data_root, runtime_root=runtime_root).message
-
-
-# --- registry-file ENVELOPE contract (versioning marker only) ----------------------
-
-
-def registry_envelope_problems(payload: Any) -> list[str]:
-    """Schema problems for the versioned envelope a migrated writer would
-    stamp. Mirrors ``deployment_manifest.runtime_inventory_problems``'s
-    fail-closed style. This is for a payload that CLAIMS an envelope
-    (has a ``schema_version`` key at all) — a legacy file with none is
-    "unversioned", not "invalid"; see :func:`classify_registry_file`."""
-    if not isinstance(payload, dict):
-        return ["registry file must be a JSON object"]
-    problems: list[str] = []
-    if payload.get("schema_version") != REGISTRY_ENVELOPE_SCHEMA_VERSION:
-        problems.append(f"schema_version must be {REGISTRY_ENVELOPE_SCHEMA_VERSION}")
-    if payload.get("kind") != REGISTRY_ENVELOPE_KIND:
-        problems.append(f"kind must be {REGISTRY_ENVELOPE_KIND!r}")
-    return problems
-
-
-@dataclass(frozen=True)
-class RegistryFileVerdict:
-    status: str  # one of VERDICT_MISSING / VERDICT_UNVERSIONED / VERDICT_INVALID / VERDICT_VALID
-    detail: str
-
-
-def classify_registry_file(path: str | Path) -> RegistryFileVerdict:
-    """Fail-closed read-side validator for the registry file's envelope.
-
-    Never raises: a missing, unreadable, malformed, or unversioned file is
-    an EXPLICIT verdict, never a silent pass — the "read-side validator
-    that fails closed... on an unversioned or wrong-schema file" Codex
-    asked for. Returns ``VERDICT_VALID`` only for a file carrying BOTH the
-    correct ``schema_version`` and ``kind`` — the shape a migrated writer
-    would produce. No registry file written before that migration can pass
-    (by design: today's real files carry neither key).
-    """
-    registry_path = Path(path)
-    if not registry_path.is_file():
-        return RegistryFileVerdict(VERDICT_MISSING, f"no registry file at {registry_path}")
-    try:
-        payload = json.loads(registry_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        return RegistryFileVerdict(
-            VERDICT_INVALID, f"{registry_path} unreadable or not JSON: {exc}"
-        )
-    if not isinstance(payload, dict) or "schema_version" not in payload:
-        return RegistryFileVerdict(
-            VERDICT_UNVERSIONED,
-            f"{registry_path} carries no versioned envelope "
-            "(schema_version/kind) — legacy/pre-migration registry file",
-        )
-    problems = registry_envelope_problems(payload)
-    if problems:
-        return RegistryFileVerdict(VERDICT_INVALID, f"{registry_path}: " + "; ".join(problems))
-    return RegistryFileVerdict(
-        VERDICT_VALID, f"{registry_path}: valid v{REGISTRY_ENVELOPE_SCHEMA_VERSION} envelope"
-    )

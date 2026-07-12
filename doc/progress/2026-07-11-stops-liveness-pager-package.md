@@ -1,6 +1,6 @@
 # Software-stop liveness pager — landing package
 
-Date: 2026-07-11 (round 4 — data-root resolved to neutral path)
+Date: 2026-07-11, updated 2026-07-12 (round 5 — envelope schema removed, install-time fail-closed guard)
 PR: ops(stops): software-stop liveness pager package (#471 shortlist item 2)
 
 **STATUS: MERGEABLE as a staged DARK template.** No umbrella dependency
@@ -37,6 +37,84 @@ The trade-off is explicit: the pager cannot find registry data at this path
 until the writer migration lands. This is correct — the plist is a DARK
 template, not an armed service. Fail-closed (STALE on missing file) is the
 right posture for an uninstalled template pointing at its target-state path.
+
+## Correction (round 5 — envelope schema removed, install-time fail-closed guard)
+
+Codex blocked round-4 HEAD (`a83ca971`) with review timestamp
+2026-07-12T04:32:57Z, on two independent grounds:
+
+1. **Ownership.** Round 3's `software_stops_registry_contract.py` did not
+   just define the neutral runtime-state-root LOCATION convention (legitimate
+   orchestrator territory, mirroring `deployment_manifest.deploy_state_root`)
+   — it also invented a versioned "envelope" CONTENT schema
+   (`schema_version`/`kind` keys, `classify_registry_file`) that this repo
+   does not own and that never corresponded to anything the real writer
+   (`renquant_pipeline.software_stops`) actually produces (confirmed by
+   grep: that machinery was never called from either script — dead,
+   speculative code). Codex: the canonical registry envelope belongs to the
+   producing/liveness-owning subsystem (`renquant-pipeline`/
+   `renquant-execution`), not orchestrator, which should schedule and
+   consume a versioned execution CLI/record rather than define a parallel
+   read-side schema.
+2. **Fail-open install.** The DARK template points at a directory with no
+   migrated writer, and the only documented consequence was a STALE page —
+   but darkness is not itself a runtime safety control: `install_stops_pager.sh
+   --apply` did zero verification before bootstrapping the launchd job, so an
+   operator could run `install --apply` before the writer migration and get a
+   false critical alarm (or, if the registry file simply never existed, a
+   pager that could never detect anything).
+
+**What changed:**
+
+- `software_stops_registry_contract.py`: the envelope machinery
+  (`REGISTRY_ENVELOPE_SCHEMA_VERSION`, `REGISTRY_ENVELOPE_KIND`,
+  `VERDICT_MISSING`/`UNVERSIONED`/`INVALID`/`VALID`, `RegistryFileVerdict`,
+  `registry_envelope_problems`, `classify_registry_file`) is deleted
+  entirely. The module now owns LOCATION only —
+  `runtime_state_root`/`software_stops_registry_root`/
+  `software_stops_registry_path`/`classify_data_root`/`describe_data_root`
+  are unchanged. Registry CONTENT validity is delegated entirely to
+  `renquant_execution.software_stops_liveness.check()` (in turn backed by
+  `renquant_pipeline.software_stops._validate_snapshot`, the real,
+  already-existing schema owned by the producing repo) — the module
+  docstring cites this review and states the ownership split explicitly.
+- `scripts/install_stops_pager.sh`: `install --apply` now runs a fail-closed
+  pre-install guard *before* any `mkdir`/`cp`/`launchctl bootstrap` step. It
+  resolves `RENQUANT_STOPS_PAGER_DATA_ROOT`/`RENQUANT_STOPS_PAGER_PYTHON`
+  from the environment (test/operator override) or, falling back, parses
+  them out of the committed plist's `EnvironmentVariables` via
+  `python3 -c`+`plistlib` (robust XML parsing, not grep/sed — Python is
+  already a hard runtime dependency of this script). It resolves the pinned
+  `renquant-pipeline`/`renquant-execution` checkouts through the same R-PIN
+  Stage-1 runtime-inventory approach `stops_liveness_pager.sh` already uses,
+  then calls the REAL `renquant_execution.software_stops_liveness.resolve_registry_path`
+  + `_pipeline_stops_api().validate_snapshot` against the resolved path.
+  Missing or corrupt/unparseable registry ⇒ refuse with a specific error and
+  exit nonzero (3), before touching the filesystem or launchd. A registry
+  that exists and parses cleanly — including zero armed stops, a legitimate
+  empty-but-valid state — passes. The guard only gates `install --apply`;
+  `uninstall`/`status`/`test-fire` are untouched, and a plain `install`
+  dry-run prints an informational one-liner instead of hard-failing.
+  `scripts/stops_liveness_pager.sh` itself was not modified (its existing
+  tests were re-run unchanged, before and after, to confirm no regression).
+- Tests: `tests/test_software_stops_registry_contract.py` drops every
+  envelope-machinery test (9 remain, all LOCATION-side).
+  `tests/test_stops_liveness_pager.py` gains a regression suite for the new
+  guard — missing-registry refusal, corrupt-registry refusal, and the
+  legitimate zero-armed-stops-but-valid pass — reusing the existing
+  `_fake_state_root` runtime-inventory fixture machinery with a new stub
+  module content parameter (`_STUB_REGISTRY_MODULE`) rather than inventing
+  a new fixture. The existing happy-path install test now supplies a valid
+  registry fixture, since it would otherwise correctly be refused by the
+  new guard.
+
+**Unchanged, still tracked, still blocking:** the writer migration itself
+(the sell-only loop stamping the registry at the neutral runtime-state root)
+and the SLA/authorization gates (see "Honest alert-latency envelope" below)
+remain separately-authorized follow-ups, exactly as before. This package is
+still staged **DARK** and `strategy-104#55`/`#56` remain **blocked** on
+those — this round closes the "false critical alarm from an unmigrated
+writer path" gap Codex flagged, nothing more.
 
 ## Bottom line
 
@@ -131,19 +209,21 @@ Codex reviewed round 2 and held that CODE resolution through R-PIN did not
 close the DATA-authority issue. Round 3 added the neutral contract module
 (`software_stops_registry_contract.py` — runtime_state_root, versioned
 envelope, classify_data_root) and per-run WARNING in the wrapper, but left
-the plist value at the umbrella path. See round 4 (above) for the
-resolution.
+the plist value at the umbrella path. See round 4 (above) for the data-root
+resolution, and round 5 (above) for the removal of round 3's versioned
+envelope (Codex correctly held it was an unowned, unused, invented content
+schema — see "Correction (round 5)").
 
 ## What ships (this repo)
 
 | File | Role |
 |---|---|
 | `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash`, logs to the neutral `~/.renquant/ops/stops-liveness/` root, `RENQUANT_STOPS_PAGER_DATA_ROOT` = neutral runtime-state root (`~/.renquant/runtime/software-stops`), explicit `RENQUANT_STOPS_PAGER_PYTHON` / `RENQUANT_STOPS_PAGER_NTFY_TOPIC` (never a script default, no umbrella reference) |
-| `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common checkouts through the R-PIN runtime inventory (`deployment_manifest.load_runtime_inventory`), runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or inventory-resolution failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure |
-| `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root |
-| `src/renquant_orchestrator/software_stops_registry_contract.py` | **NEW, round 3**: the READ-side registry-file contract — neutral runtime-state-root convention (mirrors `deployment_manifest.deploy_state_root`) + versioned envelope + fail-closed `classify_registry_file` / `classify_data_root`. Does NOT define the registry's business schema (renquant-pipeline/renquant-execution's) and does NOT migrate the writer (see "BLOCKING FOLLOW-UP") |
-| `tests/test_stops_liveness_pager.py` | 24 hermetic tests (was 22, +2 round 3): plist shape + live-topic pin + explicit-python/data-root pin (no umbrella `.venv` reference) + neutral log root, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, RUNTIME-CONTRACT fail-closed check, a REAL (non-faked) exercise of the runtime-inventory resolution path — success against a schema-valid fake inventory + stub execution checkout, and failure against an empty state root proving a resolution failure pages rather than dying dark — installer dry-run/apply/uninstall/status with a recording launchctl stub — plus the round-3 legacy-data-root WARNING and its absence-when-neutral |
-| `tests/test_software_stops_registry_contract.py` | **NEW, round 3**: 18 unit tests for the registry contract module above |
+| `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common checkouts through the R-PIN runtime inventory (`deployment_manifest.load_runtime_inventory`), runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or inventory-resolution failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure. Unchanged in round 5. |
+| `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root. **Round 5**: `install --apply` now runs a fail-closed pre-install guard (resolves the same data root/interpreter, resolves pins the same way as the wrapper, and calls the REAL `renquant_execution.software_stops_liveness` validators) that refuses to proceed on a missing or corrupt registry — see "Correction (round 5)" |
+| `src/renquant_orchestrator/software_stops_registry_contract.py` | the READ-side registry-file **LOCATION** contract — neutral runtime-state-root convention (mirrors `deployment_manifest.deploy_state_root`) + fail-closed `classify_data_root`/`describe_data_root`. **Round 5**: the round-3 versioned CONTENT envelope (`classify_registry_file` and friends) was removed — content validity now delegates entirely to `renquant_execution.software_stops_liveness` |
+| `tests/test_stops_liveness_pager.py` | 28 hermetic tests: plist shape + live-topic pin + explicit-python/data-root pin (no umbrella `.venv` reference) + neutral log root, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, RUNTIME-CONTRACT fail-closed check, a REAL (non-faked) exercise of the runtime-inventory resolution path, the legacy-data-root WARNING and its absence-when-neutral, installer dry-run/apply/uninstall/status with a recording launchctl stub, and (**round 5**) the install `--apply` registry guard: missing-registry refusal, corrupt-registry refusal, zero-armed-stops-but-valid pass, dry-run non-hard-fail |
+| `tests/test_software_stops_registry_contract.py` | 9 unit tests for the LOCATION-only contract module above (was 18 pre-round-5; the 9 removed were envelope-machinery tests for the deleted code) |
 
 ## Companion PR (renquant-execution)
 

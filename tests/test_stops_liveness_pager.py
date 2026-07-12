@@ -26,6 +26,18 @@ REAL end-to-end resolution against a schema-valid fake inventory pointing
 at a stub execution checkout, and the resolution-failure page path against
 an empty state root, using only stdlib (deployment_manifest.py has no
 third-party dependency).
+
+Round 5 (Codex CHANGES_REQUESTED, 2026-07-12T04:32:57Z): install_stops_pager.sh
+`install --apply` now runs a fail-closed pre-install guard that refuses to
+arm the pager unless a versioned, VALID registry already exists at the
+configured data root, resolved through the SAME pin-resolution approach and
+verified by (a hermetic stub of) the real renquant_execution /
+renquant_pipeline validators — never a re-derived schema. The
+"install --apply registry guard" tests below cover missing-registry,
+corrupt-registry, and the legitimate zero-armed-stops-but-valid case,
+reusing `_fake_state_root`'s fixture machinery with a different stub module
+(`_STUB_REGISTRY_MODULE`) since the guard imports real Python names rather
+than shelling out to a CLI.
 """
 from __future__ import annotations
 
@@ -270,16 +282,51 @@ print(os.environ.get("FAKE_STOPS_MSG", "OK: stub"), "argv=" + " ".join(sys.argv[
 sys.exit(int(os.environ.get("FAKE_STOPS_EXIT", "0")))
 """
 
+# Fake ``renquant_execution.software_stops_liveness`` module used by the
+# install-guard tests (below): unlike ``_STUB_CLI`` (a bare CLI script the
+# wrapper only shells out to and inspects exit code/stdout for), the install
+# guard IMPORTS ``resolve_registry_path`` and ``_pipeline_stops_api`` as real
+# Python objects (scripts/install_stops_pager.sh), so this stub provides
+# those two names with the same call shape as the real module —
+# deliberately hermetic (no dependency on the real, dependency-heavy
+# ``renquant_pipeline`` package), matching the wrapper tests' own philosophy
+# of never touching real renquant_pipeline in this suite.
+_STUB_REGISTRY_MODULE = """\
+from pathlib import Path
 
-def _fake_state_root(tmp_path: Path) -> Path:
+
+def resolve_registry_path(*, registry=None, data_root=None, broker="alpaca", _api=None):
+    if registry:
+        return Path(registry)
+    return Path(data_root) / f"{broker}.json"
+
+
+class _FakeStopsApi:
+    def validate_snapshot(self, raw):
+        if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(
+            raw.get("stops"), dict
+        ):
+            raise ValueError("fake registry schema violation")
+        return raw
+
+
+def _pipeline_stops_api():
+    return _FakeStopsApi()
+"""
+
+
+def _fake_state_root(tmp_path: Path, *, exec_module_content: str = _STUB_CLI) -> Path:
     """A fake R-PIN state root whose runtime inventory (REAL schema v1,
     validated by the real reader) points at stub pinned checkouts. The stub
-    execution checkout carries a fake
-    ``renquant_execution.software_stops_liveness`` driven by env vars."""
+    execution checkout carries a fake ``renquant_execution.software_stops_liveness``
+    module. Default content (``_STUB_CLI``) is a CLI-style script driven by
+    env vars, used by the wrapper tests; the install-guard tests (below)
+    pass ``exec_module_content=_STUB_REGISTRY_MODULE`` instead, since the
+    guard imports real Python names rather than shelling out."""
     exec_pkg = tmp_path / "pin-exec" / "src" / "renquant_execution"
     exec_pkg.mkdir(parents=True)
     (exec_pkg / "__init__.py").write_text("", encoding="utf-8")
-    (exec_pkg / "software_stops_liveness.py").write_text(_STUB_CLI, encoding="utf-8")
+    (exec_pkg / "software_stops_liveness.py").write_text(exec_module_content, encoding="utf-8")
     stub_repos = {"renquant-execution": {"path": str(tmp_path / "pin-exec")}}
     # the wrapper resolves the checker's full first-party import closure
     for name in (
@@ -517,11 +564,37 @@ def _installer_env(tmp_path: Path) -> dict:
     }
 
 
-def _run_installer(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
+def _run_installer(
+    tmp_path: Path, *args: str, env_extra: "dict | None" = None
+) -> subprocess.CompletedProcess:
+    env = _installer_env(tmp_path)
+    if env_extra:
+        env.update(env_extra)
     return subprocess.run(
         ["bash", str(INSTALLER), *args],
-        env=_installer_env(tmp_path), text=True, capture_output=True, timeout=60,
+        env=env, text=True, capture_output=True, timeout=60,
     )
+
+
+def _valid_registry_install_env(tmp_path: Path, *, broker: str = "alpaca") -> dict:
+    """The full env the install --apply fail-closed guard (Codex review,
+    2026-07-12T04:32:57Z) needs to PASS: a fake R-PIN state root (schema-
+    valid runtime inventory pointing at stub pinned renquant-execution /
+    renquant-pipeline / ... checkouts — same machinery as
+    ``_fake_state_root`` above, reused rather than reinvented) plus a
+    VALID registry file already present at the resolved data root."""
+    state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
+    data_root = tmp_path / "registry-data-root"
+    data_root.mkdir()
+    (data_root / f"{broker}.json").write_text(
+        json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
+    )
+    return {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_BROKER": broker,
+    }
 
 
 def test_install_dry_run_echoes_and_changes_nothing(tmp_path):
@@ -535,7 +608,8 @@ def test_install_dry_run_echoes_and_changes_nothing(tmp_path):
 
 
 def test_install_apply_copies_plist_and_bootstraps(tmp_path):
-    proc = _run_installer(tmp_path, "install", "--apply")
+    env_extra = _valid_registry_install_env(tmp_path)
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     dst = tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist"
     assert dst.read_bytes() == PLIST_PATH.read_bytes()
@@ -544,9 +618,87 @@ def test_install_apply_copies_plist_and_bootstraps(tmp_path):
     assert any(c.startswith("bootout ") for c in calls)
     assert any(c.startswith("bootstrap gui/") for c in calls)
     # idempotent: a second apply converges without error
-    again = _run_installer(tmp_path, "install", "--apply")
+    again = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert again.returncode == 0, again.stderr
     assert "already in sync" in again.stdout
+
+
+# ------------------------------------------ install --apply registry guard
+
+def test_install_apply_refuses_when_registry_missing(tmp_path):
+    """Codex CHANGES_REQUESTED on PR #481 (2026-07-12T04:32:57Z): darkness
+    alone is not a runtime safety control -- an operator running --apply
+    before the writer migration must be refused, not silently armed against
+    a path with no migrated writer (which would later produce a false
+    critical alarm). No registry file exists at the configured data root
+    here, so the guard must refuse BEFORE any mkdir/cp/bootstrap step."""
+    state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
+    data_root = tmp_path / "registry-data-root"
+    data_root.mkdir()  # directory exists, but no registry file inside it
+    env_extra = {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_BROKER": "alpaca",
+    }
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "no software-stop registry file" in proc.stderr
+    assert not (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists(), (
+        "must not copy the plist when the registry guard fails"
+    )
+    assert not (tmp_path / "launchctl_calls.log").exists(), (
+        "must not invoke launchctl bootstrap when the registry guard fails"
+    )
+
+
+def test_install_apply_refuses_when_registry_corrupt(tmp_path):
+    """Same guard, CORRUPT-file branch: a registry file exists at the
+    configured data root but is not valid JSON / does not pass the real
+    schema validator. Must refuse exactly like the missing-file case --
+    an unreadable registry is not evidence the writer migration landed
+    cleanly."""
+    state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
+    data_root = tmp_path / "registry-data-root"
+    data_root.mkdir()
+    (data_root / "alpaca.json").write_text("not json{{{", encoding="utf-8")
+    env_extra = {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+        "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        "RENQUANT_STOPS_PAGER_BROKER": "alpaca",
+    }
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "CORRUPT" in proc.stderr
+    assert not (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists(), (
+        "must not copy the plist when the registry guard fails"
+    )
+    assert not (tmp_path / "launchctl_calls.log").exists(), (
+        "must not invoke launchctl bootstrap when the registry guard fails"
+    )
+
+
+def test_install_apply_passes_with_zero_armed_stops(tmp_path):
+    """A registry that exists and parses cleanly but has zero armed stops
+    is a legitimate empty-but-valid state (nothing has ever armed yet) and
+    must PASS the guard -- the guard checks validity, not emptiness."""
+    env_extra = _valid_registry_install_env(tmp_path)
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode == 0, proc.stderr
+    assert "GUARD OK" in proc.stderr
+    assert (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists()
+
+
+def test_install_dry_run_does_not_hard_fail_without_registry(tmp_path):
+    """install (no --apply) must stay a pure echo-only dry-run even with no
+    registry/inventory/env configured at all -- the guard only gates
+    --apply."""
+    proc = _run_installer(tmp_path, "install")
+    assert proc.returncode == 0, proc.stderr
+    assert "DRY-RUN" in proc.stdout
+    assert not (tmp_path / "LaunchAgents").exists()
+    assert not (tmp_path / "launchctl_calls.log").exists()
 
 
 def test_uninstall_apply_removes_plist_and_boots_out(tmp_path):
