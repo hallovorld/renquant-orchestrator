@@ -38,6 +38,7 @@ class TestRunBattery:
         assert report.failed > 0
         assert report.steps[0].name == "safety"
 
+    @patch("scripts.crypto_stage0_battery._HAS_CHECKS", True)
     @patch("scripts.crypto_stage0_battery.step_data_parity")
     @patch("scripts.crypto_stage0_battery.step_buying_power")
     @patch("scripts.crypto_stage0_battery.step_fee_from_fill")
@@ -98,6 +99,7 @@ class TestRunBattery:
         mock_fee_from_fill.assert_called_once_with(mock_client_fn.return_value, dry_run=True)
         mock_data_parity.assert_called_once_with(dry_run=True)
 
+    @patch("scripts.crypto_stage0_battery._HAS_CHECKS", True)
     @patch("scripts.crypto_stage0_battery.step_data_parity")
     @patch("scripts.crypto_stage0_battery.step_buying_power")
     @patch("scripts.crypto_stage0_battery.step_fee_from_fill")

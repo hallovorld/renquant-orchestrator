@@ -45,17 +45,44 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from renquant_execution.crypto_stage0_checks import (
-    StepResult,
-    get_trading_client,
-    step_buying_power,
-    step_crypto_status,
-    step_data_parity,
-    step_fee_from_fill,
-    step_order_acceptance,
-    step_pair_snapshot,
-    step_stop_limit_acceptance,
-)
+try:
+    from renquant_execution.crypto_stage0_checks import (
+        StepResult,
+        get_trading_client,
+        step_buying_power,
+        step_crypto_status,
+        step_data_parity,
+        step_fee_from_fill,
+        step_order_acceptance,
+        step_pair_snapshot,
+        step_stop_limit_acceptance,
+    )
+
+    _HAS_CHECKS = True
+except ImportError:
+    _HAS_CHECKS = False
+
+    from dataclasses import dataclass, field as _field
+    from typing import Any as _Any
+
+    @dataclass
+    class StepResult:
+        name: str
+        status: str
+        detail: str = ""
+        data: dict[str, _Any] = _field(default_factory=dict)
+
+    def _not_available(*a, **kw):
+        raise ImportError("renquant_execution.crypto_stage0_checks not available")
+
+    get_trading_client = _not_available
+    step_buying_power = _not_available
+    step_crypto_status = _not_available
+    step_data_parity = _not_available
+    step_fee_from_fill = _not_available
+    step_order_acceptance = _not_available
+    step_pair_snapshot = _not_available
+    step_stop_limit_acceptance = _not_available
 
 logging.basicConfig(
     level=logging.INFO,
@@ -112,6 +139,16 @@ def run_battery(*, paper: bool, dry_run: bool) -> BatteryReport:
     if not paper:
         report.steps.append(
             StepResult("safety", "FAIL", "Battery requires --paper flag")
+        )
+        return report
+
+    if not _HAS_CHECKS:
+        report.steps.append(
+            StepResult(
+                "dependency",
+                "FAIL",
+                "renquant_execution.crypto_stage0_checks not installed",
+            )
         )
         return report
 
