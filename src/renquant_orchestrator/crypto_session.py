@@ -99,6 +99,9 @@ class SignalSnapshot:
 MAX_WATERMARK_STALENESS_DAYS = 2
 
 
+CURRENT_ARTIFACT_SCHEMA_VERSION = 1
+
+
 @dataclass(frozen=True)
 class SignalArtifactRef:
     """Provenance reference for the expected signal artifact."""
@@ -108,6 +111,26 @@ class SignalArtifactRef:
     schema_version: int
     producer_run_id: str
 
+    def __post_init__(self) -> None:
+        if not self.expected_digest or not self.expected_digest.strip():
+            raise ValueError("expected_digest must be non-empty")
+        if not self.artifact_path or not self.artifact_path.strip():
+            raise ValueError("artifact_path must be non-empty")
+        if self.schema_version < 1:
+            raise ValueError(f"schema_version must be >= 1, got {self.schema_version}")
+        if not self.producer_run_id or not self.producer_run_id.strip():
+            raise ValueError("producer_run_id must be non-empty")
+
+    def validate(self) -> tuple[bool, str]:
+        if not Path(self.artifact_path).exists():
+            return False, f"artifact_path does not exist: {self.artifact_path}"
+        if self.schema_version != CURRENT_ARTIFACT_SCHEMA_VERSION:
+            return False, (
+                f"schema_version mismatch: got {self.schema_version}, "
+                f"expected {CURRENT_ARTIFACT_SCHEMA_VERSION}"
+            )
+        return True, "artifact ref valid"
+
 
 @dataclass(frozen=True)
 class StopCoverageReport:
@@ -115,9 +138,29 @@ class StopCoverageReport:
 
     timestamp_utc: dt.datetime
     environment: str
+    account_id: str
     positions_covered: int
     violations: int
     source_version: str
+
+    def __post_init__(self) -> None:
+        if not self.environment or not self.environment.strip():
+            raise ValueError("environment must be non-empty")
+        if not self.account_id or not self.account_id.strip():
+            raise ValueError("account_id must be non-empty")
+        if self.positions_covered < 0:
+            raise ValueError(f"positions_covered must be >= 0, got {self.positions_covered}")
+        if self.violations < 0:
+            raise ValueError(f"violations must be >= 0, got {self.violations}")
+        if not self.source_version or not self.source_version.strip():
+            raise ValueError("source_version must be non-empty")
+
+    def validate(self) -> tuple[bool, str]:
+        if self.environment not in ("live", "paper"):
+            return False, f"environment must be live or paper, got {self.environment}"
+        if self.timestamp_utc.tzinfo is None:
+            return False, "timestamp_utc must be timezone-aware"
+        return True, "stop coverage valid"
 
     def is_fresh(self, now_utc: dt.datetime, max_age_seconds: int = 300) -> bool:
         age = (now_utc - self.timestamp_utc).total_seconds()
@@ -264,6 +307,21 @@ def validate_digest(
     return True, "digest verified"
 
 
+def validate_signal_contract(
+    snapshot: SignalSnapshot,
+) -> tuple[bool, str]:
+    """Validate fingerprint completeness on a signal snapshot."""
+    if not snapshot.universe_hash:
+        return False, "signal snapshot missing universe_hash"
+    if not snapshot.model_content_sha256:
+        return False, "signal snapshot missing model_content_sha256"
+    if not snapshot.calibrator_content_sha256:
+        return False, "signal snapshot missing calibrator_content_sha256"
+    if snapshot.bar_watermark_utc.tzinfo is None:
+        return False, "bar_watermark_utc is not timezone-aware"
+    return True, "signal contract valid"
+
+
 def evaluate_tick(
     *,
     config: CryptoSessionConfig,
@@ -336,6 +394,17 @@ def evaluate_tick(
             reason="no signal snapshot for session — entries fail-closed",
         )
 
+    contract_ok, contract_reason = validate_signal_contract(signal_snapshot)
+    if not contract_ok:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=contract_reason,
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
     if signal_snapshot.session_date != session_d:
         return TickResult(
             session_date=session_d,
@@ -367,6 +436,17 @@ def evaluate_tick(
             signal_snapshot_digest=signal_snapshot.digest(),
         )
 
+    ref_ok, ref_reason = artifact_ref.validate()
+    if not ref_ok:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=ref_reason,
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
     digest_ok, digest_reason = validate_digest(
         signal_snapshot, artifact_ref.expected_digest
     )
@@ -387,6 +467,17 @@ def evaluate_tick(
             entries_allowed=False,
             exits_allowed=True,
             reason="no stop_coverage report — entries fail-closed",
+            signal_snapshot_digest=signal_snapshot.digest(),
+        )
+
+    cov_ok, cov_reason = stop_coverage.validate()
+    if not cov_ok:
+        return TickResult(
+            session_date=session_d,
+            tick_utc=now_utc,
+            entries_allowed=False,
+            exits_allowed=True,
+            reason=cov_reason,
             signal_snapshot_digest=signal_snapshot.digest(),
         )
 
@@ -442,14 +533,18 @@ def build_session_bundle(
     session_date: dt.date,
     tick_results: list[TickResult],
     signal_snapshot: SignalSnapshot | None = None,
+    artifact_ref: SignalArtifactRef | None = None,
+    stop_coverage: StopCoverageReport | None = None,
 ) -> dict[str, Any]:
     """Build a run bundle for one completed session."""
-    return {
-        "schema_version": 1,
+    bundle: dict[str, Any] = {
+        "schema_version": 2,
         "source": "crypto_session",
         "session_date": session_date.isoformat(),
+        "environment": config.mode,
         "mode": config.mode,
         "tick_cadence_seconds": config.tick_cadence_seconds,
+        "quiet_interval_minutes": config.quiet_interval_minutes,
         "sleeve_budget_usd": config.sleeve_budget_usd,
         "n_ticks": len(tick_results),
         "n_entries_allowed": sum(1 for t in tick_results if t.entries_allowed),
@@ -457,5 +552,28 @@ def build_session_bundle(
         "signal_snapshot_digest": (
             signal_snapshot.digest() if signal_snapshot else None
         ),
+        "artifact_ref": (
+            {
+                "expected_digest": artifact_ref.expected_digest,
+                "artifact_path": artifact_ref.artifact_path,
+                "schema_version": artifact_ref.schema_version,
+                "producer_run_id": artifact_ref.producer_run_id,
+            }
+            if artifact_ref
+            else None
+        ),
+        "stop_coverage": (
+            {
+                "timestamp_utc": stop_coverage.timestamp_utc.isoformat(),
+                "environment": stop_coverage.environment,
+                "account_id": stop_coverage.account_id,
+                "positions_covered": stop_coverage.positions_covered,
+                "violations": stop_coverage.violations,
+                "source_version": stop_coverage.source_version,
+            }
+            if stop_coverage
+            else None
+        ),
         "ticks": [t.to_jsonable() for t in tick_results],
     }
+    return bundle

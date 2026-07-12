@@ -561,11 +561,15 @@ class TestSessionBundle:
             )
             for h in range(1, 4)
         ]
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        cov = _make_stop_coverage(now)
         bundle = build_session_bundle(
             config=cfg,
             session_date=dt.date(2026, 7, 12),
             tick_results=ticks,
             signal_snapshot=snap,
+            artifact_ref=ref,
+            stop_coverage=cov,
         )
         assert bundle["schema_version"] == 1
         assert bundle["source"] == "crypto_session"
@@ -573,7 +577,22 @@ class TestSessionBundle:
         assert bundle["n_ticks"] == 3
         assert bundle["n_entries_allowed"] == 3
         assert bundle["signal_snapshot_digest"] == snap.digest()
+        assert bundle["artifact_ref"]["artifact_path"] == ref.artifact_path
+        assert bundle["artifact_ref"]["producer_run_id"] == ref.producer_run_id
+        assert bundle["stop_coverage"]["environment"] == "live"
+        assert bundle["stop_coverage"]["violations"] == 0
         assert json.dumps(bundle)
+
+    def test_bundle_without_provenance(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        bundle = build_session_bundle(
+            config=cfg,
+            session_date=dt.date(2026, 7, 12),
+            tick_results=[],
+        )
+        assert bundle["artifact_ref"] is None
+        assert bundle["stop_coverage"] is None
 
 
 # ── Config from dict ─────────────────────────────────────────────────────────
@@ -616,3 +635,115 @@ class TestCurrentSessionDate:
         just_after = dt.datetime(2026, 7, 12, 0, 0, 0, tzinfo=UTC)
         assert current_session_date(just_before) == dt.date(2026, 7, 11)
         assert current_session_date(just_after) == dt.date(2026, 7, 12)
+
+
+# ── Adversarial construction tests ──────────────────────────────────────────
+
+
+class TestAdversarialArtifactRef:
+    def test_empty_digest_raises(self):
+        with pytest.raises(ValueError, match="expected_digest"):
+            SignalArtifactRef(
+                expected_digest="", artifact_path="a.json",
+                schema_version=1, producer_run_id="run-001",
+            )
+
+    def test_empty_path_raises(self):
+        with pytest.raises(ValueError, match="artifact_path"):
+            SignalArtifactRef(
+                expected_digest="abc123", artifact_path="",
+                schema_version=1, producer_run_id="run-001",
+            )
+
+    def test_zero_schema_version_raises(self):
+        with pytest.raises(ValueError, match="schema_version"):
+            SignalArtifactRef(
+                expected_digest="abc123", artifact_path="a.json",
+                schema_version=0, producer_run_id="run-001",
+            )
+
+    def test_empty_run_id_raises(self):
+        with pytest.raises(ValueError, match="producer_run_id"):
+            SignalArtifactRef(
+                expected_digest="abc123", artifact_path="a.json",
+                schema_version=1, producer_run_id="",
+            )
+
+    def test_whitespace_only_digest_raises(self):
+        with pytest.raises(ValueError, match="expected_digest"):
+            SignalArtifactRef(
+                expected_digest="   ", artifact_path="a.json",
+                schema_version=1, producer_run_id="run-001",
+            )
+
+
+class TestAdversarialStopCoverage:
+    def test_negative_violations_raises(self):
+        with pytest.raises(ValueError, match="violations"):
+            StopCoverageReport(
+                timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+                environment="live", positions_covered=5,
+                violations=-1, source_version="v1",
+            )
+
+    def test_negative_positions_raises(self):
+        with pytest.raises(ValueError, match="positions_covered"):
+            StopCoverageReport(
+                timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+                environment="live", positions_covered=-1,
+                violations=0, source_version="v1",
+            )
+
+    def test_empty_environment_raises(self):
+        with pytest.raises(ValueError, match="environment"):
+            StopCoverageReport(
+                timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+                environment="", positions_covered=5,
+                violations=0, source_version="v1",
+            )
+
+    def test_empty_source_version_raises(self):
+        with pytest.raises(ValueError, match="source_version"):
+            StopCoverageReport(
+                timestamp_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+                environment="live", positions_covered=5,
+                violations=0, source_version="",
+            )
+
+
+class TestAdversarialEvaluateTick:
+    def test_forged_digest_ref_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        forged_ref = SignalArtifactRef(
+            expected_digest="forged_but_wrong_digest_value_abc",
+            artifact_path="fake/path.json",
+            schema_version=1,
+            producer_run_id="forged-run",
+        )
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref=forged_ref,
+            stop_coverage=_make_stop_coverage(now),
+        )
+        assert not result.entries_allowed
+        assert "mismatch" in result.reason
+
+    def test_wrong_env_report_blocks_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="live")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref=_make_artifact_ref(snap),
+            stop_coverage=_make_stop_coverage(now, mode="paper"),
+        )
+        assert not result.entries_allowed
+        assert "environment mismatch" in result.reason
