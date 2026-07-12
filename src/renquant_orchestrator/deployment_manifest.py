@@ -153,6 +153,7 @@ def check_checkout_state(
     *,
     git_probe: GitProbe | None = None,
     require_clean: bool = True,
+    ignore_untracked: bool = False,
     expected_label: str = "manifest commit",
 ) -> tuple[str | None, str | None]:
     """The ONE checkout-verification core behind every manifest consumer.
@@ -164,6 +165,11 @@ def check_checkout_state(
     the first failure; callers collect problems and fail closed. The problem
     strings are the exact fail-closed messages the shadow-AB run-manifest
     verifier has always emitted (behavior-invariant lift).
+
+    When ``ignore_untracked`` is True, untracked files (``??`` in porcelain
+    output) are excluded from the dirty check — only modifications to
+    tracked files count. Untracked files (build artifacts, stray scripts)
+    cannot alter the pinned commit's code.
     """
     probe = git_probe or default_git_probe
     expected = str(expected_commit).strip()
@@ -185,8 +191,12 @@ def check_checkout_state(
         status = probe(["-C", str(path), "status", "--porcelain"])
         if status.returncode != 0:
             return None, f"{name}: git status failed"
-        if (status.stdout or "").strip():
-            dirty = (status.stdout or "").strip().splitlines()
+        raw_lines = (status.stdout or "").strip().splitlines()
+        if ignore_untracked:
+            dirty = [l for l in raw_lines if not l.startswith("?? ")]
+        else:
+            dirty = raw_lines
+        if dirty:
             return None, (
                 f"{name}: working tree DIRTY ({len(dirty)} path(s), e.g. "
                 f"{dirty[0][:60]!r})"
