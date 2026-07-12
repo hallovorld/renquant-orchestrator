@@ -6,8 +6,9 @@
 span one UTC calendar day. Entry gating via triple gate (config + env +
 kill-switch), quiet interval (first 15 min, configurable), watermark +
 externally-verified signal-snapshot-digest checks, an unbypassable
-`crypto_trading.mode == "live"` gate, and an unbypassable execution-side
-stop-coverage precondition. Exits always allowed. See "Revision note" below
+`crypto_trading.mode in {"live", "paper"}` gate, and an unbypassable
+execution-side stop-coverage precondition. Exits always allowed. See
+"Revision note" and "Reconciliation note (round 2)" below
 for the post-CHANGES_REQUESTED fixes — the initial version below described
 the pre-revision state (watermark/digest were computed but not enforced;
 mode/stop-coverage were not gated at all).
@@ -201,3 +202,46 @@ symbols).
   appears in `reason` (short-circuited) — the property "entries allowed
   iff ALL gates pass" still holds regardless of this ordering; each gate's
   own tests hold every other gate constant.
+
+## Reconciliation note (round 2): a duplicate PR surfaced a real gap in the mode gate
+
+A separate PR (`feat/crypto-session-scheduler-v2`, #499) independently
+re-implemented the same 5 Codex fixes against the same underlying findings —
+a genuine duplication, not a disagreement about what to fix. Comparing the
+two surfaced one substantive difference worth keeping: #499 gated entries on
+`config.mode in ("live", "paper")`, not `mode == "live"` alone as this PR's
+round-1 fix did.
+
+That difference matters and #499 was right to make it: "paper" mode trades
+against Alpaca's paper (fake-money) endpoint — the same account this
+codebase's Stage-0 paper battery (D-C12, execution#32 / orchestrator#500)
+exercises — so it is a genuinely authorized, no-real-capital-at-risk runtime
+state, not a record-only one like "shadow". Restricting entries to "live"
+alone would have made it impossible to ever validate this scheduler
+end-to-end (real order placement, real fill/reject handling) before flipping
+to live capital — an oversight in the round-1 fix, not a deliberate choice.
+
+#499's own implementation traded this correct mode-list for a real
+regression, though: it checked `config.mode` early (right after the triple
+gate) and returned immediately on a non-eligible mode, meaning a
+`"shadow"`-mode tick never reached the watermark/digest/quiet-interval
+checks at all — the returned `TickResult` would NOT be the full,
+richly-populated decision record Codex's finding asked for ("DARK/shadow
+should produce decision records only" implies the record itself should still
+reflect what the other gates found, not stop short of evaluating them).
+This PR's `_apply_final_entry_gates` architecture (every other gate
+evaluates fully first; the mode and stop-coverage gates are applied last,
+and can only ever narrow `entries_allowed` from `True` to `False`, never
+skip evaluation of anything else) already gets this right.
+
+Resolution: kept this PR's architecture, adopted #499's mode-list insight —
+`CRYPTO_ENTRY_ELIGIBLE_MODES = frozenset({"live", "paper"})` replaces the
+single `mode == CRYPTO_LIVE_MODE` check in `_apply_final_entry_gates`.
+`CRYPTO_LIVE_MODE` and the new `CRYPTO_PAPER_MODE` are both kept as named
+constants. Two new tests: `test_paper_mode_with_all_gates_clear_allows_entries`
+(paper mode reaches `entries_allowed=True` like live) and
+`test_unknown_mode_blocks_entries_but_full_record` (an unrecognized mode
+value fails closed exactly like shadow, proving the gate checks explicit
+set membership, not merely "not shadow"). Full suite: 48 passed (was 46).
+#499 was closed in favor of this PR with a comment crediting the mode-list
+finding and explaining the decision-record-completeness reasoning above.

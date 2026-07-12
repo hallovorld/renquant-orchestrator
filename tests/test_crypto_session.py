@@ -12,6 +12,7 @@ from renquant_orchestrator.crypto_session import (
     CRYPTO_ENV_FLAG,
     CRYPTO_KILL_SWITCH_RELPATH,
     CRYPTO_LIVE_MODE,
+    CRYPTO_PAPER_MODE,
     CryptoSessionConfig,
     SessionWindow,
     SignalSnapshot,
@@ -490,6 +491,45 @@ class TestModeGate:
         )
         assert result.entries_allowed
         assert result.mode == CRYPTO_LIVE_MODE
+
+    def test_paper_mode_with_all_gates_clear_allows_entries(self, tmp_path, monkeypatch):
+        """Reconciling #497/#499 (2026-07-12): "paper" trades against
+        Alpaca's paper endpoint -- the same account this codebase's Stage-0
+        paper battery exercises -- so it is a genuinely authorized,
+        no-real-capital-at-risk state, not a record-only one like "shadow".
+        Restricting entries to "live" alone would make it impossible to
+        ever validate this scheduler end-to-end before flipping to real
+        capital."""
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode=CRYPTO_PAPER_MODE)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_signal_snapshot_digest=snap.digest(),
+            crypto_stop_coverage_violations=[],
+        )
+        assert result.entries_allowed
+        assert result.mode == CRYPTO_PAPER_MODE
+
+    def test_unknown_mode_blocks_entries_but_full_record(self, tmp_path, monkeypatch):
+        """A mode value outside CRYPTO_ENTRY_ELIGIBLE_MODES (typo, unrecognized
+        config value, ...) fails closed exactly like "shadow" -- entries
+        require explicit membership in the eligible set, not merely
+        "not shadow"."""
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="not-a-real-mode")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
+            signal_snapshot=snap,
+            expected_signal_snapshot_digest=snap.digest(),
+            crypto_stop_coverage_violations=[],
+        )
+        assert not result.entries_allowed
+        assert result.signal_snapshot_digest == snap.digest()
 
 
 # ── Fix 4: configured quiet interval + config validation ────────────────────

@@ -23,7 +23,9 @@ computed/echoed):
   decision record.
 
 Two further unbypassable, entry-only gates (never affect ``exits_allowed``):
-- ``config.mode`` must be the literal ``"live"`` — any other mode (e.g. the
+- ``config.mode`` must be in ``CRYPTO_ENTRY_ELIGIBLE_MODES`` (``"live"`` or
+  ``"paper"`` — paper trades against Alpaca's paper endpoint, a genuinely
+  authorized, no-real-capital-at-risk state) — any other mode (e.g. the
   default ``"shadow"``) still produces a full, richly-populated decision
   record (digest, watermark outcome, quiet-interval flag, ...) but with
   ``entries_allowed`` forced to ``False``.
@@ -56,6 +58,16 @@ from .runtime_paths import default_data_root
 CRYPTO_ENV_FLAG = "RENQUANT_CRYPTO_TRADING"
 CRYPTO_KILL_SWITCH_RELPATH = "data/crypto/kill_switch"
 CRYPTO_LIVE_MODE = "live"
+CRYPTO_PAPER_MODE = "paper"
+# Entry-eligible modes (2026-07-12, reconciling #497/#499): "paper" trades
+# against Alpaca's paper (fake-money) endpoint -- the same account this
+# codebase's Stage-0 paper battery (D-C12, execution#32/orchestrator#500)
+# exercises -- so it is a genuinely authorized, safe-to-enter runtime state,
+# not a record-only one. Restricting to "live" alone (an earlier revision
+# of this module did) would make it impossible to ever validate this
+# scheduler end-to-end before flipping to real capital. "shadow" (the
+# default) is the only mode that stays record-only.
+CRYPTO_ENTRY_ELIGIBLE_MODES = frozenset({CRYPTO_LIVE_MODE, CRYPTO_PAPER_MODE})
 DEFAULT_TICK_CADENCE_SECONDS = 900
 QUIET_INTERVAL_MINUTES = 15
 MAX_QUIET_INTERVAL_MINUTES = 24 * 60
@@ -281,12 +293,16 @@ def _apply_final_entry_gates(
     entries_allowed = result.entries_allowed
     reason = result.reason
 
-    # Fix 3 (Codex #497 review item 3): crypto_trading.mode must be the
-    # explicit, authorized "live" value. DARK/shadow modes produce a
-    # decision record only.
-    if entries_allowed and config.mode != CRYPTO_LIVE_MODE:
+    # Fix 3 (Codex #497 review item 3): crypto_trading.mode must be an
+    # explicit, authorized entry-eligible value -- "live" or "paper" (see
+    # CRYPTO_ENTRY_ELIGIBLE_MODES). "shadow" (the default) and any other
+    # value produce a decision record only.
+    if entries_allowed and config.mode not in CRYPTO_ENTRY_ELIGIBLE_MODES:
         entries_allowed = False
-        reason = f"{reason}; mode={config.mode}, not authorized for live entries"
+        reason = (
+            f"{reason}; mode={config.mode}, not in the entry-eligible set "
+            f"{sorted(CRYPTO_ENTRY_ELIGIBLE_MODES)}"
+        )
 
     # Fix 5 (Codex #497 review item 5): protective-stop coverage precondition.
     # None means the caller never checked — an UNPROVEN-safe state, not a
@@ -350,10 +366,11 @@ def evaluate_tick(
        verification — must equal ``signal_snapshot.digest()`` exactly.
        ``None`` (no expected digest supplied) fails closed distinctly from
        a mismatch.
-    7. ``config.mode`` must be the literal ``"live"`` value (unbypassable
-       final gate, see :func:`_apply_final_entry_gates`) — every other mode
-       (including the default ``"shadow"``) still yields a full decision
-       record with ``entries_allowed=False``.
+    7. ``config.mode`` must be in ``CRYPTO_ENTRY_ELIGIBLE_MODES`` (unbypassable
+       final gate, see :func:`_apply_final_entry_gates`) — ``"live"`` or
+       ``"paper"`` (Alpaca's paper endpoint, no real capital at risk); every
+       other mode (including the default ``"shadow"``) still yields a full
+       decision record with ``entries_allowed=False``.
     8. ``crypto_stop_coverage_violations`` (unbypassable final gate) must be
        an empty list. ``None`` — the caller never evaluated the
        precondition — is deliberately NOT treated as "assume covered": it
