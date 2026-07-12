@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Software-stop registry liveness pager — S-FRAC stage-3 ops (#471 operator
+  shortlist item 2: "pager scheduled nowhere, page never test-fired").
+
+  Runs scripts/stops_liveness_pager.sh every 10 minutes. The wrapper invokes
+  the EXECUTION-repo liveness checker (renquant_execution.software_stops_liveness,
+  renquant-execution#29 — moved out of the deprecated umbrella per the
+  Codex review of this package's prior revision), resolving the pinned
+  execution/pipeline/common checkouts through the R-PIN Stage-1 runtime
+  inventory (~/.renquant/deploy/runtime-inventory.json, read via
+  renquant_orchestrator.deployment_manifest.load_runtime_inventory — the
+  neutral per-host repo-name to checkout-path map, no umbrella lock-file
+  dependency), and pages the LIVE ops ntfy topic on STALE / CORRUPT /
+  checker-crash / inventory-resolution failure. The checker
+  itself returns OK off-session, so a simple all-day StartInterval is the
+  robust schedule: market-hours gating lives in ONE place (the checker),
+  not duplicated here.
+
+  TEMPLATE ONLY: merging this file does NOT install anything. Arming is a
+  separately-granted operator landing step (the "apply" flag is two hyphens;
+  XML comments cannot contain a double hyphen):
+
+      scripts/install_stops_pager.sh install [apply flag]
+      scripts/install_stops_pager.sh test-fire STALE   (delivery + response drill)
+
+  ENABLEMENT PREREQUISITES (both must pass before arming):
+
+  (1) WRITER MIGRATION: the sell-only loop must be migrated to stamp the
+      registry file at the neutral runtime-state root
+      (~/.renquant/runtime/software-stops/) via a separate R-PIN landing
+      change. Until then, the checker finds no file and correctly reports
+      STALE. Code resolution already goes through R-PIN (this package);
+      DATA resolution is the remaining gap.
+  (2) SLA DRILL: the alert-latency envelope is ~18 to 28 minutes after
+      the first missed pass. Before arming, run a test-fire drill
+      (scripts/stops_liveness_pager.sh test-fire STALE) and either
+      configure max_staleness_minutes to meet the 15-minute target, or
+      obtain explicit operator acceptance of the measured envelope.
+
+  Neither gap blocks MERGING this template (no umbrella dependency remains
+  in committed configuration). Both block ARMING/INSTALLING.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.renquant.stops-liveness</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator/scripts/stops_liveness_pager.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/renhao/.renquant/ops/stops-liveness/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/renhao/.renquant/ops/stops-liveness/launchd.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <!-- Explicit operator configuration (deploy-plist convention set by
+             Codex r2 on #460 / deploy/com.renquant.shadow-ab-daily.plist):
+             the paging topic is configuration owned by this plist and
+             reviewed at arming time. "renquant" is the LIVE ops topic — the
+             same channel the live sell-only loop (umbrella
+             scripts/intraday_sell_104.sh NTFY_TOPIC) alerts on. -->
+        <key>RENQUANT_STOPS_PAGER_NTFY_TOPIC</key>
+        <string>renquant</string>
+        <!-- RUNTIME CONTRACT: the wrapper script has NO default interpreter
+             or data root (Codex r2 on #460 / this package's 2026-07-11
+             re-review) — both are explicit, reviewed arming-time
+             configuration here, never a hardcoded default in the script. -->
+        <!-- Same interpreter the live pipeline stack already runs under
+             (the conda env RenQuant/.venv/bin/python symlinks to),
+             referenced directly, NOT through the umbrella .venv path.
+             Verified live 2026-07-11: the BARE conda interpreter suffices
+             because the wrapper puts the checker's full first-party import
+             closure (common/base-data/artifacts/model/pipeline/execution)
+             on PYTHONPATH from the runtime inventory - only the third-party
+             scientific stack comes from this env; none of the umbrella
+             venv's editable installs are needed. -->
+        <key>RENQUANT_STOPS_PAGER_PYTHON</key>
+        <string>/Users/renhao/miniconda3/envs/renquant/bin/python</string>
+        <!-- NEUTRAL runtime-state root — the target-state convention defined
+             by renquant_orchestrator.software_stops_registry_contract
+             (mirrors deployment_manifest.deploy_state_root). The checker
+             looks for the registry file under this path. PREREQUISITE:
+             the sell-only loop writer must be migrated to stamp here
+             (renquant-execution#29 + writer R-PIN landing) BEFORE this
+             plist is armed; until then the checker finds no file and
+             exits STALE (correct fail-closed). This plist is DARK/staged
+             only (not installed) so the false-STALE never fires. -->
+        <key>RENQUANT_STOPS_PAGER_DATA_ROOT</key>
+        <string>/Users/renhao/.renquant/runtime/software-stops</string>
+    </dict>
+</dict>
+</plist>
