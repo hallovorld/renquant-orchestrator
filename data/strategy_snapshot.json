@@ -89,6 +89,7 @@
     "config_experiment_store",
     "config_schema",
     "contract_fixture",
+    "crypto_session",
     "daily",
     "daily_trading_health",
     "decision_ledger",
