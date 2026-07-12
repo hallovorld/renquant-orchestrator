@@ -86,6 +86,24 @@ require_sources() {
 # path. Fixed: the guard now derives data root and interpreter EXCLUSIVELY
 # from $PLIST_SRC (the exact file about to be copied to $PLIST_DST) — no
 # ambient-env fallback, no unpersisted guard input, period.
+#
+# Round-7 correction (Codex CHANGES_REQUESTED, 2026-07-12T11:33:56Z): the
+# round-5/6 guard imported renquant_execution's PRIVATE
+# `_pipeline_stops_api()` (and `resolve_registry_path`) in-process. A
+# leading-underscore name is an implementation detail, not a versioned
+# cross-repo contract — a future pin advance could turn this arming-time
+# safety check into an import failure or silently change its validation
+# semantics. Fixed: the guard now only resolves PYTHONPATH itself (reading
+# paths off the R-PIN runtime inventory is a legitimate orchestrator-owned
+# concern that imports nothing from renquant_execution/renquant_pipeline),
+# then shells out to the pinned renquant-execution's PUBLIC CLI surface —
+# `python -m renquant_execution.software_stops_liveness --validate-registry`
+# (renquant-execution#30) — exactly the ownership boundary
+# scripts/stops_liveness_pager.sh's own liveness check already obeys. The
+# guard interprets ONLY that subprocess's exit code
+# (0=REGISTRY_VALID / 1=REGISTRY_MISSING / 2=REGISTRY_CORRUPT) and combined
+# stdout+stderr message — no in-process import of execution/pipeline
+# internals anywhere in guard_registry_before_apply().
 
 plist_env_var() {
     # $1 = env var name. Parses it out of $PLIST_SRC's EnvironmentVariables
@@ -113,39 +131,19 @@ print(value)
 PY
 }
 
-guard_registry_before_apply() {
-    # Resolve the SAME interpreter + data root the plist is about to arm,
-    # resolve the pinned renquant-pipeline / renquant-execution checkouts
-    # through the R-PIN Stage-1 runtime inventory (same approach as
-    # scripts/stops_liveness_pager.sh's own pin resolution), and refuse to
-    # proceed unless a valid registry file already exists there. Returns
-    # nonzero (never raises) on any failure; all diagnostics go to stderr.
-    local data_root python_bin broker
-    if ! data_root="$(plist_env_var RENQUANT_STOPS_PAGER_DATA_ROOT)"; then
-        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_DATA_ROOT from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
-        return 1
-    fi
-    if ! python_bin="$(plist_env_var RENQUANT_STOPS_PAGER_PYTHON)"; then
-        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_PYTHON from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
-        return 1
-    fi
-    # Same exclusively-from-plist rule applies to broker: if a future plist
-    # revision starts carrying RENQUANT_STOPS_PAGER_BROKER, an ambient
-    # fallback here would silently reintroduce the same divergence bug this
-    # round fixes for data root/interpreter. The committed plist does not
-    # set it today, so this resolves to the package-wide "alpaca" default
-    # either way — but derive it the same way, not via ambient env.
-    broker="$(plist_env_var RENQUANT_STOPS_PAGER_BROKER || true)"
-    broker="${broker:-alpaca}"
-
-    echo "guard: verifying a valid software-stop registry exists at data_root=$data_root broker=$broker before arming..." >&2
-    local guard_out guard_rc
-    guard_out="$(RENQUANT_STOPS_PAGER_DATA_ROOT="$data_root" \
-        RENQUANT_STOPS_PAGER_BROKER="$broker" \
-        PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}" \
-        "$python_bin" - <<'PY' 2>&1
-import json
-import os
+resolve_pinned_pythonpath() {
+    # $1 = python_bin. PYTHONPATH resolution ONLY: reads the R-PIN Stage-1
+    # runtime inventory and validates the pinned checkouts (missing repos /
+    # absent src dirs / stale-pin module-file tripwire for
+    # renquant_execution.software_stops_liveness specifically — the exact
+    # same check scripts/stops_liveness_pager.sh's own resolver heredoc
+    # performs). This step is a pure orchestrator-owned path-resolution
+    # concern: it imports NOTHING from renquant_execution or
+    # renquant_pipeline, it only reads paths off disk. Prints ONLY the
+    # ":"-joined PYTHONPATH on success; all diagnostics go to stderr,
+    # nonzero exit on any failure.
+    local python_bin="$1"
+    PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}" "$python_bin" - <<'PY'
 import sys
 from pathlib import Path
 
@@ -154,9 +152,6 @@ from renquant_orchestrator.deployment_manifest import (
     load_runtime_inventory,
     state_root_paths,
 )
-
-data_root = os.environ["RENQUANT_STOPS_PAGER_DATA_ROOT"]
-broker = os.environ.get("RENQUANT_STOPS_PAGER_BROKER", "alpaca")
 
 try:
     inventory = load_runtime_inventory(state_root_paths(deploy_state_root())["inventory"])
@@ -189,43 +184,90 @@ if absent:
     print(f"GUARD FAIL: inventory checkout src roots absent on disk: {absent}", file=sys.stderr)
     raise SystemExit(1)
 
-sys.path[0:0] = [str(Path(repos[name]["path"]) / "src") for name in needed]
-
-from renquant_execution.software_stops_liveness import (
-    _pipeline_stops_api,
-    resolve_registry_path,
+# Stale-pin tripwire: `python -m <missing module>` exits 1, which would
+# masquerade as REGISTRY_MISSING downstream — classify it here instead,
+# same discipline as stops_liveness_pager.sh's own resolver.
+module_file = (
+    Path(repos["renquant-execution"]["path"])
+    / "src" / "renquant_execution" / "software_stops_liveness.py"
 )
-
-registry_path = resolve_registry_path(registry=None, data_root=data_root, broker=broker)
-if not registry_path.exists():
+if not module_file.is_file():
     print(
-        f"GUARD FAIL: no software-stop registry file at {registry_path} "
-        "-- no writer has migrated to stamp this path yet. Installing now "
-        "would arm a pager against unverified state and could produce a "
-        "false critical alarm once the checker runs (Codex review, "
-        "2026-07-12T04:32:57Z). Refusing to install.",
+        f"GUARD FAIL: pinned renquant-execution checkout lacks the liveness "
+        f"checker ({module_file}) -- pin not yet advanced past "
+        "renquant-execution#29",
         file=sys.stderr,
     )
     raise SystemExit(1)
 
-try:
-    api = _pipeline_stops_api()
-    api.validate_snapshot(json.loads(registry_path.read_text(encoding="utf-8")))
-except Exception as exc:
-    print(
-        f"GUARD FAIL: registry file at {registry_path} is CORRUPT / "
-        f"unparseable ({type(exc).__name__}: {exc}). Refusing to arm the "
-        "pager against invalid registry state.",
-        file=sys.stderr,
-    )
-    raise SystemExit(1)
-
-print(f"GUARD OK: valid registry at {registry_path} (broker={broker})")
+print(":".join(str(Path(repos[name]["path"]) / "src") for name in needed))
 PY
-)"
-    guard_rc=$?
-    echo "$guard_out" >&2
-    return $guard_rc
+}
+
+guard_registry_before_apply() {
+    # Resolve the SAME interpreter + data root the plist is about to arm,
+    # resolve the pinned checkouts' PYTHONPATH (resolve_pinned_pythonpath,
+    # above — no execution/pipeline imports), then shell out to the pinned
+    # renquant-execution's PUBLIC `--validate-registry` CLI mode
+    # (renquant-execution#30) and refuse to proceed unless it reports
+    # REGISTRY_VALID (exit 0). Returns nonzero (never raises) on any
+    # failure — missing registry, corrupt registry, or a resolution/CLI
+    # crash are all treated as fail-closed; all diagnostics go to stderr.
+    local data_root python_bin broker
+    if ! data_root="$(plist_env_var RENQUANT_STOPS_PAGER_DATA_ROOT)"; then
+        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_DATA_ROOT from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
+        return 1
+    fi
+    if ! python_bin="$(plist_env_var RENQUANT_STOPS_PAGER_PYTHON)"; then
+        echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_PYTHON from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
+        return 1
+    fi
+    # Same exclusively-from-plist rule applies to broker: if a future plist
+    # revision starts carrying RENQUANT_STOPS_PAGER_BROKER, an ambient
+    # fallback here would silently reintroduce the same divergence bug this
+    # round fixes for data root/interpreter. The committed plist does not
+    # set it today, so this resolves to the package-wide "alpaca" default
+    # either way — but derive it the same way, not via ambient env.
+    broker="$(plist_env_var RENQUANT_STOPS_PAGER_BROKER || true)"
+    broker="${broker:-alpaca}"
+
+    echo "guard: verifying a valid software-stop registry exists at data_root=$data_root broker=$broker before arming..." >&2
+
+    # (a) PYTHONPATH resolution — see resolve_pinned_pythonpath() above.
+    local pinned_src_paths resolve_rc
+    pinned_src_paths="$(resolve_pinned_pythonpath "$python_bin")"
+    resolve_rc=$?
+    if [ "$resolve_rc" -ne 0 ]; then
+        return 1
+    fi
+
+    # (b) plain subprocess invocation of the pinned renquant-execution's
+    # PUBLIC CLI surface — no import, no in-process call into execution or
+    # pipeline internals.
+    local validate_out validate_rc
+    validate_out="$(PYTHONPATH="$pinned_src_paths:$REPO_ROOT/src:${PYTHONPATH:-}" \
+        "$python_bin" -m renquant_execution.software_stops_liveness \
+        --validate-registry --data-root "$data_root" --broker "$broker" 2>&1)"
+    validate_rc=$?
+
+    case "$validate_rc" in
+        0)
+            echo "GUARD OK: $validate_out (broker=$broker)" >&2
+            return 0
+            ;;
+        1)
+            echo "GUARD FAIL: $validate_out -- no writer has migrated to stamp this path yet. Installing now would arm a pager against unverified state and could produce a false critical alarm once the checker runs (Codex review, 2026-07-12T04:32:57Z). Refusing to install." >&2
+            return 1
+            ;;
+        2)
+            echo "GUARD FAIL: $validate_out -- refusing to arm the pager against invalid registry state." >&2
+            return 1
+            ;;
+        *)
+            echo "GUARD FAIL: renquant_execution --validate-registry exited $validate_rc (crash / pin-resolution failure): $validate_out" >&2
+            return 1
+            ;;
+    esac
 }
 
 case "$CMD" in

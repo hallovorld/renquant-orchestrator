@@ -1,6 +1,6 @@
 # Software-stop liveness pager — landing package
 
-Date: 2026-07-11, updated 2026-07-12 (round 5 — envelope schema removed, install-time fail-closed guard)
+Date: 2026-07-11, updated 2026-07-12 (round 7 — guard now calls the public execution `--validate-registry` CLI instead of a private import; round 5 — envelope schema removed, install-time fail-closed guard)
 PR: ops(stops): software-stop liveness pager package (#471 shortlist item 2)
 
 **STATUS: MERGEABLE as a staged DARK template.** No umbrella dependency
@@ -17,8 +17,16 @@ separately-granted operator landing step.
    arming, run the test-fire drill and either tighten `max_staleness_minutes`
    to meet 15 min, or obtain explicit operator acceptance of the measured
    envelope.
+3. **execution R-PIN advance (round 7)**: `install --apply`'s registry
+   guard now invokes the pinned `renquant-execution`'s public
+   `--validate-registry` CLI mode
+   ([renquant-execution#30](https://github.com/hallovorld/renquant-execution/pull/30))
+   instead of importing a private name. This is only functional once that
+   PR merges AND this host's R-PIN `renquant-execution` pin advances to
+   include it — see "Correction (round 7)" below.
 
-Neither prerequisite blocks merging — both block arming/installing.
+None of these three prerequisites block merging — all three block
+arming/installing.
 
 ## Round 4: data-root resolved (this revision)
 
@@ -168,6 +176,104 @@ to `renquant_execution`/`renquant_pipeline`). Package remains staged DARK;
 writer migration and SLA/authorization gates unchanged; `strategy-104#55`/
 `#56` stay blocked.
 
+## Correction (round 7 — guard now calls the public execution CLI, not a private import)
+
+Codex left a third round of CHANGES_REQUESTED, review timestamp
+2026-07-12T11:33:56Z, blocking round-6 HEAD (`6cde1c89`) despite the green
+rerun:
+
+> Blocking current head despite the green rerun: `install_stops_pager.sh`
+> imports and calls `renquant_execution.software_stops_liveness._pipeline_stops_api()`.
+> The leading underscore is an execution-private implementation detail, not
+> a versioned cross-repo contract. The guard therefore depends on execution
+> internals that can be refactored without a compatibility guarantee; a
+> future pin advance can turn an arming-time safety check into an import
+> failure or change its validation semantics.
+>
+> Keep schema and liveness ownership in execution/pipeline, but expose a
+> public, narrow validation boundary in `renquant-execution` first:
+> preferably a documented CLI mode such as `python -m
+> renquant_execution.software_stops_liveness --validate-registry
+> --data-root ... --broker ...`, with stable verdict/exit semantics and
+> tests. Then advance the execution R-PIN and have this installer invoke
+> that public interface. Alternatively publish an explicitly public
+> `validate_registry_snapshot` API with a compatibility contract. Do not
+> reach through `_pipeline_stops_api` from orchestrator.
+>
+> The normal liveness wrapper already uses the execution module CLI
+> correctly; make the pre-install guard obey the same ownership boundary.
+
+**What changed:**
+
+- **renquant-execution** (companion PR,
+  [renquant-execution#30](https://github.com/hallovorld/renquant-execution/pull/30)):
+  adds `validate_registry(registry_path) -> (int, str)` and a
+  `--validate-registry` CLI mode to
+  `src/renquant_execution/software_stops_liveness.py`, with its own
+  `REGISTRY_VALID/REGISTRY_MISSING/REGISTRY_CORRUPT = 0/1/2` verdict space
+  — deliberately kept separate from `check()`'s `OK/STALE/CORRUPT`, since
+  this mode only answers "does a real, schema-valid registry exist here"
+  and never evaluates staleness or market session. Purely additive: the
+  existing (no-flag) CLI behavior is byte-for-byte unchanged. 29 new/passing
+  tests (`tests/test_software_stops_liveness.py`, 29 passed + 1 skipped).
+- `scripts/install_stops_pager.sh`: `guard_registry_before_apply()` no
+  longer imports `_pipeline_stops_api`/`resolve_registry_path` in-process.
+  It now (a) resolves PYTHONPATH only — a new `resolve_pinned_pythonpath()`
+  helper that reads the R-PIN Stage-1 runtime inventory and validates the
+  pinned checkouts (missing repos / absent src dirs / the same
+  stale-pin module-file tripwire `stops_liveness_pager.sh` already applies
+  to `software_stops_liveness.py` specifically) — this step imports
+  **nothing** from `renquant_execution`/`renquant_pipeline`, it only reads
+  paths off disk; then (b) shells out, as a plain subprocess, to
+  `"$python_bin" -m renquant_execution.software_stops_liveness
+  --validate-registry --data-root "$data_root" --broker "$broker"` with
+  that PYTHONPATH exported, and interprets ONLY its exit code
+  (0=VALID/1=MISSING/2=CORRUPT, anything else = crash/resolution-failure —
+  all non-zero outcomes fail the guard) and combined stdout+stderr message.
+  This mirrors exactly how `stops_liveness_pager.sh`'s own liveness check
+  already invokes the execution module — the ownership boundary Codex asked
+  for. `scripts/stops_liveness_pager.sh` itself was **not modified**
+  (0-line diff, re-verified).
+- `tests/test_stops_liveness_pager.py`: `_STUB_REGISTRY_MODULE` (used by
+  the install-guard tests via `_fake_state_root`'s
+  `exec_module_content=` parameter) changed from a module of importable
+  names (`resolve_registry_path`, `_FakeStopsApi`/`_pipeline_stops_api`) to
+  a minimal argparse-driven CLI script (`--validate-registry`,
+  `--data-root`, `--registry`, `--broker`) invoked via `python3 -m
+  renquant_execution.software_stops_liveness --validate-registry ...`
+  through the same stub-pinned-checkout machinery — mirroring
+  `validate_registry()`'s real exit-code/message contract
+  (0/1/2, VALID/MISSING/CORRUPT prefixes) against the same fake schema
+  check (`version == 1` and `stops` is a dict) the old stub used. Only the
+  MECHANISM changed (shell-out vs. import); the guard's actual safety
+  assertions — refuse on missing/corrupt registry, no plist copy, no
+  `launchctl` call on refusal — are unchanged and re-verified:
+  `test_install_apply_refuses_when_registry_missing`,
+  `test_install_apply_refuses_when_registry_corrupt`,
+  `test_install_apply_passes_with_zero_armed_stops`,
+  `test_install_apply_ignores_ambient_env_and_uses_plist_value_only`, and
+  `test_install_apply_copies_plist_and_bootstraps` all pass unmodified in
+  their assertions (29/29 in `test_stops_liveness_pager.py`; 38/38
+  combined with `test_software_stops_registry_contract.py`).
+
+**Additional blocking prerequisite (stated honestly, does not change
+anything operationally today):** this orchestrator-side guard rewrite is
+only FUNCTIONAL — i.e. capable of actually running `--validate-registry`
+against a real pinned checkout — once **(a)**
+[renquant-execution#30](https://github.com/hallovorld/renquant-execution/pull/30)
+merges, and **(b)** this host's R-PIN `renquant-execution` runtime-inventory
+pin advances to a commit that includes it (the same "stale-pin"
+class of gap already tracked for `renquant-execution#29` in the Landing
+sequence's step 0 prerequisite below). Until both land, `install --apply`
+on this host would hit the `resolve_pinned_pythonpath()` module-file
+tripwire or a `--validate-registry: unrecognized arguments` failure from an
+un-advanced pin — a resolution-failure class, correctly fail-closed, not a
+false pass. This package is already staged **DARK** regardless (writer
+migration + SLA/authorization gates below are unresolved), so this does
+not change today's operational posture — it is tracked here as a THIRD
+named blocking prerequisite, alongside the writer migration and the SLA
+drill, so it is not glossed over at the next landing attempt.
+
 ## Bottom line
 
 #471's evidence packet found the S-FRAC stage-3 pager **scheduled nowhere and
@@ -272,16 +378,22 @@ schema — see "Correction (round 5)").
 |---|---|
 | `deploy/com.renquant.stops-liveness.plist` | launchd template: 10-min `StartInterval`, calls the wrapper via `/bin/bash`, logs to the neutral `~/.renquant/ops/stops-liveness/` root, `RENQUANT_STOPS_PAGER_DATA_ROOT` = neutral runtime-state root (`~/.renquant/runtime/software-stops`), explicit `RENQUANT_STOPS_PAGER_PYTHON` / `RENQUANT_STOPS_PAGER_NTFY_TOPIC` (never a script default, no umbrella reference) |
 | `scripts/stops_liveness_pager.sh` | wrapper: resolves the pinned execution/pipeline/common checkouts through the R-PIN runtime inventory (`deployment_manifest.load_runtime_inventory`), runs `python -m renquant_execution.software_stops_liveness`, pages ntfy on STALE(1)/CORRUPT(2)/**crash or inventory-resolution failure (any other code)**, exit 70 on page-delivery failure; `--test-fire STALE\|CORRUPT` emits one marked drill page, nonzero on delivery failure. Unchanged in round 5. |
-| `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root. **Round 5**: `install --apply` now runs a fail-closed pre-install guard (resolves the same data root/interpreter, resolves pins the same way as the wrapper, and calls the REAL `renquant_execution.software_stops_liveness` validators) that refuses to proceed on a missing or corrupt registry — see "Correction (round 5)" |
+| `scripts/install_stops_pager.sh` | echo-first installer: `install`/`uninstall` are DRY-RUN unless `--apply`; `status` read-only; `test-fire` routes to the wrapper; idempotent; log dir now the neutral ops root. **Round 5**: `install --apply` runs a fail-closed pre-install guard that refuses to proceed on a missing or corrupt registry. **Round 7**: the guard no longer imports `renquant_execution` private names in-process — it resolves PYTHONPATH only, then shells out to the pinned `renquant_execution`'s public `--validate-registry` CLI mode and interprets its exit code — see "Correction (round 7)" |
 | `src/renquant_orchestrator/software_stops_registry_contract.py` | the READ-side registry-file **LOCATION** contract — neutral runtime-state-root convention (mirrors `deployment_manifest.deploy_state_root`) + fail-closed `classify_data_root`/`describe_data_root`. **Round 5**: the round-3 versioned CONTENT envelope (`classify_registry_file` and friends) was removed — content validity now delegates entirely to `renquant_execution.software_stops_liveness` |
 | `tests/test_stops_liveness_pager.py` | 28 hermetic tests: plist shape + live-topic pin + explicit-python/data-root pin (no umbrella `.venv` reference) + neutral log root, page/no-page per checker exit class against a local ntfy recorder, delivery-failure exit codes, RUNTIME-CONTRACT fail-closed check, a REAL (non-faked) exercise of the runtime-inventory resolution path, the legacy-data-root WARNING and its absence-when-neutral, installer dry-run/apply/uninstall/status with a recording launchctl stub, and (**round 5**) the install `--apply` registry guard: missing-registry refusal, corrupt-registry refusal, zero-armed-stops-but-valid pass, dry-run non-hard-fail |
 | `tests/test_software_stops_registry_contract.py` | 9 unit tests for the LOCATION-only contract module above (was 18 pre-round-5; the 9 removed were envelope-machinery tests for the deleted code) |
 
-## Companion PR (renquant-execution)
+## Companion PRs (renquant-execution)
 
 [renquant-execution#29](https://github.com/hallovorld/renquant-execution/pull/29)
-adds `src/renquant_execution/software_stops_liveness.py` + 21 tests. Ownership
-split (unchanged by this round, restated for clarity):
+adds `src/renquant_execution/software_stops_liveness.py` + 21 tests.
+
+[renquant-execution#30](https://github.com/hallovorld/renquant-execution/pull/30)
+(round 7, open, not yet merged) adds the public `validate_registry()` /
+`--validate-registry` CLI mode `install_stops_pager.sh`'s guard now consumes
+— see "Correction (round 7)" above.
+
+Ownership split (unchanged by this round, restated for clarity):
 
 - `renquant-pipeline` — registry data model + staleness arithmetic
   (`software_stops.py`, RenQuant#440, 2026-07-04) + the decision-time arming
@@ -367,6 +479,13 @@ it and does not claim its outcome.
    "PIN RESOLUTION FAILED" (the pin-not-advanced detail goes to the launchd
    stderr log) rather than a false STALE, but landing before the pin
    advance just produces that page every 10 minutes.
+0b. **Prerequisite (round 7) — a SECOND pin advance for `install --apply`
+   specifically**: the registry guard's `--validate-registry` subprocess
+   call requires the pinned `renquant-execution` checkout to additionally
+   contain [renquant-execution#30](https://github.com/hallovorld/renquant-execution/pull/30)
+   (not yet merged as of this doc). Until both #30 merges and the pin
+   advances past it, `install --apply` fails closed at the guard step
+   (resolution/CLI failure, not a false pass) — see "Correction (round 7)".
 1. Operator grant.
 2. `scripts/install_stops_pager.sh install` — review the echoed commands.
 3. `scripts/install_stops_pager.sh install --apply`.

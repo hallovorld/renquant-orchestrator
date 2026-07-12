@@ -36,8 +36,7 @@ renquant_pipeline validators — never a re-derived schema. The
 "install --apply registry guard" tests below cover missing-registry,
 corrupt-registry, and the legitimate zero-armed-stops-but-valid case,
 reusing `_fake_state_root`'s fixture machinery with a different stub module
-(`_STUB_REGISTRY_MODULE`) since the guard imports real Python names rather
-than shelling out to a CLI.
+(`_STUB_REGISTRY_MODULE`).
 
 Round 6 (Codex CHANGES_REQUESTED, 2026-07-12T10:57:11Z): the round-5 guard's
 `resolve_pager_env_var` let an already-exported ambient environment variable
@@ -55,6 +54,26 @@ the subprocess environment; a dedicated regression test
 (`test_install_apply_ignores_ambient_env_and_uses_plist_value_only`) proves
 an ambient decoy pointing at a valid registry is ignored when the plist's
 own value does not resolve to one.
+
+Round 7 (Codex CHANGES_REQUESTED, 2026-07-12T11:33:56Z): the round-5/6 guard
+imported renquant_execution's PRIVATE `_pipeline_stops_api()` /
+`resolve_registry_path` as in-process Python objects — a leading-underscore
+name is an implementation detail, not a versioned cross-repo contract, so a
+future execution-repo pin advance could turn this arming-time safety check
+into an import failure or silently change its validation semantics. Fixed:
+the guard now only resolves PYTHONPATH itself (a legitimate
+orchestrator-owned path-resolution concern that imports nothing from
+renquant_execution/renquant_pipeline), then shells out to the pinned
+renquant-execution's PUBLIC `--validate-registry` CLI mode
+(renquant-execution#30) exactly like `stops_liveness_pager.sh`'s own
+liveness check already does, and interprets only that subprocess's exit
+code + message. `_STUB_REGISTRY_MODULE` changed accordingly: it is now a
+minimal argparse-driven CLI script (invoked via `python3 -m
+renquant_execution.software_stops_liveness --validate-registry ...`, same
+"shell out to a stub module" mechanism `_STUB_CLI` above already
+exercises) rather than a module of importable names — only the MECHANISM
+changed; the guard's actual safety assertions (refuse on missing/corrupt,
+no plist copy, no launchctl call) are unchanged and re-verified below.
 """
 from __future__ import annotations
 
@@ -300,35 +319,77 @@ sys.exit(int(os.environ.get("FAKE_STOPS_EXIT", "0")))
 """
 
 # Fake ``renquant_execution.software_stops_liveness`` module used by the
-# install-guard tests (below): unlike ``_STUB_CLI`` (a bare CLI script the
-# wrapper only shells out to and inspects exit code/stdout for), the install
-# guard IMPORTS ``resolve_registry_path`` and ``_pipeline_stops_api`` as real
-# Python objects (scripts/install_stops_pager.sh), so this stub provides
-# those two names with the same call shape as the real module —
-# deliberately hermetic (no dependency on the real, dependency-heavy
-# ``renquant_pipeline`` package), matching the wrapper tests' own philosophy
-# of never touching real renquant_pipeline in this suite.
+# install-guard tests (below).
+#
+# Round 7 (Codex CHANGES_REQUESTED, 2026-07-12T11:33:56Z): the install guard
+# no longer imports ``_pipeline_stops_api``/``resolve_registry_path`` as
+# in-process Python objects — a leading-underscore name is an
+# implementation detail, not a versioned cross-repo contract. It now shells
+# out to the pinned renquant-execution's PUBLIC
+# ``--validate-registry`` CLI mode (renquant-execution#30), the same way
+# ``_STUB_CLI`` above is invoked via ``python3 -m .../-m module`` /
+# subprocess rather than imported. This stub therefore implements a
+# minimal, argparse-driven ``main()`` mirroring the real
+# ``validate_registry()``'s exit-code/message contract
+# (0=VALID/1=MISSING/2=CORRUPT) against the same fake schema check
+# (``version == 1`` and ``stops`` is a dict) the old stub used — only the
+# MECHANISM changed (shell-out CLI vs. importable names), not the fake
+# schema itself.
 _STUB_REGISTRY_MODULE = """\
+import argparse
+import json
+import sys
 from pathlib import Path
 
 
-def resolve_registry_path(*, registry=None, data_root=None, broker="alpaca", _api=None):
+def resolve_registry_path(*, registry=None, data_root=None, broker="alpaca"):
     if registry:
         return Path(registry)
     return Path(data_root) / f"{broker}.json"
 
 
-class _FakeStopsApi:
-    def validate_snapshot(self, raw):
-        if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(
-            raw.get("stops"), dict
-        ):
-            raise ValueError("fake registry schema violation")
-        return raw
+def _validate_snapshot(raw):
+    if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(
+        raw.get("stops"), dict
+    ):
+        raise ValueError("fake registry schema violation")
+    return raw
 
 
-def _pipeline_stops_api():
-    return _FakeStopsApi()
+def validate_registry(registry_path):
+    if not registry_path.exists():
+        return 1, f"MISSING: no software-stop registry file at {registry_path}"
+    try:
+        _validate_snapshot(json.loads(registry_path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return 2, (
+            f"CORRUPT: {registry_path} unreadable or fails schema "
+            f"validation ({type(exc).__name__}: {exc})"
+        )
+    return 0, f"VALID: {registry_path} is a well-formed software-stop registry"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--validate-registry", action="store_true")
+    ap.add_argument("--registry", default=None)
+    ap.add_argument("--data-root", default=None)
+    ap.add_argument("--broker", default="alpaca")
+    args = ap.parse_args(argv)
+
+    path = resolve_registry_path(
+        registry=args.registry, data_root=args.data_root, broker=args.broker,
+    )
+    if args.validate_registry:
+        code, message = validate_registry(path)
+        print(message)
+        return code
+    print("OK: stub check-mode not exercised by these tests")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 """
 
 
