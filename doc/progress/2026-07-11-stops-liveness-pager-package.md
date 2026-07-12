@@ -1,6 +1,6 @@
 # Software-stop liveness pager — landing package
 
-Date: 2026-07-11, updated 2026-07-12 (round 7 — guard now calls the public execution `--validate-registry` CLI instead of a private import; round 5 — envelope schema removed, install-time fail-closed guard)
+Date: 2026-07-11, updated 2026-07-12 (round 8 — pipeline publishes its own public schema contract + a non-skipped real-sibling integration test; round 7 — guard now calls the public execution `--validate-registry` CLI instead of a private import; round 5 — envelope schema removed, install-time fail-closed guard)
 PR: ops(stops): software-stop liveness pager package (#471 shortlist item 2)
 
 **STATUS: BLOCKED on cross-repo public-API chain.** Code shape is correct
@@ -9,18 +9,36 @@ completing before this PR can merge.
 
 ## Merge-blocking dependency sequence
 
-Codex review (round 8, 2026-07-12T12:10:01Z): the installer guard shells
+Codex review (round 8, 2026-07-12T12:10:01Z / 2026-07-12T11:57:53Z on
+execution#30 — same finding, both PRs): the installer guard shells
 out to `renquant-execution --validate-registry`, which internally calls
 `renquant_pipeline.software_stops._validate_snapshot` — a private name.
 Until the full chain is public, this PR cannot merge:
 
 1. **renquant-pipeline** exposes and tests a public `software-stops-v1`
-   snapshot-validation contract (replacing `_validate_snapshot`)
+   snapshot-validation contract (replacing `_validate_snapshot`) — **DONE,
+   PR OPEN**: [renquant-pipeline#192](https://github.com/hallovorld/renquant-pipeline/pull/192)
+   (`validate_software_stop_snapshot`), unmerged.
 2. **renquant-execution#30** consumes that public API and exposes the
-   `--validate-registry` CLI mode
-3. **renquant-execution#30 merges**
+   `--validate-registry` CLI mode — **DONE, PUSHED**: follow-up commit on
+   the same open PR, unmerged (depends on step 1 merging first — the
+   deferred import is expected to raise `ImportError` until then).
+3. **renquant-execution#30 merges** — not yet; both PR 1 and PR 2 above are
+   still open for review.
 4. **R-PIN advance** + end-to-end multirepo test of this guard against the
-   pinned real CLI for valid, missing, and corrupt registries
+   pinned real CLI for valid, missing, and corrupt registries — the
+   non-skipped test itself is **DONE, this PR**
+   (`test_install_apply_guard_against_real_pinned_execution_and_pipeline`
+   + `_malformed`); the R-PIN advance is not yet done (depends on 1-3
+   merging first). See "Correction (round 8)" below for full detail,
+   the exact Codex quote, and what was actually observed running these
+   tests locally.
+
+**Status of this PR itself**: still BLOCKED — steps 1-2 above are done as
+*separate, not-yet-merged* PRs; this PR cannot merge until they do and the
+R-PIN advances past them (same "arming-time not merge-time" discipline as
+every prior round, just now gated on two additional repos' PRs instead of
+one).
 
 ## Additional enablement prerequisites (arming-time, post-merge)
 
@@ -32,6 +50,11 @@ Until the full chain is public, this PR cannot merge:
    arming, run the test-fire drill and either tighten `max_staleness_minutes`
    to meet 15 min, or obtain explicit operator acceptance of the measured
    envelope.
+
+(The execution/pipeline R-PIN advance is a MERGE-blocking item, not an
+arming-time one — see "Merge-blocking dependency sequence" above, whose
+steps 1/2 status is updated in "Correction (round 8)" below, not restated
+here to avoid duplication.)
 
 ## Round 4: data-root resolved (this revision)
 
@@ -278,6 +301,144 @@ migration + SLA/authorization gates below are unresolved), so this does
 not change today's operational posture — it is tracked here as a THIRD
 named blocking prerequisite, alongside the writer migration and the SLA
 drill, so it is not glossed over at the next landing attempt.
+
+## Correction (round 8 — public pipeline contract + real-sibling integration test)
+
+Codex reviewed round 7's fix on renquant-execution#30, review timestamp
+2026-07-12T11:57:53Z, and found the boundary still wasn't fully closed:
+
+> Directionally correct and in the right repo: orchestrator should consume
+> an execution-owned CLI, and the separate structural verdict space is the
+> right shape. However, this does not yet create the claimed stable
+> cross-repo boundary. `renquant_execution.software_stops_liveness._pipeline_stops_api()`
+> still imports pipeline's private `renquant_pipeline.software_stops._validate_snapshot`.
+> The new public execution CLI therefore inherits an undocumented
+> execution-to-pipeline private dependency. A pipeline refactor can change
+> or remove the schema validator while the execution CLI continues to
+> advertise stable 0/1/2 semantics.
+>
+> The schema is pipeline-owned. First expose an explicitly public pipeline
+> contract, for example `validate_software_stop_snapshot(raw)`, with
+> documented `software-stops-v1` compatibility/error semantics and
+> pipeline-owned tests. Then update execution to use that public API
+> internally, while retaining this execution-owned `--validate-registry`
+> CLI for orchestrator. This preserves the intended direction:
+> orchestrator -> execution public CLI -> pipeline public schema API; no
+> consumer reaches through a private boundary.
+>
+> The current tests validate only a fake injected adapter; the real-pipeline
+> contract test is optional/skipped. Add a non-skipped integration
+> compatibility check in the R-PIN/multirepo validation lane, exercising
+> this exact CLI against a valid registry and malformed fixture with the
+> pinned pipeline implementation. Do not declare a stable public exit
+> contract until that path is continuously verified.
+>
+> This is not a request to move schema ownership into execution. It is a
+> request to make the owning pipeline contract explicit before execution
+> republishes it. #481 should remain DARK and blocked until this sequence
+> lands and the execution pin advances normally.
+
+**What changed, three repos, three parts:**
+
+- **Part A — renquant-pipeline**
+  ([renquant-pipeline#192](https://github.com/hallovorld/renquant-pipeline/pull/192)):
+  adds `validate_software_stop_snapshot(raw) -> dict` to
+  `src/renquant_pipeline/software_stops.py`, immediately after the existing
+  private `_validate_snapshot`. A thin, documented wrapper — identical
+  behavior, but now a stable public name with a versioned compatibility
+  contract (`software-stops-v1` / `REGISTRY_VERSION=1`) recorded in its own
+  docstring as the source of truth for v1 semantics. `_validate_snapshot`
+  and its existing internal callers (`SoftwareStopRegistry._load`, etc.)
+  are untouched — purely additive. New `TestPublicValidateSoftwareStopSnapshot`
+  test class in `tests/test_software_stops.py`: valid empty/one-stop
+  registries, one `ValueError` case per schema violation, and two identity
+  tests proving it is a genuine wrapper, not a divergent reimplementation
+  (41/41 passed in pipeline's own suite, 12 new).
+- **Part B — renquant-execution#30 (follow-up commit on the same open PR)**:
+  `_pipeline_stops_api()` in `src/renquant_execution/software_stops_liveness.py`
+  now imports and binds pipeline's public `validate_software_stop_snapshot`
+  (Part A) instead of the private `_validate_snapshot`. The
+  `_PipelineStopsAPI.validate_snapshot` field NAME is unchanged (execution's
+  own internal naming choice) — only what it is bound to changed. Module
+  docstring's cross-repo-dependency paragraph updated to name the public
+  contract explicitly and cite this review chain. This deferred import
+  raises `ImportError` until renquant-pipeline#192 merges to the pinned
+  checkout — expected and documented, not papered over with a
+  fallback/try-except (would defeat the point of a clean public-boundary
+  dependency). The hermetic tests (fake `_PipelineStopsAPI` injection)
+  don't exercise the real import path and are unaffected: 29 passed, 1
+  skipped (`test_pipeline_stops_api_contract_if_pipeline_installed`,
+  unchanged — pipeline still isn't installed in execution's own CI).
+- **Part C — renquant-orchestrator (this PR)**: the non-skipped integration
+  check Codex explicitly asked for. Two new tests in
+  `tests/test_stops_liveness_pager.py`:
+  `test_install_apply_guard_against_real_pinned_execution_and_pipeline`
+  (valid-registry case) and its `_malformed` counterpart (invalid-JSON
+  case), both exercising `install_stops_pager.sh`'s registry guard against
+  the REAL `renquant_execution`/`renquant_pipeline` packages via a REAL
+  runtime inventory pointing at their real sibling checkout paths
+  (`Path(__file__).resolve().parents[2]`) — not the hermetic
+  `_STUB_REGISTRY_MODULE` fake the existing tests above use. This is the
+  "R-PIN/multirepo validation lane" Codex means: this repo's own existing
+  "Full multirepo test" CI job (which checks out every sibling, including
+  pipeline with cvxpy, as a real directory), not a new CI job. On an
+  isolated worktree (no sibling directories at the resolved parent) both
+  tests correctly skip; on a normal dev machine at `.../git/github/` or in
+  that CI job they run for real.
+  - **Design correction made while building this**: the initial approach
+    used `pytest.importorskip("renquant_pipeline")` /
+    `pytest.importorskip("renquant_execution")` followed by a bare
+    `from renquant_execution.software_stops_liveness import validate_registry`
+    as an "import-time proof the function exists" check, on the assumption
+    that a missing name would just skip. Verified empirically that this is
+    FALSE: a bare `from X import Y` where `Y` doesn't exist raises a plain
+    `ImportError` that pytest does **not** convert to a skip — it's a hard
+    test failure. Fixed by using a dotted-path
+    `pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")`
+    instead: Python's submodule-import machinery raises
+    `ModuleNotFoundError` (an `ImportError` subclass) for a missing
+    attribute treated as a submodule path, which `importorskip` **does**
+    catch and correctly turn into a skip. This is the mechanism that
+    actually delivers "skip if the function doesn't exist yet."
+  - **Two distinct "not ready" states, handled differently on purpose**: if
+    `renquant_execution.software_stops_liveness.validate_registry` itself
+    doesn't exist (sibling checkout predates renquant-execution#30, round
+    7), the test SKIPS — the feature under test doesn't exist in that
+    checkout at all. If `validate_registry` exists but the pinned
+    `renquant-pipeline` checkout predates renquant-pipeline#192 (Part A),
+    the CLI's deferred import of `validate_software_stop_snapshot` raises
+    inside the subprocess these tests invoke, the subprocess exits
+    crash-class, and the test genuinely FAILS (not skips) — a real,
+    actionable "pipeline sibling is stale relative to this contract"
+    signal, not an infra gap to hide.
+  - Updated the "Enablement prerequisites" list above (item 3) to name the
+    now-three-repo dependency chain explicitly.
+
+**Observed in this environment (isolated worktrees under the scratchpad, as
+required for this round's work — never the shared live checkouts):** both
+new orchestrator tests **SKIPPED**, not ran — `pytest.importorskip` reported
+`could not import 'renquant_execution.software_stops_liveness.validate_registry'`
+against this scratchpad's separately-checked-out sibling clones of
+renquant-execution/renquant-pipeline (leftovers from earlier, unrelated
+session work, sitting at `main`, which predates even renquant-execution#30 /
+round 7 — not `/Users/renhao/git/github/`'s real siblings, and not this
+session's own Part A/B worktrees). This is the correctly-skipped outcome the
+test's docstring documents for a checkout predating round 7. **Separately
+verified the full chain works end-to-end** by manually running
+`install_stops_pager.sh install --apply`'s guard (outside pytest, as a
+one-off sanity check, not committed) against a runtime inventory pointing at
+this round's own Part A (`r8-pipeline`) and Part B (`r8-execution`)
+worktrees plus the scratchpad's other real siblings: the valid-registry case
+produced `GUARD OK: VALID ...` and exit 0 with the plist copied and
+launchctl invoked; the malformed-registry case produced
+`GUARD FAIL: CORRUPT: ... JSONDecodeError ...` and exit 3 with no plist
+copied and no launchctl call — proving orchestrator -> execution public CLI
+-> pipeline public schema API works correctly with real code in both
+directions once all three repos carry this round's changes. This ad hoc
+verification is not itself the committed non-skipped test; it confirms the
+committed test's mechanism is sound and will pass for real once Part A/B
+merge and the R-PINs advance in this repo's own CI or on a machine with
+real, up-to-date sibling checkouts.
 
 ## Bottom line
 

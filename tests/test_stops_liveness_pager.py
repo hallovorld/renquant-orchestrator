@@ -859,6 +859,249 @@ def test_install_apply_passes_with_zero_armed_stops(tmp_path):
     assert (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists()
 
 
+# ------------------------------- real-sibling integration (round 8, Part C)
+#
+# Codex review on renquant-execution#30 (2026-07-12T11:57:53Z): "The
+# current tests validate only a fake injected adapter; the real-pipeline
+# contract test is optional/skipped. Add a non-skipped integration
+# compatibility check in the R-PIN/multirepo validation lane, exercising
+# this exact CLI against a valid registry and malformed fixture with the
+# pinned pipeline implementation."
+#
+# The tests below are that check. They exercise install_stops_pager.sh's
+# registry guard end-to-end against the REAL renquant_execution
+# --validate-registry CLI and the REAL renquant_pipeline schema validator
+# (renquant-pipeline#192's public validate_software_stop_snapshot contract,
+# round 8 Part A) -- not the hermetic _STUB_REGISTRY_MODULE fake the tests
+# above use. They are the "non-skipped ... lane" Codex means: this repo's
+# own existing "Full multirepo test" CI job, which checks out every sibling
+# (including pipeline, with cvxpy installed) as a real directory next to
+# this one -- not a new CI job to build. On an isolated worktree (no
+# sibling directories at the resolved parent) they correctly SKIP; on a
+# normal dev machine at .../git/github/ or in that CI job they run for
+# real. See doc/progress/2026-07-11-stops-liveness-pager-package.md for
+# the "Correction (round 8)" section documenting this ordering explicitly.
+
+def _real_siblings_root() -> Path:
+    """Directory expected to contain sibling repo checkouts alongside this
+    one. This test file lives at ``renquant-orchestrator/tests/``, so
+    ``parents[2]`` is the directory containing renquant-orchestrator
+    itself -- e.g. ``/Users/renhao/git/github`` on the operator's normal
+    dev machine (where real renquant-pipeline/renquant-execution/...
+    siblings sit next to renquant-orchestrator) and this repo's own "Full
+    multirepo test" CI job (which checks out every sibling as a real
+    directory next to this one). In an ISOLATED WORKTREE (this test file's
+    own worktree included -- there is no sibling directory at that parent)
+    the real-sibling tests below skip rather than fail."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _real_sibling_repo_paths() -> "dict[str, Path] | None":
+    """Real absolute paths for every repo the install guard's own
+    PYTHONPATH resolution needs (the exact ``needed`` tuple
+    ``resolve_pinned_pythonpath()`` in install_stops_pager.sh reads out of
+    the runtime inventory), or ``None`` if they are not all present as
+    real checkouts (with a ``src/`` dir -- the guard's own inventory
+    validity check) at the resolved siblings root."""
+    root = _real_siblings_root()
+    names = (
+        "renquant-execution", "renquant-pipeline", "renquant-common",
+        "renquant-base-data", "renquant-artifacts", "renquant-model",
+    )
+    paths = {name: root / name for name in names}
+    if not all((p / "src").is_dir() for p in paths.values()):
+        return None
+    return paths
+
+
+def _real_sibling_state_root(tmp_path: Path, paths: "dict[str, Path]") -> Path:
+    """A REAL R-PIN state root (schema v1 runtime inventory) pointing at
+    the REAL sibling checkouts resolved by ``_real_sibling_repo_paths``
+    -- the non-fake counterpart of ``_fake_state_root`` above."""
+    state_root = tmp_path / "real-deploy-state"
+    state_root.mkdir()
+    inventory = {
+        "schema_version": 1,
+        "kind": "runtime-inventory",
+        "generated_at": "2026-07-12T00:00:00Z",
+        "host": "test-host",
+        "repos": {name: {"path": str(path)} for name, path in paths.items()},
+    }
+    (state_root / "runtime-inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
+    return state_root
+
+
+def test_install_apply_guard_against_real_pinned_execution_and_pipeline(tmp_path):
+    """Non-skipped integration compatibility check (Codex review on
+    execution#30, 2026-07-12T11:57:53Z): exercises install_stops_pager.sh's
+    registry guard end-to-end against the REAL renquant_execution
+    --validate-registry CLI and the REAL renquant_pipeline schema validator
+    -- not the hermetic _STUB_REGISTRY_MODULE fake used by the tests above.
+    Skips (does not fail) when the real sibling checkouts are not importable
+    -- e.g. an isolated worktree with no sibling repos -- but runs for real
+    in this repo's own "Full multirepo test" CI job and on a normal
+    developer machine at .../git/github/, where pyproject.toml's pytest
+    pythonpath already resolves both siblings. Proves the full chain
+    orchestrator -> execution public CLI -> pipeline public schema API
+    actually works with real code, closing the "only a fake adapter is
+    tested" gap Codex flagged.
+
+    VALID-registry case only -- see
+    test_install_apply_guard_against_real_pinned_execution_and_pipeline_malformed
+    below for the CORRUPT-registry counterpart (a separate test so each
+    gets its own fresh ``tmp_path`` / LaunchAgents dir, matching the
+    missing-vs-corrupt split of the hermetic guard tests above).
+
+    Ordering note: this test's real value only lands once
+    renquant-pipeline#192 (the validate_software_stop_snapshot public
+    contract, round 8 Part A) and renquant-execution#30's Part-B follow-up
+    commit (the sibling change to this repo's own consumer module) have
+    both merged and the local checkouts reflect that. Two distinct
+    "not ready yet" states are handled differently on purpose:
+      * The real sibling checkout of renquant-execution predates
+        renquant-execution#30 (round 7) entirely, so
+        ``software_stops_liveness.validate_registry`` doesn't exist yet --
+        SKIPPED (the feature under test doesn't exist in that checkout;
+        see the dotted-path importorskip below).
+      * ``validate_registry`` DOES exist (round 7 landed) but the pinned
+        renquant-pipeline checkout predates renquant-pipeline#192 (Part A),
+        so the CLI's deferred import of ``validate_software_stop_snapshot``
+        raises inside the subprocess this test invokes -- the subprocess
+        exits nonzero/crash-class and this test genuinely FAILS (not
+        skips): a real, actionable "pipeline sibling is stale relative to
+        this contract" signal, not an infra gap to paper over.
+    """
+    pytest.importorskip("renquant_pipeline")
+    pytest.importorskip("renquant_execution")
+    # Import-time proof the CLI flag's function exists on the REAL pinned
+    # module before building the runtime inventory below. Deliberately a
+    # DOTTED-PATH importorskip, not a bare `from ... import validate_registry`
+    # -- verified empirically: a bare `from X import Y` where Y doesn't
+    # exist raises a plain ImportError that pytest does NOT convert to a
+    # skip (it's a hard test FAILURE), whereas `importorskip("pkg.mod.name")`
+    # triggers Python's submodule-import machinery, which raises
+    # ModuleNotFoundError (an ImportError subclass) that importorskip DOES
+    # catch and turn into a real skip. This is what correctly produces "skip
+    # if the function doesn't exist yet" for a sibling checkout that
+    # predates renquant-execution#30's --validate-registry CLI (round 7),
+    # as opposed to a confusing hard failure.
+    pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")
+
+    paths = _real_sibling_repo_paths()
+    if paths is None:
+        pytest.skip(
+            f"real sibling checkouts not found under {_real_siblings_root()} "
+            "-- expected in an isolated worktree; this test runs for real "
+            "in this repo's own 'Full multirepo test' CI job and on a "
+            "normal dev machine at .../git/github/"
+        )
+
+    from renquant_pipeline.software_stops import (
+        DEFAULT_REGISTRY_PATH,
+        registry_path_for,
+    )
+
+    state_root = _real_sibling_state_root(tmp_path, paths)
+
+    valid_data_root = tmp_path / "valid-data-root"
+    valid_registry_path = registry_path_for(
+        valid_data_root / DEFAULT_REGISTRY_PATH, "alpaca"
+    )
+    valid_registry_path.parent.mkdir(parents=True)
+    valid_registry_path.write_text(
+        json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
+    )
+
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(valid_data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+        name="fake-plist-real-valid.plist",
+    )
+    env_extra = {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+    }
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode == 0, proc.stderr
+    assert "GUARD OK" in proc.stderr
+    assert "VALID" in proc.stderr
+    assert (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists()
+
+
+def test_install_apply_guard_against_real_pinned_execution_and_pipeline_malformed(tmp_path):
+    """Malformed-registry counterpart of the test above -- same REAL
+    renquant_execution/renquant_pipeline chain, but the registry file at
+    the resolved path fails the REAL pipeline schema validator (invalid
+    JSON), so the guard must refuse: nonzero exit, no plist copied, no
+    launchctl call. Proves real CORRUPT detection, not just real VALID
+    detection. Skip rationale identical to the valid-case test above."""
+    pytest.importorskip("renquant_pipeline")
+    pytest.importorskip("renquant_execution")
+    # Import-time proof the CLI flag's function exists on the REAL pinned
+    # module before building the runtime inventory below. Deliberately a
+    # DOTTED-PATH importorskip, not a bare `from ... import validate_registry`
+    # -- verified empirically: a bare `from X import Y` where Y doesn't
+    # exist raises a plain ImportError that pytest does NOT convert to a
+    # skip (it's a hard test FAILURE), whereas `importorskip("pkg.mod.name")`
+    # triggers Python's submodule-import machinery, which raises
+    # ModuleNotFoundError (an ImportError subclass) that importorskip DOES
+    # catch and turn into a real skip. This is what correctly produces "skip
+    # if the function doesn't exist yet" for a sibling checkout that
+    # predates renquant-execution#30's --validate-registry CLI (round 7),
+    # as opposed to a confusing hard failure.
+    pytest.importorskip("renquant_execution.software_stops_liveness.validate_registry")
+
+    paths = _real_sibling_repo_paths()
+    if paths is None:
+        pytest.skip(
+            f"real sibling checkouts not found under {_real_siblings_root()} "
+            "-- expected in an isolated worktree; this test runs for real "
+            "in this repo's own 'Full multirepo test' CI job and on a "
+            "normal dev machine at .../git/github/"
+        )
+
+    from renquant_pipeline.software_stops import (
+        DEFAULT_REGISTRY_PATH,
+        registry_path_for,
+    )
+
+    state_root = _real_sibling_state_root(tmp_path, paths)
+
+    malformed_data_root = tmp_path / "malformed-data-root"
+    malformed_registry_path = registry_path_for(
+        malformed_data_root / DEFAULT_REGISTRY_PATH, "alpaca"
+    )
+    malformed_registry_path.parent.mkdir(parents=True)
+    malformed_registry_path.write_text("not json{{{", encoding="utf-8")
+
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(malformed_data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+        name="fake-plist-real-malformed.plist",
+    )
+    env_extra = {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+    }
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "CORRUPT" in proc.stderr
+    assert not (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists(), (
+        "must not copy the plist when the real guard fails"
+    )
+    assert not (tmp_path / "launchctl_calls.log").exists(), (
+        "must not invoke launchctl bootstrap when the real guard fails"
+    )
+
+
 def test_install_dry_run_does_not_hard_fail_without_registry(tmp_path):
     """install (no --apply) must stay a pure echo-only dry-run even with no
     registry/inventory/env configured at all -- the guard only gates
