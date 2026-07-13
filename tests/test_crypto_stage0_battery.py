@@ -1,5 +1,8 @@
 """Tests for the crypto Stage-0 paper battery CLI/orchestration (D-C12).
 
+Paper/shadow readiness work only — this CLI is structurally unable to
+authorize live trading entries.
+
 2026-07-12 ownership split: all broker-facing step checks, safety gates
 (paper-only enforcement, fail-closed environment verification, the
 required/optional step policy), and their aggregation into a
@@ -11,16 +14,18 @@ This file covers only what stays here: CLI argument parsing, --paper
 live-blocking before any broker object is created, delegation to
 ``run_full_battery`` with a connected broker, JSON report serialization
 (including ``StepStatus`` enum -> plain string), run bundle persistence
-(report + orchestrator identity + content hash), and exit-code handling —
-never real (or even alpaca-typed) broker calls. ``run_full_battery`` and
-``AlpacaBroker`` are both monkeypatched at the module-qualified name, so
-this suite needs no ``alpaca-py`` install at all (grep the file: it never
-references ``alpaca``).
+(report + orchestrator identity + corruption-detection hash), and
+exit-code handling — never real (or even alpaca-typed) broker calls.
+``run_full_battery`` and ``AlpacaBroker`` are both monkeypatched at the
+module-qualified name, so this suite needs no ``alpaca-py`` install at all
+(grep the file: it never references ``alpaca``).
 """
 from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from scripts.crypto_stage0_battery import (
     BUNDLE_CONTRACT_VERSION,
@@ -126,8 +131,6 @@ class TestMainExitCode:
         # SystemExit (code 2), not a run_battery-level FAIL — argparse
         # itself makes the flag mandatory; run_battery's own paper=False
         # branch is defense-in-depth for direct/programmatic callers.
-        import pytest
-
         with pytest.raises(SystemExit) as exc_info:
             main(["--dry-run"])
         assert exc_info.value.code != 0
@@ -180,6 +183,34 @@ class TestMainExitCode:
         mock_run_full_battery.return_value = report
         rc = main(["--paper", "--dry-run"])
         assert rc != 0
+
+    def test_non_dry_run_without_bundle_dir_exits_nonzero(self):
+        """Non-dry-run battery MUST specify --bundle-dir; omitting it is an error."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--paper"])
+        assert exc_info.value.code != 0
+
+    @patch("scripts.crypto_stage0_battery._HAS_CHECKS", True)
+    @patch("scripts.crypto_stage0_battery.run_full_battery")
+    @patch("scripts.crypto_stage0_battery.AlpacaBroker")
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123")
+    def test_non_dry_run_with_bundle_dir_succeeds(
+        self, _mock_commit, mock_broker_cls, mock_run_full_battery, tmp_path
+    ):
+        """Non-dry-run battery with --bundle-dir should run and persist the bundle."""
+        mock_broker_cls.return_value = MagicMock()
+        mock_run_full_battery.return_value = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=False,
+            steps=[_fake_step("x", "PASS")],
+        )
+        bundle_dir = tmp_path / "bundles"
+        rc = main(["--paper", "--bundle-dir", str(bundle_dir)])
+        assert rc == 0
+        bundle_files = list(bundle_dir.glob("crypto_stage0_bundle_*.json"))
+        assert len(bundle_files) == 1
 
 
 # ── BatteryReport / StepResult fallback dataclasses ─────────────────────────

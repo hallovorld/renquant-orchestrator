@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Stage-0 paper battery for crypto trading capability (RFC D-C12).
 
+**Paper/shadow readiness work only.** This CLI is structurally unable to
+authorize live trading entries — it verifies Alpaca crypto prerequisites
+empirically on the PAPER account and persists the results as a run bundle
+for audit. Graduating from paper to live requires a separate design gate.
+
 Verifies Alpaca crypto prerequisites empirically on the PAPER account:
   1. Account status + crypto trading enabled + verified paper environment
   2. Pair snapshot (min_order_size, min_trade_increment, price_increment)
@@ -17,7 +22,7 @@ Usage::
     python scripts/crypto_stage0_battery.py --paper --dry-run
 
     # Full battery (places + cancels small test orders on paper):
-    python scripts/crypto_stage0_battery.py --paper --output battery_report.json
+    python scripts/crypto_stage0_battery.py --paper --bundle-dir ./bundles
 
 Design reference: doc/design/2026-07-10-crypto-trading-rfc.md §6 Stage 0.
 
@@ -105,7 +110,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("crypto_stage0")
 
-#: Bundle contract version — bump when the bundle schema changes.
+#: Temporary bundle envelope version — bump when the bundle schema changes.
+#: TODO: Replace with canonical multi-workflow bundle schema when available.
 BUNDLE_CONTRACT_VERSION = "1.0.0"
 
 
@@ -130,7 +136,7 @@ def _orchestrator_commit() -> str:
 
 
 def _content_sha256(payload: str) -> str:
-    """SHA-256 hex digest of a UTF-8 string payload."""
+    """SHA-256 hex digest of a UTF-8 string payload (corruption detection only)."""
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -170,13 +176,24 @@ def _report_to_jsonable(report: BatteryReport) -> dict[str, Any]:
 
 
 def build_run_bundle(report: BatteryReport) -> dict[str, Any]:
-    """Build an orchestration run bundle envelope around a ``BatteryReport``.
+    """Build a corruption-detection envelope around a ``BatteryReport``.
 
-    The bundle binds the execution report to orchestrator identity and includes
-    a content hash of the serialized report for tamper-evidence (Codex review
-    finding 4 on PR #500: a standalone ``--output`` JSON file is not the
-    orchestrator run bundle — it must carry run identity and a verifiable
-    report digest).
+    This is a **temporary ad-hoc bundle format** for the crypto Stage-0
+    battery. It does NOT yet use the canonical ``PersistDailyRunBundleTask``
+    / ``DailyRunContext.run_bundle`` schema (``daily.py``), because the
+    battery is not a daily training-to-trading run and lacks the required
+    context fields (``strategy_manifest``, ``artifact_manifest``,
+    ``decision_trace``, etc.). When a canonical multi-workflow bundle
+    schema is introduced, this function should adopt it.
+
+    .. todo:: Replace with canonical run bundle primitives once a
+       multi-workflow bundle schema exists (see ``daily.py``
+       ``PersistDailyRunBundleTask`` for the current daily-run pattern).
+
+    The ``report_sha256`` field is for **corruption detection only** — it
+    verifies the serialized report was not truncated or garbled on disk.
+    It is NOT authentication or provenance (no signing key, no chain of
+    custody). Do not rely on it for tamper-evidence against an adversary.
 
     Fields:
     - ``bundle_contract_version``: schema version for forward compatibility.
@@ -185,8 +202,7 @@ def build_run_bundle(report: BatteryReport) -> dict[str, Any]:
     - ``verdict``: ``"PASS"`` or ``"FAIL"`` — mirrors ``report.all_passed``.
     - ``report``: the full serialized ``BatteryReport``.
     - ``report_sha256``: SHA-256 of the canonical JSON serialization of the
-      report (sorted keys, 2-space indent) — the versioned execution report
-      contract.
+      report (sorted keys, 2-space indent) — corruption detection only.
     """
     report_dict = _report_to_jsonable(report)
     # Canonical serialization for the content hash — deterministic key order.
@@ -280,6 +296,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Non-dry-run battery runs MUST persist a bundle — a real battery run
+    # that completes with no persisted bundle is an audit gap.
+    if not args.dry_run and not args.bundle_dir:
+        parser.error("--bundle-dir is required for non-dry-run battery runs")
+
     report = run_battery(paper=args.paper, dry_run=args.dry_run)
 
     # Build the run bundle envelope (always, even if not persisted — the
@@ -297,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(output_str)
 
-    # Persist the full run bundle if requested.
+    # Persist the full run bundle.
     if args.bundle_dir:
         bundle_dir = Path(args.bundle_dir)
         ts_slug = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

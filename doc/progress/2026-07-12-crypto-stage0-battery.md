@@ -185,3 +185,39 @@ reviews on PR #500:
 
 - `pytest tests/test_crypto_stage0_battery.py -v`: 15/15 pass `[VERIFIED]`
 - No `alpaca.*` imports anywhere in script or tests `[VERIFIED]`
+
+## Revision note (2026-07-12, Codex round 3 — canonical bundle + hash scope + mandatory persistence)
+
+Addresses Codex's "ad hoc bundle format" finding. Changes:
+
+1. **Canonical bundle documented as TODO** (Codex item 1): `build_run_bundle()`
+   docstring now explicitly states this is a temporary ad-hoc format, not the
+   canonical `PersistDailyRunBundleTask` / `DailyRunContext.run_bundle` schema.
+   The battery lacks the required context fields (`strategy_manifest`,
+   `artifact_manifest`, `decision_trace`, etc.) because it is not a daily
+   training-to-trading run. Added a `.. todo::` referencing the canonical
+   pattern in `daily.py` for when a multi-workflow bundle schema is introduced.
+
+2. **Bundle mandatory for non-dry runs** (Codex item 2): `--bundle-dir` is now
+   required when `--dry-run` is not set. A real battery run that completes with
+   no persisted bundle is an audit gap — `parser.error()` exits before the
+   battery even runs. Two new tests cover this: the failure path (missing
+   `--bundle-dir` without `--dry-run` exits nonzero) and the success path
+   (non-dry-run with `--bundle-dir` runs and persists).
+
+3. **Hashes documented as corruption detection only** (Codex item 3):
+   `report_sha256` docstring now says "corruption detection only — NOT
+   authentication or provenance." Removed "tamper-evidence" language. The hash
+   detects truncation/garbling on disk, not adversarial tampering (no signing
+   key, no chain of custody).
+
+4. **CLI marked as paper/shadow readiness work** (Codex item 3): module
+   docstring now opens with "Paper/shadow readiness work only. This CLI is
+   structurally unable to authorize live trading entries."
+
+5. **Rebased onto origin/main** (Codex item 4): includes merged #501.
+
+### Verification
+
+- `pytest tests/test_crypto_stage0_battery.py -v`: 17/17 pass `[VERIFIED]`
+- Full suite: `make test` pass `[VERIFIED]`
