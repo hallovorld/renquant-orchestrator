@@ -6,7 +6,7 @@
   "diverged_twins": {
     "alpaca_broker": {
       "execution_path": "src/renquant_execution/alpaca_broker.py",
-      "execution_sha256": "560f6417b7d4d47526f51546280d9ac144e89595dc27aa806c5f7569ef93c398",
+      "execution_sha256": "67c5a5181d039e40c0ba0936ddd184cb3d0ec9be8fff5f9c5e675625086270db",
       "umbrella_path": "live/alpaca_broker.py",
       "umbrella_sha256": "1dd7ccc06f1d1eececbef636912aa06ac5bd5a3bb97f6eb2de4e54fe83036fbd"
     },
