@@ -224,7 +224,7 @@ class RunBatteryTask(Task):
 
         started = time.monotonic()
         try:
-            broker = AlpacaBroker(paper=True, env_prefix="ALPACA_PAPER")
+            broker = AlpacaBroker(paper=True)
             try:
                 broker.connect()
                 ctx.report = run_full_battery(broker, dry_run=ctx.dry_run)
