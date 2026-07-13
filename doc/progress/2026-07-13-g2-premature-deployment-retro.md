@@ -79,7 +79,8 @@ An agent operating with defined AC + metrics + delivery gates could NOT have mad
 this mistake, because the gate would mechanically fail: "AC-1: crypto model
 produces signal for ≥10 pairs → NOT MET → goal NOT delivered."
 
-**Fix**: `doc/memory/goal-governance-process.md` — mandatory goal lifecycle with
+**Fix**: RenQuant `doc/arch/goal-governance-process.md` (moved from here to the
+umbrella repo per Codex review, RenQuant#464) — mandatory goal lifecycle with
 acceptance criteria, measurable metrics, phase gates, and delivery evidence blocks.
 Filed as PR for operator review.
 
@@ -141,7 +142,8 @@ BLOCKS production.
 ### Process-level (applies to ALL goals, not just G2)
 
 1. **Every goal must have written acceptance criteria before ANY delivery claim.**
-   Process defined in `doc/memory/goal-governance-process.md`. No exceptions.
+   Process defined in RenQuant `doc/arch/goal-governance-process.md` (moved from
+   here, RenQuant#464). No exceptions.
 2. **Progress is measured by OUTPUT metrics (capabilities delivered), not INPUT
    metrics (PRs merged).** PR count is effort, not value.
 3. **Every delivery claim carries an evidence block** with [VERIFIED] stamps

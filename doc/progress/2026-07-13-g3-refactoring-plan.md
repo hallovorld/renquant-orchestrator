@@ -9,7 +9,8 @@ safe refactoring using the architecture violation registry as the roadmap.
 
 - G3 redefined per operator directive: "从简单的部分重构代码，使他们 align with
   multi repo and pipeline architecture"
-- Phased plan written: `doc/design/2026-07-13-g3-refactoring-plan.md`
+- Phased plan written: RenQuant `doc/arch/2026-07-13-g3-refactoring-plan.md`
+  (moved from here, RenQuant#464)
 - Acceptance criteria defined (4 measurable ACs per governance process)
 - Governance doc §8 updated to reflect new G3 scope
 - Phase A (tripwires/parity tests) is the starting point — zero behavior change
@@ -35,6 +36,6 @@ safe refactoring using the architecture violation registry as the roadmap.
 ## Evidence
 
 - Violation registry: `doc/design/2026-07-10-architecture-compliance-registry.md`
-- Refactoring plan: `doc/design/2026-07-13-g3-refactoring-plan.md`
+- Refactoring plan: RenQuant `doc/arch/2026-07-13-g3-refactoring-plan.md` (moved, RenQuant#464)
 - Governance §8 updated for G3 redefinition
 - Test baseline: 3902 passed, 1 failed (pre-existing `test_live_twin_parity_manifest_current`)
