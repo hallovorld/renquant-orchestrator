@@ -347,3 +347,43 @@ existing persistence tests.
 - Proof-of-concept: constructed a live-blocked context, ran the real
   pipeline, confirmed `result.ok is True` while `ctx.workflow_ok is False`
   and a `FAIL` readiness record was persisted `[VERIFIED]`
+
+## Revision note (2026-07-12, Codex round 6 — pipeline result fail-closed + run_id UUID validation)
+
+Codex's final review found that the round 5 approach (ValidateStage0InputsTask
+returning True so persistence always runs) still left `Pipeline.run().ok` as
+True, meaning programmatic callers relying on the pipeline result (not just
+`ctx.workflow_ok`) would miss a safety-gate failure. Fixed properly:
+
+1. **Pipeline result is now fail-closed.** `ValidateStage0InputsTask` returns
+   `False` on safety-gate failure (live-blocked, missing dependency), setting
+   `ctx.workflow_ok = False` and stopping the pipeline. `CryptoStage0Pipeline`
+   overrides `run()` to reflect `ctx.workflow_ok` in the returned
+   `PipelineResult.ok` via `dataclasses.replace`. Callers checking either
+   `result.ok` or `ctx.workflow_ok` now see the correct failure signal.
+
+2. **Persistence guaranteed via `run_stage0_workflow` fallback.** Since the
+   pipeline stops early when validation fails (persistence task doesn't run),
+   `run_stage0_workflow()` now runs `PersistStage0ReadinessTask` as a
+   post-pipeline fallback whenever `ctx.readiness_record` is empty but
+   `ctx.report` is populated. Every attempted run produces a persisted
+   readiness record.
+
+3. **`run_id` UUID validation.** `ValidateStage0InputsTask` now validates
+   `run_id` as a valid UUID via `uuid.UUID(run_id)`, raising `ValueError` for
+   non-UUID strings. `CryptoStage0Context` docstring updated to document the
+   UUID requirement. `new_run_id()` remains the UUID4 default.
+
+5 new tests added: `test_non_uuid_run_id_raises`,
+`test_pipeline_battery_exception_fails_closed`,
+`test_live_blocked_persists_fail_readiness_record`,
+`test_missing_dependency_persists_fail_readiness_record`,
+`test_battery_exception_persists_error_readiness_record`. Existing tests updated
+to use UUID run_ids and assert `result.ok is False` / `result is False` where
+appropriate.
+
+### Verification
+
+- `pytest tests/test_crypto_stage0_battery.py -v`: 37/37 pass `[VERIFIED]`
+- Full suite: `make test`: 3890 passed, 2 skipped, 1 pre-existing unrelated
+  failure (twin parity: alpaca_broker hash drift) `[VERIFIED]`

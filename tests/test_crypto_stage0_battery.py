@@ -71,26 +71,32 @@ class TestValidateStage0InputsTask:
         with pytest.raises(ValueError, match="run_id is required"):
             ValidateStage0InputsTask().run(ctx)
 
+    def test_non_uuid_run_id_raises(self, tmp_path):
+        ctx = _make_ctx(tmp_path, run_id="not-a-uuid")
+        with pytest.raises(ValueError, match="run_id must be a valid UUID"):
+            ValidateStage0InputsTask().run(ctx)
+
     def test_live_blocked_before_any_broker(self, tmp_path):
         ctx = _make_ctx(tmp_path, paper=False)
         result = ValidateStage0InputsTask().run(ctx)
-        # Does NOT short-circuit the Job (True, not False): persistence
-        # must still run so a blocked run leaves an audit trail. Downstream
-        # RunBatteryTask sees ctx.report already set and skips the broker.
-        assert result is True
+        # Short-circuits the Job (False): the pipeline stops, and
+        # run_stage0_workflow handles persistence as a fallback.
+        assert result is False
         assert ctx.report is not None
         assert ctx.report.steps[0].name == "safety"
         assert ctx.report.steps[0].status == "FAIL"
         assert ctx.report.all_passed is False
+        assert ctx.workflow_ok is False
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", False)
     def test_missing_dependency_reported_as_fail(self, tmp_path):
         ctx = _make_ctx(tmp_path)
         result = ValidateStage0InputsTask().run(ctx)
-        assert result is True  # does not short-circuit; see live-blocked test
+        assert result is False
         assert ctx.report is not None
         assert ctx.report.steps[0].name == "dependency"
         assert ctx.report.steps[0].status == "FAIL"
+        assert ctx.workflow_ok is False
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)
     def test_valid_inputs_pass(self, tmp_path):
@@ -213,7 +219,7 @@ class TestPersistStage0ReadinessTask:
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
     def test_readiness_record_schema(self, _mock_commit, tmp_path):
-        ctx = _make_ctx(tmp_path, run_id="test-run-id-123")
+        ctx = _make_ctx(tmp_path, run_id="12345678-1234-4abc-8def-123456789abc")
         ctx.report = BatteryReport(
             timestamp="t",
             account_id="a",
@@ -227,7 +233,7 @@ class TestPersistStage0ReadinessTask:
         rec = ctx.readiness_record
         assert rec["record_type"] == "crypto_stage0_readiness"
         assert rec["schema_version"] == 1
-        assert rec["run_id"] == "test-run-id-123"
+        assert rec["run_id"] == "12345678-1234-4abc-8def-123456789abc"
         assert rec["run_type"] == "crypto_stage0_battery"
         assert rec["paper"] is True
         assert rec["dry_run"] is True
@@ -337,40 +343,59 @@ class TestPipelineIntegration:
         assert ctx.readiness_record["record_type"] == "crypto_stage0_readiness"
         assert ctx.readiness_record["run_id"] == ctx.run_id
 
-    def test_pipeline_blocked_on_live_still_persists_fail_record(self, tmp_path):
-        """A safety-gate block is an attempted run, not a no-op: it must
-        still produce a persisted crypto_stage0_readiness record so there
-        is an audit trail explaining why no battery ran.
+    def test_pipeline_blocked_on_live_fails_closed(self, tmp_path):
+        """A safety-gate block must produce a fail-closed pipeline result.
 
-        Note: result.ok from the raw Pipeline is True here purely because
-        the pipeline completed without raising -- renquant_common.pipeline
-        .Pipeline.run() does not encode business pass/fail in .ok at all.
-        ctx.workflow_ok is the field that reflects the real outcome; do not
-        infer success from result.ok.
+        When ValidateStage0InputsTask returns False, the pipeline stops
+        early and result.ok is False (overridden by CryptoStage0Pipeline).
+        Readiness record persistence is handled by run_stage0_workflow as
+        a post-pipeline fallback (tested in TestRunStage0Workflow).
         """
         ctx = _make_ctx(tmp_path, paper=False)
         pipeline = CryptoStage0Pipeline()
         result = pipeline.run(ctx)
 
-        assert result.ok is True  # Pipeline ran without raising; not a verdict.
+        assert result.ok is False
+        assert result.name == "crypto-stage0-readiness"
         assert ctx.report is not None
         assert ctx.report.all_passed is False
         assert ctx.workflow_ok is False
-        assert ctx.readiness_record != {}
-        assert ctx.readiness_record["verdict"] == "FAIL"
-        assert ctx.readiness_record["run_id"] == ctx.run_id
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", False)
-    def test_pipeline_blocked_on_missing_dependency_still_persists_fail_record(self, tmp_path):
+    def test_pipeline_blocked_on_missing_dependency_fails_closed(self, tmp_path):
         ctx = _make_ctx(tmp_path)
         pipeline = CryptoStage0Pipeline()
-        pipeline.run(ctx)
+        result = pipeline.run(ctx)
 
+        assert result.ok is False
         assert ctx.report is not None
         assert ctx.report.steps[0].name == "dependency"
         assert ctx.workflow_ok is False
-        assert ctx.readiness_record != {}
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
+    @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_pipeline_battery_exception_fails_closed(
+        self, mock_broker_cls, mock_run_battery, _mock_commit, tmp_path
+    ):
+        """A battery exception must produce result.ok=False (fail-closed)
+        and persist an ERROR readiness record via the pipeline itself
+        (RunBatteryTask catches the exception and PersistStage0ReadinessTask
+        still runs)."""
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_run_battery.side_effect = RuntimeError("simulated failure")
+
+        ctx = _make_ctx(tmp_path)
+        pipeline = CryptoStage0Pipeline()
+        result = pipeline.run(ctx)
+
+        assert result.ok is False
+        assert ctx.workflow_ok is False
+        assert ctx.report.steps[0].status == "ERROR"
         assert ctx.readiness_record["verdict"] == "FAIL"
+        mock_broker.disconnect.assert_called_once()
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
     @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)
@@ -385,7 +410,7 @@ class TestPipelineIntegration:
             dry_run=True, steps=[_fake_step("x", "PASS")],
         )
 
-        explicit_run_id = "explicit-run-id-for-test"
+        explicit_run_id = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
         ctx = _make_ctx(tmp_path, run_id=explicit_run_id)
         CryptoStage0Pipeline().run(ctx)
 
@@ -431,12 +456,67 @@ class TestRunStage0Workflow:
             dry_run=True, steps=[_fake_step("x", "PASS")],
         )
 
+        explicit_id = "deadbeef-dead-4ead-beef-deadbeefcafe"
         ctx = run_stage0_workflow(
             paper=True, dry_run=True, output_dir=tmp_path / "out",
-            run_id="my-explicit-id",
+            run_id=explicit_id,
         )
 
-        assert ctx.run_id == "my-explicit-id"
+        assert ctx.run_id == explicit_id
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
+    def test_live_blocked_persists_fail_readiness_record(self, _mock_commit, tmp_path):
+        """run_stage0_workflow must persist a FAIL readiness record even
+        when the pipeline stops early due to a safety-gate block."""
+        ctx = run_stage0_workflow(
+            paper=False, dry_run=True, output_dir=tmp_path / "out",
+        )
+
+        assert ctx.workflow_ok is False
+        assert ctx.readiness_record != {}
+        assert ctx.readiness_record["verdict"] == "FAIL"
+        assert ctx.readiness_record["run_id"] == ctx.run_id
+        # File must be written to disk.
+        readiness_path = ctx.output_dir / "crypto_stage0_readiness.json"
+        assert readiness_path.exists()
+        content = json.loads(readiness_path.read_text(encoding="utf-8"))
+        assert content["verdict"] == "FAIL"
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
+    @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", False)
+    def test_missing_dependency_persists_fail_readiness_record(self, _mock_commit, tmp_path):
+        """Missing execution dependency must persist a FAIL readiness record."""
+        ctx = run_stage0_workflow(
+            paper=True, dry_run=True, output_dir=tmp_path / "out",
+        )
+
+        assert ctx.workflow_ok is False
+        assert ctx.readiness_record != {}
+        assert ctx.readiness_record["verdict"] == "FAIL"
+        assert ctx.report.steps[0].name == "dependency"
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
+    @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_battery_exception_persists_error_readiness_record(
+        self, mock_broker_cls, mock_run_battery, _mock_commit, tmp_path
+    ):
+        """A battery exception must produce a persisted ERROR readiness record."""
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_run_battery.side_effect = RuntimeError("broker exploded")
+
+        ctx = run_stage0_workflow(
+            paper=True, dry_run=True, output_dir=tmp_path / "out",
+        )
+
+        assert ctx.workflow_ok is False
+        assert ctx.readiness_record != {}
+        assert ctx.readiness_record["verdict"] == "FAIL"
+        assert ctx.report.steps[0].status == "ERROR"
+        assert "broker exploded" in ctx.report.steps[0].detail
+        mock_broker.disconnect.assert_called_once()
 
 
 # ── CLI (main) ──────────────────────────────────────────────────────────────

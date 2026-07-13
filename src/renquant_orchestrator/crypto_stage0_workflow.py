@@ -25,12 +25,12 @@ import os
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from renquant_common import Job, Pipeline, Task
+from renquant_common import Job, Pipeline, PipelineResult, Task
 
 try:
     from renquant_execution.alpaca_broker import AlpacaBroker
@@ -92,11 +92,10 @@ class CryptoStage0Context:
     ``daily.py`` -- a single mutable object threaded through the
     Task/Job/Pipeline chain, accumulating results at each stage.
 
-    ``run_id`` is an opaque, caller-meaningful string identifier (same
-    convention as ``DailyRunContext.run_id`` in ``daily.py`` -- only
-    non-empty is enforced, not a specific format), letting a caller
-    propagate its own run id (e.g. to correlate with a daily run) instead
-    of always minting a fresh one via :func:`new_run_id`.
+    ``run_id`` must be a valid RFC-4122 UUID string (validated by
+    ``ValidateStage0InputsTask``).  Callers may pass their own UUID
+    (e.g. to correlate with a daily run) instead of always minting a
+    fresh one via :func:`new_run_id`.
     """
 
     run_id: str
@@ -121,8 +120,8 @@ class CryptoStage0Context:
 def new_run_id() -> str:
     """Generate a new RFC-4122 UUID run identifier.
 
-    This is the default when no ``run_id`` is supplied; callers may pass any
-    non-empty opaque string instead (see ``CryptoStage0Context.run_id``).
+    This is the default when no ``run_id`` is supplied; callers may pass
+    their own UUID string instead (see ``CryptoStage0Context.run_id``).
     """
     return str(uuid.uuid4())
 
@@ -133,21 +132,24 @@ def new_run_id() -> str:
 class ValidateStage0InputsTask(Task):
     """Validate inputs before any broker interaction.
 
-    Checks: run_id is present, paper flag is set (live is never permitted),
-    execution dependency is available. A non-paper invocation is blocked
-    here before any broker object is even created.
+    Checks: run_id is a valid UUID, paper flag is set (live is never
+    permitted), execution dependency is available. A non-paper invocation
+    is blocked here before any broker object is even created.
 
-    A validation failure populates ``ctx.report`` with the FAIL reason but
-    does NOT short-circuit the Job (returns ``True``, not ``False``): the
-    readiness record must still be persisted for every attempted run,
-    including ones blocked before a broker was ever touched, so there is
-    always an audit trail explaining why. ``RunBatteryTask`` checks for a
-    pre-populated ``ctx.report`` and skips broker interaction accordingly.
+    A validation failure populates ``ctx.report`` with the FAIL reason,
+    sets ``ctx.workflow_ok = False``, and returns ``False`` to stop the
+    pipeline.  The public API (``run_stage0_workflow``) ensures the
+    readiness record is persisted for every attempted run, even when the
+    pipeline stops early, so there is always an audit trail.
     """
 
     def run(self, ctx: CryptoStage0Context) -> bool | None:
         if not ctx.run_id:
             raise ValueError("run_id is required")
+        try:
+            uuid.UUID(ctx.run_id)
+        except ValueError:
+            raise ValueError(f"run_id must be a valid UUID, got: {ctx.run_id!r}")
 
         if not ctx.paper:
             ctx.report = BatteryReport(
@@ -168,7 +170,8 @@ class ValidateStage0InputsTask(Task):
                 "ok": False,
                 "reason": "live mode blocked",
             })
-            return True
+            ctx.workflow_ok = False
+            return False
 
         if not _HAS_CHECKS:
             ctx.report = BatteryReport(
@@ -189,7 +192,8 @@ class ValidateStage0InputsTask(Task):
                 "ok": False,
                 "reason": "execution dependency missing",
             })
-            return True
+            ctx.workflow_ok = False
+            return False
 
         ctx.output_dir.mkdir(parents=True, exist_ok=True)
         ctx.stage_trace.append({"stage": "validate_stage0_inputs", "ok": True})
@@ -204,10 +208,11 @@ class RunBatteryTask(Task):
     task only handles orchestrator-side concerns: creating + connecting the
     broker, invoking the battery, and recording the result.
 
-    If ``ctx.report`` is already populated, ``ValidateStage0InputsTask``
-    blocked the run before reaching here -- skip broker interaction
-    entirely. Otherwise the broker connection and battery invocation are
-    wrapped so that (a) ``broker.disconnect()`` always runs, mirroring
+    If ``ctx.report`` is already populated (defensive guard -- normally
+    ``ValidateStage0InputsTask`` returns ``False`` and this task is never
+    reached when validation fails), broker interaction is skipped.
+    Otherwise the broker connection and battery invocation are wrapped so
+    that (a) ``broker.disconnect()`` always runs, mirroring
     ``daily.ExecuteOrderIntentsTask``'s connect/try/finally pattern, and
     (b) a setup or runtime exception becomes a persisted ERROR report
     instead of an unhandled crash with no audit trail.
@@ -342,6 +347,19 @@ class CryptoStage0Pipeline(Pipeline):
             name="crypto-stage0-readiness",
         )
 
+    def run(self, ctx: CryptoStage0Context) -> PipelineResult:
+        """Run the pipeline, reflecting ``ctx.workflow_ok`` in the result.
+
+        The base ``Pipeline.run()`` always returns ``ok=True`` (it only
+        tracks "didn't crash", not business pass/fail).  This override
+        replaces ``ok`` with the authoritative ``ctx.workflow_ok`` so
+        callers see fail-closed semantics from the pipeline result itself.
+        """
+        result = super().run(ctx)
+        if ctx.workflow_ok is not None and not ctx.workflow_ok:
+            result = replace(result, ok=False)
+        return result
+
 
 # ── Public entry point ───────────────────────────────────────────────────────
 
@@ -370,6 +388,13 @@ def run_stage0_workflow(
 
     pipeline = CryptoStage0Pipeline()
     pipeline.run(ctx)
+
+    # Ensure persistence for every attempted run, even when the pipeline
+    # stopped early (e.g. safety-gate returned False before the
+    # persistence task ran).  This guarantees an audit trail for every
+    # invocation, including runs blocked before a broker was touched.
+    if not ctx.readiness_record and ctx.report is not None:
+        PersistStage0ReadinessTask().run(ctx)
 
     return ctx
 
