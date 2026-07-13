@@ -89,6 +89,7 @@
     "config_experiment_store",
     "config_schema",
     "contract_fixture",
+    "crypto_scheduling",
     "crypto_session",
     "crypto_stage0_workflow",
     "daily",
