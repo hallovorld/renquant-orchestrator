@@ -234,9 +234,13 @@ The retrospective must identify:
   (phase-level exit criteria)
 - Goal-level AC needed: what does "crypto trading is live" actually mean?
 
-### G3 (Architecture audit)
-- Was a one-shot audit deliverable — AC = "violation registry merged" [MET]
-- Remediation tracking is separate work, not part of this goal
+### G3 (Architecture refactoring) — REDEFINED 2026-07-13
+- Prior scope: one-shot audit → DONE (orch #492 merged)
+- New scope: incremental safe refactoring per violation registry
+- Acceptance criteria: defined in `doc/design/2026-07-13-g3-refactoring-plan.md` §2
+  (AC-1: zero regressions, AC-2: violation count decreases, AC-3: no unregistered
+  behavior change, AC-4: operator phase-exit review)
+- Phased: A (tripwires) → B (single-source consolidation) → C (dead code) → D+ (migrations)
 
 ### G4 (Ensemble)
 - Phase A AC partially defined in design doc §4.5
