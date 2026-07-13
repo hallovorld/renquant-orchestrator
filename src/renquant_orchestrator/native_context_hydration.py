@@ -18,9 +18,20 @@ scorers, HoldingState instances) cannot live in JSON and must be materialized
 in the process that runs the pipeline.
 
 Boundary contract (§2a): every import here is pipeline-/pinned-repo-owned —
-``renquant_pipeline.context.InferenceContext``, ``kernel.regime.RegimeState``,
-``kernel.exits.HoldingState``, ``kernel.data.LocalStore`` (READONLY parquet
-loads only; no network fetch, no writes). NO umbrella module is imported
+``renquant_pipeline.context.InferenceContext``, and (V-005 remediation, PR
+#513) ``RegimeState``/``HoldingState``/``LocalStore`` via the narrow,
+lazy ``renquant_pipeline.public`` re-export surface (pipeline#197) rather
+than reaching into ``kernel.regime``/``kernel.exits``/``kernel.data``
+directly (READONLY parquet loads only; no network fetch, no writes). The
+per-ticker tournament universe load goes through
+``renquant_pipeline.public.load_universe`` — a pipeline-OWNED operation —
+rather than this repo constructing ``LoadUniverseJob``/``UniverseContext``
+itself (codex review, pipeline#197 round 1: exporting the Job would make
+its internal lifecycle a permanent cross-repo contract). The NYSE
+session-close watermark uses the canonical
+``renquant_common.market_calendar.last_completed_session`` shared contract
+(codex review, orchestrator#513 round 2) instead of the pipeline's private
+``_last_completed_nyse_session`` helper. NO umbrella module is imported
 anywhere on this path. The panel-scoring module alias installed by
 :func:`install_native_panel_scoring_alias` routes one pipeline-internal module
 to another pipeline-internal module — the SAME routing production's bridge
@@ -137,7 +148,7 @@ def _default_ohlcv_loader(
     freshness; DataFreshnessGateTask inside the pipeline is the staleness
     authority and fails closed on stale frames.
     """
-    from renquant_pipeline.kernel.data import LocalStore  # noqa: PLC0415
+    from renquant_pipeline.public import LocalStore  # noqa: PLC0415
 
     if ohlcv_dir is not None:
         data_dir: Path | None = Path(ohlcv_dir)
@@ -191,19 +202,27 @@ def _load_optional_artifacts(
 
 def _required_closed_session(session_date: "dt.date") -> tuple["dt.date", str]:
     """The last COMPLETED NYSE session as of the session-close watermark
-    (session_date 16:00:01 America/New_York) — via the pinned pipeline's own
-    calendar helper, weekday fallback if the calendar package is missing.
+    (session_date 16:00:01 America/New_York) — via the canonical
+    ``renquant_common.market_calendar`` shared calendar contract (codex
+    review, orchestrator#513 round 2: don't use the pipeline's private
+    ``_last_completed_nyse_session`` helper when a shared public contract
+    already exists), weekday fallback if the calendar backend is
+    unavailable or no completed session is found in its lookback window.
     Returns (required_session_date, watermark_iso)."""
     import pandas as pd  # noqa: PLC0415
-    from renquant_pipeline.kernel.data import (  # noqa: PLC0415
-        _last_completed_nyse_session,
+    from renquant_common.market_calendar import (  # noqa: PLC0415
+        CalendarUnavailableError,
+        last_completed_session,
     )
 
     watermark = pd.Timestamp(
         f"{session_date.isoformat()} 16:00:01", tz="America/New_York"
     )
-    required = _last_completed_nyse_session(watermark)
-    if required is None:  # calendar unavailable — weekday approximation
+    try:
+        required = last_completed_session(watermark, calendar_name="NYSE")
+    except (CalendarUnavailableError, ValueError):
+        # calendar backend missing, or no completed session found in the
+        # lookback window — weekday approximation.
         required = session_date
         while required.weekday() >= 5:
             required -= dt.timedelta(days=1)
@@ -418,8 +437,8 @@ def hydrate_pipeline_context(
       by the pipeline's own RegimeJob.
     """
     from renquant_pipeline.context import InferenceContext  # noqa: PLC0415
-    from renquant_pipeline.kernel.exits import HoldingState  # noqa: PLC0415
-    from renquant_pipeline.kernel.regime import RegimeState  # noqa: PLC0415
+    from renquant_pipeline.public import HoldingState  # noqa: PLC0415
+    from renquant_pipeline.public import RegimeState  # noqa: PLC0415
 
     config = context_payload.get("config")
     if not isinstance(config, dict) or not config:
@@ -551,30 +570,35 @@ def hydrate_pipeline_context(
 
     optional = _load_optional_artifacts(strategy_dir=strategy_dir, repo_root=repo_root)
 
-    # Per-ticker tournament models through the pipeline's OWN loader job —
-    # the same LoadUniverseJob production's runner calls (staleness /
-    # universe-floor / auto-drop filters included). Without these the legacy
+    # Per-ticker tournament models through the pipeline's OWN load_universe
+    # operation (staleness / universe-floor / auto-drop filters included,
+    # same chain production's runner runs). Without these the legacy
     # candidate funnel can never produce a buy (buy-admission gates on the
     # per-ticker tournament, not the panel), which would leave both §2a arms
     # permanently at deployed fraction 0.
+    #
+    # V-005 (codex review, pipeline#197 round 1, point 2): this repo does
+    # NOT construct LoadUniverseJob/UniverseContext directly — those are
+    # pipeline execution internals whose Job/Context lifecycle would become
+    # a permanent cross-repo contract if exported. Instead it calls the
+    # narrow, pipeline-OWNED renquant_pipeline.public.load_universe
+    # operation, which builds/runs the equivalent UniverseContext/
+    # LoadUniverseJob internally and returns only the models/rejections
+    # this function actually needs.
     models: dict[str, Any] = {}
     universe_rejections: list[tuple[str, str]] = []
     if strategy_dir is not None:
-        from renquant_pipeline.kernel.pipeline.job_universe import (  # noqa: PLC0415
-            LoadUniverseJob,
-            UniverseContext,
-        )
+        from renquant_pipeline.public import load_universe  # noqa: PLC0415
 
-        uctx = UniverseContext(
+        universe_result = load_universe(
             config=config,
-            strategy_dir=Path(strategy_dir),
+            strategy_dir=strategy_dir,
             broker_name=broker_name,
             held_tickers=set(holdings),
             as_of_date=today,
         )
-        LoadUniverseJob().run(uctx)
-        models = dict(uctx.loaded_models)
-        universe_rejections = list(uctx.rejections)
+        models = dict(universe_result.models)
+        universe_rejections = list(universe_result.rejections)
         # same downstream-visibility convention the production runner uses
         config["_universe_rejections"] = dict(universe_rejections)
 
