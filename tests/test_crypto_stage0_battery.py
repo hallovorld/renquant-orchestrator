@@ -129,7 +129,7 @@ class TestRunBatteryTask:
         result = RunBatteryTask().run(ctx)
 
         assert result is True
-        mock_broker_cls.assert_called_once_with(paper=True)
+        mock_broker_cls.assert_called_once_with(paper=True, env_prefix="ALPACA_PAPER")
         mock_broker.connect.assert_called_once()
         mock_run_battery.assert_called_once_with(mock_broker, dry_run=True)
         assert ctx.report is expected_report
