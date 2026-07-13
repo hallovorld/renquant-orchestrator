@@ -298,3 +298,52 @@ primitives. Now refactored into a proper first-class workflow.
 - Full suite: `make test`: 3881 passed, 2 skipped, 1 pre-existing unrelated
   failure (twin parity: alpaca_broker hash drift, confirmed pre-existing via
   `git stash` test) `[VERIFIED]`
+
+## Revision note (2026-07-13, Codex round 5 — fail-open pipeline result + broker leak)
+
+Codex found two remaining issues in the Task/Job/Pipeline refactor:
+
+1. `renquant_common.pipeline.Pipeline.run()` returns `ok=True` whenever the
+   pipeline completes without raising — it has no concept of a Task
+   short-circuiting a Job as a business failure. `ValidateStage0InputsTask`
+   returning `False` for a live-mode/missing-dependency block therefore
+   left `CryptoStage0Pipeline.run(ctx).ok is True` even though the safety
+   gate had just fired, and also skipped persistence entirely (no audit
+   trail for a blocked run). Fixed by no longer short-circuiting the Job:
+   `ValidateStage0InputsTask` now returns `True` (populating `ctx.report`
+   with the block reason), `RunBatteryTask` checks for an already-populated
+   `ctx.report` and skips broker interaction when present, and
+   `PersistStage0ReadinessTask` always runs, computing a new
+   `ctx.workflow_ok: bool` field — the authoritative pass/fail signal
+   callers must use instead of the raw `Pipeline.run(ctx).ok`. The CLI now
+   returns its exit code from `ctx.workflow_ok`.
+2. `RunBatteryTask` called `broker.connect()` with no
+   `finally: broker.disconnect()`, mirroring `daily.ExecuteOrderIntentsTask`
+   incompletely. A probe exception (or a `connect()` failure) could leave
+   the Alpaca SDK session open with no cleanup. Fixed: `connect()` +
+   `run_full_battery()` are now wrapped in `try/except/finally`, so
+   `disconnect()` always runs, and any setup/runtime exception becomes a
+   persisted `ERROR` step (`StepResult(status="ERROR", ...)`) rather than
+   an unhandled crash with no audit trail.
+3. Minor: clarified that `run_id` is an opaque, caller-meaningful string
+   (same convention as `DailyRunContext.run_id`), not a strict UUID
+   contract — `new_run_id()` remains the UUID4 default, but any non-empty
+   string is accepted, matching existing codebase convention.
+
+7 new/updated tests: broker-skip-when-already-blocked,
+disconnect-called-on-battery-exception, disconnect-called-on-connect-
+exception, both short-circuit tests rewritten to assert persisted FAIL
+records + `workflow_ok is False` (with a comment explaining why
+`result.ok` is not the verdict), plus `workflow_ok` assertions added to 3
+existing persistence tests.
+
+### Verification
+
+- `pytest tests/test_crypto_stage0_battery.py -v`: 32/32 pass `[VERIFIED]`
+- Full suite: 3879 passed, 5 skipped, 4 pre-existing unrelated failures (a
+  `renquant-pipeline` sibling-repo Python 3.9 `X | Y` type-union
+  incompatibility in `inference.py:199`, reproduced identically on the
+  prior commit before this revision) `[VERIFIED]`
+- Proof-of-concept: constructed a live-blocked context, ran the real
+  pipeline, confirmed `result.ok is True` while `ctx.workflow_ok is False`
+  and a `FAIL` readiness record was persisted `[VERIFIED]`

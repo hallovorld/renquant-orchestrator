@@ -91,6 +91,12 @@ class CryptoStage0Context:
     Follows the same context-object pattern as ``DailyRunContext`` in
     ``daily.py`` -- a single mutable object threaded through the
     Task/Job/Pipeline chain, accumulating results at each stage.
+
+    ``run_id`` is an opaque, caller-meaningful string identifier (same
+    convention as ``DailyRunContext.run_id`` in ``daily.py`` -- only
+    non-empty is enforced, not a specific format), letting a caller
+    propagate its own run id (e.g. to correlate with a daily run) instead
+    of always minting a fresh one via :func:`new_run_id`.
     """
 
     run_id: str
@@ -102,10 +108,22 @@ class CryptoStage0Context:
     report: BatteryReport | None = field(default=None, repr=False)
     readiness_record: dict[str, Any] = field(default_factory=dict)
     stage_trace: list[dict[str, Any]] = field(default_factory=list)
+    # Authoritative pass/fail signal for this workflow run. Do NOT rely on
+    # the raw Pipeline.run(ctx).ok. renquant_common.pipeline.Pipeline.run()
+    # returns ok=True whenever the pipeline completes without an uncaught
+    # exception -- it reflects "didn't crash", not "the battery passed" or
+    # even "entries are safe". workflow_ok is populated once the run
+    # completes (including safety short-circuits) and is the only field
+    # callers should check for the business outcome.
+    workflow_ok: bool | None = field(default=None)
 
 
 def new_run_id() -> str:
-    """Generate a new RFC-4122 UUID run identifier."""
+    """Generate a new RFC-4122 UUID run identifier.
+
+    This is the default when no ``run_id`` is supplied; callers may pass any
+    non-empty opaque string instead (see ``CryptoStage0Context.run_id``).
+    """
     return str(uuid.uuid4())
 
 
@@ -118,6 +136,13 @@ class ValidateStage0InputsTask(Task):
     Checks: run_id is present, paper flag is set (live is never permitted),
     execution dependency is available. A non-paper invocation is blocked
     here before any broker object is even created.
+
+    A validation failure populates ``ctx.report`` with the FAIL reason but
+    does NOT short-circuit the Job (returns ``True``, not ``False``): the
+    readiness record must still be persisted for every attempted run,
+    including ones blocked before a broker was ever touched, so there is
+    always an audit trail explaining why. ``RunBatteryTask`` checks for a
+    pre-populated ``ctx.report`` and skips broker interaction accordingly.
     """
 
     def run(self, ctx: CryptoStage0Context) -> bool | None:
@@ -143,7 +168,7 @@ class ValidateStage0InputsTask(Task):
                 "ok": False,
                 "reason": "live mode blocked",
             })
-            return False
+            return True
 
         if not _HAS_CHECKS:
             ctx.report = BatteryReport(
@@ -164,7 +189,7 @@ class ValidateStage0InputsTask(Task):
                 "ok": False,
                 "reason": "execution dependency missing",
             })
-            return False
+            return True
 
         ctx.output_dir.mkdir(parents=True, exist_ok=True)
         ctx.stage_trace.append({"stage": "validate_stage0_inputs", "ok": True})
@@ -178,13 +203,51 @@ class RunBatteryTask(Task):
     ``renquant_execution.crypto_stage0_checks.run_full_battery`` -- this
     task only handles orchestrator-side concerns: creating + connecting the
     broker, invoking the battery, and recording the result.
+
+    If ``ctx.report`` is already populated, ``ValidateStage0InputsTask``
+    blocked the run before reaching here -- skip broker interaction
+    entirely. Otherwise the broker connection and battery invocation are
+    wrapped so that (a) ``broker.disconnect()`` always runs, mirroring
+    ``daily.ExecuteOrderIntentsTask``'s connect/try/finally pattern, and
+    (b) a setup or runtime exception becomes a persisted ERROR report
+    instead of an unhandled crash with no audit trail.
     """
 
     def run(self, ctx: CryptoStage0Context) -> bool | None:
+        if ctx.report is not None:
+            return True
+
         started = time.monotonic()
         broker = AlpacaBroker(paper=True)
-        broker.connect()
-        ctx.report = run_full_battery(broker, dry_run=ctx.dry_run)
+        try:
+            broker.connect()
+            ctx.report = run_full_battery(broker, dry_run=ctx.dry_run)
+        except Exception as exc:  # noqa: BLE001 -- convert to an audited ERROR report
+            elapsed = time.monotonic() - started
+            ctx.report = BatteryReport(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                account_id="",
+                environment="paper",
+                dry_run=ctx.dry_run,
+                steps=[
+                    StepResult(
+                        name="run_battery",
+                        status="ERROR",
+                        detail=f"{type(exc).__name__}: {exc}",
+                    )
+                ],
+            )
+            ctx.stage_trace.append({
+                "stage": "run_battery",
+                "ok": False,
+                "elapsed_sec": elapsed,
+                "verdict": "ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            return True
+        finally:
+            broker.disconnect()
+
         elapsed = time.monotonic() - started
         ctx.stage_trace.append({
             "stage": "run_battery",
@@ -208,11 +271,20 @@ class PersistStage0ReadinessTask(Task):
     the battery is not a daily training-to-trading run and lacks the
     context fields (strategy_manifest, artifact_manifest, decision_trace,
     etc.) that ``PersistDailyRunBundleTask`` requires.
+
+    Runs (and persists a record) for every attempted run, including one
+    that ``ValidateStage0InputsTask`` blocked before touching a broker --
+    ``ctx.report`` is already populated with the block reason in that case.
+    Also sets ``ctx.workflow_ok``, the authoritative pass/fail signal for
+    this run (do not use the raw ``Pipeline.run(ctx).ok``; see
+    ``CryptoStage0Context.workflow_ok`` for why).
     """
 
     def run(self, ctx: CryptoStage0Context) -> bool | None:
         if ctx.report is None:
             raise ValueError("report is required before persistence")
+
+        ctx.workflow_ok = bool(ctx.report.all_passed)
 
         report_dict = _report_to_jsonable(ctx.report)
         canonical_json = json.dumps(report_dict, indent=2, sort_keys=True, default=str)
@@ -227,7 +299,7 @@ class PersistStage0ReadinessTask(Task):
             "dry_run": ctx.dry_run,
             "orchestrator_commit": _orchestrator_commit(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "verdict": "PASS" if ctx.report.all_passed else "FAIL",
+            "verdict": "PASS" if ctx.workflow_ok else "FAIL",
             "report_sha256": report_sha256,
             "report": report_dict,
             "stage_trace": list(ctx.stage_trace),

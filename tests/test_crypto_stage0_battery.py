@@ -74,7 +74,10 @@ class TestValidateStage0InputsTask:
     def test_live_blocked_before_any_broker(self, tmp_path):
         ctx = _make_ctx(tmp_path, paper=False)
         result = ValidateStage0InputsTask().run(ctx)
-        assert result is False
+        # Does NOT short-circuit the Job (True, not False): persistence
+        # must still run so a blocked run leaves an audit trail. Downstream
+        # RunBatteryTask sees ctx.report already set and skips the broker.
+        assert result is True
         assert ctx.report is not None
         assert ctx.report.steps[0].name == "safety"
         assert ctx.report.steps[0].status == "FAIL"
@@ -84,7 +87,7 @@ class TestValidateStage0InputsTask:
     def test_missing_dependency_reported_as_fail(self, tmp_path):
         ctx = _make_ctx(tmp_path)
         result = ValidateStage0InputsTask().run(ctx)
-        assert result is False
+        assert result is True  # does not short-circuit; see live-blocked test
         assert ctx.report is not None
         assert ctx.report.steps[0].name == "dependency"
         assert ctx.report.steps[0].status == "FAIL"
@@ -127,6 +130,62 @@ class TestRunBatteryTask:
         assert ctx.stage_trace[-1]["stage"] == "run_battery"
         assert ctx.stage_trace[-1]["ok"] is True
         assert "elapsed_sec" in ctx.stage_trace[-1]
+        # Broker must always be disconnected after use.
+        mock_broker.disconnect.assert_called_once()
+
+    def test_skips_broker_when_report_already_set(self, tmp_path):
+        """ValidateStage0InputsTask already populated ctx.report (a block) --
+        RunBatteryTask must not construct or touch a broker at all."""
+        ctx = _make_ctx(tmp_path)
+        pre_existing_report = BatteryReport(
+            timestamp="t", account_id="", environment="LIVE-BLOCKED",
+            dry_run=True, steps=[_fake_step("safety", "FAIL")],
+        )
+        ctx.report = pre_existing_report
+
+        with patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker") as mock_broker_cls:
+            result = RunBatteryTask().run(ctx)
+
+        assert result is True
+        mock_broker_cls.assert_not_called()
+        assert ctx.report is pre_existing_report
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_disconnect_called_even_when_battery_raises(
+        self, mock_broker_cls, mock_run_battery, tmp_path
+    ):
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_run_battery.side_effect = RuntimeError("simulated probe failure")
+
+        ctx = _make_ctx(tmp_path)
+        result = RunBatteryTask().run(ctx)
+
+        assert result is True
+        mock_broker.connect.assert_called_once()
+        mock_broker.disconnect.assert_called_once()
+        assert ctx.report is not None
+        assert ctx.report.all_passed is False
+        assert ctx.report.steps[0].status == "ERROR"
+        assert "simulated probe failure" in ctx.report.steps[0].detail
+        assert ctx.stage_trace[-1]["verdict"] == "ERROR"
+        assert ctx.stage_trace[-1]["ok"] is False
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_disconnect_called_even_when_connect_raises(self, mock_broker_cls, tmp_path):
+        mock_broker = MagicMock()
+        mock_broker.connect.side_effect = ConnectionError("no credentials")
+        mock_broker_cls.return_value = mock_broker
+
+        ctx = _make_ctx(tmp_path)
+        result = RunBatteryTask().run(ctx)
+
+        assert result is True
+        mock_broker.disconnect.assert_called_once()
+        assert ctx.report is not None
+        assert ctx.report.all_passed is False
+        assert ctx.report.steps[0].status == "ERROR"
 
 
 # ── PersistStage0ReadinessTask ──────────────────────────────────────────────
@@ -147,6 +206,7 @@ class TestPersistStage0ReadinessTask:
         result = PersistStage0ReadinessTask().run(ctx)
 
         assert result is True
+        assert ctx.workflow_ok is True
         assert ctx.readiness_record["record_type"] == "crypto_stage0_readiness"
         assert ctx.readiness_record["run_id"] == ctx.run_id
         assert ctx.readiness_record["verdict"] == "PASS"
@@ -214,6 +274,7 @@ class TestPersistStage0ReadinessTask:
 
         PersistStage0ReadinessTask().run(ctx)
 
+        assert ctx.workflow_ok is False
         assert ctx.readiness_record["verdict"] == "FAIL"
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
@@ -272,29 +333,44 @@ class TestPipelineIntegration:
         assert result.name == "crypto-stage0-readiness"
         assert ctx.report is not None
         assert ctx.report.all_passed is True
+        assert ctx.workflow_ok is True
         assert ctx.readiness_record["record_type"] == "crypto_stage0_readiness"
         assert ctx.readiness_record["run_id"] == ctx.run_id
 
-    def test_pipeline_short_circuits_on_live_blocked(self, tmp_path):
+    def test_pipeline_blocked_on_live_still_persists_fail_record(self, tmp_path):
+        """A safety-gate block is an attempted run, not a no-op: it must
+        still produce a persisted crypto_stage0_readiness record so there
+        is an audit trail explaining why no battery ran.
+
+        Note: result.ok from the raw Pipeline is True here purely because
+        the pipeline completed without raising -- renquant_common.pipeline
+        .Pipeline.run() does not encode business pass/fail in .ok at all.
+        ctx.workflow_ok is the field that reflects the real outcome; do not
+        infer success from result.ok.
+        """
         ctx = _make_ctx(tmp_path, paper=False)
         pipeline = CryptoStage0Pipeline()
         result = pipeline.run(ctx)
 
-        assert result.ok is True  # Pipeline itself completed without error
+        assert result.ok is True  # Pipeline ran without raising; not a verdict.
         assert ctx.report is not None
         assert ctx.report.all_passed is False
-        # Readiness record should NOT be written (pipeline short-circuited).
-        assert ctx.readiness_record == {}
+        assert ctx.workflow_ok is False
+        assert ctx.readiness_record != {}
+        assert ctx.readiness_record["verdict"] == "FAIL"
+        assert ctx.readiness_record["run_id"] == ctx.run_id
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", False)
-    def test_pipeline_short_circuits_on_missing_dependency(self, tmp_path):
+    def test_pipeline_blocked_on_missing_dependency_still_persists_fail_record(self, tmp_path):
         ctx = _make_ctx(tmp_path)
         pipeline = CryptoStage0Pipeline()
         pipeline.run(ctx)
 
         assert ctx.report is not None
         assert ctx.report.steps[0].name == "dependency"
-        assert ctx.readiness_record == {}
+        assert ctx.workflow_ok is False
+        assert ctx.readiness_record != {}
+        assert ctx.readiness_record["verdict"] == "FAIL"
 
     @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
     @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)

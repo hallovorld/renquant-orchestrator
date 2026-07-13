@@ -120,8 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         report_sha[:16] + "..." if report_sha else "n/a",
     )
 
-    all_passed = ctx.report.all_passed if ctx.report else False
-    return 0 if all_passed else 1
+    return 0 if ctx.workflow_ok else 1
 
 
 if __name__ == "__main__":
