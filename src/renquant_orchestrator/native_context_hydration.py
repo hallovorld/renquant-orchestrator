@@ -137,7 +137,7 @@ def _default_ohlcv_loader(
     freshness; DataFreshnessGateTask inside the pipeline is the staleness
     authority and fails closed on stale frames.
     """
-    from renquant_pipeline.kernel.data import LocalStore  # noqa: PLC0415
+    from renquant_pipeline.public import LocalStore  # noqa: PLC0415
 
     if ohlcv_dir is not None:
         data_dir: Path | None = Path(ohlcv_dir)
@@ -195,8 +195,8 @@ def _required_closed_session(session_date: "dt.date") -> tuple["dt.date", str]:
     calendar helper, weekday fallback if the calendar package is missing.
     Returns (required_session_date, watermark_iso)."""
     import pandas as pd  # noqa: PLC0415
-    from renquant_pipeline.kernel.data import (  # noqa: PLC0415
-        _last_completed_nyse_session,
+    from renquant_pipeline.public import (  # noqa: PLC0415
+        last_completed_nyse_session as _last_completed_nyse_session,
     )
 
     watermark = pd.Timestamp(
@@ -418,8 +418,8 @@ def hydrate_pipeline_context(
       by the pipeline's own RegimeJob.
     """
     from renquant_pipeline.context import InferenceContext  # noqa: PLC0415
-    from renquant_pipeline.kernel.exits import HoldingState  # noqa: PLC0415
-    from renquant_pipeline.kernel.regime import RegimeState  # noqa: PLC0415
+    from renquant_pipeline.public import HoldingState  # noqa: PLC0415
+    from renquant_pipeline.public import RegimeState  # noqa: PLC0415
 
     config = context_payload.get("config")
     if not isinstance(config, dict) or not config:
@@ -560,7 +560,7 @@ def hydrate_pipeline_context(
     models: dict[str, Any] = {}
     universe_rejections: list[tuple[str, str]] = []
     if strategy_dir is not None:
-        from renquant_pipeline.kernel.pipeline.job_universe import (  # noqa: PLC0415
+        from renquant_pipeline.public import (  # noqa: PLC0415
             LoadUniverseJob,
             UniverseContext,
         )
