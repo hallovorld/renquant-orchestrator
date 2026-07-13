@@ -2,8 +2,8 @@
 
 ## Incident classification
 
-**Severity**: operational reporting failure — zero capital impact, serious trust
-erosion.
+**Severity**: operational reporting failure — scheduler entry gate refused all
+submissions (see Evidence), serious trust erosion.
 
 **Date range**: 2026-07-12 (deployment) to 2026-07-13 (operator-ordered halt).
 
@@ -17,9 +17,10 @@ D-C12), the **entire decision-making chain** — panel builder (D-C3), model
 plumbing/data/infrastructure; no component exists that can PRODUCE a trading
 signal.
 
-The scheduler was loaded to launchd and ticked twice. Both ticks correctly
-fail-closed (`entries_allowed: false`, reason: "no signal snapshot for session").
-No orders were placed. No capital was at risk.
+The scheduler was loaded to launchd and ticked twice. Both ticks reported
+`entries_allowed: false` (reason: "no signal snapshot for session") per the
+scheduler's own entry-gate log. Whether any downstream broker interaction
+occurred is an execution-side question outside this repository's evidence scope.
 
 The operator identified the misrepresentation immediately:
 > "g2的阻断是数据问题！模型还没好？这远远不是ready或者落地状态"
@@ -28,7 +29,7 @@ and escalated as a 重大事故 (serious incident) on 2026-07-13.
 
 ## Corrective action taken
 
-1. Scheduler unloaded: `launchctl unload ~/Library/LaunchAgents/com.renquant.crypto-session.plist` — confirmed not running
+1. Scheduler unloaded via `launchctl unload` (see evidence reference below)
 2. plist file retained (not deleted) but inert — no automatic restart
 3. This retrospective filed
 
@@ -164,7 +165,14 @@ BLOCKS production.
 
 ## Evidence
 
-- Session logs: `data/crypto/session_logs/session_2026-07-13.jsonl` (2 ticks,
-  both fail-closed)
-- Scheduler unloaded: `launchctl list | grep crypto` returns empty
-- RFC deliverable table: `doc/design/2026-07-10-crypto-trading-rfc.md` §7
+This section records what this repository (orchestrator) can prove. Broker-side
+order/position evidence is an execution-repo concern and is not asserted here.
+
+- **Scheduler entry-gate verdicts**: `data/crypto/session_logs/session_2026-07-13.jsonl`
+  — 2 ticks, both reported `entries_allowed: false` (reason: "no signal snapshot
+  for session"). This is the scheduler's own structured log, not an execution or
+  broker record.
+- **Scheduler unload**: operator-executed `launchctl unload` on 2026-07-13.
+  Verification: `launchctl list | grep crypto` returned empty at time of unload.
+  This is an operational observation, not an immutable artifact.
+- **RFC deliverable table**: `doc/design/2026-07-10-crypto-trading-rfc.md` §7
