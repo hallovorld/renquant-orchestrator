@@ -315,3 +315,52 @@ environment-only failures (sibling-repo git-path resolution breaking when
 tests run from an out-of-place worktree — confirmed present on the
 pre-revision commit too, unrelated to this module) are excluded; 20
 deselected for that reason. `test_crypto_session.py` itself: 115/115 green.
+
+## Revision note (round 6, 2026-07-13) — trust-anchor gate, shadow-only for now
+
+Both Codex (00:08:27Z, re-reviewing this branch) and the operator
+independently reached the same conclusion: round 5's file-based
+`load_signal_artifact_ref`/`load_stop_coverage_report` closed the
+in-memory-tautology gap (a caller can no longer construct a matching
+object directly in Python and hand it to `evaluate_tick`), but not the
+deeper one — nothing ties the FILES THEMSELVES to a genuine,
+tamper-evident producer. A caller with write access to the configured
+paths can still write `{"expected_digest": snapshot.digest(), ...}` /
+`{"violations": 0, ...}` and pass every check.
+
+Codex proposed a concrete release boundary: this PR may merge now only if
+`entries_allowed` is structurally impossible for every mode (to exercise
+the bundle/report plumbing), with paper-entry enablement deferred until
+execution#34's final safety contract merges, the coverage report is
+execution-owned (execution#37), and the signal digest is derived from a
+genuinely immutable producer artifact (model#52).
+
+Implemented that boundary: added `ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY`
+(module-level flag, currently `False`) and `TrustAnchorGateTask`/
+`TrustAnchorGateJob` as the 10th and FINAL gate in `_GATE_PIPELINE`. It
+runs after all 9 existing gates (so every one of them still fully
+evaluates and is recorded in `TickResult.pipeline_steps` — the plumbing
+Codex wants exercised is genuinely exercised, only the final admit
+decision is forced closed) and unconditionally blocks entries in every
+mode while the flag is `False`. Flip the flag to `True` only once
+model#52 and execution#37 land their fixes and this module's
+`DigestVerificationGateTask`/`StopCoverageGateTask` are rewired to consume
+them (tracked separately — model#52/execution#37 are both in progress as
+of this note).
+
+8 existing tests that asserted `entries_allowed=True` for an
+otherwise-fully-passing tick were updated to monkeypatch the flag to
+`True` for the duration of the test (proving the other 9 gates' pass-
+through logic is still correct, independent of this restriction) via a
+shared `_assume_trust_anchor_ready(monkeypatch)` helper. 4 new tests added:
+default blocks entries in paper mode despite every other gate passing;
+default blocks entries in live mode too; the other 9 gates are still
+recorded as `skipped=False` when only the trust-anchor gate blocks
+(proving the restriction doesn't hide the rest of the pipeline); lifting
+the flag restores `entries_allowed=True` (a sanity check on the test
+helper itself).
+
+`test_crypto_session.py`: 119/119 green (115 + 4 new). Full repo suite:
+3847 passed, 5 skipped, same 4 pre-existing unrelated failures (Python 3.9
+vs PEP-604 syntax in a sibling `renquant-pipeline` module, confirmed via
+`git stash` to pre-date this change).

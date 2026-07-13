@@ -972,6 +972,52 @@ class StopCoverageGateJob(_GateJob):
         return [StopCoverageGateTask()]
 
 
+#: Codex + operator review (2026-07-13): file-based SignalArtifactRef /
+#: StopCoverageReport loading (added round 5) closes the in-memory-tautology
+#: gap but not the deeper one -- neither is yet tied to a genuinely
+#: tamper-evident, execution/model-owned trust anchor. A caller with write
+#: access to the configured paths can still fabricate a self-consistent
+#: "digest correct, zero violations" file. Proposed release boundary
+#: (Codex, https://github.com/hallovorld/renquant-orchestrator/pull/501):
+#: this scheduler may exercise its bundle/report plumbing now, structurally
+#: BLOCKED from ever admitting an entry in ANY mode, until the trust anchor
+#: is real -- model#52 (signal artifact provenance) and execution#37
+#: (execution-owned coverage report) land their fixes and this gate wires
+#: to them. Flip to False only once that wiring exists; do not remove this
+#: gate to "unblock" entries in the meantime.
+ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY = False
+
+
+class TrustAnchorGateTask(Task):
+    """Final, unconditional gate: blocks every entry until the signal/
+    stop-coverage evidence is tied to a genuine execution/model-owned trust
+    anchor (see ``ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY``'s docstring).
+
+    Runs LAST so every other gate still evaluates and is recorded in
+    ``TickResult.pipeline_steps`` -- this deliberately does not disable the
+    rest of the pipeline, only the final admit decision, so the bundle/
+    report plumbing remains fully exercisable in shadow/rehearsal use.
+    """
+
+    def run(self, ctx: TickContext) -> bool | None:
+        if not ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY:
+            ctx.block(
+                "crypto entry authorization trust anchor not yet implemented "
+                "-- signal/stop-coverage evidence is not yet tied to a "
+                "genuine, tamper-evident producer source; entries "
+                "structurally disabled in every mode pending trust-anchor "
+                "design (see orchestrator PR #501 discussion)"
+            )
+            return False
+        return True
+
+
+class TrustAnchorGateJob(_GateJob):
+    @property
+    def tasks(self) -> list[Task]:
+        return [TrustAnchorGateTask()]
+
+
 def _build_gate_pipeline() -> Pipeline:
     return Pipeline(
         [
@@ -984,6 +1030,7 @@ def _build_gate_pipeline() -> Pipeline:
             FingerprintValidationGateJob(),
             DigestVerificationGateJob(),
             StopCoverageGateJob(),
+            TrustAnchorGateJob(),
         ],
         name="crypto-session-entry-gates",
     )
@@ -1016,6 +1063,14 @@ def evaluate_tick(
        ``artifact_ref_path`` (loaded + schema/producer-id validated)
     9. Stop-coverage: PERSISTED report at ``stop_coverage_path`` (loaded +
        schema/freshness/environment validated), zero violations
+    10. Trust anchor: entries are structurally blocked in EVERY mode while
+        ``ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY`` is False — gates 1-9
+        close the in-memory-tautology gap (Codex round 5) but not the
+        deeper one (Codex + operator review, 2026-07-13): neither the
+        signal artifact ref nor the stop-coverage report is yet tied to a
+        genuine, tamper-evident producer source, so a caller with write
+        access to the configured paths can still fabricate a matching
+        pair. See ``TrustAnchorGateTask``'s docstring.
 
     This is a thin wrapper: it builds a ``TickContext``, runs the shared
     ``_GATE_PIPELINE``, and converts the result into the stable public

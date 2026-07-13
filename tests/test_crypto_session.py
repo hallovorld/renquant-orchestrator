@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from renquant_orchestrator import crypto_session as crypto_session_module
 from renquant_orchestrator.crypto_session import (
     ARTIFACT_REF_SCHEMA_VERSION,
     CRYPTO_ENV_FLAG,
@@ -38,6 +39,20 @@ UTC = dt.timezone.utc
 
 def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _assume_trust_anchor_ready(monkeypatch) -> None:
+    """Tests that verify the OTHER gates' pass-through logic (mode, quiet
+    interval, live authorization, watermark, digest, stop coverage) need to
+    lift the always-on TrustAnchorGateJob (see its module-level docstring)
+    so a fully-passing tick can still reach entries_allowed=True -- proving
+    the rest of the pipeline is correct independent of the current
+    "no real trust anchor yet" restriction. Production code is untouched;
+    this only patches the module flag for the duration of one test.
+    """
+    monkeypatch.setattr(
+        crypto_session_module, "ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY", True
+    )
 
 
 def _enabled_config(
@@ -804,6 +819,7 @@ class TestShadowModeNonAdmission:
         assert "shadow" in result.reason
 
     def test_paper_mode_allows_entries(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path, mode="paper")
         snap = _make_snapshot(dt.date(2026, 7, 12))
@@ -914,6 +930,7 @@ class TestLiveModeGateIntegration:
         assert "live mode blocked" in result.reason
 
     def test_live_mode_with_valid_authorization_allows_entry(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
         auth_path = _write_live_authorization(tmp_path, now)
@@ -949,6 +966,7 @@ class TestLiveModeGateIntegration:
         assert "expired" in result.reason
 
     def test_paper_mode_does_not_require_authorization_file(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path, mode="paper", live_authorization_path=None)
         snap = _make_snapshot(dt.date(2026, 7, 12))
@@ -987,6 +1005,7 @@ class TestConfiguredQuietInterval:
         assert result.is_quiet
 
     def test_after_configured_quiet_allows_entry(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = CryptoSessionConfig(
             enabled=True, mode="paper",
@@ -1150,6 +1169,7 @@ class TestEvaluateTick:
         assert "mismatch" in result.reason
 
     def test_valid_tick_allows_entries(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
@@ -1168,6 +1188,7 @@ class TestEvaluateTick:
         assert result.signal_snapshot_digest == snap.digest()
 
     def test_weekend_entries_allowed(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         saturday = dt.date(2026, 7, 11)
@@ -1203,6 +1224,7 @@ class TestEvaluateTick:
 
 class TestTickResultSerialization:
     def test_to_jsonable_roundtrip(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
@@ -1221,7 +1243,7 @@ class TestTickResultSerialization:
         assert j["entries_allowed"] is True
         assert j["session_date"] == "2026-07-12"
         assert isinstance(j["pipeline_steps"], list)
-        assert len(j["pipeline_steps"]) == 9  # one PipelineStepRecord per gate
+        assert len(j["pipeline_steps"]) == 10  # one PipelineStepRecord per gate
         assert all(not step["skipped"] for step in j["pipeline_steps"])
 
     def test_blocked_tick_shows_skipped_later_gates(self, tmp_path, monkeypatch):
@@ -1237,11 +1259,109 @@ class TestTickResultSerialization:
         assert all(step["skipped"] for step in steps[1:])
 
 
+# ── Trust-anchor gate (2026-07-13, operator + Codex review of PR #501) ─────
+
+
+class TestTrustAnchorGate:
+    """File-based SignalArtifactRef/StopCoverageReport loading (round 5)
+    closes the in-memory-tautology gap but not the deeper one: neither is
+    tied to a genuinely tamper-evident, execution/model-owned trust anchor.
+    Until model#52 (signal provenance) and execution#37 (execution-owned
+    coverage report) land and this gate wires to them,
+    ENTRY_AUTHORIZATION_TRUST_ANCHOR_READY stays False and entries must be
+    structurally impossible in every mode, while every other gate still
+    runs (exercising the bundle/report plumbing)."""
+
+    def test_default_blocks_entries_even_when_every_other_gate_passes(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="paper")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        ref_path = _write_artifact_ref(tmp_path, snap)
+        cov_path = _write_stop_coverage(tmp_path, now, mode="paper")
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref_path=ref_path,
+            stop_coverage_path=cov_path,
+        )
+        assert result.entries_allowed is False
+        assert "trust anchor not yet implemented" in result.reason
+        assert result.exits_allowed is True  # exits always allowed regardless
+
+    def test_default_blocks_entries_in_live_mode_too(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        auth_path = _write_live_authorization(tmp_path, now)
+        cfg = _enabled_config(tmp_path, mode="live", live_authorization_path=auth_path)
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        ref_path = _write_artifact_ref(tmp_path, snap)
+        cov_path = _write_stop_coverage(tmp_path, now, mode="live")
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref_path=ref_path,
+            stop_coverage_path=cov_path,
+        )
+        assert result.entries_allowed is False
+        assert "trust anchor not yet implemented" in result.reason
+
+    def test_other_gates_still_run_and_are_recorded_when_only_blocked_by_trust_anchor(
+        self, tmp_path, monkeypatch
+    ):
+        """The plumbing-exercise property Codex asked for: every gate up to
+        and including TrustAnchorGateJob must show skipped=False (they all
+        genuinely ran), proving this restriction doesn't hide the rest of
+        the pipeline -- only the final admit decision is forced closed."""
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="paper")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        ref_path = _write_artifact_ref(tmp_path, snap)
+        cov_path = _write_stop_coverage(tmp_path, now, mode="paper")
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref_path=ref_path,
+            stop_coverage_path=cov_path,
+        )
+        steps = result.pipeline_steps
+        assert len(steps) == 10
+        assert all(not step["skipped"] for step in steps)
+        assert steps[-1]["job_name"] == "TrustAnchorGateJob"
+
+    def test_lifting_the_flag_restores_entries_allowed(self, tmp_path, monkeypatch):
+        """Sanity check for the monkeypatch helper itself: proves the flag
+        genuinely gates the outcome, not just that other tests happen to
+        pass for unrelated reasons."""
+        _assume_trust_anchor_ready(monkeypatch)
+        monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
+        cfg = _enabled_config(tmp_path, mode="paper")
+        snap = _make_snapshot(dt.date(2026, 7, 12))
+        now = dt.datetime(2026, 7, 12, 1, 0, tzinfo=UTC)
+        ref_path = _write_artifact_ref(tmp_path, snap)
+        cov_path = _write_stop_coverage(tmp_path, now, mode="paper")
+        result = evaluate_tick(
+            config=cfg,
+            now_utc=now,
+            signal_snapshot=snap,
+            artifact_ref_path=ref_path,
+            stop_coverage_path=cov_path,
+        )
+        assert result.entries_allowed is True
+
+
 # ── Session bundle ───────────────────────────────────────────────────────────
 
 
 class TestSessionBundle:
     def test_bundle_structure(self, tmp_path, monkeypatch):
+        _assume_trust_anchor_ready(monkeypatch)
         monkeypatch.setenv(CRYPTO_ENV_FLAG, "1")
         cfg = _enabled_config(tmp_path)
         snap = _make_snapshot(dt.date(2026, 7, 12))
