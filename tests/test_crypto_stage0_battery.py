@@ -193,6 +193,160 @@ class TestRunBatteryTask:
         assert ctx.report.all_passed is False
         assert ctx.report.steps[0].status == "ERROR"
 
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_constructor_exception_produces_error_report(self, mock_broker_cls, tmp_path):
+        """If AlpacaBroker(...) itself raises, the task must still return
+        normally with an ERROR report so PersistStage0ReadinessTask can run."""
+        mock_broker_cls.side_effect = RuntimeError("missing credentials file")
+
+        ctx = _make_ctx(tmp_path)
+        result = RunBatteryTask().run(ctx)
+
+        assert result is True
+        assert ctx.report is not None
+        assert ctx.report.all_passed is False
+        assert ctx.report.steps[0].status == "ERROR"
+        assert "missing credentials file" in ctx.report.steps[0].detail
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_disconnect_failure_after_successful_battery(
+        self, mock_broker_cls, mock_run_battery, tmp_path
+    ):
+        """Successful battery + disconnect() raises -> report gets an ERROR
+        step appended, all_passed becomes False, task returns normally."""
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_broker.disconnect.side_effect = OSError("socket already closed")
+        mock_run_battery.return_value = BatteryReport(
+            timestamp="t", account_id="a", environment="paper",
+            dry_run=True, steps=[_fake_step("crypto_account_status", "PASS")],
+        )
+
+        ctx = _make_ctx(tmp_path)
+        result = RunBatteryTask().run(ctx)
+
+        assert result is True
+        assert ctx.report is not None
+        # The disconnect error is appended as a required ERROR step.
+        disconnect_steps = [s for s in ctx.report.steps if s.name == "broker_disconnect"]
+        assert len(disconnect_steps) == 1
+        assert disconnect_steps[0].status == "ERROR"
+        assert "socket already closed" in disconnect_steps[0].detail
+        # The overall verdict must now be FAIL because the ERROR step is required.
+        assert ctx.report.all_passed is False
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_disconnect_failure_after_battery_exception(
+        self, mock_broker_cls, mock_run_battery, tmp_path
+    ):
+        """Battery raises + disconnect() raises -> report captures BOTH errors,
+        all_passed is False, task returns normally."""
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_run_battery.side_effect = RuntimeError("probe order failed")
+        mock_broker.disconnect.side_effect = OSError("socket already closed")
+
+        ctx = _make_ctx(tmp_path)
+        result = RunBatteryTask().run(ctx)
+
+        assert result is True
+        assert ctx.report is not None
+        assert ctx.report.all_passed is False
+        # Primary error is the battery exception.
+        assert ctx.report.steps[0].name == "run_battery"
+        assert ctx.report.steps[0].status == "ERROR"
+        assert "probe order failed" in ctx.report.steps[0].detail
+        # Disconnect error is appended as a separate step.
+        assert ctx.report.steps[1].name == "broker_disconnect"
+        assert ctx.report.steps[1].status == "ERROR"
+        assert "socket already closed" in ctx.report.steps[1].detail
+
+
+# ── Disconnect-failure end-to-end (pipeline + CLI) ──────────────────────────
+
+
+class TestDisconnectFailureEndToEnd:
+    """Verify that disconnect failures do NOT prevent readiness record
+    persistence -- the whole reason for the fix."""
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
+    @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_successful_battery_disconnect_fail_persists_fail_record(
+        self, mock_broker_cls, mock_run_battery, _mock_commit, tmp_path
+    ):
+        """Successful battery + disconnect() raises -> persisted FAIL record
+        with disconnect error detail, nonzero CLI exit."""
+        from scripts.crypto_stage0_battery import main
+
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_broker.disconnect.side_effect = OSError("socket already closed")
+        mock_run_battery.return_value = BatteryReport(
+            timestamp="t", account_id="a", environment="paper",
+            dry_run=True, steps=[_fake_step("crypto_account_status", "PASS")],
+        )
+
+        bundle_dir = tmp_path / "bundles"
+        rc = main(["--paper", "--dry-run", "--bundle-dir", str(bundle_dir)])
+
+        # CLI exit must be nonzero because the disconnect error taints the verdict.
+        assert rc != 0
+        # Exactly one readiness record must be persisted.
+        readiness_path = bundle_dir / "crypto_stage0_readiness.json"
+        assert readiness_path.exists()
+        content = json.loads(readiness_path.read_text(encoding="utf-8"))
+        assert content["record_type"] == "crypto_stage0_readiness"
+        assert content["verdict"] == "FAIL"
+        # The disconnect error must be visible in the persisted report.
+        disconnect_steps = [
+            s for s in content["report"]["steps"] if s["name"] == "broker_disconnect"
+        ]
+        assert len(disconnect_steps) == 1
+        assert disconnect_steps[0]["status"] == "ERROR"
+        assert "socket already closed" in disconnect_steps[0]["detail"]
+
+    @patch("renquant_orchestrator.crypto_stage0_workflow._orchestrator_commit", return_value="abc123")
+    @patch("renquant_orchestrator.crypto_stage0_workflow._HAS_CHECKS", True)
+    @patch("renquant_orchestrator.crypto_stage0_workflow.run_full_battery")
+    @patch("renquant_orchestrator.crypto_stage0_workflow.AlpacaBroker")
+    def test_battery_exception_disconnect_fail_persists_fail_record(
+        self, mock_broker_cls, mock_run_battery, _mock_commit, tmp_path
+    ):
+        """Battery exception + disconnect() raises -> persisted FAIL record
+        with both errors, nonzero CLI exit."""
+        from scripts.crypto_stage0_battery import main
+
+        mock_broker = MagicMock()
+        mock_broker_cls.return_value = mock_broker
+        mock_run_battery.side_effect = RuntimeError("probe order failed")
+        mock_broker.disconnect.side_effect = OSError("socket already closed")
+
+        bundle_dir = tmp_path / "bundles"
+        rc = main(["--paper", "--dry-run", "--bundle-dir", str(bundle_dir)])
+
+        # CLI exit must be nonzero.
+        assert rc != 0
+        # Exactly one readiness record must be persisted.
+        readiness_path = bundle_dir / "crypto_stage0_readiness.json"
+        assert readiness_path.exists()
+        content = json.loads(readiness_path.read_text(encoding="utf-8"))
+        assert content["record_type"] == "crypto_stage0_readiness"
+        assert content["verdict"] == "FAIL"
+        # Both errors must be visible in the persisted report.
+        step_names = [s["name"] for s in content["report"]["steps"]]
+        assert "run_battery" in step_names
+        assert "broker_disconnect" in step_names
+        battery_step = next(s for s in content["report"]["steps"] if s["name"] == "run_battery")
+        assert "probe order failed" in battery_step["detail"]
+        disconnect_step = next(
+            s for s in content["report"]["steps"] if s["name"] == "broker_disconnect"
+        )
+        assert "socket already closed" in disconnect_step["detail"]
+
 
 # ── PersistStage0ReadinessTask ──────────────────────────────────────────────
 

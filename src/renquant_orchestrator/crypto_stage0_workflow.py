@@ -223,24 +223,64 @@ class RunBatteryTask(Task):
             return True
 
         started = time.monotonic()
-        broker = AlpacaBroker(paper=True)
         try:
-            broker.connect()
-            ctx.report = run_full_battery(broker, dry_run=ctx.dry_run)
+            broker = AlpacaBroker(paper=True)
+            try:
+                broker.connect()
+                ctx.report = run_full_battery(broker, dry_run=ctx.dry_run)
+            finally:
+                try:
+                    broker.disconnect()
+                except Exception as disconnect_err:  # noqa: BLE001
+                    # Capture cleanup error without masking the primary
+                    # failure (if any).  Append an ERROR step so the
+                    # disconnect failure is visible in the audit trail.
+                    disconnect_detail = (
+                        f"disconnect failed: "
+                        f"{type(disconnect_err).__name__}: {disconnect_err}"
+                    )
+                    if ctx.report is not None:
+                        # Battery completed (success or fail) before
+                        # disconnect blew up -- append the error step.
+                        ctx.report.steps.append(
+                            StepResult(
+                                name="broker_disconnect",
+                                status="ERROR",
+                                detail=disconnect_detail,
+                                required=True,
+                            )
+                        )
+                    else:
+                        # Battery raised before populating report; we'll
+                        # build the report in the outer except block and
+                        # stash the disconnect detail for inclusion there.
+                        ctx._disconnect_error = disconnect_detail  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 -- convert to an audited ERROR report
             elapsed = time.monotonic() - started
+            steps = [
+                StepResult(
+                    name="run_battery",
+                    status="ERROR",
+                    detail=f"{type(exc).__name__}: {exc}",
+                )
+            ]
+            # If disconnect also failed, append that as a separate step.
+            disconnect_detail = getattr(ctx, "_disconnect_error", None)
+            if disconnect_detail:
+                steps.append(
+                    StepResult(
+                        name="broker_disconnect",
+                        status="ERROR",
+                        detail=disconnect_detail,
+                        required=True,
+                    )
+                )
             ctx.report = BatteryReport(
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 account_id="",
                 environment="paper",
                 dry_run=ctx.dry_run,
-                steps=[
-                    StepResult(
-                        name="run_battery",
-                        status="ERROR",
-                        detail=f"{type(exc).__name__}: {exc}",
-                    )
-                ],
+                steps=steps,
             )
             ctx.stage_trace.append({
                 "stage": "run_battery",
@@ -250,8 +290,6 @@ class RunBatteryTask(Task):
                 "error": f"{type(exc).__name__}: {exc}",
             })
             return True
-        finally:
-            broker.disconnect()
 
         elapsed = time.monotonic() - started
         ctx.stage_trace.append({
