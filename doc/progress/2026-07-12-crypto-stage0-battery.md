@@ -144,3 +144,44 @@ This PR's script and tests are rewritten accordingly:
   (Python 3.9 vs `list | tuple | set` PEP-604 syntax in a sibling
   `renquant-pipeline` module, confirmed via `git stash` to pre-date this
   change), 5 skipped `[VERIFIED]`.
+
+## Revision note (2026-07-12, after execution#34 merged — addressing Codex blockers)
+
+execution#34 is now merged into renquant-execution main. This revision
+addresses the remaining Codex blockers from the two CHANGES_REQUESTED
+reviews on PR #500:
+
+1. **Single-entrypoint API consumed** (Codex finding 2): the CLI now
+   imports only `run_full_battery` (plus types) from the execution repo
+   and delegates the entire battery run to it. No individual step
+   functions are imported or called. This was already done in commit
+   `b1fd2e5e` but is now the stable contract.
+
+2. **Orchestration run bundle persisted** (Codex finding 4): new
+   `--bundle-dir` CLI argument. When provided, the CLI writes a
+   timestamped JSON bundle file containing the full `BatteryReport`,
+   orchestrator commit SHA, bundle timestamp, overall verdict, and a
+   SHA-256 content hash of the canonical report serialization. Written
+   atomically (temp + rename) following `shadow_ab_runner` pattern.
+   `build_run_bundle()` is the public function; `BUNDLE_CONTRACT_VERSION`
+   is `"1.0.0"`.
+
+3. **Versioned execution report contract** (Codex finding 3): the
+   `BatteryReport` from `run_full_battery` IS the execution report
+   contract. The bundle includes `report_sha256` (SHA-256 of the
+   deterministic canonical JSON serialization) for tamper-evidence /
+   auditability.
+
+4. **ERROR status fails closed** (Codex finding 1, first review):
+   `all_passed` only returns True when every required step has status
+   PASS — an ERROR step exits nonzero. Added explicit test for this.
+
+5. **Test coverage**: 15 tests total (up from 8). New tests cover bundle
+   envelope structure, verdict logic (required vs optional failures),
+   SHA-256 determinism and sensitivity, bundle-dir file persistence, and
+   ERROR-only battery exit code.
+
+### Verification
+
+- `pytest tests/test_crypto_stage0_battery.py -v`: 15/15 pass `[VERIFIED]`
+- No `alpaca.*` imports anywhere in script or tests `[VERIFIED]`

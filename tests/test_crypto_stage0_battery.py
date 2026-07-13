@@ -10,7 +10,8 @@ docstring and ``doc/progress/2026-07-12-crypto-stage0-battery.md`` for why.
 This file covers only what stays here: CLI argument parsing, --paper
 live-blocking before any broker object is created, delegation to
 ``run_full_battery`` with a connected broker, JSON report serialization
-(including ``StepStatus`` enum -> plain string), and exit-code handling —
+(including ``StepStatus`` enum -> plain string), run bundle persistence
+(report + orchestrator identity + content hash), and exit-code handling —
 never real (or even alpaca-typed) broker calls. ``run_full_battery`` and
 ``AlpacaBroker`` are both monkeypatched at the module-qualified name, so
 this suite needs no ``alpaca-py`` install at all (grep the file: it never
@@ -22,8 +23,10 @@ import json
 from unittest.mock import MagicMock, patch
 
 from scripts.crypto_stage0_battery import (
+    BUNDLE_CONTRACT_VERSION,
     BatteryReport,
     StepResult,
+    build_run_bundle,
     main,
     run_battery,
 )
@@ -161,6 +164,23 @@ class TestMainExitCode:
         rc = main(["--paper", "--dry-run"])
         assert rc != 0
 
+    @patch("scripts.crypto_stage0_battery._HAS_CHECKS", True)
+    @patch("scripts.crypto_stage0_battery.run_full_battery")
+    @patch("scripts.crypto_stage0_battery.AlpacaBroker")
+    def test_error_only_battery_exits_nonzero(self, mock_broker_cls, mock_run_full_battery, capsys):
+        """Codex review finding 1: ERROR status must fail closed (exit != 0)."""
+        mock_broker_cls.return_value = MagicMock()
+        report = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=True,
+            steps=[_fake_step("x", "ERROR", required=True)],
+        )
+        mock_run_full_battery.return_value = report
+        rc = main(["--paper", "--dry-run"])
+        assert rc != 0
+
 
 # ── BatteryReport / StepResult fallback dataclasses ─────────────────────────
 
@@ -177,3 +197,122 @@ class TestFallbackDataclasses:
         # Real BatteryReport.all_passed only considers required steps; this
         # just checks the attribute is reachable through this module's import.
         assert hasattr(report, "all_passed")
+
+
+# ── run bundle ─────────────────────────────────────────────────────────────────
+
+
+class TestRunBundle:
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123def456")
+    def test_bundle_envelope_structure(self, _mock_commit):
+        report = BatteryReport(
+            timestamp="2026-07-12T22:00:00+00:00",
+            account_id="test-account",
+            environment="paper",
+            dry_run=True,
+            steps=[_fake_step("crypto_account_status", "PASS")],
+        )
+        bundle = build_run_bundle(report)
+
+        assert bundle["bundle_contract_version"] == BUNDLE_CONTRACT_VERSION
+        assert bundle["orchestrator_commit"] == "abc123def456"
+        assert "bundle_timestamp" in bundle
+        assert bundle["verdict"] == "PASS"
+        assert "report_sha256" in bundle
+        assert len(bundle["report_sha256"]) == 64  # SHA-256 hex digest
+        assert bundle["report"]["environment"] == "paper"
+        assert bundle["report"]["all_passed"] is True
+
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123def456")
+    def test_bundle_verdict_fail_on_required_failure(self, _mock_commit):
+        report = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=False,
+            steps=[
+                _fake_step("ok_step", "PASS", required=True),
+                _fake_step("bad_step", "FAIL", required=True),
+            ],
+        )
+        bundle = build_run_bundle(report)
+        assert bundle["verdict"] == "FAIL"
+
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123def456")
+    def test_bundle_verdict_pass_when_only_optional_fails(self, _mock_commit):
+        report = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=False,
+            steps=[
+                _fake_step("required_ok", "PASS", required=True),
+                _fake_step("optional_skip", "SKIP", required=False),
+            ],
+        )
+        bundle = build_run_bundle(report)
+        assert bundle["verdict"] == "PASS"
+
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123def456")
+    def test_bundle_report_sha256_is_deterministic(self, _mock_commit):
+        report = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=True,
+            steps=[_fake_step("x", "PASS")],
+        )
+        bundle1 = build_run_bundle(report)
+        bundle2 = build_run_bundle(report)
+        # Same report content -> same hash (deterministic canonical serialization).
+        assert bundle1["report_sha256"] == bundle2["report_sha256"]
+
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123def456")
+    def test_bundle_report_sha256_changes_on_content_change(self, _mock_commit):
+        report_a = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=True,
+            steps=[_fake_step("x", "PASS")],
+        )
+        report_b = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=True,
+            steps=[_fake_step("x", "FAIL")],
+        )
+        sha_a = build_run_bundle(report_a)["report_sha256"]
+        sha_b = build_run_bundle(report_b)["report_sha256"]
+        assert sha_a != sha_b
+
+    @patch("scripts.crypto_stage0_battery._HAS_CHECKS", True)
+    @patch("scripts.crypto_stage0_battery.run_full_battery")
+    @patch("scripts.crypto_stage0_battery.AlpacaBroker")
+    @patch("scripts.crypto_stage0_battery._orchestrator_commit", return_value="abc123")
+    def test_bundle_dir_persists_bundle_file(
+        self, _mock_commit, mock_broker_cls, mock_run_full_battery, tmp_path
+    ):
+        mock_broker_cls.return_value = MagicMock()
+        mock_run_full_battery.return_value = BatteryReport(
+            timestamp="t",
+            account_id="a",
+            environment="paper",
+            dry_run=True,
+            steps=[_fake_step("x", "PASS")],
+        )
+        bundle_dir = tmp_path / "bundles"
+        rc = main(["--paper", "--dry-run", "--bundle-dir", str(bundle_dir)])
+        assert rc == 0
+
+        # A bundle file should have been created in the directory.
+        bundle_files = list(bundle_dir.glob("crypto_stage0_bundle_*.json"))
+        assert len(bundle_files) == 1
+
+        bundle = json.loads(bundle_files[0].read_text(encoding="utf-8"))
+        assert bundle["bundle_contract_version"] == BUNDLE_CONTRACT_VERSION
+        assert bundle["orchestrator_commit"] == "abc123"
+        assert bundle["verdict"] == "PASS"
+        assert "report_sha256" in bundle
+        assert bundle["report"]["all_passed"] is True

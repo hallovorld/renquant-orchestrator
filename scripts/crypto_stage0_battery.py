@@ -39,10 +39,15 @@ invoking ``run_full_battery``, JSON report writing, and exit-code handling.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
+import os
+import subprocess
 import sys
 from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 try:
@@ -100,6 +105,51 @@ logging.basicConfig(
 )
 log = logging.getLogger("crypto_stage0")
 
+#: Bundle contract version — bump when the bundle schema changes.
+BUNDLE_CONTRACT_VERSION = "1.0.0"
+
+
+def _orchestrator_commit() -> str:
+    """Resolve the current orchestrator repo commit via ``git rev-parse HEAD``.
+
+    Returns ``"unknown"`` if the git command fails (e.g. not in a git repo, CI
+    shallow clone, etc.) — the bundle must still be written, but its provenance
+    is degraded.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        return "unknown"
+    return proc.stdout.strip()
+
+
+def _content_sha256(payload: str) -> str:
+    """SHA-256 hex digest of a UTF-8 string payload."""
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON to *path* via atomic temp-file + rename.
+
+    Same pattern as ``shadow_ab_runner._write_json_atomic`` — the bundle file
+    is never partially written.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(
+        path.suffix + f".tmp.{os.getpid()}.{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    )
+    tmp.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
 
 def _step_to_jsonable(step: StepResult) -> dict[str, Any]:
     d = asdict(step)
@@ -116,6 +166,39 @@ def _report_to_jsonable(report: BatteryReport) -> dict[str, Any]:
         "dry_run": report.dry_run,
         "all_passed": report.all_passed,
         "steps": [_step_to_jsonable(s) for s in report.steps],
+    }
+
+
+def build_run_bundle(report: BatteryReport) -> dict[str, Any]:
+    """Build an orchestration run bundle envelope around a ``BatteryReport``.
+
+    The bundle binds the execution report to orchestrator identity and includes
+    a content hash of the serialized report for tamper-evidence (Codex review
+    finding 4 on PR #500: a standalone ``--output`` JSON file is not the
+    orchestrator run bundle — it must carry run identity and a verifiable
+    report digest).
+
+    Fields:
+    - ``bundle_contract_version``: schema version for forward compatibility.
+    - ``orchestrator_commit``: the invoking orchestrator repo's commit SHA.
+    - ``bundle_timestamp``: when the bundle was assembled (UTC ISO-8601).
+    - ``verdict``: ``"PASS"`` or ``"FAIL"`` — mirrors ``report.all_passed``.
+    - ``report``: the full serialized ``BatteryReport``.
+    - ``report_sha256``: SHA-256 of the canonical JSON serialization of the
+      report (sorted keys, 2-space indent) — the versioned execution report
+      contract.
+    """
+    report_dict = _report_to_jsonable(report)
+    # Canonical serialization for the content hash — deterministic key order.
+    canonical_report_json = json.dumps(report_dict, indent=2, sort_keys=True, default=str)
+
+    return {
+        "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
+        "orchestrator_commit": _orchestrator_commit(),
+        "bundle_timestamp": datetime.now(timezone.utc).isoformat(),
+        "verdict": "PASS" if report.all_passed else "FAIL",
+        "report_sha256": _content_sha256(canonical_report_json),
+        "report": report_dict,
     }
 
 
@@ -186,11 +269,25 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Write JSON report to file (default: stdout)",
     )
+    parser.add_argument(
+        "--bundle-dir",
+        type=str,
+        default=None,
+        help=(
+            "Persist the orchestration run bundle (report + identity + "
+            "content hash) as a timestamped JSON file in this directory"
+        ),
+    )
     args = parser.parse_args(argv)
 
     report = run_battery(paper=args.paper, dry_run=args.dry_run)
 
-    summary = _report_to_jsonable(report)
+    # Build the run bundle envelope (always, even if not persisted — the
+    # bundle dict is the canonical output format when --bundle-dir is set).
+    bundle = build_run_bundle(report)
+
+    # Plain report for --output / stdout (backward-compatible).
+    summary = bundle["report"]
     output_str = json.dumps(summary, indent=2, default=str)
 
     if args.output:
@@ -200,10 +297,23 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(output_str)
 
+    # Persist the full run bundle if requested.
+    if args.bundle_dir:
+        bundle_dir = Path(args.bundle_dir)
+        ts_slug = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        bundle_path = bundle_dir / f"crypto_stage0_bundle_{ts_slug}.json"
+        _write_json_atomic(bundle_path, bundle)
+        log.info(
+            "Run bundle written to %s (report_sha256=%s)",
+            bundle_path,
+            bundle["report_sha256"][:16] + "...",
+        )
+
     log.info(
-        "Battery complete: all_passed=%s, %d step(s)",
-        summary["all_passed"],
+        "Battery complete: verdict=%s, %d step(s), report_sha256=%s",
+        bundle["verdict"],
         len(summary["steps"]),
+        bundle["report_sha256"][:16] + "...",
     )
     return 0 if report.all_passed else 1
 
