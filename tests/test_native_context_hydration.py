@@ -471,6 +471,137 @@ def test_rewrite_config_log_containment_no_sleeve_log_path_is_a_no_op_for_sleeve
     }
 
 
+# --- V-005 remediation: pipeline.public surface (orchestrator#513) ------------
+
+
+def test_hydrate_pipeline_context_loads_universe_via_public_operation(
+    tmp_path: Path,
+) -> None:
+    """Consumer-contract test (codex review, orchestrator#513 round 2, point
+    3): per-ticker tournament models must be loaded through
+    ``renquant_pipeline.public.load_universe`` — the pipeline-OWNED
+    operation — never by this repo constructing
+    ``LoadUniverseJob``/``UniverseContext`` directly. End-to-end with real
+    artifact files: one admitted ``manual``-policy model, one ticker with
+    no artifact (rejected)."""
+    store = _write_ohlcv_store(tmp_path, [*WATCHLIST, "SPY"])
+    strategy_dir = tmp_path / "configs"
+    aaa_dir = strategy_dir / "models" / "AAA"
+    aaa_dir.mkdir(parents=True)
+    (aaa_dir / "AAA-policy-metadata.json").write_text(json.dumps({
+        "policy_type": "manual",
+        "feature_columns": [],
+    }))
+    (aaa_dir / "AAA-manual-rules.json").write_text(json.dumps({
+        "score_rules": [],
+        "buy_threshold": 0.1,
+        "sell_threshold": -0.1,
+    }))
+    (strategy_dir / "models" / "BBB").mkdir(parents=True)  # no artifact -> rejected
+
+    payload = json.loads(_context_payload(tmp_path).read_text())
+    ctx, report = hydrate_pipeline_context(
+        payload,
+        session_date=SESSION_DATE,
+        broker_name="alpaca_shadow_a",
+        strategy_dir=strategy_dir,
+        repo_root=tmp_path,
+        ohlcv_dir=store,
+    )
+    assert "AAA" in ctx.models
+    assert ctx.models["AAA"]["policy_type"] == "manual"
+    assert ctx.config["_universe_rejections"].get("BBB") == "no_artifact"
+    assert report["models_loaded"] == 1
+    assert report["model_rejections"] == 1
+
+
+def test_native_context_hydration_does_not_import_kernel_job_universe_module() -> None:
+    """Static-boundary proof: this module must not IMPORT
+    ``renquant_pipeline.kernel.pipeline.job_universe`` (the Job/Context
+    internals) anywhere — the whole point of routing through
+    ``renquant_pipeline.public.load_universe`` (codex review, pipeline#197
+    round 1, point 2). Checks actual ``import``/``from`` statements only —
+    prose in comments/docstrings explaining what NOT to do is fine and
+    expected."""
+    import ast
+    import inspect
+
+    from renquant_orchestrator import native_context_hydration
+
+    source = inspect.getsource(native_context_hydration)
+    tree = ast.parse(source)
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module)
+    assert not any(
+        m == "renquant_pipeline.kernel.pipeline.job_universe"
+        or m.startswith("renquant_pipeline.kernel.pipeline.job_universe.")
+        for m in imported_modules
+    ), imported_modules
+
+
+def test_required_closed_session_uses_canonical_market_calendar_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex review (orchestrator#513 round 2, point 1): the NYSE
+    session-close watermark must go through the canonical
+    ``renquant_common.market_calendar`` shared contract, not the pipeline's
+    private ``_last_completed_nyse_session`` helper. Proves the real call
+    site invokes ``market_calendar.last_completed_session`` (spy wraps the
+    real implementation so the return value is still correct)."""
+    import renquant_common.market_calendar as market_calendar
+
+    from renquant_orchestrator.native_context_hydration import (
+        _required_closed_session,
+    )
+
+    calls: list[tuple[object, dict]] = []
+    real = market_calendar.last_completed_session
+
+    def _spy(now, **kwargs):
+        calls.append((now, kwargs))
+        return real(now, **kwargs)
+
+    monkeypatch.setattr(market_calendar, "last_completed_session", _spy)
+
+    required, watermark_iso = _required_closed_session(
+        dt.date.fromisoformat(SESSION_DATE)
+    )
+    assert calls, "renquant_common.market_calendar.last_completed_session was not called"
+    assert calls[0][1] == {"calendar_name": "NYSE"}
+    assert isinstance(required, dt.date)
+    assert watermark_iso.startswith(SESSION_DATE)
+
+
+def test_required_closed_session_falls_back_on_calendar_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the shared calendar contract raises ``CalendarUnavailableError``
+    (backend missing), the weekday-approximation fallback still applies —
+    same fail-open behavior the pipeline's own private helper had for a
+    missing backend, now driven by the canonical contract's exception."""
+    import renquant_common.market_calendar as market_calendar
+
+    from renquant_orchestrator.native_context_hydration import (
+        _required_closed_session,
+    )
+
+    def _boom(now, **kwargs):
+        raise market_calendar.CalendarUnavailableError("calendar backend missing")
+
+    monkeypatch.setattr(market_calendar, "last_completed_session", _boom)
+
+    # 2026-07-12 is a Sunday; the weekday walk-back must land on Friday
+    # 2026-07-10 (same week the rest of this test module treats as the
+    # session date).
+    required, _watermark_iso = _required_closed_session(dt.date(2026, 7, 12))
+    assert required == dt.date(2026, 7, 10)
+    assert required.weekday() < 5
+
+
 def test_hydrate_pipeline_context_threads_log_containment_into_admission_shadow_and_sleeve(
     tmp_path: Path,
 ) -> None:
