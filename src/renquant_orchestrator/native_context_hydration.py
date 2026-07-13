@@ -195,8 +195,8 @@ def _required_closed_session(session_date: "dt.date") -> tuple["dt.date", str]:
     calendar helper, weekday fallback if the calendar package is missing.
     Returns (required_session_date, watermark_iso)."""
     import pandas as pd  # noqa: PLC0415
-    from renquant_pipeline.public import (  # noqa: PLC0415
-        last_completed_nyse_session as _last_completed_nyse_session,
+    from renquant_pipeline.kernel.data import (  # noqa: PLC0415
+        _last_completed_nyse_session,
     )
 
     watermark = pd.Timestamp(
@@ -560,7 +560,7 @@ def hydrate_pipeline_context(
     models: dict[str, Any] = {}
     universe_rejections: list[tuple[str, str]] = []
     if strategy_dir is not None:
-        from renquant_pipeline.public import (  # noqa: PLC0415
+        from renquant_pipeline.kernel.pipeline.job_universe import (  # noqa: PLC0415
             LoadUniverseJob,
             UniverseContext,
         )

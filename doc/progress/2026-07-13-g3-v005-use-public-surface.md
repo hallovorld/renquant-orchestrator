@@ -6,14 +6,18 @@
 
 ## Change
 
-Replace 5 `from renquant_pipeline.kernel.*` imports in
+Replace 3 `from renquant_pipeline.kernel.*` imports in
 `native_context_hydration.py` with imports from
-`renquant_pipeline.public` — the stable re-export surface added in
-pipeline #197.
+`renquant_pipeline.public` — the lazy re-export surface added in
+pipeline #197. Only `LocalStore`, `HoldingState`, `RegimeState` use the
+public surface (genuine cross-repo type contracts).
 
-`train_gbdt.py` keeps its direct kernel import (it's inside a
-try/except fault-tolerant path, and the public module's eager loading
-would bring in unneeded dependencies).
+`LoadUniverseJob`/`UniverseContext` keep direct kernel imports — pipeline
+execution internals, not suitable for a public contract (codex review).
+`_last_completed_nyse_session` keeps its kernel import — use
+`renquant_common.market_calendar` instead (codex review).
+`train_gbdt.py` also keeps its direct kernel import (fault-tolerant
+try/except path).
 
 All imports remain function-scoped (deferred), preserving the existing
 lazy-load behavior.
