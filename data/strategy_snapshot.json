@@ -90,6 +90,7 @@
     "config_schema",
     "contract_fixture",
     "crypto_session",
+    "crypto_stage0_workflow",
     "daily",
     "daily_trading_health",
     "decision_ledger",

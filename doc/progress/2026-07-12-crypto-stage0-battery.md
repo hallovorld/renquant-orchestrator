@@ -221,3 +221,80 @@ Addresses Codex's "ad hoc bundle format" finding. Changes:
 
 - `pytest tests/test_crypto_stage0_battery.py -v`: 17/17 pass `[VERIFIED]`
 - Full suite: `make test` pass `[VERIFIED]`
+
+## Revision note (2026-07-12, Codex round 4 — first-class workflow using renquant-common primitives)
+
+Addresses Codex's blocking architectural requirement: the battery was a
+standalone CLI script bypassing `renquant-common` Task/Job/Pipeline
+primitives. Now refactored into a proper first-class workflow.
+
+### Changes
+
+1. **New workflow module** `src/renquant_orchestrator/crypto_stage0_workflow.py`:
+   - `CryptoStage0Context` dataclass: mutable context with `run_id` (UUID),
+     `output_dir`, `paper`, `dry_run`, `report`, `readiness_record`, and
+     `stage_trace` — follows the same pattern as `DailyRunContext` in `daily.py`.
+   - `ValidateStage0InputsTask(Task)`: validates run_id, paper flag, dependency
+     availability. Blocks live before any broker object is created.
+   - `RunBatteryTask(Task)`: constructs paper broker, delegates to execution's
+     `run_full_battery`, records elapsed time and step count in stage trace.
+   - `PersistStage0ReadinessTask(Task)`: writes a scoped
+     `crypto_stage0_readiness` record (named so daily/session bundles can
+     compose it). Record includes: `record_type`, `schema_version`, `run_id`,
+     `run_type`, `paper`, `dry_run`, `orchestrator_commit`, `timestamp`,
+     `verdict`, `report_sha256`, `report`, and `stage_trace`.
+   - `CryptoStage0Job(Job)` + `CryptoStage0Pipeline(Pipeline)`: chains the
+     three tasks via renquant-common's sequential execution model.
+   - `run_stage0_workflow()`: public entry point — creates context with
+     UUID run_id, runs the pipeline, returns the populated context.
+
+2. **CLI refactored** `scripts/crypto_stage0_battery.py`:
+   - Now a thin wrapper: argument parsing, invoking `run_stage0_workflow()`,
+     optional report output (stdout/file), exit-code handling. All
+     orchestration logic (Task/Job/Pipeline, stage trace, persistence) lives
+     in the workflow module.
+   - Removed: `build_run_bundle()`, `run_battery()`, `_orchestrator_commit()`,
+     `_content_sha256()`, `_write_json_atomic()`, `_step_to_jsonable()`,
+     `_report_to_jsonable()`, `BUNDLE_CONTRACT_VERSION` — all moved to or
+     replaced by the workflow module's primitives.
+
+3. **Tests rewritten** `tests/test_crypto_stage0_battery.py`:
+   - 29 tests (up from 17) covering:
+     - `run_id` generation (UUID4 validity, uniqueness)
+     - `ValidateStage0InputsTask`: missing run_id raises, live-blocked before
+       broker, missing dependency FAIL, valid inputs pass
+     - `RunBatteryTask`: broker construction + connection + delegation
+     - `PersistStage0ReadinessTask`: readiness record schema, file persistence,
+       verdict logic, SHA-256 determinism, missing report raises
+     - Pipeline integration: full pipeline produces readiness record,
+       short-circuits on live-blocked and missing dependency, run_id propagation
+     - `run_stage0_workflow()`: auto-generates run_id, uses explicit run_id
+     - CLI: argparse enforcement, exit codes (pass/fail/error), readiness
+       record persistence via CLI, enum status serialization, non-dry-run
+       with bundle-dir
+
+### What the readiness record looks like
+
+```json
+{
+  "record_type": "crypto_stage0_readiness",
+  "schema_version": 1,
+  "run_id": "550e8400-e29b-41d4-a716-446655440000",
+  "run_type": "crypto_stage0_battery",
+  "paper": true,
+  "dry_run": false,
+  "orchestrator_commit": "f981cbf4...",
+  "timestamp": "2026-07-12T22:00:00+00:00",
+  "verdict": "PASS",
+  "report_sha256": "a1b2c3...",
+  "report": { "...BatteryReport fields..." },
+  "stage_trace": [ "...per-stage audit records..." ]
+}
+```
+
+### Verification
+
+- `pytest tests/test_crypto_stage0_battery.py -v`: 29/29 pass `[VERIFIED]`
+- Full suite: `make test`: 3881 passed, 2 skipped, 1 pre-existing unrelated
+  failure (twin parity: alpaca_broker hash drift, confirmed pre-existing via
+  `git stash` test) `[VERIFIED]`
