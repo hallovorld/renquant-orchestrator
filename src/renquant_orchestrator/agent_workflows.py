@@ -20,14 +20,10 @@ order): ``--token``, env ``RENQUANT_<AGENT>_GH_TOKEN`` (e.g.
 ``RENQUANT_CLAUDE_GH_TOKEN``), env ``GH_TOKEN``/``GITHUB_TOKEN``. Giving
 each agent its OWN token means:
   * commits / reviews / merges are attributed to that agent, and
-  * GitHub's native "you cannot approve your own pull request" rule
-    enforces the review-separation invariant for free — an agent
-    literally cannot self-approve, so an APPROVED review on a PR is
-    always a genuine second opinion.
-  * Every agent-authored review/fix comment should also carry visible
-    ``reviewed by <agent>`` / ``fixed by <agent>`` text because GitHub
-    account attribution alone is not enough when agents share operator
-    accounts or co-authored commits.
+  * A PR branch has one GitHub identity: its PR creator. Every GitHub commit
+    attribution must resolve to that identity. A mixed-identity branch is a
+    merge blocker and the owner must rebuild it from a clean base; reviewers
+    never push repairs to a peer-owned branch.
   * Before any orchestrator merge, the workflow posts a visible
     ``merged by <agent>`` PR comment and only merges if that audit comment
     succeeds.
@@ -42,7 +38,8 @@ the orchestrator executes ``gh pr merge`` directly under ``--execute``.
 
 Policy (encoded here, not in CI)
 --------------------------------
-  * An agent never reviews its own PR (queue excludes self-authored).
+  * An agent never reviews a PR it authored or contributed to, and never
+    commits to a peer-owned PR branch.
   * An agent never appears in its own review queue.
   * ``merge`` requires: an APPROVED review on the current head, at least
     one completed check, all reported checks success, and NO stop label
@@ -69,6 +66,9 @@ AGENTS = ("claude", "codex")
 STOP_LABELS = ("agent:manual-hold", "agent:cost-cap", "agent:rebase-conflict")
 
 PROGRESS_DOC_RE = re.compile(r"^doc/progress/\d{4}-\d{2}-\d{2}-[^/]+\.md$")
+FIXED_BY_LOGIN_RE = re.compile(
+    r"(?im)^\s*fixed\s+by\s+([a-z0-9](?:[a-z0-9-]{0,37}))\b"
+)
 PROGRESS_DOC_REQUIRED_FIELDS = ("STATUS:", "WHAT:", "WHY/DIR:", "EVIDENCE:", "NEXT:")
 PROGRESS_EVIDENCE_FIELDS = (
     "artifact:",
@@ -358,12 +358,90 @@ def production_path_findings(pr: dict) -> list[str]:
 
 
 def contract_findings(pr: dict) -> list[str]:
-    return progress_doc_findings(pr) + production_path_findings(pr)
+    return (
+        progress_doc_findings(pr)
+        + production_path_findings(pr)
+        + branch_identity_findings(pr)
+    )
 
 
 def _reviews_at_head(pr: dict) -> list[dict]:
     head = pr.get("headRefOid")
     return [r for r in (pr.get("reviews") or []) if r.get("commit_id") == head or head is None]
+
+
+def _login(value: Any) -> str:
+    """Normalize a GitHub actor value from ``gh`` JSON."""
+    if isinstance(value, dict):
+        value = value.get("login")
+    return str(value or "").casefold()
+
+
+def commit_contributor_logins(pr: dict) -> frozenset[str]:
+    """Return GitHub logins attributed to commits on this PR branch."""
+    logins: set[str] = set()
+    for commit in pr.get("commits") or []:
+        for author in commit.get("authors") or []:
+            login = _login(author)
+            if login:
+                logins.add(login)
+    return frozenset(logins)
+
+
+def branch_identity_findings(pr: dict) -> list[str]:
+    """Return merge-blocking findings for a mixed-identity PR branch.
+
+    GitHub exposes commit co-authors here. In this control plane they are not
+    advisory: a co-author trailer or a direct peer push both produce a branch
+    whose attribution can no longer support an independent review/merge
+    decision. The PR owner must recreate the head from a clean base under its
+    own GitHub identity.
+    """
+    owner = _login(pr.get("author"))
+    contributors = commit_contributor_logins(pr)
+    if not contributors:
+        return []
+    if not owner:
+        return [
+            "cannot verify single-owner branch identity: PR creator login is missing"
+        ]
+    unexpected = sorted(login for login in contributors if login != owner)
+    if not unexpected:
+        return []
+    listed = ", ".join(f"`{login}`" for login in unexpected)
+    return [
+        "mixed GitHub commit attribution on a single-owner PR branch: "
+        f"creator `{owner}`; additional attribution {listed}. PR owner must "
+        "rebuild/squash the branch from the target base without Co-Authored-By "
+        "trailers or peer commits."
+    ]
+
+
+def explicit_contributor_logins(pr: dict) -> frozenset[str]:
+    """Return reviewers who explicitly disclosed a direct fix on this PR.
+
+    A visible marker is the reliable, auditable attribution surface when
+    GitHub commit co-author data is ambiguous. The marker deliberately uses
+    the GitHub login, not the logical agent name, so it can be compared to
+    the review actor without a local account mapping.
+    """
+    logins: set[str] = set()
+    for item in [*(pr.get("comments") or []), *(pr.get("reviews") or [])]:
+        match = FIXED_BY_LOGIN_RE.search(str(item.get("body") or ""))
+        if match:
+            logins.add(_login(match.group(1)))
+    return frozenset(logins)
+
+
+def reviewer_is_pr_contributor(pr: dict, reviewer_login: str | None) -> bool:
+    """Whether a reviewer explicitly disclosed a direct fix on this PR."""
+    login = _login(reviewer_login)
+    return bool(login) and login in explicit_contributor_logins(pr)
+
+
+def review_is_independent(pr: dict, review: dict) -> bool:
+    """An approval is independent only when its author did not contribute."""
+    return not reviewer_is_pr_contributor(pr, _login(review.get("author")))
 
 
 def has_head_approval_from_agent(pr: dict, agent: str) -> bool:
@@ -373,6 +451,7 @@ def has_head_approval_from_agent(pr: dict, agent: str) -> bool:
     return any(
         r.get("state") == "APPROVED"
         and _marker_present(r.get("body"), action="reviewed", agent=agent)
+        and review_is_independent(pr, r)
         for r in revs
     )
 
@@ -382,7 +461,10 @@ def is_approved(pr: dict) -> bool:
     revs = _reviews_at_head(pr)
     if any(r.get("state") == "CHANGES_REQUESTED" for r in revs):
         return False
-    return any(r.get("state") == "APPROVED" for r in revs)
+    return any(
+        r.get("state") == "APPROVED" and review_is_independent(pr, r)
+        for r in revs
+    )
 
 
 def checks_green(pr: dict, *, allow_no_checks: bool = False) -> bool:
@@ -467,6 +549,7 @@ def build_queue(
     prs: list[dict],
     *,
     allow_no_checks: bool = False,
+    reviewer_login: str | None = None,
     ) -> list[WorkItem]:
     """Pure queue resolution over a list of PR dicts (unit-testable)."""
     if workflow not in ("review", "fix", "merge"):
@@ -492,8 +575,12 @@ def build_queue(
             url=str(pr.get("url") or ""),
         )
         if workflow == "review":
-            # Review the OTHER agent's PRs only; never your own.
+            # Review the OTHER agent's PRs only, and never a PR this GitHub
+            # actor explicitly fixed. Mixed branch attribution is a hard
+            # finding; reviewers must not repair the peer branch.
             if author != peer:
+                continue
+            if reviewer_is_pr_contributor(pr, reviewer_login):
                 continue
             if stop:
                 continue
@@ -566,10 +653,11 @@ def fetch_open_prs(repo: str, token: Optional[str]) -> list[dict]:
         if number is None:
             continue
         detail = _gh_json(
-            ["pr", "view", str(number), "--repo", repo, "--json", "files"],
+            ["pr", "view", str(number), "--repo", repo, "--json", "files,commits"],
             token,
         ) or {}
         pr["files"] = detail.get("files") or []
+        pr["commits"] = detail.get("commits") or []
         progress_paths = _progress_doc_paths(pr)
         if len(progress_paths) == 1:
             pr["progressDocContent"] = _gh_file_text(
@@ -712,11 +800,17 @@ def run_agent_workflow(
     the merge results.
     """
     prs = fetch_open_prs(repo, token)
+    reviewer_login: str | None = None
+    if workflow == "review" and any(pr.get("commits") for pr in prs):
+        reviewer_login = github_login(token) if token else _login(
+            _gh_json(["api", "user"], None)
+        )
     queue = build_queue(
         agent,
         workflow,
         prs,
         allow_no_checks=allow_no_checks,
+        reviewer_login=reviewer_login,
     )
     plan: dict = {
         "agent": agent,
@@ -726,9 +820,29 @@ def run_agent_workflow(
         "n_open_prs": len(prs),
         "allow_no_checks": bool(allow_no_checks),
         "require_distinct_actor_tokens": bool(require_distinct_actor_tokens),
+        "reviewer_login": reviewer_login,
         "queue": [w.to_dict() for w in queue],
         "executed": [],
     }
+    if workflow == "review" and reviewer_login:
+        plan["reviewer_separation_exclusions"] = [
+            {
+                "number": pr.get("number"),
+                "url": pr.get("url"),
+                "reason": "current reviewer disclosed a direct PR fix",
+            }
+            for pr in prs
+            if reviewer_is_pr_contributor(pr, reviewer_login)
+        ]
+        plan["branch_identity_violations"] = [
+            {
+                "number": pr.get("number"),
+                "url": pr.get("url"),
+                "reason": "; ".join(branch_identity_findings(pr)),
+            }
+            for pr in prs
+            if branch_identity_findings(pr)
+        ]
     if workflow == "merge" and execute:
         if require_distinct_actor_tokens and queue:
             identity = agent_identity_health(require_actor_tokens=True)
@@ -769,7 +883,8 @@ def run_agent_workflow(
                if workflow == "review" else
                "read the review findings, make the smallest fix, add or repair the committed "
                "`doc/progress/<date>-<slug>.md` when required, avoid protected production paths, run "
-               f"focused tests, then comment `fixed by {agent}`, commit (with your "
-               "Co-Authored-By trailer), and push.")
+               f"focused tests, then comment `fixed by {agent}`, commit only under "
+               "the PR creator identity (no Co-Authored-By trailer), and push. "
+               "Never push to a peer-owned PR branch; request a clean owner rebuild instead.")
         )
     return plan
