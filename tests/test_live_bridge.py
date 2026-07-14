@@ -249,7 +249,10 @@ def test_bootstrap_fails_closed_on_declared_module_import_error(tmp_path: Path, 
 
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
-            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset(),
+            )
         if name == "renquant_pipeline.kernel.sizing":
             raise SyntaxError("bad")
         return original_import(name, *args, **kwargs)
@@ -259,7 +262,6 @@ def test_bootstrap_fails_closed_on_declared_module_import_error(tmp_path: Path, 
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
-    monkeypatch.setattr(mod, "_MIN_PIPELINE_KERNEL_MODULES", 0)
 
     with pytest.raises(RuntimeError, match="fail-closed.*sizing"):
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
@@ -270,14 +272,16 @@ def test_bootstrap_umbrella_only_module_not_in_pipeline_dir(tmp_path: Path, monk
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
-    # Pipeline dir has only 'sizing' — 'fundamentals' exists only in umbrella
     (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
 
     original_import = mod.importlib.import_module
 
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
-            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset(),
+            )
         if name == "renquant_pipeline.kernel.sizing":
             return SimpleNamespace(x=1)
         return original_import(name, *args, **kwargs)
@@ -287,15 +291,13 @@ def test_bootstrap_umbrella_only_module_not_in_pipeline_dir(tmp_path: Path, monk
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
-    monkeypatch.setattr(mod, "_MIN_PIPELINE_KERNEL_MODULES", 0)
 
     aliased = mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
-    # 'sizing' is aliased via the dir scan + force-aliased modules
     assert "kernel.sizing" in aliased
 
 
 def test_bootstrap_reports_all_declared_failures(tmp_path: Path, monkeypatch) -> None:
-    """When multiple declared modules fail, all are reported in the error."""
+    """When multiple owned modules fail, all are reported in the error."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
@@ -306,7 +308,10 @@ def test_bootstrap_reports_all_declared_failures(tmp_path: Path, monkeypatch) ->
 
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
-            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset(),
+            )
         if name.startswith("renquant_pipeline.kernel."):
             raise ImportError(f"broken: {name}")
         return original_import(name, *args, **kwargs)
@@ -316,16 +321,15 @@ def test_bootstrap_reports_all_declared_failures(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
-    monkeypatch.setattr(mod, "_MIN_PIPELINE_KERNEL_MODULES", 0)
 
-    with pytest.raises(RuntimeError, match="2 pipeline kernel module") as exc_info:
+    with pytest.raises(RuntimeError, match="2 pipeline-owned kernel") as exc_info:
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
     assert "exits" in str(exc_info.value)
     assert "sizing" in str(exc_info.value)
 
 
-def test_bootstrap_fails_on_too_few_aliased_modules(tmp_path: Path, monkeypatch) -> None:
-    """If the pipeline kernel dir yields fewer modules than the minimum, raise."""
+def test_bootstrap_fails_when_pipeline_missing_ownership_contract(tmp_path: Path, monkeypatch) -> None:
+    """Pipeline kernel without NON_OWNED_KERNEL_STEMS must fail closed."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
@@ -336,8 +340,104 @@ def test_bootstrap_fails_on_too_few_aliased_modules(tmp_path: Path, monkeypatch)
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
             return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="NON_OWNED_KERNEL_STEMS"):
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+
+
+def test_bootstrap_non_owned_stem_skips_pipeline_uses_alias(tmp_path: Path, monkeypatch) -> None:
+    """A non-owned stem's pipeline import is skipped; the alias target is used instead."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+    meta_dir = kernel_dir / "meta_label"
+    meta_dir.mkdir()
+    (meta_dir / "__init__.py").write_text("raise ImportError('partial')", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+    alias_calls: list[tuple[str, str]] = []
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset({"meta_label"}),
+            )
         if name == "renquant_pipeline.kernel.sizing":
             return SimpleNamespace(x=1)
+        if name == "renquant_pipeline.kernel.meta_label":
+            raise ImportError("partial lift only")
+        return original_import(name, *args, **kwargs)
+
+    def tracking_alias(alias, target, al):
+        alias_calls.append((alias, target))
+        al.append(f"{alias}<-{target}")
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "_force_alias", tracking_alias)
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    aliased = mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+    assert "kernel.sizing" in aliased
+    assert any(a == "kernel.meta_label" and "backtesting" in t for a, t in alias_calls)
+
+
+def test_bootstrap_non_owned_stem_alias_target_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    """If the alias target for a non-owned stem fails to import, the run fails closed."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+    meta_dir = kernel_dir / "meta_label"
+    meta_dir.mkdir()
+    (meta_dir / "__init__.py").touch()
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset({"meta_label"}),
+            )
+        if name == "renquant_pipeline.kernel.sizing":
+            return SimpleNamespace(x=1)
+        if name == "renquant_backtesting.meta_label":
+            raise ImportError("backtesting not available")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="critical multirepo module.*backtesting"):
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+
+
+def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> None:
+    """An empty pipeline kernel dir (no owned modules) must fail closed."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset(),
+            )
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(mod.importlib, "import_module", fake_import)
@@ -345,8 +445,34 @@ def test_bootstrap_fails_on_too_few_aliased_modules(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
-    # Default minimum is 10; only 1 module in the dir
-    with pytest.raises(RuntimeError, match="fail-closed.*only.*1.*pipeline kernel"):
+
+    with pytest.raises(RuntimeError, match="no owned kernel modules"):
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+
+
+def test_bootstrap_fails_on_uncovered_non_owned_stem(tmp_path: Path, monkeypatch) -> None:
+    """Pipeline declares a non-owned stem that orchestrator has no alias target for."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset({"unknown_module"}),
+            )
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="no alias target.*unknown_module|unknown_module.*no alias target"):
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
 
 
