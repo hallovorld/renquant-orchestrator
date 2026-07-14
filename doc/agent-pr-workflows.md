@@ -58,17 +58,20 @@ branch protection, prod read-only).
 Give each agent its **own** token so:
 
 - commits / reviews / merges are correctly attributed, and
-- GitHub's native **"you cannot approve your own PR"** rule enforces the
-  review-separation invariant *for free*. An `APPROVED` review on a PR is
-  therefore always a genuine second opinion — the orchestrator's `merge`
-  queue can trust it without extra checks.
+- A PR branch has exactly one GitHub commit identity: the account that created
+  the PR. A peer reviewer must never commit or push to that branch. Any
+  additional GitHub commit attribution, including a `Co-Authored-By` trailer,
+  is a merge blocker. The PR owner rebuilds the branch from the target base,
+  applies the final diff as its own commit, force-pushes the clean history, and
+  requests a new review. The reviewer supplies findings only; it never repairs
+  the peer branch.
 
 GitHub account attribution is not enough when both agents operate through an
 operator account or co-authored commits. Every agent-written review/fix comment
 must include visible text:
 
 - `reviewed by <agent>` in review bodies;
-- `fixed by <agent>` in fix comments;
+- `fixed by <github-login> (agent: <agent>)` in fix comments;
 - `merged by <agent>` posted by the orchestrator immediately before merge.
 
 (If tokens are provided via MCP instead of env, the same precedence applies
@@ -138,7 +141,11 @@ that the exposed token was rotated. Never quote the token value in the comment.
 
 ## Policy (encoded in `build_queue`, not in CI)
 
-- an agent never reviews its own PR (review queue excludes self-authored);
+- an agent never reviews or approves a PR it authored **or contributed to**;
+  reviewer fixes are prohibited. The reviewer submits findings, and the PR
+  owner applies every change on its own branch. A branch with an additional
+  GitHub commit identity, including a `Co-Authored-By` trailer, is not
+  mergeable until the owner rebuilds it as a clean single-identity branch;
 - `merge` requires an `APPROVED` review **on the current head**, at least
   one completed check, all reported checks SUCCESS/SKIPPED/NEUTRAL, and **no** `agent:manual-hold` /
   `agent:cost-cap` / `agent:rebase-conflict` label;

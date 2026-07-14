@@ -9,15 +9,19 @@ import pytest
 from renquant_orchestrator.agent_workflows import (
     agent_identity_health,
     audit_merged_prs,
+    branch_identity_findings,
     build_queue,
     checks_green,
+    commit_contributor_logins,
     contract_findings,
+    explicit_contributor_logins,
     has_head_approval_from_agent,
     is_approved,
     merge_audit_comment,
     merge_audit_status,
     other_agent,
     pr_authorship,
+    reviewer_is_pr_contributor,
     resolve_token,
     resolve_token_with_source,
     run_agent_workflow,
@@ -26,7 +30,7 @@ from renquant_orchestrator.agent_workflows import (
 
 def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
         labels=None, reviews=None, checks=None, comments=None, body="", files=None,
-        progress_doc_content=None):
+        progress_doc_content=None, commits=None, github_author=None):
     lbls = [{"name": n} for n in (labels or [])]
     if author and f"agent:{author}" not in (labels or []):
         lbls.append({"name": f"agent:{author}"})
@@ -61,7 +65,9 @@ def _pr(num, *, author=None, head=None, state="OPEN", draft=False,
         "body": body,
         "reviews": norm_reviews,
         "statusCheckRollup": checks or [],
+        "author": {"login": github_author or f"{author or 'unknown'}-owner"},
         "comments": comments or [],
+        "commits": commits or [],
         "files": files,
         "progressDocContent": progress_doc_content,
     }
@@ -244,6 +250,85 @@ def test_review_queue_skips_stop_labelled_and_drafts():
 def test_an_agent_never_reviews_its_own_pr():
     prs = [_pr(1, author="claude")]
     assert build_queue("claude", "review", prs) == []
+
+
+def test_review_queue_excludes_a_reviewer_who_contributed_to_peer_pr():
+    prs = [
+        _pr(
+            1,
+            author="codex",
+            comments=[{"body": "fixed by claude-reviewer (agent: claude)"}],
+        ),
+    ]
+
+    assert build_queue(
+        "claude", "review", prs, reviewer_login="claude-reviewer",
+    ) == []
+
+
+def test_mixed_commit_attribution_is_a_merge_blocker():
+    pr = _pr(
+        1,
+        author="claude",
+        github_author="claude-owner",
+        commits=[
+            {"authors": [{"login": "claude-owner"}, {"login": "codex-owner"}]},
+            {"authors": [{"login": None}]},
+        ],
+    )
+
+    assert commit_contributor_logins(pr) == frozenset({"claude-owner", "codex-owner"})
+    findings = branch_identity_findings(pr)
+    assert len(findings) == 1
+    assert "mixed GitHub commit attribution" in findings[0]
+    assert "codex-owner" in findings[0]
+
+
+def test_merge_queue_excludes_mixed_identity_branch():
+    pr = _pr(
+        1,
+        author="claude",
+        github_author="claude-owner",
+        commits=[{"authors": [{"login": "claude-owner"}, {"login": "codex-owner"}]}],
+        reviews=[{"state": "APPROVED"}],
+        checks=[{"conclusion": "SUCCESS", "status": "COMPLETED"}],
+    )
+
+    assert build_queue("claude", "merge", [pr]) == []
+
+
+def test_explicit_fix_marker_blocks_contributor_approval():
+    pr = _pr(
+        1,
+        author="claude",
+        comments=[{"body": "fixed by codex-reviewer (agent: codex)"}],
+        reviews=[{
+            "state": "APPROVED",
+            "body": "reviewed by codex",
+            "author": {"login": "codex-reviewer"},
+        }],
+    )
+
+    assert explicit_contributor_logins(pr) == frozenset({"codex-reviewer"})
+    assert reviewer_is_pr_contributor(pr, "CODEX-REVIEWER") is True
+    assert has_head_approval_from_agent(pr, "codex") is False
+    assert is_approved(pr) is False
+
+
+def test_contributor_approval_does_not_count_as_independent():
+    pr = _pr(
+        1,
+        author="claude",
+        comments=[{"body": "fixed by codex-reviewer (agent: codex)"}],
+        reviews=[{
+            "state": "APPROVED",
+            "body": "reviewed by codex",
+            "author": {"login": "codex-reviewer"},
+        }],
+    )
+
+    assert has_head_approval_from_agent(pr, "codex") is False
+    assert is_approved(pr) is False
 
 
 # ── fix queue: your own PRs with unaddressed findings ───────────────────
