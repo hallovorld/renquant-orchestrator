@@ -36,6 +36,13 @@ ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
 BRIDGE_NATIVE_INFERENCE_PRODUCER = "live_runner_bridge_hook"
 CommitHook = Callable[[Any, Any], None]
 
+# Authoritative import targets for stems that pipeline declares non-owned.
+# Each key must appear in pipeline's NON_OWNED_KERNEL_STEMS; the value is the
+# module path that actually serves requests under kernel.<stem>.
+_NON_OWNED_ALIAS_TARGETS: dict[str, str] = {
+    "meta_label": "renquant_backtesting.meta_label",
+}
+
 
 def _arg_value(argv: list[str], flag: str, default: str | None = None) -> str | None:
     prefix = flag + "="
@@ -259,31 +266,92 @@ def bootstrap_multirepo(
     pipeline_kernel = importlib.import_module("renquant_pipeline.kernel")
     kernel_dir = Path(pipeline_kernel.__file__).resolve().parent
 
-    aliased: list[str] = []
+    non_owned: frozenset[str] = getattr(pipeline_kernel, "NON_OWNED_KERNEL_STEMS", None)  # type: ignore[assignment]
+    if non_owned is None:
+        raise RuntimeError(
+            "[multirepo] fail-closed: pinned renquant_pipeline.kernel does not "
+            "declare NON_OWNED_KERNEL_STEMS — cannot verify ownership contract"
+        )
+
+    uncovered = non_owned - _NON_OWNED_ALIAS_TARGETS.keys()
+    if uncovered:
+        raise RuntimeError(
+            f"[multirepo] fail-closed: pipeline declares non-owned stems "
+            f"{sorted(uncovered)} but orchestrator has no alias target for them"
+        )
+
+    discovered_stems: list[str] = []
     for entry in sorted(kernel_dir.iterdir()):
         stem = entry.stem if entry.suffix == ".py" else entry.name
         if stem in {"__init__", "__pycache__"} or stem.startswith("."):
             continue
         if entry.suffix not in {".py", ""}:
             continue
+        discovered_stems.append(stem)
+
+    owned_stems = [s for s in discovered_stems if s not in non_owned]
+    non_owned_present = [s for s in discovered_stems if s in non_owned]
+
+    aliased: list[str] = []
+    failed: list[tuple[str, Exception]] = []
+    for stem in owned_stems:
         modname = f"kernel.{stem}"
         try:
-            mod = importlib.import_module(f"renquant_pipeline.kernel.{stem}")
-        except Exception:
+            pipeline_mod = importlib.import_module(f"renquant_pipeline.kernel.{stem}")
+        except Exception as exc:  # noqa: BLE001
+            failed.append((stem, exc))
             continue
-        sys.modules[modname] = mod
+        sys.modules[modname] = pipeline_mod
         aliased.append(modname)
 
-    # Critical production modules must not silently fall back to umbrella. If
-    # one import fails, the scheduled multirepo run is not actually using the
-    # pinned production path and should fail closed.
+    if failed:
+        details = "; ".join(f"{s}: {e}" for s, e in failed)
+        raise RuntimeError(
+            f"[multirepo] fail-closed: {len(failed)} pipeline-owned kernel "
+            f"module(s) failed to import: {details}"
+        )
+
+    # Path-identity / directory-sanity check: bind the discovered module
+    # inventory to the pinned package's OWN declared contract instead of an
+    # arbitrary count (Codex, PR #514 round 2 review: "do not use the
+    # arbitrary _MIN_PIPELINE_KERNEL_MODULES = 10 as a path-identity control.
+    # It permits any wrong directory with ten importable files and will
+    # become stale when the package layout changes. Bind the discovered
+    # module inventory to the pinned package contract instead."). By this
+    # point every owned stem that is PRESENT but fails to import has already
+    # raised above, so an owned stem missing here was never found in
+    # `kernel_dir` at all -- an empty or wrong pipeline checkout that
+    # happens to contain fewer files than the pinned contract expects would
+    # otherwise sail through silently.
+    #
+    # `OWNED_KERNEL_STEMS` (renquant-pipeline PR #198, kernel/__init__.py) is
+    # the pinned pipeline's own structural declaration of every stem it
+    # guarantees to ship in this directory -- maintained the same way as the
+    # existing `NON_OWNED_KERNEL_STEMS` declaration and pinned to the same
+    # commit orchestrator resolves against.
+    owned_declared: frozenset[str] = getattr(pipeline_kernel, "OWNED_KERNEL_STEMS", None)  # type: ignore[assignment]
+    if owned_declared is None:
+        raise RuntimeError(
+            "[multirepo] fail-closed: pinned renquant_pipeline.kernel does not "
+            "declare OWNED_KERNEL_STEMS — pin a pipeline version >= #199"
+        )
+
+    missing_owned = sorted(frozenset(owned_declared) - set(owned_stems))
+    if missing_owned:
+        raise RuntimeError(
+            f"[multirepo] fail-closed: pinned renquant_pipeline.kernel "
+            f"declares OWNED_KERNEL_STEMS including {missing_owned}, but "
+            f"{kernel_dir} did not yield (importable) module(s) for "
+            f"{missing_owned}; possible pipeline checkout/path "
+            f"misconfiguration (wrong or incomplete pipeline checkout)"
+        )
+
+    for stem in non_owned_present:
+        target = _NON_OWNED_ALIAS_TARGETS[stem]
+        _force_alias(f"kernel.{stem}", target, aliased)
+
     _force_alias("kernel.preflight", "renquant_pipeline.kernel.preflight", aliased)
     _force_alias("kernel.panel_pipeline", "renquant_pipeline.kernel.panel_pipeline", aliased)
-    _force_alias(
-        "renquant_pipeline.kernel.meta_label",
-        "renquant_backtesting.meta_label",
-        aliased,
-    )
     _force_alias(
         "renquant_pipeline.panel_scoring",
         "renquant_pipeline.kernel.panel_pipeline.job_panel_scoring",
