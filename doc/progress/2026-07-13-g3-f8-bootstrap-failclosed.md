@@ -12,21 +12,25 @@ and silently falls back to the umbrella copy. Only `kernel.preflight` and
 pipeline-side regression (missing dep, syntax error) silently reverts part
 of the live run to umbrella code.
 
-## Fix
+## Fix (r2: pipeline-manifest-driven)
 
-Added `UMBRELLA_ONLY_STEMS` frozenset allowlist: stems that are known to
-exist only in the umbrella kernel and are expected to fail import from the
-pipeline. Any other stem that fails to import raises `RuntimeError` with
-the specific module name and error — fail closed.
+Removed the `UMBRELLA_ONLY_STEMS` allowlist (codex r1 rejected it: an
+allowlisted stem present in the pipeline directory but failing to import
+would silently fall back — still an unpinned substitution).
 
-The allowlist contains: fundamentals, macro, macro_features,
-manifest_uri_resolver, drph, model_acceptance, model_acceptance_legacy,
-meta_label, metrics, reconciliation, registry.
+The pipeline kernel directory IS the manifest: every `.py` file and
+sub-package present there is a declared module that MUST import
+successfully. Modules that exist only in the umbrella kernel never appear
+in this directory, so no allowlist is needed.
+
+Added a minimum-alias-count guard (`_MIN_PIPELINE_KERNEL_MODULES = 10`)
+to catch empty/misconfigured pipeline checkouts that would silently
+produce zero aliases.
 
 ## Tests
 
-4 new tests:
-- Non-allowlisted stem import failure raises RuntimeError
-- Allowlisted (umbrella-only) stem failure is silently accepted
-- Multiple failures are all reported in the error message
-- UMBRELLA_ONLY_STEMS is a frozenset (immutable)
+4 tests:
+- Declared module import failure raises RuntimeError (fail closed)
+- Umbrella-only module absent from pipeline dir is not aliased (OK)
+- Multiple declared failures all reported in the error
+- Too few aliased modules raises RuntimeError (path misconfiguration guard)

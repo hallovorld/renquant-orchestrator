@@ -238,8 +238,8 @@ def test_run_bridge_captures_native_inference_before_commit(monkeypatch, tmp_pat
     assert bridge_payload["execution_audit"][0]["kind"] == "order_placed"
 
 
-def test_bootstrap_alias_fails_closed_on_non_allowlisted_import(tmp_path: Path, monkeypatch) -> None:
-    """A pipeline kernel stem NOT in UMBRELLA_ONLY_STEMS that fails to import must raise."""
+def test_bootstrap_fails_closed_on_declared_module_import_error(tmp_path: Path, monkeypatch) -> None:
+    """A module present in the pipeline kernel dir that fails to import must raise."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
@@ -249,8 +249,7 @@ def test_bootstrap_alias_fails_closed_on_non_allowlisted_import(tmp_path: Path, 
 
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
-            ns = SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
-            return ns
+            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
         if name == "renquant_pipeline.kernel.sizing":
             raise SyntaxError("bad")
         return original_import(name, *args, **kwargs)
@@ -260,49 +259,43 @@ def test_bootstrap_alias_fails_closed_on_non_allowlisted_import(tmp_path: Path, 
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+    monkeypatch.setattr(mod, "_MIN_PIPELINE_KERNEL_MODULES", 0)
 
     with pytest.raises(RuntimeError, match="fail-closed.*sizing"):
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
 
 
-def test_bootstrap_alias_allows_umbrella_only_stems(tmp_path: Path, monkeypatch) -> None:
-    """Stems in UMBRELLA_ONLY_STEMS may fail to import without raising."""
+def test_bootstrap_umbrella_only_module_not_in_pipeline_dir(tmp_path: Path, monkeypatch) -> None:
+    """Modules only in the umbrella kernel (absent from pipeline dir) are not aliased — this is OK."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
-    # Only put umbrella-only stems in the directory so the loop only encounters those
-    (kernel_dir / "fundamentals.py").write_text("x = 1", encoding="utf-8")
-    (kernel_dir / "macro.py").write_text("x = 1", encoding="utf-8")
+    # Pipeline dir has only 'sizing' — 'fundamentals' exists only in umbrella
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
 
     original_import = mod.importlib.import_module
-    force_alias_calls: list[str] = []
 
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
-            ns = SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
-            return ns
-        if name.startswith("renquant_pipeline.kernel."):
-            raise ImportError(f"not lifted: {name}")
+            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+        if name == "renquant_pipeline.kernel.sizing":
+            return SimpleNamespace(x=1)
         return original_import(name, *args, **kwargs)
 
-    def fake_force_alias(alias: str, target: str, aliased_list: list[str]) -> None:
-        force_alias_calls.append(alias)
-        aliased_list.append(f"{alias}<-{target}")
-
     monkeypatch.setattr(mod.importlib, "import_module", fake_import)
-    monkeypatch.setattr(mod, "_force_alias", fake_force_alias)
+    monkeypatch.setattr(mod, "_force_alias", lambda a, t, al: al.append(f"{a}<-{t}"))
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+    monkeypatch.setattr(mod, "_MIN_PIPELINE_KERNEL_MODULES", 0)
 
-    # Should NOT raise — both stems are in UMBRELLA_ONLY_STEMS
     aliased = mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
-    # Only the force-aliased modules show up, not the umbrella-only ones
-    assert all("<-" in a for a in aliased)
+    # 'sizing' is aliased via the dir scan + force-aliased modules
+    assert "kernel.sizing" in aliased
 
 
-def test_bootstrap_alias_reports_all_failures(tmp_path: Path, monkeypatch) -> None:
-    """When multiple non-allowlisted stems fail, all are reported."""
+def test_bootstrap_reports_all_declared_failures(tmp_path: Path, monkeypatch) -> None:
+    """When multiple declared modules fail, all are reported in the error."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
@@ -313,8 +306,7 @@ def test_bootstrap_alias_reports_all_failures(tmp_path: Path, monkeypatch) -> No
 
     def fake_import(name: str, *args, **kwargs):
         if name == "renquant_pipeline.kernel":
-            ns = SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
-            return ns
+            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
         if name.startswith("renquant_pipeline.kernel."):
             raise ImportError(f"broken: {name}")
         return original_import(name, *args, **kwargs)
@@ -324,6 +316,7 @@ def test_bootstrap_alias_reports_all_failures(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+    monkeypatch.setattr(mod, "_MIN_PIPELINE_KERNEL_MODULES", 0)
 
     with pytest.raises(RuntimeError, match="2 pipeline kernel module") as exc_info:
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
@@ -331,11 +324,30 @@ def test_bootstrap_alias_reports_all_failures(tmp_path: Path, monkeypatch) -> No
     assert "sizing" in str(exc_info.value)
 
 
-def test_umbrella_only_stems_constant_is_frozen() -> None:
-    """UMBRELLA_ONLY_STEMS must be a frozenset to prevent accidental mutation."""
-    assert isinstance(mod.UMBRELLA_ONLY_STEMS, frozenset)
-    assert "fundamentals" in mod.UMBRELLA_ONLY_STEMS
-    assert "sizing" not in mod.UMBRELLA_ONLY_STEMS
+def test_bootstrap_fails_on_too_few_aliased_modules(tmp_path: Path, monkeypatch) -> None:
+    """If the pipeline kernel dir yields fewer modules than the minimum, raise."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+        if name == "renquant_pipeline.kernel.sizing":
+            return SimpleNamespace(x=1)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "_force_alias", lambda a, t, al: al.append(f"{a}<-{t}"))
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+    # Default minimum is 10; only 1 module in the dir
+    with pytest.raises(RuntimeError, match="fail-closed.*only.*1.*pipeline kernel"):
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
 
 
 def test_runner_commit_hooks_preserve_before_commit_after_order(monkeypatch) -> None:

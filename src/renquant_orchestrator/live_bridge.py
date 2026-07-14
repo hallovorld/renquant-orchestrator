@@ -36,22 +36,10 @@ ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
 BRIDGE_NATIVE_INFERENCE_PRODUCER = "live_runner_bridge_hook"
 CommitHook = Callable[[Any, Any], None]
 
-# Modules that exist ONLY in the umbrella kernel (never lifted to pipeline).
-# Import failures for these stems are expected and NOT errors.  All other
-# pipeline kernel stems MUST import successfully or the run fails closed.
-UMBRELLA_ONLY_STEMS: frozenset[str] = frozenset({
-    "fundamentals",
-    "macro",
-    "macro_features",
-    "manifest_uri_resolver",
-    "drph",
-    "model_acceptance",
-    "model_acceptance_legacy",
-    "meta_label",
-    "metrics",
-    "reconciliation",
-    "registry",
-})
+# Minimum number of pipeline kernel modules that must alias successfully.
+# Guards against an empty/wrong pipeline kernel directory silently producing
+# zero aliases (e.g. wrong checkout, path misconfiguration).
+_MIN_PIPELINE_KERNEL_MODULES = 10
 
 
 def _arg_value(argv: list[str], flag: str, default: str | None = None) -> str | None:
@@ -276,20 +264,29 @@ def bootstrap_multirepo(
     pipeline_kernel = importlib.import_module("renquant_pipeline.kernel")
     kernel_dir = Path(pipeline_kernel.__file__).resolve().parent
 
-    aliased: list[str] = []
-    failed: list[tuple[str, Exception]] = []
+    # The pipeline kernel directory IS the manifest: every .py file and
+    # sub-package present there is a declared module that MUST import
+    # successfully.  Modules that exist only in the umbrella kernel (never
+    # lifted) simply don't appear in this directory, so no allowlist is needed.
+    # If a declared module fails to import (syntax error, missing dep, etc.),
+    # the run fails closed — the umbrella copy must never silently substitute.
+    declared_stems: list[str] = []
     for entry in sorted(kernel_dir.iterdir()):
         stem = entry.stem if entry.suffix == ".py" else entry.name
         if stem in {"__init__", "__pycache__"} or stem.startswith("."):
             continue
         if entry.suffix not in {".py", ""}:
             continue
+        declared_stems.append(stem)
+
+    aliased: list[str] = []
+    failed: list[tuple[str, Exception]] = []
+    for stem in declared_stems:
         modname = f"kernel.{stem}"
         try:
             pipeline_mod = importlib.import_module(f"renquant_pipeline.kernel.{stem}")
         except Exception as exc:  # noqa: BLE001
-            if stem not in UMBRELLA_ONLY_STEMS:
-                failed.append((stem, exc))
+            failed.append((stem, exc))
             continue
         sys.modules[modname] = pipeline_mod
         aliased.append(modname)
@@ -298,7 +295,14 @@ def bootstrap_multirepo(
         details = "; ".join(f"{s}: {e}" for s, e in failed)
         raise RuntimeError(
             f"[multirepo] fail-closed: {len(failed)} pipeline kernel module(s) "
-            f"failed to import (not in UMBRELLA_ONLY_STEMS allowlist): {details}"
+            f"declared in {kernel_dir} failed to import: {details}"
+        )
+
+    if len(aliased) < _MIN_PIPELINE_KERNEL_MODULES:
+        raise RuntimeError(
+            f"[multirepo] fail-closed: only {len(aliased)} pipeline kernel modules "
+            f"aliased (minimum {_MIN_PIPELINE_KERNEL_MODULES}); possible pipeline "
+            f"checkout/path misconfiguration"
         )
 
     # Critical production modules must not silently fall back to umbrella. If
