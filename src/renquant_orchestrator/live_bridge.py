@@ -311,10 +311,50 @@ def bootstrap_multirepo(
             f"module(s) failed to import: {details}"
         )
 
-    if not owned_stems:
+    # Path-identity / directory-sanity check: bind the discovered module
+    # inventory to the pinned package's OWN declared contract instead of an
+    # arbitrary count (Codex, PR #514 round 2 review: "do not use the
+    # arbitrary _MIN_PIPELINE_KERNEL_MODULES = 10 as a path-identity control.
+    # It permits any wrong directory with ten importable files and will
+    # become stale when the package layout changes. Bind the discovered
+    # module inventory to the pinned package contract instead."). By this
+    # point every owned stem that is PRESENT but fails to import has already
+    # raised above, so an owned stem missing here was never found in
+    # `kernel_dir` at all -- an empty or wrong pipeline checkout that
+    # happens to contain fewer files than the pinned contract expects would
+    # otherwise sail through silently.
+    #
+    # `OWNED_KERNEL_STEMS` (renquant-pipeline PR #198, kernel/__init__.py) is
+    # the pinned pipeline's own structural declaration of every stem it
+    # guarantees to ship in this directory -- maintained the same way as the
+    # existing `NON_OWNED_KERNEL_STEMS` declaration and pinned to the same
+    # commit orchestrator resolves against.
+    owned_declared = getattr(pipeline_kernel, "OWNED_KERNEL_STEMS", None)
+    if isinstance(owned_declared, (frozenset, set)):
+        missing_owned = sorted(frozenset(owned_declared) - set(owned_stems))
+        if missing_owned:
+            raise RuntimeError(
+                f"[multirepo] fail-closed: pinned renquant_pipeline.kernel "
+                f"declares OWNED_KERNEL_STEMS including {missing_owned}, but "
+                f"{kernel_dir} did not yield (importable) module(s) for "
+                f"{missing_owned}; possible pipeline checkout/path "
+                f"misconfiguration (wrong or incomplete pipeline checkout)"
+            )
+    elif not owned_stems:
+        # Legacy fallback ONLY for a pinned pipeline that predates
+        # OWNED_KERNEL_STEMS entirely (pre G3-F8 round 4): there is no
+        # structural inventory to compare against. An absent declaration
+        # must not be read as "trust whatever is on disk" -- that would
+        # silently disable the sanity check Codex asked for -- but it also
+        # should not hard-fail an otherwise-valid older pin just for lacking
+        # this specific attribute. So it falls back to the coarse "found
+        # nothing at all" guard the original `_MIN_PIPELINE_KERNEL_MODULES`
+        # heuristic existed to catch, rather than either extreme.
         raise RuntimeError(
             "[multirepo] fail-closed: no owned kernel modules discovered in "
-            f"{kernel_dir}; possible pipeline checkout/path misconfiguration"
+            f"{kernel_dir} and the pinned pipeline does not declare "
+            "OWNED_KERNEL_STEMS to check against; possible pipeline "
+            "checkout/path misconfiguration"
         )
 
     for stem in non_owned_present:

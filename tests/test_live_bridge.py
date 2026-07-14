@@ -425,7 +425,13 @@ def test_bootstrap_non_owned_stem_alias_target_fails_closed(tmp_path: Path, monk
 
 
 def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> None:
-    """An empty pipeline kernel dir (no owned modules) must fail closed."""
+    """Legacy fallback path: a pinned pipeline that declares neither
+    OWNED_KERNEL_STEMS (predates G3-F8 round 4) nor anything in its kernel
+    dir has no structural inventory to check against, so this falls back to
+    the coarse "found nothing at all" guard rather than silently passing.
+    See test_bootstrap_fails_closed_on_missing_declared_owned_stem below for
+    the real, pinned-contract-bound check that applies once
+    OWNED_KERNEL_STEMS is declared."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
@@ -437,6 +443,8 @@ def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> N
             return SimpleNamespace(
                 __file__=str(kernel_dir / "__init__.py"),
                 NON_OWNED_KERNEL_STEMS=frozenset(),
+                # No OWNED_KERNEL_STEMS attribute at all -- simulates a pin
+                # older than this declaration.
             )
         return original_import(name, *args, **kwargs)
 
@@ -448,6 +456,95 @@ def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> N
 
     with pytest.raises(RuntimeError, match="no owned kernel modules"):
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+
+
+def test_bootstrap_fails_closed_on_missing_declared_owned_stem(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The real path-identity/sanity check: bind the discovered module
+    inventory to the pinned package's own declared OWNED_KERNEL_STEMS,
+    instead of an arbitrary count (Codex, PR #514 round 2 review: "do not
+    use the arbitrary _MIN_PIPELINE_KERNEL_MODULES = 10 as a path-identity
+    control. It permits any wrong directory with ten importable files and
+    will become stale when the package layout changes. Bind the discovered
+    module inventory to the pinned package contract instead."). A kernel
+    dir missing modules the pinned pipeline declares it owns must fail
+    closed, naming the missing stems -- this is what actually catches a
+    wrong/incomplete checkout tied to the real pinned contract, not a raw
+    count that would equally miss a wrong directory with ten unrelated
+    importable files or hard-fail a right directory that happens to have
+    fewer than ten."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    # Wrong/incomplete checkout: only 'sizing' physically present, even
+    # though the pinned pipeline declares 3 stems as owned.
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset(),
+                OWNED_KERNEL_STEMS=frozenset({"sizing", "exits", "kelly"}),
+            )
+        if name == "renquant_pipeline.kernel.sizing":
+            return SimpleNamespace(x=1)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="OWNED_KERNEL_STEMS") as exc_info:
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+    message = str(exc_info.value)
+    assert "exits" in message
+    assert "kelly" in message
+    # The stem that WAS found (sizing) must not be named as missing.
+    assert "sizing" not in message
+
+
+def test_bootstrap_allows_complete_declared_owned_inventory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The structural check passes silently when the discovered directory
+    covers everything the pinned pipeline declares owned -- proving this is
+    a real equivalence check, not just a stricter failure mode."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+    (kernel_dir / "exits.py").write_text("x = 1", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            return SimpleNamespace(
+                __file__=str(kernel_dir / "__init__.py"),
+                NON_OWNED_KERNEL_STEMS=frozenset(),
+                OWNED_KERNEL_STEMS=frozenset({"sizing", "exits"}),
+            )
+        if name in {
+            "renquant_pipeline.kernel.sizing",
+            "renquant_pipeline.kernel.exits",
+        }:
+            return SimpleNamespace(x=1)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "_force_alias", lambda a, t, al: al.append(f"{a}<-{t}"))
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    aliased = mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+    assert "kernel.sizing" in aliased
+    assert "kernel.exits" in aliased
 
 
 def test_bootstrap_fails_on_uncovered_non_owned_stem(tmp_path: Path, monkeypatch) -> None:
