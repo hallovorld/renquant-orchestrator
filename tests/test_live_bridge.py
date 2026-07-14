@@ -281,6 +281,7 @@ def test_bootstrap_umbrella_only_module_not_in_pipeline_dir(tmp_path: Path, monk
             return SimpleNamespace(
                 __file__=str(kernel_dir / "__init__.py"),
                 NON_OWNED_KERNEL_STEMS=frozenset(),
+                OWNED_KERNEL_STEMS=frozenset({"sizing"}),
             )
         if name == "renquant_pipeline.kernel.sizing":
             return SimpleNamespace(x=1)
@@ -369,6 +370,7 @@ def test_bootstrap_non_owned_stem_skips_pipeline_uses_alias(tmp_path: Path, monk
             return SimpleNamespace(
                 __file__=str(kernel_dir / "__init__.py"),
                 NON_OWNED_KERNEL_STEMS=frozenset({"meta_label"}),
+                OWNED_KERNEL_STEMS=frozenset({"sizing"}),
             )
         if name == "renquant_pipeline.kernel.sizing":
             return SimpleNamespace(x=1)
@@ -408,6 +410,7 @@ def test_bootstrap_non_owned_stem_alias_target_fails_closed(tmp_path: Path, monk
             return SimpleNamespace(
                 __file__=str(kernel_dir / "__init__.py"),
                 NON_OWNED_KERNEL_STEMS=frozenset({"meta_label"}),
+                OWNED_KERNEL_STEMS=frozenset({"sizing"}),
             )
         if name == "renquant_pipeline.kernel.sizing":
             return SimpleNamespace(x=1)
@@ -424,14 +427,8 @@ def test_bootstrap_non_owned_stem_alias_target_fails_closed(tmp_path: Path, monk
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
 
 
-def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> None:
-    """Legacy fallback path: a pinned pipeline that declares neither
-    OWNED_KERNEL_STEMS (predates G3-F8 round 4) nor anything in its kernel
-    dir has no structural inventory to check against, so this falls back to
-    the coarse "found nothing at all" guard rather than silently passing.
-    See test_bootstrap_fails_closed_on_missing_declared_owned_stem below for
-    the real, pinned-contract-bound check that applies once
-    OWNED_KERNEL_STEMS is declared."""
+def test_bootstrap_fails_when_owned_stems_missing(tmp_path: Path, monkeypatch) -> None:
+    """Pipeline without OWNED_KERNEL_STEMS must fail closed immediately."""
     kernel_dir = tmp_path / "pipeline_kernel"
     kernel_dir.mkdir()
     (kernel_dir / "__init__.py").touch()
@@ -443,8 +440,6 @@ def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> N
             return SimpleNamespace(
                 __file__=str(kernel_dir / "__init__.py"),
                 NON_OWNED_KERNEL_STEMS=frozenset(),
-                # No OWNED_KERNEL_STEMS attribute at all -- simulates a pin
-                # older than this declaration.
             )
         return original_import(name, *args, **kwargs)
 
@@ -454,7 +449,7 @@ def test_bootstrap_fails_when_no_owned_modules(tmp_path: Path, monkeypatch) -> N
     monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
     monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
 
-    with pytest.raises(RuntimeError, match="no owned kernel modules"):
+    with pytest.raises(RuntimeError, match="OWNED_KERNEL_STEMS.*pin a pipeline"):
         mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
 
 

@@ -329,32 +329,21 @@ def bootstrap_multirepo(
     # guarantees to ship in this directory -- maintained the same way as the
     # existing `NON_OWNED_KERNEL_STEMS` declaration and pinned to the same
     # commit orchestrator resolves against.
-    owned_declared = getattr(pipeline_kernel, "OWNED_KERNEL_STEMS", None)
-    if isinstance(owned_declared, (frozenset, set)):
-        missing_owned = sorted(frozenset(owned_declared) - set(owned_stems))
-        if missing_owned:
-            raise RuntimeError(
-                f"[multirepo] fail-closed: pinned renquant_pipeline.kernel "
-                f"declares OWNED_KERNEL_STEMS including {missing_owned}, but "
-                f"{kernel_dir} did not yield (importable) module(s) for "
-                f"{missing_owned}; possible pipeline checkout/path "
-                f"misconfiguration (wrong or incomplete pipeline checkout)"
-            )
-    elif not owned_stems:
-        # Legacy fallback ONLY for a pinned pipeline that predates
-        # OWNED_KERNEL_STEMS entirely (pre G3-F8 round 4): there is no
-        # structural inventory to compare against. An absent declaration
-        # must not be read as "trust whatever is on disk" -- that would
-        # silently disable the sanity check Codex asked for -- but it also
-        # should not hard-fail an otherwise-valid older pin just for lacking
-        # this specific attribute. So it falls back to the coarse "found
-        # nothing at all" guard the original `_MIN_PIPELINE_KERNEL_MODULES`
-        # heuristic existed to catch, rather than either extreme.
+    owned_declared: frozenset[str] = getattr(pipeline_kernel, "OWNED_KERNEL_STEMS", None)  # type: ignore[assignment]
+    if owned_declared is None:
         raise RuntimeError(
-            "[multirepo] fail-closed: no owned kernel modules discovered in "
-            f"{kernel_dir} and the pinned pipeline does not declare "
-            "OWNED_KERNEL_STEMS to check against; possible pipeline "
-            "checkout/path misconfiguration"
+            "[multirepo] fail-closed: pinned renquant_pipeline.kernel does not "
+            "declare OWNED_KERNEL_STEMS — pin a pipeline version >= #199"
+        )
+
+    missing_owned = sorted(frozenset(owned_declared) - set(owned_stems))
+    if missing_owned:
+        raise RuntimeError(
+            f"[multirepo] fail-closed: pinned renquant_pipeline.kernel "
+            f"declares OWNED_KERNEL_STEMS including {missing_owned}, but "
+            f"{kernel_dir} did not yield (importable) module(s) for "
+            f"{missing_owned}; possible pipeline checkout/path "
+            f"misconfiguration (wrong or incomplete pipeline checkout)"
         )
 
     for stem in non_owned_present:
