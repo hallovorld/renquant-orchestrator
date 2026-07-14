@@ -132,3 +132,12 @@ checkout) to exercise the real new pipeline declaration:
   `test_xgboost_scorer_contract.py`) reproduce identically with this
   round's diff stashed out on the same worktree — pre-existing, unrelated,
   and already documented as such in round 3's verification.
+
+### Note: companion PR renumbered #198 → #199
+
+renquant-pipeline #198 merged the `NON_OWNED_KERNEL_STEMS`-only state
+before this round's pipeline commit landed on that branch (a race between
+this session's push and Codex's merge of the prior state, both against the
+same branch this round). The `OWNED_KERNEL_STEMS` companion this round
+depends on is carried by a fresh PR on the same branch instead:
+https://github.com/hallovorld/renquant-pipeline/pull/199.
