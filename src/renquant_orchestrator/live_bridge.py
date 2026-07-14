@@ -36,6 +36,23 @@ ALPACA_BROKERS = {"alpaca", "alpaca-paper", "alpaca_shadow", "readonly-alpaca"}
 BRIDGE_NATIVE_INFERENCE_PRODUCER = "live_runner_bridge_hook"
 CommitHook = Callable[[Any, Any], None]
 
+# Modules that exist ONLY in the umbrella kernel (never lifted to pipeline).
+# Import failures for these stems are expected and NOT errors.  All other
+# pipeline kernel stems MUST import successfully or the run fails closed.
+UMBRELLA_ONLY_STEMS: frozenset[str] = frozenset({
+    "fundamentals",
+    "macro",
+    "macro_features",
+    "manifest_uri_resolver",
+    "drph",
+    "model_acceptance",
+    "model_acceptance_legacy",
+    "meta_label",
+    "metrics",
+    "reconciliation",
+    "registry",
+})
+
 
 def _arg_value(argv: list[str], flag: str, default: str | None = None) -> str | None:
     prefix = flag + "="
@@ -260,6 +277,7 @@ def bootstrap_multirepo(
     kernel_dir = Path(pipeline_kernel.__file__).resolve().parent
 
     aliased: list[str] = []
+    failed: list[tuple[str, Exception]] = []
     for entry in sorted(kernel_dir.iterdir()):
         stem = entry.stem if entry.suffix == ".py" else entry.name
         if stem in {"__init__", "__pycache__"} or stem.startswith("."):
@@ -268,11 +286,20 @@ def bootstrap_multirepo(
             continue
         modname = f"kernel.{stem}"
         try:
-            mod = importlib.import_module(f"renquant_pipeline.kernel.{stem}")
-        except Exception:
+            pipeline_mod = importlib.import_module(f"renquant_pipeline.kernel.{stem}")
+        except Exception as exc:  # noqa: BLE001
+            if stem not in UMBRELLA_ONLY_STEMS:
+                failed.append((stem, exc))
             continue
-        sys.modules[modname] = mod
+        sys.modules[modname] = pipeline_mod
         aliased.append(modname)
+
+    if failed:
+        details = "; ".join(f"{s}: {e}" for s, e in failed)
+        raise RuntimeError(
+            f"[multirepo] fail-closed: {len(failed)} pipeline kernel module(s) "
+            f"failed to import (not in UMBRELLA_ONLY_STEMS allowlist): {details}"
+        )
 
     # Critical production modules must not silently fall back to umbrella. If
     # one import fails, the scheduled multirepo run is not actually using the

@@ -238,6 +238,106 @@ def test_run_bridge_captures_native_inference_before_commit(monkeypatch, tmp_pat
     assert bridge_payload["execution_audit"][0]["kind"] == "order_placed"
 
 
+def test_bootstrap_alias_fails_closed_on_non_allowlisted_import(tmp_path: Path, monkeypatch) -> None:
+    """A pipeline kernel stem NOT in UMBRELLA_ONLY_STEMS that fails to import must raise."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "sizing.py").write_text("raise SyntaxError('bad')", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            ns = SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+            return ns
+        if name == "renquant_pipeline.kernel.sizing":
+            raise SyntaxError("bad")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "_force_alias", lambda a, t, al: al.append(f"{a}<-{t}"))
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="fail-closed.*sizing"):
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+
+
+def test_bootstrap_alias_allows_umbrella_only_stems(tmp_path: Path, monkeypatch) -> None:
+    """Stems in UMBRELLA_ONLY_STEMS may fail to import without raising."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    # Only put umbrella-only stems in the directory so the loop only encounters those
+    (kernel_dir / "fundamentals.py").write_text("x = 1", encoding="utf-8")
+    (kernel_dir / "macro.py").write_text("x = 1", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+    force_alias_calls: list[str] = []
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            ns = SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+            return ns
+        if name.startswith("renquant_pipeline.kernel."):
+            raise ImportError(f"not lifted: {name}")
+        return original_import(name, *args, **kwargs)
+
+    def fake_force_alias(alias: str, target: str, aliased_list: list[str]) -> None:
+        force_alias_calls.append(alias)
+        aliased_list.append(f"{alias}<-{target}")
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "_force_alias", fake_force_alias)
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    # Should NOT raise — both stems are in UMBRELLA_ONLY_STEMS
+    aliased = mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+    # Only the force-aliased modules show up, not the umbrella-only ones
+    assert all("<-" in a for a in aliased)
+
+
+def test_bootstrap_alias_reports_all_failures(tmp_path: Path, monkeypatch) -> None:
+    """When multiple non-allowlisted stems fail, all are reported."""
+    kernel_dir = tmp_path / "pipeline_kernel"
+    kernel_dir.mkdir()
+    (kernel_dir / "__init__.py").touch()
+    (kernel_dir / "exits.py").write_text("x = 1", encoding="utf-8")
+    (kernel_dir / "sizing.py").write_text("x = 1", encoding="utf-8")
+
+    original_import = mod.importlib.import_module
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "renquant_pipeline.kernel":
+            ns = SimpleNamespace(__file__=str(kernel_dir / "__init__.py"))
+            return ns
+        if name.startswith("renquant_pipeline.kernel."):
+            raise ImportError(f"broken: {name}")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(mod.importlib, "import_module", fake_import)
+    monkeypatch.setattr(mod, "_force_alias", lambda a, t, al: al.append(f"{a}<-{t}"))
+    monkeypatch.setattr(mod, "resolve_subrepo_src_roots", lambda **kw: ([], []))
+    monkeypatch.setattr(mod, "enforce_or_warn", lambda issues: None)
+    monkeypatch.setattr(mod, "strict_clean_enabled", lambda: False)
+
+    with pytest.raises(RuntimeError, match="2 pipeline kernel module") as exc_info:
+        mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
+    assert "exits" in str(exc_info.value)
+    assert "sizing" in str(exc_info.value)
+
+
+def test_umbrella_only_stems_constant_is_frozen() -> None:
+    """UMBRELLA_ONLY_STEMS must be a frozenset to prevent accidental mutation."""
+    assert isinstance(mod.UMBRELLA_ONLY_STEMS, frozenset)
+    assert "fundamentals" in mod.UMBRELLA_ONLY_STEMS
+    assert "sizing" not in mod.UMBRELLA_ONLY_STEMS
+
+
 def test_runner_commit_hooks_preserve_before_commit_after_order(monkeypatch) -> None:
     events = []
 
