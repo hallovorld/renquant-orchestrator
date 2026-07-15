@@ -354,6 +354,63 @@ class TestTrainGbdtArtifactTask:
         # setdefault does not overwrite
         assert captured["model_config"]["strategy"] == "custom_strat"
 
+    def test_declares_canonical_workflow_class(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``daily.py`` IS the canonical daily production training entrypoint,
+        so its ``TrainingContext`` construction must declare
+        ``workflow_class=WORKFLOW_CLASS_CANONICAL`` explicitly -- never
+        ``WORKFLOW_CLASS_EXPERIMENT``.
+
+        ``renquant_model_gbdt.TrainingContext`` on the currently pinned
+        renquant-model does not accept a ``workflow_class`` kwarg yet (it is
+        added, with no default, by the still-unmerged renquant-model#55 /
+        F-7-round-4 provenance-hardening chain). Stub ``TrainingContext``
+        here so this test can assert the exact kwargs ``TrainGbdtArtifactTask``
+        constructs it with independent of whichever ``TrainingContext``
+        signature happens to be pinned right now -- this is the forward
+        contract this call site must honor once #55 merges and the pin is
+        bumped, not a test of the pinned dataclass itself.
+        """
+        # Confirmed against renquant-model#55 (fix/f7-provenance-none,
+        # src/renquant_model_common/workflow_provenance.py):
+        #   WORKFLOW_CLASS_CANONICAL = "canonical"
+        # Hardcoded here (rather than imported) because that constant does
+        # not exist yet in the currently pinned renquant-model.
+        expected_workflow_class = "canonical"
+
+        ctx = _make_ctx(tmp_path)
+        task = self._make_task()
+        captured_kwargs: dict[str, Any] = {}
+
+        class _StubTrainingContext:
+            """Stand-in for renquant_model_gbdt.TrainingContext post-#55."""
+
+            def __init__(self, **kwargs: Any) -> None:
+                captured_kwargs.update(kwargs)
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+                self.artifact_manifest = None
+
+        monkeypatch.setattr(
+            "renquant_orchestrator.daily.TrainingContext", _StubTrainingContext
+        )
+
+        def fake_run(pipeline_self, training_ctx):
+            training_ctx.artifact_manifest = _artifact_manifest()
+            return _fake_pipeline_result("gbdt-training")
+
+        monkeypatch.setattr(
+            "renquant_orchestrator.daily.PanelGbdtTrainingPipeline.run", fake_run
+        )
+
+        result = task.run(ctx)
+        assert result is True
+        assert "workflow_class" in captured_kwargs
+        assert captured_kwargs["workflow_class"] == expected_workflow_class
+        # never the experiment classification for the daily production path
+        assert captured_kwargs["workflow_class"] != "experiment"
+
 
 # ---------------------------------------------------------------------------
 # RunRuntimeInferenceTask
@@ -366,12 +423,13 @@ class TestRunRuntimeInferenceTask:
             RunRuntimeInferenceTask().run(ctx)
 
     def test_raises_with_training_context_but_no_manifest(self, tmp_path: Path) -> None:
-        from renquant_model_gbdt import TrainingContext
+        from renquant_model_gbdt import WORKFLOW_CLASS_CANONICAL, TrainingContext
         ctx = _make_ctx(tmp_path)
         ctx.training_context = TrainingContext(
             dataset_manifest=_data_manifest(),
             model_config=_model_config(),
             output_dir=tmp_path / "training",
+            workflow_class=WORKFLOW_CLASS_CANONICAL,
         )
         # artifact_manifest is None by default
         with pytest.raises(ValueError, match="training_context.artifact_manifest"):
@@ -380,12 +438,13 @@ class TestRunRuntimeInferenceTask:
     def test_success_populates_inference_context(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from renquant_model_gbdt import TrainingContext
+        from renquant_model_gbdt import WORKFLOW_CLASS_CANONICAL, TrainingContext
         ctx = _make_ctx(tmp_path)
         ctx.training_context = TrainingContext(
             dataset_manifest=_data_manifest(),
             model_config=_model_config(),
             output_dir=tmp_path / "training",
+            workflow_class=WORKFLOW_CLASS_CANONICAL,
         )
         ctx.training_context.artifact_manifest = _artifact_manifest()
 
@@ -566,12 +625,13 @@ class TestRunBacktestCheckTask:
     def test_success_populates_backtest_context(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from renquant_model_gbdt import TrainingContext
+        from renquant_model_gbdt import WORKFLOW_CLASS_CANONICAL, TrainingContext
         ctx = _make_ctx(tmp_path)
         ctx.training_context = TrainingContext(
             dataset_manifest=_data_manifest(),
             model_config=_model_config(),
             output_dir=tmp_path / "training",
+            workflow_class=WORKFLOW_CLASS_CANONICAL,
         )
         ctx.training_context.artifact_manifest = _artifact_manifest()
 
@@ -601,7 +661,7 @@ class TestRunBacktestCheckTask:
 class TestPersistDailyRunBundleTask:
     def _setup_ctx(self, tmp_path: Path) -> DailyRunContext:
         from renquant_execution import ExecutionContext
-        from renquant_model_gbdt import TrainingContext
+        from renquant_model_gbdt import WORKFLOW_CLASS_CANONICAL, TrainingContext
         from renquant_pipeline import InferenceContext
 
         ctx = _make_ctx(tmp_path)
@@ -609,6 +669,7 @@ class TestPersistDailyRunBundleTask:
             dataset_manifest=_data_manifest(),
             model_config=_model_config(),
             output_dir=tmp_path / "training",
+            workflow_class=WORKFLOW_CLASS_CANONICAL,
         )
         ctx.training_context.artifact_manifest = _artifact_manifest()
         ctx.inference_context = InferenceContext(
@@ -680,12 +741,13 @@ class TestPersistDailyRunBundleTask:
             PersistDailyRunBundleTask().run(ctx)
 
     def test_raises_without_inference_context(self, tmp_path: Path) -> None:
-        from renquant_model_gbdt import TrainingContext
+        from renquant_model_gbdt import WORKFLOW_CLASS_CANONICAL, TrainingContext
         ctx = _make_ctx(tmp_path)
         ctx.training_context = TrainingContext(
             dataset_manifest=_data_manifest(),
             model_config=_model_config(),
             output_dir=tmp_path / "training",
+            workflow_class=WORKFLOW_CLASS_CANONICAL,
         )
         ctx.training_context.artifact_manifest = _artifact_manifest()
         with pytest.raises(ValueError, match="inference and execution contexts"):

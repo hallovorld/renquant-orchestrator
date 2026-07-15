@@ -12,7 +12,11 @@ from renquant_artifacts import hash_jsonable
 from renquant_backtesting import BacktestContext, BacktestPipeline
 from renquant_common import Job, Pipeline, PipelineResult, Task
 from renquant_execution import BaseBroker, BrokerExecutionPipeline, ExecutionContext
-from renquant_model_gbdt import PanelGbdtTrainingPipeline, TrainingContext
+from renquant_model_gbdt import (
+    WORKFLOW_CLASS_CANONICAL,
+    PanelGbdtTrainingPipeline,
+    TrainingContext,
+)
 from renquant_pipeline import InferenceContext, RuntimeInferencePipeline, validate_order_attribution
 
 from pydantic import ValidationError
@@ -117,6 +121,12 @@ class TrainGbdtArtifactTask(Task):
             dataset_manifest=ctx.data_manifest,
             model_config=model_config,
             output_dir=ctx.output_dir / "training",
+            # This IS the canonical daily production training entrypoint --
+            # never "experiment" here. `workflow_class` is a required kwarg
+            # with no default as of renquant-model#55 (F-7 round 4); see
+            # renquant_model_common.workflow_provenance for the full
+            # provenance-verification contract this declaration feeds.
+            workflow_class=WORKFLOW_CLASS_CANONICAL,
         )
         result = PanelGbdtTrainingPipeline(self.loader, self.trainer, self.validator).run(training_ctx)
         if training_ctx.artifact_manifest is None:
