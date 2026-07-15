@@ -34,13 +34,16 @@ anything.
 """
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import json
 import logging
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import date as date_cls
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -426,6 +429,215 @@ def load_order_state_reservations(
     }
 
 
+_BROKER_MAX_RETRIES = 3
+_BROKER_BACKOFF_BASE = 2.0
+_BROKER_MAX_RETRY_WAIT = 30.0
+_BROKER_DEADLINE_SECONDS = 60.0
+
+_NON_TRANSIENT_STATUS = frozenset({400, 401, 403, 404, 405, 422})
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    """Extract HTTP status from Alpaca/requests exceptions when available."""
+    if hasattr(exc, "status_code"):
+        return int(exc.status_code)
+    if hasattr(exc, "response") and hasattr(exc.response, "status_code"):
+        return int(exc.response.status_code)
+    return None
+
+
+def _extract_retry_after(exc: Exception) -> float | None:
+    """Parse Retry-After header (delay-seconds or HTTP-date) per RFC 9110 §10.2.3.
+
+    A resolved delay already in the past (an HTTP-date form) clamps to
+    ``0.0`` rather than falling back to exponential backoff, and ``0``
+    itself must survive as ``0`` in the caller (``retry_after if
+    retry_after is not None else backoff``, not ``retry_after or
+    backoff`` — ``0`` is falsy in Python).
+    """
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return None
+    headers = getattr(resp, "headers", None) or {}
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        return max(float(raw), 0.0)
+    except (ValueError, TypeError):
+        pass
+    try:
+        target = parsedate_to_datetime(raw)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if target is None:
+        return None
+    if target.tzinfo is None:
+        # A non-compliant server omitted the timezone; RFC 9110 HTTP-dates
+        # are always GMT, so treat a naive result as UTC rather than
+        # raising on a naive-vs-aware subtraction below.
+        target = target.replace(tzinfo=timezone.utc)
+    delay = (target - datetime.now(timezone.utc)).total_seconds()
+    return max(delay, 0.0)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Classify an exception as transient (retryable) vs permanent."""
+    status = _extract_status_code(exc)
+    if status is not None:
+        if status in _NON_TRANSIENT_STATUS:
+            return False
+        return status in (429, 500, 502, 503, 504)
+    cls = type(exc).__name__.lower()
+    msg = str(exc).lower()
+    if any(k in cls for k in ("timeout", "connectionerror", "connectionreset")):
+        return True
+    return any(k in msg for k in ("timeout", "timed out", "504", "502", "503"))
+
+
+_call_timeout_var: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "_call_timeout_var", default=None,
+)
+
+
+def _patch_session_default_timeout(session: Any) -> None:
+    """Idempotently wrap *session*.request so it reads a per-invocation
+    socket-inactivity timeout from a ``ContextVar``, not from a shared
+    mutable attribute on the session.
+
+    alpaca-py's ``RESTClient`` (``alpaca.common.rest.RESTClient._one_request``)
+    issues every call as ``self._session.request(method, url, **opts)`` with
+    no ``timeout`` in ``opts`` — and the public ``get_account()`` /
+    ``get_all_positions()`` signatures take no arguments at all, so there is
+    no supported way to pass a per-call timeout through the client. Patching
+    the underlying ``requests.Session`` is the only hook available; it hands
+    the remaining retry budget down to the actual socket call.
+
+    Thread-safety: the timeout value is read from ``_call_timeout_var``
+    (a ``ContextVar``), not from a shared session attribute. Two concurrent
+    callers sharing the same memoized client/session each set their own
+    ``ContextVar`` token and read back their own value, with no interleaving.
+    """
+    if getattr(session, "_renquant_timeout_patched", False):
+        return
+    original_request = session.request
+
+    def _request_with_default_timeout(method, url, **kwargs):
+        kwargs.setdefault("timeout", _call_timeout_var.get())
+        return original_request(method, url, **kwargs)
+
+    session.request = _request_with_default_timeout
+    session._renquant_timeout_patched = True
+
+
+class UnboundedBrokerCallError(TypeError):
+    """*fn* has no supported timeout-cancellation hook.
+
+    Raised by :func:`_call_with_deadline` instead of running *fn*
+    unbounded, and instead of falling back to a thread-based "deadline"
+    that cannot actually cancel a call in progress (see that function's
+    docstring for why the previous ``ThreadPoolExecutor`` fallback was
+    removed, Codex review 2026-07-14 r3).
+    """
+
+
+def _call_with_deadline(fn: Callable[[], Any], *, timeout: float, label: str) -> Any:
+    """Invoke *fn* with a per-socket-operation inactivity bound of *timeout*
+    seconds.
+
+    **Important limitation**: this is a socket-level inactivity timeout
+    (how long to wait between bytes), NOT a true end-to-end wall-clock
+    deadline. A peer that periodically emits bytes can keep the connection
+    alive beyond the nominal timeout. For the live scheduler's use case
+    (Alpaca REST API: small JSON responses, no streaming), socket inactivity
+    is an adequate proxy; for a streaming endpoint it would not be.
+
+    The mechanism: if *fn* is a bound method of a client instance whose
+    private ``requests.Session`` is reflectable at ``_session``, that
+    session is patched (:func:`_patch_session_default_timeout`) to read a
+    ``ContextVar``-based timeout on each ``session.request()`` call.
+    Thread-safety: each invocation sets/resets its own ``ContextVar``
+    token, so concurrent callers sharing a memoized client see their own
+    timeout value without interleaving.
+
+    If *fn* is NOT a bound method with a reflectable ``_session``, this
+    raises :class:`UnboundedBrokerCallError` rather than running it
+    unbounded — a loud, explicit failure is preferable to silent
+    unbounded execution.
+    """
+    bound_timeout = max(timeout, 0.001)
+    client = getattr(fn, "__self__", None)
+    session = getattr(client, "_session", None)
+    if session is None or not hasattr(session, "request"):
+        raise UnboundedBrokerCallError(
+            f"broker {label}: fn has no supported timeout-cancellation "
+            "hook (no reflectable bound `_session.request`) — refusing to "
+            "run it unbounded or fall back to a non-cancellation-safe "
+            "detached thread; use a real Alpaca client method (bounded) "
+            "or add a genuine timeout hook for this callable"
+        )
+    _patch_session_default_timeout(session)
+    token = _call_timeout_var.set(bound_timeout)
+    try:
+        return fn()
+    finally:
+        _call_timeout_var.reset(token)
+
+
+def _broker_call_with_retry(fn: Callable[[], Any], *, label: str) -> Any:
+    """Retry a broker API call with backoff on transient errors.
+
+    Honors Retry-After for 429 (delay-seconds and HTTP-date per RFC 9110),
+    caps per-wait and total budget, preserves original exception as
+    __cause__.  The budget also bounds whether a retry is attempted —
+    if the remaining budget is zero, no further attempts are made.
+
+    Each attempt carries a per-socket-operation inactivity bound equal to
+    the REMAINING budget (:func:`_call_with_deadline`). This is NOT a true
+    end-to-end wall-clock deadline — a streaming peer could exceed it (see
+    ``_call_with_deadline`` docstring). For Alpaca REST (small JSON, no
+    streaming), socket inactivity is an adequate proxy.
+    """
+    deadline = time.monotonic() + _BROKER_DEADLINE_SECONDS
+    for attempt in range(_BROKER_MAX_RETRIES):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 and attempt > 0:
+            raise RuntimeError(
+                f"broker {label}: deadline exceeded before attempt "
+                f"{attempt + 1}"
+            )
+        try:
+            return _call_with_deadline(fn, timeout=max(remaining, 0.001), label=label)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_transient(exc) or attempt == _BROKER_MAX_RETRIES - 1:
+                raise
+            status = _extract_status_code(exc)
+            if status == 429:
+                retry_after = _extract_retry_after(exc)
+                wait = min(
+                    retry_after if retry_after is not None
+                    else _BROKER_BACKOFF_BASE ** attempt,
+                    _BROKER_MAX_RETRY_WAIT,
+                )
+            else:
+                wait = min(_BROKER_BACKOFF_BASE ** attempt,
+                           _BROKER_MAX_RETRY_WAIT)
+            remaining = deadline - time.monotonic()
+            if wait > remaining:
+                raise RuntimeError(
+                    f"broker {label}: deadline exceeded after "
+                    f"{attempt + 1} attempts"
+                ) from exc
+            log.warning(
+                "broker %s attempt %d/%d failed (status=%s, %s), "
+                "retrying in %.1fs (%.1fs remaining)",
+                label, attempt + 1, _BROKER_MAX_RETRIES,
+                status, exc, wait, remaining,
+            )
+            time.sleep(wait)
+    raise RuntimeError("unreachable")  # pragma: no cover
+
+
 # ---------------------------------------------------------------------------
 # Class C — live broker state, READ-ONLY.
 # ---------------------------------------------------------------------------
@@ -471,9 +683,9 @@ class AlpacaLiveStateSource:
     def snapshot(self, *, now: datetime, trading_day: str) -> dict[str, Any]:
         """One class-C + class-D snapshot as plain JSON-able state."""
         client = self._trading_client()
-        account = client.get_account()
+        account = _broker_call_with_retry(client.get_account, label="get_account")
         positions: dict[str, dict[str, Any]] = {}
-        for pos in client.get_all_positions():
+        for pos in _broker_call_with_retry(client.get_all_positions, label="get_all_positions"):
             ticker = str(getattr(pos, "symbol", "")).upper()
             if not ticker:
                 continue
@@ -532,6 +744,7 @@ __all__ = [
     "ORDER_STATE_SCHEMA_VERSION",
     "OrderStateFileError",
     "SignalLeakError",
+    "UnboundedBrokerCallError",
     "assert_signal_predates_session",
     "capture_session_start",
     "live_state_fingerprint",

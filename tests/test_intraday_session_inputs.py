@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,7 +18,14 @@ from renquant_orchestrator.intraday_session_inputs import (
     FrozenSignalError,
     OrderStateFileError,
     SignalLeakError,
+    UnboundedBrokerCallError,
+    _broker_call_with_retry,
+    _call_timeout_var,
+    _call_with_deadline,
+    _extract_retry_after,
+    _extract_status_code,
     _fingerprint_gaps,
+    _is_transient,
     assert_signal_predates_session,
     capture_session_start,
     load_frozen_daily_signal,
@@ -407,3 +415,493 @@ def test_reservations_corrupt_file_refused(tmp_path):
     p.write_text("{not json", encoding="utf-8")
     with pytest.raises(OrderStateFileError, match="unreadable"):
         load_order_state_reservations(p, trading_day=MONDAY)
+
+
+# ---------------------------------------------------------------------------
+# Broker retry tests
+# ---------------------------------------------------------------------------
+class _TransientError(Exception):
+    pass
+
+
+class _HTTPError(Exception):
+    def __init__(self, status_code, headers=None):
+        self.status_code = status_code
+
+        class _Resp:
+            pass
+
+        self.response = _Resp()
+        self.response.status_code = status_code
+        self.response.headers = headers or {}
+        super().__init__(f"HTTP {status_code}")
+
+
+class _NullSession:
+    """Placeholder exposing `.request` so `_call_with_deadline`'s
+    session-reflection check recognizes the wrapping fake client as
+    patchable. Never actually invoked by the plain-function test doubles
+    below -- it only exists to satisfy the reflectable-`_session`
+    precondition `_call_with_deadline` now REQUIRES of every callable
+    (Codex r3: the previous thread-based fallback for unreflectable
+    callables was removed as not cancellation-safe)."""
+
+    def request(self, *args, **kwargs):  # pragma: no cover - unused by these fakes
+        raise AssertionError("these test doubles do not call session.request directly")
+
+
+def _as_reflectable_call(fn):
+    """Wrap a bare zero-arg callable as a bound method of an object with a
+    reflectable ``_session`` -- the shape `_call_with_deadline` now
+    requires, matching the real `client.get_account` /
+    `client.get_all_positions` call sites (bound methods of
+    `alpaca.trading.client.TradingClient`, which has a private `_session`).
+    Retry/backoff/classification tests exercise `_broker_call_with_retry`
+    through this same gate rather than an unreflectable bare function."""
+
+    class _Client:
+        def __init__(self):
+            self._session = _NullSession()
+
+        def call(self):
+            return fn()
+
+    return _Client().call
+
+
+class TestTransientClassification:
+    def test_status_based_transient(self):
+        for code in (429, 500, 502, 503, 504):
+            assert _is_transient(_HTTPError(code)) is True
+
+    def test_status_based_permanent(self):
+        for code in (400, 401, 403, 404, 422):
+            assert _is_transient(_HTTPError(code)) is False
+
+    def test_timeout_string_transient(self):
+        assert _is_transient(_TransientError("request timed out")) is True
+
+    def test_non_transient_string(self):
+        assert _is_transient(ValueError("invalid symbol")) is False
+
+    def test_connection_error_class(self):
+        class ConnectionError(Exception):
+            pass
+        assert _is_transient(ConnectionError("reset")) is True
+
+
+class TestExtractHelpers:
+    def test_extract_status_code_from_attribute(self):
+        assert _extract_status_code(_HTTPError(429)) == 429
+
+    def test_extract_status_code_none_for_plain(self):
+        assert _extract_status_code(ValueError("x")) is None
+
+    def test_extract_retry_after_present(self):
+        exc = _HTTPError(429, headers={"Retry-After": "5"})
+        assert _extract_retry_after(exc) == 5.0
+
+    def test_extract_retry_after_absent(self):
+        exc = _HTTPError(429, headers={})
+        assert _extract_retry_after(exc) is None
+
+    def test_extract_retry_after_invalid(self):
+        exc = _HTTPError(429, headers={"Retry-After": "not-a-number"})
+        assert _extract_retry_after(exc) is None
+
+    def test_extract_retry_after_no_response(self):
+        assert _extract_retry_after(ValueError("x")) is None
+
+    def test_extract_retry_after_http_date_future(self):
+        from email.utils import format_datetime
+        from datetime import datetime as _dt, timezone, timedelta
+        future = _dt.now(tz=timezone.utc) + timedelta(seconds=30)
+        exc = _HTTPError(429, headers={"Retry-After": format_datetime(future)})
+        val = _extract_retry_after(exc)
+        assert val is not None
+        assert 25.0 <= val <= 35.0
+
+    def test_extract_retry_after_http_date_past(self):
+        from email.utils import format_datetime
+        from datetime import datetime as _dt, timezone, timedelta
+        past = _dt.now(tz=timezone.utc) - timedelta(seconds=10)
+        exc = _HTTPError(429, headers={"Retry-After": format_datetime(past)})
+        val = _extract_retry_after(exc)
+        assert val == 0.0
+
+    def test_extract_retry_after_zero(self):
+        exc = _HTTPError(429, headers={"Retry-After": "0"})
+        assert _extract_retry_after(exc) == 0.0
+
+
+def test_broker_retry_succeeds_after_transient(monkeypatch):
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise _TransientError("504 Gateway Timeout")
+        return "ok"
+
+    assert _broker_call_with_retry(_as_reflectable_call(flaky), label="test") == "ok"
+    assert len(calls) == 3
+
+
+def test_broker_retry_raises_on_non_transient():
+    def fatal():
+        raise ValueError("invalid symbol")
+
+    with pytest.raises(ValueError, match="invalid symbol"):
+        _broker_call_with_retry(_as_reflectable_call(fatal), label="test")
+
+
+def test_broker_retry_exhausted_raises(monkeypatch):
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+
+    def always_timeout():
+        raise _TransientError("request timed out")
+
+    with pytest.raises(_TransientError, match="timed out"):
+        _broker_call_with_retry(_as_reflectable_call(always_timeout), label="test")
+
+
+def test_broker_retry_429_with_retry_after(monkeypatch):
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+    calls = []
+
+    def rate_limited():
+        calls.append(1)
+        if len(calls) < 2:
+            raise _HTTPError(429, headers={"Retry-After": "0.01"})
+        return "ok"
+
+    assert _broker_call_with_retry(_as_reflectable_call(rate_limited), label="test") == "ok"
+    assert len(calls) == 2
+
+
+def test_broker_retry_skips_auth_errors():
+    def auth_fail():
+        raise _HTTPError(401)
+
+    with pytest.raises(_HTTPError):
+        _broker_call_with_retry(_as_reflectable_call(auth_fail), label="test")
+
+
+def test_broker_retry_skips_validation_errors():
+    def bad_request():
+        raise _HTTPError(422)
+
+    with pytest.raises(_HTTPError):
+        _broker_call_with_retry(_as_reflectable_call(bad_request), label="test")
+
+
+def test_broker_retry_deadline_exceeded(monkeypatch):
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+    monkeypatch.setattr(mod, "_BROKER_DEADLINE_SECONDS", 0.0)
+
+    def always_502():
+        raise _HTTPError(502)
+
+    with pytest.raises(RuntimeError, match="deadline exceeded"):
+        _broker_call_with_retry(_as_reflectable_call(always_502), label="test")
+
+
+def test_broker_retry_deadline_prevents_further_attempts(monkeypatch):
+    """After fn() returns (possibly slowly), no retry if deadline passed."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+    monkeypatch.setattr(mod, "_BROKER_DEADLINE_SECONDS", 0.05)
+    calls = []
+
+    def slow_then_fail():
+        calls.append(1)
+        import time
+        time.sleep(0.06)
+        raise _HTTPError(502)
+
+    with pytest.raises((RuntimeError, _HTTPError)):
+        _broker_call_with_retry(_as_reflectable_call(slow_then_fail), label="test")
+    assert len(calls) <= 2
+
+
+def test_broker_retry_429_zero_retry_after(monkeypatch):
+    """Retry-After: 0 should retry immediately, not fall back to backoff."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 100.0)
+    monkeypatch.setattr(mod, "_BROKER_DEADLINE_SECONDS", 5.0)
+    calls = []
+
+    def rate_limited():
+        calls.append(1)
+        if len(calls) < 2:
+            raise _HTTPError(429, headers={"Retry-After": "0"})
+        return "ok"
+
+    result = _broker_call_with_retry(_as_reflectable_call(rate_limited), label="test")
+    assert result == "ok"
+    assert len(calls) == 2
+
+
+def test_broker_retry_429_http_date_retry_after(monkeypatch):
+    """Retry-After as HTTP-date is honored (capped by deadline)."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+    from email.utils import format_datetime
+    from datetime import datetime as _dt, timezone, timedelta
+
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+    monkeypatch.setattr(mod, "_BROKER_DEADLINE_SECONDS", 5.0)
+    calls = []
+    future = _dt.now(tz=timezone.utc) + timedelta(seconds=0.01)
+
+    def rate_limited():
+        calls.append(1)
+        if len(calls) < 2:
+            raise _HTTPError(429, headers={
+                "Retry-After": format_datetime(future)
+            })
+        return "ok"
+
+    result = _broker_call_with_retry(_as_reflectable_call(rate_limited), label="test")
+    assert result == "ok"
+    assert len(calls) == 2
+
+
+class _TransportTimeoutSession:
+    """A stub ``requests.Session`` that enforces its ``timeout=`` kwarg the
+    way the real ``requests``/``urllib3`` socket layer does: the call
+    raises a timeout error *from inside itself*, synchronously in the
+    calling thread, once it has waited ``timeout`` seconds against a
+    simulated remote that would hang for ``hang_seconds`` -- no external
+    canceller (thread, future, etc.) is needed or involved. This is what
+    ``_call_with_deadline``'s session-patch mechanism actually relies on
+    for cancellation-safety.
+    """
+
+    def __init__(self, hang_seconds: float):
+        self.hang_seconds = hang_seconds
+        self.timeouts_seen: list[float | None] = []
+
+    def request(self, method, url, **kwargs):
+        timeout = kwargs.get("timeout")
+        self.timeouts_seen.append(timeout)
+        waited = min(timeout, self.hang_seconds) if timeout is not None else self.hang_seconds
+        time.sleep(waited)
+        if timeout is not None and self.hang_seconds > timeout:
+            raise TimeoutError(
+                f"simulated transport-level read timeout after {timeout:.3f}s"
+            )
+        return "ok-within-budget"
+
+
+class _TransportTimeoutClient:
+    """Bound-method shape matching ``AlpacaLiveStateSource``'s real call
+    sites: a private, reflectable ``_session``."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def call(self):
+        return self._session.request("GET", "https://paper-api.alpaca.markets/v2/account")
+
+
+def test_call_with_deadline_propagates_transport_level_timeout_not_thread():
+    """The abort must come from the transport call raising synchronously
+    (mirroring a real `requests.exceptions.Timeout`), not from a
+    Future/thread race: a would-be-forever hang (`hang_seconds=999`) is cut
+    off at ~the given timeout and the exception propagates directly out of
+    `_call_with_deadline` -- there is no thread left behind because none
+    was ever created."""
+    session = _TransportTimeoutSession(hang_seconds=999.0)
+    client = _TransportTimeoutClient(session)
+
+    start = time.monotonic()
+    with pytest.raises(TimeoutError, match="simulated transport-level read timeout"):
+        _call_with_deadline(client.call, timeout=0.05, label="test")
+    elapsed = time.monotonic() - start
+
+    assert session.timeouts_seen == [0.05]
+    assert elapsed < 0.5, (
+        f"transport-level timeout should abort near its {0.05}s bound, not "
+        f"the 999s simulated hang; took {elapsed:.2f}s"
+    )
+
+
+def test_call_with_deadline_rejects_callable_without_reflectable_session():
+    """r4 (Codex): a callable with no reflectable bound `_session` must be
+    refused loudly -- NOT run unbounded, and NOT raced against via a
+    detached thread (the removed fallback)."""
+
+    def plain():
+        return "unbounded"
+
+    with pytest.raises(UnboundedBrokerCallError, match="no supported timeout-cancellation"):
+        _call_with_deadline(plain, timeout=1.0, label="test")
+
+
+def test_broker_retry_call_bounded_by_remaining_deadline(monkeypatch):
+    """r3 (issue 2) + r4 (Codex): a hanging call must not be allowed to keep
+    the helper (or its caller) blocked past the overall deadline. r4
+    rewrites this to abort via the REAL cancellation-safe mechanism (a
+    transport-level timeout raised synchronously inside the call, per
+    `_TransportTimeoutSession`) instead of the removed detached-thread
+    fallback -- proving the retry loop's remaining-budget plumbing still
+    produces a prompt, bounded failure with the new mechanism.
+    """
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_DEADLINE_SECONDS", 0.15)
+    monkeypatch.setattr(mod, "_BROKER_BACKOFF_BASE", 0.01)
+
+    session = _TransportTimeoutSession(hang_seconds=999.0)
+    client = _TransportTimeoutClient(session)
+
+    start = time.monotonic()
+    with pytest.raises(Exception, match="exceeded|deadline|timeout"):
+        mod._broker_call_with_retry(client.call, label="test")
+    elapsed = time.monotonic() - start
+    assert elapsed < 0.5, (
+        f"helper should give up near the {mod._BROKER_DEADLINE_SECONDS}s "
+        f"deadline, not wait out the 999s hang; took {elapsed:.2f}s"
+    )
+    # Every attempt received a shrinking, sub-second budget derived from the
+    # remaining deadline -- never the full simulated hang.
+    assert all(t is not None and t < 1.0 for t in session.timeouts_seen)
+
+
+def test_no_thread_pool_fallback_in_module():
+    """Structural regression guard for the r4 fix: the detached-thread
+    fallback must not exist anywhere in this module as executable code --
+    Codex asked for its removal, not a workaround alongside it. Checks for
+    an actual import/construction, not mere prose mentions in docstrings
+    explaining *why* it was removed."""
+    import inspect
+
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    assert "concurrent" not in mod.__dict__
+    source = inspect.getsource(mod)
+    assert "import concurrent" not in source
+    assert "ThreadPoolExecutor(" not in source
+
+
+class _FakeAlpacaSession:
+    """Mimics the surface of alpaca-py's ``requests.Session`` for the parts
+    ``RESTClient._one_request`` touches: a bare ``.request(method, url,
+    **opts)`` with no timeout of its own."""
+
+    def __init__(self):
+        self.captured_timeouts = []
+
+    def request(self, method, url, **kwargs):
+        self.captured_timeouts.append(kwargs.get("timeout"))
+        return "response"
+
+
+class _FakeAlpacaClient:
+    """Mimics ``alpaca.trading.client.TradingClient``: a bound
+    ``get_account``-shaped method whose ``__self__`` exposes a private
+    ``_session`` exactly like the real ``RESTClient``."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def get_account(self):
+        self._session.request("GET", "https://paper-api.alpaca.markets/v2/account")
+        return "account"
+
+
+def test_call_with_deadline_threads_real_timeout_into_alpaca_session():
+    """Prove the fix reaches the actual call site: _call_with_deadline must
+    bound the real requests.Session call (not just a thread-level race) when
+    fn is a bound method of an object exposing a private `_session`, as
+    AlpacaLiveStateSource's `client.get_account` / `client.get_all_positions`
+    are.
+    """
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    session = _FakeAlpacaSession()
+    client = _FakeAlpacaClient(session)
+
+    result = mod._call_with_deadline(
+        client.get_account, timeout=12.5, label="get_account"
+    )
+
+    assert result == "account"
+    assert session.captured_timeouts == [12.5]
+
+
+def test_call_with_deadline_updates_timeout_per_attempt_idempotently():
+    """The session patch must be idempotent (wrapped once) while still
+    honoring a fresh timeout value on each subsequent call -- matching how
+    AlpacaLiveStateSource reuses the same memoized client/session across
+    get_account() and get_all_positions() on every attempt."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    session = _FakeAlpacaSession()
+    client = _FakeAlpacaClient(session)
+
+    mod._call_with_deadline(client.get_account, timeout=30.0, label="get_account")
+    wrapped_request = session.request
+    mod._call_with_deadline(client.get_account, timeout=5.0, label="get_account")
+
+    assert session.captured_timeouts == [30.0, 5.0]
+    # Patched exactly once -- no repeated re-wrapping across calls.
+    assert session.request is wrapped_request
+
+
+def test_call_with_deadline_concurrent_callers_see_own_timeout():
+    """Two threads sharing the SAME memoized client/session must each see
+    their own timeout value, not the other caller's. Before the ContextVar
+    fix, this would interleave because both wrote to
+    `session._renquant_call_timeout` on the shared session object."""
+    import threading
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    barrier = threading.Barrier(2, timeout=5)
+    results: dict[str, float | None] = {}
+
+    class _BarrierSession:
+        def __init__(self):
+            self._renquant_timeout_patched = False
+
+        def request(self, method, url, **kwargs):
+            timeout = kwargs.get("timeout")
+            caller = threading.current_thread().name
+            barrier.wait()
+            results[caller] = timeout
+            return "response"
+
+    class _BarrierClient:
+        def __init__(self, session):
+            self._session = session
+
+        def call(self):
+            return self._session.request("GET", "/test")
+
+    session = _BarrierSession()
+    client = _BarrierClient(session)
+
+    def worker(name: str, budget: float):
+        threading.current_thread().name = name
+        mod._call_with_deadline(client.call, timeout=budget, label=name)
+
+    t1 = threading.Thread(target=worker, args=("A", 10.0))
+    t2 = threading.Thread(target=worker, args=("B", 99.0))
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert results["A"] == 10.0, f"Thread A saw {results['A']}, expected 10.0"
+    assert results["B"] == 99.0, f"Thread B saw {results['B']}, expected 99.0"
