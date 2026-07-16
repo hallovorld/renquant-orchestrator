@@ -16,6 +16,8 @@ from renquant_orchestrator.agent_workflows import (
     contract_findings,
     explicit_contributor_logins,
     has_head_approval_from_agent,
+    has_head_changes_requested_from_agent,
+    has_unaddressed_findings,
     is_approved,
     merge_audit_comment,
     merge_audit_status,
@@ -468,6 +470,142 @@ def test_is_approved_only_counts_head_reviews():
     pr["headRefOid"] = "NEW"
     # the only APPROVED review is against an old commit → not approved at head
     assert is_approved(pr) is False
+
+
+# ── gh-CLI review shape + reviewer supersession (2026-07-15 incident) ──
+# `gh pr list --json reviews` nests the review commit as `commit.oid` and has
+# no `commit_id` key, so the predicates saw zero reviews at head: the review
+# queue re-listed already-reviewed PRs forever (6 duplicate reviews per PR in
+# one day) and the merge queue could never see an approval.
+
+
+def test_is_approved_reads_gh_cli_review_commit_shape():
+    pr = _pr(7, author="codex", reviews=[
+        {"state": "APPROVED", "commit_id": None, "commit": {"oid": "sha7"},
+         "author": {"login": "reviewer"},
+         "submittedAt": "2026-07-15T01:00:00Z"},
+    ])
+    assert is_approved(pr) is True
+
+
+def test_gh_cli_review_shape_still_ignores_non_head_reviews():
+    pr = _pr(7, author="codex", reviews=[
+        {"state": "APPROVED", "commit_id": None, "commit": {"oid": "OLD"},
+         "author": {"login": "reviewer"},
+         "submittedAt": "2026-07-15T01:00:00Z"},
+    ])
+    assert is_approved(pr) is False
+
+
+def test_later_approval_supersedes_same_reviewers_changes_requested():
+    pr = _pr(8, author="codex", reviews=[
+        {"state": "CHANGES_REQUESTED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T01:00:00Z",
+         "body": "reviewed by claude — MED: add the progress doc"},
+        {"state": "APPROVED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T02:00:00Z",
+         "body": "reviewed by claude — reconsidered, approve"},
+    ])
+    assert is_approved(pr) is True
+    assert has_head_approval_from_agent(pr, "claude") is True
+    # the superseded findings no longer put the PR in the author's fix queue
+    assert has_unaddressed_findings(pr, "codex") is False
+    assert build_queue("claude", "review", [pr]) == []
+
+
+def test_dismissed_and_commented_reviews_never_veto_or_approve():
+    pr = _pr(9, author="codex", reviews=[
+        {"state": "APPROVED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T01:00:00Z", "body": "reviewed by claude"},
+        {"state": "DISMISSED", "author": {"login": "rev2"},
+         "submittedAt": "2026-07-15T02:00:00Z"},
+        {"state": "COMMENTED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T03:00:00Z"},
+    ])
+    assert is_approved(pr) is True
+
+    only_dismissed = _pr(9, author="codex", reviews=[
+        {"state": "DISMISSED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T01:00:00Z"},
+    ])
+    assert is_approved(only_dismissed) is False
+
+
+# ── a reviewer's own DISMISSED review must retract their prior vote ────
+# (Codex review of PR #519: a later same-reviewer DISMISSED never cleared
+# that reviewer's earlier effective state, so a dismissed CHANGES_REQUESTED
+# blocked forever and a dismissed APPROVED kept counting as approved.)
+
+
+def test_self_dismissed_changes_requested_clears_and_other_approval_stands():
+    pr = _pr(15, author="codex", reviews=[
+        {"state": "CHANGES_REQUESTED", "author": {"login": "rev1"},
+         "submittedAt": "2026-07-15T01:00:00Z",
+         "body": "reviewed by claude — MED: bug"},
+        {"state": "DISMISSED", "author": {"login": "rev1"},
+         "submittedAt": "2026-07-15T02:00:00Z"},
+        {"state": "APPROVED", "author": {"login": "rev2"},
+         "submittedAt": "2026-07-15T03:00:00Z",
+         "body": "reviewed by claude"},
+    ])
+    # rev1's CHANGES_REQUESTED was retracted by their own DISMISSED; only
+    # rev2's still-valid APPROVED should count.
+    assert is_approved(pr) is True
+
+
+def test_self_dismissed_approval_no_longer_counts_as_approved():
+    pr = _pr(16, author="codex", reviews=[
+        {"state": "APPROVED", "author": {"login": "rev1"},
+         "submittedAt": "2026-07-15T01:00:00Z",
+         "body": "reviewed by claude"},
+        {"state": "DISMISSED", "author": {"login": "rev1"},
+         "submittedAt": "2026-07-15T02:00:00Z"},
+    ])
+    # rev1 dismissed their own approval — it must not count as approved.
+    assert is_approved(pr) is False
+
+
+# ── severity-tagged COMMENTED reviews must still surface as findings ───
+# (Codex review of PR #519: has_unaddressed_findings reused the
+# vote-counting reduction, which correctly drops COMMENTED for vote
+# purposes but wrongly dropped it for findings-scanning too, so a
+# COMMENTED review carrying a MED/HIGH/BLOCKER tag silently disappeared
+# from the author's fix queue.)
+
+
+def test_commented_severity_tag_still_counts_as_unaddressed_finding():
+    pr = _pr(17, author="claude", reviews=[
+        {"state": "COMMENTED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T01:00:00Z",
+         "body": "MED: still broken"},
+    ], comments=[{"body": "fixed by claude"}])
+    assert has_unaddressed_findings(pr, "claude") is True
+    assert [w.number for w in build_queue("claude", "fix", [pr])] == [17]
+
+
+def test_review_queue_skips_head_this_agent_already_requested_changes_on():
+    pr = _pr(10, author="codex", reviews=[
+        {"state": "CHANGES_REQUESTED", "author": {"login": "rev"},
+         "submittedAt": "2026-07-15T01:00:00Z",
+         "body": "reviewed by claude — MED: missing progress doc"},
+    ])
+    assert has_head_changes_requested_from_agent(pr, "claude") is True
+    # reviewer side: nothing to add until the author pushes a new head
+    assert build_queue("claude", "review", [pr]) == []
+    # author side: the findings put it in the fix queue
+    assert [w.number for w in build_queue("codex", "fix", [pr])] == [10]
+    # a new head re-opens review
+    pr["headRefOid"] = "sha10-v2"
+    assert [w.number for w in build_queue("claude", "review", [pr])] == [10]
+
+
+def test_changes_requested_without_agent_marker_still_queues_review():
+    pr = _pr(11, author="codex", reviews=[
+        {"state": "CHANGES_REQUESTED", "author": {"login": "operator"},
+         "submittedAt": "2026-07-15T01:00:00Z",
+         "body": "manual operator note, no agent marker"},
+    ])
+    assert [w.number for w in build_queue("claude", "review", [pr])] == [11]
 
 
 def test_has_head_approval_from_agent_requires_marker():
