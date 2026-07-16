@@ -78,14 +78,18 @@ was never found in the directory at all — exactly the "wrong/empty
 checkout" case Codex described, now tied to the real pinned contract
 instead of a headcount.
 
-**Fallback for older pins**: if the pinned pipeline predates
-`OWNED_KERNEL_STEMS` entirely (`getattr` returns `None`), there is no
-structural inventory to compare against. Rather than either silently
-disabling the sanity check (treating "no declaration" as "trust whatever is
-on disk") or hard-failing an otherwise-valid older pin outright, this falls
-back to the coarse "no owned modules discovered" guard that round 3 already
-had — it only catches the total-emptiness case for a pin old enough to
-predate the declaration, everything else is unaffected.
+**Fallback for older pins (round 4 only — REMOVED in round 5, see below)**:
+if the pinned pipeline predates `OWNED_KERNEL_STEMS` entirely (`getattr`
+returns `None`), there is no structural inventory to compare against.
+Rather than either silently disabling the sanity check (treating "no
+declaration" as "trust whatever is on disk") or hard-failing an otherwise-
+valid older pin outright, this falls back to the coarse "no owned modules
+discovered" guard that round 3 already had — it only catches the total-
+emptiness case for a pin old enough to predate the declaration, everything
+else is unaffected.
+
+**This fallback was itself a fail-open gap and was removed in round 5 —
+see "Round 5" below. Do not reintroduce it.**
 
 ### Tests (round 4)
 
@@ -98,7 +102,9 @@ predate the declaration, everything else is unaffected.
   equivalence check, not just a stricter failure mode.
 - `test_bootstrap_fails_when_no_owned_modules` docstring updated to clarify
   it now exercises the legacy fallback path (no `OWNED_KERNEL_STEMS`
-  declared at all), not the primary structural check.
+  declared at all), not the primary structural check. (Renamed to
+  `test_bootstrap_fails_when_owned_stems_missing` in round 5 — the
+  fallback it was documenting no longer exists; see below.)
 
 ### Cross-repo pairing verification
 
@@ -141,3 +147,84 @@ this session's push and Codex's merge of the prior state, both against the
 same branch this round). The `OWNED_KERNEL_STEMS` companion this round
 depends on is carried by a fresh PR on the same branch instead:
 https://github.com/hallovorld/renquant-pipeline/pull/199.
+
+## Round 5: remove the round-4 fallback entirely (final)
+
+Codex's round-5 review of the round-4 landing:
+
+> The positive inventory is the correct replacement for the magic
+> module-count check, but the rollout is still fail-open with respect to
+> the very identity contract it introduces. When `OWNED_KERNEL_STEMS` is
+> absent, r4 falls back to the r3 "nonzero owned modules" path. That
+> permits an old pipeline pin, or a wrong package with one importable
+> module, to start without the pinned inventory verification.
+>
+> Require `OWNED_KERNEL_STEMS` together with `NON_OWNED_KERNEL_STEMS`;
+> absence of either must fail closed. Then land pipeline #199 (rebased onto
+> #198), update the umbrella to pin #199 plus this orchestrator revision,
+> and attach a real bootstrap smoke result against those exact pins. This
+> is an atomic stable-interface migration. The temporary compatibility
+> fallback and the claimed path-identity guarantee cannot coexist.
+
+The round-4 "fallback for older pins" section above (only catching the
+case where the kernel directory yields zero owned modules AND
+`OWNED_KERNEL_STEMS` is absent) was exactly the gap: an old pipeline pin, or
+a wrong package, that happens to have at least one importable "owned-
+looking" module on disk and no `OWNED_KERNEL_STEMS` declaration would
+silently skip the structural check entirely (`owned_stems` non-empty →
+neither the `isinstance` branch nor the `elif not owned_stems` branch
+fires). That is precisely the "count what's on disk instead of verifying
+the pinned contract" failure mode this whole fix exists to close.
+
+### Fix (commit `bb6ecf99`)
+
+Removed the round-4 fallback unconditionally. `OWNED_KERNEL_STEMS` is now
+required exactly like `NON_OWNED_KERNEL_STEMS` already was — absence of
+either raises `RuntimeError` immediately, with no path that falls back to
+counting modules on disk:
+
+```python
+owned_declared: frozenset[str] = getattr(pipeline_kernel, "OWNED_KERNEL_STEMS", None)
+if owned_declared is None:
+    raise RuntimeError(
+        "[multirepo] fail-closed: pinned renquant_pipeline.kernel does not "
+        "declare OWNED_KERNEL_STEMS — pin a pipeline version >= #199"
+    )
+
+missing_owned = sorted(frozenset(owned_declared) - set(owned_stems))
+if missing_owned:
+    raise RuntimeError(...)
+```
+
+There is no supported "older pin" case anymore: this is landed as an
+atomic migration together with pipeline #199, so the pinned pipeline
+commit orchestrator resolves against always declares both frozensets by
+construction.
+
+### Tests (round 5)
+
+`test_bootstrap_fails_when_no_owned_modules` (which documented and
+exercised the now-removed fallback) was renamed to
+`test_bootstrap_fails_when_owned_stems_missing` and now asserts the
+unconditional-requirement message instead of the old "no owned kernel
+modules" message. The three tests that exercise non-owned-stem handling
+(`test_bootstrap_umbrella_only_module_not_in_pipeline_dir`,
+`test_bootstrap_non_owned_stem_skips_pipeline_uses_alias`,
+`test_bootstrap_non_owned_stem_alias_target_fails_closed`) each gained an
+explicit `OWNED_KERNEL_STEMS=frozenset({"sizing"})` in their mocked kernel
+namespace — they were previously passing only because the round-4
+fallback silently accepted their non-empty `owned_stems`, which is no
+longer a valid basis for those tests to pass.
+
+### Status: both PRs merged, pin bump prepared
+
+- orchestrator PR #514 (this fix): merged 2026-07-14, commit `bb6ecf99` /
+  merge `bfb935e4`.
+- pipeline PR #199 (`OWNED_KERNEL_STEMS`, rebased cleanly onto pipeline
+  main after PR #198 merged): merged 2026-07-14.
+- Umbrella pin: `renquant-pipeline`'s pin was already advanced past #199 by
+  a routine fleet bump. `renquant-orchestrator`'s pin was stale at PR #451
+  (2026-07-10) and had not been advanced past #514 — the pin-bump PR
+  closing that gap, with a real non-mocked `bootstrap_multirepo()` smoke
+  test against the exact pin-target commits, is
+  https://github.com/hallovorld/RenQuant/pull/481.
