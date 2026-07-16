@@ -365,9 +365,58 @@ def contract_findings(pr: dict) -> list[str]:
     )
 
 
+def _review_commit(review: dict) -> Optional[str]:
+    """Commit SHA a review was submitted against, across gh JSON shapes.
+
+    ``gh pr list/view --json reviews`` — the shape ``fetch_open_prs`` returns
+    — nests the SHA as ``commit.oid``; the REST API uses a flat ``commit_id``.
+    Reading only ``commit_id`` made every predicate see zero reviews at head,
+    so review queues re-listed already-reviewed PRs forever and merge queues
+    could never see an approval.
+    """
+    commit = review.get("commit")
+    if isinstance(commit, dict) and commit.get("oid"):
+        return str(commit["oid"])
+    value = review.get("commit_id")
+    return str(value) if value else None
+
+
 def _reviews_at_head(pr: dict) -> list[dict]:
     head = pr.get("headRefOid")
-    return [r for r in (pr.get("reviews") or []) if r.get("commit_id") == head or head is None]
+    return [
+        r for r in (pr.get("reviews") or [])
+        if _review_commit(r) == head or head is None
+    ]
+
+
+def _submitted_at(review: dict) -> str:
+    """ISO-8601 submission time (gh: ``submittedAt``; REST: ``submitted_at``)."""
+    return str(review.get("submittedAt") or review.get("submitted_at") or "")
+
+
+def _effective_reviews_at_head(pr: dict) -> list[dict]:
+    """Latest state-changing review per reviewer on the current head.
+
+    Mirrors GitHub's ``reviewDecision`` semantics: a reviewer's newer
+    APPROVED or CHANGES_REQUESTED supersedes their earlier one. A DISMISSED
+    review retracts that reviewer's prior state entirely — GitHub dismissal
+    neutralizes the vote, it does not flip it to approved — unless a later
+    review from the same reviewer supersedes the dismissal again. COMMENTED
+    records never veto or approve and are excluded here (findings-scanning
+    that needs COMMENTED bodies, e.g. ``has_unaddressed_findings``, reads
+    the raw review list instead). Without this reduction a reviewer who
+    requested changes and later approved the same head would block
+    ``is_approved`` — and therefore the review/merge queues — forever.
+    """
+    latest: dict[str, dict] = {}
+    for idx, review in enumerate(_reviews_at_head(pr)):
+        if review.get("state") not in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+            continue
+        key = _login(review.get("author") or review.get("user")) or f"#anon-{idx}"
+        prev = latest.get(key)
+        if prev is None or _submitted_at(review) >= _submitted_at(prev):
+            latest[key] = review
+    return [r for r in latest.values() if r.get("state") != "DISMISSED"]
 
 
 def _login(value: Any) -> str:
@@ -445,7 +494,7 @@ def review_is_independent(pr: dict, review: dict) -> bool:
 
 
 def has_head_approval_from_agent(pr: dict, agent: str) -> bool:
-    revs = _reviews_at_head(pr)
+    revs = _effective_reviews_at_head(pr)
     if any(r.get("state") == "CHANGES_REQUESTED" for r in revs):
         return False
     return any(
@@ -456,9 +505,28 @@ def has_head_approval_from_agent(pr: dict, agent: str) -> bool:
     )
 
 
+def has_head_changes_requested_from_agent(pr: dict, agent: str) -> bool:
+    """This agent's effective review on the current head requests changes.
+
+    Once the agent has recorded findings against the exact head, re-queueing
+    the PR for review only produces duplicate reviews; the next move is the
+    author's fix push, which changes the head and re-opens review.
+    """
+    return any(
+        r.get("state") == "CHANGES_REQUESTED"
+        and _marker_present(r.get("body"), action="reviewed", agent=agent)
+        for r in _effective_reviews_at_head(pr)
+    )
+
+
 def is_approved(pr: dict) -> bool:
-    """An APPROVED review exists on the current head and none requests changes."""
-    revs = _reviews_at_head(pr)
+    """The effective review state on the current head is approval.
+
+    Effective = latest state-changing review per reviewer (GitHub
+    ``reviewDecision`` semantics): at least one APPROVED, none
+    CHANGES_REQUESTED.
+    """
+    revs = _effective_reviews_at_head(pr)
     if any(r.get("state") == "CHANGES_REQUESTED" for r in revs):
         return False
     return any(
@@ -492,16 +560,29 @@ def has_unaddressed_findings(pr: dict, agent: str) -> bool:
     """True if there's a review/comment with findings the author hasn't yet
     superseded with a newer push.
 
-    Signal (conservative): a CHANGES_REQUESTED review on the current head,
-    OR a review/comment carrying a severity tag (BLOCKER/HIGH/MED) at the
-    current head. The agent itself makes the final read of what to fix; this
-    just decides whether the PR belongs in the fix queue.
+    Signal (conservative): an effective CHANGES_REQUESTED review on the
+    current head, OR a review/comment carrying a severity tag
+    (BLOCKER/HIGH/MED) at the current head. A reviewer's CHANGES_REQUESTED
+    (or APPROVED) superseded by their own later state-changing review no
+    longer counts — that per-reviewer reduction is exactly what
+    ``_effective_reviews_at_head`` gives us, so its bodies are used as-is.
+    But that reduction correctly drops COMMENTED reviews for vote-counting
+    purposes — a COMMENTED review never flips ``reviewDecision`` and never
+    supersedes/gets superseded — which is the WRONG reduction for
+    findings-scanning: a COMMENTED review can still carry a severity-tagged
+    finding that needs a fix. So COMMENTED review bodies at head are added
+    back in unreduced, on top of (not instead of) the vote-reduced bodies.
+    The agent itself makes the final read of what to fix; this just decides
+    whether the PR belongs in the fix queue.
     """
-    revs = _reviews_at_head(pr)
+    revs = _effective_reviews_at_head(pr)
     if any(r.get("state") == "CHANGES_REQUESTED" for r in revs):
         return True
+    commented_at_head = [r for r in _reviews_at_head(pr) if r.get("state") == "COMMENTED"]
     blob = " ".join(
         str(r.get("body") or "") for r in revs
+    ) + " " + " ".join(
+        str(r.get("body") or "") for r in commented_at_head
     ) + " " + " ".join(
         str(c.get("body") or "") for c in (pr.get("comments") or [])
     )
@@ -586,6 +667,11 @@ def build_queue(
                 continue
             if peer_approved and not findings:
                 continue  # already has a clean approval — nothing to add
+            if has_head_changes_requested_from_agent(pr, agent):
+                # This agent already recorded findings against this exact
+                # head; re-reviewing it would only duplicate the review.
+                # The author's fix push (a new head) re-opens review.
+                continue
             notes = list(findings)
             if is_approved(pr) and not peer_approved:
                 notes.append(f"missing `reviewed by {agent}` approval marker on head review")
