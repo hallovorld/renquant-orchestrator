@@ -58,6 +58,13 @@ _GOOD_BUNDLE = {
     },
     "watchlist_hash": "sha256:wl",
     "watchlist_size": 3,
+    # class-A health evidence (2026-07-17 light-signal-day fix): a "good"
+    # source run is contract-clean, ran the full buy funnel, and carries the
+    # G4 training provenance chain.
+    "panel_contract": {"ok": True, "errors": [], "warnings": []},
+    "pipeline_flags": {"buy_blocked": False, "skip_buys": False},
+    "training_cutoff": "2026-06-21",
+    "model_content_sha256": "sha256:656b70be",
 }
 
 
@@ -664,3 +671,81 @@ def test_verify_bundle_still_rejects_genuine_tampering_under_either_scheme(tmp_p
     )
     assert not ok
     assert "mismatch" in reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-17 class-A health-evidence contract (light-signal-day fix)
+# ---------------------------------------------------------------------------
+
+def _bundle_without(*keys, **overrides):
+    b = json.loads(json.dumps(_GOOD_BUNDLE))
+    for k in keys:
+        b.pop(k, None)
+    b.update(overrides)
+    return b
+
+
+def test_light_signal_day_with_full_health_evidence_is_admitted(tmp_path, monkeypatch):
+    """The real 2026-07-16-live-a24a8be1 shape: 5 rows, 100% covered,
+    contract-clean, full funnel, G4 provenance — must export."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-light", scores={"AAA": 0.1, "BBB": 0.2})
+    out = tmp_path / "out"
+    rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02")
+    assert rc == 0
+    meta = json.loads((out / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["n"] == 2
+
+
+def test_preoperational_cluster_shape_is_rejected(tmp_path, capsys):
+    """The real 2026-04-23..27 shape: tiny roster AND no panel_contract, no
+    fingerprints, no provenance — rejected on health evidence (and would
+    also fail fingerprints)."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-april",
+                run_bundle={"watchlist_size": 3},
+                scores={"AAA": 0.1, "BBB": 0.2, "CCC": 0.3})
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert "health evidence" in capsys.readouterr().err
+
+
+def test_sell_only_or_buy_blocked_run_is_rejected(tmp_path, capsys):
+    """A containment/sell-only run never executed the buy funnel its frozen
+    vector is meant to represent (e.g. the 2026-07-16 20:55 guard run)."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-sellonly",
+                run_bundle=_bundle_without(
+                    pipeline_flags={"buy_blocked": True, "skip_buys": True}))
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert "full_buy_run" in capsys.readouterr().err
+
+
+def test_panel_contract_not_ok_is_rejected(tmp_path, capsys):
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-badpanel",
+                run_bundle=_bundle_without(
+                    panel_contract={"ok": False, "errors": ["x"]}))
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert "panel_contract.ok" in capsys.readouterr().err
+
+
+def test_missing_training_provenance_is_rejected(tmp_path, capsys):
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-noprov",
+                run_bundle=_bundle_without("training_cutoff", "model_content_sha256"))
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "training_cutoff" in err and "model_content_sha256" in err
+
+
+def test_single_row_healthy_run_is_admitted_zero_rows_rejected(tmp_path, monkeypatch):
+    """MIN_ROWS is now a bare non-empty sanity check."""
+    monkeypatch.setattr(exporter, "MIN_ROWS", 1)  # the new production value
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-one", scores={"AAA": 0.5})
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 0
