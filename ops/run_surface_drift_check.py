@@ -243,6 +243,31 @@ def generate_manifest(agents_dir: str = LAUNCH_AGENTS) -> dict:
 # main
 # ---------------------------------------------------------------------------
 
+def check_umbrella_branch() -> list[str]:
+    """The umbrella LIVE tree must be on `main`.
+
+    The working tree's CONTENT is deliberately outside this scan's alarm
+    scope (operator edit surface; artifact integrity = AC4), but the BRANCH
+    NAME is run-surface state: the daily wrapper hard-refuses non-main
+    checkouts, so a stray branch silently disables the 13:55 decision run
+    until the guard fires mid-day (2026-07-17: a leftover working branch
+    from PR prep blocked the daily; content was identical to main, only the
+    ref name was wrong). Catch it at the 07:00 scan instead.
+    """
+    head_file = Path(RQ) / ".git" / "HEAD"
+    try:
+        head = head_file.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        return [f"umbrella: cannot read {head_file}: {exc}"]
+    if head == "ref: refs/heads/main":
+        return []
+    return [
+        f"umbrella live tree not on main ({head!r}) — the daily wrapper "
+        "will refuse to run; restore with git checkout main (never reset "
+        "--hard: uncommitted operational fixes may be present)"
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -264,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     p, i = check_git_surfaces()
     problems += p
     infos += i
+    problems += check_umbrella_branch()
     problems += check_launchd_surface()
 
     for line in infos:
