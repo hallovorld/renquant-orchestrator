@@ -123,6 +123,13 @@
       ],
       "program_args_sha256": "a249490bf217ebc2f9e36132605a2ede80bdfa07a654df9b095f0c1200a4bd55"
     },
+    "com.renquant.rq104-degradation-sentinel": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_degradation_sentinel.py"
+      ],
+      "program_args_sha256": "3b43716ba5eeb00676263fbcdced45f1505688215d4349bafe66a392fa9d9dff"
+    },
     "com.renquant.rq104-liveness": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
@@ -185,6 +192,13 @@
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_shadow_serving.sh"
       ],
       "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c"
+    },
+    "com.renquant.run-surface-drift": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_check.py"
+      ],
+      "program_args_sha256": "bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2"
     },
     "com.renquant.screen-watchlist": {
       "program_args": [
