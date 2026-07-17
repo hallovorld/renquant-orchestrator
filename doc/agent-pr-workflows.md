@@ -186,6 +186,32 @@ renquant-orchestrator merge-audit --repo hallovorld/renquant-orchestrator --stri
 A hands-off loop is just the user (or `/loop`) periodically invoking these
 three per agent. No webhooks, no Actions, no cloud model calls.
 
+## HARD-gate design rule (GOAL-5 AC6)
+
+Any PR that introduces or tightens a HARD gate on the capital-deployment
+path (buy admission, order placement, artifact promotion feeding the live
+scorer) MUST answer three questions in its progress doc, and reviewers
+treat their absence as CHANGES_REQUESTED:
+
+1. **Governed exception path** — the operator-authorized override
+   mechanism (identity + hard expiry + scope binding to the specific
+   artifact/config it covers), or an explicit statement that no override
+   is possible and why that is acceptable. A gate with no governed
+   exception becomes an ungoverned emergency later — the 2026-07-15
+   diagnostic-only admission gate shipped without one and the book drained
+   to 94% cash before a mechanism could be retrofitted under incident
+   pressure (pipeline#203).
+2. **Fail-closed shape** — what exactly happens when the gate fires
+   (sell-only? full abort?), and confirmation that risk exits are never
+   blocked by a buy-side gate.
+3. **Detection surface** — which sentinel/alert observes the gate firing
+   (a gate that fires silently for days is a slow-motion incident; see
+   the degradation sentinel and dawn preflight). "None yet" requires a
+   named follow-up task in the same PR.
+
+This rule is review-enforced (checklist), not mechanically detected: the
+reviewer decides whether a diff touches the capital path.
+
 ## What this is NOT
 
 - Not a model runner — the orchestrator never calls an LLM. The agent does.
