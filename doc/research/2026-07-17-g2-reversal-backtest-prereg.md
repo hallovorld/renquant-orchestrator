@@ -1,9 +1,10 @@
 # Preregistration: G2 crypto reversal costed backtest (hypothesis H1)
 
 Date: 2026-07-17
-Status: RFC — frozen upon merge; the backtest may not run until this
-document is merged and its input manifests are sealed. Instantiates the
-six requirements frozen in the revised G2 gate memo
+Status: RFC — frozen upon merge; the historical exercise may not run until
+this document is merged and its input manifests are sealed. It is an
+exploratory, costed feasibility screen only: it cannot confirm H1 or
+authorize capital. Instantiates the six requirements frozen in the revised G2 gate memo
 (doc/research/2026-07-17-g2-crypto-data-quality-gonogo.md §3, merged).
 Drafted personally per design-review policy.
 
@@ -13,30 +14,37 @@ Liquid-tier cross-sectional 3-day reversal at 1-day horizon on Alpaca
 spot crypto, LONG-ONLY, evaluated NET of fees against a matched BTC
 buy-and-hold baseline.
 
-## 1. Selection control (§3-item 1)
+## 1. Selection control and evidence status (§3-item 1)
 
 - The complete tested-spec family from the screen is recorded in the gate
   memo (momentum/reversal × {3,7,30,90}d × {1,7}d × {full-20, liquid-10}
-  universes). H1 was selected from it; therefore the CONFIRMATORY
-  statistic here is computed on data/date-ranges NOT used by the screen
-  where possible, and the primary inference applies a block-bootstrap
-  max-t (reality-check) over the ORIGINAL family as the multiplicity
-  control: H1 must survive the family-wise test, not a solo t.
+  universes). That screen already used the available 2021-01-01 through
+  2026-07-16 history. Therefore no statistic from this historical exercise
+  is confirmatory, regardless of a reality-check adjustment. It may only
+  decide whether the specified construction is economically plausible
+  enough to enter a separately registered prospective paper-shadow test.
+- The historical report still computes a block-bootstrap max-t over the
+  fully enumerated, executable portfolio family as an overfitting diagnostic.
+  Every family member uses its own frozen long-only construction; the report
+  must not apply a rank-IC family to a portfolio-return statistic.
 - No new specs may be added post-hoc. Any variant (different k, different
   tier) is a NEW registration.
+- The only confirmatory H1 test is the prospective paper-shadow interval
+  registered after this feasibility screen. It starts after the input seal,
+  has a fixed duration and stopping rule, and uses recorded paper fills.
 
 ## 2. Inference model (§3-item 2)
 
 - Unit: daily strategy-minus-baseline return difference d_t (see §4 for
   the executable strategy; baseline = BTC buy-and-hold at identical
   notional and cost treatment).
-- Test: one-sided MBB on mean(d_t) > 0 at α = 0.10 — the house machinery
-  (G1 v4 / G4 v3), block length from fitted autocorrelation of d_t,
-  frozen before evaluation; report n valid days and names-per-day.
-- Power: fitted-null simulation at MDE = 5 bps/day net (economic
-  materiality for a small sleeve) must show power ≥ 0.80 at the available
-  T, else the recorded outcome is "underpowered — do not run to a
-  verdict" (no peeking runs).
+- Historical inference: one-sided MBB on mean(d_t) > 0 at α = 0.10, with a
+  percentile lower confidence bound and a precomputed block length from the
+  fitted autocorrelation of d_t. It is descriptive only; report n valid days,
+  names-per-day, and the max-t diagnostic.
+- Prospective power: before paper shadow starts, a fitted-null simulation at
+  MDE = 5 bps/day net must show power ≥ 0.80 at its predeclared duration;
+  otherwise the outcome is "underpowered — do not run to a verdict".
 
 ## 3. Point-in-time universe (§3-item 3)
 
@@ -56,8 +64,12 @@ buy-and-hold baseline.
   bottom-3 ranked (losers) of the liquid tier. No shorting exists on the
   venue; the strategy's "reversal" content is the long-loser tilt vs the
   BTC baseline.
-- Rebalance daily at open(T+1) proxy (first bar after UTC close);
-  positions held 1 day; minimum notional $10; a pair failing the
+- Historical execution proxy: the daily-bar open(T+1), not an asserted
+  executable first post-close fill. The collector contains daily bars only;
+  it cannot establish intraday fill quality. The subsequent paper-shadow
+  test must use timestamped broker fills at its separately frozen schedule.
+  Positions rebalance daily, are held 1 day, and use a minimum notional of
+  $10; a pair failing the
   liquidity/membership screen exits at the same rebalance.
 - Cash never idle: un-investable residue (min-notional clips) sits in
   BTC, keeping the comparison exposure-honest.
@@ -71,20 +83,25 @@ buy-and-hold baseline.
   day.
 - Report: expected daily turnover, gross mean d_t, net mean d_t under
   each stress, and the verdict statistic on NET.
-- KILL RULE (pre-registered): net-of-fee MBB lower bound ≤ 0 at base
-  fees ⇒ G2 dies (the operator's early-kill discipline, final form).
+- Historical feasibility rule: a base-fee lower bound ≤ 0 prevents paper
+  shadow and records a G2 NO-GO. A positive historical result only permits
+  the prospective paper-shadow registration; it is never a capital GO.
 
 ## 6. Timing convention (§3-item 6)
 
-- Bars finalize at UTC day close; signal availability = close + 5 min;
-  earliest execution = the open(T+1) proxy price (first post-close bar);
-  scoring interval open(T+1) → open(T+2). No close-to-close double use.
-  (Same structural convention as G4 v3 §B — house standard.)
+- Historical bars finalize at UTC day close. The signal uses information
+  through close(T), execution is proxied by the next daily bar open(T+1),
+  and scoring is open(T+1) → open(T+2). No close-to-close double use. This
+  is a daily-bar accounting convention, not a claim that the proxy is an
+  attainable fill. The paper-shadow protocol supplies the actual order
+  timestamp, fill, and latency convention.
 
 ## 7. Outputs and disposition
 
-- One frozen results artifact (JSON: family-wise p, net d_t stats per
-  stress, turnover, power-check numbers, input digests, seed).
-- PASS ⇒ G2 proceeds to a paper-account shadow phase (its own
-  registration; no capital from this document). FAIL ⇒ G2 killed, memo
-  records the tombstone. Underpowered ⇒ wait/accumulate, no verdict.
+- One frozen results artifact (JSON: max-t diagnostic, historical net d_t
+  stats per stress, turnover, input digests, execution-proxy declaration,
+  and seed).
+- Historical feasibility pass ⇒ G2 may submit a paper-account shadow
+  registration. It does not confirm H1 and authorizes no capital. Historical
+  failure ⇒ G2 killed and the memo records the tombstone. Prospective paper
+  shadow has its own pass/fail/underpowered verdict.
