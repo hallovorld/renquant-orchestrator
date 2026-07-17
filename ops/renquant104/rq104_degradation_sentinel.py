@@ -90,10 +90,28 @@ def day_run_state(conn: sqlite3.Connection, day: dt.date) -> dict | None:
     n_rows, max_cand, max_buys, last_blocked = row
     if not n_rows:
         return None
+    # pipeline_runs alone under-reports purchases: n_candidates is zeroed
+    # after VetoWeakBuys clears the scan set, and n_buys excludes TOP-UP
+    # orders (2026-07-17 first-firing false alarm: 07-16 placed 3 top-up
+    # buys with n_buys=0). The trades table records every emitted buy
+    # (NEW_BUY / buy_pending / top-ups), so count it as the buy-activity
+    # ground truth for the day.
+    try:
+        trade_buys = conn.execute(
+            "SELECT COUNT(*) FROM trades t JOIN pipeline_runs pr "
+            "ON t.run_id = pr.run_id WHERE pr.run_type='live' "
+            "AND pr.run_date=? AND t.action LIKE '%buy%'",
+            (day.isoformat(),),
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        # trades table absent (minimal fixture DBs / legacy stores): fall
+        # back to pipeline_runs-only accounting rather than crashing the
+        # sentinel — a monitoring tool must degrade, never abort.
+        trade_buys = 0
     return {
         "n_rows": n_rows,
         "max_candidates": max_cand or 0,
-        "max_buys": max_buys or 0,
+        "max_buys": max(max_buys or 0, trade_buys),
         "last_buy_blocked": bool(last_blocked),
     }
 

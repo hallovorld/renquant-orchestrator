@@ -222,3 +222,21 @@ class TestGating:
         ):
             days = sentinel.last_session_days(dt.date(2026, 7, 13), 2)  # Monday
         assert days == [dt.date(2026, 7, 13), dt.date(2026, 7, 10)]  # Mon, Fri
+
+
+class TestTopUpAwareness:
+    def test_day_with_topup_buys_not_flagged(self, tmp_path):
+        """2026-07-17 first-firing false alarm: a day whose pipeline_runs rows
+        show 0 candidates / 0 buys but whose trades table records emitted
+        top-up buy orders is buy-active, not silently fail-closed."""
+        import sqlite3
+        from rq104_degradation_sentinel import day_run_state
+        db = sqlite3.connect(":memory:")
+        db.execute("CREATE TABLE pipeline_runs (run_id TEXT, run_type TEXT, run_date TEXT, n_candidates INT, n_buys INT, buy_blocked INT, created_at TEXT)")
+        db.execute("INSERT INTO pipeline_runs VALUES ('r1','live','2026-07-16',0,0,0,'2026-07-16 21:00:00')")
+        db.execute("CREATE TABLE trades (run_id TEXT, action TEXT)")
+        db.execute("INSERT INTO trades VALUES ('r1','buy_pending')")
+        db.execute("INSERT INTO trades VALUES ('r1','buy_pending')")
+        import datetime as dt
+        state = day_run_state(db, dt.date(2026, 7, 16))
+        assert state["max_buys"] == 2  # trades ground truth wins
