@@ -53,6 +53,9 @@ def _run(tmp_path, db_rows, *, daily_log: str | None = None, launchctl: str = ""
     with (
         patch.object(sentinel, "is_session_day", return_value=True),
         patch.object(sentinel, "DAILY_LOG_DIR", str(log_dir)),
+        # isolate from the real reviewed ack ledger: tests control acks via
+        # an explicit tmp file (see TestAckLedger)
+        patch.object(sentinel, "ACK_LEDGER", str(tmp_path / "acks.json")),
         patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
         patch.object(
             sentinel.subprocess, "run",
@@ -240,3 +243,26 @@ class TestTopUpAwareness:
         import datetime as dt
         state = day_run_state(db, dt.date(2026, 7, 16))
         assert state["max_buys"] == 2  # trades ground truth wins
+
+
+class TestAckLedger:
+    def test_acked_job_moves_to_info(self, tmp_path):
+        import json
+        (tmp_path / "acks.json").write_text(json.dumps({
+            "com.renquant.weekly-wf-promote": {
+                "acked_at": "2026-07-17", "reason": "known chronic",
+                "clears_when": "gate pass"}}))
+        text = "-\t1\tcom.renquant.weekly-wf-promote\n"
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, launchctl=text)
+        assert rc == 0
+        assert not alerts
+
+    def test_unacked_job_still_alarms(self, tmp_path):
+        import json
+        (tmp_path / "acks.json").write_text(json.dumps({
+            "com.renquant.other-job": {"acked_at": "x", "reason": "y",
+                                       "clears_when": "z"}}))
+        text = "-\t1\tcom.renquant.weekly-wf-promote\n"
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, launchctl=text)
+        assert rc == 1
+        assert any("weekly-wf-promote" in b for _, b in alerts)

@@ -1,0 +1,42 @@
+{
+  "com.renquant.conditional-retrain104": {
+    "acked_at": "2026-07-17",
+    "reason": "IAC delisted-ticker freshness failure; fixed by RenQuant#495 (--exclude-tickers bridge, deployed)",
+    "clears_when": "next VIX-anomaly trigger runs the gated chain clean"
+  },
+  "com.renquant.daily104": {
+    "acked_at": "2026-07-17",
+    "reason": "stray-branch guard abort 07-17 13:55; tree restored to main, decision rerun completed same day; branch check added to the drift scan (#538)",
+    "clears_when": "next NYSE session's 13:55 wrapper run (2026-07-20)"
+  },
+  "com.renquant.rq104-liveness": {
+    "acked_at": "2026-07-17",
+    "reason": "stale script-path window during run-checkout realignment; manual run passes (rq104 liveness OK 2026-07-17)",
+    "clears_when": "next scheduled liveness firing"
+  },
+  "com.renquant.rq105-batch-scores-export": {
+    "acked_at": "2026-07-17",
+    "reason": "Class-A absolute row floor vs light-signal day; replaced by health-evidence contract (#531), manual export succeeded (5/5, rc=0)",
+    "clears_when": "next session-day 06:25 firing (2026-07-20)"
+  },
+  "com.renquant.shadow-ab-daily": {
+    "acked_at": "2026-07-17",
+    "reason": "epoch-3 frozen manifest vs 07-16/17 pin deployments; refrozen epoch-4, PRECHECK PASS manually (orch#537)",
+    "clears_when": "next NYSE session 14:35 two-arm run (2026-07-20)"
+  },
+  "com.renquant.weekly-wf-promote": {
+    "acked_at": "2026-07-17",
+    "reason": "chronic placebo-subgate model rejection (known, correct gate behavior; wf-promote-chronic-reject); 07-17 instance also hit the IAC freshness failure now fixed",
+    "clears_when": "a staged model passes the WF gate (open-ended; gate is correct)"
+  },
+  "com.renquant.weekly-retrain-patchtst": {
+    "acked_at": "2026-07-17",
+    "reason": "downstream of the weekly promote chain state; not independently diagnosed — ack expires at next weekly cycle",
+    "clears_when": "next weekly cycle (review if still failing 2026-07-20+)"
+  },
+  "com.renquant.rq104-degradation-sentinel": {
+    "acked_at": "2026-07-17",
+    "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row",
+    "clears_when": "any firing with zero alarms"
+  }
+}
