@@ -123,6 +123,12 @@
       ],
       "program_args_sha256": "a249490bf217ebc2f9e36132605a2ede80bdfa07a654df9b095f0c1200a4bd55"
     },
+    "com.renquant.rq104-dawn-preflight": {
+      "program_args": [
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/dawn_funnel_preflight.sh"
+      ],
+      "program_args_sha256": "743f3a9ebd33839d356f3258ad5ba6f8c132bffe5a034544a852a6c1e80f58e7"
+    },
     "com.renquant.rq104-degradation-sentinel": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
