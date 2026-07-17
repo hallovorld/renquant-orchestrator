@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- TEMPLATE (GOAL-5 AC2) - installation is an operator-gated landing action.
+     Daily 07:00 PT: catches overnight run-surface drift before the session. -->
+<dict>
+    <key>Label</key>
+    <string>com.renquant.run-surface-drift</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_check.py</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_run_surface_drift.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_run_surface_drift.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RQ_ROOT</key>
+        <string>/Users/renhao/git/github/RenQuant</string>
+        <key>RQ_ORCH_ROOT</key>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/src:/Users/renhao/git/github/renquant-orchestrator-run/ops</string>
+    </dict>
+</dict>
+</plist>
