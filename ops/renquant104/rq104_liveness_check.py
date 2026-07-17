@@ -27,7 +27,8 @@ from liveness_common import alert, is_session_day  # noqa: E402
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 LOG_DIR = os.path.join(RQ, "logs/rq104")
 
-_WRAPPER_LOGS = ("risk_budget", "scorer_identity")
+_DAILY_WRAPPER_LOGS = ("scorer_identity",)
+_MONTHLY_WRAPPER_LOGS = {"risk_budget": 1}  # job → day-of-month it runs
 
 
 def _check_wrapper_log(job: str, today_iso: str) -> str | None:
@@ -70,10 +71,16 @@ def main(argv: list[str] | None = None) -> int:
 
     problems: list[str] = []
 
-    for job in _WRAPPER_LOGS:
+    for job in _DAILY_WRAPPER_LOGS:
         err = _check_wrapper_log(job, today_iso)
         if err:
             problems.append(err)
+
+    for job, run_day in _MONTHLY_WRAPPER_LOGS.items():
+        if today.day == run_day:
+            err = _check_wrapper_log(job, today_iso)
+            if err:
+                problems.append(err)
 
     verdict_err = _check_scorer_identity_verdict(today_iso)
     if verdict_err:
