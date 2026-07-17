@@ -391,6 +391,15 @@ def test_bootstrap_non_owned_stem_skips_pipeline_uses_alias(tmp_path: Path, monk
     aliased = mod.bootstrap_multirepo(repo_root=tmp_path / "RenQuant")
     assert "kernel.sizing" in aliased
     assert any(a == "kernel.meta_label" and "backtesting" in t for a, t in alias_calls)
+    # The pipeline's own modules import non-owned stems under the PIPELINE
+    # namespace (pp_inference lazily imports renquant_pipeline.kernel.
+    # meta_label.task_meta_label_veto, which exists only in the authoritative
+    # backtesting copy). Regression: 2026-07-16, first post-F-8 daily died
+    # mid-run because only kernel.meta_label was aliased.
+    assert any(
+        a == "renquant_pipeline.kernel.meta_label" and "backtesting" in t
+        for a, t in alias_calls
+    )
 
 
 def test_bootstrap_non_owned_stem_alias_target_fails_closed(tmp_path: Path, monkeypatch) -> None:
