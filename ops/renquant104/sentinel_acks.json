@@ -46,7 +46,7 @@
   },
   "com.renquant.retrain-panel104": {
     "acked_at": "2026-07-17",
-    "reason": "KNOWN long-standing: legacy per-ticker tournament weekly retrain, effectively frozen since 2026-04 (train_104 timeout class, memory-documented); logs stopped 2026-04-26. Fix-vs-retire decision rides the G4 ladder Phase C / AC4 open question (task #74)",
-    "clears_when": "tournament retrain repaired (timeout side-config) or job retired by reviewed decision"
+    "reason": "CORRECTED diagnosis: retrain_panel.sh is a compatibility WRAPPER delegating to weekly_wf_promote (legacy tournament path retired per its header); its Sunday exit mirrors the chronic WF-gate model rejection — same root as the weekly-wf-promote ack, not an independent failure",
+    "clears_when": "a staged model passes the WF gate (same event as weekly-wf-promote)"
   }
 }
