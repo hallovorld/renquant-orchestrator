@@ -55,21 +55,43 @@ Reading:
   reversal at 1d horizon** — IC ≈ −0.022, sign-stable across universes and
   halves, |t| 2.3 (liquid) / 3.3 (full).
 
-## 3. Verdict: GO (narrow), with the economic bar named
+## 3. Verdict (REVISED, review round 1): NO-GO for implementation — hypothesis ADMITTED to a preregistered costed backtest
 
-The kill criterion ("no cross-sectional signal") is NOT met — a
-statistically real, sign-stable signal exists. G2 proceeds to Phase 1
-**restricted to the validated direction**:
+Codex review (2026-07-17) correctly reclassified this screen's output: the
+operator's early-kill criterion ("no cross-sectional signal at all") is not
+triggered, so G2 is not killed — but the surviving statistic is a
+POST-SELECTION hypothesis, not a validated signal, and cannot authorize
+implementation. The screen's raw |t|=2.3 is unadjusted for the
+multi-horizon/multi-universe search that produced it; rank-IC on a
+long-only spot venue does not imply portfolio return; and the fee bar is a
+hypothesis, not a measurement.
 
-- Universe: liquid tier only (survivorship-handled; thin pairs excluded
-  from signal evaluation).
-- Signal family: short-horizon cross-sectional reversal. The
-  medium/long-horizon momentum menu is EMPTY on this data — do not build
-  for it.
-- The decisive Phase-1 question is ECONOMIC, not statistical: a 1-day
-  rebalance reversal must clear crypto taker fees (~25bp/side) and the
-  RFC's BTC-buy-and-hold baseline gate. Phase 1 = net-of-fee backtest of
-  exactly this spec vs BTC baseline; if net edge ≤ 0, THAT is the kill
-  point (same discipline as the 104 intraday-alpha NO-GO).
+**Disposition: no model/strategy implementation, no capital, no orders.
+The single admitted hypothesis (liquid-tier 3d cross-sectional reversal
+@1d) goes to a PREREGISTERED, COSTED backtest whose design must freeze,
+BEFORE any evaluation run:**
 
-No capital, no orders, no Phase-2 work authorized by this memo.
+1. **Selection control** — the complete tested-spec family, the selection
+   rule, and a family-wise error control (block-bootstrap max-t /
+   reality-check) for the reported statistic.
+2. **Inference model** — daily-IC aggregation defined; block bootstrap or
+   HAC with predeclared block/lag; valid-date and names-per-date counts
+   reported.
+3. **Point-in-time universe** — as-of membership schedule, delisting
+   treatment (MKR is a survivorship DECISION, not a footnote), immutable
+   input manifests + content digests.
+4. **Executable long-only construction** — Alpaca spot has no shorting:
+   predeclare portfolio construction, cash/benchmark exposure, rebalance
+   rule, minimum-notional and liquidity filters, and what "reversal" means
+   long-only.
+5. **Quantified fee gate** — expected turnover, gross return, fee/slippage/
+   stale-price stress, NET return vs a matched BTC buy-and-hold baseline.
+   A daily-rebalance reversal is turnover-heavy; the ~50bp round trip is
+   the likely kill point and must be measured, not assumed.
+6. **Executable timing convention** — bar finalization time, signal
+   availability time, earliest order time, scoring interval; no
+   close-to-close double use.
+
+If the preregistered backtest fails the net-of-fee/BTC gate, THAT is the
+G2 kill point (same discipline as the 104 intraday-alpha NO-GO). The
+medium/long-horizon momentum menu remains EMPTY on this data.
