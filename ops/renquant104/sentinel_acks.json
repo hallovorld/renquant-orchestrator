@@ -41,8 +41,8 @@
   },
   "com.renquant.monthly-meta-label-retrain": {
     "acked_at": "2026-07-17",
-    "reason": "stale last-exit from the 2026-07-01 firing (spend-limit outage era); died mid Step-2 snapshot sim with no stderr; supervised diagnostic re-run scheduled before the Aug 1 firing (task #73)",
-    "clears_when": "supervised re-run or the 2026-08-01 firing"
+    "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim — its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75.",
+    "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) — task #75"
   },
   "com.renquant.retrain-panel104": {
     "acked_at": "2026-07-17",
