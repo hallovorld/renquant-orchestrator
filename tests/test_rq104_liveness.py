@@ -69,8 +69,26 @@ class TestRq104Liveness:
         assert rc == 1
         mock_alert.assert_called_once()
         alert_body = mock_alert.call_args[0][1]
-        assert "risk_budget" in alert_body
+        # risk_budget is a MONTHLY job (launchd Day=1); on a non-run day a
+        # missing wrapper log is NOT a problem (2026-07-16 false alarm).
+        assert "risk_budget" not in alert_body
         assert "scorer_identity" in alert_body
+
+    def test_monthly_wrapper_checked_only_on_run_day(self, tmp_path):
+        from rq104_liveness_check import main
+
+        # Day 1: risk_budget log missing -> alarm names it.
+        (tmp_path / "scorer_identity_2026-07-01.log").write_text(
+            "=== ok ===\nscorer_identity_check: OK\n"
+        )
+        with (
+            patch("rq104_liveness_check.is_session_day", return_value=True),
+            patch("rq104_liveness_check.LOG_DIR", str(tmp_path)),
+            patch("rq104_liveness_check.alert") as mock_alert,
+        ):
+            rc = main(["--as-of", "2026-07-01"])
+        assert rc == 1
+        assert "risk_budget" in mock_alert.call_args[0][1]
 
     def test_all_logs_present_ok(self, tmp_path):
         from rq104_liveness_check import main
@@ -113,8 +131,9 @@ class TestRq104Liveness:
     def test_empty_log_detected(self, tmp_path):
         from rq104_liveness_check import main
 
-        (tmp_path / "risk_budget_2026-07-06.log").write_text("")
-        (tmp_path / "scorer_identity_2026-07-06.log").write_text("identity OK\n")
+        # zero-byte DAILY wrapper log (risk_budget is monthly, not checked
+        # on 07-06; the zero-byte path is covered via scorer_identity)
+        (tmp_path / "scorer_identity_2026-07-06.log").write_text("")
 
         with (
             patch("rq104_liveness_check.is_session_day", return_value=True),

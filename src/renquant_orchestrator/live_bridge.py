@@ -349,6 +349,16 @@ def bootstrap_multirepo(
     for stem in non_owned_present:
         target = _NON_OWNED_ALIAS_TARGETS[stem]
         _force_alias(f"kernel.{stem}", target, aliased)
+        # The pinned pipeline's own modules import non-owned stems under the
+        # PIPELINE namespace (e.g. pp_inference lazily imports
+        # renquant_pipeline.kernel.meta_label.task_meta_label_veto). The
+        # pipeline's physical copy of a non-owned stem is explicitly never
+        # authoritative and may be a subset (its meta_label ships only
+        # triple_barrier), so without this alias a submodule import that
+        # exists only in the authoritative target raises
+        # ModuleNotFoundError mid-run (2026-07-16: first daily after the
+        # F-8 pin sync died at MetaLabelVetoTask).
+        _force_alias(f"renquant_pipeline.kernel.{stem}", target, aliased)
 
     _force_alias("kernel.preflight", "renquant_pipeline.kernel.preflight", aliased)
     _force_alias("kernel.panel_pipeline", "renquant_pipeline.kernel.panel_pipeline", aliased)

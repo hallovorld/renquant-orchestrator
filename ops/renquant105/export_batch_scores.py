@@ -60,23 +60,34 @@ from batch_scores_bundle import canonical_hash, expected_previous_session  # noq
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 DB = os.path.join(RQ, "data/runs.alpaca.db")
 OUT_DIR = os.path.join(RQ, "data", "rq105")
-# Codex review round 2 on this fix — MIN_ROWS is not just a "non-trivially-
-# empty" floor: since MIN_COVERAGE_FRACTION's denominator is the run's OWN
-# role='candidate' roster (self-referential, see below), MIN_ROWS is the ONLY
-# protection against a run whose roster itself is too small to trust, even if
-# every row in it happens to be scored. 30 was picked by eyeballing one
-# 8-session sample and was WRONG on that sample's own terms: an 85-run query
-# of the real runs.alpaca.db (2026-04-23 through 2026-07-06, same run_type=
-# 'live' + strategy-not-null predicate this module's own SELECT uses) shows
-# the legitimate low end is 29 (2026-05-17, three same-day runs: 29/30/31,
-# all 100% covered) — MIN_ROWS=30 would have REJECTED that exact real,
-# legitimate run. The same query also surfaces a genuinely anomalous
-# pre-operational cluster (2026-04-23 through 04-27: candidate counts as low
-# as 2-10) that predates this pipeline's stable operational period and must
-# stay excluded. 25 sits with real margin below the observed legitimate
-# minimum (29) and real margin above the anomalous cluster's ceiling (10) —
-# an evidence-based floor, not an arbitrary round number.
-MIN_ROWS = 25
+# 2026-07-17 (light-signal-day fix; supersedes the round-2 MIN_ROWS=25
+# absolute floor). The 2026-07-16 session produced a LEGITIMATE 5-row
+# candidate roster (only 6 tickers entered the buy scan on a light-signal
+# day; run 2026-07-16-live-a24a8be1: panel_contract.ok=True, full
+# fingerprints, 100% covered, real buys placed) and the absolute floor
+# rejected it — starving the entire rq105 class-A chain for the day. The
+# floor's original job was excluding the anomalous pre-operational
+# 2026-04-23..27 cluster (2-10 rows). That cluster is now excluded by
+# THREE independent, stronger evidence checks, each verified against the
+# real DB (all five cluster runs fail all three; the 07-16 run passes all):
+#   1. `_fingerprint_gaps` (config_hash/artifact_hashes/watchlist_hash —
+#      the cluster predates run-bundle fingerprinting entirely),
+#   2. `_health_gaps` below: run_bundle.panel_contract.ok must be True
+#      (the cluster has no panel_contract at all), the run must NOT have
+#      been buy_blocked/skip_buys (a sell-only or containment-mode run
+#      never ran the buy funnel its scores are meant to represent — this
+#      also excludes e.g. the 2026-07-16 20:55 sell-only guard run), and
+#   3. training_cutoff + model_content_sha256 must be present in the
+#      bundle (the G4 provenance chain, populated for every healthy full
+#      run from 2026-07-16 onward).
+# MIN_ROWS therefore drops to a bare non-empty sanity check. Residual gap
+# (unchanged in kind from the MIN_COVERAGE_FRACTION note below): a
+# completed, contract-clean run whose candidate PERSISTENCE was partially
+# truncated — remaining rows 100% self-consistent — is admitted; #227's
+# census owns the structural fix, and the ops-layer rq104 degradation
+# sentinel (GOAL-5 AC1) independently alarms on zero/thin-candidate
+# streaks within one session.
+MIN_ROWS = 1
 
 # Fraction of the run's OWN persisted candidate roster (role='candidate', see
 # module docstring) that must carry a non-null panel_score. NOT sourced from
@@ -186,6 +197,29 @@ def _fingerprint_gaps(run_bundle: dict) -> list[str]:
     return gaps
 
 
+def _health_gaps(run_bundle: dict) -> list[str]:
+    """Independent evidence the source run was a healthy FULL daily.
+
+    Replaces the retired absolute row floor (see MIN_ROWS note): a class-A
+    frozen vector must come from a run that (a) loaded a contract-clean
+    panel artifact, (b) actually executed the buy funnel (not a sell-only /
+    buy-blocked containment run), and (c) carries the modern training
+    provenance chain. Each check fails closed on absent evidence.
+    """
+    gaps = []
+    contract = run_bundle.get("panel_contract") or {}
+    if contract.get("ok") is not True:
+        gaps.append("panel_contract.ok")
+    flags = run_bundle.get("pipeline_flags") or {}
+    if flags.get("buy_blocked") is not False or flags.get("skip_buys") is not False:
+        gaps.append("full_buy_run(pipeline_flags)")
+    if not run_bundle.get("training_cutoff"):
+        gaps.append("training_cutoff")
+    if not run_bundle.get("model_content_sha256"):
+        gaps.append("model_content_sha256")
+    return gaps
+
+
 def main(
     *,
     db_path: str | None = None,
@@ -215,6 +249,17 @@ def main(
         )
         return 1
     run_id, run_date, run_bundle = selected
+
+    health = _health_gaps(run_bundle)
+    if health:
+        print(
+            f"run {run_id} fails class-A health evidence: "
+            f"{', '.join(health)} — a frozen vector must come from a "
+            "contract-clean, full-buy-funnel run with training provenance; "
+            "refusing to export",
+            file=sys.stderr,
+        )
+        return 1
 
     gaps = _fingerprint_gaps(run_bundle)
     if gaps:

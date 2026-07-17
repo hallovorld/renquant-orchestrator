@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- TEMPLATE (GOAL-5 AC1) - installation is an operator-gated landing action.
+     Runs after the daily (13:55 PT) and the liveness check (18:00 PT would
+     also work); 15:00 PT catches a degraded daily the same afternoon. -->
+<dict>
+    <key>Label</key>
+    <string>com.renquant.rq104-degradation-sentinel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_degradation_sentinel.py</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>15</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_degradation_sentinel.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_degradation_sentinel.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RQ_ROOT</key>
+        <string>/Users/renhao/git/github/RenQuant</string>
+        <key>RQ_ORCH_ROOT</key>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/src:/Users/renhao/git/github/renquant-orchestrator-run/ops</string>
+    </dict>
+</dict>
+</plist>
