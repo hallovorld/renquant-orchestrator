@@ -38,5 +38,15 @@
     "acked_at": "2026-07-17",
     "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row",
     "clears_when": "any firing with zero alarms"
+  },
+  "com.renquant.monthly-meta-label-retrain": {
+    "acked_at": "2026-07-17",
+    "reason": "stale last-exit from the 2026-07-01 firing (spend-limit outage era); died mid Step-2 snapshot sim with no stderr; supervised diagnostic re-run scheduled before the Aug 1 firing (task #73)",
+    "clears_when": "supervised re-run or the 2026-08-01 firing"
+  },
+  "com.renquant.retrain-panel104": {
+    "acked_at": "2026-07-17",
+    "reason": "KNOWN long-standing: legacy per-ticker tournament weekly retrain, effectively frozen since 2026-04 (train_104 timeout class, memory-documented); logs stopped 2026-04-26. Fix-vs-retire decision rides the G4 ladder Phase C / AC4 open question (task #74)",
+    "clears_when": "tournament retrain repaired (timeout side-config) or job retired by reviewed decision"
   }
 }
