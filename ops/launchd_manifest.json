@@ -1,0 +1,235 @@
+{
+  "_comment": "Reviewed-good launchd surface (GOAL-5 AC2). Every com.renquant.* job's ProgramArguments is pinned here; the drift scan alarms on any divergence. Intentional changes update this file in the same reviewed PR.",
+  "jobs": {
+    "com.renquant.agent-pr-loop": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/agent_pr_loop.sh"
+      ],
+      "program_args_sha256": "7028ac2a7124296bcad4fb5038eea45f950162aa7c5e1f906752da8701e46bf9"
+    },
+    "com.renquant.backup": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/RenQuant/scripts/backup_to_github.sh"
+      ],
+      "program_args_sha256": "36dc7754cb95d101609fcf33131889c7d5ab310bf9e307b078b487bb129a8281"
+    },
+    "com.renquant.conditional-retrain104": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/conditional_retrain_104.sh"
+      ],
+      "program_args_sha256": "9bbafda64b9daa435779cec0d5683b13e75eb2cfd7422617c3028e0efa666c3c"
+    },
+    "com.renquant.crypto-session": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator/scripts/crypto_session_runner.py",
+        "--once"
+      ],
+      "program_args_sha256": "24c408a9161fcdcf407f483f71f6b4201341a47caaf97dd425e674dd16638da9"
+    },
+    "com.renquant.daily-iv-snapshot": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/daily_iv_snapshot.sh"
+      ],
+      "program_args_sha256": "fbadf604a7f3ec5a73b2b88a0b88332168260ff1d2b8515eb72276e2dd2bccec"
+    },
+    "com.renquant.daily-news-sentiment": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/daily_news_sentiment_refresh.sh"
+      ],
+      "program_args_sha256": "f2a46194c971f1747508ec337100b01a77165a832cc2adc0a3b90b7466611697"
+    },
+    "com.renquant.daily103": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/daily_103.sh"
+      ],
+      "program_args_sha256": "f5360dce2bb5898626277c2be607bece2ca8c72229a4a882c4c3fb9a345ab45a"
+    },
+    "com.renquant.daily104": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/daily_104.sh"
+      ],
+      "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129"
+    },
+    "com.renquant.intraday104": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/intraday_sell_104.sh"
+      ],
+      "program_args_sha256": "955f3d81957073893d7bddfc387bea34002bc30243b951ad87d7566e27a3daa9"
+    },
+    "com.renquant.monthly-calibrator-refresh": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/monthly_calibrator_refresh.sh"
+      ],
+      "program_args_sha256": "02bc58e2316c5a6dafe93190eef1d2dea8466f2172c412457120e612fc5c7e90"
+    },
+    "com.renquant.monthly-meta-label-retrain": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/monthly_meta_label_retrain.sh"
+      ],
+      "program_args_sha256": "22a783fb2edc93c53dea9927bf0b712de107a4270c1f7296bf2785e9347a67b1"
+    },
+    "com.renquant.open103": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/live_only_103.sh",
+        "--sell-only"
+      ],
+      "program_args_sha256": "c45724b19681514b51e33fe709e112afb1440ceec5fc680c83942d3af68eab94"
+    },
+    "com.renquant.pit-c1-features": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/pit/run_c1_feature_builder.sh"
+      ],
+      "program_args_sha256": "7dfcf7b995cd3d088ad6008df71a0ddc69236b1310311577f3576f49318b1105"
+    },
+    "com.renquant.pit-estimate-snapshot": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/pit/run_estimate_snapshotter.sh"
+      ],
+      "program_args_sha256": "986d39360594a0f64d06da8e03cec71541798ef8f8dfd5db29f78d09911a8b1d"
+    },
+    "com.renquant.pit-liveness": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/pit/pit_liveness_check.py"
+      ],
+      "program_args_sha256": "e448904ba55c73959d42de59a31e7530dcb027e778cc5ae685754018a21ddaa3"
+    },
+    "com.renquant.preclose103": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/live_only_103.sh",
+        "--sell-only"
+      ],
+      "program_args_sha256": "c45724b19681514b51e33fe709e112afb1440ceec5fc680c83942d3af68eab94"
+    },
+    "com.renquant.preopen-cancel-gate": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/preopen_cancel_gate.sh"
+      ],
+      "program_args_sha256": "e96f620e5c1876f310be664b32b431247602447f7850693c2d6eac5e0e2f09e5"
+    },
+    "com.renquant.retrain-alpha158-linear": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/retrain_alpha158_linear.sh"
+      ],
+      "program_args_sha256": "89a8f72d12e9a1965aceb6a7a4fbda9ea4e26e87bdce190d2c4f819e1ee4486c"
+    },
+    "com.renquant.retrain-panel104": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/retrain_panel.sh"
+      ],
+      "program_args_sha256": "a249490bf217ebc2f9e36132605a2ede80bdfa07a654df9b095f0c1200a4bd55"
+    },
+    "com.renquant.rq104-liveness": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_liveness_check.py"
+      ],
+      "program_args_sha256": "9bdd0570fdde020796b9befaca39001b2a65514cfc0207adbc288af5612f4231"
+    },
+    "com.renquant.rq104-risk-budget": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_risk_budget_statement.sh"
+      ],
+      "program_args_sha256": "140c1b6d341fd74af65446458de6844dc2f0ecb8776ae8c2d04cd3424f89dbda"
+    },
+    "com.renquant.rq104-scorer-identity": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_scorer_identity_monitor.sh"
+      ],
+      "program_args_sha256": "35802d01b668c1668544e10beb4c20514d133ce8f5518c95c878be8914621fb6"
+    },
+    "com.renquant.rq105-batch-scores-export": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/export_batch_scores.py"
+      ],
+      "program_args_sha256": "c1a915fdfa0d21163aa1b41b40855e575026111a7e61134f338480aa7147aa42"
+    },
+    "com.renquant.rq105-liveness": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/rq105_liveness_check.py"
+      ],
+      "program_args_sha256": "1e8f5902194d918535c0da30ff193b9d76981845cb42c5c668c0a86b2ab8045c"
+    },
+    "com.renquant.rq105-postclose": {
+      "program_args": [
+        "/bin/zsh",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_postclose_loggers.sh"
+      ],
+      "program_args_sha256": "115f3b097e7ea697e08ab61bd8a09d0d46ce1f592063131e661b6eb06390aea0"
+    },
+    "com.renquant.rq105-quote-logger": {
+      "program_args": [
+        "/bin/zsh",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_quote_logger.sh"
+      ],
+      "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8"
+    },
+    "com.renquant.rq105-session-scheduler": {
+      "program_args": [
+        "/bin/zsh",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_session_scheduler.sh"
+      ],
+      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42"
+    },
+    "com.renquant.rq105-shadow-serving": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_shadow_serving.sh"
+      ],
+      "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c"
+    },
+    "com.renquant.screen-watchlist": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/RenQuant/scripts/screen_watchlist.py"
+      ],
+      "program_args_sha256": "3ce4d4f685670de1939fa93fea67c1842bcb43a21806c4897cf074b1c6da0e91"
+    },
+    "com.renquant.shadow-ab-daily": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-orchestrator/scripts/shadow_ab_daily.sh"
+      ],
+      "program_args_sha256": "204569ab913b37bf95d2a3e8870ad96a79f424ae6247b7888f8c9cb042165142"
+    },
+    "com.renquant.weekly-apy104": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/RenQuant/scripts/weekly_apy_check.py"
+      ],
+      "program_args_sha256": "ac6aad44b3daf152132d1162dba8fcac49a7de0989be6caf22322e330fa3b276"
+    },
+    "com.renquant.weekly-fundamental-refresh": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/weekly_fundamental_refresh.sh"
+      ],
+      "program_args_sha256": "2917c2a85f5204c2186a124f73da6ae5000df97b557ec0faf8023feba86f0a87"
+    },
+    "com.renquant.weekly-retrain-patchtst": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/weekly_retrain_patchtst.sh"
+      ],
+      "program_args_sha256": "72bac8ae4a103676600feac0ce50ddf0da4d31fba662b69be526cd49ca444e99"
+    },
+    "com.renquant.weekly-tournament-retrain": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/weekly_tournament_retrain.sh"
+      ],
+      "program_args_sha256": "5e361e7c7d608534fc3fb6344c0df00f807cad717205611f1dee2dd6a04174bd"
+    },
+    "com.renquant.weekly-wf-promote": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/weekly_wf_promote.sh"
+      ],
+      "program_args_sha256": "bcf6e51697a640a6481e7cb650484a5146c109ade0d0506fd969cc096782d67d"
+    }
+  }
+}
