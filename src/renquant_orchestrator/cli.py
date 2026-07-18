@@ -562,6 +562,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="pass-through args to shadow_ab_runner.main",
     )
 
+    shadow_ab_epoch = sub.add_parser(
+        "shadow-ab-epoch-report",
+        help=(
+            "derive the two-arm harness per-epoch/per-role n_paired_sessions "
+            "counters (v5 prereg §4.7 rule 4); read-only audit surface"
+        ),
+    )
+    shadow_ab_epoch.add_argument(
+        "shadow_ab_epoch_args", nargs=argparse.REMAINDER,
+        help="pass-through args to shadow_ab_epoch_telemetry.main",
+    )
+
     deploy_pin = sub.add_parser(
         "deploy-pin",
         help=(
@@ -846,7 +858,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args, unknown = parser.parse_known_args(raw_argv)
     _remainder_commands = {
         "live-bridge", "daily-bridge", "edgar-harvest", "parking-sleeve",
-        "transfer-coefficient", "shadow-ab", "readiness-monitor", "entry-timing",
+        "transfer-coefficient", "shadow-ab", "shadow-ab-epoch-report",
+        "readiness-monitor", "entry-timing",
         "train-gbdt", "patchtst-cutoff", "risk-budget-report",
         "conviction-replay", "m6-restamp", "deploy-pin", "outage-monitor",
         "identity-tripwire",
@@ -1443,6 +1456,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         shadow_ab_argv = unknown + (args.shadow_ab_args or [])
         return shadow_ab_main(shadow_ab_argv or None)
+    if args.command == "shadow-ab-epoch-report":
+        from .shadow_ab_epoch_telemetry import main as shadow_ab_epoch_main
+
+        shadow_ab_epoch_argv = unknown + (args.shadow_ab_epoch_args or [])
+        return shadow_ab_epoch_main(shadow_ab_epoch_argv or None)
     if args.command == "deploy-pin":
         from .deploy_pin import main as deploy_pin_main
 
