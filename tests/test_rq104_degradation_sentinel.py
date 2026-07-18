@@ -53,6 +53,9 @@ def _run(tmp_path, db_rows, *, daily_log: str | None = None, launchctl: str = ""
     with (
         patch.object(sentinel, "is_session_day", return_value=True),
         patch.object(sentinel, "DAILY_LOG_DIR", str(log_dir)),
+        # isolate from the real reviewed ack ledger: tests control acks via
+        # an explicit tmp file (see TestAckLedger)
+        patch.object(sentinel, "ACK_LEDGER", str(tmp_path / "acks.json")),
         patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
         patch.object(
             sentinel.subprocess, "run",
@@ -222,3 +225,44 @@ class TestGating:
         ):
             days = sentinel.last_session_days(dt.date(2026, 7, 13), 2)  # Monday
         assert days == [dt.date(2026, 7, 13), dt.date(2026, 7, 10)]  # Mon, Fri
+
+
+class TestTopUpAwareness:
+    def test_day_with_topup_buys_not_flagged(self, tmp_path):
+        """2026-07-17 first-firing false alarm: a day whose pipeline_runs rows
+        show 0 candidates / 0 buys but whose trades table records emitted
+        top-up buy orders is buy-active, not silently fail-closed."""
+        import sqlite3
+        from rq104_degradation_sentinel import day_run_state
+        db = sqlite3.connect(":memory:")
+        db.execute("CREATE TABLE pipeline_runs (run_id TEXT, run_type TEXT, run_date TEXT, n_candidates INT, n_buys INT, buy_blocked INT, created_at TEXT)")
+        db.execute("INSERT INTO pipeline_runs VALUES ('r1','live','2026-07-16',0,0,0,'2026-07-16 21:00:00')")
+        db.execute("CREATE TABLE trades (run_id TEXT, action TEXT)")
+        db.execute("INSERT INTO trades VALUES ('r1','buy_pending')")
+        db.execute("INSERT INTO trades VALUES ('r1','buy_pending')")
+        import datetime as dt
+        state = day_run_state(db, dt.date(2026, 7, 16))
+        assert state["max_buys"] == 2  # trades ground truth wins
+
+
+class TestAckLedger:
+    def test_acked_job_moves_to_info(self, tmp_path):
+        import json
+        (tmp_path / "acks.json").write_text(json.dumps({
+            "com.renquant.weekly-wf-promote": {
+                "acked_at": "2026-07-17", "reason": "known chronic",
+                "clears_when": "gate pass"}}))
+        text = "-\t1\tcom.renquant.weekly-wf-promote\n"
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, launchctl=text)
+        assert rc == 0
+        assert not alerts
+
+    def test_unacked_job_still_alarms(self, tmp_path):
+        import json
+        (tmp_path / "acks.json").write_text(json.dumps({
+            "com.renquant.other-job": {"acked_at": "x", "reason": "y",
+                                       "clears_when": "z"}}))
+        text = "-\t1\tcom.renquant.weekly-wf-promote\n"
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, launchctl=text)
+        assert rc == 1
+        assert any("weekly-wf-promote" in b for _, b in alerts)

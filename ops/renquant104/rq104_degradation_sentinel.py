@@ -28,6 +28,7 @@ lesson from the 105 liveness stale-tick alarms).
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 import sqlite3
@@ -90,10 +91,28 @@ def day_run_state(conn: sqlite3.Connection, day: dt.date) -> dict | None:
     n_rows, max_cand, max_buys, last_blocked = row
     if not n_rows:
         return None
+    # pipeline_runs alone under-reports purchases: n_candidates is zeroed
+    # after VetoWeakBuys clears the scan set, and n_buys excludes TOP-UP
+    # orders (2026-07-17 first-firing false alarm: 07-16 placed 3 top-up
+    # buys with n_buys=0). The trades table records every emitted buy
+    # (NEW_BUY / buy_pending / top-ups), so count it as the buy-activity
+    # ground truth for the day.
+    try:
+        trade_buys = conn.execute(
+            "SELECT COUNT(*) FROM trades t JOIN pipeline_runs pr "
+            "ON t.run_id = pr.run_id WHERE pr.run_type='live' "
+            "AND pr.run_date=? AND t.action LIKE '%buy%'",
+            (day.isoformat(),),
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        # trades table absent (minimal fixture DBs / legacy stores): fall
+        # back to pipeline_runs-only accounting rather than crashing the
+        # sentinel — a monitoring tool must degrade, never abort.
+        trade_buys = 0
     return {
         "n_rows": n_rows,
         "max_candidates": max_cand or 0,
-        "max_buys": max_buys or 0,
+        "max_buys": max(max_buys or 0, trade_buys),
         "last_buy_blocked": bool(last_blocked),
     }
 
@@ -176,17 +195,59 @@ def parse_launchctl_failures(launchctl_text: str, prefix: str = "com.renquant.")
     return failures
 
 
-def check_launchd_exits() -> str | None:
+ACK_LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "sentinel_acks.json")
+
+
+def load_acks(path: str | None = None) -> dict:
+    """Reviewed acknowledgment ledger for KNOWN nonzero last-exits.
+
+    launchctl retains a job's last exit code until its NEXT run, so a fixed
+    failure keeps re-alarming for days-to-weeks on low-frequency jobs
+    (monthly/weekly/anomaly-triggered). An entry here moves that job's row
+    from ALARM to INFO with its disposition; the ledger is a git-tracked,
+    review-gated file (same governance as the launchd manifest), and every
+    entry carries clears_when so staleness is auditable. An acked job that
+    later fails AGAIN still stays INFO until the ack is removed — acks must
+    therefore name the specific expected clear event and be pruned at the
+    next review touch; the drift scan's job-level checks and the other
+    sentinel probes remain independent alarm paths.
+    """
+    if path is None:
+        path = ACK_LEDGER  # resolved at call time (test-patchable)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def check_launchd_exits() -> tuple[str | None, list[str]]:
     try:
         out = subprocess.run(
             ["launchctl", "list"], capture_output=True, text=True, timeout=30,
         ).stdout
     except Exception as exc:  # noqa: BLE001
-        return f"launchctl list failed ({exc}) — cannot verify job exit statuses"
+        return (f"launchctl list failed ({exc}) — cannot verify job exit statuses", [])
     failures = parse_launchctl_failures(out)
-    if failures:
-        return "launchd job(s) with nonzero last exit: " + ", ".join(sorted(failures))
-    return None
+    if not failures:
+        return (None, [])
+    acks = load_acks()
+    infos: list[str] = []
+    loud: list[str] = []
+    for job in sorted(failures):
+        name = job.split(" ")[0]
+        ack = acks.get(name)
+        if ack:
+            infos.append(
+                f"acked nonzero exit: {job} — {ack.get('reason', '?')} "
+                f"(clears: {ack.get('clears_when', '?')})"
+            )
+        else:
+            loud.append(job)
+    alarm = ("launchd job(s) with nonzero last exit: " + ", ".join(loud)) if loud else None
+    return (alarm, infos)
 
 
 # ---------------------------------------------------------------------------
@@ -231,9 +292,11 @@ def main(argv: list[str] | None = None) -> int:
     if err:
         problems.append(err)
 
-    err = check_launchd_exits()
+    err, ack_infos = check_launchd_exits()
     if err:
         problems.append(err)
+    for line in ack_infos:
+        print(f"INFO: {line}")
 
     if problems:
         alert(
