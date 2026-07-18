@@ -29,6 +29,24 @@
 #   RENQUANT_SHADOW_AB_NTFY_TOPIC    dedicated shadow topic (never the live one)
 #   RENQUANT_SHADOW_AB_SESSION_DATE  ISO session date (default: today)
 #   RENQUANT_SHADOW_AB_TIMEOUT_SEC   whole-session budget (default 3600)
+#   RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST
+#                                    COMMITTED pilot-registration manifest for
+#                                    the §4.7 rule 4 per-epoch/per-role
+#                                    telemetry; unset -> every session reports
+#                                    as burned (safe default)
+#   RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST
+#                                    COMMITTED activation manifest (requires
+#                                    the registration manifest)
+#   RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST_SHA256
+#                                    expected SHA-256 of the registration
+#                                    manifest's raw bytes (immutable binding
+#                                    pin — a later edit at the same path must
+#                                    not change role assignment); requires
+#                                    the registration manifest env
+#   RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST_SHA256
+#                                    expected SHA-256 of the activation
+#                                    manifest's raw bytes; requires the
+#                                    activation manifest env
 #
 # SAFE BY CONSTRUCTION: the shadow-ab runner is readonly (readonly account
 # snapshot fetch; native chain builds a readonly execution payload; per-arm
@@ -310,6 +328,26 @@ SHADOW_AB_ARGS=(
     --ohlcv-dir "$DATA_ROOT"
     --ntfy-topic "$NTFY_TOPIC"
 )
+# §4.7 rule 4 telemetry manifests: optional, committed files only. Unset ->
+# the runner's epoch/role report applies the safe default (all burned).
+if [ -n "${RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST:-}" ]; then
+    [ -f "$RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST" ] || setup_fail "registration manifest missing: $RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST"
+    SHADOW_AB_ARGS+=(--registration-manifest "$RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST")
+fi
+if [ -n "${RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST:-}" ]; then
+    [ -f "$RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST" ] || setup_fail "activation manifest missing: $RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST"
+    SHADOW_AB_ARGS+=(--activation-manifest "$RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST")
+fi
+# Immutable-binding sha256 pins: a pin without its manifest is a config
+# error (fail closed at setup, mirroring the runner/telemetry contract).
+if [ -n "${RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST_SHA256:-}" ]; then
+    [ -n "${RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST:-}" ] || setup_fail "registration manifest sha256 pin set without RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST"
+    SHADOW_AB_ARGS+=(--registration-manifest-sha256 "$RENQUANT_SHADOW_AB_REGISTRATION_MANIFEST_SHA256")
+fi
+if [ -n "${RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST_SHA256:-}" ]; then
+    [ -n "${RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST:-}" ] || setup_fail "activation manifest sha256 pin set without RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST"
+    SHADOW_AB_ARGS+=(--activation-manifest-sha256 "$RENQUANT_SHADOW_AB_ACTIVATION_MANIFEST_SHA256")
+fi
 SESSION_OUT="$OUTPUT_ROOT/session_${SESSION_DATE}.json"
 SESSION_ERR="$OUTPUT_ROOT/session_${SESSION_DATE}_stderr.log"
 EXIT_PAIR_INVALIDATED=4

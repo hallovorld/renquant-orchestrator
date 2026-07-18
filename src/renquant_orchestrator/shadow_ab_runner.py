@@ -1233,6 +1233,10 @@ def run_shadow_ab_session(
     orchestrator_commit_resolver: Callable[[], str] | None = None,
     notifier: Notifier | None = None,
     base_env: Mapping[str, str] | None = None,
+    registration_manifest: str | Path | None = None,
+    activation_manifest: str | Path | None = None,
+    registration_manifest_sha256: str | None = None,
+    activation_manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Run (or plan) one paired two-arm shadow session; returns the payload.
 
@@ -1319,6 +1323,55 @@ def run_shadow_ab_session(
             )
             _write_json_atomic(bundle_path, bundle)
             bundle["bundle_path"] = str(bundle_path)
+            # §4.7 rule 4 (v5 prereg RenQuant#494): derive the per-epoch /
+            # per-role (pilot/terminal/burned) n_paired_sessions report AFTER
+            # this session's record is on disk so THIS session is included,
+            # and expose it on the existing reporting surface (the returned
+            # payload printed into session_<date>.json + a sidecar next to
+            # the counters file). Role boundaries come ONLY from committed
+            # registration/activation manifests; with none supplied every
+            # session is burned (safe default). The derivation is telemetry —
+            # it must never change the session verdict, so any failure is
+            # recorded instead of raised (same stance as the notifier); the
+            # import sits INSIDE the try so even a broken deploy of the
+            # telemetry module cannot kill the session. The recorded error
+            # payload stamps telemetry_status "unavailable": the activation
+            # validator requires "complete", so a failed derivation leaves
+            # every session burned and activation ineligible — fail closed
+            # at the EVIDENCE boundary, never at the session boundary.
+            sidecar_name = "shadow_ab_epoch_role_counters.json"
+            try:
+                from .shadow_ab_epoch_telemetry import (  # noqa: PLC0415
+                    EPOCH_ROLE_COUNTERS_FILENAME,
+                    derive_epoch_role_counters,
+                )
+                sidecar_name = EPOCH_ROLE_COUNTERS_FILENAME
+                epoch_report = derive_epoch_role_counters(
+                    output_root,
+                    registration_manifest=registration_manifest,
+                    activation_manifest=activation_manifest,
+                    registration_manifest_sha256=registration_manifest_sha256,
+                    activation_manifest_sha256=activation_manifest_sha256,
+                )
+            except Exception as exc:  # noqa: BLE001 - telemetry is never load-bearing
+                epoch_report = {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "telemetry_status": "unavailable",
+                    "safe_default_applied": True,
+                    "note": (
+                        "epoch/role derivation failed; treat every session "
+                        "as burned until a clean report is produced (no "
+                        "partial/error report may support the >=40 pilot "
+                        "condition)"
+                    ),
+                }
+            bundle["epoch_role_counters"] = epoch_report
+            try:
+                _write_json_atomic(
+                    output_root / sidecar_name, epoch_report,
+                )
+            except OSError:
+                pass  # sidecar write is best-effort; the payload carries it
             for label, arm in (("a", arm_a), ("b", arm_b)):
                 notify(
                     f"[SHADOW-AB {label}:{arm.tag}] {session_date} {status}",
@@ -1819,6 +1872,37 @@ def main(argv: list[str] | None = None) -> int:
         "--plan-only", action="store_true",
         help="resolve fingerprints + prechecks and print the symmetric plan without invoking anything",
     )
+    parser.add_argument(
+        "--registration-manifest", default=None,
+        help=(
+            "COMMITTED pilot-registration manifest json for the §4.7 rule 4 "
+            "per-epoch/per-role telemetry; omitted -> every session reports "
+            "as burned (safe default)"
+        ),
+    )
+    parser.add_argument(
+        "--activation-manifest", default=None,
+        help=(
+            "COMMITTED activation manifest json for the §4.7 rule 4 "
+            "telemetry; requires --registration-manifest"
+        ),
+    )
+    parser.add_argument(
+        "--registration-manifest-sha256", default=None,
+        help=(
+            "expected SHA-256 of the registration manifest's raw bytes "
+            "(immutable binding pin for the §4.7 telemetry); mismatch is "
+            "recorded as telemetry_status=unavailable (all burned)"
+        ),
+    )
+    parser.add_argument(
+        "--activation-manifest-sha256", default=None,
+        help=(
+            "expected SHA-256 of the activation manifest's raw bytes "
+            "(immutable binding pin for the §4.7 telemetry); mismatch is "
+            "recorded as telemetry_status=unavailable (all burned)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -1839,6 +1923,10 @@ def main(argv: list[str] | None = None) -> int:
             snapshot_broker_name=args.snapshot_broker_name,
             ntfy_topic=args.ntfy_topic,
             plan_only=args.plan_only,
+            registration_manifest=args.registration_manifest,
+            activation_manifest=args.activation_manifest,
+            registration_manifest_sha256=args.registration_manifest_sha256,
+            activation_manifest_sha256=args.activation_manifest_sha256,
         )
     except (ValueError, ShadowABContractError) as exc:
         parser.error(str(exc))
