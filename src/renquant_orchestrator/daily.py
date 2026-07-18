@@ -18,6 +18,7 @@ from renquant_pipeline import InferenceContext, RuntimeInferencePipeline, valida
 from pydantic import ValidationError
 
 from renquant_orchestrator.config_schema import validate_strategy_config
+from renquant_orchestrator.serving_bundle_provenance import serving_bundle_provenance
 
 
 DatasetLoader = Callable[[dict[str, Any]], Any]
@@ -43,6 +44,13 @@ class DailyRunContext:
     account_snapshot: dict[str, Any] = field(default_factory=dict)
     price_map: dict[str, float] = field(default_factory=dict)
     dry_run: bool = True
+    # GOAL-5 AC4 phase 3 (RFC RenQuant#492 §2.2): the resolved transactional
+    # serving-pair bundle for this run (a renquant-artifacts
+    # ResolvedBundle-shaped object), or None while the production bundle
+    # store is NOT deployed (migration is census-gated, RFC §3). None makes
+    # the persisted run bundle carry the explicit
+    # {"bundle_store": "not_deployed"} marker — daily behavior unchanged.
+    resolved_serving_bundle: Any | None = None
 
     training_context: TrainingContext | None = None
     inference_context: InferenceContext | None = None
@@ -235,6 +243,11 @@ class PersistDailyRunBundleTask(Task):
             "strategy_config_hash": hash_jsonable(ctx.strategy_config),
             "data_manifest": ctx.data_manifest,
             "artifact_manifest": ctx.training_context.artifact_manifest,
+            # RFC RenQuant#492 §2.2 run-bundle binding: the four bundle
+            # identity fields once a registered serving-pair bundle is
+            # resolved, or the explicit not-deployed marker until the
+            # census-gated migration (§3) deploys the store.
+            "serving_bundle": serving_bundle_provenance(ctx.resolved_serving_bundle),
             "market_snapshot": ctx.market_snapshot,
             "account_snapshot": ctx.account_snapshot,
             "decision_trace": list(ctx.inference_context.decision_trace),

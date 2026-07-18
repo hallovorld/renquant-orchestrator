@@ -1,0 +1,250 @@
+{
+  "schema": "g2-backtest-results-v1",
+  "generated_at_utc": "2026-07-18T03:09:13.593300+00:00",
+  "prereg": "doc/research/2026-07-17-g2-reversal-backtest-prereg.md",
+  "seed": 20260718,
+  "n_boot": 10000,
+  "alpha_one_sided": 0.1,
+  "input_digests": {
+    "store_manifest_fingerprint": "sha256:0068eb93359ff3a7bc6e46e6be948d5b58ba6803940e4b5e80d0f4318d0c1cc1",
+    "membership_schedule_sha256": "4481da45a6792f026765afe6d3832cb4b795f6b12da5fd6aa65b1bcde9dbdb86",
+    "prereg_sha256": "fe5bd3866c93523685c5faa55516c471e7f8ae0f50b0b620517c52045b15f63b",
+    "store_path": "/Users/renhao/git/github/data/crypto_ohlcv"
+  },
+  "execution_proxy_declaration": "Daily-bar proxy: signal at UTC close(T); fills at open(T+1); scoring open(T+1)->open(T+2); zero-latency zero-spread fills \u2014 the base case is the MOST-optimistic accounting (prereg \u00a75/\u00a76). Not an attainable-fill claim; the paper-shadow protocol supplies real fills.",
+  "construction": {
+    "h1_member": "reversal_3to1_liquid10",
+    "k_picks": 3,
+    "liquid_tier_size": 10,
+    "volume_median_window_days": 30,
+    "min_notional_usd": 10.0,
+    "initial_notional_usd": 10700.0,
+    "residue_asset": "BTC/USD",
+    "fee_per_side_base": 0.0025,
+    "window": [
+      "2021-01-01",
+      "2026-07-16"
+    ]
+  },
+  "accounting_declarations": [
+    "Universe at T = non-stablecoin pairs listed on T-1 per the frozen schedule; bars outside listed intervals are masked entirely (no price, no volume).",
+    "Liquid tier = top-10 by trailing 30-day median daily dollar volume (close*volume) over unmasked bars in T-30..T-1; in-interval zero-volume bars count as $0 observations; ties broken by (higher median, symbol).",
+    "'full' tier = ALL non-stablecoin pairs listed on T-1 (the \u00a74 template with the top-10 liquidity cut removed); the prereg's 'full-20' label names the #532 screen's store; under the sealed point-in-time schedule the full tier is the schedule-listed set.",
+    "Signal requires unmasked close(T) and close(T-L) and volume(T)>0 (zero-volume day = unrankable that day).",
+    "Buys require an unmasked bar with volume>0 at the execution day; an unexecutable pick's allocation joins the BTC residue (un-investable residue rule). Held pairs untradeable at a rebalance are frozen (held, marked at last available price) until tradeable.",
+    "Delisted holdings force-exit at the last available unmasked close, fee-charged, proceeds redeployed at the same open.",
+    "In-interval data-gap days: held positions are marked at the last available close; no trading in the gapped pair that day.",
+    "Fees are charged on every traded leg's notional (buys, sells, BTC residue legs, baseline entry, forced exits) at fee_per_side + stress; rebalance targets are scaled by a fixed-point factor so invested value = pre-trade value minus fees (exact, no negative cash).",
+    "Daily net return r(t) = M(t+1)/M(t) - 1 where M(t) is the sleeve marked at open(t) after forced exits; day-t rebalance fees reduce M(t+1) via post-fee quantities. No terminal liquidation is charged.",
+    "Horizon-h family members rebalance every h days (form at close(T), hold open(T+1)->open(T+1+h)); daily open-to-open marks give daily d_t.",
+    "Activation: a member's first form day is the first T with >= 3 rankable names in its tier; if fewer than 3 names rank on a later form day the portfolio holds the rankable bottom-m (each at 1/3 weight, remainder in BTC residue) \u2014 occurrence counts reported.",
+    "Baseline: BTC bought at open(first H1 execution day) at identical notional; entry leg charged at the same per-side rate; never trades again. Each fee scenario's d_t uses the same-scenario baseline.",
+    "Family max-t: base-fee net d_t on the members' common valid-day grid; joint MBB (shared block indices) with block length = max of per-member Politis-White lengths; studentized centered max-t (reality-check); family-adjusted p for H1 reported. DIAGNOSTIC only.",
+    "Block length: Politis-White (2004) automatic selection with the Patton-Politis-White (2009) correction, circular/MBB variant, fitted on base-fee d_t and reused across stress scenarios (paired seeds)."
+  ],
+  "h1": {
+    "member": "reversal_3to1_liquid10",
+    "first_execution_day": "2021-11-26",
+    "n_valid_days": 1693,
+    "names_per_day": {
+      "mean": 2.972238629651506,
+      "min": 1.0,
+      "max": 3.0,
+      "share_days_full_3": 0.9763733018310691
+    },
+    "turnover_oneway_daily": {
+      "mean": 0.41571950888843207,
+      "median": 0.33970650091209886
+    },
+    "edge_counters": {
+      "forced_exits": 2,
+      "unexecutable_buys": 47,
+      "frozen_sells": 49,
+      "min_notional_clips": 0,
+      "form_days_lt3_rankable": 0,
+      "form_days_zero_rankable": 0
+    },
+    "inference_per_scenario": {
+      "gross": {
+        "mean": -0.00016830492771581937,
+        "sd": 0.024215792602349538,
+        "t_stat": -0.2859740475863869,
+        "n": 1693,
+        "block_length": 2,
+        "lb_percentile": -0.000912677693708689,
+        "lb_gt_zero": false
+      },
+      "base": {
+        "mean": -0.0022455589005001544,
+        "sd": 0.02419040625722879,
+        "t_stat": -3.819528615115106,
+        "n": 1693,
+        "block_length": 2,
+        "lb_percentile": -0.0029857023136539303,
+        "lb_gt_zero": false
+      },
+      "plus10bp": {
+        "mean": -0.0030652551566493907,
+        "sd": 0.02418291579689285,
+        "t_stat": -5.215385882481492,
+        "n": 1693,
+        "block_length": 2,
+        "lb_percentile": -0.003803717228008996,
+        "lb_gt_zero": false
+      },
+      "plus25bp": {
+        "mean": -0.003536660919848342,
+        "sd": 0.022440836428621234,
+        "t_stat": -6.484595078652025,
+        "n": 1693,
+        "block_length": 2,
+        "lb_percentile": -0.0042273673018329095,
+        "lb_gt_zero": false
+      }
+    }
+  },
+  "family_max_t_diagnostic": {
+    "n_members": 20,
+    "scenario": "base",
+    "common_grid": [
+      "2022-02-21",
+      "2026-07-15"
+    ],
+    "n_common_days": 1606,
+    "block_length": 5,
+    "members": [
+      {
+        "name": "reversal_3to1_liquid10",
+        "mean_d": -0.002207870006852408,
+        "t_stat": -3.5887399159852036,
+        "turnover_oneway_daily_mean": 0.41571950888843207
+      },
+      {
+        "name": "reversal_3to1_full",
+        "mean_d": -0.0028241193207001612,
+        "t_stat": -4.294454548484956,
+        "turnover_oneway_daily_mean": 0.47898923944097965
+      },
+      {
+        "name": "reversal_7to1_liquid10",
+        "mean_d": -0.00186967709342646,
+        "t_stat": -2.9557273058574776,
+        "turnover_oneway_daily_mean": 0.2856560581265967
+      },
+      {
+        "name": "reversal_7to1_full",
+        "mean_d": -0.0023259384529889945,
+        "t_stat": -3.523245607435823,
+        "turnover_oneway_daily_mean": 0.3416542669340265
+      },
+      {
+        "name": "reversal_7to7_liquid10",
+        "mean_d": -0.001090827550169891,
+        "t_stat": -1.7709625619329086,
+        "turnover_oneway_daily_mean": 0.09737381480251071
+      },
+      {
+        "name": "reversal_7to7_full",
+        "mean_d": -0.000843903304244833,
+        "t_stat": -1.2695039906704197,
+        "turnover_oneway_daily_mean": 0.10654822965536467
+      },
+      {
+        "name": "reversal_30to7_liquid10",
+        "mean_d": -0.000793742251341049,
+        "t_stat": -1.3256103640422234,
+        "turnover_oneway_daily_mean": 0.0571504015467632
+      },
+      {
+        "name": "reversal_30to7_full",
+        "mean_d": -0.0009924247020923278,
+        "t_stat": -1.5138603684998202,
+        "turnover_oneway_daily_mean": 0.06326351815786811
+      },
+      {
+        "name": "reversal_90to20_liquid10",
+        "mean_d": -0.0007537733022099061,
+        "t_stat": -1.1643804391365404,
+        "turnover_oneway_daily_mean": 0.020524619404669996
+      },
+      {
+        "name": "reversal_90to20_full",
+        "mean_d": -0.0006601510396651294,
+        "t_stat": -0.9203830096789233,
+        "turnover_oneway_daily_mean": 0.0197311003469973
+      },
+      {
+        "name": "momentum_3to1_liquid10",
+        "mean_d": -0.0022702090654319663,
+        "t_stat": -3.1962590553175607,
+        "turnover_oneway_daily_mean": 0.39136666732867925
+      },
+      {
+        "name": "momentum_3to1_full",
+        "mean_d": -0.0024156023681778382,
+        "t_stat": -3.2625228957466215,
+        "turnover_oneway_daily_mean": 0.43205498823215516
+      },
+      {
+        "name": "momentum_7to1_liquid10",
+        "mean_d": -0.0010334471794995123,
+        "t_stat": -1.5288378376884555,
+        "turnover_oneway_daily_mean": 0.26618060723368997
+      },
+      {
+        "name": "momentum_7to1_full",
+        "mean_d": -0.0006847913988372945,
+        "t_stat": -0.8906007340749124,
+        "turnover_oneway_daily_mean": 0.2928029735074675
+      },
+      {
+        "name": "momentum_7to7_liquid10",
+        "mean_d": -0.0007304954418301145,
+        "t_stat": -1.0681415735498776,
+        "turnover_oneway_daily_mean": 0.0922101998840286
+      },
+      {
+        "name": "momentum_7to7_full",
+        "mean_d": -0.0004462794880552823,
+        "t_stat": -0.5703518139057969,
+        "turnover_oneway_daily_mean": 0.10315775951718158
+      },
+      {
+        "name": "momentum_30to7_liquid10",
+        "mean_d": -0.0005985087356094684,
+        "t_stat": -0.964980530598333,
+        "turnover_oneway_daily_mean": 0.050722439578512746
+      },
+      {
+        "name": "momentum_30to7_full",
+        "mean_d": -0.00033148218031654503,
+        "t_stat": -0.48376040334749554,
+        "turnover_oneway_daily_mean": 0.053726151552384804
+      },
+      {
+        "name": "momentum_90to20_liquid10",
+        "mean_d": -0.0007789014543207408,
+        "t_stat": -1.420970437614634,
+        "turnover_oneway_daily_mean": 0.020037588279240348
+      },
+      {
+        "name": "momentum_90to20_full",
+        "mean_d": -0.0007717915866838086,
+        "t_stat": -1.3334431382609384,
+        "turnover_oneway_daily_mean": 0.01932506706200799
+      }
+    ],
+    "observed_max_t": -0.48376040334749554,
+    "observed_max_t_member": "momentum_30to7_full",
+    "h1_t_stat": -3.5887399159852036,
+    "h1_family_adjusted_p": 1.0,
+    "note": "Overfitting diagnostic only (prereg \u00a71); no verdict rides on it."
+  },
+  "verdict": {
+    "rule": "PASS requires net LB > 0 at BASE fees AND at +10bp (prereg \u00a75); any PASS is downgraded to CONDITIONAL by the registered \u00a73(b) enumerated-censoring declaration (inflates PASS; carried verbatim into any paper-shadow registration).",
+    "base_lb": -0.0029857023136539303,
+    "plus10bp_lb": -0.003803717228008996,
+    "plus25bp_lb": -0.0042273673018329095,
+    "outcome": "FAIL"
+  }
+}
