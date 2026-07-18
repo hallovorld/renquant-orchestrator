@@ -4,8 +4,11 @@ Date: 2026-07-17
 Status: RFC — frozen upon merge; the historical exercise may not run until
 this document is merged and its input manifests are sealed. It is an
 exploratory, costed feasibility screen only: it cannot confirm H1 or
-authorize capital. Instantiates the six requirements frozen in the revised G2 gate memo
-(doc/research/2026-07-17-g2-crypto-data-quality-gonogo.md §3, merged).
+authorize capital. Instantiates the six requirements stated in the
+round-1 codex review of orch#532 (the gate memo's revision source; the
+merged memo's §3 records the GO-narrow verdict, not the list — citation
+corrected r2); their substance is restated in §1–§6 below, which are the
+frozen text.
 Drafted personally per design-review policy.
 
 ## H1 (the single admitted hypothesis)
@@ -16,17 +19,26 @@ buy-and-hold baseline.
 
 ## 1. Selection control and evidence status (§3-item 1)
 
-- The complete tested-spec family from the screen is recorded in the gate
-  memo (momentum/reversal × {3,7,30,90}d × {1,7}d × {full-20, liquid-10}
-  universes). That screen already used the available 2021-01-01 through
-  2026-07-16 history. Therefore no statistic from this historical exercise
-  is confirmatory, regardless of a reality-check adjustment. It may only
-  decide whether the specified construction is economically plausible
-  enough to enter a separately registered prospective paper-shadow test.
+- The tested-spec family (r2 — corrected to the ACTUAL search path of
+  the #532 screen, not a padded rectangle): signal {momentum, reversal}
+  × (lookback→horizon) pairs {3→1, 7→1, 7→7, 30→7, 90→20} × universe
+  {full-20, liquid-10} = 20 members. The earlier "×{1,7}d" recording
+  both understated the search (horizon 20 was screened) and padded it
+  with never-screened cells; a reality-check family must cover exactly
+  what was searched. That screen already used the available 2021-01-01
+  through 2026-07-16 history. Therefore no statistic from this
+  historical exercise is confirmatory, regardless of a reality-check
+  adjustment. It may only decide whether the specified construction is
+  economically plausible enough to enter a separately registered
+  prospective paper-shadow test.
 - The historical report still computes a block-bootstrap max-t over the
-  fully enumerated, executable portfolio family as an overfitting diagnostic.
-  Every family member uses its own frozen long-only construction; the report
-  must not apply a rank-IC family to a portfolio-return statistic.
+  fully enumerated, executable portfolio family as an overfitting
+  diagnostic. Every family member's frozen long-only construction is
+  DEFINED HERE (r2): the §4 template with that member's signal
+  direction, lookback, horizon, and universe substituted, k=3 in both
+  tiers, all other rules identical. No member has any other latitude.
+  The report must not apply a rank-IC family to a portfolio-return
+  statistic.
 - No new specs may be added post-hoc. Any variant (different k, different
   tier) is a NEW registration.
 - The only confirmatory H1 test is the prospective paper-shadow interval
@@ -42,20 +54,58 @@ buy-and-hold baseline.
   percentile lower confidence bound and a precomputed block length from the
   fitted autocorrelation of d_t. It is descriptive only; report n valid days,
   names-per-day, and the max-t diagnostic.
-- Prospective power: before paper shadow starts, a fitted-null simulation at
-  MDE = 5 bps/day net must show power ≥ 0.80 at its predeclared duration;
-  otherwise the outcome is "underpowered — do not run to a verdict".
+- Prospective power (r2 — house decision structure, per the G1 v5
+  standard): `MEE = 5 bps/day net` is the materiality threshold and
+  requires a written economic rationale in the paper-shadow registration
+  (~18%/yr on the sleeve vs BTC; on the $10.7k sleeve ≈ $5/day — the
+  minimum worth the operational surface); the planning effect
+  `PE = 10 bps/day` sits strictly above MEE and is where power ≥ 0.80
+  must be demonstrated by a fitted-null simulation at the predeclared
+  duration; type-I ≤ 0.10 is evaluated for the deployment rule at
+  μ = MEE. The shadow verdict separates statistical efficacy (LB > 0,
+  reported) from advancement eligibility (LB > MEE, decides) — bare
+  LB>0 cannot advance G2, and a gate at LB>MEE=MDE would be structurally
+  powerless at MEE (the v3-class error).
+- Underpowered disposition (r2 — named): if power ≥ 0.80 at PE cannot be
+  shown at the predeclared duration, the outcome is "underpowered — do
+  not run to a verdict" and G2 is PARKED: no verdict may be claimed, and
+  the only exits are a NEW registration with a longer predeclared
+  duration, or a revised MEE/PE with fresh economic rationale. Parking
+  is recorded in the goal memo; the §5 fee-gate kill remains the only
+  kill path.
 
 ## 3. Point-in-time universe (§3-item 3)
 
 - As-of membership schedule: pair p is in the liquid tier on day T iff its
   trailing 30-day median daily dollar volume (through T-1) ranks top-10
-  among pairs LISTED on T-1 (MKR remains until its delisting date —
-  survivorship handled by construction, delisting = forced exit at the
-  last available price, cost-charged).
+  among pairs listed on T-1 per the MEMBERSHIP-SCHEDULE FILE (below).
+  Delisting = forced exit at the last available price, cost-charged.
+- **Listing provenance (r2 — replaces "survivorship handled by
+  construction", which was unfalsifiable).** "Listed on T-1" must come
+  from Alpaca's HISTORICAL listing/delisting record (support
+  announcements, assets-API history), never from data presence in the
+  collected store: a pair listed in-window and delisted before our 2026
+  collection is absent from the store on every day it was actually
+  tradable, and for a LONG-LOSER strategy that censoring is worst-case —
+  delisting-bound coins are disproportionately the bottom-3 picks, so
+  their absence inflates net d_t and biases the §5 kill statistic toward
+  PASS. (MKR's history happens to survive in the store; that fact
+  generalizes to nothing.) Before sealing, exactly one of:
+  (a) **verified-complete**: the schedule file documents, with sources
+  and retrieval dates, that the 20 collected pairs are the COMPLETE set
+  ever tradable on Alpaca spot in-window — then the universe is genuinely
+  point-in-time; or
+  (b) **enumerated-censoring**: every known omission is listed in the
+  manifest, the bias direction is REGISTERED (inflates PASS), and any
+  feasibility PASS is downgraded to CONDITIONAL — the censoring caveat
+  must be carried verbatim into the paper-shadow registration, whose
+  fully prospective (censoring-free) result is controlling.
+  If neither can be produced, the inputs cannot seal and the exercise
+  does not run (fail-closed).
 - Inputs sealed: the collected `crypto_ohlcv/` store's content digests +
-  a frozen membership-schedule file are the immutable manifest; the
-  backtest refuses to run on unsealed inputs (fail-closed).
+  the frozen membership-schedule file WITH its provenance declaration are
+  the immutable manifest; the backtest refuses to run on unsealed inputs
+  (fail-closed).
 
 ## 4. Executable long-only construction (§3-item 4)
 
@@ -83,9 +133,15 @@ buy-and-hold baseline.
   day.
 - Report: expected daily turnover, gross mean d_t, net mean d_t under
   each stress, and the verdict statistic on NET.
-- Historical feasibility rule: a base-fee lower bound ≤ 0 prevents paper
-  shadow and records a G2 NO-GO. A positive historical result only permits
-  the prospective paper-shadow registration; it is never a capital GO.
+- Historical feasibility rule (r2 — stress consequence registered): in a
+  24/7 market the daily-bar proxy grants effectively zero-latency,
+  zero-spread fills, so the base case is the MOST-optimistic accounting.
+  Feasibility PASS therefore requires the net lower bound > 0 at BASE
+  fees AND at +10 bp slippage; the +25 bp scenario is reported as stress
+  information. A base-fee lower bound ≤ 0, OR a +10 bp lower bound ≤ 0,
+  prevents paper shadow and records a G2 NO-GO with tombstone. A pass
+  only permits the prospective paper-shadow registration; it is never a
+  capital GO.
 
 ## 6. Timing convention (§3-item 6)
 
@@ -102,6 +158,10 @@ buy-and-hold baseline.
   stats per stress, turnover, input digests, execution-proxy declaration,
   and seed).
 - Historical feasibility pass ⇒ G2 may submit a paper-account shadow
-  registration. It does not confirm H1 and authorizes no capital. Historical
-  failure ⇒ G2 killed and the memo records the tombstone. Prospective paper
-  shadow has its own pass/fail/underpowered verdict.
+  registration; a §3(b) CONDITIONAL pass carries the enumerated-censoring
+  caveat verbatim into that registration, whose prospective result is
+  controlling. It does not confirm H1 and authorizes no capital.
+  Historical failure (base or +10 bp, §5) ⇒ G2 killed and the memo
+  records the tombstone. Underpowered (§2) ⇒ G2 PARKED with the named
+  re-registration exits. Prospective paper shadow has its own
+  pass/fail/underpowered verdict under the §2 house structure.
