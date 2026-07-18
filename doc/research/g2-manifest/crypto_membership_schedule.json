@@ -1,0 +1,1758 @@
+{
+  "schema_version": "g2-membership-schedule-v1",
+  "dataset": "crypto-ohlcv-1d membership schedule (Alpaca spot, USD quote)",
+  "generated_at_utc": "2026-07-18T02:30:06.851791+00:00",
+  "prereg": "doc/research/2026-07-17-g2-reversal-backtest-prereg.md section 3",
+  "conservative_interpolation_rule": "A pair counts as listed on day T ONLY if T lies inside a maximal run of consecutive evidentiary ledger points (support-page snapshots S1-S16 plus the assets-API pull A) that ALL contain the pair; runs are closed at the capture dates of their first and last containing points (open-ended when the run reaches A and the pair is active). A dated data-API event bound may only TIGHTEN an interval (e.g. MKR's end = min(last containing snapshot, data-API delisting bound)); data presence never extends listing. Delist/list dates falling in inter-snapshot dark windows are therefore conservatively truncated to the bracketing containing captures; the residual (a pair may truly have been listed earlier/later inside a dark window) is a registered omission.",
+  "trading_launch_floor": {
+    "date": "2021-11-22",
+    "applies_to": [
+      "BCH/USD",
+      "BTC/USD",
+      "ETH/USD",
+      "LTC/USD"
+    ],
+    "note": "Alpaca crypto trading went live 2021-11-22; the S1 capture predates order placement, so the 2021 four are floored here despite earlier 'supported' language."
+  },
+  "snapshot_ledger": [
+    {
+      "id": "S1",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2021-10-29T17:10:41Z",
+      "url": "https://web.archive.org/web/20211029171041/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "BCH",
+        "BTC",
+        "ETH",
+        "LTC"
+      ]
+    },
+    {
+      "id": "S2",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2021-11-30T20:29:06Z",
+      "url": "https://web.archive.org/web/20211130202906/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "BCH",
+        "BTC",
+        "ETH",
+        "LTC"
+      ]
+    },
+    {
+      "id": "S3",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2022-04-25T06:04:49Z",
+      "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "BAT",
+        "BCH",
+        "BTC",
+        "DAI",
+        "DOGE",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MATIC",
+        "MKR",
+        "PAXG",
+        "SHIB",
+        "SOL",
+        "SUSHI",
+        "TRX",
+        "UNI",
+        "USDT",
+        "WBTC",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S4",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2022-05-22T09:56:19Z",
+      "url": "https://web.archive.org/web/20220522095619/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "BAT",
+        "BCH",
+        "BTC",
+        "DAI",
+        "DOGE",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MATIC",
+        "MKR",
+        "PAXG",
+        "SHIB",
+        "SOL",
+        "SUSHI",
+        "TRX",
+        "UNI",
+        "USDT",
+        "WBTC",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S5",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2022-10-03T16:58:19Z",
+      "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "ALGO",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "DAI",
+        "DOGE",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MATIC",
+        "MKR",
+        "NEAR",
+        "PAXG",
+        "SHIB",
+        "SOL",
+        "SUSHI",
+        "TRX",
+        "UNI",
+        "USDT",
+        "WBTC",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S6",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2023-01-29T06:24:15Z",
+      "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "ALGO",
+        "BAT",
+        "BCH",
+        "BTC",
+        "DAI",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MATIC",
+        "MKR",
+        "NEAR",
+        "PAXG",
+        "SHIB",
+        "SOL",
+        "TRX",
+        "UNI",
+        "USDT",
+        "WBTC"
+      ]
+    },
+    {
+      "id": "S7",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2023-09-12T05:39:24Z",
+      "url": "https://web.archive.org/web/20230912053924/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "SHIB",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XTZ"
+      ]
+    },
+    {
+      "id": "S8",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2023-09-25T17:11:21Z",
+      "url": "https://web.archive.org/web/20230925171121/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "SHIB",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XTZ"
+      ]
+    },
+    {
+      "id": "S9",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2024-04-25T11:39:04Z",
+      "url": "https://web.archive.org/web/20240425113904/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "SHIB",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XTZ"
+      ]
+    },
+    {
+      "id": "S10",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2024-07-25T04:25:29Z",
+      "url": "https://web.archive.org/web/20240725042529/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "SHIB",
+        "SUSHI",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S11",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2024-11-02T21:36:57Z",
+      "url": "https://web.archive.org/web/20241102213657/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "SHIB",
+        "SUSHI",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S12",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2025-02-08T16:49:36Z",
+      "url": "https://web.archive.org/web/20250208164936/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "SHIB",
+        "SUSHI",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S13",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2025-04-15T11:38:44Z",
+      "url": "https://web.archive.org/web/20250415113844/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "PEPE",
+        "SHIB",
+        "SOL",
+        "SUSHI",
+        "TRUMP",
+        "UNI",
+        "USDC",
+        "USDT",
+        "XRP",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S14",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2025-08-11T11:45:48Z",
+      "url": "https://web.archive.org/web/20250811114548/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "PEPE",
+        "SHIB",
+        "SOL",
+        "SUSHI",
+        "TRUMP",
+        "UNI",
+        "USDC",
+        "USDG",
+        "USDT",
+        "XRP",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S15",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2025-09-20T05:43:34Z",
+      "url": "https://web.archive.org/web/20250920054334/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "MKR",
+        "PEPE",
+        "SHIB",
+        "SOL",
+        "SUSHI",
+        "TRUMP",
+        "UNI",
+        "USDC",
+        "USDG",
+        "USDT",
+        "XRP",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S16",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2025-11-13T05:58:51Z",
+      "url": "https://web.archive.org/web/20251113055851/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "GRT",
+        "LINK",
+        "LTC",
+        "PEPE",
+        "SHIB",
+        "SKY",
+        "SOL",
+        "SUSHI",
+        "TRUMP",
+        "UNI",
+        "USDC",
+        "USDG",
+        "USDT",
+        "XRP",
+        "XTZ",
+        "YFI"
+      ]
+    },
+    {
+      "id": "S17",
+      "kind": "support_page_wayback_capture",
+      "captured_utc": "2026-03-13T08:20:38Z",
+      "url": "https://web.archive.org/web/20260313082038/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+      "retrieved_utc": "2026-07-17",
+      "evidentiary_for_membership": false,
+      "usd_pairs": null,
+      "note": "By this capture the support article no longer carries a supported-asset list; non-evidentiary for membership (chain neither extends nor breaks here)."
+    },
+    {
+      "id": "A",
+      "kind": "assets_api",
+      "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto",
+      "retrieved_utc": "2026-07-17",
+      "artifact": "assets_crypto.json (research artifact; 36 active USD pairs)",
+      "evidentiary_for_membership": true,
+      "usd_pairs": [
+        "AAVE",
+        "ADA",
+        "ARB",
+        "AVAX",
+        "BAT",
+        "BCH",
+        "BONK",
+        "BTC",
+        "CRV",
+        "DOGE",
+        "DOT",
+        "ETH",
+        "FIL",
+        "GRT",
+        "HYPE",
+        "LDO",
+        "LINK",
+        "LTC",
+        "ONDO",
+        "PAXG",
+        "PEPE",
+        "POL",
+        "RENDER",
+        "SHIB",
+        "SKY",
+        "SOL",
+        "SUSHI",
+        "TRUMP",
+        "UNI",
+        "USDC",
+        "USDG",
+        "USDT",
+        "WIF",
+        "XRP",
+        "XTZ",
+        "YFI"
+      ]
+    }
+  ],
+  "pairs": {
+    "AAVE/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-07-15",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1828,
+        "content_sha256": "bd9411e2a3479e01541ba80269a374f8e04c32d39fe381e59d948d6093aff69b",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "ADA/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-13",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 154,
+        "content_sha256": "05a4833503c8a2a7ec68df60f96a1ef5ed97b4ea898249482dd4f2ccbfcb5f0e",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "ALGO/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-10-03",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2023-06-14",
+        "rows": 895,
+        "content_sha256": "04d6db4764eb47003b412fe3bc3362bc6ba63cd5185da90686448fe237029745",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "ARB/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-16",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 151,
+        "content_sha256": "77b278e1068fa4d6ee4fe0aaa85a2543774d0e8b8b42778c540a8f0b4da44704",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "AVAX/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-10-03",
+          "listed_through": "2022-10-03",
+          "start_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": true
+        },
+        {
+          "listed_from": "2023-09-12",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S7",
+            "url": "https://web.archive.org/web/20230912053924/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-11-18",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1702,
+        "content_sha256": "027991741952513cf22355d6190e09acc190b08261010d61f3cbd89ff202a820",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "BAT/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "045f83311b379f9a9c558ce28be4baa140ea8080ba0f3b7021a9da7faebf38eb",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "BCH/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2021-11-22",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "LAUNCH",
+            "note": "Alpaca crypto TRADING launch floor 2021-11-22: S1 (2021-10-29) lists the four pre-launch ('supported' preceded order placement); S2 (2021-11-30) is the first post-launch capture; the November-2021 launch is corroborated by the 2022-03-08 Businesswire release.",
+            "urls": [
+              "https://web.archive.org/web/20211029171041/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://web.archive.org/web/20211130202906/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://www.businesswire.com/news/home/20220308005090/en/Alpaca-Crypto-API-Now-Offers-Over-20-New-Coins-and-Expands-Access-to-49-US-States"
+            ]
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "a611e682f48440bcbc045e5ee4dece26ddf454b327788e6b761e5349af846e6c",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "BONK/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-16",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 151,
+        "content_sha256": "a39804a25c21eaf1e120f5ca41cd8523bfc37507a81608911fc7c11aca31cb39",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "BTC/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2021-11-22",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "LAUNCH",
+            "note": "Alpaca crypto TRADING launch floor 2021-11-22: S1 (2021-10-29) lists the four pre-launch ('supported' preceded order placement); S2 (2021-11-30) is the first post-launch capture; the November-2021 launch is corroborated by the 2022-03-08 Businesswire release.",
+            "urls": [
+              "https://web.archive.org/web/20211029171041/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://web.archive.org/web/20211130202906/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://www.businesswire.com/news/home/20220308005090/en/Alpaca-Crypto-API-Now-Offers-Over-20-New-Coins-and-Expands-Access-to-49-US-States"
+            ]
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "850087370f63794196bbf7d7f2f8a9c9e32f2fd164dfc098bcfbf15c81927484",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "CRV/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2023-09-12",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S7",
+            "url": "https://web.archive.org/web/20230912053924/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2023-08-18",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1064,
+        "content_sha256": "2512df625e9981fbdc6b372c3861181b5aede753e7c102c9ef9ea53d3dc87bcf",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "DAI/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2023-07-24",
+        "rows": 915,
+        "content_sha256": "29aa773b99d04ca79d294a926e0cb35bd5eef6189f91d342f3f9b3b8a0f3d581",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "excluded_by_rule": "stablecoin",
+      "obtainable": true
+    },
+    "DOGE/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2022-10-03",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        },
+        {
+          "listed_from": "2024-07-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S10",
+            "url": "https://web.archive.org/web/20240725042529/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "55b18dab15f5116e7f0f4bcb1972db806247a599b97c1588b94066c55774f0b3",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "DOT/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2023-09-12",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S7",
+            "url": "https://web.archive.org/web/20230912053924/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2023-08-18",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1064,
+        "content_sha256": "207947c445b49c5ac28634f0f1d1cd8a289ab3c59fc91ad50bad4b20de0330cb",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "ETH/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2021-11-22",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "LAUNCH",
+            "note": "Alpaca crypto TRADING launch floor 2021-11-22: S1 (2021-10-29) lists the four pre-launch ('supported' preceded order placement); S2 (2021-11-30) is the first post-launch capture; the November-2021 launch is corroborated by the 2022-03-08 Businesswire release.",
+            "urls": [
+              "https://web.archive.org/web/20211029171041/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://web.archive.org/web/20211130202906/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://www.businesswire.com/news/home/20220308005090/en/Alpaca-Crypto-API-Now-Offers-Over-20-New-Coins-and-Expands-Access-to-49-US-States"
+            ]
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "7c998bd7e73f20d36f72a39b460986d31f34d6a7eb65ea136243557b2263f8bf",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "FIL/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-16",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 151,
+        "content_sha256": "eab745cf876cc78a493f7ed99f4c7c65ccc8a2284e3bc34f6699f833beeee23d",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "GRT/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-07-15",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1828,
+        "content_sha256": "ce5e396083f9ae815eb77aa162c9adf5b82a4a32cb58bb9b4830994865ea022a",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "HYPE/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-17",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 150,
+        "content_sha256": "5f833fc815719ce23a1efef3e66f0e23d6949dc4aac4abb87c5837c314ba1a25",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "LDO/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-17",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 150,
+        "content_sha256": "8e29c1cfc1bfb337cd2e0d6a0584282184ec59b4507ab2fa3c06bcbee9a03da3",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "LINK/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "d8e55fc1add3fe7d40b43467eb540bcab0fad2aa5f6c0c9685a134b8c1b47f2b",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "LTC/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2021-11-22",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "LAUNCH",
+            "note": "Alpaca crypto TRADING launch floor 2021-11-22: S1 (2021-10-29) lists the four pre-launch ('supported' preceded order placement); S2 (2021-11-30) is the first post-launch capture; the November-2021 launch is corroborated by the 2022-03-08 Businesswire release.",
+            "urls": [
+              "https://web.archive.org/web/20211029171041/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://web.archive.org/web/20211130202906/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/",
+              "https://www.businesswire.com/news/home/20220308005090/en/Alpaca-Crypto-API-Now-Offers-Over-20-New-Coins-and-Expands-Access-to-49-US-States"
+            ]
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "749df84f1166fe1dcd23da2f542af28fc65b142e7a8fcd8e7ae300d779a4cf39",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "MATIC/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2023-06-23",
+        "rows": 904,
+        "content_sha256": "8ec7ab988b42907a765589b42ad337feac72f2773a2b931d988a36e5c332cedc",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "MKR/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2025-09-05",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "DATA-END",
+            "note": "data-API delisting event bound: last served bar open 2025-09-05 (close 2025-09-06); earlier than the last containing snapshot S15 (2025-09-20, support-page lag), absent from S16; conservative end = the earlier dated bound",
+            "url": "https://web.archive.org/web/20251113055851/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2025-09-05",
+        "rows": 1709,
+        "content_sha256": "b2e60b744410118ac59241b1524fbe27026e4c2c0e2d9bc2fc77320ddf70bb49",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "NEAR/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-10-03",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2022-01-20",
+        "data_last_bar_open_utc": "2023-06-23",
+        "rows": 264,
+        "content_sha256": "3b607602d503edf18fb1bf1cb5ac4aa4749c55ae9ab66996ad7cf691149a3357",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "ONDO/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-17",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 150,
+        "content_sha256": "c3fe822cc67477a0d6e82636425673ef1d129b92536601d5c3167a5031b57b23",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "PAXG/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        },
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1052,
+        "content_sha256": "7ea6b28276b257775670fc7493e9467bd566de00cac2486f136778d88fd11bea",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "PEPE/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2025-04-15",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S13",
+            "url": "https://web.archive.org/web/20250415113844/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2025-01-29",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 534,
+        "content_sha256": "3db2d09d8aff0a40dbe882038f79771940e7e495c10e9ff812a0aa8e20f2e9a1",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "POL/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-19",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 148,
+        "content_sha256": "6104424decc0bda9433ca0c8634ec0a0ced7efb993a40e2fd32bce7f0b4ef432",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "RENDER/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-19",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 148,
+        "content_sha256": "6997b7a985059d7f3599a52a540b21f15f8c399c63a5fec5c0616e1f09001440",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "SHIB/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2023-03-14",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1221,
+        "content_sha256": "20460e5915ce41a3b69b7121832c847a9b6fa37770313112c80e15789046999e",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "SKY/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2025-11-13",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S16",
+            "url": "https://web.archive.org/web/20251113055851/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2025-09-27",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 293,
+        "content_sha256": "5fb7d1e9a4f7dcd0f6006543e4c766ff19b229c1ec97ef65a5a17bac7162c3f4",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "SOL/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        },
+        {
+          "listed_from": "2025-04-15",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S13",
+            "url": "https://web.archive.org/web/20250415113844/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1605,
+        "content_sha256": "0f1a904aba0766cccaeda98cbb12d544ab808ffe32330fd38bdf5d7ae686f425",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "SUSHI/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2022-10-03",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        },
+        {
+          "listed_from": "2024-07-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S10",
+            "url": "https://web.archive.org/web/20240725042529/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-07-23",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1820,
+        "content_sha256": "e8cfe2fc41154b8b87a3a7678a776d95f787cc8d6271e1a13920b67c043e799e",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "TRUMP/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2025-04-15",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S13",
+            "url": "https://web.archive.org/web/20250415113844/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2025-01-22",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 541,
+        "content_sha256": "7df4d4b16e031a07bc2c6f13e2128e0098797227bd84c4ee94e315b34d3e5c48",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "TRX/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2022-04-01",
+        "data_last_bar_open_utc": "2023-04-19",
+        "rows": 332,
+        "content_sha256": "b04d8d27e835355b0d1b981f529f2977150488bb63abea118a8f9e7361f3a0ee",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "UNI/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2023,
+        "content_sha256": "3734010f84d88386691c08753b67d2a3962dd152c40d50aded5c0c76a3b0c532",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "USDC/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2023-09-12",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S7",
+            "url": "https://web.archive.org/web/20230912053924/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2023-08-18",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1060,
+        "content_sha256": "2f38f48ae4488c71441b6154c1e013677c679b45785c2cd3523b2e7a412117fc",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "excluded_by_rule": "stablecoin",
+      "obtainable": true
+    },
+    "USDG/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2025-08-11",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S14",
+            "url": "https://web.archive.org/web/20250811114548/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2025-05-19",
+        "data_last_bar_open_utc": "2026-07-14",
+        "rows": 381,
+        "content_sha256": "778b16d6c28f1e5fe90e26cf861040e2aee9ecdf7942bfe4529adba9beb685dd",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "excluded_by_rule": "stablecoin",
+      "obtainable": true
+    },
+    "USDT/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 2022,
+        "content_sha256": "0dfe4c37a34759108a6e2d64d097b20523c0f533835f76e7616d97f660271c68",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "excluded_by_rule": "stablecoin",
+      "obtainable": true
+    },
+    "WBTC/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2023-01-29",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S6",
+            "url": "https://web.archive.org/web/20230129062415/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        }
+      ],
+      "obtainable": false,
+      "registered_omission": {
+        "status": "permanent",
+        "reason": "Alpaca's crypto data API no longer serves any WBTC/USD history (purged after delisting); listed in-window per S3-S6 but unobtainable \u2014 enumerated censoring per prereg section 3(b), bias direction: inflates PASS (a delisting-bound coin absent from the store cannot be picked as a bottom-3 loser)."
+      }
+    },
+    "WIF/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2026-07-17",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": true,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2026-02-19",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 148,
+        "content_sha256": "0c33a893a0debc3c2005c74bde7ac53b6fe31700854b50f322db8e6ab8ac843e",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "XRP/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2025-04-15",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S13",
+            "url": "https://web.archive.org/web/20250415113844/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2024-01-01",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 928,
+        "content_sha256": "e34a70f332863c2b727c64ceb0b00f1032a135078daf5274784bd41f12953d38",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "XTZ/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2023-09-12",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S7",
+            "url": "https://web.archive.org/web/20230912053924/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2023-08-18",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1064,
+        "content_sha256": "0872997eede58060e6bd7d22a0d1d5b3ca0b8ca27705d34e19ed82eaf1ed3f37",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    },
+    "YFI/USD": {
+      "listed_intervals": [
+        {
+          "listed_from": "2022-04-25",
+          "listed_through": "2022-10-03",
+          "start_evidence": {
+            "ledger_id": "S3",
+            "url": "https://web.archive.org/web/20220425060449/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "S5",
+            "url": "https://web.archive.org/web/20221003165819/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "single_evidence_point": false
+        },
+        {
+          "listed_from": "2024-07-25",
+          "listed_through": null,
+          "start_evidence": {
+            "ledger_id": "S10",
+            "url": "https://web.archive.org/web/20240725042529/https://alpaca.markets/support/what-cryptocurrencies-does-alpaca-currently-support/"
+          },
+          "end_evidence": {
+            "ledger_id": "A",
+            "url": "https://api.alpaca.markets/v2/assets?asset_class=crypto"
+          },
+          "single_evidence_point": false,
+          "end_note": "active in the assets API at retrieval (2026-07-17); open-ended through the backtest window end 2026-07-16"
+        }
+      ],
+      "data_api_bounds": {
+        "data_first_bar_open_utc": "2021-12-02",
+        "data_last_bar_open_utc": "2026-07-16",
+        "rows": 1688,
+        "content_sha256": "583dfd31ef00842800a61950ccf15d6e9ef946be306c6de4ceed5e8af795eba5",
+        "note": "data presence only \u2014 NOT listing evidence (prereg section 3); recorded as the dated data-API event bound"
+      },
+      "obtainable": true
+    }
+  },
+  "registered_omissions_summary": {
+    "wbtc_purged": "WBTC/USD listed 2022-04-25..2023-01-29 (conservative) but its history is purged from the data API \u2014 permanent, unobtainable; inflates PASS.",
+    "dark_windows": "Membership between snapshot captures is interpolated only when both bracketing captures contain the pair. True list/delist dates inside gaps (notably the ~2022-11 delisting wave for DOGE/SUSHI/YFI/AVAX between S5 and S6, the 2023 mid-year delistings of ALGO/MATIC/NEAR/TRX/DAI/PAXG/SOL/WBTC between S6 and S7, and the 2024-2025 relists between S9/S12 and their first containing captures) are unknown; the schedule undercounts listing there by construction. Pairs first evidenced only by the assets-API pull (ADA/ARB/BONK/FIL/HYPE/LDO/ONDO/POL/RENDER/WIF, and PAXG's relist) carry single-evidence-point intervals at 2026-07-17."
+  },
+  "n_pairs": 43,
+  "n_intervals": 49
+}
