@@ -185,3 +185,20 @@ Separate design PR in **renquant-pipeline** (owner of `VetoWeakBuysTask`)
 implementing option (a) + the sentinel rule, citing this memo as evidence;
 codex adversarial review; no deployment before the design PR lands and pins
 bump through the normal path.
+
+## Correction (2026-07-18, r2 evidence pack)
+
+§3's "essentially deterministic" characterization OVERSTATED the
+small-n failure rate and is retracted. A Monte Carlo fitted to the
+actual post-06-01 score mixture (stocks mean 0.518 σ 0.050; sector ETFs
+mean 0.481 σ 0.046 — the ETF cluster sits only ~0.7σ below stocks, so
+its σ-inflation effect is modest) puts P(all-veto) ≈ 0.17–0.20 at n=5,
+≈ 0.02 at n=10, ≤ 0.01 at n=12, essentially identical across iid,
+mixture-normal, and bootstrap-from-empirical fits. The realized 2-for-2
+on 07-16/07-17 is a ~1-in-5 per-session event repeating on consecutive
+structurally-similar scan sets — high-frequency, not deterministic. The
+qualitative conclusion (structural recurrence while override-era scans
+stay small; fix the small-n branch) is unchanged; the approved design
+(pipeline#204) uses the corrected numbers, N0=12, and a relax-only
+construction. Reproducible script:
+`scripts/vetoweakbuys_smalln_evidence.py` (seeded, read-only DB access).
