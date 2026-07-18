@@ -7,6 +7,7 @@ never depend on the real calendar in tests.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -22,8 +23,11 @@ D0 = dt.date(2026, 7, 16)
 D1 = dt.date(2026, 7, 15)
 
 
-def _make_db(tmp_path, rows):
-    """rows: list of (run_date, n_candidates, n_buys, buy_blocked, created_at)."""
+def _make_db(tmp_path, rows, funnel=None):
+    """rows: list of (run_date, n_candidates, n_buys, buy_blocked, created_at).
+    funnel: optional list of (run_id, ticker, role, rank_score, blocked_by)
+    candidate_scores rows; the table is only created when given, so the
+    default fixture also proves the sentinel degrades on legacy DBs."""
     db = tmp_path / "runs.db"
     conn = sqlite3.connect(str(db))
     conn.execute(
@@ -36,18 +40,35 @@ def _make_db(tmp_path, rows):
             "INSERT INTO pipeline_runs VALUES (?,?,?,?,?,?,?)",
             (f"r{i}", run_date, "live", n_cand, n_buys, blocked, created),
         )
+    if funnel is not None:
+        conn.execute(
+            "CREATE TABLE candidate_scores (run_id TEXT, ticker TEXT,"
+            " role TEXT, rank_score REAL, blocked_by TEXT, selected INTEGER)"
+        )
+        for run_id, ticker, role, rank_score, blocked_by in funnel:
+            conn.execute(
+                "INSERT INTO candidate_scores VALUES (?,?,?,?,?,0)",
+                (run_id, ticker, role, rank_score, blocked_by),
+            )
     conn.commit()
     conn.close()
     return str(db)
 
 
-def _run(tmp_path, db_rows, *, daily_log: str | None = None, launchctl: str = ""):
+def _run(tmp_path, db_rows, *, daily_log: str | None = None, launchctl: str = "",
+         funnel=None, strategy_config: dict | None = None):
     """Run main() with all environment seams patched; return (rc, alerts)."""
-    db = _make_db(tmp_path, db_rows)
+    db = _make_db(tmp_path, db_rows, funnel=funnel)
     log_dir = tmp_path / "daily_104"
     log_dir.mkdir(exist_ok=True)
     if daily_log is not None:
         (log_dir / f"{AS_OF}.log").write_text(daily_log)
+    # isolate from the real pinned strategy config: default is an ABSENT
+    # file (guard deconfigured -> built-in N0), tests opt in via
+    # strategy_config (see TestSmallNAllVeto)
+    cfg_path = tmp_path / "strategy_config.json"
+    if strategy_config is not None:
+        cfg_path.write_text(json.dumps(strategy_config))
     alerts: list[tuple[str, str]] = []
 
     with (
@@ -56,6 +77,7 @@ def _run(tmp_path, db_rows, *, daily_log: str | None = None, launchctl: str = ""
         # isolate from the real reviewed ack ledger: tests control acks via
         # an explicit tmp file (see TestAckLedger)
         patch.object(sentinel, "ACK_LEDGER", str(tmp_path / "acks.json")),
+        patch.object(sentinel, "PINNED_STRATEGY_CONFIG", str(cfg_path)),
         patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
         patch.object(
             sentinel.subprocess, "run",
@@ -266,3 +288,128 @@ class TestAckLedger:
         rc, alerts = _run(tmp_path, HEALTHY_ROWS, launchctl=text)
         assert rc == 1
         assert any("weekly-wf-promote" in b for _, b in alerts)
+
+
+def _all_veto_funnel(n, run_id="r1"):
+    """n candidate rows on run_id, every one rank-floor vetoed at a finite
+    score (the 2026-07-16/17 shape: floor > max score by construction)."""
+    return [
+        (run_id, f"T{i:02d}", "candidate", 0.50 + 0.01 * i,
+         "veto:rank_score_below_floor")
+        for i in range(n)
+    ]
+
+
+GUARD_VALID_CONFIG = {
+    "ranking": {"panel_scoring": {"buy_floor_min_n": 12,
+                                  "buy_floor_absolute_smalln": 0.50}}
+}
+
+
+class TestSmallNAllVeto:
+    """RFC pipeline#204 §2.3 / AC-d: the small-n all-veto funnel freeze rule."""
+
+    def test_all_vetoed_small_n_alarms(self, tmp_path):
+        # AC-d (a): synthetic all-vetoed n=5 day -> LOUD
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, funnel=_all_veto_funnel(5))
+        assert rc == 1
+        body = alerts[0][1]
+        assert "small-n all-veto funnel freeze" in body
+        assert "n=5" in body
+        assert "N0_sentinel=12" in body
+        assert "5/5" in body
+        assert "pipeline#204" in body
+
+    def test_fires_with_guard_configured_valid(self, tmp_path):
+        # AC-d (b): guard VALID (min_n=12) -> still fires, n=5 < 12
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS, funnel=_all_veto_funnel(5),
+            strategy_config=GUARD_VALID_CONFIG,
+        )
+        assert rc == 1
+        assert any("small-n all-veto funnel freeze" in b for _, b in alerts)
+
+    def test_normal_n_partial_veto_quiet(self, tmp_path):
+        # AC-d (c): 85 scored / 67 vetoed is a normal functioning funnel
+        funnel = _all_veto_funnel(67) + [
+            ("r1", f"K{i:02d}", "candidate", 0.60, None) for i in range(18)
+        ]
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, funnel=funnel)
+        assert rc == 0
+        assert not alerts
+
+    def test_deconfigured_guard_fires_at_builtin_12(self, tmp_path):
+        # AC-d (d): guard deconfigured (key absent) -> built-in N0=12 fires
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS, funnel=_all_veto_funnel(5),
+            strategy_config={"ranking": {"panel_scoring": {}}},
+        )
+        assert rc == 1
+        assert any("N0_sentinel=12" in b for _, b in alerts)
+
+    def test_invalid_guard_value_fires_at_builtin_12(self, tmp_path):
+        # out-of-bounds min_n (typo 100) is INVALID per §2.2 -> built-in 12
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS, funnel=_all_veto_funnel(5),
+            strategy_config={"ranking": {"panel_scoring": {"buy_floor_min_n": 100}}},
+        )
+        assert rc == 1
+        assert any("N0_sentinel=12" in b for _, b in alerts)
+
+    def test_all_vetoed_n13_quiet(self, tmp_path):
+        # AC-d (e): all-vetoed at n=13 >= N0 is the floor doing its job
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, funnel=_all_veto_funnel(13))
+        assert rc == 0
+        assert not alerts
+
+    def test_latest_scan_wins_over_holding_only_runs(self, tmp_path):
+        # live shape: intraday runs write holding-only rows; the funnel rule
+        # must read the newest run that actually carries candidate rows
+        funnel = _all_veto_funnel(5, run_id="r0") + [
+            ("r1", f"H{i}", "holding", 0.55, None) for i in range(4)
+        ]
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, funnel=funnel)
+        assert rc == 1
+        assert any("small-n all-veto funnel freeze" in b for _, b in alerts)
+
+    def test_missing_candidate_table_quiet(self, tmp_path):
+        # legacy/fixture DBs without candidate_scores: degrade, never abort
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, funnel=None)
+        assert rc == 0
+
+    def test_null_scores_excluded_from_finite_n(self, tmp_path):
+        # 13 vetoed rows but 2 carry no finite score -> finite n=11 < 12
+        funnel = _all_veto_funnel(11) + [
+            ("r1", "N1", "candidate", None, "veto:rank_score_below_floor"),
+            ("r1", "N2", "candidate", None, "veto:rank_score_below_floor"),
+        ]
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS, funnel=funnel)
+        assert rc == 1
+        assert any("n=11" in b for _, b in alerts)
+
+
+class TestN0SentinelResolution:
+    def _cfg(self, tmp_path, payload) -> str:
+        p = tmp_path / "strategy_config.json"
+        p.write_text(payload if isinstance(payload, str) else json.dumps(payload))
+        return str(p)
+
+    def test_valid_larger_than_builtin_wins(self, tmp_path):
+        cfg = self._cfg(tmp_path, {"ranking": {"panel_scoring": {"buy_floor_min_n": 15}}})
+        assert sentinel.n0_sentinel(cfg) == 15
+
+    def test_valid_smaller_than_builtin_floors_at_12(self, tmp_path):
+        cfg = self._cfg(tmp_path, {"ranking": {"panel_scoring": {"buy_floor_min_n": 5}}})
+        assert sentinel.n0_sentinel(cfg) == 12
+
+    def test_invalid_values_fall_back_to_builtin(self, tmp_path):
+        for bad in (100, 1, 0, -3, "12", 12.0, True, None):
+            cfg = self._cfg(
+                tmp_path, {"ranking": {"panel_scoring": {"buy_floor_min_n": bad}}})
+            assert sentinel.n0_sentinel(cfg) == 12, bad
+
+    def test_missing_file_falls_back_to_builtin(self, tmp_path):
+        assert sentinel.n0_sentinel(str(tmp_path / "nope.json")) == 12
+
+    def test_malformed_json_falls_back_to_builtin(self, tmp_path):
+        assert sentinel.n0_sentinel(self._cfg(tmp_path, "{not json")) == 12
