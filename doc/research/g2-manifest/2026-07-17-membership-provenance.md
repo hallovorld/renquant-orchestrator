@@ -80,6 +80,27 @@ support capture); the 2021 four (BTC/ETH/LTC/BCH) are floored at the
    (ADA/ARB/BONK/FIL/HYPE/LDO/ONDO/POL/RENDER/WIF; PAXG's relist) carry
    degenerate intervals at 2026-07-17 and contribute no in-window
    membership before that date under the conservative rule.
+4. **SHIB listed-but-unserved gap (r2 — restored from the original
+   research).** SHIB is evidenced listed from 2022-04-25 (S3) but its
+   data-API history begins only 2023-03-14: **323 in-window days where
+   SHIB was tradable yet absent from the store**, hence unpickable as a
+   bottom-3 loser. Same registered bias direction as WBTC: inflates net
+   d_t, biases the §5 kill toward PASS. This is the only material
+   within-listing data gap found by a mechanical sweep of all 43 pairs.
+5. **Residual risk and upgrade path (r2 — restored).** Further
+   UNRECORDED listings cannot be excluded: the support-page dark
+   windows and the demonstrated WBTC-class API purge mean a pair could
+   have been listed and fully purged leaving no surviving Alpaca
+   surface. The only upgrade path toward a §3(a) verified-complete
+   declaration is an Alpaca support ticket requesting the authoritative
+   historical asset ledger; until then this declaration is the maximal
+   honest seal.
+
+**Session-store prohibition (reviewer note, binding):** the extended
+42-pair store's manifest `watermark_utc` regressed to 2023-04-20
+(min-over-pairs semantics; delisted histories) and `signal_eligible:
+true` is misleading for session use — this store is a BACKTEST corpus
+and must never be wired as a session/serving store.
 
 **Consequence (prereg §3(b), binding):** any feasibility PASS from the
 historical exercise is downgraded to **CONDITIONAL**; this censoring
