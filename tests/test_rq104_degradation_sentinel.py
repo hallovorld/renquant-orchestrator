@@ -23,11 +23,14 @@ D0 = dt.date(2026, 7, 16)
 D1 = dt.date(2026, 7, 15)
 
 
-def _make_db(tmp_path, rows, funnel=None):
+def _make_db(tmp_path, rows, funnel=None, gate_verdicts=None):
     """rows: list of (run_date, n_candidates, n_buys, buy_blocked, created_at).
     funnel: optional list of (run_id, ticker, role, rank_score, blocked_by)
     candidate_scores rows; the table is only created when given, so the
-    default fixture also proves the sentinel degrades on legacy DBs."""
+    default fixture also proves the sentinel degrades on legacy DBs.
+    gate_verdicts: optional list of (run_id, run_date, gate, reason) rows —
+    same only-created-when-given contract (check f must be absent-tolerant
+    for pre-#207 pipelines)."""
     db = tmp_path / "runs.db"
     conn = sqlite3.connect(str(db))
     conn.execute(
@@ -50,15 +53,26 @@ def _make_db(tmp_path, rows, funnel=None):
                 "INSERT INTO candidate_scores VALUES (?,?,?,?,?,0)",
                 (run_id, ticker, role, rank_score, blocked_by),
             )
+    if gate_verdicts is not None:
+        conn.execute(
+            "CREATE TABLE gate_verdicts (run_id TEXT, run_date TEXT,"
+            " gate TEXT, scope TEXT, verdict TEXT, reason TEXT,"
+            " inputs_json TEXT)"
+        )
+        for run_id, run_date, gate, reason in gate_verdicts:
+            conn.execute(
+                "INSERT INTO gate_verdicts VALUES (?,?,?,'book','allow',?,'{}')",
+                (run_id, run_date, gate, reason),
+            )
     conn.commit()
     conn.close()
     return str(db)
 
 
 def _run(tmp_path, db_rows, *, daily_log: str | None = None, launchctl: str = "",
-         funnel=None, strategy_config: dict | None = None):
+         funnel=None, strategy_config: dict | None = None, gate_verdicts=None):
     """Run main() with all environment seams patched; return (rc, alerts)."""
-    db = _make_db(tmp_path, db_rows, funnel=funnel)
+    db = _make_db(tmp_path, db_rows, funnel=funnel, gate_verdicts=gate_verdicts)
     log_dir = tmp_path / "daily_104"
     log_dir.mkdir(exist_ok=True)
     if daily_log is not None:
@@ -413,3 +427,153 @@ class TestN0SentinelResolution:
 
     def test_malformed_json_falls_back_to_builtin(self, tmp_path):
         assert sentinel.n0_sentinel(self._cfg(tmp_path, "{not json")) == 12
+
+
+class TestSmallNGuardSuppressed:
+    """Check (f): smalln_guard_suppressed LOUD pattern (pipeline#207 §2 —
+    the amendment's named orchestrator deliverable). Distinct alarm key
+    ("small-n guard SUPPRESSED"), ack-proof, absent-tolerant for pre-#207
+    pipelines. The DB fixture models the suppressed-but-partially-admitting
+    day that check (e) misses: candidates scored, some buys placed, no
+    all-veto — yet the guard refused to act."""
+
+    SUPPRESSED_ROW = [
+        ("r1", D0.isoformat(), "smalln_eligibility",
+         "suppressed:mass_balance:unaccounted=140"),
+    ]
+
+    def test_db_ledger_suppression_alarms(self, tmp_path):
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS, gate_verdicts=self.SUPPRESSED_ROW)
+        assert rc == 1
+        assert "small-n guard SUPPRESSED" in alerts[0][1]
+        assert "suppressed:mass_balance:unaccounted=140" in alerts[0][1]
+
+    def test_log_tag_alarms_without_db_row(self, tmp_path):
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS,
+            daily_log=(
+                "2026-07-16 13:55:01 ERROR VetoWeakBuysTask: "
+                "smalln_guard_suppressed(reason=funnel_integrity:"
+                "panel_score_missing=3) — partition NOT CLEAN\n"
+            ),
+        )
+        assert rc == 1
+        assert "small-n guard SUPPRESSED" in alerts[0][1]
+
+    def test_acted_row_stays_quiet(self, tmp_path):
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS,
+            gate_verdicts=[
+                ("r1", D0.isoformat(), "smalln_eligibility", "acted"),
+            ],
+        )
+        assert rc == 0
+        assert alerts == []
+
+    def test_not_small_n_and_deconfigured_stay_quiet(self, tmp_path):
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS,
+            gate_verdicts=[
+                ("r0", D1.isoformat(), "smalln_eligibility", "not_small_n"),
+                ("r1", D0.isoformat(), "smalln_eligibility", "deconfigured"),
+            ],
+        )
+        assert rc == 0
+        assert alerts == []
+
+    def test_latest_row_wins_over_old_suppression(self, tmp_path):
+        """A suppression days ago must not page forever once newer runs
+        record a clean branch_action."""
+        rc, alerts = _run(
+            tmp_path, HEALTHY_ROWS,
+            gate_verdicts=[
+                ("r0", D1.isoformat(), "smalln_eligibility",
+                 "suppressed:share_bound:wash_sale share=0.250 > bound=0.20"),
+                ("r1", D0.isoformat(), "smalln_eligibility", "acted"),
+            ],
+        )
+        assert rc == 0
+        assert alerts == []
+
+    def test_absent_gate_verdicts_table_stays_quiet(self, tmp_path):
+        """Pre-#207 pipeline DB (no gate_verdicts table): absence is the
+        explicit absent state, never an alarm and never a crash."""
+        rc, alerts = _run(tmp_path, HEALTHY_ROWS)
+        assert rc == 0
+        assert alerts == []
+
+    def test_ack_ledger_cannot_silence_suppression(self, tmp_path):
+        """Ack-proof (same construction as check e): the ack ledger keys
+        launchd job labels only — no ack entry can move this alarm to
+        INFO."""
+        acks = tmp_path / "acks.json"
+        acks.write_text(json.dumps({
+            "com.renquant.daily104": {
+                "reason": "known", "clears_when": "never"},
+            "small-n guard SUPPRESSED": {
+                "reason": "attempted ack", "clears_when": "never"},
+        }))
+        db = _make_db(tmp_path, HEALTHY_ROWS,
+                      gate_verdicts=self.SUPPRESSED_ROW)
+        log_dir = tmp_path / "daily_104"
+        log_dir.mkdir(exist_ok=True)
+        alerts: list[tuple[str, str]] = []
+        with (
+            patch.object(sentinel, "is_session_day", return_value=True),
+            patch.object(sentinel, "DAILY_LOG_DIR", str(log_dir)),
+            patch.object(sentinel, "ACK_LEDGER", str(acks)),
+            patch.object(sentinel, "PINNED_STRATEGY_CONFIG",
+                         str(tmp_path / "strategy_config.json")),
+            patch.object(sentinel, "alert",
+                         lambda t, b, **kw: alerts.append((t, b))),
+            patch.object(
+                sentinel.subprocess, "run",
+                lambda *a, **kw: type("R", (), {"stdout": ""})(),
+            ),
+        ):
+            rc = sentinel.main(["--as-of", AS_OF, "--db", db])
+        assert rc == 1
+        assert any("small-n guard SUPPRESSED" in body for _, body in alerts)
+
+    def test_log_surface_fires_even_when_db_unreadable(self, tmp_path):
+        """Check (f)'s log surface is independent of the DB: a suppressed
+        day must not hide behind a DB problem."""
+        log_dir = tmp_path / "daily_104"
+        log_dir.mkdir(exist_ok=True)
+        (log_dir / f"{AS_OF}.log").write_text(
+            "ERROR smalln_guard_suppressed(reason=mass_balance:"
+            "expected_universe_absent)\n"
+        )
+        alerts: list[tuple[str, str]] = []
+        with (
+            patch.object(sentinel, "is_session_day", return_value=True),
+            patch.object(sentinel, "DAILY_LOG_DIR", str(log_dir)),
+            patch.object(sentinel, "ACK_LEDGER", str(tmp_path / "acks.json")),
+            patch.object(sentinel, "PINNED_STRATEGY_CONFIG",
+                         str(tmp_path / "strategy_config.json")),
+            patch.object(sentinel, "alert",
+                         lambda t, b, **kw: alerts.append((t, b))),
+            patch.object(
+                sentinel.subprocess, "run",
+                lambda *a, **kw: type("R", (), {"stdout": ""})(),
+            ),
+        ):
+            rc = sentinel.main(
+                ["--as-of", AS_OF, "--db", str(tmp_path / "missing.db")])
+        assert rc == 1
+        joined = "\n".join(body for _, body in alerts)
+        assert "small-n guard SUPPRESSED" in joined
+        assert "runs DB unreadable" in joined
+
+    def test_unit_latest_smalln_ledger_orders_by_date(self, tmp_path):
+        db = _make_db(tmp_path, HEALTHY_ROWS, gate_verdicts=[
+            ("r0", D1.isoformat(), "smalln_eligibility", "suppressed:x"),
+            ("r1", D0.isoformat(), "smalln_eligibility", "acted"),
+            ("r1", D0.isoformat(), "other_gate", "block"),
+        ])
+        conn = sqlite3.connect(db)
+        row = sentinel.latest_smalln_ledger(conn)
+        conn.close()
+        assert row == {"run_id": "r1", "run_date": D0.isoformat(),
+                       "reason": "acted"}

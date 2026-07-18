@@ -23,6 +23,15 @@ existing liveness checkers (which prove jobs *ran*) cannot see:
      finite-scored n below N0_sentinel: at that n the self-referential
      floor is a statistical all-veto, not a quality verdict
      (RFC pipeline#204 §2.3; 2026-07-16/17 override sessions)
+  f. small-n guard SUPPRESSED — the eligibility-ledger amendment
+     (pipeline#207 §2) tags a run smalln_guard_suppressed(reason=...)
+     when the relax-only guard refused to act because the partition was
+     NOT CLEAN (mass-balance shortfall, funnel residue, share-bound
+     breach, policy set-identity mismatch, failure marker). Check (e)
+     fires only on all-veto∧small-n and would MISS a suppressed-but-
+     partially-admitting day — the amendment names this rule as the
+     dedicated deliverable. A suppression is by definition a day a
+     human should look at.
 
 Read-only: the runs DB is opened mode=ro&immutable=1; logs are only read.
 Session-day gating uses the real NYSE calendar (holidays never alarm), and
@@ -271,6 +280,85 @@ def check_smalln_all_veto(conn: sqlite3.Connection) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# check f: small-n guard suppressed (eligibility-ledger amendment,
+# pipeline#207 §2 named deliverable)
+# ---------------------------------------------------------------------------
+
+#: the LOUD tag VetoWeakBuysTask logs at ERROR on a NOT-CLEAN small-n scan
+#: (pipeline kernel/smalln_eligibility.SUPPRESSION_TAG — grep-able by
+#: design; the reason class rides in the parentheses).
+_SMALLN_SUPPRESSED_LOG_PATTERN = "smalln_guard_suppressed"
+
+
+def latest_smalln_ledger(conn: sqlite3.Connection) -> dict | None:
+    """The newest live run's smalln_eligibility ledger row, if any.
+
+    Pipeline #207 §3 persists the partition block as a gate_verdicts row
+    (gate='smalln_eligibility', verdict='allow', reason=branch_action —
+    'acted' / 'not_small_n' / 'suppressed:<class>' / 'deconfigured').
+    None when no row exists (older pipeline, no scan yet) or when the
+    table is absent (minimal fixture / legacy DBs: a monitoring tool must
+    degrade, never abort). Absent-tolerant BY DESIGN: absence is the
+    explicit 'smalln_ledger: absent' state, not an alarm.
+    """
+    try:
+        row = conn.execute(
+            "SELECT gv.run_id, gv.run_date, gv.reason FROM gate_verdicts gv "
+            "JOIN pipeline_runs pr ON pr.run_id = gv.run_id "
+            "WHERE pr.run_type='live' AND gv.gate='smalln_eligibility' "
+            "ORDER BY gv.run_date DESC, pr.created_at DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    run_id, run_date, reason = row
+    return {"run_id": run_id, "run_date": run_date, "reason": str(reason or "")}
+
+
+def check_smalln_guard_suppressed(
+    conn: sqlite3.Connection | None, day: dt.date,
+) -> str | None:
+    """LOUD when the small-n guard reported a suppression (check f).
+
+    Two independent surfaces, either fires:
+      - today's daily log carries the smalln_guard_suppressed ERROR tag;
+      - the newest live run's persisted smalln_eligibility ledger row has
+        branch_action 'suppressed:<class>'.
+    This is a NEW distinct alarm ("small-n guard SUPPRESSED: ...") that
+    never routes through the launchd ack ledger (acks key launchd job
+    labels only), so no historic ack can silence it — same ack-proof
+    construction as check (e) in #545.
+    """
+    log_hit = _daily_log_contains(day, (_SMALLN_SUPPRESSED_LOG_PATTERN,))
+    ledger = latest_smalln_ledger(conn) if conn is not None else None
+    ledger_hit = bool(ledger and ledger["reason"].startswith("suppressed:"))
+    if not log_hit and not ledger_hit:
+        return None
+    detail_parts: list[str] = []
+    if ledger_hit:
+        detail_parts.append(
+            f"run {ledger['run_date']} ({ledger['run_id']}) recorded "
+            f"branch_action={ledger['reason']}"
+        )
+    if log_hit:
+        detail_parts.append(
+            f"daily log {day.isoformat()} carries the "
+            f"{_SMALLN_SUPPRESSED_LOG_PATTERN} ERROR tag"
+        )
+    return (
+        "small-n guard SUPPRESSED: " + "; ".join(detail_parts) + " — the "
+        "eligibility partition was NOT CLEAN, so the relax-only guard "
+        "refused to act and the status-quo floor stood (pipeline#207 §2). "
+        "The suppression reason names the first failing class "
+        "(mass_balance / funnel_integrity / share_bound / "
+        "policy_set_identity / unknown_exclusion_reason / failure_marker); "
+        "inspect the run's smalln_ledger block in gate_verdicts / the run "
+        "bundle before trusting the day's no-entry outcome."
+    )
+
+
+# ---------------------------------------------------------------------------
 # check b: swallowed failures in the daily log
 # ---------------------------------------------------------------------------
 
@@ -410,6 +498,12 @@ def main(argv: list[str] | None = None) -> int:
         err = check_smalln_all_veto(conn)
         if err:
             problems.append(err)
+    # check f runs even when the DB is unreadable: its log surface is
+    # independent, and a suppressed day must not hide behind a DB problem.
+    err = check_smalln_guard_suppressed(conn, today)
+    if err:
+        problems.append(err)
+    if conn is not None:
         conn.close()
 
     err = check_traceback_in_daily_log(today)

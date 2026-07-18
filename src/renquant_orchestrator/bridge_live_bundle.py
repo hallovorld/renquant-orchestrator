@@ -85,6 +85,22 @@ def _execution_audit(ctx: Any) -> list[dict[str, Any]]:
     }]
 
 
+def _smalln_ledger(ctx: Any) -> dict[str, Any] | str:
+    """The §3 eligibility-ledger block (pipeline #207), run-bundle side.
+
+    Pipeline's ``VetoWeakBuysTask`` attaches a schema-versioned partition
+    block to ``ctx._smalln_eligibility`` on every session; the amendment
+    requires the run bundle to carry it. ABSENT-TOLERANT for old pipelines:
+    per §3 the absence of the block is explicit — ``"absent"`` — never an
+    error (bundles from pre-#207 pipelines must keep building bit-for-bit
+    plus this one literal field).
+    """
+    block = getattr(ctx, "_smalln_eligibility", None)
+    if isinstance(block, dict) and block:
+        return {str(k): _jsonable(v) for k, v in block.items()}
+    return "absent"
+
+
 def build_bridge_live_bundle(
     ctx: Any,
     *,
@@ -97,6 +113,7 @@ def build_bridge_live_bundle(
         "decision_trace": _decision_trace(ctx),
         "order_intents": _order_intents(ctx),
         "execution_audit": _execution_audit(ctx),
+        "smalln_ledger": _smalln_ledger(ctx),
     }
     if metadata:
         bundle["metadata"] = dict(metadata)
