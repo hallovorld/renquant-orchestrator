@@ -18,6 +18,11 @@ existing liveness checkers (which prove jobs *ran*) cannot see:
      status is nonzero
   d. buy-path blocked streak — the last N session days each ended
      buy-blocked (row flag or a BUY-BLOCKED decision line in the log)
+  e. small-n all-veto funnel freeze — the latest live scan's buy funnel
+     had EVERY scored candidate vetoed by the rank floor at a
+     finite-scored n below N0_sentinel: at that n the self-referential
+     floor is a statistical all-veto, not a quality verdict
+     (RFC pipeline#204 §2.3; 2026-07-16/17 override sessions)
 
 Read-only: the runs DB is opened mode=ro&immutable=1; logs are only read.
 Session-day gating uses the real NYSE calendar (holidays never alarm), and
@@ -29,6 +34,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 import re
 import sqlite3
@@ -145,6 +151,121 @@ def check_buy_blocked_streak(conn: sqlite3.Connection, days: list[dt.date]) -> s
             f"buy-path blocked streak: {len(hits)} consecutive session day(s) "
             f"ended buy-blocked ({', '.join(hits)}) while exits keep running — "
             f"one-sided book drain risk."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# check e: small-n all-veto funnel freeze (RFC pipeline#204 §2.3)
+# ---------------------------------------------------------------------------
+
+#: the strategy config the live run actually reads: the PINNED
+#: renquant-strategy-104 runtime checkout, resolved the same way the
+#: run-surface drift scan resolves runtime repos
+#: (RQ/.subrepo_runtime/repos/<name> at the subrepos.lock.json pin —
+#: see ops/run_surface_drift_check.py RUNTIME_ROOT).
+PINNED_STRATEGY_CONFIG = os.path.join(
+    RQ, ".subrepo_runtime", "repos", "renquant-strategy-104",
+    "configs", "strategy_config.json",
+)
+
+#: built-in small-n threshold: 12 is the smallest scan size where
+#: P(all-veto by the self-referential mean+1σ floor) ≤ 1% under the RFC's
+#: r2 empirical-mixture Monte Carlo (RFC pipeline#204 §2.1). The sentinel
+#: MUST NOT depend on the guard being configured — absent/invalid config
+#: still alarms at this floor, so the alarm can never go quiet exactly
+#: when the guard is broken or deconfigured.
+N0_SENTINEL_BUILTIN = 12
+
+_RANK_FLOOR_VETO = "veto:rank_score_below_floor"
+
+
+def n0_sentinel(config_path: str | None = None) -> int:
+    """N0_sentinel = max(12, pinned buy_floor_min_n if valid else 0).
+
+    Validity follows the guard's own §2.2 bounds: an integer in [2, 30]
+    (bools excluded). A missing/unreadable config, an absent key, or an
+    out-of-bounds value all fall back to the built-in 12 — the rule fires
+    regardless of the guard's configuration state (RFC pipeline#204 §2.3,
+    closing the r1 review's half-config blind spot).
+    """
+    if config_path is None:
+        config_path = PINNED_STRATEGY_CONFIG  # resolved at call time (test-patchable)
+    try:
+        cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        val = cfg.get("ranking", {}).get("panel_scoring", {}).get("buy_floor_min_n")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return N0_SENTINEL_BUILTIN
+    if isinstance(val, int) and not isinstance(val, bool) and 2 <= val <= 30:
+        return max(N0_SENTINEL_BUILTIN, val)
+    return N0_SENTINEL_BUILTIN
+
+
+def latest_candidate_funnel(conn: sqlite3.Connection) -> dict | None:
+    """The buy funnel of the newest live run carrying role='candidate' rows.
+
+    Intraday holdings-only runs record no candidate rows and are skipped —
+    the daily full scan is what carries the funnel. None when no scan is
+    recorded at all (that is the liveness checker's domain) or when the
+    candidate_scores table is absent (minimal fixture / legacy DBs: a
+    monitoring tool must degrade, never abort).
+    """
+    try:
+        row = conn.execute(
+            "SELECT pr.run_id, pr.run_date FROM pipeline_runs pr "
+            "WHERE pr.run_type='live' AND EXISTS "
+            "(SELECT 1 FROM candidate_scores cs WHERE cs.run_id = pr.run_id "
+            " AND cs.role='candidate') "
+            "ORDER BY pr.run_date DESC, pr.created_at DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    run_id, run_date = row
+    scored = conn.execute(
+        "SELECT rank_score, blocked_by FROM candidate_scores "
+        "WHERE run_id = ? AND role = 'candidate'",
+        (run_id,),
+    ).fetchall()
+    return {
+        "run_id": run_id,
+        "run_date": run_date,
+        "n_scored": len(scored),
+        "n_rank_floor_vetoed": sum(1 for _, b in scored if b == _RANK_FLOOR_VETO),
+        # the guard's n is the FINITE-score count (NaN-vetoed rows excluded),
+        # consistent with the statistic it protects (RFC pipeline#204 §2.2)
+        "n_finite": sum(1 for s, _ in scored if s is not None and math.isfinite(s)),
+    }
+
+
+def check_smalln_all_veto(conn: sqlite3.Connection) -> str | None:
+    """LOUD when the latest scan was ALL-vetoed by the rank floor at small n.
+
+    Fires on: rank-floor veto count == scored-candidate count > 0 AND
+    finite-scored n < N0_sentinel. This is a NEW distinct alarm ("small-n
+    all-veto funnel freeze: …") that never routes through the launchd ack
+    ledger (acks key launchd job labels only), so no historic ack can
+    silence it.
+    """
+    funnel = latest_candidate_funnel(conn)
+    if funnel is None:
+        return None
+    n0 = n0_sentinel()
+    if (
+        funnel["n_scored"] > 0
+        and funnel["n_rank_floor_vetoed"] == funnel["n_scored"]
+        and funnel["n_finite"] < n0
+    ):
+        return (
+            f"small-n all-veto funnel freeze: latest live scan "
+            f"{funnel['run_date']} ({funnel['run_id']}) had the rank floor "
+            f"veto ALL {funnel['n_rank_floor_vetoed']}/{funnel['n_scored']} "
+            f"scored candidate(s) at finite-scored n={funnel['n_finite']} < "
+            f"N0_sentinel={n0} — at this n the self-referential floor is a "
+            f"statistical all-veto, not a quality verdict (2026-07-16/17 "
+            f"pattern). Remediation: RFC pipeline#204 (VetoWeakBuys small-n "
+            f"guard)."
         )
     return None
 
@@ -286,6 +407,9 @@ def main(argv: list[str] | None = None) -> int:
             err = check(conn, days)
             if err:
                 problems.append(err)
+        err = check_smalln_all_veto(conn)
+        if err:
+            problems.append(err)
         conn.close()
 
     err = check_traceback_in_daily_log(today)
