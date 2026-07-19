@@ -123,6 +123,7 @@ class TestDailyRunContext:
         assert ctx.run_bundle == {}
         assert ctx.stage_trace == []
         assert ctx.resolved_serving_bundle is None
+        assert ctx.g4_session_admission is None
 
     def test_all_dataclass_fields_exist(self) -> None:
         names = {f.name for f in fields(DailyRunContext)}
@@ -132,7 +133,7 @@ class TestDailyRunContext:
             "broker", "runtime_stages", "account_snapshot", "price_map",
             "dry_run", "training_context", "inference_context",
             "execution_context", "backtest_context", "run_bundle", "stage_trace",
-            "resolved_serving_bundle",
+            "resolved_serving_bundle", "g4_session_admission",
         }
         assert names == expected
 
@@ -655,6 +656,10 @@ class TestPersistDailyRunBundleTask:
         # while no production bundle store exists (store migration is
         # census-gated; ctx.resolved_serving_bundle defaults to None).
         assert bundle["serving_bundle"] == {"bundle_store": "not_deployed"}
+        # G4 re-registration step 2 (model#61 v4 §5): explicit "absent"
+        # marker while the G4 shadow job is not scheduled (Phase 0 BLOCKED;
+        # ctx.g4_session_admission defaults to None) — the #549 convention.
+        assert bundle["g4_session"] == "absent"
         # output_files added on second write
         assert "output_files" in bundle
         assert "run_bundle" in bundle["output_files"]
