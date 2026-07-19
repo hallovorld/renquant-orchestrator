@@ -1,0 +1,524 @@
+{
+  "artifact": "smalln_guard_shadow_verdict",
+  "status": "FROZEN",
+  "verdict": "REPLAY-CONSISTENT / INSUFFICIENT-N",
+  "verdict_short": "Not GO (N<10), not NO-GO (no blocking defect). Replay-consistent; strong positive evidence; live/expanded-corpus accrual to N_shadow=10 required before the production key-flip.",
+  "generated_utc": "2026-07-19T01:11:40.158702Z",
+  "method": "REPLAY (recorded candidate_scores) through the DEPLOYED pinned guard + eligibility-ledger; DBs opened mode=ro&immutable=1; zero live orders; temp-only writes.",
+  "provenance": {
+    "pipeline_pin": "d32f7017ff052faae16668850e6c1b3be1359f08",
+    "pipeline_prs": [
+      "#204 RFC",
+      "#205 guard stage-1",
+      "#207/#208 eligibility ledger"
+    ],
+    "strategy104_pin": "082dccd21584733af57c33e95851bf3a69b21019",
+    "shadow_config_sha256_16": "29aedd581e88c71d",
+    "db": "runs.alpaca.db (size=116068352, mtime=2026-07-17T14:34:15, mode=ro&immutable=1)",
+    "guard_keys": {
+      "buy_floor_min_n": 12,
+      "buy_floor_absolute_smalln": 0.5,
+      "buy_floor_min": 0.2
+    },
+    "design_doc": "renquant-pipeline doc/design/2026-07-18-smalln-guard-eligibility-ledger.md \u00a74",
+    "corpus_source": "orchestrator #543/#544 evidence-script PART-3 target set (latest live run per date with candidate rows; n<10 OR mean+1sigma all-veto)"
+  },
+  "corpus": {
+    "size": 14,
+    "digest": "3da8fcdc7ce595b17d8d37fc",
+    "dates": [
+      "2026-04-23",
+      "2026-04-24",
+      "2026-04-25",
+      "2026-04-26",
+      "2026-04-27",
+      "2026-05-03",
+      "2026-05-04",
+      "2026-05-06",
+      "2026-05-12",
+      "2026-05-13",
+      "2026-05-14",
+      "2026-05-15",
+      "2026-07-16",
+      "2026-07-17"
+    ],
+    "affected_clean_smalln": [
+      "2026-04-23",
+      "2026-04-26",
+      "2026-04-27",
+      "2026-05-03",
+      "2026-07-16",
+      "2026-07-17"
+    ],
+    "operative_affected_clean": [
+      "2026-07-16",
+      "2026-07-17"
+    ],
+    "suppressed": [
+      "2026-04-24",
+      "2026-04-25",
+      "2026-05-12",
+      "2026-05-13",
+      "2026-05-14",
+      "2026-05-15"
+    ],
+    "not_small_n": [
+      "2026-05-04",
+      "2026-05-06"
+    ]
+  },
+  "N_shadow_required": 10,
+  "operative_affected_clean_count": 2,
+  "go_criteria": {
+    "volume_N>=10": {
+      "pass": false,
+      "value": 2,
+      "note": "frozen threshold N_shadow=10 NOT met by the replay corpus"
+    },
+    "i_zero_partition_mislabel": {
+      "pass": true,
+      "evidence": "operative affected sessions 07-16/07-17 correctly CLEAN (governed-override, approved-normal, score_missing=0, realized_vol share 1/6=0.167<=0.50). All real failure-residue days correctly handled: 05-12..15 (mu-none score inflation) SUPPRESSED via unknown_exclusion_reason; 04-24/04-25 SUPPRESSED via unknown tier/defensive_non_bear; 05-04/05-06 score-collapse are n>=12 so guard inert. Synthetic AC-B/AC-F/AC-G + failure-marker all correctly NOT-CLEAN.",
+      "synthetic_predicate_sound": true
+    },
+    "ii_delta_traceable_no_gate_bypass": {
+      "pass": true,
+      "evidence": "delta {ATI,EME,BWXT} all mu>0 -> pass calibrated-mu direction gate; VetoWeakBuys floor is downstream of Phase-2 risk_gate_vol (already dropped 1 name pre-floor) and upstream of Selection/QP/Kelly (relaxing continues names to unchanged gates, skips none). XLI/XLY (mu<0) stay vetoed under both floor modes.",
+      "delta_names": [
+        "ATI",
+        "EME",
+        "BWXT"
+      ]
+    },
+    "iii_admits>=1_on>=70%_operative": {
+      "pass": true,
+      "value": 1.0,
+      "denominator": 2,
+      "note": "2/2 operative-affected sessions admit 3 names each (100%); N=2 underpowered vs the 10-session bar"
+    },
+    "iv_no_new_alarm_class": {
+      "pass": true,
+      "evidence": "the only new tag is smalln_guard_suppressed (designed sentinel, orchestrator #549 deployed); it fires ONLY on correctly-suppressed days; branch ACTED days (07-16/17) emit no suppression tag. No spurious alarm class."
+    }
+  },
+  "no_go_triggers": {
+    "any_partition_mislabel_on_operative": {
+      "tripped": false,
+      "checked": "manual audit of every operative small-n session; failure-residue days are SUPPRESSED not CLEAN"
+    },
+    "any_delta_name_bypasses_gate": {
+      "tripped": false
+    },
+    "sentinel_fails_on_suppressed_day": {
+      "tripped": false,
+      "checked": "smalln_guard_suppressed LOUD rule deployed (orchestrator #549); suppressed replay days would tag+alarm"
+    }
+  },
+  "synthetic_mislabel_tests": {
+    "AC-B score_missing>0 @ n=5": {
+      "clean": false,
+      "reason": "funnel_integrity:panel_score_missing=1"
+    },
+    "AC-F generation-starve exp=145 entered=5 zero-excl": {
+      "clean": false,
+      "reason": "mass_balance:accounted=5 != expected=145"
+    },
+    "AC-G mass-wash-sale share>bound (wash=2 of 5)": {
+      "clean": false,
+      "reason": "share_bound:wash_sale share=0.400 > bound=0.20"
+    },
+    "AC-G wash-sale UNDER bound (wash=1 of 10)": {
+      "clean": true,
+      "reason": null
+    },
+    "healthy governed n=5 (realized_vol 1 of 6)": {
+      "clean": true,
+      "reason": null
+    },
+    "failure marker present": {
+      "clean": false,
+      "reason": "failure_marker:calibrator_contract_failed"
+    }
+  },
+  "per_session": [
+    {
+      "date": "2026-04-23",
+      "run_id": "2026-04-23-live-275efe7e",
+      "scores_digest": "96963691c236d1a7",
+      "finite_n": 5,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 5,
+      "pre_floor_exclusions": {},
+      "status_quo_floor_prod_mean1sig": 0.2684,
+      "status_quo_floor_shadow_q080": 0.2617,
+      "relaxed_floor": 0.2684,
+      "branch_action": "acted",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": [
+        "TSM"
+      ]
+    },
+    {
+      "date": "2026-04-24",
+      "run_id": "2026-04-24-live-e8cb98dc",
+      "scores_digest": "cb0a22a0734e20bb",
+      "finite_n": 0,
+      "clean": false,
+      "not_clean_reason": "unknown_exclusion_reason:defensive_non_bear",
+      "expected_universe_reconstructed": 2,
+      "pre_floor_exclusions": {
+        "defensive_non_bear": 1,
+        "tier": 1
+      },
+      "status_quo_floor_prod_mean1sig": 0.262,
+      "status_quo_floor_shadow_q080": 0.2613,
+      "relaxed_floor": 0.262,
+      "branch_action": "suppressed:unknown_exclusion_reason:defensive_non_bear",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-04-25",
+      "run_id": "2026-04-25-live-eb61dde9",
+      "scores_digest": "fbee8dbc016c0787",
+      "finite_n": 2,
+      "clean": false,
+      "not_clean_reason": "unknown_exclusion_reason:defensive_non_bear",
+      "expected_universe_reconstructed": 9,
+      "pre_floor_exclusions": {
+        "defensive_non_bear": 1,
+        "tier": 6
+      },
+      "status_quo_floor_prod_mean1sig": 1.1194,
+      "status_quo_floor_shadow_q080": 0.8847,
+      "relaxed_floor": 1.1194,
+      "branch_action": "suppressed:unknown_exclusion_reason:defensive_non_bear",
+      "operative_prod": true,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-04-26",
+      "run_id": "2026-04-26-live-ed955a01",
+      "scores_digest": "c583b1237df956a2",
+      "finite_n": 9,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 9,
+      "pre_floor_exclusions": {},
+      "status_quo_floor_prod_mean1sig": 0.3437,
+      "status_quo_floor_shadow_q080": 0.3447,
+      "relaxed_floor": 0.3437,
+      "branch_action": "acted",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": [
+        "APP",
+        "FTNT",
+        "NET",
+        "NFLX"
+      ]
+    },
+    {
+      "date": "2026-04-27",
+      "run_id": "2026-04-27-live-da1f03ba",
+      "scores_digest": "8284a2dee0543cb6",
+      "finite_n": 6,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 6,
+      "pre_floor_exclusions": {},
+      "status_quo_floor_prod_mean1sig": 0.298,
+      "status_quo_floor_shadow_q080": 0.2613,
+      "relaxed_floor": 0.298,
+      "branch_action": "acted",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": [
+        "MU"
+      ]
+    },
+    {
+      "date": "2026-05-03",
+      "run_id": "2026-05-03-live-baeb1770",
+      "scores_digest": "cf88abcc54e69ee0",
+      "finite_n": 2,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 2,
+      "pre_floor_exclusions": {},
+      "status_quo_floor_prod_mean1sig": 0.4265,
+      "status_quo_floor_shadow_q080": 0.4265,
+      "relaxed_floor": 0.4265,
+      "branch_action": "acted",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": [
+        "ORCL",
+        "WMT"
+      ]
+    },
+    {
+      "date": "2026-05-04",
+      "run_id": "2026-05-04-live-47a6034a",
+      "scores_digest": "e1582a1bad316488",
+      "finite_n": 43,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 43,
+      "pre_floor_exclusions": {},
+      "status_quo_floor_prod_mean1sig": 0.2602,
+      "status_quo_floor_shadow_q080": 0.2579,
+      "relaxed_floor": 0.2602,
+      "branch_action": "not_small_n",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-05-06",
+      "run_id": "2026-05-06-live-84aa13a7",
+      "scores_digest": "da8de302caacfc16",
+      "finite_n": 45,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 45,
+      "pre_floor_exclusions": {},
+      "status_quo_floor_prod_mean1sig": 0.2595,
+      "status_quo_floor_shadow_q080": 0.2579,
+      "relaxed_floor": 0.2595,
+      "branch_action": "not_small_n",
+      "operative_prod": false,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-05-12",
+      "run_id": "2026-05-12-live-99b35be9",
+      "scores_digest": "f070337cdce091b8",
+      "finite_n": 0,
+      "clean": false,
+      "not_clean_reason": "unknown_exclusion_reason:kelly_zero:mu_none",
+      "expected_universe_reconstructed": 38,
+      "pre_floor_exclusions": {
+        "kelly_zero:mu_none": 38
+      },
+      "status_quo_floor_prod_mean1sig": 1.003,
+      "status_quo_floor_shadow_q080": 1.0,
+      "relaxed_floor": 1.003,
+      "branch_action": "suppressed:unknown_exclusion_reason:kelly_zero:mu_none",
+      "operative_prod": true,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-05-13",
+      "run_id": "2026-05-13-live-28cd4b3c",
+      "scores_digest": "d520853e1dbef7c2",
+      "finite_n": 0,
+      "clean": false,
+      "not_clean_reason": "unknown_exclusion_reason:kelly_zero:mu_none",
+      "expected_universe_reconstructed": 35,
+      "pre_floor_exclusions": {
+        "kelly_zero:mu_none": 35
+      },
+      "status_quo_floor_prod_mean1sig": 1.0053,
+      "status_quo_floor_shadow_q080": 1.0,
+      "relaxed_floor": 1.0053,
+      "branch_action": "suppressed:unknown_exclusion_reason:kelly_zero:mu_none",
+      "operative_prod": true,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-05-14",
+      "run_id": "2026-05-14-live-1885c20c",
+      "scores_digest": "4f0040f2218e3e56",
+      "finite_n": 0,
+      "clean": false,
+      "not_clean_reason": "unknown_exclusion_reason:kelly_zero:mu_none",
+      "expected_universe_reconstructed": 34,
+      "pre_floor_exclusions": {
+        "kelly_zero:mu_none": 34
+      },
+      "status_quo_floor_prod_mean1sig": 1.0054,
+      "status_quo_floor_shadow_q080": 1.0,
+      "relaxed_floor": 1.0054,
+      "branch_action": "suppressed:unknown_exclusion_reason:kelly_zero:mu_none",
+      "operative_prod": true,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-05-15",
+      "run_id": "2026-05-15-live-45ce9a07",
+      "scores_digest": "ade0f35db18cd207",
+      "finite_n": 0,
+      "clean": false,
+      "not_clean_reason": "unknown_exclusion_reason:kelly_zero:mu_none",
+      "expected_universe_reconstructed": 33,
+      "pre_floor_exclusions": {
+        "kelly_zero:mu_none": 33
+      },
+      "status_quo_floor_prod_mean1sig": 1.0072,
+      "status_quo_floor_shadow_q080": 1.0,
+      "relaxed_floor": 1.0072,
+      "branch_action": "suppressed:unknown_exclusion_reason:kelly_zero:mu_none",
+      "operative_prod": true,
+      "candidate_delta_prod": [],
+      "candidate_delta_shadow": [],
+      "delta_mu": {},
+      "admitted_by_guard": []
+    },
+    {
+      "date": "2026-07-16",
+      "run_id": "2026-07-16-live-a24a8be1",
+      "scores_digest": "207b5abcb4d5ec6c",
+      "finite_n": 5,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 6,
+      "pre_floor_exclusions": {
+        "risk_gate_vol": 1
+      },
+      "status_quo_floor_prod_mean1sig": 0.5611,
+      "status_quo_floor_shadow_q080": 0.5497,
+      "relaxed_floor": 0.5,
+      "branch_action": "acted",
+      "operative_prod": true,
+      "candidate_delta_prod": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ],
+      "candidate_delta_shadow": [
+        "BWXT",
+        "EME"
+      ],
+      "delta_mu": {
+        "ATI": 0.0249,
+        "BWXT": 0.01627,
+        "EME": 0.02147
+      },
+      "admitted_by_guard": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ]
+    },
+    {
+      "date": "2026-07-17",
+      "run_id": "2026-07-17-live-41b03289",
+      "scores_digest": "163fcc572f69bb5f",
+      "finite_n": 5,
+      "clean": true,
+      "not_clean_reason": null,
+      "expected_universe_reconstructed": 6,
+      "pre_floor_exclusions": {
+        "risk_gate_vol": 1
+      },
+      "status_quo_floor_prod_mean1sig": 0.5765,
+      "status_quo_floor_shadow_q080": 0.5598,
+      "relaxed_floor": 0.5,
+      "branch_action": "acted",
+      "operative_prod": true,
+      "candidate_delta_prod": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ],
+      "candidate_delta_shadow": [
+        "ATI",
+        "EME"
+      ],
+      "delta_mu": {
+        "ATI": 0.02493,
+        "BWXT": 0.02709,
+        "EME": 0.0254
+      },
+      "admitted_by_guard": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ]
+    }
+  ],
+  "operative_override_sessions": {
+    "2026-07-16": {
+      "status_quo_floor_prod": 0.5611,
+      "recorded_live_floor": 0.561,
+      "relaxed_floor": 0.5,
+      "delta_prod_mean1sig": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ],
+      "delta_shadow_q080": [
+        "BWXT",
+        "EME"
+      ],
+      "admitted_by_guard": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ],
+      "still_vetoed_mu_neg": [
+        "XLI",
+        "XLY"
+      ]
+    },
+    "2026-07-17": {
+      "status_quo_floor_prod": 0.5765,
+      "recorded_live_floor": 0.577,
+      "relaxed_floor": 0.5,
+      "delta_prod_mean1sig": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ],
+      "delta_shadow_q080": [
+        "ATI",
+        "EME"
+      ],
+      "admitted_by_guard": [
+        "ATI",
+        "BWXT",
+        "EME"
+      ],
+      "still_vetoed_mu_neg": [
+        "XLI",
+        "XLY"
+      ]
+    }
+  },
+  "limitations": [
+    "REPLAY cannot validate the mass-balance-vs-INDEPENDENT-counter protection (the P0 core hazard, AC-F) on historical sessions: expected_universe is emitted by the candidate-generation stage (#207/#208 instrumentation) which POSTDATES every replay session, so it is RECONSTRUCTED = entered_scan + recorded pre-floor exclusions, which makes mass-balance vacuously true. That protection is validated here ONLY by the synthetic AC-F test (deployed code returns NOT-CLEAN), and requires live accrual of the generation-stage counter for real-data confirmation.",
+    "CONFIG FLOOR-MODE MISMATCH: guard keys are staged in strategy_config.shadow.json which runs buy_floor=adaptive_quantile, whereas PRODUCTION runs adaptive_mean_std (guard keys absent, correctly awaiting GO). The 07-16/17 incident occurred under production adaptive_mean_std (floor 0.561). Replay evaluated BOTH: under mean+1sigma the delta is {ATI,EME,BWXT} (matches AC-a); under q0.80 the guard still admits {ATI,EME,BWXT} but with smaller delta. IMPLICATION: live shadow accrual under the CURRENT shadow config exercises the guard against the quantile floor (q80<=scores => the relax-only min() usually degrades to status quo => few/zero OPERATIVE sessions), so live shadow accrual is a WEAK path to N_shadow=10. The faithful production-behavior evidence is the mean+1sigma replay. Recommend reaching N via an EXPANDED historical replay corpus under the production floor mode, and/or documenting the floor-mode non-equivalence in the activation record.",
+    "Score-SCALE-collapse failure class (05-04/05-06 at n=43/45, floor~0.26) is NOT caught by the eligibility ledger (acknowledged gap in the memo/design; needs a separate calibrator-scale integrity check). Harmless to the guard because those sessions are n>=N0 so the small-n branch never acts; noted for completeness."
+  ],
+  "recommendation": "Do NOT flip the production key on this replay alone (N<10). The replay is STRONG positive evidence: the guard admits exactly {ATI,EME,BWXT} on both operative sessions, XLI/XLY (mu<0) stay vetoed, no downstream-gate bypass, no new alarm class, and the eligibility ledger correctly SUPPRESSES both synthetic and REAL failure-residue days (notably averting a 33-38 name mass-admit on the 05-12..15 mu-none inflation days). To reach GO: (a) accrue to N_shadow=10 operative affected sessions -- preferably via an expanded historical replay under the production adaptive_mean_std floor, since shadow-arm quantile accrual is a weak proxy; then (b) explicit operator authorization on the record; then (c) the pin PR restoring keys to production+golden. Neither agent may self-authorize."
+}
