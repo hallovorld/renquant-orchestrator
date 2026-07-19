@@ -18,6 +18,7 @@ from renquant_pipeline import InferenceContext, RuntimeInferencePipeline, valida
 from pydantic import ValidationError
 
 from renquant_orchestrator.config_schema import validate_strategy_config
+from renquant_orchestrator.g4_admission import g4_session_bundle_block
 from renquant_orchestrator.serving_bundle_provenance import serving_bundle_provenance
 
 
@@ -51,6 +52,13 @@ class DailyRunContext:
     # the persisted run bundle carry the explicit
     # {"bundle_store": "not_deployed"} marker — daily behavior unchanged.
     resolved_serving_bundle: Any | None = None
+    # G4 re-registration step 2 (model#61 v4 §5): the session's admission
+    # ledger entry from renquant_orchestrator.g4_admission.admit_g4_session,
+    # or None while the G4 shadow job is NOT scheduled (Phase 0 BLOCKED —
+    # the current reality for every daily run). None makes the persisted
+    # run bundle carry the literal "absent" marker (the #549 convention) —
+    # daily behavior unchanged.
+    g4_session_admission: Any | None = None
 
     training_context: TrainingContext | None = None
     inference_context: InferenceContext | None = None
@@ -248,6 +256,11 @@ class PersistDailyRunBundleTask(Task):
             # resolved, or the explicit not-deployed marker until the
             # census-gated migration (§3) deploys the store.
             "serving_bundle": serving_bundle_provenance(ctx.resolved_serving_bundle),
+            # G4 re-registration step 2 (model#61 v4 §2/§5): the session
+            # admission verdict summary once the shadow job runs, or the
+            # explicit "absent" marker while it is not scheduled (Phase 0
+            # BLOCKED). Additive/absent-tolerant, the #547/#549 pattern.
+            "g4_session": g4_session_bundle_block(ctx.g4_session_admission),
             "market_snapshot": ctx.market_snapshot,
             "account_snapshot": ctx.account_snapshot,
             "decision_trace": list(ctx.inference_context.decision_trace),
