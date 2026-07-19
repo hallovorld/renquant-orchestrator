@@ -126,3 +126,46 @@ implementation ordering depends on the answer.
   (backtesting/model/orch) green in the gate-introducing PR.
 - AC-4 no-flag-day: a test forces `CANONICAL_PROVENANCE_REQUIRED_AFTER` past
   and proves the window semantics; another proves pre-window tolerance.
+
+## 7. Known open design gaps (adversarial self-review — resolve before impl)
+
+These are named honestly rather than hand-waved; each must be closed in the
+implementation-design round (not this RFC).
+
+### 7.1 The producer may be a PAIR published by TWO jobs
+artifacts#29 binds the canonical publication as the scorer + calibrator
+**pair**. But the scorer (WF-gate promote, weekly) and the calibrator
+(`monthly_calibrator_refresh`, monthly) are published on DIFFERENT cadences
+by DIFFERENT entrypoints. So "one atomic sequence writes run_intent + registers
+the publication" (§3.1) is not obviously realizable — there may be no single
+pair-publishing entrypoint. RESOLUTION options: (a) route both through one
+pair-publishing entrypoint (this is exactly AC4's pair-atomic bundle seal —
+a THIRD AC4 coordination point, arguing #55 should ride AC4's bundle
+generation as the pair unit); (b) a run-intent that spans the pair with a
+two-phase register. Must be decided before producer impl.
+
+### 7.2 The produce -> commit -> pin -> validate registry cycle
+`register_canonical_publication` MUTATES the registry `INDEX.json`, but
+`verify_canonical_publication_snapshot` requires a CLEAN, pinned checkout.
+There is therefore a commit -> push -> subrepo-pin cycle between publication
+and validation, and #29's own follow-up named the missing piece: a
+"protected, review-gated publisher for registry commits." The hard sub-problem
+is that an AUTOMATED daily producer cannot have a human review each registry
+commit. RESOLUTION options: (a) the producer writes to a staging ref that a
+review-gated bot promotes; (b) the registry INDEX is append-only +
+content-addressed so any commit is trivially machine-verifiable and the
+run-intent's re-verifiable evidence (code pins + fingerprints vs the actual
+environment) IS the "review". RECOMMEND (b) — it matches #29's stated trust
+model ("evidence re-verifiable against the environment", no per-run PR). This
+publisher design is a prerequisite of the pin advance (§4 P-d).
+
+### 7.3 AC4 coupling must not become a deadlock
+§3.3/§5 recommend #55's gate land AFTER the AC4 P1-seal cutover — but that is
+operator-gated and unscheduled; naive coupling stalls #55 on it. MITIGATION
+(supersedes the §5 framing): build the #55 producer + admission (opt-in OFF)
+INDEPENDENTLY now — they are byte-identical-to-today with the flag off — and
+gate ONLY the enforcement-window flip (P-c) on AC4 so the provenance binds to
+a bundle generation rather than a bare flat path. This decouples the
+buildable, review-able work from the operator-gated sequencing, so neither
+blocks the other. The operator's §5 answer then only affects WHEN P-c flips,
+not whether P-a/P-b can proceed.
