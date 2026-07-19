@@ -446,6 +446,39 @@ def test_extract_bindings_copies_wf_gate_verdict_verbatim():
     assert bindings2["wf_gate_verdict"] == "UNSTAMPED"
 
 
+def test_extract_bindings_derives_verdict_from_passed_and_carries_override():
+    # the LIVE panel stamps the outcome as `passed`/override booleans, not a
+    # `verdict` string — the seal reflects that verbatim (§2.7) and carries
+    # the operator-override provenance into the bundle.
+    panel = json.dumps(
+        {
+            "kind": "panel_ltr_xgb",
+            "booster_raw_json": "{}",
+            "config_fingerprint": "sha256:f8fb2259b",
+            "wf_gate_metadata": {
+                "passed": True,
+                "gate_verdict_before_override": False,
+                "operator_authorized_override": True,
+                "override_reason": "freshness > strict gate",
+                "diagnostic_only": True,
+                "gate_version": 2,
+            },
+        }
+    ).encode()
+    bindings = extract_bindings(panel, _calibrator_bytes())
+    assert bindings["wf_gate_verdict"] == "PASS"  # derived from passed=True
+    assert bindings["wf_passed"] is True
+    assert bindings["wf_gate_verdict_before_override"] is False
+    assert bindings["wf_operator_authorized_override"] is True
+    assert bindings["wf_override_reason"] == "freshness > strict gate"
+    assert bindings["scorer_fingerprint"] == "sha256:f8fb2259b"
+
+    failed = json.dumps(
+        {"kind": "x", "booster_raw_json": "{}", "wf_gate_metadata": {"passed": False}}
+    ).encode()
+    assert extract_bindings(failed, _calibrator_bytes())["wf_gate_verdict"] == "FAIL"
+
+
 def test_cli_main_uses_create_default_store(tmp_path, monkeypatch, capsys):
     """The production CLI path builds the store via create_default_store,
     so writer step-6 pair validation is wired by construction (validator

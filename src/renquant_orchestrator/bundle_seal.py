@@ -182,21 +182,42 @@ def extract_bindings(panel_bytes: bytes, calibrator_bytes: bytes) -> dict[str, A
     panel = _load_json_member(panel_bytes, PANEL_MEMBER)
     calibrator = _load_json_member(calibrator_bytes, CALIBRATOR_MEMBER)
 
-    wf_meta = panel.get("wf_gate_metadata")
-    verdict: Any = None
-    if isinstance(wf_meta, dict):
-        verdict = wf_meta.get("verdict") or wf_meta.get("wf_gate_verdict")
-    if verdict is None:
-        verdict = panel.get("wf_gate_verdict")
-
     bindings: dict[str, Any] = {
         "seal_note": (
             "verbatim pair-consistency copy of the currently-served pair; "
             "NOT a WF-gate buy-admissibility assertion (RFC §2.7)"
         ),
-        # verbatim copy; sentinel only when the panel carries no stamp
-        "wf_gate_verdict": verdict if verdict is not None else "UNSTAMPED",
     }
+
+    wf_meta = panel.get("wf_gate_metadata")
+    verdict: Any = None
+    if isinstance(wf_meta, dict):
+        verdict = wf_meta.get("verdict") or wf_meta.get("wf_gate_verdict")
+        if verdict is None and isinstance(wf_meta.get("passed"), bool):
+            # the live panel stamps the WF-gate outcome as a boolean `passed`
+            # (+ override fields), not a `verdict` string — reflect it verbatim
+            verdict = "PASS" if wf_meta["passed"] else "FAIL"
+        # Carry the stamped WF-gate + operator-override provenance VERBATIM
+        # (compact scalars) so the seal records the override state under which
+        # the operator is knowingly serving this pair (§2.7; also closes the
+        # GOAL-5 "override provenance not in the run bundle" gap).
+        for key in (
+            "passed",
+            "gate_verdict_before_override",
+            "operator_authorized_override",
+            "override_applied_at",
+            "override_reason",
+            "diagnostic_only",
+            "gate_version",
+        ):
+            value = wf_meta.get(key)
+            if isinstance(value, (bool, int, float, str)):
+                bindings[f"wf_{key}"] = value
+    if verdict is None:
+        verdict = panel.get("wf_gate_verdict")
+
+    # verbatim copy; sentinel only when the panel carries no stamp
+    bindings["wf_gate_verdict"] = verdict if verdict is not None else "UNSTAMPED"
     scorer_fp = _first_present_str(
         panel,
         (
