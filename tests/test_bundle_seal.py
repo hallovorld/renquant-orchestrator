@@ -303,6 +303,110 @@ def test_reader_during_flip_sees_consistent_generation(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# 3b. flat-view pair-atomicity: no legacy reader ever sees a MIXED pair
+#     (the 2026-07-16 orphaned calibrator<->scorer binding incident class)
+# --------------------------------------------------------------------------
+
+
+def _read_flat_pair_binding(flat_dir: Path) -> tuple[str, str]:
+    """A LEGACY flat-path reader: load BOTH flat serving files DIRECTLY from
+    their fixed paths (NOT via ``store.resolve_active``) and return
+    ``(panel_scorer_fingerprint, calibrator_scorer_binding)``.
+
+    A consistent serving pair has these EQUAL. A mixed pair (new panel + old
+    calibrator, or the reverse) makes them DIFFER — that is exactly the
+    orphaned calibrator<->scorer binding GOAL-5 AC4 exists to eliminate. This
+    reader is the compatibility surface the flat views claim to protect.
+    """
+    panel = json.loads((flat_dir / PANEL_MEMBER).read_bytes().decode("utf-8"))
+    calibrator = json.loads((flat_dir / CALIBRATOR_MEMBER).read_bytes().decode("utf-8"))
+    return (
+        panel["model_content_fingerprint"],
+        calibrator["metadata"]["scorer_model_content_fingerprint"],
+    )
+
+
+def test_flat_view_refuses_changed_content_and_leaves_pair_untouched(tmp_path):
+    """The non-atomic two-file flat cutover REFUSES a changing pair before a
+    single byte is written, so a legacy reader can never observe a mixed pair
+    (deferred: the pair-atomic changing-content publisher, AC4 P2/P3)."""
+    root = tmp_path / "store"
+    root.mkdir()
+    panel_a, cal_a = _write_pair(tmp_path / "srcA", tag="a")
+    panel_b, cal_b = _write_pair(tmp_path / "srcB", tag="b")
+    flat = tmp_path / "flat"
+    flat.mkdir()
+    store = _make_store(root)
+
+    # genesis seal materializes flat pair A (byte-identical to gen-1 members)
+    seal_serving_pair(
+        store, panel_path=panel_a, calibrator_path=cal_a, operator="renhao",
+        flat_view_dir=flat,
+    )
+    assert _read_flat_pair_binding(flat) == ("scorerfpa", "scorerfpa")
+
+    # a later promote flips the STORE to a CHANGED pair B (no flat regen)
+    seal_serving_pair(
+        store, panel_path=panel_b, calibrator_path=cal_b, operator="renhao",
+        require_genesis=False, regenerate_views=False,
+    )
+
+    # regenerating the flat views for the changed active pair (B over A) is
+    # REFUSED — the non-atomic path is scoped to byte-identical content
+    with store.resolve_active() as resolved:
+        assert resolved.read_member(PANEL_MEMBER) == panel_b.read_bytes()
+        with pytest.raises(SealError, match="CHANGE the served content"):
+            regenerate_flat_views(resolved, flat)
+
+    # the flat pair is untouched and still CONSISTENT (all-A): no mixed pair,
+    # no partial write, no leftover tmp view file
+    assert _read_flat_pair_binding(flat) == ("scorerfpa", "scorerfpa")
+    assert (flat / PANEL_MEMBER).read_bytes() == panel_a.read_bytes()
+    assert (flat / CALIBRATOR_MEMBER).read_bytes() == cal_a.read_bytes()
+    assert [p.name for p in flat.iterdir() if p.name.startswith(".")] == []
+
+
+def test_crash_between_the_two_view_writes_never_exposes_a_mixed_pair(tmp_path):
+    """Fault injection: a crash BETWEEN the two flat-view replaces on the
+    byte-identical (genesis / no-op refresh) path — the only path this P1
+    publisher ever runs — can never leave a mixed pair. A legacy flat-path
+    reader reading both files sees an all-old-or-all-new (here: consistent)
+    pair, never new-panel + old-calibrator."""
+    root = tmp_path / "store"
+    root.mkdir()
+    panel_a, cal_a = _write_pair(tmp_path / "srcA", tag="a")
+    flat = tmp_path / "flat"
+    flat.mkdir()
+    store = _make_store(root)
+
+    # genesis seal materializes flat pair A (byte-identical to gen-1 members)
+    seal_serving_pair(
+        store, panel_path=panel_a, calibrator_path=cal_a, operator="renhao",
+        flat_view_dir=flat,
+    )
+
+    class _Boom(Exception):
+        pass
+
+    # panel-ltr sorts before panel-rank-calibration, so this crash lands in
+    # the exact window that would expose "new panel + old calibrator"
+    def crash(label: str) -> None:
+        if label == f"after-view-replace:{PANEL_MEMBER}":
+            raise _Boom()
+
+    with store.resolve_active() as resolved:
+        with pytest.raises(_Boom):
+            regenerate_flat_views(resolved, flat, crash_hook=crash)
+
+    # cutover interrupted mid-pair, yet the legacy reader sees a CONSISTENT
+    # pair (panel new-inode == A, calibrator old-inode == A) — never mixed
+    fp_panel, fp_cal = _read_flat_pair_binding(flat)
+    assert fp_panel == fp_cal == "scorerfpa"
+    assert (flat / PANEL_MEMBER).read_bytes() == panel_a.read_bytes()
+    assert (flat / CALIBRATOR_MEMBER).read_bytes() == cal_a.read_bytes()
+
+
+# --------------------------------------------------------------------------
 # 4. rollback restores prior serving behavior without artifact surgery
 # --------------------------------------------------------------------------
 
@@ -324,12 +428,15 @@ def test_rollback_restores_prior_serving_without_surgery(tmp_path):
     # capture the gen-1 archived member bytes (to prove NO surgery later)
     gen1_member = (root / "bundles" / gen1_id / PANEL_MEMBER).read_bytes()
 
-    # a later promote flips to gen 2 (pair B); views now reflect B
+    # a later promote flips the STORE to gen 2 (pair B). The changing-content
+    # flat cutover (A->B) is the pair-atomic publisher deferred to AC4 P2/P3,
+    # so we publish through the store WITHOUT regenerating the flat compat
+    # views (regenerate_views=False); the flat pair stays authoritative at A.
     seal_serving_pair(
         store, panel_path=panel_b, calibrator_path=cal_b, operator="renhao",
-        require_genesis=False, flat_view_dir=flat,
+        require_genesis=False, regenerate_views=False,
     )
-    assert (flat / PANEL_MEMBER).read_bytes() == panel_b.read_bytes()
+    assert (flat / PANEL_MEMBER).read_bytes() == panel_a.read_bytes()  # flat still A
 
     # revert: point ACTIVE back to the gen-1 bundle (break-glass rollback)
     rolled = store.rollback_to(gen1_id, authorization=_breakglass_auth())
@@ -339,6 +446,8 @@ def test_rollback_restores_prior_serving_without_surgery(tmp_path):
     with store.resolve_active() as resolved:
         assert resolved.bundle_id == gen1_id
         assert resolved.read_member(PANEL_MEMBER) == panel_a.read_bytes()
+        # gen-1 members are byte-identical to the flat pair (still A) => the
+        # regeneration is a content no-op and passes the pair-atomicity guard
         views = regenerate_flat_views(resolved, flat)
 
     # serving behavior restored: views byte-identical to the original pair A

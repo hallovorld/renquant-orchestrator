@@ -22,7 +22,11 @@ The module:
   READ-ONLY (mode 0444) views of the active bundle's members, byte-identical
   to each member, on the pointer flip (census §6: "views are read-only,
   regenerated on pointer flip") so every existing flat-path reader keeps
-  working unchanged;
+  working unchanged. The two flat members share the `artifacts/prod` dir and
+  are read as fixed absolute paths, so the publisher is **pair-atomicity
+  scoped**: it only ever overwrites a flat file with byte-identical content
+  (the genesis seal / no-op refresh) and REFUSES any changing pair BEFORE a
+  byte is written — no legacy reader can observe a mixed pair (see REVIEW-FIX);
 - `bindings` are a VERBATIM copy of the panel's stamped WF-gate/identity
   metadata (RFC §2.7 — pair-consistency only, EXPLICITLY NOT a
   buy-admissibility assertion); `authorization` is a non-restamp-class seal
@@ -42,7 +46,7 @@ cutover.
 
 EVIDENCE:
 - artifact: `src/renquant_orchestrator/bundle_seal.py` +
-  `tests/test_bundle_seal.py` (12 tests) + regenerated
+  `tests/test_bundle_seal.py` (15 tests) + regenerated
   `data/strategy_snapshot.json` (adds `bundle_seal`).
 - prod or exp: exp — SANDBOX stores only (tmp_path + injected stub pair
   validator + injected local-mount guard/clock); NO live prod store or live
@@ -64,6 +68,42 @@ EVIDENCE:
   `create_default_store`.
 - scope: renquant-orchestrator only; the umbrella RFC/census are merged and
   referenced, not copied; no memory binding-constraint (LONG ledger) changes.
+
+REVIEW-FIX (2026-07-19, codex standing review pullrequestreview-4729657154 —
+flat-view pair-atomicity): the standing review correctly flagged that
+`regenerate_flat_views` replaced the two flat serving files with TWO
+independent `os.replace` calls, so the PAIR was not atomic — a crash between
+the two replaces, or a legacy flat-path reader loading both files mid-loop,
+could observe a MIXED pair (new panel + old calibrator) = the orphaned
+calibrator↔scorer binding AC4 exists to eliminate. Benign for the
+byte-identical genesis seal, but the function is the GENERAL flat publisher
+(`require_genesis=False` / post-rollback with changed content) and the CLI is
+shipped. CHOSEN CUTOVER = scope the non-atomic in-place publisher to
+byte-identical content (Option 3 of the review's menu). A truly pair-atomic
+in-place cutover for CHANGED content would need a per-generation directory
+reached by a single pointer flip — INFEASIBLE while the two members live in
+the shared `backtesting/renquant_104/artifacts/prod/` dir alongside unrelated
+artifacts and are read as FIXED absolute paths by many readers across repos
+(`model_freshness_monitor`, `retention_policy`, `scorer_identity_monitor`,
+`retrain_*`, the umbrella runner, preflight) — or every legacy reader routed
+through the bundle pointer, a larger AC4 P2/P3 change. So `regenerate_flat_views`
+now PRE-CHECKS every member and REFUSES (`SealError`) to overwrite any existing
+flat file with different bytes BEFORE writing anything (no partial write → no
+mixed pair); the general changing-content pair-atomic publisher is deferred to
+P2/P3. When content is byte-identical (genesis/no-op refresh, the only path
+P1 runs), no reader can ever observe a mixed pair. Proven by fault injection:
+`test_crash_between_the_two_view_writes_never_exposes_a_mixed_pair` crashes
+between the two replaces and a LEGACY flat reader (reads both files directly,
+NOT via `store.resolve_active`) sees a consistent pair; and
+`test_flat_view_refuses_changed_content_and_leaves_pair_untouched` proves the
+changed-content case is refused with the flat pair untouched. The rollback
+test keeps the SOUND store-level invariant (rollback restores gen-1
+byte-for-byte, no artifact surgery) and now publishes the changed gen-2 through
+the store with `regenerate_views=False` (flat compat surface stays byte-identical).
+Full suite re-run GREEN — 4189 passed, 3 skipped (Python 3.10 venv; the 4
+`isinstance` failures the reviewer saw are a Py3.9-only artifact that also
+reproduce on base `main`). Validator-gating / genesis guard / override-provenance
+capture unchanged.
 
 NEXT: operator-gated machine landing (the census P1 EXECUTION) — declare the
 real store location (`deploy/bundle_store_location.json`), stand up the store

@@ -32,7 +32,13 @@ Two P1 obligations beyond the raw publish (RFC §2.7 / census §3.4 / §6):
    flat-path reader (census §3.2/§3.3 cohort, preflight) keeps working
    unchanged. Views are regenerated ON the pointer flip and are the
    publisher's ONLY writer of the flat location thereafter (census §6:
-   "Views are read-only, regenerated on pointer flip").
+   "Views are read-only, regenerated on pointer flip"). The two flat
+   members share the ``artifacts/prod`` directory and are read as fixed
+   absolute paths, so this P1 publisher is **scoped to byte-identical
+   content** (the genesis seal / no-op refresh) and REFUSES any changing
+   pair — a mixed pair (new panel + old calibrator) is the 2026-07-16
+   orphaned-binding class; the general changing-content pair-atomic
+   publisher is deferred to AC4 P2/P3 (see :func:`regenerate_flat_views`).
 
 RFC §2.7 semantics carried by the seal: the bundle's ``bindings`` are a
 VERBATIM copy of the panel's stamped identity/WF-gate metadata — the seal
@@ -63,7 +69,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from renquant_artifacts.bundle_schema import BUNDLE_MEMBER_NAMES, sha256_hex
 from renquant_artifacts.bundle_store import (
@@ -279,7 +285,12 @@ def build_seal_authorization(
 # ---------------------------------------------------------------------------
 
 
-def regenerate_flat_views(resolved: ResolvedBundle, flat_dir: str | Path) -> dict[str, Path]:
+def regenerate_flat_views(
+    resolved: ResolvedBundle,
+    flat_dir: str | Path,
+    *,
+    crash_hook: Callable[[str], None] | None = None,
+) -> dict[str, Path]:
     """Regenerate the flat serving paths as READ-ONLY (0444) views of the
     active bundle's members — byte-identical to each bundle member.
 
@@ -289,13 +300,60 @@ def regenerate_flat_views(resolved: ResolvedBundle, flat_dir: str | Path) -> dic
     digest-verified :class:`ResolvedBundle` (member bytes come straight from
     its held-open descriptors), so a view can never diverge from the sealed
     content. Existing flat-path readers keep working unchanged.
+
+    **Pair-atomicity contract (AC4; the 2026-07-16 orphaned-binding class).**
+    The two flat members share a directory and are read by legacy readers as
+    fixed absolute paths (``artifacts/prod/{panel-ltr…, panel-rank-…}``), so
+    the two ``os.replace`` calls below are each atomic per file but the PAIR
+    is not: a crash between them, or a legacy reader loading both files mid
+    loop, could otherwise observe a MIXED pair (new panel + old calibrator,
+    or the reverse) — an orphaned calibrator↔scorer binding. A truly
+    pair-atomic in-place cutover for CHANGED content would need a
+    generation-directory reached by a single pointer flip (infeasible while
+    the pair lives in the shared ``artifacts/prod`` dir alongside unrelated
+    artifacts) or every legacy reader routed through the bundle pointer (a
+    larger AC4 P2/P3 change). This P1 publisher is therefore SCOPED to the
+    only case it needs and can make provably mixed-pair-safe: the genesis
+    seal / no-op refresh, where each regenerated member is **byte-identical**
+    to the flat file it overwrites. When content is byte-identical, no reader
+    can ever observe a mixed pair (both files carry the same bytes before,
+    during, and after either replace; a crash between the two replaces leaves
+    a pair that is byte-identical to BOTH the old and the new content). Any
+    member whose bytes would CHANGE an existing flat file is REFUSED
+    (:class:`SealError`) BEFORE a single byte is written, so the flat pair is
+    never left in a mixed state — the general changing-content flat publisher
+    (promote/rollback that alters the served pair) is deferred to AC4 P2/P3
+    with its own pair-atomic cutover.
     """
     target_dir = Path(flat_dir)
     if not target_dir.is_dir():
         raise SealError(f"flat view directory does not exist: {target_dir}")
-    views: dict[str, Path] = {}
+
+    # Phase 1 — read every member and PRE-CHECK the pair-atomicity invariant
+    # BEFORE writing anything: an existing flat file may only be overwritten
+    # with byte-identical content. A single differing member refuses the whole
+    # cutover with the flat dir untouched (no partial write => no mixed pair).
+    staged: dict[str, bytes] = {}
     for name in sorted(resolved.manifest.members):
         data = resolved.read_member(name)
+        target = target_dir / name
+        if target.exists() and target.read_bytes() != data:
+            raise SealError(
+                f"flat view {name!r} would CHANGE the served content; the "
+                "non-atomic in-place flat cutover is scoped to genesis / "
+                "byte-identical refresh only (a changing-content pair cutover "
+                "needs the pair-atomic generation-pointer publisher deferred "
+                "to AC4 P2/P3). Refusing to publish a changed pair through the "
+                "two-file replace path that could expose a mixed pair."
+            )
+        staged[name] = data
+
+    # Phase 2 — all members are byte-identical to (or absent from) the flat
+    # dir, so the two per-file replaces cannot expose a mixed pair. ``crash_hook``
+    # (fault injection) fires after each replace to prove that invariant.
+    views: dict[str, Path] = {}
+    for name in sorted(staged):
+        data = staged[name]
         target = target_dir / name
         tmp = target_dir / f".{name}.view.tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -307,6 +365,8 @@ def regenerate_flat_views(resolved: ResolvedBundle, flat_dir: str | Path) -> dic
         os.chmod(tmp, VIEW_MODE)
         os.replace(tmp, target)  # atomic; final mode is 0444 (from tmp)
         views[name] = target
+        if crash_hook is not None:
+            crash_hook(f"after-view-replace:{name}")
     _fsync_dir(target_dir)
     return views
 
@@ -351,7 +411,14 @@ def seal_serving_pair(
 
     With ``regenerate_views`` (default), the active bundle is resolved and
     its members are written back to ``flat_view_dir`` (default: the panel's
-    own directory) as 0444 views (:func:`regenerate_flat_views`).
+    own directory) as 0444 views (:func:`regenerate_flat_views`). For the
+    genesis seal the members are byte-identical to the flat pair being
+    overwritten, so the view regeneration is a content no-op and cannot
+    expose a mixed pair; a seal whose members would CHANGE an existing flat
+    file is refused by :func:`regenerate_flat_views` (the pair-atomic
+    changing-content publisher is deferred to AC4 P2/P3). Pass
+    ``regenerate_views=False`` to publish a new generation through the store
+    without touching the flat compat surface.
 
     ``require_genesis`` (default) refuses to run if the store already has a
     publication — P1 is the FIRST publication (generation 1); a store with
