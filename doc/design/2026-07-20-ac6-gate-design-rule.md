@@ -1,11 +1,20 @@
 # AC6 — Gate design rule: every HARD capital-admission gate ships its governed override path
 
-**Status:** RULE — claude draft, codex review. This PR delivers the **canonical
-rule** + its **orchestrator-local instance** (the orchestrator PR-template item).
-It does **not** by itself complete AC6: full enforcement requires the multi-repo
-rollout (§Enforcement) + a shared run-bundle validator. AC6 is **partially met**
-(rule defined + one repo wired), not met/enforced fleet-wide.
-**Goal:** GOAL-5 P0 AC6.
+**Status:** RULE — claude draft, codex review. This PR delivers the
+**provisional, orchestrator-local rule** below + wires it into this repo's PR
+template. It is **not** the canonical rule while its only source lives here:
+the canonical cross-repo source is `RenQuant` `doc/arch/subrepo-operating-model.md`
+Universal Rule 7, added by companion umbrella PR
+[`hallovorld/RenQuant#522`](https://github.com/hallovorld/RenQuant/pull/522)
+(open, pending review — not yet merged as of this revision). Once that PR
+merges, this document becomes the *detail* (rationale, scope, reviewer
+heuristic, rollout state) that the umbrella entry points at; until then,
+this file is the rule's only source and should be read as provisional.
+This PR does **not** by itself complete AC6: full enforcement requires the
+multi-repo rollout (§Enforcement) + a shared run-bundle validator, neither of
+which exists yet. AC6 is **partially met** (rule drafted, one repo's PR
+template wired), not met/enforced fleet-wide.
+**Goal:** GOAL-5 P0 AC6. **Rollout tracking:** `renquant-orchestrator`#564.
 
 ## Why this rule exists
 
@@ -56,30 +65,70 @@ is not allowed.
 ## Provenance-in-run-bundle sub-requirement
 
 The 07-16 adversarial re-review (memory: #203 SOUND + MED) found override
-provenance was **not** captured in the run bundle. This rule closes that: when an
-override is active for a session, the run bundle records the override's identity,
-scope-binding fingerprint, reason, and expiry. A run whose result was shaped by an
-override but whose bundle does not name it is an AC6 violation, caught in review.
+provenance was **not** captured in the run bundle. **This PR does not close
+that gap** — it adds no schema, producer, or validator. It requires that each
+*future* gate PR close it under R3 (below): the override's identity,
+scope-binding fingerprint, reason, and expiry must be written to the run
+bundle for that gate, with a test proving it, until R4 makes it mechanical.
+Until R4 lands, "a run whose result was shaped by an override but whose
+bundle does not name it" is caught only by human review, not by any
+automated check.
+
+**What already exists, and what R4 has to reconcile (checked 2026-07-21):**
+there is no single "the run bundle" in this codebase today — two different,
+disconnected things share the name:
+- `renquant_common.contracts.schemas.LiveRunBundle` +
+  `validate_live_run_bundle()` — a real Pydantic v2 schema with a
+  `model_validator` that mechanically rejects malformed input (wrong
+  `schema_version`, missing state source). It is wired into this repo's
+  `native_live_bundle.py` / `bridge_live_bundle.py` (native-vs-bridge parity
+  path only). It has **no override-provenance field today**.
+- `PersistDailyRunBundleTask` in `daily.py` — writes the daily orchestration
+  `run_bundle.json` (`decision_trace`, `order_intents`, `execution_audit`,
+  etc., `"schema_version": 1`) as a **plain dict with no schema validation at
+  all** — it is never passed through `LiveRunBundle` or any other validator.
+- (A third, unrelated "run-bundle" concept — `RunBundleProvenance` in
+  `bundle_seal.py` — records *artifact publication* provenance for the AC4
+  transactional-bundle RFC, not gate-override provenance. Do not conflate it
+  with this rule's provenance requirement.)
+
+R4 therefore is not "build a validator from scratch": the mechanical pattern
+(Pydantic, `model_validator`, raise-on-violation) already exists in
+`renquant-common`. R4's actual work is (a) deciding whether override
+provenance belongs on `LiveRunBundle`, on a new schema for the daily
+`run_bundle.json`, or both, and (b) actually wiring `PersistDailyRunBundleTask`
+through schema validation, which it does not go through today.
 
 ## Enforcement — current state and multi-repo rollout (revised per review)
 
 **Honest current state:** a checklist item in the *orchestrator* PR template only
 applies to orchestrator PRs, and a checklist is *manually attestable* — it does
-not itself enforce provenance-in-run-bundle. HARD capital gates commonly land in
-**strategy-104, pipeline, execution, and model** repos, so an orchestrator-only
-item leaves most gate PRs ungoverned. This PR is therefore the *canonical rule +
-orchestrator instance*, and AC6 completes only when the rollout below lands.
+not itself enforce provenance-in-run-bundle. This PR is the *provisional,
+orchestrator-local instance* of the rule (R0), and AC6 completes only when the
+rollout below lands.
 
 **R1 — canonical home (umbrella).** Reference this rule from the umbrella
-architecture contract (`RenQuant` `doc/arch/` operating model), so it is the
-single source of truth every subrepo points at, not an orchestrator-local doc.
-(Follow-up umbrella PR.)
+architecture contract as Universal Rule 7 — companion PR
+[`hallovorld/RenQuant#522`](https://github.com/hallovorld/RenQuant/pull/522)
+(open, pending review as of this revision). Once merged, that entry is the
+single cross-repo source of truth every subrepo points at; this document
+stays the detail doc it references.
 
-**R2 — every gate-owning repo carries the checklist.** Add the same in-scope-gate
-override-path item to the PR template (or CONTRIBUTING) of **renquant-strategy-104,
-renquant-pipeline, renquant-execution, renquant-model** (and any repo that can
-introduce a hard capital-admission block). One small PR per repo, referencing R1.
-Until a repo has it, its gate PRs are governed by reviewer heuristic only (below).
+**R2 — every gate-owning repo carries the checklist.** Grep-grounded scan
+(2026-07-21, shallow clones, pattern `admission|_veto|sell_only|hard.?gate|
+fail.?closed`) rather than a guess at which repos "commonly" land gates:
+
+| Repo | Matching files | In scope? |
+|---|---|---|
+| `renquant-pipeline` | 85 | Yes — primary owner of hard-gate/admission code (e.g. `panel_scoring.py`, `decision_ledger.py`, `bundle_contract.py`). Highest priority. |
+| `renquant-execution` | 10 | Yes — order-level hard blocks (e.g. `order_state_machine.py`, `alpaca_broker.py`). |
+| `renquant-strategy-104` | 0 (code) | Yes, but config-only — 0 gate-code hits (~8 Python files, mostly config-drift tests); it holds the threshold *config values* (`configs/strategy_config*.json`) pipeline gates read, so a config PR that tightens a threshold is in scope even with no matching code pattern. |
+| `renquant-model` | 7 | Uncertain — hits are mostly training/research-time (`fee_gate.py`, `oos_ic_export.py`), not obviously live capital admission. Verify case-by-case before wiring; may be out of scope. |
+
+Add the same in-scope-gate override-path item to the PR template (or
+CONTRIBUTING) of each in-scope repo above, one small PR per repo, referencing
+R1. Until a repo has it, its gate PRs are governed by reviewer heuristic only
+(below). Tracked in `renquant-orchestrator`#564.
 
 **R3 — provenance as a per-gate acceptance criterion (interim).** Because the
 checklist cannot *mechanically* guarantee override provenance lands in the run
@@ -88,9 +137,13 @@ explicit acceptance criterion in its own progress doc (the override's identity /
 scope-binding fingerprint / reason / expiry is written to the run bundle, with a
 test). This is a gate-by-gate obligation, not a system guarantee yet.
 
-**R4 — mechanical enforcement (the real close).** A shared run-bundle
-schema/validator (owned where the bundle schema lives) that *fails* a run whose
-result was shaped by an override the bundle does not name, plus a
+**R4 — mechanical enforcement (the real close).** Extend the existing
+Pydantic-validated `renquant_common.contracts.schemas.LiveRunBundle` (and/or a
+new equivalent schema for the daily `run_bundle.json`, which today bypasses
+validation entirely — see §Provenance-in-run-bundle) with a required
+override-provenance field, and actually wire `PersistDailyRunBundleTask`
+through it so a run whose bundle omits required provenance *fails to
+persist* rather than merely looking wrong in review. Pair with a
 `contract_findings`-style lint flagging new hard-block sites (a `raise` /
 `return []` / `skip_buys`/`sell_only` flip / funnel-zeroing threshold) lacking a
 referenced override path. R4 is what turns AC6 from review-checklist to enforced.
@@ -99,8 +152,8 @@ referenced override path. R4 is what turns AC6 from review-checklist to enforced
 as above, the reviewer asks for the three-property override path before approving —
 this is the stopgap until R2/R4 make it mechanical.
 
-**AC6 done = R1 + R2 across all gate-owning repos + R4 live.** This PR is R0 (rule
-+ orchestrator instance).
+**AC6 done = R1 + R2 across all in-scope gate-owning repos + R4 live.** This PR
+is R0 (the provisional rule + orchestrator-local instance) only.
 
 ## Relationship to other GOAL-5 ACs
 
