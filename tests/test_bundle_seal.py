@@ -181,6 +181,81 @@ def test_first_publication_end_to_end(tmp_path):
     assert prepare["authorization"]["actor"]["operator"] == "renhao"
 
 
+def test_seal_refuses_changed_flat_pair_before_any_store_mutation(tmp_path):
+    """orch#558: sealing a pair whose members would CHANGE an existing flat pair
+    must raise BEFORE store publish / ACTIVE mutation — store unmutated, both
+    legacy flat files unchanged (all-or-nothing across store + flat views).
+
+    Pre-fix, regenerate_flat_views refused only AFTER store.publish (PREPARE +
+    ACTIVE flip), leaving ACTIVE=new bundle while fixed-path readers held the
+    old flat pair. This is a SEAL-level regression (not a direct
+    regenerate_flat_views test) per the issue's acceptance."""
+    root = tmp_path / "store"
+    root.mkdir()
+    # NEW pair to seal (tag "b") vs an EXISTING different flat pair (tag "a")
+    panel, calibrator = _write_pair(tmp_path / "src", tag="b")
+    views = tmp_path / "views"
+    views.mkdir()
+    _write_pair(views, tag="a")
+    old_panel = (views / PANEL_MEMBER).read_bytes()
+    old_cal = (views / CALIBRATOR_MEMBER).read_bytes()
+    store = _make_store(root)
+
+    with pytest.raises(SealError, match="would CHANGE"):
+        seal_serving_pair(
+            store, panel_path=panel, calibrator_path=calibrator,
+            operator="renhao", flat_view_dir=views,
+        )
+
+    # store NEVER mutated — no PREPARE/ACTIVATE (raised before store.publish)
+    ops = store.read_operations()
+    assert [r["record"] for r in ops if r.get("record") in ("PREPARE", "ACTIVATE")] == []
+    assert not bundle_seal._has_prior_publication(store)
+    # both legacy flat files byte-for-byte unchanged
+    assert (views / PANEL_MEMBER).read_bytes() == old_panel
+    assert (views / CALIBRATOR_MEMBER).read_bytes() == old_cal
+
+
+def test_seal_missing_flat_dir_raises_before_any_store_mutation(tmp_path):
+    """orch#558: the other pre-publish failure branch — a non-existent
+    flat_view_dir must raise BEFORE store publish (no PREPARE/ACTIVATE), leaving
+    the store unmutated (the preflight runs before store.publish)."""
+    root = tmp_path / "store"
+    root.mkdir()
+    panel, calibrator = _write_pair(tmp_path / "src", tag="a")
+    missing = tmp_path / "does-not-exist"  # deliberately not created
+    store = _make_store(root)
+
+    with pytest.raises(SealError, match="flat view directory does not exist"):
+        seal_serving_pair(
+            store, panel_path=panel, calibrator_path=calibrator,
+            operator="renhao", flat_view_dir=missing,
+        )
+
+    ops = store.read_operations()
+    assert [r["record"] for r in ops if r.get("record") in ("PREPARE", "ACTIVATE")] == []
+    assert not bundle_seal._has_prior_publication(store)
+
+
+def test_seal_still_supports_byte_identical_flat_noop(tmp_path):
+    """orch#558 preflight must NOT break the supported case: a flat dir holding
+    the SAME (byte-identical) pair still seals (no-op refresh, genesis)."""
+    root = tmp_path / "store"
+    root.mkdir()
+    panel, calibrator = _write_pair(tmp_path / "src", tag="a")
+    views = tmp_path / "views"
+    views.mkdir()
+    _write_pair(views, tag="a")  # identical to the pair being sealed
+    store = _make_store(root)
+
+    result = seal_serving_pair(
+        store, panel_path=panel, calibrator_path=calibrator,
+        operator="renhao", flat_view_dir=views,
+    )
+    assert result.generation == 1
+    assert bundle_seal._has_prior_publication(store)
+
+
 def test_prepare_is_durable_before_the_active_flip(tmp_path):
     """Kill-inject at step 8 (ACTIVE.tmp written, before the step-9 rename):
     the PREPARE record is already fsync'd, but ACTIVE never flips."""
