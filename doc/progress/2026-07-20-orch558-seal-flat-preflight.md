@@ -15,12 +15,23 @@ readers retained the old flat pair (a split state; the orphaned-binding class).
 - `regenerate_flat_views` keeps its own post-publish check as a final guard
   (defense in depth); behaviour is otherwise unchanged.
 
-## Acceptance (orch#558) — met
+## Acceptance (orch#558 P1) — met
 - Existing-different-pair seal raises BEFORE PREPARE/ACTIVATE/ACTIVE mutation
   (test asserts `store.read_operations()` has no PREPARE/ACTIVATE).
 - Both legacy flat files remain byte-for-byte unchanged.
-- Byte-identical genesis / no-op still seals (second test).
+- Byte-identical genesis / no-op still seals.
+- Missing flat directory also raises pre-publish (no PREPARE/ACTIVATE).
 - SEAL-level regression tests added (not only a direct regeneration test).
 
-Tests: `test_bundle_seal.py` 17 passed (2 new). Unblocks any changed-content
-serving-pair seal / operator cutover (AC4).
+## Scope (corrected per review — do NOT overclaim)
+This completes **P1 SAFETY only**: a changed-content flat pair is now refused
+*before* any store mutation, so no split state (ACTIVE=new bundle + old flat
+pair) is ever published. **Changed-content activation remains BLOCKED** — a
+seal whose members differ from the fixed-path flat pair still fails intentionally.
+Any changed-content activation, artifacts pin advance, or F-7 cutover still
+REQUIRES the P2/P3 pair-atomic generation-pointer publisher (deferred). This PR
+does NOT unblock changed-content cutover; it makes the P1 genesis/no-op seal
+all-or-nothing.
+
+Tests: `test_bundle_seal.py` (3 new: changed-pair refusal, missing-dir refusal,
+byte-identical no-op).

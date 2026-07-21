@@ -216,6 +216,27 @@ def test_seal_refuses_changed_flat_pair_before_any_store_mutation(tmp_path):
     assert (views / CALIBRATOR_MEMBER).read_bytes() == old_cal
 
 
+def test_seal_missing_flat_dir_raises_before_any_store_mutation(tmp_path):
+    """orch#558: the other pre-publish failure branch — a non-existent
+    flat_view_dir must raise BEFORE store publish (no PREPARE/ACTIVATE), leaving
+    the store unmutated (the preflight runs before store.publish)."""
+    root = tmp_path / "store"
+    root.mkdir()
+    panel, calibrator = _write_pair(tmp_path / "src", tag="a")
+    missing = tmp_path / "does-not-exist"  # deliberately not created
+    store = _make_store(root)
+
+    with pytest.raises(SealError, match="flat view directory does not exist"):
+        seal_serving_pair(
+            store, panel_path=panel, calibrator_path=calibrator,
+            operator="renhao", flat_view_dir=missing,
+        )
+
+    ops = store.read_operations()
+    assert [r["record"] for r in ops if r.get("record") in ("PREPARE", "ACTIVATE")] == []
+    assert not bundle_seal._has_prior_publication(store)
+
+
 def test_seal_still_supports_byte_identical_flat_noop(tmp_path):
     """orch#558 preflight must NOT break the supported case: a flat dir holding
     the SAME (byte-identical) pair still seals (no-op refresh, genesis)."""
