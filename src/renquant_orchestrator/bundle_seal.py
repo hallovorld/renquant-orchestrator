@@ -388,6 +388,37 @@ def _has_prior_publication(store: BundleStore) -> bool:
     return any(rec.get("record") == RECORD_PREPARE for rec in store.read_operations())
 
 
+def _refuse_if_flat_pair_would_change(
+    members: Mapping[str, bytes], flat_dir: Path,
+) -> None:
+    """orch#558 preflight: refuse (:class:`SealError`) BEFORE any store publish
+    or ACTIVE mutation if publishing ``members`` would CHANGE an existing flat
+    file.
+
+    ``regenerate_flat_views`` already refuses a changing flat member, but it
+    runs AFTER ``store.publish`` (PREPARE + the ACTIVE flip). A refusal there
+    leaves ACTIVE pointing at the NEW bundle while the fixed-path readers retain
+    the OLD flat pair — the exact split orch#558 forbids. Running the same
+    byte-identity check on the raw member bytes BEFORE publish makes the seal
+    all-or-nothing across store state AND the flat compatibility views: a
+    changed-content pair raises with the flat dir untouched and the store
+    unmutated. Byte-identical (genesis / no-op refresh) and absent targets pass,
+    exactly as :func:`regenerate_flat_views` allows.
+    """
+    if not flat_dir.is_dir():
+        raise SealError(f"flat view directory does not exist: {flat_dir}")
+    for name, data in members.items():
+        target = flat_dir / name
+        if target.exists() and target.read_bytes() != data:
+            raise SealError(
+                f"flat view {name!r} would CHANGE the served content; refusing "
+                "BEFORE any store publish or ACTIVE mutation (orch#558: the P1 "
+                "seal is all-or-nothing across store state and the flat compat "
+                "views). The changing-content pair cutover is deferred to AC4 "
+                "P2/P3's pair-atomic generation-pointer publisher."
+            )
+
+
 def seal_serving_pair(
     store: BundleStore,
     *,
@@ -450,8 +481,19 @@ def seal_serving_pair(
         tool_version=tool_version,
     )
 
+    members = {PANEL_MEMBER: panel_bytes, CALIBRATOR_MEMBER: calibrator_bytes}
+
+    # orch#558: preflight the flat compat pair BEFORE any store mutation so a
+    # changed-content seal is all-or-nothing — never ACTIVE=new bundle while the
+    # fixed-path readers still hold the old flat pair. regenerate_flat_views
+    # keeps its own post-publish byte-identity check as a final guard.
+    target_dir: Path | None = None
+    if regenerate_views:
+        target_dir = Path(flat_view_dir) if flat_view_dir is not None else panel_path.parent
+        _refuse_if_flat_pair_would_change(members, target_dir)
+
     result = store.publish(
-        {PANEL_MEMBER: panel_bytes, CALIBRATOR_MEMBER: calibrator_bytes},
+        members,
         bindings=bindings,
         authorization=authorization,
     )
@@ -459,7 +501,6 @@ def seal_serving_pair(
 
     view_paths: dict[str, Path] = {}
     if regenerate_views:
-        target_dir = Path(flat_view_dir) if flat_view_dir is not None else panel_path.parent
         with store.resolve_active() as resolved:
             view_paths = regenerate_flat_views(resolved, target_dir)
 
