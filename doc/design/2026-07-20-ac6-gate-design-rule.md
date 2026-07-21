@@ -16,6 +16,20 @@ which exists yet. AC6 is **partially met** (rule drafted, one repo's PR
 template wired), not met/enforced fleet-wide.
 **Goal:** GOAL-5 P0 AC6. **Rollout tracking:** `renquant-orchestrator`#564.
 
+**Relationship to the prior AC6 rule (PR #535, merged 2026-07-17):**
+`doc/agent-pr-workflows.md` §"HARD-gate design rule (GOAL-5 AC6)" already
+states an earlier version of this same acceptance criterion — governed
+exception path / fail-closed shape / detection surface, "review-enforced,
+not mechanically detected." This PR does not replace that section; it is
+additive on two axes that section did not cover: (1) an actual
+`.github/pull_request_template.md` checklist line (the prior rule was prose
+only, with no literal checkbox), and (2) the run-bundle override-provenance
+requirement that the #203 MED finding added after PR #535 shipped. The two
+documents describe overlapping but not identical requirements (this rule
+does not restate "fail-closed shape" / "detection surface"); reconciling
+them into one canonical statement is out of scope for this PR and is a fair
+follow-up, not something this PR should decide unilaterally.
+
 ## Why this rule exists
 
 Every fail-closed gate we add to protect capital is also a way to **silently

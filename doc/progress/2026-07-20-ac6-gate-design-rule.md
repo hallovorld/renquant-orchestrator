@@ -32,6 +32,15 @@ daily `run_bundle.json` for what R4 has to reconcile.
 Rule targets *whether the system may act* (hard blocks), explicitly **excludes**
 pure sizing/economic ranking. True kill-switches are allowed but must say so.
 
+## Relationship to the prior AC6 delivery (PR #535, merged 2026-07-17)
+`doc/agent-pr-workflows.md` §"HARD-gate design rule (GOAL-5 AC6)" already
+states an earlier, overlapping version of this rule (review-enforced prose,
+no literal PR-template checkbox). This PR is **additive**, not a redo: it
+adds the actual checklist line PR #535 never added, plus the run-bundle
+provenance requirement that the #203 MED finding raised afterward. The two
+documents are not yet reconciled into one canonical statement — flagged as
+a fair follow-up, out of scope here.
+
 ## Status / next (revised per second codex review round)
 - Docs-only; no code. `EVIDENCE: provisional orchestrator-local rule + PR-template
   item added; companion umbrella PR opened` `[VERIFIED — template diff + rule doc
