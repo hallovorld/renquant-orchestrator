@@ -1,0 +1,20 @@
+# 2026-07-20 — G1 abandoned: dossier landed
+
+Operator decided to ABANDON G1 (cash-drag / capital deployment) on 2026-07-20 and
+asked to preserve all research + data in a document.
+
+`doc/research/2026-07-20-g1-abandoned-dossier.md` captures, honestly:
+- the findings, classified by preservation semantics (matching the dossier §7):
+  durable facts (104 places orders post-close by design; SHADOW vs LIVE legs
+  diverge; the real unresolved question is invested-% growth = fills vs sizing,
+  NOT the decision gates) vs POINT-IN-TIME DB/state observations as-of 2026-07-20
+  (the 37 buy orders over 06-22→07-20 — a 2026-07-20 point-in-time observation
+  whose rows may differ on re-run; the runs.alpaca.db query is a source locator,
+  not a reproduction guarantee, since the table is mutable);
+- the ruled-out wrong turns (tournament staleness, config-fp, missing_panel_score,
+  stale fundamentals, "fleet failing") — each asserted then retracted;
+- the kept deliverables from the investigation (RenQuant#518 retrain-timeout fix,
+  RenQuant#519 GOAL-5 AC5 — both merged);
+- an honest post-mortem + where to actually start if re-opened.
+
+Docs-only change; no code, no behaviour.
