@@ -13,20 +13,30 @@ sizing / execution problem, NOT the equal-weight prereg I originally (wrongly)
 chased. (The equal-weight prereg lineage v3→v7 concluded INFEASIBLE-at-horizon —
 true but irrelevant to the real G1.)
 
-## 2. Facts about the "no-buy" state (locators in §7; state/holdings claims are point-in-time observations, not immutable ground truth)
-- **The decision engine IS deciding to buy.** `runs.alpaca.db trades`: **37
-  buy-side orders placed across 12 days 2026-06-22→07-20** (e.g. 06-23 had 10).
-  So it is NOT a decision/gate freeze — the engine wants to buy and places orders.
+## 2. Facts about the "no-buy" state (locators in §7; ALL claims derived from
+`runs.alpaca.db` or live state files are POINT-IN-TIME OBSERVATIONS, not
+immutable ground truth — the DB/state mutate and were not snapshotted. Observed
+during the 2026-07-20 investigation session; the exact query timestamp within
+that session was not separately logged, so treat "as of 2026-07-20" as the
+precision bound, not a specific minute. Re-running the same queries today may
+return different rows.)
+- **The decision engine WAS deciding to buy, as of the observation above.**
+  `runs.alpaca.db trades`, queried 2026-07-20: **37 buy-side orders placed
+  across 12 days 2026-06-22→07-20** (e.g. 06-23 had 10) — a point-in-time
+  query result, not a durable count. So at observation time this was NOT a
+  decision/gate freeze — the engine wanted to buy and placed orders.
 - **104 places orders POST-CLOSE (盘后下单) by design** (operator, 2026-07-20).
   Buys are `entry_order_type="limit"`, +10 bps marketable limit, TIF=DAY
-  (renquant-execution alpaca broker port). So an order showing `accepted /
-  buy_pending` when inspected is NORMAL post-close timing — it is queued for the
-  next open, not a stuck order. The 07-20 limit prices were at/above market
-  (ZM limit ≈91.00 vs close 90.91) — NOT a bad-limit-price problem.
-- **`trades.fill_status` shows 0 'filled' among the 37** (32 None + 5 'submitted').
-  This is the PLACEMENT record; the fill reconciliation (next-open) was NOT
-  cleanly verified — do NOT conclude "orders never fill" from this alone (I did,
-  and it was premature). The account being stuck at 87% cash / 3 holdings is the
+  (renquant-execution alpaca broker port — this is a code/config fact, durable,
+  not point-in-time). So an order showing `accepted / buy_pending` when
+  inspected is NORMAL post-close timing — it is queued for the next open, not
+  a stuck order. The 07-20 limit prices were at/above market (ZM limit ≈91.00
+  vs close 90.91) — NOT a bad-limit-price problem.
+- **`trades.fill_status` showed 0 'filled' among the 37, as of the same
+  2026-07-20 point-in-time query** (32 None + 5 'submitted'). This is the
+  PLACEMENT record; the fill reconciliation (next-open) was NOT cleanly
+  verified — do NOT conclude "orders never fill" from this alone (I did, and
+  it was premature). The account being stuck at 87% cash / 3 holdings is the
   real signal that invested-% is not growing; whether that is (a) fills not
   happening, (b) buys too small (1-share ~$90–170 orders barely move a $10.6k
   book's cash%), or (c) sells offsetting buys, was NOT resolved.
@@ -90,14 +100,18 @@ Do NOT re-run the decision-gate diagnosis; it is a dead end for this problem.
 ## 7. Evidence & locators (per material claim)
 Each claim in §2 with a durable/recoverable locator, so a restart reproduces the
 evidence rather than trusting the narrative. Machine paths are relative to the
-umbrella `/Users/renhao/git/github/RenQuant`. **DBs and state files MUTATE** — the
-DB queries are reproducible until the rows change; the state/holdings claims are
-POINT-IN-TIME OPERATOR OBSERVATIONS as-of 2026-07-20 with no immutable snapshot
-(downgraded from "verified ground truth" per review).
+umbrella `/Users/renhao/git/github/RenQuant`. **DBs and state files MUTATE and
+were NOT snapshotted** — every claim derived only from `runs.alpaca.db` or a
+live state JSON file is a POINT-IN-TIME OPERATOR OBSERVATION as-of the
+2026-07-20 investigation session, not a durable/reproducible fact; re-running
+the same query later can return different rows (downgraded from "verified
+ground truth" / "reproducible via query" per review — neither framing is
+accurate for an unsnapshotted, mutable source). Only the dated log-file and
+code/commit locators below are durable/reproducible as stated.
 
 | Claim | Locator | Class |
 |---|---|---|
-| 37 buy orders / 12 days, 0 filled; fill_status {32 None, 5 submitted} | `sqlite3 data/runs.alpaca.db` → `SELECT trade_date,action,fill_status FROM trades WHERE trade_date>='2026-06-15' AND action LIKE '%buy%'` (all `buy_pending`) | reproducible via query (DB not snapshotted) |
+| 37 buy orders / 12 days, 0 filled; fill_status {32 None, 5 submitted} | `sqlite3 data/runs.alpaca.db` → `SELECT trade_date,action,fill_status FROM trades WHERE trade_date>='2026-06-15' AND action LIKE '%buy%'` (all `buy_pending`) | **POINT-IN-TIME** observation, queried during the 2026-07-20 investigation session (exact minute not separately logged); DB not snapshotted, rows can change on re-run |
 | 07-20 LIVE leg ECONOMIC_TRADE, placed BWXT+ZM | `logs/daily_104/2026-07-20.log` @ 14:06–14:07 UTC ("funnel integrity: verdict=ECONOMIC_TRADE … buys=2"; "Order 4c2d9013 … BUY BWXT … ACCEPTED"); run_id `2026-07-20-live-54ea6604` | dated log path + timestamp |
 | 104 places orders post-close; buy=limit +10bps DAY | operator statement 2026-07-20 + `renquant-execution` alpaca broker port (`entry_order_type="limit"`, `limit_price_offset_bps=10`, `TimeInForce.DAY`) | code + operator |
 | 07-20 SHADOW no-trade = wash_sale_mass_block, 06-26 cluster | `logs/daily_104/2026-07-20_shadow.log` @ 14:33–14:34 ("funnel_integrity … STRUCTURAL_BLOCK … fired=['wash_sale_mass_block']"; `DROP_WashSaleFilter [GE/EQIX/…] sold 24d ago`) | dated log path + timestamp |
