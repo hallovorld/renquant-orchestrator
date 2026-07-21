@@ -13,7 +13,7 @@ sizing / execution problem, NOT the equal-weight prereg I originally (wrongly)
 chased. (The equal-weight prereg lineage v3→v7 concluded INFEASIBLE-at-horizon —
 true but irrelevant to the real G1.)
 
-## 2. VERIFIED facts about the "no-buy" state [ground truth, hard data]
+## 2. Facts about the "no-buy" state (locators in §7; state/holdings claims are point-in-time observations, not immutable ground truth)
 - **The decision engine IS deciding to buy.** `runs.alpaca.db trades`: **37
   buy-side orders placed across 12 days 2026-06-22→07-20** (e.g. 06-23 had 10).
   So it is NOT a decision/gate freeze — the engine wants to buy and places orders.
@@ -86,3 +86,23 @@ judged I was not converging.
    handoff — investigate the broker order lifecycle, not the decision gates.
 4. Keep SHADOW (wash_sale_mass_block, PatchTST) strictly separate from LIVE.
 Do NOT re-run the decision-gate diagnosis; it is a dead end for this problem.
+
+## 7. Evidence & locators (per material claim)
+Each claim in §2 with a durable/recoverable locator, so a restart reproduces the
+evidence rather than trusting the narrative. Machine paths are relative to the
+umbrella `/Users/renhao/git/github/RenQuant`. **DBs and state files MUTATE** — the
+DB queries are reproducible until the rows change; the state/holdings claims are
+POINT-IN-TIME OPERATOR OBSERVATIONS as-of 2026-07-20 with no immutable snapshot
+(downgraded from "verified ground truth" per review).
+
+| Claim | Locator | Class |
+|---|---|---|
+| 37 buy orders / 12 days, 0 filled; fill_status {32 None, 5 submitted} | `sqlite3 data/runs.alpaca.db` → `SELECT trade_date,action,fill_status FROM trades WHERE trade_date>='2026-06-15' AND action LIKE '%buy%'` (all `buy_pending`) | reproducible via query (DB not snapshotted) |
+| 07-20 LIVE leg ECONOMIC_TRADE, placed BWXT+ZM | `logs/daily_104/2026-07-20.log` @ 14:06–14:07 UTC ("funnel integrity: verdict=ECONOMIC_TRADE … buys=2"; "Order 4c2d9013 … BUY BWXT … ACCEPTED"); run_id `2026-07-20-live-54ea6604` | dated log path + timestamp |
+| 104 places orders post-close; buy=limit +10bps DAY | operator statement 2026-07-20 + `renquant-execution` alpaca broker port (`entry_order_type="limit"`, `limit_price_offset_bps=10`, `TimeInForce.DAY`) | code + operator |
+| 07-20 SHADOW no-trade = wash_sale_mass_block, 06-26 cluster | `logs/daily_104/2026-07-20_shadow.log` @ 14:33–14:34 ("funnel_integrity … STRUCTURAL_BLOCK … fired=['wash_sale_mass_block']"; `DROP_WashSaleFilter [GE/EQIX/…] sold 24d ago`) | dated log path + timestamp |
+| SHADOW state 06-26 last_sell cluster; LIVE state has none | `backtesting/renquant_104/live_state.alpaca_shadow.json` vs `live_state.alpaca.json` `last_sell_dates` | **POINT-IN-TIME observation** (state mutates; no snapshot) |
+| 70/70 panel scoring | `logs/daily_104/2026-07-20_shadow.log` @ 14:34:36 ("scored 70/70") | dated log path + timestamp |
+| 141/141 trainable watchlist models retrained 07-20 | `backtesting/renquant_104/models/*/*-policy-metadata.json` `trained_date=2026-07-20`; marker `models/.last_tournament_retrain.json` (exit_code 0) | **POINT-IN-TIME** (models/ mutates on next retrain) |
+| retrain-timeout config fix 600→2400 | RenQuant#518 (MERGED, umbrella `2333959`); `backtesting/renquant_104/strategy_config.json` | commit / PR (durable) |
+| GOAL-5 AC5 daily-entrypoint check | RenQuant#519 (MERGED) | commit / PR (durable) |
