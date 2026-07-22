@@ -304,6 +304,144 @@ class TestActionableGuard:
 
 
 # ---------------------------------------------------------------------------
+# strict schema validation — unknown/invalid records are IGNORED, DB fallback
+# stays authoritative until an explicit migration parser is added.
+# ---------------------------------------------------------------------------
+
+class TestSchemaValidation:
+    def _bad(self, run_date, **overrides):
+        rec = _record(run_date)
+        rec.update(overrides)
+        return rec
+
+    def _drop(self, run_date, key):
+        rec = _record(run_date)
+        rec.pop(key, None)
+        return rec
+
+    def test_unit_accepts_exact_v1(self):
+        assert sentinel.is_valid_v1_record(_record(D0.isoformat())) is True
+
+    def test_unit_missing_schema_rejected(self):
+        assert sentinel.is_valid_v1_record(self._drop(D0.isoformat(), "schema")) is False
+
+    def test_unit_future_version_rejected(self):
+        for ver in ("shadow_scorer_health.v2", "shadow_scorer_health.v10",
+                    "shadow_scorer_health", "Shadow_Scorer_Health.v1"):
+            assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), schema=ver)) is False
+
+    def test_unit_malformed_boolean_rejected(self):
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), loaded="false")) is False
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), actionable=1)) is False
+
+    def test_unit_int_field_rejects_bool_and_string(self):
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), n_scored=True)) is False
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), n_scored="7")) is False
+
+    def test_unit_missing_core_field_rejected(self):
+        for key in ("shadow_name", "run_date", "loaded", "actionable", "n_scored"):
+            assert sentinel.is_valid_v1_record(self._drop(D0.isoformat(), key)) is False, key
+
+    def test_unit_unparseable_run_date_rejected(self):
+        rec = _record(D0.isoformat())
+        rec["run_date"] = "2026-13-99"
+        assert sentinel.is_valid_v1_record(rec) is False
+
+    def test_unit_bad_nullable_types_rejected(self):
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), staleness_days="3")) is False
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), coverage_frac="0.9")) is False
+        assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), reasons="stale")) is False
+
+    def test_unit_nullable_absent_or_none_ok(self):
+        rec = self._bad(D0.isoformat(), staleness_days=None, coverage_frac=None)
+        assert sentinel.is_valid_v1_record(rec) is True
+
+    def test_invalid_records_ignored_db_fallback_authoritative(self, tmp_path):
+        # Both days' JSONL records are malformed (unknown schema + bad bool). They
+        # must be IGNORED, so the DB fallback — which shows the real 07-16-style
+        # shadow death — drives the verdict and ALARMS. A producer emitting an
+        # unrecognised shape can never silently mask a real fault.
+        jsonl = [
+            {"schema": "shadow_scorer_health.v99", "shadow_name": SHADOW,
+             "run_date": D1.isoformat(), "loaded": True, "actionable": True,
+             "n_scored": 50},
+            self._bad(D0.isoformat(), loaded="nope"),  # malformed bool
+        ]
+        run_rows = [("r_d1", D1.isoformat(), None), ("r_d0", D0.isoformat(), None)]
+        score_rows = [(rid, tk, None, "XGBoost")
+                      for rid in ("r_d1", "r_d0") for tk in ("AAPL", "MSFT")]
+        rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows, jsonl=jsonl)
+        assert rc == 1
+        assert "LOAD FAILURE" in alerts[0][1]
+        assert "shadow_runs_db_fallback" in alerts[0][1]
+
+    def test_valid_record_supersedes_db_fallback(self, tmp_path):
+        # a VALID v1 record (healthy) for a day the DB would call dead must win:
+        # primary supersedes fallback per-day.
+        jsonl = [_record(D1.isoformat()), _record(D0.isoformat())]
+        run_rows = [("r_d1", D1.isoformat(), None), ("r_d0", D0.isoformat(), None)]
+        score_rows = [(rid, tk, None, "XGBoost")
+                      for rid in ("r_d1", "r_d0") for tk in ("AAPL",)]  # DB = shadow dead
+        rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows, jsonl=jsonl)
+        assert rc == 0 and not alerts
+
+
+# ---------------------------------------------------------------------------
+# producer/consumer expected-skip contract (renquant-pipeline#211)
+# ---------------------------------------------------------------------------
+
+class TestExpectedSkipContract:
+    def test_disabled_state_actionable_true_stays_quiet(self, tmp_path):
+        # #211's shadow_enabled=false path: an explicit expected/disabled record
+        # (loaded=false but actionable=true) is NOT a fault => quiet, for a full
+        # streak of them.
+        jsonl = [
+            _record(D1.isoformat(), loaded=False, n_scored=0, coverage_frac=None,
+                    actionable=True, skip_reason="shadow_disabled",
+                    reasons=["shadow_enabled_false"]),
+            _record(D0.isoformat(), loaded=False, n_scored=0, coverage_frac=None,
+                    actionable=True, skip_reason="shadow_disabled",
+                    reasons=["shadow_enabled_false"]),
+        ]
+        rc, alerts = _run(tmp_path, jsonl=jsonl)
+        assert rc == 0 and not alerts
+
+    def test_real_fault_actionable_false_alarms(self, tmp_path):
+        # same loaded=false shape but actionable=false (real fault) => alarm.
+        jsonl = [
+            _record(D1.isoformat(), loaded=False, n_scored=0, actionable=False,
+                    reasons=["artifact_load_failed"]),
+            _record(D0.isoformat(), loaded=False, n_scored=0, actionable=False,
+                    reasons=["artifact_load_failed"]),
+        ]
+        rc, alerts = _run(tmp_path, jsonl=jsonl)
+        assert rc == 1
+        assert "LOAD FAILURE" in alerts[0][1]
+
+    def test_loaded_but_actionable_false_is_fault(self, tmp_path):
+        # scored fine, but the producer says the output is not trustworthy.
+        jsonl = [
+            _record(D1.isoformat(), actionable=False, reasons=["missing_provenance"]),
+            _record(D0.isoformat(), actionable=False, reasons=["missing_provenance"]),
+        ]
+        rc, alerts = _run(tmp_path, jsonl=jsonl)
+        assert rc == 1
+        body = "\n".join(b for _, b in alerts)
+        assert "DEGRADED" in body and "missing_provenance" in body
+
+    def test_disabled_day_breaks_a_fault_streak(self, tmp_path):
+        # one real-fault day + one expected/disabled day => streak broken, quiet.
+        jsonl = [
+            _record(D1.isoformat(), loaded=False, n_scored=0, actionable=False,
+                    reasons=["artifact_load_failed"]),
+            _record(D0.isoformat(), loaded=False, n_scored=0, actionable=True,
+                    reasons=["shadow_enabled_false"]),
+        ]
+        rc, alerts = _run(tmp_path, jsonl=jsonl)
+        assert rc == 0 and not alerts
+
+
+# ---------------------------------------------------------------------------
 # gating + reader/classify units
 # ---------------------------------------------------------------------------
 

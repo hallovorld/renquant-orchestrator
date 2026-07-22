@@ -92,7 +92,14 @@ SHADOW_HEALTH_JSONL = os.environ.get(
     "RQ104_SHADOW_HEALTH_JSONL",
     os.path.join(STRATEGY_DIR, "logs/shadow_scorer_health.jsonl"),
 )
-SHADOW_HEALTH_SCHEMA_PREFIX = "shadow_scorer_health"
+
+#: The EXACT health-record schema version this sentinel understands. Records with
+#: any other schema (missing, a future `…v2`/`…v10`, or a typo) are IGNORED, not
+#: best-effort parsed — a schema bump is a deliberate migration that must add a
+#: parser here. Until then the DB fallback stays authoritative for those days,
+#: so a producer that starts emitting an unrecognised shape can never silently
+#: flip the sentinel's verdict.
+SHADOW_HEALTH_SCHEMA = "shadow_scorer_health.v1"
 
 #: FALLBACK reader source — the shadow runs DB.
 SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca_shadow.db"))
@@ -197,27 +204,39 @@ FEED_DARK = "feed_dark"
 
 
 def classify(r: ShadowHealthRecord) -> tuple[str, list[str]]:
-    """Map a record to (class, human reasons). Source-agnostic."""
+    """Map a record to (class, human reasons). Source-agnostic.
+
+    PRODUCER/CONSUMER CONTRACT with renquant-pipeline#211 (the health-record
+    writer): `actionable` is the single authoritative fault signal.
+      * expected / disabled  -> loaded may be false, but actionable=TRUE  -> QUIET
+        (#211 emits this when shadow_enabled=false or a by-design skip such as a
+        config-fingerprint rotation — NOT a fault).
+      * real fault           -> actionable=FALSE (unresolved/failed load, stale
+        cutoff, low coverage, missing provenance) -> ALARM after >= N sessions.
+    `loaded`/`n_scored` here only pick the MESSAGE (LOAD_FAIL vs DEGRADED); the
+    ALARM decision is actionable. The DB fallback has no actionable verdict
+    (None) and derives fault from load / staleness / coverage instead.
+    """
     # feed dark: a day that had runs but yields no shadow signal from either feed
     if not r.feed_present:
         return FEED_DARK, ["no shadow health record and no collected scores"]
 
-    # load failure: shadow did not load / scored nothing
+    # nothing was scored — but that is only a FAULT if the producer did not mark
+    # it an expected/disabled state. actionable=True here is the #211 contract's
+    # explicit "this non-load is by design" -> stay quiet.
     if (not r.loaded) or r.n_scored == 0:
-        # by-design guard: the pipeline explicitly marked this non-load usable
-        # / expected (actionable True, e.g. a config-rotation skip). Not a bug.
         if r.actionable is True:
             return HEALTHY, []
         reasons = list(r.reasons) or [r.load_error or "not loaded / 0 scored"]
         return LOAD_FAIL, reasons
 
     # loaded WITH scores — is the output actionable?
-    if r.actionable is False:  # pipeline's authoritative degraded verdict
+    if r.actionable is False:  # pipeline's authoritative fault verdict
         return DEGRADED, list(r.reasons) or ["pipeline marked shadow not actionable"]
     if r.actionable is True:   # pipeline says usable — trust it, do not re-derive
         return HEALTHY, []
 
-    # actionable unknown (DB fallback): derive from staleness / coverage
+    # actionable unknown (DB fallback only): derive fault from staleness / coverage
     derived: list[str] = []
     if r.staleness_days is not None and r.staleness_days > STALENESS_MAX_DAYS:
         derived.append(f"stale train-cutoff {r.staleness_days}d > {STALENESS_MAX_DAYS}d ceiling")
@@ -262,14 +281,71 @@ def read_health_records(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord
     return {d: primary.get(d, fallback.get(d)) for d in days}
 
 
+def _is_bool(v: object) -> bool:
+    return isinstance(v, bool)
+
+
+def _is_int(v: object) -> bool:
+    # bool is a subclass of int in Python; a boolean is NOT a valid integer here.
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _opt(v: object, ok) -> bool:
+    """Nullable field: pass if absent/None, else must satisfy `ok`."""
+    return v is None or ok(v)
+
+
+def is_valid_v1_record(obj: object) -> bool:
+    """Strict acceptance for a `shadow_scorer_health.v1` record.
+
+    Returns True only for an EXACT-version record whose core, decision-driving
+    fields are present and correctly typed. Anything else — missing/unknown
+    schema (`…v2`, `…v10`, a typo, or none), a malformed boolean/int, a missing
+    core field, an unparseable run_date — returns False so the record is
+    IGNORED and the DB fallback stays authoritative for that day. A new schema
+    version is a deliberate migration: add its parser, do not best-effort it.
+    """
+    if not isinstance(obj, dict):
+        return False
+    if obj.get("schema") != SHADOW_HEALTH_SCHEMA:
+        return False
+    # required core fields + exact types (bool must be bool, int must not be bool)
+    if not isinstance(obj.get("shadow_name"), str):
+        return False
+    if not isinstance(obj.get("run_date"), str):
+        return False
+    try:
+        dt.date.fromisoformat(obj["run_date"])
+    except (ValueError, TypeError):
+        return False
+    if not _is_bool(obj.get("loaded")):
+        return False
+    if not _is_bool(obj.get("actionable")):
+        return False
+    if not _is_int(obj.get("n_scored")):
+        return False
+    # nullable-but-typed fields, when present
+    if not _opt(obj.get("staleness_days"), _is_int):
+        return False
+    if not _opt(obj.get("coverage_frac"), lambda v: _is_int(v) or isinstance(v, float)):
+        return False
+    if not _opt(obj.get("n_candidates"), _is_int):
+        return False
+    reasons = obj.get("reasons")
+    if reasons is not None and not isinstance(reasons, list):
+        return False
+    return True
+
+
 def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord]:
     """Read the pipeline's structured health record (renquant-pipeline#211).
 
     JSONL sidecar, one object per line, schema `shadow_scorer_health.v1`.
     Absent until the pipeline change is deployed on this machine, in which case
-    this returns {} and the DB fallback drives. If the pipeline later ships a DB
-    table sink instead, add a branch here that SELECTs the same columns into
-    ShadowHealthRecord.from_dict — the downstream checks do not change.
+    this returns {} and the DB fallback drives. Every line is STRICTLY validated
+    (`is_valid_v1_record`); an unknown-schema or malformed record is skipped, not
+    parsed. If the pipeline later ships a DB-table sink or a new schema version,
+    add its parser here — the downstream checks do not change.
     """
     path = SHADOW_HEALTH_JSONL
     if not path or not os.path.exists(path):
@@ -286,13 +362,9 @@ def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthR
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                schema = str(obj.get("schema", ""))
-                if schema and not schema.startswith(SHADOW_HEALTH_SCHEMA_PREFIX):
-                    continue
-                try:
-                    rec = ShadowHealthRecord.from_dict(obj, source="pipeline_health_record")
-                except (KeyError, ValueError, TypeError):
-                    continue
+                if not is_valid_v1_record(obj):
+                    continue  # unknown/invalid -> ignore; DB fallback stays authoritative
+                rec = ShadowHealthRecord.from_dict(obj, source="pipeline_health_record")
                 if rec.shadow_name != SHADOW_NAME or rec.run_date not in wanted:
                     continue
                 out[rec.run_date] = rec  # last record for a date wins (latest re-run)
