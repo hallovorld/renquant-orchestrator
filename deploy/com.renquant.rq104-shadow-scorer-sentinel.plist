@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- TEMPLATE (GOAL-5 AC1) — installation is an operator-gated landing action.
+     Watches the SHADOW panel scorer (PatchTST / hf_patchtst) for the silent
+     fail-soft death that no gate catches. Runs at 15:10 PT, just after the
+     degradation sentinel (15:00), so a shadow that failed to load in the
+     daily is caught the same afternoon. Read-only against the shadow runs DB.
+     The launchd surface is reviewed in ops/launchd_manifest.json; the
+     run-surface drift scan alarms on any divergence from that pin. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.renquant.rq104-shadow-scorer-sentinel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_shadow_scorer_sentinel.py</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>15</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_shadow_scorer_sentinel.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_shadow_scorer_sentinel.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RQ_ROOT</key>
+        <string>/Users/renhao/git/github/RenQuant</string>
+        <key>RQ_ORCH_ROOT</key>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/src:/Users/renhao/git/github/renquant-orchestrator-run/ops</string>
+    </dict>
+</dict>
+</plist>
