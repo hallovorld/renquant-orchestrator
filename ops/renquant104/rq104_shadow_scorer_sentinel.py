@@ -93,13 +93,47 @@ SHADOW_HEALTH_JSONL = os.environ.get(
     os.path.join(STRATEGY_DIR, "logs/shadow_scorer_health.jsonl"),
 )
 
-#: The EXACT health-record schema version this sentinel understands. Records with
-#: any other schema (missing, a future `…v2`/`…v10`, or a typo) are IGNORED, not
-#: best-effort parsed — a schema bump is a deliberate migration that must add a
-#: parser here. Until then the DB fallback stays authoritative for those days,
-#: so a producer that starts emitting an unrecognised shape can never silently
-#: flip the sentinel's verdict.
-SHADOW_HEALTH_SCHEMA = "shadow_scorer_health.v1"
+# ---------------------------------------------------------------------------
+# CANONICAL CONTRACT — imported from the PRODUCER (renquant-pipeline#211) so the
+# writer and this reader cannot drift. Orchestrator depends on pipeline, so the
+# import is legal; it is done defensively because a minimal launchd runtime may
+# not have renquant_pipeline on its path. The local fallback literals are the
+# EXACT same values; `test_fallback_matches_producer` asserts they equal the
+# producer's exports (that test runs wherever pipeline IS importable, i.e. CI),
+# so any drift is caught mechanically. The EXACT schema version gates acceptance:
+# records with any other schema (missing, a future `…v2`/`…v10`, a typo) are
+# IGNORED — a schema bump is a deliberate migration that must add a parser here.
+# ---------------------------------------------------------------------------
+_FALLBACK_CONTRACT = {
+    "SHADOW_HEALTH_SCHEMA": "shadow_scorer_health.v1",
+    "STATUS_OK": "ok",
+    "STATUS_EXPECTED_SKIP": "expected_skip",
+    "STATUS_FAULT": "fault",
+    "FAULT_STATES": frozenset({"load_failed", "unresolved_artifact", "degraded", "not_scored"}),
+    "EXPECTED_SKIP_STATES": frozenset({"disabled", "no_shadow_models", "no_candidates"}),
+}
+try:
+    from renquant_pipeline.kernel.panel_pipeline import shadow_health as _sh  # noqa: E402
+    SHADOW_HEALTH_SCHEMA = _sh.SHADOW_HEALTH_SCHEMA
+    STATUS_OK = _sh.STATUS_OK
+    STATUS_EXPECTED_SKIP = _sh.STATUS_EXPECTED_SKIP
+    STATUS_FAULT = _sh.STATUS_FAULT
+    FAULT_STATES = frozenset(_sh.FAULT_STATES)
+    EXPECTED_SKIP_STATES = frozenset(_sh.EXPECTED_SKIP_STATES)
+    CONTRACT_SOURCE = "renquant_pipeline"
+except Exception:  # noqa: BLE001 — any import failure -> use the asserted-equal literals
+    SHADOW_HEALTH_SCHEMA = _FALLBACK_CONTRACT["SHADOW_HEALTH_SCHEMA"]
+    STATUS_OK = _FALLBACK_CONTRACT["STATUS_OK"]
+    STATUS_EXPECTED_SKIP = _FALLBACK_CONTRACT["STATUS_EXPECTED_SKIP"]
+    STATUS_FAULT = _FALLBACK_CONTRACT["STATUS_FAULT"]
+    FAULT_STATES = _FALLBACK_CONTRACT["FAULT_STATES"]
+    EXPECTED_SKIP_STATES = _FALLBACK_CONTRACT["EXPECTED_SKIP_STATES"]
+    CONTRACT_SOURCE = "local_fallback"
+
+#: The three canonical statuses; a record must carry one of them. `actionable`
+#: is redundant with status by the producer invariant `actionable == (status !=
+#: "fault")`, kept only as an integrity cross-check.
+VALID_STATUSES = frozenset({STATUS_OK, STATUS_EXPECTED_SKIP, STATUS_FAULT})
 
 #: FALLBACK reader source — the shadow runs DB.
 SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca_shadow.db"))
@@ -135,10 +169,12 @@ class ShadowHealthRecord:
     `shadow_scorer_health.v1` record; the DB fallback DERIVES the same shape so
     the checks are source-agnostic.
 
-    `actionable` uses the PIPELINE's meaning: True => the shadow output is
-    usable / the state is expected; False => degraded (stale / low-coverage /
-    unresolved artifact / missing provenance) — this is what the sentinel alarms
-    on. Fallback records leave it None (unknown) and rely on derived signals.
+    `status` is the authoritative axis (STATUS_OK / STATUS_EXPECTED_SKIP /
+    STATUS_FAULT): the sentinel alarms on STATUS_FAULT and stays quiet on ok /
+    expected_skip. `state` (STATE_*) refines the message. `actionable` is
+    redundant with status by the producer invariant `actionable == (status !=
+    "fault")` and kept only as an integrity cross-check. DB-fallback records have
+    no status (None) and rely on derived load / staleness / coverage signals.
 
     had_runs / feed_present are derivation context (were there live runs at all;
     is there any shadow signal) that keep the liveness and feed-dark domains
@@ -146,6 +182,8 @@ class ShadowHealthRecord:
     """
     run_date: dt.date
     shadow_name: str = SHADOW_NAME
+    status: str | None = None
+    state: str | None = None
     loaded: bool = False
     load_error: str | None = None
     artifact_path: str | None = None
@@ -154,6 +192,7 @@ class ShadowHealthRecord:
     effective_train_cutoff_date: str | None = None
     staleness_days: int | None = None
     config_fingerprint: str | None = None
+    content_sha256: str | None = None
     n_candidates: int | None = None
     n_scored: int = 0
     coverage_frac: float | None = None
@@ -174,6 +213,8 @@ class ShadowHealthRecord:
         return cls(
             run_date=run_date,
             shadow_name=d.get("shadow_name", SHADOW_NAME),
+            status=d.get("status"),
+            state=d.get("state"),
             loaded=bool(d.get("loaded", False)),
             load_error=d.get("load_error"),
             artifact_path=d.get("artifact_path"),
@@ -182,6 +223,7 @@ class ShadowHealthRecord:
             effective_train_cutoff_date=d.get("effective_train_cutoff_date"),
             staleness_days=d.get("staleness_days"),
             config_fingerprint=d.get("config_fingerprint"),
+            content_sha256=d.get("content_sha256"),
             n_candidates=d.get("n_candidates"),
             n_scored=int(d.get("n_scored", 0)),
             coverage_frac=d.get("coverage_frac"),
@@ -203,40 +245,52 @@ DEGRADED = "degraded"       # loaded but not actionable (stale / coverage / prov
 FEED_DARK = "feed_dark"
 
 
+def _effective_status(r: ShadowHealthRecord) -> str | None:
+    """The record's canonical status. Prefer the explicit `status` field; if a
+    record carried only `actionable` (defensive — #211 always emits status),
+    derive it from the invariant `actionable == (status != fault)`. DB-fallback
+    records have neither -> None."""
+    if r.status is not None:
+        return r.status
+    if r.actionable is True:
+        return STATUS_OK
+    if r.actionable is False:
+        return STATUS_FAULT
+    return None
+
+
 def classify(r: ShadowHealthRecord) -> tuple[str, list[str]]:
     """Map a record to (class, human reasons). Source-agnostic.
 
-    PRODUCER/CONSUMER CONTRACT with renquant-pipeline#211 (the health-record
-    writer): `actionable` is the single authoritative fault signal.
-      * expected / disabled  -> loaded may be false, but actionable=TRUE  -> QUIET
-        (#211 emits this when shadow_enabled=false or a by-design skip such as a
-        config-fingerprint rotation — NOT a fault).
-      * real fault           -> actionable=FALSE (unresolved/failed load, stale
-        cutoff, low coverage, missing provenance) -> ALARM after >= N sessions.
-    `loaded`/`n_scored` here only pick the MESSAGE (LOAD_FAIL vs DEGRADED); the
-    ALARM decision is actionable. The DB fallback has no actionable verdict
-    (None) and derives fault from load / staleness / coverage instead.
+    PRODUCER/CONSUMER CONTRACT with renquant-pipeline#211: `status` is the single
+    authoritative fault axis (invariant `actionable == (status != "fault")`).
+      * STATUS_OK / STATUS_EXPECTED_SKIP -> QUIET. expected_skip is #211's
+        explicit by-design non-fault (states: disabled / no_shadow_models /
+        no_candidates) — loaded may be false, but it is NOT a fault.
+      * STATUS_FAULT -> the alarm axis (states: unresolved_artifact / load_failed
+        / not_scored / degraded). Alarm after >= N consecutive sessions.
+    `state` / `loaded` / `n_scored` only pick the MESSAGE (LOAD_FAIL vs
+    DEGRADED). The DB fallback has no status (None) and derives fault from load /
+    staleness / coverage instead.
     """
     # feed dark: a day that had runs but yields no shadow signal from either feed
     if not r.feed_present:
         return FEED_DARK, ["no shadow health record and no collected scores"]
 
-    # nothing was scored — but that is only a FAULT if the producer did not mark
-    # it an expected/disabled state. actionable=True here is the #211 contract's
-    # explicit "this non-load is by design" -> stay quiet.
-    if (not r.loaded) or r.n_scored == 0:
-        if r.actionable is True:
+    status = _effective_status(r)
+    if status is not None:
+        if status != STATUS_FAULT:   # ok / expected_skip -> by design, stay quiet
             return HEALTHY, []
-        reasons = list(r.reasons) or [r.load_error or "not loaded / 0 scored"]
-        return LOAD_FAIL, reasons
+        reasons = list(r.reasons) or [r.state or r.load_error or "fault"]
+        # a non-load / not-scored fault reads as LOAD_FAIL; a scored-but-untrusted
+        # fault (degraded) reads as DEGRADED.
+        if (not r.loaded) or r.n_scored == 0:
+            return LOAD_FAIL, reasons
+        return DEGRADED, reasons
 
-    # loaded WITH scores — is the output actionable?
-    if r.actionable is False:  # pipeline's authoritative fault verdict
-        return DEGRADED, list(r.reasons) or ["pipeline marked shadow not actionable"]
-    if r.actionable is True:   # pipeline says usable — trust it, do not re-derive
-        return HEALTHY, []
-
-    # actionable unknown (DB fallback only): derive fault from staleness / coverage
+    # status unknown (DB fallback only): derive fault from load / staleness / coverage
+    if (not r.loaded) or r.n_scored == 0:
+        return LOAD_FAIL, [r.load_error or "not loaded / 0 scored"]
     derived: list[str] = []
     if r.staleness_days is not None and r.staleness_days > STALENESS_MAX_DAYS:
         derived.append(f"stale train-cutoff {r.staleness_days}d > {STALENESS_MAX_DAYS}d ceiling")
@@ -324,12 +378,22 @@ def is_valid_v1_record(obj: object) -> bool:
         return False
     if not _is_int(obj.get("n_scored")):
         return False
+    # status is the authoritative fault axis — required and constrained to the
+    # producer's canonical set; the actionable invariant must hold or the record
+    # is internally inconsistent (corrupt / wrong producer) and is rejected.
+    status = obj.get("status")
+    if status not in VALID_STATUSES:
+        return False
+    if obj["actionable"] != (status != STATUS_FAULT):
+        return False
     # nullable-but-typed fields, when present
     if not _opt(obj.get("staleness_days"), _is_int):
         return False
     if not _opt(obj.get("coverage_frac"), lambda v: _is_int(v) or isinstance(v, float)):
         return False
     if not _opt(obj.get("n_candidates"), _is_int):
+        return False
+    if not _opt(obj.get("state"), lambda v: isinstance(v, str)):
         return False
     reasons = obj.get("reasons")
     if reasons is not None and not isinstance(reasons, list):

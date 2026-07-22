@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops" / "renquant104"))
 
@@ -86,17 +88,28 @@ def _healthy_db_rows(cutoff="2026-07-14"):
 
 
 def _record(run_date, **kw):
-    """A schema-v1 health record. Defaults to a HEALTHY, loaded, actionable day."""
+    """A canonical schema-v1 health record. Defaults to a HEALTHY (status=ok)
+    day. Tests may pass `status=`/`state=` explicitly, or just `actionable=`
+    (legacy convenience) — status is then derived. The producer invariant
+    `actionable == (status != "fault")` is always re-enforced so every record
+    this helper returns is internally consistent and passes strict validation.
+    """
     base = dict(
         schema="shadow_scorer_health.v1", shadow_name=SHADOW, kind="panel",
+        status="ok", state="ok",
         loaded=True, load_error=None, artifact_path="patchtst/x.pt",
         artifact_resolved=True, artifact_resolved_path="/store/patchtst/x.pt",
         effective_train_cutoff_date="2026-07-10", staleness_days=6,
-        config_fingerprint="cfg123", n_candidates=80, n_scored=78,
-        coverage_frac=0.975, skip_reason=None, actionable=True, reasons=[],
+        config_fingerprint="cfg123", content_sha256="sha256:abc", n_candidates=80,
+        n_scored=78, coverage_frac=0.975, skip_reason=None, reasons=[],
         run_date=run_date, run_id=f"r_{run_date}",
     )
     base.update(kw)
+    # if only actionable was supplied, derive status from it
+    if "status" not in kw and "actionable" in kw:
+        base["status"] = "ok" if kw["actionable"] else "fault"
+    # always re-enforce the canonical invariant
+    base["actionable"] = (base["status"] != "fault")
     return base
 
 
@@ -339,8 +352,26 @@ class TestSchemaValidation:
         assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), n_scored="7")) is False
 
     def test_unit_missing_core_field_rejected(self):
-        for key in ("shadow_name", "run_date", "loaded", "actionable", "n_scored"):
+        for key in ("shadow_name", "run_date", "loaded", "actionable", "n_scored", "status"):
             assert sentinel.is_valid_v1_record(self._drop(D0.isoformat(), key)) is False, key
+
+    def test_unit_invalid_status_rejected(self):
+        for bad in ("degraded", "OK", "faulted", "", None, 1):
+            assert sentinel.is_valid_v1_record(self._bad(D0.isoformat(), status=bad)) is False, bad
+
+    def test_unit_actionable_status_invariant_enforced(self):
+        # status=fault must carry actionable=false; status=ok must carry
+        # actionable=true. A record violating the producer invariant is corrupt
+        # -> rejected (falls through to the DB fallback).
+        assert sentinel.is_valid_v1_record(
+            self._bad(D0.isoformat(), status="fault", actionable=True)) is False
+        assert sentinel.is_valid_v1_record(
+            self._bad(D0.isoformat(), status="ok", actionable=False)) is False
+        # the consistent forms are accepted
+        assert sentinel.is_valid_v1_record(
+            self._bad(D0.isoformat(), status="fault", actionable=False)) is True
+        assert sentinel.is_valid_v1_record(
+            self._bad(D0.isoformat(), status="expected_skip", actionable=True)) is True
 
     def test_unit_unparseable_run_date_rejected(self):
         rec = _record(D0.isoformat())
@@ -391,51 +422,54 @@ class TestSchemaValidation:
 # ---------------------------------------------------------------------------
 
 class TestExpectedSkipContract:
-    def test_disabled_state_actionable_true_stays_quiet(self, tmp_path):
-        # #211's shadow_enabled=false path: an explicit expected/disabled record
-        # (loaded=false but actionable=true) is NOT a fault => quiet, for a full
-        # streak of them.
+    def test_expected_skip_status_stays_quiet(self, tmp_path):
+        # #211's expected_skip states (disabled / no_shadow_models / no_candidates):
+        # loaded=false but status=expected_skip (actionable=true) is NOT a fault
+        # => quiet, for a full streak of them.
         jsonl = [
-            _record(D1.isoformat(), loaded=False, n_scored=0, coverage_frac=None,
-                    actionable=True, skip_reason="shadow_disabled",
-                    reasons=["shadow_enabled_false"]),
-            _record(D0.isoformat(), loaded=False, n_scored=0, coverage_frac=None,
-                    actionable=True, skip_reason="shadow_disabled",
-                    reasons=["shadow_enabled_false"]),
+            _record(D1.isoformat(), status="expected_skip", state="disabled",
+                    loaded=False, n_scored=0, coverage_frac=None,
+                    skip_reason="shadow_disabled", reasons=["shadow_enabled_false"]),
+            _record(D0.isoformat(), status="expected_skip", state="no_candidates",
+                    loaded=False, n_scored=0, coverage_frac=None,
+                    reasons=["no_candidates"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
         assert rc == 0 and not alerts
 
-    def test_real_fault_actionable_false_alarms(self, tmp_path):
-        # same loaded=false shape but actionable=false (real fault) => alarm.
+    def test_fault_status_load_states_alarm(self, tmp_path):
+        # status=fault with a load-type state (unresolved_artifact / load_failed /
+        # not_scored) => LOAD FAILURE.
         jsonl = [
-            _record(D1.isoformat(), loaded=False, n_scored=0, actionable=False,
-                    reasons=["artifact_load_failed"]),
-            _record(D0.isoformat(), loaded=False, n_scored=0, actionable=False,
-                    reasons=["artifact_load_failed"]),
+            _record(D1.isoformat(), status="fault", state="load_failed",
+                    loaded=False, n_scored=0, reasons=["artifact_load_failed"]),
+            _record(D0.isoformat(), status="fault", state="unresolved_artifact",
+                    loaded=False, n_scored=0, reasons=["artifact_unresolved"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
         assert rc == 1
         assert "LOAD FAILURE" in alerts[0][1]
 
-    def test_loaded_but_actionable_false_is_fault(self, tmp_path):
-        # scored fine, but the producer says the output is not trustworthy.
+    def test_fault_status_degraded_state_is_degraded(self, tmp_path):
+        # status=fault + state=degraded (scored but untrusted) => DEGRADED.
         jsonl = [
-            _record(D1.isoformat(), actionable=False, reasons=["missing_provenance"]),
-            _record(D0.isoformat(), actionable=False, reasons=["missing_provenance"]),
+            _record(D1.isoformat(), status="fault", state="degraded",
+                    reasons=["missing_provenance"]),
+            _record(D0.isoformat(), status="fault", state="degraded",
+                    reasons=["missing_provenance"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
         assert rc == 1
         body = "\n".join(b for _, b in alerts)
         assert "DEGRADED" in body and "missing_provenance" in body
 
-    def test_disabled_day_breaks_a_fault_streak(self, tmp_path):
-        # one real-fault day + one expected/disabled day => streak broken, quiet.
+    def test_expected_skip_day_breaks_a_fault_streak(self, tmp_path):
+        # one real-fault day + one expected_skip day => streak broken, quiet.
         jsonl = [
-            _record(D1.isoformat(), loaded=False, n_scored=0, actionable=False,
-                    reasons=["artifact_load_failed"]),
-            _record(D0.isoformat(), loaded=False, n_scored=0, actionable=True,
-                    reasons=["shadow_enabled_false"]),
+            _record(D1.isoformat(), status="fault", state="load_failed",
+                    loaded=False, n_scored=0, reasons=["artifact_load_failed"]),
+            _record(D0.isoformat(), status="expected_skip", state="disabled",
+                    loaded=False, n_scored=0, reasons=["shadow_enabled_false"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
         assert rc == 0 and not alerts
@@ -489,3 +523,43 @@ class TestGating:
         )
         cls, reasons = sentinel.classify(rec)  # coverage 0.5 < 0.80 default
         assert cls == sentinel.DEGRADED
+
+    def test_classify_expected_skip_status_is_healthy(self):
+        rec = sentinel.ShadowHealthRecord.from_dict(
+            _record("2026-07-16", status="expected_skip", state="disabled",
+                    loaded=False, n_scored=0),
+            source="pipeline_health_record")
+        assert sentinel.classify(rec)[0] == sentinel.HEALTHY
+
+    def test_classify_fault_status_drives_over_loaded(self):
+        # even loaded=true + scores, status=fault => the alarm axis (DEGRADED).
+        rec = sentinel.ShadowHealthRecord.from_dict(
+            _record("2026-07-16", status="fault", state="degraded"),
+            source="pipeline_health_record")
+        assert sentinel.classify(rec)[0] == sentinel.DEGRADED
+
+
+# ---------------------------------------------------------------------------
+# canonical-contract constants: imported from the PRODUCER (#211), with an
+# asserted-equal local fallback so the writer and reader cannot drift.
+# ---------------------------------------------------------------------------
+
+class TestContractConstants:
+    def test_fallback_literals_match_producer(self):
+        sh = pytest.importorskip("renquant_pipeline.kernel.panel_pipeline.shadow_health")
+        fb = sentinel._FALLBACK_CONTRACT
+        assert fb["SHADOW_HEALTH_SCHEMA"] == sh.SHADOW_HEALTH_SCHEMA
+        assert fb["STATUS_OK"] == sh.STATUS_OK
+        assert fb["STATUS_EXPECTED_SKIP"] == sh.STATUS_EXPECTED_SKIP
+        assert fb["STATUS_FAULT"] == sh.STATUS_FAULT
+        assert fb["FAULT_STATES"] == frozenset(sh.FAULT_STATES)
+        assert fb["EXPECTED_SKIP_STATES"] == frozenset(sh.EXPECTED_SKIP_STATES)
+
+    def test_module_imports_producer_when_available(self):
+        pytest.importorskip("renquant_pipeline.kernel.panel_pipeline.shadow_health")
+        # in an env where the producer is importable (e.g. `make test`), the
+        # module must have used it — not silently fallen back to the literals.
+        assert sentinel.CONTRACT_SOURCE == "renquant_pipeline"
+        assert sentinel.SHADOW_HEALTH_SCHEMA == "shadow_scorer_health.v1"
+        assert "load_failed" in sentinel.FAULT_STATES
+        assert "disabled" in sentinel.EXPECTED_SKIP_STATES
