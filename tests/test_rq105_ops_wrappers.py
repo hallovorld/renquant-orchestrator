@@ -7,10 +7,12 @@ python without the environment the script expects.
 """
 from __future__ import annotations
 
+import json
 import plistlib
 from pathlib import Path
 
 OPS_DIR = Path(__file__).resolve().parent.parent / "ops" / "renquant105"
+MANIFEST = Path(__file__).resolve().parent.parent / "ops" / "launchd_manifest.json"
 
 WRAPPER_JOBS = [
     "batch-scores-export",
@@ -87,6 +89,49 @@ def test_liveness_check_wrapper_exists():
     assert wrapper.exists(), "run_liveness_check.sh missing"
     content = wrapper.read_text(encoding="utf-8")
     assert "rq105_liveness_check.py" in content
+
+
+def _load_plist(path: Path) -> dict:
+    """plistlib's expat rejects `--` inside XML comments (the annotated plists
+    have them); fall back to plutil normalization like the drift scan does."""
+    try:
+        with open(path, "rb") as fh:
+            return plistlib.load(fh)
+    except Exception:
+        import subprocess
+        res = subprocess.run(
+            ["plutil", "-convert", "xml1", "-o", "-", "--", str(path)],
+            capture_output=True,
+        )
+        return plistlib.loads(res.stdout)
+
+
+def test_quote_logger_plist_has_keepalive_for_auto_restart():
+    """GOAL-5 Fix 3: the quote-logger job must auto-restart on a mid-session
+    crash — KeepAlive={SuccessfulExit:false} (restart on non-zero/abnormal exit,
+    NOT on a clean exit 0). Before this it fired once at 06:25 with no KeepAlive,
+    so a ~08:37 death was fatal for the session."""
+    plist = _load_plist(OPS_DIR / "com.renquant.rq105-quote-logger.plist")
+    ka = plist.get("KeepAlive")
+    assert isinstance(ka, dict), f"quote-logger plist must set KeepAlive dict, got {ka!r}"
+    assert ka.get("SuccessfulExit") is False, (
+        "KeepAlive must be SuccessfulExit=false: restart on crash, not on a clean exit"
+    )
+
+
+def test_quote_logger_manifest_records_keepalive_intent():
+    """Containment protocol: the KeepAlive change must be recorded in the
+    reviewed surface (launchd_manifest.json) in the same PR, not just the plist.
+    ProgramArguments is unchanged, so program_args_sha256 stays valid."""
+    jobs = json.loads(MANIFEST.read_text(encoding="utf-8"))["jobs"]
+    entry = jobs["com.renquant.rq105-quote-logger"]
+    assert entry["program_args"] == [
+        "/bin/zsh",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_quote_logger.sh",
+    ], "ProgramArguments (the drift-tracked surface) must be unchanged"
+    assert entry.get("keep_alive") == {"SuccessfulExit": False}, (
+        "manifest must record the reviewed KeepAlive intent"
+    )
 
 
 def test_plists_are_weekday_only():

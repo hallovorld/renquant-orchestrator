@@ -12,6 +12,15 @@
     <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
     <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
   </array>
+  <!-- GOAL-5 auto-restart (2026-07-22): fire once at 06:25 PT AND auto-restart on
+       a mid-session crash. Before this, a collector death at ~08:37 left it dead
+       for the rest of the session (06:25 was the only trigger). SuccessfulExit=false
+       restarts ONLY on a non-zero/abnormal exit; a clean exit 0 (normal end of
+       session, or the wrapper's off-window / holiday no-op) does NOT respawn. The
+       wrapper (run_quote_logger.sh) is the session-window gate so KeepAlive cannot
+       thrash off-session; ThrottleInterval bounds the respawn rate. -->
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>60</integer>
   <key>StandardOutPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq105/launchd_quote-logger.out</string>
   <key>StandardErrorPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq105/launchd_quote-logger.err</string>
 </dict>
