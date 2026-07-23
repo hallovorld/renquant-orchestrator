@@ -1,14 +1,15 @@
-"""GOAL-4 tiered-evaluation harness tests.
+"""tiered_screen tests.
 
 Two groups:
 1. power.py — the MDE / required-blocks / achieved-power closed forms, checked
    against textbook one-sided z-values (this is the numeric backbone of the
    whole "can we even detect it" argument).
-2. harness.py — the controls the frozen spec mandates actually behave:
+2. harness.py — the controls behave:
    * positive control recovers a known injected signal (Tier-0),
    * a null score produces no spurious existence (no false positive),
-   * the paired increment fires only when the ensemble genuinely dominates.
-3. spec.py — the frozen spec builds, validates R3/R4, and hashes stably.
+   * the paired increment fires only when one score genuinely dominates,
+   * alpha_one_sided has no silent default (a caller must pass their own
+     family-corrected alpha; see harness.py module docstring).
 """
 
 from __future__ import annotations
@@ -20,9 +21,8 @@ import pandas as pd
 import pytest
 
 from renquant_orchestrator.expkit.evaluation import fwd_excess
-from renquant_orchestrator.g4_ensemble import (
+from renquant_orchestrator.tiered_screen import (
     achieved_power,
-    build_spec,
     effective_blocks,
     evaluate_existence,
     evaluate_increment,
@@ -30,7 +30,8 @@ from renquant_orchestrator.g4_ensemble import (
     positive_control_recovery,
     required_blocks,
 )
-from renquant_orchestrator.expkit.prereg import load_frozen_spec, write_frozen_spec
+
+ALPHA = 0.05
 
 
 # --------------------------------------------------------------------------- #
@@ -41,7 +42,7 @@ def test_min_detectable_ic_matches_closed_form():
     # (z_.95 + z_.80) = 1.644854 + 0.841621 = 2.486475
     # K=100, sigma=0.10 -> 2.486475 * 0.10 / 10 = 0.02486
     assert min_detectable_ic(100, 0.10) == pytest.approx(0.024865, abs=1e-4)
-    # K=10 (the 60d-horizon reality) -> ~0.0786 one-sided
+    # K=10 (e.g. a 60d-horizon label over ~600 trading days) -> ~0.0786 one-sided
     assert min_detectable_ic(10, 0.10) == pytest.approx(0.078630, abs=1e-4)
 
 
@@ -113,7 +114,9 @@ def test_positive_control_recovery_detects_known_signal():
     label = pd.DataFrame(
         rng.standard_normal((420, 40)), index=dates, columns=names
     )
-    res = positive_control_recovery(label, rho=0.8, horizon=20, n_boot=400, seed=1)
+    res = positive_control_recovery(
+        label, rho=0.8, horizon=20, n_boot=400, seed=1, alpha_one_sided=ALPHA
+    )
     assert res.real_ic_mean > 0.5           # strong signal recovered
     assert res.exists is True               # clean CI lower bound > 0
     assert res.clean_boot is not None and res.clean_boot["lb_one_sided"] > 0
@@ -123,7 +126,7 @@ def test_existence_fires_on_real_signal():
     close, bench = _panel(seed=1)
     label = fwd_excess(close, bench, 20)
     score = _signal_score(label, rho=0.8, seed=2)
-    res = evaluate_existence(score, close, bench, 20, n_boot=400, seed=1)
+    res = evaluate_existence(score, close, bench, 20, n_boot=400, seed=1, alpha_one_sided=ALPHA)
     assert res.exists is True
     assert res.real_ic_mean > 0.4
     assert res.n_blocks > 0
@@ -136,7 +139,7 @@ def test_existence_no_false_positive_on_null_score():
     score = pd.DataFrame(
         rng.standard_normal(close.shape), index=close.index, columns=close.columns
     )
-    res = evaluate_existence(score, close, bench, 20, n_boot=400, seed=1)
+    res = evaluate_existence(score, close, bench, 20, n_boot=400, seed=1, alpha_one_sided=ALPHA)
     # a score independent of the label must not manufacture a clean IC
     assert abs(res.clean_ic_mean) < 0.05
 
@@ -144,9 +147,11 @@ def test_existence_no_false_positive_on_null_score():
 def test_increment_beats_only_on_real_dominance():
     close, bench = _panel(seed=2)
     label = fwd_excess(close, bench, 20)
-    strong = _signal_score(label, rho=0.8, seed=10)   # "ensemble"
-    weak = _signal_score(label, rho=0.2, seed=11)     # "best single"
-    res = evaluate_increment(strong, weak, close, bench, 20, n_boot=400, seed=1)
+    strong = _signal_score(label, rho=0.8, seed=10)
+    weak = _signal_score(label, rho=0.2, seed=11)
+    res = evaluate_increment(
+        strong, weak, close, bench, 20, n_boot=400, seed=1, alpha_one_sided=ALPHA
+    )
     assert res.beats_best_single is True
     assert res.delta_mean > 0
 
@@ -155,30 +160,24 @@ def test_increment_no_gain_when_identical():
     close, bench = _panel(seed=3)
     label = fwd_excess(close, bench, 20)
     same = _signal_score(label, rho=0.6, seed=12)
-    res = evaluate_increment(same, same, close, bench, 20, n_boot=400, seed=1)
+    res = evaluate_increment(
+        same, same, close, bench, 20, n_boot=400, seed=1, alpha_one_sided=ALPHA
+    )
     assert res.beats_best_single is False
     assert res.delta_mean == pytest.approx(0.0, abs=1e-9)
 
 
-# --------------------------------------------------------------------------- #
-# 3. spec.py — frozen spec builds, validates, hashes
-# --------------------------------------------------------------------------- #
-
-def test_frozen_spec_builds_and_validates():
-    spec = build_spec()
-    assert spec.experiment_id == "g4-ensemble-2expert-2026-07-23"
-    assert spec.family_size_k == 6
-    assert spec.alpha_one_sided == pytest.approx(0.05 / 6)
-    # R3/R4 invariants were enforced by __post_init__ (would have raised)
-    assert spec.criterion("tier1_existence_clean_ic_lb").direction == "gt"
-    assert spec.reopening_conditions  # non-empty
-
-
-def test_frozen_spec_hash_is_stable_and_roundtrips(tmp_path):
-    spec = build_spec()
-    h1 = spec.sha256()
-    assert h1 == build_spec().sha256()          # deterministic
-    p = tmp_path / "frozen_spec.json"
-    write_frozen_spec(spec, p)
-    reloaded = load_frozen_spec(p)
-    assert reloaded.sha256() == h1              # round-trips
+def test_public_entrypoints_require_explicit_alpha():
+    """alpha_one_sided has no default — a caller's own pre-registered spec sets
+    the multiplicity-corrected alpha; a silent default would let a caller run
+    at a looser alpha than their spec froze without noticing (codex review,
+    PR #568)."""
+    close, bench = _panel(seed=6)
+    label = fwd_excess(close, bench, 20)
+    score = _signal_score(label, rho=0.8, seed=13)
+    with pytest.raises(TypeError):
+        evaluate_existence(score, close, bench, 20, n_boot=100, seed=1)
+    with pytest.raises(TypeError):
+        evaluate_increment(score, score, close, bench, 20, n_boot=100, seed=1)
+    with pytest.raises(TypeError):
+        positive_control_recovery(label, rho=0.8, horizon=20, n_boot=100, seed=1)

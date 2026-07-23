@@ -1,9 +1,8 @@
 """Power / minimum-detectable-effect (MDE) analysis for cross-sectional IC.
 
 This is the one primitive the pre-registered ``expkit`` surface does not yet
-carry, and it is the load-bearing piece of the GOAL-4 design: a rigorous
-experiment starts by asking *can this measurement even detect the effect I am
-looking for* BEFORE spending compute — not after.
+carry. A rigorous experiment starts by asking *can this measurement even
+detect the effect I am looking for* BEFORE spending compute — not after.
 
 The estimand is the time-mean of a per-date cross-sectional rank-IC series.
 Because the label is a ``horizon``-day forward return, IC observations inside
@@ -15,7 +14,7 @@ A one-sided z-test on that mean gives the closed forms below.
 Everything here is a pure function of (blocks, sigma_ic, alpha, power); the
 only dependency is ``scipy.stats.norm`` (already a repo dependency). The
 numbers are unit-tested against textbook z-values in
-``tests/test_g4_ensemble.py``.
+``tests/test_tiered_screen.py``.
 """
 
 from __future__ import annotations

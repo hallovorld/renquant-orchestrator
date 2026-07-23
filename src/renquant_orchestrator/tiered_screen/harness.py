@@ -1,24 +1,23 @@
-"""GOAL-4 tiered evaluation harness — a thin *composition* of the codex-
+"""Generic tiered evaluation harness — a thin *composition* of the codex-
 reviewed ``expkit`` primitives (PR #287). It implements no statistics of its
 own; every number comes from ``expkit`` (IC, shifted-label placebo, paired
 deltas, gap-respecting block bootstrap) or :mod:`.power`.
-
-Design (frozen in ``doc/research/2026-07-23-g4-ensemble-prereg.md``):
 
   Tier 0  harness validation — positive control (inject a known-rho signal,
           the pipeline must recover it inside the bootstrap CI) + negative
           control (shifted-label placebo IS the leakage floor the real IC
           must clear). :func:`positive_control_recovery`, and the placebo leg
           of every existence run.
-  Tier 1  signal EXISTENCE across horizons {5,20,60} — the high-power screen.
-          :func:`evaluate_existence`. The kill gate lives here.
-  Tier 2  ensemble INCREMENT over the best single expert, as a PAIRED delta
-          (common embargo-leakage floor cancels). :func:`evaluate_increment`.
+  Tier 1  signal EXISTENCE at a given horizon. :func:`evaluate_existence`.
+  Tier 2  paired INCREMENT of one score over another on identical dates/names
+          (the common embargo-leakage floor cancels). :func:`evaluate_increment`.
 
-The ``score`` inputs are wide ``date x name`` frames of model output. On
-synthetic frames the whole harness runs in-process (see the tests); wiring the
-real PatchTST/XGB scorers into ``score`` is the compute-gated follow-up and is
-deliberately NOT done here.
+The ``score`` inputs are wide ``date x name`` frames of model output — this
+module has no opinion on what produced them. ``alpha_one_sided`` is a
+required keyword on every public entrypoint (no default): the caller's own
+pre-registered spec sets the multiplicity-corrected alpha, and a silent
+default here would let a caller run at a looser alpha than their spec froze
+without noticing.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ from renquant_orchestrator.expkit.stats import (
     summarize_boot,
     usable_blocks,
 )
-from renquant_orchestrator.g4_ensemble.power import min_detectable_ic
+from renquant_orchestrator.tiered_screen.power import min_detectable_ic
 
 __all__ = [
     "ExistenceResult",
@@ -66,7 +65,7 @@ def _mean_ci(series: pd.Series, *, block: int, n_boot: int, seed: int, alpha_one
 
 @dataclass(frozen=True)
 class ExistenceResult:
-    """Tier-1 read for one (expert, horizon)."""
+    """Tier-1 read for one (score, horizon)."""
 
     horizon: int
     n_dates: int
@@ -83,7 +82,7 @@ class ExistenceResult:
 
 @dataclass(frozen=True)
 class IncrementResult:
-    """Tier-2 read: ensemble minus best single expert, paired."""
+    """Tier-2 read: score_ensemble minus score_best_single, paired."""
 
     horizon: int
     n_dates: int
@@ -101,11 +100,11 @@ def evaluate_existence(
     *,
     n_boot: int = 2000,
     seed: int = 44,
-    alpha_one_sided: float = 0.05,
+    alpha_one_sided: float,
     min_names: int = 30,
     sigma_ic: float | None = None,
 ) -> ExistenceResult:
-    """Tier-1 existence test for one expert at one horizon.
+    """Tier-1 existence test for one score at one horizon.
 
     label = horizon-day forward excess return; placebo = the shifted-label
     leakage floor at the frozen shift (``gate_shift_sessions(horizon)``);
@@ -159,12 +158,12 @@ def evaluate_increment(
     *,
     n_boot: int = 2000,
     seed: int = 44,
-    alpha_one_sided: float = 0.05,
+    alpha_one_sided: float,
     min_names: int = 30,
 ) -> IncrementResult:
-    """Tier-2 paired increment: does the ensemble out-rank the best single
-    expert on the SAME dates/names? Evaluated on the paired clean-IC delta so
-    the common embargo-leakage floor cancels (the whole point of pairing).
+    """Tier-2 paired increment: does score_ensemble out-rank score_best_single
+    on the SAME dates/names? Evaluated on the paired clean-IC delta so the
+    common embargo-leakage floor cancels (the whole point of pairing).
 
     H2 met iff the one-sided lower bound of mean(delta) > 0.
     """
@@ -201,7 +200,7 @@ def positive_control_recovery(
     horizon: int,
     seed: int = 44,
     n_boot: int = 2000,
-    alpha_one_sided: float = 0.05,
+    alpha_one_sided: float,
     min_names: int = 30,
 ) -> ExistenceResult:
     """Tier-0 positive control: synthesize a score that is the true label
