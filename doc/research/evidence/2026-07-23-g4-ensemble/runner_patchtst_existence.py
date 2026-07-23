@@ -4,9 +4,14 @@
 Leakage-correct: each model trained on data <= 2023-01-01 - horizon_lookahead
 (hf_trainer --train-cutoff). Test dates are strictly after. Apples-to-apples
 with g4_t1_xgb_existence.py.
+
+Checkpoints are committed alongside this script under ``checkpoints/pt_{h}/``
+(984 KB total for all 3 horizons) so the PatchTST side of the KILL verdict is
+reproducible from repo artifacts alone — no dependency on an ephemeral
+scratchpad (2026-07-23 PR #569 review fix).
 """
 from __future__ import annotations
-import sys, glob, numpy as np, pandas as pd
+import sys, glob, pathlib, numpy as np, pandas as pd
 sys.path.insert(0, "/Users/renhao/git/github/renquant-orchestrator/src")
 for r in ("renquant-pipeline", "renquant-common", "renquant-base-data", "renquant-model"):
     sys.path.insert(0, f"/Users/renhao/git/github/{r}/src")
@@ -16,7 +21,8 @@ from renquant_orchestrator.expkit.evaluation import per_date_ic, shifted_label_p
 from renquant_orchestrator.expkit.stats import block_bootstrap_conditional_mean, summarize_boot, usable_blocks
 from renquant_pipeline.kernel.panel_pipeline.hf_patchtst_scorer import HFPatchTSTPanelScorer
 
-SP = "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad"
+CKPT_DIR = pathlib.Path(__file__).resolve().parent / "checkpoints"
+OUT_DIR = pathlib.Path(__file__).resolve().parent
 PANEL = "/Users/renhao/git/github/RenQuant/data/transformer_v4_wl200_clean.parquet"
 LABELS = {"5d": "fwd_5d_excess", "20d": "fwd_20d_excess", "60d": "fwd_60d_excess"}
 HORIZ = {"5d": 5, "20d": 20, "60d": 60}
@@ -59,10 +65,9 @@ print(f"{'h':>4} {'n':>7} {'blocks':>7} {'MDE':>7} {'real_ic':>8} {'floor':>7} {
 results = {}
 for name, lbl in LABELS.items():
     h = HORIZ[name]
-    pts = glob.glob(f"{SP}/patchtst_ss/pt_{name}/**/*model*.pt", recursive=True) + \
-          glob.glob(f"{SP}/patchtst_ss/pt_{name}/*.pt")
+    pts = glob.glob(str(CKPT_DIR / f"pt_{name}" / "*.pt"))
     if not pts:
-        print(f"{name:>4}  (no model .pt found — training not done?)", flush=True); continue
+        print(f"{name:>4}  (no model .pt found under {CKPT_DIR}/pt_{name}/)", flush=True); continue
     scorer = HFPatchTSTPanelScorer.load(sorted(pts)[0])
     seq_len = scorer.seq_len; feat_cols = scorer.feature_cols
     test_dates = np.array(sorted(df.loc[df["date"] >= SPLIT, "date"].unique()))
@@ -91,5 +96,6 @@ for name, lbl in LABELS.items():
 any_exists = any(r["exists"] for r in results.values())
 print(f"\n[T1 PatchTST VERDICT] any horizon exists? -> {any_exists}")
 import json
-json.dump(results, open(f"{SP}/g4_patchtst_existence_results.json", "w"), indent=2, default=str)
-print(f"saved -> {SP}/g4_patchtst_existence_results.json")
+out_path = OUT_DIR / "patchtst_existence_results.json"
+json.dump(results, open(out_path, "w"), indent=2, default=str)
+print(f"saved -> {out_path}")

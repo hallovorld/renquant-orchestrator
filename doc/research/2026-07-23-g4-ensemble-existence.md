@@ -1,6 +1,7 @@
 # GOAL-4 two-expert ensemble — Tier-0/Tier-1 existence evidence
 
-**Status:** COMPLETE — both experts placebo-clean null across horizons → **KILL G4** on strong preregistered evidence.
+**Status:** COMPLETE — both experts placebo-clean null across horizons → **KILL G4**
+on a powered existence-screen result (see the preregistration caveat in §1).
 **Method primitive:** `renquant_orchestrator.tiered_screen` (generic, on main, PR #568) + `expkit`.
 **Reproducibility:** scripts + `evidence/2026-07-23-g4-ensemble/` (panel provenance, results JSON).
 
@@ -45,6 +46,14 @@ named and deferred to the GO stage, not skipped.
 
 Estimator: one-sided lower bound of a gap-respecting block bootstrap (block = horizon)
 of the clean-IC mean. Bonferroni k = 6 (2 experts × 3 horizons), one-sided α = 0.05/6.
+
+**Preregistration caveat (Codex review, PR #569):** the hypotheses/estimator/
+multiplicity-correction above were fixed by the author before computing the Tier-1
+numbers, but this document commits protocol and results in the same commit — there
+is no independently time-stamped artifact proving the protocol preceded the
+observation, unlike a true preregistration. This is an *existence screen with
+hypotheses stated a priori*, not a verifiably preregistered study; "preregistered"
+has been removed from the status line and §8 title for that reason.
 
 ## 2. Power (corrected — the real panel is 10y, not the 2.3y I first anchored on)
 
@@ -111,14 +120,28 @@ PatchTST's clean-IC series is noisier than XGB's (higher MDE), but the verdict i
 same: no placebo-clean cross-sectional edge at any horizon; a confirmed null at 5d
 (powered).
 
-## 8. Verdict — KILL G4 (strong preregistered evidence)
+## 8. Verdict — KILL G4 (existence-screen evidence, see §1 caveat)
 
 H1 (existence) is **FALSE for both experts at every horizon**. Where the screen is
-powered (5d, K=163; 20d, K=39 for XGB), both are confirmed nulls, not underpowered
-shrugs. Two individually-null experts cannot ensemble into signal, so **H2 is moot and
-G4 is killed** — consistent with the original 2026-07-16 Phase-0 "evidence-blocked"
-audit, now backed by real leakage-clean powered data, and with the standing "XGB null
-at 60d (3 lines)" finding (here extended to 5d/20d and to PatchTST).
+powered (5d, K=163 for both experts; 20d, K=39 for XGB only — PatchTST's own 20d MDE
+is 0.097, too coarse to call that horizon powered for PatchTST), both are confirmed
+nulls, not underpowered shrugs.
+
+**H2 (the paired-ensemble increment) was never directly tested** — this PR only
+scored each expert individually; per-date scores were not persisted, so the paired
+average was not computed. "Two individually-null experts cannot ensemble into signal"
+is an inference, not a proof: if XGB's and PatchTST's residual clean-IC estimates are
+driven by different, weakly-correlated noise, averaging could in principle reduce
+variance enough to clear a threshold neither clears alone. The inference here rests
+on (a) both experts' clean IC sitting at or below their own leakage/placebo floor
+rather than merely below a detection threshold, and (b) no prior showing XGB and
+PatchTST residuals decorrelate on this panel — but it is a judgment call, not a
+statistical proof of H2's falsity. **G4 is killed on that inference**, consistent
+with the original 2026-07-16 Phase-0 "evidence-blocked" audit, now backed by real
+leakage-clean powered data, and with the standing "XGB null at 60d (3 lines)" finding
+(here extended to 5d/20d and to PatchTST). A precommitted paired-ensemble test (score
+both experts on the same dates, average, re-run this same screen) is the cheap,
+rigorous way to close this gap if the verdict is ever contested — it was not run here.
 
 Honest scope of the claim: single-split, single-seed, gross rank-IC. That is
 sufficient to *not reject H0 (kill)* — the burden of proof is on finding signal, and a
@@ -152,16 +175,21 @@ prod or exp:   experiment (research existence screen; no production path touched
 existing data: consistent with the standing "XGB null at 60d" finding (3 prior
                independent lines) and the 2026-07-16 Phase-0 "evidence-blocked"
                audit for the ensemble pitch; this is the first leakage-clean,
-               powered measurement at 5d/20d for both XGB and PatchTST.
+               powered measurement at 5d for both experts, and at 20d for XGB
+               (PatchTST's own 20d MDE=0.097 is not powered by the same bar).
 best-known?:   not applicable to a promotion claim — this is a KILL (non-existence)
                verdict, not a "beats prior best" claim. Both experts' clean IC
                (0.002-0.004, one negative at 20d PatchTST) sit inside the leakage/
                noise floor, below every Bonferroni lower bound.
 scope:         "this is a single-split, single-seed, gross rank-IC existence screen
-               (research artifact, not prod), powered at 5d (K=163) and 20d (K=39),
-               underpowered at 60d (K=11). It supports killing the GOAL-4 two-expert
-               ensemble pitch specifically (2 individually-null experts cannot
-               ensemble). It does NOT constitute the >=5-seed properly-powered
+               (research artifact, not prod), powered at 5d (K=163) for both experts
+               and at 20d (K=39) for XGB only, underpowered at 60d (K=11) and at 20d
+               for PatchTST. It tests H1 (individual existence) only — H2 (paired-
+               ensemble increment) was never directly computed; the KILL verdict
+               treats two individually-null experts as insufficient evidence to fund
+               an ensemble pitch, which is an inference about H2, not a test of it
+               (see §8). It supports killing the GOAL-4 two-expert ensemble pitch
+               specifically. It does NOT constitute the >=5-seed properly-powered
                diagnostic that doc/memory/mid-term/model-edge.md NEXT requires
                before closing or switching the primary-strategy architecture —
                see §10 for that distinction."
@@ -178,10 +206,10 @@ question is narrower and different — "does either expert, on its own, clear a
 placebo floor at all" for the purpose of the standalone **GOAL-4 ensemble pitch**,
 not "which architecture should be prod."
 
-Two individually-null experts is sufficient evidence to kill an *ensemble built
-from* those two experts (H2 is moot if H1 is false for both) even though it is
-not sufficient to close the separate model-edge workstream's own architecture
-question. `model-edge.md` is left untouched by this PR; its >=5-seed NEXT item
+Two individually-null experts is treated here as sufficient evidence to kill an
+*ensemble built from* those two experts — an inference about H2, not a direct test
+of it (§8) — even though it is not sufficient to close the separate model-edge
+workstream's own architecture question. `model-edge.md` is left untouched by this PR; its >=5-seed NEXT item
 stays open and binding for that workstream. If a future >=5-seed model-edge
 diagnostic reverses one of the experts' existence result, GOAL-4 would need a
 fresh registration per the reopening rule in §8 — that dependency is noted here,
