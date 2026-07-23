@@ -37,14 +37,25 @@ WHAT:      Three fixes for a class of silent rq105 tick-collector stalls
            order path, no state). Root cause of the underlying stall is
            still unknown — these fixes make the next occurrence
            diagnosable, loud, and recoverable, not the stall itself.
+           (4) [fix pass, codex CHANGES_REQUESTED] `run_quote_logger.sh` —
+           the wall-clock session-window guard alone let a weekday NYSE
+           holiday through; the collector's own calendar then exits it
+           cleanly within seconds and the old code misread that as an
+           unexpected "stopped early" crash, false-paging urgent. Added an
+           exchange-calendar guard (reuses the same fail-closed
+           `liveness_common.is_session_day()` primitive
+           `rq105_liveness_check.py` already uses) that clean-no-ops BEFORE
+           the collector launches on a real holiday, and fails CLOSED
+           (proceeds to launch) if the calendar check itself errors.
 WHY/DIR:   GOAL-5 (daily-run reliability). rq105 has been silently losing
            collector coverage on live-session days with no operator signal;
            this closes the detection/capture/recovery gap so the next stall
            is caught same-session instead of discovered hours later (or not
            at all).
-EVIDENCE:  n/a — this PR is operational/reliability tooling (alerting,
-           process supervision, launchd config), not a model or data claim;
-           no IC/Sharpe/APY number is reported.
+EVIDENCE:  n/a
+           This PR is operational/reliability tooling (alerting, process
+           supervision, launchd config), not a model or data claim — no
+           IC/Sharpe/APY number is reported.
 NEXT:      Machine-landing (installing/reloading the new plist) is
            operator-gated and NOT done by this PR:
            `launchctl bootout gui/$(id -u)/com.renquant.rq105-quote-logger`
@@ -55,6 +66,11 @@ NEXT:      Machine-landing (installing/reloading the new plist) is
            first-class field (it currently only tracks `ProgramArguments`).
            Live failure observation is still needed to find the stall's
            root cause; these fixes only make that observation possible.
+           RESOLVED this pass: codex's holiday-false-alarm BLOCKER (see
+           Fix 4 above) and the progress-doc `EVIDENCE:` exact-match gap
+           (the mechanical checker requires `EVIDENCE:` to be literally
+           `n/a` on its own line for the no-model-claim exemption; the
+           prior wording appended prose on the same line).
 
 ## Revert steps
 
@@ -76,8 +92,12 @@ NEXT:      Machine-landing (installing/reloading the new plist) is
   end-to-end with a stub collector + stub ntfy sender (no venv, no
   network) — non-zero exit -> crash record + urgent/tagged alert; silent
   hang -> watchdog alert + kill for KeepAlive restart; hang alert-only when
-  kill disabled; off-window clean no-op; clean full-session silence; text
-  guardrails. (Skips off darwin / without zsh.)
+  kill disabled; off-window clean no-op; clean full-session silence;
+  holiday no-op (stubbed calendar check) -> no crash log, no alert;
+  calendar-check-unavailable fails closed and still runs the collector;
+  text guardrails. (Skips off darwin / without zsh.) Confirmed the new
+  holiday test FAILS pre-fix (`proc.returncode == 1` instead of `0`) and
+  passes post-fix.
 - `tests/test_rq105_liveness.py` (extended): `_alert` forwards urgent
   priority + distinctive tags; `RQ105_NTFY_TOPIC` routing; end-to-end stale
   fixture -> `main` sends an urgent, tagged, `🚨 … DOWN` alert.
@@ -89,3 +109,7 @@ Suite: full `pytest` green except pre-existing, unrelated failures
 (`test_bundle_seal.py` collection — stale `renquant_artifacts` sibling; and
 3 `test_retrain_sigma_head_rawlabel` data-pin cases) present on
 `origin/main` before this change.
+
+Focused re-run (this fix pass): `pytest -q tests/test_rq105_quote_logger_failloud.py
+tests/test_rq105_liveness.py tests/test_rq105_ops_wrappers.py` -> 25 passed
+(23 prior + 2 new holiday-guard tests).

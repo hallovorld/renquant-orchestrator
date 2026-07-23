@@ -221,6 +221,59 @@ def test_outside_session_window_is_clean_noop(tmp_path):
     assert "outside the session window" in _day_log(rq).read_text(encoding="utf-8")
 
 
+def test_holiday_noop_is_clean_no_crash_no_alert(tmp_path):
+    """Exchange-calendar guard: a weekday NYSE holiday must be a clean no-op
+    BEFORE the collector is ever launched — the window guard alone lets an
+    in-window run through, and without this guard the collector's own quick
+    clean exit gets misread by _finish() as an unexpected 'stopped early'
+    crash (codex review, PR #567). Stubs RQ105_CAL_PYTHON_BIN to a script that
+    deterministically reports 'not a session day' (rc=1), independent of the
+    real NYSE calendar / any .venv, so the collector stub (which would crash
+    if launched) is never reached."""
+    rq = _scratch_rq_root(tmp_path)
+    collector = _fake_collector(tmp_path, "exit 7\n")  # would crash if launched
+    not_a_session_day = _fake_collector(tmp_path, "exit 1\n")
+
+    proc = _run_wrapper(
+        rq,
+        {
+            "RQ105_PYTHON_BIN": collector,
+            "RQ105_CAL_PYTHON_BIN": not_a_session_day,
+        },
+    )
+
+    assert proc.returncode == 0, "holiday no-op must exit 0 so KeepAlive does not respawn"
+    assert not _crash_log(rq).exists(), "guard must short-circuit before the collector can crash"
+    assert _notify_record(rq) == "", "a genuine holiday no-op must not page anyone"
+    assert "not an NYSE session day" in _day_log(rq).read_text(encoding="utf-8")
+
+
+def test_calendar_check_unavailable_fails_closed_and_still_runs(tmp_path):
+    """If the calendar check itself cannot be evaluated (no CAL_PYTHON_BIN
+    resolvable — the default `.venv` does not exist in this scratch root),
+    the guard must fail CLOSED: proceed to launch the collector rather than
+    silently skip a real session (never trade a false alarm's noise for a
+    missed live stall, matching liveness_common.is_session_day's own
+    fail-closed contract)."""
+    rq = _scratch_rq_root(tmp_path)
+    collector = _fake_collector(tmp_path, "exit 0\n")
+
+    proc = _run_wrapper(
+        rq,
+        {
+            "RQ105_PYTHON_BIN": collector,
+            "RQ105_WATCHDOG_INTERVAL": 999,
+            "RQ105_MIN_SESSION_SECONDS": 0,
+            # RQ105_CAL_PYTHON_BIN left unset -> defaults to "$RQ_ROOT/.venv/bin/python",
+            # which does not exist under the scratch tmp_path root.
+        },
+    )
+
+    assert proc.returncode == 0
+    assert not _crash_log(rq).exists()
+    assert _notify_record(rq) == ""
+
+
 def test_clean_full_session_completion_is_silent(tmp_path):
     """A collector that runs the whole session and exits 0 must NOT alert —
     fail-loud must add zero noise to the shared topic on a healthy day."""
@@ -252,5 +305,6 @@ def test_wrapper_text_has_fail_loud_machinery():
         "alerts must default to distinctive tags + elevated priority"
     )
     assert "outside the session window" in text, "KeepAlive session-window guard must exist"
+    assert "is_session_day" in text, "exchange-calendar guard must exist (holiday false-alarm fix)"
     assert "ALERT_COOLDOWN_SECONDS" in text, "alert cooldown (KeepAlive storm guard) must exist"
     assert "WATCHDOG_KILL" in text, "watchdog hang-kill (for KeepAlive restart) must exist"

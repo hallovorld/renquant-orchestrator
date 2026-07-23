@@ -98,6 +98,40 @@ if [ "$_now_hm" -lt "$(( 10#$SESSION_START_HHMM ))" ] || [ "$_now_hm" -ge "$(( 1
   exit 0
 fi
 
+# Exchange-calendar guard (must ALSO run BEFORE any trap is installed, same
+# reason as the window guard above). The window guard only knows local
+# wall-clock time, not whether today is an actual NYSE trading day. On a
+# weekday NYSE holiday the window guard lets an in-window run through, the
+# collector's own calendar then exits it cleanly within seconds, and _finish()
+# below would misread that quick clean exit as an unexpected "stopped early"
+# crash and fire a false urgent alert (codex review on PR #567; reproduced
+# 2026-07-23 by running the wrapper in-window against a collector stub that
+# exits 0 immediately). Reuses the SAME fail-closed
+# liveness_common.is_session_day() primitive rq105_liveness_check.py already
+# uses (XC-8 dedup) — never re-implemented here. CAL_PYTHON_BIN is a SEPARATE
+# override from PY_BIN (the collector binary): a test stubs the collector as a
+# non-Python shell script, so aliasing this check to the same binary would run
+# the collector stub instead of Python.
+CAL_PYTHON_BIN="${RQ105_CAL_PYTHON_BIN:-$RQ_ROOT/.venv/bin/python}"
+if [ -x "$CAL_PYTHON_BIN" ]; then
+  if ! "$CAL_PYTHON_BIN" -c "
+import sys, datetime as dt
+sys.path.insert(0, '$RQ105_ORCH_ROOT/ops')
+sys.path.insert(0, '$RQ105_ORCH_ROOT/src')
+sys.path.insert(0, '$RQ_COMMON_SRC')
+try:
+    from liveness_common import is_session_day
+    ok = is_session_day(dt.date.today())
+except Exception as exc:
+    print(f'WARNING: NYSE calendar check unavailable ({exc}); failing CLOSED (treating today as a session day)', file=sys.stderr)
+    ok = True
+sys.exit(0 if ok else 1)
+" >> "$DAY_LOG" 2>&1; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] rq105 quote logger: $TS is not an NYSE session day (holiday) — clean no-op exit 0 (KeepAlive must not respawn, no crash alert)" >> "$DAY_LOG"
+    exit 0
+  fi
+fi
+
 START_EPOCH="$(date +%s)"
 TERM_SIGNAL=""
 
