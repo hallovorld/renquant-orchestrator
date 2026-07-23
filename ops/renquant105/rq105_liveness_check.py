@@ -170,12 +170,37 @@ def _is_session_day(day: dt.date) -> bool:
         return True
 
 
-def _alert(title: str, body: str) -> None:
+# GOAL-5 UN-MISSABLE alert (2026-07-22): a 105-DOWN alert shares the "renquant"
+# ntfy topic with 104-daily and every other fleet sentinel, so on 07-14..07-22
+# the "105 collector stale" alerts were buried in that noise and never actioned
+# — the operator's "why didn't I get an ntfy" complaint. Elevate priority +
+# distinctive tags + an unmistakable title so a 105-DOWN alert stands out on the
+# shared topic. An operator who later stands up a dedicated ntfy topic can route
+# 105-down there via RQ105_NTFY_TOPIC; absent that, the bounded fix is
+# high-priority + tags on the topic the operator DEMONSTRABLY receives
+# ("renquant"), never a brand-new topic nobody is subscribed to (that would make
+# the alert MORE silent, not less).
+_ALERT_PRIORITY = "urgent"
+_ALERT_TAGS = "rotating_light,rq105"
+
+
+def _alert(
+    title: str,
+    body: str,
+    *,
+    priority: str = _ALERT_PRIORITY,
+    tags: str = _ALERT_TAGS,
+) -> None:
     """Canonical sender re-point (campaign B6): topic resolution (NTFY_TOPIC env
     > $RQ/.env parse > "renquant") and RENQUANT_NO_NOTIFY suppression live in
     renquant_common.notify. Imported lazily + guarded so this liveness check
     still runs (and logs the loss loudly) against a venv whose renquant-common
-    predates the notify module."""
+    predates the notify module.
+
+    Sends at elevated ``priority`` with distinctive ``tags`` (GOAL-5) so a
+    105-DOWN alert is not lost in the shared-topic noise. ``RQ105_NTFY_TOPIC``,
+    if set, routes to a dedicated topic; unset -> ``None`` -> the sender's normal
+    resolution ($RQ/.env NTFY_TOPIC -> fleet default "renquant")."""
     try:
         from renquant_common.notify import send
     except ImportError as exc:  # stale venv — do not let the alert path crash the check
@@ -185,7 +210,8 @@ def _alert(title: str, body: str) -> None:
             file=sys.stderr,
         )
         return
-    send(title, body, env_file=os.path.join(RQ, ".env"))
+    topic = os.environ.get("RQ105_NTFY_TOPIC") or None
+    send(title, body, topic, priority=priority, tags=tags, env_file=os.path.join(RQ, ".env"))
 
 
 _TAIL_CHUNK_BYTES = 8192
@@ -464,7 +490,7 @@ def main() -> int:
             missing.append(f"{name}: {result['reason']}")
 
     if missing:
-        _alert(f"rq105 LIVENESS: {len(missing)} issue(s) {today_iso}",
+        _alert(f"🚨 rq105 DOWN — {len(missing)} collector issue(s) {today_iso}",
                "\n".join(missing))
         print("\n".join(missing))
         return 1

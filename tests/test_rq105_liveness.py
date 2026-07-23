@@ -10,12 +10,85 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sys
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops" / "renquant105"))
 
+import rq105_liveness_check as liveness  # noqa: E402
 from rq105_liveness_check import _data_output_fresh, _row_timestamp_quote  # noqa: E402
+
+
+def _install_fake_send(monkeypatch) -> list[dict]:
+    """Replace the lazily-imported renquant_common.notify.send with a recorder,
+    so a test can assert exactly what _alert forwarded (priority/tags/topic)
+    without any network."""
+    calls: list[dict] = []
+
+    def fake_send(title, body, topic=None, *, priority=None, tags=None,
+                  timeout=5.0, env_file=None):
+        calls.append(
+            {"title": title, "body": body, "topic": topic,
+             "priority": priority, "tags": tags}
+        )
+        return True
+
+    fake_mod = types.ModuleType("renquant_common.notify")
+    fake_mod.send = fake_send
+    monkeypatch.setitem(sys.modules, "renquant_common.notify", fake_mod)
+    return calls
+
+
+class TestUnmissableAlert:
+    """GOAL-5: a 105-DOWN alert shares the 'renquant' topic with every other
+    sentinel, so it must stand out — elevated priority + distinctive tags +
+    an unmistakable title (the operator's 'why didn't I get an ntfy')."""
+
+    def test_alert_forwards_elevated_priority_and_tags(self, monkeypatch):
+        calls = _install_fake_send(monkeypatch)
+        monkeypatch.delenv("RQ105_NTFY_TOPIC", raising=False)
+
+        liveness._alert("🚨 rq105 DOWN — x", "body")
+
+        assert len(calls) == 1
+        assert calls[0]["priority"] == "urgent"
+        assert calls[0]["tags"] == "rotating_light,rq105"
+        # Unset RQ105_NTFY_TOPIC -> topic None -> sender's normal resolution
+        # ($RQ/.env NTFY_TOPIC -> fleet default "renquant"): stays on the topic
+        # the operator demonstrably receives.
+        assert calls[0]["topic"] is None
+
+    def test_alert_routes_dedicated_topic_when_env_set(self, monkeypatch):
+        calls = _install_fake_send(monkeypatch)
+        monkeypatch.setenv("RQ105_NTFY_TOPIC", "rq105-alerts")
+
+        liveness._alert("🚨 rq105 DOWN — x", "body")
+
+        assert calls[0]["topic"] == "rq105-alerts"
+
+    def test_main_stale_sends_unmissable_urgent_tagged_alert(self, monkeypatch, tmp_path):
+        """End-to-end on a STALE fixture: with the wrapper logs missing and a
+        collector reported stale, main() must send an urgent, distinctively-
+        tagged, unmistakable-titled alert (title carries the 🚨 DOWN marker)."""
+        calls = _install_fake_send(monkeypatch)
+        monkeypatch.delenv("RQ105_NTFY_TOPIC", raising=False)
+        # Session day; empty LOGS dir -> all three wrapper logs missing (stale).
+        monkeypatch.setattr(liveness, "_is_session_day", lambda day: True)
+        monkeypatch.setattr(liveness, "LOGS", str(tmp_path))
+        # Avoid needing the NYSE calendar / collector modules in the test env.
+        monkeypatch.setattr(
+            liveness, "check_collector_data_outputs", lambda data_root, as_of: {}
+        )
+
+        rc = liveness.main()
+
+        assert rc == 1
+        assert len(calls) == 1
+        assert calls[0]["title"].startswith("🚨")
+        assert "DOWN" in calls[0]["title"]
+        assert calls[0]["priority"] == "urgent"
+        assert calls[0]["tags"] == "rotating_light,rq105"
 
 
 def _write_row(tmp_path: Path, ts: dt.datetime, date_iso: str) -> Path:

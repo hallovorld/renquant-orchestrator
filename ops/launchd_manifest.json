@@ -183,7 +183,9 @@
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_quote_logger.sh"
       ],
-      "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8"
+      "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8",
+      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent — the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
+      "keep_alive": {"SuccessfulExit": false}
     },
     "com.renquant.rq105-session-scheduler": {
       "program_args": [
