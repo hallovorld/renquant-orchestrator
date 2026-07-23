@@ -15,6 +15,7 @@ from renquant_orchestrator.agent_workflows import (
     commit_contributor_logins,
     contract_findings,
     explicit_contributor_logins,
+    fetch_open_prs,
     has_head_approval_from_agent,
     has_head_changes_requested_from_agent,
     has_unaddressed_findings,
@@ -23,6 +24,7 @@ from renquant_orchestrator.agent_workflows import (
     merge_audit_status,
     other_agent,
     pr_authorship,
+    progress_doc_findings,
     reviewer_is_pr_contributor,
     resolve_token,
     resolve_token_with_source,
@@ -936,3 +938,103 @@ def test_audit_merged_prs_summarizes_missing_pre_merge_markers(monkeypatch):
     assert audit["n_merged_prs"] == 2
     assert audit["n_missing_pre_merge_audit"] == 1
     assert audit["ok"] is False
+
+
+# ── fetch_open_prs: a deleted progress doc must not crash the whole repo ────
+#
+# Regression for orch#570 (a revert PR deleting doc/progress/<...>.md):
+# fetch_open_prs previously let the contents-API 404 propagate as an
+# uncaught RuntimeError, which crashed plan-building for the ENTIRE repo —
+# hiding every other open PR's queue entry behind one PR's deleted file.
+
+def test_fetch_open_prs_survives_a_deleted_progress_doc(monkeypatch):
+    pr_list_payload = [{
+        "number": 570,
+        "title": "revert(research): remove misplaced artifacts",
+        "headRefName": "codex/revert-evidence",
+        "headRefOid": "deadbeef",
+        "state": "OPEN",
+        "isDraft": False,
+        "url": "https://example.invalid/pulls/570",
+        "labels": [],
+        "body": "",
+        "reviews": [],
+        "statusCheckRollup": [],
+        "comments": [],
+        "author": {"login": "haorensjtu-dev"},
+    }]
+    detail_payload = {
+        "files": [{"path": "doc/progress/2026-07-23-evidence.md"}],
+        "commits": [{"authors": [{"login": "codex"}]}],
+    }
+
+    def fake_gh_json(args, token=None):
+        if args[:2] == ["pr", "list"]:
+            return pr_list_payload
+        if args[:2] == ["pr", "view"]:
+            return detail_payload
+        if args[0] == "api" and "/contents/" in args[1]:
+            # The file was deleted at head -- GitHub's contents API 404s,
+            # which _gh_json surfaces as a RuntimeError (matches its real
+            # behavior on any nonzero `gh` exit code).
+            raise RuntimeError(
+                f"gh {' '.join(args)} failed (rc=1): gh: Not Found (HTTP 404)"
+            )
+        raise AssertionError(f"unexpected gh invocation: {args}")
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows._gh_json", fake_gh_json
+    )
+
+    prs = fetch_open_prs("o/r", token=None)
+
+    assert len(prs) == 1
+    assert prs[0]["number"] == 570
+    assert "progressDocContent" not in prs[0]
+    # And the resulting finding is the correct, actionable one -- not a crash.
+    assert progress_doc_findings(prs[0]) == [
+        "progress doc content unavailable for `doc/progress/2026-07-23-evidence.md`"
+    ]
+
+
+def test_fetch_open_prs_still_fetches_progress_doc_content_when_present(monkeypatch):
+    pr_list_payload = [{
+        "number": 1,
+        "title": "normal PR",
+        "headRefName": "feature/x",
+        "headRefOid": "cafebabe",
+        "state": "OPEN",
+        "isDraft": False,
+        "url": "https://example.invalid/pulls/1",
+        "labels": [],
+        "body": "",
+        "reviews": [],
+        "statusCheckRollup": [],
+        "comments": [],
+        "author": {"login": "hallovorld"},
+    }]
+    detail_payload = {
+        "files": [{"path": "doc/progress/2026-07-23-x.md"}],
+        "commits": [{"authors": [{"login": "claude"}]}],
+    }
+    import base64
+
+    def fake_gh_json(args, token=None):
+        if args[:2] == ["pr", "list"]:
+            return pr_list_payload
+        if args[:2] == ["pr", "view"]:
+            return detail_payload
+        if args[0] == "api" and "/contents/" in args[1]:
+            return {
+                "encoding": "base64",
+                "content": base64.b64encode(b"STATUS: x\n").decode(),
+            }
+        raise AssertionError(f"unexpected gh invocation: {args}")
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows._gh_json", fake_gh_json
+    )
+
+    prs = fetch_open_prs("o/r", token=None)
+
+    assert prs[0]["progressDocContent"] == "STATUS: x\n"

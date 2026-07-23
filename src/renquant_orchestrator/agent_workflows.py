@@ -746,12 +746,25 @@ def fetch_open_prs(repo: str, token: Optional[str]) -> list[dict]:
         pr["commits"] = detail.get("commits") or []
         progress_paths = _progress_doc_paths(pr)
         if len(progress_paths) == 1:
-            pr["progressDocContent"] = _gh_file_text(
-                repo,
-                progress_paths[0],
-                str(pr.get("headRefName") or ""),
-                token,
-            )
+            try:
+                pr["progressDocContent"] = _gh_file_text(
+                    repo,
+                    progress_paths[0],
+                    str(pr.get("headRefName") or ""),
+                    token,
+                )
+            except RuntimeError:
+                # The progress-doc path is present in the diff (e.g. a revert
+                # PR that deletes it) but no longer exists at head, so the
+                # contents API 404s. Leave progressDocContent unset rather
+                # than letting the fetch failure propagate: an uncaught
+                # exception here previously crashed plan-building for the
+                # WHOLE repo over one PR's deleted file, hiding every other
+                # PR's queue entry too. progress_doc_findings() already
+                # reports "content unavailable" for a missing
+                # progressDocContent, which is the correct, actionable
+                # finding for this case.
+                pass
     return prs
 
 
