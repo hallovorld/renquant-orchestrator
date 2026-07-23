@@ -1,0 +1,67 @@
+{
+  "alpha_one_sided": 0.008333333333333333,
+  "base_alpha": 0.05,
+  "block": 60,
+  "canonical_sha256": "05adefaa6843871a4990c5955973f58838e33962761b091cdb1943f319400f92",
+  "criteria": [
+    {
+      "description": "Tier-1 PASS: one-sided lower bound of the block-bootstrap CI of mean(clean_ic = real - shifted-label placebo) > 0 for some (expert, horizon). If FALSE for every cell => KILL G4.",
+      "direction": "gt",
+      "name": "tier1_existence_clean_ic_lb",
+      "threshold": 0.0,
+      "units": "rank_ic"
+    },
+    {
+      "description": "Tier-2 PASS: one-sided lower bound of the paired block-bootstrap CI of mean(ensemble_clean_ic - best_single_clean_ic) > 0. CI containing 0 => historical increment unproven => decision deferred to Tier-3 forward test (neither go nor kill).",
+      "direction": "gt",
+      "name": "tier2_increment_paired_lb",
+      "threshold": 0.0,
+      "units": "rank_ic_delta"
+    },
+    {
+      "description": "Tier-0 harness sanity: a synthetic score injected at rank-correlation rho>=0.6 must recover a real_ic > 0.5. If it does not, the harness is broken and NO result on this substrate is admissible.",
+      "direction": "gt",
+      "name": "tier0_positive_control_real_ic",
+      "threshold": 0.5,
+      "units": "rank_ic"
+    }
+  ],
+  "evidence_boundary": {
+    "cells": "2 experts (XGB, PatchTST) x 3 horizons (5,20,60d) x 3 seeds; 104-145 name cross-section per date.",
+    "cost_model": "Tier-1/2 are gross rank-IC (frictionless). Net-of-cost portfolio Sharpe/APY is a SEPARATE downstream stage, only entered if Tier-2 shows a positive increment.",
+    "multiplicity": "Bonferroni k=6 over the existence family; one-sided alpha=0.05/6; seeds enforced as unanimity, not extra looks.",
+    "not_covered": "The 60-day operating-horizon go/no-go CANNOT be settled at adequate power from history (K~10 blocks, MDE~0.09); that verdict is explicitly reserved for the Tier-3 forward sequential test.",
+    "outcome_era": "forward EXCESS return vs benchmark, repo label convention (clipped); demeaned per-date.",
+    "substrate": "renquant panel (alpha158-family features), PIT / train-only clipping quantiles; CSRankNorm per-date.",
+    "window": "walk-forward as-of cutoffs 2023-10 .. 2026-03 (~600 trading days); each fold trained only on data <= its cutoff, horizon-matched embargo."
+  },
+  "experiment_id": "g4-ensemble-2expert-2026-07-23",
+  "extra_frozen": {
+    "compute_gate": "the expensive full walk-forward PatchTST corpus is unlocked ONLY after Tier-1 shows a 60d-relevant lead; XGB tiers are near-free.",
+    "inference": "gap-respecting block bootstrap, block = horizon",
+    "placebo": "shifted-label at gate_shift_sessions(horizon) = 2*horizon",
+    "screen_horizons": [
+      5,
+      20,
+      60
+    ],
+    "tier2_conditional_on": "tier1_existence_clean_ic_lb met",
+    "tier3_forward": "if Tier-2 CI contains 0, prereg a live shadow forward test with a sequential (alpha-spending) stopping rule; $0 compute."
+  },
+  "family_size_k": 6,
+  "horizon": 60,
+  "hypothesis": "H1 (existence): at least one of {XGB, PatchTST} has a placebo-clean cross-sectional rank-IC strictly above its shifted-label leakage floor at some horizon in {5,20,60}d. H2 (increment): the 2-expert ensemble out-ranks the BEST single expert on identical dates/names, measured as a paired clean-IC delta whose one-sided lower bound > 0. H0 default: no existence at any horizon (=> KILL) or no positive increment (=> defer to forward test, NOT a go).",
+  "min_decision_dates": 600,
+  "min_names": 30,
+  "n_boot": 2000,
+  "reopening_conditions": [
+    "A fresh expert family outside {XGB, PatchTST} is proposed.",
+    "A materially different label horizon or objective is adopted.",
+    "The Tier-3 forward shadow test accrues its pre-registered number of admissible non-overlapping sessions."
+  ],
+  "seeds": [
+    44,
+    7,
+    123
+  ]
+}
