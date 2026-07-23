@@ -248,6 +248,44 @@ def test_holiday_noop_is_clean_no_crash_no_alert(tmp_path):
     assert "not an NYSE session day" in _day_log(rq).read_text(encoding="utf-8")
 
 
+def test_calendar_check_real_failure_is_not_treated_as_holiday(tmp_path):
+    """A calendar-check subprocess that fails for a reason OTHER than a
+    CONFIRMED non-session-day (rc=1) — e.g. a broken interpreter, a permissions
+    error — must NOT be treated as a holiday no-op. Only rc=1 is the holiday
+    signal; any other non-zero status fails CLOSED: log it and still launch
+    the collector (codex review, PR #567 round 4: the prior `if ! ...; then
+    exit 0` treated EVERY non-zero calendar-check exit as a holiday, so a
+    broken calendar checker would silently skip the collector on a real
+    trading day)."""
+    rq = _scratch_rq_root(tmp_path)
+    marker = tmp_path / "collector_ran.marker"
+    collector = _fake_collector(tmp_path, f"touch {marker}\nexit 0\n")
+    # _fake_collector always writes to a fixed "fake_collector.sh" name, so the
+    # calendar-check stub needs its own directory — otherwise it silently
+    # overwrites the collector stub above (same tmp_path, same filename).
+    cal_dir = tmp_path / "cal"
+    cal_dir.mkdir()
+    broken_calendar_check = _fake_collector(cal_dir, "exit 2\n")
+
+    proc = _run_wrapper(
+        rq,
+        {
+            "RQ105_PYTHON_BIN": collector,
+            "RQ105_CAL_PYTHON_BIN": broken_calendar_check,
+            "RQ105_WATCHDOG_INTERVAL": 999,
+            "RQ105_MIN_SESSION_SECONDS": 0,
+        },
+    )
+
+    assert proc.returncode == 0
+    assert marker.exists(), "a non-holiday calendar-check failure must still launch the collector"
+    day_log = _day_log(rq).read_text(encoding="utf-8")
+    assert "not an NYSE session day" not in day_log, "rc=2 is not the confirmed-holiday signal"
+    assert "rc=2" in day_log, "the non-holiday calendar-check failure must be logged, not silently swallowed"
+    assert not _crash_log(rq).exists()
+    assert _notify_record(rq) == ""
+
+
 def test_calendar_check_unavailable_fails_closed_and_still_runs(tmp_path):
     """If the calendar check itself cannot be evaluated (no CAL_PYTHON_BIN
     resolvable — the default `.venv` does not exist in this scratch root),

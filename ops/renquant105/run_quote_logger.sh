@@ -112,9 +112,17 @@ fi
 # override from PY_BIN (the collector binary): a test stubs the collector as a
 # non-Python shell script, so aliasing this check to the same binary would run
 # the collector stub instead of Python.
+# Exit code contract with the embedded snippet: 1 == CONFIRMED non-session day
+# (the only holiday signal), 0 == confirmed session day. Any OTHER exit status
+# (2 from an uncaught interpreter-level failure, 126/127 from a broken/missing
+# binary, etc.) is NOT a holiday signal — treat it the same as "check
+# unavailable" and fail CLOSED (log + proceed to launch the collector).
+# codex review on PR #567 (round 4): the prior `if ! ...; then exit 0` treated
+# EVERY non-zero status as holiday, so a broken calendar-check interpreter
+# would silently skip the collector on a real trading day.
 CAL_PYTHON_BIN="${RQ105_CAL_PYTHON_BIN:-$RQ_ROOT/.venv/bin/python}"
 if [ -x "$CAL_PYTHON_BIN" ]; then
-  if ! "$CAL_PYTHON_BIN" -c "
+  "$CAL_PYTHON_BIN" -c "
 import sys, datetime as dt
 sys.path.insert(0, '$RQ105_ORCH_ROOT/ops')
 sys.path.insert(0, '$RQ105_ORCH_ROOT/src')
@@ -126,9 +134,13 @@ except Exception as exc:
     print(f'WARNING: NYSE calendar check unavailable ({exc}); failing CLOSED (treating today as a session day)', file=sys.stderr)
     ok = True
 sys.exit(0 if ok else 1)
-" >> "$DAY_LOG" 2>&1; then
+" >> "$DAY_LOG" 2>&1
+  _cal_rc=$?
+  if [ "$_cal_rc" -eq 1 ]; then
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] rq105 quote logger: $TS is not an NYSE session day (holiday) — clean no-op exit 0 (KeepAlive must not respawn, no crash alert)" >> "$DAY_LOG"
     exit 0
+  elif [ "$_cal_rc" -ne 0 ]; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] rq105 quote logger: calendar check exited rc=$_cal_rc (not the confirmed-holiday code 1) — failing CLOSED, proceeding to launch collector" >> "$DAY_LOG"
   fi
 fi
 

@@ -47,6 +47,17 @@ WHAT:      Three fixes for a class of silent rq105 tick-collector stalls
            `rq105_liveness_check.py` already uses) that clean-no-ops BEFORE
            the collector launches on a real holiday, and fails CLOSED
            (proceeds to launch) if the calendar check itself errors.
+           (5) [fix pass, codex CHANGES_REQUESTED round 4] `run_quote_logger.sh`
+           — the Fix-4 calendar guard was itself fail-OPEN: `if ! ...; then
+           exit 0` treated ANY non-zero exit from the calendar-check
+           subprocess as "holiday", not just the confirmed-non-session-day
+           signal (rc=1). A broken interpreter / permissions error / bad
+           binary would exit non-zero too and get misread as a holiday,
+           silently skipping the collector (and liveness monitoring) on a
+           real trading day. Now only rc=1 is treated as the holiday no-op;
+           every other non-zero status fails CLOSED — logs the rc and
+           proceeds to launch the collector, same as the "calendar check
+           unavailable" path already did.
 WHY/DIR:   GOAL-5 (daily-run reliability). rq105 has been silently losing
            collector coverage on live-session days with no operator signal;
            this closes the detection/capture/recovery gap so the next stall
@@ -71,6 +82,8 @@ NEXT:      Machine-landing (installing/reloading the new plist) is
            (the mechanical checker requires `EVIDENCE:` to be literally
            `n/a` on its own line for the no-model-claim exemption; the
            prior wording appended prose on the same line).
+           RESOLVED this pass (round 5): codex's fail-open calendar-guard
+           BLOCKER (see Fix 5 above) — only rc=1 is now the holiday signal.
 
 ## Revert steps
 
@@ -95,9 +108,13 @@ NEXT:      Machine-landing (installing/reloading the new plist) is
   kill disabled; off-window clean no-op; clean full-session silence;
   holiday no-op (stubbed calendar check) -> no crash log, no alert;
   calendar-check-unavailable fails closed and still runs the collector;
+  a calendar-check that fails with rc=2 (not the confirmed-holiday rc=1)
+  is NOT treated as a holiday -> collector still launches, failure logged;
   text guardrails. (Skips off darwin / without zsh.) Confirmed the new
   holiday test FAILS pre-fix (`proc.returncode == 1` instead of `0`) and
-  passes post-fix.
+  passes post-fix. Confirmed the new rc=2 test FAILS pre-fix
+  (`proc.returncode == 0` with the collector never launched) and passes
+  post-fix.
 - `tests/test_rq105_liveness.py` (extended): `_alert` forwards urgent
   priority + distinctive tags; `RQ105_NTFY_TOPIC` routing; end-to-end stale
   fixture -> `main` sends an urgent, tagged, `🚨 … DOWN` alert.
@@ -110,6 +127,6 @@ Suite: full `pytest` green except pre-existing, unrelated failures
 3 `test_retrain_sigma_head_rawlabel` data-pin cases) present on
 `origin/main` before this change.
 
-Focused re-run (this fix pass): `pytest -q tests/test_rq105_quote_logger_failloud.py
-tests/test_rq105_liveness.py tests/test_rq105_ops_wrappers.py` -> 25 passed
-(23 prior + 2 new holiday-guard tests).
+Focused re-run (this fix pass, round 5): `pytest -q tests/test_rq105_quote_logger_failloud.py
+tests/test_rq105_liveness.py tests/test_rq105_ops_wrappers.py` -> 26 passed
+(25 prior + 1 new fail-open-calendar-guard regression test).
