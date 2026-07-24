@@ -215,6 +215,14 @@ def main() -> int:
         raise SystemExit("--out is required unless --probe")
     out_path = refuse_production_output_path(Path(args.out))
 
+    # Fail closed on an unvalidated fold count BEFORE training, not after —
+    # otherwise the full ~87-minute sweep runs only to VOID at the end.
+    if args.n_splits != ANCHOR_SPLITS and not args.skip_anchor:
+        raise SystemExit(
+            f"no validated anchor at --n-splits {args.n_splits} (only "
+            f"{ANCHOR_SPLITS} is anchor-validated) — run VOID per the "
+            "fail-closed default. Pass --skip-anchor for exploratory-only.")
+
     def fit_one(tr, cols, label, seed):
         mu, sd, kind, _, _ = nb(tr, cols)
         booster, _ = train_xgb(tr, cols, label=label,
@@ -297,7 +305,8 @@ def main() -> int:
               f"placebo={cells[key]['placebo_primary']:+.4f}  "
               f"fb={fb}  [{time.time()-t0:.0f}s]", flush=True)
 
-    # ── Anchor (prereg §5) — fail closed off the validated fold count ──
+    # ── Anchor (prereg §5) — reproduction check; fold-count gate already
+    # enforced above, before training started ──
     anchor_key = "fwd_60d_excess|all_172|pooled"
     anchor = cells[anchor_key]["raw_primary"]
     if args.n_splits == ANCHOR_SPLITS:
@@ -306,11 +315,6 @@ def main() -> int:
               f"{'OK' if ok else 'FAIL'}")
         if not ok and not args.skip_anchor:
             raise SystemExit("anchor did not reproduce — run VOID (prereg §5)")
-    elif not args.skip_anchor:
-        raise SystemExit(
-            f"no validated anchor at --n-splits {args.n_splits} (only "
-            f"{ANCHOR_SPLITS} is anchor-validated) — run VOID per the "
-            "fail-closed default. Pass --skip-anchor for exploratory-only.")
 
     json.dump({"prereg": "doc/research/2026-07-24-factorial-horizon-features-regime-prereg.md",
                "primary_eval": PRIMARY_EVAL, "embargo": EMBARGO_DAYS,

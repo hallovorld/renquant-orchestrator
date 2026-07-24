@@ -6,8 +6,11 @@ WHAT:      Adds a design-only preregistration (`doc/research/2026-07-24-
            unrun) study script `scripts/research_factorial_hfr.py`. Supersedes
            PR #573's OFAT design with a 3×4×2 fully-crossed factorial (horizon
            × features × regime). No results; the study has not been executed.
-           Fix pass: repaired this progress doc's C5 fields and rebuilt the
-           branch's commit attribution to single-owner history.
+           Fix pass 1: repaired this progress doc's C5 fields and rebuilt the
+           branch's commit attribution to single-owner history. Fix pass 2:
+           moved the fold-count anchor gate before the training sweep so an
+           unvalidated `--n-splits` fails closed immediately instead of after
+           the full ~87-minute run (MED finding, review 3).
 WHY/DIR:   Three studies this session (regime-conditional feature selection,
            #573's feature dimensionality, label horizon) each varied one
            factor and held the rest constant — an OFAT design that cannot
@@ -32,8 +35,11 @@ EVIDENCE:
                  trained, so no trained-arm result exists yet
   scope:         "feasibility/power probe + frozen design only, on the real
                  panel, descriptive; zero cells trained"
-NEXT:      Three items outstanding, not resolved by this fix pass (all from
-           the two codex design reviews on this branch):
+NEXT:      Two items outstanding, both design/research judgment calls, not
+           mechanical fixes — deferred to explicit operator direction per
+           `AGENT-RETROSPECTIVE.md` §5 (C3: unbounded/unchecked-pointed work
+           is not something an agent starts autonomously in an unattended
+           fix pass):
            (1) repo placement — `scripts/research_factorial_hfr.py` rebuilds
            folds/normalization and trains XGB cells, which is model-training
            research per the multi-repo code-placement rule; it needs to move
@@ -42,11 +48,12 @@ NEXT:      Three items outstanding, not resolved by this fix pass (all from
            must be frozen as executable analysis code in this PR — the
            contrast formulas, conditioning, bootstrap statistic, and p-value
            calculation — not deferred to the results PR.
-           (3) the default execution path still runs the full ~87-minute
-           sweep before the anchor check can fail closed; make the validated
-           3-fold protocol the default, or require an explicit `--exploratory`
-           flag before any training executes.
-           Once those clear, the study itself is the next bounded action.
+           (3) [fixed, fix pass 2] the default execution path used to run
+           the full ~87-minute sweep before the anchor check could fail
+           closed; the fold-count gate now runs immediately after arg
+           parsing (before the panel loads or any cell trains) so an
+           unvalidated `--n-splits` VOIDs in seconds, not 87 minutes.
+           Once (1) and (2) clear, the study itself is the next bounded action.
 
 ## What this PR is
 
