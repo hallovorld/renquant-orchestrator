@@ -81,7 +81,10 @@ def main() -> int:
             panel_training_matrix(va, feats, mu, sd, k).values.astype(np.float64)))
         d = va[["date"]].copy()
         d["p1"], d["p2"] = p1, p2
-        z = lambda s: (s - s.mean()) / (s.std() or 1.0)
+
+        def z(s):
+            return (s - s.mean()) / (s.std() or 1.0)
+
         return (d.groupby("date")["p1"].transform(z)
                 + d.groupby("date")["p2"].transform(z)).values
 
@@ -113,7 +116,6 @@ def main() -> int:
             r[d_] = float(np.mean(vs))
         return pd.Series(r).sort_index()
 
-    per_seed_diff = []
     clean_series = {}
     for arm in ("rank60", "blend"):
         seed_clean = {}
