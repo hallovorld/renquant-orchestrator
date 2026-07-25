@@ -83,3 +83,11 @@ change.
 
 Tests: none — this PR touches only `doc/research/VERDICTS.md` (now a no-op diff
 against `main`) and this progress doc.
+
+## Amendment (same day): second row — factorial H×F×R NULL ×7
+
+Same-day addition to this ledger PR: the factorial (model#67 frozen law,
+model#72 results) returned NULL on all seven registered tests; the frozen
+consequence rehabilitates the earlier OFAT conclusions. Evidence and
+run-integrity disclosures (run-1 quarantine, model#71) live in
+renquant-model; this row keeps the ledger single-source.
