@@ -140,6 +140,244 @@ def boot_pvalue(diff: np.ndarray, block: int) -> float:
     return float((np.abs(means) >= abs(obs)).mean())
 
 
+def _eval_block(ev: str) -> int:
+    """Bootstrap block = the evaluation label's own horizon (prereg §5) —
+    not a constant 60; a 5d label's dependence range is 5 days."""
+    return {"fwd_5d_excess": 5, "fwd_20d_excess": 20, "fwd_60d_excess": 60}[ev]
+
+
+def _cell_series(cells: dict, key: str, ev: str, regime: str | None = None) -> dict:
+    """{date: clean_ic} for one cell/eval-horizon, optionally filtered to one
+    realized-regime stratum. Drops NaN dates (no placebo match / std==0)."""
+    out = {}
+    for d, (rg, v) in cells[key]["clean"][ev].items():
+        if regime is not None and rg != regime:
+            continue
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            continue
+        out[d] = v
+    return out
+
+
+def _cell_series_by_seed(cells: dict, key: str, ev: str,
+                         regime: str | None = None) -> dict:
+    """{seed: {date: clean_ic}} — per-seed granularity for the seed-stability
+    check (prereg §5: any registered verdict needs sign agreement across all
+    3 seeds, which the seed-averaged `clean` series alone cannot answer)."""
+    out = {}
+    for seed, by_date in cells[key]["clean_by_seed"][ev].items():
+        s = {}
+        for d, (rg, v) in by_date.items():
+            if regime is not None and rg != regime:
+                continue
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                continue
+            s[d] = v
+        out[seed] = s
+    return out
+
+
+def _diff_series(cells: dict, key_a: str, key_b: str, ev: str,
+                 regime: str | None = None) -> np.ndarray:
+    """clean_IC(key_a) - clean_IC(key_b), paired by the date common to both."""
+    a = _cell_series(cells, key_a, ev, regime)
+    b = _cell_series(cells, key_b, ev, regime)
+    common = sorted(set(a) & set(b))
+    return np.array([a[d] - b[d] for d in common])
+
+
+def _double_diff_series(cells: dict, key_hi_a: str, key_lo_a: str,
+                        key_hi_b: str, key_lo_b: str, ev: str) -> np.ndarray:
+    """[clean(hi_a)-clean(lo_a)] - [clean(hi_b)-clean(lo_b)], paired by the
+    date common to all four cells. Valid for I2/I3: all four cells there
+    share ONE unstratified date universe (only F/R or F/H vary, not the
+    regime stratum), unlike I1 (see `_two_group_diff_of_means`)."""
+    a1, a2 = _cell_series(cells, key_hi_a, ev), _cell_series(cells, key_lo_a, ev)
+    b1, b2 = _cell_series(cells, key_hi_b, ev), _cell_series(cells, key_lo_b, ev)
+    common = sorted(set(a1) & set(a2) & set(b1) & set(b2))
+    return np.array([(a1[d] - a2[d]) - (b1[d] - b2[d]) for d in common])
+
+
+def _two_group_diff_of_means(cells: dict, key_hi: str, key_lo: str, ev: str,
+                             group_a: str, group_b: str):
+    """Per-regime-stratum paired diff (key_hi - key_lo), one series per
+    group. I1's two regime strata (BEAR / BULL_CALM) are DISJOINT date sets,
+    so this is a two-independent-groups comparison, not one paired series."""
+    da = _diff_series(cells, key_hi, key_lo, ev, group_a)
+    db = _diff_series(cells, key_hi, key_lo, ev, group_b)
+    return da, db
+
+
+def _boot_pvalue_two_sample(da: np.ndarray, db: np.ndarray, block: int) -> float:
+    """Two-sided moving-block-bootstrap p for mean(da) - mean(db) != 0. Each
+    side is resampled with its own block scheme and the two are combined by
+    subtraction across bootstrap draws — valid because I1's two regime-date
+    universes are disjoint (§4), not because they are assumed independent
+    in the stronger statistical sense; this is the standard two-sample
+    block-bootstrap difference-in-means construction."""
+    da, db = np.asarray(da, dtype=float), np.asarray(db, dtype=float)
+    if len(da) <= block or len(db) <= block or len(da) == 0 or len(db) == 0:
+        return float("nan")
+    obs = da.mean() - db.mean()
+
+    def _boot_means(x: np.ndarray, seed_offset: int) -> np.ndarray:
+        n = len(x)
+        rng = np.random.default_rng(BOOT_SEED + seed_offset)
+        starts = np.arange(n - block + 1)
+        n_blocks = int(np.ceil(n / block))
+        means = np.empty(N_BOOT)
+        for b in range(N_BOOT):
+            idx = rng.choice(starts, size=n_blocks, replace=True)
+            means[b] = np.concatenate([x[i:i + block] for i in idx])[:n].mean()
+        return means
+
+    boot_diff = _boot_means(da, 0) - _boot_means(db, 1)
+    centred = boot_diff - boot_diff.mean()
+    return float((np.abs(centred) >= abs(obs)).mean())
+
+
+def _seed_stable_paired(cells: dict, key_a: str, key_b: str, ev: str,
+                        regime: str | None = None) -> bool:
+    means = []
+    for seed in SEEDS:
+        sa = _cell_series_by_seed(cells, key_a, ev, regime).get(seed, {})
+        sb = _cell_series_by_seed(cells, key_b, ev, regime).get(seed, {})
+        common = sorted(set(sa) & set(sb))
+        if not common:
+            return False
+        means.append(float(np.mean([sa[d] - sb[d] for d in common])))
+    signs = {np.sign(m) for m in means}
+    return len(signs) == 1 and 0.0 not in signs
+
+
+def _seed_stable_double(cells: dict, key_hi_a: str, key_lo_a: str,
+                        key_hi_b: str, key_lo_b: str, ev: str) -> bool:
+    means = []
+    for seed in SEEDS:
+        a1 = _cell_series_by_seed(cells, key_hi_a, ev).get(seed, {})
+        a2 = _cell_series_by_seed(cells, key_lo_a, ev).get(seed, {})
+        b1 = _cell_series_by_seed(cells, key_hi_b, ev).get(seed, {})
+        b2 = _cell_series_by_seed(cells, key_lo_b, ev).get(seed, {})
+        common = sorted(set(a1) & set(a2) & set(b1) & set(b2))
+        if not common:
+            return False
+        means.append(float(np.mean([(a1[d] - a2[d]) - (b1[d] - b2[d])
+                                    for d in common])))
+    signs = {np.sign(m) for m in means}
+    return len(signs) == 1 and 0.0 not in signs
+
+
+def run_interaction_tests(cells: dict) -> dict:
+    """Prereg §5 FROZEN decision rule: I1/I2/I3 (PRIMARY) + M1/M2a/M2b/M3
+    (SECONDARY — read only if the corresponding interaction is null), Holm-
+    Bonferroni family-wise alpha=0.10 over all 7 registered tests. A
+    registered verdict additionally requires seed-sign-agreement across all
+    3 seeds (§5); split signs => INCONCLUSIVE regardless of the interval.
+
+    Estimand note (resolves a round-1 review comment that the prereg text
+    never explicitly settled): §2 defines R as the training design factor
+    (pooled/specialist), which is what I2/I3 use. I1's own contrast notation
+    — `clean_IC(60d, BEAR)` / `clean_IC(60d, BULL_CALM)` — takes no r_mode
+    argument at all, so it cannot be evaluated under that reading; the only
+    consistent reading is R-as-realized-regime-stratum of the POOLED model's
+    validation dates. This also matches §4's precommit that only BULL_CALM
+    and BEAR are registrable at all — exactly the two strata I1 contrasts.
+    Frozen here, before any run (no results exist yet to have been peeked
+    at); open to reviewer override before the results PR executes it.
+    """
+    ev = PRIMARY_EVAL  # fwd_20d_excess — both "primary training horizon" and eval horizon
+    h_hi, h_lo = "fwd_60d_excess", "fwd_20d_excess"
+
+    def key(h: str, f: str, r: str) -> str:
+        return f"{h}|{f}|{r}"
+
+    block = _eval_block(ev)
+    tests: dict = {}
+
+    # I1 (H x R-as-regime-stratum), pooled / all_172 — two disjoint regime groups.
+    da, db = _two_group_diff_of_means(
+        cells, key(h_hi, "all_172", "pooled"), key(h_lo, "all_172", "pooled"),
+        ev, "BEAR", "BULL_CALM")
+    tests["I1_H_x_R"] = {
+        "stat": float(da.mean() - db.mean()) if len(da) and len(db) else float("nan"),
+        "p": _boot_pvalue_two_sample(da, db, block),
+        "seed_stable": (
+            _seed_stable_paired(cells, key(h_hi, "all_172", "pooled"),
+                               key(h_lo, "all_172", "pooled"), ev, "BEAR")
+            and _seed_stable_paired(cells, key(h_hi, "all_172", "pooled"),
+                                    key(h_lo, "all_172", "pooled"), ev, "BULL_CALM")),
+    }
+
+    # I2 (F x R=r_mode), at H=primary — single paired-by-date series.
+    d = _double_diff_series(
+        cells, key(h_lo, "dedup_r70", "specialist"), key(h_lo, "all_172", "specialist"),
+        key(h_lo, "dedup_r70", "pooled"), key(h_lo, "all_172", "pooled"), ev)
+    tests["I2_F_x_R"] = {
+        "stat": float(d.mean()) if len(d) else float("nan"),
+        "p": boot_pvalue(d, block),
+        "seed_stable": _seed_stable_double(
+            cells, key(h_lo, "dedup_r70", "specialist"), key(h_lo, "all_172", "specialist"),
+            key(h_lo, "dedup_r70", "pooled"), key(h_lo, "all_172", "pooled"), ev),
+    }
+
+    # I3 (H x F), R=pooled — single paired-by-date series.
+    d = _double_diff_series(
+        cells, key(h_hi, "dedup_r70", "pooled"), key(h_hi, "all_172", "pooled"),
+        key(h_lo, "dedup_r70", "pooled"), key(h_lo, "all_172", "pooled"), ev)
+    tests["I3_H_x_F"] = {
+        "stat": float(d.mean()) if len(d) else float("nan"),
+        "p": boot_pvalue(d, block),
+        "seed_stable": _seed_stable_double(
+            cells, key(h_hi, "dedup_r70", "pooled"), key(h_hi, "all_172", "pooled"),
+            key(h_lo, "dedup_r70", "pooled"), key(h_lo, "all_172", "pooled"), ev),
+    }
+
+    # M1 (H): pooled / all_172, unstratified.
+    d = _diff_series(cells, key(h_hi, "all_172", "pooled"), key(h_lo, "all_172", "pooled"), ev)
+    tests["M1_H"] = {
+        "stat": float(d.mean()) if len(d) else float("nan"),
+        "p": boot_pvalue(d, block),
+        "seed_stable": _seed_stable_paired(
+            cells, key(h_hi, "all_172", "pooled"), key(h_lo, "all_172", "pooled"), ev),
+    }
+
+    # M2a (dedup_r70 vs all_172): pooled, H=primary.
+    d = _diff_series(cells, key(h_lo, "dedup_r70", "pooled"), key(h_lo, "all_172", "pooled"), ev)
+    tests["M2a_F_dedup_vs_all"] = {
+        "stat": float(d.mean()) if len(d) else float("nan"),
+        "p": boot_pvalue(d, block),
+        "seed_stable": _seed_stable_paired(
+            cells, key(h_lo, "dedup_r70", "pooled"), key(h_lo, "all_172", "pooled"), ev),
+    }
+
+    # M2b (nontechnical_14 vs random_14): pooled, H=primary.
+    d = _diff_series(cells, key(h_lo, "nontechnical_14", "pooled"),
+                     key(h_lo, "random_14", "pooled"), ev)
+    tests["M2b_F_nontechnical_vs_random"] = {
+        "stat": float(d.mean()) if len(d) else float("nan"),
+        "p": boot_pvalue(d, block),
+        "seed_stable": _seed_stable_paired(
+            cells, key(h_lo, "nontechnical_14", "pooled"),
+            key(h_lo, "random_14", "pooled"), ev),
+    }
+
+    # M3 (R): specialist vs pooled, all_172, H=primary.
+    d = _diff_series(cells, key(h_lo, "all_172", "specialist"),
+                     key(h_lo, "all_172", "pooled"), ev)
+    tests["M3_R"] = {
+        "stat": float(d.mean()) if len(d) else float("nan"),
+        "p": boot_pvalue(d, block),
+        "seed_stable": _seed_stable_paired(
+            cells, key(h_lo, "all_172", "specialist"), key(h_lo, "all_172", "pooled"), ev),
+    }
+
+    rejected = holm({k: v["p"] for k, v in tests.items()}, FAMILY_ALPHA)
+    for k in tests:
+        tests[k]["holm_rejected"] = rejected[k]
+        tests[k]["registered_verdict"] = bool(rejected[k] and tests[k]["seed_stable"])
+    return tests
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -279,6 +517,7 @@ def main() -> int:
         t0 = time.time()
         real, fb = {ev: {} for ev in HORIZONS}, 0
         plac = {ev: {} for ev in HORIZONS}
+        clean_by_seed = {ev: {} for ev in HORIZONS}
         for seed in SEEDS:
             a, k = run_cell(h, f, r_mode, False, seed)
             fb += k
@@ -289,12 +528,19 @@ def main() -> int:
             for ev in HORIZONS:
                 for d, (v, rg) in b[ev].items():
                     plac[ev].setdefault(d, [rg, []])[1].append(v)
+                # per-seed clean IC, kept separate from the seed-averaged
+                # `clean` below — needed for the seed-stability check
+                # (prereg §5), which the averaged series alone can't answer.
+                clean_by_seed[ev][seed] = {
+                    d: (rg, a[ev][d][0] - b[ev][d][0])
+                    for d, (_, rg) in a[ev].items() if d in b[ev]
+                }
         clean = {}
         for ev in HORIZONS:
             clean[ev] = {d: (rg, float(np.mean(vs)) -
                              float(np.mean(plac[ev][d][1])) if d in plac[ev] else np.nan)
                          for d, (rg, vs) in real[ev].items()}
-        cells[key] = {"clean": clean, "fallbacks": fb,
+        cells[key] = {"clean": clean, "clean_by_seed": clean_by_seed, "fallbacks": fb,
                       "raw_primary": float(np.mean(
                           [np.mean(v[1]) for v in real[PRIMARY_EVAL].values()])),
                       "placebo_primary": float(np.mean(
@@ -309,12 +555,37 @@ def main() -> int:
     # enforced above, before training started ──
     anchor_key = "fwd_60d_excess|all_172|pooled"
     anchor = cells[anchor_key]["raw_primary"]
-    if args.n_splits == ANCHOR_SPLITS:
+    anchor_validated = args.n_splits == ANCHOR_SPLITS
+    analysis_eligible, ineligible_reason = False, None
+    if anchor_validated:
         ok = abs(anchor - ANCHOR_IC_EXPECTED) <= ANCHOR_TOLERANCE
         print(f"\nANCHOR {anchor:+.4f} vs {ANCHOR_IC_EXPECTED:+.4f} -> "
               f"{'OK' if ok else 'FAIL'}")
         if not ok and not args.skip_anchor:
             raise SystemExit("anchor did not reproduce — run VOID (prereg §5)")
+        analysis_eligible = ok
+        if not ok:
+            ineligible_reason = (f"anchor FAILED ({anchor:+.4f} vs "
+                                 f"{ANCHOR_IC_EXPECTED:+.4f} ± {ANCHOR_TOLERANCE}) "
+                                 "under --skip-anchor")
+    else:
+        ineligible_reason = (f"--n-splits {args.n_splits} has no validated anchor "
+                             f"(only {ANCHOR_SPLITS} is anchor-validated) — exploratory-only")
+        print(f"\n{ineligible_reason}")
+
+    # Interaction/Holm verdicts (prereg §5) — computed unconditionally so the
+    # bundle always carries them, but `registered_verdict` is forced False
+    # whenever `analysis_eligible` is False so an unvalidated / skip-anchor
+    # run can never be read as a primary verdict downstream.
+    interaction = run_interaction_tests(cells)
+    if not analysis_eligible:
+        for t in interaction.values():
+            t["registered_verdict"] = False
+    print()
+    for name, t in interaction.items():
+        print(f"  {name:28} stat={t['stat']:+.4f} p={t['p']:.4f} "
+              f"seed_stable={t['seed_stable']} holm_reject={t['holm_rejected']} "
+              f"registered={t['registered_verdict']}")
 
     json.dump({"prereg": "doc/research/2026-07-24-factorial-horizon-features-regime-prereg.md",
                "primary_eval": PRIMARY_EVAL, "embargo": EMBARGO_DAYS,
@@ -322,6 +593,10 @@ def main() -> int:
                "registrable_regimes": list(REGISTRABLE_REGIMES),
                "feature_levels": {k: len(v) for k, v in LEVELS.items()},
                "anchor_raw_ic": anchor,
+               "anchor_validated": anchor_validated,
+               "analysis_eligible": analysis_eligible,
+               "ineligible_reason": ineligible_reason,
+               "interaction_tests": interaction,
                "cells": {k: {"raw_primary": v["raw_primary"],
                              "placebo_primary": v["placebo_primary"],
                              "fallbacks": v["fallbacks"],
@@ -331,9 +606,10 @@ def main() -> int:
                          for k, v in cells.items()}},
               open(out_path, "w"), indent=2, default=str)
     print(f"\nwrote {out_path}  [{(time.time()-t_start)/60:.0f} min]")
-    print("Interaction tests (I1/I2/I3) and Holm correction run in the "
-          "results PR against this artifact — the prereg forbids reading "
-          "verdicts in the same PR that freezes the design.")
+    print("Interaction/Holm verdicts are computed by THIS script (frozen "
+          "analyzer, prereg §5) and written into the bundle above. The "
+          "results PR only EXECUTES this analyzer against a fresh run; it "
+          "may not redefine the estimator, the Holm family, or the block.")
     return 0
 
 

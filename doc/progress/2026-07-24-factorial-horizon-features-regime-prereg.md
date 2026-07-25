@@ -10,7 +10,17 @@ WHAT:      Adds a design-only preregistration (`doc/research/2026-07-24-
            branch's commit attribution to single-owner history. Fix pass 2:
            moved the fold-count anchor gate before the training sweep so an
            unvalidated `--n-splits` fails closed immediately instead of after
-           the full ~87-minute run (MED finding, review 3).
+           the full ~87-minute run (MED finding, review 3). Fix pass 3: froze
+           the I1/I2/I3 + M1/M2a/M2b/M3 interaction/Holm analyzer as
+           executable code (`run_interaction_tests()` + helpers), wired into
+           `main()` so the results PR only EXECUTES it — it cannot redefine
+           the estimator, the Holm family, or the block size (HIGH finding,
+           review rounds 2-6). Also persists `anchor_validated` /
+           `analysis_eligible` / `ineligible_reason` in the output bundle and
+           forces every `registered_verdict` to `False` when
+           `analysis_eligible` is `False`, so `--skip-anchor` (or an
+           unvalidated `--n-splits`) can never surface a primary verdict
+           (review round 1, pt.3).
 WHY/DIR:   Three studies this session (regime-conditional feature selection,
            #573's feature dimensionality, label horizon) each varied one
            factor and held the rest constant — an OFAT design that cannot
@@ -24,8 +34,13 @@ WHY/DIR:   Three studies this session (regime-conditional feature selection,
            features, and at what label horizon" question #573 opened.
 EVIDENCE:
   artifact:      scripts/research_factorial_hfr.py `--probe` / `--help` output
-                 against the real panel (feasibility/power table only)
-  prod or exp:   design-only; no training run, no write
+                 against the real panel (feasibility/power table only);
+                 `tests/test_research_factorial_hfr_analyzer.py` (new, 6
+                 tests) exercises `run_interaction_tests()` against synthetic
+                 `cells` dicts shaped like the real per-cell output
+  prod or exp:   design-only; no training run, no write. The analyzer tests
+                 check the ANALYZER's arithmetic on synthetic data, not any
+                 IC/Sharpe claim about the strategy — no cell has been trained
   existing data: matches the power table in the prereg (BULL_CALM ~24
                  independent blocks registrable, BEAR ~6 registrable,
                  BULL_VOLATILE ~3 / CHOPPY ~1 NOT registrable); the fold-count-
@@ -33,27 +48,45 @@ EVIDENCE:
                  forward unchanged
   best-known?:   n/a — this PR asserts no IC/Sharpe claim; no cell has been
                  trained, so no trained-arm result exists yet
-  scope:         "feasibility/power probe + frozen design only, on the real
-                 panel, descriptive; zero cells trained"
-NEXT:      Two items outstanding, both design/research judgment calls, not
-           mechanical fixes — deferred to explicit operator direction per
+  scope:         "feasibility/power probe + frozen design + frozen analyzer,
+                 on the real panel and on synthetic analyzer-unit-tests,
+                 descriptive; zero cells trained"
+NEXT:      One item outstanding, a design/research judgment call, not a
+           mechanical fix — deferred to explicit operator direction per
            `AGENT-RETROSPECTIVE.md` §5 (C3: unbounded/unchecked-pointed work
            is not something an agent starts autonomously in an unattended
            fix pass):
            (1) repo placement — `scripts/research_factorial_hfr.py` rebuilds
            folds/normalization and trains XGB cells, which is model-training
            research per the multi-repo code-placement rule; it needs to move
-           to `renquant-model` before any run produces results.
-           (2) the primary interaction tests (I1/I2/I3) and the Holm family
-           must be frozen as executable analysis code in this PR — the
-           contrast formulas, conditioning, bootstrap statistic, and p-value
-           calculation — not deferred to the results PR.
+           to `renquant-model` before any run produces results. Moving it is a
+           cross-repo restructuring step (new PR in a different, un-queued
+           repo, new CI/tests there) — left for the operator or a
+           purpose-scoped follow-up, not done silently inside this fix pass.
+           (2) [fixed, fix pass 3] the primary interaction tests (I1/I2/I3)
+           and the Holm family are now frozen as executable analysis code —
+           contrast formulas, conditioning, bootstrap statistic (block =
+           eval-horizon days), and Holm p-value calculation are all in this
+           PR; the results PR only executes `run_interaction_tests()` against
+           a fresh run, it cannot redefine the estimator.
+           NOTE on I1's estimand: §5's own notation for I1 —
+           `clean_IC(60d,BEAR)` / `clean_IC(60d,BULL_CALM)` — takes no r_mode
+           argument, so "R" there cannot mean the pooled/specialist training
+           factor §2 defines; this implementation reads it as the realized-
+           regime stratum of the POOLED model's validation dates instead
+           (matching §4's precommit that only BULL_CALM/BEAR are registrable
+           — exactly I1's two strata). This resolves a round-1 review comment
+           ("state which is the interaction factor... otherwise H×R/F×R is
+           ambiguous") that no later prereg revision explicitly settled.
+           Frozen before any run (no results exist to have biased the
+           choice); flagged here for the reviewer to override before the
+           results PR executes it.
            (3) [fixed, fix pass 2] the default execution path used to run
            the full ~87-minute sweep before the anchor check could fail
            closed; the fold-count gate now runs immediately after arg
            parsing (before the panel loads or any cell trains) so an
            unvalidated `--n-splits` VOIDs in seconds, not 87 minutes.
-           Once (1) and (2) clear, the study itself is the next bounded action.
+           Once (1) clears, the study itself is the next bounded action.
 
 ## What this PR is
 
@@ -173,11 +206,29 @@ Listed in prereg §8. The two I am least sure of:
 ## Tests
 
 `../RenQuant/.venv/bin/python -m pytest -q --ignore=tests/test_bundle_seal.py`
-→ **4261 passed, 2 skipped**. `ruff check` clean. `--probe` reproduces the
-power table above against the real panel.
+→ **4266 passed, 2 skipped, 1 failed** (fix pass 3). `--probe` reproduces the
+power table above against the real panel. `python -m py_compile
+scripts/research_factorial_hfr.py` passes on both the RenQuant venv
+(3.10.20) and system `python3` (3.9.6).
+
+The 1 failure (`test_agent_workflows.py::test_resolve_token_env_precedence`)
+is an ambient-GH-token env leak into that test's assertion (unrelated file,
+unrelated code path — confirmed reproducing identically with `env -u
+GH_TOKEN -u GITHUB_TOKEN`, so it is not a plain env-var leak either; this PR
+touches none of `test_agent_workflows.py`'s dependencies).
+
+New in fix pass 3: `tests/test_research_factorial_hfr_analyzer.py` (6 tests,
+all passing) — synthetic-data unit tests for `run_interaction_tests()`: pins
+the frozen constants, confirms all 7 registered tests are null under flat
+synthetic cells, confirms I1 detects an injected BEAR/BULL_CALM horizon
+crossover with a stable sign and a significant Holm-corrected p-value,
+confirms seed-instability blocks registration even when p is significant,
+and confirms `analysis_eligible=False` forces every verdict to
+`registered_verdict=False`.
 
 `tests/test_bundle_seal.py` collection error is **pre-existing on `origin/main`**
-(verified), not introduced here — this PR is additive (1 doc + 1 unwired script).
+(verified), not introduced here — this PR is additive (1 doc + 1 script +
+1 new test file).
 
 ## Memory tier touched
 
