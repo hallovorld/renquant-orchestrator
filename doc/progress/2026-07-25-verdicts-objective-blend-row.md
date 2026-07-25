@@ -84,10 +84,24 @@ change.
 Tests: none — this PR touches only `doc/research/VERDICTS.md` (now a no-op diff
 against `main`) and this progress doc.
 
-## Amendment (same day): second row — factorial H×F×R NULL ×7
+## Round 5 review finding addressed
 
-Same-day addition to this ledger PR: the factorial (model#67 frozen law,
-model#72 results) returned NULL on all seven registered tests; the frozen
-consequence rehabilitates the earlier OFAT conclusions. Evidence and
-run-integrity disclosures (run-1 quarantine, model#71) live in
-renquant-model; this row keeps the ledger single-source.
+MED — this doc's own prior text (below, now corrected) claimed a same-day
+"Amendment: second row — factorial H×F×R NULL ×7", but this PR's diff never
+carried a `VERDICTS.md` change for it — no second row exists on this branch.
+The claim was premature: renquant-model#72 (the factorial results PR) is
+itself still OPEN/unmerged as of this fix, so citing it in the ledger would
+repeat the exact evidence-durability defect (round 4, above) that forced the
+objective-blend row's withdrawal. Removed the false "amendment" claim rather
+than fabricate the row: this PR adds **no** `VERDICTS.md` row — it is,
+verified, `STATUS: WITHDRAWN` for the objective-blend attempt only, and
+remains the record of that attempt plus the blocking reason. A factorial
+NULL×7 row is deferred to a future PR opened once renquant-model#72 (or its
+successor) is merged to that repo's `main`, per the same re-add condition
+already stated in `NEXT` above.
+
+Tests: `PYTHONPATH=src python3 -c "from renquant_orchestrator.agent_workflows
+import progress_doc_findings; ..."` against the rewritten doc still returns
+`[]` (all required C5 fields present). `git diff origin/main --
+doc/research/VERDICTS.md` remains empty (no-op), confirming the doc's
+"no ledger row added" claim matches the actual diff.
