@@ -28,5 +28,19 @@ EVIDENCE:
   best-known?:   first objective-function change confirmed on this book
   scope:         survivorship panel paired diff; CI lower bound +0.0018 (thin);
                  consequence = SHADOW design only, no production change
-NEXT:      shadow deployment design PR (pipeline shadow-scorer line); S-REL
-           verification queue may pick the row up per R1.
+NEXT:      GATED — shadow deployment design PR (pipeline shadow-scorer line) does not
+           open until a replayable rerun against model#68's bundle-capable executor
+           exists (mirrors model#70's own gated NEXT field, fixed in the same fix
+           cycle); S-REL verification queue may separately pick the row up per R1.
+
+## Round 3 review finding addressed
+
+MED — the ledger row's bolded `**CONFIRMED**` verdict, read together with "Consequence
+per frozen prereg: SHADOW design PR only," promoted a conclusion beyond what the
+committed (aggregate-only, non-replayable) evidence in model#70 supports — even
+though this doc's own EVIDENCE block already disclosed the gap. Mirrored model#70's
+own round-3 fix in the same cycle: reworded the `VERDICTS.md` row's Verdict cell to
+`CONFIRMED per the frozen numeric rule (PROVISIONAL AS A DECISION — non-replayable
+evidence)`, gated the shadow-design-PR consequence on a replayable rerun in both the
+Verdict and Reopening-condition cells, and added the non-replayable-bundle fact to
+the Evidence-boundary cell. The frozen numeric result itself is unchanged.
