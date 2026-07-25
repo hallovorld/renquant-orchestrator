@@ -1,0 +1,37 @@
+{
+  "check1_regime_lookahead": {
+    "agreement": 0.7763551002987623,
+    "leaky_pct": 0.2236448997012377
+  },
+  "check2_embargo": {
+    "embargo_used": 0,
+    "embargo_required": 20,
+    "leaky_train_days": 20,
+    "train_window": 250
+  },
+  "check3_survivorship": {
+    "n_tickers": 292,
+    "alive_at_end_pct": 0.4931506849315068,
+    "present_at_start_pct": 0.9006849315068494
+  },
+  "check4_splits": {
+    "NVDA": {
+      "jump": 1.0074614554265338,
+      "adjusted": true
+    },
+    "AAPL": {
+      "jump": 1.033912148279617,
+      "adjusted": true
+    }
+  },
+  "check5_plausibility": {
+    "pooled_apy": 0.455,
+    "spy_apy": 0.131,
+    "verdict": "implausible \u2014 indicates leakage/bias"
+  },
+  "check6_panel_ew": {
+    "panel_ew_apy": 0.17632089981330523,
+    "spy_apy": 0.13182614359493106,
+    "survivorship_premium": 0.044494756218374176
+  }
+}
