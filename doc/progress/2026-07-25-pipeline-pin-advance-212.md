@@ -31,9 +31,22 @@ KNOWN RESIDUE (pre-existing, NOT introduced here; left untouched, no grant):
   - drift scan: orchestrator-run HEAD ade07dd7 behind expected 1242c96e (orchestrator
     pin advance is a SEPARATE landing needing its own grant)
   - umbrella working tree carries the long-standing dirty artifact set; the lock +
-    snapshot changes from this promotion are uncommitted there per the R-PIN state
-    (umbrella lock commits blocked by Codex #460; orchestrator deployment-manifest
-    is the designated durable surface — this doc is the stage-1 record)
+    snapshot changes from this promotion are uncommitted there (umbrella lock
+    commits blocked by Codex #460)
+  - `deploy/deployment-manifest.json` (the R-PIN Stage-1 authority document,
+    doc/progress/2026-07-11-r-pin-first-durable-record.md:14 "every future
+    pin change records here FIRST") was NOT advanced by this landing — it
+    still records `renquant-pipeline.commit = 289b919908fc…` at generation 1
+    (2026-07-11). CORRECTION (Codex #578 review): an earlier draft of this
+    doc wrongly claimed the manifest already served as the durable surface
+    for this move; it does not — this doc is an informal stage-1 note only.
+    Advancing the manifest requires `deploy-pin capture --write
+    --evidence-ref store://…` against the current on-disk lock (already at
+    `9c5f48e653fb`, agreeing with the materialized `.subrepo_runtime` clone
+    HEAD) plus a sealed readonly-e2e evidence bundle landed in
+    renquant-artifacts — a SEPARATE landing needing its own grant, tracked
+    here until done.
 NEXT:      watch Monday's daily-full for "preflight ✓ P-STATE-FILE [HARD] loaded
            live_state.alpaca.json (LiveStateV2 valid…)"; then the strict flip can
-           proceed on its own schedule.
+           proceed on its own schedule. Separately: land the deployment-manifest.json
+           R-PIN follow-up above.
