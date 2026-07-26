@@ -123,6 +123,13 @@
       ],
       "program_args_sha256": "a249490bf217ebc2f9e36132605a2ede80bdfa07a654df9b095f0c1200a4bd55"
     },
+    "com.renquant.rq104-blend-readout": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_blend_readout.py"
+      ],
+      "program_args_sha256": "cb1211fff6b1812d8397f9f8cbfb7266ed1693778e96bbab8eb3ffc6044efd2c"
+    },
     "com.renquant.rq104-dawn-preflight": {
       "program_args": [
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/dawn_funnel_preflight.sh"
@@ -184,8 +191,10 @@
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_quote_logger.sh"
       ],
       "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8",
-      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent — the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
-      "keep_alive": {"SuccessfulExit": false}
+      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent \u2014 the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
+      "keep_alive": {
+        "SuccessfulExit": false
+      }
     },
     "com.renquant.rq105-session-scheduler": {
       "program_args": [
