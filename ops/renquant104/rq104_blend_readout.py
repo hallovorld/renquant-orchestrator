@@ -30,6 +30,7 @@ import pandas as pd
 TOP_N = 10
 SHADOW_NAME = "topdecile_clf_blend_leg"
 MATURITY_TDAYS = 21          # fwd_20d + 1 session settle
+MIN_FULL_RUN_CANDIDATES = 80  # matches scripts/kpi_scorecard.py / poc_transfer_coefficient.py
 
 
 def zsum_blend(prod: pd.Series, clf: pd.Series) -> pd.Series:
@@ -54,15 +55,27 @@ def top_n(scores: pd.Series, n: int = TOP_N) -> list[str]:
 
 
 def latest_live_run(db: sqlite3.Connection) -> tuple[str, str] | None:
-    row = db.execute(
-        "SELECT run_id FROM candidate_scores GROUP BY run_id "
-        "ORDER BY MAX(rowid) DESC LIMIT 1").fetchone()
-    if not row:
+    """Canonical latest FULL live run: join `pipeline_runs` (run_type='live'),
+    restrict to runs whose `candidate_scores` row count >= MIN_FULL_RUN_CANDIDATES,
+    and pick the one with the latest `created_at`. NOT raw `candidate_scores`
+    rowid order — an intraday/partial run can insert rows after the post-close
+    full run and must never silently supersede it (same class of bug/fix as
+    scripts/kpi_scorecard.py:142-159 and scripts/poc_transfer_coefficient.py:201-218)."""
+    counts = pd.read_sql_query(
+        "SELECT run_id, COUNT(*) n FROM candidate_scores GROUP BY run_id "
+        f"HAVING n >= {MIN_FULL_RUN_CANDIDATES}", db)
+    if counts.empty:
         return None
-    run_id = row[0]
-    # run_id convention: YYYY-MM-DD-live-<hex>
-    run_date = run_id[:10]
-    return run_id, run_date
+    runs = pd.read_sql_query(
+        "SELECT run_id, run_date, created_at FROM pipeline_runs "
+        "WHERE run_type = 'live' AND run_id IN ({})".format(
+            ",".join("?" * len(counts))),
+        db, params=counts["run_id"].tolist())
+    if runs.empty:
+        return None
+    runs["created_at"] = pd.to_datetime(runs["created_at"])
+    row = runs.sort_values("created_at").iloc[-1]
+    return row["run_id"], str(row["run_date"])[:10]
 
 
 def prod_scores(db: sqlite3.Connection, run_id: str) -> pd.Series:

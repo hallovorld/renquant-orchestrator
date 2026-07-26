@@ -39,6 +39,31 @@ def test_ledger_append_idempotent(tmp_path):
     assert len(led.read_text().splitlines()) == 1
 
 
+def test_latest_live_run_ignores_intraday_partial_run_by_rowid():
+    """An intraday/partial run inserted AFTER the post-close full run (higher
+    rowid, earlier created_at) must not supersede the full run — regression
+    guard for the raw-rowid-order bug (Codex review, PR #581)."""
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE pipeline_runs (run_id TEXT PRIMARY KEY, run_date TEXT, "
+               "run_type TEXT, created_at TEXT)")
+    db.execute("CREATE TABLE candidate_scores (run_id TEXT, ticker TEXT, panel_score REAL)")
+    db.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?)",
+               ("2026-07-26-live-aaa", "2026-07-26", "live", "2026-07-26 14:06:00"))
+    db.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?)",
+               ("2026-07-26-live-bbb", "2026-07-26", "live", "2026-07-26 10:15:00"))
+    for t in [f"T{i}" for i in range(85)]:
+        db.execute("INSERT INTO candidate_scores VALUES (?,?,?)",
+                   ("2026-07-26-live-aaa", t, 1.0))
+    # intraday partial run: fewer candidates, inserted (higher rowid) after
+    for t in ["X", "Y"]:
+        db.execute("INSERT INTO candidate_scores VALUES (?,?,?)",
+                   ("2026-07-26-live-bbb", t, 1.0))
+    db.commit()
+    run_id, run_date = mod.latest_live_run(db)
+    assert run_id == "2026-07-26-live-aaa"
+    assert run_date == "2026-07-26"
+
+
 def test_mature_fill_only_when_all_returns_present(tmp_path):
     led = tmp_path / "ledger.jsonl"
     row = {"run_date": "2026-06-01", "picks_prod": ["A", "B"],

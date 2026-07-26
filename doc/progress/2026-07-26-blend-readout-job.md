@@ -1,6 +1,7 @@
 # 2026-07-26 — blend readout job (pipeline#213 piece 3/3)
 
-STATUS:    script + tests + plist file; NOT installed by this PR
+STATUS:    in-progress — script + tests + plist file committed; launchd
+           INSTALL (manifest entry + load) deliberately excluded from this PR
 WHAT:      ops/renquant104/rq104_blend_readout.py — daily post-run job: joins
            candidate_scores (prod) with the shadow clf comparison (MLflow),
            computes the FROZEN blend z(prod)+z(clf), appends both arms' top-10
@@ -8,6 +9,9 @@ WHAT:      ops/renquant104/rq104_blend_readout.py — daily post-run job: joins
            back-fills realized fwd_20d spreads from ticker_forward_returns at
            maturity, and ALARMS (exit 2) when a live run exists but the shadow
            leg is silent (GOAL-1 AC3).
+WHY/DIR:   pipeline#213 rollout piece 3/3 — the blend-vs-prod shadow readout
+           ledger that the frozen INFO/GATE analysis reads depend on; this is
+           the accumulation leg, no INFO/GATE verdict is produced here.
 EVIDENCE:
   artifact:      tests/test_rq104_blend_readout.py — 4 passed (frozen-blend
                  equivalence; deterministic tie-break; idempotent append;

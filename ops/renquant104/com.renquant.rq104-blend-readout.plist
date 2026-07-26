@@ -6,7 +6,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
-    <string>/Users/renhao/git/github/renquant-orchestrator/ops/renquant104/rq104_blend_readout.py</string>
+    <string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_blend_readout.py</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>21</integer></dict>
