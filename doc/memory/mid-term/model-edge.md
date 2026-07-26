@@ -20,3 +20,27 @@ CONSTRAINT: 2026-06-21 operator lifted the XGB pitch-veto (LONG #3) and directed
           The XGB training method is rigor-audited (purged-WF-CV +60d embargo, honest +0.04 OOS IC),
           but the fresh XGB FAILED the WF gate (#166/#167) — so "XGB → prod" is operator-discretion
           behind the mu_floor conviction gate (#140), NOT a gate pass. Neither model passes the gate yet.
+
+## PatchTST queue position (2026-07-26, operator-agreed)
+
+Next role: **third blend leg** — a sequence-pattern tail classifier ("will
+this name enter the top decile", trained on 60d patches) added to the
+certified XGB blend (z(rank) + z(top-decile clf), model#74/#75/#76 chain,
+CONFIRMED on two disjoint seed draws +0.055/+0.069). Rationale: the book's
+certified skill is picking which high-vol name runs (DGTW block-t=+2.92);
+pre-run sequence shape is plausibly visible to a patch model and invisible
+to the cross-sectional trees — genuine architectural orthogonality, unlike
+the killed G4 same-signal ensemble.
+
+HARD prerequisites, in order — none may be skipped:
+1. **Certified clean baseline first.** The repo's PatchTST has never passed
+   a clean gate (all-negative-scores history; G4 killed; the prune line
+   failed its placebo gates). No objective surgery on an uncertified base.
+2. **Cost reality.** The placebo-armed verification machinery (tens of
+   seeded runs, per-arm placebos) is 10-50× costlier than XGB's 15 s/fold;
+   Modal remains gated by the standing no-Modal rule until its plan clears.
+3. **Sequencing.** Not before the XGB-blend shadow (pipeline#213) is
+   ACTIVE and stable — one certified change walks to production at a time.
+
+Entry door is unchanged: screen with committed evidence → frozen prereg →
+disjoint-seed confirmatory → shadow. Same machinery, no exceptions.
