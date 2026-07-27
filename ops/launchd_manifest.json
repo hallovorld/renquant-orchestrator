@@ -164,6 +164,13 @@
       ],
       "program_args_sha256": "35802d01b668c1668544e10beb4c20514d133ce8f5518c95c878be8914621fb6"
     },
+    "com.renquant.rq104-shadow-scorer-sentinel": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_shadow_scorer_sentinel.py"
+      ],
+      "program_args_sha256": "57c92a2e445b009a466522419b2997889609ccebee4846f082e4a8d8eeeda549"
+    },
     "com.renquant.rq105-batch-scores-export": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
