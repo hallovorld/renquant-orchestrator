@@ -195,13 +195,40 @@ def main() -> int:
            "n_clf_scored": int(clf.reindex(prod.index).notna().sum()),
            "picks_prod": top_n(prod), "picks_blend": top_n(blend),
            "realized": False}
-    if append_ledger(ledger, row):
+    appended = append_ledger(ledger, row)
+    if appended:
         print(f"session appended: {run_date} "
               f"(prod∩blend picks overlap "
               f"{len(set(row['picks_prod']) & set(row['picks_blend']))}/10)")
+        _notify_picks(row)
     else:
         print(f"session {run_date} already in ledger — idempotent skip")
     return 0
+
+
+def _notify_picks(row: dict) -> None:
+    """Operator-visibility INFO ntfy (2026-07-27 operator directive): the
+    day's hypothetical blend top-10 vs prod, sent once per appended session
+    (idempotent-skip paths never re-notify). Best-effort — a notify failure
+    must never fail the ledger job."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from liveness_common import alert  # noqa: PLC0415
+        prod_set = set(row["picks_prod"])
+        blend_set = set(row["picks_blend"])
+        added = [t for t in row["picks_blend"] if t not in prod_set]
+        dropped = [t for t in row["picks_prod"] if t not in blend_set]
+        alert(
+            f"rq104 blend 假想前10 — {row['run_date']}",
+            (f"blend: {' '.join(row['picks_blend'])}\n"
+             f"prod:  {' '.join(row['picks_prod'])}\n"
+             f"分歧 {len(added)}/10: +{' +'.join(added) if added else '-'} / "
+             f"-{' -'.join(dropped) if dropped else '-'}\n"
+             f"clf 覆盖 {row['n_clf_scored']}/{row['n_candidates']}（陪跑记账，仅假想，不下单）"),
+            rq_root=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"notify skipped (non-fatal): {exc}")
 
 
 if __name__ == "__main__":
