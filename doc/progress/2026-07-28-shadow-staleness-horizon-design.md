@@ -26,17 +26,25 @@ WHY/DIR:  Two remediation options for a future renquant-pipeline implementation 
           operator decides, the `stale_91d` flag on the clf lane stays: correctly reported, known
           benign, documented here rather than silently suppressed.
 
-EVIDENCE: `tail -5 backtesting/renquant_104/logs/shadow_scorer_health.jsonl` (read-only, checked
-          2026-07-28) confirms the memo's central empirical claim: run_date 2026-07-28,
-          `effective_train_cutoff_date=2026-04-28`, `staleness_days=91`,
-          `reasons=["stale_91d_limit_28d"]`, `status=fault` for the topdecile_clf lane, and
-          `staleness_days=622`, `reasons=["stale_622d_limit_28d"]` for the legacy lane (both
-          numbers cited in the memo's table and Option A section match this log exactly)
-          `[VERIFIED — direct log read]`. The memo's second table row (PatchTST fold cutoff
-          2025-12-05) is asserted from the training corpus build record and was not
-          independently re-verified against a live shadow-health record in this fix pass
-          `[GUESS — not re-checked]`; no model/IC/Sharpe number is claimed anywhere in the memo,
-          so the §4(b) sanity-triad block does not apply.
+EVIDENCE: artifact:      `backtesting/renquant_104/logs/shadow_scorer_health.jsonl` (umbrella repo,
+                         read-only `tail -5`, checked 2026-07-28)
+          prod or exp:   prod — live health record emitted by `ApplyShadowScoringTask` on the
+                         production run, not a synthetic/experiment fixture
+          existing data: last 5 rows show run_date=2026-07-28,
+                         `effective_train_cutoff_date=2026-04-28`, `staleness_days=91`,
+                         `reasons=["stale_91d_limit_28d"]`, `status=fault` for the topdecile_clf
+                         lane, and `staleness_days=622`, `reasons=["stale_622d_limit_28d"]` for the
+                         legacy lane — both numbers match the memo's table and Option A section
+                         exactly `[VERIFIED — direct log read]`
+          best-known?:   this IS the current live record (not stale/superseded); it is the same
+                         artifact the memo's table cites
+          scope:         "this is `backtesting/renquant_104/logs/shadow_scorer_health.jsonl`, prod,
+                         and confirms the memo's cited `stale_91d`/`stale_622d` flags exactly; the
+                         memo's second table row (PatchTST fold cutoff 2025-12-05) is asserted from
+                         the training corpus build record and was NOT independently re-verified
+                         against a live shadow-health record in this fix pass
+                         `[GUESS — not re-checked]`; no model/IC/Sharpe number is claimed anywhere
+                         in this design memo, so the §7.2 sanity-triad does not apply"
 
 NEXT:     Operator picks Option A or Option B. If A: a follow-up renquant-pipeline PR reads the
           artifact's stamped `lookahead_days` (per-recipe precedent already shipped in
