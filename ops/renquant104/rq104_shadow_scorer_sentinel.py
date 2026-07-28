@@ -138,10 +138,25 @@ VALID_STATUSES = frozenset({STATUS_OK, STATUS_EXPECTED_SKIP, STATUS_FAULT})
 #: FALLBACK reader source — the shadow runs DB.
 SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca_shadow.db"))
 
-#: The shadow scorer's identity, as it appears in the health record's
-#: shadow_name and in candidate_scores.active_scorer / model_type. PatchTST is
-#: served as 'hf_patchtst'.
+#: The shadow scorer's identity, as it appears in the record's shadow_name and
+#: in candidate_scores.active_scorer / model_type. PatchTST is served as
+#: 'hf_patchtst'. Config lane names DECORATE this key (e.g.
+#: 'hf_patchtst_pt07_strict_seed44_previous_primary' after the 2026-07 clf
+#: promotion demoted the lane), so the health-record match accepts the exact
+#: key or any 'SHADOW_NAME_*' decorated form — see _matches_shadow_lane.
 SHADOW_NAME = os.environ.get("RQ104_SHADOW_NAME", "hf_patchtst")
+
+
+def _matches_shadow_lane(name: str) -> bool:
+    """True if a health record's shadow_name is this sentinel's lane.
+
+    Exact match, or the decorated config-lane form 'SHADOW_NAME_<suffix>'.
+    A differently-keyed lane (e.g. 'topdecile_clf_blend_leg') never matches.
+    If two decorated lanes of the same key ever coexist on one date,
+    last-record-wins applies — acceptable while the config carries at most
+    one lane per served-model key; a multi-lane sentinel is the follow-up.
+    """
+    return name == SHADOW_NAME or name.startswith(SHADOW_NAME + "_")
 
 #: consecutive session days of a degraded state before alarming. 2 keeps
 #: detection within one session of the incident onset while a single quiet day
@@ -429,7 +444,7 @@ def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthR
                 if not is_valid_v1_record(obj):
                     continue  # unknown/invalid -> ignore; DB fallback stays authoritative
                 rec = ShadowHealthRecord.from_dict(obj, source="pipeline_health_record")
-                if rec.shadow_name != SHADOW_NAME or rec.run_date not in wanted:
+                if not _matches_shadow_lane(rec.shadow_name) or rec.run_date not in wanted:
                     continue
                 out[rec.run_date] = rec  # last record for a date wins (latest re-run)
     except OSError:
