@@ -26,7 +26,7 @@
       "execution_path": "src/renquant_execution/readonly_broker.py",
       "execution_sha256": "fb4a1179557d69e863042125dad7d066a5818b701d46565fad11c341ce5331f6",
       "umbrella_path": "live/broker_readonly.py",
-      "umbrella_sha256": "ee4b634cacdcd766674f659f3537e441f84c7e77721f7ffb194978b57e191f06"
+      "umbrella_sha256": "75373e85f627d3b5523a16041fc440d0c2c7fe59a79d5d678930bf51a0568121"
     }
   },
   "function_pins": {
