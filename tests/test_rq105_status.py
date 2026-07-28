@@ -126,3 +126,28 @@ class TestDbRunSelectionUsesCanonicalExporterContract:
 
         assert result["icon"] == dashboard.FAIL
         assert "2026-07-06" in result["status"]
+
+    def test_db_latest_run_fails_closed_on_unknown_score_source(self, tmp_path, monkeypatch):
+        """An unknown RQ105_SCORE_SOURCE (e.g. a typo) must not silently fall
+        back to the prod DB (data/runs.alpaca.db) — that would mask exactly
+        the misconfiguration the blend switch introduces. Must match the
+        exporter's own refusal (export_batch_scores.main returns 1 for any
+        source not in REQUIRED_BROKER_MODE) instead of reporting a run from
+        the wrong DB."""
+        db_path = tmp_path / "data" / "runs.alpaca.db"
+        db_path.parent.mkdir(parents=True)
+        db_path.touch()
+        monkeypatch.setenv("RQ105_SCORE_SOURCE", "belnd")
+
+        with mock.patch.object(
+            dashboard, "expected_previous_session", return_value="2026-07-06"
+        ), mock.patch.object(
+            dashboard, "_select_source_run",
+            return_value=("run-abc-live-1", "2026-07-06", {}),
+        ) as mocked_select:
+            result = dashboard._db_latest_run(tmp_path)
+
+        mocked_select.assert_not_called()
+        assert result["icon"] == dashboard.FAIL
+        assert "belnd" in result["status"]
+        assert "2026-07-06" not in result["status"]

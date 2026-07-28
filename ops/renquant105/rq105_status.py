@@ -48,10 +48,12 @@ from renquant_orchestrator.scheduled_jobs import scheduled_jobs  # noqa: E402
 
 try:
     from export_batch_scores import MIN_ROWS as BATCH_MIN_ROWS  # noqa: E402
+    from export_batch_scores import REQUIRED_BROKER_MODE  # noqa: E402
     from export_batch_scores import _select_source_run  # noqa: E402
     from batch_scores_bundle import expected_previous_session  # noqa: E402
 except ImportError:
     BATCH_MIN_ROWS = 25
+    REQUIRED_BROKER_MODE = {"prod": None, "blend": "alpaca_shadow_blend"}
     _select_source_run = None
     expected_previous_session = None
 
@@ -166,8 +168,9 @@ def _active_score_source() -> str:
     as export_batch_scores.main (RQ105_SCORE_SOURCE env, default prod), so
     the dashboard row reflects the DB the exporter actually reads, not a
     hardcoded prod path that silently lies after the 2026-07-28 blend
-    switch. An unknown env value degrades to itself and the caller reports
-    the DB as missing (the exporter itself refuses such values loudly)."""
+    switch. An unknown env value degrades to itself and the caller
+    (_db_latest_run) fails closed on it the same way the exporter itself
+    refuses such values loudly, instead of guessing a DB."""
     return os.environ.get("RQ105_SCORE_SOURCE", "prod").strip().lower()
 
 
@@ -178,6 +181,12 @@ def _db_latest_run(rq_root: Path) -> dict:
     strategy, MIN_ROWS panel_score rows, created_at ordering) — rather than a
     dashboard-local approximation that could disagree with it."""
     source = _active_score_source()
+    if source not in REQUIRED_BROKER_MODE:
+        return {
+            "status": f"unknown score source ({source!r}) — refusing to guess a DB",
+            "icon": FAIL,
+            "detail": "",
+        }
     db_name = (
         "runs.alpaca_shadow_blend.db" if source == "blend" else "runs.alpaca.db"
     )
