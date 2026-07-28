@@ -49,11 +49,13 @@ from renquant_orchestrator.scheduled_jobs import scheduled_jobs  # noqa: E402
 try:
     from export_batch_scores import MIN_ROWS as BATCH_MIN_ROWS  # noqa: E402
     from export_batch_scores import REQUIRED_BROKER_MODE  # noqa: E402
+    from export_batch_scores import _blend_lane_gaps  # noqa: E402
     from export_batch_scores import _select_source_run  # noqa: E402
     from batch_scores_bundle import expected_previous_session  # noqa: E402
 except ImportError:
     BATCH_MIN_ROWS = 25
     REQUIRED_BROKER_MODE = {"prod": None, "blend": "alpaca_shadow_blend"}
+    _blend_lane_gaps = None
     _select_source_run = None
     expected_previous_session = None
 
@@ -179,7 +181,11 @@ def _db_latest_run(rq_root: Path) -> dict:
     session, reusing export_batch_scores._select_source_run — the real
     exporter contract (pipeline_runs completion, run_type='live', non-empty
     strategy, MIN_ROWS panel_score rows, created_at ordering) — rather than a
-    dashboard-local approximation that could disagree with it."""
+    dashboard-local approximation that could disagree with it. For a
+    broker-mode-gated source (blend), also reuses _blend_lane_gaps — the
+    same fail-closed evidence guard export_batch_scores.main() enforces
+    before export — so this row can't report a run as ready when the real
+    exporter would refuse it as a malformed or incomplete blend run."""
     source = _active_score_source()
     if source not in REQUIRED_BROKER_MODE:
         return {
@@ -193,7 +199,11 @@ def _db_latest_run(rq_root: Path) -> dict:
     db_path = rq_root / "data" / db_name
     if not db_path.exists():
         return {"status": f"no DB ({db_name}, source={source})", "icon": FAIL, "detail": ""}
-    if _select_source_run is None or expected_previous_session is None:
+    if (
+        _select_source_run is None
+        or expected_previous_session is None
+        or _blend_lane_gaps is None
+    ):
         return {"status": "export_batch_scores unavailable", "icon": FAIL, "detail": ""}
     import sqlite3 as _sqlite3  # noqa: PLC0415 — keep top-level import list free of DB-only need
 
@@ -209,7 +219,16 @@ def _db_latest_run(rq_root: Path) -> dict:
             "icon": FAIL,
             "detail": "",
         }
-    run_id, run_date, _run_bundle = result
+    run_id, run_date, run_bundle = result
+    required_broker_mode = REQUIRED_BROKER_MODE[source]
+    if required_broker_mode is not None:
+        lane_gaps = _blend_lane_gaps(run_bundle, required_broker_mode)
+        if lane_gaps:
+            return {
+                "status": f"run {run_id} fails {source} lane evidence: {', '.join(lane_gaps)}",
+                "icon": FAIL,
+                "detail": run_id,
+            }
     return {
         "status": f"date={run_date} (source={source})",
         "icon": OK,

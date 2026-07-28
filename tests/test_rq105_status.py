@@ -151,3 +151,32 @@ class TestDbRunSelectionUsesCanonicalExporterContract:
         assert result["icon"] == dashboard.FAIL
         assert "belnd" in result["status"]
         assert "2026-07-06" not in result["status"]
+
+    def test_db_latest_run_fails_closed_on_incomplete_blend_lane_evidence(self, tmp_path, monkeypatch):
+        """A blend-lane run missing one of the two resolved component pins
+        must fail closed here too, sharing export_batch_scores._blend_lane_gaps
+        — not report a green row for a run the real exporter would refuse
+        as a malformed or incomplete blend run (PR #585 review round 3)."""
+        db_path = tmp_path / "data" / "runs.alpaca_shadow_blend.db"
+        db_path.parent.mkdir(parents=True)
+        db_path.touch()
+        monkeypatch.setenv("RQ105_SCORE_SOURCE", "blend")
+        incomplete_bundle = {
+            "broker_mode": "alpaca_shadow_blend",
+            "artifact_hashes": {
+                "ranking.panel_scoring.components[0].artifact_path": "04d7a381deadbeef",
+            },
+        }
+
+        with mock.patch.object(
+            dashboard, "expected_previous_session", return_value="2026-07-28"
+        ), mock.patch.object(
+            dashboard, "_select_source_run",
+            return_value=("run-blend-1", "2026-07-28", incomplete_bundle),
+        ) as mocked_select:
+            result = dashboard._db_latest_run(tmp_path)
+
+        mocked_select.assert_called_once()
+        assert result["icon"] == dashboard.FAIL
+        assert "lane evidence" in result["status"]
+        assert "run-blend-1" in result["status"]
