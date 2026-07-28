@@ -44,3 +44,13 @@ HARD prerequisites, in order — none may be skipped:
 
 Entry door is unchanged: screen with committed evidence → frozen prereg →
 disjoint-seed confirmatory → shadow. Same machinery, no exceptions.
+
+## rq105 consumer of the blend shadow (2026-07-28, operator directive)
+
+rq105's frozen batch score vector switches source to the Step-5
+shadow-blend lane DB (`RQ105_SCORE_SOURCE=blend`, orch PR #585): the
+composite score the pinned `strategy_config.shadow_blend.json` profile
+computes now feeds the shadow-realtime replay collector, with a
+`scorer_identity` stamp per export and a one-line revert to prod.
+Shadow/pilot surface only — no order path consumes the vector.
+`[VERIFIED — STEP-0 trace in PR #585 + doc/progress/2026-07-28-rq105-batch-scores-blend-source.md]`
