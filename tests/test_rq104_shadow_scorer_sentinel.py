@@ -563,3 +563,39 @@ class TestContractConstants:
         assert sentinel.SHADOW_HEALTH_SCHEMA == "shadow_scorer_health.v1"
         assert "load_failed" in sentinel.FAULT_STATES
         assert "disabled" in sentinel.EXPECTED_SKIP_STATES
+
+
+# ---------------------------------------------------------------------------
+# decorated config-lane names — the 2026-07 clf promotion renamed the lane to
+# 'hf_patchtst_pt07_strict_seed44_previous_primary'; the primary sink must
+# still claim those records (the observed miss silently demoted the sentinel
+# to the DB fallback), while a differently-keyed lane never matches.
+# ---------------------------------------------------------------------------
+
+DECORATED = "hf_patchtst_pt07_strict_seed44_previous_primary"
+
+
+class TestDecoratedLaneName:
+    def _dark_db(self):
+        # live runs happened, zero shadow scores collected — DB alone would
+        # alarm FEED DARK; only OUR healthy structured records may silence it.
+        return [("r_d1", D1.isoformat(), "2026-07-14"),
+                ("r_d0", D0.isoformat(), "2026-07-14")]
+
+    def test_decorated_name_matches_primary_sink(self, tmp_path):
+        jsonl = [_record(D1.isoformat(), shadow_name=DECORATED),
+                 _record(D0.isoformat(), shadow_name=DECORATED)]
+        rc, alerts = _run(tmp_path, run_rows=self._dark_db(), jsonl=jsonl)
+        assert rc == 0 and not alerts
+
+    def test_foreign_lane_name_not_matched(self, tmp_path):
+        jsonl = [_record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg"),
+                 _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg")]
+        rc, alerts = _run(tmp_path, run_rows=self._dark_db(), jsonl=jsonl)
+        assert rc != 0 and alerts
+
+    def test_prefix_requires_separator(self):
+        # 'hf_patchtstX' is a different key, not a decoration
+        assert not sentinel._matches_shadow_lane("hf_patchtstX")
+        assert sentinel._matches_shadow_lane("hf_patchtst")
+        assert sentinel._matches_shadow_lane(DECORATED)
