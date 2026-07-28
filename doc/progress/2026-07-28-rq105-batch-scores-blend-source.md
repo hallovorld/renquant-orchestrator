@@ -1,0 +1,116 @@
+# rq105: batch score vector from the blend composite (operator directive)   (PR #585)
+
+STATUS:    delivered (repo-side; deploy = coordinator syncs the pinned run checkout)
+WHAT:      `export_batch_scores.py` gains a score source switch
+           (`RQ105_SCORE_SOURCE`, `prod` default / `blend`): `blend` sources
+           the frozen class-A vector from `runs.alpaca_shadow_blend.db` —
+           the isolated read-only lane daily_104.sh Step 5 populates by
+           running the FULL funnel with the pinned
+           `strategy_config.shadow_blend.json` profile (pipeline#218
+           `kind="blend"`, z(prod panel-ltr) + z(clf top-decile), both
+           component pins fail-closed in the pipeline). The launchd wrapper
+           now defaults the switch to `blend` (ONE-LINE REVERT: flip that
+           line back to `prod`, or set `RQ105_SCORE_SOURCE=prod` in the
+           env). Blend mode adds two fail-closed guards on top of every
+           existing selection/health/fingerprint gate: the source run's
+           `broker_mode` must be `alpaca_shadow_blend` (a mispointed DB is
+           the new failure class) and its `artifact_hashes` must carry BOTH
+           resolved blend component hashes. Every export (both modes) now
+           stamps a `scorer_identity` block into the meta (score_source,
+           broker_mode, config_hash, panel + blend-component artifact
+           sha256s, model_content_sha256, training_cutoff) so each
+           shadow-realtime record is attributable to the exact model that
+           produced its frozen vector. `rq105_status.py` resolves the same
+           env so the dashboard reports the DB the exporter actually reads,
+           and surfaces `score_source` from the meta — and, after this
+           review round, fails closed (refuses to guess a DB) on an
+           unrecognized `RQ105_SCORE_SOURCE` value instead of silently
+           falling back to the prod DB.
+WHY/DIR:   2026-07-28 operator directive: "105 直接换成 blend 模型, go go
+           go". Sourcing from the Step-5 lane DB — instead of re-scoring
+           here — keeps the blend identity pins single-sourced in the
+           pinned strategy profile and this repo free of scorer internals
+           (repo boundary: orchestrator reads committed run state, never
+           scores).
+EVIDENCE:  artifact:      ops/renquant105/export_batch_scores.py (score-source
+                    switch, _blend_lane_gaps/_blend_component_hashes/
+                    _scorer_identity), ops/renquant105/rq105_status.py
+                    (_db_latest_run now shares the same lane guard,
+                    review round 3), ops/renquant105/run_batch_scores_export.sh;
+                    tests/test_rq105_batch_scores_export.py,
+                    tests/test_rq105_status.py, tests/test_rq105_ops_wrappers.py.
+    prod or exp:   prod — this is the shipped code path (repo-side; deploy
+                    is the coordinator syncing the pinned checkout, no
+                    separate rollout). Validated pre-merge via an isolated
+                    worktree rehearsal (DB copies, read-only sources, no
+                    live writes) that runs the actual prod entrypoints
+                    (export_batch_scores.main, rq105_status), not mocks.
+    existing data: before this PR, export_batch_scores.py had a single
+                    implicit score source (prod, runs.alpaca.db) and no
+                    lane guard; rq105_status.py had no blend-lane
+                    awareness. No prior blend-source implementation exists
+                    to diff against — this is new plumbing, not a
+                    model/IC change, so there is no oos_mean_ic /
+                    training_runs baseline to compare.
+    best-known?:   n/a (not a model variant). Within this PR's own review
+                    history: round 1 (commit 4366427) covered the
+                    progress-doc field format + the dashboard's silent
+                    fallback to the prod DB on an unknown score source;
+                    round 2/3 (commit 7380393, this fix) covers the gap
+                    Codex found next — rq105_status._db_latest_run reused
+                    the health/fingerprint checks but not the blend-lane
+                    evidence guard, so it could report a green
+                    `date=... (source=blend)` row for a malformed or
+                    incomplete blend run (wrong broker_mode, or <2
+                    resolved component pins) that export_batch_scores.main
+                    would correctly refuse. Fixed by importing the same
+                    _blend_lane_gaps() and applying it in _db_latest_run
+                    before returning OK; regression test
+                    test_db_latest_run_fails_closed_on_incomplete_blend_lane_evidence
+                    pins a lane-tagged run bundle with only 1 of 2
+                    component pins resolved -> FAIL with the gap reason.
+    scope:         "this is ops/renquant105/{export_batch_scores,rq105_status}.py,
+                    prod, an ops/plumbing change (score-source routing +
+                    fail-closed evidence guards for the intraday shadow
+                    lane) — not an APY/Sharpe/IC claim; none is reported
+                    by this PR."
+
+    Unit: `tests/test_rq105_batch_scores_export.py` 51 passed (8 new: lane
+    selection + identity stamp, env switch, wrong-lane refusal, missing
+    component-pin refusal, prod-default regression, unknown-source
+    refusal, per-source DB paths, replay-side verify);
+    `tests/test_rq105_status.py` + `tests/test_rq105_ops_wrappers.py`
+    green, including `test_db_latest_run_fails_closed_on_unknown_score_source`
+    (typo`d RQ105_SCORE_SOURCE` refuses to guess a DB) and, added this
+    round, `test_db_latest_run_fails_closed_on_incomplete_blend_lane_evidence`
+    (dashboard now fails closed on a lane-tagged run missing a component
+    pin, matching the exporter). Focused re-run on this head:
+    `PYTHONPATH=/private/tmp/renquant-orchestrator-pr585/src:/Users/renhao/git/github/renquant-common/src
+    /Users/renhao/git/github/RenQuant/.venv/bin/python -m pytest
+    tests/test_rq105_batch_scores_export.py tests/test_rq105_status.py
+    tests/test_rq105_ops_wrappers.py` -> 69 passed (was 68; +1 for the
+    round-3 fix). Rehearsal (worktree, DB copies, read-only sources): (R1)
+    prod regression exports 80/80 from 2026-07-27-live-e548dd21 with
+    identity stamped; (R2) blend vs the real lane DB today refuses loudly
+    (lane has no 07-27 run — correct fail-closed); (R3) the real 07-28
+    lane smoke run (buy_blocked) is refused on health evidence; (R4) real
+    lane bundle shape with full-funnel flags exports 87/87, meta carries
+    both component pins (04d7a381…, 1e644354…), replay-side
+    `verify_bundle` = ok. Literal pin load: `load_blend_scorer` (pinned
+    pipeline checkout) loads BOTH components: content 04d7a381cd6df847… /
+    fp f8fb2259b2bf1537 and content 1e644354e0981f47… / fp
+    sha256:1d8f167f…e41b — matching the directive. No rq105 surface that
+    consumes the exported vector places or routes orders (safety map: the
+    vector's ONLY consumer is `run_shadow_serving.sh` ->
+    `shadow_realtime_serving`, a pure score collector; the session
+    scheduler's class-A input reads `runs.alpaca.db` directly via
+    `intraday_session_inputs`, untouched; the producing lane is a
+    `ReadOnlyBrokerWrapper` shadow with writes swallowed).
+    `[VERIFIED — pytest re-run this session (69 passed) + rehearsal runs
+    R1-R4 above, worktree /private/tmp/renquant-orchestrator-pr585]`
+NEXT:      First real blend export = the morning after the first
+           full-funnel Step-5 lane run lands in the lane DB (expected
+           tonight 13:55 PT). Until then the exporter fails loudly at
+           06:15 PT and serving skips the day — the designed alarm, not a
+           regression. Deploy: coordinator syncs the pinned run checkout;
+           no launchd change needed (wrapper carries the switch).
