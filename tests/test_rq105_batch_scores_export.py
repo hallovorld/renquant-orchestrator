@@ -116,6 +116,15 @@ def _small_min_rows(monkeypatch):
     monkeypatch.setattr(exporter, "MIN_ROWS", 2)
 
 
+# 2026-07-28 blend switch: the operator wrapper now exports
+# RQ105_SCORE_SOURCE=blend by default, so a dev shell can carry it too —
+# every pre-existing test in this file asserts PROD-mode behavior and must
+# not silently flip with the ambient environment.
+@pytest.fixture(autouse=True)
+def _isolate_score_source_env(monkeypatch):
+    monkeypatch.delenv("RQ105_SCORE_SOURCE", raising=False)
+
+
 # ─────────────────────────── selection logic ───────────────────────────
 
 def test_selects_completed_live_run_with_fingerprint(tmp_path):
@@ -749,3 +758,145 @@ def test_single_row_healthy_run_is_admitted_zero_rows_rejected(tmp_path, monkeyp
     _insert_run(db, "2026-07-01-live-one", scores={"AAA": 0.5})
     rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-28 blend composite source (operator directive "105 直接换成 blend 模型")
+# ---------------------------------------------------------------------------
+# The exporter can now source the frozen vector from the Step-5 shadow-blend
+# lane DB (runs.alpaca_shadow_blend.db). These tests prove: (1) blend mode
+# selects from the lane DB and stamps full scorer identity into the meta;
+# (2) the lane guard refuses a mispointed DB (wrong broker_mode) and a run
+# whose composite did not resolve both component pins; (3) prod remains the
+# default and its behavior/identity stamping stays intact; (4) an unknown
+# source value is refused loudly, never guessed.
+
+#: The real shape of a Step-5 lane run's bundle (verified against the actual
+#: runs.alpaca_shadow_blend.db 2026-07-28 smoke run): broker_mode carries the
+#: lane tag and artifact_hashes carries BOTH resolved blend component pins.
+_BLEND_BUNDLE = {
+    **_GOOD_BUNDLE,
+    "broker_mode": "alpaca_shadow_blend",
+    "artifact_hashes": {
+        "panel": "sha256:04d7a381",
+        "global_calibration": "sha256:d2b4d6ab",
+        "ranking.panel_scoring.artifact_path": "sha256:04d7a381",
+        "ranking.panel_scoring.components[0].artifact_path": "sha256:04d7a381",
+        "ranking.panel_scoring.components[1].artifact_path": "sha256:1e644354",
+    },
+}
+
+
+def test_blend_source_reads_lane_db_and_stamps_scorer_identity(tmp_path):
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-blend1", run_bundle=_BLEND_BUNDLE,
+                scores={"AAA": 1.4, "BBB": -0.3, "CCC": 0.7})
+    out = tmp_path / "out"
+    rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02",
+                       score_source="blend")
+    assert rc == 0
+    scores = json.loads((out / "batch_scores_2026-07-02.json").read_text())
+    assert scores == {"AAA": 1.4, "BBB": -0.3, "CCC": 0.7}
+    meta = json.loads((out / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["score_source"] == "blend"
+    ident = meta["scorer_identity"]
+    assert ident["broker_mode"] == "alpaca_shadow_blend"
+    assert ident["blend_component_sha256s"] == {
+        "ranking.panel_scoring.components[0].artifact_path": "sha256:04d7a381",
+        "ranking.panel_scoring.components[1].artifact_path": "sha256:1e644354",
+    }
+    assert ident["config_hash"] == _GOOD_BUNDLE["config_hash"]
+    assert ident["model_content_sha256"] == _GOOD_BUNDLE["model_content_sha256"]
+    assert ident["training_cutoff"] == _GOOD_BUNDLE["training_cutoff"]
+
+
+def test_blend_source_selected_via_env(tmp_path, monkeypatch):
+    """The launchd wrapper drives the switch through RQ105_SCORE_SOURCE."""
+    monkeypatch.setenv("RQ105_SCORE_SOURCE", "blend")
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-blendenv", run_bundle=_BLEND_BUNDLE)
+    out = tmp_path / "out"
+    rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02")
+    assert rc == 0
+    meta = json.loads((out / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["score_source"] == "blend"
+
+
+def test_blend_refuses_prod_lane_db(tmp_path, capsys):
+    """Pointing blend mode at a prod-shaped DB (broker_mode='alpaca', no
+    composite components) is the exact misconfiguration the lane guard
+    exists for — refuse, never export prod scores labeled as blend."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-prodrun",
+                run_bundle={**_GOOD_BUNDLE, "broker_mode": "alpaca"})
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"),
+                       today="2026-07-02", score_source="blend")
+    assert rc == 1
+    assert "lane evidence" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_blend_refuses_run_without_both_component_pins(tmp_path, capsys):
+    """A lane-tagged run whose artifact_hashes resolved fewer than two blend
+    components did not actually score with the composite — refuse."""
+    db = _make_db(tmp_path)
+    one_component = json.loads(json.dumps(_BLEND_BUNDLE))
+    del one_component["artifact_hashes"][
+        "ranking.panel_scoring.components[1].artifact_path"
+    ]
+    _insert_run(db, "2026-07-01-live-onecomp", run_bundle=one_component)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"),
+                       today="2026-07-02", score_source="blend")
+    assert rc == 1
+    assert "component" in capsys.readouterr().err
+
+
+def test_prod_remains_default_and_stamps_identity(tmp_path):
+    """With no env and no arg the exporter behaves exactly as before the
+    switch (prod DB semantics, no broker_mode enforcement) and now also
+    stamps the identity block so prod vectors are attributable too."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-prod1")  # _GOOD_BUNDLE: no broker_mode
+    out = tmp_path / "out"
+    rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02")
+    assert rc == 0
+    meta = json.loads((out / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["score_source"] == "prod"
+    assert meta["scorer_identity"]["blend_component_sha256s"] == {}
+    assert meta["scorer_identity"]["panel_artifact_sha256"] == "sha256:art1"
+
+
+def test_unknown_score_source_is_refused_loudly(tmp_path, capsys):
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-any")
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"),
+                       today="2026-07-02", score_source="belnd")
+    assert rc == 1
+    assert "RQ105_SCORE_SOURCE" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_default_db_paths_per_source():
+    """blend resolves to the isolated lane DB, prod to the canonical prod
+    DB — the two can never silently point at the same file."""
+    assert exporter._default_db_for("prod").endswith("data/runs.alpaca.db")
+    assert exporter._default_db_for("blend").endswith(
+        "data/runs.alpaca_shadow_blend.db"
+    )
+
+
+def test_blend_bundle_verifies_on_replay_side(tmp_path):
+    """The added meta fields must be transparent to verify_bundle — the
+    serving wrapper's replay-side verification still passes end-to-end."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-blendverify", run_bundle=_BLEND_BUNDLE)
+    out = tmp_path / "out"
+    rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02",
+                       score_source="blend")
+    assert rc == 0
+    ok, reason = bundle.verify_bundle(
+        str(out / "batch_scores_2026-07-02.json"),
+        str(out / "batch_scores_2026-07-02.meta.json"),
+        today="2026-07-02",
+    )
+    assert ok, reason

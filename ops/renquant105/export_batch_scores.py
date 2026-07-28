@@ -45,6 +45,26 @@ pandas_market_calendars primitive used elsewhere this session) — no
 fallback to an older run if that exact session has no qualifying run. The
 run's actual `run_date` is persisted as `source_run_date` in the meta, and
 verified again on the replay side (batch_scores_bundle.verify_bundle).
+
+2026-07-28 (operator directive — "105 直接换成 blend 模型"): the exporter can
+now source the frozen vector from the BLEND composite lane instead of prod.
+``RQ105_SCORE_SOURCE`` selects the source (``prod`` default / ``blend``);
+``blend`` reads ``runs.alpaca_shadow_blend.db`` — the isolated read-only lane
+daily_104.sh Step 5 (umbrella#535) populates by running the FULL funnel with
+the pinned ``strategy_config.shadow_blend.json`` profile (pipeline#218
+``kind="blend"``: z(prod panel-ltr) + z(clf top-decile), both component pins
+fail-closed inside the pipeline). Sourcing from the lane DB — rather than
+re-scoring here — keeps the identity pins single-sourced in the pinned
+strategy profile and this repo free of scorer internals. Blend mode adds two
+fail-closed guards on top of the shared selection/health/fingerprint gates:
+the source run's ``broker_mode`` must be ``alpaca_shadow_blend`` (proves the
+DB really is the lane, not a mispointed prod DB) and the run's
+``artifact_hashes`` must carry BOTH resolved blend component hashes (proves
+the composite actually loaded its two pinned components). Every export (both
+modes) now stamps a ``scorer_identity`` block into the meta so each
+shadow-realtime record is attributable to the exact model that produced its
+frozen vector. ONE-LINE REVERT: set ``RQ105_SCORE_SOURCE=prod`` (or flip the
+default line in run_batch_scores_export.sh back).
 """
 from __future__ import annotations
 
@@ -59,7 +79,28 @@ from batch_scores_bundle import canonical_hash, expected_previous_session  # noq
 
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 DB = os.path.join(RQ, "data/runs.alpaca.db")
+#: The Step-5 shadow-blend lane DB (daily_104.sh, RENQUANT_READONLY_TAG=
+#: alpaca_shadow_blend) — disjoint from BOTH prod (alpaca) and the legacy
+#: PatchTST shadow (alpaca_shadow).
+BLEND_DB = os.path.join(RQ, "data/runs.alpaca_shadow_blend.db")
 OUT_DIR = os.path.join(RQ, "data", "rq105")
+
+#: score_source -> required run_bundle.broker_mode (None = unenforced).
+#: prod keeps broker_mode unenforced: pre-existing behavior, and older prod
+#: bundles may predate the field — the revert path must stay byte-identical
+#: to today's working prod export. blend ENFORCES the lane tag: pointing the
+#: exporter at the wrong DB is exactly the new failure class this switch
+#: introduces, so it fails closed.
+REQUIRED_BROKER_MODE: dict[str, str | None] = {
+    "prod": None,
+    "blend": "alpaca_shadow_blend",
+}
+
+
+def _default_db_for(score_source: str) -> str:
+    """Module-global lookup at CALL time (not import time) so tests can
+    monkeypatch DB/BLEND_DB the same way they already monkeypatch MIN_ROWS."""
+    return DB if score_source == "prod" else BLEND_DB
 # 2026-07-17 (light-signal-day fix; supersedes the round-2 MIN_ROWS=25
 # absolute floor). The 2026-07-16 session produced a LEGITIMATE 5-row
 # candidate roster (only 6 tickers entered the buy scan on a light-signal
@@ -220,13 +261,71 @@ def _health_gaps(run_bundle: dict) -> list[str]:
     return gaps
 
 
+def _blend_lane_gaps(run_bundle: dict, required_broker_mode: str) -> list[str]:
+    """Blend-mode fail-closed guards (2026-07-28 operator directive; see the
+    module docstring). Both checks are evidence the vector really is the
+    composite: (a) the run came from the isolated shadow-blend lane, and
+    (b) the pipeline resolved + hashed BOTH pinned blend components."""
+    gaps = []
+    broker_mode = run_bundle.get("broker_mode")
+    if broker_mode != required_broker_mode:
+        gaps.append(
+            f"broker_mode={broker_mode!r} (require {required_broker_mode!r})"
+        )
+    if len(_blend_component_hashes(run_bundle)) < 2:
+        gaps.append("artifact_hashes(<2 resolved blend component pins)")
+    return gaps
+
+
+def _blend_component_hashes(run_bundle: dict) -> dict[str, str]:
+    """The resolved blend component artifact hashes, e.g.
+    ``ranking.panel_scoring.components[0].artifact_path`` — present iff the
+    run's config carried a composite panel_scoring block whose components
+    the artifact resolver actually resolved. Empty for prod runs."""
+    artifact_hashes = run_bundle.get("artifact_hashes") or {}
+    return {
+        k: v
+        for k, v in sorted(artifact_hashes.items())
+        if ".components[" in k and v
+    }
+
+
+def _scorer_identity(run_bundle: dict, score_source: str) -> dict:
+    """The WHICH-MODEL stamp for the meta bundle (2026-07-28): every
+    shadow-realtime record replayed against this vector must be attributable
+    to the exact scorer that produced it, not inferred from dates."""
+    artifact_hashes = run_bundle.get("artifact_hashes") or {}
+    return {
+        "score_source": score_source,
+        "broker_mode": run_bundle.get("broker_mode"),
+        "config_hash": run_bundle.get("config_hash"),
+        "panel_artifact_sha256": artifact_hashes.get("panel"),
+        "blend_component_sha256s": _blend_component_hashes(run_bundle),
+        "model_content_sha256": run_bundle.get("model_content_sha256"),
+        "training_cutoff": run_bundle.get("training_cutoff"),
+    }
+
+
 def main(
     *,
     db_path: str | None = None,
     out_dir: str | None = None,
     today: str | None = None,
+    score_source: str | None = None,
 ) -> int:
-    db_path = db_path or DB
+    score_source = (
+        score_source
+        if score_source is not None
+        else os.environ.get("RQ105_SCORE_SOURCE", "prod")
+    ).strip().lower()
+    if score_source not in REQUIRED_BROKER_MODE:
+        print(
+            f"unknown RQ105_SCORE_SOURCE={score_source!r} — refusing to guess "
+            f"(valid: {', '.join(sorted(REQUIRED_BROKER_MODE))})",
+            file=sys.stderr,
+        )
+        return 1
+    db_path = db_path or _default_db_for(score_source)
     out_dir = out_dir or OUT_DIR
     today = today or dt.date.today().isoformat()
     try:
@@ -271,6 +370,19 @@ def main(
         )
         return 1
 
+    required_broker_mode = REQUIRED_BROKER_MODE[score_source]
+    if required_broker_mode is not None:
+        lane_gaps = _blend_lane_gaps(run_bundle, required_broker_mode)
+        if lane_gaps:
+            print(
+                f"run {run_id} fails {score_source} lane evidence: "
+                f"{', '.join(lane_gaps)} — the DB at {db_path} is not the "
+                "shadow-blend lane, or the run did not score with the "
+                "resolved two-component composite; refusing to export",
+                file=sys.stderr,
+            )
+            return 1
+
     roster = con.execute(
         "select ticker, panel_score from candidate_scores "
         "where run_id=? and role='candidate'",
@@ -313,6 +425,9 @@ def main(
     _atomic_write_json(meta_path, {
         "run_id": run_id,
         "score_kind": "panel_score",
+        "score_source": score_source,
+        "source_db": os.path.basename(db_path),
+        "scorer_identity": _scorer_identity(run_bundle, score_source),
         "n": len(scores),
         "universe_n": universe_n,
         "coverage": coverage,
@@ -324,7 +439,7 @@ def main(
         "exported_at": dt.datetime.utcnow().isoformat() + "Z",
     })
     print(
-        f"exported {len(scores)}/{universe_n} frozen scores "
+        f"exported {len(scores)}/{universe_n} frozen {score_source} scores "
         f"(coverage {coverage:.1%}) from {run_id} for session {today}"
     )
     return 0

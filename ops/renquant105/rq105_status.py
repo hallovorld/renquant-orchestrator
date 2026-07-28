@@ -154,7 +154,21 @@ def _batch_scores(rq_root: Path, today: str) -> dict:
     if meta_path.exists():
         meta = json.loads(meta_path.read_text())
         detail += f", run={meta.get('run_id', '?')}, coverage={meta.get('coverage', '?')}"
+        # 2026-07-28 blend switch: surface WHICH scorer produced the vector
+        # (bundles exported before the switch carry no score_source — show
+        # the pre-switch reality, prod, rather than '?').
+        detail += f", source={meta.get('score_source', 'prod')}"
     return {"status": "available", "icon": OK, "detail": detail}
+
+
+def _active_score_source() -> str:
+    """The score source the exporter would use RIGHT NOW — same resolution
+    as export_batch_scores.main (RQ105_SCORE_SOURCE env, default prod), so
+    the dashboard row reflects the DB the exporter actually reads, not a
+    hardcoded prod path that silently lies after the 2026-07-28 blend
+    switch. An unknown env value degrades to itself and the caller reports
+    the DB as missing (the exporter itself refuses such values loudly)."""
+    return os.environ.get("RQ105_SCORE_SOURCE", "prod").strip().lower()
 
 
 def _db_latest_run(rq_root: Path) -> dict:
@@ -163,9 +177,13 @@ def _db_latest_run(rq_root: Path) -> dict:
     exporter contract (pipeline_runs completion, run_type='live', non-empty
     strategy, MIN_ROWS panel_score rows, created_at ordering) — rather than a
     dashboard-local approximation that could disagree with it."""
-    db_path = rq_root / "data" / "runs.alpaca.db"
+    source = _active_score_source()
+    db_name = (
+        "runs.alpaca_shadow_blend.db" if source == "blend" else "runs.alpaca.db"
+    )
+    db_path = rq_root / "data" / db_name
     if not db_path.exists():
-        return {"status": "no DB", "icon": FAIL, "detail": ""}
+        return {"status": f"no DB ({db_name}, source={source})", "icon": FAIL, "detail": ""}
     if _select_source_run is None or expected_previous_session is None:
         return {"status": "export_batch_scores unavailable", "icon": FAIL, "detail": ""}
     import sqlite3 as _sqlite3  # noqa: PLC0415 — keep top-level import list free of DB-only need
@@ -184,7 +202,7 @@ def _db_latest_run(rq_root: Path) -> dict:
         }
     run_id, run_date, _run_bundle = result
     return {
-        "status": f"date={run_date}",
+        "status": f"date={run_date} (source={source})",
         "icon": OK,
         "detail": run_id,
     }
