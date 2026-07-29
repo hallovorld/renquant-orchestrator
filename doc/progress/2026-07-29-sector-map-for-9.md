@@ -22,15 +22,23 @@ EVIDENCE: artifact: `.subrepo_runtime/repos/renquant-strategy-104/configs/strate
                     `task_selection.py:39-40`, `portfolio_qp/tasks.py:1501-1536`.
                     All READ-ONLY.
   prod or exp:      PROPOSAL. Nothing written, no config changed.
-  existing data:    Yes: `max_positions_per_sector = 6` `[VERIFIED]`; the cap
-                    groups on the RAW BUCKET not the ETF `[VERIFIED]`, so the
+  existing data:    Yes: `max_positions_per_sector = 6`
+                    `[VERIFIED — strategy_config.json:665]`; the cap
+                    groups on the RAW BUCKET not the ETF
+                    `[VERIFIED — task_selection.py:39-40,
+                    task_joint_actions.py:155/244,
+                    portfolio_qp/tasks.py:1501-1536]`, so the
                     four buckets sharing XLK do not merge caps; the cap limits
-                    HELD positions, not watchlist size `[VERIFIED]`; NXPI is
-                    already mapped at line 511 `[VERIFIED]`; WDC is already in
-                    `datacenter_hw` at line 513 `[VERIFIED]`.
+                    HELD positions, not watchlist size `[DERIVED — same
+                    enforcement path]`; NXPI is
+                    already mapped `[VERIFIED — strategy_config.json:511]`;
+                    WDC is already in
+                    `datacenter_hw` `[VERIFIED — strategy_config.json:513]`.
                     Concentration: ai_chip 19 -> 25 (+31.6%), datacenter_hw
-                    14 -> 16 (+14.3%) `[DERIVED]`. No new sector_etf_map entry
-                    needed — both buckets map to XLK `[VERIFIED]`.
+                    14 -> 16 (+14.3%) `[DERIVED — sector_map bucket counts
+                    (this session) + §2 proposal table]`. No new
+                    sector_etf_map entry needed — both buckets map to XLK
+                    `[VERIFIED — strategy_config.json:649-650]`.
   best-known?:      For the mechanics and counts, yes. Three bucket calls are
                     explicitly flagged as judgment: ARM (low — pure IP
                     licensing, no fab, unlike every ai_chip incumbent), ENTG
@@ -55,7 +63,8 @@ SHARPEST POINT, called out rather than buried in a percentage:
           WDC + SNDK + STX would all sit in `datacenter_hw`. WDC and SNDK share
           DIRECT CORPORATE LINEAGE (SNDK is WDC's NAND spin-off), not just
           sector correlation, so they share cost structure and cyclicality. The
-          correlation guard (threshold 0.70) would have to arbitrate, and a
+          correlation guard (threshold 0.70
+          `[VERIFIED — strategy_config.json:210]`) would have to arbitrate, and a
           generic 0.70 threshold on same-lineage names is where it is least
           likely to behave as intended. I did NOT test it.
 

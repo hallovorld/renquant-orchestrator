@@ -9,30 +9,35 @@ landing any piece alone hard-fails buys for all 154 names.
 (`renquant-pipeline/.../preflight_pipeline/tasks/sector_map.py:49-82`)
 hard-fails buy mode if any buyable watchlist ticker lacks a `sector_map` string
 OR if any bucket value lacks a `sector_etf_map` entry. `require_sector_map_for_buys
-= true` (config line 427). The taxonomy is hand-curated and finer than GICS; no
-script produces it.
+= true` `[VERIFIED — strategy_config.json:427]`. The taxonomy is hand-curated
+and finer than GICS; no script produces it.
 
 ---
 
 ## 1. Mechanics established before proposing anything
 
-- `max_positions_per_sector = 6` (config line 665) `[VERIFIED]`.
+- `max_positions_per_sector = 6`
+  `[VERIFIED — strategy_config.json:665]`.
 - The cap groups on the RAW BUCKET VALUE, not the ETF
-  (`task_selection.py:39-40`, `task_joint_actions.py:155/244`,
-  `portfolio_qp/tasks.py:1501-1536`) `[VERIFIED]`. So several buckets sharing
+  `[VERIFIED — task_selection.py:39-40, task_joint_actions.py:155/244,
+  portfolio_qp/tasks.py:1501-1536]`. So several buckets sharing
   one ETF (ai_chip / giant_tech / datacenter_hw / software all → XLK) do NOT
   merge their caps. `sector_etf_map` is relative-strength metadata, not a cap key.
 - The cap limits **simultaneously HELD positions per bucket**, not watchlist or
-  candidate-pool size `[VERIFIED]`.
+  candidate-pool size
+  `[DERIVED — same enforcement path cited in the bullet above:
+  task_selection.py reads max_positions_per_sector against the in-progress
+  selection of positions to hold, not the watchlist or candidate pool]`.
 - Precedent for stretching an existing bucket rather than minting one:
-  `_activation_log` (lines 1338-1341) records LITE + COHR folded into
-  `datacenter_hw` on addition `[VERIFIED]`.
+  `_activation_log` records LITE + COHR folded into
+  `datacenter_hw` on addition
+  `[VERIFIED — strategy_config.json:1338-1341]`.
 
 ## 2. Proposal
 
 | ticker | bucket | closest incumbents | confidence |
 |---|---|---|---|
-| NXPI | `ai_chip` | ADI, MCHP, ON | **already mapped** (line 511) — no decision |
+| NXPI | `ai_chip` | ADI, MCHP, ON | **already mapped** `[VERIFIED — strategy_config.json:511]` — no decision |
 | GFS | `ai_chip` | TSM (the other pure-play foundry) | high |
 | SWKS | `ai_chip` | QCOM, ADI, MRVL | high |
 | QRVO | `ai_chip` | SWKS, QCOM, ADI | high |
@@ -43,7 +48,7 @@ script produces it.
 | SNDK | `datacenter_hw` | WDC (spin-off parent), DELL, SMCI | **medium** — see §3 |
 
 **No new `sector_etf_map` entries are required** — both buckets already map to
-XLK `[VERIFIED]`.
+XLK `[VERIFIED — strategy_config.json:649-650]`.
 
 ## 3. The three calls I am not confident about, stated as such
 
@@ -72,8 +77,14 @@ literal spin-off lineage, or `ai_chip` on the memory-chip comp with MU. Chose
 | `ai_chip` | 19 | +6 | **25** | +31.6% |
 | `datacenter_hw` | 14 | +2 | 16 | +14.3% |
 
+`now` `[VERIFIED — strategy_config.json sector_map, count of entries per
+bucket value, this session]`. `net new` `[DERIVED — §2 proposal table, rows
+per bucket excluding NXPI (already mapped)]`. `after` `[DERIVED — now + net
+new]`. `growth` `[DERIVED — net new / now]`.
+
 `ai_chip` goes from third-largest to within one ticker of the largest
-(`software`, 26), and becomes by far the largest semiconductor-cycle-correlated
+(`software`, 26 `[VERIFIED — strategy_config.json sector_map count, this
+session]`), and becomes by far the largest semiconductor-cycle-correlated
 bucket. 25 names would compete for the same 6 held slots.
 
 **Whether the 6-slot cap binds in practice is an open question, not settled by
@@ -88,18 +99,20 @@ which is out of scope for this bucket-assignment proposal.
 
 ## 5. The sharpest concentration point, called out separately
 
-WDC is already in the watchlist and already in `datacenter_hw` (line 513)
-`[VERIFIED]`. Under this proposal **WDC + SNDK + STX** all sit in
-`datacenter_hw` — a three-name storage cluster inside a 16-name bucket.
+WDC is already in the watchlist and already in `datacenter_hw`
+`[VERIFIED — strategy_config.json:513]`. Under this proposal **WDC + SNDK +
+STX** all sit in `datacenter_hw` — a three-name storage cluster inside a
+16-name bucket.
 
 WDC and SNDK are not merely correlated, they share **direct corporate lineage**:
 SNDK is WDC's own NAND-flash spin-off, so they share the underlying cost
-structure and cyclicality. The correlation guard
-(`qp_correlation_cap_enabled`, `correlation_guard_threshold = 0.70`, lines
-829-830) is what would have to arbitrate. Flagging it explicitly rather than
-leaving it inside a bucket-growth percentage, because a 0.70 threshold on
-same-lineage names is where a generic guard is least likely to behave as
-intended.
+structure and cyclicality. The correlation guard — enabled by
+`qp_correlation_cap_enabled` `[VERIFIED — strategy_config.json:829]` and
+gated at `correlation_guard_threshold = 0.70`
+`[VERIFIED — strategy_config.json:210]` — is what would have to arbitrate.
+Flagging it explicitly rather than leaving it inside a bucket-growth
+percentage, because a 0.70 threshold on same-lineage names is where a
+generic guard is least likely to behave as intended.
 
 ## 6. What I am NOT claiming
 
