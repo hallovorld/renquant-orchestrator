@@ -53,6 +53,25 @@ EVIDENCE:
             already-installed plist both said `/bin/zsh`, and my own drift scan caught
             the mismatch I had just created. Aligned to the shebang.
 
-NEXT:     Tomorrow's 06:15 export is the check: `score_source` must read `blend` with a
-          populated `blend_component_sha256s`. Until an export proves it, this fix is
-          unverified in the only environment that counts.
+PATH VERIFIED, SCHEDULER NOT — the distinction matters and is kept explicit.
+
+          **Verified now** `[VERIFIED — wrapper-equivalent invocation with
+          RQ105_SCORE_SOURCE=blend, output redirected to a scratch dir so the live
+          vector was NOT touched, 2026-07-29]`: the blend path exports
+          "85/85 frozen blend scores (coverage 100.0%) from 2026-07-28-live-735c7e9b",
+          and its meta reads `score_source: blend`, `source_db:
+          runs.alpaca_shadow_blend.db`, with `blend_component_sha256s` POPULATED for
+          both components (prod panel-ltr `sha256:04d7a381…` plus the clf leg). So the
+          code was never the problem — only which entry point the scheduler used.
+
+          **Deliberately NOT done**: replacing today's live vector. Today's serving
+          replay may already have consumed the prod-sourced one, and swapping it
+          mid-session would leave 2026-07-29 half prod and half blend in the record.
+          Today stays an honest prod day.
+
+          **Still unverified**: that the launchd job now reaches this path. Only the
+          06:15 run can show that, and no amount of manual invocation substitutes for
+          it — which is precisely the error this PR exists to correct.
+
+NEXT:     Check tomorrow's 06:15 export meta: `score_source: blend` with a populated
+          `blend_component_sha256s`.
