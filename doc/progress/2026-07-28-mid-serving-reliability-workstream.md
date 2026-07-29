@@ -69,8 +69,11 @@ EVIDENCE: artifact:      `/tmp/ptserve_e2e.log` (readonly full-funnel preflight,
 
 NEXT:     The workstream and its 5 acceptance criteria are confirmed AS A DIRECTION —
           this does NOT mean any of the 5 is satisfied. Status of each, checked
-          2026-07-29 `[VERIFIED — gh pr list]`: AC4 (warm serving path) depends on
-          orch#589, open and under change request; AC5 (silent-refusal telemetry)
+          2026-07-29 `[VERIFIED — gh pr list]`: AC4 (warm serving path): its design
+          dependency orch#589 is now **MERGED** `[VERIFIED — gh pr list --state
+          merged, 2026-07-29]`, so AC4 moves from blocked to OPEN — the design is
+          landed, the implementation (allowlist cache key + scheduled warm step)
+          is not; AC5 (silent-refusal telemetry)
           now HAS a PR, orch#592, also open — earlier text here saying AC5 had no
           PR is stale. AC1-AC3 remain unstarted.
           On the PatchTST question: the corpus exists and is citable (model#91),
