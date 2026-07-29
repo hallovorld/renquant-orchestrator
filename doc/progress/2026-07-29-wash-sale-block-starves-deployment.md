@@ -77,8 +77,58 @@ WHAT IS NOT CLAIMED:
           $5-7k of cash, so a second, separate deployment question remains
           open.
 
+## SECOND CONSTRAINT (measured after the above): fractional sizing is OFF
+
+The unblocked sessions have a different cause, and it is not the model either.
+Full funnel, 2026-07-27 (an UNBLOCKED session):
+
+    118 tickers
+    -> 109 candidates            (8 wash-sale drops + 1 earnings)
+    ->  80  RealizedVolGate      dropped 29 over the 60% annualised vol cap
+    ->  15  VetoWeakBuys         dropped 65 below rank_score floor 0.538
+    ->   4  ConvictionGate       dropped 11 below mu_floor 0.03
+    ->   4  Kelly sizing         4/4 non-zero, avg 6.1% target
+    ->   2 ORDERS, $463 of $9,301 cash
+
+The two that did not make it:
+
+    TSLA insufficient cash — skip (remaining_cash=$9301 price=$309.22)
+    EME  insufficient cash — skip (remaining_cash=$8838 price=$742.73)
+
+**There was $9,301 of cash and TSLA costs $309.22.** The message is wrong. The
+real condition is `compute_position_size(...) -> 0 shares`: the per-name target
+was ~2.2% (~$231 on this book) and INTEGER share math floors $231/$309 to zero.
+AMZN ($231.33) and SPG ($231.70) cleared only because one share happens to
+land at the target.
+
+Note what the log line does NOT say: it has no `, fractional` suffix, so it
+took the whole-share branch — `use_frac` was False.
+
+ROOT CAUSE `[VERIFIED]`: `kernel/sizing.py:204` — "no behaviour change unless
+strategy-104 opts in via `execution.fractional_shares.enabled`". The live
+config's `execution` block contains only
+`['_settlement_reason_2026_05_24', 'enabled', 't2_settlement_days',
+'buying_power_mode']`, and `execution.fractional_shares` is **null**.
+
+S-FRAC v2 is built, merged and pinned in the pipeline. Strategy-104 never
+opted in. It has been sitting dark, which is the "deployed-but-dark" pattern
+exactly: a default-OFF fix that never reaches daily-full is worth zero.
+
+## The two constraints together explain the idle half
+
+Neither is a model problem, and neither needs new alpha:
+
+  1. `wash_sale_mass_block` zeroes buys entirely on 3 of the last 5 sessions,
+     protecting ~$15 of tax across eight names;
+  2. with fractional OFF, every surviving name priced above its ~$231 position
+     target is skipped on an integer-share floor while thousands in cash sit
+     unused, and the operator is told "insufficient cash".
+
 NEXT:     1. `renquant-pipeline` issue proposing a materiality floor on the
              wash-sale filter (its code, its call — not an orchestrator edit).
-          2. Separately quantify why unblocked sessions still deploy only
-             $75-$800: that is a different constraint and conflating the two
-             would misdiagnose both.
+          2. Turning on `execution.fractional_shares.enabled` is a LIVE CAPITAL
+             GATE change on the strategy config. It needs a design PR with a
+             behaviour-invariance argument and operator sign-off, not a flag
+             flip — even though the flag is the whole fix. Also fix the
+             "insufficient cash" message, which reports a cash shortage that
+             does not exist and would mislead anyone debugging this next.
