@@ -150,8 +150,11 @@ NEXT:     This session's discrimination did not clear the buy floor / Kelly
           (`Y.shift(-lag)` sample drift) — its UNDERPOWERED verdict, and
           separately model#87's CLOSE verdict, were both computed before that
           defect was found and are SUPERSEDED pending the corrected
-          re-derivation (model#90), which is itself still OPEN, unmerged.
-          Proceed via the standard blend gate chain (screen → frozen prereg →
-          disjoint-seed confirmatory → shadow) — never by letting a
+          re-derivation. model#90 (the corrected design) is now MERGED
+          (2026-07-29T09:19:35Z `[VERIFIED — gh pr view 90]`); its execution
+          results are tracked separately (model#92) and are not restated
+          here until that PR's own status is confirmed. Proceed via the
+          standard blend gate chain (screen → frozen prereg → disjoint-seed
+          confirmatory → shadow) — never by letting a
           single-session read, or an unverified/superseded result, drive the
           funnel.

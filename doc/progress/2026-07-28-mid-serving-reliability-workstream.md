@@ -21,11 +21,14 @@ STATUS:   CONFIRMED and merge-ready. The workstream was proposed on 2026-07-28;
               accurate when written but is now stale — superseded by this line.
             * model#85's UNDERPOWERED verdict and model#87's CLOSE verdict are
               both SUPERSEDED regardless, by an evaluation-harness defect found
-              on 2026-07-29 (cross-lag statistics computed on a drifting sample)
-              and re-derived under model#90 (still OPEN, unmerged).
+              on 2026-07-29 (cross-lag statistics computed on a drifting sample).
+              model#90 (the corrected design) is now MERGED
+              (2026-07-29T09:19:35Z `[VERIFIED — gh pr view 90]`); its execution
+              results are tracked in model#92, not restated here.
           What this record therefore asserts: the corpus is real and citable; no
-          PatchTST verdict is currently admissible; the workstream direction is
-          confirmed.
+          PatchTST verdict is currently admissible in THIS record (model#92's
+          own status governs whether that changes); the workstream direction
+          is confirmed.
 
 WHAT:     Opens `doc/memory/mid-term/serving-reliability.md` as a new MID
           workstream (peer of `model-edge.md`, not a subtask), lists it in
@@ -86,8 +89,11 @@ NEXT:     The workstream and its 5 acceptance criteria are confirmed AS A DIRECT
           592]` — earlier text here saying AC5 had no PR, or that #592 was
           still open, is stale. AC1-AC3 remain unstarted.
           On the PatchTST question: the corpus exists and is citable (model#91),
-          but no verdict on it is currently admissible — model#85 (UNDERPOWERED)
-          and model#87 (CLOSE) were both computed with the defective harness, and
-          model#90's corrected re-derivation is itself still under review. The
-          third-blend-leg question therefore stays OPEN, behind the standard gate
-          chain, with no result to carry forward.
+          but no verdict on it is currently admissible in THIS record —
+          model#85 (UNDERPOWERED) and model#87 (CLOSE) were both computed with
+          the defective harness. model#90 (the corrected design) is now MERGED
+          (2026-07-29T09:19:35Z), and its execution is tracked in model#92 —
+          not restated here until that PR's own status is confirmed. The
+          third-blend-leg question therefore stays OPEN, behind the standard
+          gate chain, with no result carried forward by this workstream
+          record.
