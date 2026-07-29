@@ -79,3 +79,49 @@ def test_mature_fill_only_when_all_returns_present(tmp_path):
     out = json.loads(led.read_text().splitlines()[0])
     assert out["realized"] and abs(out["spread_prod"] - 0.06) < 1e-9
     assert abs(out["spread_blend"] - (-0.01)) < 1e-9
+
+
+def test_partial_coverage_records_why_it_did_not_realize(tmp_path):
+    """A session that cannot resolve must say so, not look untouched.
+
+    Realization is all-or-nothing by design — a spread over a partial pick set
+    is a different statistic and the readout rule is frozen. The cost is that
+    ONE unresolvable ticker drops that session from the 120-session evidence
+    forever. Coverage measured 2026-07-29 is 100% on every realized date, but
+    the same table holds dates carrying 2-3 tickers, where a session would
+    vanish silently. These counters make the shortfall visible.
+    """
+    import json
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(json.dumps({
+        "run_date": "2026-06-01", "run_id": "r1",
+        "picks_prod": ["A", "B"], "picks_blend": ["A", "C"],
+        "realized": False}) + "\n")
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
+               "fwd_20d REAL)")
+    db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
+                   [("A", "2026-06-01", 0.01), ("B", "2026-06-01", 0.02)])
+    assert mod.mature_fill(led, db) == 0            # C missing -> not realized
+    row = json.loads(led.read_text().splitlines()[0])
+    assert row["realized"] is False
+    assert row["n_resolvable_prod"] == 2
+    assert row["n_resolvable_blend"] == 1           # the shortfall is recorded
+    assert row["n_picks_blend"] == 2
+
+
+def test_telemetry_persists_even_when_nothing_realizes(tmp_path):
+    import json
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(json.dumps({
+        "run_date": "2026-06-01", "run_id": "r1",
+        "picks_prod": ["A"], "picks_blend": ["Z"], "realized": False}) + "\n")
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
+               "fwd_20d REAL)")
+    db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
+                   [("A", "2026-06-01", 0.01)])
+    assert mod.mature_fill(led, db) == 0
+    row = json.loads(led.read_text().splitlines()[0])
+    # written despite filled == 0, so a stuck session is diagnosable next pass
+    assert row["n_resolvable_blend"] == 0
