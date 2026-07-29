@@ -70,6 +70,31 @@ def test_crashed_runs_count_toward_the_streak(tmp_path):
     assert "2026-07-11:failed" in msg
 
 
+def test_undecided_gap_does_not_masquerade_as_consecutive(tmp_path):
+    # newest=undecided (empty log), then refused, failed, refused: the
+    # streak still counts (fail toward alarming) but must NOT claim these
+    # 3 runs are "consecutive" when an unclassifiable run sits at the top.
+    job = _job(tmp_path, {"2026-07-04": REFUSED, "2026-07-11": CRASHED,
+                          "2026-07-18": REFUSED, "2026-07-25": ""})
+    msg = S.check(job, as_of=AS_OF)
+    assert msg is not None
+    assert "3 consecutive" not in msg
+    assert "unclassifiable" in msg and "2026-07-25" in msg
+    assert "2026-07-18:refused" in msg and "2026-07-11:failed" in msg
+
+
+def test_undecided_gap_between_two_older_runs_is_still_reported(tmp_path):
+    # gap in the MIDDLE, not just at the top: 07-25 refused, 07-18
+    # undecided, 07-11 failed, 07-04 refused. Still a streak of 3 real
+    # non-actions, but not temporally consecutive.
+    job = _job(tmp_path, {"2026-07-04": REFUSED, "2026-07-11": CRASHED,
+                          "2026-07-18": "", "2026-07-25": REFUSED})
+    msg = S.check(job, as_of=AS_OF)
+    assert msg is not None
+    assert "consecutive" not in msg
+    assert "2026-07-18" in msg  # the skipped date is named
+
+
 def test_crash_marker_outranks_a_refusal_in_the_same_run(tmp_path):
     # measured: the 07-03 run hit CorpusRefreshError, printed
     # "promote: refused", and exited rc=0. It did not choose to decline.

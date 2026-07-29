@@ -148,14 +148,30 @@ def read_outcomes(job: WatchedJob, *, as_of: dt.date) -> list[RunOutcome]:
     return outcomes
 
 
-def inaction_streak(outcomes: list[RunOutcome]) -> list[RunOutcome]:
+@dataclass(frozen=True)
+class InactionStreak:
+    """Non-acting runs, newest first, plus what was skipped to assemble them.
+
+    ``runs`` is NOT necessarily a temporally-contiguous run of dates —
+    ``skipped`` records every `undecided` run that sits between two of
+    them. Reporting both, rather than folding skipped runs silently into
+    the count, is what keeps the word "consecutive" honest (see `check`).
+    """
+    runs: tuple[RunOutcome, ...]
+    skipped: tuple[RunOutcome, ...]
+
+
+def inaction_streak(outcomes: list[RunOutcome]) -> InactionStreak:
     """Leading run of NON-ACTING runs, newest first.
 
     `refused` and `failed` both count: from the served artifact's point of
     view they are the same event — another cycle passed and nothing was
     promoted. Only an `acted` run breaks the streak. `undecided` runs are
     skipped rather than breaking it (fail toward alarming: a run we cannot
-    classify is not evidence of recovery).
+    classify is not evidence of recovery) — but they ARE recorded, because
+    silently absorbing them into a "consecutive" count would let a real gap
+    (a run this sentinel can't read) hide behind a claim of contiguity it
+    can't back up.
 
     Counting failures alongside refusals is not a stylistic choice: the
     2026-07-28 measurement found the weekly job's recent cycles were a MIX
@@ -164,22 +180,31 @@ def inaction_streak(outcomes: list[RunOutcome]) -> list[RunOutcome]:
     four consecutive months of a model going stale.
     """
     streak: list[RunOutcome] = []
+    skipped: list[RunOutcome] = []
     for o in outcomes:
         if o.outcome in ("refused", "failed"):
             streak.append(o)
         elif o.outcome == "acted":
             break
-    return streak
+        else:
+            skipped.append(o)
+    return InactionStreak(tuple(streak), tuple(skipped))
 
 
 def check(job: WatchedJob, *, as_of: dt.date) -> str | None:
-    streak = inaction_streak(read_outcomes(job, as_of=as_of))
-    if len(streak) < STREAK_N:
+    ia = inaction_streak(read_outcomes(job, as_of=as_of))
+    if len(ia.runs) < STREAK_N:
         return None
-    detail = ", ".join(f"{o.day.isoformat()}:{o.outcome}" for o in streak[:6])
-    n_failed = sum(1 for o in streak if o.outcome == "failed")
+    detail = ", ".join(f"{o.day.isoformat()}:{o.outcome}" for o in ia.runs[:6])
+    n_failed = sum(1 for o in ia.runs if o.outcome == "failed")
+    if ia.skipped:
+        span = (f"{len(ia.runs)} non-acting runs spanning "
+                f"{len(ia.skipped)} unclassifiable run(s) not counted as "
+                f"acted-or-not ({', '.join(o.day.isoformat() for o in ia.skipped[:3])})")
+    else:
+        span = f"{len(ia.runs)} consecutive runs"
     return (
-        f"job '{job.name}' has not acted on {len(streak)} consecutive runs "
+        f"job '{job.name}' has not acted on {span} "
         f"({detail}"
         + (f"; {n_failed} of them CRASHED" if n_failed else "")
         + f"). A gate refusing once is the gate working; nothing being "

@@ -1,8 +1,15 @@
 # Progress: silent-refusal sentinel (GOAL-5 AC5)
 
-STATUS:   delivered (code + 16 tests). Not yet installed as a launchd job — that is a
+STATUS:   delivered (code + 18 tests). Not yet installed as a launchd job — that is a
           machine landing and needs an operator grant; the manifest entry and plist
           land in a follow-up PR so installation is one reviewed step.
+          Fix (codex HIGH): `inaction_streak()` silently skipped `undecided` runs
+          while still calling the resulting run "consecutive" — e.g.
+          newest=undecided, refused, failed, refused could alarm "3 consecutive"
+          when the current streak is actually unknown. Fixed: `inaction_streak` now
+          returns the non-acting runs AND the skipped-undecided runs separately;
+          `check()` drops the word "consecutive" and names the gap when one exists
+          (2 new regression tests: gap at the top, gap in the middle).
 
 WHAT:     Adds `ops/renquant104/rq104_silent_refusal_sentinel.py` and its tests. It
           reads dated job logs read-only, classifies each run as acted / refused /
@@ -37,7 +44,7 @@ EVIDENCE: artifact:      `ops/renquant104/rq104_silent_refusal_sentinel.py` +
           the dry-run against the real logs reports exactly that: "has not acted on 4
           consecutive runs (2026-07-25:refused, 2026-07-18:failed, 2026-07-11:failed,
           2026-07-03:failed; 3 of them CRASHED)" `[VERIFIED — dry-run output]`. Suite
-          16/16 `[VERIFIED — pytest run this session]`.
+          18/18 `[VERIFIED — pytest run this session]`.
            best-known?:   n/a — this is a monitoring/alerting utility, not a model or
           statistic; no IC/Sharpe claim is made.
            scope:         code-only delivery landing a read-only sentinel; no
