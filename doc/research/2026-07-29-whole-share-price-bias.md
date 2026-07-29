@@ -19,21 +19,44 @@ diagnosed this on 2026-07-01, and to a consequence nobody had measured.
     ... Default OFF; inert until strategy-104 defines
     `sizing.one_share_floor_enabled: true`.
 
-So there are TWO dark switches for the same defect, not one, and BOTH are
-absent from the live config `[VERIFIED]`:
+**Correction (this revision):** the original text read the umbrella's
+fallback copy (`RenQuant/backtesting/renquant_104/strategy_config.json`) as
+the live surface and reported both switches as absent (`null`). That copy is
+stale — `scripts/daily_104.sh:113-119` resolves the **pinned**
+`renquant-strategy-104` subrepo config first. Read against the pinned config
+`[VERIFIED — read renquant-strategy-104/configs/strategy_config.json on
+`main` this session]`, both switches already exist and are explicitly OFF,
+not absent — the same umbrella-vs-pinned drift already documented in
+`renquant-strategy-104#71`:
 
-    sizing                                  -> null   (one_share_floor)
-    execution.fractional_shares             -> null   (S-FRAC v2)
-    kelly_sizing.disable_extra_multipliers  -> unset
+    execution.fractional_shares.enabled     -> false  (declared; S-FRAC v2, min_notional=1.0, min_fractional_trade_notional=25.0)
+    sizing.one_share_floor_enabled          -> false  (declared; A-3)
+    kelly_sizing.disable_extra_multipliers  -> unset  (genuinely absent — this one only)
 
-### The price bias is real. Measured, May-July live logs `[VERIFIED]`
+The umbrella fallback copy shows `null`/absent for the first two keys and a
+drifted `kelly_sizing.fractional=0.5` (pinned copy: `0.3`)
+`[VERIFIED — read RenQuant/backtesting/renquant_104/strategy_config.json
+this session]`. The conclusion is unchanged (both remedies are OFF in
+production); "absent from config" was the wrong description — the correct
+one is "declared, and explicitly disabled."
+
+### The price bias is real. Measured, May-July live logs
+
+`[VERIFIED — this session, canonical daily-prod logs only:
+`ls logs/daily_104/ | grep -E '^2026-0[567]-[0-9]{2}\.log$'` (64 files);
+`scripts/daily_104.sh:40` pins the canonical name to exactly `$LOG_DIR/
+$DATE.log` with no suffix, which excludes 65 ad hoc `_shadow`/`_smoke`/
+`_manual`/`_readonly`/`_after_fix`/`_multirepo`/etc. runs also present in
+the directory. Then `grep -h "NEW_BUY"` / `grep -h "insufficient cash —
+skip"` across those 64 files]`:
 
 |                        |  n | median price | mean price |
 |------------------------|---:|-------------:|-----------:|
 | BOUGHT                 | 33 |     $160.59  |   $227.23  |
 | SKIPPED (sized to 0)   | 11 |     $764.28  |   $810.43  |
 
-**Skipped names are 4.76x more expensive at the median** `[DERIVED]`.
+**Skipped names are 4.76x more expensive at the median**
+`[DERIVED — 764.28/160.59]`.
 
 The skipped set: ASML $1,777 (twice), BLK $994.85, CAT $993.42, EME $782.08 /
 $764.28 / $742.73, AVGO $360.34, TSLA $309.22, SPG $236.69, BWXT $177.07.
@@ -44,15 +67,23 @@ CAT and EME highly enough to clear every admission gate, and integer share
 arithmetic silently removed them. The portfolio carries an implicit
 anti-high-price tilt produced by rounding, not by any risk decision.
 
-It is not absolute — LLY at $1,142.81 was bought on 2026-06-09 — but the 4.76x
-median gap is not noise at n=33 vs n=11.
+It is not absolute — LLY at $1,142.81 was bought on 2026-06-09. One-sided
+Mann-Whitney U test, skipped vs. bought prices: U=323, p=6.6e-5
+`[VERIFIED — this session, `scipy.stats.mannwhitneyu(skipped, bought,
+alternative='greater')` on the 33/11 samples above]` — the gap is
+statistically distinguishable from chance at this sample size, not merely a
+descriptive difference in two small groups.
 
 ## What this changes about #606
 
 Sections 1-2 framed the problem as under-deployment. That framing was
-incomplete. The ranking is also being overridden by an arithmetic artifact,
-which means the live book is not testing the model the model was validated as.
-Any conclusion about live performance inherits that.
+incomplete. This is a mechanism claim, not an inference from the price-gap
+statistic: the sizing log lines themselves record each skipped name clearing
+every admission gate before being zeroed by integer-share arithmetic, so the
+ranking is being overridden by an arithmetic artifact independent of the
+price-gap's statistical significance. That means the live book is not
+testing the model the model was validated as. Any conclusion about live
+performance inherits that.
 
 `[ASSUMED — not measured]`: whether the excluded high-price names would have
 outperformed. That is the separate question and I am not estimating it from
