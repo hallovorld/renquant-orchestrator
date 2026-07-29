@@ -20,6 +20,9 @@ This checker makes both loud within one scheduled firing:
      in ~/Library/LaunchAgents must match the committed manifest
      (ops/launchd_manifest.json). A swapped program, a new unmanifested
      job, or a manifested job missing from disk all alarm.
+  c. launchd EFFECT: a manifested job must be RUNNING the definition on
+     disk. Editing a plist does not reload it, so a reviewed change can
+     land on disk and never take effect while (b) reports clean.
 
 Intentional persistent changes belong IN the manifest / refs (update them
 in the same reviewed change); an emergency containment that skips that
@@ -34,6 +37,7 @@ import hashlib
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -196,6 +200,123 @@ def scan_launchd_plists(agents_dir: str = LAUNCH_AGENTS) -> dict[str, dict]:
     return out
 
 
+#: launchctl's exit code for "no such service in this domain". Measured
+#: 2026-07-29 on this machine: a deliberately-unloaded manifested job
+#: (com.renquant.daily103) and a label that has never existed BOTH return 113
+#: with an empty stdout and `Bad request. Could not find service … in domain`
+#: on stderr, while a loaded job returns 0. So 113 identifies "not loaded"
+#: exactly, and every OTHER failure is the checker's problem, not the job's.
+LAUNCHCTL_NOT_FOUND_RC = 113
+
+#: read_loaded_program_args statuses.
+LOADED_OK = "ok"                    # args read successfully
+LOADED_NOT_LOADED = "not_loaded"    # job genuinely absent from the domain
+LOADED_UNREADABLE = "unreadable"    # launchctl failed in some other way
+LOADED_UNPARSED = "unparsed"        # launchctl succeeded, output not understood
+
+
+def read_loaded_program_args(label: str) -> tuple[str, list[str] | None, str]:
+    """ProgramArguments launchd is ACTUALLY running, not what is on disk.
+
+    Editing a plist does not change the running job: launchd keeps serving the
+    definition it loaded until something re-bootstraps it. So a reviewed change
+    can land in the manifest, land on disk, and never take effect — with the
+    manifest-vs-disk check reporting clean the whole time.
+
+    Measured 2026-07-29: the rq105 export plist was switched to the wrapper at
+    06:29:53, 14 minutes AFTER that morning's 06:15:04 run had already produced
+    `score_source=prod` from the old definition. It happened to have been
+    re-bootstrapped, but nothing in this scan verified that — it was
+    established by hand, comparing three timestamps.
+
+    Returns ``(status, args, detail)``. The status distinction matters more
+    than it looks: an earlier revision collapsed "not loaded" and "could not
+    read launchctl" into a single ``None``, so a permission change, a macOS
+    output-shape change, or a broken invocation would have silently disabled
+    this check across every job while the scan still reported clean — the
+    exact false-negative class this check exists to close.
+    """
+    try:
+        res = subprocess.run(
+            ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return LOADED_UNREADABLE, None, f"launchctl invocation failed: {exc}"
+    if res.returncode == LAUNCHCTL_NOT_FOUND_RC:
+        return LOADED_NOT_LOADED, None, "not loaded in this domain"
+    if res.returncode != 0:
+        return (LOADED_UNREADABLE, None,
+                f"launchctl exit {res.returncode}: "
+                f"{(res.stderr or '').strip()[:160]}")
+    # `arguments = {\n\t\targ\n\t\targ\n\t}` — take the first such block.
+    out = res.stdout
+    m = re.search(r"^\s*arguments\s*=\s*\{\s*$", out, flags=re.MULTILINE)
+    if not m:
+        return (LOADED_UNPARSED, None,
+                "launchctl succeeded but no `arguments = {` block was found "
+                "(output shape changed?)")
+    args: list[str] = []
+    for line in out[m.end():].splitlines()[1:]:
+        stripped = line.strip()
+        if stripped == "}":
+            break
+        if stripped:
+            args.append(stripped)
+    if not args:
+        return LOADED_UNPARSED, None, "`arguments` block present but empty"
+    return LOADED_OK, args, ""
+
+
+def check_launchd_loaded(
+    manifest_path: str = MANIFEST, agents_dir: str = LAUNCH_AGENTS,
+) -> list[str]:
+    """Manifested jobs must be RUNNING the definition that is on disk.
+
+    Separate from `check_launchd_surface` on purpose: that one answers "did
+    someone change the surface behind review", this one answers "is the
+    reviewed surface actually in force". A job can pass the first and fail the
+    second indefinitely, which is the silent half of a run-surface change.
+
+    A job that is genuinely NOT LOADED is not reported — that is a liveness
+    question, and inventing a drift alarm for it would fire on every job the
+    operator has deliberately unloaded. But a job whose loaded state could not
+    be READ is reported, because a checker that cannot see is indistinguishable
+    from a checker that sees nothing wrong, and only one of those is safe to
+    stay quiet about.
+    """
+    problems: list[str] = []
+    try:
+        manifest = json.loads(Path(manifest_path).read_text())["jobs"]
+    except Exception as exc:  # noqa: BLE001
+        return [f"launchd manifest unreadable ({manifest_path}: {exc})"]
+    live = scan_launchd_plists(agents_dir)
+
+    for label in sorted(manifest):
+        disk = live.get(label, {}).get("program_args")
+        if disk is None:
+            continue                      # already reported by the disk check
+        status, loaded, detail = read_loaded_program_args(label)
+        if status == LOADED_NOT_LOADED:
+            continue                      # deliberate: a liveness question
+        if status in (LOADED_UNREADABLE, LOADED_UNPARSED):
+            problems.append(
+                f"launchd: cannot determine what {label} is actually running "
+                f"({status}: {detail}) — the loaded-vs-disk check is BLIND for "
+                f"this job, so a plist edited without re-bootstrapping would "
+                f"not be caught. Fix the checker, do not ignore this."
+            )
+            continue
+        if loaded != disk:
+            problems.append(
+                f"launchd: {label} is RUNNING a different program than its "
+                f"plist on disk (loaded={loaded} != disk={disk}) — the plist "
+                f"was edited without re-bootstrapping, so the reviewed change "
+                f"is NOT in force. Reload the job or revert the file."
+            )
+    return problems
+
+
 def check_launchd_surface(
     manifest_path: str = MANIFEST, agents_dir: str = LAUNCH_AGENTS,
 ) -> list[str]:
@@ -291,6 +412,7 @@ def main(argv: list[str] | None = None) -> int:
     infos += i
     problems += check_umbrella_branch()
     problems += check_launchd_surface()
+    problems += check_launchd_loaded()
 
     for line in infos:
         print(f"INFO: {line}")
