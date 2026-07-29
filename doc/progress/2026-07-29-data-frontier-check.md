@@ -1,8 +1,9 @@
 # Progress: a rebuild that touches a file is not one that advanced the data
 
-STATUS:   delivered (checker + 16 tests). Its FIRST revision reported two false
-          positives; both are now HEALTHY and both are pinned as regressions.
-          Not installed as a job — that is a machine landing needing a grant.
+STATUS:   delivered (checker + 22 tests, 3 revisions — see REVISION 2/3
+          below). Its FIRST revision reported two false positives; both are
+          now HEALTHY and both are pinned as regressions. Not installed as a
+          job — that is a machine landing needing a grant.
 
 WHAT:     `ops/data_frontier_check.py`. For each watched data artifact it reads
           the newest date from the DATA COLUMN — never the file mtime — and
@@ -89,6 +90,26 @@ REVISION 2 (review MED, and it was right):
           Live re-run after the fix: 3/3 HEALTHY, unchanged. 19 tests (3 added:
           one-observation is not futile, a prior observation of the same
           frontier IS, and a prior observation that ADVANCED is not).
+
+REVISION 3 (review MED, and it was right again):
+          `prior_frontier == newest` proves the frontier VALUE did not change;
+          it does not prove TIME PASSED. Two observations minutes apart agree
+          trivially, so REVISION 2 still bought the zero-retry status too
+          cheaply against the module's own contract ("across repeated
+          observations spanning more than one expected cadence").
+
+          `read_frontier()` now also takes `prior_observed_on` and requires
+          `(as_of - prior_observed_on).days >= cadence_days` before
+          UPSTREAM_EMPTY. Same frontier but too soon, or same frontier with no
+          timestamp supplied, stays NOT_ADVANCING with one retry, and the
+          detail string says which of the two it was. A caller that persists
+          only the frontier value (not when it saw it) can now never reach the
+          zero-retry status — the safe direction — and `main()` is exactly
+          such a caller, now commented explaining why.
+
+          3 new tests (22 total): same-frontier-too-soon, same-frontier-no-
+          timestamp, and the `>= cadence_days` boundary. Live re-run after the
+          fix: 3/3 HEALTHY, unchanged.
 
 NEXT:     Per-TICKER completeness is a separate and still-open P0: the live run
           logs `Feature cache built: 148/149`, `Loaded models for 122/145
