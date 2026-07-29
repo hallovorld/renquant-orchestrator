@@ -54,3 +54,107 @@ computes now feeds the shadow-realtime replay collector, with a
 `scorer_identity` stamp per export and a one-line revert to prod.
 Shadow/pilot surface only — no order path consumes the vector.
 `[VERIFIED — STEP-0 trace in PR #585 + doc/progress/2026-07-28-rq105-batch-scores-blend-source.md]`
+
+---
+
+
+## 2026-07-28 — fresh PatchTST, end-to-end serving read (agent proposal)
+
+STATUS:   serving-behavior diagnostic only — NOT a model-capability verdict. The
+          capability question (does this recipe carry signal) is still open —
+          see model#85 (frozen 43-fold signal-existence test) and model#87
+          (closure test) for the live state of that question.
+          CORRECTION, dated (per [[long-term-agreements.md]] entry 10 — visibly,
+          not by silent overwrite): an earlier version of this entry claimed a
+          completed "43-fold... UNDERPOWERED" result attributed to a Modal run
+          (`wf-pt-b4e47e2c-batch1`) and was retracted as of 2026-07-28, stating
+          that run "does not exist under any name in this repo's history."
+          THAT RETRACTION WAS ALSO CORRECT AT THE TIME, AND IS NOW STALE: the
+          run was dispatched later the same day (2026-07-28, ~16:51 UTC per its
+          own provenance manifest) and the 43-fold corpus is now real —
+          directly inspected on disk (43 fold dirs, real `.pt` checkpoints,
+          Modal dispatch provenance with per-pod worker IDs/checksums)
+          `[VERIFIED — direct filesystem read, 2026-07-29]`. It lives in
+          quarantined local scratch per its own prereg's data-handling
+          contract and is NOT committed to any repo, so a repo-only search
+          (as the original retraction was) cannot find it — that is by
+          design, not evidence of nonexistence.
+          UPDATE (2026-07-29, this pass): the best available durable,
+          content-addressed reference for this corpus is now model#91's
+          queued corpus-index PR, `doc/research/evidence/2026-07-29-
+          patchtst-43fold-corpus-index.json` (root digest `b8aa2d99…`,
+          43 fold dirs / 43 checkpoints / 43 calibrators, Modal dispatch
+          app ids `ap-RIc3qj4D3yFfU9z7tAx4Rd` / `ap-HHid4LhAAD0heLm7Mlk4aW`)
+          `[VERIFIED — read directly from the model#91 branch, 2026-07-29]`
+          — NOT model#89's evidence snapshot cited below previously: that
+          `doc/research/evidence/2026-07-29-lag-alignment-defect/` path was
+          removed from model#89's own branch per its review (it depended on
+          a hard-coded, non-reproducible scratch path) and no longer exists
+          there `[VERIFIED — git ls-tree on model#89's current head,
+          2026-07-29]`. Caveat: model#91 is itself still under active
+          review — its digest currently points at an expiring session-
+          scratch path and the PR does not yet carry a canonical verifier
+          or immutable retrieval/provenance contract — so "best available"
+          describes the current state of the evidence trail, not a
+          settled, merged source of truth. The raw corpus itself remains
+          uncommitted and is not independently verifiable outside this
+          machine until model#91 (or a successor) lands. The
+          43-fold evaluation's actual VERDICT (UNDERPOWERED, and separately
+          the closure test's CLOSE verdict retracted for a sample-composition
+          defect) is tracked in model#85/model#87, not restated here.
+WHAT:     a PatchTST artifact trained locally on MPS to the panel frontier
+          (effective cutoff 2026-04-27, `[VERIFIED — /tmp/ptserve_e2e.log]`,
+          vs the served pin at `staleness_days=622`
+          `[VERIFIED — backtesting/renquant_104/logs/shadow_scorer_health.jsonl,
+          same record independently confirmed in
+          doc/progress/2026-07-28-shadow-staleness-horizon-design.md]`), with its
+          calibrator fitted in the same build. This is a single artifact used for
+          one readonly serving-path preflight, not the 43-fold WF corpus.
+EVIDENCE: readonly preflight of the FULL production funnel with that artifact as
+          primary scorer, no orders/state/ntfy `[VERIFIED — /tmp/ptserve_e2e.log
+          lines 250-312]`: 82/82 scored; a separate veto step then evaluated 75
+          of those against the buy floor (`floor=max(0.20, mean+1σ)=0.504`),
+          dropping 65 and clearing 10; VLO was selected slot 1 at calibrated
+          0.5245 — then `SizeAndEmitTask: VLO Kelly=0 — skip`, **0 orders
+          placed**. Diagnostic `CALIBRATOR-SATURATED: rank_score IQR=0.011`
+          (warn floor 0.050); the seven held names span 0.4959–0.5090
+          (all figures this paragraph `[VERIFIED — /tmp/ptserve_e2e.log]`).
+          Same-day prod XGB, same funnel, reached conviction 0.58 on TSLA and
+          placed an 8-share NEW_BUY `[VERIFIED — /tmp/daily_live_early.log
+          line 269: "TSLA NEW_BUY 8 shares @ 309.22 ... conv=0.58"]`.
+READ:     the calibrated conviction distribution sits ON the coin-flip point, so
+          Kelly correctly sizes to zero — a SERVING-BEHAVIOR diagnostic for this
+          one artifact, config, and session, not a resolved model-capability
+          verdict: one day at calibrated IQR 0.011 shows this run did not clear
+          the decision line, it does not show the recipe carries no signal. This
+          read is only reachable at all because the plumbing was fixed first: the
+          preceding uncalibrated run vetoed 75/75 on a raw-vs-probability unit
+          error and reported the same "no trade" `[VERIFIED — pipeline#219 /
+          RenQuant#542, merged fix + its own regression test]` (see
+          `serving-reliability.md` defect #3). Do NOT read the earlier
+          all-vetoed run as evidence about the model, and do NOT read this
+          session as a closed verdict either.
+NEXT:     This session's discrimination did not clear the buy floor / Kelly
+          sizing as a SOLE primary scorer — a diagnostic input, not a
+          tradeability conclusion. The open capability question (does the recipe
+          carry ANY signal, and is it orthogonal enough to be worth a third blend
+          leg) is answered by model#85's frozen 43-fold evaluation. Both
+          preconditions this NEXT previously blocked on have since happened:
+          model#85's statistical design passed review and MERGED
+          (2026-07-29T08:10:54Z `[VERIFIED — gh pr view 85]`), and the 43-fold
+          corpus is generated and content-addressed
+          `[VERIFIED — model#91 index, root digest b8aa2d99…]` (see orch#590's
+          reconciled record). But that does not make a verdict admissible yet:
+          model#85's own design uses a `real − shift120` lag-shift comparison
+          (§ "shift placebo"), the same computation class T11 found defective
+          (`Y.shift(-lag)` sample drift) — its UNDERPOWERED verdict, and
+          separately model#87's CLOSE verdict, were both computed before that
+          defect was found and are SUPERSEDED pending the corrected
+          re-derivation. model#90 (the corrected design) is now MERGED
+          (2026-07-29T09:19:35Z `[VERIFIED — gh pr view 90]`); its execution
+          results are tracked separately (model#92) and are not restated
+          here until that PR's own status is confirmed. Proceed via the
+          standard blend gate chain (screen → frozen prereg → disjoint-seed
+          confirmatory → shadow) — never by letting a
+          single-session read, or an unverified/superseded result, drive the
+          funnel.
