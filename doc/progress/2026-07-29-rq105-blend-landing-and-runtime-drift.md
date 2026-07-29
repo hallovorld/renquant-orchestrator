@@ -95,23 +95,6 @@ OPERATOR DECISION NEEDED: either (a) run
           scratch surface for generated docs, in which case the scan needs a
           reviewed exclusion rather than a silent one.
 
-## 3. Incidental measurement — fresh PatchTST vs XGB, from the regenerated table
-
-The table the drift consists of carries the trainer's own self-reported OOS IC.
-Reporting it because it bears directly on "is the new PatchTST any good", with
-the caveat that this is the TRAINER's number, not an independent walk-forward
-evaluation, and not comparable to the corpus work:
-
-    hf_patchtst        2026-07-29  +0.0102   (172 feat, 145 tickers, 5ef1c2d)
-    hf_patchtst        2026-07-29  +0.0101
-    hf_patchtst        2026-07-25  +0.0257
-    hf_patchtst        2026-07-23  -0.0569 / -0.0439 / +0.0143
-    panel_ltr_xgboost  2026-07-26  +0.0568
-    panel_ltr_xgboost  2026-07-25  +0.0449
-
-Freshly trained PatchTST sits near +0.01 while XGB sits at +0.045-0.057 on the
-same feature count — a 4-5x gap on the trainer's own metric.
-
 EVIDENCE: artifact: `data/rq105/batch_scores_2026-07-29.meta.json` (post-run),
                     `launchctl print gui/<uid>/com.renquant.rq105-batch-scores-export`,
                     `ops/run_surface_drift_check.py` output,
@@ -120,10 +103,8 @@ EVIDENCE: artifact: `data/rq105/batch_scores_2026-07-29.meta.json` (post-run),
                     under an explicit operator grant; item 2 observed a
                     production checkout READ-ONLY and changed nothing.
   existing data:    Yes, all measured this session: the meta fields above, the
-                    launchd counters, the porcelain status, the file mtime,
-                    and the OOS IC table.
-  best-known?:      Yes for items 1 and 2. Item 3 is the trainer's own metric
-                    and is explicitly NOT an independent evaluation.
+                    launchd counters, the porcelain status, and the file mtime.
+  best-known?:      Yes for items 1 and 2.
   scope:            Record only. No pin advanced, no umbrella change, no
                     manifest edit, no live-tree git operation.
 
