@@ -178,7 +178,7 @@ may still be too weak to conclude on.
 | # | option | Δ MDE | portfolio effect | cost | risk | verdict |
 |---|---|---|---|---|---|---|
 | A | **Tail statistic as primary** | ≈ ×2.5 effective t | aligns objective with where skill is | **zero** | mis-specification if skill is not tail-driven — falsifiable in Stage 0 | **ADOPT (first)** |
-| B | **Breadth 142 → 830** | 0.069→0.060 / 0.053→0.041 (with A+C: 0.035 / 0.023) | top decile 14 → 83 names; idiosyncratic noise ÷ ~2.4 | ≈ zero acquisition; build + compute only | delisting/PIT correctness; small-name data quality | **ADOPT (first)** |
+| B | **Breadth 142 → 830** | 0.069→0.060 / 0.053→0.041 (with A+C: 0.035 / 0.023) | top decile 14 → 83 names; idiosyncratic noise ÷ ~2.4 | ≈ zero acquisition; build + compute only | delisting/PIT correctness; small-name data quality | **ADOPT (first)**, but see §12: breadth buys POWER, it does **not** buy survivorship correctness — measured, the two are separate purchases |
 | C | ~~20d label for measurement~~ | **measured: NO net power gain** | — | zero | — | **REFUTED by Stage 0 (2026-07-28).** The MDE arithmetic assumed the effect size is horizon-invariant. Measured: 20d yields ~3× the independent blocks but proportionately less effect, so the power *ratio* is flat — H2 NOT SUPPORTED on IC for both subjects, a dead heat on spread. `[VERIFIED — goal6-stage0/results.json]` |
 | D | History 10.3y → 20y | ×1.4 further | none directly | high: pre-2016 PIT sparse | regime non-stationarity | **DEFER to Stage 3** |
 | E | **Hourly bars** | **none at 60d/20d horizons** | none | large (storage, build, compute) | distraction | **REJECT.** Measured: intraday open→close net edge **−6.4bp** at IC 0.03 against σ_oc ≈ 152bp. 6.5× the rows describing the same forward outcomes adds no independent observations. Only in scope if the *predicted horizon* changes, which is a different system. |
@@ -417,3 +417,65 @@ correlation does not materially penalise breadth at these sizes.
 program's documents carries a provenance tag — `[VERIFIED — command/file]`,
 `[VERIFIED — prior work]`, `[DERIVED — formula]`, or `[ASSUMED]`. An
 untaggable number is not stated.
+
+---
+
+## 12. Stage-1 build result — what the measurement changed in this design
+
+The Stage-1 panel was built on 2026-07-29 and its outcome corrects a claim
+made earlier in this document. Recorded here rather than edited away.
+
+### Delivered
+
+1,427,575 rows · 850 tickers · 184 columns · 2016-01-04 → **2026-07-28**,
+built in 46.5 s `[VERIFIED — build contract.json]`. The recipe was NOT
+forked: the builder imports the existing `renquant_base_data` feature,
+label, clip and merge functions.
+
+- **PIT assertion PASSES**: 1,245,896 fundamentals-served rows checked,
+  **0 violations**; availability taken as `max(as-filed 'filed',
+  acceptanceDateTime + 1 BDay)`; 181,679 rows carry a NaN vintage rather than
+  a guessed one `[VERIFIED — build log]`.
+- **Reproduction gate PASSES** against a tolerance fixed before measuring:
+  on the 142-name overlap × 2,594 shared dates, per-date Spearman ρ = **1.000000**
+  for rows and labels, and **min 0.99848** across 167 feature columns with
+  99.4% ≥ 0.999 `[VERIFIED — gate report]`. The recipe is unchanged.
+- **Unlabeled rows retained with NaN** (51,000 fwd_60d, 17,000 fwd_20d), so
+  the panel frontier reaches **2026-07-28** where the incumbent's is
+  2026-04-28. The ~91-day structural lag behind RenQuant#541 is gone — which
+  makes this build, not the gate patch, the upstream fix for that incident.
+
+### The claim this falsifies
+
+§3 option B and §4.1 presented breadth as *also* removing survivorship bias.
+**Measured: it does not.** `[VERIFIED — survivorship_evidence.json]`
+
+- 0 of 23 probed known-delisted or renamed US large caps (TWTR, ATVI, VMW,
+  SIVB, FRC, CERN, XLNX, PXD, SPLK …) appear in the universe;
+- the universe curve is monotone non-decreasing 2016 → 2026-04 — **zero
+  exits in 10.3 years across 850 names**;
+- 97.8% of names' bars end on one of three shared dates.
+
+The 830-name list is a **today-alive screen**; its size variation is OHLCV
+harvest vintage, not survivorship. Breadth and survivorship are two separate
+purchases: the first is free because the data is already on disk, the second
+needs a delisting-inclusive ticker history plus bars for exited names.
+Stage 1's acceptance criterion (§5) is therefore **NOT MET**, and any Stage-2
+result on this panel inherits survivorship bias and must say so.
+
+### A finding worth its own investigation
+
+As-filed EDGAR fundamental ratios rank only **ρ ≈ 0.53** against what
+production currently serves (earnings_yield; others 0.67–0.92). Attributed:
+the pre-existing reference file versus served v1 gives 0.53–0.92 on the same
+comparison, so the gap is the as-filed-vs-v1 **derivation**, not anything
+introduced by this build `[VERIFIED — D1 diagnostic]`.
+
+### Concrete asks this creates for renquant-base-data
+
+- **R1** an explicit `universe` on `Alpha158QlibConfig` (the loader can only
+  read the frozen 292-name inventory today);
+- **R2** a `drop_unlabeled: bool = True` flag on the label dropna
+  (behaviour-invariant at the default — the trailing unlabeled rows are all
+  `split_label == 'test'`);
+- **R3** serve fundamental ratios from as-filed EDGAR period records.
