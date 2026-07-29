@@ -66,3 +66,50 @@ Whether FMP's paid registry reaches back to 2016 (page 1 is gated, so depth is
 unmeasured); what an index-constituent product costs; and whether Alpaca's
 inactive list would be adequate after filtering to names that ever appeared in
 our panel — that last one is cheap to check and is the obvious next probe.
+
+---
+
+## Follow-up probes (same session) — a ZERO-COST path exists
+
+Three further read-only probes, all `[VERIFIED — 2026-07-29]`:
+
+1. **Our own OHLCV store is survivorship-biased too.** It holds 2,928 ticker
+   directories, but **0 of the 9** probed known-delisted names are present
+   (TWTR, ATVI, VMW, SIVB, FRC, CERN, XLNX, PXD, SPLK all absent). So the bias
+   is not confined to the 830-name screen; it is in the price store beneath it.
+
+2. **FMP's constituent endpoints are also gated.** Both
+   `stable/sp500-constituent` and `stable/historical-sp500-constituent` return
+   **HTTP 402** on the current plan. So option 2 via FMP costs the same upgrade
+   as option 1.
+
+3. **But the constituent-change history is available free.** The Wikipedia
+   S&P 500 page carries a "Selected changes to the list" table with add/remove
+   tickers AND dates. Fetched (1.5 MB, 2 wikitables) and probed for the same
+   nine names: **7 of 9 found** — TWTR, ATVI, SIVB, FRC, CERN, XLNX, PXD
+   (missing VMW, SPLK). That is 7/9 against Alpaca's **2/9**.
+
+### What this changes in the recommendation
+
+The recommendation stands (option 2, index constituents by date) but its
+**price drops to zero for the S&P 500 universe**: the add/remove event history
+is public, and FMP's price endpoint — which already works on our plan for
+delisted tickers — supplies the bars once a symbol is known. The gated
+registry was never the only way to learn who left.
+
+Honest caveats before anyone treats this as done:
+
+- **7 of 9, not 9 of 9.** VMW and SPLK were not found by the crude probe; both
+  were acquisitions, and the changes table may record them under a different
+  string or in an earlier section. Coverage must be measured properly, not
+  inferred from a regex.
+- **A scraped table is not a data contract.** Wikipedia's structure changes
+  without notice, so a build depending on it needs a snapshot, a digest, and a
+  fail-closed parser — the same discipline as any other frozen input.
+- **S&P 500 is one universe choice, not the only one.** It defines a
+  large-cap-only experiment; our panel is not S&P-defined today, so adopting it
+  changes what the strategy is measured against. That is a design decision, not
+  a data-sourcing detail.
+- **Point-in-time reconstruction still needs care**: an add/remove event list
+  must be replayed backwards from today's membership to get membership at date
+  d, and any missed event silently corrupts every earlier date.
