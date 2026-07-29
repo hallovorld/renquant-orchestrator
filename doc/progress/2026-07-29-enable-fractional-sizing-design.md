@@ -3,7 +3,7 @@
 STATUS:    delivered (relocation). Removes
            `doc/design/2026-07-29-enable-fractional-sizing.md` from this
            repo. The proposal now lives, substantially revised, in
-           `hallovorld/renquant-strategy-104#70`. This PR is reduced to
+           `hallovorld/renquant-strategy-104#71`. This PR is reduced to
            this progress doc documenting the relocation.
 
 WHAT:      Codex BLOCKER found the canonical config this PR proposes to
@@ -15,7 +15,7 @@ WHAT:      Codex BLOCKER found the canonical config this PR proposes to
            that move.
 
            While relocating, three substantive fixes landed (full detail in
-           `renquant-strategy-104#70`'s own progress doc): (1) resolved the
+           `renquant-strategy-104#71`'s own progress doc): (1) resolved the
            config/runtime discrepancy the original flagged as unresolved —
            it was a stale umbrella-tree snapshot copy, not a live baseline
            problem; (2) found an already-reviewed, more rigorous enablement
@@ -27,6 +27,14 @@ WHAT:      Codex BLOCKER found the canonical config this PR proposes to
            since fractional fills consume cash that can legitimately shift
            later whole-share orders in the same session).
 
+           A concurrent session relocated this PR independently
+           (`renquant-strategy-104#70`) and found two things I'd gotten
+           wrong by carrying them forward from the original draft
+           uncritically (the config block already exists; `min_notional`
+           is already chosen) plus a genuine sequencing conflict against
+           this repo's own cash-drag execution-order RFC. #70 and #71 were
+           consolidated into #71 — it carries every finding from both.
+
 WHY/DIR:   Per the umbrella multi-repo code-placement rule (strategy policy
            -> the owning strategy repo, never the orchestrator), this repo
            does not own live capital-gate proposals for strategy-104.
@@ -35,7 +43,7 @@ EVIDENCE:  n/a
 
 NEXT:      This PR now carries no config-change proposal of its own — the
            relocated proposal and its full evidence are in
-           `renquant-strategy-104#70`. Review continues there. If GOAL-6 or
+           `renquant-strategy-104#71`. Review continues there. If GOAL-6 or
            any orchestrator-side sequencing needs this decision, cite
-           `renquant-strategy-104#70` directly; nothing further pending in
+           `renquant-strategy-104#71` directly; nothing further pending in
            this repo for this proposal.
