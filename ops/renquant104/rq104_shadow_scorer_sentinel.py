@@ -138,6 +138,15 @@ VALID_STATUSES = frozenset({STATUS_OK, STATUS_EXPECTED_SKIP, STATUS_FAULT})
 #: FALLBACK reader source — the shadow runs DB.
 SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca_shadow.db"))
 
+#: FALLBACK reader source for MLflow-logged lanes (e.g. the top-decile clf
+#: blend leg) — the mlruns tree rq104_blend_readout.py already reads daily.
+MLRUNS_DIR = os.environ.get("RQ104_MLRUNS_DIR", os.path.join(RQ, "mlruns"))
+
+#: had_runs check for MLflow-logged lanes: the PRODUCTION runs DB (not the
+#: shadow DB, which this kind of lane never writes to) — the same DB
+#: rq104_blend_readout.py's latest_live_run() reads.
+PROD_RUNS_DB = os.environ.get("RQ104_PROD_RUNS_DB", os.path.join(RQ, "data/runs.alpaca.db"))
+
 #: The shadow scorer's identity, as it appears in the record's shadow_name and
 #: in candidate_scores.active_scorer / model_type. PatchTST is served as
 #: 'hf_patchtst'. Config lane names DECORATE this key (e.g.
@@ -145,6 +154,72 @@ SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca
 #: promotion demoted the lane), so the health-record match accepts the exact
 #: key or any 'SHADOW_NAME_*' decorated form — see _matches_shadow_lane.
 SHADOW_NAME = os.environ.get("RQ104_SHADOW_NAME", "hf_patchtst")
+
+
+@dataclass(frozen=True)
+class WatchedLane:
+    """One shadow lane to patrol.
+
+    A lane is not just a name: lanes differ in where their evidence LIVES.
+    The PatchTST lane persists scores to the shadow runs DB, so a DB-derived
+    record is a usable fallback when the structured health record is missing.
+    The top-decile clf lane does NOT — it logs to MLflow — so for it the DB
+    fallback would report "no scores" every single day and manufacture a
+    permanent FEED DARK alarm out of a healthy lane. `runs_db` is therefore
+    per-lane and may be None, meaning "structured record or nothing", UNLESS
+    `mlruns_dir` is set — then the MLflow `comparison.json` locator (shared
+    with rq104_blend_readout.py, the job that already reads this lane's
+    evidence daily) is the fallback instead of the DB.
+
+    `None` on the threshold fields means "use the module default", which keeps
+    the existing single-lane call sites and their tests working unchanged.
+    """
+    name: str
+    runs_db: str | None = None          # None -> no DB fallback for this lane
+    mlruns_dir: str | None = None       # set -> MLflow comparison.json fallback
+    staleness_max_days: int | None = None
+    coverage_floor: float | None = None
+    #: why this lane is watched, quoted in its alerts so an operator reading a
+    #: page at 06:00 knows what it protects without opening the code
+    purpose: str = ""
+
+    def matches(self, shadow_name: str) -> bool:
+        """Exact key, or the decorated config-lane form '<name>_<suffix>'."""
+        return shadow_name == self.name or shadow_name.startswith(self.name + "_")
+
+    @property
+    def effective_staleness_max(self) -> int:
+        return (self.staleness_max_days if self.staleness_max_days is not None
+                else STALENESS_MAX_DAYS)
+
+    @property
+    def effective_coverage_floor(self) -> float:
+        return (self.coverage_floor if self.coverage_floor is not None
+                else COVERAGE_FLOOR)
+
+
+def watched_lanes() -> tuple[WatchedLane, ...]:
+    """The lanes patrolled on this machine.
+
+    Resolved at call time, not import time, so tests and operators can retarget
+    paths through the same env vars the single-lane version used.
+    """
+    return (
+        WatchedLane(
+            name=SHADOW_NAME,
+            runs_db=SHADOW_DB,
+            purpose="the G4-critical PatchTST feed whose silent death this "
+                    "sentinel was built for",
+        ),
+        WatchedLane(
+            name=os.environ.get("RQ104_CLF_LANE_NAME", "topdecile_clf_blend_leg"),
+            runs_db=None,   # MLflow-logged: a DB fallback would alarm daily
+            mlruns_dir=MLRUNS_DIR,  # its actual evidence source instead
+            purpose="the certified top-decile classifier now accruing the "
+                    "120-session forward ledger — the one line with a "
+                    "confirmed effect, and until now unwatched",
+        ),
+    )
 
 
 def _matches_shadow_lane(name: str) -> bool:
@@ -339,14 +414,24 @@ def last_session_days(as_of: dt.date, n: int, *, lookback_days: int = 21) -> lis
 # reader: pluggable structured sink -> DB fallback
 # ---------------------------------------------------------------------------
 
-def read_health_records(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord | None]:
+def read_health_records(days: list[dt.date], lane: 'WatchedLane | None' = None
+                        ) -> dict[dt.date, ShadowHealthRecord | None]:
     """Per-day ShadowHealthRecord (or None if the day had no live runs at all —
     the liveness checker's domain). Primary source wins per-day; days it does
-    not cover fall through to the DB fallback, so a not-yet-deployed sink still
-    gets full coverage."""
-    primary = _read_from_pipeline_sink(days)
+    not cover fall through to the lane's fallback, so a not-yet-deployed sink
+    still gets full coverage."""
+    primary = _read_from_pipeline_sink(days, lane)
     missing = [d for d in days if d not in primary]
-    fallback = _read_from_shadow_db(missing) if missing else {}
+    if lane is not None and lane.mlruns_dir:
+        # MLflow-logged lane: its real evidence source, not the runs DB.
+        fallback = {} if not missing else _read_from_mlflow(missing, lane)
+    else:
+        # A lane with no runs DB and no mlruns_dir gets NO fallback: deriving
+        # 'no scores' from a DB it never writes to would manufacture a
+        # permanent FEED DARK alarm out of a perfectly healthy lane.
+        no_db = lane is not None and lane.runs_db is None
+        fallback = ({} if (no_db or not missing)
+                    else _read_from_shadow_db(missing, lane))
     return {d: primary.get(d, fallback.get(d)) for d in days}
 
 
@@ -416,7 +501,8 @@ def is_valid_v1_record(obj: object) -> bool:
     return True
 
 
-def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord]:
+def _read_from_pipeline_sink(days: list[dt.date], lane: 'WatchedLane | None' = None
+                             ) -> dict[dt.date, ShadowHealthRecord]:
     """Read the pipeline's structured health record (renquant-pipeline#211).
 
     JSONL sidecar, one object per line, schema `shadow_scorer_health.v1`.
@@ -444,7 +530,9 @@ def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthR
                 if not is_valid_v1_record(obj):
                     continue  # unknown/invalid -> ignore; DB fallback stays authoritative
                 rec = ShadowHealthRecord.from_dict(obj, source="pipeline_health_record")
-                if not _matches_shadow_lane(rec.shadow_name) or rec.run_date not in wanted:
+                matches = (lane.matches(rec.shadow_name) if lane is not None
+                           else _matches_shadow_lane(rec.shadow_name))
+                if not matches or rec.run_date not in wanted:
                     continue
                 out[rec.run_date] = rec  # last record for a date wins (latest re-run)
     except OSError:
@@ -459,7 +547,8 @@ def _open_db_readonly(path: str) -> sqlite3.Connection | None:
         return None
 
 
-def _read_from_shadow_db(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord]:
+def _read_from_shadow_db(days: list[dt.date], lane: 'WatchedLane | None' = None
+                         ) -> dict[dt.date, ShadowHealthRecord]:
     """Fallback: derive a ShadowHealthRecord per day from the shadow runs DB.
 
     Ground truth used today:
@@ -475,7 +564,7 @@ def _read_from_shadow_db(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecor
     """
     if not days:
         return {}
-    conn = _open_db_readonly(SHADOW_DB)
+    conn = _open_db_readonly(lane.runs_db if lane is not None else SHADOW_DB)
     if conn is None:
         return {}
     out: dict[dt.date, ShadowHealthRecord] = {}
@@ -553,6 +642,140 @@ def _derive_day_record(conn: sqlite3.Connection, day: dt.date) -> ShadowHealthRe
     )
 
 
+def _had_live_run(conn: sqlite3.Connection, day: dt.date) -> bool:
+    """True if a live pipeline run happened on `day`, per the PRODUCTION runs
+    DB. MLflow-logged lanes never write pipeline_runs, so this — not the
+    shadow DB check `_derive_day_record` uses — is what gates a day into
+    'liveness domain, skip' vs 'a real gap in this lane's evidence'."""
+    row = conn.execute(
+        "SELECT 1 FROM pipeline_runs WHERE run_type='live' AND run_date=? LIMIT 1",
+        (day.isoformat(),),
+    ).fetchone()
+    return row is not None
+
+
+def _run_tag(run_dir: Path, tag_name: str) -> str | None:
+    """One MLflow FileStore run tag (`<run_dir>/tags/<tag_name>`), or None if
+    absent/unreadable. The producer (`_log_shadow_run` in renquant-pipeline)
+    writes `as_of_date` and `shadow_name` as run tags via `mlflow.set_tags`
+    at log time — a content-based record, unlike file mtime, which a
+    touch/copy/retry of the artifact changes without touching what date or
+    lane the run actually belongs to."""
+    try:
+        return (run_dir / "tags" / tag_name).read_text().strip()
+    except OSError:
+        return None
+
+
+def _mlflow_shadow_scores_for(run_date: str, mlruns: Path, shadow_name: str):
+    """Locate the MLflow comparison table for `run_date`, scoped to
+    `shadow_name`. Returns the shadow_score Series indexed by ticker, or None.
+
+    Primary match: each candidate run's own `as_of_date`/`shadow_name` MLflow
+    tags (see `_run_tag`) — checked across EVERY comparison.json under
+    `mlruns` (tag reads are two small text files, cheap enough to not need a
+    candidate cap), so an older matching record is never shadowed by a newer,
+    unrelated one. A run whose tags exist but do not match this
+    (run_date, shadow_name) is decisively excluded — never re-considered by
+    the legacy heuristic below, which cannot tell lanes apart.
+
+    Legacy fallback, for runs with no tags at all (pre-tag producer, or a
+    different one): the SAME locator rq104_blend_readout.py uses — the
+    payload's own `run_date`/`shadow_name` columns if present, else file
+    mtime as the date, capped at the 20 most-recently-modified untagged
+    candidates. Kept only for backward compatibility with untagged history;
+    every run this producer logs today carries both tags.
+    """
+    import pandas as pd  # local: only lanes with mlruns_dir pay this cost
+
+    def _load(p: Path):
+        try:
+            raw = json.loads(p.read_text())
+            df = pd.DataFrame(raw["data"], columns=raw["columns"])
+        except Exception:
+            return None
+        if "shadow_score" not in df.columns or "ticker" not in df.columns:
+            return None
+        return df
+
+    all_candidates = list(mlruns.rglob("comparison.json"))
+
+    tagged_matches = []
+    untagged: list[Path] = []
+    for p in all_candidates:
+        run_dir = p.parent.parent
+        tag_date = _run_tag(run_dir, "as_of_date")
+        tag_lane = _run_tag(run_dir, "shadow_name")
+        if tag_date is None or tag_lane is None:
+            untagged.append(p)
+            continue
+        if tag_date[:10] == run_date and tag_lane == shadow_name:
+            tagged_matches.append(p)
+
+    if tagged_matches:
+        # a rerun of the same (date, lane) -> the most recently written wins
+        best = max(tagged_matches, key=lambda p: p.stat().st_mtime)
+        df = _load(best)
+        if df is not None:
+            return df.set_index("ticker")["shadow_score"].astype(float)
+        return None
+
+    candidates = sorted(untagged, key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in candidates[:20]:
+        df = _load(p)
+        if df is None:
+            continue
+        if "run_date" in df.columns and str(df["run_date"].iloc[0])[:10] != run_date:
+            continue
+        if "run_date" not in df.columns:
+            mdate = dt.date.fromtimestamp(p.stat().st_mtime).isoformat()
+            if mdate != run_date:
+                continue
+        if "shadow_name" in df.columns and df["shadow_name"].iloc[0] != shadow_name:
+            continue
+        return df.set_index("ticker")["shadow_score"].astype(float)
+    return None
+
+
+def _read_from_mlflow(days: list[dt.date], lane: 'WatchedLane'
+                      ) -> dict[dt.date, ShadowHealthRecord]:
+    """Fallback for MLflow-logged lanes (e.g. the top-decile clf blend leg):
+    derive a ShadowHealthRecord per day from the same comparison.json evidence
+    rq104_blend_readout.py already reads daily, instead of a DB this kind of
+    lane never writes to. had_runs comes from the PRODUCTION runs DB (the
+    shadow DB is the wrong ground truth here — this lane never writes there).
+    `actionable`/staleness/coverage are left unset, same as the DB fallback:
+    this source cannot see the pipeline's verdict either.
+    """
+    if not days or not lane.mlruns_dir or not os.path.isdir(lane.mlruns_dir):
+        return {}
+    conn = _open_db_readonly(PROD_RUNS_DB)
+    if conn is None:
+        return {}
+    out: dict[dt.date, ShadowHealthRecord] = {}
+    mlruns_path = Path(lane.mlruns_dir)
+    try:
+        for day in days:
+            if not _had_live_run(conn, day):
+                continue  # no live run at all -> liveness domain, not ours
+            scores = _mlflow_shadow_scores_for(day.isoformat(), mlruns_path, lane.name)
+            loaded = scores is not None
+            out[day] = ShadowHealthRecord(
+                run_date=day,
+                shadow_name=lane.name,
+                loaded=loaded,
+                n_scored=(int(scores.notna().sum()) if loaded else 0),
+                n_candidates=(int(len(scores)) if loaded else None),
+                actionable=None,
+                source="mlflow_comparison_fallback",
+                had_runs=True,
+                feed_present=loaded,
+            )
+    finally:
+        conn.close()
+    return out
+
+
 # ---------------------------------------------------------------------------
 # checks — mutually exclusive by construction (at most one fires per window)
 # ---------------------------------------------------------------------------
@@ -571,7 +794,7 @@ def _classify_window(records, days):
     return out
 
 
-def check_feed_dark_streak(records, days) -> str | None:
+def check_feed_dark_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     obs = _classify_window(records, days)
     if len(obs) < len(days) or not obs:
         return None
@@ -580,13 +803,13 @@ def check_feed_dark_streak(records, days) -> str | None:
         return (
             f"shadow score feed DARK: {len(obs)} consecutive session day(s) with "
             f"live runs but NO shadow health signal at all (no record, no collected "
-            f"scores) — {detail}. The whole feed for '{SHADOW_NAME}' went dark; "
+            f"scores) — {detail}. The whole feed for '{lane_name}' went dark; "
             f"nothing is being persisted to evaluate."
         )
     return None
 
 
-def check_load_failure_streak(records, days) -> str | None:
+def check_load_failure_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     obs = _classify_window(records, days)
     if len(obs) < len(days) or not obs:
         return None
@@ -597,7 +820,7 @@ def check_load_failure_streak(records, days) -> str | None:
             for d, r, _, rs in obs
         )
         return (
-            f"shadow scorer '{SHADOW_NAME}' LOAD FAILURE: {len(obs)} consecutive "
+            f"shadow scorer '{lane_name}' LOAD FAILURE: {len(obs)} consecutive "
             f"session day(s) with live runs but ZERO shadow scores — {detail}. "
             f"The shadow feed silently died (fail-soft: no gate fires). This is the "
             f"'couldn't load its artifact' incident class."
@@ -605,7 +828,7 @@ def check_load_failure_streak(records, days) -> str | None:
     return None
 
 
-def check_degraded_streak(records, days) -> str | None:
+def check_degraded_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     """Loaded-but-unusable for >= N sessions: stale cutoff, low coverage, missing
     provenance (pipeline `actionable=false`) — or a mixed window of degradations.
     Excludes the pure all-LOAD_FAIL / all-FEED_DARK windows those checks own."""
@@ -622,7 +845,7 @@ def check_degraded_streak(records, days) -> str | None:
         for d, r, c, rs in obs
     )
     return (
-        f"shadow scorer '{SHADOW_NAME}' NOT ACTIONABLE / DEGRADED: {len(obs)} "
+        f"shadow scorer '{lane_name}' NOT ACTIONABLE / DEGRADED: {len(obs)} "
         f"consecutive session day(s) — {detail}. It runs but its output is not "
         f"trustworthy (stale artifact / thin coverage / missing provenance)."
     )
@@ -653,34 +876,55 @@ def main(argv: list[str] | None = None) -> int:
               f"session day — skip")
         return 0
 
+    lanes = watched_lanes()
     days = last_session_days(today, STREAK_N)
-    records = read_health_records(days)
+    all_findings: list[str] = []
+    rc = 0
+    for lane in lanes:
+        rc |= _patrol_lane(lane, days, today, all_findings)
+    if not all_findings:
+        print(f"rq104 shadow-scorer sentinel: {len(lanes)} lane(s) patrolled over "
+              f"{days[0].isoformat()}..{days[-1].isoformat()} — no finding")
+    return rc
+
+
+def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
+                 out: list[str]) -> int:
+    """Patrol ONE lane. Findings are prefixed with the lane so an operator
+    reading a page knows which feed degraded, and appended to `out` so main
+    can tell 'every lane clean' from 'nothing was checked'."""
+    records = read_health_records(days, lane)
 
     # If NO day in the window had live runs at all, this is a liveness lapse,
     # not a shadow-degradation signal — stay quiet (the liveness checker owns it).
     if all(records.get(d) is None for d in days):
-        print(f"rq104 shadow-scorer sentinel: no live runs in window "
+        print(f"rq104 shadow-scorer sentinel [{lane.name}]: no signal in window "
               f"{days[0].isoformat()}..{days[-1].isoformat()} — liveness domain, skip")
         return 0
 
     problems: list[str] = []
     for check in CHECKS:
-        err = check(records, days)
+        err = check(records, days, lane.name)
         if err:
             problems.append(err)
 
     if problems:
+        body = "\n".join(problems)
+        if lane.purpose:
+            body += f"\n\nThis lane is {lane.purpose}."
         alert(
-            f"rq104 SHADOW SCORER DEGRADED: {len(problems)} issue(s) {today.isoformat()}",
-            "\n".join(problems),
+            f"rq104 SHADOW SCORER DEGRADED [{lane.name}]: "
+            f"{len(problems)} issue(s) {today.isoformat()}",
+            body,
             rq_root=RQ,
         )
-        print("\n".join(problems))
+        print(f"[{lane.name}] " + f"\n[{lane.name}] ".join(problems))
+        out.extend(problems)
         return 1
 
     src = next((records[d].source for d in reversed(days) if records.get(d)), "n/a")
     print(f"rq104 shadow-scorer sentinel OK {today.isoformat()} "
-          f"(shadow='{SHADOW_NAME}', source={src})")
+          f"(lane='{lane.name}', source={src})")
     return 0
 
 

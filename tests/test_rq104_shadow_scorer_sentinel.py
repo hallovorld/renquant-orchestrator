@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -57,6 +58,60 @@ def _make_shadow_db(tmp_path, run_rows, score_rows):
     return str(db)
 
 
+def _make_prod_runs_db(tmp_path, live_dates: list[str]) -> str:
+    """A minimal PRODUCTION runs DB (data/runs.alpaca.db shape): only what
+    `_had_live_run` needs — one row per live session date."""
+    db = tmp_path / "prod.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE pipeline_runs (run_id TEXT, run_date DATE, run_type TEXT,"
+        " training_cutoff TEXT)"
+    )
+    for i, d in enumerate(live_dates):
+        conn.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?)",
+                     (f"r{i}", d, "live", None))
+    conn.commit()
+    conn.close()
+    return str(db)
+
+
+def _write_comparison_json(mlruns_root: Path, exp_id: str, run_id: str,
+                          rows: list, *, mtime_date: str) -> Path:
+    """An MLflow comparison.json artifact in the REAL production shape: no
+    run_date/shadow_name columns (verified against the actual artifacts under
+    mlruns/**/comparison.json), so the locator's date match falls back to
+    file mtime — exactly like production."""
+    art_dir = mlruns_root / exp_id / run_id / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    p = art_dir / "comparison.json"
+    payload = {
+        "columns": ["ticker", "primary_score", "shadow_score", "diff",
+                    "primary_rank", "shadow_rank", "rank_diff"],
+        "data": rows,
+    }
+    p.write_text(json.dumps(payload))
+    ts = dt.datetime.fromisoformat(mtime_date).timestamp()
+    os.utime(p, (ts, ts))
+    return p
+
+
+def _write_tagged_comparison_json(mlruns_root: Path, exp_id: str, run_id: str,
+                                  rows: list, *, as_of_date: str,
+                                  shadow_name: str, mtime_date: str) -> Path:
+    """An MLflow comparison.json artifact WITH the run tags the real producer
+    (`_log_shadow_run` in renquant-pipeline) writes via `mlflow.set_tags` —
+    `<run_dir>/tags/as_of_date` and `<run_dir>/tags/shadow_name` — the
+    content-based record the locator's primary match now reads instead of
+    trusting file mtime or an artifact payload column."""
+    p = _write_comparison_json(mlruns_root, exp_id, run_id, rows,
+                               mtime_date=mtime_date)
+    tags_dir = p.parent.parent / "tags"
+    tags_dir.mkdir(parents=True, exist_ok=True)
+    (tags_dir / "as_of_date").write_text(as_of_date)
+    (tags_dir / "shadow_name").write_text(shadow_name)
+    return p
+
+
 def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
          staleness_max=28, coverage_floor=0.80, streak=2, as_of=AS_OF):
     """Run main() with all seams patched; return (rc, alerts)."""
@@ -74,6 +129,11 @@ def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
         patch.object(sentinel, "COVERAGE_FLOOR", coverage_floor),
         patch.object(sentinel, "STREAK_N", streak),
         patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
+        # A missing dir/db keeps the clf lane's MLflow fallback a no-op here
+        # (`_read_from_mlflow` early-returns {}) so main()-driving tests never
+        # touch the real production mlruns tree / runs DB.
+        patch.object(sentinel, "MLRUNS_DIR", str(tmp_path / "no_mlruns_here")),
+        patch.object(sentinel, "PROD_RUNS_DB", str(tmp_path / "no_prod_db_here")),
     ):
         rc = sentinel.main(["--as-of", as_of])
     return rc, alerts
@@ -599,3 +659,301 @@ class TestDecoratedLaneName:
         assert not sentinel._matches_shadow_lane("hf_patchtstX")
         assert sentinel._matches_shadow_lane("hf_patchtst")
         assert sentinel._matches_shadow_lane(DECORATED)
+
+
+# ---------------------------------------------------------------------------
+# Multi-lane patrol. Until 2026-07-29 the sentinel watched ONE lane
+# ('hf_patchtst'), so the certified top-decile classifier — the only line with
+# a confirmed effect, and the one accruing the 120-session forward ledger —
+# ran unwatched. These pin the second lane and, critically, the reason its
+# evidence source differs.
+# ---------------------------------------------------------------------------
+
+class TestMultiLane:
+    def test_registry_watches_both_lanes(self):
+        names = {l.name for l in sentinel.watched_lanes()}
+        assert sentinel.SHADOW_NAME in names
+        assert "topdecile_clf_blend_leg" in names
+
+    def test_clf_lane_has_no_db_fallback(self):
+        # It logs to MLflow, not the shadow runs DB. A DB fallback would derive
+        # "no scores collected" every single day and manufacture a permanent
+        # FEED DARK alarm out of a healthy lane.
+        clf = next(l for l in sentinel.watched_lanes()
+                   if l.name == "topdecile_clf_blend_leg")
+        assert clf.runs_db is None
+        pt = next(l for l in sentinel.watched_lanes()
+                  if l.name == sentinel.SHADOW_NAME)
+        assert pt.runs_db is not None
+
+    def test_no_db_lane_never_reads_the_db(self, tmp_path, monkeypatch):
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
+        called: list = []
+        monkeypatch.setattr(sentinel, "_read_from_shadow_db",
+                            lambda *a, **k: called.append(1) or {})
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL",
+                            str(tmp_path / "absent.jsonl"))
+        out = sentinel.read_health_records([D0, D1], clf)
+        assert called == [], "a lane with runs_db=None must not touch the DB"
+        assert all(v is None for v in out.values())
+
+    def test_lane_matching_accepts_decorated_names_per_lane(self):
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg")
+        assert clf.matches("topdecile_clf_blend_leg")
+        assert clf.matches("topdecile_clf_blend_leg_seed7_prev")
+        assert not clf.matches("hf_patchtst")
+        assert not clf.matches("topdecile_clf_blend_legX")
+
+    def test_each_lane_reads_only_its_own_records(self, tmp_path, monkeypatch):
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_record(D1.isoformat(), shadow_name="hf_patchtst"),
+                _record(D0.isoformat(), shadow_name="hf_patchtst"),
+                _record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault"),
+                _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault")]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        pt = sentinel.WatchedLane(name="hf_patchtst", runs_db=None)
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
+        pt_recs = sentinel.read_health_records([D1, D0], pt)
+        clf_recs = sentinel.read_health_records([D1, D0], clf)
+        assert all(r.status == "ok" for r in pt_recs.values() if r)
+        assert all(r.status == "fault" for r in clf_recs.values() if r)
+
+    def test_a_degraded_clf_lane_alarms_and_names_itself(self, tmp_path, monkeypatch):
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault"),
+                _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault")]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   purpose="the certified line")
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert",
+                            lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
+        assert rc == 1 and out
+        assert "topdecile_clf_blend_leg" in sent[0][0]
+        assert "the certified line" in sent[0][1]
+
+    def test_load_failure_body_names_the_failing_lane_not_the_default(
+        self, tmp_path, monkeypatch
+    ):
+        # Regression: check_{feed_dark,load_failure,degraded}_streak used to
+        # interpolate the module-global SHADOW_NAME into the alert BODY
+        # regardless of which lane was patrolling, so a clf-lane failure
+        # would page with a title naming the clf lane but a body claiming
+        # 'hf_patchtst' (the default lane) died — misidentifying the broken
+        # feed to the operator.
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        loaded=False, n_scored=0, coverage_frac=0.0,
+                        artifact_resolved=False, load_error="artifact_not_found",
+                        actionable=False, reasons=["artifact_unresolved"]),
+                _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        loaded=False, n_scored=0, coverage_frac=0.0,
+                        artifact_resolved=False, load_error="artifact_not_found",
+                        actionable=False, reasons=["artifact_unresolved"])]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert",
+                            lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
+        assert rc == 1 and out
+        title, body = sent[0]
+        assert "LOAD FAILURE" in body
+        assert "'topdecile_clf_blend_leg'" in body
+        assert f"'{sentinel.SHADOW_NAME}'" not in body
+
+
+# ---------------------------------------------------------------------------
+# MLflow fallback for the clf lane (codex HIGH, 2026-07-29): a lane with
+# runs_db=None and no producer writing shadow_scorer_health.v1 records for it
+# had NO observable health signal at all — read_health_records() returned all
+# None and _patrol_lane() printed "liveness domain, skip" forever, silently.
+# This wires the SAME comparison.json locator rq104_blend_readout.py already
+# proves works daily, against the real emitted artifact shape (no
+# run_date/shadow_name columns — mtime-date fallback), so the lane is
+# actually observed instead of registered-but-blind.
+# ---------------------------------------------------------------------------
+
+class TestMlflowFallback:
+    def test_no_mlruns_dir_returns_empty(self, tmp_path):
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(tmp_path / "absent"))
+        assert sentinel._read_from_mlflow([D0, D1], clf) == {}
+
+    def test_day_with_no_live_run_is_liveness_domain(self, tmp_path, monkeypatch):
+        prod_db = _make_prod_runs_db(tmp_path, [])  # no live runs at all
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        mlruns.mkdir()
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        assert sentinel._read_from_mlflow([D0], clf) == {}
+
+    def test_live_day_with_recorded_comparison_is_healthy(self, tmp_path, monkeypatch):
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2],
+                ["MSFT", 0.05, 0.01, -0.04, 10, 20, -10]]
+        _write_comparison_json(mlruns, "exp1", "run1", rows, mtime_date=D0.isoformat())
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is True
+        assert rec.feed_present is True
+        assert rec.n_scored == 2
+        assert rec.source == "mlflow_comparison_fallback"
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.HEALTHY
+
+    def test_live_day_with_no_matching_comparison_is_feed_dark(self, tmp_path, monkeypatch):
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        # a comparison.json exists, but its mtime tags a DIFFERENT date
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_comparison_json(mlruns, "exp1", "run1", rows, mtime_date=D1.isoformat())
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is False
+        assert rec.feed_present is False
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.FEED_DARK
+
+    def test_end_to_end_patrol_alarms_when_lane_silently_dark(self, tmp_path, monkeypatch):
+        """The exact HIGH-finding scenario: live runs happened, the JSONL
+        primary sink has nothing for this lane, and MLflow has no comparison
+        table for it either -> the sentinel must now alarm, not silently
+        print 'liveness domain, skip' over a genuinely dark feed."""
+        streak_days = [D1, D0]
+        prod_db = _make_prod_runs_db(tmp_path, [d.isoformat() for d in streak_days])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(tmp_path / "absent.jsonl"))
+        mlruns = tmp_path / "mlruns"
+        mlruns.mkdir()
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns), purpose="the certified line")
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, streak_days, D0, out)
+        assert rc == 1 and out
+        assert "topdecile_clf_blend_leg" in sent[0][0]
+
+    def test_end_to_end_patrol_stays_quiet_when_recorded_daily(self, tmp_path, monkeypatch):
+        streak_days = [D1, D0]
+        prod_db = _make_prod_runs_db(tmp_path, [d.isoformat() for d in streak_days])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(tmp_path / "absent.jsonl"))
+        mlruns = tmp_path / "mlruns"
+        for i, d in enumerate(streak_days):
+            rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+            _write_comparison_json(mlruns, "exp1", f"run{i}", rows,
+                                   mtime_date=d.isoformat())
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, streak_days, D0, out)
+        assert rc == 0 and not out and not sent
+
+    def test_tagged_record_found_even_when_not_among_newest_20_untagged(
+        self, tmp_path, monkeypatch
+    ):
+        """codex HIGH (2026-07-29): the locator scanned only the 20
+        most-recently-modified comparison.json files, so a valid older record
+        could be silently missed. The correctly TAGGED run has the OLDEST
+        mtime here, with 20 unrelated untagged files modified more recently —
+        it must still be found because the tag-based primary match scans
+        every candidate, not just the newest 20."""
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_tagged_comparison_json(
+            mlruns, "exp1", "run_target", rows,
+            as_of_date=D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+            mtime_date="2020-01-01",  # oldest by far
+        )
+        for i in range(20):
+            _write_comparison_json(
+                mlruns, "exp1", f"run_noise{i}", rows,
+                mtime_date=D1.isoformat(),  # newer, and for a different date
+            )
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is True
+        assert rec.n_scored == 1
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.HEALTHY
+
+    def test_unrelated_tagged_comparison_for_other_lane_is_not_falsely_matched(
+        self, tmp_path, monkeypatch
+    ):
+        """codex HIGH (2026-07-29): the locator never verified `shadow_name`
+        against the actual run (production comparison.json has neither
+        `run_date` nor `shadow_name` as payload columns), so a differently
+        tagged lane's record could pass as a match. A comparison.json tagged
+        for the OTHER lane (`hf_patchtst`), same date, newest mtime, must not
+        satisfy the clf lane's health check — it should read as FEED DARK,
+        not silently borrow the other lane's record."""
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_tagged_comparison_json(
+            mlruns, "exp1", "run_other_lane", rows,
+            as_of_date=D0.isoformat(), shadow_name="hf_patchtst",
+            mtime_date=D0.isoformat(),
+        )
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is False
+        assert rec.feed_present is False
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.FEED_DARK
+
+    def test_tagged_match_wins_over_touched_untagged_file_with_matching_mtime(
+        self, tmp_path, monkeypatch
+    ):
+        """codex HIGH (2026-07-29): file mtime is not immutable — a
+        touch/copy/retry can make an unrelated file's mtime match `run_date`
+        by coincidence. An untagged decoy with the right mtime-date must lose
+        to the correctly tagged record for a DIFFERENT date once any tagged
+        candidates exist in the tree at all (tags are authoritative)."""
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        decoy_rows = [["ZZZZ", 9.9, 9.9, 0.0, 1, 1, 0],
+                      ["YYYY", 9.9, 9.9, 0.0, 2, 2, 0],
+                      ["XXXX", 9.9, 9.9, 0.0, 3, 3, 0]]
+        # untagged decoy whose mtime happens to fall on D0 (the touch/retry case)
+        _write_comparison_json(mlruns, "exp1", "run_decoy", decoy_rows,
+                               mtime_date=D0.isoformat())
+        real_rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_tagged_comparison_json(
+            mlruns, "exp1", "run_real", real_rows,
+            as_of_date=D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+            mtime_date="2020-01-01",
+        )
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is True
+        # 1 row (the tagged "run_real"), not 3 (the untagged same-mtime-date decoy)
+        assert rec.n_scored == 1
+        assert rec.n_candidates == 1
