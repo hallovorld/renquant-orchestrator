@@ -1,56 +1,69 @@
-# Progress: breadth does not buy evaluation precision (GOAL-6 Stage 2 input)
+# Progress: breadth does not buy evaluation precision; depth does, and it is gated on Stage 1
 
-STATUS:   delivered (measurement + research doc). This is NOT a proposal and
-          asks for no decision; it replaces an assumption in GOAL-6 Stage 2
-          scoping with a measured number.
+STATUS:   delivered (committed verifier + research memo). NOT a proposal; asks
+          for no decision. Revised after codex review (2 MED): added the
+          reviewable derivation, and restamped every quantity with a provenance
+          tag rather than a blanket tail note.
 
-WHAT:     `doc/research/2026-07-29-breadth-does-not-buy-evaluation-precision.md`.
-          Subsampled the clf walk-forward corpus cross-section to N names/date
-          and measured per-date IC variance as a function of N. Fitted
-          `Var(IC) = 0.03535 + 0.9814/N`. At N=292 the breadth-proof term is
-          91% of the variance; 292 -> 830 names narrows the per-date IC sd by
-          2.9%, and an infinitely wide cross-section caps at 4.4%.
+WHAT:     `tools/breadth_precision_verify.py` — reproduces every number in the
+          memo from sha256-pinned inputs, aborting on mismatch, with each
+          subsample draw seeded off (date, N, replicate) so the tables are
+          bit-reproducible. Plus
+          `doc/research/2026-07-29-breadth-does-not-buy-evaluation-precision.md`.
+
+          Findings: at N=292 names/date, 91% of per-date IC variance is
+          breadth-proof; 292 -> 830 buys -2.9% on the per-date IC sd, and an
+          infinite cross-section caps at -4.4%. The binding constraint is TIME
+          (11 blocks). The production panel holds 43 blocks over 10.3 years, so
+          24% of available history is scored — but that history has ZERO ticker
+          exits, i.e. it is the current universe backfilled. Depth is the lever
+          that works, and depth requires the PIT panel Stage 1 builds.
 
 WHY/DIR:  GOAL-6 sequences Stage 1 (830-name PIT panel) into Stage 2 "breadth
-          retraining", partly on the premise that breadth improves measurement.
-          That link was inherited intuition, never measured. It is correct in
-          direction and roughly an order of magnitude too small to matter.
+          retraining", partly on the premise that width improves measurement.
+          That link was inherited intuition, never measured, and is off by
+          about an order of magnitude. The same measurement identifies what
+          DOES move the interval and shows Stage 1 is its precondition — so
+          this strengthens Stage 1's case rather than weakening the programme.
 
-          Corroborated without the fit: the clf corpus has TWICE PatchTST's
-          cross-sectional width (292 vs 142 names) and a WIDER confidence
-          interval (half-width 0.0733 vs 0.0562). Both sit on 11 independent
-          60-day blocks. Time is the binding constraint, not width.
-
-EVIDENCE: artifact: `scratchpad/clf-wf/clf_wf_scores.parquet` (178,191 rows,
-                    625 score dates, 43 folds, 292 tickers, all rows labelled),
-                    READ-ONLY; analysis via `renquant_model_common.lag_alignment`.
-  prod or exp:      EXPERIMENT/measurement. No production data, config, or
-                    artifact written. Corpus lives in the quarantined scratch
-                    namespace.
-  existing data:    Yes — measured this session, not recalled. Ladder N in
-                    {20,40,80,140,200,250,292} over the 594 dates carrying >=250
-                    names, 3 draws per (date,N). Fit tracks the ladder closely
-                    (predicted 0.03871 vs measured 0.03899 at N=292; 0.08445 vs
-                    0.08485 at N=20). An earlier session measured a different
-                    corpus at `Var(IC) = 0.01877 + 1.065/N` — different `a`,
-                    same conclusion about which term dominates.
-  best-known?:      Yes for this corpus. Explicitly NOT claimed: that breadth
-                    fails to improve the MODEL. This measures evaluation
-                    precision only; a wider training panel may still produce a
-                    better model, and a wider tradeable universe has independent
-                    value. Stage 1's survivorship justification is untouched —
-                    a biased panel is wrong at any width.
-  scope:            `renquant-orchestrator` docs only. No pin advanced, no
-                    umbrella change, no live surface touched.
+EVIDENCE: artifact: `tools/breadth_precision_verify.py` (committed, this PR);
+                    inputs pinned `clf_wf_scores.parquet`
+                    sha256 `1da3fcfa…5bc4efe4` and `clf_wf_manifest.json`
+                    sha256 `c1cb22e2…7bd092086`; production panel
+                    `RenQuant/data/transformer_v4_wl200_clean.parquet`, READ-ONLY.
+  prod or exp:      EXPERIMENT/measurement + a committed verifier. No
+                    production data, config, or artifact written; the panel was
+                    opened for read only.
+  existing data:    Yes — re-measured this session THROUGH the committed
+                    verifier, which changed what is publishable. The first
+                    revision's ladder came from an unseeded run and differs in
+                    the third decimal at small N (N=80: 0.04832 then, 0.04619
+                    now). Only the seeded output is published; the fit, the
+                    91%, and the -2.9% / -4.4% deltas are unchanged. A visible
+                    correction note records this in the memo rather than a
+                    silent overwrite.
+  best-known?:      Yes for this corpus, and now independently checkable from
+                    the branch. Explicitly NOT claimed: that breadth fails to
+                    improve the MODEL, or that the 830-name panel should not be
+                    built. This measures evaluation precision only.
+  scope:            `renquant-orchestrator` docs + one tool. No pin advanced,
+                    no umbrella change, no live surface touched.
 
 SCOPE/LIMITS:
-          Restricting to dates with >=250 names means the N=292 row occasionally
-          draws from a slightly smaller pool, which if anything UNDERSTATES how
-          flat the curve is. The `a + b/N` form is fitted, not derived, so
-          N=2000 is an extrapolation. `a` is corpus- and model-specific and
-          should be re-measured per corpus rather than assumed.
+          The `a + b/N` form is fitted, not derived, so N=2000 and N=inf are
+          extrapolations. The 11 -> 43 block projection assumes 1/sqrt scaling
+          AND a stationary effect across 2016-2026; neither holds exactly
+          (COVID, the 2022 rate shock), so more blocks from more heterogeneous
+          regimes may raise `a` as well as the block count. Both are tagged
+          [DERIVED] / [ASSUMED] in the memo at the point of use.
 
-NEXT:     GOAL-6 Stage 2 scoping should carry this number. If Stage 2 is
-          budgeted on breadth making results resolvable, that premise needs
-          restating; resolving these effects needs more independent TIME blocks.
-          Stage 1 proceeds on its own survivorship grounds regardless.
+VERIFICATION:
+          `python3 tools/breadth_precision_verify.py --clf-corpus <path> --panel <path>`
+          -> PIN OK on both inputs; ladder, fit, and survivorship probe as
+          published. Progress-doc contract checker: 0 findings.
+
+NEXT:     Cost the depth lever (rescoring 2016-2023) alongside Stage 2's
+          breadth work, and note it cannot start before Stage 1 delivers a PIT
+          panel — scoring the existing backfilled history would buy blocks and
+          import survivorship bias into the statistic those blocks were bought
+          to sharpen.

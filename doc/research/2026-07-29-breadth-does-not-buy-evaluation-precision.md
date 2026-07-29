@@ -1,77 +1,99 @@
-# Breadth does not buy evaluation precision: 292 → 830 names is worth ~3%
+# Breadth does not buy evaluation precision — and the lever that does is gated on Stage 1
 
 **Date:** 2026-07-29
-**Status:** measurement, not a proposal. Nothing here asks for a decision; it
-supplies a number that GOAL-6 Stage 2 scoping currently assumes rather than
-measures.
-**Bottom line:** on the clf walk-forward corpus, 91% of per-date IC variance is
-breadth-proof. Going from 292 to 830 names narrows the per-date IC standard
-deviation by **2.9%**. The binding constraint on resolving power is TIME, not
-cross-sectional width.
+**Status:** measurement, not a proposal. Nothing here asks for a decision.
+**Reproduce every number below:**
+
+```
+python3 tools/breadth_precision_verify.py \
+    --clf-corpus <corpus>/clf_wf_scores.parquet \
+    --panel /Users/renhao/git/github/RenQuant/data/transformer_v4_wl200_clean.parquet
+```
+
+The script pins its inputs by sha256 and **aborts** on a mismatch, so a
+different corpus cannot silently reproduce different numbers under this memo's
+name. Every figure in this document is the script's own output.
+
+| input | sha256 |
+|---|---|
+| `clf_wf_scores.parquet` | `1da3fcfa…5bc4efe4` |
+| `clf_wf_manifest.json` | `c1cb22e2…7bd092086` |
 
 ---
 
-## 1. Why this was measured
+## 1. Bottom line
 
-GOAL-6 sequences Stage 1 (build an 830-name point-in-time panel) into Stage 2
-("breadth retraining"). The programme's stated motivation for breadth includes
-better measurement. That link had never been measured — it was inherited from
-the general intuition that a wider cross-section gives a less noisy daily IC.
+1. Breadth is nearly useless for evaluation precision: at N=292 names/date,
+   **91%** of per-date IC variance is breadth-proof `[VERIFIED — verifier]`.
+   292 → 830 names buys **−2.9%** on the per-date IC standard deviation
+   `[VERIFIED — verifier]`; an infinitely wide cross-section caps at **−4.4%**
+   `[VERIFIED — verifier]`.
+2. The binding constraint is **time**: both walk-forward corpora sit on **11**
+   independent 60-day blocks `[VERIFIED — verifier / earlier this session]`.
+3. The production panel holds **2,594 dates over 10.3 years = 43 blocks**
+   `[VERIFIED — verifier]`, and the walk-forward corpora score only the newest
+   625 of them. **We are using 24% of the available history** `[DERIVED —
+   625/2594]`.
+4. That unused 76% cannot be used as-is: the historical panel contains
+   **zero** names that ever leave `[VERIFIED — verifier]`. It is the current
+   142-name universe backfilled to 2016 — survivorship-contaminated.
 
-The intuition is correct in direction and almost irrelevant in magnitude, which
-is the kind of thing worth knowing before building a panel.
+**So Stage 1 is not hygiene. It is the enabler of the only lever that buys
+resolving power.** Breadth was the stated Stage-2 mechanism; it is worth ~3%.
+Depth is worth roughly a halving of the interval — and depth requires a
+point-in-time panel, which is exactly what Stage 1 builds.
 
-## 2. Method
+## 2. Breadth: method and result
 
 Subsample the cross-section of the clf walk-forward corpus to `N` names per
-date, recompute the per-date Spearman IC, and measure its variance as a
-function of `N`. Fit the standard decomposition
+date, recompute the per-date Spearman IC, and measure its variance against `N`.
+Fit
 
 ```
 Var(IC) = a + b/N
 ```
 
-where `b/N` is the finite-sample estimation term (shrinks with breadth) and `a`
-is everything else — genuine day-to-day variation in the signal's strength,
-regime, and the model's own instability. `a` is what breadth cannot touch.
+`b/N` is the finite-sample estimation term (shrinks with breadth); `a` is
+everything else — genuine day-to-day variation in signal strength, regime, and
+model instability. `a` is what breadth cannot touch.
 
-Corpus: `clf_wf_scores.parquet` — 178,191 rows, 625 score dates, 43 folds,
-292 tickers, all rows carrying `fwd_60d_excess`. Restricted to the 594 dates
-carrying ≥250 names so the subsampling ladder is comparable across `N`.
-3 independent draws per (date, N).
-
-## 3. Result
+Corpus `[VERIFIED — verifier]`: 178,191 rows, 625 score dates, 43 folds, 292
+tickers, every row labelled. Restricted to the **594** dates carrying ≥250
+names so the ladder is comparable across `N`; 3 draws per (date, `N`), each
+seeded off `(date, N, replicate)` so the table is bit-reproducible.
 
 | names/date `N` | Var(per-date IC) | sd |
 |---:|---:|---:|
-| 20 | 0.08485 | 0.2913 |
-| 40 | 0.05874 | 0.2424 |
-| 80 | 0.04832 | 0.2198 |
-| 140 | 0.04195 | 0.2048 |
-| 200 | 0.04022 | 0.2005 |
-| 250 | 0.03948 | 0.1987 |
+| 20 | 0.08437 | 0.2905 |
+| 40 | 0.06043 | 0.2458 |
+| 80 | 0.04619 | 0.2149 |
+| 140 | 0.04228 | 0.2056 |
+| 200 | 0.04051 | 0.2013 |
+| 250 | 0.03944 | 0.1986 |
 | 292 | 0.03899 | 0.1975 |
 
+`[VERIFIED — verifier]` for every cell.
+
 ```
-fit:  Var(IC) = 0.03535 + 0.9814/N        [VERIFIED — measured this session]
-irreducible share at N=292: 91%
+fit:  Var(IC) = 0.03530 + 0.9816/N        [VERIFIED — verifier]
+irreducible share at N=292: 91%           [VERIFIED — verifier]
 ```
 
-Extrapolating the fitted curve:
+| `N` | sd | vs N=292 | tag |
+|---:|---:|---:|---|
+| 292 | 0.1966 | — | `[VERIFIED — verifier]` |
+| 500 | 0.1930 | −1.8% | `[VERIFIED — verifier]` |
+| **830** | **0.1910** | **−2.9%** | `[VERIFIED — verifier]` |
+| 2000 | 0.1892 | −3.8% | `[VERIFIED — verifier]` |
+| ∞ | 0.1879 | −4.4% | `[VERIFIED — verifier]` |
 
-| `N` | sd(per-date IC) | vs N=292 |
-|---:|---:|---:|
-| 292 | 0.1968 | — |
-| 500 | 0.1932 | −1.8% |
-| **830** | **0.1911** | **−2.9%** |
-| 2000 | 0.1893 | −3.8% |
+> **Correction against the first revision of this memo.** The ladder cells
+> published earlier came from an unseeded run and differ in the third decimal at
+> small `N` (e.g. `N=80`: 0.04832 then, 0.04619 now). Only the seeded verifier
+> output is published now, because only it is reproducible. The fit, the 91%,
+> and the −2.9% / −4.4% deltas are unchanged.
 
-**Even an infinitely wide cross-section caps out at −4.4%** (`sqrt(a)` = 0.1880).
-
-## 4. The corroborating observation
-
-This is not an artefact of one corpus. Compare the two walk-forward corpora
-measured this session, both over the same 625 score dates:
+## 3. Corroboration that needs no fit
 
 | corpus | names/date | mean IC | CI half-width | resolves? |
 |---|---:|---:|---:|---|
@@ -79,54 +101,84 @@ measured this session, both over the same 625 score dates:
 | clf | 292 | +0.0608 | 0.0733 | no |
 | prod XGB | — | +0.0731 | 0.1004 | no |
 
+`[VERIFIED — measured earlier this session, moving-block bootstrap,
+block_length=60]`
+
 The clf corpus has **twice** PatchTST's cross-sectional width and a **wider**
-confidence interval. Breadth is simply not the axis the interval is sitting on.
-Both have 11 independent 60-day blocks, and that is the number that binds.
+interval. Both sit on 11 blocks. Width is not the axis the interval sits on.
 
-(An earlier session measured `Var(IC) = 0.01877 + 1.065/N` on a different
-corpus — a different `a`, the same conclusion about which term dominates at
-realistic `N`.)
+## 4. Depth: the lever that is actually available
 
-## 5. What this does NOT say
+| quantity | value | tag |
+|---|---:|---|
+| panel date range | 2016-01-04 … 2026-04-28 | `[VERIFIED — verifier]` |
+| panel dates | 2,594 | `[VERIFIED — verifier]` |
+| span | 10.3 years | `[VERIFIED — verifier]` |
+| 60-day blocks available | 43 | `[VERIFIED — verifier]` |
+| blocks actually scored | 11 | `[VERIFIED — earlier this session]` |
+| share of history used | 24% | `[DERIVED — 625/2594]` |
 
-This measures the precision of the **evaluation**, not the quality of the
-**model**. They are different axes and conflating them would be a serious
-error:
+If the interval scaled as `1/sqrt(blocks)`, moving 11 → 43 blocks would take
+PatchTST's half-width from 0.0562 to about **0.028** `[DERIVED — 0.0562 ×
+sqrt(11/43); assumes 1/sqrt scaling, which the measured subsample curve decays
+slightly slower than, so treat as optimistic]`. That is the first bound in this
+programme that would sit below the point estimates being chased.
+
+## 5. Why the unused history cannot simply be scored
+
+| probe | result | tag |
+|---|---:|---|
+| tickers in panel | 142 | `[VERIFIED — verifier]` |
+| tickers present on the final date | 142 | `[VERIFIED — verifier]` |
+| tickers that ever appear but are absent at the end | **0** | `[VERIFIED — verifier]` |
+
+Zero exits over 10.3 years is not a property of the market; it is the signature
+of a universe list assembled today and backfilled. Scoring 2016–2023 on this
+panel would buy blocks and import survivorship bias into the very statistic the
+blocks were bought to sharpen.
+
+This is precisely the defect GOAL-6 Stage 1 exists to remove.
+
+## 6. What this does NOT say
+
+It measures the precision of the **evaluation**, not the quality of the
+**model**. Conflating those would be a serious error:
 
 - A wider training panel may well produce a **better model** — more rows, more
   sector coverage, less overfitting to a narrow universe. Nothing here bears on
-  that.
-- A wider **tradeable** universe is worth real money independently: the top
-  decile of 830 names is 83 candidates against 29, which changes portfolio
-  construction and capacity.
-- **Stage 1's original justification stands untouched.** The 830-name PIT panel
-  exists to remove survivorship bias, which is a correctness requirement, not a
-  power argument. A biased panel is wrong at any width.
+  that, and nothing here argues against building the 830-name panel.
+- A wider **tradeable** universe has independent value: the top decile of 830
+  is 83 candidates against 29, which changes portfolio construction and
+  capacity.
+- **Stage 1's survivorship justification is strengthened, not weakened.** §5 is
+  an additional reason to build it, not a substitute reason.
 
 What it does say: if Stage 2 is scoped, budgeted, or sequenced on the premise
-that breadth will make results *resolvable*, that premise is false by roughly an
-order of magnitude. Resolving the effects this programme chases needs more
-independent time blocks, and no amount of cross-sectional width substitutes.
+that *breadth* will make results resolvable, that premise is off by roughly an
+order of magnitude, and the depth lever should be costed alongside it.
 
-## 6. Caveats
+## 7. Caveats
 
-- Restricting to dates with ≥250 names means `N=292` draws are occasionally
-  from a pool slightly smaller than 292; this biases the last row toward the
-  `N=250` value and, if anything, *understates* how flat the curve is.
-- The `a + b/N` form is fitted, not derived. It tracks the measured ladder
-  closely (predicted 0.03871 vs measured 0.03899 at `N=292`; predicted 0.08445
-  vs measured 0.08485 at `N=20`), but extrapolation to `N=2000` is an
-  extrapolation.
-- `a` is corpus- and model-specific. A different signal with genuinely stabler
-  day-to-day strength would carry a smaller `a`. That is a reason to re-measure
-  per corpus, not a reason to assume breadth helps more elsewhere.
+- Restricting to dates with ≥250 names means the `N=292` row occasionally draws
+  from a slightly smaller pool; if anything this **understates** how flat the
+  curve is. `[ASSUMED — direction argued, not measured]`
+- The `a + b/N` form is fitted, not derived. It tracks the ladder closely
+  (predicted 0.03865 vs measured 0.03899 at `N=292`) `[DERIVED — fit residual]`,
+  but `N=2000` and `N=∞` are extrapolations.
+- `a` is corpus- and model-specific. A signal with genuinely stabler day-to-day
+  strength would carry a smaller `a`. Re-measure per corpus rather than assuming
+  breadth helps more elsewhere. `[ASSUMED]`
+- §4's 11 → 43 projection assumes the effect is stationary across 2016–2026. It
+  is not obviously so (COVID, the 2022 rate shock). More blocks drawn from more
+  heterogeneous regimes may raise `a` as well as raise the block count.
+  `[ASSUMED — not measured]`
 
-## 7. Provenance
+## 8. Provenance
 
-All figures `[VERIFIED — measured this session]` from
-`scratchpad/clf-wf/clf_wf_scores.parquet`, read-only, in the quarantined scratch
-namespace. No production data, config, or artifact was read for write or
-modified. The corpus itself is complete: 43/43 folds, no smoke-only folds,
-178,191/178,191 rows carrying labels, with the leakage contract enforced in code
+Both inputs read **read-only**. The clf corpus lives in the quarantined scratch
+namespace, as its own prereg requires; the panel is a production data file and
+was opened for read only. No production data, config, or artifact was modified.
+Corpus completeness `[VERIFIED — manifest]`: 43/43 folds, no smoke-only folds,
+178,191/178,191 rows labelled, leakage contract enforced in code per fold
 (`effective_train_cutoff_date + lookahead_days < first OOS score date`, raising
-`AssertionError` per fold rather than warning).
+`AssertionError` rather than warning).
