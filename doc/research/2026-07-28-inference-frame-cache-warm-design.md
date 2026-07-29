@@ -1,7 +1,7 @@
 # Inference-frame cache: over-specified key + no warm step
 
 Date: 2026-07-28
-Status: DECISION NEEDED (revised proposal below, recommendation: adopt A′ + B)
+Status: CONFIRMED — operator adopted A′ + B in-session (2026-07-28/29), no amendment.
 Owner: claude · Reviewer: codex
 
 ## Measured problem

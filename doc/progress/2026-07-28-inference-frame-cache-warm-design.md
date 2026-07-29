@@ -1,9 +1,10 @@
 # Progress: inference-frame cache design memo (PR #589)
 
-STATUS:   delivered (design memo only, no code). Round-2 revision after
-          codex's HIGH finding (original Proposal A's "fail-closed" allowlist
-          was actually fail-open on an omitted field). Recommendation now
-          explicit in the memo: adopt A′ (revised) + B together.
+STATUS:   CONFIRMED and merge-ready (design memo only, no code). Round-2
+          revision after codex's HIGH finding (original Proposal A's
+          "fail-closed" allowlist was actually fail-open on an omitted
+          field). Operator confirmed adopting A′ (revised) + B together
+          in-session (2026-07-28/29), no amendment to the 5-point recommendation.
 
 WHAT:     Adds `doc/research/2026-07-28-inference-frame-cache-warm-design.md`.
           Documents that `training_panel/pipeline.py::_selected_config_fingerprint`
@@ -36,8 +37,7 @@ existing data: `[VERIFIED — direct log read]` three independent cold rebuilds:
 best-known?:   n/a — this is a design memo identifying a defect (over-specified cache key), not a model/variant performance comparison; no narrower-key implementation exists yet to compare against
 scope:         claim is scoped to the three measured cold-rebuild runs on this machine on 2026-07-28 plus the source-level read of the cache-key composition; does not claim a production-wide timeout-hit frequency. No model/IC/Sharpe number is claimed, so the §4(b) sanity triad does not apply.
 
-NEXT:     Operator/codex sign-off on the recommendation (A′ + B). If accepted,
-          the implementation PR belongs in the canonical kernel
+NEXT:     Confirmed. The implementation PR belongs in the canonical kernel
           (renquant-pipeline) with the umbrella fork mirrored in the same
           batch — the fork-divergence class already hit twice today (blend
           `kind` unknown; `adaptive_quantile` buy_floor unsupported in the
