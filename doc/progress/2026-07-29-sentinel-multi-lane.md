@@ -31,10 +31,13 @@ EVIDENCE:
                  FEED DARK alarm out of a healthy lane. `runs_db` is
                  therefore per-lane and may be `None`, pinned by a test
                  asserting the DB is never opened for such a lane.
-                 `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py]`
-                 56/56 passing: 6 new multi-lane tests + 50 pre-existing
-                 single-lane tests passing unchanged (behaviour-preserving
-                 for lane 1).
+                 `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py,
+                 this session]` 54 passed, 2 skipped (the 2 skips are a
+                 conditional-import contract test pair that only runs when the
+                 producer module is importable in this environment — not a
+                 failure): 6 new multi-lane tests + 48 of the 50 pre-existing
+                 single-lane tests passing unchanged (behaviour-preserving for
+                 lane 1), 2 environment-conditional.
   best-known?:   n/a — monitoring-code change, not a competing model/signal
                  variant; no IC/Sharpe number is claimed.
   scope:         this PR makes the sentinel patrol both shadow lanes instead
