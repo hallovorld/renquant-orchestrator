@@ -241,3 +241,75 @@ def test_same_frontier_spanning_exactly_one_cadence_IS_upstream_empty(tmp_path):
                         prior_observed_on=AS_OF - dt.timedelta(days=7))
     assert r.status == F.UPSTREAM_EMPTY
     assert F.retry_advice(r)[0] == 0
+
+
+# --- the refresh-chain invariant: derived may not lag its own input ---------
+
+def _reading(name, newest, age=90):
+    return F.FrontierReading(name, F.HEALTHY, newest, age, AS_OF, "")
+
+
+def test_the_real_production_lag_is_caught(monkeypatch):
+    """Measured 2026-07-29 and the reason this check exists.
+
+    PROD fund panel  max_date 2026-05-01
+    PROD corpus      max_date 2026-04-28   <- 3 sessions behind its own input
+    Both were inside their own 112d structural bound, so the age check reported
+    HEALTHY for both and could not see the chain was out of order.
+    """
+    monkeypatch.setattr(F, "DERIVED_FROM",
+                        (("transformer-panel", "alpha158-fund-panel"),))
+    out = F.check_derived_not_behind_upstream([
+        _reading("transformer-panel", dt.date(2026, 4, 28), 92),
+        _reading("alpha158-fund-panel", dt.date(2026, 5, 1), 89),
+    ])
+    assert len(out) == 1
+    assert "3d BEHIND" in out[0]
+    assert "age check alone cannot see this" in out[0]
+
+
+def test_derived_level_with_upstream_is_clean(monkeypatch):
+    monkeypatch.setattr(F, "DERIVED_FROM",
+                        (("transformer-panel", "alpha158-fund-panel"),))
+    assert F.check_derived_not_behind_upstream([
+        _reading("transformer-panel", dt.date(2026, 5, 1)),
+        _reading("alpha158-fund-panel", dt.date(2026, 5, 1)),
+    ]) == []
+
+
+def test_derived_AHEAD_of_upstream_is_not_a_finding(monkeypatch):
+    """Only BEHIND is a fault; ahead is legitimate (independent inputs)."""
+    monkeypatch.setattr(F, "DERIVED_FROM",
+                        (("transformer-panel", "alpha158-fund-panel"),))
+    assert F.check_derived_not_behind_upstream([
+        _reading("transformer-panel", dt.date(2026, 5, 5)),
+        _reading("alpha158-fund-panel", dt.date(2026, 5, 1)),
+    ]) == []
+
+
+def test_an_unreadable_side_is_skipped_not_double_counted(monkeypatch):
+    """The age check already reports an unreadable input; a second finding for
+    the same fault would double-count it."""
+    monkeypatch.setattr(F, "DERIVED_FROM",
+                        (("transformer-panel", "alpha158-fund-panel"),))
+    assert F.check_derived_not_behind_upstream([
+        F.FrontierReading("transformer-panel", F.TRANSIENT, None, None, None, ""),
+        _reading("alpha158-fund-panel", dt.date(2026, 5, 1)),
+    ]) == []
+
+
+def test_main_exits_nonzero_on_a_chain_fault_alone(monkeypatch, tmp_path, capsys):
+    """A chain fault must fail the run even when every artifact is HEALTHY."""
+    up = _parquet(tmp_path, "up.parquet", "2026-07-24")
+    dn = _parquet(tmp_path, "dn.parquet", "2026-07-21")
+    monkeypatch.setattr(F, "WATCHED", (
+        F.WatchedArtifact(name="U", path=up, max_data_age_days=30, cadence_days=1),
+        F.WatchedArtifact(name="D", path=dn, max_data_age_days=30, cadence_days=1),
+    ))
+    monkeypatch.setattr(F, "DERIVED_FROM", (("D", "U"),))
+    monkeypatch.setattr(F, "alert", lambda *a, **k: None)
+    rc = F.main(["--as-of", "2026-07-29"])
+    out = capsys.readouterr().out
+    assert "[HEALTHY] U" in out and "[HEALTHY] D" in out
+    assert "[CHAIN]" in out and "3d BEHIND" in out
+    assert rc == 1, "a chain fault with all-healthy artifacts must still fail"
