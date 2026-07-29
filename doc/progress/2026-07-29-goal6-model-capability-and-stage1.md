@@ -76,11 +76,19 @@ EVIDENCE: artifact:      `doc/research/2026-07-28-goal6-model-capability-design.
           run, not to this design."
 
 NEXT:     Operator decision requested on opening the MID workstream and on
-          the staged plan. Once Stage 0 (model#86) merges, Stage 1 runs
-          under its own frozen prereg; its build already happened once
-          (finding: breadth alone does NOT fix survivorship bias — a real,
-          self-falsifying result worth keeping) but that result and its
-          evidence belong in a separate, properly-scoped PR — in
-          renquant-base-data per the repo-boundary table in §4, with a
-          durable evidence reference (model#91's corpus-index is the
-          template), not bundled into this design's opening PR.
+          the staged plan. Stage 0 (model#86) is already MERGED
+          (2026-07-29T08:10:49Z) as the frozen prereg — that only unblocks
+          RUNNING Stage 0, it does not satisfy Stage 1's entry condition.
+          Per §5 of the design, Stage 1's entry is "Stage 0 exited": Stage 0
+          must actually run against its now-frozen prereg and clear its own
+          exit criteria (free-power multiplier quantified, tail-vs-IC
+          confirmed/refuted, Stage-2 statistic recommendation stated) before
+          Stage 1 may begin. That has not happened yet. Separately, the
+          Stage-1 build already happened once out of order (finding: breadth
+          alone does NOT fix survivorship bias — a real, self-falsifying
+          result worth keeping); that result and its evidence belong in a
+          separate, properly-scoped PR — in renquant-base-data per the
+          repo-boundary table in §4, with a durable evidence reference
+          (model#91's corpus-index is the template) — filed only after
+          Stage 0 has actually exited, not bundled into this design's
+          opening PR.
