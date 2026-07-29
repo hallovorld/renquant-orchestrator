@@ -14,12 +14,14 @@ STATUS:   delivered (code + 18 tests). Not yet installed as a launchd job — th
 WHAT:     Adds `ops/renquant104/rq104_silent_refusal_sentinel.py` and its tests. It
           reads dated job logs read-only, classifies each run as acted / refused /
           failed / undecided, and alarms when a job has not ACTED in N runs
-          (default 3) — an `undecided` run does not reset that count (fail toward
-          alarming) but also is never called part of a "consecutive" span: the
-          alert names any such gap explicitly rather than implying temporal
-          contiguity the sentinel can't back up. Registry-driven: a job belongs
-          when "it ran successfully" and "it did its job" are different
-          statements.
+          (default 3 `[ASSUMED — a single stale week should stay quiet; the
+          2026-07-28 incident that motivated this sentinel ran for MONTHS, so 3
+          catches the chronic case well inside that window]`) — an `undecided`
+          run does not reset that count (fail toward alarming) but also is never
+          called part of a "consecutive" span: the alert names any such gap
+          explicitly rather than implying temporal contiguity the sentinel can't
+          back up. Registry-driven: a job belongs when "it ran successfully" and
+          "it did its job" are different statements.
 
 WHY/DIR:  GOAL-5 AC5, and the one serving-reliability AC with no PR yet. The
           motivating incident: `com.renquant.weekly-retrain-patchtst` trained a fresh
@@ -49,7 +51,10 @@ EVIDENCE: artifact:      `ops/renquant104/rq104_silent_refusal_sentinel.py` +
           stays silent; counting non-action (refused OR failed) scores it as 4, and
           the dry-run against the real logs reports exactly that: "has not acted on 4
           consecutive runs (2026-07-25:refused, 2026-07-18:failed, 2026-07-11:failed,
-          2026-07-03:failed; 3 of them CRASHED)" `[VERIFIED — dry-run output]`. Suite
+          2026-07-03:failed; 3 of them CRASHED)" `[VERIFIED — dry-run output]` — this
+          real run has no `undecided` gap, so "consecutive" is the accurate word for
+          THIS output; `check()` only drops it when a gap is actually present (see
+          the STATUS fix note and the two regression tests for that case). Suite
           18/18 `[VERIFIED — pytest run this session]`.
            best-known?:   n/a — this is a monitoring/alerting utility, not a model or
           statistic; no IC/Sharpe claim is made.
