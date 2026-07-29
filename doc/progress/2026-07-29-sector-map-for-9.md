@@ -14,9 +14,15 @@ WHY/DIR:  `sector_map` and `sector_etf_map` are both config_fingerprint fields
           and finer than GICS; no script produces it, so this is the one part of
           the batch that needs human judgment.
 
-EVIDENCE: artifact: `.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
+EVIDENCE: artifact: `renquant-strategy-104/configs/strategy_config.json` on
+                    `main` (the PINNED config; see §4(ii) in the design doc
+                    for where it and the umbrella copy diverge)
                     (sector_map 485-645, sector_etf_map 646-664,
-                    max_positions_per_sector 665 = 6, require flag 427),
+                    max_positions_per_sector 665 = 6, require flag 427)
+                    `[VERIFIED — git show origin/main:configs/strategy_config.json
+                    in the renquant-strategy-104 clone, this session; prior
+                    citation of `.subrepo_runtime/repos/...` was a nonexistent
+                    path on this machine, corrected here]`,
                     enforcement at
                     `renquant-pipeline/.../preflight_pipeline/tasks/sector_map.py:49-82`,
                     `task_selection.py:39-40`, `portfolio_qp/tasks.py:1501-1536`.

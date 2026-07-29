@@ -147,8 +147,21 @@ generic guard is least likely to behave as intended.
 
 ## 7. Provenance
 
-All figures read READ-ONLY from
-`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
+All figures read READ-ONLY from the canonical, strategy-owned
+`renquant-strategy-104/configs/strategy_config.json` (the PINNED config; see
+§4(ii) for where it and the umbrella copy diverge) on `main`
 (sector_map lines 485-645, sector_etf_map 646-664, cap 665, require flag 427)
 and the pipeline enforcement paths cited in §1. Admission figures from
 orchestrator#610. Nothing written; no config changed.
+
+**Path correction (this session):** the prior citation
+(`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`)
+does not exist on this machine — `renquant-orchestrator` has no
+`.subrepo_runtime` checkout. Re-verified every non-count figure directly
+against `renquant-strategy-104/configs/strategy_config.json` on `main`
+`[VERIFIED — git show origin/main:configs/strategy_config.json in the
+renquant-strategy-104 clone, this session]`: all cited line numbers (210,
+427, 511, 513, 646, 665, 829) reproduce exactly as stated. The count
+divergence itself (13 vs 14 `datacenter_hw`) is §4(ii)'s pinned-vs-umbrella
+finding, not a provenance error — this correction is only the broken path
+string.
