@@ -87,32 +87,3 @@ PROVENANCE OF THE OPERATIONAL CONSTANTS (LONG#10):
   * `MAX_LOG_AGE_DAYS` default 90 `[ASSUMED — ~13 weekly cycles: long enough to see a chronic span, short enough that a job which stopped running entirely falls to the liveness checker rather than re-alarming here]`
   * the four cited run outcomes `[VERIFIED — direct read of logs/weekly_retrain_patchtst/2026-07-{03,11,18,25}.log, 2026-07-28]`
   * "622 days stale" `[VERIFIED — prior work, shadow_scorer_health.jsonl stale_622d_limit_28d]`
-
-## CORRECTION 2026-07-29 — the CorpusRefreshError crashes are ALREADY FIXED
-
-An earlier note here (and my report to the operator) treated the
-`CorpusRefreshError` crashes as an open, ongoing production failure. Traced
-properly, they are not `[VERIFIED — weekly logs + pinned base-data git log]`:
-
-| weekly run | outcome |
-|---|---|
-| 2026-07-03 | `CorpusRefreshError` |
-| 2026-07-11 | `CorpusRefreshError` |
-| 2026-07-18 | `CorpusRefreshError` |
-| **2026-07-25** | **no crash** — reached the promote decision and refused |
-
-base-data#48/#49 (the canonical 179-column single-writer sidecar contract,
-which restores the three sentiment columns) merged **2026-07-18** and is the
-pinned runtime today: the pinned checkout's `RAWLABEL_SIDECAR_COLUMNS` has
-length 179 and contains all of `sentiment_pos_share`, `mean_sentiment`,
-`n_articles_log` `[VERIFIED — direct import from
-.subrepo_runtime/repos/renquant-base-data]`. The last crash predates the fix
-landing; the first run after it is clean.
-
-**What this changes and what it does not.** The three crashes were real and
-were invisible for three weeks, so the sentinel's reason for existing is
-unchanged — indeed the crash class is precisely why counting refusals alone
-would have missed them. What changes is the CAUSE ATTRIBUTION: the current
-non-acting span is a freshness-gate refusal (RenQuant#541's subject), not an
-ongoing corpus-refresh failure. The sentinel's alert text is already correct
-about this: it names the three possible causes rather than asserting one.
