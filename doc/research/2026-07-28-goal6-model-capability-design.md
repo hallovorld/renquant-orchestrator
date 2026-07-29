@@ -113,6 +113,13 @@ a factor of 2.4. Both are reported; neither is discarded:
 | **breadth + 20d** | 830 | 20d | 130 | **0.035** | **0.023** |
 | + history to 20y | 830 | 20d | 252 | 0.025 | 0.017 |
 
+> **Stage-0 correction (2026-07-28).** The horizon rows of this table assume
+> the detectable effect is the same at 20d as at 60d. That assumption was
+> then MEASURED and is false: shortening the horizon shrinks the effect
+> roughly in proportion to the gain in independent blocks, so the 20d rows
+> below overstate the achievable power. The breadth rows are unaffected.
+> `[VERIFIED — GOAL-6 Stage 0 results, H2 NOT SUPPORTED]`
+
 **The conclusion is robust to which estimate is used, and that is the point
 of reporting both:** today's apparatus needs an IC somewhere in **0.053 to
 0.069** before it can see it at 80% power, against a plausible true IC of
@@ -172,7 +179,7 @@ may still be too weak to conclude on.
 |---|---|---|---|---|---|---|
 | A | **Tail statistic as primary** | ≈ ×2.5 effective t | aligns objective with where skill is | **zero** | mis-specification if skill is not tail-driven — falsifiable in Stage 0 | **ADOPT (first)** |
 | B | **Breadth 142 → 830** | 0.069→0.060 / 0.053→0.041 (with A+C: 0.035 / 0.023) | top decile 14 → 83 names; idiosyncratic noise ÷ ~2.4 | ≈ zero acquisition; build + compute only | delisting/PIT correctness; small-name data quality | **ADOPT (first)** |
-| C | **20d label for measurement** | ×1.7 on T_eff | separate economics (turnover) — measurement use only | zero | conflating measurement horizon with trading horizon | **ADOPT for diagnostics** |
+| C | ~~20d label for measurement~~ | **measured: NO net power gain** | — | zero | — | **REFUTED by Stage 0 (2026-07-28).** The MDE arithmetic assumed the effect size is horizon-invariant. Measured: 20d yields ~3× the independent blocks but proportionately less effect, so the power *ratio* is flat — H2 NOT SUPPORTED on IC for both subjects, a dead heat on spread. `[VERIFIED — goal6-stage0/results.json]` |
 | D | History 10.3y → 20y | ×1.4 further | none directly | high: pre-2016 PIT sparse | regime non-stationarity | **DEFER to Stage 3** |
 | E | **Hourly bars** | **none at 60d/20d horizons** | none | large (storage, build, compute) | distraction | **REJECT.** Measured: intraday open→close net edge **−6.4bp** at IC 0.03 against σ_oc ≈ 152bp. 6.5× the rows describing the same forward outcomes adds no independent observations. Only in scope if the *predicted horizon* changes, which is a different system. |
 | F | Bigger model / more seeds | none (power is data-side) | possible capability gain | compute | uninterpretable until A–C land | **DEFER to Stage 3** |
@@ -400,6 +407,11 @@ prevent.
 The one rev-0 assumption that measurement **supported**: the `1/N` scaling
 itself. Fitted `b = 1.065` against the theoretical 1.00, so factor
 correlation does not materially penalise breadth at these sizes.
+
+| rev-1 claim | corrected value | why it was wrong |
+|---|---|---|
+| a 20d measurement horizon multiplies power by ~1.7 | **no net gain** | the MDE formula holds the effect constant across horizons; measurement shows the effect shrinks proportionately (Stage 0, H2 NOT SUPPORTED) |
+| "breadth + 20d reaches MDE 0.023–0.035" | breadth alone: **0.041–0.060** | follows from the same falsified horizon assumption |
 
 **Standing rule adopted from this correction:** every quantity in this
 program's documents carries a provenance tag — `[VERIFIED — command/file]`,
