@@ -65,10 +65,18 @@ WHAT SURVIVES:
           `grep -h "insufficient cash — skip"` across the 64 canonical
           `YYYY-MM-DD.log` daily-prod files (`scripts/daily_104.sh:40`'s
           naming contract, excludes 65 ad hoc `_shadow`/`_smoke`/`_manual`/
-          etc runs); ratio DERIVED — 764.28/160.59];
-          one-sided Mann-Whitney U on the two samples: U=323, p=6.6e-5
-          [VERIFIED — this session, `scipy.stats.mannwhitneyu(skipped,
-          bought, alternative='greater')`]. Full write-up: orchestrator#608.
+          etc runs); ratio DERIVED — 764.28/160.59]. Full write-up:
+          orchestrator#608.
+
+          RETRACTED (review MED, and it was right): an earlier revision ran a
+          one-sided Mann-Whitney U on these 33/11 rows (U=323, p=6.6e-5) and
+          called the gap statistically distinguishable from chance. WITHDRAWN
+          — those are repeated daily decisions, not independent draws (the
+          skipped set alone repeats EME 3x and ASML 2x), so a rank test
+          assuming 44 independent observations understates the uncertainty by
+          an unquantified amount. The descriptive gap above and the logged
+          sizing-zero-out mechanism both stand; the p-value does not. Same
+          retraction as orchestrator#608.
 
 NEXT:     The enablement proposal goes to `renquant-strategy-104`, measured
           against its own enablement contract, citing #608 for evidence. The

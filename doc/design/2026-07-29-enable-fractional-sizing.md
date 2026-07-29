@@ -102,13 +102,21 @@ reads what the live run actually DID. Re-verified directly in this session
   across those 64 files]`
 - **bought median $160.59 (n=33) vs skipped median $764.28 (n=11) — a 4.76x
   price gap** `[VERIFIED — this session, `grep -h "NEW_BUY"` across the same
-  64 files, n=33; ratio `[DERIVED — 764.28/160.59]`]`, one-sided
-  Mann-Whitney U test on the two samples: U=323, p=6.6e-5
-  `[VERIFIED — this session, `scipy.stats.mannwhitneyu(skipped, bought,
-  alternative='greater')`]`. Full write-up: orchestrator#608.
+  64 files, n=33; ratio `[DERIVED — 764.28/160.59]`]`. Full write-up:
+  orchestrator#608.
 
-That last one is the substantive argument, and it is an argument about whether
-the preconditions are *worth clearing*, not about whether someone forgot a flag.
+**RETRACTED** (review MED, and it was right): an earlier revision reported a
+one-sided Mann-Whitney U test on these two samples (U=323, p=6.6e-5) and
+called the gap statistically distinguishable from chance. **Withdrawn** —
+those 33 and 11 rows are repeated daily decisions, not independent draws (the
+skipped set alone repeats EME 3x and ASML 2x, and the bought side repeats
+ticker/session structure the same way), so a rank test assuming 44
+independent observations understates the uncertainty by an amount not
+quantified here. Same retraction as orchestrator#608.
+
+The descriptive gap is the substantive argument, and it is an argument about
+whether the preconditions are *worth clearing*, not about whether someone
+forgot a flag.
 
 ## 4. Disposition of this PR
 
