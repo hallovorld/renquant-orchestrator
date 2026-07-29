@@ -34,8 +34,16 @@ EVIDENCE: artifact: `.subrepo_runtime/repos/renquant-strategy-104/configs/strate
                     already mapped `[VERIFIED — strategy_config.json:511]`;
                     WDC is already in
                     `datacenter_hw` `[VERIFIED — strategy_config.json:513]`.
-                    Concentration: ai_chip 19 -> 25 (+31.6%), datacenter_hw
-                    14 -> 16 (+14.3%) `[DERIVED — sector_map bucket counts
+                    Concentration: ai_chip, WATCHLIST-relative, 17 -> 23 (+35.3%)
+                    `[VERIFIED/DERIVED]` — my first version used sector_map
+                    ENTRY count (19), but a cap counts held positions among
+                    WATCHLIST names, and only 17 of the 19 entries are on it.
+                    datacenter_hw 14 -> 16 (+14.3%) under the PINNED config the
+                    runner loads, and 13 -> 15 (+15.4%) under the umbrella copy
+                    the trainer loads `[VERIFIED both]`. The difference is
+                    exactly CRWV; the review reproduced 13 and I read 14 and
+                    BOTH are correct, which is the divergence filed as
+                    RenQuant#544 rather than a counting error on either side.
                     (this session) + §2 proposal table]`. No new
                     sector_etf_map entry needed — both buckets map to XLK
                     `[VERIFIED — strategy_config.json:649-650]`.

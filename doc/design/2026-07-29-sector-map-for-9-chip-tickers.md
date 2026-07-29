@@ -72,20 +72,43 @@ literal spin-off lineage, or `ai_chip` on the memory-chip comp with MU. Chose
 
 ## 4. Concentration — the counts, and an open measurement question
 
-| bucket | now | net new | after | growth |
-|---|---:|---:|---:|---:|
-| `ai_chip` | 19 | +6 | **25** | +31.6% |
-| `datacenter_hw` | 14 | +2 | 16 | +14.3% |
+Two corrections to the first version's counts, one of them raised in review and
+one not.
 
-`now` `[VERIFIED — strategy_config.json sector_map, count of entries per
-bucket value, this session]`. `net new` `[DERIVED — §2 proposal table, rows
+**(i) `ai_chip` was counted wrong by me.** The first version used 19 =
+sector_map ENTRY count. Only **17** of those 19 are on the watchlist
+`[VERIFIED — sector_map entries whose ticker is in watchlist, this session]`.
+`max_positions_per_sector` caps HELD positions among watchlist names, so the
+watchlist-relative figure is the one a cap can ever see. Entry count overstates
+it.
+
+**(ii) `datacenter_hw` differs between the two configs, and both readings are
+correct.** The review reproduced **13**; I read **14**. The difference is
+exactly **CRWV**, present in `datacenter_hw` in the PINNED config and absent
+from the umbrella copy `[VERIFIED — both files read this session]`. The live
+runner loads the pinned one (`daily_104.sh:113`); the trainer loads the umbrella
+one (`train_104.py:193`). That divergence is filed as
+`hallovorld/RenQuant#544` — it is not a counting error on either side.
+
+| bucket | now (watchlist-relative) | net new | after | growth |
+|---|---:|---:|---:|---:|
+| `ai_chip` | **17** | +6 | **23** | +35.3% |
+| `datacenter_hw` (PINNED, runner) | **14** | +2 | **16** | +14.3% |
+| `datacenter_hw` (umbrella, trainer) | **13** | +2 | **15** | +15.4% |
+
+Both `datacenter_hw` rows are stated on purpose: until #544 is resolved there is
+no single answer, and picking one silently would hide the divergence.
+
+`now` `[VERIFIED — sector_map entries per bucket RESTRICTED to watchlist
+members, this session]` — see correction (i); the earlier version used
+unrestricted entry count. `net new` `[DERIVED — §2 proposal table, rows
 per bucket excluding NXPI (already mapped)]`. `after` `[DERIVED — now + net
 new]`. `growth` `[DERIVED — net new / now]`.
 
 `ai_chip` goes from third-largest to within one ticker of the largest
-(`software`, 26 `[VERIFIED — strategy_config.json sector_map count, this
+(`software`, 26 entries `[VERIFIED — strategy_config.json sector_map count, this
 session]`), and becomes by far the largest semiconductor-cycle-correlated
-bucket. 25 names would compete for the same 6 held slots.
+bucket. 23 watchlist names would compete for the same 6 held slots.
 
 **Whether the 6-slot cap binds in practice is an open question, not settled by
 this PR.** #610 reports a `mu >= 0.03` admission rate of 2-6 names per session
@@ -102,7 +125,7 @@ which is out of scope for this bucket-assignment proposal.
 WDC is already in the watchlist and already in `datacenter_hw`
 `[VERIFIED — strategy_config.json:513]`. Under this proposal **WDC + SNDK +
 STX** all sit in `datacenter_hw` — a three-name storage cluster inside a
-16-name bucket.
+16-name bucket (15 under the umbrella copy; see §4 correction (ii)).
 
 WDC and SNDK are not merely correlated, they share **direct corporate lineage**:
 SNDK is WDC's own NAND-flash spin-off, so they share the underlying cost
