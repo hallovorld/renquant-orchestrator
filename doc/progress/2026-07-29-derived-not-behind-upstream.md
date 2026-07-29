@@ -67,7 +67,7 @@ DESIGN NOTES, both deliberate:
 
 VERIFICATION:
           27 tests (5 added) `[VERIFIED — pytest -q tests/test_data_frontier_check.py
-          on head 2326663c, re-run this session, "27 passed"]`, including the
+          on head d8c2af91 (the CURRENT PR head), re-run this session, "27 passed". The review's "22 passed" was measured on the earlier head 2326663c, before the 5 new defs landed; the count is head-dependent and the citation now names the head it was taken on]`, including the
           measured production case as a
           regression and `test_main_exits_nonzero_on_a_chain_fault_alone`,
           which asserts a chain fault fails the run while every artifact
