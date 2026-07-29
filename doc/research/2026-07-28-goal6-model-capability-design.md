@@ -9,7 +9,7 @@
 | Adversarial reviewer | codex |
 | Decision owner | operator |
 | Decisions requested | §10 (D1–D4) |
-| Supersedes | — |
+| Supersedes | revision 0 (same date) — see §11 corrections |
 
 ---
 
@@ -17,7 +17,8 @@
 
 **Finding.** The measurement apparatus cannot see the effect sizes we are
 looking for. With today's panel (142 names, 60-trading-day labels, 10.3
-years) the minimum detectable per-date IC at 80% power is **0.052**.
+years) the minimum detectable per-date IC at 80% power is **0.053–0.069**
+(two measured variance estimates; §2.2).
 Published and internally plausible equity cross-sectional ICs are
 **0.02–0.04**. A model with genuine, tradeable edge is therefore
 *statistically invisible* to our current setup, and every verdict returns
@@ -52,54 +53,106 @@ authorised envelope. Stage 3: not costed until Stages 0–2 land.
 
 ## 2. Problem statement, quantified
 
-### 2.1 The power model
+### 2.1 The power model, and how its inputs were MEASURED
 
-Per-date rank IC estimated on a cross-section of `N` names has sampling
-variance ≈ `1/(N−3)`. Across `T_eff` **independent** periods, the standard
-error of the mean IC is
+Per-date rank IC over `N` names decomposes into a true time-varying
+component and estimation noise. The textbook sampling term is `1/(N−3)`
+(Fisher), but that assumes the `N` names are independent draws — false for
+equities, which are factor-correlated. **We measured the relationship
+instead of assuming it.**
 
-```
-SE(mean IC) = sqrt( σ_true² + 1/(N−3) ) / sqrt(T_eff)
-MDE(80% power, α = 0.05 two-sided) ≈ 2.80 × SE
-T_eff = trading_days / label_horizon      (non-overlapping windows)
-```
+**Method.** Using the 43-fold out-of-sample scores (88,750 rows, 625 disjoint
+dates, median 142 names/date) joined to `fwd_60d_excess`, we subsampled the
+cross-section at N′ ∈ {20, 40, 60, 80, 100, 120, 140}, 8 resamples each, and
+measured `Var(IC per date)` at each N′, then fitted `Var(N) = a + b/N` by
+least squares. `[VERIFIED — computed 2026-07-28 from wf-eval/scores.parquet]`
 
-Measured decomposition on the fresh PatchTST validation set (33,370 rows,
-235 dates, N = 142) `[VERIFIED — direct parquet read]`:
+| N′ | measured Var(IC) | `1/(N−3)` under independence |
+|---|---|---|
+| 20 | 0.07187 | 0.05882 |
+| 40 | 0.04606 | 0.02703 |
+| 60 | 0.03605 | 0.01754 |
+| 80 | 0.03186 | 0.01299 |
+| 100 | 0.02905 | 0.01031 |
+| 120 | 0.02799 | 0.00855 |
+| 140 | 0.02653 | 0.00730 |
 
-```
-observed per-date IC variance  0.01498
-  = true IC time-variation     0.00779   (σ_true = 0.0882)
-  + sampling noise             0.00719   (= 1/139)
-```
+**Fit:** `Var(N) = 0.01877 + 1.065/N` (fit residual at N=140: predicted
+0.02638 vs measured 0.02653).
 
-Roughly **half** of the dispersion we observe is pure estimation noise from
-a thin cross-section. That is the term breadth removes.
+Two results follow, one reassuring and one that **corrects an earlier claim
+in revision 0 of this document**:
 
-### 2.2 What each configuration can actually detect
+1. **b = 1.065 ≈ 1.** The 1/N scaling holds empirically on this panel; the
+   feared factor-correlation penalty does not materially inflate the
+   sampling term at these breadths. The theory is usable.
+2. **The sampling term is a MINORITY of the variance, not half.** At N=142
+   it is `1.065/142 = 0.0075` of a total `0.0263` — **29%**. Revision 0
+   asserted "roughly half", derived from the smaller single-model validation
+   window rather than the corpus. Breadth therefore buys **less** than
+   revision 0 claimed, and the corrected numbers are below.
 
-`[DERIVED — from the measured decomposition above; projection, not measurement]`
+### 2.2 What each configuration can detect — measured inputs, two estimates
 
-| scenario | N | horizon | T_eff | SE(mean IC) | **MDE @80%** | detects IC 0.03? |
-|---|---|---|---|---|---|---|
-| **today** | 142 | 60d | 43 | 0.0186 | **0.0521** | **no** |
-| breadth only | 830 | 60d | 43 | 0.0144 | 0.0404 | no |
-| horizon only | 142 | 20d | 130 | 0.0107 | 0.0301 | marginal |
-| **breadth + horizon** | 830 | 20d | 130 | 0.0083 | **0.0233** | **yes** |
-| + history to 20y | 830 | 20d | 252 | 0.0060 | 0.0167 | yes, with margin |
+σ_true² is estimated from two different real datasets, and they disagree by
+a factor of 2.4. Both are reported; neither is discarded:
 
-The production admission bar `min_oos_mean_ic = 0.01` sits **five times
-below** what today's apparatus can resolve. We are gating on a number we
-cannot measure.
+- **0.01877** — 43-fold corpus, 625 dates. Includes fold-to-fold model
+  variation (43 different models), so it over-states the noise faced by a
+  single fixed production model.
+- **0.00779** — a single serving model over 235 validation dates. Cleaner
+  for the "one production model" question, but a shorter window.
+
+`[DERIVED — MDE = 2.80 × sqrt(a + b/N) / sqrt(T_eff), T_eff = 252·years/horizon]`
+
+| scenario | N | horizon | T_eff | **MDE, corpus est.** | **MDE, single-model est.** |
+|---|---|---|---|---|---|
+| **today** | 142 | 60d | 43 | **0.069** | **0.053** |
+| breadth only | 830 | 60d | 43 | 0.060 | 0.041 |
+| 20d only | 142 | 20d | 130 | 0.040 | 0.030 |
+| **breadth + 20d** | 830 | 20d | 130 | **0.035** | **0.023** |
+| + history to 20y | 830 | 20d | 252 | 0.025 | 0.017 |
+
+**The conclusion is robust to which estimate is used, and that is the point
+of reporting both:** today's apparatus needs an IC somewhere in **0.053 to
+0.069** before it can see it at 80% power, against a plausible true IC of
+0.02–0.04 and a production admission bar of **0.01** — a bar 5–7× below what
+we can measure. Breadth alone does not fix it (0.041–0.060). Breadth **and**
+a shorter measurement horizon reach 0.023–0.035, which is the first
+configuration that overlaps the target range.
+
+**Theoretical basis.** The decomposition is the standard signal-plus-noise
+model for a correlation estimator (Fisher variance `1/(N−3)`, validated
+empirically above as `1.065/N`). The independence unit `T_eff` follows the
+overlapping-observation correction: with an `h`-period forward label,
+consecutive daily observations share `h−1` periods of return, so the count
+of independent observations is `T/h`, not `T` — the standard block
+adjustment, and precisely the error that produced a naive t of +5.39 against
+a block-adjusted +0.70 on the same numbers this session. The economic frame
+is the fundamental law of active management (`IR ≈ IC·√BR`): breadth enters
+performance through `√BR` but enters *detectability* only through the
+sampling term, which is why §3 ranks the two effects separately.
 
 ### 2.3 The second lever: the statistic itself
 
-Power is not only a function of sample size. On the same 2026-07-24 panel
-measurement, the tail statistic carried **t = 2.92** against **t = 1.15**
-for full-cross-section IC — a ratio of ~2.5×. Since t scales as √T,
-switching the primary statistic to the tail spread is worth roughly the same
-as **~6× more data**, at zero cost. This is the single highest-leverage
-change in the program and it is free.
+Power is not only a function of sample size. The same panel measurement on
+2026-07-24 reported the tail statistic at **t = 2.92** against **t = 1.15**
+for full-cross-section IC `[VERIFIED — prior work, not re-run here]`.
+
+This session provides an **independent corroboration on different data**: in
+the 43-fold PatchTST evaluation, the real-minus-permutation difference gave
+fold-level **t = 2.90 for the decile spread** against **t = 1.16 for IC**
+`[VERIFIED — wf-eval/fold_diffs.csv, 2026-07-28]`. Two unrelated datasets,
+the same ≈2.5× ratio.
+
+Since t scales as √T for a fixed effect, a 2.5× t-ratio is *arithmetically*
+equivalent to ≈6× the sample size `[DERIVED]`. That equivalence assumes the
+two statistics estimate the same underlying quantity, which they do not
+exactly — the spread is a tail functional and IC is a full-cross-section
+one. The honest claim is therefore narrower: **the tail statistic detects
+this book's effect with materially more power than IC on two independent
+datasets, and Stage 0 exists to measure that ratio properly rather than
+infer it.**
 
 ### 2.4 Business impact
 
@@ -118,7 +171,7 @@ may still be too weak to conclude on.
 | # | option | Δ MDE | portfolio effect | cost | risk | verdict |
 |---|---|---|---|---|---|---|
 | A | **Tail statistic as primary** | ≈ ×2.5 effective t | aligns objective with where skill is | **zero** | mis-specification if skill is not tail-driven — falsifiable in Stage 0 | **ADOPT (first)** |
-| B | **Breadth 142 → 830** | 0.052 → 0.040 (with A+C: 0.023) | top decile 14 → 83 names; idiosyncratic noise ÷ ~2.4 | ≈ zero acquisition; build + compute only | delisting/PIT correctness; small-name data quality | **ADOPT (first)** |
+| B | **Breadth 142 → 830** | 0.069→0.060 / 0.053→0.041 (with A+C: 0.035 / 0.023) | top decile 14 → 83 names; idiosyncratic noise ÷ ~2.4 | ≈ zero acquisition; build + compute only | delisting/PIT correctness; small-name data quality | **ADOPT (first)** |
 | C | **20d label for measurement** | ×1.7 on T_eff | separate economics (turnover) — measurement use only | zero | conflating measurement horizon with trading horizon | **ADOPT for diagnostics** |
 | D | History 10.3y → 20y | ×1.4 further | none directly | high: pre-2016 PIT sparse | regime non-stationarity | **DEFER to Stage 3** |
 | E | **Hourly bars** | **none at 60d/20d horizons** | none | large (storage, build, compute) | distraction | **REJECT.** Measured: intraday open→close net edge **−6.4bp** at IC 0.03 against σ_oc ≈ 152bp. 6.5× the rows describing the same forward outcomes adds no independent observations. Only in scope if the *predicted horizon* changes, which is a different system. |
@@ -217,7 +270,7 @@ the program at that stage; it does not "mostly pass".
 Seed ensembling, model capacity (the current PatchTST is 68k parameters
 against 353k rows — plausibly underfit), history extension to 20 years, and
 horizon economics. Not costed until Stages 0–2 land, because none of it is
-interpretable at MDE 0.052.
+interpretable at an MDE of 0.053–0.069.
 
 ---
 
@@ -325,3 +378,30 @@ projection.
 | intraday net edge −6.4bp, σ_oc ≈ 152bp | Phase −1 intraday study | [VERIFIED — prior work] |
 | `min_oos_mean_ic` = 0.01 | `renquant_pipeline.model_admission._check_oos_ic` | [VERIFIED — code] |
 | all MDE figures in §2.2 | derived from the above via Appendix A | [DERIVED] |
+
+
+---
+
+## 11. Corrections to revision 0 (kept visible, not silently edited)
+
+Revision 0 of this document was written before the variance relationship was
+measured. Three claims in it were wrong and are corrected above. They are
+listed here rather than quietly overwritten, because the failure mode they
+represent — stating a DERIVED or REMEMBERED quantity with the confidence of
+a MEASURED one — is the specific thing this program's discipline has to
+prevent.
+
+| rev-0 claim | corrected value | why it was wrong |
+|---|---|---|
+| MDE today = **0.052** | **0.053–0.069** (two measured variance estimates) | built on the single-model validation window only, and presented as a single precise figure when the input varies by 2.4× across datasets |
+| "roughly **half** the per-date dispersion is sampling noise" | **29%** on the corpus (49% on the single-model window) | assumed `1/(N−3)` and the smaller variance source; never measured |
+| breadth 142→830 gives "t × ~1.3" for detection | **t × ~1.15** (corpus) / ×1.30 (single-model) | followed from the same over-stated sampling share |
+
+The one rev-0 assumption that measurement **supported**: the `1/N` scaling
+itself. Fitted `b = 1.065` against the theoretical 1.00, so factor
+correlation does not materially penalise breadth at these sizes.
+
+**Standing rule adopted from this correction:** every quantity in this
+program's documents carries a provenance tag — `[VERIFIED — command/file]`,
+`[VERIFIED — prior work]`, `[DERIVED — formula]`, or `[ASSUMED]`. An
+untaggable number is not stated.
