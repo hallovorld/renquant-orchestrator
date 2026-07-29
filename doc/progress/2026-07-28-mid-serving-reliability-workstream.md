@@ -26,6 +26,16 @@ STATUS:   CONFIRMED and merge-ready. The workstream was proposed on 2026-07-28;
           PatchTST verdict is currently admissible; the workstream direction is
           confirmed.
 
+WHAT:     Opens `doc/memory/mid-term/serving-reliability.md` as a new MID
+          workstream (peer of `model-edge.md`, not a subtask), lists it in
+          `_north-star.md`, and appends a 2026-07-28 entry to `model-edge.md`
+          recording a readonly end-to-end serving-path preflight with a
+          fresh PatchTST artifact as primary scorer. Also renames
+          `doc/progress/2026-07-28-inference-frame-cache-warm-design.md` to
+          `doc/research/2026-07-28-inference-frame-cache-warm-design.md`
+          (design doc, not a progress record — moved to the correct
+          directory).
+
 WHY/DIR:  The MID tier had not moved since 2026-06-17 while a full day of work produced
           three landed lanes and four defects of one class — a served model's opinion
           never reaching the decision line, with the failure presenting as an ordinary

@@ -78,12 +78,27 @@ STATUS:   serving-behavior diagnostic only — NOT a model-capability verdict. T
           quarantined local scratch per its own prereg's data-handling
           contract and is NOT committed to any repo, so a repo-only search
           (as the original retraction was) cannot find it — that is by
-          design, not evidence of nonexistence. The best available durable,
-          content-addressed reference for the derived analysis built on this
-          corpus is model#89's committed evidence snapshot,
-          `doc/research/evidence/2026-07-29-lag-alignment-defect/` (sha256
-          hashes recorded there) — the raw corpus itself remains uncommitted
-          and is not independently verifiable outside this machine. The
+          design, not evidence of nonexistence.
+          UPDATE (2026-07-29, this pass): the best available durable,
+          content-addressed reference for this corpus is now model#91's
+          queued corpus-index PR, `doc/research/evidence/2026-07-29-
+          patchtst-43fold-corpus-index.json` (root digest `b8aa2d99…`,
+          43 fold dirs / 43 checkpoints / 43 calibrators, Modal dispatch
+          app ids `ap-RIc3qj4D3yFfU9z7tAx4Rd` / `ap-HHid4LhAAD0heLm7Mlk4aW`)
+          `[VERIFIED — read directly from the model#91 branch, 2026-07-29]`
+          — NOT model#89's evidence snapshot cited below previously: that
+          `doc/research/evidence/2026-07-29-lag-alignment-defect/` path was
+          removed from model#89's own branch per its review (it depended on
+          a hard-coded, non-reproducible scratch path) and no longer exists
+          there `[VERIFIED — git ls-tree on model#89's current head,
+          2026-07-29]`. Caveat: model#91 is itself still under active
+          review — its digest currently points at an expiring session-
+          scratch path and the PR does not yet carry a canonical verifier
+          or immutable retrieval/provenance contract — so "best available"
+          describes the current state of the evidence trail, not a
+          settled, merged source of truth. The raw corpus itself remains
+          uncommitted and is not independently verifiable outside this
+          machine until model#91 (or a successor) lands. The
           43-fold evaluation's actual VERDICT (UNDERPOWERED, and separately
           the closure test's CLOSE verdict retracted for a sample-composition
           defect) is tracked in model#85/model#87, not restated here.
