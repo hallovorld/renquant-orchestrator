@@ -144,13 +144,28 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
         d = row["run_date"]
         rp = [fmap.get((t, d)) for t in row["picks_prod"]]
         rb = [fmap.get((t, d)) for t in row["picks_blend"]]
+        # Telemetry, recorded on EVERY pass and for every row, resolved or not.
+        # Realization is all-or-nothing by design (a spread over a partial pick
+        # set is a different statistic and the readout rule is frozen), which
+        # means one unresolvable ticker silently drops that session from the
+        # evidence FOREVER. Coverage is 100% on every realized date measured
+        # 2026-07-29, but the same table also holds dates carrying only 2-3
+        # tickers — a session landing on one of those would vanish without a
+        # trace. These counters make that visible without altering the
+        # statistic or the realization criterion.
+        row["n_resolvable_prod"] = sum(v is not None for v in rp)
+        row["n_resolvable_blend"] = sum(v is not None for v in rb)
+        row["n_picks_prod"] = len(rp)
+        row["n_picks_blend"] = len(rb)
         if all(v is not None for v in rp + rb):
             row["spread_prod"] = float(np.mean(rp))
             row["spread_blend"] = float(np.mean(rb))
             row["realized"] = True
             filled += 1
-    if filled:
-        ledger.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    # Write whenever anything changed — including telemetry-only updates, so a
+    # session that is stuck unresolvable shows WHY on the next pass rather than
+    # looking untouched.
+    ledger.write_text("".join(json.dumps(r) + "\n" for r in rows))
     return filled
 
 
