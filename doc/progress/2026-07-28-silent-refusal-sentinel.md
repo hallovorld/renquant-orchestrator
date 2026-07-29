@@ -13,17 +13,23 @@ STATUS:   delivered (code + 18 tests). Not yet installed as a launchd job — th
 
 WHAT:     Adds `ops/renquant104/rq104_silent_refusal_sentinel.py` and its tests. It
           reads dated job logs read-only, classifies each run as acted / refused /
-          failed / undecided, and alarms when a job has not ACTED for N consecutive
-          runs (default 3). Registry-driven: a job belongs when "it ran successfully"
-          and "it did its job" are different statements.
+          failed / undecided, and alarms when a job has not ACTED in N runs
+          (default 3) — an `undecided` run does not reset that count (fail toward
+          alarming) but also is never called part of a "consecutive" span: the
+          alert names any such gap explicitly rather than implying temporal
+          contiguity the sentinel can't back up. Registry-driven: a job belongs
+          when "it ran successfully" and "it did its job" are different
+          statements.
 
 WHY/DIR:  GOAL-5 AC5, and the one serving-reliability AC with no PR yet. The
           motivating incident: `com.renquant.weekly-retrain-patchtst` trained a fresh
           fold every Saturday, refused at the freshness gate, printed `finished rc=0`,
-          and kept the old pin — for months, while the served artifact reached 622
-          days stale and every liveness checker reported the job healthy. Liveness
-          asks "did it run"; the degradation sentinel (`rq104_degradation_sentinel.py`)
-          watches the live buy path; nothing asked "did it keep declining".
+          and kept the old pin — for months, while the served artifact reached
+          622 days stale `[VERIFIED — prior work, orch#590's model-edge.md
+          2026-07-28 serving read]` and every liveness checker reported the job
+          healthy. Liveness asks "did it run"; the degradation sentinel
+          (`rq104_degradation_sentinel.py`) watches the live buy path; nothing
+          asked "did it keep declining".
 
 EVIDENCE: artifact:      `ops/renquant104/rq104_silent_refusal_sentinel.py` +
           `tests/test_rq104_silent_refusal_sentinel.py`, dry-run output against the

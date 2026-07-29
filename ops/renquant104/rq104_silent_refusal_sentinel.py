@@ -52,9 +52,10 @@ from liveness_common import alert  # noqa: E402
 
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 
-#: consecutive declining runs before alarming. 3 keeps a single legitimate
-#: refusal (a genuinely stale input for one week) quiet while catching the
-#: chronic case within a month. The 2026-07-28 incident ran for MONTHS.
+#: non-acting runs before alarming (not necessarily temporally consecutive —
+#: see inaction_streak). 3 keeps a single legitimate refusal (a genuinely
+#: stale input for one week) quiet while catching the chronic case within a
+#: month. The 2026-07-28 incident ran for MONTHS.
 STREAK_N = int(os.environ.get("RQ104_REFUSAL_STREAK_N", "3"))
 
 #: A dated job log is only considered when it is at most this old, so a job
