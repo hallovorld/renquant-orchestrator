@@ -41,17 +41,17 @@ EVIDENCE: artifact: `renquant-strategy-104/configs/strategy_config.json` on
                     WDC is already in
                     `datacenter_hw` `[VERIFIED — strategy_config.json:513]`.
                     Concentration: ai_chip, WATCHLIST-relative, 17 -> 23 (+35.3%)
-                    `[VERIFIED/DERIVED]` — my first version used sector_map
-                    ENTRY count (19), but a cap counts held positions among
-                    WATCHLIST names, and only 17 of the 19 entries are on it.
+                    `[VERIFIED — sector_map entries whose ticker is in watchlist,
+                    this session]` — my first version used sector_map ENTRY count
+                    (19), but a cap counts held positions among WATCHLIST names,
+                    and only 17 of the 19 entries are on it.
                     datacenter_hw 14 -> 16 (+14.3%) under the PINNED config the
                     runner loads, and 13 -> 15 (+15.4%) under the umbrella copy
-                    the trainer loads `[VERIFIED both]`. The difference is
-                    exactly CRWV; the review reproduced 13 and I read 14 and
-                    BOTH are correct, which is the divergence filed as
-                    RenQuant#544 rather than a counting error on either side.
-                    (this session) + §2 proposal table]`. No new
-                    sector_etf_map entry needed — both buckets map to XLK
+                    the trainer loads `[VERIFIED — both files read this session]`.
+                    The difference is exactly CRWV; the review reproduced 13 and
+                    I read 14 and BOTH are correct, which is the divergence filed
+                    as RenQuant#544 rather than a counting error on either side.
+                    No new sector_etf_map entry needed — both buckets map to XLK
                     `[VERIFIED — strategy_config.json:649-650]`.
   best-known?:      For the mechanics and counts, yes. Three bucket calls are
                     explicitly flagged as judgment: ARM (low — pure IP
@@ -62,7 +62,7 @@ EVIDENCE: artifact: `renquant-strategy-104/configs/strategy_config.json` on
                     surface touched.
 
 CONCENTRATION COUNTS, AND AN OPEN MEASUREMENT QUESTION:
-          25 ai_chip names competing for 6 held slots sounds alarming. #610
+          23 ai_chip names competing for 6 held slots sounds alarming. #610
           (open, under review, not yet a canonical strategy-side measurement)
           reports the `mu >= 0.03` gate admitting 2-6 names per session across
           the entire cross-section, but that number is not reproduced/reviewed
