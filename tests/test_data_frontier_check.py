@@ -105,17 +105,19 @@ def test_a_PRIOR_observation_of_the_same_frontier_proves_it_stuck(tmp_path):
     path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
     art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
                             cadence_days=1)
-    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1))
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1),
+                        prior_observed_on=AS_OF - dt.timedelta(days=3))
     assert r.status == F.UPSTREAM_EMPTY
     assert F.retry_advice(r)[0] == 0
-    assert "PRIOR observation" in r.detail
+    assert "saw the SAME frontier" in r.detail
 
 
 def test_a_prior_observation_that_ADVANCED_is_not_stuck(tmp_path):
     path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
     art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
                             cadence_days=1)
-    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 4, 1))
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 4, 1),
+                        prior_observed_on=AS_OF - dt.timedelta(days=3))
     assert r.status == F.NOT_ADVANCING
 
 
@@ -128,7 +130,8 @@ def test_touched_today_but_data_far_behind_needs_a_second_observation(tmp_path):
     art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
                             cadence_days=1)
     assert F.read_frontier(art, as_of=AS_OF).status == F.NOT_ADVANCING
-    r2 = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1))
+    r2 = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1),
+                         prior_observed_on=AS_OF - dt.timedelta(days=3))
     assert r2.status == F.UPSTREAM_EMPTY
 
 
@@ -194,3 +197,47 @@ def test_dry_run_sends_nothing(monkeypatch, tmp_path):
         max_data_age_days=7, cadence_days=1),))
     assert F.main(["--as-of", "2026-07-29", "--dry-run"]) == 1
     assert sent == []
+
+
+# --- sameness is not enough: the cadence SPAN must be proven ---------------
+
+
+def test_same_frontier_but_TOO_SOON_is_not_upstream_empty(tmp_path):
+    """The regression codex caught on the second revision.
+
+    `prior_frontier == newest` proves the value did not change, not that time
+    passed. Two observations minutes apart agree trivially, so requiring only
+    sameness bought zero retries far too cheaply. UPSTREAM_EMPTY's own
+    contract is "spanning more than one expected cadence".
+    """
+    path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
+    art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
+                            cadence_days=7)
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1),
+                        prior_observed_on=AS_OF - dt.timedelta(days=2))
+    assert r.status == F.NOT_ADVANCING, r.describe()
+    assert F.retry_advice(r)[0] == 1
+    assert "2d ago" in r.detail and "7d cadence" in r.detail
+
+
+def test_same_frontier_with_NO_timestamp_is_not_upstream_empty(tmp_path):
+    """A caller that persists the value but not when it saw it cannot reach
+    the zero-retry status — the safe direction."""
+    path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
+    art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
+                            cadence_days=7)
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1))
+    assert r.status == F.NOT_ADVANCING
+    assert F.retry_advice(r)[0] == 1
+    assert "timestamp was not supplied" in r.detail
+
+
+def test_same_frontier_spanning_exactly_one_cadence_IS_upstream_empty(tmp_path):
+    """The boundary: >= cadence_days qualifies."""
+    path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
+    art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
+                            cadence_days=7)
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1),
+                        prior_observed_on=AS_OF - dt.timedelta(days=7))
+    assert r.status == F.UPSTREAM_EMPTY
+    assert F.retry_advice(r)[0] == 0

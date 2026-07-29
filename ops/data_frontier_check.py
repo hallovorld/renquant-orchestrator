@@ -162,7 +162,8 @@ def newest_data_date(path: str, date_column: str) -> dt.date | None:
 
 
 def read_frontier(art: WatchedArtifact, *, as_of: dt.date,
-                  prior_frontier: dt.date | None = None) -> FrontierReading:
+                  prior_frontier: dt.date | None = None,
+                  prior_observed_on: dt.date | None = None) -> FrontierReading:
     """One observation cannot prove a frontier is permanently stuck.
 
     The first revision assigned UPSTREAM_EMPTY from a single stale snapshot
@@ -171,12 +172,20 @@ def read_frontier(art: WatchedArtifact, *, as_of: dt.date,
     failure as futile and forces ZERO retries — the exact opposite of the
     check-and-retry behaviour this was built for.
 
-    UPSTREAM_EMPTY now requires `prior_frontier` to be supplied and to EQUAL
-    the current frontier: proof that a previous observation saw the same
-    newest date. Without that proof the touched-but-stale case is
-    NOT_ADVANCING with one retry. This checker stays stateless on purpose —
-    it writes nothing — so the caller (a scheduled job that can persist its
-    last reading) is what closes the loop.
+    A second revision required `prior_frontier` to EQUAL the current frontier,
+    which proves SAMENESS but not ELAPSED TIME: two observations seconds apart
+    trivially agree, and the docstring's condition is "spanning more than one
+    expected cadence". So sameness alone still bought zero retries too
+    cheaply. UPSTREAM_EMPTY now additionally requires `prior_observed_on` and
+    at least `cadence_days` between that observation and `as_of` — i.e. the
+    producer has had a full cadence window to move the frontier and did not.
+    Same frontier but too soon stays NOT_ADVANCING with one retry.
+
+    This checker stays stateless on purpose — it writes nothing — so the
+    caller (a scheduled job that persists BOTH its last frontier and when it
+    saw it) is what closes the loop. A caller that persists only the value
+    cannot reach UPSTREAM_EMPTY, which is the safe direction: it retries once
+    instead of escalating on unproven evidence.
     """
     p = Path(art.path)
     if not p.exists():
@@ -200,17 +209,34 @@ def read_frontier(art: WatchedArtifact, *, as_of: dt.date,
 
     # Stale. The distinction that decides whether retrying is sane:
     touched_recently = mtime is not None and (as_of - mtime).days <= art.cadence_days
-    frontier_confirmed_stuck = (prior_frontier is not None
-                                and prior_frontier == newest)
-    if touched_recently and frontier_confirmed_stuck:
+    # Same frontier is necessary but NOT sufficient: two observations seconds
+    # apart agree trivially. UPSTREAM_EMPTY's contract is "across repeated
+    # observations spanning more than one expected cadence", so the elapsed
+    # span has to be checked, not just the value.
+    same_frontier = prior_frontier is not None and prior_frontier == newest
+    span_days = (as_of - prior_observed_on).days if prior_observed_on else None
+    spans_a_cadence = span_days is not None and span_days >= art.cadence_days
+    if touched_recently and same_frontier and spans_a_cadence:
         return FrontierReading(
             art.name, UPSTREAM_EMPTY, newest, age, mtime,
             f"the file was touched within its {art.cadence_days}d cadence but "
             f"its frontier is {age}d old against a {bound}d bound ({how}) — "
-            f"and a PRIOR observation saw the same frontier — the job has now "
-            f"run at least twice and produced nothing newer. Retrying is "
-            f"futile; this is a data-supply problem. Escalate, do not re-run.")
+            f"and an observation {span_days}d ago (>= the {art.cadence_days}d "
+            f"cadence) saw the SAME frontier, so the producer has had a full "
+            f"cadence window and moved nothing. Retrying is futile; this is a "
+            f"data-supply problem. Escalate, do not re-run.")
     if touched_recently:
+        if same_frontier and not spans_a_cadence:
+            why = (f"a prior observation saw the same frontier, but only "
+                   f"{span_days}d ago (< the {art.cadence_days}d cadence)"
+                   if span_days is not None else
+                   "a prior observation saw the same frontier, but its "
+                   "timestamp was not supplied so the cadence span is unproven")
+            return FrontierReading(
+                art.name, NOT_ADVANCING, newest, age, mtime,
+                f"touched within cadence but {age}d stale against a {bound}d "
+                f"bound ({how}) — {why}, so 'permanently stuck' is not "
+                f"established. Retry ONCE, then escalate.")
         return FrontierReading(
             art.name, NOT_ADVANCING, newest, age, mtime,
             f"touched within cadence but {age}d stale against a {bound}d bound "
@@ -246,6 +272,12 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     as_of = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
 
+    # This CLI is a single stateless observation: it passes no prior frontier
+    # and no prior observation time, so it can NEVER return UPSTREAM_EMPTY —
+    # the worst it reports is NOT_ADVANCING with one retry. That is deliberate.
+    # Reaching the zero-retry status requires a caller that persists both the
+    # last frontier AND when it saw it, and can therefore prove the frontier
+    # held across a full cadence. Under-escalating is the safe failure here.
     readings = [read_frontier(a, as_of=as_of) for a in WATCHED]
     for r in readings:
         print(r.describe())
