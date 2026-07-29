@@ -141,7 +141,8 @@ Even with the adaptive floor deleted, AAPL is not bought.
 over 60 days against a required +3.0%**: a **4.4× shortfall**.
 
 On 07-28 only **2 of 78** candidates in the entire cross-section had
-`mu >= 0.03`; on 07-24, **zero did** `[VERIFIED]`. This is corroborated
+`mu >= 0.03`; on 07-24, **zero of 72** did
+`[VERIFIED — §2 funnel table, 07-24 total = 72]`. This is corroborated
 independently in orchestrator#610, which measured the pooled `mu` p90 at
 `+0.0278` — below the `0.03` gate — across 1,010 scored rows.
 

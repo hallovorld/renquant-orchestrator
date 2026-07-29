@@ -22,8 +22,9 @@ EVIDENCE: artifact: `RenQuant/data/runs.alpaca.db` (4,774 rows, opened
                     above the model's own median on 12 of 13 scored sessions
                     `[VERIFIED]`; `mu = +0.0068` vs required `+0.03`
                     `[VERIFIED]`, a 4.4x shortfall `[DERIVED]`; only 2 of 78
-                    candidates cleared `mu>=0.03` on 07-28 and 0 of 76 on 07-24
-                    `[VERIFIED]`. The adaptive floor was recomputed from the DB
+                    candidates cleared `mu>=0.03` on 07-28 and 0 of 72 on 07-24
+                    `[VERIFIED — research doc §2 funnel table, 07-24 total =
+                    72]`. The adaptive floor was recomputed from the DB
                     and matched the logged value to 3 decimals 15/15
                     `[VERIFIED]` — reproduced, not inferred.
   best-known?:      Yes for the admission plumbing. NOT established: WHY the
