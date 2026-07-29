@@ -8,16 +8,21 @@ STATUS:   CONFIRMED and merge-ready. The workstream was proposed on 2026-07-28;
           an earlier version of this doc and of `model-edge.md` claimed the
           frozen 43-fold PatchTST evaluation (model#85) had already run and
           returned UNDERPOWERED, attributed to a Modal run
-          (`wf-pt-b4e47e2c-batch1`, "$18.30 of the $25 cap"). That run does not
-          exist under any name in this repo's history; the checkpoint path the
-          analysis script reads from does not exist in the live checkout; and
-          model#85's own statistical design (dependence-correct estimator,
-          calibrated-vs-raw threshold) was still under active review at the time
-          — a result cannot be valid for a test whose design isn't frozen yet.
-          Retracted, not restated. The 43-fold evaluation has NOT run. Only the
-          workstream proposal + the readonly serving-preflight diagnostic below
-          are confirmed; the PatchTST capability question stays open pending
-          model#85 landing and the corpus actually being generated and scored.
+          (`wf-pt-b4e47e2c-batch1`, "$18.30 of the $25 cap"), and was retracted
+          the same day on the grounds that the run "does not exist under any
+          name in this repo's history." THAT RETRACTION WAS CORRECT AT THE
+          TIME AND IS NOW STALE: model#85's statistical design cleared review
+          and the 43-fold corpus was actually dispatched and generated later
+          the same day (2026-07-28) — it is real, verified directly on disk
+          (43 fold dirs, real checkpoints, Modal dispatch provenance)
+          `[VERIFIED — direct filesystem read, 2026-07-29]`, living in
+          quarantined local scratch per its own prereg's data-handling
+          contract, which is why the original repo-only search found nothing.
+          The evaluation's own verdict (UNDERPOWERED) and the separate
+          closure test's retracted CLOSE verdict are tracked in model#85 /
+          model#87, not restated here — this doc only tracks the workstream
+          proposal + the readonly serving-preflight diagnostic below, both
+          still confirmed.
 
 WHAT:     (1) New workstream `doc/memory/mid-term/serving-reliability.md` with 5 proposed
           ACs; (2) `_north-star.md` lists it as a peer workstream and states why;

@@ -61,20 +61,32 @@ Shadow/pilot surface only — no order path consumes the vector.
 ## 2026-07-28 — fresh PatchTST, end-to-end serving read (agent proposal)
 
 STATUS:   serving-behavior diagnostic only — NOT a model-capability verdict. The
-          capability question (does this recipe carry signal) is still open,
-          pending model#85's frozen 43-fold signal-existence test, which has
-          **not run yet** (as of 2026-07-28: the prereg's own statistical design
-          — the dependence-correct estimator + the calibrated-vs-raw threshold —
-          is still under review, and the 43-fold Modal corpus generation batch
-          (model#82, $16.8 projected / $20 cap) has not been dispatched). A prior
-          version of this entry claimed a completed "43-fold... UNDERPOWERED"
-          result attributed to a Modal run (`wf-pt-b4e47e2c-batch1`); that run
-          does not exist under any name in this repo's history, the checkpoint
-          path it would need does not exist in the live checkout, and reporting
-          a result for a test whose design is still under review is a
-          preregistration violation by construction. Corrected here per
-          [[long-term-agreements.md]] entry 10 — visibly, not by silent
-          overwrite: **retracted, not restated.**
+          capability question (does this recipe carry signal) is still open —
+          see model#85 (frozen 43-fold signal-existence test) and model#87
+          (closure test) for the live state of that question.
+          CORRECTION, dated (per [[long-term-agreements.md]] entry 10 — visibly,
+          not by silent overwrite): an earlier version of this entry claimed a
+          completed "43-fold... UNDERPOWERED" result attributed to a Modal run
+          (`wf-pt-b4e47e2c-batch1`) and was retracted as of 2026-07-28, stating
+          that run "does not exist under any name in this repo's history."
+          THAT RETRACTION WAS ALSO CORRECT AT THE TIME, AND IS NOW STALE: the
+          run was dispatched later the same day (2026-07-28, ~16:51 UTC per its
+          own provenance manifest) and the 43-fold corpus is now real —
+          directly inspected on disk (43 fold dirs, real `.pt` checkpoints,
+          Modal dispatch provenance with per-pod worker IDs/checksums)
+          `[VERIFIED — direct filesystem read, 2026-07-29]`. It lives in
+          quarantined local scratch per its own prereg's data-handling
+          contract and is NOT committed to any repo, so a repo-only search
+          (as the original retraction was) cannot find it — that is by
+          design, not evidence of nonexistence. The best available durable,
+          content-addressed reference for the derived analysis built on this
+          corpus is model#89's committed evidence snapshot,
+          `doc/research/evidence/2026-07-29-lag-alignment-defect/` (sha256
+          hashes recorded there) — the raw corpus itself remains uncommitted
+          and is not independently verifiable outside this machine. The
+          43-fold evaluation's actual VERDICT (UNDERPOWERED, and separately
+          the closure test's CLOSE verdict retracted for a sample-composition
+          defect) is tracked in model#85/model#87, not restated here.
 WHAT:     a PatchTST artifact trained locally on MPS to the panel frontier
           (effective cutoff 2026-04-27, `[VERIFIED — /tmp/ptserve_e2e.log]`,
           vs the served pin at `staleness_days=622`
