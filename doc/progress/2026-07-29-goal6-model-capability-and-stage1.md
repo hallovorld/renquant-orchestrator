@@ -75,8 +75,10 @@ EVIDENCE: artifact:      `doc/research/2026-07-28-goal6-model-capability-design.
           triad applies to whichever results doc follows each stage's own
           run, not to this design."
 
-NEXT:     Operator decision requested on opening the MID workstream and on
-          the staged plan. Stage 0 (model#86) is already MERGED
+NEXT:     The MID workstream itself is already confirmed (see STATUS); what
+          remains open are the named parameters D2/D3/D4 in the design's
+          §10, and the staged execution below. Stage 0 (model#86) is already
+          MERGED
           (2026-07-29T08:10:49Z) as the frozen prereg — that only unblocks
           RUNNING Stage 0, it does not satisfy Stage 1's entry condition.
           Per §5 of the design, Stage 1's entry is "Stage 0 exited": Stage 0

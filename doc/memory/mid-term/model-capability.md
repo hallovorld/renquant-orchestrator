@@ -17,10 +17,14 @@ GOAL:     move the recurring "underpowered" verdict to a decidable one, by
           fixing the measurement and buying the breadth we already own —
           then, and only then, spend on capacity/architecture.
 
-HEADLINE: today's apparatus can only detect per-date IC >= **0.052** at 80% power,
-          while plausible equity cross-sectional IC is 0.02-0.04 and the production
-          admission bar is 0.01 — a real model is statistically INVISIBLE to us.
-          Breadth + a 20d measurement horizon takes the MDE to 0.023.
+HEADLINE: today's apparatus can only detect per-date IC >= **0.053-0.069** (two
+          measured variance estimates) at 80% power, while plausible equity
+          cross-sectional IC is 0.02-0.04 and the production admission bar is
+          0.01 — a real model is statistically INVISIBLE to us. Breadth alone
+          (142 -> 830 names) takes the MDE to 0.041-0.060; a 20d measurement
+          horizon does NOT add further power — measured: the effect shrinks
+          proportionately to the extra independent blocks, so the power ratio
+          is flat (Stage 0, H2 NOT SUPPORTED; design doc §11 corrections).
 
 WHY:      three measured facts, 2026-07-28 `[VERIFIED — direct reads]`:
           (1) 60d labels over 142 names = ~43 independent windows / 10.3y;
