@@ -10,8 +10,12 @@ blame in the logs is **redundant** — every name clearing `mu` also clears it.
 
 ## 1. The distribution the gate is applied to
 
-Live score DB `data/runs.alpaca.db`, sessions 2026-07-08 … 07-29, 1,010 scored
-rows `[VERIFIED — this session]`:
+Live score DB `data/runs.alpaca.db`, calendar dates 2026-07-08 … 07-29, 1,010
+scored rows `[VERIFIED — this session]`. This is a **pooled, date-level**
+read, not a per-trading-session one — see the caveat after the table in §2:
+one date (07-28) carries 255 rows, 3× any other date in the sample, so "date"
+and "session" are not interchangeable here and the finding below is scoped to
+the pooled distribution.
 
 | quantity | value |
 |---|---:|
@@ -23,7 +27,8 @@ rows `[VERIFIED — this session]`:
 The gate asks for **+3.00%** over 60 days. The **median** name is offered
 **−0.05%**. The **90th percentile** name is offered **+2.78%** — still short.
 
-Per session, the pass count is 2–9 out of 76–88.
+Per date, the pass count is 2–17 out of 76–255 rows (see §2 table for the
+per-date breakdown; 07-28 is the outlier both in row count and pass count).
 
 ## 2. The rank floor is redundant
 
@@ -42,17 +47,21 @@ same rows `[VERIFIED — this session]`:
 | 07-28 | 255 | 53 (21%) | 17 (7%) | **17** |
 | 07-29 | 84 | 19 (23%) | 6 (7%) | **6** |
 
-**`pass BOTH` equals `pass mu` in every single session.** The `mu` survivors are
-a strict subset of the rank-floor survivors, so the rank floor never removes a
-name that `mu` would have kept. Compound admission is 48/810 = **5.93%**, which
-is just the `mu` rate.
+07-28's row count (255) is ~3x any other date in this table; the DB read did
+not record whether that is one trading session or several runs pooled under
+one date, so it is reported as-is rather than assumed to be a single session.
+
+**`pass BOTH` equals `pass mu` on every date in the sample.** The `mu`
+survivors are a strict subset of the rank-floor survivors, so the rank floor
+never removes a name that `mu` would have kept. Compound admission is
+48/810 = **5.93%**, which is just the `mu` rate.
 
 Consequence for reading logs: `veto:rank_score_below_floor` is what gets
 LOGGED, and it is not what decides. The AAPL forensics reached the same
 conclusion from the other direction — AAPL was blocked at
-`job_panel_scoring.py:2115` every session, but its `mu` was `+0.0068` against a
-required `+0.03`, a 4.4× shortfall, so deleting the rank floor would not have
-bought it.
+`job_panel_scoring.py:2115` on every date in the sample, but its `mu` was
+`+0.0068` against a required `+0.03`, a 4.4× shortfall, so deleting the rank
+floor would not have bought it.
 
 ## 3. What this is and is not
 
@@ -76,9 +85,9 @@ Previously filed, all real, all downstream of this one:
 `renquant-pipeline#224` (misleading skip message),
 `orchestrator#608` (whole-share rounding skips expensive names).
 
-Those act on the **2–6 names per session that get this far**. This one decides
-how many names get that far at all. On 07-24 the answer was **2 of 76**; on
-07-29, **6 of 84**.
+Those act on the **2–17 names per date that get this far** (§2 table). This
+one decides how many names get that far at all. On 07-24 the answer was
+**2 of 76**; on 07-29, **6 of 84**; on the 07-28 outlier date, **17 of 255**.
 
 ## 5. What I am NOT claiming
 

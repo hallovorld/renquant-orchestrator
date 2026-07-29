@@ -11,8 +11,9 @@ WHAT:     `doc/research/2026-07-29-mu-floor-sits-above-the-model-p90.md`.
 WHY/DIR:  Chasing why 104 placed 0 orders on 2026-07-29 (`no trade
           (risk_gate_vol_dropped(29))`) while sitting at 50% cash. The three
           constraints already filed (#223 wash-sale, #224 message, #608
-          whole-share) all act on the 2-6 names that reach sizing. This one
-          decides how many reach it at all.
+          whole-share) all act on the 2-17 names per date that reach sizing
+          (see the research doc's §2 table). This one decides how many reach
+          it at all.
 
 EVIDENCE: artifact: `RenQuant/data/runs.alpaca.db` (opened
                     `mode=ro&immutable=1`), live config
@@ -20,15 +21,17 @@ EVIDENCE: artifact: `RenQuant/data/runs.alpaca.db` (opened
   prod or exp:      PROD observation, READ-ONLY. Nothing written, no order
                     placed, no config changed.
   existing data:    Yes, measured this session over 1,010 scored rows,
-                    2026-07-08..07-29:
+                    pooled across calendar dates 2026-07-08..07-29 (not a
+                    per-trading-session read — one date, 07-28, carries 255
+                    of the 1,010 rows, 3x any other date):
                       pooled median mu = -0.0005 `[VERIFIED]`
                       pooled p90       = +0.0278 `[VERIFIED]`
                       pooled max       = +0.0484 `[VERIFIED]`
                       clearing mu>=0.03 = 80/1010 = 7.9% `[VERIFIED]`
-                    Both gates on the same rows, 07-20..07-29:
+                    Both gates on the same rows, per date 07-20..07-29:
                       pass rank floor  18-23% `[VERIFIED]`
                       pass mu>=0.03     3-8%  `[VERIFIED]`
-                      pass BOTH        == pass mu, every session `[VERIFIED]`
+                      pass BOTH        == pass mu, on every date in the sample `[VERIFIED]`
                       compound 48/810 = 5.93% `[DERIVED]`
   best-known?:      Yes for the distribution and for which gate binds. NOT
                     claimed: that mu_floor should be lowered, that the
@@ -43,8 +46,8 @@ THE TWO FINDINGS:
               returns the model produces, so admission is ~8% by construction,
               independent of edge.
           (2) The adaptive rank floor is REDUNDANT: `pass BOTH` equals `pass
-              mu` in every session, so it never removes a name that `mu` would
-              have kept. It is what the logs BLAME
+              mu` on every date in the sample, so it never removes a name that
+              `mu` would have kept. It is what the logs BLAME
               (`veto:rank_score_below_floor`) and not what decides — which
               matches the AAPL forensics from the other direction.
 
