@@ -63,5 +63,10 @@ NOT IN:   hourly/intraday data (measured net-negative at this horizon:
           σ_oc ≈ 152bp, net edge −6.4bp at IC 0.03), new vendor spend, any
           live buy-path change, and PatchTST's own verdict (model#85).
 
-NEXT:     operator confirms the staging; then Stage 0 runs under its own
-          frozen prereg. Stage 1 is the first one that writes an artifact.
+NEXT:     staging is already confirmed (see the header above — this is not a
+          pending decision). Stage 0's frozen prereg (model#86) has MERGED
+          (2026-07-29T08:10:49Z), which unblocks RUNNING Stage 0 — it does not
+          by itself satisfy Stage 1's entry condition ("Stage 0 exited": run
+          + its own exit criteria cleared). Stage 0 has not yet exited. Stage
+          1 is the first one that writes an artifact, and stays blocked until
+          Stage 0 does.
