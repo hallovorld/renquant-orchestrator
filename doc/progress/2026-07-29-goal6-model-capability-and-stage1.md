@@ -53,9 +53,16 @@ EVIDENCE: artifact:      `doc/research/2026-07-28-goal6-model-capability-design.
           decomposition; 14 → 83 names in the top decile) is derived from
           those measurements and labelled as projection, not measurement.
           Stage 0's own results (model#86) are cited only where the design
-          depends on them (§3 option C) — that row states explicitly that
-          #86 is approved but not yet merged, so the verdict is provisional
-          on it landing, per this design's own stage-gate rule.
+          depends on them (§3 option C). model#86 has since MERGED
+          (2026-07-29T08:10:49Z) `[VERIFIED — gh pr view 86]`, but only as
+          the FROZEN PREREG — its merged diff is 3 doc files with zero
+          results; every results commit pushed to that PR during review was
+          explicitly stripped before merge as premature. The
+          `goal6-stage0/results.json` this design cites predates that freeze
+          and is not in any reviewable record, so §3 option C's verdict
+          stays marked provisional pending an actual Stage-0 results PR run
+          against the frozen prereg — #86 merging does not by itself confirm
+          it, per this design's own stage-gate rule and R1-R5.
            best-known?:   n/a — this PR proposes a design; no model/statistic
           ranking claim is made.
            scope:         "this is a pre-execution design proposal for

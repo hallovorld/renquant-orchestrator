@@ -113,12 +113,15 @@ a factor of 2.4. Both are reported; neither is discarded:
 | **breadth + 20d** | 830 | 20d | 130 | **0.035** | **0.023** |
 | + history to 20y | 830 | 20d | 252 | 0.025 | 0.017 |
 
-> **Stage-0 correction (2026-07-28).** The horizon rows of this table assume
-> the detectable effect is the same at 20d as at 60d. That assumption was
-> then MEASURED and is false: shortening the horizon shrinks the effect
-> roughly in proportion to the gain in independent blocks, so the 20d rows
-> below overstate the achievable power. The breadth rows are unaffected.
-> `[VERIFIED — GOAL-6 Stage 0 results, H2 NOT SUPPORTED]`
+> **Stage-0 correction (2026-07-28, PROVISIONAL — see §3 option C).** The
+> horizon rows of this table assume the detectable effect is the same at
+> 20d as at 60d. That assumption was then MEASURED and appears false:
+> shortening the horizon shrinks the effect roughly in proportion to the
+> gain in independent blocks, so the 20d rows below likely overstate the
+> achievable power. The breadth rows are unaffected.
+> `[NOTE — GOAL-6 Stage 0, H2 NOT SUPPORTED: this measurement predates
+> model#86's freeze/merge and is not yet in a reviewable record; see §3
+> option C for the full provenance and why it stays provisional]`
 
 **The conclusion is robust to which estimate is used, and that is the point
 of reporting both:** today's apparatus needs an IC somewhere in **0.053 to
@@ -179,7 +182,7 @@ may still be too weak to conclude on.
 |---|---|---|---|---|---|---|
 | A | **Tail statistic as primary** | ≈ ×2.5 effective t | aligns objective with where skill is | **zero** | mis-specification if skill is not tail-driven — falsifiable in Stage 0 | **ADOPT (first)** |
 | B | **Breadth 142 → 830** | 0.069→0.060 / 0.053→0.041 (with A+C: 0.035 / 0.023) | top decile 14 → 83 names; idiosyncratic noise ÷ ~2.4 | ≈ zero acquisition; build + compute only | delisting/PIT correctness; small-name data quality | **ADOPT (first)**, with the risk in this row's own "risk" column named exactly why: breadth buys POWER, and per §5's Stage-1 exit check must NOT be assumed to also buy survivorship correctness — that is Stage 1's own admission gate to verify, not this design's claim to make in advance |
-| C | ~~20d label for measurement~~ | **measured: NO net power gain** | — | zero | — | **REFUTED by Stage 0 (2026-07-28, model#86 — MERGED 2026-07-29T08:10:49Z).** The MDE arithmetic assumed the effect size is horizon-invariant. Measured: 20d yields ~3× the independent blocks but proportionately less effect, so the power *ratio* is flat — H2 NOT SUPPORTED on IC for both subjects, a dead heat on spread. `[VERIFIED — goal6-stage0/results.json, cited from model#86 now that it has landed in its own reviewable record]` |
+| C | ~~20d label for measurement~~ | **measured: NO net power gain** | — | zero | — | **PROVISIONALLY REFUTED — Stage 0 results not yet in a reviewable record.** The MDE arithmetic assumed the effect size is horizon-invariant. Measured: 20d yields ~3× the independent blocks but proportionately less effect, so the power *ratio* is flat — H2 NOT SUPPORTED on IC for both subjects, a dead heat on spread. `[NOTE: model#86 MERGED 2026-07-29T08:10:49Z, but as the FROZEN PREREG only — its merged diff (doc/progress/2026-07-28-goal6-stage0-prereg.md, doc/research/2026-07-28-goal6-stage0-{prereg,amendment-1}.md) contains zero results; every results commit pushed to that PR during review was explicitly stripped before merge ("remove premature Stage-0 results", "amendment-1 stops claiming results not yet recorded") because they predated the frozen design. The "goal6-stage0/results.json, H2 NOT SUPPORTED" this row cites is that same pre-freeze, out-of-repo computation — not confirmed by #86's merge. This verdict stays provisional until a Stage-0 RESULTS PR runs against the now-frozen prereg and lands in its own reviewable record, per this design's own stage-gate rule and R1-R5]` |
 | D | History 10.3y → 20y | ×1.4 further | none directly | high: pre-2016 PIT sparse | regime non-stationarity | **DEFER to Stage 3** |
 | E | **Hourly bars** | **none at 60d/20d horizons** | none | large (storage, build, compute) | distraction | **REJECT.** Measured: intraday open→close net edge **−6.4bp** at IC 0.03 against σ_oc ≈ 152bp. 6.5× the rows describing the same forward outcomes adds no independent observations. Only in scope if the *predicted horizon* changes, which is a different system. |
 | F | Bigger model / more seeds | none (power is data-side) | possible capability gain | compute | uninterpretable until A–C land | **DEFER to Stage 3** |
