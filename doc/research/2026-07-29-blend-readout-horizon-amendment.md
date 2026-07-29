@@ -47,6 +47,18 @@ the statistic (mean forward excess of each arm's top-10), the 120-session
 target, and the INFO/GATE structure. Only the horizon and its matching
 maturity window.
 
+## Governance-trail note (added round 2, Codex MED finding, PR #598)
+
+The "Authority" line above quotes an operator instruction, but the only
+source for that quote is this document and the PR's own commit message —
+both agent-authored, not an external issue/comment/decision-record. A search
+of `doc/memory/long-term-agreements.md` and every `doc/memory/mid-term/`
+workstream file mentioning "60d" / "blend ledger" / `MATURITY_TDAYS` turned up
+no independent record of this specific decision. See the paired progress doc
+(`doc/progress/2026-07-29-blend-readout-horizon.md`) `best-known?` field for
+the full account. This note documents the gap rather than closing it — a
+fix-agent has no channel to verify the original instruction against.
+
 ## Existing sessions
 
 Both recorded sessions (2026-07-27, 2026-07-28) are unrealized, so nothing

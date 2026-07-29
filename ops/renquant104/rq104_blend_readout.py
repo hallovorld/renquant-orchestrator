@@ -32,7 +32,10 @@ SHADOW_NAME = "topdecile_clf_blend_leg"
 MATURITY_TDAYS = 61          # fwd_60d + 1 session settle (was 21 for
                              # fwd_20d; changed with the horizon 2026-07-29 —
                              # leaving it at 21 would have marked rows mature
-                             # 40 sessions before their label can exist)
+                             # 40 sessions before their label can exist).
+                             # ACTIVE GATE: enforced by `_aged_dates()` below,
+                             # not by `fwd_60d IS NOT NULL` alone — see that
+                             # function's docstring (Codex BLOCKER, PR #598).
 MIN_FULL_RUN_CANDIDATES = 80  # matches scripts/kpi_scorecard.py / poc_transfer_coefficient.py
 
 
@@ -127,6 +130,27 @@ def append_ledger(ledger: Path, row: dict) -> bool:
     return True
 
 
+def _aged_dates(db: sqlite3.Connection, min_tdays: int) -> set[str]:
+    """Trading dates whose full ``min_tdays``-session forward label has elapsed.
+
+    ``ticker_forward_returns.fwd_60d IS NOT NULL`` on a row does NOT by itself
+    prove the date is aged: the same table can carry a row written before its
+    full horizon elapsed (see ``scripts/research_panel_exit_predictiveness.py``'s
+    "TRADING-SESSION AGING" note — Codex r2 #2 finding — on this exact table).
+    We age against the table's own distinct ``as_of_date`` session calendar
+    instead, same technique as that script's ``_session_calendar``/
+    ``_aged_cutoff``: a date is aged iff at least ``min_tdays`` LATER sessions
+    are already present in the calendar.
+    """
+    sessions = pd.read_sql_query(
+        "SELECT DISTINCT as_of_date FROM ticker_forward_returns "
+        "ORDER BY as_of_date", db,
+    )["as_of_date"].astype(str).str[:10].tolist()
+    if len(sessions) <= min_tdays:
+        return set()
+    return set(sessions[: len(sessions) - min_tdays])
+
+
 def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
     """Fill realized fwd_60d spreads for rows old enough, in place.
 
@@ -141,6 +165,14 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
 
     Cost, stated: a session now matures after 60 trading days instead of 20,
     so realized rows arrive ~40 trading days later than they would have.
+
+    MATURITY GATE (Codex BLOCKER, PR #598): a row only realizes once its
+    ``run_date`` is in ``_aged_dates(db, MATURITY_TDAYS)`` — i.e. at least
+    ``MATURITY_TDAYS`` later trading sessions already exist in
+    ``ticker_forward_returns``. This is enforced IN ADDITION to (not instead
+    of) the existing all-picks-resolvable check, so a prematurely-written
+    ``fwd_60d`` value cannot realize a session before its label window has
+    actually elapsed.
     """
     if not ledger.exists():
         return 0
@@ -153,6 +185,7 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
         return 0
     fwd["as_of_date"] = fwd["as_of_date"].astype(str).str[:10]
     fmap = {(r.ticker, r.as_of_date): r.fwd_60d for r in fwd.itertuples(index=False)}
+    aged = _aged_dates(db, MATURITY_TDAYS)
     filled = 0
     for row in rows:
         if row.get("realized"):
@@ -173,7 +206,8 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
         row["n_resolvable_blend"] = sum(v is not None for v in rb)
         row["n_picks_prod"] = len(rp)
         row["n_picks_blend"] = len(rb)
-        if all(v is not None for v in rp + rb):
+        row["aged"] = d in aged
+        if row["aged"] and all(v is not None for v in rp + rb):
             row["spread_prod"] = float(np.mean(rp))
             row["spread_blend"] = float(np.mean(rb))
             row["realized"] = True
