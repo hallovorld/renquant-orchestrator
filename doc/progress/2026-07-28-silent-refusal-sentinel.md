@@ -1,6 +1,6 @@
 # Progress: silent-refusal sentinel (GOAL-5 AC5)
 
-STATUS:   delivered (code + 18 tests). Not yet installed as a launchd job — that is a
+STATUS:   delivered (code + 18 tests `[VERIFIED — pytest tests/test_rq104_silent_refusal_sentinel.py]`). Not yet installed as a launchd job — that is a
           machine landing and needs an operator grant; the manifest entry and plist
           land in a follow-up PR so installation is one reviewed step.
           Fix (codex HIGH): `inaction_streak()` silently skipped `undecided` runs
@@ -13,7 +13,11 @@ STATUS:   delivered (code + 18 tests). Not yet installed as a launchd job — th
 
 WHAT:     Adds `ops/renquant104/rq104_silent_refusal_sentinel.py` and its tests. It
           reads dated job logs read-only, classifies each run as acted / refused /
-          failed / undecided, and alarms when a job has not ACTED in N runs
+          failed / undecided, and alarms on a NON-ACTING SPAN — the N most recent
+          classified runs contain no `acted` run. The contract is deliberately NOT
+          "N consecutive runs": unclassifiable runs are excluded from the count and
+          named in the alert, so a span containing a gap is never described as
+          consecutive (the word appears only when the span truly has none)
           (default 3 `[ASSUMED — a single stale week should stay quiet; the
           2026-07-28 incident that motivated this sentinel ran for MONTHS, so 3
           catches the chronic case well inside that window]`) — an `undecided`
@@ -50,7 +54,8 @@ EVIDENCE: artifact:      `ops/renquant104/rq104_silent_refusal_sentinel.py` +
           'n_articles_...']`. A refusals-only streak scores that history as 2 and
           stays silent; counting non-action (refused OR failed) scores it as 4, and
           the dry-run against the real logs reports exactly that: "has not acted on 4
-          consecutive runs (2026-07-25:refused, 2026-07-18:failed, 2026-07-11:failed,
+          non-acting runs `[VERIFIED — dry-run against logs/weekly_retrain_patchtst,
+          2026-07-28]` (2026-07-25:refused, 2026-07-18:failed, 2026-07-11:failed,
           2026-07-03:failed; 3 of them CRASHED)" `[VERIFIED — dry-run output]` — this
           real run has no `undecided` gap, so "consecutive" is the accurate word for
           THIS output; `check()` only drops it when a gap is actually present (see
@@ -76,3 +81,9 @@ NEXT:     (1) install as a launchd job (operator grant + manifest entry, one rev
           `n_articles_*`, plausibly related to the base-data#48 single-writer
           amendment that made those columns canonical; (3) extend the registry to
           the other jobs that can exit 0 without acting.
+
+PROVENANCE OF THE OPERATIONAL CONSTANTS (LONG#10):
+  * `STREAK_N` default 3 `[ASSUMED — one legitimately stale week must stay quiet; the motivating incident ran for months, so 3 catches the chronic case within a month]`
+  * `MAX_LOG_AGE_DAYS` default 90 `[ASSUMED — ~13 weekly cycles: long enough to see a chronic span, short enough that a job which stopped running entirely falls to the liveness checker rather than re-alarming here]`
+  * the four cited run outcomes `[VERIFIED — direct read of logs/weekly_retrain_patchtst/2026-07-{03,11,18,25}.log, 2026-07-28]`
+  * "622 days stale" `[VERIFIED — prior work, shadow_scorer_health.jsonl stale_622d_limit_28d]`
