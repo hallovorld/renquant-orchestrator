@@ -15,5 +15,6 @@
 | 7 | **Never self-merge.** Codex approval is the **mechanical** merge gate for Claude PRs — `.github/CODEOWNERS` + `require_code_owner_reviews=true` + `enforce_admins=true` (2026-06-19, #155) require the *other* agent's approval; admins can't override. Design docs are not merged while under discussion. | standing |
 | 8 | **Docs/PRs/commits in English; chat in Chinese.** | standing |
 | 9 | **Never delete/empty the umbrella** at `/Users/renhao/git/github/RenQuant`. | standing |
+| 10 | **Every number carries a provenance tag.** In any claim, PR, design doc or memory entry, each quantity is tagged `[VERIFIED — <command/file>]` (measured this session), `[VERIFIED — prior work, <ref>]`, `[DERIVED — <formula/inputs>]`, or `[ASSUMED — <why>]`. **An untaggable number is not stated.** A number that drives a decision is **re-measured in-session** — recall is not evidence. When a document's figures change, the whole file is reconciled; corrections appear in a **visible** corrections section, never a silent overwrite. | 2026-07-28 |
 
 _Reversals: (none yet)._
