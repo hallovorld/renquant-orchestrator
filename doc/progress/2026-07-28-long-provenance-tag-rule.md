@@ -13,19 +13,23 @@ WHAT:     Adds entry 10 to `doc/memory/long-term-agreements.md`: every quantity 
 WHY/DIR:  Operator, 2026-07-28: "跟你对话觉得你幻觉太严重" → "这个原则要计入永久性memory".
           The rule is written from an actual failure the same day, not a hypothetical.
 
-EVIDENCE: GOAL-6 design rev0 asserted "MDE today = 0.052" and "roughly half the
-          per-date IC dispersion is sampling noise". Both rested on one measured
-          number plus an unvalidated `1/(N−3)` independence assumption. Direct
-          measurement — subsampling the cross-section at N'=20..140 over the 43-fold
-          OOS scores (88,750 rows, 625 dates) and fitting `Var(IC) = a + b/N` — gave
-          **`Var(N) = 0.01877 + 1.065/N`** `[VERIFIED — computed 2026-07-28 from
-          wf-eval/scores.parquet]`: the sampling share is **29%** at N=142, not half,
-          and the MDE is **0.053–0.069** across two measured variance estimates, not a
-          single 0.052. The stale 0.052 also survived in the executive summary after
-          §2 was corrected, leaving the document self-contradictory — which is why the
-          rule includes whole-file reconciliation. Same day, same class: a "model
+EVIDENCE: GOAL-6 design rev0 asserted "MDE today = 0.052" `[ASSUMED — GOAL-6 rev0,
+          now superseded, see below]` and "roughly half the per-date IC dispersion is
+          sampling noise" `[ASSUMED — GOAL-6 rev0, now superseded]`. Both rested on
+          one measured number plus an unvalidated `1/(N−3)` independence assumption.
+          Direct measurement — subsampling the cross-section at N'=20..140 over the
+          43-fold OOS scores (88,750 rows, 625 dates) and fitting
+          `Var(IC) = a + b/N` — gave **`Var(N) = 0.01877 + 1.065/N`**
+          `[VERIFIED — computed 2026-07-28 from wf-eval/scores.parquet]`: the sampling
+          share is **29%** at N=142, not half, and the MDE is **0.053–0.069** across
+          two measured variance estimates, not a single 0.052
+          `[DERIVED — Var(N) fit above, propagated through the standard MDE formula]`.
+          The stale 0.052 also survived in the executive summary after §2 was
+          corrected, leaving the document self-contradictory — which is why the rule
+          includes whole-file reconciliation. Same day, same class: a "model
           capability is insufficient" conclusion was drawn from a run in which a
-          raw-vs-probability unit bug meant the model was never asked (pipeline#219).
+          raw-vs-probability unit bug meant the model was never asked (pipeline#219)
+          `[VERIFIED — prior work, pipeline#219]`.
 
           This PR does not itself assert a new IC/Sharpe claim about a live/candidate
           model, so the standard §4(b) model-evidence triad doesn't apply verbatim;
