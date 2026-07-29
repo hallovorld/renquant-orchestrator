@@ -5,6 +5,13 @@ STATUS:   two items. (1) rq105 blend export LANDED and VERIFIED — durable
           by the scan needs an OPERATOR decision, because clearing it requires
           a git operation in the live tree that I am forbidden from running.
 
+WHY/DIR:  Operator directive 2026-07-29 to land the rq105 blend lane
+          immediately rather than wait for the next scheduled window, plus the
+          CONTAINMENT-PROTOCOL obligation that any mutation of a live run
+          surface carries a durable record with literal revert steps. Item 2
+          exists because the drift scan did its job and the remedy is outside
+          what an agent may do to the live tree.
+
 ## 1. rq105 blend export — landed under explicit operator grant
 
 WHAT:     Operator directive 2026-07-29 ("105不等，马上开始上线"). Forced the
