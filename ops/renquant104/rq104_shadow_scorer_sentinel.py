@@ -138,6 +138,15 @@ VALID_STATUSES = frozenset({STATUS_OK, STATUS_EXPECTED_SKIP, STATUS_FAULT})
 #: FALLBACK reader source — the shadow runs DB.
 SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca_shadow.db"))
 
+#: FALLBACK reader source for MLflow-logged lanes (e.g. the top-decile clf
+#: blend leg) — the mlruns tree rq104_blend_readout.py already reads daily.
+MLRUNS_DIR = os.environ.get("RQ104_MLRUNS_DIR", os.path.join(RQ, "mlruns"))
+
+#: had_runs check for MLflow-logged lanes: the PRODUCTION runs DB (not the
+#: shadow DB, which this kind of lane never writes to) — the same DB
+#: rq104_blend_readout.py's latest_live_run() reads.
+PROD_RUNS_DB = os.environ.get("RQ104_PROD_RUNS_DB", os.path.join(RQ, "data/runs.alpaca.db"))
+
 #: The shadow scorer's identity, as it appears in the record's shadow_name and
 #: in candidate_scores.active_scorer / model_type. PatchTST is served as
 #: 'hf_patchtst'. Config lane names DECORATE this key (e.g.
@@ -157,13 +166,17 @@ class WatchedLane:
     The top-decile clf lane does NOT — it logs to MLflow — so for it the DB
     fallback would report "no scores" every single day and manufacture a
     permanent FEED DARK alarm out of a healthy lane. `runs_db` is therefore
-    per-lane and may be None, meaning "structured record or nothing".
+    per-lane and may be None, meaning "structured record or nothing", UNLESS
+    `mlruns_dir` is set — then the MLflow `comparison.json` locator (shared
+    with rq104_blend_readout.py, the job that already reads this lane's
+    evidence daily) is the fallback instead of the DB.
 
     `None` on the threshold fields means "use the module default", which keeps
     the existing single-lane call sites and their tests working unchanged.
     """
     name: str
     runs_db: str | None = None          # None -> no DB fallback for this lane
+    mlruns_dir: str | None = None       # set -> MLflow comparison.json fallback
     staleness_max_days: int | None = None
     coverage_floor: float | None = None
     #: why this lane is watched, quoted in its alerts so an operator reading a
@@ -201,6 +214,7 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
         WatchedLane(
             name=os.environ.get("RQ104_CLF_LANE_NAME", "topdecile_clf_blend_leg"),
             runs_db=None,   # MLflow-logged: a DB fallback would alarm daily
+            mlruns_dir=MLRUNS_DIR,  # its actual evidence source instead
             purpose="the certified top-decile classifier now accruing the "
                     "120-session forward ledger — the one line with a "
                     "confirmed effect, and until now unwatched",
@@ -404,16 +418,20 @@ def read_health_records(days: list[dt.date], lane: 'WatchedLane | None' = None
                         ) -> dict[dt.date, ShadowHealthRecord | None]:
     """Per-day ShadowHealthRecord (or None if the day had no live runs at all —
     the liveness checker's domain). Primary source wins per-day; days it does
-    not cover fall through to the DB fallback, so a not-yet-deployed sink still
-    gets full coverage."""
+    not cover fall through to the lane's fallback, so a not-yet-deployed sink
+    still gets full coverage."""
     primary = _read_from_pipeline_sink(days, lane)
     missing = [d for d in days if d not in primary]
-    # A lane with no runs DB (MLflow-logged) gets NO fallback: deriving
-    # 'no scores' from a DB it never writes to would manufacture a
-    # permanent FEED DARK alarm out of a perfectly healthy lane.
-    no_db = lane is not None and lane.runs_db is None
-    fallback = ({} if (no_db or not missing)
-                else _read_from_shadow_db(missing, lane))
+    if lane is not None and lane.mlruns_dir:
+        # MLflow-logged lane: its real evidence source, not the runs DB.
+        fallback = {} if not missing else _read_from_mlflow(missing, lane)
+    else:
+        # A lane with no runs DB and no mlruns_dir gets NO fallback: deriving
+        # 'no scores' from a DB it never writes to would manufacture a
+        # permanent FEED DARK alarm out of a perfectly healthy lane.
+        no_db = lane is not None and lane.runs_db is None
+        fallback = ({} if (no_db or not missing)
+                    else _read_from_shadow_db(missing, lane))
     return {d: primary.get(d, fallback.get(d)) for d in days}
 
 
@@ -622,6 +640,89 @@ def _derive_day_record(conn: sqlite3.Connection, day: dt.date) -> ShadowHealthRe
         had_runs=True,
         feed_present=total_rows > 0,
     )
+
+
+def _had_live_run(conn: sqlite3.Connection, day: dt.date) -> bool:
+    """True if a live pipeline run happened on `day`, per the PRODUCTION runs
+    DB. MLflow-logged lanes never write pipeline_runs, so this — not the
+    shadow DB check `_derive_day_record` uses — is what gates a day into
+    'liveness domain, skip' vs 'a real gap in this lane's evidence'."""
+    row = conn.execute(
+        "SELECT 1 FROM pipeline_runs WHERE run_type='live' AND run_date=? LIMIT 1",
+        (day.isoformat(),),
+    ).fetchone()
+    return row is not None
+
+
+def _mlflow_shadow_scores_for(run_date: str, mlruns: Path, shadow_name: str):
+    """Locate the MLflow comparison table for `run_date`, scoped to
+    `shadow_name`. Deliberately the SAME locator rq104_blend_readout.py uses
+    (newest comparison.json whose payload row-set tags the date, falling back
+    to file mtime date match) — one reader, so the sentinel and the daily
+    readout job can never disagree on what counts as 'this lane was
+    recorded'. Returns the shadow_score Series indexed by ticker, or None.
+    """
+    import pandas as pd  # local: only lanes with mlruns_dir pay this cost
+
+    candidates = sorted(mlruns.rglob("comparison.json"),
+                        key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in candidates[:20]:
+        try:
+            raw = json.loads(p.read_text())
+            df = pd.DataFrame(raw["data"], columns=raw["columns"])
+        except Exception:
+            continue
+        if "shadow_score" not in df.columns or "ticker" not in df.columns:
+            continue
+        if "run_date" in df.columns and str(df["run_date"].iloc[0])[:10] != run_date:
+            continue
+        if "run_date" not in df.columns:
+            mdate = dt.date.fromtimestamp(p.stat().st_mtime).isoformat()
+            if mdate != run_date:
+                continue
+        if "shadow_name" in df.columns and df["shadow_name"].iloc[0] != shadow_name:
+            continue
+        return df.set_index("ticker")["shadow_score"].astype(float)
+    return None
+
+
+def _read_from_mlflow(days: list[dt.date], lane: 'WatchedLane'
+                      ) -> dict[dt.date, ShadowHealthRecord]:
+    """Fallback for MLflow-logged lanes (e.g. the top-decile clf blend leg):
+    derive a ShadowHealthRecord per day from the same comparison.json evidence
+    rq104_blend_readout.py already reads daily, instead of a DB this kind of
+    lane never writes to. had_runs comes from the PRODUCTION runs DB (the
+    shadow DB is the wrong ground truth here — this lane never writes there).
+    `actionable`/staleness/coverage are left unset, same as the DB fallback:
+    this source cannot see the pipeline's verdict either.
+    """
+    if not days or not lane.mlruns_dir or not os.path.isdir(lane.mlruns_dir):
+        return {}
+    conn = _open_db_readonly(PROD_RUNS_DB)
+    if conn is None:
+        return {}
+    out: dict[dt.date, ShadowHealthRecord] = {}
+    mlruns_path = Path(lane.mlruns_dir)
+    try:
+        for day in days:
+            if not _had_live_run(conn, day):
+                continue  # no live run at all -> liveness domain, not ours
+            scores = _mlflow_shadow_scores_for(day.isoformat(), mlruns_path, lane.name)
+            loaded = scores is not None
+            out[day] = ShadowHealthRecord(
+                run_date=day,
+                shadow_name=lane.name,
+                loaded=loaded,
+                n_scored=(int(scores.notna().sum()) if loaded else 0),
+                n_candidates=(int(len(scores)) if loaded else None),
+                actionable=None,
+                source="mlflow_comparison_fallback",
+                had_runs=True,
+                feed_present=loaded,
+            )
+    finally:
+        conn.close()
+    return out
 
 
 # ---------------------------------------------------------------------------

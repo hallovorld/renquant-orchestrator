@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -57,6 +58,43 @@ def _make_shadow_db(tmp_path, run_rows, score_rows):
     return str(db)
 
 
+def _make_prod_runs_db(tmp_path, live_dates: list[str]) -> str:
+    """A minimal PRODUCTION runs DB (data/runs.alpaca.db shape): only what
+    `_had_live_run` needs — one row per live session date."""
+    db = tmp_path / "prod.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE pipeline_runs (run_id TEXT, run_date DATE, run_type TEXT,"
+        " training_cutoff TEXT)"
+    )
+    for i, d in enumerate(live_dates):
+        conn.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?)",
+                     (f"r{i}", d, "live", None))
+    conn.commit()
+    conn.close()
+    return str(db)
+
+
+def _write_comparison_json(mlruns_root: Path, exp_id: str, run_id: str,
+                          rows: list, *, mtime_date: str) -> Path:
+    """An MLflow comparison.json artifact in the REAL production shape: no
+    run_date/shadow_name columns (verified against the actual artifacts under
+    mlruns/**/comparison.json), so the locator's date match falls back to
+    file mtime — exactly like production."""
+    art_dir = mlruns_root / exp_id / run_id / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    p = art_dir / "comparison.json"
+    payload = {
+        "columns": ["ticker", "primary_score", "shadow_score", "diff",
+                    "primary_rank", "shadow_rank", "rank_diff"],
+        "data": rows,
+    }
+    p.write_text(json.dumps(payload))
+    ts = dt.datetime.fromisoformat(mtime_date).timestamp()
+    os.utime(p, (ts, ts))
+    return p
+
+
 def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
          staleness_max=28, coverage_floor=0.80, streak=2, as_of=AS_OF):
     """Run main() with all seams patched; return (rc, alerts)."""
@@ -74,6 +112,11 @@ def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
         patch.object(sentinel, "COVERAGE_FLOOR", coverage_floor),
         patch.object(sentinel, "STREAK_N", streak),
         patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
+        # A missing dir/db keeps the clf lane's MLflow fallback a no-op here
+        # (`_read_from_mlflow` early-returns {}) so main()-driving tests never
+        # touch the real production mlruns tree / runs DB.
+        patch.object(sentinel, "MLRUNS_DIR", str(tmp_path / "no_mlruns_here")),
+        patch.object(sentinel, "PROD_RUNS_DB", str(tmp_path / "no_prod_db_here")),
     ):
         rc = sentinel.main(["--as-of", as_of])
     return rc, alerts
@@ -679,3 +722,100 @@ class TestMultiLane:
         assert rc == 1 and out
         assert "topdecile_clf_blend_leg" in sent[0][0]
         assert "the certified line" in sent[0][1]
+
+
+# ---------------------------------------------------------------------------
+# MLflow fallback for the clf lane (codex HIGH, 2026-07-29): a lane with
+# runs_db=None and no producer writing shadow_scorer_health.v1 records for it
+# had NO observable health signal at all — read_health_records() returned all
+# None and _patrol_lane() printed "liveness domain, skip" forever, silently.
+# This wires the SAME comparison.json locator rq104_blend_readout.py already
+# proves works daily, against the real emitted artifact shape (no
+# run_date/shadow_name columns — mtime-date fallback), so the lane is
+# actually observed instead of registered-but-blind.
+# ---------------------------------------------------------------------------
+
+class TestMlflowFallback:
+    def test_no_mlruns_dir_returns_empty(self, tmp_path):
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(tmp_path / "absent"))
+        assert sentinel._read_from_mlflow([D0, D1], clf) == {}
+
+    def test_day_with_no_live_run_is_liveness_domain(self, tmp_path, monkeypatch):
+        prod_db = _make_prod_runs_db(tmp_path, [])  # no live runs at all
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        mlruns.mkdir()
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        assert sentinel._read_from_mlflow([D0], clf) == {}
+
+    def test_live_day_with_recorded_comparison_is_healthy(self, tmp_path, monkeypatch):
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2],
+                ["MSFT", 0.05, 0.01, -0.04, 10, 20, -10]]
+        _write_comparison_json(mlruns, "exp1", "run1", rows, mtime_date=D0.isoformat())
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is True
+        assert rec.feed_present is True
+        assert rec.n_scored == 2
+        assert rec.source == "mlflow_comparison_fallback"
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.HEALTHY
+
+    def test_live_day_with_no_matching_comparison_is_feed_dark(self, tmp_path, monkeypatch):
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        # a comparison.json exists, but its mtime tags a DIFFERENT date
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_comparison_json(mlruns, "exp1", "run1", rows, mtime_date=D1.isoformat())
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is False
+        assert rec.feed_present is False
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.FEED_DARK
+
+    def test_end_to_end_patrol_alarms_when_lane_silently_dark(self, tmp_path, monkeypatch):
+        """The exact HIGH-finding scenario: live runs happened, the JSONL
+        primary sink has nothing for this lane, and MLflow has no comparison
+        table for it either -> the sentinel must now alarm, not silently
+        print 'liveness domain, skip' over a genuinely dark feed."""
+        streak_days = [D1, D0]
+        prod_db = _make_prod_runs_db(tmp_path, [d.isoformat() for d in streak_days])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(tmp_path / "absent.jsonl"))
+        mlruns = tmp_path / "mlruns"
+        mlruns.mkdir()
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns), purpose="the certified line")
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, streak_days, D0, out)
+        assert rc == 1 and out
+        assert "topdecile_clf_blend_leg" in sent[0][0]
+
+    def test_end_to_end_patrol_stays_quiet_when_recorded_daily(self, tmp_path, monkeypatch):
+        streak_days = [D1, D0]
+        prod_db = _make_prod_runs_db(tmp_path, [d.isoformat() for d in streak_days])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(tmp_path / "absent.jsonl"))
+        mlruns = tmp_path / "mlruns"
+        for i, d in enumerate(streak_days):
+            rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+            _write_comparison_json(mlruns, "exp1", f"run{i}", rows,
+                                   mtime_date=d.isoformat())
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, streak_days, D0, out)
+        assert rc == 0 and not out and not sent
