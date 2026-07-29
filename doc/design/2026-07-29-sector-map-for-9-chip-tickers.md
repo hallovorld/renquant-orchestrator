@@ -65,7 +65,7 @@ severe enough to block, but the second-loosest call here.
 literal spin-off lineage, or `ai_chip` on the memory-chip comp with MU. Chose
 `datacenter_hw`. A judgment call, not a clean-cut case.
 
-## 4. Concentration, and why the alarming number is not currently alarming
+## 4. Concentration — the counts, and an open measurement question
 
 | bucket | now | net new | after | growth |
 |---|---:|---:|---:|---:|
@@ -76,17 +76,15 @@ literal spin-off lineage, or `ai_chip` on the memory-chip comp with MU. Chose
 (`software`, 26), and becomes by far the largest semiconductor-cycle-correlated
 bucket. 25 names would compete for the same 6 held slots.
 
-**But the 6-slot cap is nowhere near binding today, and that is measurable.**
-The `mu >= 0.03` admission gate lets through **2-6 names per session across the
-WHOLE cross-section** (7.9% of 1,010 scored rows over 07-08..07-29; on 07-24 it
-was 2 of 76) `[VERIFIED — orchestrator#610]`. A per-bucket cap of 6 cannot bind
-when the entire book admits 2-6 candidates in total.
-
-So the concentration risk this table implies is **conditional on the admission
-rate rising**, which is exactly what the deployment work (#223, #608, #610)
-would do. The honest statement: this is not a reason to withhold the addition
-now, and it IS a reason to re-check sector caps at the same time as any change
-that widens admission.
+**Whether the 6-slot cap binds in practice is an open question, not settled by
+this PR.** #610 reports a `mu >= 0.03` admission rate of 2-6 names per session
+across the whole cross-section, but #610 is itself open and under review, not
+a canonical, reproduced strategy-side measurement, and it proposes no
+admission change of its own. This doc does not use that number to conclude the
+cap "cannot bind today," and does not predict what #223/#608/#610 "would
+cause." That conclusion is deferred to a canonical, reproducible strategy-side
+admission-rate measurement — re-run whenever admission-affecting work lands —
+which is out of scope for this bucket-assignment proposal.
 
 ## 5. The sharpest concentration point, called out separately
 
@@ -106,8 +104,9 @@ intended.
 ## 6. What I am NOT claiming
 
 - Not that these buckets are optimal — three are flagged as judgment calls.
-- Not that the concentration is safe at a higher admission rate; §4 says the
-  opposite.
+- Not that the 6-slot cap does or does not bind today, and not that
+  concentration is safe at a higher admission rate — §4 defers both to a
+  canonical strategy-side measurement this PR does not perform.
 - Not that the correlation guard handles WDC/SNDK correctly. I did not test it.
 
 ## 7. Provenance

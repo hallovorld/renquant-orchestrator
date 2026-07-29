@@ -39,15 +39,17 @@ EVIDENCE: artifact: `.subrepo_runtime/repos/renquant-strategy-104/configs/strate
   scope:            Two docs. No pin advanced, no config edited, no live
                     surface touched.
 
-THE NUMBER THAT DEFUSES THE CONCENTRATION WORRY, AND ITS CONDITION:
-          25 ai_chip names competing for 6 held slots sounds alarming, but the
-          6-slot cap cannot bind today: the `mu >= 0.03` gate admits 2-6 names
-          per session across the ENTIRE cross-section (7.9% of 1,010 rows;
-          2 of 76 on 07-24) `[VERIFIED — orchestrator#610]`. The risk is
-          CONDITIONAL on admission rising — which is exactly what the
-          deployment work (#223, #608, #610) would cause. So: not a reason to
-          withhold now, and a reason to re-check sector caps in the same change
-          that widens admission.
+CONCENTRATION COUNTS, AND AN OPEN MEASUREMENT QUESTION:
+          25 ai_chip names competing for 6 held slots sounds alarming. #610
+          (open, under review, not yet a canonical strategy-side measurement)
+          reports the `mu >= 0.03` gate admitting 2-6 names per session across
+          the entire cross-section, but that number is not reproduced/reviewed
+          as a stable figure and #610 proposes no admission change of its own
+          — so it is NOT used here to conclude the cap "cannot bind today" or
+          to predict what #223/#608/#610 "would cause." Whether the cap binds
+          in practice is deferred to a canonical, reproducible strategy-side
+          admission-rate measurement, out of scope for this bucket-assignment
+          proposal; re-run it whenever admission-affecting work lands.
 
 SHARPEST POINT, called out rather than buried in a percentage:
           WDC + SNDK + STX would all sit in `datacenter_hw`. WDC and SNDK share
