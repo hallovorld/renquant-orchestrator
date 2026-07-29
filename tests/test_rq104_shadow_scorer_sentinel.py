@@ -599,3 +599,83 @@ class TestDecoratedLaneName:
         assert not sentinel._matches_shadow_lane("hf_patchtstX")
         assert sentinel._matches_shadow_lane("hf_patchtst")
         assert sentinel._matches_shadow_lane(DECORATED)
+
+
+# ---------------------------------------------------------------------------
+# Multi-lane patrol. Until 2026-07-29 the sentinel watched ONE lane
+# ('hf_patchtst'), so the certified top-decile classifier — the only line with
+# a confirmed effect, and the one accruing the 120-session forward ledger —
+# ran unwatched. These pin the second lane and, critically, the reason its
+# evidence source differs.
+# ---------------------------------------------------------------------------
+
+class TestMultiLane:
+    def test_registry_watches_both_lanes(self):
+        names = {l.name for l in sentinel.watched_lanes()}
+        assert sentinel.SHADOW_NAME in names
+        assert "topdecile_clf_blend_leg" in names
+
+    def test_clf_lane_has_no_db_fallback(self):
+        # It logs to MLflow, not the shadow runs DB. A DB fallback would derive
+        # "no scores collected" every single day and manufacture a permanent
+        # FEED DARK alarm out of a healthy lane.
+        clf = next(l for l in sentinel.watched_lanes()
+                   if l.name == "topdecile_clf_blend_leg")
+        assert clf.runs_db is None
+        pt = next(l for l in sentinel.watched_lanes()
+                  if l.name == sentinel.SHADOW_NAME)
+        assert pt.runs_db is not None
+
+    def test_no_db_lane_never_reads_the_db(self, tmp_path, monkeypatch):
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
+        called: list = []
+        monkeypatch.setattr(sentinel, "_read_from_shadow_db",
+                            lambda *a, **k: called.append(1) or {})
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL",
+                            str(tmp_path / "absent.jsonl"))
+        out = sentinel.read_health_records([D0, D1], clf)
+        assert called == [], "a lane with runs_db=None must not touch the DB"
+        assert all(v is None for v in out.values())
+
+    def test_lane_matching_accepts_decorated_names_per_lane(self):
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg")
+        assert clf.matches("topdecile_clf_blend_leg")
+        assert clf.matches("topdecile_clf_blend_leg_seed7_prev")
+        assert not clf.matches("hf_patchtst")
+        assert not clf.matches("topdecile_clf_blend_legX")
+
+    def test_each_lane_reads_only_its_own_records(self, tmp_path, monkeypatch):
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_record(D1.isoformat(), shadow_name="hf_patchtst"),
+                _record(D0.isoformat(), shadow_name="hf_patchtst"),
+                _record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault"),
+                _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault")]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        pt = sentinel.WatchedLane(name="hf_patchtst", runs_db=None)
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
+        pt_recs = sentinel.read_health_records([D1, D0], pt)
+        clf_recs = sentinel.read_health_records([D1, D0], clf)
+        assert all(r.status == "ok" for r in pt_recs.values() if r)
+        assert all(r.status == "fault" for r in clf_recs.values() if r)
+
+    def test_a_degraded_clf_lane_alarms_and_names_itself(self, tmp_path, monkeypatch):
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault"),
+                _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        status="fault")]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   purpose="the certified line")
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert",
+                            lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
+        assert rc == 1 and out
+        assert "topdecile_clf_blend_leg" in sent[0][0]
+        assert "the certified line" in sent[0][1]

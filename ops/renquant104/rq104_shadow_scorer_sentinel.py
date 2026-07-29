@@ -147,6 +147,67 @@ SHADOW_DB = os.environ.get("RQ104_SHADOW_DB", os.path.join(RQ, "data/runs.alpaca
 SHADOW_NAME = os.environ.get("RQ104_SHADOW_NAME", "hf_patchtst")
 
 
+@dataclass(frozen=True)
+class WatchedLane:
+    """One shadow lane to patrol.
+
+    A lane is not just a name: lanes differ in where their evidence LIVES.
+    The PatchTST lane persists scores to the shadow runs DB, so a DB-derived
+    record is a usable fallback when the structured health record is missing.
+    The top-decile clf lane does NOT — it logs to MLflow — so for it the DB
+    fallback would report "no scores" every single day and manufacture a
+    permanent FEED DARK alarm out of a healthy lane. `runs_db` is therefore
+    per-lane and may be None, meaning "structured record or nothing".
+
+    `None` on the threshold fields means "use the module default", which keeps
+    the existing single-lane call sites and their tests working unchanged.
+    """
+    name: str
+    runs_db: str | None = None          # None -> no DB fallback for this lane
+    staleness_max_days: int | None = None
+    coverage_floor: float | None = None
+    #: why this lane is watched, quoted in its alerts so an operator reading a
+    #: page at 06:00 knows what it protects without opening the code
+    purpose: str = ""
+
+    def matches(self, shadow_name: str) -> bool:
+        """Exact key, or the decorated config-lane form '<name>_<suffix>'."""
+        return shadow_name == self.name or shadow_name.startswith(self.name + "_")
+
+    @property
+    def effective_staleness_max(self) -> int:
+        return (self.staleness_max_days if self.staleness_max_days is not None
+                else STALENESS_MAX_DAYS)
+
+    @property
+    def effective_coverage_floor(self) -> float:
+        return (self.coverage_floor if self.coverage_floor is not None
+                else COVERAGE_FLOOR)
+
+
+def watched_lanes() -> tuple[WatchedLane, ...]:
+    """The lanes patrolled on this machine.
+
+    Resolved at call time, not import time, so tests and operators can retarget
+    paths through the same env vars the single-lane version used.
+    """
+    return (
+        WatchedLane(
+            name=SHADOW_NAME,
+            runs_db=SHADOW_DB,
+            purpose="the G4-critical PatchTST feed whose silent death this "
+                    "sentinel was built for",
+        ),
+        WatchedLane(
+            name=os.environ.get("RQ104_CLF_LANE_NAME", "topdecile_clf_blend_leg"),
+            runs_db=None,   # MLflow-logged: a DB fallback would alarm daily
+            purpose="the certified top-decile classifier now accruing the "
+                    "120-session forward ledger — the one line with a "
+                    "confirmed effect, and until now unwatched",
+        ),
+    )
+
+
 def _matches_shadow_lane(name: str) -> bool:
     """True if a health record's shadow_name is this sentinel's lane.
 
@@ -339,14 +400,20 @@ def last_session_days(as_of: dt.date, n: int, *, lookback_days: int = 21) -> lis
 # reader: pluggable structured sink -> DB fallback
 # ---------------------------------------------------------------------------
 
-def read_health_records(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord | None]:
+def read_health_records(days: list[dt.date], lane: 'WatchedLane | None' = None
+                        ) -> dict[dt.date, ShadowHealthRecord | None]:
     """Per-day ShadowHealthRecord (or None if the day had no live runs at all —
     the liveness checker's domain). Primary source wins per-day; days it does
     not cover fall through to the DB fallback, so a not-yet-deployed sink still
     gets full coverage."""
-    primary = _read_from_pipeline_sink(days)
+    primary = _read_from_pipeline_sink(days, lane)
     missing = [d for d in days if d not in primary]
-    fallback = _read_from_shadow_db(missing) if missing else {}
+    # A lane with no runs DB (MLflow-logged) gets NO fallback: deriving
+    # 'no scores' from a DB it never writes to would manufacture a
+    # permanent FEED DARK alarm out of a perfectly healthy lane.
+    no_db = lane is not None and lane.runs_db is None
+    fallback = ({} if (no_db or not missing)
+                else _read_from_shadow_db(missing, lane))
     return {d: primary.get(d, fallback.get(d)) for d in days}
 
 
@@ -416,7 +483,8 @@ def is_valid_v1_record(obj: object) -> bool:
     return True
 
 
-def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord]:
+def _read_from_pipeline_sink(days: list[dt.date], lane: 'WatchedLane | None' = None
+                             ) -> dict[dt.date, ShadowHealthRecord]:
     """Read the pipeline's structured health record (renquant-pipeline#211).
 
     JSONL sidecar, one object per line, schema `shadow_scorer_health.v1`.
@@ -444,7 +512,9 @@ def _read_from_pipeline_sink(days: list[dt.date]) -> dict[dt.date, ShadowHealthR
                 if not is_valid_v1_record(obj):
                     continue  # unknown/invalid -> ignore; DB fallback stays authoritative
                 rec = ShadowHealthRecord.from_dict(obj, source="pipeline_health_record")
-                if not _matches_shadow_lane(rec.shadow_name) or rec.run_date not in wanted:
+                matches = (lane.matches(rec.shadow_name) if lane is not None
+                           else _matches_shadow_lane(rec.shadow_name))
+                if not matches or rec.run_date not in wanted:
                     continue
                 out[rec.run_date] = rec  # last record for a date wins (latest re-run)
     except OSError:
@@ -459,7 +529,8 @@ def _open_db_readonly(path: str) -> sqlite3.Connection | None:
         return None
 
 
-def _read_from_shadow_db(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecord]:
+def _read_from_shadow_db(days: list[dt.date], lane: 'WatchedLane | None' = None
+                         ) -> dict[dt.date, ShadowHealthRecord]:
     """Fallback: derive a ShadowHealthRecord per day from the shadow runs DB.
 
     Ground truth used today:
@@ -475,7 +546,7 @@ def _read_from_shadow_db(days: list[dt.date]) -> dict[dt.date, ShadowHealthRecor
     """
     if not days:
         return {}
-    conn = _open_db_readonly(SHADOW_DB)
+    conn = _open_db_readonly(lane.runs_db if lane is not None else SHADOW_DB)
     if conn is None:
         return {}
     out: dict[dt.date, ShadowHealthRecord] = {}
@@ -653,13 +724,29 @@ def main(argv: list[str] | None = None) -> int:
               f"session day — skip")
         return 0
 
+    lanes = watched_lanes()
     days = last_session_days(today, STREAK_N)
-    records = read_health_records(days)
+    all_findings: list[str] = []
+    rc = 0
+    for lane in lanes:
+        rc |= _patrol_lane(lane, days, today, all_findings)
+    if not all_findings:
+        print(f"rq104 shadow-scorer sentinel: {len(lanes)} lane(s) patrolled over "
+              f"{days[0].isoformat()}..{days[-1].isoformat()} — no finding")
+    return rc
+
+
+def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
+                 out: list[str]) -> int:
+    """Patrol ONE lane. Findings are prefixed with the lane so an operator
+    reading a page knows which feed degraded, and appended to `out` so main
+    can tell 'every lane clean' from 'nothing was checked'."""
+    records = read_health_records(days, lane)
 
     # If NO day in the window had live runs at all, this is a liveness lapse,
     # not a shadow-degradation signal — stay quiet (the liveness checker owns it).
     if all(records.get(d) is None for d in days):
-        print(f"rq104 shadow-scorer sentinel: no live runs in window "
+        print(f"rq104 shadow-scorer sentinel [{lane.name}]: no signal in window "
               f"{days[0].isoformat()}..{days[-1].isoformat()} — liveness domain, skip")
         return 0
 
@@ -670,17 +757,22 @@ def main(argv: list[str] | None = None) -> int:
             problems.append(err)
 
     if problems:
+        body = "\n".join(problems)
+        if lane.purpose:
+            body += f"\n\nThis lane is {lane.purpose}."
         alert(
-            f"rq104 SHADOW SCORER DEGRADED: {len(problems)} issue(s) {today.isoformat()}",
-            "\n".join(problems),
+            f"rq104 SHADOW SCORER DEGRADED [{lane.name}]: "
+            f"{len(problems)} issue(s) {today.isoformat()}",
+            body,
             rq_root=RQ,
         )
-        print("\n".join(problems))
+        print(f"[{lane.name}] " + f"\n[{lane.name}] ".join(problems))
+        out.extend(problems)
         return 1
 
     src = next((records[d].source for d in reversed(days) if records.get(d)), "n/a")
     print(f"rq104 shadow-scorer sentinel OK {today.isoformat()} "
-          f"(shadow='{SHADOW_NAME}', source={src})")
+          f"(lane='{lane.name}', source={src})")
     return 0
 
 
