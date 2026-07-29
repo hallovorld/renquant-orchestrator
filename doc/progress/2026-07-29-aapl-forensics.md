@@ -58,8 +58,16 @@ THE HONEST NEGATIVE:
           and I cannot attribute it without feature-level work the retained data
           does not support.
 
-NEXT:     The surviving design criticism is in orchestrator#610: a floor at
-          mean+1sigma on a Platt-compressed calibrator throttles breadth to ~16%
-          regardless of edge, and an absolute mu_floor sits above the
-          calibrator's own p90. Whether mu_floor=0.03 is an ECONOMIC or a
-          STATISTICAL threshold is the open question.
+NEXT:     The open design question, stated as what was actually measured
+          rather than as a mechanism: on these 13 sessions the mean+1sigma
+          floor admitted ~18% of the cross-section and, combined with the
+          absolute mu_floor (orchestrator#610, which sits above the
+          calibrator's own p90), ~6% survived both
+          `[VERIFIED - the per-session table in the research note SS3]`.
+          An earlier revision of this line said the floor throttles breadth
+          "regardless of edge" and cited a code comment for it; WITHDRAWN -
+          that comment is in the `adaptive_quantile` branch as the motivation
+          for replacing mean+ksigma, not a property of `adaptive_mean_std`
+          which is the mode running here, and 13 sessions at one edge level
+          cannot establish invariance anyway. Whether mu_floor=0.03 is an
+          ECONOMIC or a STATISTICAL threshold remains the open question.

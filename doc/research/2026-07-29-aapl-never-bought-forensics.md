@@ -2,12 +2,68 @@
 
 **Date:** 2026-07-29. Forensics, function level. Read-only.
 **Bottom line:** AAPL was **above the model's own median on 12 of 13 scored
-sessions**. It was blocked every session at `VetoWeakBuysTask`
-(`job_panel_scoring.py:2115`) by an adaptive floor that admits only the top
-~18%. But deleting that floor would not have bought it: AAPL's `mu` was
-`+0.0068` against a required `+0.03`, a **4.4× shortfall**.
+sessions** `[VERIFIED — SS2 per-session table, runs.alpaca.db]`. It was blocked
+every session at `VetoWeakBuysTask` (`job_panel_scoring.py:2115`) by an
+adaptive floor that, on these sessions, admitted the top **~18%**
+`[VERIFIED — SS3 table]`. But deleting that floor would not have bought it:
+AAPL's `mu` was `+0.0068` against a required `+0.03`
+`[VERIFIED — SS3, runs.alpaca.db + strategy_config.json]`, a **4.4x
+shortfall** `[DERIVED — 0.03 / 0.0068]`.
 
 ---
+
+## 0. Provenance of every decision-driving number
+
+LONG #10 requires a per-quantity tag, not a section-level marker.
+
+**The sample is pinned**, because it has to be: 2026-07-28 has **three** runs
+carrying 85 scored rows, and their AAPL values differ. Everything below is
+run `2026-07-28-live-5b859fff`, `role='candidate'` (n=78), read from
+`candidate_scores` in `data/runs.alpaca.db` opened `immutable=1`
+`[VERIFIED — re-queried this session]`.
+
+| quantity | value | provenance |
+|---|---|---|
+| `candidate_scores` rows, whole DB | 241,675 | `[VERIFIED — SELECT COUNT(*)]` |
+| scored rows in the pinned run | 85 (78 candidate + 7 holding) | `[VERIFIED — GROUP BY role]` |
+| AAPL scored sessions | 13 | `[VERIFIED — SS2 table, one row per session]` |
+| sessions above the model's own median | 12 of 13 | `[VERIFIED — SS2 table]` |
+| AAPL rank_score | 0.5062 | `[VERIFIED — pinned run]` |
+| candidate median rank_score | 0.4776 | `[VERIFIED — pinned run]` |
+| AAPL percentile | **65th** | `[VERIFIED — rank of 0.5062 among the 78]` |
+| floor value | 0.532 | `[VERIFIED — logged floor_label]` |
+| share admitted by the floor | ~18% | `[VERIFIED — SS3 table]` |
+| share surviving floor AND mu_floor | ~6% | `[VERIFIED — SS3 table]` |
+| AAPL raw_panel (`panel_score`) | **-0.2061** | `[VERIFIED — pinned run]` |
+| calibrator ER=0 anchor | raw = -0.2822 | `[VERIFIED — calibrator artifact]` |
+| AAPL margin above break-even | **0.076** | `[DERIVED — -0.2061 - (-0.2822)]` |
+| AAPL mu | +0.0068 | `[VERIFIED — pinned run, 0.006836]` |
+| required mu_floor | +0.03 | `[VERIFIED — strategy_config.json]` |
+| mu shortfall ratio | 4.4x | `[DERIVED — 0.03 / 0.006836 = 4.39]` |
+| candidates clearing mu >= 0.03 | 2 of 78 | `[VERIFIED — pinned run]` |
+| cross-sectional p90 of mu | +0.0278 | `[VERIFIED — prior work, orchestrator#610]` |
+| rows behind that p90 | 1,010 | `[VERIFIED — prior work, orchestrator#610]` |
+| 06-26 near-miss: floor margin | +0.0035 | `[VERIFIED — SS2 table]` |
+| 06-26 mu before/after demean | 0.0344 / 0.0143 | `[VERIFIED — logged; 0.0344 - 0.0201]` |
+| repeat-score rate | 245/2,837 = 8.6% | `[VERIFIED — prior work, SS6]` |
+| max repeat correlation | 0.92 | `[VERIFIED — prior work, SS6]` |
+| legacy per-ticker Sharpe (NOT decision-relevant) | 3.49 | `[VERIFIED — frozen legacy artifact, SS4]` |
+
+**Two figures CORRECTED by this re-query, not merely tagged.** An earlier
+revision took most numbers from run `5b859fff` but `raw_panel` from a
+different same-day run (`be8ee266`, which has `-0.2037`), and reported the
+percentile as 67th:
+
+| was | now | why |
+|---|---|---|
+| `raw_panel = -0.2037` | `-0.2061` | `-0.2037` is `be8ee266`'s value; the pinned run is `5b859fff` |
+| margin `0.079` | `0.076` | follows from the corrected `raw_panel` |
+| percentile `67th` | `65th` | recomputed among the 78 candidates of the pinned run |
+
+None of this moves the conclusion — AAPL is still above the model's own
+break-even and still ~4.4x short of `mu_floor` — but mixing two runs of the
+same date is exactly the provenance defect the tagging rule exists to catch,
+and it was only visible once each number was traced to a specific run.
 
 ## 1. Where the scores actually live
 
@@ -69,7 +125,7 @@ decimals 15/15** `[VERIFIED]` — the mechanism is reproduced, not inferred.
 ## 2b. This is not "the model disliked AAPL"
 
 AAPL sat **above the model's own median on 12 of 13 scored sessions** (07-28:
-0.5062 vs median 0.4776 = 67th percentile; 07-24 = 79th). `mean + 1σ` sits near
+0.5062 vs median 0.4776 = 65th percentile `[VERIFIED — §0]`; 07-24 = 79th). `mean + 1σ` sits near
 the ~84th percentile by construction, so it admits only 12-15 of ~75 names.
 
 **The accurate statement is: AAPL was mid-pack and the floor only takes the top
@@ -79,9 +135,9 @@ the ~84th percentile by construction, so it admits only 12-15 of ~75 names.
 
 Even with the adaptive floor deleted, AAPL is not bought.
 
-`raw_panel = −0.2037` while the calibrator's ER=0 anchor sits at
+`raw_panel = −0.2061` while the calibrator's ER=0 anchor sits at
 `raw = −0.2822`, so AAPL is genuinely **above** the model's own break-even — by
-0.079, which the calibrator maps to `mu = +0.0068`. That is a claimed **+0.68%
+0.076 `[DERIVED — §0]`, which the calibrator maps to `mu = +0.0068`. That is a claimed **+0.68%
 over 60 days against a required +3.0%**: a **4.4× shortfall**.
 
 On 07-28 only **2 of 78** candidates in the entire cross-section had
@@ -129,8 +185,16 @@ matrices, and those are not retained.
 ## 6. A lead I chased and CLOSED
 
 `raw_panel` is byte-identical on some consecutive pairs (07-22/07-23 both
-−0.1881; 07-27/07-28 both −0.2037), which is consistent with a stale as-of
-feature axis and would be a real defect if confirmed.
+−0.1881; 07-27 and ONE of 07-28's runs both −0.2037), which is consistent with
+a stale as-of feature axis and would be a real defect if confirmed.
+
+Run-level precision, since §0 pins a different 07-28 run: 07-22 and 07-23 each
+have a single distinct AAPL `panel_score` across all their runs (−0.1881 both),
+while **07-28 has two** (−0.2061 and −0.2037). The repeat with 07-27 is against
+the −0.2037 run (`be8ee266`), not the §0-pinned `5b859fff`
+`[VERIFIED — distinct panel_score per run_date, re-queried this session]`. The
+conclusion below is unaffected — it rests on the deduplicated population rate,
+not on this pair.
 
 **Tested and rejected.** Deduplicating to one row per `(ticker, date)` — the
 first pass was polluted by same-date reruns — gives **245/2,837 = 8.6%** of
@@ -139,13 +203,34 @@ of **0.92** `[VERIFIED]`. The repeats cluster on weekend and holiday boundaries
 and hit many tickers at once (AAPL, ABBV, ADI all repeat on 06-09→06-10), which
 is feature-frame reuse across non-trading days, not staleness.
 
-## 7. The design criticism that does survive
+## 7. The design question this raises (an observation, not a proven mechanism)
 
-A floor at `mean + 1σ` on a Platt-compressed calibrator throttles breadth to
-~16% **regardless of edge** — a concern the code itself documents at
-`:1939-1946`. Combined with an absolute `mu_floor` sitting above the
-calibrator's own p90 (#610), the two gates compound to admit ~6% of the
-cross-section.
+On the 13 measured sessions, the `mean + 1σ` floor admitted roughly the top
+**18%** of the cross-section `[VERIFIED — the per-session table in §3]`, and
+combined with the absolute `mu_floor` (#610) the two gates left about **6%**
+admitted `[VERIFIED — §3 table, admitted/scored per session]`.
+
+**What this does NOT establish.** An earlier revision of this section claimed
+the floor throttles breadth "regardless of edge," citing a code comment. That
+citation was wrong on two counts and the claim is withdrawn:
+
+1. The comment lives in the `adaptive_quantile` branch
+   (`job_panel_scoring.py:1966-1973`), where it is the stated *motivation for
+   replacing* mean+kσ — not a description of the mode this note analyses. The
+   surface actually running here is `adaptive_mean_std`
+   (`:2010-2040`), which computes `floor = max(buy_floor_min, mean +
+   std_mult*stdev)` `[VERIFIED — read this session at those lines]`.
+2. "Regardless of edge" is a claim about invariance, and 13 sessions at one
+   edge level cannot establish it. ~18% is what mean+1σ admits on *these*
+   score distributions; the admitted share under mean+kσ depends on the
+   distribution's shape, so a skewed or differently-compressed cross-section
+   would admit a different fraction.
+
+Testing it properly would mean varying the realised edge and showing the
+admitted share does not move — which this note does not do. What remains is
+the sample-specific measurement above, plus the fact that the codebase's own
+authors considered breadth-throttling under mean+kσ a real enough concern to
+build a quantile alternative for it.
 
 Neither is a bug. Both are gates doing what they are configured to do. The open
 question, stated precisely in #610, is whether `mu_floor = 0.03` is an
