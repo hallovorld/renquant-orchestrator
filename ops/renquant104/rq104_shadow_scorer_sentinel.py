@@ -794,7 +794,7 @@ def _classify_window(records, days):
     return out
 
 
-def check_feed_dark_streak(records, days) -> str | None:
+def check_feed_dark_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     obs = _classify_window(records, days)
     if len(obs) < len(days) or not obs:
         return None
@@ -803,13 +803,13 @@ def check_feed_dark_streak(records, days) -> str | None:
         return (
             f"shadow score feed DARK: {len(obs)} consecutive session day(s) with "
             f"live runs but NO shadow health signal at all (no record, no collected "
-            f"scores) — {detail}. The whole feed for '{SHADOW_NAME}' went dark; "
+            f"scores) — {detail}. The whole feed for '{lane_name}' went dark; "
             f"nothing is being persisted to evaluate."
         )
     return None
 
 
-def check_load_failure_streak(records, days) -> str | None:
+def check_load_failure_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     obs = _classify_window(records, days)
     if len(obs) < len(days) or not obs:
         return None
@@ -820,7 +820,7 @@ def check_load_failure_streak(records, days) -> str | None:
             for d, r, _, rs in obs
         )
         return (
-            f"shadow scorer '{SHADOW_NAME}' LOAD FAILURE: {len(obs)} consecutive "
+            f"shadow scorer '{lane_name}' LOAD FAILURE: {len(obs)} consecutive "
             f"session day(s) with live runs but ZERO shadow scores — {detail}. "
             f"The shadow feed silently died (fail-soft: no gate fires). This is the "
             f"'couldn't load its artifact' incident class."
@@ -828,7 +828,7 @@ def check_load_failure_streak(records, days) -> str | None:
     return None
 
 
-def check_degraded_streak(records, days) -> str | None:
+def check_degraded_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     """Loaded-but-unusable for >= N sessions: stale cutoff, low coverage, missing
     provenance (pipeline `actionable=false`) — or a mixed window of degradations.
     Excludes the pure all-LOAD_FAIL / all-FEED_DARK windows those checks own."""
@@ -845,7 +845,7 @@ def check_degraded_streak(records, days) -> str | None:
         for d, r, c, rs in obs
     )
     return (
-        f"shadow scorer '{SHADOW_NAME}' NOT ACTIONABLE / DEGRADED: {len(obs)} "
+        f"shadow scorer '{lane_name}' NOT ACTIONABLE / DEGRADED: {len(obs)} "
         f"consecutive session day(s) — {detail}. It runs but its output is not "
         f"trustworthy (stale artifact / thin coverage / missing provenance)."
     )
@@ -904,7 +904,7 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
 
     problems: list[str] = []
     for check in CHECKS:
-        err = check(records, days)
+        err = check(records, days, lane.name)
         if err:
             problems.append(err)
 

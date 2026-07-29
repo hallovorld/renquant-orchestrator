@@ -740,6 +740,38 @@ class TestMultiLane:
         assert "topdecile_clf_blend_leg" in sent[0][0]
         assert "the certified line" in sent[0][1]
 
+    def test_load_failure_body_names_the_failing_lane_not_the_default(
+        self, tmp_path, monkeypatch
+    ):
+        # Regression: check_{feed_dark,load_failure,degraded}_streak used to
+        # interpolate the module-global SHADOW_NAME into the alert BODY
+        # regardless of which lane was patrolling, so a clf-lane failure
+        # would page with a title naming the clf lane but a body claiming
+        # 'hf_patchtst' (the default lane) died — misidentifying the broken
+        # feed to the operator.
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_record(D1.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        loaded=False, n_scored=0, coverage_frac=0.0,
+                        artifact_resolved=False, load_error="artifact_not_found",
+                        actionable=False, reasons=["artifact_unresolved"]),
+                _record(D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+                        loaded=False, n_scored=0, coverage_frac=0.0,
+                        artifact_resolved=False, load_error="artifact_not_found",
+                        actionable=False, reasons=["artifact_unresolved"])]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert",
+                            lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
+        assert rc == 1 and out
+        title, body = sent[0]
+        assert "LOAD FAILURE" in body
+        assert "'topdecile_clf_blend_leg'" in body
+        assert f"'{sentinel.SHADOW_NAME}'" not in body
+
 
 # ---------------------------------------------------------------------------
 # MLflow fallback for the clf lane (codex HIGH, 2026-07-29): a lane with

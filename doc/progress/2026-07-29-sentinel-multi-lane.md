@@ -1,6 +1,11 @@
 # Progress: shadow-scorer sentinel goes multi-lane (GOAL-1)
 
-STATUS:   delivered (code + 65 tests). Round-2 fix after codex HIGH: the clf
+STATUS:   delivered (code + 66 tests). Round-4 fix after codex MED: the
+          per-check alert BODIES (feed-dark / load-failure / degraded) still
+          interpolated the module-global `SHADOW_NAME` regardless of which
+          lane was patrolling, so a clf-lane failure paged with a title
+          naming the clf lane but a body claiming `hf_patchtst` died —
+          misidentifying the broken feed. Round-2 fix after codex HIGH: the clf
           lane was REGISTERED but had NO observable health signal — no
           producer writes it a `shadow_scorer_health.v1` JSONL record, so
           with `runs_db=None` and nothing else, `read_health_records()`
@@ -123,6 +128,25 @@ EVIDENCE:
                  mtime coincidentally matches the target date (closes the
                  mtime-is-not-immutable gap). All 3 verified to fail against
                  the pre-fix locator before the fix landed.
+                 Round 4 (codex MED): `check_feed_dark_streak`,
+                 `check_load_failure_streak`, and `check_degraded_streak`
+                 built their alert-body text from the module-global
+                 `SHADOW_NAME` constant, not the lane actually being
+                 patrolled — so a clf-lane LOAD FAILURE alert's title said
+                 `[topdecile_clf_blend_leg]` but its body said `shadow
+                 scorer 'hf_patchtst' LOAD FAILURE`, sending an operator to
+                 debug the wrong feed. Threaded `lane.name` through all
+                 three check functions (`lane_name` param, default
+                 `SHADOW_NAME` for backward compatibility with any direct
+                 caller) and `_patrol_lane`'s call site.
+                 `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py,
+                 this session]` **66 passed** (54 round-1 + 6 round-2 +
+                 3 round-3 + 1 new `TestMultiLane` regression asserting the
+                 clf lane's LOAD FAILURE alert body contains
+                 `'topdecile_clf_blend_leg'` and NOT `'hf_patchtst'`,
+                 verified to fail against the pre-fix code first). The 2
+                 conditional-import tests ran (not skipped) in this
+                 environment; not affected by this change.
   best-known?:   n/a — monitoring-code change, not a competing model/signal
                  variant; no IC/Sharpe number is claimed.
   scope:         this PR makes the sentinel patrol both shadow lanes instead
