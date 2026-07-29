@@ -64,8 +64,11 @@ EVIDENCE:
                  (`data/runs.alpaca.db`) rather than the shadow DB this lane
                  never writes to.
                  `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py,
-                 this session]` **62 passed, 0 skipped**: the 56 round-1 tests
-                 unchanged + 6 new (`TestMlflowFallback`) exercising the real
+                 this session]` **60 passed, 2 skipped** (the 2 skips are a
+                 conditional-import contract test pair that only runs when the
+                 producer module is importable in this environment — not a
+                 failure, and not something this PR's changes affect): the 54
+                 round-1 tests unchanged + 6 new (`TestMlflowFallback`) exercising the real
                  artifact shape end to end — a live day with a recorded
                  comparison table classifies HEALTHY, a live day with none
                  classifies FEED_DARK, a day with no live run at all stays in
