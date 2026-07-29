@@ -4,30 +4,27 @@ STATUS:   CONFIRMED and merge-ready. The workstream was proposed on 2026-07-28;
           operator confirmed opening it directly in-session (2026-07-28/29, in
           response to an explicit recommendation to proceed) — this PR carries
           the POST-decision record for the workstream itself.
-          CORRECTION (visible, not silent, per long-term-agreements.md entry 10):
-          an earlier version of this doc and of `model-edge.md` claimed the
-          frozen 43-fold PatchTST evaluation (model#85) had already run and
-          returned UNDERPOWERED, attributed to a Modal run
-          (`wf-pt-b4e47e2c-batch1`, "$18.30 of the $25 cap"), and was retracted
-          the same day on the grounds that the run "does not exist under any
-          name in this repo's history." THAT RETRACTION WAS CORRECT AT THE
-          TIME AND IS NOW STALE: model#85's statistical design cleared review
-          and the 43-fold corpus was actually dispatched and generated later
-          the same day (2026-07-28) — it is real, verified directly on disk
-          (43 fold dirs, real checkpoints, Modal dispatch provenance)
-          `[VERIFIED — direct filesystem read, 2026-07-29]`, living in
-          quarantined local scratch per its own prereg's data-handling
-          contract, which is why the original repo-only search found nothing.
-          The evaluation's own verdict (UNDERPOWERED) and the separate
-          closure test's retracted CLOSE verdict are tracked in model#85 /
-          model#87, not restated here — this doc only tracks the workstream
-          proposal + the readonly serving-preflight diagnostic below, both
-          still confirmed.
-
-WHAT:     (1) New workstream `doc/memory/mid-term/serving-reliability.md` with 5 proposed
-          ACs; (2) `_north-star.md` lists it as a peer workstream and states why;
-          (3) `model-edge.md` gains the 2026-07-28 fresh-PatchTST end-to-end serving read
-          (diagnostic only — see correction above).
+          CORRECTION (visible, not silent, per long-term-agreements.md entry 10).
+          Earlier versions of this doc and of `model-edge.md` disagreed with each
+          other about the 43-fold PatchTST corpus. Reconciled status, each claim
+          separately checked on 2026-07-29:
+            * the corpus EXISTS and is now content-addressed
+              `[VERIFIED — model#91 index, root digest b8aa2d99…; 43 fold dirs /
+              43 checkpoints / 43 calibrators; Modal dispatch app ids
+              ap-RIc3qj4D3yFfU9z7tAx4Rd, ap-HHid4LhAAD0heLm7Mlk4aW]`. It lives in
+              quarantined session scratch because its own prereg forbids it from
+              entering any repo, which is why a repo-history search found nothing
+              and concluded, understandably but wrongly, that it was fabricated.
+            * model#85's statistical design has NOT cleared review — that PR is
+              still under change request `[VERIFIED — gh pr list, 2026-07-29]`.
+              Any earlier text here saying otherwise was wrong.
+            * model#85's UNDERPOWERED verdict and model#87's CLOSE verdict are
+              both SUPERSEDED regardless, by an evaluation-harness defect found
+              on 2026-07-29 (cross-lag statistics computed on a drifting sample)
+              and re-derived under model#90.
+          What this record therefore asserts: the corpus is real and citable; no
+          PatchTST verdict is currently admissible; the workstream direction is
+          confirmed.
 
 WHY/DIR:  The MID tier had not moved since 2026-06-17 while a full day of work produced
           three landed lanes and four defects of one class — a served model's opinion
@@ -71,13 +68,14 @@ EVIDENCE: artifact:      `/tmp/ptserve_e2e.log` (readonly full-funnel preflight,
           the §4(b) sanity triad does not apply."
 
 NEXT:     The workstream and its 5 acceptance criteria are confirmed AS A DIRECTION —
-          this does NOT mean all 5 are satisfied. AC4 (warm serving path) depends
-          on orch#589's cache-key design, itself an open, unmerged PR blocked on
-          its own provenance/rebase conditions; AC4 is PENDING until #589 (or a
-          successor) is separately approved. AC5 (silent-refusal telemetry) is the one
-          with no PR yet and is the direct antidote to how #541 stayed invisible for
-          months. The PatchTST question moves to `model-edge.md`'s third-blend-leg
-          test via the standard gate chain: model#85's statistical design needs to
-          clear review, then the 43-fold corpus needs to actually be generated
-          (model#82/backtesting#81/#82 dispatch tooling is ready) and scored against
-          the frozen design — neither has happened yet.
+          this does NOT mean any of the 5 is satisfied. Status of each, checked
+          2026-07-29 `[VERIFIED — gh pr list]`: AC4 (warm serving path) depends on
+          orch#589, open and under change request; AC5 (silent-refusal telemetry)
+          now HAS a PR, orch#592, also open — earlier text here saying AC5 had no
+          PR is stale. AC1-AC3 remain unstarted.
+          On the PatchTST question: the corpus exists and is citable (model#91),
+          but no verdict on it is currently admissible — model#85 (UNDERPOWERED)
+          and model#87 (CLOSE) were both computed with the defective harness, and
+          model#90's corrected re-derivation is itself still under review. The
+          third-blend-leg question therefore stays OPEN, behind the standard gate
+          chain, with no result to carry forward.
