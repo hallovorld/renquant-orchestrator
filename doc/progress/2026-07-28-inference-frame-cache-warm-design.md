@@ -1,7 +1,9 @@
 # Progress: inference-frame cache design memo (PR #589)
 
-STATUS:   delivered (design memo only, no code). Decision needed on proposal A
-          (narrow the cache key via an allowlist) + B (scheduled warm step).
+STATUS:   delivered (design memo only, no code). Round-2 revision after
+          codex's HIGH finding (original Proposal A's "fail-closed" allowlist
+          was actually fail-open on an omitted field). Recommendation now
+          explicit in the memo: adopt A′ (revised) + B together.
 
 WHAT:     Adds `doc/research/2026-07-28-inference-frame-cache-warm-design.md`.
           Documents that `training_panel/pipeline.py::_selected_config_fingerprint`
@@ -14,12 +16,18 @@ WHY/DIR:  Not only speed: on the production-shaped path a cold key hit the
           1200 s ceiling and RuntimeError-aborted the session
           ("aborting live inference instead of silently trading without panel
           scores"). A model swap or a threshold edit can therefore take the next
-          daily session down — GOAL-5 reliability class. Proposal A narrows the
-          key by allowlist (fail-closed: a new frame-affecting field must be
-          added explicitly, asserted by a test that every config lookup in the
-          builder appears in the allowlist) with a cache-version bump so old
-          entries cannot be reinterpreted; proposal B pre-builds frames once
-          daily after the data refresh so every lane starts warm.
+          daily session down — GOAL-5 reliability class. Proposal A′ (revised)
+          replaces the withdrawn allowlist design with a structural fix: a
+          typed, versioned `FrameRecipe` object is the builder's *only*
+          config-shaped input, so a field the builder cannot read cannot
+          silently affect frame content while being excluded from the
+          fingerprint — closing the fail-open gap the allowlist design had
+          (an omitted frame-affecting field would keep matching a stale cache
+          entry instead of missing). Cache-version bump so old entries cannot
+          be reinterpreted. Proposal B pre-builds frames once daily after the
+          data refresh, through the identical `FrameRecipe`/freshness code
+          path as live serving (no bypass of freshness/integrity gates), so
+          every lane starts warm.
 
 EVIDENCE:
 artifact:      training_panel/pipeline.py (`_inference_frame_cache_key`, `_selected_config_fingerprint`); run logs for the three 2026-07-28 cold-rebuild sessions on this machine; `artifacts/cache/inference_frames` (62 entries)
@@ -28,8 +36,9 @@ existing data: `[VERIFIED — direct log read]` three independent cold rebuilds:
 best-known?:   n/a — this is a design memo identifying a defect (over-specified cache key), not a model/variant performance comparison; no narrower-key implementation exists yet to compare against
 scope:         claim is scoped to the three measured cold-rebuild runs on this machine on 2026-07-28 plus the source-level read of the cache-key composition; does not claim a production-wide timeout-hit frequency. No model/IC/Sharpe number is claimed, so the §4(b) sanity triad does not apply.
 
-NEXT:     Operator/codex decision on A + B. If accepted, the implementation PR
-          belongs in the canonical kernel (renquant-pipeline) with the umbrella
-          fork mirrored in the same batch — the fork-divergence class already hit
-          twice today (blend `kind` unknown; `adaptive_quantile` buy_floor
-          unsupported in the umbrella copy).
+NEXT:     Operator/codex sign-off on the recommendation (A′ + B). If accepted,
+          the implementation PR belongs in the canonical kernel
+          (renquant-pipeline) with the umbrella fork mirrored in the same
+          batch — the fork-divergence class already hit twice today (blend
+          `kind` unknown; `adaptive_quantile` buy_floor unsupported in the
+          umbrella copy).
