@@ -161,7 +161,23 @@ def newest_data_date(path: str, date_column: str) -> dt.date | None:
         return None
 
 
-def read_frontier(art: WatchedArtifact, *, as_of: dt.date) -> FrontierReading:
+def read_frontier(art: WatchedArtifact, *, as_of: dt.date,
+                  prior_frontier: dt.date | None = None) -> FrontierReading:
+    """One observation cannot prove a frontier is permanently stuck.
+
+    The first revision assigned UPSTREAM_EMPTY from a single stale snapshot
+    plus a recent mtime, while this module's own docstring defines it as
+    "across repeated observations". That mislabels a transient upstream
+    failure as futile and forces ZERO retries — the exact opposite of the
+    check-and-retry behaviour this was built for.
+
+    UPSTREAM_EMPTY now requires `prior_frontier` to be supplied and to EQUAL
+    the current frontier: proof that a previous observation saw the same
+    newest date. Without that proof the touched-but-stale case is
+    NOT_ADVANCING with one retry. This checker stays stateless on purpose —
+    it writes nothing — so the caller (a scheduled job that can persist its
+    last reading) is what closes the loop.
+    """
     p = Path(art.path)
     if not p.exists():
         return FrontierReading(art.name, TRANSIENT, None, None, None,
@@ -184,14 +200,16 @@ def read_frontier(art: WatchedArtifact, *, as_of: dt.date) -> FrontierReading:
 
     # Stale. The distinction that decides whether retrying is sane:
     touched_recently = mtime is not None and (as_of - mtime).days <= art.cadence_days
-    if age > bound + art.cadence_days and touched_recently:
+    frontier_confirmed_stuck = (prior_frontier is not None
+                                and prior_frontier == newest)
+    if touched_recently and frontier_confirmed_stuck:
         return FrontierReading(
             art.name, UPSTREAM_EMPTY, newest, age, mtime,
             f"the file was touched within its {art.cadence_days}d cadence but "
             f"its frontier is {age}d old against a {bound}d bound ({how}) — "
-            f"the job RAN and produced nothing newer. "
-            f"Retrying is futile; this is a data-supply problem. "
-            f"Escalate rather than re-run.")
+            f"and a PRIOR observation saw the same frontier — the job has now "
+            f"run at least twice and produced nothing newer. Retrying is "
+            f"futile; this is a data-supply problem. Escalate, do not re-run.")
     if touched_recently:
         return FrontierReading(
             art.name, NOT_ADVANCING, newest, age, mtime,

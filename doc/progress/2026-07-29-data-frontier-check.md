@@ -71,6 +71,25 @@ CORRECTION TO MY OWN EARLIER CLAIM:
           unavoidable. The real constraint on retraining today is different and
           unchanged: the 9 requested new tickers have ZERO rows in the panel.
 
+REVISION 2 (review MED, and it was right):
+          The module's docstring defines UPSTREAM_EMPTY as a frontier unmoved
+          "across repeated observations", but read_frontier() assigned it from
+          ONE stale snapshot plus a recent mtime. That mislabels a transient
+          upstream failure as futile and forces ZERO retries — the exact
+          opposite of the check-and-retry behaviour this was built for, and an
+          internal contradiction between my own docstring and my own code.
+
+          UPSTREAM_EMPTY now requires a `prior_frontier` argument EQUAL to the
+          current frontier — proof that an earlier observation saw the same
+          newest date. Without that proof, touched-but-stale is NOT_ADVANCING
+          with ONE retry. The checker stays stateless by design (it writes
+          nothing), so persisting the last reading is the scheduled caller's
+          job, and that boundary is now explicit rather than papered over.
+
+          Live re-run after the fix: 3/3 HEALTHY, unchanged. 19 tests (3 added:
+          one-observation is not futile, a prior observation of the same
+          frontier IS, and a prior observation that ADVANCED is not).
+
 NEXT:     Per-TICKER completeness is a separate and still-open P0: the live run
           logs `Feature cache built: 148/149`, `Loaded models for 122/145
           symbols`, and `sentiment hit=51 miss=94` and reports success anyway.

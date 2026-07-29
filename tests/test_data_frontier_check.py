@@ -80,19 +80,56 @@ def test_a_genuinely_stale_label_panel_is_still_caught(tmp_path):
     art = F.WatchedArtifact(name="p", path=path, cadence_days=7,
                             label_horizon_tdays=60)
     r = F.read_frontier(art, as_of=AS_OF)
-    assert r.status == F.UPSTREAM_EMPTY
-    assert F.retry_advice(r)[0] == 0
+    # ONE observation cannot prove the frontier is stuck -> retryable, not futile
+    assert r.status == F.NOT_ADVANCING
+    assert F.retry_advice(r)[0] == 1
 
 
-# --- mtime-fresh / data-stale, the original motivating defect ---------------
+def test_one_stale_observation_is_NOT_upstream_empty(tmp_path):
+    """The regression codex caught: a single snapshot forced zero retries.
 
-def test_touched_today_but_data_far_behind_is_UPSTREAM_EMPTY(tmp_path):
+    The module defines UPSTREAM_EMPTY as "across repeated observations"; the
+    first revision assigned it from one. That mislabels a transient upstream
+    failure as futile — the opposite of check-and-retry.
+    """
     path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
     art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
                             cadence_days=1)
     r = F.read_frontier(art, as_of=AS_OF)
+    assert r.status == F.NOT_ADVANCING
+    assert F.retry_advice(r)[0] == 1
+
+
+def test_a_PRIOR_observation_of_the_same_frontier_proves_it_stuck(tmp_path):
+    """Two observations of the same newest date: now a retry IS futile."""
+    path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
+    art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
+                            cadence_days=1)
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1))
     assert r.status == F.UPSTREAM_EMPTY
-    assert "the job RAN and produced nothing newer" in r.detail
+    assert F.retry_advice(r)[0] == 0
+    assert "PRIOR observation" in r.detail
+
+
+def test_a_prior_observation_that_ADVANCED_is_not_stuck(tmp_path):
+    path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
+    art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
+                            cadence_days=1)
+    r = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 4, 1))
+    assert r.status == F.NOT_ADVANCING
+
+
+# --- mtime-fresh / data-stale, the original motivating defect ---------------
+
+def test_touched_today_but_data_far_behind_needs_a_second_observation(tmp_path):
+    """The motivating defect (mtime-fresh / data-stale) is still caught — but
+    as NOT_ADVANCING until a prior reading confirms the frontier is stuck."""
+    path = _parquet(tmp_path, "d.parquet", "2026-05-01", days_old_mtime=0)
+    art = F.WatchedArtifact(name="d", path=path, max_data_age_days=7,
+                            cadence_days=1)
+    assert F.read_frontier(art, as_of=AS_OF).status == F.NOT_ADVANCING
+    r2 = F.read_frontier(art, as_of=AS_OF, prior_frontier=dt.date(2026, 5, 1))
+    assert r2.status == F.UPSTREAM_EMPTY
 
 
 def test_not_touched_and_stale_is_TRANSIENT(tmp_path):
