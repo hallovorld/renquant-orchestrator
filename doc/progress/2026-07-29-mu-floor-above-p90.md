@@ -23,16 +23,22 @@ EVIDENCE: artifact: `RenQuant/data/runs.alpaca.db` (opened
   existing data:    Yes, measured this session over 1,010 scored rows,
                     pooled across calendar dates 2026-07-08..07-29 (not a
                     per-trading-session read — one date, 07-28, carries 255
-                    of the 1,010 rows, 3x any other date):
-                      pooled median mu = -0.0005 `[VERIFIED]`
-                      pooled p90       = +0.0278 `[VERIFIED]`
-                      pooled max       = +0.0484 `[VERIFIED]`
-                      clearing mu>=0.03 = 80/1010 = 7.9% `[VERIFIED]`
-                    Both gates on the same rows, per date 07-20..07-29:
-                      pass rank floor  18-23% `[VERIFIED]`
-                      pass mu>=0.03     3-8%  `[VERIFIED]`
-                      pass BOTH        == pass mu, on every date in the sample `[VERIFIED]`
-                      compound 48/810 = 5.93% `[DERIVED]`
+                    of the 1,010 rows, 3x any other date). Query:
+                    `SELECT mu FROM score_distribution WHERE date BETWEEN
+                    '2026-07-08' AND '2026-07-29'` (no is_holding filter):
+                      pooled median mu = -0.0005 `[VERIFIED — score_distribution, above query, this session]`
+                      pooled p90       = +0.0278 `[VERIFIED — score_distribution, above query, this session]`
+                      pooled max       = +0.0484 `[VERIFIED — score_distribution, above query, this session]`
+                      clearing mu>=0.03 = 80/1010 = 7.9% `[VERIFIED — score_distribution, above query, this session]`
+                    Both gates on the same rows, per date 07-20..07-29
+                    (`SELECT rank_score, mu FROM score_distribution WHERE
+                    date = ?`; floor = max(0.20, mean(rank_score) +
+                    pstdev(rank_score)); see research doc §2 for the
+                    per-date table):
+                      pass rank floor  18-23% `[VERIFIED — score_distribution, per-date query above, this session]`
+                      pass mu>=0.03     3-8%  `[VERIFIED — score_distribution, per-date query above, this session]`
+                      pass BOTH        == pass mu, on every date in the sample `[VERIFIED — score_distribution, per-date query above, this session]`
+                      compound 48/810 = 5.93% `[DERIVED — sum of pass-BOTH and n across the 8 dates in research doc §2]`
   best-known?:      Yes for the distribution and for which gate binds. NOT
                     claimed: that mu_floor should be lowered, that the
                     calibrator is wrong, or what a different floor would have

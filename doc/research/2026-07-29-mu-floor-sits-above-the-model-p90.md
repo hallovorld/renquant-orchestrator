@@ -10,12 +10,15 @@ blame in the logs is **redundant** — every name clearing `mu` also clears it.
 
 ## 1. The distribution the gate is applied to
 
-Live score DB `data/runs.alpaca.db`, calendar dates 2026-07-08 … 07-29, 1,010
-scored rows `[VERIFIED — this session]`. This is a **pooled, date-level**
-read, not a per-trading-session one — see the caveat after the table in §2:
-one date (07-28) carries 255 rows, 3× any other date in the sample, so "date"
-and "session" are not interchangeable here and the finding below is scoped to
-the pooled distribution.
+Live score DB `data/runs.alpaca.db` (opened `mode=ro&immutable=1`), query
+`SELECT mu FROM score_distribution WHERE date BETWEEN '2026-07-08' AND
+'2026-07-29'` — no `is_holding` filter (counts every scored row, held or
+not), calendar dates 2026-07-08 … 07-29, 1,010 scored rows
+`[VERIFIED — score_distribution, above query, this session: n=1010]`. This
+is a **pooled, date-level** read, not a per-trading-session one — see the
+caveat after the table in §2: one date (07-28) carries 255 rows, 3× any
+other date in the sample, so "date" and "session" are not interchangeable
+here and the finding below is scoped to the pooled distribution.
 
 | quantity | value |
 |---|---:|
@@ -24,17 +27,28 @@ the pooled distribution.
 | pooled max (ever) | +0.0484 |
 | share clearing `mu >= 0.03` | **80/1010 = 7.9%** |
 
+All four rows `[VERIFIED — score_distribution, above query, this session:
+median=-0.0004987, p90=0.027716 (linear-interpolated percentile), max=
+0.048436, count(mu>=0.03)=80]`.
+
 The gate asks for **+3.00%** over 60 days. The **median** name is offered
 **−0.05%**. The **90th percentile** name is offered **+2.78%** — still short.
 
-Per date, the pass count is 2–17 out of 76–255 rows (see §2 table for the
+Per date, the pass count is 2–17 out of 76–255 rows
+`[VERIFIED — §2 table below]` (see §2 table for the
 per-date breakdown; 07-28 is the outlier both in row count and pass count).
 
 ## 2. The rank floor is redundant
 
 `VetoWeakBuysTask` uses `buy_floor = "adaptive_mean_std"`, i.e.
-`max(0.20, mean + 1σ)` of the day's `rank_score`. Applying both gates to the
-same rows `[VERIFIED — this session]`:
+`max(0.20, mean + 1σ)` of the day's `rank_score` (population σ). Per date:
+`SELECT rank_score, mu FROM score_distribution WHERE date = ?`; `floor =
+max(0.20, mean(rank_score) + pstdev(rank_score))`; `pass rank floor =
+count(rank_score >= floor)`; `` pass mu>=.03 = count(mu >= 0.03) ``;
+`pass BOTH = count(rank_score >= floor AND mu >= 0.03)`. Applying both gates
+to the same rows
+`[VERIFIED — score_distribution, per-date query + formula above, this
+session — every n/pass-rank/pass-mu/pass-both cell below reproduced exactly]`:
 
 | date | n | pass rank floor | pass `mu>=.03` | pass BOTH |
 |---|---:|---:|---:|---:|
@@ -54,13 +68,18 @@ one date, so it is reported as-is rather than assumed to be a single session.
 **`pass BOTH` equals `pass mu` on every date in the sample.** The `mu`
 survivors are a strict subset of the rank-floor survivors, so the rank floor
 never removes a name that `mu` would have kept. Compound admission is
-48/810 = **5.93%**, which is just the `mu` rate.
+48/810 = **5.93%**
+`[DERIVED — sum of the "pass BOTH" and "n" columns above: 48/810]`, which is
+just the `mu` rate.
 
 Consequence for reading logs: `veto:rank_score_below_floor` is what gets
 LOGGED, and it is not what decides. The AAPL forensics reached the same
 conclusion from the other direction — AAPL was blocked at
 `job_panel_scoring.py:2115` on every date in the sample, but its `mu` was
-`+0.0068` against a required `+0.03`, a 4.4× shortfall, so deleting the rank
+`+0.0068`
+`[VERIFIED — score_distribution, SELECT mu WHERE date='2026-07-28' AND
+ticker='AAPL', this session: 0.006836]`
+against a required `+0.03`, a 4.4× shortfall, so deleting the rank
 floor would not have bought it.
 
 ## 3. What this is and is not
