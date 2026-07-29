@@ -1,0 +1,119 @@
+# Phase 3 of the 9-ticker atomic batch: proposed sector_map / sector_etf_map
+
+**Status:** proposal for review. **No config changed.** These entries are part of
+the atomic batch (watchlist + sector maps + retrained artifacts land together);
+landing any piece alone hard-fails buys for all 154 names.
+
+**Why this needs review rather than a script:** `sector_map` and
+`sector_etf_map` are both `config_fingerprint` fields, and P-SECTOR-MAP
+(`renquant-pipeline/.../preflight_pipeline/tasks/sector_map.py:49-82`)
+hard-fails buy mode if any buyable watchlist ticker lacks a `sector_map` string
+OR if any bucket value lacks a `sector_etf_map` entry. `require_sector_map_for_buys
+= true` (config line 427). The taxonomy is hand-curated and finer than GICS; no
+script produces it.
+
+---
+
+## 1. Mechanics established before proposing anything
+
+- `max_positions_per_sector = 6` (config line 665) `[VERIFIED]`.
+- The cap groups on the RAW BUCKET VALUE, not the ETF
+  (`task_selection.py:39-40`, `task_joint_actions.py:155/244`,
+  `portfolio_qp/tasks.py:1501-1536`) `[VERIFIED]`. So several buckets sharing
+  one ETF (ai_chip / giant_tech / datacenter_hw / software all → XLK) do NOT
+  merge their caps. `sector_etf_map` is relative-strength metadata, not a cap key.
+- The cap limits **simultaneously HELD positions per bucket**, not watchlist or
+  candidate-pool size `[VERIFIED]`.
+- Precedent for stretching an existing bucket rather than minting one:
+  `_activation_log` (lines 1338-1341) records LITE + COHR folded into
+  `datacenter_hw` on addition `[VERIFIED]`.
+
+## 2. Proposal
+
+| ticker | bucket | closest incumbents | confidence |
+|---|---|---|---|
+| NXPI | `ai_chip` | ADI, MCHP, ON | **already mapped** (line 511) — no decision |
+| GFS | `ai_chip` | TSM (the other pure-play foundry) | high |
+| SWKS | `ai_chip` | QCOM, ADI, MRVL | high |
+| QRVO | `ai_chip` | SWKS, QCOM, ADI | high |
+| TER | `ai_chip` | AMAT, LRCX, KLAC | high |
+| ENTG | `ai_chip` | AMAT, LRCX, KLAC | **medium** — see §3 |
+| ARM | `ai_chip` | QCOM, AVGO, NVDA | **low** — see §3 |
+| STX | `datacenter_hw` | WDC (direct HDD competitor) | high |
+| SNDK | `datacenter_hw` | WDC (spin-off parent), DELL, SMCI | **medium** — see §3 |
+
+**No new `sector_etf_map` entries are required** — both buckets already map to
+XLK `[VERIFIED]`.
+
+## 3. The three calls I am not confident about, stated as such
+
+**ARM (low).** Pure IP/royalty licensing: no fab, no COGS, no unit sales. Every
+current `ai_chip` incumbent actually manufactures or sells physical silicon or
+equipment. `ai_chip` is the best AVAILABLE fit — same sector news-flow, tariff
+and export-control exposure — but it is a genuine qualitative stretch. A precise
+fix is a new `chip_ip_licensing` bucket, which would need its own
+`sector_etf_map` entry; there is no clean ETF for a licensing-only sub-industry,
+so it would also default to XLK and the new bucket would be **cosmetic rather
+than substantive**. Recommendation: accept `ai_chip` unless you want the
+precision for its own sake.
+
+**ENTG (medium).** Materials and filtration consumables, versus capital-equipment
+sellers (AMAT/LRCX/KLAC). Recurring-revenue business against a capex cycle. Not
+severe enough to block, but the second-loosest call here.
+
+**SNDK (medium).** Defensible either way — `datacenter_hw` on storage-media and
+literal spin-off lineage, or `ai_chip` on the memory-chip comp with MU. Chose
+`datacenter_hw`. A judgment call, not a clean-cut case.
+
+## 4. Concentration, and why the alarming number is not currently alarming
+
+| bucket | now | net new | after | growth |
+|---|---:|---:|---:|---:|
+| `ai_chip` | 19 | +6 | **25** | +31.6% |
+| `datacenter_hw` | 14 | +2 | 16 | +14.3% |
+
+`ai_chip` goes from third-largest to within one ticker of the largest
+(`software`, 26), and becomes by far the largest semiconductor-cycle-correlated
+bucket. 25 names would compete for the same 6 held slots.
+
+**But the 6-slot cap is nowhere near binding today, and that is measurable.**
+The `mu >= 0.03` admission gate lets through **2-6 names per session across the
+WHOLE cross-section** (7.9% of 1,010 scored rows over 07-08..07-29; on 07-24 it
+was 2 of 76) `[VERIFIED — orchestrator#610]`. A per-bucket cap of 6 cannot bind
+when the entire book admits 2-6 candidates in total.
+
+So the concentration risk this table implies is **conditional on the admission
+rate rising**, which is exactly what the deployment work (#223, #608, #610)
+would do. The honest statement: this is not a reason to withhold the addition
+now, and it IS a reason to re-check sector caps at the same time as any change
+that widens admission.
+
+## 5. The sharpest concentration point, called out separately
+
+WDC is already in the watchlist and already in `datacenter_hw` (line 513)
+`[VERIFIED]`. Under this proposal **WDC + SNDK + STX** all sit in
+`datacenter_hw` — a three-name storage cluster inside a 16-name bucket.
+
+WDC and SNDK are not merely correlated, they share **direct corporate lineage**:
+SNDK is WDC's own NAND-flash spin-off, so they share the underlying cost
+structure and cyclicality. The correlation guard
+(`qp_correlation_cap_enabled`, `correlation_guard_threshold = 0.70`, lines
+829-830) is what would have to arbitrate. Flagging it explicitly rather than
+leaving it inside a bucket-growth percentage, because a 0.70 threshold on
+same-lineage names is where a generic guard is least likely to behave as
+intended.
+
+## 6. What I am NOT claiming
+
+- Not that these buckets are optimal — three are flagged as judgment calls.
+- Not that the concentration is safe at a higher admission rate; §4 says the
+  opposite.
+- Not that the correlation guard handles WDC/SNDK correctly. I did not test it.
+
+## 7. Provenance
+
+All figures read READ-ONLY from
+`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
+(sector_map lines 485-645, sector_etf_map 646-664, cap 665, require flag 427)
+and the pipeline enforcement paths cited in §1. Admission figures from
+orchestrator#610. Nothing written; no config changed.
