@@ -32,7 +32,6 @@ EVIDENCE: artifact: canonical daily-prod logs only, `RenQuant/logs/daily_104/
                     canonical files listed above]
                     ratio of medians 4.76x `[DERIVED — 764.28/160.59]`
                     one-sided Mann-Whitney U (skipped > bought): U=323,
-                    p=6.6e-5 `[VERIFIED — this session,
                     scipy.stats.mannwhitneyu(skipped, bought,
                     alternative='greater') on the two samples above]`
                     skipped set: ASML $1,777 (x2), BLK $994.85, CAT $993.42,
@@ -69,6 +68,22 @@ EVIDENCE: artifact: canonical daily-prod logs only, `RenQuant/logs/daily_104/
   scope:            Two docs. No pin advanced, no config edited, no live
                     surface touched.
 
+RETRACTION (review MED, and it was right):
+          A previous revision ran a one-sided Mann-Whitney (U=323, p=6.6e-5) on
+          the 33/11 rows and called the gap statistically distinguishable from
+          chance. WITHDRAWN. Those are repeated daily decisions, not independent
+          draws — the skipped set repeats EME 3x and ASML 2x, and the bought
+          side repeats ticker/session structure. A rank test assuming 44
+          independent observations understates uncertainty by an amount I have
+          not quantified. The descriptive gap (median $160.59 vs $764.28,
+          4.76x) and the logged mechanism both stand; the p-value does not.
+
+          Also scoped back: "the live book is not testing the model the model
+          was validated as" is a claim about the validation contract, which I
+          have not attached. The supportable claim is narrower — an execution
+          rule silently overrides ranked admissions, and the names it removes
+          are systematically the expensive ones.
+
 THE DISTINCTION THAT MATTERS:
           Lost deployment is opportunity cost. This is a **factor exposure
           nobody chose**. This is a mechanism claim, not an inference from
@@ -80,7 +95,6 @@ THE DISTINCTION THAT MATTERS:
 
           Not absolute — LLY at $1,142.81 was bought on 2026-06-09 — but a
           4.76x median gap at n=33 vs n=11 tests significant (one-sided
-          Mann-Whitney p=6.6e-5), not noise.
 
 NEXT:     The remedy is one of two switches already built and both dark:
           `sizing.one_share_floor_enabled` (A-3, rounds up to exactly one

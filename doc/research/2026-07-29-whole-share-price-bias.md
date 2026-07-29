@@ -67,23 +67,42 @@ CAT and EME highly enough to clear every admission gate, and integer share
 arithmetic silently removed them. The portfolio carries an implicit
 anti-high-price tilt produced by rounding, not by any risk decision.
 
-It is not absolute — LLY at $1,142.81 was bought on 2026-06-09. One-sided
-Mann-Whitney U test, skipped vs. bought prices: U=323, p=6.6e-5
-`[VERIFIED — this session, `scipy.stats.mannwhitneyu(skipped, bought,
-alternative='greater')` on the 33/11 samples above]` — the gap is
-statistically distinguishable from chance at this sample size, not merely a
-descriptive difference in two small groups.
+It is not absolute — LLY at $1,142.81 was bought on 2026-06-09.
+
+### The inferential claim is RETRACTED
+
+A previous revision reported a one-sided Mann-Whitney U (U=323, p=6.6e-5) and
+called the gap "statistically distinguishable from chance". **That test is not
+admissible on this sample and the claim is withdrawn.**
+
+The 33 and 11 rows are **repeated daily decisions, not independent draws**. The
+skipped set alone repeats tickers — EME appears 3x (07-10, 07-13, 07-27), ASML
+2x — and the bought side repeats ticker/session structure the same way. A rank
+test that assumes 44 independent observations understates the uncertainty by an
+amount I have not quantified, so no p-value from it means anything.
+
+What survives is **descriptive**: bought median $160.59, skipped median
+$764.28, a 4.76x ratio `[VERIFIED — logged prices]`. And separately, the
+**mechanism**, which needs no inference at all.
 
 ## What this changes about #606
 
 Sections 1-2 framed the problem as under-deployment. That framing was
-incomplete. This is a mechanism claim, not an inference from the price-gap
-statistic: the sizing log lines themselves record each skipped name clearing
-every admission gate before being zeroed by integer-share arithmetic, so the
-ranking is being overridden by an arithmetic artifact independent of the
-price-gap's statistical significance. That means the live book is not
-testing the model the model was validated as. Any conclusion about live
-performance inherits that.
+incomplete.
+
+**The demonstrated fact, which needs no statistics:** the whole-share execution
+rule can zero a candidate that has already cleared every admission gate. The
+sizing log records it happening, name by name, with the cash available at the
+time. That is an execution-layer override of a ranking decision, and it is
+proven by the log lines alone.
+
+**Scoped back from the previous revision:** I wrote that "the live book is not
+testing the model the model was validated as". That is a claim about the
+validation contract, and I have not attached that contract here — I do not know
+what execution assumptions the model's validation made. The supportable claim is
+narrower and still worth acting on: **an execution rule silently overrides
+ranked admissions, and the names it removes are systematically the expensive
+ones.**
 
 `[ASSUMED — not measured]`: whether the excluded high-price names would have
 outperformed. That is the separate question and I am not estimating it from
