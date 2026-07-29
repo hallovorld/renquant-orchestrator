@@ -76,17 +76,25 @@ STATUS:   serving-behavior diagnostic only — NOT a model-capability verdict. T
           [[long-term-agreements.md]] entry 10 — visibly, not by silent
           overwrite: **retracted, not restated.**
 WHAT:     a PatchTST artifact trained locally on MPS to the panel frontier
-          (effective cutoff 2026-04-27 vs the 622d-stale served pin), with its
+          (effective cutoff 2026-04-27, `[VERIFIED — /tmp/ptserve_e2e.log]`,
+          vs the served pin at `staleness_days=622`
+          `[VERIFIED — backtesting/renquant_104/logs/shadow_scorer_health.jsonl,
+          same record independently confirmed in
+          doc/progress/2026-07-28-shadow-staleness-horizon-design.md]`), with its
           calibrator fitted in the same build. This is a single artifact used for
           one readonly serving-path preflight, not the 43-fold WF corpus.
 EVIDENCE: readonly preflight of the FULL production funnel with that artifact as
-          primary scorer `[VERIFIED — /tmp/ptserve_e2e.log; no orders, no state,
-          no ntfy]`: 82/75 scored, 10 of 75 candidates cleared the buy floor
-          (`floor=max(0.20, mean+1σ)=0.504`), VLO selected slot 1 at calibrated
+          primary scorer, no orders/state/ntfy `[VERIFIED — /tmp/ptserve_e2e.log
+          lines 250-312]`: 82/82 scored; a separate veto step then evaluated 75
+          of those against the buy floor (`floor=max(0.20, mean+1σ)=0.504`),
+          dropping 65 and clearing 10; VLO was selected slot 1 at calibrated
           0.5245 — then `SizeAndEmitTask: VLO Kelly=0 — skip`, **0 orders
-          placed**. Diagnostic `CALIBRATOR-SATURATED: rank_score IQR=0.011` (warn
-          floor 0.050); the seven held names span 0.4959–0.5090. Same-day prod
-          XGB, same funnel, reached conviction 0.58 on TSLA and did place orders.
+          placed**. Diagnostic `CALIBRATOR-SATURATED: rank_score IQR=0.011`
+          (warn floor 0.050); the seven held names span 0.4959–0.5090
+          (all figures this paragraph `[VERIFIED — /tmp/ptserve_e2e.log]`).
+          Same-day prod XGB, same funnel, reached conviction 0.58 on TSLA and
+          placed an 8-share NEW_BUY `[VERIFIED — /tmp/daily_live_early.log
+          line 269: "TSLA NEW_BUY 8 shares @ 309.22 ... conv=0.58"]`.
 READ:     the calibrated conviction distribution sits ON the coin-flip point, so
           Kelly correctly sizes to zero — a SERVING-BEHAVIOR diagnostic for this
           one artifact, config, and session, not a resolved model-capability
@@ -94,8 +102,9 @@ READ:     the calibrated conviction distribution sits ON the coin-flip point, so
           the decision line, it does not show the recipe carries no signal. This
           read is only reachable at all because the plumbing was fixed first: the
           preceding uncalibrated run vetoed 75/75 on a raw-vs-probability unit
-          error and reported the same "no trade" (see `serving-reliability.md`
-          defect #3, pipeline#219 / RenQuant#542). Do NOT read the earlier
+          error and reported the same "no trade" `[VERIFIED — pipeline#219 /
+          RenQuant#542, merged fix + its own regression test]` (see
+          `serving-reliability.md` defect #3). Do NOT read the earlier
           all-vetoed run as evidence about the model, and do NOT read this
           session as a closed verdict either.
 NEXT:     This session's discrimination did not clear the buy floor / Kelly

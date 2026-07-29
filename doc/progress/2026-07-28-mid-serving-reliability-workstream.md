@@ -38,16 +38,25 @@ EVIDENCE: artifact:      `/tmp/ptserve_e2e.log` (readonly full-funnel preflight,
           production artifact, config, or state touched).
            existing data: four defects of the same class, each with its own landed
           or in-flight PR: unsatisfiable freshness SLA on `rawlabel` (RenQuant#541)
-          — weekly PatchTST retrain refused every Saturday at rc=0, served pin 622d
-          stale; over-specified inference-frame cache key (orch#589) — 751s/1355s
-          cold rebuilds and one production-shaped ABORT at the 1200s ceiling;
-          raw-vs-probability `rank_score` unit mismatch (pipeline#219 +
-          RenQuant#542) — 75/75 vetoed and reported as "no trade"; umbrella kernel
-          fork lag (RenQuant#540, #542). Decisive serving read: calibrated fresh
-          PatchTST scored 82/82, 10 of 75 cleared the floor, VLO selected slot 1 at
+          — weekly PatchTST retrain refused every Saturday at rc=0, served pin
+          `staleness_days=622` `[VERIFIED —
+          backtesting/renquant_104/logs/shadow_scorer_health.jsonl, per
+          doc/progress/2026-07-28-shadow-staleness-horizon-design.md's own
+          verification]`; over-specified inference-frame cache key (orch#589,
+          still an open, unmerged design) — cold rebuilds observed at ~795s and
+          ~1201s, and a third run hit a hard 1800s timeout and ABORTED
+          `[VERIFIED — /tmp/ptserve_e2e.log (795s), /tmp/ptprod_e2e2.log (1201s),
+          /tmp/ptprod_e2e.log (1800.07s TimeoutError)]`; raw-vs-probability
+          `rank_score` unit mismatch (pipeline#219 + RenQuant#542) — 75/75 vetoed
+          and reported as "no trade" `[VERIFIED — pipeline#219 / RenQuant#542]`;
+          umbrella kernel fork lag (RenQuant#540, #542). Decisive serving read:
+          calibrated fresh PatchTST scored 82/82, of which 75 were evaluated
+          against the buy floor and 10 cleared it, VLO selected slot 1 at
           0.5245, `Kelly=0 — skip`, 0 orders, with `CALIBRATOR-SATURATED: rank_score
-          IQR=0.011` (warn floor 0.050) and held names spanning 0.4959–0.5090;
-          same-day prod XGB reached conviction 0.58 and traded.
+          IQR=0.011` (warn floor 0.050) and held names spanning 0.4959–0.5090
+          `[VERIFIED — /tmp/ptserve_e2e.log]`; same-day prod XGB reached
+          conviction 0.58 on TSLA and traded (8-share NEW_BUY)
+          `[VERIFIED — /tmp/daily_live_early.log line 269]`.
            best-known?:   n/a — no IC/Sharpe number is claimed; this is a
           conviction-distribution read at the decision line, not a model-quality
           comparison.
@@ -56,7 +65,11 @@ EVIDENCE: artifact:      `/tmp/ptserve_e2e.log` (readonly full-funnel preflight,
           to zero) motivating a new MID workstream, not an IC/Sharpe/model claim —
           the §4(b) sanity triad does not apply."
 
-NEXT:     Workstream + 5 ACs are confirmed. AC5 (silent-refusal telemetry) is the one
+NEXT:     The workstream and its 5 acceptance criteria are confirmed AS A DIRECTION —
+          this does NOT mean all 5 are satisfied. AC4 (warm serving path) depends
+          on orch#589's cache-key design, itself an open, unmerged PR blocked on
+          its own provenance/rebase conditions; AC4 is PENDING until #589 (or a
+          successor) is separately approved. AC5 (silent-refusal telemetry) is the one
           with no PR yet and is the direct antidote to how #541 stayed invisible for
           months. The PatchTST question moves to `model-edge.md`'s third-blend-leg
           test via the standard gate chain: model#85's statistical design needs to
