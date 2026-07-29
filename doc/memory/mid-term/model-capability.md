@@ -1,7 +1,12 @@
 # MODEL CAPABILITY (GOAL-6) — resolution before architecture
 
-> Tier: **MID.** Agent proposes, operator confirms. Opened 2026-07-28 on
-> operator direction ("根据这个情况该怎样构建试验来获得能力更强的模型").
+> Tier: **MID.** Opened 2026-07-28 and **CONFIRMED the same day** — the
+> operator directed it into existence ("根据这个情况该怎样构建试验来获得能力更强
+> 的模型？发pr讨论设计，然后实现！这是新的goal！你来drive！") and then confirmed
+> the recommendation ("按你的推荐推进试试"). This file is therefore the
+> POST-decision record of a confirmed workstream, not a pending proposal.
+> What remains open is narrower and listed under OPEN DECISIONS below —
+> confirming a direction is not the same as answering every parameter.
 > Design: `../../research/2026-07-28-goal6-model-capability-design.md`.
 > Sibling: `model-edge.md` (does a given model have edge) ·
 > `serving-reliability.md` (does a model's opinion reach the order path).

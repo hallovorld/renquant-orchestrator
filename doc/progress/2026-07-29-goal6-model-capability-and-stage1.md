@@ -1,6 +1,11 @@
 # Progress: GOAL-6 design — model-capability programme (design only)
 
-STATUS:   design proposed for review. Docs only, no execution claim in this
+STATUS:   POST-DECISION record. The workstream was confirmed by the operator on
+          2026-07-28 ("这是新的goal！你来drive！", then "按你的推荐推进试试"), so
+          this is not a pre-decision proposal (codex BLOCKER). Named parameters
+          D2/D3/D4 remain genuinely open and are listed as open in the MID record —
+          confirming a direction is not answering every parameter. Docs only, no
+          execution claim in this
           PR.
           CORRECTION (per codex BLOCKER, 2026-07-29): an earlier version of
           this PR bundled an already-executed Stage-1 panel-build result
