@@ -15,19 +15,33 @@ WHY/DIR:  The sentinel watched exactly one lane, `hf_patchtst`. The certified
           silent death there would cost the ledger, which is the one piece of
           evidence in this programme that cannot be re-derived after the fact.
 
-EVIDENCE: the design's load-bearing detail is that lanes differ in WHERE their
-          evidence lives: the PatchTST lane persists scores to the shadow runs DB, so
-          a DB-derived record is a valid fallback; the clf lane logs to MLflow and
-          writes nothing there `[VERIFIED — 2026-07-28 daily log: the clf leg reports
-          via "logged 82 candidates via MLflow" while the runs DB carries no clf
-          rows]`. Applying the DB fallback to it would derive "no scores collected"
-          every single day and manufacture a permanent FEED DARK alarm out of a
-          healthy lane — so `runs_db` is per-lane and may be None, pinned by a test
-          asserting the DB is never opened for such a lane. Suite 56/56
-          `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py]`, of which
-          6 are new multi-lane tests and 50 are the pre-existing single-lane tests
-          passing unchanged (the refactor is behaviour-preserving for lane 1). No
-          model/IC claim is made, so the §4(b) triad does not apply.
+EVIDENCE:
+  artifact:      `ops/renquant104/rq104_shadow_scorer_sentinel.py` +
+                 `tests/test_rq104_shadow_scorer_sentinel.py`
+  prod or exp:   prod — sentinel/monitoring code path, read-only, no
+                 launchd/schedule change in this PR.
+  existing data: `[VERIFIED — 2026-07-28 daily log]` the clf leg reports via
+                 "logged 82 candidates via MLflow" while the shadow runs DB
+                 carries no clf rows — the design's load-bearing detail is
+                 that lanes differ in WHERE their evidence lives: the
+                 PatchTST lane persists scores to the shadow runs DB (a
+                 DB-derived record is a valid fallback for it), but applying
+                 that same fallback to the clf lane would derive "no scores
+                 collected" every single day and manufacture a permanent
+                 FEED DARK alarm out of a healthy lane. `runs_db` is
+                 therefore per-lane and may be `None`, pinned by a test
+                 asserting the DB is never opened for such a lane.
+                 `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py]`
+                 56/56 passing: 6 new multi-lane tests + 50 pre-existing
+                 single-lane tests passing unchanged (behaviour-preserving
+                 for lane 1).
+  best-known?:   n/a — monitoring-code change, not a competing model/signal
+                 variant; no IC/Sharpe number is claimed.
+  scope:         this PR makes the sentinel patrol both shadow lanes instead
+                 of one; no model/IC/Sharpe claim is made, so the §4(b)
+                 sanity triad does not apply — the claims above are about
+                 monitoring-code behaviour (log/DB shape, test suite), not
+                 model quality.
 
 NEXT:     Install nothing new — the existing launchd job picks the second lane up on
           its next patrol once merged and synced. Follow-up: per-lane thresholds are
