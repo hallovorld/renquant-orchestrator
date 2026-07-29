@@ -146,11 +146,13 @@ def test_telemetry_persists_even_when_nothing_realizes(tmp_path):
 def test_horizon_is_60d_and_maturity_matches_it():
     """The two must move together.
 
-    Changed 2026-07-29 by operator decision: the certified effect and both
-    scored models are fwd_60d recipes, so a 20-day ledger measured a different
-    quantity than the one being certified. Leaving MATURITY_TDAYS at 21 would
-    have marked rows mature 40 sessions before their label can exist — the
-    silent half of a horizon change.
+    Changed 2026-07-29 (quoted as an operator decision but not independently
+    checkable from this repo — see doc/progress/2026-07-29-blend-readout-horizon.md's
+    `best-known?` field): the certified effect and both scored models are
+    fwd_60d recipes, so a 20-day ledger measured a different quantity than the
+    one being certified. Leaving MATURITY_TDAYS at 21 would have marked rows
+    mature 40 sessions before their label can exist — the silent half of a
+    horizon change.
     """
     import inspect
     src = inspect.getsource(mod)
