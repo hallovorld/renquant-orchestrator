@@ -31,9 +31,6 @@ EVIDENCE: artifact: canonical daily-prod logs only, `RenQuant/logs/daily_104/
                     `grep -h "insufficient cash — skip"` across the 64
                     canonical files listed above]
                     ratio of medians 4.76x `[DERIVED — 764.28/160.59]`
-                    one-sided Mann-Whitney U (skipped > bought): U=323,
-                    scipy.stats.mannwhitneyu(skipped, bought,
-                    alternative='greater') on the two samples above]`
                     skipped set: ASML $1,777 (x2), BLK $994.85, CAT $993.42,
                     EME $782.08/$764.28/$742.73, AVGO $360.34, TSLA $309.22,
                     SPG $236.69, BWXT $177.07 `[VERIFIED — same grep]`
@@ -59,8 +56,9 @@ EVIDENCE: artifact: canonical daily-prod logs only, `RenQuant/logs/daily_104/
                     unchanged (both switches are OFF in production); the
                     "absent from config" description was wrong and is
                     corrected here to "declared, and explicitly disabled."
-  best-known?:      Yes for the price gap, now with a significance test
-                    backing it (see above). Explicitly NOT estimated: whether
+  best-known?:      Yes for the price gap as a DESCRIPTIVE statistic (see
+                    RETRACTION below — the significance test that previously
+                    backed it is withdrawn). Explicitly NOT estimated: whether
                     the excluded high-price names would have outperformed. Two
                     days of forward return on eleven names is noise, and
                     dressing it up would be worse than leaving the question
@@ -86,15 +84,22 @@ RETRACTION (review MED, and it was right):
 
 THE DISTINCTION THAT MATTERS:
           Lost deployment is opportunity cost. This is a **factor exposure
-          nobody chose**. This is a mechanism claim, not an inference from
-          the price-gap statistic: the sizing log lines record ASML, BLK,
-          CAT and EME clearing every admission gate before integer share
-          arithmetic zeroed them. So the live book is not testing the model
-          the model was validated as, and any conclusion drawn about live
-          performance inherits that.
+          nobody chose**. This is a mechanism claim, needing no statistics:
+          the sizing log lines record ASML, BLK, CAT and EME clearing every
+          admission gate before integer share arithmetic zeroed them — an
+          execution-layer override of a ranking decision, proven by the log
+          lines alone.
+
+          Scoped back per RETRACTION above: NOT claimed that "the live book
+          is not testing the model the model was validated as" — that is a
+          claim about the validation contract, which is not attached here.
+          The supportable claim is narrower: an execution rule silently
+          overrides ranked admissions, and the names it removes are
+          systematically the expensive ones.
 
           Not absolute — LLY at $1,142.81 was bought on 2026-06-09 — but a
-          4.76x median gap at n=33 vs n=11 tests significant (one-sided
+          4.76x median gap at n=33 vs n=11 (descriptive; see RETRACTION for
+          the withdrawn significance claim).
 
 NEXT:     The remedy is one of two switches already built and both dark:
           `sizing.one_share_floor_enabled` (A-3, rounds up to exactly one
