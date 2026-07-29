@@ -41,13 +41,14 @@ actually reached the funnel.
   funnel (#219 pattern generalised).
 - **AC3 — one kernel.** Retire the umbrella-local kernel fork so a fix
   cannot land on one copy only (F-2, long-standing).
-- **AC4 — warm serving path (PENDING — not yet decided or landed).** Frame
-  preparation would be pre-built by schedule and keyed only on what
-  determines frame content, so a model swap never costs a session. This
-  depends on orch#589's cache-key design, which is itself an open PR behind
-  `main` and blocked on its own provenance/rebase conditions — AC4 is not
-  satisfied and must not be read as such until #589 (or a successor design)
-  is separately approved and merged.
+- **AC4 — warm serving path (OPEN — design landed, implementation not
+  started).** Frame preparation would be pre-built by schedule and keyed
+  only on what determines frame content, so a model swap never costs a
+  session. orch#589's cache-key design memo is now **MERGED**
+  `[VERIFIED — gh pr view 589, mergedAt 2026-07-29T07:14:15Z]`, so AC4 is no
+  longer blocked on that design; the implementation itself (allowlist cache
+  key + scheduled warm step) has not landed, so AC4 is not satisfied and
+  must not be read as such until that implementation lands.
 - **AC5 — silent-refusal telemetry.** Every weekly promote refusal and every
   fail-closed funnel exit is counted and surfaced; a refusal repeated N weeks
   running is an alarm, not a log line. (#541 was invisible for months
