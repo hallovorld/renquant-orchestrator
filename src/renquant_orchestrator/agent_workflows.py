@@ -572,6 +572,17 @@ def has_unaddressed_findings(pr: dict, agent: str) -> bool:
     findings-scanning: a COMMENTED review can still carry a severity-tagged
     finding that needs a fix. So COMMENTED review bodies at head are added
     back in unreduced, on top of (not instead of) the vote-reduced bodies.
+
+    Plain issue comments are scanned too, as a defensive fallback for a
+    finding a reviewer left via ``gh pr comment`` instead of a formal review
+    — but only comments NOT authored by the PR's own author identity. A
+    genuine finding is always posted by the *other* agent; the author's own
+    ``fixed by <agent>`` / follow-up remarks routinely quote or discuss
+    severity words while explaining a fix, and since issue comments carry no
+    head SHA to age them out, counting the author's own comments here made
+    the scan match forever, even after the underlying finding was resolved
+    (observed on renquant-model#92/94/95: the false positive matched inside
+    the author's own prior ``fixed by claude`` comment).
     The agent itself makes the final read of what to fix; this just decides
     whether the PR belongs in the fix queue.
     """
@@ -579,12 +590,17 @@ def has_unaddressed_findings(pr: dict, agent: str) -> bool:
     if any(r.get("state") == "CHANGES_REQUESTED" for r in revs):
         return True
     commented_at_head = [r for r in _reviews_at_head(pr) if r.get("state") == "COMMENTED"]
+    author_login = _login(pr.get("author"))
+    other_comments = [
+        c for c in (pr.get("comments") or [])
+        if _login(c.get("author")) != author_login
+    ]
     blob = " ".join(
         str(r.get("body") or "") for r in revs
     ) + " " + " ".join(
         str(r.get("body") or "") for r in commented_at_head
     ) + " " + " ".join(
-        str(c.get("body") or "") for c in (pr.get("comments") or [])
+        str(c.get("body") or "") for c in other_comments
     )
     return bool(re.search(r"\b(BLOCKER|HIGH|MED)\b", blob))
 
