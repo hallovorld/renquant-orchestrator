@@ -37,7 +37,15 @@ EVIDENCE:
                  producer module is importable in this environment — not a
                  failure): 6 new multi-lane tests + 48 of the 50 pre-existing
                  single-lane tests passing unchanged (behaviour-preserving for
-                 lane 1), 2 environment-conditional.
+                 lane 1), 2 environment-conditional. Confirmed rather than
+                 assumed: re-run with the pinned pipeline on the path
+                 (`PYTHONPATH=.subrepo_runtime/repos/renquant-pipeline/src`)
+                 the same file reports **56 passed**
+                 `[VERIFIED — same command + PYTHONPATH, 2026-07-29]`, so the
+                 two skips are a missing import in a bare checkout and not
+                 silently broken tests. Their purpose is precisely to assert,
+                 WHERE the producer contract is importable, that this module
+                 took it instead of drifting onto its local fallback literals.
   best-known?:   n/a — monitoring-code change, not a competing model/signal
                  variant; no IC/Sharpe number is claimed.
   scope:         this PR makes the sentinel patrol both shadow lanes instead
