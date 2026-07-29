@@ -1,14 +1,31 @@
 # Progress: the drift scan now checks whether a reviewed launchd change is in FORCE
 
-STATUS:   delivered (check + 13 tests, live-validated clean on this machine).
+STATUS:   delivered (check + 17 tests, live-validated clean on this machine).
+          REVISED after codex review (MED, and it was right): the first
+          revision collapsed "job not loaded" and "could not read launchctl"
+          into one silent branch, so a permission change or a macOS
+          output-shape change would have disabled this check across every job
+          while the scan still reported clean — the exact false-negative class
+          the check exists to close.
 
 WHAT:     `ops/run_surface_drift_check.py` gains `read_loaded_program_args()`
           and `check_launchd_loaded()`, wired into `main()` as surface (c).
           For every manifested job it compares what launchd has ACTUALLY
           LOADED against the plist on disk, and alarms when they differ.
-          A job that is not loaded at all is deliberately NOT reported — that
-          is a liveness question, and alarming on it would fire on every job
-          the operator has intentionally stopped.
+          `read_loaded_program_args` returns `(status, args, detail)` with
+          four statuses. A job that is genuinely NOT LOADED stays silent —
+          that is a liveness question, and alarming would fire on every job
+          the operator intentionally stopped. A job whose state could not be
+          READ (`unreadable` / `unparsed`) ALARMS, because a checker that
+          cannot see is indistinguishable from one that sees nothing wrong,
+          and only one of those is safe to stay quiet about.
+
+          The split rests on a measurement, not an assumption: on this machine
+          a deliberately-unloaded manifested job (`com.renquant.daily103`) and
+          a label that never existed BOTH return rc=113 with empty stdout and
+          `Bad request. Could not find service … in domain` on stderr, while a
+          loaded job returns rc=0. So 113 identifies "not loaded" exactly, and
+          every other failure mode is the checker's problem.
 
 WHY/DIR:  Editing a plist does not reload it. launchd keeps serving the
           definition it loaded until something re-bootstraps the job, so a
@@ -38,9 +55,11 @@ EVIDENCE: artifact: `ops/run_surface_drift_check.py` +
                     written `Jul 29 06:15:04`; `launchctl print` reports the
                     loaded arguments ARE the wrapper and `runs = 0` since the
                     re-bootstrap. Live run of the new check across all 30
-                    manifested jobs: **clean**, with 3 jobs (`daily103`,
-                    `open103`, `preclose103`) correctly reported as not loaded
-                    rather than as drift.
+                    manifested jobs: **clean** — 37 `ok`, 3 `not_loaded`
+                    (`daily103`, `open103`, `preclose103`), 0 unreadable. Those
+                    3 are correctly reported as not loaded rather than as drift.
+                    launchctl rc measured directly: 113 for both an unloaded
+                    manifested job and a nonexistent label; 0 for a loaded one.
   best-known?:      Yes for the gap. NOT claimed: that the rq105 blend fix
                     works — its first scheduled run under the new definition
                     is 2026-07-30 06:15 and remains UNVERIFIED until then.
@@ -55,7 +74,7 @@ VERIFICATION (identical PYTHONPATH on both sides):
   `<checkout_parent>/renquant-strategy-104/configs/strategy_config.json`,
   which does not exist beside a scratch worktree. That test does not reference
   the changed module (`grep -c run_surface_drift tests/test_cli.py` = 0).
-  New tests: 13 passed.
+  New tests: 17 passed (4 added for the status split).
 
 NEXT:     Check the 2026-07-30 06:15 run for `score_source: blend` with a
           populated `blend_component_sha256s`. From tomorrow the scan answers

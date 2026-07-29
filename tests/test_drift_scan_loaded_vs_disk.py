@@ -64,19 +64,26 @@ def _write_manifest(tmp_path: Path, label: str, args: list[str]) -> Path:
 LABEL = "com.renquant.rq105-batch-scores-export"
 
 
-def test_parses_the_real_launchctl_output(monkeypatch):
+def _res(rc, out="", err=""):
     class R:
-        returncode = 0
-        stdout = LAUNCHCTL_OUTPUT
-    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: R())
-    assert D.read_loaded_program_args(LABEL) == WRAPPER
+        returncode = rc
+        stdout = out
+        stderr = err
+    return R()
+
+
+def test_parses_the_real_launchctl_output(monkeypatch):
+    monkeypatch.setattr(D.subprocess, "run",
+                        lambda *a, **k: _res(0, LAUNCHCTL_OUTPUT))
+    assert D.read_loaded_program_args(LABEL) == (D.LOADED_OK, WRAPPER, "")
 
 
 def test_the_defect_this_exists_for(tmp_path, monkeypatch):
     """Disk says wrapper, launchd is still running the module."""
     _write_plist(tmp_path, LABEL, WRAPPER)
     manifest = _write_manifest(tmp_path, LABEL, WRAPPER)
-    monkeypatch.setattr(D, "read_loaded_program_args", lambda label: MODULE)
+    monkeypatch.setattr(D, "read_loaded_program_args",
+                        lambda label: (D.LOADED_OK, MODULE, ""))
 
     # the manifest-vs-disk check is perfectly happy...
     assert D.check_launchd_surface(str(manifest), str(tmp_path / "agents")) == []
@@ -90,7 +97,8 @@ def test_the_defect_this_exists_for(tmp_path, monkeypatch):
 def test_agreement_is_silent(tmp_path, monkeypatch):
     _write_plist(tmp_path, LABEL, WRAPPER)
     manifest = _write_manifest(tmp_path, LABEL, WRAPPER)
-    monkeypatch.setattr(D, "read_loaded_program_args", lambda label: list(WRAPPER))
+    monkeypatch.setattr(D, "read_loaded_program_args",
+                        lambda label: (D.LOADED_OK, list(WRAPPER), ""))
     assert D.check_launchd_loaded(str(manifest), str(tmp_path / "agents")) == []
 
 
@@ -101,7 +109,8 @@ def test_an_unloaded_job_is_not_reported_as_drift(tmp_path, monkeypatch):
     """
     _write_plist(tmp_path, LABEL, WRAPPER)
     manifest = _write_manifest(tmp_path, LABEL, WRAPPER)
-    monkeypatch.setattr(D, "read_loaded_program_args", lambda label: None)
+    monkeypatch.setattr(D, "read_loaded_program_args",
+                        lambda label: (D.LOADED_NOT_LOADED, None, "not loaded"))
     assert D.check_launchd_loaded(str(manifest), str(tmp_path / "agents")) == []
 
 
@@ -109,34 +118,66 @@ def test_a_job_missing_from_disk_is_left_to_the_disk_check(tmp_path, monkeypatch
     """No double-reporting: the disk check already names this one."""
     (tmp_path / "agents").mkdir()
     manifest = _write_manifest(tmp_path, LABEL, WRAPPER)
-    monkeypatch.setattr(D, "read_loaded_program_args", lambda label: MODULE)
+    monkeypatch.setattr(D, "read_loaded_program_args",
+                        lambda label: (D.LOADED_OK, MODULE, ""))
     assert D.check_launchd_loaded(str(manifest), str(tmp_path / "agents")) == []
     # ...and it IS reported there
     disk = D.check_launchd_surface(str(manifest), str(tmp_path / "agents"))
     assert any("missing from disk" in p for p in disk)
 
 
-def test_launchctl_failure_is_not_drift(monkeypatch):
-    class R:
-        returncode = 113
-        stdout = ""
-    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: R())
-    assert D.read_loaded_program_args(LABEL) is None
+def test_rc_113_is_not_loaded_not_a_checker_failure(monkeypatch):
+    """Measured on this machine: an unloaded job and a nonexistent label both
+    return 113 with empty stdout, while a loaded job returns 0."""
+    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: _res(
+        D.LAUNCHCTL_NOT_FOUND_RC, "", 'Bad request. Could not find service'))
+    status, args, _ = D.read_loaded_program_args(LABEL)
+    assert status == D.LOADED_NOT_LOADED and args is None
 
 
-def test_launchctl_raising_is_not_drift(monkeypatch):
+def test_any_other_nonzero_rc_is_unreadable(monkeypatch):
+    monkeypatch.setattr(D.subprocess, "run",
+                        lambda *a, **k: _res(1, "", "Operation not permitted"))
+    status, _, detail = D.read_loaded_program_args(LABEL)
+    assert status == D.LOADED_UNREADABLE
+    assert "Operation not permitted" in detail
+
+
+def test_launchctl_raising_is_unreadable(monkeypatch):
     def boom(*a, **k):
         raise OSError("launchctl missing")
     monkeypatch.setattr(D.subprocess, "run", boom)
-    assert D.read_loaded_program_args(LABEL) is None
+    status, _, detail = D.read_loaded_program_args(LABEL)
+    assert status == D.LOADED_UNREADABLE and "launchctl missing" in detail
 
 
-def test_output_without_an_arguments_block_yields_none(monkeypatch):
-    class R:
-        returncode = 0
-        stdout = "com.renquant.x = {\n\tprogram = /bin/true\n}\n"
-    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: R())
-    assert D.read_loaded_program_args("com.renquant.x") is None
+def test_output_without_an_arguments_block_is_unparsed(monkeypatch):
+    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: _res(
+        0, "com.renquant.x = {\n\tprogram = /bin/true\n}\n"))
+    status, _, detail = D.read_loaded_program_args("com.renquant.x")
+    assert status == D.LOADED_UNPARSED and "output shape changed" in detail
+
+
+def test_an_empty_arguments_block_is_unparsed(monkeypatch):
+    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: _res(
+        0, "x = {\n\targuments = {\n\t}\n}\n"))
+    status, _, _ = D.read_loaded_program_args("com.renquant.x")
+    assert status == D.LOADED_UNPARSED
+
+
+@pytest.mark.parametrize("status", ["unreadable", "unparsed"])
+def test_a_blind_checker_ALARMS_rather_than_reporting_clean(tmp_path, monkeypatch, status):
+    """The regression codex caught: collapsing "not loaded" and "could not
+    read" into one silent branch lets a permission change or an output-shape
+    change disable this check across every job while the scan reports clean —
+    the exact false-negative class the check exists to close."""
+    _write_plist(tmp_path, LABEL, WRAPPER)
+    manifest = _write_manifest(tmp_path, LABEL, WRAPPER)
+    monkeypatch.setattr(D, "read_loaded_program_args",
+                        lambda label: (status, None, "boom"))
+    problems = D.check_launchd_loaded(str(manifest), str(tmp_path / "agents"))
+    assert len(problems) == 1
+    assert "BLIND" in problems[0] and status in problems[0]
 
 
 def test_unreadable_manifest_is_reported(tmp_path):
@@ -157,8 +198,6 @@ def test_main_aggregates_the_new_check(monkeypatch, capsys):
 
 @pytest.mark.parametrize("trailing", ["", "\n", "\n\n"])
 def test_parse_is_robust_to_trailing_whitespace(monkeypatch, trailing):
-    class R:
-        returncode = 0
-        stdout = LAUNCHCTL_OUTPUT + trailing
-    monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: R())
-    assert D.read_loaded_program_args(LABEL) == WRAPPER
+    monkeypatch.setattr(D.subprocess, "run",
+                        lambda *a, **k: _res(0, LAUNCHCTL_OUTPUT + trailing))
+    assert D.read_loaded_program_args(LABEL) == (D.LOADED_OK, WRAPPER, "")
