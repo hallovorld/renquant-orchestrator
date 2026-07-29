@@ -33,19 +33,17 @@ WHY/DIR:  Per the umbrella multi-repo code-placement rule (model research
           the factorial-HFR study before it. GOAL-6 sequences Stage 1
           (830-name PIT panel) into Stage 2 "breadth retraining", partly on
           the premise that width improves measurement; the relocated memo
-          measures that premise directly and finds it correct in direction
-          but roughly an order of magnitude too small to matter — time (11
-          independent 60-day blocks), not width, is the binding constraint,
-          and the unused history is survivorship-contaminated (0 ticker
-          exits over 10.3 years), which is exactly the defect Stage 1
-          removes. That strengthens Stage 1's case; it does not weaken the
-          programme.
+          measures that premise directly. The result and every supporting
+          number are stated in `renquant-model#98`'s memo and progress doc,
+          not here — this doc does not restate them, to keep a single
+          evidence owner. Read that PR's WHY/DIR and §4(b) block for the
+          finding and its numbers.
 
 EVIDENCE: n/a
 
-NEXT:     This PR now carries no model/data claim of its own — the
-          relocated claim and its §4(b) evidence block are in
-          `renquant-model#98`'s progress doc
+NEXT:     This PR carries no model/data claim of its own — the relocated
+          claim and its §4(b) evidence block are in `renquant-model#98`'s
+          progress doc
           (`doc/progress/2026-07-29-breadth-precision-measurement.md` in
           that repo). Review continues there. If GOAL-6 Stage 2 scoping
           needs this number, cite `renquant-model#98` directly; nothing
