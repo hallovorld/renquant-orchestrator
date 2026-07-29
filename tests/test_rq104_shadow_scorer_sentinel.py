@@ -95,6 +95,23 @@ def _write_comparison_json(mlruns_root: Path, exp_id: str, run_id: str,
     return p
 
 
+def _write_tagged_comparison_json(mlruns_root: Path, exp_id: str, run_id: str,
+                                  rows: list, *, as_of_date: str,
+                                  shadow_name: str, mtime_date: str) -> Path:
+    """An MLflow comparison.json artifact WITH the run tags the real producer
+    (`_log_shadow_run` in renquant-pipeline) writes via `mlflow.set_tags` —
+    `<run_dir>/tags/as_of_date` and `<run_dir>/tags/shadow_name` — the
+    content-based record the locator's primary match now reads instead of
+    trusting file mtime or an artifact payload column."""
+    p = _write_comparison_json(mlruns_root, exp_id, run_id, rows,
+                               mtime_date=mtime_date)
+    tags_dir = p.parent.parent / "tags"
+    tags_dir.mkdir(parents=True, exist_ok=True)
+    (tags_dir / "as_of_date").write_text(as_of_date)
+    (tags_dir / "shadow_name").write_text(shadow_name)
+    return p
+
+
 def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
          staleness_max=28, coverage_floor=0.80, streak=2, as_of=AS_OF):
     """Run main() with all seams patched; return (rc, alerts)."""
@@ -819,3 +836,92 @@ class TestMlflowFallback:
         out: list = []
         rc = sentinel._patrol_lane(clf, streak_days, D0, out)
         assert rc == 0 and not out and not sent
+
+    def test_tagged_record_found_even_when_not_among_newest_20_untagged(
+        self, tmp_path, monkeypatch
+    ):
+        """codex HIGH (2026-07-29): the locator scanned only the 20
+        most-recently-modified comparison.json files, so a valid older record
+        could be silently missed. The correctly TAGGED run has the OLDEST
+        mtime here, with 20 unrelated untagged files modified more recently —
+        it must still be found because the tag-based primary match scans
+        every candidate, not just the newest 20."""
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_tagged_comparison_json(
+            mlruns, "exp1", "run_target", rows,
+            as_of_date=D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+            mtime_date="2020-01-01",  # oldest by far
+        )
+        for i in range(20):
+            _write_comparison_json(
+                mlruns, "exp1", f"run_noise{i}", rows,
+                mtime_date=D1.isoformat(),  # newer, and for a different date
+            )
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is True
+        assert rec.n_scored == 1
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.HEALTHY
+
+    def test_unrelated_tagged_comparison_for_other_lane_is_not_falsely_matched(
+        self, tmp_path, monkeypatch
+    ):
+        """codex HIGH (2026-07-29): the locator never verified `shadow_name`
+        against the actual run (production comparison.json has neither
+        `run_date` nor `shadow_name` as payload columns), so a differently
+        tagged lane's record could pass as a match. A comparison.json tagged
+        for the OTHER lane (`hf_patchtst`), same date, newest mtime, must not
+        satisfy the clf lane's health check — it should read as FEED DARK,
+        not silently borrow the other lane's record."""
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_tagged_comparison_json(
+            mlruns, "exp1", "run_other_lane", rows,
+            as_of_date=D0.isoformat(), shadow_name="hf_patchtst",
+            mtime_date=D0.isoformat(),
+        )
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is False
+        assert rec.feed_present is False
+        cls, _ = sentinel.classify(rec)
+        assert cls == sentinel.FEED_DARK
+
+    def test_tagged_match_wins_over_touched_untagged_file_with_matching_mtime(
+        self, tmp_path, monkeypatch
+    ):
+        """codex HIGH (2026-07-29): file mtime is not immutable — a
+        touch/copy/retry can make an unrelated file's mtime match `run_date`
+        by coincidence. An untagged decoy with the right mtime-date must lose
+        to the correctly tagged record for a DIFFERENT date once any tagged
+        candidates exist in the tree at all (tags are authoritative)."""
+        prod_db = _make_prod_runs_db(tmp_path, [D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        mlruns = tmp_path / "mlruns"
+        decoy_rows = [["ZZZZ", 9.9, 9.9, 0.0, 1, 1, 0],
+                      ["YYYY", 9.9, 9.9, 0.0, 2, 2, 0],
+                      ["XXXX", 9.9, 9.9, 0.0, 3, 3, 0]]
+        # untagged decoy whose mtime happens to fall on D0 (the touch/retry case)
+        _write_comparison_json(mlruns, "exp1", "run_decoy", decoy_rows,
+                               mtime_date=D0.isoformat())
+        real_rows = [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]]
+        _write_tagged_comparison_json(
+            mlruns, "exp1", "run_real", real_rows,
+            as_of_date=D0.isoformat(), shadow_name="topdecile_clf_blend_leg",
+            mtime_date="2020-01-01",
+        )
+        clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None,
+                                   mlruns_dir=str(mlruns))
+        rec = sentinel._read_from_mlflow([D0], clf)[D0]
+        assert rec.loaded is True
+        # 1 row (the tagged "run_real"), not 3 (the untagged same-mtime-date decoy)
+        assert rec.n_scored == 1
+        assert rec.n_candidates == 1

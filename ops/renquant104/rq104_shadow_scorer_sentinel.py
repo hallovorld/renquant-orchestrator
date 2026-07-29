@@ -654,25 +654,76 @@ def _had_live_run(conn: sqlite3.Connection, day: dt.date) -> bool:
     return row is not None
 
 
+def _run_tag(run_dir: Path, tag_name: str) -> str | None:
+    """One MLflow FileStore run tag (`<run_dir>/tags/<tag_name>`), or None if
+    absent/unreadable. The producer (`_log_shadow_run` in renquant-pipeline)
+    writes `as_of_date` and `shadow_name` as run tags via `mlflow.set_tags`
+    at log time — a content-based record, unlike file mtime, which a
+    touch/copy/retry of the artifact changes without touching what date or
+    lane the run actually belongs to."""
+    try:
+        return (run_dir / "tags" / tag_name).read_text().strip()
+    except OSError:
+        return None
+
+
 def _mlflow_shadow_scores_for(run_date: str, mlruns: Path, shadow_name: str):
     """Locate the MLflow comparison table for `run_date`, scoped to
-    `shadow_name`. Deliberately the SAME locator rq104_blend_readout.py uses
-    (newest comparison.json whose payload row-set tags the date, falling back
-    to file mtime date match) — one reader, so the sentinel and the daily
-    readout job can never disagree on what counts as 'this lane was
-    recorded'. Returns the shadow_score Series indexed by ticker, or None.
+    `shadow_name`. Returns the shadow_score Series indexed by ticker, or None.
+
+    Primary match: each candidate run's own `as_of_date`/`shadow_name` MLflow
+    tags (see `_run_tag`) — checked across EVERY comparison.json under
+    `mlruns` (tag reads are two small text files, cheap enough to not need a
+    candidate cap), so an older matching record is never shadowed by a newer,
+    unrelated one. A run whose tags exist but do not match this
+    (run_date, shadow_name) is decisively excluded — never re-considered by
+    the legacy heuristic below, which cannot tell lanes apart.
+
+    Legacy fallback, for runs with no tags at all (pre-tag producer, or a
+    different one): the SAME locator rq104_blend_readout.py uses — the
+    payload's own `run_date`/`shadow_name` columns if present, else file
+    mtime as the date, capped at the 20 most-recently-modified untagged
+    candidates. Kept only for backward compatibility with untagged history;
+    every run this producer logs today carries both tags.
     """
     import pandas as pd  # local: only lanes with mlruns_dir pay this cost
 
-    candidates = sorted(mlruns.rglob("comparison.json"),
-                        key=lambda p: p.stat().st_mtime, reverse=True)
-    for p in candidates[:20]:
+    def _load(p: Path):
         try:
             raw = json.loads(p.read_text())
             df = pd.DataFrame(raw["data"], columns=raw["columns"])
         except Exception:
-            continue
+            return None
         if "shadow_score" not in df.columns or "ticker" not in df.columns:
+            return None
+        return df
+
+    all_candidates = list(mlruns.rglob("comparison.json"))
+
+    tagged_matches = []
+    untagged: list[Path] = []
+    for p in all_candidates:
+        run_dir = p.parent.parent
+        tag_date = _run_tag(run_dir, "as_of_date")
+        tag_lane = _run_tag(run_dir, "shadow_name")
+        if tag_date is None or tag_lane is None:
+            untagged.append(p)
+            continue
+        if tag_date[:10] == run_date and tag_lane == shadow_name:
+            tagged_matches.append(p)
+
+    if tagged_matches:
+        # a rerun of the same (date, lane) -> the most recently written wins
+        best = max(tagged_matches, key=lambda p: p.stat().st_mtime)
+        df = _load(best)
+        if df is not None:
+            return df.set_index("ticker")["shadow_score"].astype(float)
+        return None
+
+    candidates = sorted(untagged, key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in candidates[:20]:
+        df = _load(p)
+        if df is None:
             continue
         if "run_date" in df.columns and str(df["run_date"].iloc[0])[:10] != run_date:
             continue

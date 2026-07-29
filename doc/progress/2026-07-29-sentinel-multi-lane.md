@@ -1,12 +1,18 @@
 # Progress: shadow-scorer sentinel goes multi-lane (GOAL-1)
 
-STATUS:   delivered (code + 62 tests). Round-2 fix after codex HIGH: the clf
+STATUS:   delivered (code + 65 tests). Round-2 fix after codex HIGH: the clf
           lane was REGISTERED but had NO observable health signal — no
           producer writes it a `shadow_scorer_health.v1` JSONL record, so
           with `runs_db=None` and nothing else, `read_health_records()`
           returned all `None` and the patrol silently printed "liveness
-          domain, skip" forever. Read-only; no launchd change, so no machine
-          landing in this PR.
+          domain, skip" forever. Round-3 fix after codex HIGH: the
+          round-2 locator could not actually verify `shadow_name` (production
+          `comparison.json` carries neither `run_date` nor `shadow_name` as
+          payload columns) and dated candidates by file mtime, so a
+          touch/copy/retry or an unrelated lane's artifact could pass as a
+          match; it also scanned only the 20 most-recently-modified files, so
+          a genuine older record could be missed. Read-only; no launchd
+          change, so no machine landing in this PR.
 
 WHAT:     Introduces `WatchedLane` + `watched_lanes()` and threads a lane through the
           record readers, the checks and the patrol loop. `main` now patrols every
@@ -19,7 +25,16 @@ WHAT:     Introduces `WatchedLane` + `watched_lanes()` and threads a lane throug
           sentinel and the readout job can never disagree on what counts as
           "this lane was recorded"), with `had_runs` sourced from the
           PRODUCTION runs DB (`data/runs.alpaca.db`) since this lane never
-          writes to the shadow DB.
+          writes to the shadow DB. Round 3 replaces that locator's primary
+          match with the producer's own MLflow run tags (`as_of_date` /
+          `shadow_name`, written by `_log_shadow_run` in renquant-pipeline
+          via `mlflow.set_tags`) — a content-based record read from
+          `<run_dir>/tags/<name>`, checked across every candidate
+          `comparison.json` under `mlruns` (no 20-file cap), decisively
+          excluding any tagged run whose date/lane doesn't match rather than
+          falling through to the mtime heuristic for it. The old
+          column/mtime heuristic survives only as a fallback for runs with no
+          tags at all.
 
 WHY/DIR:  The sentinel watched exactly one lane, `hf_patchtst`. The certified
           top-decile classifier — the only line with a confirmed effect, live in
@@ -64,7 +79,7 @@ EVIDENCE:
                  (`data/runs.alpaca.db`) rather than the shadow DB this lane
                  never writes to.
                  `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py,
-                 this session]` **60 passed, 2 skipped** (the 2 skips are a
+                 this session]` round 2: **60 passed, 2 skipped** (the 2 skips are a
                  conditional-import contract test pair that only runs when the
                  producer module is importable in this environment — not a
                  failure, and not something this PR's changes affect): the 54
@@ -83,6 +98,31 @@ EVIDENCE:
                  files) and opening the real `data/runs.alpaca.db` — slow and
                  not test-isolated. Both constants are now patched to
                  nonexistent tmp paths in `_run()`'s default seam set.
+
+                 Round 3 (codex HIGH): the round-2 locator's date/lane match
+                 depended on `comparison.json` payload columns that don't
+                 exist in production and, absent those, fell back to file
+                 mtime for the date and skipped the `shadow_name` check
+                 entirely — a touch/copy/retry could produce a false HEALTHY
+                 or false FEED_DARK, and the 20-file mtime-sorted cap could
+                 silently miss a genuine older record. `_mlflow_shadow_scores_for`
+                 now reads each candidate run's own `as_of_date`/`shadow_name`
+                 MLflow tags (`<run_dir>/tags/<name>`) as the primary,
+                 content-based match, scanned across every candidate (no
+                 cap); the old column/mtime heuristic remains only as a
+                 fallback for untagged (pre-tag or non-standard) runs, capped
+                 at 20 as before.
+                 `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py,
+                 this session]` **63 passed, 2 skipped**: the 60 round-1/2
+                 tests unchanged + 3 new — a tagged record with the oldest
+                 mtime in a tree of 20 newer untagged decoys is still found
+                 (closes the 20-file-cap gap); an unrelated lane's tagged
+                 record for the same date is correctly rejected as FEED_DARK
+                 instead of silently borrowed (closes the missing-lane-check
+                 gap); and a tagged record wins over an untagged decoy whose
+                 mtime coincidentally matches the target date (closes the
+                 mtime-is-not-immutable gap). All 3 verified to fail against
+                 the pre-fix locator before the fix landed.
   best-known?:   n/a — monitoring-code change, not a competing model/signal
                  variant; no IC/Sharpe number is claimed.
   scope:         this PR makes the sentinel patrol both shadow lanes instead
