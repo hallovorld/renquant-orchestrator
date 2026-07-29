@@ -7,19 +7,31 @@ Owner: claude · Reviewer: codex
 ## Measured problem
 
 `prepare_inference_panel_frames` rebuilds the per-ticker feature/factor
-frames for the full watchlist (145 tickers) on a cache miss. Measured
-tonight on this machine, three independent runs: **751–1355 s** per cold
-rebuild, and one run **aborted the whole session**:
+frames for the full watchlist (145 tickers, `[VERIFIED — training_panel/pipeline.py`
+watchlist length at read time`]`) on a cache miss. Re-measured directly this
+session from the actual run logs, three independent cold rebuilds:
+**~795 s** (`/tmp/ptserve_e2e.log`, cache WRITE at run+795.0s) and **~1201 s**
+(`/tmp/ptprod_e2e2.log`, cache WRITE at run+1201.1s) `[VERIFIED — timestamp
+arithmetic from each log's own start line to its cache-WRITE line]`, and one
+run **aborted the whole session** at a **1800.07 s** hard timeout
+`[VERIFIED — /tmp/ptprod_e2e.log lines 254/263/286]` (an earlier draft of
+this doc cited "751–1355 s" and a "1200 s" timeout; those numbers do not
+match any run log on disk and are corrected here to the figures above):
 
 ```
 RuntimeError: Panel frame prep failed while panel_scoring.enabled=true;
 aborting live inference instead of silently trading without panel scores:
-prepare_inference_panel_frames timed out after 1200s
+prepare_inference_panel_frames timed out after 1800.07s
 ```
 
 The cache itself works — it is enabled in both live profiles
 (`inference_frame_cache.enabled=true`, dir `artifacts/cache/inference_frames`,
-62 entries) and the 2026-07-28 daily session logged one HIT.
+67 entries as of this session `[VERIFIED — directory listing this session;
+this count grows with every run and was 62 when an earlier draft of this
+doc was written — a live counter, not a fixed fact]`) and multiple
+2026-07-28 daily sessions logged a HIT `[VERIFIED —
+/tmp/daily_shadow_verify.log:190, /tmp/daily_live_early.log:190,
+/tmp/step5_live_now2.log:191, each "cache HIT key=..."]`.
 
 ## Root cause: the key includes fields that do not determine frame content
 
@@ -37,10 +49,10 @@ a single row of the produced frames. Consequences observed tonight:
   feature recipe) invalidates every cached frame;
 - each shadow profile (prod / shadow / blend / experiment) keeps its own
   full copy of the same frames under a different key;
-- a cold key on the production path hits the 1200 s ceiling and **aborts**
-  rather than degrading — so a model swap or a threshold edit can take the
-  next daily session down. This is a live-run reliability exposure
-  (GOAL-5 class), not only a speed complaint.
+- a cold key on the production path hits the 1800.07 s hard timeout and
+  **aborts** rather than degrading — so a model swap or a threshold edit
+  can take the next daily session down. This is a live-run reliability
+  exposure (GOAL-5 class), not only a speed complaint.
 
 ## Proposal
 
