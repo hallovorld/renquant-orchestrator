@@ -585,6 +585,44 @@ def test_commented_severity_tag_still_counts_as_unaddressed_finding():
     assert [w.number for w in build_queue("claude", "fix", [pr])] == [17]
 
 
+# ── the author's own explanatory comments must not self-perpetuate a
+# finding forever (renquant-model#92/94/95, 2026-07-29) ────────────────
+# The reviewer's CHANGES_REQUESTED landed on a stale commit that is no
+# longer the head (superseded by a later APPROVED review at head), so the
+# only remaining severity-tagged text lives in the PR author's own
+# `fixed by <agent>` / follow-up comments quoting the resolved finding.
+# Plain issue comments carry no head SHA, so scanning the author's own
+# comments made this match forever, even after the finding was fixed.
+
+
+def test_authors_own_comment_quoting_a_resolved_finding_is_not_unaddressed():
+    pr = _pr(
+        18,
+        author="claude",
+        github_author="pr-owner",
+        reviews=[
+            {"state": "CHANGES_REQUESTED", "author": {"login": "rev"},
+             "commit_id": "sha18-stale",
+             "submittedAt": "2026-07-15T01:00:00Z",
+             "body": "BLOCKER: bad citation"},
+            {"state": "APPROVED", "author": {"login": "rev"},
+             "submittedAt": "2026-07-15T02:00:00Z",
+             "body": "reviewed by codex"},
+        ],
+        comments=[
+            {"author": {"login": "pr-owner"},
+             "body": "fixed by claude — BLOCKER: bad citation — corrected the cite."},
+            {"author": {"login": "pr-owner"},
+             "body": "clarifying: the queue's BLOCKER note is stale, already fixed above."},
+        ],
+    )
+    assert has_unaddressed_findings(pr, "claude") is False
+    assert build_queue("claude", "fix", [pr]) == []
+    # a genuine finding from someone else still counts
+    pr["comments"].append({"author": {"login": "rev"}, "body": "MED: new issue found"})
+    assert has_unaddressed_findings(pr, "claude") is True
+
+
 def test_review_queue_skips_head_this_agent_already_requested_changes_on():
     pr = _pr(10, author="codex", reviews=[
         {"state": "CHANGES_REQUESTED", "author": {"login": "rev"},
