@@ -15,13 +15,14 @@ STATUS:   CONFIRMED and merge-ready. The workstream was proposed on 2026-07-28;
               quarantined session scratch because its own prereg forbids it from
               entering any repo, which is why a repo-history search found nothing
               and concluded, understandably but wrongly, that it was fabricated.
-            * model#85's statistical design has NOT cleared review — that PR is
-              still under change request `[VERIFIED — gh pr list, 2026-07-29]`.
-              Any earlier text here saying otherwise was wrong.
+            * model#85's statistical design has since cleared review and
+              MERGED (2026-07-29T08:10:54Z) `[VERIFIED — gh pr view 85]`.
+              Earlier text here saying it was still under change request was
+              accurate when written but is now stale — superseded by this line.
             * model#85's UNDERPOWERED verdict and model#87's CLOSE verdict are
               both SUPERSEDED regardless, by an evaluation-harness defect found
               on 2026-07-29 (cross-lag statistics computed on a drifting sample)
-              and re-derived under model#90.
+              and re-derived under model#90 (still OPEN, unmerged).
           What this record therefore asserts: the corpus is real and citable; no
           PatchTST verdict is currently admissible; the workstream direction is
           confirmed.
@@ -80,9 +81,10 @@ NEXT:     The workstream and its 5 acceptance criteria are confirmed AS A DIRECT
           dependency orch#589 is now **MERGED** `[VERIFIED — gh pr list --state
           merged, 2026-07-29]`, so AC4 moves from blocked to OPEN — the design is
           landed, the implementation (allowlist cache key + scheduled warm step)
-          is not; AC5 (silent-refusal telemetry)
-          now HAS a PR, orch#592, also open — earlier text here saying AC5 had no
-          PR is stale. AC1-AC3 remain unstarted.
+          is not; AC5 (silent-refusal telemetry) now has a PR, orch#592, and
+          it has since MERGED (2026-07-29T07:36:52Z) `[VERIFIED — gh pr view
+          592]` — earlier text here saying AC5 had no PR, or that #592 was
+          still open, is stale. AC1-AC3 remain unstarted.
           On the PatchTST question: the corpus exists and is citable (model#91),
           but no verdict on it is currently admissible — model#85 (UNDERPOWERED)
           and model#87 (CLOSE) were both computed with the defective harness, and
