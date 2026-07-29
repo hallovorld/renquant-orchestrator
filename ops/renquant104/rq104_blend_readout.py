@@ -5,7 +5,7 @@ Daily after the 104 run: join the production candidate scores
 (runs.alpaca.db::candidate_scores) with the shadow classifier's recorded
 comparison table (MLflow artifact), compute the frozen blend
 z(prod)+z(clf) per date, append both arms' top-10 picks to an append-only
-ledger, and back-fill realized fwd_20d spreads from ticker_forward_returns
+ledger, and back-fill realized fwd_60d spreads from ticker_forward_returns
 once rows mature. Alarms (non-zero exit → launchd surfaces) when a live
 run exists but the shadow leg is missing — the GOAL-1 AC3 silent-feed
 guard the #213 design requires.
@@ -29,7 +29,13 @@ import pandas as pd
 
 TOP_N = 10
 SHADOW_NAME = "topdecile_clf_blend_leg"
-MATURITY_TDAYS = 21          # fwd_20d + 1 session settle
+MATURITY_TDAYS = 61          # fwd_60d + 1 session settle (was 21 for
+                             # fwd_20d; changed with the horizon 2026-07-29 —
+                             # leaving it at 21 would have marked rows mature
+                             # 40 sessions before their label can exist).
+                             # ACTIVE GATE: enforced by `_aged_dates()` below,
+                             # not by `fwd_60d IS NOT NULL` alone — see that
+                             # function's docstring (Codex BLOCKER, PR #598).
 MIN_FULL_RUN_CANDIDATES = 80  # matches scripts/kpi_scorecard.py / poc_transfer_coefficient.py
 
 
@@ -124,19 +130,64 @@ def append_ledger(ledger: Path, row: dict) -> bool:
     return True
 
 
+def _aged_dates(db: sqlite3.Connection, min_tdays: int) -> set[str]:
+    """Trading dates whose full ``min_tdays``-session forward label has elapsed.
+
+    ``ticker_forward_returns.fwd_60d IS NOT NULL`` on a row does NOT by itself
+    prove the date is aged: the same table can carry a row written before its
+    full horizon elapsed (see ``scripts/research_panel_exit_predictiveness.py``'s
+    "TRADING-SESSION AGING" note — Codex r2 #2 finding — on this exact table).
+    We age against the table's own distinct ``as_of_date`` session calendar
+    instead, same technique as that script's ``_session_calendar``/
+    ``_aged_cutoff``: a date is aged iff at least ``min_tdays`` LATER sessions
+    are already present in the calendar.
+    """
+    sessions = pd.read_sql_query(
+        "SELECT DISTINCT as_of_date FROM ticker_forward_returns "
+        "ORDER BY as_of_date", db,
+    )["as_of_date"].astype(str).str[:10].tolist()
+    if len(sessions) <= min_tdays:
+        return set()
+    return set(sessions[: len(sessions) - min_tdays])
+
+
 def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
-    """Fill realized fwd_20d spreads for rows old enough, in place."""
+    """Fill realized fwd_60d spreads for rows old enough, in place.
+
+    HORIZON: fwd_60d, changed from fwd_20d on 2026-07-29, quoted as an
+    operator decision but not independently checkable from this repo (see
+    doc/progress/2026-07-29-blend-readout-horizon.md's `best-known?` field).
+    The certified effect (+0.0687, CI lower +0.0156) and BOTH scored models are
+    fwd_60d recipes; a 20-day spread measures a different quantity, so the
+    120-session forward ledger would have answered a question the certification
+    never asked. GOAL-6 Stage 0 separately measured that the shorter horizon
+    buys no statistical power either (H2 NOT SUPPORTED: ~3x the independent
+    blocks, proportionately smaller effect, flat ratio) — so there was not even
+    a speed argument for keeping it.
+
+    Cost, stated: a session now matures after 60 trading days instead of 20,
+    so realized rows arrive ~40 trading days later than they would have.
+
+    MATURITY GATE (Codex BLOCKER, PR #598): a row only realizes once its
+    ``run_date`` is in ``_aged_dates(db, MATURITY_TDAYS)`` — i.e. at least
+    ``MATURITY_TDAYS`` later trading sessions already exist in
+    ``ticker_forward_returns``. This is enforced IN ADDITION to (not instead
+    of) the existing all-picks-resolvable check, so a prematurely-written
+    ``fwd_60d`` value cannot realize a session before its label window has
+    actually elapsed.
+    """
     if not ledger.exists():
         return 0
     rows = [json.loads(x) for x in ledger.read_text().splitlines() if x]
     try:
         fwd = pd.read_sql_query(
-            "SELECT ticker, as_of_date, fwd_20d FROM ticker_forward_returns "
-            "WHERE fwd_20d IS NOT NULL", db)
+            "SELECT ticker, as_of_date, fwd_60d FROM ticker_forward_returns "
+            "WHERE fwd_60d IS NOT NULL", db)
     except Exception:
         return 0
     fwd["as_of_date"] = fwd["as_of_date"].astype(str).str[:10]
-    fmap = {(r.ticker, r.as_of_date): r.fwd_20d for r in fwd.itertuples(index=False)}
+    fmap = {(r.ticker, r.as_of_date): r.fwd_60d for r in fwd.itertuples(index=False)}
+    aged = _aged_dates(db, MATURITY_TDAYS)
     filled = 0
     for row in rows:
         if row.get("realized"):
@@ -157,7 +208,8 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
         row["n_resolvable_blend"] = sum(v is not None for v in rb)
         row["n_picks_prod"] = len(rp)
         row["n_picks_blend"] = len(rb)
-        if all(v is not None for v in rp + rb):
+        row["aged"] = d in aged
+        if row["aged"] and all(v is not None for v in rp + rb):
             row["spread_prod"] = float(np.mean(rp))
             row["spread_blend"] = float(np.mean(rb))
             row["realized"] = True
