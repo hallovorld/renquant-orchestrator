@@ -225,3 +225,49 @@ checking whether the "misses" were ever in the index said yes again — with a
 better method than the one originally proposed. The lesson is the same one
 this session keeps paying for: **a number that decides something must be
 checked against what it actually means, not just recomputed more carefully.**
+
+---
+
+## Edit lag — MEASURED, and it points the dangerous way
+
+The caveat above said the lag must be measured rather than assumed tolerable.
+Measured against three known removals, by scanning every revision in a window
+around each effective date and finding the first one that no longer lists the
+name `[VERIFIED — Wikipedia revision API + per-revision parse, 2026-07-29]`:
+
+| ticker | effective removal | first revision without it | lag |
+|---|---|---|---|
+| SIVB | 2023-03-15 | 2023-03-14 | **−1 day** |
+| ATVI | 2023-10-13 | 2023-10-14 | +1 day |
+| TWTR | 2022-11-01 | 2022-10-29 | **−3 days** |
+
+Magnitude is small (|lag| ≤ 3 days here), but **two of three are NEGATIVE**,
+and the sign is what matters. Editors act on the ANNOUNCEMENT, not the
+effective date, so the page can drop a name **before it actually left the
+index**. A universe built naively from "membership as of d" would therefore
+exclude a name that was still investable on d — a mild look-ahead baked into
+the universe definition itself, which is precisely the class of error this
+whole exercise exists to remove.
+
+### The mitigation, and why it is the safe direction
+
+**Define the universe at date `d` from membership as of `d − BUFFER`,** with
+BUFFER ≥ the worst observed negative lag plus margin. That converts a possible
+small LOOK-AHEAD into a guaranteed small STALENESS: the universe may briefly
+retain a name that has just left, which costs a little realism, and can never
+contain foreknowledge, which would cost correctness.
+
+A 7-day buffer covers the worst case here with better than 2× margin. It is
+proposed, not frozen: `n = 3` events is a spot check, not a distribution, and
+the buffer belongs in a prereg with a wider measurement behind it.
+
+### Status after four rounds on this question
+
+Viable, measured, and still not built. What is now established: the revision
+history covers the window (back to 2005), membership snapshots reproduce four
+known temporal transitions, the "missing tickers" objection was my own
+inference error, and the edit lag is small but signed the wrong way with a
+known mitigation. What remains: per-revision fail-closed sanity gates, share
+class and rename handling, a properly-sized lag measurement, and the operator
+decision on whether S&P 500 is the universe this strategy should be measured
+against at all.
