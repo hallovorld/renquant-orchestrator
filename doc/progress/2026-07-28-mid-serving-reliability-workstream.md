@@ -51,7 +51,8 @@ EVIDENCE: artifact:      `/tmp/ptserve_e2e.log` (readonly full-funnel preflight,
           backtesting/renquant_104/logs/shadow_scorer_health.jsonl, per
           doc/progress/2026-07-28-shadow-staleness-horizon-design.md's own
           verification]`; over-specified inference-frame cache key (orch#589,
-          still an open, unmerged design) — cold rebuilds observed at ~795s and
+          design MERGED 2026-07-29T07:14:15Z; the implementation itself has not
+          landed, see AC4 below) — cold rebuilds observed at ~795s and
           ~1201s, and a third run hit a hard 1800s timeout and ABORTED
           `[VERIFIED — /tmp/ptserve_e2e.log (795s), /tmp/ptprod_e2e2.log (1201s),
           /tmp/ptprod_e2e.log (1800.07s TimeoutError)]`; raw-vs-probability

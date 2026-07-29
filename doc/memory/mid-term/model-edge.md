@@ -138,9 +138,12 @@ NEXT:     This session's discrimination did not clear the buy floor / Kelly
           sizing as a SOLE primary scorer — a diagnostic input, not a
           tradeability conclusion. The open capability question (does the recipe
           carry ANY signal, and is it orthogonal enough to be worth a third blend
-          leg) is answered by model#85's frozen 43-fold evaluation, once (a) its
-          statistical design passes review and (b) the corpus is actually
-          generated and scored against that frozen design — neither has happened
-          yet. Proceed via the standard blend gate chain (screen → frozen prereg
-          → disjoint-seed confirmatory → shadow) — never by letting a
+          leg) is answered by model#85's frozen 43-fold evaluation. STATUS as of
+          2026-07-29: the corpus EXISTS and is content-addressed
+          `[VERIFIED — model#91 index, root digest b8aa2d99…]` (see orch#590's
+          reconciled record), and model#85's statistical design has passed
+          review and MERGED; the evaluation's verdict is UNDERPOWERED per
+          model#85's own frozen decision rule. Proceed via the standard blend
+          gate chain (screen → frozen prereg → disjoint-seed confirmatory →
+          shadow) — never by letting a
           single-session read, or an unverified result, drive the funnel.
