@@ -158,3 +158,70 @@ the next step, not an assumption.
 I am recording this reversal in full rather than quietly downgrading the
 earlier recommendation: the free path looked viable on a 7/9 regex hit, and it
 was the parse — plus reading the table's own title — that killed it.
+
+---
+
+## Second reversal — the completeness objection was MY inference error
+
+I rejected the free path above on the strength of two "missing" names. That
+inference was wrong, and the method that replaces it does not have the problem
+I rejected it for.
+
+### The two misses were correct behaviour
+
+VMW and SPLK are absent from the S&P 500 membership table in revisions dated
+**2022-06-29 and 2023-06-19** `[VERIFIED — Wikipedia revision API + parse,
+2026-07-29]` — both well BEFORE their respective acquisitions. They were never
+S&P 500 constituents, so their absence from a list of S&P 500 changes is
+correct, not a gap. The spot check was therefore **7 of the 7 probed names
+that were actually in the index**, not 7 of 9.
+
+The density argument (18 events in 2023 vs ~20-25 expected) still suggests the
+CHANGES table is not exhaustive. That objection simply no longer matters, for
+the reason below.
+
+### Point-in-time membership without any event replay
+
+Wikipedia exposes full revision history, and the oldest revision of this page
+is **2005-09-14** `[VERIFIED — revision API]` — covering the whole 2016-2026
+panel window with a decade to spare. Membership at date `d` is read directly
+off the page as it stood at `d`; there is no backwards replay, so **a missing
+change event cannot propagate**. That was the single defect that killed the
+event-list approach.
+
+Sanity check across four independent temporal transitions, all correct
+`[VERIFIED — parsed membership per revision]`:
+
+| as-of | members | TWTR | ATVI | SIVB | AAPL |
+|---|---|---|---|---|---|
+| 2016-06-26 | 504 | out (joined 2018) | **in** | out | in |
+| 2020-06-28 | 505 | **in** | **in** | **in** | in |
+| 2023-11-20 | 503 | out (taken private 2022) | out (MSFT closed 2023) | out (failed 2023) | in |
+
+Counts of 503-505 are the right order for a "500" index carrying multiple
+share classes.
+
+### Corrected status — viable, with real caveats, and NOT declared solved
+
+This is the second reversal on this question in two hours, so the caveats get
+stated as prominently as the finding:
+
+- **Edit lag.** Membership as-of `d` is really "as last edited before `d`". A
+  change made on the 3rd may land in the page on the 6th. For a 60-day-label
+  study that is tolerable, but it must be MEASURED and reported, not assumed
+  tolerable.
+- **Crowd-edited source.** A revision can be transiently vandalised or
+  malformed. A build on this needs per-revision sanity gates (member count in
+  a plausible band, ticker shape, diff size vs the previous snapshot) that
+  fail closed rather than silently ingesting a bad revision.
+- **Share classes and ticker renames** need explicit handling; a raw symbol
+  set is not a clean universe key.
+- **Still one universe CHOICE among several.** Adopting S&P 500 changes what
+  the strategy is measured against, which remains an operator decision rather
+  than a data-sourcing detail.
+
+The honest summary of three rounds: regex said yes, a parse said no, and
+checking whether the "misses" were ever in the index said yes again — with a
+better method than the one originally proposed. The lesson is the same one
+this session keeps paying for: **a number that decides something must be
+checked against what it actually means, not just recomputed more carefully.**
