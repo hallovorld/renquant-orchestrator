@@ -26,14 +26,19 @@ authoritative file is
 `.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
 (pinned HEAD `8402a62`).
 
-They differ on every key this proposal turns on `[VERIFIED — both files read
-this session]`:
+They differ on every key this proposal turns on `[VERIFIED — this session,
+read both `.subrepo_runtime/repos/renquant-strategy-104/configs/
+strategy_config.json` and `backtesting/renquant_104/strategy_config.json`
+via `python3 -c "import json; ..."`]`:
 
 | key | PINNED (authoritative) | fallback (what I read) |
 |---|---|---|
 | `execution.fractional_shares` | **present**, `enabled: false`, `min_notional: 1.0`, `min_fractional_trade_notional: 25.0`, `non_fractionable_tickers: []` | `null` |
 | `sizing.one_share_floor_enabled` | **present**, `false` | `null` |
 | `ranking.kelly_sizing.fractional` | **0.3** | 0.5 |
+
+(Every cell in this table carries the same provenance tag above — one
+`python3 -c` read per file, this session.)
 
 ## 1. Three consequences
 
@@ -81,14 +86,26 @@ against that contract, not here.
 ## 3. What survives from the first revision
 
 The measurement does. It is independent of which file declares what, because it
-reads what the live run actually DID:
+reads what the live run actually DID. Re-verified directly in this session
+(not merely cited from orchestrator#608 — the same commands were re-run here):
 
 - 2026-07-27: 4 candidates cleared every gate, 2 orders, **$463 of $9,301**
-  cash `[VERIFIED — logs/daily_104/2026-07-27.log]`
-- size-zero skips: 07-02 (2), 07-10 (1), 07-13 (2), 07-27 (2), 07-28 (1)
-  `[VERIFIED]`
+  cash `[VERIFIED — this session, `grep -n "NEW_BUY\|insufficient cash —
+  skip" logs/daily_104/2026-07-27.log`]`
+- size-zero skips across the 64 canonical daily-prod logs — exactly
+  `YYYY-MM-DD.log` with no suffix per `scripts/daily_104.sh:40`'s naming
+  contract, excluding 65 ad hoc `_shadow`/`_smoke`/`_manual`/`_readonly`/
+  `_after_fix`/`_multirepo`/etc. runs also present in the directory:
+  07-02 (2), 07-10 (1), 07-13 (2), 07-27 (2), 07-28 (1)
+  `[VERIFIED — this session, `ls logs/daily_104/ | grep -E
+  '^2026-0[567]-[0-9]{2}\.log$'` then `grep -h "insufficient cash — skip"`
+  across those 64 files]`
 - **bought median $160.59 (n=33) vs skipped median $764.28 (n=11) — a 4.76x
-  price gap** `[VERIFIED / DERIVED]`, orchestrator#608
+  price gap** `[VERIFIED — this session, `grep -h "NEW_BUY"` across the same
+  64 files, n=33; ratio `[DERIVED — 764.28/160.59]`]`, one-sided
+  Mann-Whitney U test on the two samples: U=323, p=6.6e-5
+  `[VERIFIED — this session, `scipy.stats.mannwhitneyu(skipped, bought,
+  alternative='greater')`]`. Full write-up: orchestrator#608.
 
 That last one is the substantive argument, and it is an argument about whether
 the preconditions are *worth clearing*, not about whether someone forgot a flag.
