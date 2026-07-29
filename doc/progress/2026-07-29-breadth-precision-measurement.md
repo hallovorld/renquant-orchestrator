@@ -3,7 +3,7 @@
 STATUS:   delivered (relocation). Removes
           `doc/research/2026-07-29-breadth-does-not-buy-evaluation-precision.md`
           and `tools/breadth_precision_verify.py` from this repo. The memo
-          now lives byte-identical in `hallovorld/renquant-model#97`. This
+          now lives byte-identical in `hallovorld/renquant-model#98`. This
           PR is reduced to this progress doc documenting the relocation.
 
 WHAT:     Round-2 review (BLOCKER) found the memo and its verifier are
@@ -13,9 +13,17 @@ WHAT:     Round-2 review (BLOCKER) found the memo and its verifier are
           panel for survivorship. Both prior MED findings on this PR
           (reviewable derivation, per-number provenance) were already
           resolved in-place before this BLOCKER; the relocation carries
-          that fixed content forward unchanged — `renquant-model#97`
+          that fixed content forward unchanged — `renquant-model#98`
           re-ran the verifier against the same sha256-pinned inputs before
-          committing and confirmed the tables match exactly.
+          committing, confirmed the tables match exactly, and additionally
+          adds `tests/test_breadth_precision_verify.py` (8 focused tests
+          pinning the pin-abort contract, deterministic seeding, fit
+          recovery, survivorship-probe logic).
+
+          Two agent instances relocated this PR concurrently to separate
+          renquant-model PRs (#97 and #98, content byte-identical). #97 is
+          closed as the duplicate; #98 is canonical and carries the added
+          test coverage.
 
 WHY/DIR:  Per the umbrella multi-repo code-placement rule (model research
           -> `renquant-model`, never the orchestrator), this repo does not
@@ -37,8 +45,8 @@ EVIDENCE: n/a
 
 NEXT:     This PR now carries no model/data claim of its own — the
           relocated claim and its §4(b) evidence block are in
-          `renquant-model#97`'s progress doc
+          `renquant-model#98`'s progress doc
           (`doc/progress/2026-07-29-breadth-precision-measurement.md` in
           that repo). Review continues there. If GOAL-6 Stage 2 scoping
-          needs this number, cite `renquant-model#97` directly; nothing
+          needs this number, cite `renquant-model#98` directly; nothing
           further pending in this repo for this memo.
