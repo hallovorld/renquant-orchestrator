@@ -113,3 +113,48 @@ Honest caveats before anyone treats this as done:
 - **Point-in-time reconstruction still needs care**: an add/remove event list
   must be replayed backwards from today's membership to get membership at date
   d, and any missed event silently corrupts every earlier date.
+
+---
+
+## Viability test of the free path — it FAILS the completeness bar
+
+The zero-cost recommendation above was made on a regex probe. Parsed properly
+`[VERIFIED — fetched + parsed 2026-07-29, snapshot sha256 9d11adaa871755a5,
+1,509,483 bytes]`:
+
+- the changes table yields **406 events**, **372 distinct removed tickers**,
+  spanning **1976-07-01 → 2026-06-30**;
+- known-delisted coverage is **7/9** — ATVI, CERN, FRC, PXD, SIVB, TWTR, XLNX;
+- the two misses, **VMW and SPLK, have ZERO rows** in the table. Not a parser
+  bug: they are absent.
+
+**The table's own title says why: "Selected changes to the list of S&P 500
+components."** It is a curated selection, not a complete corporate-action
+record. The per-year density confirms it — 18 events in 2023 and 13 so far in
+2026, against the ~20–25 changes the index actually makes in a typical year.
+
+### Why "mostly complete" is not good enough HERE
+
+For PIT membership you replay events backwards from today's list. **A missed
+removal leaves that name in the reconstructed universe for every earlier
+date** — i.e. it silently reintroduces exactly the survivorship bias the
+exercise exists to remove, and it does so invisibly: the reconstructed
+universe still looks plausible, just slightly too clean. Two known misses in a
+nine-name spot check implies a systematic gap, not a rounding error.
+
+### Corrected recommendation
+
+The free path is **rejected as a source of truth**. It remains useful as a
+CROSS-CHECK: any paid constituent history must reproduce these 406 events, and
+a paid source that disagrees with a hand-curated public record on a name like
+TWTR or SIVB is itself suspect.
+
+That returns the decision to a **paid** constituent-history product (or an FMP
+tier that unlocks `historical-sp500-constituent`), with the depth verified
+before purchase — the same caution as before, now without a free alternative
+to hope for. Cost is unquantified here because no vendor was priced; that is
+the next step, not an assumption.
+
+I am recording this reversal in full rather than quietly downgrading the
+earlier recommendation: the free path looked viable on a 7/9 regex hit, and it
+was the parse — plus reading the table's own title — that killed it.
