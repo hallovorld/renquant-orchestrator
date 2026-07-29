@@ -140,13 +140,21 @@ EVIDENCE:
                  `SHADOW_NAME` for backward compatibility with any direct
                  caller) and `_patrol_lane`'s call site.
                  `[VERIFIED — pytest tests/test_rq104_shadow_scorer_sentinel.py,
-                 this session]` **66 passed** (54 round-1 + 6 round-2 +
-                 3 round-3 + 1 new `TestMultiLane` regression asserting the
-                 clf lane's LOAD FAILURE alert body contains
-                 `'topdecile_clf_blend_leg'` and NOT `'hf_patchtst'`,
-                 verified to fail against the pre-fix code first). The 2
-                 conditional-import tests ran (not skipped) in this
-                 environment; not affected by this change.
+                 this session]` **66 test definitions** total (54 round-1 + 6
+                 round-2 + 3 round-3 + 1 new `TestMultiLane` regression
+                 asserting the clf lane's LOAD FAILURE alert body contains
+                 `'topdecile_clf_blend_leg'` and NOT `'hf_patchtst'`, verified
+                 to fail against the pre-fix code first) — a count independent
+                 of environment, unlike "N passed": 2 of the 66 use
+                 `pytest.importorskip("renquant_pipeline.kernel.panel_pipeline.
+                 shadow_health")` and PASS when that sibling repo's package is
+                 on `PYTHONPATH`, SKIP otherwise. Observed both ways across
+                 rounds of this same PR (round 2/3: 2 skipped; round 4 as
+                 originally written: 0 skipped) purely from which environment
+                 ran the suite, not from any code change — stating a single
+                 fixed "N passed" here would go stale again the next time
+                 anyone runs it in a different environment. Not affected by
+                 this round's change either way.
   best-known?:   n/a — monitoring-code change, not a competing model/signal
                  variant; no IC/Sharpe number is claimed.
   scope:         this PR makes the sentinel patrol both shadow lanes instead
