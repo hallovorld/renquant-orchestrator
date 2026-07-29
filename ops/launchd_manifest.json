@@ -173,10 +173,10 @@
     },
     "com.renquant.rq105-batch-scores-export": {
       "program_args": [
-        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
-        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/export_batch_scores.py"
+        "/bin/zsh",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh"
       ],
-      "program_args_sha256": "c1a915fdfa0d21163aa1b41b40855e575026111a7e61134f338480aa7147aa42"
+      "program_args_sha256": "ab2385c2a7e3e0c62537d49b0eb74826910ab079b6f5905e089b3134b5ff4334"
     },
     "com.renquant.rq105-liveness": {
       "program_args": [
