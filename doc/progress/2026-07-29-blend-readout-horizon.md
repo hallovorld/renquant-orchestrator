@@ -1,4 +1,4 @@
-# Progress: blend readout horizon 20d -> 60d (operator decision)
+# Progress: blend readout horizon 20d -> 60d
 
 STATUS:   delivered (code + amendment + 10/10 tests). Amends a frozen rule, on
           operator authority (see `best-known?` below for the governance-trail

@@ -1,7 +1,12 @@
 # AMENDMENT — blend readout horizon: fwd_20d → fwd_60d
 
 Date: 2026-07-29. Amends the frozen readout rule from pipeline#213.
-**Authority: explicit operator decision, 2026-07-29** ("改成 60d，重算已有场次").
+**Authority: quoted as an operator decision, 2026-07-29** ("改成 60d，重算已有场次").
+**That authorization is not independently checkable from this repo** — no
+record of it exists in `doc/memory/long-term-agreements.md` or any
+`doc/memory/mid-term/` workstream file; see the progress doc's `best-known?`
+field for the full search. The horizon change itself is verified on its own
+technical merits below, independent of that governance question.
 Recorded as an amendment rather than an edit because the rule was frozen, and
 a frozen rule that can be quietly edited is not frozen.
 

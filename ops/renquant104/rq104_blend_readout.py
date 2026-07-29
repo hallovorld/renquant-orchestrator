@@ -154,7 +154,9 @@ def _aged_dates(db: sqlite3.Connection, min_tdays: int) -> set[str]:
 def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
     """Fill realized fwd_60d spreads for rows old enough, in place.
 
-    HORIZON: fwd_60d, changed from fwd_20d on 2026-07-29 by operator decision.
+    HORIZON: fwd_60d, changed from fwd_20d on 2026-07-29, quoted as an
+    operator decision but not independently checkable from this repo (see
+    doc/progress/2026-07-29-blend-readout-horizon.md's `best-known?` field).
     The certified effect (+0.0687, CI lower +0.0156) and BOTH scored models are
     fwd_60d recipes; a 20-day spread measures a different quantity, so the
     120-session forward ledger would have answered a question the certification
