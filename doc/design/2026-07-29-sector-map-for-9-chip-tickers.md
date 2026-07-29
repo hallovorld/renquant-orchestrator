@@ -111,12 +111,13 @@ session]`), and becomes by far the largest semiconductor-cycle-correlated
 bucket. 23 watchlist names would compete for the same 6 held slots.
 
 **Whether the 6-slot cap binds in practice is an open question, not settled by
-this PR.** #610 reports a `mu >= 0.03` admission rate of 2-6 names per session
-across the whole cross-section, but #610 is itself open and under review, not
-a canonical, reproduced strategy-side measurement, and it proposes no
-admission change of its own. This doc does not use that number to conclude the
-cap "cannot bind today," and does not predict what #223/#608/#610 "would
-cause." That conclusion is deferred to a canonical, reproducible strategy-side
+this PR.** #610 (merged `[VERIFIED — d69b7393, `git merge-base --is-ancestor`
+this session]`) reports a `mu >= 0.03` admission rate of 2-6 names per session
+across the whole cross-section, but it is a pooled/read-only measurement, not
+a per-session strategy-side admission study, and it changed no config or
+admission rule. This doc does not use that number to conclude the cap "cannot
+bind today," and does not predict what #223/#608/#610 "would cause." That
+conclusion is deferred to a canonical, reproducible per-session strategy-side
 admission-rate measurement — re-run whenever admission-affecting work lands —
 which is out of scope for this bucket-assignment proposal.
 

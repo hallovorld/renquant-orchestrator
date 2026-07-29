@@ -63,15 +63,16 @@ EVIDENCE: artifact: `renquant-strategy-104/configs/strategy_config.json` on
 
 CONCENTRATION COUNTS, AND AN OPEN MEASUREMENT QUESTION:
           23 ai_chip names competing for 6 held slots sounds alarming. #610
-          (open, under review, not yet a canonical strategy-side measurement)
-          reports the `mu >= 0.03` gate admitting 2-6 names per session across
-          the entire cross-section, but that number is not reproduced/reviewed
-          as a stable figure and #610 proposes no admission change of its own
-          — so it is NOT used here to conclude the cap "cannot bind today" or
-          to predict what #223/#608/#610 "would cause." Whether the cap binds
-          in practice is deferred to a canonical, reproducible strategy-side
-          admission-rate measurement, out of scope for this bucket-assignment
-          proposal; re-run it whenever admission-affecting work lands.
+          (merged, `d69b7393`) reports the `mu >= 0.03` gate admitting 2-6
+          names per session across the entire cross-section, but it is a
+          pooled/read-only measurement, not a per-session strategy-side
+          admission study, and it changed no config or admission rule — so it
+          is NOT used here to conclude the cap "cannot bind today" or to
+          predict what #223/#608/#610 "would cause." Whether the cap binds
+          in practice is deferred to a canonical, reproducible per-session
+          strategy-side admission-rate measurement, out of scope for this
+          bucket-assignment proposal; re-run it whenever admission-affecting
+          work lands.
 
 SHARPEST POINT, called out rather than buried in a percentage:
           WDC + SNDK + STX would all sit in `datacenter_hw`. WDC and SNDK share
