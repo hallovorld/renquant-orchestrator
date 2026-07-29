@@ -138,12 +138,20 @@ NEXT:     This session's discrimination did not clear the buy floor / Kelly
           sizing as a SOLE primary scorer — a diagnostic input, not a
           tradeability conclusion. The open capability question (does the recipe
           carry ANY signal, and is it orthogonal enough to be worth a third blend
-          leg) is answered by model#85's frozen 43-fold evaluation. STATUS as of
-          2026-07-29: the corpus EXISTS and is content-addressed
+          leg) is answered by model#85's frozen 43-fold evaluation. Both
+          preconditions this NEXT previously blocked on have since happened:
+          model#85's statistical design passed review and MERGED
+          (2026-07-29T08:10:54Z `[VERIFIED — gh pr view 85]`), and the 43-fold
+          corpus is generated and content-addressed
           `[VERIFIED — model#91 index, root digest b8aa2d99…]` (see orch#590's
-          reconciled record), and model#85's statistical design has passed
-          review and MERGED; the evaluation's verdict is UNDERPOWERED per
-          model#85's own frozen decision rule. Proceed via the standard blend
-          gate chain (screen → frozen prereg → disjoint-seed confirmatory →
-          shadow) — never by letting a
-          single-session read, or an unverified result, drive the funnel.
+          reconciled record). But that does not make a verdict admissible yet:
+          model#85's own design uses a `real − shift120` lag-shift comparison
+          (§ "shift placebo"), the same computation class T11 found defective
+          (`Y.shift(-lag)` sample drift) — its UNDERPOWERED verdict, and
+          separately model#87's CLOSE verdict, were both computed before that
+          defect was found and are SUPERSEDED pending the corrected
+          re-derivation (model#90), which is itself still OPEN, unmerged.
+          Proceed via the standard blend gate chain (screen → frozen prereg →
+          disjoint-seed confirmatory → shadow) — never by letting a
+          single-session read, or an unverified/superseded result, drive the
+          funnel.
