@@ -248,6 +248,55 @@ def read_frontier(art: WatchedArtifact, *, as_of: dt.date,
         f"the producing job appears not to have run. A retry is appropriate.")
 
 
+#: (derived, upstream) pairs. A derived artifact whose frontier sits BEHIND
+#: the artifact it is built from is a broken refresh chain, and it is invisible
+#: to the per-artifact age check: the derived file can be comfortably inside its
+#: own bound while silently lagging its own input.
+#:
+#: Measured 2026-07-29, which is why this exists:
+#:   PROD fund panel (input)    max_date 2026-05-01, 2597 dates
+#:   PROD transformer corpus    max_date 2026-04-28, 2594 dates   <- 3 behind
+#: The corpus reported HEALTHY (92d against a 112d structural bound) while
+#: lagging the panel it derives from by three sessions. Rebuilding it from the
+#: current panel recovered exactly those 3 dates for all 142 incumbents.
+DERIVED_FROM: tuple[tuple[str, str], ...] = (
+    ("transformer-panel", "alpha158-fund-panel"),
+)
+
+
+def check_derived_not_behind_upstream(
+    readings: "list[FrontierReading]",
+) -> list[str]:
+    """A derived artifact may not be older than what it is built from.
+
+    Deliberately separate from the age check. Age asks "is this new enough";
+    this asks "did the chain run in order". An artifact can pass the first and
+    fail this one indefinitely, which is precisely what production was doing.
+
+    Skips a pair when either side could not be read — an unreadable input is
+    already reported by the age check, and inventing a second finding for it
+    would double-count one fault.
+    """
+    by = {r.name: r for r in readings}
+    problems: list[str] = []
+    for derived, upstream in DERIVED_FROM:
+        d, u = by.get(derived), by.get(upstream)
+        if d is None or u is None:
+            continue
+        if d.newest_data is None or u.newest_data is None:
+            continue
+        if d.newest_data < u.newest_data:
+            lag = (u.newest_data - d.newest_data).days
+            problems.append(
+                f"refresh chain out of order: {derived} frontier "
+                f"{d.newest_data} is {lag}d BEHIND its upstream {upstream} "
+                f"({u.newest_data}). The derived artifact passed its own age "
+                f"bound while lagging the input it is built from, so the age "
+                f"check alone cannot see this. Re-run the {derived} build."
+            )
+    return problems
+
+
 #: Retries per status. UPSTREAM_EMPTY is deliberately 0: a retry that cannot
 #: possibly help is worse than none, because it converts a loud data problem
 #: into a quiet recurring job failure.
@@ -285,8 +334,12 @@ def main(argv: list[str] | None = None) -> int:
             n, why = retry_advice(r)
             print(f"    retry: {n} — {why}")
 
+    chain = check_derived_not_behind_upstream(readings)
+    for msg in chain:
+        print(f"[CHAIN] {msg}")
+
     findings = [r for r in readings if r.is_finding]
-    if not findings:
+    if not findings and not chain:
         print(f"data-frontier check: {len(readings)} artifact(s) advancing "
               f"as of {as_of}")
         return 0
@@ -294,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         # ASCII-only title: an alarm about data problems must not fail to
         # deliver for an unrelated encoding reason.
         alert("RenQuant DATA FRONTIER",
-              " | ".join(r.describe() for r in findings))
+              " | ".join([r.describe() for r in findings] + chain))
     return 1
 
 
