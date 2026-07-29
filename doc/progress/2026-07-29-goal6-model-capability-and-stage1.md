@@ -1,12 +1,15 @@
 # Progress: GOAL-6 design — model-capability programme (design only)
 
-STATUS:   POST-DECISION record. The workstream was confirmed by the operator on
-          2026-07-28 ("这是新的goal！你来drive！", then "按你的推荐推进试试"), so
-          this is not a pre-decision proposal (codex BLOCKER). Named parameters
-          D2/D3/D4 remain genuinely open and are listed as open in the MID record —
-          confirming a direction is not answering every parameter. Docs only, no
-          execution claim in this
-          PR.
+STATUS:   design proposed for review. Docs only, no execution claim in this PR.
+          CORRECTION (per codex MED, 2026-07-29, and long-term-agreements.md
+          entry 10): an earlier revision claimed this is a "POST-DECISION
+          record," citing two quoted operator directives that do not appear
+          in this session's own transcript and cannot be independently
+          verified from here. Retracted, not restated — this stays a
+          pre-decision proposal per LONG#7 ("design docs are not merged
+          while under discussion") until the operator confirms directly.
+          Named parameters D2/D3/D4 remain open regardless, listed in the
+          MID record.
           CORRECTION (per codex BLOCKER, 2026-07-29): an earlier version of
           this PR bundled an already-executed Stage-1 panel-build result
           (§12 of the design doc) into this same PR, while Stage 0 (model#86,
@@ -75,10 +78,10 @@ EVIDENCE: artifact:      `doc/research/2026-07-28-goal6-model-capability-design.
           triad applies to whichever results doc follows each stage's own
           run, not to this design."
 
-NEXT:     The MID workstream itself is already confirmed (see STATUS); what
-          remains open are the named parameters D2/D3/D4 in the design's
-          §10, and the staged execution below. Stage 0 (model#86) is already
-          MERGED
+NEXT:     Operator confirmation of the workstream itself is the first open
+          item (see STATUS); the named parameters D2/D3/D4 in the design's
+          §10 and the staged execution below are separately open regardless
+          of that decision. Stage 0 (model#86) is already MERGED
           (2026-07-29T08:10:49Z) as the frozen prereg — that only unblocks
           RUNNING Stage 0, it does not satisfy Stage 1's entry condition.
           Per §5 of the design, Stage 1's entry is "Stage 0 exited": Stage 0

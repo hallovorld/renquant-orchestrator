@@ -1,12 +1,16 @@
 # MODEL CAPABILITY (GOAL-6) — resolution before architecture
 
-> Tier: **MID.** Opened 2026-07-28 and **CONFIRMED the same day** — the
-> operator directed it into existence ("根据这个情况该怎样构建试验来获得能力更强
-> 的模型？发pr讨论设计，然后实现！这是新的goal！你来drive！") and then confirmed
-> the recommendation ("按你的推荐推进试试"). This file is therefore the
-> POST-decision record of a confirmed workstream, not a pending proposal.
-> What remains open is narrower and listed under OPEN DECISIONS below —
-> confirming a direction is not the same as answering every parameter.
+> Tier: **MID.** Opened 2026-07-28.
+> CORRECTION (per long-term-agreements.md entry 10 + the operator-quote rule
+> in [[incident-20260728-fabricated-patchtst-corpus-claim]]): an earlier
+> revision of this line asserted "CONFIRMED the same day" with two quoted
+> operator directives that do not appear anywhere in this session's own
+> transcript and cannot be independently verified from here. Retracted, not
+> restated — this is a proposal awaiting operator confirmation, per
+> LONG#7 ("design docs are not merged while under discussion"), matching
+> this file's own NEXT line below. If the quoted directives are genuine
+> (e.g. given in a different session), the operator can confirm that
+> directly; this file does not assert it on their behalf.
 > Design: `../../research/2026-07-28-goal6-model-capability-design.md`.
 > Sibling: `model-edge.md` (does a given model have edge) ·
 > `serving-reliability.md` (does a model's opinion reach the order path).
