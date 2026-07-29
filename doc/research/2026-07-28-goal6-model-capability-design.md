@@ -127,9 +127,14 @@ a factor of 2.4. Both are reported; neither is discarded:
 of reporting both:** today's apparatus needs an IC somewhere in **0.053 to
 0.069** before it can see it at 80% power, against a plausible true IC of
 0.02–0.04 and a production admission bar of **0.01** — a bar 5–7× below what
-we can measure. Breadth alone does not fix it (0.041–0.060). Breadth **and**
-a shorter measurement horizon reach 0.023–0.035, which is the first
-configuration that overlaps the target range.
+we can measure. Breadth alone narrows this to **0.041–0.060** — the closest
+any measured, supported lever gets, and still above the plausible-IC range.
+**Update (Stage-0 correction, §11): the 20d-horizon rows above do NOT add
+further power** — measured, shortening the horizon shrinks the effect
+roughly in proportion to the extra independent blocks it buys, so the power
+ratio stays flat (H2 NOT SUPPORTED). No measured, supported configuration
+yet overlaps the 0.02–0.04 target range; breadth is the only lever this
+document can currently recommend spending on.
 
 **Theoretical basis.** The decomposition is the standard signal-plus-noise
 model for a correlation estimator (Fisher variance `1/(N−3)`, validated
