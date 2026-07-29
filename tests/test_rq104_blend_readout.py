@@ -70,7 +70,7 @@ def test_mature_fill_only_when_all_returns_present(tmp_path):
            "picks_blend": ["B", "C"], "realized": False}
     led.write_text(json.dumps(row) + "\n")
     db = sqlite3.connect(":memory:")
-    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, fwd_20d REAL)")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, fwd_60d REAL)")
     db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
                    [("A", "2026-06-01", 0.10), ("B", "2026-06-01", 0.02)])
     assert mod.mature_fill(led, db) == 0          # C missing -> not filled
@@ -99,7 +99,7 @@ def test_partial_coverage_records_why_it_did_not_realize(tmp_path):
         "realized": False}) + "\n")
     db = sqlite3.connect(":memory:")
     db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
-               "fwd_20d REAL)")
+               "fwd_60d REAL)")
     db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
                    [("A", "2026-06-01", 0.01), ("B", "2026-06-01", 0.02)])
     assert mod.mature_fill(led, db) == 0            # C missing -> not realized
@@ -118,10 +118,50 @@ def test_telemetry_persists_even_when_nothing_realizes(tmp_path):
         "picks_prod": ["A"], "picks_blend": ["Z"], "realized": False}) + "\n")
     db = sqlite3.connect(":memory:")
     db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
-               "fwd_20d REAL)")
+               "fwd_60d REAL)")
     db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
                    [("A", "2026-06-01", 0.01)])
     assert mod.mature_fill(led, db) == 0
     row = json.loads(led.read_text().splitlines()[0])
     # written despite filled == 0, so a stuck session is diagnosable next pass
     assert row["n_resolvable_blend"] == 0
+
+
+def test_horizon_is_60d_and_maturity_matches_it():
+    """The two must move together.
+
+    Changed 2026-07-29 by operator decision: the certified effect and both
+    scored models are fwd_60d recipes, so a 20-day ledger measured a different
+    quantity than the one being certified. Leaving MATURITY_TDAYS at 21 would
+    have marked rows mature 40 sessions before their label can exist — the
+    silent half of a horizon change.
+    """
+    import inspect
+    src = inspect.getsource(mod)
+    assert "fwd_60d FROM ticker_forward_returns" in src
+    assert "r.fwd_60d" in src
+    assert mod.MATURITY_TDAYS == 61, (
+        f"maturity {mod.MATURITY_TDAYS} does not match a 60-day label horizon"
+    )
+
+
+def test_backfill_reads_the_60d_column(tmp_path):
+    import json
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(json.dumps({
+        "run_date": "2026-01-05", "run_id": "r1",
+        "picks_prod": ["A"], "picks_blend": ["B"], "realized": False}) + "\n")
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
+               "fwd_20d REAL, fwd_60d REAL)")
+    # 20d present but 60d NULL -> must NOT realize
+    db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?,?)",
+                   [("A", "2026-01-05", 0.09, None), ("B", "2026-01-05", 0.02, None)])
+    assert mod.mature_fill(led, db) == 0
+    assert json.loads(led.read_text().splitlines()[0])["realized"] is False
+    # now 60d arrives -> realizes on the 60d values, not the 20d ones
+    db.execute("UPDATE ticker_forward_returns SET fwd_60d = 0.31 WHERE ticker='A'")
+    db.execute("UPDATE ticker_forward_returns SET fwd_60d = 0.11 WHERE ticker='B'")
+    assert mod.mature_fill(led, db) == 1
+    row = json.loads(led.read_text().splitlines()[0])
+    assert row["spread_prod"] == 0.31 and row["spread_blend"] == 0.11
