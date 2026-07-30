@@ -638,10 +638,23 @@ def _derive_day_record(conn: sqlite3.Connection, day: dt.date) -> ShadowHealthRe
         # scores, when the truth is that this store cannot answer the question. The
         # pipeline's own JSONL for the same dates says loaded=True, n_scored=77/85.
         # Same wrong-object shape as the matcher bug above, one level down.
-        if rows and not any((r[1] or r[2]) for r in rows):
-            scorer_column_uninformative = True
-        else:
-            scorer_column_uninformative = False
+        # The test is on `active_scorer` ALONE, and that is not a simplification.
+        # Measured on 2026-07-28 in this store, `model_type` holds the per-ticker
+        # TOURNAMENT families — 'XGBoost' (104 rows), 'QLearning' (96), 'Manual' (68),
+        # 'Classification' (60) — a different vocabulary that can never contain a
+        # shadow lane name. So `active_scorer OR model_type` was always half inert,
+        # and testing the pair for emptiness would have left this flag permanently
+        # OFF: my first version did exactly that and never fired on the real data.
+        # BOTH conditions, and the second is why: an existing contract
+        # (test_model_type_marks_shadow_when_active_scorer_null) says `model_type`
+        # MAY carry the lane when `active_scorer` is null, and my first narrowing
+        # broke it. So "uninformative" means active_scorer is uniformly absent AND
+        # no model_type value identifies the lane either.
+        scorer_column_uninformative = (
+            bool(rows)
+            and not any(r[1] for r in rows)
+            and not any(_matches_shadow_lane(str(r[2] or "")) for r in rows)
+        )
     except sqlite3.OperationalError:
         # candidate_scores absent (minimal/legacy store): degrade, never abort.
         total_tickers = total_rows = shadow_rows = shadow_tickers = 0

@@ -49,6 +49,25 @@ pipeline's own JSONL for the same dates says `loaded=True, n_scored=77` and `85`
 column carries no information, and a boolean otherwise. Same wrong-object shape as
 defect A, one level down.
 
+## 3b. The uninformative test took three attempts, all measured against the real DB
+
+Recorded because each wrong version *passed its tests* and only the live probe
+exposed it:
+
+1. `not any(r.active_scorer or r.model_type)` — **never fired**. `model_type` in this
+   store holds the per-ticker TOURNAMENT families: `XGBoost` 104 rows, `QLearning`
+   96, `Manual` 68, `Classification` 60 on 2026-07-28 `[VERIFIED — GROUP BY query]`.
+   A different vocabulary that can never contain a shadow lane name — so
+   `active_scorer OR model_type` was always **half inert**, and testing the pair for
+   emptiness left the flag permanently OFF.
+2. `not any(r.active_scorer)` — fired correctly on the real data but **broke an
+   existing contract**: `test_model_type_marks_shadow_when_active_scorer_null`
+   asserts `model_type` MAY carry the lane. The existing test caught it.
+3. Both conditions together — `active_scorer` uniformly absent **and** no
+   `model_type` identifying the lane. Passes the existing contract and fires on the
+   real store: 07-21 → `loaded=True, n_scored=71`; 07-28 → `loaded=None, n_scored=0`
+   `[VERIFIED — live probe against runs.alpaca_shadow.db, read-only]`.
+
 ## 4. Two mistakes of mine, caught in-session
 
 1. **My test fixture, not the fix, failed first.** Four new tests errored with
