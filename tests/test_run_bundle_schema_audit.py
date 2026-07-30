@@ -28,12 +28,56 @@ def _write(tmp_path: Path, payload: object, name: str = "run_bundle.json") -> Pa
 
 
 def _minimal_valid() -> dict:
-    """Only the shared schema's required fields, read off the model."""
+    """A bundle the REAL validator accepts.
+
+    Note what this is not: the set of fields `is_required()` reports. That set
+    (`source`, `decision_trace`, `order_intents`) does NOT validate on its own,
+    because `LiveRunBundle` carries a cross-field rule --- *"requires at least one
+    state source: state_mutations, execution_audit, or submitted_orders"*
+    `[VERIFIED — validate_live_run_bundle on a required-fields-only dict]`.
+
+    That discovery is the codex BLOCKER on orch#624 in miniature: the audit used to
+    infer `would_validate` from key presence, and key presence accepts a bundle the
+    real validator rejects. The fixture below therefore satisfies the rule, and
+    `test_required_fields_alone_do_NOT_validate` pins the gap explicitly.
+    """
+    return {"source": "test", "decision_trace": [], "order_intents": [],
+            "submitted_orders": [{"symbol": "AAPL", "qty": 1}]}
+
+
+def test_required_fields_alone_do_NOT_validate(tmp_path):
+    """The exact approximation codex blocked. `is_required()` understates the
+    requirement, so a presence check is not a validation."""
     required, _ = audit_mod.schema_fields()
-    stub = {"source": "test", "decision_trace": [], "order_intents": []}
-    missing = required - set(stub)
-    assert not missing, f"schema gained required fields this stub does not set: {missing}"
-    return {k: stub[k] for k in stub if k in required}
+    presence_only = {"source": "t", "decision_trace": [], "order_intents": []}
+    assert required - set(presence_only) == set(), (
+        "fixture must contain every is_required() field, or it tests the wrong thing")
+    r = audit_mod.audit_bundle(_write(tmp_path, presence_only))
+    assert r["missing_required"] == [], "no required KEY is absent"
+    assert r["would_validate"] is False, (
+        "the real validator rejects it on a cross-field rule --- a presence check "
+        "would have called this valid")
+    assert "at least one state source" in r["validation_error"]
+
+
+def test_all_required_keys_present_but_an_invalid_VALUE_is_rejected(tmp_path):
+    """The regression fixture codex asked for. Every required key is present and one
+    value has the wrong type; an inferred `would_validate` would return True."""
+    for field, bad in (("decision_trace", "not-a-list"),
+                       ("source", None),
+                       ("submitted_orders", "nope")):
+        payload = _minimal_valid() | {field: bad}
+        r = audit_mod.audit_bundle(_write(tmp_path, payload, name=f"rb_{field}.json"))
+        assert r["missing_required"] == [], f"{field}: no key is absent"
+        assert r["would_validate"] is False, f"{field}: invalid value must not validate"
+        assert r["validation_error"], f"{field}: the validator error must be recorded"
+
+
+def test_the_validator_error_is_recorded_not_just_a_boolean(tmp_path):
+    """A bare False cannot be triaged. The audit must carry WHY."""
+    r = audit_mod.audit_bundle(_write(tmp_path, {"decision_trace": []}))
+    assert r["would_validate"] is False
+    assert isinstance(r["validation_error"], str) and r["validation_error"]
 
 
 # --- failure mode 1: a required field is absent -----------------------------

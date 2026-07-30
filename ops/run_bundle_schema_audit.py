@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:  # pragma: no cover - exercised by the import-failure test
-    from renquant_common.contracts.schemas import LiveRunBundle
+    from renquant_common.contracts.schemas import LiveRunBundle, validate_live_run_bundle
 except Exception as exc:  # noqa: BLE001
     print(f"FATAL: cannot import the shared bundle schema: {exc}", file=sys.stderr)
     raise SystemExit(2) from exc
@@ -84,6 +84,19 @@ def audit_bundle(path: Path) -> dict[str, Any]:
     present = set(raw)
     missing = sorted(required - present)
     dropped = sorted(present - declared)
+
+    # Run the REAL shared validator. Presence of the required keys is only a
+    # necessary condition: a bundle can carry every key and still fail on a field
+    # type or a cross-field rule, and reporting that as "validates" would make the
+    # central measurement of this audit --- and the schema decision resting on it ---
+    # unsound. This is the same mistake the audit exists to catch, so it is not
+    # approximated here. (Codex BLOCKER on orch#624.)
+    validation_error: str | None = None
+    try:
+        validate_live_run_bundle(raw)
+    except Exception as exc:  # noqa: BLE001
+        validation_error = f"{type(exc).__name__}: {exc}"
+
     return {
         "path": str(path),
         "readable": True,
@@ -92,10 +105,12 @@ def audit_bundle(path: Path) -> dict[str, Any]:
         "key_count": len(present),
         "missing_required": missing,
         "dropped_by_schema": dropped,
-        # A bundle is only "conformant" if it would validate AND keep everything
-        # it carries. Validating while losing 13 of 18 fields is not conformance.
-        "would_validate": not missing,
-        "conformant": not missing and not dropped,
+        "validation_error": validation_error,
+        # Measured by the validator, not inferred from key presence.
+        "would_validate": validation_error is None,
+        # A bundle is only "conformant" if it validates AND keeps everything it
+        # carries. Validating while losing 13 of 18 fields is not conformance.
+        "conformant": validation_error is None and not dropped,
     }
 
 
@@ -135,6 +150,8 @@ def _format(report: dict[str, Any]) -> str:
         lines.append(f"{'':26}   keys={r['key_count']} run_type={r['run_type']!r}")
         if r["missing_required"]:
             lines.append(f"{'':26}   missing required: {r['missing_required']}")
+        if r.get("validation_error"):
+            lines.append(f"{'':26}   validator says: {r['validation_error'][:160]}")
         if r["dropped_by_schema"]:
             lines.append(
                 f"{'':26}   would be SILENTLY DROPPED "

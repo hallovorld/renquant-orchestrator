@@ -16,6 +16,28 @@ NEXT:      R4 can now be specified: the daily bundle needs its own schema with
            Wiring either into the daily path is a separate PR with its own A/B,
            because a fail-closed validator on a live run surface can stop a run.
 
+CORRECTIONS: the first revision inferred `would_validate` from the presence of the
+`is_required()` fields and never invoked the shared validator. Codex BLOCKER, and
+correctly: a bundle can carry every required key and still fail on a field type or a
+cross-field rule, which would have made the central measurement --- and the schema
+decision resting on it --- unsound. The audit now calls
+`validate_live_run_bundle` and records its error text.
+
+**The headline numbers did not change** (7 of 7 still fail to validate, 0 conformant),
+but they are now MEASURED by the validator instead of inferred
+`[VERIFIED — ops/run_bundle_schema_audit.py on .subrepo_runs, exit 1]`.
+
+**And running the real validator immediately found something the approximation had
+hidden, which strengthens §1's conclusion rather than weakening it:** the
+`is_required()` set (`source`, `decision_trace`, `order_intents`) **does not validate
+on its own.** `LiveRunBundle` carries a cross-field rule — *"requires at least one
+state source: state_mutations, execution_audit, or submitted_orders"*
+`[VERIFIED — validate_live_run_bundle on a required-fields-only dict]`. So the
+schema's real admission condition is strictly larger than its required-field list,
+and any future "just add the field and validate" patch would have been reasoning
+against a requirement it could not see. `test_required_fields_alone_do_NOT_validate`
+now pins exactly that gap.
+
 ## §1 EVIDENCE
 
 Measured on every persisted bundle that exists — 7 of them, read-only
@@ -24,8 +46,9 @@ Measured on every persisted bundle that exists — 7 of them, read-only
 | finding | value |
 |---|---|
 | bundles examined | 7 |
-| would pass `validate_live_run_bundle` | **0** |
+| would pass `validate_live_run_bundle` | **0** (measured by the validator, not inferred) |
 | reason | all 7 lack the required `source` field |
+| the schema's real admission condition | larger than its required-field list — see the CORRECTIONS block |
 | fields present in the daily bundle | 18 |
 | fields the schema would **silently discard** | **13 of 18 (72%)** |
 | conformant (validates AND keeps its fields) | **0** |
@@ -77,7 +100,7 @@ full run a hard boundary.
 
 ## §3 Tests
 
-10 new, in `tests/test_run_bundle_schema_audit.py`. Both failure modes are paired
+13 new, in `tests/test_run_bundle_schema_audit.py`. Both failure modes are paired
 with the negative case that proves the report comes from the defect and not the
 fixture: a bundle missing `source` is rejected **and** a bundle with every
 required field validates; a bundle carrying `override_provenance` is flagged as
