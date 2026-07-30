@@ -62,7 +62,7 @@ import datetime as dt
 import json
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 #: The checks registered in renquant-pipeline's task_funnel_integrity.py.
@@ -113,7 +113,7 @@ def scan(log_dir: Path, since: dt.date | None) -> dict:
     per_check: dict[str, list[dict]] = defaultdict(list)
     files_scanned = 0
     files_skipped_date = 0
-    untracked: Counter[str] = Counter()
+    untracked: dict[str, list[dict]] = defaultdict(list)
     for path in sorted(log_dir.glob("*.log")):
         d = log_date(path)
         if since and d and d < since:
@@ -142,11 +142,16 @@ def scan(log_dir: Path, since: dt.date | None) -> dict:
                     # a firing whose name this tool does not track — surfaced,
                     # never dropped, because a new refusal reason is exactly
                     # the thing this tool must not miss.
-                    untracked[name] += 1
+                    untracked[name].append({
+                        "date": d.isoformat() if d else None,
+                        "file": path.name,
+                        "line": line.strip()[:200],
+                    })
     return {"files_scanned": files_scanned,
             "files_skipped_by_since": files_skipped_date,
             "per_check": {k: v for k, v in per_check.items()},
-            "untracked_candidates": dict(untracked)}
+            "untracked_candidates": {k: len(v) for k, v in untracked.items()},
+            "untracked_events": {k: v for k, v in untracked.items()}}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,19 +175,35 @@ def main(argv: list[str] | None = None) -> int:
     window_start = today - dt.timedelta(days=a.alert_window_days)
 
     recent: list[dict] = []
+    undated: list[dict] = []
     for check in KNOWN_CHECKS:
         hits = r["per_check"].get(check, [])
         for h in hits:
-            if h["date"] and dt.date.fromisoformat(h["date"]) >= window_start:
+            if not h["date"]:
+                # Cannot be placed in the window. Explicit policy (codex P1):
+                # an event whose time cannot be established must NOT let the
+                # scan report clean.
+                undated.append({"check": check, **h})
+            elif dt.date.fromisoformat(h["date"]) >= window_start:
                 recent.append({"check": check, **h})
+    untracked_events = [
+        {"check": f"UNTRACKED:{name}", **h}
+        for name, hits in (r.get("untracked_events") or {}).items() for h in hits]
+    # Most severe first. 2 = the scan CANNOT be certified clean (a refusal
+    # reason this tool does not track, or an event whose time is unknown);
+    # 1 = a known refusal fired in the window; 0 = clean. Evaluated before
+    # `recent` so an unknown reason is never masked by an ordinary alert.
+    cannot_certify = untracked_events + undated
 
     if a.json:
         # Machine-readable mode: stdout carries ONLY the JSON blob, nothing else,
         # so a caller can pipe it straight into a JSON parser.
         print(json.dumps({"summary": {k: len(v) for k, v in r["per_check"].items()},
-                          "recent": recent, "window_start": window_start.isoformat()},
+                          "recent": recent, "undated": undated,
+                          "untracked_events": untracked_events,
+                          "window_start": window_start.isoformat()},
                          indent=2))
-        return 1 if recent else 0
+        return 2 if cannot_certify else (1 if recent else 0)
 
     print(f"funnel-integrity refusals, {r['files_scanned']} log file(s) scanned"
           + (f", {r['files_skipped_by_since']} skipped by --since" if a.since else ""))
@@ -197,11 +218,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  UNTRACKED fired-event names: {r['untracked_candidates']} — a "
               f"refusal reason this tool does not know about is the one it must "
               f"not miss; add it to KNOWN_CHECKS")
+        for e in untracked_events:
+            print(f"    {e['check']}  date={e['date'] or 'UNDATED'}  file={e['file']}")
 
     print("\nCAVEAT: this parses LOGS, which is a reconstruction, not a source of "
           "record. Treat the counts as a FLOOR — a firing whose log rotated away "
           "is invisible here. The durable fix is to persist these findings as rows.")
 
+    if cannot_certify:
+        if untracked_events:
+            print(f"\nFAIL: {len(untracked_events)} firing(s) of a refusal reason "
+                  f"this tool does not track "
+                  f"({', '.join(sorted(r['untracked_candidates']))}). A NEW refusal "
+                  f"reason is exactly what must not be missed, so this is a "
+                  f"failure, not a note. Add it to KNOWN_CHECKS.")
+        if undated:
+            print(f"\nFAIL: {len(undated)} firing(s) whose date could not be "
+                  f"established, so they cannot be placed in or out of the "
+                  f"{a.alert_window_days}d window: "
+                  + ", ".join(sorted({x['check'] for x in undated}))
+                  + ". The scan cannot be called clean when event time is unknown.")
+        return 2
     if recent:
         print(f"\nALERT: {len(recent)} refusal firing(s) since {window_start} — "
               + ", ".join(sorted({x['check'] for x in recent})))

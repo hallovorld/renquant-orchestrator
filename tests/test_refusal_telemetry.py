@@ -211,3 +211,75 @@ class TestJsonModeIsPureJson:
         parsed = json.loads(out)
         assert rc == 0
         assert parsed["recent"] == []
+class TestUnknownAndUndatedMustNotReadAsClean:
+    """P1 regression: the tool printed these and then exited 0.
+
+    `untracked_candidates` was surfaced in the report but `recent` was built
+    only from KNOWN_CHECKS, so a dated `fired=['new_refusal']` exited 0 and
+    printed "OK: no refusal firing" -- a silent failure for exactly the new
+    refusal reason the tool says it must not miss. Undated events were likewise
+    excluded from `recent` and could yield 0.
+
+    Policy now: 2 = the scan cannot be certified clean (unknown name, or time
+    unestablishable); 1 = a known refusal genuinely fired in the window;
+    0 = clean.
+    """
+
+    def test_an_unknown_refusal_name_exits_2_not_0(self, tmp_path, capsys):
+        write_log(tmp_path, "2026-07-16.log", [UNKNOWN_FIRING_LINE])
+        rc = main(["--log-dir", str(tmp_path), "--today", "2026-07-17"])
+        out = capsys.readouterr().out
+        assert rc == 2, "an untracked refusal reason must not report clean"
+        assert "OK: no refusal firing" not in out
+        assert "new_refusal" in out
+
+    def test_the_unknown_event_carries_its_date_and_file(self, tmp_path):
+        write_log(tmp_path, "2026-07-16.log", [UNKNOWN_FIRING_LINE])
+        r = scan(tmp_path, since=None)
+        ev = r["untracked_events"]["new_refusal"]
+        assert len(ev) == 1
+        assert ev[0]["date"] == "2026-07-16"
+        assert ev[0]["file"] == "2026-07-16.log"
+
+    def test_an_undated_known_firing_exits_2_not_0(self, tmp_path, capsys):
+        # a log filename the date parser cannot read
+        write_log(tmp_path, "daily_run.log", [FIRING_LINE])
+        rc = main(["--log-dir", str(tmp_path), "--today", "2026-07-17"])
+        out = capsys.readouterr().out
+        assert rc == 2, "an event whose time is unknown must not report clean"
+        assert "OK: no refusal firing" not in out
+        assert "date could not be established" in out
+
+    def test_a_clean_scan_still_exits_0(self, tmp_path, capsys):
+        """The guard must not become blanket-fail."""
+        write_log(tmp_path, "2026-07-16.log", ["nothing interesting here"])
+        rc = main(["--log-dir", str(tmp_path), "--today", "2026-07-17"])
+        assert rc == 0
+        assert "OK: no refusal firing" in capsys.readouterr().out
+
+    def test_a_dated_known_firing_in_window_still_exits_1(self, tmp_path, capsys):
+        """The designed alert path is unchanged."""
+        write_log(tmp_path, "2026-07-16.log", [FIRING_LINE])
+        rc = main(["--log-dir", str(tmp_path), "--today", "2026-07-17"])
+        assert rc == 1
+        assert "ALERT" in capsys.readouterr().out
+
+    def test_cannot_certify_outranks_the_ordinary_alert(self, tmp_path, capsys):
+        """Both present -> the more severe code wins, so an unknown reason is
+        never masked by an ordinary in-window firing."""
+        write_log(tmp_path, "2026-07-16.log", [FIRING_LINE, UNKNOWN_FIRING_LINE])
+        rc = main(["--log-dir", str(tmp_path), "--today", "2026-07-17"])
+        assert rc == 2, "unknown-reason severity must outrank the known alert"
+        assert "new_refusal" in capsys.readouterr().out
+
+    def test_json_mode_honours_the_same_exit_policy(self, tmp_path, capsys):
+        """--json returns early, so it needed the policy wired separately —
+        otherwise machine callers would get `0` on an unknown reason while the
+        text mode failed."""
+        import json as _json
+        write_log(tmp_path, "2026-07-16.log", [UNKNOWN_FIRING_LINE])
+        rc = main(["--log-dir", str(tmp_path), "--today", "2026-07-17", "--json"])
+        out = capsys.readouterr().out
+        assert rc == 2, "json mode must not report clean on an untracked reason"
+        payload = _json.loads(out)          # must still be PURE json
+        assert payload["untracked_events"], "the events must be in the payload"

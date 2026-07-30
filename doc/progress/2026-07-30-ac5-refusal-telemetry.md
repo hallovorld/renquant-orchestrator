@@ -1,5 +1,41 @@
 # Progress: GOAL-5 AC5 — the refusals fire, nothing aggregates them
 
+STATUS:   delivered. Round-2 fix (codex P1): an unknown or undated
+          structural event no longer reads as a clean scan.
+
+          THE DEFECT. `untracked_candidates` was printed in the report, but
+          `recent` -- the only thing the exit code consulted -- was built
+          solely from KNOWN_CHECKS. So a dated `fired=['new_refusal']` printed
+          an UNTRACKED note and then exited 0 with "OK: no refusal firing":
+          a silent failure on exactly the case this tool's own docstring says
+          it must not miss. Undated events had the same shape --
+          `if h["date"] and ...` dropped them from `recent`, so they too could
+          reach 0.
+
+          THE FIX. `scan()` records untracked firings WITH date/file/line
+          instead of only counting names (a bare count cannot be windowed or
+          reported per occurrence). Exit policy, most severe first:
+            2 = the scan CANNOT be certified clean -- an untracked refusal
+                name, or an event whose time cannot be established;
+            1 = a known refusal genuinely fired inside the window;
+            0 = clean.
+          `cannot_certify` is evaluated BEFORE `recent`, so an unknown reason
+          is never masked by an ordinary in-window alert. The undated policy
+          is now explicit, as the review asked: undated events FAIL with 2
+          rather than being counted in the aggregate and silently excluded
+          from the window.
+
+          Applies to BOTH output modes. The `--json` path returns early, so it
+          needed the policy wired separately -- otherwise a machine caller
+          would have received 0 on an untracked reason while the text mode
+          failed, which is the worse half of the same bug.
+
+          7 new tests (25 total): unknown name -> 2, unknown event carries
+          date+file, undated known firing -> 2, clean -> 0, dated in-window ->
+          1 unchanged, severity ordering when both are present, and json mode
+          honouring the same policy while still emitting pure JSON. Verified
+          load-bearing -- with the `cannot_certify` check disabled, 3 fail.
+
 STATUS:   delivered. Read-only aggregator; no production surface touched.
 
 WHAT:     `ops/refusal_telemetry.py` — parses the daily-run logs and reports
