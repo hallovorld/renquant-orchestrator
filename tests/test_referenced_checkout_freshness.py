@@ -109,3 +109,69 @@ def test_the_real_run_checkout_is_referenced_by_more_jobs_than_the_dev_one():
     refs = fr.referenced_checkouts(OPS / "launchd_manifest.json")
     assert len(refs.get("renquant-orchestrator-run", [])) > \
         len(refs.get("renquant-orchestrator", []))
+
+
+# --- a failed fetch must NEVER produce a freshness verdict --------------------
+# The fetch return code used to be discarded, so a network or auth failure left the
+# reference checkout's own origin/main stale and rev-list reported a confident FRESH
+# against an old ref --- the exact stale-reference failure this tool detects, recreated
+# one layer deeper on the fetch path.
+
+def _fail_fetch(monkeypatch, rc=128, stderr="fatal: could not read from remote"):
+    real = fr.subprocess.run
+    def fake(argv, *a, **k):
+        if len(argv) > 3 and argv[3] == "fetch":
+            class R:
+                returncode = rc
+                stdout = ""
+            R.stderr = stderr
+            return R()
+        return real(argv, *a, **k)
+    monkeypatch.setattr(fr.subprocess, "run", fake)
+
+
+def test_a_failed_fetch_yields_UNMEASURABLE_not_FRESH(monkeypatch):
+    _fail_fetch(monkeypatch)
+    r = fr.measure("renquant-orchestrator")
+    assert r["status"] == "UNMEASURABLE", r
+    assert "fetch failed" in r["detail"]
+
+
+@pytest.mark.parametrize("rc", [1, 128, 130])
+def test_no_fetch_failure_code_can_produce_a_verdict(monkeypatch, rc):
+    """Any non-zero, not just the common one."""
+    _fail_fetch(monkeypatch, rc=rc)
+    r = fr.measure("renquant-orchestrator")
+    assert r["status"] not in ("FRESH", "STALE")
+    assert "commits_behind" not in r
+
+
+def test_a_failed_fetch_makes_the_run_exit_nonzero(monkeypatch):
+    _fail_fetch(monkeypatch)
+    assert fr.main([]) == 1
+
+
+def test_origin_main_missing_after_a_SUCCESSFUL_fetch_is_also_UNMEASURABLE(monkeypatch):
+    """A fetch can succeed against a remote with no main; rev-list would then compare
+    against nothing."""
+    real = fr.subprocess.run
+    def fake(argv, *a, **k):
+        if len(argv) > 4 and argv[3] == "rev-parse" and "origin/main" in argv:
+            class R:
+                returncode = 1
+                stdout = ""
+                stderr = ""
+            return R()
+        return real(argv, *a, **k)
+    monkeypatch.setattr(fr.subprocess, "run", fake)
+    r = fr.measure("renquant-orchestrator")
+    assert r["status"] == "UNMEASURABLE"
+    assert "does not resolve" in r["detail"]
+
+
+def test_the_unmocked_path_still_measures():
+    """Anti-vacuity: the refusals above come from the mocks, not from measure() having
+    become unconditionally UNMEASURABLE."""
+    r = fr.measure("renquant-orchestrator")
+    assert r["status"] in ("FRESH", "STALE"), r
+    assert isinstance(r.get("commits_behind"), int)

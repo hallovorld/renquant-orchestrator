@@ -41,6 +41,25 @@ now resolves a *reference* checkout (`-run` → its dev sibling), fetches **only
 counts the distance from that vantage. A source-level test pins that `rev-list` runs
 against `ref_repo`, and `reference_repo_for` is unit-tested.
 
+## §2a CORRECTION — the fetch path had the same defect, one layer deeper
+
+Review: the fetch subprocess return code was discarded, so a network or authentication
+failure left the reference checkout's own `origin/main` stale and the later `rev-list`
+reported a confident **FRESH** against an old ref. **That is the exact stale-reference
+failure this tool exists to detect, recreated on the fetch path.**
+
+Third layer of the same shape in one tool: first the subject was measured against its own
+stale ref; then the reference was fetched but the fetch was not required to succeed. Both
+times the failure mode was *a verdict produced from an input that was never confirmed*.
+
+Now: a non-zero fetch returns **UNMEASURABLE** with the git error attached; `origin/main`
+is re-verified **after** a successful fetch, because a fetch can succeed against a remote
+that has no `main`, which would leave `rev-list` comparing against nothing; and neither
+path can emit `commits_behind`. Six tests cover it — three fetch return codes, the
+post-fetch resolve failure, a non-zero process exit, and
+`test_the_unmocked_path_still_measures` so the refusals are attributable to the mocks
+rather than to `measure()` having become unconditionally UNMEASURABLE.
+
 ## §3 The one number that is not a measurement
 
 `MAX_COMMITS_BEHIND = 20`, and the docstring says it is **chosen, not derived**. Alarming
@@ -61,7 +80,7 @@ and that no `git -C` in the source targets the umbrella.
 | tree | result |
 |---|---|
 | `origin/main`, separate worktree | 7 failed, 4579 passed, 5 skipped, 27 warnings in 119.58s (0:01:59) |
-| this branch | 7 failed, 4590 passed, 5 skipped, 27 warnings in 121.98s (0:02:01) |
+| this branch | 7 failed, 4597 passed, 5 skipped, 27 warnings in 117.09s (0:01:57) |
 
 `[VERIFIED — python3 -m pytest -q in both worktrees, sibling checkouts on PYTHONPATH]`
 

@@ -110,9 +110,33 @@ def measure(name: str) -> dict[str, Any]:
         if not head:
             out.update(status="UNMEASURABLE", detail="could not read HEAD")
             return out
-        # fetch ONLY in the reference checkout, which is a dev tree we own
-        subprocess.run(["git", "-C", str(ref_repo), "fetch", "-q", "origin"],
-                       capture_output=True, timeout=120)
+        # Fetch ONLY in the reference checkout, which is a dev tree we own --- and
+        # REQUIRE it to succeed. Discarding this return code recreates the very
+        # failure this tool exists to detect, one layer deeper: a network or auth
+        # failure leaves the reference's own origin/main stale, and the rev-list
+        # below then reports a confident FRESH against an old ref. An unfetched
+        # reference is not a current reference.
+        fetched = subprocess.run(["git", "-C", str(ref_repo), "fetch", "-q", "origin"],
+                                 capture_output=True, text=True, timeout=180)
+        if fetched.returncode != 0:
+            out.update(status="UNMEASURABLE",
+                       detail=f"fetch failed in the reference checkout {ref_repo} "
+                              f"({fetched.returncode}): "
+                              f"{fetched.stderr.strip()[:160]} — refusing to measure "
+                              f"against a possibly stale origin/main")
+            return out
+        # And confirm origin/main actually resolves AFTER the fetch: a fetch can
+        # succeed against a remote that has no main, which would leave rev-list
+        # comparing against nothing.
+        resolved = subprocess.run(
+            ["git", "-C", str(ref_repo), "rev-parse", "--verify", "--quiet",
+             "origin/main"], capture_output=True, text=True, timeout=30)
+        if resolved.returncode != 0 or not resolved.stdout.strip():
+            out.update(status="UNMEASURABLE",
+                       detail=f"origin/main does not resolve in {ref_repo} after a "
+                              f"successful fetch — there is no reference to measure "
+                              f"against")
+            return out
         behind = subprocess.run(
             ["git", "-C", str(ref_repo), "rev-list", "--count", f"{head}..origin/main"],
             capture_output=True, text=True, timeout=30).stdout.strip()
