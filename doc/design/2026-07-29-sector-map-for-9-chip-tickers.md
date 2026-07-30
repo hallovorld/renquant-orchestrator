@@ -1,8 +1,17 @@
 # Phase 3 of the 9-ticker atomic batch: proposed sector_map / sector_etf_map
 
-**Status:** proposal for review. **No config changed.** These entries are part of
-the atomic batch (watchlist + sector maps + retrained artifacts land together);
-landing any piece alone hard-fails buys for all 154 names.
+> **DO NOT MERGE while ARM / ENTG / SNDK are undecided.** LONG ledger row 7:
+> *"Design docs are not merged while under discussion."* Three bucket calls in §2
+> are still flagged low/medium confidence and §8 needs an operator decision, so
+> this document is **not** merge-ready and should not sit in the merge queue.
+> The review raising this is **correct and accepted** — see §8.
+>
+> The analysis is kept open for that decision, not as a pending merge.
+
+**Status:** proposal under discussion — **not merge-ready**. **No config
+changed.** These entries are part of the atomic batch (watchlist + sector maps +
+retrained artifacts land together); landing any piece alone hard-fails buys for
+all 154 names.
 
 **Why this needs review rather than a script:** `sector_map` and
 `sector_etf_map` are both `config_fingerprint` fields, and P-SECTOR-MAP
@@ -83,12 +92,29 @@ watchlist-relative figure is the one a cap can ever see. Entry count overstates
 it.
 
 **(ii) `datacenter_hw` differs between the two configs, and both readings are
-correct.** The review reproduced **13**; I read **14**. The difference is
-exactly **CRWV**, present in `datacenter_hw` in the PINNED config and absent
-from the umbrella copy `[VERIFIED — both files read this session]`. The live
-runner loads the pinned one (`daily_104.sh:113`); the trainer loads the umbrella
-one (`train_104.py:193`). That divergence is filed as
-`hallovorld/RenQuant#544` — it is not a counting error on either side.
+correct.** The review reproduced **13**; I read **14**. Neither is a counting
+error — the two files have genuinely diverged.
+
+Measured precisely this session, the drift is **3 tickers**, all present in the
+pinned config and all absent from the umbrella copy
+`[VERIFIED-now — set difference on `sector_map` and `watchlist`]`:
+
+| ticker | bucket | affects the counts below? |
+|---|---|---|
+| **CRWV** | `datacenter_hw` | **yes** — this one ticker is the entire 14-vs-13 gap |
+| RKLB | `industrial` | no |
+| SPCX | `industrial` | no |
+
+The drift is one-directional: **0** tickers are in the umbrella copy but missing
+from the pinned one `[VERIFIED-now]`. Pinned `sector_map` = 159 entries /
+`watchlist` = 145; umbrella = 156 / 142 `[VERIFIED-now]`.
+
+The live runner loads the pinned config (`daily_104.sh:113`, via
+`renquant_strategy_config "$SUBREPO_ROOT"`); the trainer loads the umbrella copy
+(`train_104.py:193`, `REPO_ROOT / "backtesting" / args.strategy`)
+`[VERIFIED-now — both lines read this session]`. That divergence is filed as
+`hallovorld/RenQuant#544` (OPEN, and it cites these same two loader lines)
+`[VERIFIED-now — gh issue view]`.
 
 | bucket | now (watchlist-relative) | net new | after | growth |
 |---|---:|---:|---:|---:|
@@ -155,14 +181,108 @@ All figures read READ-ONLY from the canonical, strategy-owned
 and the pipeline enforcement paths cited in §1. Admission figures from
 orchestrator#610. Nothing written; no config changed.
 
-**Path correction (this session):** the prior citation
-(`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`)
-does not exist on this machine — `renquant-orchestrator` has no
-`.subrepo_runtime` checkout. Re-verified every non-count figure directly
-against `renquant-strategy-104/configs/strategy_config.json` on `main`
-`[VERIFIED — git show origin/main:configs/strategy_config.json in the
-renquant-strategy-104 clone, this session]`: all cited line numbers (210,
-427, 511, 513, 646, 665, 829) reproduce exactly as stated. The count
-divergence itself (13 vs 14 `datacenter_hw`) is §4(ii)'s pinned-vs-umbrella
-finding, not a provenance error — this correction is only the broken path
-string.
+**Path citation — a correction to the correction.** A prior revision replaced the
+`.subrepo_runtime/...` citation on the grounds that it "does not exist on this
+machine." **That was wrong, and is withdrawn.** The path exists; it was merely
+cited as a bare relative string, which does not resolve from
+`renquant-orchestrator`. Rooted at the umbrella it is present:
+
+```
+/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/
+    renquant-strategy-104/configs/strategy_config.json   (66K, 2026-07-28)
+```
+
+`[VERIFIED-now — stat, this session]`. It is also the file RenQuant#544 names as
+the live runner's config, so asserting its absence contradicted this doc's own
+cited issue.
+
+Both surfaces were therefore re-read this session, and for the fields that matter
+here they agree exactly: `sector_map` and `watchlist` are **identical** between
+the pinned mirror and `renquant-strategy-104` `main`
+`[VERIFIED-now — dict equality on both fields]`. So every count below is
+unchanged by which of the two is cited; the pinned mirror is the authoritative
+one for what the runner loads, and it is quoted as such.
+
+All cited line numbers re-verified against
+`renquant-strategy-104/configs/strategy_config.json` on `main` — 210
+(`correlation_guard_threshold: 0.7`), 427 (`require_sector_map_for_buys: true`),
+511 (`NXPI: ai_chip`), 513 (`WDC: datacenter_hw`), 649-650 (both buckets → XLK),
+665 (`max_positions_per_sector: 6`), 829 (`qp_correlation_cap_enabled: true`),
+1338-1341 (the LITE + COHR `_activation_log` entry) — **8 of 8 reproduce exactly
+as stated** `[VERIFIED-now]`.
+
+The count divergence (13 vs 14 `datacenter_hw`) is §4(ii)'s pinned-vs-umbrella
+finding, not a provenance error.
+
+## 8. The decision this document is waiting on
+
+Per LONG row 7 this stays **unmerged** until the operator rules on the three
+flagged buckets. **ARM is the one that genuinely has no data answer**, so it is
+laid out as options rather than resolved. Deliberately not picked here: a
+confidently-stated bucket that is really a coin-flip is worse than an
+acknowledged one, and nothing measurable separates these.
+
+### ARM — the options, and what actually argues for each
+
+**What is not in dispute** `[VERIFIED-now — config read]`: ARM is absent from
+`sector_map` and from `watchlist`, so P-SECTOR-MAP would hard-fail buy mode for
+the whole watchlist the moment ARM is added to the watchlist without a bucket.
+Some bucket must be chosen; "leave it out" is only viable if ARM is also dropped
+from the batch.
+
+**Option A — `ai_chip` (the proposal).**
+- Shares the sector's news-flow, tariff and export-control exposure, which is
+  what a sector bucket is used for downstream: relative-strength grouping and the
+  6-slot concentration cap.
+- No new `sector_etf_map` entry needed — `ai_chip` → XLK already exists
+  `[VERIFIED-now — line 649]`.
+- Against it: every one of the 19 current `ai_chip` incumbents sells physical
+  silicon or the equipment to make it `[VERIFIED-now — bucket membership read]`.
+  ARM sells IP licences and collects royalties — no fab, no unit COGS. On the
+  business model it is the odd one out.
+- Cost if wrong: ARM occupies one of `ai_chip`'s 6 held slots and is treated as
+  correlated with NVDA/AVGO/TSM. Given ARM's royalty revenue does track
+  industry unit volumes, that correlation is directionally defensible.
+
+**Option B — a new `chip_ip_licensing` bucket.**
+- Taxonomically precise, and the taxonomy is explicitly finer than GICS.
+- Against it: it needs its own `sector_etf_map` entry, and there is no clean ETF
+  for a licensing-only sub-industry, so it would map to **XLK** anyway — the same
+  ETF `ai_chip` uses `[VERIFIED-now — line 649]`. Since the ETF is the only thing
+  the map feeds, the new bucket changes exactly one behaviour: it gives ARM a
+  private 6-slot cap instead of sharing `ai_chip`'s. With one member, a 6-slot cap
+  is inert.
+- So B is **substantively equivalent to A on relative strength and differs only
+  by exempting ARM from `ai_chip`'s concentration cap** — which is arguably the
+  wrong direction, since the cap is the mechanism that would stop the book
+  loading up on one semiconductor cycle.
+
+**Option C — `software`.** Rejected, and this one *is* decidable: ARM's revenue is
+royalty-per-unit on shipped silicon, so it moves with semiconductor volumes, not
+software spend. Grouping it with ADBE/CRM/NOW would put it in the wrong
+correlation cluster. Not recommended.
+
+**Where that leaves it.** A and B differ only in whether ARM is subject to
+`ai_chip`'s 6-slot cap. That is a **risk-policy question, not a taxonomy
+question**, and it is the operator's call. Flag stays **low confidence**.
+
+### ENTG and SNDK
+
+Both remain **medium**, both are defensible either way, and neither blocks:
+- **ENTG** — consumables/filtration versus the capital-equipment sellers it would
+  sit beside. Recurring revenue against a capex cycle.
+- **SNDK** — `datacenter_hw` on storage lineage, or `ai_chip` on the MU memory
+  comp. If `datacenter_hw` is chosen, §5's WDC/SNDK same-lineage cluster is the
+  live concern and is untested.
+
+### On repo ownership (the standing review objection)
+
+The objection that the eventual `sector_map` / `sector_etf_map` **edit** belongs
+in `renquant-strategy-104`, reviewed atomically with the retrain and the config
+fingerprint, is **accepted** — that is where the change must land, and this
+document proposes no orchestrator config change and edits no config.
+
+What is left here is the analysis and the open decision. Once ARM/ENTG/SNDK are
+ruled on, the authoritative change is a strategy-104 PR carrying the config diff,
+the fingerprint and the retrain evidence; this note should be reduced to a
+pointer to it rather than merged as a parallel record.
