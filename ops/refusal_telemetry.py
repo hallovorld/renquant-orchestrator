@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """GOAL-5 AC5: make funnel-integrity refusals QUERYABLE, not just logged.
 
-The detection layer already exists and already fires. Measured 2026-07-30 across
-169 daily-run logs `[VERIFIED]`:
+The detection layer already exists and already fires. Re-measured 2026-07-30
+against the real emitted-event grammar (see below), across 169 daily-run logs
+`[VERIFIED — this session, post exact-grammar fix]`:
 
-    wash_sale_mass_block         12 files
-    single_gate_funnel_kill       6
-    fail_close_event              6
-    universe_admission_collapse   1
-    threshold_scale_mismatch      1
-    zero_priced_candidates        0
+    wash_sale_mass_block         13 firings / 12 files /  8 dates
+    single_gate_funnel_kill       6 /  6 /  6
+    fail_close_event              6 /  6 /  6
+    universe_admission_collapse   1 /  1 /  1
+    threshold_scale_mismatch      1 /  1 /  1
+    zero_priced_candidates        0 /  0 /  0
 
 So AC5 is NOT a missing alarm. The gap is that every one of those firings exists
 only as free text in a per-day log file, with ZERO rows in `runs.alpaca.db`. You
@@ -26,15 +27,34 @@ writes nothing anywhere.
 Exit codes: 0 clean, 1 a refusal fired inside --alert-window-days (default 7).
 So it is usable as a daily scan, not only as a report.
 
-A caveat this tool states rather than hides: it parses LOGS, which is a
-reconstruction, not a source of record. The durable fix is for the pipeline to
-persist these findings as rows. Until then this makes the existing evidence
-aggregatable — and its own numbers should be treated as a floor, since a firing
-whose log was rotated away is invisible to it.
+EMITTED-EVENT GRAMMAR (what counts as a firing): renquant-pipeline's
+``task_funnel_integrity.py::FunnelIntegrityTask.run`` logs a WARNING of the
+exact form ``FunnelIntegrityAlert: STRUCTURAL_BLOCK ... fired=[<python list
+of invariant names>]`` only when the session's verdict is STRUCTURAL_BLOCK. A
+check NAME appearing anywhere else in a log line (docstrings, "checks
+registered: ...", config dumps, an INFO line's bare ``fired=<count>``) is NOT
+a firing and must not be counted — a mention is not an event. This tool
+therefore parses ONLY that ``fired=[...]`` list; every name inside it that is
+not in ``KNOWN_CHECKS`` is reported as UNTRACKED, no suffix heuristics.
+
+A caveat this tool states rather than hides, twice:
+  1. it parses LOGS, which is a reconstruction, not a source of record. The
+     durable fix is for the pipeline to persist these findings as rows.
+     Until then this makes the existing evidence aggregatable — and its own
+     numbers should be treated as a floor, since a firing whose log was
+     rotated away is invisible to it.
+  2. the pipeline only emits the named ``fired=[...]`` line for STRUCTURAL_BLOCK
+     verdicts (zero buys). A DEGRADED verdict — an invariant fired but buy
+     capability partially survived, or only a warn-severity finding fired —
+     logs just an unnamed ``fired=<count>`` in its INFO line, so this tool
+     cannot recover which invariant it was. Structural (zero-buy) firings are
+     the ones this tool sees; DEGRADED firings are a second floor beneath the
+     one already stated above.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as dt
 import json
 import re
@@ -56,8 +76,24 @@ KNOWN_CHECKS = (
 )
 
 DATE_IN_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})")
-# A count near the check name, e.g. "... blocked 41 candidates" / "n=41".
-COUNT_NEAR = re.compile(r"(?:n=|blocked\s+|killed\s+|=\s*)(\d+)")
+# The exact line task_funnel_integrity.py emits for a STRUCTURAL_BLOCK verdict
+# (see FunnelIntegrityTask.run): "FunnelIntegrityAlert: STRUCTURAL_BLOCK ...
+# fired=['name1', 'name2']". Only this shape is a firing; a bare mention of a
+# check name elsewhere in a line is not.
+FIRED_LINE = re.compile(
+    r"FunnelIntegrityAlert:\s*STRUCTURAL_BLOCK\b.*?\bfired=(?P<fired>\[.*\])\s*$"
+)
+
+
+def parse_fired_list(raw: str) -> list[str] | None:
+    """Safely decode the ``fired=[...]`` Python-list-repr suffix, or None."""
+    try:
+        names = ast.literal_eval(raw)
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        return None
+    return names
 
 
 def log_date(path: Path) -> dt.date | None:
@@ -86,21 +122,24 @@ def scan(log_dir: Path, since: dt.date | None) -> dict:
             continue
         files_scanned += 1
         for line in text.splitlines():
-            for check in KNOWN_CHECKS:
-                if check in line:
-                    m = COUNT_NEAR.search(line)
-                    per_check[check].append({
+            m = FIRED_LINE.search(line)
+            if not m:
+                continue
+            names = parse_fired_list(m.group("fired"))
+            if names is None:
+                continue
+            for name in names:
+                if name in KNOWN_CHECKS:
+                    per_check[name].append({
                         "date": d.isoformat() if d else None,
                         "file": path.name,
-                        "count": int(m.group(1)) if m else None,
                         "line": line.strip()[:200],
                     })
-            # a funnel-integrity finding whose name we do not track
-            if "funnel_integrity" in line or "FunnelIntegrity" in line:
-                for tok in re.findall(r"[a-z][a-z0-9_]{8,}", line):
-                    if tok not in KNOWN_CHECKS and tok.endswith(
-                            ("_kill", "_collapse", "_mismatch", "_event", "_block")):
-                        untracked[tok] += 1
+                else:
+                    # a firing whose name this tool does not track — surfaced,
+                    # never dropped, because a new refusal reason is exactly
+                    # the thing this tool must not miss.
+                    untracked[name] += 1
     return {"files_scanned": files_scanned,
             "files_skipped_by_since": files_skipped_date,
             "per_check": {k: v for k, v in per_check.items()},
@@ -134,19 +173,16 @@ def main(argv: list[str] | None = None) -> int:
         hits = r["per_check"].get(check, [])
         files = sorted({h["file"] for h in hits})
         dates = sorted({h["date"] for h in hits if h["date"]})
-        counts = [h["count"] for h in hits if h["count"] is not None]
         line = (f"  {check:<28} firings={len(hits):<4} files={len(files):<3} "
                 f"dates={len(dates)}")
-        if counts:
-            line += f"  count max={max(counts)} median={sorted(counts)[len(counts)//2]}"
         print(line)
         for h in hits:
             if h["date"] and dt.date.fromisoformat(h["date"]) >= window_start:
                 recent.append({"check": check, **h})
     if r["untracked_candidates"]:
-        print(f"  UNTRACKED check-like tokens near funnel_integrity: "
-              f"{r['untracked_candidates']} — a refusal reason this tool does not "
-              f"know about is the one it must not miss; add it to KNOWN_CHECKS")
+        print(f"  UNTRACKED fired-event names: {r['untracked_candidates']} — a "
+              f"refusal reason this tool does not know about is the one it must "
+              f"not miss; add it to KNOWN_CHECKS")
 
     print("\nCAVEAT: this parses LOGS, which is a reconstruction, not a source of "
           "record. Treat the counts as a FLOOR — a firing whose log rotated away "
