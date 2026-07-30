@@ -37,6 +37,7 @@ import hashlib
 import datetime as dt
 import json
 import os
+import pathlib
 import plistlib
 import re
 import subprocess
@@ -571,6 +572,42 @@ def check_sentinel_receipt(now: float | None = None) -> tuple[list[str], list[st
     return ([], [])
 
 
+def check_import_resolution() -> tuple[list[str], list[str]]:
+    """Do this repo's imported public symbols still resolve where they were reviewed?
+
+    GOAL-3 #623: in four of seven registered twin sites a defect was filed or a fix
+    written against a copy that does not run, because nothing in the repo said which
+    copy executes. `ops/import_resolution_check.py` pins that, and this is what makes
+    the pin a gate rather than a document nobody runs.
+
+    A sibling package that cannot be imported is reported LOUD rather than skipped:
+    the orchestrator cannot run without its siblings, so an unimportable one is a
+    real run-surface defect, and a check that goes quiet when its input is missing is
+    the exact shape #623 catalogues.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, here)
+    try:
+        import import_resolution_check as irc
+    except Exception as exc:  # noqa: BLE001
+        return ([f"cannot import ops/import_resolution_check.py: "
+                 f"{type(exc).__name__}: {exc} — symbol resolution unverifiable"], [])
+    pins_path = pathlib.Path(irc.PINS)
+    if not pins_path.exists():
+        return ([f"import-resolution pin file missing at {pins_path} — run "
+                 f"`ops/import_resolution_check.py --emit` and commit it"], [])
+    try:
+        pins = json.loads(pins_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return ([f"import-resolution pin file unreadable: "
+                 f"{type(exc).__name__}: {exc}"], [])
+    problems = irc.verify(pins)
+    if problems:
+        return ([f"import-resolution: {p}" for p in problems], [])
+    return ([], [f"import-resolution OK — {len(irc.PINNED_SYMBOLS)} symbols resolve "
+                 f"as reviewed"])
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -598,6 +635,9 @@ def main(argv: list[str] | None = None) -> int:
     infos += i
     problems += check_launchd_surface()
     problems += check_launchd_loaded()
+    p, i = check_import_resolution()
+    problems += p
+    infos += i
     p, i = check_sentinel_receipt()
     problems += p
     infos += i
