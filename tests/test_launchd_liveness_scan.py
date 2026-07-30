@@ -342,3 +342,34 @@ def test_the_committed_manifest_declares_globs_for_the_corrected_jobs():
                   "com.renquant.rq105-shadow-serving"):
         cfg = jobs[label] if isinstance(jobs, dict) else dict(jobs)[label]
         assert cfg.get("evidence_glob"), f"{label} lost its evidence_glob"
+
+
+# --- the two PRODUCTION jobs, added 2026-07-30 --------------------------------
+# daily104 read as 9 missed firings and intraday104 as 2394, both from a stale
+# StandardOutPath, while their real dated logs were current. These are the jobs whose
+# false reading matters most: they are the live decision and intraday paths.
+
+def test_the_production_jobs_declare_an_evidence_glob():
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    for label in ("com.renquant.daily104", "com.renquant.intraday104"):
+        cfg = jobs[label] if isinstance(jobs, dict) else dict(jobs)[label]
+        assert cfg.get("evidence_glob"), f"{label} lost its evidence_glob"
+        assert "20[0-9][0-9]" in cfg["evidence_glob"], (
+            f"{label}'s glob must match the DATED files, not the whole directory — a "
+            f"directory-wide glob would pick up launchd_stdout.log and re-introduce the "
+            f"proxy it replaces")
+
+
+def test_no_two_jobs_share_an_evidence_glob():
+    """The pit-* jobs share a log directory, so a directory-level glob would assign one
+    job's evidence to another. Any glob added here must stay job-unique."""
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    seen = {}
+    for label, cfg in (jobs.items() if isinstance(jobs, dict) else jobs):
+        g = cfg.get("evidence_glob")
+        if not g:
+            continue
+        assert g not in seen, f"{label} and {seen[g]} share the glob {g!r}"
+        seen[g] = label
