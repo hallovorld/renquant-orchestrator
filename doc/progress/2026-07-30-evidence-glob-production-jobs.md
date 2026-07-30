@@ -27,7 +27,7 @@ Scan totals move from `EVIDENCE_FRESH 16 / STALE 22` to **`18 / 20`**, and
 firings behind. It is the 盘中 line and it is running.
 
 Both log directories were verified to be used by **that job alone** before the glob was
-added , so neither glob can pick up another job's evidence.
+added `[VERIFIED — StandardOutPath dirname collision check across all 40 manifested jobs]` , so neither glob can pick up another job's evidence.
 
 ## §2 Why the globs match dated files, not the directory
 
@@ -62,8 +62,8 @@ readings were false. The rest remain undetermined until their real surface is na
 
 | tree | result |
 |---|---|
-| `origin/main`, separate worktree |  |
-| this branch |  |
+| `origin/main`, separate worktree | 7 failed, 4577 passed, 5 skipped, 27 warnings in 121.28s (0:02:01) |
+| this branch | 7 failed, 4579 passed, 5 skipped, 27 warnings in 122.39s (0:02:02) |
 
 `[VERIFIED — python3 -m pytest -q in both worktrees, sibling checkouts on PYTHONPATH]`
 
