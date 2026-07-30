@@ -1,15 +1,22 @@
 # Progress: GOAL-6 design — model-capability programme (design only)
 
-STATUS:   design proposed for review. Docs only, no execution claim in this PR.
-          CORRECTION (per codex MED, 2026-07-29, and long-term-agreements.md
-          entry 10): an earlier revision claimed this is a "POST-DECISION
-          record," citing two quoted operator directives that do not appear
-          in this session's own transcript and cannot be independently
-          verified from here. Retracted, not restated — this stays a
-          pre-decision proposal per LONG#7 ("design docs are not merged
-          while under discussion") until the operator confirms directly.
-          Named parameters D2/D3/D4 remain open regardless, listed in the
-          MID record.
+STATUS:   CONFIRMED WORKSTREAM. Docs only, no execution claim in this PR.
+          The operator confirmed GOAL-6 directly on 2026-07-30, in response to
+          a report that named this PR and its LONG#7 blocker explicitly. That
+          discharges the blocker: the design is no longer "under discussion"
+          in LONG#7's sense, so it may land.
+          PROVENANCE, stated exactly because the previous attempt failed on
+          this point: the confirmation is a direct operator message in THIS
+          session's transcript, not a quotation from elsewhere. The earlier
+          revision cited two directives that appear in no transcript
+          available here; that claim was retracted (codex MED, 2026-07-29,
+          and long-term-agreements.md entry 10) and is NOT reinstated. The
+          retraction stands on its own terms — it was correct then, and it is
+          not what is being confirmed now.
+          WHAT WAS CONFIRMED IS THE WORKSTREAM, NOT ITS PARAMETERS. Named
+          parameters D2/D3/D4 remain open and are listed in the MID record. No
+          stage may read this confirmation as authority to run; each still
+          needs its own frozen prereg merged first.
           CORRECTION (per codex BLOCKER, 2026-07-29): an earlier version of
           this PR bundled an already-executed Stage-1 panel-build result
           (§12 of the design doc) into this same PR, while Stage 0 (model#86,
@@ -78,10 +85,10 @@ EVIDENCE: artifact:      `doc/research/2026-07-28-goal6-model-capability-design.
           triad applies to whichever results doc follows each stage's own
           run, not to this design."
 
-NEXT:     Operator confirmation of the workstream itself is the first open
-          item (see STATUS); the named parameters D2/D3/D4 in the design's
-          §10 and the staged execution below are separately open regardless
-          of that decision. Stage 0 (model#86) is already MERGED
+NEXT:     Operator confirmation of the workstream is DONE (2026-07-30, see
+          STATUS). The remaining open items are the named parameters D2/D3/D4
+          in the design's §10 and the staged execution below, which were
+          always open independently of that decision. Stage 0 (model#86) is already MERGED
           (2026-07-29T08:10:49Z) as the frozen prereg — that only unblocks
           RUNNING Stage 0, it does not satisfy Stage 1's entry condition.
           Per §5 of the design, Stage 1's entry is "Stage 0 exited": Stage 0

@@ -5,12 +5,13 @@
 > in [[incident-20260728-fabricated-patchtst-corpus-claim]]): an earlier
 > revision of this line asserted "CONFIRMED the same day" with two quoted
 > operator directives that do not appear anywhere in this session's own
-> transcript and cannot be independently verified from here. Retracted, not
-> restated — this is a proposal awaiting operator confirmation, per
-> LONG#7 ("design docs are not merged while under discussion"), matching
-> this file's own NEXT line below. If the quoted directives are genuine
-> (e.g. given in a different session), the operator can confirm that
-> directly; this file does not assert it on their behalf.
+> transcript and cannot be independently verified from here. That retraction
+> STANDS — it is not reinstated by what follows.
+> CONFIRMED 2026-07-30: the operator confirmed the GOAL-6 workstream directly,
+> in this session's transcript, in response to a report naming this PR's LONG#7
+> blocker. That is a first-hand confirmation, not the unverifiable quotation
+> that was retracted. It authorises the workstream only — D2/D3/D4 stay open,
+> and no stage runs without its own frozen prereg merged.
 > Design: `../../research/2026-07-28-goal6-model-capability-design.md`.
 > Sibling: `model-edge.md` (does a given model have edge) ·
 > `serving-reliability.md` (does a model's opinion reach the order path).
@@ -63,8 +64,8 @@ NOT IN:   hourly/intraday data (measured net-negative at this horizon:
           σ_oc ≈ 152bp, net edge −6.4bp at IC 0.03), new vendor spend, any
           live buy-path change, and PatchTST's own verdict (model#85).
 
-NEXT:     operator confirms the staging (see the header above — the earlier
-          confirmation claim was retracted as unverifiable, not established).
+NEXT:     operator confirmation of the workstream is DONE (2026-07-30, see the
+          header). Staging parameters D2/D3/D4 remain the open decision.
           Separately and regardless of that decision: Stage 0's frozen prereg
           (model#86) has MERGED (2026-07-29T08:10:49Z), which unblocks RUNNING
           Stage 0 — it does not by itself satisfy Stage 1's entry condition
