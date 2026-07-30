@@ -63,9 +63,37 @@ timestamp, an **anti-vacuity** control that the happy path really does return
 lines, a CLI control that an unattributable read prints **nothing** to stdout, and
 two live-machine checks that the real append-only files are refused.
 
-## 5. Scope
+## 5. First retrofit — and a correction to my own scan
 
-This makes the class **detectable and refusable**. It does not retrofit the five
-existing `ops/` log readers (4 already do some date handling; `rq105_status.py`
-does none) — that is a follow-up, and doing it in the same PR would mix a new
-guarantee with five behaviour changes.
+**My scan of the five `ops/` log readers was itself imprecise.** It reported
+`rq105_status.py` as having *no* date handling. It does — line 130 builds
+`f"{name}_{today}.log"`; my regex simply did not recognise the f-string form. The
+scan validated the wrong object, which is the class this PR is about.
+
+The **real** exposure in that file was elsewhere, at `_errors()`:
+
+```python
+for err_file in sorted(log_dir.glob("launchd_*.err")):
+    lines = err_file.read_text().strip().splitlines()
+    errors.append(f"{name}: {lines[-1][:120]}")     # last line of an append-only file
+```
+
+listed under a header reading `rq105 status — <today>`, with a docstring calling
+them *"recent failures"*. Measured on the live machine `[VERIFIED — 2026-07-30]`:
+
+| file | file last written | its last line is about |
+|---|---|---|
+| `launchd_batch-scores-export.err` | 2026-07-27 (3d) | a run from **2026-07-24** (6d) |
+| `launchd_liveness.err` | 2026-07-28 (2d) | the 07-28 ntfy failure |
+
+Neither line carries a line-start timestamp, so **neither can be attributed to any
+date**. Both were being reported as today's status.
+
+Fixed: each entry now states when the **file** was written and that the **line's**
+own date is **UNKNOWN**. A stale error is worth surfacing; calling it recent is not.
+
+Note the two ages in that table are **different quantities** — mtime bounds when a
+line was *written*, not what it is *about*. I conflated them in my first draft of
+the fix's own docstring and corrected it; that is this same defect in miniature.
+
+The other four readers are not retrofitted here.

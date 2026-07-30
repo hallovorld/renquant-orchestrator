@@ -144,3 +144,56 @@ def test_the_real_append_only_files_are_refused(rel):
         pytest.skip(f"{rel} absent")
     status, lines, _ = la.lines_for_date(p, D30)
     assert status == la.UNATTRIBUTABLE and lines == []
+
+
+# --- the first retrofit: rq105_status._errors ------------------------------------
+# It took `lines[-1]` from an append-only `launchd_*.err` and listed it under a
+# header reading "rq105 status - <today>". Measured 2026-07-30, both real files were
+# days stale and neither line carried a timestamp, so neither could be attributed to
+# any date. A stale error is worth surfacing; calling it recent is not.
+
+import sys as _sys
+
+_ST = importlib.util.spec_from_file_location(
+    "rq105_status", REPO / "ops" / "renquant105" / "rq105_status.py")
+_st = importlib.util.module_from_spec(_ST)
+_ST.loader.exec_module(_st)
+
+
+def _err_fixture(tmp_path, name, body, mtime_days_ago=0):
+    import os, time
+    d = tmp_path / "logs" / "rq105"; d.mkdir(parents=True, exist_ok=True)
+    p = d / f"launchd_{name}.err"
+    p.write_text(body)
+    ts = time.time() - mtime_days_ago * 86400
+    os.utime(p, (ts, ts))
+    return tmp_path
+
+
+def test_an_err_entry_states_the_file_age_and_that_the_line_date_is_unknown(tmp_path):
+    root = _err_fixture(tmp_path, "x", "some failure\n", mtime_days_ago=3)
+    out = _st._errors(root, dt.date.today())
+    assert len(out) == 1
+    assert "line date UNKNOWN" in out[0]
+    assert "3d ago" in out[0]
+
+
+def test_a_file_written_today_says_today_not_a_day_count(tmp_path):
+    root = _err_fixture(tmp_path, "y", "boom\n", mtime_days_ago=0)
+    out = _st._errors(root, dt.date.today())
+    assert "[today; line date UNKNOWN]" in out[0], out
+
+
+def test_an_empty_err_file_is_not_reported(tmp_path):
+    """Anti-vacuity in the other direction: launchd creates these empty, and
+    reporting every job every run would drown the real ones."""
+    root = _err_fixture(tmp_path, "z", "")
+    assert _st._errors(root, dt.date.today()) == []
+
+
+def test_the_entry_never_claims_the_failure_is_RECENT(tmp_path):
+    """The word the old docstring used, and the claim the data cannot support."""
+    root = _err_fixture(tmp_path, "w", "old thing\n", mtime_days_ago=30)
+    out = _st._errors(root, dt.date.today())
+    assert "recent" not in out[0].lower()
+    assert "30d ago" in out[0]
