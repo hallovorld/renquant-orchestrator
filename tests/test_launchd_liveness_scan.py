@@ -373,3 +373,68 @@ def test_no_two_jobs_share_an_evidence_glob():
             continue
         assert g not in seen, f"{label} and {seen[g]} share the glob {g!r}"
         seen[g] = label
+
+
+# --- the 13 unambiguous assignments, 2026-07-30 -------------------------------
+# Criterion: the job is the SOLE occupant of its log directory across all manifested
+# plists, and that directory contains dated files. Anything shared (the pit-* trio)
+# stays unassigned rather than guessed.
+
+def test_thirteen_more_jobs_have_an_evidence_glob():
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    with_glob = [l for l, c in (jobs.items() if isinstance(jobs, dict) else jobs)
+                 if c.get("evidence_glob")]
+    assert len(with_glob) == 18, f"expected 18 globs (3 + 2 + 13), got {len(with_glob)}"
+
+
+def test_weekly_wf_promote_is_measured_on_its_real_surface():
+    """I singled this job out in #627 as 'not written since 2026-05-17' and warned that
+    every 'the weekly retrain was admitted' claim assumes it runs. That was a PROXY
+    reading and it was wrong."""
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    cfg = jobs["com.renquant.weekly-wf-promote"]
+    assert cfg.get("evidence_glob"), "the correction depends on this glob existing"
+
+
+def test_a_directory_wide_glob_is_only_used_in_a_single_occupancy_directory():
+    """The invariant is narrower than "no shared directory", and my first version of this
+    test got it wrong and failed.
+
+    Six rq105 jobs share `logs/rq105/`, and three of them carry a glob — but those globs
+    are keyed on a UNIQUE FILENAME stem (`session_scheduler_*.log`), so sharing the
+    directory is harmless. What is not harmless is a glob that matches every dated file
+    in a directory more than one job writes to: that hands one job's evidence to another.
+    So the assertion is conditional on the glob being directory-wide."""
+    import collections, plistlib, subprocess as sp, os as _os
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    bydir = collections.defaultdict(list)
+    for label in jobs:
+        p = _os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist")
+        if not _os.path.exists(p):
+            continue
+        try:
+            with open(p, "rb") as fh:
+                d = plistlib.load(fh)
+        except Exception:  # noqa: BLE001
+            o = sp.run(["plutil", "-convert", "xml1", "-o", "-", p],
+                       capture_output=True).stdout
+            d = plistlib.loads(o) if o else {}
+        so = d.get("StandardOutPath")
+        if so:
+            bydir[_os.path.dirname(so)].append(label)
+    for label, cfg in (jobs.items() if isinstance(jobs, dict) else jobs):
+        g = cfg.get("evidence_glob")
+        if not g:
+            continue
+        basename = _os.path.basename(g)
+        directory_wide = basename.startswith("20[0-9]")   # no job-specific stem
+        if not directory_wide:
+            continue
+        occupants = bydir.get(_os.path.dirname(g), [])
+        if occupants:
+            assert occupants == [label], (
+                f"{label} uses a DIRECTORY-WIDE glob in a directory shared with "
+                f"{set(occupants) - {label}} — it would match their evidence too")

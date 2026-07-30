@@ -18,7 +18,9 @@
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/conditional_retrain_104.sh"
       ],
-      "program_args_sha256": "9bbafda64b9daa435779cec0d5683b13e75eb2cfd7422617c3028e0efa666c3c"
+      "program_args_sha256": "9bbafda64b9daa435779cec0d5683b13e75eb2cfd7422617c3028e0efa666c3c",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/conditional_retrain_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.crypto-session": {
       "program_args": [
@@ -38,13 +40,17 @@
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_news_sentiment_refresh.sh"
       ],
-      "program_args_sha256": "f2a46194c971f1747508ec337100b01a77165a832cc2adc0a3b90b7466611697"
+      "program_args_sha256": "f2a46194c971f1747508ec337100b01a77165a832cc2adc0a3b90b7466611697",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/news_daily/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.daily103": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_103.sh"
       ],
-      "program_args_sha256": "f5360dce2bb5898626277c2be607bece2ca8c72229a4a882c4c3fb9a345ab45a"
+      "program_args_sha256": "f5360dce2bb5898626277c2be607bece2ca8c72229a4a882c4c3fb9a345ab45a",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/daily_103/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.daily104": {
       "program_args": [
@@ -66,13 +72,17 @@
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/monthly_calibrator_refresh.sh"
       ],
-      "program_args_sha256": "02bc58e2316c5a6dafe93190eef1d2dea8466f2172c412457120e612fc5c7e90"
+      "program_args_sha256": "02bc58e2316c5a6dafe93190eef1d2dea8466f2172c412457120e612fc5c7e90",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/monthly_calibrator/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.monthly-meta-label-retrain": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/monthly_meta_label_retrain.sh"
       ],
-      "program_args_sha256": "22a783fb2edc93c53dea9927bf0b712de107a4270c1f7296bf2785e9347a67b1"
+      "program_args_sha256": "22a783fb2edc93c53dea9927bf0b712de107a4270c1f7296bf2785e9347a67b1",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/monthly_meta_label/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.open103": {
       "program_args": [
@@ -119,13 +129,17 @@
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/retrain_alpha158_linear.sh"
       ],
-      "program_args_sha256": "89a8f72d12e9a1965aceb6a7a4fbda9ea4e26e87bdce190d2c4f819e1ee4486c"
+      "program_args_sha256": "89a8f72d12e9a1965aceb6a7a4fbda9ea4e26e87bdce190d2c4f819e1ee4486c",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/retrain_alpha158_linear/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.retrain-panel104": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/retrain_panel.sh"
       ],
-      "program_args_sha256": "a249490bf217ebc2f9e36132605a2ede80bdfa07a654df9b095f0c1200a4bd55"
+      "program_args_sha256": "a249490bf217ebc2f9e36132605a2ede80bdfa07a654df9b095f0c1200a4bd55",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/retrain_panel/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.rq104-blend-readout": {
       "program_args": [
@@ -246,38 +260,50 @@
         "/bin/bash",
         "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-orchestrator/scripts/shadow_ab_daily.sh"
       ],
-      "program_args_sha256": "204569ab913b37bf95d2a3e8870ad96a79f424ae6247b7888f8c9cb042165142"
+      "program_args_sha256": "204569ab913b37bf95d2a3e8870ad96a79f424ae6247b7888f8c9cb042165142",
+      "evidence_glob": "/Users/renhao/renquant-shadow-ab/logs/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.weekly-apy104": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
         "/Users/renhao/git/github/RenQuant/scripts/weekly_apy_check.py"
       ],
-      "program_args_sha256": "ac6aad44b3daf152132d1162dba8fcac49a7de0989be6caf22322e330fa3b276"
+      "program_args_sha256": "ac6aad44b3daf152132d1162dba8fcac49a7de0989be6caf22322e330fa3b276",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/live_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.weekly-fundamental-refresh": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/weekly_fundamental_refresh.sh"
       ],
-      "program_args_sha256": "2917c2a85f5204c2186a124f73da6ae5000df97b557ec0faf8023feba86f0a87"
+      "program_args_sha256": "2917c2a85f5204c2186a124f73da6ae5000df97b557ec0faf8023feba86f0a87",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/weekly_fundamental_refresh/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.weekly-retrain-patchtst": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/weekly_retrain_patchtst.sh"
       ],
-      "program_args_sha256": "72bac8ae4a103676600feac0ce50ddf0da4d31fba662b69be526cd49ca444e99"
+      "program_args_sha256": "72bac8ae4a103676600feac0ce50ddf0da4d31fba662b69be526cd49ca444e99",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/weekly_retrain_patchtst/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.weekly-tournament-retrain": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/weekly_tournament_retrain.sh"
       ],
-      "program_args_sha256": "5e361e7c7d608534fc3fb6344c0df00f807cad717205611f1dee2dd6a04174bd"
+      "program_args_sha256": "5e361e7c7d608534fc3fb6344c0df00f807cad717205611f1dee2dd6a04174bd",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/weekly_tournament_retrain/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.weekly-wf-promote": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/weekly_wf_promote.sh"
       ],
-      "program_args_sha256": "bcf6e51697a640a6481e7cb650484a5146c109ade0d0506fd969cc096782d67d"
+      "program_args_sha256": "bcf6e51697a640a6481e7cb650484a5146c109ade0d0506fd969cc096782d67d",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/weekly_wf_promote/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
+      "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     }
   }
 }
