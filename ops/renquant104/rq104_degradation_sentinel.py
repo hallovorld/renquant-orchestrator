@@ -444,7 +444,67 @@ def load_acks(path: str | None = None) -> dict:
         return {}
 
 
-def check_launchd_exits() -> tuple[str | None, list[str]]:
+#: An ack suppresses an alarm. CLAUDE.md's CONTAINMENT PROTOCOL requires every such
+#: suppression to carry "an explicit expiry or restore condition", and says plainly
+#: that the alarm returning is **the DESIGNED reminder to lift or legitimize it**.
+#: The ledger did not implement that: `if ack:` suppressed unconditionally and
+#: `clears_when` was prose no code read. So an ack was permanent, which is the
+#: guard-that-passes-forever shape.
+#:
+#: 14 days: long enough for a fix to land through review (CODEOWNERS + the other
+#: agent's approval), short enough that a forgotten ack resurfaces inside a normal
+#: review cadence. It is a review window, not an estimate of how long a fix takes.
+ACK_MAX_AGE_DAYS = 14
+
+_ISO_DATE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+
+
+def ack_expiry(ack: dict, name: str = "") -> tuple[dt.date | None, str]:
+    """(expiry, why). The EARLIEST of every expiry signal the ack carries.
+
+    Three sources, and the earliest wins so a parsing mistake can only make an ack
+    expire **sooner** (noisy, safe) and never later (silent, not safe):
+
+    1. an explicit ``expires_at`` field — the machine-readable home the containment
+       protocol's "explicit expiry" deserves;
+    2. the earliest ISO date appearing in ``clears_when``. Several rows already embed
+       one, e.g. *"next NYSE session's 13:55 wrapper run (2026-07-20)"* — a real expiry
+       that was sitting in prose where nothing could act on it;
+    3. ``acked_at + ACK_MAX_AGE_DAYS``.
+
+    A missing or unparseable ``acked_at`` yields expiry ``None``, which the caller
+    treats as **already expired**. Absence must not buy permanent suppression — that is
+    exactly how a guard ends up passing forever.
+    """
+    candidates: list[tuple[dt.date, str]] = []
+
+    explicit = ack.get("expires_at")
+    if explicit:
+        try:
+            candidates.append((dt.date.fromisoformat(str(explicit)), "expires_at"))
+        except ValueError:
+            pass
+
+    for found in _ISO_DATE.findall(str(ack.get("clears_when") or "")):
+        try:
+            candidates.append((dt.date.fromisoformat(found),
+                               f"date in clears_when ({found})"))
+        except ValueError:
+            continue
+
+    acked_at = ack.get("acked_at")
+    try:
+        base = dt.date.fromisoformat(str(acked_at))
+        candidates.append((base + dt.timedelta(days=ACK_MAX_AGE_DAYS),
+                           f"acked_at {base.isoformat()} + {ACK_MAX_AGE_DAYS}d"))
+    except (TypeError, ValueError):
+        return (None, f"acked_at is missing or unparseable ({acked_at!r})")
+
+    expiry, why = min(candidates, key=lambda c: c[0])
+    return (expiry, why)
+
+
+def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[str]]:
     try:
         out = subprocess.run(
             ["launchctl", "list"], capture_output=True, text=True, timeout=30,
@@ -457,16 +517,31 @@ def check_launchd_exits() -> tuple[str | None, list[str]]:
     acks = load_acks()
     infos: list[str] = []
     loud: list[str] = []
+    today = today or dt.date.today()
     for job in sorted(failures):
         name = job.split(" ")[0]
         ack = acks.get(name)
-        if ack:
-            infos.append(
-                f"acked nonzero exit: {job} — {ack.get('reason', '?')} "
-                f"(clears: {ack.get('clears_when', '?')})"
+        if not ack:
+            loud.append(job)
+            continue
+        expiry, why = ack_expiry(ack, name)
+        if expiry is None or expiry <= today:
+            # EXPIRED acks stop suppressing. The alarm coming back is the designed
+            # reminder to lift or legitimize the containment, so the ack's own text
+            # is quoted here: the reader needs it to decide between fixing the job
+            # and re-acking with a fresh date, without opening the ledger.
+            age = f"expired {(today - expiry).days}d ago" if expiry else "never valid"
+            loud.append(
+                f"{job} [ACK EXPIRED: {age}, by {why}; "
+                f"original reason: {ack.get('reason', '?')}; "
+                f"clears_when: {ack.get('clears_when', '?')}]"
             )
         else:
-            loud.append(job)
+            infos.append(
+                f"acked nonzero exit: {job} — {ack.get('reason', '?')} "
+                f"(clears: {ack.get('clears_when', '?')}; "
+                f"ack expires {expiry.isoformat()} by {why})"
+            )
     alarm = ("launchd job(s) with nonzero last exit: " + ", ".join(loud)) if loud else None
     return (alarm, infos)
 
