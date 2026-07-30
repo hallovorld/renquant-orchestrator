@@ -285,10 +285,17 @@ class TestTopUpAwareness:
 
 class TestAckLedger:
     def test_acked_job_moves_to_info(self, tmp_path):
+        """Fixture gained `acked_exit_codes` when acks stopped being keyed on the
+        label alone. Without it this ack is UNUSABLE by the new contract -- it
+        cannot be shown to describe the failure being observed -- and the test
+        correctly caught the behaviour change rather than being deleted for it.
+        (The key is the LIST that landed on main, not the scalar this branch first
+        proposed.)"""
         import json
         (tmp_path / "acks.json").write_text(json.dumps({
             "com.renquant.weekly-wf-promote": {
                 "acked_at": "2026-07-17", "reason": "known chronic",
+                "acked_exit_codes": [1],
                 "clears_when": "gate pass"}}))
         text = "-\t1\tcom.renquant.weekly-wf-promote\n"
         rc, alerts = _run(tmp_path, HEALTHY_ROWS, launchctl=text)
