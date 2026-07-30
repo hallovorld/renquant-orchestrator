@@ -11,9 +11,10 @@ written against the WRONG COPY before the live one was found. The failure is not
 "there are duplicates" — duplication is sometimes deliberate. The failure is that
 **nothing in the repo tells you which copy executes.**
 
-Measured 2026-07-29/30 unless tagged otherwise. Every row states how the live copy
-was IDENTIFIED, because "I read the one that looked canonical" is how four of these
-went wrong.
+Every claim below carries a provenance tag per `doc/memory/long-term-agreements.md`
+item 10 (`[VERIFIED — <file/command>]`, `[VERIFIED — prior work, <issue/PR>]`, or
+`[ASSUMED — <why>]`). Every row also states how the live copy was IDENTIFIED, because
+"I read the one that looked canonical" is how four of these went wrong.
 
 ---
 
@@ -24,7 +25,7 @@ went wrong.
 | copies | `renquant_pipeline.VetoWeakBuysTask` (public top-level export) vs the kernel `job_panel_scoring.py` implementation |
 | which runs | `renquant_pipeline/__init__.py` maps the public name to `panel_scoring.py`, **not** the kernel |
 | how identified | reading `__init__.py`'s mapping |
-| cost | a kernel-only fix misses the documented symbol; third instance of the both-copies class when found `[VERIFIED-prior]` |
+| cost | a kernel-only fix misses the documented symbol; this is the third instance of the both-copies class `[VERIFIED — prior work, renquant-pipeline#222]` |
 | open | renquant-pipeline#222 — the panel_scoring twin is missing 3 kernel guards |
 
 ## R2 — the documented fix lives in dead code
@@ -33,7 +34,7 @@ went wrong.
 |---|---|
 | copies | `RenQuant/scripts/fetch_sec_fundamentals.py` (**legacy/dead**) vs `renquant-base-data/src/renquant_base_data/sec_fundamentals.py` (**live**, invoked by `weekly_fundamental_refresh.sh:94`) |
 | the trap | `_safe_ratio(num, denom, eps=1.0)` exists ONLY in the dead script. `grep -rn "_safe_ratio"` over the live package's `src` and `tests` returned **zero matches** |
-| consequence | `book_to_price` reached **1.68e19** on **21,722 rows = 1.616%** of non-null across 26 tickers, five weeks after the fix was "documented as applied" |
+| consequence | `book_to_price` reached **1.68e19** on **21,722 rows = 1.616%** of non-null across 26 tickers, five weeks after the fix was "documented as applied" `[VERIFIED — prior work, renquant-base-data#55]` |
 | how identified | grepping the live package, after filing the defect against the dead one |
 | cost | **RenQuant#545 named the wrong file** and had to be corrected in-thread; real fix is base-data#55 |
 
@@ -43,7 +44,7 @@ went wrong.
 |---|---|
 | copies | `RenQuant/scripts/train_production_model.py` · `renquant-model/src/renquant_model_gbdt/panel_trainer.py` · **`renquant-orchestrator/src/renquant_orchestrator/train_gbdt.py`** (pinned) |
 | which runs | the **pinned orchestrator** one |
-| how identified | two independent signatures — the incumbent artifact's `training_notes` string exists only at `train_gbdt.py:228`, and its `params` **omit `nthread`** (matching `PANEL_LTR_PARAMS`, whereas `train_production_model.py:58` hardcodes it). Then **proven** by reproducing the 2026-07-29 production weekly artifact **bit-identically, including `booster_raw_json`** |
+| how identified | two independent signatures — the incumbent artifact's `training_notes` string exists only at `train_gbdt.py:228`, and its `params` **omit `nthread`** (matching `PANEL_LTR_PARAMS`, whereas `train_production_model.py:58` hardcodes it) `[VERIFIED — renquant-orchestrator/src/renquant_orchestrator/train_gbdt.py:228, RenQuant/scripts/train_production_model.py:58]`. Corroborated by orch#620's bit-identical `booster_raw_json` check between the stamping branch and `origin/main` `[VERIFIED — prior work, renquant-orchestrator#620]` — that check confirms the stamping change didn't alter the booster, not a direct three-way reproduction against the other two trainers `[ASSUMED — inferred from orch#620's booster-identity methodology]` |
 | cost | I pointed a delegated retrain at the wrong twin **twice** before this was settled; its metadata came out non-production-shaped (`nthread: 14`) |
 
 ## R4 — the artifact metadata dict is in neither obvious place
@@ -58,8 +59,8 @@ went wrong.
 | | |
 |---|---|
 | copies | pinned `renquant-strategy-104/configs/strategy_config.json` (**runner**, `daily_104.sh:113`) vs `RenQuant/backtesting/renquant_104/strategy_config.json` (**trainer**) |
-| divergence | primary `ranking.panel_scoring.kind`: pinned **`xgb`**, umbrella **`hf_patchtst`** — the two models' roles are **exactly inverted**. Watchlists 145 vs 142, gap exactly `CRWV`/`RKLB`/`SPCX` |
-| consequence | a resolver failure promoted a **623-day-stale** shadow checkpoint to primary; its scores are intrinsically all-negative, so the ordinary buy floor admits **no name at all** — a silent sell-only book |
+| divergence | primary `ranking.panel_scoring.kind`: pinned **`xgb`**, umbrella **`hf_patchtst`** — the two models' roles are **exactly inverted**. Watchlists 145 vs 142, gap exactly `CRWV`/`RKLB`/`SPCX` `[VERIFIED — prior work, RenQuant#544]` |
+| consequence | a resolver failure promoted a **623-day-stale** shadow checkpoint to primary; its scores are intrinsically all-negative, so the ordinary buy floor admits **no name at all** — a silent sell-only book `[VERIFIED — prior work, RenQuant#546]` |
 | open | RenQuant#544 (ownership), RenQuant#546 (the hazard); fail-closed landed as RenQuant#547 |
 
 ## R6 — the drift guard compares one stale copy against another
@@ -67,17 +68,17 @@ went wrong.
 | | |
 |---|---|
 | copies | `strategy_config.json` vs `strategy_config.golden.json`, both under `backtesting/renquant_104/` |
-| the trap | **both** name `hf_patchtst` primary, so the guard reports **clean forever** while both disagree with production |
-| cost | my first proposed fix was "validate the fallback against golden" — it would have added a check that **passes forever**, which is worse than no check because it reads as protection. Only打 out all three configs revealed golden was itself inverted |
+| the trap | **both** name `hf_patchtst` primary, so the guard reports **clean forever** while both disagree with production `[VERIFIED — prior work, RenQuant#547]` |
+| cost | my first proposed fix was "validate the fallback against golden" — it would have added a check that **passes forever**, which is worse than no check because it reads as protection. Only laying out all three configs revealed golden was itself inverted |
 
 ## R7 — the same twin-ness inside one file: cost-aware branch never reached
 
 | | |
 |---|---|
 | copies | `is_wash_sale_blocked_with_cost` branch (a) — cost-vs-return — and branch (b), the fallback |
-| which runs | **(b) only.** None of the three live call sites passes `expected_dollar_return`, so the cost-aware branch never executes in production |
-| the claim it broke | the docstring says *"callers that have μ̂ should pass `expected_dollar_return`"* — satisfied by **0 of 3** callers |
-| consequence | buys zeroed on **3 of 5** sessions to protect **$0.04–$13.62** of NPV while **$6,868** of cash sat unused |
+| which runs | **(b) only.** None of the three live call sites passes `expected_dollar_return`, so the cost-aware branch never executes in production `[VERIFIED — prior work, renquant-pipeline#227]` |
+| the claim it broke | the docstring says *"callers that have μ̂ should pass `expected_dollar_return`"* — satisfied by **0 of 3** callers `[VERIFIED — prior work, renquant-pipeline#227]` |
+| consequence | buys zeroed on **3 of 5** sessions to protect **$0.04–$13.62** of NPV while **$6,868** of cash sat unused `[VERIFIED — prior work, doc/progress/2026-07-29-wash-sale-block-starves-deployment.md, renquant-pipeline#227]` |
 | fix | renquant-pipeline#227 (merged) |
 
 ---
