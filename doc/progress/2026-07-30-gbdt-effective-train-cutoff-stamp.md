@@ -17,7 +17,7 @@ WHAT:     `src/renquant_orchestrator/train_gbdt.py` — new
               effective_train_cutoff_date, effective_train_cutoff_source,
               derivation}` (+ `train_cutoff_date` on the fold path).
 
-WHY:      `[VERIFIED-prior — this session's WF-gate run]` The gate refuses to
+WHY/DIR:  `[VERIFIED — prior work, this session's WF-gate run]` The gate refuses to
           statically evaluate the candidate because
           `_effective_artifact_cutoff` returns `None`
           (`renquant-backtesting/src/renquant_backtesting/wf_gate/runner.py:1915`,
@@ -25,7 +25,7 @@ WHY:      `[VERIFIED-prior — this session's WF-gate run]` The gate refuses to
           `:1975` `_validate_static_wf_oos_contract`): *"static sanity missing
           effective training cutoff; trained_date is wall-clock metadata and
           cannot prove OOS label separation"*. The refusal is CORRECT. The gap
-          was upstream: `[VERIFIED-now]` `train_gbdt.py:190-192` gives
+          was upstream: `[VERIFIED — train_gbdt.py:190-192]` it gives
           `cutoff_date` a value ONLY when `--train-cutoff` is passed (and that
           flag requires `--side-label`), so a walk-forward FOLD run got a
           cutoff stamped by `renquant_model_gbdt/panel_data.py:250-258` while
@@ -34,7 +34,7 @@ WHY:      `[VERIFIED-prior — this session's WF-gate run]` The gate refuses to
           There is no existing cutoff to thread on that path; the panel itself
           is the only honest source.
 
-WHERE:    `[VERIFIED-now]` The artifact metadata dict is built in the model
+WHERE:    `[VERIFIED — src/renquant_orchestrator/train_gbdt.py]` The artifact metadata dict is built in the model
           pin, NOT here: `renquant-model/src/renquant_model_gbdt/panel_trainer.py:246`
           `build_model_artifact` (dict literal at `:272`), called from
           `renquant-model/src/renquant_model_gbdt/pipeline.py:139-151`
@@ -44,7 +44,7 @@ WHERE:    `[VERIFIED-now]` The artifact metadata dict is built in the model
           orchestrator's own `SentimentGateTask` already uses it), so the stamp
           lands here without reaching into model internals.
 
-CONSUMER  `[VERIFIED-now]` Fields matched against the consumer, not invented:
+CONSUMER  `[VERIFIED — renquant-backtesting wf_gate/runner.py]` Fields matched against the consumer, not invented:
 MATCH:      * `_effective_artifact_cutoff` reads six aliases;
               `effective_train_cutoff_date` is first AND is the only one of the
               six classified in `renquant_common.model_fingerprint`
@@ -57,7 +57,7 @@ MATCH:      * `_effective_artifact_cutoff` reads six aliases;
               (`runner.py:645`, `artifact_loader.py:47`, `:2485`
               `training_contract.dataset`). Two verified reasons it is nested
               under `metadata` instead of the root:
-                1. `[VERIFIED-now]` a top-level `training_contract` is
+                1. `[VERIFIED — renquant-backtesting wf_gate/runner.py]` a top-level `training_contract` is
                    UNCLASSIFIED in renquant-common's total-classification
                    table, so `model_content_sha256` raises
                    `UnclassifiedKeyError` — reproduced:
@@ -81,7 +81,7 @@ MATCH:      * `_effective_artifact_cutoff` reads six aliases;
               `artifact.setdefault("metadata", {})`, so pre-seeding it is safe
               and the smoke fields still land.
 
-FOLD PATH `[VERIFIED-now]` When `--train-cutoff` IS supplied, `LoadPanelTask`
+FOLD PATH `[VERIFIED — src/renquant_orchestrator/train_gbdt.py]` When `--train-cutoff` IS supplied, `LoadPanelTask`
 CONSISTENCY: has already stamped `cutoff_date - embargo BDays`. That value is
           KEPT (the fold contract the manifest/loader is bound to) and the
           derived date is recorded beside it; if the data's last label-complete
@@ -89,7 +89,7 @@ CONSISTENCY: has already stamped `cutoff_date - embargo BDays`. That value is
           ("training-contract disagreement") rather than stamping a cutoff the
           training data contradicts. The two cannot disagree silently.
 
-BOOSTER   `[VERIFIED-now]` Full production invocation (real
+BOOSTER   `[VERIFIED — full production invocation this session, sha256 compare]` Full production invocation (real
 IDENTITY: `RenQuant/data` panel, pinned strategy config, sentiment gate ON, CV
           on), run twice — once on `origin/main` (24433515), once on this
           branch, same machine, sequential:
@@ -106,7 +106,7 @@ IDENTITY: `RenQuant/data` panel, pinned strategy config, sentiment gate ON, CV
           `renquant_artifacts.validate_panel_artifact_contract(strict=True)`
           (base ok=True, branch ok=True, no errors).
 
-GATE      `[VERIFIED-now]` Run against the gate's own resolver on the two real
+GATE      `[VERIFIED — gate resolver run this session on two real artifacts]` Run against the gate's own resolver on the two real
 END-TO-   artifacts produced above:
 END:        base   `_effective_artifact_cutoff` → None → static sanity
                    `passed=False`, "static sanity missing effective training
@@ -144,6 +144,33 @@ TESTS:    13 new, all behavioural (no source grepping):
           null-ness fails 3; letting the task touch `ctx.train` fails 4
           (including the booster-identity test).
 
+EVIDENCE:
+  artifact:       `src/renquant_orchestrator/train_gbdt.py` (the stamp) and
+                  `tests/test_train_gbdt.py` / `tests/test_train_gbdt_native.py`
+                  (13 new behavioural tests), this PR. Consumer contract read
+                  from `renquant-backtesting/src/renquant_backtesting/wf_gate/
+                  runner.py:1915/1939/1975`, READ-ONLY.
+  prod or exp:    PROD trainer code, METADATA ONLY. The booster is
+                  byte-identical base vs branch — verified by sha256 on a full
+                  production invocation, not argued from the diff
+                  `[VERIFIED — booster sha256 compare this session,
+                  c2c2b80c…]`. No production artifact was overwritten; no pin
+                  advanced; no live surface touched.
+  existing data:  Yes, measured this session. The gate's refusal reproduces
+                  against its OWN resolver on the two real artifacts, and the
+                  stamp makes `_effective_artifact_cutoff` return a value
+                  instead of `None`
+                  `[VERIFIED — gate resolver run this session on two real
+                  artifacts]`.
+  best-known?:    Yes for the plumbing claim — that the gate's refusal is
+                  caused by a missing field and that stamping it removes that
+                  specific refusal. Explicitly NOT claimed: that any retrain
+                  now PASSES the WF gate. The gate has several independent
+                  arms and this PR only supplies a field one of them requires;
+                  a pass/fail verdict is a separate, later question.
+  scope:          `renquant-orchestrator` trainer + tests + these two docs. No
+                  other repo changed.
+
 SUITE:    baseline `origin/main` (24433515, separate worktree): 1 failed,
           4448 passed, 5 skipped. Branch: 1 failed, 4461 passed, 5 skipped (+13 = the 13 new tests). The single failure is
           the same pre-existing one on both sides —
@@ -163,7 +190,7 @@ CHANGED:  `mod.build_training_pipeline` as their seam. `main()` now assembles
           pre-change COMPOSITION, not the absent-metadata behaviour: no
           assertion about the artifact was relaxed.
 
-KNOWN     `[VERIFIED-now]` Two downstream readers see a value where they used
+KNOWN     `[VERIFIED — downstream reader grep this session]` Two downstream readers see a value where they used
 EFFECTS:  to see nothing. Both are disclosed, neither is a trading gate:
             * `renquant-orchestrator/model_freshness_monitor.py:145`
               `DATA_CUTOFF_FIELDS` — the prod panel currently reports
@@ -190,7 +217,7 @@ EFFECTS:  to see nothing. Both are disclosed, neither is a trading gate:
               `trained_date` for LEAN BACKTESTS only (`is_live_mode` returns
               early). That is the intended direction: an evidence-based data
               anchor replacing a wall-clock one.
-          `[VERIFIED-now]` NOT affected: `job_universe.FilterStalenessTask`
+          `[VERIFIED — job_universe.py read this session]` NOT affected: `job_universe.FilterStalenessTask`
           (the fail-closed offensive-buy freshness gate) reads per-ticker
           artifacts from `strategy_dir/models/<ticker>` (`LoadArtifactsTask`),
           never the panel artifact.

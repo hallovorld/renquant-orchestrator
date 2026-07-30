@@ -60,16 +60,16 @@ Shadow/pilot surface only — no order path consumes the vector.
 The gate used to refuse a full-panel artifact before measuring anything:
 `_effective_artifact_cutoff` returned `None`, so it answered *"trained_date is
 wall-clock metadata and cannot prove OOS label separation"*
-`[VERIFIED-now — renquant-backtesting wf_gate/runner.py:1915/1939/1975]`. The
+`[VERIFIED — renquant-backtesting wf_gate/runner.py:1915/1939/1975]`. The
 refusal was correct; the trainer simply never stamped a data cutoff, because
 `cutoff_date` exists only on the `--train-cutoff` (walk-forward fold) path
-`[VERIFIED-now — train_gbdt.py:190-192]`. The trainer now stamps
+`[VERIFIED — train_gbdt.py:190-192]`. The trainer now stamps
 `effective_train_cutoff_date` = the last date whose label was actually
 observable in the training slice. On today's real panel that is **2026-05-01**,
 so the gate resolves the cutoff and reports `passed: True` with
 `safe_last_label_date 2026-07-24` for an eval window after that date — and still
 REFUSES earlier windows, which is the honest answer, not a bypass
-`[VERIFIED-now — booster byte-identical base vs branch, sha256 c2c2b80c…; see
+`[VERIFIED — booster byte-identical base vs branch, sha256 c2c2b80c…; see
 doc/progress/2026-07-30-gbdt-effective-train-cutoff-stamp.md]`.
 Consequence for reading freshness: the prod panel's cutoff age is ~60 business
 days BY CONSTRUCTION (fwd_60d label), so the freshness monitor moves from
