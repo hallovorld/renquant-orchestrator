@@ -63,6 +63,18 @@ DAILY_LOG_DIR = os.path.join(RQ, "logs/daily_104")
 #: satisfied it) while a single quiet day never pages.
 STREAK_N = 2
 
+# GOAL-1 (issue #622): an uncaught exception exits 1, which is ALSO the sentinel's
+# "alarms present" signal, so a crashed sentinel and an alarming one were the same
+# observable. Internal errors now exit EXIT_INTERNAL, and every firing writes a
+# liveness receipt that ops/run_surface_drift_check.py checks from a separate job.
+from sentinel_receipt import (  # noqa: E402
+    EXIT_ALARMS,
+    EXIT_INTERNAL,
+    EXIT_OK,
+    utcnow_iso,
+    write_receipt,
+)
+
 #: log lines that mean the run hit a swallowed failure even if it exited 0.
 _TRACEBACK_PATTERNS = ("Traceback (most recent call last)", "contract fail")
 
@@ -470,7 +482,7 @@ def _open_db_readonly(path: str) -> sqlite3.Connection | None:
         return None
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None, receipt: dict) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -479,10 +491,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     today = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
+    receipt["as_of"] = today.isoformat()
 
     if not is_session_day(today):
         print(f"rq104 degradation sentinel: {today.isoformat()} is not an NYSE session day — skip")
-        return 0
+        receipt["outcome"] = "not_session_day"
+        receipt["alarm_count"] = 0
+        return EXIT_OK
 
     problems: list[str] = []
 
@@ -516,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
     for line in ack_infos:
         print(f"INFO: {line}")
 
+    receipt["alarm_count"] = len(problems)
     if problems:
         alert(
             f"rq104 DEGRADED: {len(problems)} issue(s) {today.isoformat()}",
@@ -523,10 +539,49 @@ def main(argv: list[str] | None = None) -> int:
             rq_root=RQ,
         )
         print("\n".join(problems))
-        return 1
+        receipt["outcome"] = "alarms"
+        return EXIT_ALARMS
 
     print(f"rq104 degradation sentinel OK {today.isoformat()}")
-    return 0
+    receipt["outcome"] = "ok"
+    return EXIT_OK
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the checks and record a receipt on EVERY path, including a crash.
+
+    An unexpected exception is the case this wrapper exists for: it used to exit 1,
+    indistinguishable from the by-design alarm exit. SystemExit (argparse --help,
+    explicit exits) and KeyboardInterrupt deliberately propagate untouched.
+    """
+    import traceback
+
+    receipt: dict = {"written_at": utcnow_iso(), "argv": list(argv) if argv else []}
+    try:
+        code = _run(argv, receipt)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        receipt.update(
+            outcome="internal_error",
+            exit_code=EXIT_INTERNAL,
+            error=f"{type(exc).__name__}: {exc}",
+            alarm_count=receipt.get("alarm_count", 0),
+        )
+        warn = write_receipt(receipt)
+        if warn:
+            print(f"WARNING: {warn}", file=sys.stderr)
+        print(
+            "rq104 degradation sentinel FAILED INTERNALLY — exit "
+            f"{EXIT_INTERNAL} (NOT the alarm signal; see the traceback above)",
+            file=sys.stderr,
+        )
+        return EXIT_INTERNAL
+    receipt["exit_code"] = code
+    warn = write_receipt(receipt)
+    if warn:
+        # A receipt that cannot be written must not change the verdict.
+        print(f"WARNING: {warn}", file=sys.stderr)
+    return code
 
 
 if __name__ == "__main__":
