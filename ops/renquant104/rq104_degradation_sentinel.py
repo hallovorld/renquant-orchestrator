@@ -546,6 +546,56 @@ def ack_expiry(ack: dict, name: str = "") -> tuple[dt.date | None, str]:
     return (expiry, why)
 
 
+#: How a nonzero exit is GROUPED in the alarm. This sentinel is named for rq104
+#: degradation but `check_launchd_exits` takes EVERY `com.renquant.*` nonzero exit
+#: (orch#622 defect 3). Measured 2026-07-30, 13 jobs were nonzero, and they included
+#: the agent PR loop and a KILLED crypto programme — neither of which is a trading
+#: degradation. Reported as one flat list, "the trading system is degraded" and "an
+#: automation job failed" are indistinguishable, and a reader who learns the second
+#: is common stops reading the first.
+#:
+#: Grouping does NOT drop anything. Every nonzero exit still appears and still makes
+#: the sentinel exit 1. Dropping would trade a legibility problem for a coverage
+#: problem, which is the worse of the two on this programme.
+SCOPE_TRADING = "trading-path"
+SCOPE_ADJACENT = "adjacent"
+SCOPE_UNRELATED = "unrelated"
+
+#: Prefix -> scope. Longest match wins, so a specific label can override its family.
+#: Every entry is a CLAIM about what the job does; adding a job here without knowing
+#: is how a real degradation ends up in the quiet group.
+SCOPE_RULES: tuple[tuple[str, str], ...] = (
+    ("com.renquant.daily104", SCOPE_TRADING),
+    ("com.renquant.intraday104", SCOPE_TRADING),
+    ("com.renquant.retrain-panel104", SCOPE_TRADING),
+    ("com.renquant.conditional-retrain104", SCOPE_TRADING),
+    ("com.renquant.weekly-wf-promote", SCOPE_TRADING),
+    ("com.renquant.rq104", SCOPE_TRADING),
+    ("com.renquant.shadow-ab-daily", SCOPE_ADJACENT),
+    ("com.renquant.rq105", SCOPE_ADJACENT),
+    ("com.renquant.weekly-retrain-patchtst", SCOPE_ADJACENT),
+    ("com.renquant.run-surface-drift", SCOPE_ADJACENT),
+    ("com.renquant.pit", SCOPE_ADJACENT),
+    ("com.renquant.agent-pr-loop", SCOPE_UNRELATED),
+    ("com.renquant.crypto-session", SCOPE_UNRELATED),
+)
+
+
+def job_scope(label: str) -> str:
+    """Scope of a job label. UNKNOWN labels are TRADING, deliberately.
+
+    An unrecognised job is one nobody has classified, and classifying it quietly as
+    unrelated is how a real degradation gets filed under noise. Fail towards the
+    loud group; the cost is a misfiled alarm, and the cost of the other default is a
+    missed one.
+    """
+    best, scope = -1, SCOPE_TRADING
+    for prefix, s in SCOPE_RULES:
+        if label.startswith(prefix) and len(prefix) > best:
+            best, scope = len(prefix), s
+    return scope
+
+
 def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[str]]:
     try:
         out = subprocess.run(
@@ -608,7 +658,19 @@ def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[
                 f"(clears: {ack.get('clears_when', '?')}; "
                 f"ack expires {expiry.isoformat()} by {why})"
             )
-    alarm = ("launchd job(s) with nonzero last exit: " + ", ".join(loud)) if loud else None
+    if loud:
+        groups: dict[str, list[str]] = {}
+        for entry in loud:
+            groups.setdefault(job_scope(entry.split(" ")[0]), []).append(entry)
+        parts = []
+        for scope, head in ((SCOPE_TRADING, "TRADING-PATH"),
+                            (SCOPE_ADJACENT, "adjacent"),
+                            (SCOPE_UNRELATED, "unrelated")):
+            if groups.get(scope):
+                parts.append(f"[{head}] " + ", ".join(groups[scope]))
+        alarm = "launchd job(s) with nonzero last exit — " + " | ".join(parts)
+    else:
+        alarm = None
     return (alarm, infos)
 
 
