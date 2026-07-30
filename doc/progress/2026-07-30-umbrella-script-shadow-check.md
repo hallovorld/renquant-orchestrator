@@ -65,3 +65,35 @@ file is mutated.
 | this branch | 7 failed, 4592 passed, 5 skipped, 27 warnings in 125.20s (0:02:05) |
 
 `[VERIFIED — python3 -m pytest -q in both worktrees, sibling checkouts on PYTHONPATH]`
+
+## CI fix — the check reported 44 deletions when it had nothing to look at
+
+The first push went red in CI, and the failure was the tool's own design rather than a
+flaky runner. `survey()` globs `UMBRELLA/scripts/*.py`, and `UMBRELLA` defaults to an
+absolute path on the operator's machine. CI has no umbrella checkout, so the glob
+returned nothing, and `verify()` — which cannot tell "found no scripts" from "there was
+nothing to search" — reported all **44 registered pairs as `no longer shadows anything
+— re-emit`** `[VERIFIED — reproduced by neutralising the new guard: 44 problems without
+it, 1 with it, this session]`.
+
+That is this repo's recurring guard-validates-the-wrong-object shape, in a guard
+written to catch a twin-file defect. It is worse than a CI annoyance: the emitted
+remedy is **"re-emit"**, and following it on a machine with a moved or missing checkout
+would overwrite the registry with an empty one — destroying the very record the check
+exists to hold, while reporting success.
+
+Fixed by making absence a distinct, loud state:
+
+* `umbrella_present()` separates "no tree to survey" from "surveyed and found nothing".
+* `verify()` returns a single `UNVERIFIABLE: … the 44 registered pairs were NOT
+  checked` instead of 44 phantom deletions.
+* `main()` exits **2** for "could not check" against **1** for "checked, found drift".
+  A caller that cannot tell those apart will eventually treat an unrunnable check as a
+  passing one — which is exactly the failure this registry exists to prevent.
+* The assertions that compare the registry to a live tree are marked
+  `@needs_umbrella` — they are integration tests about the operator's disk, not unit
+  tests of the logic. Two new tests run **everywhere** and assert that an absent
+  umbrella is never clean and exits 2, so the skip cannot quietly become a pass.
+
+`[VERIFIED — this session]` 17 passed locally; with the umbrella absent (`RQ_ROOT` at a
+nonexistent path, i.e. the CI case) 10 passed, 7 skipped, 0 failed.

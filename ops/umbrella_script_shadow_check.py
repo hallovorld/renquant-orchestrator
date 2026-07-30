@@ -59,6 +59,7 @@ SIBLINGS = ("renquant-base-data", "renquant-orchestrator", "renquant-pipeline",
 
 IDENTICAL = "IDENTICAL"
 DIVERGED = "DIVERGED"
+UNVERIFIABLE = "UNVERIFIABLE"
 
 
 def _sh(argv: list[str]) -> bytes:
@@ -130,10 +131,27 @@ def survey() -> dict[str, Any]:
     }
 
 
+def umbrella_present() -> bool:
+    """Is there an umbrella checkout to survey at all?
+
+    Kept separate from "the survey found nothing" on purpose. Those are different
+    facts and collapsing them is how this check reported 43 scripts as deleted when
+    the truth was that it was running somewhere the umbrella does not exist (CI).
+    """
+    return (UMBRELLA / "scripts").is_dir()
+
+
 def verify(reg: dict[str, Any]) -> list[str]:
     known = reg.get("pairs") or {}
     if not known:
         return ["registry lists no shadow pairs — nothing is being checked"]
+    if not umbrella_present():
+        # LOUD, and deliberately not "clean". An absent umbrella means the shadow
+        # surface is UNVERIFIABLE here, not that it is empty. Returning [] would let
+        # a run on a machine without the umbrella report the registry as confirmed.
+        return [f"{UNVERIFIABLE}: no umbrella checkout at {UMBRELLA / 'scripts'} — "
+                f"the {len(known)} registered pairs were NOT checked (set RQ_ROOT, or "
+                f"run this where the umbrella is present)"]
     live = survey()["pairs"]
     problems: list[str] = []
     for name in sorted(set(live) - set(known)):
@@ -172,6 +190,12 @@ def main(argv: list[str] | None = None) -> int:
     problems = verify(reg)
     if problems:
         print("\n".join(problems))
+        # Exit 2 for "could not check", 1 for "checked and found drift". A caller that
+        # cannot tell those apart will eventually treat an unrunnable check as a
+        # passing one, which is the failure this whole registry exists to prevent.
+        if any(p.startswith(UNVERIFIABLE) for p in problems):
+            print("\numbrella-script-shadows: UNVERIFIABLE here — not a clean result")
+            return 2
         print(f"\numbrella-script-shadows: {len(problems)} problem(s)")
         return 1
     pairs = reg["pairs"]

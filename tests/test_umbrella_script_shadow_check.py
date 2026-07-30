@@ -22,7 +22,44 @@ _SPEC.loader.exec_module(sh)
 
 REG = json.loads((OPS / "umbrella_script_shadows.json").read_text())
 
+# The survey reads the umbrella checkout on THIS machine. CI has no umbrella, so the
+# assertions that compare the registry against a live tree are integration tests about
+# the operator's disk, not unit tests of the logic. They are skipped where the tree is
+# absent — with an explicit reason, and paired with `test_absent_umbrella_is_*` below,
+# which run everywhere and assert that absence is reported LOUDLY rather than as clean.
+# Skipping the comparison is fine; skipping quietly and calling it a pass is not.
+needs_umbrella = pytest.mark.skipif(
+    not sh.umbrella_present(),
+    reason=f"no umbrella checkout at {sh.UMBRELLA / 'scripts'} — survey cannot run here")
 
+
+# --- the environment dependency itself, asserted everywhere -------------------
+
+def test_absent_umbrella_is_never_reported_as_clean(monkeypatch, tmp_path):
+    """An unrunnable check must not read as a passing one.
+
+    Before this, a missing umbrella made `survey()` return zero pairs and `verify()`
+    reported all 44 registered scripts as "no longer shadows anything" — 44 false
+    drift findings whose real cause was that the check had nothing to look at. In CI
+    that is a red herring; on an operator's machine with a moved checkout it is worse,
+    because "re-emit" is exactly the wrong remedy and would erase the registry.
+    """
+    monkeypatch.setattr(sh, "UMBRELLA", tmp_path / "no-umbrella-here")
+    problems = sh.verify(REG)
+    assert len(problems) == 1
+    assert problems[0].startswith(sh.UNVERIFIABLE)
+    assert "were NOT checked" in problems[0]
+
+
+def test_absent_umbrella_exits_2_not_1(monkeypatch, tmp_path):
+    """Exit 2 = could not check; exit 1 = checked and found drift. Distinct on purpose."""
+    monkeypatch.setattr(sh, "UMBRELLA", tmp_path / "no-umbrella-here")
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(REG))
+    assert sh.main(["--registry", str(p)]) == 2
+
+
+@needs_umbrella
 def test_the_committed_registry_verifies_clean():
     assert sh.verify(REG) == []
 
@@ -61,6 +98,7 @@ def test_matching_is_by_stem_so_the_scope_claim_is_checkable():
 
 # --- the check must be able to FAIL ------------------------------------------
 
+@needs_umbrella
 def test_an_unregistered_shadow_is_reported():
     reg = copy.deepcopy(REG)
     victim = next(iter(reg["pairs"]))
@@ -69,6 +107,7 @@ def test_an_unregistered_shadow_is_reported():
     assert len(problems) == 1 and "NEW shadow" in problems[0]
 
 
+@needs_umbrella
 def test_a_registered_pair_that_no_longer_shadows_is_reported():
     reg = copy.deepcopy(REG)
     reg["pairs"]["definitely_not_a_real_script.py"] = {
@@ -79,6 +118,7 @@ def test_a_registered_pair_that_no_longer_shadows_is_reported():
     assert len(problems) == 1 and "no longer shadows" in problems[0]
 
 
+@needs_umbrella
 def test_a_class_change_is_reported():
     """Two copies converging or diverging is exactly the event worth knowing about."""
     reg = copy.deepcopy(REG)
@@ -124,6 +164,7 @@ def test_unreadable_registry_exits_2(tmp_path):
     assert sh.main(["--registry", str(p)]) == 2
 
 
+@needs_umbrella
 def test_drift_exits_1(tmp_path):
     reg = copy.deepcopy(REG)
     del reg["pairs"][next(iter(reg["pairs"]))]
@@ -132,10 +173,12 @@ def test_drift_exits_1(tmp_path):
     assert sh.main(["--registry", str(p)]) == 1
 
 
+@needs_umbrella
 def test_clean_exits_0():
     assert sh.main([]) == 0
 
 
+@needs_umbrella
 def test_emit_never_writes(tmp_path, capsys):
     p = tmp_path / "r.json"
     p.write_text("SENTINEL")
