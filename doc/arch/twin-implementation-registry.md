@@ -1,0 +1,113 @@
+# Twin-implementation registry (GOAL-3)
+
+**What this is.** A registry of places where the same logic exists in more than one
+copy, and the copy that RUNS is not the copy a reader would find first. Not a
+remediation plan — GOAL-3 is audit-and-register, and each row's fix has a
+different owner and blast radius.
+
+**Why it is worth a registry rather than seven bug reports.** Every row below cost
+real time to establish, and in **four** of them a defect was filed or a fix was
+written against the WRONG COPY before the live one was found. The failure is not
+"there are duplicates" — duplication is sometimes deliberate. The failure is that
+**nothing in the repo tells you which copy executes.**
+
+Measured 2026-07-29/30 unless tagged otherwise. Every row states how the live copy
+was IDENTIFIED, because "I read the one that looked canonical" is how four of these
+went wrong.
+
+---
+
+## R1 — the public export is the non-kernel twin
+
+| | |
+|---|---|
+| copies | `renquant_pipeline.VetoWeakBuysTask` (public top-level export) vs the kernel `job_panel_scoring.py` implementation |
+| which runs | `renquant_pipeline/__init__.py` maps the public name to `panel_scoring.py`, **not** the kernel |
+| how identified | reading `__init__.py`'s mapping |
+| cost | a kernel-only fix misses the documented symbol; third instance of the both-copies class when found `[VERIFIED-prior]` |
+| open | renquant-pipeline#222 — the panel_scoring twin is missing 3 kernel guards |
+
+## R2 — the documented fix lives in dead code
+
+| | |
+|---|---|
+| copies | `RenQuant/scripts/fetch_sec_fundamentals.py` (**legacy/dead**) vs `renquant-base-data/src/renquant_base_data/sec_fundamentals.py` (**live**, invoked by `weekly_fundamental_refresh.sh:94`) |
+| the trap | `_safe_ratio(num, denom, eps=1.0)` exists ONLY in the dead script. `grep -rn "_safe_ratio"` over the live package's `src` and `tests` returned **zero matches** |
+| consequence | `book_to_price` reached **1.68e19** on **21,722 rows = 1.616%** of non-null across 26 tickers, five weeks after the fix was "documented as applied" |
+| how identified | grepping the live package, after filing the defect against the dead one |
+| cost | **RenQuant#545 named the wrong file** and had to be corrected in-thread; real fix is base-data#55 |
+
+## R3 — three trainers, and the producer is the one nobody names
+
+| | |
+|---|---|
+| copies | `RenQuant/scripts/train_production_model.py` · `renquant-model/src/renquant_model_gbdt/panel_trainer.py` · **`renquant-orchestrator/src/renquant_orchestrator/train_gbdt.py`** (pinned) |
+| which runs | the **pinned orchestrator** one |
+| how identified | two independent signatures — the incumbent artifact's `training_notes` string exists only at `train_gbdt.py:228`, and its `params` **omit `nthread`** (matching `PANEL_LTR_PARAMS`, whereas `train_production_model.py:58` hardcodes it). Then **proven** by reproducing the 2026-07-29 production weekly artifact **bit-identically, including `booster_raw_json`** |
+| cost | I pointed a delegated retrain at the wrong twin **twice** before this was settled; its metadata came out non-production-shaped (`nthread: 14`) |
+
+## R4 — the artifact metadata dict is in neither obvious place
+
+| | |
+|---|---|
+| copies | the orchestrator constructs a `GbdtTrainingContext` at `train_gbdt.py:226`; the dict is assembled in the **model pin** at `renquant-model/.../panel_trainer.py:246` (`build_model_artifact`, literal at `:272`), and driver fields are layered in at `pipeline.py:150` via `artifact.update(ctx.extra_artifact_fields)` |
+| cost | I assumed it was in the orchestrator and was wrong; the stamping fix (orch#620) had to route through `extra_artifact_fields` to avoid touching model internals |
+
+## R5 — the config the runner reads and the config the trainer reads disagree, INVERTED
+
+| | |
+|---|---|
+| copies | pinned `renquant-strategy-104/configs/strategy_config.json` (**runner**, `daily_104.sh:113`) vs `RenQuant/backtesting/renquant_104/strategy_config.json` (**trainer**) |
+| divergence | primary `ranking.panel_scoring.kind`: pinned **`xgb`**, umbrella **`hf_patchtst`** — the two models' roles are **exactly inverted**. Watchlists 145 vs 142, gap exactly `CRWV`/`RKLB`/`SPCX` |
+| consequence | a resolver failure promoted a **623-day-stale** shadow checkpoint to primary; its scores are intrinsically all-negative, so the ordinary buy floor admits **no name at all** — a silent sell-only book |
+| open | RenQuant#544 (ownership), RenQuant#546 (the hazard); fail-closed landed as RenQuant#547 |
+
+## R6 — the drift guard compares one stale copy against another
+
+| | |
+|---|---|
+| copies | `strategy_config.json` vs `strategy_config.golden.json`, both under `backtesting/renquant_104/` |
+| the trap | **both** name `hf_patchtst` primary, so the guard reports **clean forever** while both disagree with production |
+| cost | my first proposed fix was "validate the fallback against golden" — it would have added a check that **passes forever**, which is worse than no check because it reads as protection. Only打 out all three configs revealed golden was itself inverted |
+
+## R7 — the same twin-ness inside one file: cost-aware branch never reached
+
+| | |
+|---|---|
+| copies | `is_wash_sale_blocked_with_cost` branch (a) — cost-vs-return — and branch (b), the fallback |
+| which runs | **(b) only.** None of the three live call sites passes `expected_dollar_return`, so the cost-aware branch never executes in production |
+| the claim it broke | the docstring says *"callers that have μ̂ should pass `expected_dollar_return`"* — satisfied by **0 of 3** callers |
+| consequence | buys zeroed on **3 of 5** sessions to protect **$0.04–$13.62** of NPV while **$6,868** of cash sat unused |
+| fix | renquant-pipeline#227 (merged) |
+
+---
+
+## The pattern, stated once
+
+In R2, R3, R5 and R6 a defect was filed or a fix written against a copy that does
+not run. The distinguishing signature in every case was **not** in the code's
+structure — it was in a runtime artifact: an invocation line in a shell script, a
+`training_notes` string, a stamped `params` key, a value printed by running the
+thing. **Identifying the live copy required executing or reading output, not
+reading source.**
+
+That is the registry's actual finding, and it is what a remediation should target.
+
+## What would remove a row from this registry
+
+Not deleting a copy — some duplication is deliberate (a portable kernel plus a
+richer public surface, a legacy script kept for reference). A row is retired when
+**the repo itself states which copy executes**, mechanically:
+
+1. **an executable pointer** — the non-live copy raises or logs on import, or
+   carries a header naming the live one at a path a grep will hit;
+2. **a parity test** for copies that are meant to agree (R1's kernel-vs-public,
+   R3's trainers) that fails when they drift, so "twin" becomes "mirrored";
+3. **a single source for role assignment** in R5/R6 — today three files assert
+   which model is primary and two of them are wrong;
+4. **a reachability assertion** for R7's shape — a branch no caller reaches is
+   dead code wearing a docstring, and a test can say so.
+
+None of that is implemented here. This document is the register; each row's fix
+has a different owner and a different blast radius, and R5's in particular changes
+what the daily run trains on.
