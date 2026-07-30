@@ -91,6 +91,42 @@ def prod_scores(db: sqlite3.Connection, run_id: str) -> pd.Series:
     return df.set_index("ticker")["panel_score"]
 
 
+def log_skip(path: Path, why: str) -> None:
+    """Say WHY a candidate table was refused. The prior code skipped silently,
+    so an operator could not tell 'no shadow ran' from 'we could not tell which
+    shadow ran'."""
+    print(f"  skip {path.parent.name}/{path.name}: {why}")
+
+
+def _resolve_shadow_name(df: pd.DataFrame, path: Path) -> str | None:
+    """Which shadow produced this table? None means UNKNOWABLE, never 'fine'.
+
+    Two sources, in order of authority:
+      1. a ``shadow_name`` column in the payload (present on newer writers);
+      2. the MLflow run tag ``<run_dir>/tags/shadow_name`` — the run directory is
+         found by walking up from the artifact until a ``tags`` directory exists,
+         because comparison.json sits under ``<run>/artifacts/...`` at a depth
+         this function should not hardcode.
+
+    Returning None is the fail-closed signal. A caller must NOT treat an
+    unresolved identity as a match.
+    """
+    if "shadow_name" in df.columns and len(df):
+        value = df["shadow_name"].iloc[0]
+        if pd.notna(value) and str(value).strip():
+            return str(value).strip()
+    for parent in list(path.parents)[:6]:
+        tag = parent / "tags" / "shadow_name"
+        try:
+            if tag.is_file():
+                text = tag.read_text(encoding="utf-8").strip()
+                if text:
+                    return text
+        except OSError:
+            continue
+    return None
+
+
 def shadow_scores_for(run_date: str, mlruns: Path) -> pd.Series | None:
     """Find the shadow comparison table logged for `run_date` and return the
     clf scores. v1 locator: newest comparison.json whose payload row-set
@@ -111,8 +147,33 @@ def shadow_scores_for(run_date: str, mlruns: Path) -> pd.Series | None:
             mdate = date.fromtimestamp(p.stat().st_mtime).isoformat()
             if mdate != run_date:
                 continue
-        if "shadow_name" in df.columns and \
-                df["shadow_name"].iloc[0] != SHADOW_NAME:
+        # Identity must be ESTABLISHED, not merely un-contradicted.
+        #
+        # This read `if "shadow_name" in df.columns and df[...] != SHADOW_NAME:
+        # continue` — so a table with NO shadow_name column fell through and was
+        # accepted as the clf's. Measured 2026-07-30: 0 of the 40 newest
+        # comparison.json files carry a `shadow_name` (or `run_date`) column, so
+        # the only model-identity check in this path NEVER EXECUTED.
+        #
+        # That is not a theoretical exposure. Three shadows write `shadow_score`
+        # tables: on 2026-07-28 the two newest of the day were
+        # `xgb_alpha158_fund_previous_primary`, not the clf; and on 2026-07-29 the
+        # clf and PatchTST tables were logged 25.7 MILLISECONDS apart with
+        # identical 78-row shapes, so the mtime fallback above cannot possibly
+        # discriminate between them. Identity resolution is the only discriminator
+        # there is. And because `append_ledger` is idempotent per run_date, a
+        # mis-attribution is written once and never corrected — permanently and
+        # silently wrong.
+        #
+        # Identity IS available: MLflow records it as the run tag
+        # `<run_dir>/tags/shadow_name`, which this function never read.
+        name = _resolve_shadow_name(df, p)
+        if name is None:
+            log_skip(p, "identity unresolved (no shadow_name column and no "
+                        "MLflow tags/shadow_name) — refusing to attribute")
+            continue
+        if name != SHADOW_NAME:
+            log_skip(p, f"shadow_name={name!r} != {SHADOW_NAME!r}")
             continue
         return df.set_index("ticker")["shadow_score"].astype(float)
     return None
