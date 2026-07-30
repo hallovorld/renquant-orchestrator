@@ -34,6 +34,7 @@ Read-only: plain git queries + file reads; never mutates any checkout.
 from __future__ import annotations
 
 import hashlib
+import datetime as dt
 import json
 import os
 import plistlib
@@ -488,6 +489,64 @@ def check_umbrella_deploy_lag(now: float | None = None) -> tuple[list[str], list
     return problems, infos
 
 
+def check_sentinel_receipt(now: float | None = None) -> tuple[list[str], list[str]]:
+    """Is the rq104 degradation sentinel actually running? (GOAL-1, issue #622)
+
+    This check lives HERE and not in the sentinel because a process cannot attest
+    to its own liveness — if it is dead it is not running to notice. The drift scan
+    is a separate launchd job, so it is still alive when the sentinel is not.
+
+    The three cases that used to be one observable:
+
+    * receipt absent          -> the sentinel has never completed a firing. LOUD.
+    * receipt stale           -> it has stopped firing. LOUD.
+    * receipt says internal   -> it is crashing. LOUD, and this is the case that was
+      error                      previously invisible behind the acked exit 1.
+    * receipt says alarms     -> INFO only. That is the sentinel's own designed
+                                 signal and it delivers its own alert; double-
+                                 alarming here would train the reader to ignore both.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "renquant104"))
+    try:
+        from sentinel_receipt import MAX_RECEIPT_AGE_S, read_receipt, receipt_path
+    except Exception as exc:  # noqa: BLE001
+        return ([f"cannot import the sentinel receipt module: "
+                 f"{type(exc).__name__}: {exc} — sentinel liveness unverifiable"], [])
+
+    path = receipt_path()
+    data, err = read_receipt(path)
+    if err is not None:
+        return ([f"rq104 sentinel receipt at {path} is unreadable ({err}) — cannot "
+                 f"distinguish a crashed sentinel from an alarming one"], [])
+    if data is None:
+        return ([f"rq104 sentinel receipt absent at {path} — the sentinel has not "
+                 f"completed a firing since this check was deployed, so its exit 1 "
+                 f"cannot be read as either an alarm or a crash"], [])
+
+    written = data.get("written_at")
+    try:
+        age = (now if now is not None else time.time()) - dt.datetime.fromisoformat(
+            str(written)).timestamp()
+    except Exception:  # noqa: BLE001
+        return ([f"rq104 sentinel receipt has an unparseable written_at "
+                 f"({written!r}) — liveness unverifiable"], [])
+
+    outcome = data.get("outcome")
+    if age > MAX_RECEIPT_AGE_S:
+        return ([f"rq104 sentinel receipt is {age / 86400:.1f} days old "
+                 f"(limit {MAX_RECEIPT_AGE_S / 86400:.0f}d, outcome={outcome!r}) — "
+                 f"the sentinel has stopped firing"], [])
+    if outcome == "internal_error":
+        return ([f"rq104 sentinel FAILED INTERNALLY at {written}: "
+                 f"{data.get('error')!r} — this is a crash, not its alarm signal"], [])
+    if outcome == "alarms":
+        return ([], [f"rq104 sentinel fired at {written} with "
+                     f"{data.get('alarm_count')} alarm(s) — it delivers its own "
+                     f"alert; recorded here only as liveness"])
+    return ([], [])
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -515,6 +574,9 @@ def main(argv: list[str] | None = None) -> int:
     infos += i
     problems += check_launchd_surface()
     problems += check_launchd_loaded()
+    p, i = check_sentinel_receipt()
+    problems += p
+    infos += i
 
     for line in infos:
         print(f"INFO: {line}")
