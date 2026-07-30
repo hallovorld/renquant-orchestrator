@@ -98,3 +98,23 @@ only the code that reads it — so this does not disposition anyone's ack on the
 | this branch | 7 failed, 4540 passed, 5 skipped, 27 warnings in 121.52s (0:02:01) |
 
 `[VERIFIED — python3 -m pytest -q in both worktrees, all sibling checkouts on PYTHONPATH]`
+
+### The 7-vs-6 difference is NOT a regression, and I checked rather than assumed
+
+The branch run shows **7 failed** against the baseline's **6**. That reads like a
+regression and it is not one. The extra failure is
+`tests/test_risk_budget.py::test_real_db_smoke_read_only`, and running it **in isolation
+on a clean `origin/main` worktree fails it too** — twice out of two
+`[VERIFIED — pytest tests/test_risk_budget.py::test_real_db_smoke_read_only on a
+detached origin/main worktree]`. It also fails 3 of 3 on this branch, so it is
+deterministic *now* and simply was not failing during the earlier baseline full-suite
+run.
+
+The cause is that the test reads a **live production database**, so its result depends on
+what the running system is doing at that moment — `test_attribution_engine.py` has a test
+of the same name that fails on **both** trees for the same reason. Two suite runs minutes
+apart are not comparable when the subject is a file the live system writes.
+
+That is a hygiene defect in its own right and is filed separately rather than fixed here:
+a suite whose pass/fail depends on production state cannot be used as a regression signal,
+which is exactly the use it was being put to above.
