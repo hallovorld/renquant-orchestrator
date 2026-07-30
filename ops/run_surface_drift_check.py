@@ -40,6 +40,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -389,6 +390,104 @@ def check_umbrella_branch() -> list[str]:
     ]
 
 
+STALE_FETCH_DAYS = 7
+
+
+def _resolve_ref(repo: str, ref: str) -> str | None:
+    """Resolve a ref to a sha WITHOUT invoking git in `repo`.
+
+    This scan reads the umbrella's git metadata as FILES on purpose. Running
+    git in the live tree is forbidden here (a sub-agent's `git reset --hard`
+    in this shared checkout is why), and a read-only-looking git invocation is
+    one typo away from a writing one. Loose ref first, then packed-refs.
+    """
+    loose = Path(repo) / ".git" / ref
+    try:
+        text = loose.read_text(encoding="utf-8").strip()
+        if text:
+            return text.split()[0]
+    except OSError:
+        pass
+    packed = Path(repo) / ".git" / "packed-refs"
+    try:
+        for line in packed.read_text(encoding="utf-8").splitlines():
+            if line.startswith("#") or line.startswith("^"):
+                continue
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == ref:
+                return parts[0]
+    except OSError:
+        pass
+    return None
+
+
+def check_umbrella_deploy_lag(now: float | None = None) -> tuple[list[str], list[str]]:
+    """The umbrella live tree must actually BE the merged main, not just on it.
+
+    `check_umbrella_branch` verifies the branch NAME. That is not enough: the
+    daily run consumes local sibling checkouts by path, so a tree sitting on
+    `main` at an OLD commit runs old code while every dashboard says the fix
+    merged. Measured 2026-07-29: the live umbrella sat 9 commits behind
+    origin/main, so `scripts/train_production_model.py --panel` (merged in
+    umbrella#543) was absent from the tree that actually runs -- and the
+    branch-name check passed clean the whole time.
+
+    Two signals, because the first one alone can lie:
+      (a) refs/heads/main != refs/remotes/origin/main  -> merged-but-not-deployed
+      (b) the fetched remote ref is itself stale        -> (a) cannot be trusted,
+          since origin/main here is only as fresh as the last fetch INTO this
+          tree, and this scan will not fetch (that is a write).
+    """
+    problems: list[str] = []
+    infos: list[str] = []
+    live = _resolve_ref(RQ, "refs/heads/main")
+    fetched = _resolve_ref(RQ, "refs/remotes/origin/main")
+
+    if live is None:
+        return ([f"umbrella: cannot resolve refs/heads/main under {RQ}/.git "
+                 "(neither loose nor packed) -- deploy lag is unmeasurable"], infos)
+    if fetched is None:
+        return ([f"umbrella: no refs/remotes/origin/main under {RQ}/.git, so "
+                 f"deploy lag is unmeasurable; live main is {live[:8]}. Fetch "
+                 "once in the live tree (operator action -- this scan does not "
+                 "write) to arm this check."], infos)
+
+    # Fetch freshness first: a stale fetch makes an EQUAL comparison meaningless,
+    # so report it even when (a) looks clean.
+    stamp = None
+    for candidate in (Path(RQ) / ".git" / "FETCH_HEAD",
+                      Path(RQ) / ".git" / "refs" / "remotes" / "origin" / "main"):
+        try:
+            stamp = candidate.stat().st_mtime
+            break
+        except OSError:
+            continue
+    age_days = None
+    if stamp is not None:
+        age_days = ((now if now is not None else time.time()) - stamp) / 86400.0
+
+    if live != fetched:
+        problems.append(
+            f"umbrella live tree is NOT the fetched origin/main: "
+            f"refs/heads/main={live[:8]} vs origin/main={fetched[:8]}. Merged "
+            f"umbrella changes are DARK on the daily run until this tree syncs. "
+            f"Sync is an operator action (git -C {RQ} pull --ff-only after a "
+            f"read-only preflight); NEVER `checkout -- .` or `reset --hard`, "
+            f"which has clobbered uncommitted operational fixes before."
+        )
+    elif age_days is not None:
+        infos.append(f"umbrella deploy lag: none (main == origin/main "
+                     f"{live[:8]}), fetched {age_days:.1f}d ago")
+
+    if age_days is not None and age_days > STALE_FETCH_DAYS:
+        problems.append(
+            f"umbrella origin/main ref is {age_days:.1f}d old (> "
+            f"{STALE_FETCH_DAYS}d): the deploy-lag comparison above is against "
+            f"a stale remote and can report 'in sync' while upstream has moved."
+        )
+    return problems, infos
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -411,6 +510,9 @@ def main(argv: list[str] | None = None) -> int:
     problems += p
     infos += i
     problems += check_umbrella_branch()
+    p, i = check_umbrella_deploy_lag()
+    problems += p
+    infos += i
     problems += check_launchd_surface()
     problems += check_launchd_loaded()
 
