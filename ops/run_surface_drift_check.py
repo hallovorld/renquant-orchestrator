@@ -509,7 +509,13 @@ def check_sentinel_receipt(now: float | None = None) -> tuple[list[str], list[st
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "renquant104"))
     try:
-        from sentinel_receipt import MAX_RECEIPT_AGE_S, read_receipt, receipt_path
+        from sentinel_receipt import (
+            KNOWN_OUTCOMES,
+            MAX_RECEIPT_AGE_S,
+            RECEIPT_SCHEMA_VERSION,
+            read_receipt,
+            receipt_path,
+        )
     except Exception as exc:  # noqa: BLE001
         return ([f"cannot import the sentinel receipt module: "
                  f"{type(exc).__name__}: {exc} — sentinel liveness unverifiable"], [])
@@ -532,7 +538,25 @@ def check_sentinel_receipt(now: float | None = None) -> tuple[list[str], list[st
         return ([f"rq104 sentinel receipt has an unparseable written_at "
                  f"({written!r}) — liveness unverifiable"], [])
 
+    # Validate the receipt BEFORE trusting any field in it. A missing, misspelled or
+    # future `outcome`, or an unrecognised schema version, means liveness has NOT
+    # been established --- it must never fall through to "clean". Codex BLOCKER on
+    # #625: the first version treated any fresh non-error outcome as healthy, so a
+    # malformed receipt suppressed the failure this guard exists to surface. That is
+    # the guard-passes-on-absent-input shape #623 catalogues, in the guard I wrote to
+    # fix an instance of it.
+    version = data.get("schema_version")
+    if version != RECEIPT_SCHEMA_VERSION:
+        return ([f"rq104 sentinel receipt has schema_version {version!r}, expected "
+                 f"{RECEIPT_SCHEMA_VERSION!r} — refusing to interpret an "
+                 f"unrecognised receipt as healthy"], [])
+
     outcome = data.get("outcome")
+    if outcome not in KNOWN_OUTCOMES:
+        return ([f"rq104 sentinel receipt carries outcome {outcome!r}, which is not "
+                 f"one of {sorted(KNOWN_OUTCOMES)} — liveness NOT established "
+                 f"(a missing or misspelled outcome must not read as clean)"], [])
+
     if age > MAX_RECEIPT_AGE_S:
         return ([f"rq104 sentinel receipt is {age / 86400:.1f} days old "
                  f"(limit {MAX_RECEIPT_AGE_S / 86400:.0f}d, outcome={outcome!r}) — "

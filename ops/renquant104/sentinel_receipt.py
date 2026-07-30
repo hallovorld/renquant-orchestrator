@@ -46,6 +46,18 @@ EXIT_OK = 0
 EXIT_ALARMS = 1
 EXIT_INTERNAL = 3
 
+#: The only outcomes a receipt may carry. A reader must treat anything else --- a
+#: missing key, a typo, a value from a future version --- as a FAILURE to establish
+#: liveness, never as health. Codex BLOCKER on orch#625: the first version treated
+#: every fresh receipt that was not `internal_error` or `alarms` as clean, so a
+#: malformed receipt suppressed the very failure this mechanism exists to surface.
+KNOWN_OUTCOMES = frozenset({"ok", "not_session_day", "alarms", "internal_error"})
+
+#: Bumped only when the receipt's meaning changes. A reader that does not recognise
+#: the version must refuse rather than guess, because an unrecognised schema is
+#: exactly the case where field names may have moved.
+RECEIPT_SCHEMA_VERSION = 1
+
 RECEIPT_ENV = "RQ_SENTINEL_RECEIPT"
 DEFAULT_RECEIPT = "~/.renquant/sentinel/rq104_degradation_receipt.json"
 
@@ -69,7 +81,21 @@ def write_receipt(payload: dict[str, Any], path: Path | None = None) -> str | No
     not depend on whether this file could be written.
     """
     target = path or receipt_path()
-    body = {"schema_version": 1, **payload}
+
+    # A test run must NEVER write the real receipt. Two reasons, the second worse
+    # than the first: it writes into the user's home directory as a side effect, and
+    # it makes a DEAD sentinel look alive --- the exact failure this mechanism exists
+    # to surface. Found the hard way: the pre-existing sentinel suite calls `main()`
+    # at five sites, and the first version of this module leaked a receipt stamping a
+    # pytest tmp database path into ~/.renquant/. This programme has a prior incident
+    # of a test writing to a real production state file, so the guard is explicit
+    # rather than left to every caller remembering to set the env var.
+    if path is None and "PYTEST_CURRENT_TEST" in os.environ \
+            and RECEIPT_ENV not in os.environ:
+        return (f"refusing to write the default receipt path under pytest "
+                f"({target}) — pass an explicit path or set {RECEIPT_ENV}")
+
+    body = {"schema_version": RECEIPT_SCHEMA_VERSION, **payload}
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         # Write-then-rename so a reader never observes a half-written receipt and

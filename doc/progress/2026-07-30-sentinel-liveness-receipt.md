@@ -16,6 +16,32 @@ NEXT:      Establish which of the two it actually was for `rq105-shadow-serving`
            (#621), now that the question is answerable. Deploying this to the run
            checkout is a live-surface action and needs its own authorised batch.
 
+CORRECTIONS: two defects in the first revision, both found after it was pushed.
+
+**(a) A malformed receipt suppressed the failure this guard exists to surface.**
+`check_sentinel_receipt()` treated every fresh receipt that was not `internal_error`
+or `alarms` as clean, so a receipt with a missing or misspelled `outcome` read as
+health. Codex BLOCKER on #625, and it is the guard-passes-on-absent-input shape —
+**inside the guard I wrote to fix an instance of that same shape.** Now the receipt is
+validated before any field is trusted: an unrecognised `schema_version` and any
+`outcome` outside `{ok, not_session_day, alarms, internal_error}` are both LOUD, with
+regression tests over a missing outcome, seven wrong values, four wrong versions, and
+a negative case asserting every known outcome is still accepted.
+
+**(b) The change made the test suite write the REAL receipt.** The pre-existing
+sentinel suite calls `main()` at five sites, so every full-suite run stamped a receipt
+into `~/.renquant/` — writing into the user's home as a side effect and, far worse,
+**making a dead sentinel look alive**, which is precisely the failure this mechanism
+was built to detect. Caught by running the drift check on this machine and finding a
+receipt whose `argv` recorded a pytest tmp database path
+`[VERIFIED — ~/.renquant/sentinel/rq104_degradation_receipt.json, argv field]`. This
+programme has a prior incident of a test writing to a real production state file, so
+the guard is explicit rather than left to callers remembering an env var:
+`write_receipt` refuses the DEFAULT path when `PYTEST_CURRENT_TEST` is set and no
+override is given. An explicit path and the env override both still work, each with
+its own test. The leaked receipt was removed, and a full-suite run now leaves the path
+untouched `[VERIFIED — full suite run, then test -e on the receipt path]`.
+
 ## §1 EVIDENCE
 
 ### The collision, in one line each
@@ -70,14 +96,14 @@ unchanged.
 | tree | result |
 |---|---|
 | `origin/main` @ 679af192, separate worktree | 5 failed, 4457 passed, 5 skipped |
-| this branch | 5 failed, **4480** passed, 5 skipped |
+| this branch | 5 failed, **4489** passed, 5 skipped |
 
 `[VERIFIED — python3 -m pytest -q in both worktrees, all sibling checkouts on PYTHONPATH]`.
-Same 5 pre-existing failures; delta is exactly the 23 tests added.
+Same 5 pre-existing failures; delta is exactly the 32 tests added.
 
 ## §2 Tests — and the one I initially forgot
 
-23 new. The important group is the four that exercise the wrapper itself, and I
+32 new. The important group is the four that exercise the wrapper itself, and I
 added them only after noticing the first 19 tested the receipt and its reader while
 never testing **the thing #622 is about**: that an exception inside the sentinel no
 longer exits 1. `test_an_exception_inside_the_sentinel_exits_3_not_1` is the actual

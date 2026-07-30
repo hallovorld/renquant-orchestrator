@@ -106,7 +106,10 @@ def _point_at(monkeypatch, tmp_path, payload: dict | None, *, raw: str | None = 
     if raw is not None:
         target.write_text(raw)
     elif payload is not None:
-        target.write_text(json.dumps(payload))
+        # schema_version is injected so the older fixtures keep testing what they
+        # were written to test; a fixture that passes it EXPLICITLY (including a
+        # wrong value) still wins, which is what the version tests rely on.
+        target.write_text(json.dumps({"schema_version": 1, **payload}))
     monkeypatch.setenv(receipt_mod.RECEIPT_ENV, str(target))
     return target
 
@@ -283,3 +286,103 @@ def test_systemexit_propagates_untouched(monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as e:
         sent.main([])
     assert e.value.code == 7
+
+
+# --- codex BLOCKER on #625: a malformed receipt must not read as clean ---------
+# The first version of check_sentinel_receipt treated every fresh receipt that was
+# not internal_error or alarms as healthy. So a receipt with a missing or misspelled
+# `outcome` SUPPRESSED the liveness failure the mechanism exists to surface --- the
+# guard-passes-on-absent-input shape, inside the guard I wrote to fix an instance of
+# it. These pin that it cannot come back.
+
+def test_a_receipt_with_NO_outcome_is_LOUD(monkeypatch, tmp_path):
+    _point_at(monkeypatch, tmp_path,
+              {"schema_version": 1, "written_at": _fresh_iso(60)})
+    loud, info = drift.check_sentinel_receipt()
+    assert len(loud) == 1
+    assert "liveness NOT established" in loud[0]
+    assert info == []
+
+
+def test_an_unknown_outcome_is_LOUD(monkeypatch, tmp_path):
+    """A typo or a value from a future version. Either way liveness is unestablished."""
+    for bad in ("okay", "OK", "alarm", "healthy", "", None, 0):
+        _point_at(monkeypatch, tmp_path,
+                  {"schema_version": 1, "written_at": _fresh_iso(60), "outcome": bad})
+        loud, info = drift.check_sentinel_receipt()
+        assert len(loud) == 1, f"outcome={bad!r} produced {loud!r}"
+        assert "liveness NOT established" in loud[0]
+        assert info == []
+
+
+def test_every_known_outcome_is_accepted(monkeypatch, tmp_path):
+    """Negative case: the refusals above come from the value, not from the check
+    having become unconditionally loud."""
+    for good in sorted(receipt_mod.KNOWN_OUTCOMES):
+        _point_at(monkeypatch, tmp_path, {
+            "schema_version": 1, "written_at": _fresh_iso(60), "outcome": good,
+            "alarm_count": 1, "error": "x"})
+        loud, info = drift.check_sentinel_receipt()
+        if good in ("ok", "not_session_day"):
+            assert (loud, info) == ([], []), f"{good} should be silent, got {loud}{info}"
+        elif good == "alarms":
+            assert loud == [] and len(info) == 1, good
+        else:
+            assert len(loud) == 1 and "crash" in loud[0], good
+
+
+def test_an_unrecognised_schema_version_is_LOUD(monkeypatch, tmp_path):
+    """An unrecognised schema is exactly where field names may have moved, so
+    guessing is the one thing the reader must not do."""
+    for bad in (2, 0, "1", None):
+        _point_at(monkeypatch, tmp_path, {
+            "schema_version": bad, "written_at": _fresh_iso(60), "outcome": "ok"})
+        loud, _ = drift.check_sentinel_receipt()
+        assert len(loud) == 1, f"schema_version={bad!r}"
+        assert "unrecognised receipt" in loud[0]
+
+
+def test_the_writer_stamps_the_version_the_reader_requires(tmp_path):
+    """If these two ever disagree the check alarms forever. Pin them together."""
+    target = tmp_path / "r.json"
+    receipt_mod.write_receipt({"outcome": "ok", "written_at": "x"}, path=target)
+    data, _ = receipt_mod.read_receipt(target)
+    assert data["schema_version"] == receipt_mod.RECEIPT_SCHEMA_VERSION
+
+
+# --- a test run must not write the REAL receipt --------------------------------
+# This defect was introduced by the first version of this change and caught by
+# running the drift check on this machine: the pre-existing sentinel suite calls
+# main() at five sites, so every full-suite run stamped a receipt into
+# ~/.renquant/ --- writing to the user's home as a side effect AND making a dead
+# sentinel look alive, which is the failure the mechanism exists to surface.
+
+def test_default_path_is_refused_under_pytest(monkeypatch):
+    monkeypatch.delenv(receipt_mod.RECEIPT_ENV, raising=False)
+    err = receipt_mod.write_receipt({"outcome": "ok"})
+    assert err and "refusing to write the default receipt path under pytest" in err
+
+
+def test_an_explicit_path_is_still_honoured_under_pytest(tmp_path, monkeypatch):
+    """Negative case: the refusal is about the DEFAULT path, not about writing."""
+    monkeypatch.delenv(receipt_mod.RECEIPT_ENV, raising=False)
+    target = tmp_path / "r.json"
+    assert receipt_mod.write_receipt({"outcome": "ok"}, path=target) is None
+    assert target.exists()
+
+
+def test_the_env_override_is_still_honoured_under_pytest(tmp_path, monkeypatch):
+    target = tmp_path / "env.json"
+    monkeypatch.setenv(receipt_mod.RECEIPT_ENV, str(target))
+    assert receipt_mod.write_receipt({"outcome": "ok"}) is None
+    assert target.exists()
+
+
+def test_the_sentinel_main_does_not_touch_the_real_receipt(monkeypatch, capsys):
+    """End to end: calling main() the way the existing suite does must leave the
+    real path alone and say so, not silently write it."""
+    monkeypatch.delenv(receipt_mod.RECEIPT_ENV, raising=False)
+    sent = _load_sentinel()
+    monkeypatch.setattr(sent, "_run", lambda argv, receipt: receipt_mod.EXIT_OK)
+    assert sent.main([]) == 0
+    assert "refusing to write the default receipt path" in capsys.readouterr().err
