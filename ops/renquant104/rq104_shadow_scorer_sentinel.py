@@ -555,7 +555,9 @@ def _read_from_shadow_db(days: list[dt.date], lane: 'WatchedLane | None' = None
       * had_runs      — any live pipeline_runs row that day (else None: liveness)
       * feed_present  — any candidate_scores row for those runs
       * n_scored      — candidate_scores rows attributable to the shadow scorer
-                        (active_scorer == SHADOW_NAME OR model_type == SHADOW_NAME)
+                        (active_scorer or model_type matching the lane via
+                        _matches_shadow_lane --- the SAME function the JSONL
+                        path uses, so the two cannot diverge)
       * loaded        — n_scored > 0
       * coverage_frac — distinct shadow-scored tickers / distinct candidate tickers
       * staleness_days— run_date minus the newest pipeline_runs.training_cutoff
@@ -601,19 +603,49 @@ def _derive_day_record(conn: sqlite3.Connection, day: dt.date) -> ShadowHealthRe
             f"SELECT COUNT(*) FROM candidate_scores WHERE run_id IN ({placeholders})",
             run_ids,
         ).fetchone()[0] or 0
-        shadow_rows = conn.execute(
-            f"SELECT COUNT(*) FROM candidate_scores WHERE run_id IN ({placeholders}) "
-            f"AND (active_scorer = ? OR model_type = ?)",
-            [*run_ids, SHADOW_NAME, SHADOW_NAME],
-        ).fetchone()[0] or 0
-        shadow_tickers = conn.execute(
-            f"SELECT COUNT(DISTINCT ticker) FROM candidate_scores "
-            f"WHERE run_id IN ({placeholders}) AND (active_scorer = ? OR model_type = ?)",
-            [*run_ids, SHADOW_NAME, SHADOW_NAME],
-        ).fetchone()[0] or 0
+        # LANE MATCHING MUST USE `_matches_shadow_lane`, THE SAME FUNCTION THE JSONL
+        # PATH USES. Until 2026-07-30 this branch compared with SQL `=` while the
+        # JSONL branch (line ~534) used the prefix matcher. The served lane is
+        # `hf_patchtst_pt07_strict_seed44_previous_primary`, which the matcher
+        # accepts and `=` rejects, so whenever the JSONL sink did not cover a date
+        # the fallback found ZERO rows and the sentinel reported
+        #   "LOAD FAILURE ... ZERO shadow scores"
+        # while the pipeline's own record for the same date said
+        #   loaded=True, n_scored=77 and 85, reasons=['stale_622d_limit_28d'].
+        # A wrong and MORE alarming diagnosis than the truth: the lane was stale,
+        # not dead, and the two send a reader to different places.
+        #
+        # Fixed by pulling the names and filtering in Python with the shared
+        # function rather than by adding a SQL `LIKE`. A second matcher expressed in
+        # SQL is a twin implementation, and the copy that runs is never the copy a
+        # reader finds first.
+        rows = conn.execute(
+            f"SELECT ticker, active_scorer, model_type FROM candidate_scores "
+            f"WHERE run_id IN ({placeholders})",
+            run_ids,
+        ).fetchall()
+        matched = [r for r in rows
+                   if _matches_shadow_lane(str(r[1] or ""))
+                   or _matches_shadow_lane(str(r[2] or ""))]
+        shadow_rows = len(matched)
+        shadow_tickers = len({r[0] for r in matched})
+
+        # "THE DB DOES NOT RECORD IT" IS NOT "THE SHADOW SCORED NOTHING".
+        # Measured 2026-07-30: since 2026-07-22 every candidate_scores row in
+        # runs.alpaca_shadow.db carries active_scorer = NULL and model_type = NULL —
+        # 88/85/85/95/360/98 rows on six live dates, ZERO of them identifiable under
+        # ANY matcher. Reporting loaded=False there says the shadow lane produced no
+        # scores, when the truth is that this store cannot answer the question. The
+        # pipeline's own JSONL for the same dates says loaded=True, n_scored=77/85.
+        # Same wrong-object shape as the matcher bug above, one level down.
+        if rows and not any((r[1] or r[2]) for r in rows):
+            scorer_column_uninformative = True
+        else:
+            scorer_column_uninformative = False
     except sqlite3.OperationalError:
         # candidate_scores absent (minimal/legacy store): degrade, never abort.
         total_tickers = total_rows = shadow_rows = shadow_tickers = 0
+        scorer_column_uninformative = True   # absent table cannot answer either
 
     staleness_days: int | None = None
     cutoff_str: str | None = None
@@ -628,7 +660,10 @@ def _derive_day_record(conn: sqlite3.Connection, day: dt.date) -> ShadowHealthRe
     return ShadowHealthRecord(
         run_date=day,
         shadow_name=SHADOW_NAME,
-        loaded=shadow_rows > 0,
+        # None, not False, when the store cannot answer. False here would assert
+        # the shadow lane scored nothing, which is a stronger and different claim
+        # than 'this store does not record which scorer produced these rows'.
+        loaded=(None if scorer_column_uninformative else shadow_rows > 0),
         effective_train_cutoff_date=cutoff_str,
         staleness_days=staleness_days,
         n_candidates=total_tickers,
