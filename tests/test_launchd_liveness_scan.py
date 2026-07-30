@@ -378,28 +378,6 @@ def test_no_two_jobs_share_an_evidence_glob():
         seen[g] = label
 
 
-# --- the 13 unambiguous assignments, 2026-07-30 -------------------------------
-# Criterion: the job is the SOLE occupant of its log directory across all manifested
-# plists, and that directory contains dated files. Anything shared (the pit-* trio)
-# stays unassigned rather than guessed.
-
-def test_thirteen_more_jobs_have_an_evidence_glob():
-    raw = json.loads((OPS / "launchd_manifest.json").read_text())
-    jobs = raw.get("jobs", raw)
-    with_glob = [l for l, c in (jobs.items() if isinstance(jobs, dict) else jobs)
-                 if c.get("evidence_glob")]
-    assert len(with_glob) == 18, f"expected 18 globs (3 + 2 + 13), got {len(with_glob)}"
-
-
-def test_weekly_wf_promote_is_measured_on_its_real_surface():
-    """I singled this job out in #627 as 'not written since 2026-05-17' and warned that
-    every 'the weekly retrain was admitted' claim assumes it runs. That was a PROXY
-    reading and it was wrong."""
-    raw = json.loads((OPS / "launchd_manifest.json").read_text())
-    jobs = raw.get("jobs", raw)
-    cfg = jobs["com.renquant.weekly-wf-promote"]
-    assert cfg.get("evidence_glob"), "the correction depends on this glob existing"
-
 
 # --- glob exclusivity, proved from COMMITTED data only ------------------------
 #
@@ -490,12 +468,45 @@ def test_every_glob_is_absolute_and_committed():
             assert g.startswith("/"), f"{label}'s evidence_glob is not absolute: {g!r}"
 
 
+# The 13 this PR assigns, named individually rather than counted. The first version
+# asserted a global total of 18 ("3 + 2 + 13") and was wrong twice over: the base was 6
+# rather than 5, so the arithmetic gave 19 — and more importantly **a global count is
+# the wrong object**. It is a proxy for "the 13 landed" that breaks whenever anyone adds
+# an unrelated 14th, which is exactly what happened when a concurrent change reached
+# main and turned this branch red. Asserting the claim directly cannot be broken by
+# someone else's legitimate work.
+THIRTEEN = (
+    "com.renquant.conditional-retrain104",
+    "com.renquant.daily-news-sentiment",
+    "com.renquant.daily103",
+    "com.renquant.monthly-calibrator-refresh",
+    "com.renquant.monthly-meta-label-retrain",
+    "com.renquant.retrain-alpha158-linear",
+    "com.renquant.retrain-panel104",
+    "com.renquant.shadow-ab-daily",
+    "com.renquant.weekly-apy104",
+    "com.renquant.weekly-fundamental-refresh",
+    "com.renquant.weekly-retrain-patchtst",
+    "com.renquant.weekly-tournament-retrain",
+    "com.renquant.weekly-wf-promote",
+)
+
+
 def test_thirteen_more_jobs_have_an_evidence_glob():
     raw = json.loads((OPS / "launchd_manifest.json").read_text())
     jobs = raw.get("jobs", raw)
-    with_glob = [l for l, c in (jobs.items() if isinstance(jobs, dict) else jobs)
-                 if c.get("evidence_glob")]
-    assert len(with_glob) == 18, f"expected 18 globs (3 + 2 + 13), got {len(with_glob)}"
+    missing = [l for l in THIRTEEN if not (jobs.get(l) or {}).get("evidence_glob")]
+    assert not missing, f"these jobs lost their evidence glob: {missing}"
+
+
+def test_the_thirteen_are_thirteen_distinct_manifested_jobs():
+    """Anti-vacuity: a typo'd label would silently drop out of the check above, since a
+    label absent from the manifest simply has no glob to lose."""
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    assert len(set(THIRTEEN)) == 13
+    unknown = [l for l in THIRTEEN if l not in jobs]
+    assert not unknown, f"not manifested jobs: {unknown}"
 
 
 def test_weekly_wf_promote_is_measured_on_its_real_surface():

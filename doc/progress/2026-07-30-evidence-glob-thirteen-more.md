@@ -107,3 +107,36 @@ with it and passes once reverted.
 job's actual writer path. Tying them needs the wrapper's write target recorded in the
 manifest, which is a separate change against the wrappers — asserting it from anything
 readable here would just be `StandardOutPath` again under another name.
+
+### Round 2 follow-up — a count is the wrong object, and the merge duplicated a test
+
+Updating this branch against main turned it red:
+`test_thirteen_more_jobs_have_an_evidence_glob` asserted a **global total of 18**
+("3 + 2 + 13") and main now carries 19.
+
+Two defects, one of them mine from the start:
+
+* **The arithmetic was wrong.** The base was **6** globs, not 5, so the correct total
+  was always 19 `[VERIFIED — glob sets diffed between origin/main and this branch, this
+  session]`. I wrote "3 + 2 + 13" from the shape of the story rather than counting.
+* **A global count is the wrong object anyway.** It is a *proxy* for "the 13 landed"
+  that breaks whenever anyone adds an unrelated 14th — which is precisely what a
+  concurrent change reaching main did. A test that fails on someone else's correct work
+  is not protecting this PR's claim; it is protecting a coincidence.
+
+Replaced with the claim itself: the **13 labels named individually**, asserted to have a
+glob. That cannot be broken by legitimate growth elsewhere, and it fails for the right
+reason if one of these thirteen loses its assignment. Paired with
+`test_the_thirteen_are_thirteen_distinct_manifested_jobs`, because a typo'd label would
+otherwise drop silently out of the check — an absent label simply has no glob to lose.
+
+**Also fixed: the merge resurrected a deleted test.** The pre-fix
+`test_thirteen_more_jobs_have_an_evidence_glob` and
+`test_weekly_wf_promote_is_measured_on_its_real_surface` came back alongside their
+replacements, leaving two definitions of each in one file — the later shadowing the
+earlier, so the file silently ran only half of what it appeared to contain. Duplicates
+removed. Worth naming: this is the twin-implementation shape the repo keeps hitting,
+this time produced by a merge inside a test file.
+
+`[VERIFIED — this session]` 41 passed. Load-bearing confirmed by deleting
+`weekly-wf-promote`'s glob: the named-labels test fails and passes again on restore.
