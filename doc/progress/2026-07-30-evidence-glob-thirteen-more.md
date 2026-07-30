@@ -64,3 +64,46 @@ glob may only be used in a single-occupancy directory* — and the test now asse
 
 None. `program_args` and `program_args_sha256` untouched, so no manifest drift. The scan
 is read-only and still not wired into any scheduled job.
+
+## Round 2 — CI was validating none of the 13 assignments
+
+Codex found the assignment proof was neither durable nor sufficient. Three defects, and
+the third is the one that mattered:
+
+1. absent plists hit `continue`, so in CI the occupancy map was empty;
+2. an empty map meant the assertion was **skipped entirely** — CI validated **none** of
+   the claimed 13 assignments while reporting green;
+3. occupancy was inferred from `StandardOutPath`, which **cannot establish ownership of
+   the evidence directory at all**. These jobs exist precisely *because* their wrappers
+   redirect real evidence away from `StandardOutPath`. The field says where launchd
+   puts its own stdout, not where the job writes the artifact the scan measures.
+
+(3) is why the local-plist check was **deleted rather than repaired**. Repairing (1) and
+(2) would have produced a check that runs everywhere and still proves the wrong thing.
+
+**The invariant does not need the local machine.** Every `evidence_glob` is committed in
+the manifest, so *"no two manifested jobs can match the same file"* is decidable from
+the manifest alone. That now runs in CI:
+
+* `_globs_can_overlap()` — same directory, and either pattern's concrete witnesses match
+  the other. `[0-9]` classes are collapsed to a literal and `*` is expanded both empty
+  and non-empty, so a directory-wide glob is seen to collide with a stem-specific one.
+* `test_no_two_manifested_globs_can_match_the_same_file` — all pairs. **Strictly stronger
+  than the old string-equality check**: equality only catches two jobs claiming the
+  identical pattern, while the real hazard is a directory-wide glob added to a directory
+  another job already writes into. The strings differ, equality passes, and every dated
+  file the neighbour writes is silently credited to the newcomer. Six rq105 jobs share
+  `logs/rq105/`.
+* `test_the_overlap_helper_can_actually_detect_an_overlap` — the helper itself, because
+  one that always returned `False` would make the sweep pass forever.
+* `test_standardoutpath_is_documented_as_insufficient_for_ownership` — anyone re-adding
+  an occupancy check from that field has to read why it cannot work.
+
+`[VERIFIED — this session]` 40 passed. Load-bearing confirmed by injecting a
+directory-wide glob into the shared `logs/rq105/` directory: the pair test **fails**
+with it and passes once reverted.
+
+**Not claimed:** this proves globs cannot *collide*, not that each glob is tied to its
+job's actual writer path. Tying them needs the wrapper's write target recorded in the
+manifest, which is a separate change against the wrappers — asserting it from anything
+readable here would just be `StandardOutPath` again under another name.
