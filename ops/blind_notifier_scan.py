@@ -61,12 +61,21 @@ MANIFEST = Path(__file__).resolve().parent / "launchd_manifest.json"
 #: that needed fixing.
 STATUS_DISCARDERS = ("|| true", "||true", "|| :", "||:", "; true", ";true")
 
-#: SECOND necessary condition, codex round 2 on #646. `|| true` discards the SHELL
-#: status, but curl may still write its response or error into the job log — and an
-#: error visible in the log IS delivery evidence. Status discard alone therefore
-#: establishes "status ignored", NOT "delivery unobservable". Both are required for
-#: the strong category, and the weak one is reported separately rather than folded in.
-EVIDENCE_SUPPRESSORS = (">/dev/null", "curl -s ", "curl -s\t")
+#: SECOND condition, and it is PER-STREAM. Codex round 3 on #646: treating any
+#: `>/dev/null` as "evidence suppressed" was still too loose, because the two streams
+#: are silenced by different things and each alone leaves the other visible:
+#:
+#:   * `>/dev/null` / `-o /dev/null` — kills the RESPONSE BODY on stdout. curl's own
+#:     errors are on stderr and still reach the job log.
+#:   * `-s`                          — kills curl's progress/error output on stderr.
+#:     The response body still lands on stdout.
+#:   * `2>/dev/null` / `2>&1`        — kills stderr explicitly.
+#:
+#: So "no delivery evidence anywhere" needs BOTH streams covered. One of the two is
+#: an AMBIGUOUS case, reported in its own category rather than promoted into the
+#: strong finding.
+STDOUT_SILENCERS = (">/dev/null", "-o /dev/null", "-o/dev/null")
+STDERR_SILENCERS = ("2>/dev/null", "2>&1", " -s ", " -s")
 
 #: A line merely CONTAINING `curl` and `ntfy.sh` can be an echo, a comment fragment,
 #: a variable assignment or a GET. The population is only meaningful if every member
@@ -116,8 +125,24 @@ def discards_status(line: str) -> bool:
     return any(t in line for t in STATUS_DISCARDERS)
 
 
+def silences_stdout(line: str) -> bool:
+    return any(t in line for t in STDOUT_SILENCERS)
+
+
+def silences_stderr(line: str) -> bool:
+    stripped = line.rstrip()
+    return ("2>/dev/null" in line or "2>&1" in line
+            or " -s " in line or stripped.endswith(" -s"))
+
+
 def suppresses_evidence(line: str) -> bool:
-    return any(t in line for t in EVIDENCE_SUPPRESSORS)
+    """BOTH streams. Either alone leaves the other in the job log."""
+    return silences_stdout(line) and silences_stderr(line)
+
+
+def partially_suppresses(line: str) -> bool:
+    """Exactly one stream silenced — ambiguous, never the strong finding."""
+    return silences_stdout(line) != silences_stderr(line)
 
 
 def attributes(line: str) -> list[str]:
@@ -130,20 +155,25 @@ def scan(scripts_dir: Path, manifest: Path) -> dict:
     if not scripts_dir.is_dir():
         raise FileNotFoundError(f"scripts dir absent: {scripts_dir}")
     sched = scheduled_scripts(manifest)
-    findings, clean, status_ignored = [], [], []
+    findings, clean, status_ignored, ambiguous_recs = [], [], [], []
     for p in sorted(scripts_dir.glob("*.sh")):
         lines = send_lines(p.read_text(errors="ignore"))
         if not lines:
             continue
         unobs = [l for l in lines if discards_status(l) and suppresses_evidence(l)]
-        status_only = [l for l in lines
-                       if discards_status(l) and not suppresses_evidence(l)]
+        ambiguous = [l for l in lines
+                     if discards_status(l) and partially_suppresses(l)]
+        status_only = [l for l in lines if discards_status(l)
+                       and not silences_stdout(l) and not silences_stderr(l)]
         rec = {"script": p.name, "scheduled": p.name in sched,
                "send_lines": len(lines),
                "delivery_unobservable_lines": len(unobs),
+               "ambiguous_one_stream_lines": len(ambiguous),
                "status_ignored_only_lines": len(status_only),
                "attributes": sorted({a for l in unobs for a in attributes(l)})}
         (findings if unobs else clean).append(rec)
+        if ambiguous:
+            ambiguous_recs.append(rec)
         if status_only:
             status_ignored.append(rec)
     return {
@@ -153,6 +183,9 @@ def scan(scripts_dir: Path, manifest: Path) -> dict:
         "delivery_unobservable_and_scheduled": sum(1 for f in findings if f["scheduled"]),
         # WEAK category, reported separately per codex: the shell status is thrown
         # away but curl's own output would still reach the job log.
+        # ONE stream silenced. Cannot be promoted: the other stream still carries
+        # delivery evidence into the job log.
+        "ambiguous_one_stream": len(ambiguous_recs),
         "status_ignored_only": len(status_ignored),
         "observable": len(clean),
         "findings": findings,
@@ -177,6 +210,7 @@ def main(argv=None) -> int:
               f"delivery UNOBSERVABLE (status discarded AND evidence suppressed) in "
               f"{res['delivery_unobservable']} "
               f"({res['delivery_unobservable_and_scheduled']} launchd-scheduled); "
+              f"ambiguous (one stream only) in {res['ambiguous_one_stream']}; "
               f"status-ignored-only in {res['status_ignored_only']}")
         for f in res["findings"]:
             mark = "SCHEDULED" if f["scheduled"] else "         "

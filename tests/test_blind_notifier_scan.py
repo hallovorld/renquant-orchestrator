@@ -99,6 +99,42 @@ def test_evidence_suppression_ALONE_is_also_not_enough(tmp_path):
     assert r["delivery_unobservable"] == 0 and r["status_ignored_only"] == 0
 
 
+# --- PER-STREAM semantics (codex round 3 on #646) --------------------------------
+# `>/dev/null` kills the RESPONSE BODY on stdout; curl's errors are on stderr and
+# still reach the job log. `-s` kills curl's stderr output; the response body still
+# lands on stdout. Either alone leaves the other stream visible, so neither alone
+# can support "delivery unobservable". These are the two controls review asked for.
+
+def test_status_discard_plus_STDOUT_ONLY_redirect_is_AMBIGUOUS(tmp_path):
+    """curl errors are still on stderr and still reach the job log."""
+    d, m = _fixture(tmp_path, "a1.sh",
+                    'curl -d "$b" "https://ntfy.sh/x" >/dev/null || true\n')
+    r = blind.scan(d, m)
+    assert r["delivery_unobservable"] == 0, r["findings"]
+    assert r["ambiguous_one_stream"] == 1
+
+
+def test_status_discard_plus_s_WITHOUT_stdout_redirect_is_AMBIGUOUS(tmp_path):
+    """The response body is still on stdout and still reaches the job log."""
+    d, m = _fixture(tmp_path, "a2.sh",
+                    'curl -s -d "$b" "https://ntfy.sh/x" || true\n')
+    r = blind.scan(d, m)
+    assert r["delivery_unobservable"] == 0, r["findings"]
+    assert r["ambiguous_one_stream"] == 1
+
+
+@pytest.mark.parametrize("both", [
+    '>/dev/null 2>&1 || true',
+    '-s >/dev/null || true',
+    '-o /dev/null 2>/dev/null || true',
+])
+def test_BOTH_streams_silenced_IS_the_strong_finding(tmp_path, both):
+    """Anti-vacuity for the per-stream rule: a predicate strict enough to accept
+    nothing would erase the population it exists to count."""
+    d, m = _fixture(tmp_path, "b1.sh", f'curl -d "$b" "https://ntfy.sh/x" {both}\n')
+    assert blind.scan(d, m)["delivery_unobservable"] == 1, both
+
+
 def test_BOTH_together_are_unobservable(tmp_path):
     d, m = _fixture(tmp_path, "r.sh",
                     'curl -d "$b" "https://ntfy.sh/x" >/dev/null 2>&1 || true\n')
@@ -186,3 +222,7 @@ def test_the_live_umbrella_still_has_the_measured_population():
     # predicate: 15 / 12 / 0 — identical to the loose version, so nothing was being
     # counted that should not have been. The number was right; the definition was not.
     assert r["status_ignored_only"] == 0
+    # Per-stream re-measure, codex round 3: all 16 POST lines silence BOTH streams,
+    # so the ambiguous bucket is empty. If a future edit drops one stream's
+    # redirect, that line moves here instead of silently keeping the strong claim.
+    assert r["ambiguous_one_stream"] == 0

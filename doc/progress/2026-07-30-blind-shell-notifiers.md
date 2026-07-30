@@ -18,7 +18,14 @@ that the result was discarded**, so the count was not tied to the property claim
 **Corrected predicate, round 1:** an explicit status-discarding construct is
 **necessary**.
 
-**Round 2 (codex again, and again right):** status discard alone is **not
+**Round 3 (codex, third time right):** "evidence suppressed" is **per-stream**.
+`>/dev/null` kills the response body on **stdout** while curl's errors stay on
+**stderr**; `-s` kills curl's stderr output while the body stays on **stdout**.
+Either alone leaves the other stream in the job log. The strong finding now needs
+**both** streams covered, and one-stream cases go to a new **`ambiguous`** bucket
+rather than being promoted.
+
+**Round 2:** status discard alone is **not
 sufficient either**. `|| true` throws away the *shell* status, but curl still writes
 its error to stderr and that reaches the job log — **an error visible in the log IS
 delivery evidence**. So the strong category now requires **BOTH** a status discard
@@ -30,8 +37,9 @@ and `ntfy.sh` can be an echo, a comment fragment, a variable assignment or a `GE
 It must now carry a data/POST flag (`-d`, `--data`, `-X POST`, `-T`,
 `--upload-file`).
 
-**Re-measured under the strict recogniser AND the two-condition predicate:
-15 scripts, 12 scheduled, `status_ignored_only` = 0 — unchanged**
+**Re-measured under per-stream semantics: 16 POST lines, all 16 silencing BOTH
+streams → 15 scripts, 12 scheduled, `ambiguous` = 0, `status_ignored_only` = 0 —
+unchanged for the fourth time**
 `[VERIFIED — re-run, 2026-07-30]`. Every real line carries all three constructs, and
 the strict recogniser matches the same 15 as the loose one, so nothing was being
 counted that should not have been.
@@ -83,7 +91,7 @@ it — is an umbrella change and belongs in its own authorised batch.
 
 ## 4. Suite
 
-34 tests, including three controls that would have caught my own likely errors:
+39 tests, including three controls that would have caught my own likely errors:
 
 - **anti-vacuity** — a send that keeps its status is **not** a finding, or the count
   carries no information and the tool gets ignored;
