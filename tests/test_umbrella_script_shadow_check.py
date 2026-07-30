@@ -185,3 +185,92 @@ def test_emit_never_writes(tmp_path, capsys):
     assert sh.main(["--emit", "--registry", str(p)]) == 0
     assert p.read_text() == "SENTINEL"
     assert json.loads(capsys.readouterr().out)["pairs"]
+
+
+# --- the sibling half: same fail-open shape as the umbrella half --------------
+#
+# codex round 2 on #634: fixing the umbrella side left the sibling side open.
+# `_sh()` discarded return codes, so an unreachable sibling, a missing origin/main
+# or a failed ls-tree all looked identical to "this repo has an empty src/ tree".
+# `--emit` would then write a registry missing that repo's pairs, and `verify`
+# could report clean over a surface it never read.
+
+def test_sh_raises_instead_of_returning_empty_on_failure():
+    """The root of the fail-open: stdout was returned whatever the exit code."""
+    with pytest.raises(sh.Unverifiable):
+        sh._sh(["git", "-C", "/definitely/not/a/repo", "rev-parse", "HEAD"])
+
+
+def test_missing_sibling_checkout_is_reported(monkeypatch, tmp_path):
+    monkeypatch.setattr(sh, "GITHUB", tmp_path / "empty-github-root")
+    problems = sh.check_siblings()
+    assert problems and all("sibling checkout missing" in p for p in problems)
+
+
+def test_sibling_without_origin_main_is_reported(monkeypatch, tmp_path):
+    """A checkout can exist and still be unreadable — e.g. never fetched."""
+    root = tmp_path / "gh"
+    for repo in sh.SIBLINGS:
+        (root / repo / ".git").mkdir(parents=True)
+    monkeypatch.setattr(sh, "GITHUB", root)
+    problems = sh.check_siblings()
+    assert problems and all("no readable origin/main" in p for p in problems)
+
+
+def test_survey_refuses_rather_than_returning_a_partial_answer(monkeypatch, tmp_path):
+    monkeypatch.setattr(sh, "GITHUB", tmp_path / "empty-github-root")
+    with pytest.raises(sh.Unverifiable):
+        sh.survey()
+
+
+def test_emit_refuses_to_print_a_partial_registry(monkeypatch, tmp_path, capsys):
+    """The dangerous path: emitted output is committed and becomes the baseline."""
+    monkeypatch.setattr(sh, "GITHUB", tmp_path / "empty-github-root")
+    assert sh.main(["--emit"]) == 2
+    out = capsys.readouterr()
+    assert out.out.strip() == "", "a partial registry must never reach stdout"
+    assert "REFUSING to emit" in out.err
+
+
+def test_verify_reports_unverifiable_when_a_sibling_is_unreachable(
+        monkeypatch, tmp_path):
+    """The subtle half of codex's finding: an unreachable sibling with no
+    already-registered pair produces an EMPTY diff, which reads as clean."""
+    monkeypatch.setattr(sh, "GITHUB", tmp_path / "empty-github-root")
+    problems = sh.verify(REG)
+    assert len(problems) == 1
+    assert problems[0].startswith(sh.UNVERIFIABLE)
+    assert "were NOT checked" in problems[0]
+
+
+def test_unreachable_sibling_exits_2_not_0(monkeypatch, tmp_path):
+    monkeypatch.setattr(sh, "GITHUB", tmp_path / "empty-github-root")
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(REG))
+    assert sh.main(["--registry", str(p)]) == 2
+
+
+def test_the_exact_silent_clean_scenario_codex_described(monkeypatch):
+    """One unreachable sibling that has NO registered pair used to report CLEAN.
+
+    This is the precise hole, reproduced before fixing it: `renquant-pipeline` has
+    zero pairs in the registry, so when its `ls-tree` silently returned b"" the
+    live/known diff was empty and `verify()` returned `[]`. Nothing was wrong with
+    the registry — the tool simply never looked at that repo and said so by saying
+    nothing. Guarding on `check_siblings()` is what makes it speak up.
+    """
+    victim = "renquant-pipeline"
+    assert not any(v["subrepo"] == victim for v in REG["pairs"].values()), (
+        f"{victim} now has registered pairs — pick another zero-pair sibling or this "
+        f"test no longer reproduces the silent-clean case")
+
+    real = sh._sh
+    monkeypatch.setattr(
+        sh, "_sh", lambda argv: b"" if victim in " ".join(argv) else real(argv))
+    monkeypatch.setattr(sh, "check_siblings", lambda: [])   # the gate under test
+    assert sh.verify(REG) == [], "expected the OLD fail-open behaviour here"
+
+    monkeypatch.undo()
+    monkeypatch.setattr(sh, "GITHUB", Path("/definitely/not/a/github/root"))
+    problems = sh.verify(REG)
+    assert len(problems) == 1 and problems[0].startswith(sh.UNVERIFIABLE)

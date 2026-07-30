@@ -62,8 +62,44 @@ DIVERGED = "DIVERGED"
 UNVERIFIABLE = "UNVERIFIABLE"
 
 
+class Unverifiable(RuntimeError):
+    """An input could not be read. NEVER conflated with 'the input was empty'.
+
+    Every fail-open path in this tool has the same shape: a git call fails, `_sh`
+    hands back b"", and a caller reads that as "the tree has no matching files".
+    An unreachable sibling then looks exactly like a sibling with no `src/`, so
+    `--emit` writes a registry missing that repo's pairs and `verify` can report
+    clean on a surface it never saw.
+    """
+
+
 def _sh(argv: list[str]) -> bytes:
-    return subprocess.run(argv, capture_output=True).stdout
+    """stdout, or raise. The old version returned stdout unconditionally."""
+    proc = subprocess.run(argv, capture_output=True)
+    if proc.returncode != 0:
+        raise Unverifiable(
+            f"`{' '.join(argv[:4])} …` exited {proc.returncode}: "
+            f"{proc.stderr.decode(errors='ignore').strip().splitlines()[:1]}")
+    return proc.stdout
+
+
+def check_siblings() -> list[str]:
+    """Every configured sibling must exist AND have an origin/main to read.
+
+    Checked up front rather than per-call so a partial answer is impossible: the
+    failure mode being closed is a registry silently missing one repo's pairs.
+    """
+    problems = []
+    for repo in SIBLINGS:
+        root = GITHUB / repo
+        if not (root / ".git").exists():
+            problems.append(f"sibling checkout missing: {root}")
+            continue
+        try:
+            _sh(["git", "-C", str(root), "rev-parse", "--verify", "origin/main"])
+        except Unverifiable as exc:
+            problems.append(f"sibling {repo}: no readable origin/main — {exc}")
+    return problems
 
 
 def subrepo_modules() -> dict[str, list[tuple[str, str]]]:
@@ -97,6 +133,13 @@ def scheduled_reference_blob() -> str:
 
 
 def survey() -> dict[str, Any]:
+    # Gate BEFORE reading anything. A partial survey is worse than no survey: it
+    # looks like a complete one and its output is committed as the registry.
+    sib = check_siblings()
+    if sib:
+        raise Unverifiable("; ".join(sib))
+    if not umbrella_present():
+        raise Unverifiable(f"no umbrella checkout at {UMBRELLA / 'scripts'}")
     mods = subrepo_modules()
     refs = scheduled_reference_blob()
     pairs: dict[str, Any] = {}
@@ -152,7 +195,14 @@ def verify(reg: dict[str, Any]) -> list[str]:
         return [f"{UNVERIFIABLE}: no umbrella checkout at {UMBRELLA / 'scripts'} — "
                 f"the {len(known)} registered pairs were NOT checked (set RQ_ROOT, or "
                 f"run this where the umbrella is present)"]
-    live = survey()["pairs"]
+    try:
+        live = survey()["pairs"]
+    except Unverifiable as exc:
+        # Same rule as the umbrella branch, for the sibling half. Without this a
+        # sibling that is unreachable AND has no already-registered pair yields an
+        # empty diff, i.e. a clean report over a surface that was never read.
+        return [f"{UNVERIFIABLE}: {exc} — the {len(known)} registered pairs were "
+                f"NOT checked"]
     problems: list[str] = []
     for name in sorted(set(live) - set(known)):
         e = live[name]
@@ -176,7 +226,15 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.emit:
-        print(json.dumps(survey(), indent=2, sort_keys=True))
+        try:
+            print(json.dumps(survey(), indent=2, sort_keys=True))
+        except Unverifiable as exc:
+            # Refusing to print is the point. A partial registry printed here gets
+            # committed and becomes the baseline, silently erasing the coverage of
+            # whichever sibling was unreachable at emit time.
+            print(f"{UNVERIFIABLE}: {exc}\nREFUSING to emit a partial registry",
+                  file=sys.stderr)
+            return 2
         return 0
     if not args.registry.exists():
         print(f"FATAL: registry missing at {args.registry} — run --emit and commit it",

@@ -97,3 +97,47 @@ Fixed by making absence a distinct, loud state:
 
 `[VERIFIED — this session]` 17 passed locally; with the umbrella absent (`RQ_ROOT` at a
 nonexistent path, i.e. the CI case) 10 passed, 7 skipped, 0 failed.
+
+## Round 2 — I fixed one half of the fail-open and left the other
+
+The umbrella fix above closed the case where the *umbrella* tree is missing. Codex
+found the same shape still open on the **sibling** side, and it was the more dangerous
+half.
+
+`_sh()` returned `proc.stdout` regardless of the exit code, so an unreachable sibling
+checkout, a missing `origin/main`, or a failed `ls-tree` all produced `b""` — which
+`subrepo_modules()` read as *"this repo has an empty `src/` tree"*. Two consequences:
+
+* `--emit` would print a registry missing that repo's pairs. That output is **committed
+  as the baseline**, so a transient failure at emit time silently erases coverage
+  permanently, and the resulting registry looks complete.
+* `verify()` could report **clean** over a surface it never read.
+
+The second is subtle enough to be worth reproducing rather than describing, so I did
+`[VERIFIED — this session]`: `renquant-pipeline` has **zero** registered pairs, so with
+the old `_sh()` an unreachable `renquant-pipeline` left the live/known diff empty and
+`verify()` returned `[]`. Not a wrong answer about the registry — the tool never looked
+at that repo, and said so by saying nothing. With the gate in place the same setup
+returns one `UNVERIFIABLE` naming the missing checkout.
+
+Fix, closing both directions:
+
+* `_sh()` **raises `Unverifiable`** on a non-zero exit instead of returning stdout.
+* `check_siblings()` validates **every** configured sibling — checkout exists, and
+  `origin/main` is readable — **up front**, so a partial answer cannot be assembled.
+* `survey()` gates on it and raises rather than returning a partial dict.
+* `--emit` catches that and **exits 2 with nothing on stdout**. Refusing to print is
+  the point: an emitted partial registry gets committed and becomes the baseline.
+* `verify()` maps it to the same single `UNVERIFIABLE … were NOT checked` line as the
+  umbrella branch, and `main()` exits **2**.
+
+Seven new tests, one per failure mode, including the exact silent-clean scenario above
+with an assertion that the chosen victim still has zero registered pairs — so if the
+registry grows a pair for it, the test tells you to pick another rather than quietly
+stopping to reproduce the bug.
+
+`[VERIFIED — this session]` 25 passed locally; 17 passed / 7 skipped / 0 failed with
+the umbrella absent (the CI case).
+
+**The lesson worth keeping:** I fixed the instance codex pointed at and did not sweep
+the file for the same shape. `_sh()` was three lines above the function I was editing.
