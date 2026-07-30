@@ -14,6 +14,7 @@ CHANGES_REQUESTED REGRESSION GUARD (PR #619, codex review 2026-07-30):
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -177,3 +178,36 @@ class TestAlertWindowExitCodes:
         rc = main(["--log-dir", str(tmp_path / "does-not-exist")])
         assert rc == 2
         assert "ABORT" in capsys.readouterr().out
+
+
+class TestJsonModeIsPureJson:
+    """MED regression guard (PR #619, codex review 2026-07-30): --json stdout
+    must be parseable as JSON with nothing else on it — no summary/CAVEAT
+    prose before or after the blob."""
+
+    def test_json_stdout_parses_with_a_firing(self, tmp_path, capsys):
+        write_log(tmp_path, "2026-07-22.log", [FIRING_LINE])
+        rc = main([
+            "--log-dir", str(tmp_path),
+            "--today", "2026-07-25",
+            "--alert-window-days", "7",
+            "--json",
+        ])
+        out = capsys.readouterr().out
+        parsed = json.loads(out)
+        assert rc == 1
+        assert parsed["summary"]["single_gate_funnel_kill"] == 1
+        assert len(parsed["recent"]) == 2
+
+    def test_json_stdout_parses_when_clean(self, tmp_path, capsys):
+        write_log(tmp_path, "2026-07-01.log", [FIRING_LINE])
+        rc = main([
+            "--log-dir", str(tmp_path),
+            "--today", "2026-07-25",
+            "--alert-window-days", "7",
+            "--json",
+        ])
+        out = capsys.readouterr().out
+        parsed = json.loads(out)
+        assert rc == 0
+        assert parsed["recent"] == []

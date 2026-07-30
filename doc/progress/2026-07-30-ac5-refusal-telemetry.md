@@ -107,3 +107,31 @@ FIX (codex CHANGES_REQUESTED, 2026-07-30, addressed by claude):
     scope:          `renquant-orchestrator` ops + this doc + new test file.
                      No pipeline change, no pin, no config.
   tests run: `pytest tests/test_refusal_telemetry.py -v` — 16 passed.
+
+FIX (codex CHANGES_REQUESTED, 2026-07-30, addressed by claude):
+          MED — `--json` was not actually machine-readable: `main()` always
+          printed the human summary/CAVEAT/ALERT-or-OK lines to stdout
+          around the JSON blob, so a caller piping the output into a JSON
+          parser got `JSONDecodeError`; codex reproduced this against the
+          real log directory. Fixed by branching in `main()`: when
+          `a.json` is set, stdout carries ONLY the `json.dumps(...)` blob
+          and nothing else; the summary/per-check/CAVEAT/ALERT-or-OK prose
+          now prints only in the default (non-JSON) path. Exit-code logic
+          (0 clean / 1 alert) is unchanged and shared by both paths.
+  EVIDENCE: artifact: `ops/refusal_telemetry.py`, re-run against the same
+            live `logs/daily_104` directory (169 files), READ-ONLY.
+            `[VERIFIED — this session, post-fix]`: codex's exact repro —
+            `... --json | python3 -c "import json,sys; json.load(sys.stdin)"`
+            — now parses cleanly (previously raised `JSONDecodeError`).
+            Non-JSON mode re-run confirms counts UNCHANGED: wash_sale_mass_block
+            13/12/8, single_gate_funnel_kill 6/6/6, fail_close_event 6/6/6,
+            universe_admission_collapse 1/1/1, threshold_scale_mismatch 1/1/1,
+            zero_priced_candidates 0/0/0.
+    prod or exp:    Read-only. Opens log files; writes nothing.
+    existing data:  Same 169 files as the original measurement.
+    best-known?:    Yes — `--json` stdout is now pure JSON as advertised.
+    scope:          `renquant-orchestrator` ops + this doc + 2 new tests.
+                     No pipeline change, no pin, no config.
+  tests run: `pytest tests/test_refusal_telemetry.py -v` — 18 passed (2 new:
+             `TestJsonModeIsPureJson::test_json_stdout_parses_with_a_firing`,
+             `test_json_stdout_parses_when_clean`).

@@ -24,6 +24,9 @@ writes nothing anywhere.
     python3 ops/refusal_telemetry.py --log-dir <umbrella>/logs/daily_104
     python3 ops/refusal_telemetry.py --log-dir ... --since 2026-07-01 --json
 
+--json emits ONLY the JSON blob on stdout (no summary/caveat prose around it),
+so a caller can pipe it straight into a JSON parser.
+
 Exit codes: 0 clean, 1 a refusal fired inside --alert-window-days (default 7).
 So it is usable as a daily scan, not only as a report.
 
@@ -167,6 +170,20 @@ def main(argv: list[str] | None = None) -> int:
     window_start = today - dt.timedelta(days=a.alert_window_days)
 
     recent: list[dict] = []
+    for check in KNOWN_CHECKS:
+        hits = r["per_check"].get(check, [])
+        for h in hits:
+            if h["date"] and dt.date.fromisoformat(h["date"]) >= window_start:
+                recent.append({"check": check, **h})
+
+    if a.json:
+        # Machine-readable mode: stdout carries ONLY the JSON blob, nothing else,
+        # so a caller can pipe it straight into a JSON parser.
+        print(json.dumps({"summary": {k: len(v) for k, v in r["per_check"].items()},
+                          "recent": recent, "window_start": window_start.isoformat()},
+                         indent=2))
+        return 1 if recent else 0
+
     print(f"funnel-integrity refusals, {r['files_scanned']} log file(s) scanned"
           + (f", {r['files_skipped_by_since']} skipped by --since" if a.since else ""))
     for check in KNOWN_CHECKS:
@@ -176,9 +193,6 @@ def main(argv: list[str] | None = None) -> int:
         line = (f"  {check:<28} firings={len(hits):<4} files={len(files):<3} "
                 f"dates={len(dates)}")
         print(line)
-        for h in hits:
-            if h["date"] and dt.date.fromisoformat(h["date"]) >= window_start:
-                recent.append({"check": check, **h})
     if r["untracked_candidates"]:
         print(f"  UNTRACKED fired-event names: {r['untracked_candidates']} — a "
               f"refusal reason this tool does not know about is the one it must "
@@ -188,10 +202,6 @@ def main(argv: list[str] | None = None) -> int:
           "record. Treat the counts as a FLOOR — a firing whose log rotated away "
           "is invisible here. The durable fix is to persist these findings as rows.")
 
-    if a.json:
-        print(json.dumps({"summary": {k: len(v) for k, v in r["per_check"].items()},
-                          "recent": recent, "window_start": window_start.isoformat()},
-                         indent=2))
     if recent:
         print(f"\nALERT: {len(recent)} refusal firing(s) since {window_start} — "
               + ", ".join(sorted({x['check'] for x in recent})))
