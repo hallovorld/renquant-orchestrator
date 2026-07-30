@@ -58,7 +58,9 @@ WHY/DIR:  AC5 is "silent-refusal telemetry". My first framing was wrong twice
 
 EVIDENCE: artifact: `ops/refusal_telemetry.py`, read against the live
           `logs/daily_104/` directory (169 files), READ-ONLY.
-          `[VERIFIED-now]` on the real directory, 169 log files:
+          `[VERIFIED — python3 ops/refusal_telemetry.py --log-dir
+          /Users/renhao/git/github/RenQuant/logs/daily_104 --today 2026-07-30]`
+          on the real directory, 169 log files:
             wash_sale_mass_block         13 firings / 12 files /  8 dates
             single_gate_funnel_kill       6 /  6 /  6
             fail_close_event              6 /  6 /  6
@@ -69,8 +71,14 @@ EVIDENCE: artifact: `ops/refusal_telemetry.py`, read against the live
           `single_gate_funnel_kill` and `wash_sale_mass_block`. The
           `wash_sale_mass_block` count is consistent with the independently
           measured "buys zeroed on 3 of the last 5 sessions".
-          And `runs.alpaca.db` holds **0 rows** for any of them
-          `[VERIFIED-prior — this session]`.
+          And `data/runs.alpaca.db` (the live 131 MB DB, not the empty
+          root-level stub of the same name) holds **0 rows** naming any of
+          the six checks in either table that could hold them
+          `[VERIFIED — sqlite3 /Users/renhao/git/github/RenQuant/data/runs.alpaca.db
+          "SELECT COUNT(*) FROM gate_verdicts WHERE gate LIKE '%<check>%' OR
+          reason LIKE '%<check>%' OR inputs_json LIKE '%<check>%'" and the
+          same query against alert_incidents(audit, scope, cause_hash), run
+          for all six check names, 2026-07-30]`.
   prod or exp:    Read-only. Opens log files; writes nothing.
   existing data:  Yes — logs already on disk. No compute, no spend.
   best-known?:    Yes for the aggregate. The tool states, rather than hides,
@@ -128,7 +136,9 @@ FIX (codex CHANGES_REQUESTED, 2026-07-30, addressed by claude):
           exit codes (0/1/2).
   EVIDENCE: artifact: `ops/refusal_telemetry.py`, re-run against the same
             live `logs/daily_104` directory (169 files), READ-ONLY.
-            `[VERIFIED — this session, post-fix]`: counts are UNCHANGED —
+            `[VERIFIED — python3 ops/refusal_telemetry.py --log-dir
+            /Users/renhao/git/github/RenQuant/logs/daily_104 --today
+            2026-07-30, re-run on HEAD]`: counts are UNCHANGED —
             wash_sale_mass_block 13/12/8, single_gate_funnel_kill 6/6/6,
             fail_close_event 6/6/6, universe_admission_collapse 1/1/1,
             threshold_scale_mismatch 1/1/1, zero_priced_candidates 0/0/0 —
@@ -142,7 +152,9 @@ FIX (codex CHANGES_REQUESTED, 2026-07-30, addressed by claude):
                      instead of substring scanning.
     scope:          `renquant-orchestrator` ops + this doc + new test file.
                      No pipeline change, no pin, no config.
-  tests run: `pytest tests/test_refusal_telemetry.py -v` — 16 passed.
+  tests run: `[VERIFIED — pytest tests/test_refusal_telemetry.py -v, re-run
+             on HEAD]` — 25 passed (16 at the time of this fix; the file has
+             grown to 25 across later fixes in this same PR).
 
 FIX (codex CHANGES_REQUESTED, 2026-07-30, addressed by claude):
           MED — `--json` was not actually machine-readable: `main()` always
@@ -156,9 +168,11 @@ FIX (codex CHANGES_REQUESTED, 2026-07-30, addressed by claude):
           (0 clean / 1 alert) is unchanged and shared by both paths.
   EVIDENCE: artifact: `ops/refusal_telemetry.py`, re-run against the same
             live `logs/daily_104` directory (169 files), READ-ONLY.
-            `[VERIFIED — this session, post-fix]`: codex's exact repro —
-            `... --json | python3 -c "import json,sys; json.load(sys.stdin)"`
-            — now parses cleanly (previously raised `JSONDecodeError`).
+            `[VERIFIED — python3 ops/refusal_telemetry.py --log-dir
+            /Users/renhao/git/github/RenQuant/logs/daily_104 --today
+            2026-07-30 --since 2100-01-01 --json | python3 -c "import
+            json,sys; json.load(sys.stdin)", re-run on HEAD]`: codex's exact
+            repro now parses cleanly (previously raised `JSONDecodeError`).
             Non-JSON mode re-run confirms counts UNCHANGED: wash_sale_mass_block
             13/12/8, single_gate_funnel_kill 6/6/6, fail_close_event 6/6/6,
             universe_admission_collapse 1/1/1, threshold_scale_mismatch 1/1/1,
