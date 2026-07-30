@@ -50,13 +50,17 @@
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_104.sh"
       ],
-      "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129"
+      "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/daily_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
+      "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence."
     },
     "com.renquant.intraday104": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/intraday_sell_104.sh"
       ],
-      "program_args_sha256": "955f3d81957073893d7bddfc387bea34002bc30243b951ad87d7566e27a3daa9"
+      "program_args_sha256": "955f3d81957073893d7bddfc387bea34002bc30243b951ad87d7566e27a3daa9",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/intraday_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
+      "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence."
     },
     "com.renquant.monthly-calibrator-refresh": {
       "program_args": [
