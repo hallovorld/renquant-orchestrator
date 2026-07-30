@@ -42,14 +42,28 @@ from pathlib import Path
 OPS = Path(__file__).resolve().parent
 PY = sys.executable
 
-#: (name, relative path, argv tail). Read-only detectors only — see module docstring.
-MEMBERS: tuple[tuple[str, str, list[str]], ...] = (
-    ("silent-refusal", "renquant104/rq104_silent_refusal_sentinel.py", []),
-    ("blind-notifiers", "blind_notifier_scan.py", []),
-    ("undelivered-alerts", "undelivered_alert_scan.py", []),
-    ("import-resolution", "import_resolution_check.py", []),
-    ("umbrella-script-shadow", "umbrella_script_shadow_check.py", []),
-    ("launchd-liveness", "launchd_liveness_scan.py", []),
+#: (name, relative path, argv tail, ALLOWED FINDING EXIT CODES).
+#:
+#: The fourth field is the member's **finding-exit contract** and it is the whole
+#: point. Without it the aggregator read "any nonzero without a traceback" as a
+#: finding, which is false for every detector here: each one already distinguishes
+#: "I checked and found something" from "I could not check", and the second is a
+#: HARNESS problem. Codex on #650 named `blind_notifier_scan`'s exit 2 (source
+#: directory absent); the same is true of `umbrella_script_shadow_check`, whose
+#: exit 2 means UNVERIFIABLE — it would have been reported as a healthy detector
+#: finding something while it had nothing to look at. argparse also exits 2 without
+#: a traceback, so a typo in `tail` would have read as a finding too.
+#:
+#: Codes MEASURED from each member's `main()` on 2026-07-30, not assumed:
+#: all six use 1 = findings, and four of them use 2 = unusable/unverifiable.
+#: Read-only detectors only — see module docstring.
+MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
+    ("silent-refusal", "renquant104/rq104_silent_refusal_sentinel.py", [], (1,)),
+    ("blind-notifiers", "blind_notifier_scan.py", [], (1,)),
+    ("undelivered-alerts", "undelivered_alert_scan.py", [], (1,)),
+    ("import-resolution", "import_resolution_check.py", [], (1,)),
+    ("umbrella-script-shadow", "umbrella_script_shadow_check.py", [], (1,)),
+    ("launchd-liveness", "launchd_liveness_scan.py", [], (1,)),
 )
 
 #: A member may not run forever inside a scheduled job.
@@ -57,6 +71,10 @@ PER_MEMBER_TIMEOUT_S = 300
 
 STATUS_OK, STATUS_FINDINGS, STATUS_CRASH, STATUS_TIMEOUT, STATUS_MISSING = (
     "ok", "findings", "crash", "timeout", "missing")
+#: A nonzero exit that is NOT in the member's finding contract. The detector ran but
+#: reached no verdict — an absent input, a bad argument, an unreadable pin. Distinct
+#: from `crash` because nothing died, and emphatically distinct from `findings`.
+STATUS_UNUSABLE = "unusable"
 
 #: Aggregate exit codes. `findings` is 1 so the job's nonzero exit means "a detector
 #: found something"; a harness problem gets its own code so it is never read as a
@@ -64,7 +82,8 @@ STATUS_OK, STATUS_FINDINGS, STATUS_CRASH, STATUS_TIMEOUT, STATUS_MISSING = (
 EXIT_OK, EXIT_FINDINGS, EXIT_HARNESS = 0, 1, 3
 
 
-def run_member(name: str, rel: str, tail: list[str], ops: Path) -> dict:
+def run_member(name: str, rel: str, tail: list[str],
+               finding_exits: tuple[int, ...], ops: Path) -> dict:
     path = ops / rel
     if not path.exists():
         return {"member": name, "status": STATUS_MISSING, "exit_code": None,
@@ -82,11 +101,22 @@ def run_member(name: str, rel: str, tail: list[str], ops: Path) -> dict:
                 "detail": f"{type(exc).__name__}: {exc}"}
     out = (p.stdout or "").strip().splitlines()
     err = (p.stderr or "").strip().splitlines()
-    # A traceback on stderr means the tool DIED; a nonzero code without one means it
-    # reached a verdict. Collapsing the two is the defect #622 exists for.
+    # A traceback on stderr means the tool DIED. Absent one, a nonzero code means a
+    # verdict ONLY if it is in this member's declared finding contract; every other
+    # nonzero is a detector that ran without reaching a verdict.
+    #
+    # The previous version had `else STATUS_FINDINGS`, so exit 2 = "could not check"
+    # was reported as "checked and found something" — the crash-vs-alarm confusion
+    # #622 exists for, reproduced one layer up in the aggregator built to prevent it.
     crashed = any("Traceback (most recent call last)" in l for l in err)
-    status = (STATUS_CRASH if crashed else
-              STATUS_OK if p.returncode == 0 else STATUS_FINDINGS)
+    if crashed:
+        status = STATUS_CRASH
+    elif p.returncode == 0:
+        status = STATUS_OK
+    elif p.returncode in finding_exits:
+        status = STATUS_FINDINGS
+    else:
+        status = STATUS_UNUSABLE
     return {"member": name, "status": status, "exit_code": p.returncode,
             "elapsed_s": round(time.monotonic() - t0, 1),
             "detail": (err[-1] if crashed and err else
@@ -94,13 +124,15 @@ def run_member(name: str, rel: str, tail: list[str], ops: Path) -> dict:
 
 
 def audit(ops: Path = OPS, members=MEMBERS) -> dict:
-    results = [run_member(n, r, t, ops) for n, r, t in members]
+    results = [run_member(n, r, t, f, ops) for n, r, t, f in members]
     counts = {s: sum(1 for r in results if r["status"] == s)
               for s in (STATUS_OK, STATUS_FINDINGS, STATUS_CRASH,
-                        STATUS_TIMEOUT, STATUS_MISSING)}
+                        STATUS_TIMEOUT, STATUS_MISSING, STATUS_UNUSABLE)}
     # WORST severity wins: a harness problem outranks a finding, because a detector
-    # that could not run is not a detector that found nothing.
-    if counts[STATUS_CRASH] or counts[STATUS_TIMEOUT] or counts[STATUS_MISSING]:
+    # that could not run is not a detector that found nothing. `unusable` sits on the
+    # harness side for exactly that reason.
+    if (counts[STATUS_CRASH] or counts[STATUS_TIMEOUT] or counts[STATUS_MISSING]
+            or counts[STATUS_UNUSABLE]):
         aggregate = EXIT_HARNESS
     elif counts[STATUS_FINDINGS]:
         aggregate = EXIT_FINDINGS
@@ -120,8 +152,8 @@ def main(argv=None) -> int:
     else:
         c = res["counts"]
         print(f"ops-audit: {res['members']} detector(s) — ok={c['ok']} "
-              f"findings={c['findings']} crash={c['crash']} "
-              f"timeout={c['timeout']} missing={c['missing']}")
+              f"findings={c['findings']} unusable={c['unusable']} "
+              f"crash={c['crash']} timeout={c['timeout']} missing={c['missing']}")
         for r in res["results"]:
             print(f"  [{r['status']:8}] {r['member']:24} exit={r['exit_code']} "
                   f"{r['detail'][:96]}")

@@ -69,3 +69,44 @@ The plist is **not installed** — machine landing, separate authorisation, and
 bootstrap must first verify the RUN checkout carries this wrapper. Until then the
 liveness scan will report `UNJUDGEABLE_NO_PLIST` for this label, which is the
 correct reading and the designed reminder.
+
+## Round 1 — the aggregator reproduced the defect it was built to prevent
+
+Codex: the exit aggregation did not preserve the finding-versus-harness distinction it
+claims. `status = CRASH if traceback else OK if rc == 0 else FINDINGS` classifies
+**every** nonzero exit lacking a Python traceback as a detector finding.
+
+That is #622's crash-vs-alarm confusion, one layer up, inside the control built to stop
+it — and it is not hypothetical for these six members `[VERIFIED — read each member's
+`main()` on this branch, 2026-07-30]`:
+
+* `blind_notifier_scan` exits **2** when its source directory is absent
+  (`EXIT_OK, EXIT_FINDINGS, EXIT_UNUSABLE = 0, 1, 2`);
+* `umbrella_script_shadow_check` exits **2** for `UNVERIFIABLE` — the state added on
+  #634 precisely so "could not check" could not read as "checked and found nothing".
+  The aggregator would have turned it back into a finding;
+* `import_resolution_check` and `launchd_liveness_scan` both use **2** the same way;
+* `argparse` exits **2** with no traceback, so a typo in a member's argv tail would
+  have reported as a finding.
+
+A scheduled control that says "a detector found something" when the detector had
+nothing to look at is worse than no control: it manufactures alarms that cannot be
+actioned and, once they are ignored, hides the real ones.
+
+**Fix — an explicit per-member finding-exit contract.** `MEMBERS` gains a fourth field
+listing the exit codes that mean *a verdict was reached*. Classification is now:
+traceback → `crash`; `0` → `ok`; **in the contract** → `findings`; **anything else
+nonzero** → new status `unusable`, which sits on the harness side of the severity
+ordering, so it outranks findings for the aggregate exit.
+
+The codes were **measured, not assumed**: all six members use `1` for findings, four
+also use `2` for unusable. Declaring the contract per member rather than hardcoding
+`{1}` globally is deliberate — a future detector with a different vocabulary must state
+it, instead of silently inheriting the fail-open.
+
+`test_every_member_declares_a_finding_contract` fails if a member is added without one.
+
+`[VERIFIED — this session]` 16 tests pass, including the regression codex asked for
+(`test_a_non_traceback_exit_2_is_HARNESS_not_findings`). Load-bearing confirmed by
+restoring the old classification in a copy: the same exit-2 stub flips `unusable` →
+`findings`.
