@@ -44,14 +44,29 @@ from pathlib import Path
 UMBRELLA = Path("/Users/renhao/git/github/RenQuant")
 MANIFEST = Path(__file__).resolve().parent / "launchd_manifest.json"
 
-#: How the delivery result gets thrown away. Each is reported separately: they fail
-#: differently and a fix might address only one.
-SILENCERS = {
-    "status_discarded": ("|| true", "||true"),
-    "output_discarded": (">/dev/null",),
-    # `-s` alone. `-sS` is NOT silent (it keeps errors), so it must not match here
-    # or the tool would report a sender that does report as one that does not.
+#: THE FINDING PREDICATE. Codex BLOCKER on #646: the first version marked a sender
+#: unobservable when it carried ANY ONE of three tokens, and that is materially
+#: overbroad. `curl -s` still hands its exit status to the caller. So does a command
+#: with stdout redirected. **Neither alone establishes that the result was
+#: discarded**, so a count built on `any()` was not tied to the property claimed.
+#:
+#: Only an explicit status-discarding construct makes the outcome unobservable in
+#: the caller's control flow, so that is now NECESSARY. `-s` and `>/dev/null` are
+#: reported as ATTRIBUTES of an established finding — they say how much *additional*
+#: evidence was destroyed, not whether the finding exists.
+#:
+#: Re-measured under the strict predicate on 2026-07-30: **15 scripts, 12
+#: scheduled** — unchanged, because every one of them carries `|| true`. The number
+#: survived the tightening; the reasoning behind it did not, and that is the part
+#: that needed fixing.
+STATUS_DISCARDERS = ("|| true", "||true", "|| :", "||:", "; true", ";true")
+
+#: Aggravating, never sufficient.
+ATTRIBUTES = {
+    # `-s` alone. `-sS` is NOT silent (it keeps errors) and must not match, or the
+    # tool would describe a sender that does report as one that does not.
     "curl_silent": ("curl -s ", "curl -s\t"),
+    "output_discarded": (">/dev/null",),
 }
 
 EXIT_OK, EXIT_FINDINGS, EXIT_UNUSABLE = 0, 1, 2
@@ -77,12 +92,15 @@ def send_lines(text: str) -> list[str]:
     return out
 
 
-def classify(line: str) -> list[str]:
-    found = []
-    for name, needles in SILENCERS.items():
-        if any(n in line for n in needles):
-            found.append(name)
-    return found
+def discards_status(line: str) -> bool:
+    """The NECESSARY condition. Without it the caller can still see the result."""
+    return any(t in line for t in STATUS_DISCARDERS)
+
+
+def attributes(line: str) -> list[str]:
+    """Extra evidence destroyed, reported only on lines that already qualify."""
+    return sorted(n for n, needles in ATTRIBUTES.items()
+                  if any(x in line for x in needles))
 
 
 def scan(scripts_dir: Path, manifest: Path) -> dict:
@@ -94,11 +112,11 @@ def scan(scripts_dir: Path, manifest: Path) -> dict:
         lines = send_lines(p.read_text(errors="ignore"))
         if not lines:
             continue
-        silenced = [(l.strip(), classify(l)) for l in lines]
-        blind = [(l, c) for l, c in silenced if c]
+        blind = [(l.strip(), attributes(l)) for l in lines if discards_status(l)]
         rec = {"script": p.name, "scheduled": p.name in sched,
                "send_lines": len(lines), "blind_lines": len(blind),
-               "silencers": sorted({c for _, cs in blind for c in cs})}
+               "status_discarded": bool(blind),
+               "attributes": sorted({a for _, ats in blind for a in ats})}
         (findings if blind else clean).append(rec)
     return {
         "scripts_with_ntfy_sends": len(findings) + len(clean),
@@ -128,7 +146,8 @@ def main(argv=None) -> int:
               f"({res['blind_and_scheduled']} of them launchd-scheduled)")
         for f in res["findings"]:
             mark = "SCHEDULED" if f["scheduled"] else "         "
-            print(f"  {mark}  {f['script']:40} {','.join(f['silencers'])}")
+            attrs = ",".join(f["attributes"]) or "(status discarded only)"
+            print(f"  {mark}  {f['script']:40} {attrs}")
     return EXIT_FINDINGS if res["blind"] else EXIT_OK
 
 

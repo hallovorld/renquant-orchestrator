@@ -8,6 +8,24 @@ failed to send — by matching `ntfy send failed`, a string **only**
 `curl` and discards the result, so it can never emit that string and the existing
 scan is structurally blind to it.
 
+## 0. CORRECTION — the first predicate was overbroad (codex, #646)
+
+The first version marked a sender unobservable when it carried **any one** of three
+tokens. That is materially wrong: `curl -s` still hands its exit status to the
+caller, and so does a command with stdout redirected. **Neither alone establishes
+that the result was discarded**, so the count was not tied to the property claimed.
+
+**Corrected predicate:** an explicit status-discarding construct
+(`|| true`, `||true`, `|| :`, `||:`, `; true`, `;true`) is **NECESSARY**. `-s` and
+`>/dev/null` are demoted to **attributes** — they record how much *additional*
+evidence was destroyed, not whether the finding exists.
+
+**Re-measured under the strict predicate: 15 scripts, 12 scheduled — unchanged**,
+because every one of them carries `|| true` `[VERIFIED — re-run, 2026-07-30]`.
+**The number survived the tightening; the reasoning behind it did not**, and that
+is the part that needed fixing. A number that happens to be right for a wrong
+reason is still a wrong claim.
+
 ## 1. Measured population
 
 `[VERIFIED — whole-line scan of every umbrella `scripts/*.sh` cross-referenced with
@@ -52,7 +70,7 @@ it — is an umbrella change and belongs in its own authorised batch.
 
 ## 4. Suite
 
-8 tests, including three controls that would have caught my own likely errors:
+18 tests, including three controls that would have caught my own likely errors:
 
 - **anti-vacuity** — a send that keeps its status is **not** a finding, or the count
   carries no information and the tool gets ignored;
@@ -62,7 +80,12 @@ it — is an umbrella change and belongs in its own authorised batch.
   produces a number nobody can act on, the same error I made earlier today reading
   an append-only log as if its lines belonged to today's run;
 
-plus a regression pin on the live machine (`blind >= 12`, `scheduled >= 10`) so a
+plus **nine negative controls** added at review: four asserting that each
+individual silencer *without* a status discard is **not** a finding (including `-s`
+AND `>/dev/null` together), and five asserting each spelling of the status discard
+**is** one — so the overbreadth cannot return a piece at a time, and the necessary
+condition cannot be narrowed into hiding real cases. Plus a regression pin on the
+live machine (`blind >= 12`, `scheduled >= 10`) so a
 future fix makes this fail and the number gets updated **deliberately** rather than
 drifting unnoticed, and a fail-closed control that an absent scripts directory is
 `UNUSABLE` (exit 2), never "no blind senders".
