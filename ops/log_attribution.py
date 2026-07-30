@@ -54,14 +54,30 @@ UNATTRIBUTABLE = "UNATTRIBUTABLE"
 EXIT_OK, EXIT_UNATTRIBUTABLE, EXIT_ERROR = 0, 3, 2
 
 
-def filename_date(path: Path) -> dt.date | None:
-    m = FILENAME_DATE.search(path.name)
-    if not m:
-        return None
-    try:
-        return dt.date.fromisoformat(m.group(1))
-    except ValueError:
-        return None
+def filename_date(path: Path) -> tuple[dt.date | None, str]:
+    """(date, why). MORE THAN ONE distinct date in the name is a REFUSAL.
+
+    Codex on #648: a filename carrying two dates — `x_2026-07-29_to_2026-07-30.log`,
+    a rotated range, a backfill window — is not evidence that the whole file belongs
+    to the first one `search()` happens to hit. Taking the first match is picking a
+    winner from an ambiguity, which is the guessing this module exists to refuse.
+    """
+    found = []
+    for raw in FILENAME_DATE.findall(path.name):
+        try:
+            d = dt.date.fromisoformat(raw)
+        except ValueError:
+            continue
+        if d not in found:
+            found.append(d)
+    if not found:
+        return None, "no date in filename"
+    if len(found) > 1:
+        return None, (f"{path.name} carries {len(found)} distinct dates "
+                      f"({', '.join(d.isoformat() for d in found)}) — a naming "
+                      f"contract that does not establish ONE run date cannot "
+                      f"attribute the file")
+    return found[0], f"filename names {found[0]}"
 
 
 def line_date(line: str) -> dt.date | None:
@@ -86,32 +102,55 @@ def lines_for_date(path: Path, day: dt.date) -> tuple[str, list[str], str]:
     text = path.read_text(errors="ignore")
     raw = text.splitlines()
 
-    fd = filename_date(path)
+    fd, fwhy = filename_date(path)
+    if fd is None and "distinct dates" in fwhy:
+        return UNATTRIBUTABLE, [], fwhy
     if fd is not None:
         if fd != day:
             return (UNATTRIBUTABLE, [],
                     f"{path.name} is the log for {fd}, not {day} — a dated file "
                     f"cannot supply evidence about another date")
-        return ATTRIBUTED_BY_FILENAME, raw, f"filename names {day}"
+        return ATTRIBUTED_BY_FILENAME, raw, fwhy
 
-    stamped = [l for l in raw if line_date(l) is not None]
-    if not stamped:
+    # RECORD FRAMING, replacing a 50%-coverage ratio that codex correctly rejected.
+    # A timestamp establishes the date of ITS OWN line and of nothing else. The ratio
+    # rule accepted a 51%-stamped stream and silently dropped every continuation —
+    # tracebacks, tables, wrapped output — which is an attribution gap inside the
+    # module built to refuse them.
+    #
+    # A RECORD is a timestamped line plus every following un-timestamped line, up to
+    # the next timestamp. The record inherits its header's date and is returned whole
+    # or not at all. Nothing is dropped and nothing is guessed.
+    records: list[tuple[dt.date, list[str]]] = []
+    orphan: list[str] = []
+    for line in raw:
+        d = line_date(line)
+        if d is not None:
+            records.append((d, [line]))
+        elif records:
+            records[-1][1].append(line)
+        elif line.strip():
+            orphan.append(line)          # non-blank text before ANY timestamp
+
+    if not records:
         return (UNATTRIBUTABLE, [],
                 f"{path.name} carries no date in its name and no parseable "
                 f"line timestamps — it is an append-only stream of many runs and "
                 f"NO line in it can be attributed to {day}")
 
-    coverage = len(stamped) / len(raw) if raw else 0.0
-    hits = [l for l in stamped if line_date(l) == day]
-    why = (f"{len(stamped)}/{len(raw)} lines timestamped "
-           f"({coverage:.0%}); {len(hits)} on {day}")
-    if coverage < 0.5:
-        # Most lines are continuations (tracebacks, tables, wrapped output) whose
-        # own date is unknown. Returning only the stamped ones would silently drop
-        # the body of every multi-line record.
-        return (UNATTRIBUTABLE, [],
-                why + " — under half the lines carry a timestamp, so a filtered "
-                      "view would drop the body of multi-line records")
+    # Text before the first timestamp belongs to no record IN THIS FILE — a banner
+    # printed at creation, or the tail of a run that started in a rotated-away file.
+    # It is EXCLUDED (the guarantee is that no un-attributable line is ever
+    # returned) and the exclusion is REPORTED (a silent drop is the defect one level
+    # down). Refusing the whole file over it would be over-refusal: measured on
+    # logs/preopen_gate/stderr.log the orphan is a one-line path banner, while every
+    # actual record below it is well framed and attributable.
+    hits = [l for d, body in records if d == day for l in body]
+    why = (f"{len(records)} framed record(s); "
+           f"{sum(1 for d, _ in records if d == day)} on {day}")
+    if orphan:
+        why += (f"; EXCLUDED {len(orphan)} non-blank line(s) before the first "
+                f"timestamp — they belong to no record in this file")
     return ATTRIBUTED_BY_TIMESTAMP, hits, why
 
 

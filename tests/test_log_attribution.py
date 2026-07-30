@@ -82,15 +82,79 @@ def test_a_date_INSIDE_a_line_is_not_the_lines_own_date(tmp_path):
     assert status == la.UNATTRIBUTABLE and lines == []
 
 
-def test_a_mostly_unstamped_stream_is_UNATTRIBUTABLE(tmp_path):
-    """Under half the lines timestamped means most are continuations (tracebacks,
-    tables). Filtering would silently drop the body of every multi-line record."""
+def test_a_traceback_comes_back_WITH_its_header_not_dropped(tmp_path):
+    """RECORD FRAMING, replacing the 50%-coverage ratio codex rejected on #648.
+
+    The old rule accepted a 51%-stamped stream and silently discarded every
+    continuation. A timestamp establishes the date of ITS OWN line and nothing else,
+    so the ratio proved nothing. A record is a timestamped line plus every following
+    un-timestamped line; it is returned whole or not at all."""
     p = tmp_path / "s.log"
     p.write_text("2026-07-30 12:00 Traceback (most recent call last):\n"
                  + "  File x, line 1\n" * 9)
     status, lines, why = la.lines_for_date(p, D30)
+    assert status == la.ATTRIBUTED_BY_TIMESTAMP
+    assert len(lines) == 10, "the body must ride with its header"
+    assert "framed record" in why
+
+
+def test_just_above_the_OLD_threshold_no_longer_leaks(tmp_path):
+    """The regression fixture codex asked for: 51% stamped / 49% continuation. The
+    old rule ACCEPTED this and returned only the 51%. Framing returns the records
+    whole, and the wrong-day record does not leak."""
+    body = "".join(f"2026-07-30 12:0{i} header {i}\n  detail {i}\n" for i in range(5))
+    body += "2026-07-29 09:00 old header\n"
+    p = tmp_path / "s.log"
+    p.write_text(body)
+    status, lines, _ = la.lines_for_date(p, D30)
+    assert status == la.ATTRIBUTED_BY_TIMESTAMP
+    assert len(lines) == 10, lines            # 5 headers + 5 details, nothing dropped
+    assert not any("old header" in l for l in lines)
+
+
+def test_text_BEFORE_the_first_timestamp_is_EXCLUDED_and_REPORTED(tmp_path):
+    """It belongs to no record in this file — a creation banner, or the tail of a
+    run whose file was rotated away. Excluded, because the guarantee is that no
+    un-attributable line is returned. REPORTED, because a silent drop is the same
+    defect one level down. NOT a whole-file refusal: measured on the real
+    preopen_gate/stderr.log the orphan is a one-line path banner while every record
+    below it is well framed."""
+    p = tmp_path / "s.log"
+    p.write_text("PATH_BANNER=/some/module/path\n"
+                 "2026-07-30 12:00 header\n  detail\n")
+    status, lines, why = la.lines_for_date(p, D30)
+    assert status == la.ATTRIBUTED_BY_TIMESTAMP
+    assert lines == ["2026-07-30 12:00 header", "  detail"]
+    assert "EXCLUDED 1 non-blank line" in why
+    assert "PATH_BANNER" not in "".join(lines)
+
+
+def test_a_blank_line_before_the_first_timestamp_is_NOT_an_orphan(tmp_path):
+    """Anti-vacuity on the refusal above: log files routinely start with a blank
+    line, and refusing on that would make the tool useless on real input."""
+    p = tmp_path / "s.log"
+    p.write_text("\n\n2026-07-30 12:00 header\n  detail\n")
+    status, lines, _ = la.lines_for_date(p, D30)
+    assert status == la.ATTRIBUTED_BY_TIMESTAMP and len(lines) == 2
+
+
+def test_a_filename_with_TWO_dates_is_refused(tmp_path):
+    """Codex on #648: taking the first `search()` hit picks a winner from an
+    ambiguity — a rotated range or a backfill window is not evidence that the file
+    belongs to its first date."""
+    p = tmp_path / "job_2026-07-29_to_2026-07-30.log"
+    p.write_text("anything\n")
+    status, lines, why = la.lines_for_date(p, D30)
     assert status == la.UNATTRIBUTABLE and lines == []
-    assert "multi-line" in why
+    assert "2 distinct dates" in why
+
+
+def test_a_filename_repeating_ONE_date_is_still_attributable(tmp_path):
+    """Anti-vacuity: `run_2026-07-30_2026-07-30.log` is redundant, not ambiguous."""
+    p = tmp_path / "run_2026-07-30_snapshot_2026-07-30.log"
+    p.write_text("a\nb\n")
+    status, lines, _ = la.lines_for_date(p, D30)
+    assert status == la.ATTRIBUTED_BY_FILENAME and len(lines) == 2
 
 
 def test_a_missing_file_is_UNATTRIBUTABLE_not_empty_success(tmp_path):

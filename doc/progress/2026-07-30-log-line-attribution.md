@@ -37,9 +37,20 @@ Three deliberate refusals, each one a trap I could have walked into next:
 - **A date *inside* a line is not the line's date.** `trained_date=2026-07-30` is
   **data**. Matching it loosely would *invent* evidence, which is worse than
   refusing. The pattern is anchored to the line start.
-- **A stream where under half the lines are timestamped is refused.** The rest are
-  continuations — tracebacks, tables — and filtering would silently drop the body
-  of every multi-line record while looking like it worked.
+- **RECORD FRAMING replaces the coverage ratio** (codex, #648). A 50%-threshold was
+  unsafe: a 51%-stamped stream passed and every continuation was **silently
+  discarded**. A timestamp establishes the date of **its own line and nothing else**,
+  so the ratio proved nothing — an attribution gap inside the module built to refuse
+  them. A **record** is now a timestamped line plus every following un-timestamped
+  line; it inherits its header's date and is returned **whole or not at all**.
+- **Text before the first timestamp is EXCLUDED and REPORTED**, not silently dropped
+  and not a whole-file refusal. It belongs to no record *in this file* — a creation
+  banner, or the tail of a run whose file rotated away. Measured on the real
+  `preopen_gate/stderr.log` it is a **one-line path banner** while all 132 records
+  below it are well framed, so refusing the file would be over-refusal.
+- **A filename carrying two distinct dates is refused.** Taking the first `search()`
+  hit picks a winner from an ambiguity; a rotated range or backfill window is not
+  evidence the file belongs to its first date.
 
 ## 3. Verified against the three real files
 
