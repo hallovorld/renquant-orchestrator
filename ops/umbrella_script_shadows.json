@@ -1,0 +1,358 @@
+{
+  "_comment": "orchestrator#623 R2 generalised. Umbrella scripts/*.py that name-shadow a sibling module. A shadow is NOT proof the umbrella copy is dead --- it is proof a reader could edit the wrong one. Each entry needs a disposition. Regenerate with ops/umbrella_script_shadow_check.py --emit.",
+  "pairs": {
+    "analyze_backtest.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 24231,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_backtest.py",
+      "umbrella_bytes": 24213
+    },
+    "analyze_decision_factors.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 16653,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_decision_factors.py",
+      "umbrella_bytes": 11002
+    },
+    "analyze_exit_counterfactuals.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 17729,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_exit_counterfactuals.py",
+      "umbrella_bytes": 17715
+    },
+    "analyze_experiments.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 12271,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_experiments.py",
+      "umbrella_bytes": 12271
+    },
+    "analyze_holdout_trades.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 15146,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_holdout_trades.py",
+      "umbrella_bytes": 15128
+    },
+    "analyze_manifest_sanity_placebo.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 24454,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_manifest_sanity_placebo.py",
+      "umbrella_bytes": 20587
+    },
+    "analyze_panels_rigorous.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 13369,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_panels_rigorous.py",
+      "umbrella_bytes": 13369
+    },
+    "analyze_regime_stratified.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 9392,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_regime_stratified.py",
+      "umbrella_bytes": 9392
+    },
+    "analyze_stop_loss_ab.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 7615,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_stop_loss_ab.py",
+      "umbrella_bytes": 7615
+    },
+    "analyze_trade_decision_attribution.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 24088,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_trade_decision_attribution.py",
+      "umbrella_bytes": 24088
+    },
+    "analyze_trade_score_diagnostics.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 1628,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_trade_score_diagnostics.py",
+      "umbrella_bytes": 1764
+    },
+    "analyze_wf_trade_forensics.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 49199,
+      "subrepo_path": "src/renquant_backtesting/analysis/analyze_wf_trade_forensics.py",
+      "umbrella_bytes": 49162
+    },
+    "backfill_forward_returns.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 15750,
+      "subrepo_path": "src/renquant_backtesting/analysis/backfill_forward_returns.py",
+      "umbrella_bytes": 12388
+    },
+    "backtest_and_analyze.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6738,
+      "subrepo_path": "src/renquant_backtesting/analysis/backtest_and_analyze.py",
+      "umbrella_bytes": 6830
+    },
+    "build_dashboard.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 15244,
+      "subrepo_path": "src/renquant_backtesting/reporting/build_dashboard.py",
+      "umbrella_bytes": 15149
+    },
+    "compute_portfolio_metrics.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 11234,
+      "subrepo_path": "src/renquant_backtesting/analysis/compute_portfolio_metrics.py",
+      "umbrella_bytes": 11573
+    },
+    "dump_walkforward_sim_metrics.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6981,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/dump_walkforward_sim_metrics.py",
+      "umbrella_bytes": 6526
+    },
+    "export_lean_data.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 3328,
+      "subrepo_path": "src/renquant_backtesting/lean_export/export_lean_data.py",
+      "umbrella_bytes": 3083
+    },
+    "export_lean_watchlist.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6332,
+      "subrepo_path": "src/renquant_backtesting/lean_export/export_lean_watchlist.py",
+      "umbrella_bytes": 6003
+    },
+    "fit_calibrator_alpha158_fund.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-model",
+      "subrepo_bytes": 14442,
+      "subrepo_path": "src/renquant_model_gbdt/fit_calibrator_alpha158_fund.py",
+      "umbrella_bytes": 26149
+    },
+    "fit_walkforward_calibrators.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6478,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/fit_walkforward_calibrators.py",
+      "umbrella_bytes": 18457
+    },
+    "merge_walkforward_manifests.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 3342,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/merge_walkforward_manifests.py",
+      "umbrella_bytes": 3342
+    },
+    "preopen_cancel_gate.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-execution",
+      "subrepo_bytes": 21122,
+      "subrepo_path": "src/renquant_execution/preopen_cancel_gate.py",
+      "umbrella_bytes": 17942
+    },
+    "qp_contracts.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 3123,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/qp_contracts.py",
+      "umbrella_bytes": 3533
+    },
+    "qp_cvxpy_smoke.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 5607,
+      "subrepo_path": "src/renquant_backtesting/analysis/qp_cvxpy_smoke.py",
+      "umbrella_bytes": 5589
+    },
+    "reconcile_live_sim.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 3670,
+      "subrepo_path": "src/renquant_backtesting/sim/reconcile_live_sim.py",
+      "umbrella_bytes": 3642
+    },
+    "smoke_test_model.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 9475,
+      "subrepo_path": "src/renquant_backtesting/analysis/smoke_test_model.py",
+      "umbrella_bytes": 9375
+    },
+    "stamp_walkforward_fingerprints.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 7930,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/stamp_walkforward_fingerprints.py",
+      "umbrella_bytes": 10417
+    },
+    "trade_contracts.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6120,
+      "subrepo_path": "src/renquant_backtesting/analysis/trade_contracts.py",
+      "umbrella_bytes": 6120
+    },
+    "trade_monotonicity.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 7428,
+      "subrepo_path": "src/renquant_backtesting/analysis/trade_monotonicity.py",
+      "umbrella_bytes": 7428
+    },
+    "train_walkforward_panel.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 25806,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/train_walkforward_panel.py",
+      "umbrella_bytes": 20250
+    },
+    "train_walkforward_patchtst.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 24398,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/train_walkforward_patchtst.py",
+      "umbrella_bytes": 12910
+    },
+    "wf_config_builder.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 20073,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_config_builder.py",
+      "umbrella_bytes": 11942
+    },
+    "wf_config_parity.py": {
+      "class": "DIVERGED",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 9370,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_config_parity.py",
+      "umbrella_bytes": 8422
+    },
+    "wf_insider_paired.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 8906,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_insider_paired.py",
+      "umbrella_bytes": 8906
+    },
+    "wf_lightgbm_paired.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 7592,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_lightgbm_paired.py",
+      "umbrella_bytes": 7592
+    },
+    "wf_panel_args.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 5468,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_panel_args.py",
+      "umbrella_bytes": 5468
+    },
+    "wf_pead_long_horizon.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 9617,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_pead_long_horizon.py",
+      "umbrella_bytes": 9617
+    },
+    "wf_pead_sanity.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6361,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_pead_sanity.py",
+      "umbrella_bytes": 6361
+    },
+    "wf_pead_sue.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 10340,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_pead_sue.py",
+      "umbrella_bytes": 10340
+    },
+    "wf_per_sector.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 7782,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_per_sector.py",
+      "umbrella_bytes": 7782
+    },
+    "wf_r2k_audit.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 5408,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_r2k_audit.py",
+      "umbrella_bytes": 5408
+    },
+    "wf_sanity_paired.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": true,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 6555,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/wf_sanity_paired.py",
+      "umbrella_bytes": 6555
+    },
+    "write_walkforward_report.py": {
+      "class": "IDENTICAL",
+      "referenced_by_a_scheduled_surface": false,
+      "subrepo": "renquant-backtesting",
+      "subrepo_bytes": 11753,
+      "subrepo_path": "src/renquant_backtesting/wf_gate/write_walkforward_report.py",
+      "umbrella_bytes": 11753
+    }
+  },
+  "schema_version": 1
+}
