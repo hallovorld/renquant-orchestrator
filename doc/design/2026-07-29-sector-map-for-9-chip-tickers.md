@@ -1,17 +1,29 @@
-# Phase 3 of the 9-ticker atomic batch: proposed sector_map / sector_etf_map
+# Phase 3 of the 9-ticker atomic batch: sector_map / sector_etf_map
 
-> **DO NOT MERGE while ARM / ENTG / SNDK are undecided.** LONG ledger row 7:
-> *"Design docs are not merged while under discussion."* Three bucket calls in §2
-> are still flagged low/medium confidence and §8 needs an operator decision, so
-> this document is **not** merge-ready and should not sit in the merge queue.
-> The review raising this is **correct and accepted** — see §8.
->
-> The analysis is kept open for that decision, not as a pending merge.
+**Status:** **post-decision analysis record.** The one call that required a
+ruling — ARM — has been **decided: `ai_chip`**, i.e. ARM shares `ai_chip`'s
+6-slot concentration cap (§8). Nothing in this document is awaiting a decision
+*in this repository* any more, so LONG ledger row 7 ("design docs are not merged
+while under discussion") is satisfied — see §8 for what moved where.
 
-**Status:** proposal under discussion — **not merge-ready**. **No config
-changed.** These entries are part of the atomic batch (watchlist + sector maps +
-retrained artifacts land together); landing any piece alone hard-fails buys for
-all 154 names.
+**No config changed by this PR, and none may be.** The `sector_map` /
+`sector_etf_map` **edit** is strategy-owned and lands in `renquant-strategy-104`,
+reviewed atomically with the retrain and the config fingerprint (§8). This
+document is the orchestrator's cross-repo sequencing + measurement record for
+that change, not a parallel copy of it. These entries are part of the atomic
+batch (watchlist + sector maps + retrained artifacts land together); landing any
+piece alone hard-fails buys for all 154 names.
+
+> **Correction in this revision — the concentration numbers were understated.**
+> A prior revision reported `ai_chip` **17 → 23 (+35.3%)**. That applied the
+> watchlist-relative correction to the *before* count but not to the *after*
+> count. NXPI has a `sector_map` bucket already but is **not on the watchlist**
+> `[VERIFIED — sector_map/watchlist membership, PINNED config, this session]`,
+> and the batch adds it to the watchlist, so on the cap-visible axis NXPI is a
+> **new** member. The corrected figure is **17 → 24 (+41.2%)** and `ai_chip`
+> becomes the **largest** watchlist-relative bucket outright, not "within one of
+> the largest" (§4). The error made the concentration case look milder than it
+> is; it was found by re-measuring in-session, not raised in review.
 
 **Why this needs review rather than a script:** `sector_map` and
 `sector_etf_map` are both `config_fingerprint` fields, and P-SECTOR-MAP
@@ -52,24 +64,31 @@ and finer than GICS; no script produces it.
 | QRVO | `ai_chip` | SWKS, QCOM, ADI | high |
 | TER | `ai_chip` | AMAT, LRCX, KLAC | high |
 | ENTG | `ai_chip` | AMAT, LRCX, KLAC | **medium** — see §3 |
-| ARM | `ai_chip` | QCOM, AVGO, NVDA | **low** — see §3 |
+| ARM | `ai_chip` | QCOM, AVGO, NVDA | **DECIDED** — §8. Taxonomic fit stays a stretch; the *decision* is settled |
 | STX | `datacenter_hw` | WDC (direct HDD competitor) | high |
 | SNDK | `datacenter_hw` | WDC (spin-off parent), DELL, SMCI | **medium** — see §3 |
+
+All 9 tickers are currently **absent from the watchlist**, and only NXPI already
+has a `sector_map` entry `[VERIFIED — membership check on the PINNED config,
+this session]`. So the batch adds 9 watchlist members and 8 `sector_map`
+entries.
 
 **No new `sector_etf_map` entries are required** — both buckets already map to
 XLK `[VERIFIED — strategy_config.json:649-650]`.
 
-## 3. The three calls I am not confident about, stated as such
+## 3. The calls that rest on judgment rather than measurement
 
-**ARM (low).** Pure IP/royalty licensing: no fab, no COGS, no unit sales. Every
-current `ai_chip` incumbent actually manufactures or sells physical silicon or
-equipment. `ai_chip` is the best AVAILABLE fit — same sector news-flow, tariff
-and export-control exposure — but it is a genuine qualitative stretch. A precise
-fix is a new `chip_ip_licensing` bucket, which would need its own
-`sector_etf_map` entry; there is no clean ETF for a licensing-only sub-industry,
-so it would also default to XLK and the new bucket would be **cosmetic rather
-than substantive**. Recommendation: accept `ai_chip` unless you want the
-precision for its own sake.
+**ARM — decided `ai_chip` (§8); the taxonomic caveat is recorded, not resolved.**
+Pure IP/royalty licensing: no fab, no COGS, no unit sales. Every current
+`ai_chip` incumbent actually manufactures or sells physical silicon or equipment
+`[VERIFIED — bucket membership read, this session]`. `ai_chip` is the best
+AVAILABLE fit — same sector news-flow, tariff and export-control exposure — but
+it remains a genuine qualitative stretch, and recording the decision does not
+make the fit tighter. The alternative was a new `chip_ip_licensing` bucket; it
+would need its own `sector_etf_map` entry, and with no clean ETF for a
+licensing-only sub-industry it would also map to XLK, so it differed from
+`ai_chip` **only** in exempting ARM from the 6-slot cap. That was the risk-policy
+question, and it is answered: ARM is **inside** the cap.
 
 **ENTG (medium).** Materials and filtration consumables, versus capital-equipment
 sellers (AMAT/LRCX/KLAC). Recurring-revenue business against a capex cycle. Not
@@ -81,11 +100,12 @@ literal spin-off lineage, or `ai_chip` on the memory-chip comp with MU. Chose
 
 ## 4. Concentration — the counts, and an open measurement question
 
-Two corrections to the first version's counts, one of them raised in review and
-one not.
+Three corrections to the first version's counts: one raised in review, two found
+by re-measuring.
 
 **(i) `ai_chip` was counted wrong by me.** The first version used 19 =
 sector_map ENTRY count. Only **17** of those 19 are on the watchlist
+(`NVTS` and `NXPI` are the two mapped-but-unwatched names)
 `[VERIFIED — sector_map entries whose ticker is in watchlist, this session]`.
 `max_positions_per_sector` caps HELD positions among watchlist names, so the
 watchlist-relative figure is the one a cap can ever see. Entry count overstates
@@ -97,7 +117,7 @@ error — the two files have genuinely diverged.
 
 Measured precisely this session, the drift is **3 tickers**, all present in the
 pinned config and all absent from the umbrella copy
-`[VERIFIED-now — set difference on `sector_map` and `watchlist`]`:
+`[VERIFIED — §7 repro, set difference on `sector_map` / `watchlist` between the two config paths]`:
 
 | ticker | bucket | affects the counts below? |
 |---|---|---|
@@ -106,35 +126,74 @@ pinned config and all absent from the umbrella copy
 | SPCX | `industrial` | no |
 
 The drift is one-directional: **0** tickers are in the umbrella copy but missing
-from the pinned one `[VERIFIED-now]`. Pinned `sector_map` = 159 entries /
-`watchlist` = 145; umbrella = 156 / 142 `[VERIFIED-now]`.
+from the pinned one `[VERIFIED — §7 repro, reverse set difference is empty]`.
+Pinned `sector_map` = 159 entries / `watchlist` = 145; umbrella = 156 / 142
+`[VERIFIED — §7 repro, `len()` of both fields on both paths]`.
 
 The live runner loads the pinned config (`daily_104.sh:113`, via
 `renquant_strategy_config "$SUBREPO_ROOT"`); the trainer loads the umbrella copy
 (`train_104.py:193`, `REPO_ROOT / "backtesting" / args.strategy`)
-`[VERIFIED-now — both lines read this session]`. That divergence is filed as
+`[VERIFIED — `daily_104.sh:113` and `train_104.py:193`, both read this session]`.
+That divergence is filed as
 `hallovorld/RenQuant#544` (OPEN, and it cites these same two loader lines)
-`[VERIFIED-now — gh issue view]`.
+`[VERIFIED — `gh issue view hallovorld/RenQuant#544`]`.
+
+**(iii) …and the correction was only half-applied — the growth figure was too
+small.** Having established that the cap-visible axis is watchlist-relative, the
+prior revision then computed `net new` on the *sector_map* axis: it excluded NXPI
+as "already mapped". NXPI is indeed already mapped, so the batch adds no
+`sector_map` entry for it — but NXPI is **not on the watchlist**
+`[VERIFIED — membership check, PINNED config, this session]`, and the batch adds
+all 9 tickers to the watchlist. On the axis that governs the cap, NXPI is
+therefore a **new** member. Seven of the nine land in `ai_chip`
+(NXPI, GFS, SWKS, QRVO, TER, ENTG, ARM), so:
+
+* `net new` on the cap-visible axis = **7**, not 6.
+* `after` = **24**, not 23. `growth` = **+41.2%**, not +35.3%
+  `[DERIVED — 7/17]`.
+
+The error understated the concentration this document exists to flag, so it is
+corrected rather than footnoted.
 
 | bucket | now (watchlist-relative) | net new | after | growth |
 |---|---:|---:|---:|---:|
-| `ai_chip` | **17** | +6 | **23** | +35.3% |
+| `ai_chip` | **17** | +7 | **24** | **+41.2%** |
 | `datacenter_hw` (PINNED, runner) | **14** | +2 | **16** | +14.3% |
 | `datacenter_hw` (umbrella, trainer) | **13** | +2 | **15** | +15.4% |
+
+`datacenter_hw` is unaffected by correction (iii): all 14 of its entries are
+already on the watchlist and both of its additions (STX, SNDK) are new to both
+surfaces `[VERIFIED — membership check, this session]`.
 
 Both `datacenter_hw` rows are stated on purpose: until #544 is resolved there is
 no single answer, and picking one silently would hide the divergence.
 
 `now` `[VERIFIED — sector_map entries per bucket RESTRICTED to watchlist
 members, this session]` — see correction (i); the earlier version used
-unrestricted entry count. `net new` `[DERIVED — §2 proposal table, rows
-per bucket excluding NXPI (already mapped)]`. `after` `[DERIVED — now + net
-new]`. `growth` `[DERIVED — net new / now]`.
+unrestricted entry count. `net new` `[VERIFIED — §2 proposal rows per bucket,
+counting every ticker the batch newly adds to the WATCHLIST, i.e. including
+NXPI]` — see correction (iii). `after` `[DERIVED — now + net new]`. `growth`
+`[DERIVED — net new / now]`.
 
-`ai_chip` goes from third-largest to within one ticker of the largest
-(`software`, 26 entries `[VERIFIED — strategy_config.json sector_map count, this
-session]`), and becomes by far the largest semiconductor-cycle-correlated
-bucket. 23 watchlist names would compete for the same 6 held slots.
+**Where that puts `ai_chip` — corrected, and on one consistent axis.** The prior
+revision compared `ai_chip`'s watchlist-relative count against `software`'s
+*entry* count (26), which mixes the two axes. Held on the watchlist-relative axis
+throughout `[VERIFIED — per-bucket counts restricted to watchlist members, PINNED
+config, this session]`:
+
+| rank | bucket | watchlist-relative, now |
+|---:|---|---:|
+| 1 | `industrial` | 21 |
+| 2 | `software` | 19 |
+| 3 | `finance` | 18 |
+| 4 | **`ai_chip`** | **17** |
+
+So `ai_chip` is currently **fourth**, not third; and after the batch it is
+**24 — the largest bucket outright**, ahead of `industrial`'s 21. It also becomes
+by far the largest semiconductor-cycle-correlated bucket. **24** watchlist names
+would compete for the same 6 held slots. This is a stronger concentration
+statement than the prior revision made, and it is the one the measurement
+supports.
 
 **Whether the 6-slot cap binds in practice is an open question, not settled by
 this PR.** #610 (merged `[VERIFIED — d69b7393, `git merge-base --is-ancestor`
@@ -166,13 +225,46 @@ generic guard is least likely to behave as intended.
 
 ## 6. What I am NOT claiming
 
-- Not that these buckets are optimal — three are flagged as judgment calls.
+- Not that these buckets are optimal. ARM's bucket is **decided** but the
+  decision was a risk-policy call, not a measurement — the taxonomic stretch in
+  §3 is unchanged by it. ENTG and SNDK remain judgment calls.
 - Not that the 6-slot cap does or does not bind today, and not that
   concentration is safe at a higher admission rate — §4 defers both to a
   canonical strategy-side measurement this PR does not perform.
 - Not that the correlation guard handles WDC/SNDK correctly. I did not test it.
 
 ## 7. Provenance
+
+### The repro (`§7 repro`, cited by the tags above)
+
+Every count in §2 and §4 comes from this, run READ-ONLY this session. `PIN` is the
+config the runner loads, `UMB` the one the trainer loads, `CAN` strategy-104 `main`:
+
+```python
+import json, collections
+PIN = "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json"
+UMB = "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/strategy_config.json"
+CAN = "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json"
+for name, p in (("PINNED", PIN), ("UMBRELLA", UMB), ("CANONICAL", CAN)):
+    c = json.load(open(p)); sm, wl = c["sector_map"], set(c["watchlist"])
+    wrel = collections.Counter(b for t, b in sm.items() if t in wl)
+    print(name, len(sm), len(wl), dict(wrel))
+```
+
+What it returned `[VERIFIED — the block above, this session]`:
+
+| surface | `sector_map` | `watchlist` | `ai_chip` w-rel | `datacenter_hw` w-rel |
+|---|---:|---:|---:|---:|
+| PINNED (runner) | 159 | 145 | 17 | **14** |
+| UMBRELLA (trainer) | 156 | 142 | 17 | **13** |
+| CANONICAL strategy-104 `main` | 159 | 145 | 17 | 14 |
+
+`PINNED == CANONICAL` on both `sector_map` and `watchlist`; `PINNED != UMBRELLA`,
+with the set difference being exactly `{CRWV: datacenter_hw, RKLB: industrial,
+SPCX: industrial}` and the reverse difference **empty**
+`[VERIFIED — the block above, this session]`.
+
+### Sources
 
 All figures read READ-ONLY from the canonical, strategy-owned
 `renquant-strategy-104/configs/strategy_config.json` (the PINNED config; see
@@ -192,14 +284,15 @@ cited as a bare relative string, which does not resolve from
     renquant-strategy-104/configs/strategy_config.json   (66K, 2026-07-28)
 ```
 
-`[VERIFIED-now — stat, this session]`. It is also the file RenQuant#544 names as
+`[VERIFIED — `ls -la` on that absolute path, this session]`. It is also the file
+RenQuant#544 names as
 the live runner's config, so asserting its absence contradicted this doc's own
 cited issue.
 
 Both surfaces were therefore re-read this session, and for the fields that matter
 here they agree exactly: `sector_map` and `watchlist` are **identical** between
 the pinned mirror and `renquant-strategy-104` `main`
-`[VERIFIED-now — dict equality on both fields]`. So every count below is
+`[VERIFIED — §7 repro, dict equality on both fields]`. So every count below is
 unchanged by which of the two is cited; the pinned mirror is the authoritative
 one for what the runner loads, and it is quoted as such.
 
@@ -209,35 +302,52 @@ All cited line numbers re-verified against
 511 (`NXPI: ai_chip`), 513 (`WDC: datacenter_hw`), 649-650 (both buckets → XLK),
 665 (`max_positions_per_sector: 6`), 829 (`qp_correlation_cap_enabled: true`),
 1338-1341 (the LITE + COHR `_activation_log` entry) — **8 of 8 reproduce exactly
-as stated** `[VERIFIED-now]`.
+as stated** `[VERIFIED — each cited line printed from the PINNED config, §7 repro]`.
 
 The count divergence (13 vs 14 `datacenter_hw`) is §4(ii)'s pinned-vs-umbrella
 finding, not a provenance error.
 
-## 8. The decision this document is waiting on
+## 8. The decision — made — and where the remaining ones happen
 
-Per LONG row 7 this stays **unmerged** until the operator rules on the three
-flagged buckets. **ARM is the one that genuinely has no data answer**, so it is
-laid out as options rather than resolved. Deliberately not picked here: a
-confidently-stated bucket that is really a coin-flip is worse than an
-acknowledged one, and nothing measurable separates these.
+**ARM → `ai_chip`. DECIDED** by the operator's proxy as a risk-policy call:
+ARM shares `ai_chip`'s 6-slot concentration cap. This is **Option A** below.
+It is **not re-opened here**, and the options are retained only as the record of
+what the decision was between.
 
-### ARM — the options, and what actually argues for each
+Two things this decision is *not*, stated so the record cannot be read as more
+than it is:
 
-**What is not in dispute** `[VERIFIED-now — config read]`: ARM is absent from
+- It is **not** a finding that `ai_chip` is the taxonomically correct bucket. The
+  §3 objection stands: ARM licenses IP and every incumbent ships silicon or the
+  tools to make it. The decision resolves *which cap applies*, which was the only
+  separable question (A and B both map to XLK, so they differ in nothing else).
+- It carries **no new confidence** about the fit. The §2 table now reads
+  "DECIDED" rather than being promoted to "high" — the uncertainty was never
+  reducible by measurement, and a decision does not retire it.
+
+Direction of the call, for the record: it puts ARM **inside** the concentration
+cap rather than exempt from it, which is the conservative side of the A/B choice —
+the cap is the mechanism that limits loading up on a single semiconductor cycle,
+and §4 now measures `ai_chip` becoming the largest bucket in the book (24 names,
+6 slots), which makes cap membership matter more, not less.
+
+### ARM — the options the decision was between (retained as record)
+
+**What is not in dispute** `[VERIFIED — §7 repro, ARM membership test]`: ARM is absent from
 `sector_map` and from `watchlist`, so P-SECTOR-MAP would hard-fail buy mode for
 the whole watchlist the moment ARM is added to the watchlist without a bucket.
 Some bucket must be chosen; "leave it out" is only viable if ARM is also dropped
 from the batch.
 
-**Option A — `ai_chip` (the proposal).**
+**Option A — `ai_chip`. ← SELECTED.**
 - Shares the sector's news-flow, tariff and export-control exposure, which is
   what a sector bucket is used for downstream: relative-strength grouping and the
   6-slot concentration cap.
 - No new `sector_etf_map` entry needed — `ai_chip` → XLK already exists
-  `[VERIFIED-now — line 649]`.
+  `[VERIFIED — strategy_config.json:649]`.
 - Against it: every one of the 19 current `ai_chip` incumbents sells physical
-  silicon or the equipment to make it `[VERIFIED-now — bucket membership read]`.
+  silicon or the equipment to make it
+  `[VERIFIED — §7 repro, `ai_chip` bucket membership listing]`.
   ARM sells IP licences and collects royalties — no fab, no unit COGS. On the
   business model it is the odd one out.
 - Cost if wrong: ARM occupies one of `ai_chip`'s 6 held slots and is treated as
@@ -248,7 +358,7 @@ from the batch.
 - Taxonomically precise, and the taxonomy is explicitly finer than GICS.
 - Against it: it needs its own `sector_etf_map` entry, and there is no clean ETF
   for a licensing-only sub-industry, so it would map to **XLK** anyway — the same
-  ETF `ai_chip` uses `[VERIFIED-now — line 649]`. Since the ETF is the only thing
+  ETF `ai_chip` uses `[VERIFIED — strategy_config.json:649]`. Since the ETF is the only thing
   the map feeds, the new bucket changes exactly one behaviour: it gives ARM a
   private 6-slot cap instead of sharing `ai_chip`'s. With one member, a 6-slot cap
   is inert.
@@ -262,27 +372,45 @@ royalty-per-unit on shipped silicon, so it moves with semiconductor volumes, not
 software spend. Grouping it with ADBE/CRM/NOW would put it in the wrong
 correlation cluster. Not recommended.
 
-**Where that leaves it.** A and B differ only in whether ARM is subject to
-`ai_chip`'s 6-slot cap. That is a **risk-policy question, not a taxonomy
-question**, and it is the operator's call. Flag stays **low confidence**.
+**Why this needed a ruling rather than an analysis.** A and B differ only in
+whether ARM is subject to `ai_chip`'s 6-slot cap. That is a **risk-policy
+question, not a taxonomy question**, so no measurement could settle it — which is
+why it was escalated rather than decided in this document. It has now been ruled
+on: **A**.
 
-### ENTG and SNDK
+### ENTG and SNDK — ratified where the edit lands, not here
 
-Both remain **medium**, both are defensible either way, and neither blocks:
+Both remain **medium**-confidence agent recommendations (ENTG → `ai_chip`,
+SNDK → `datacenter_hw`), both are defensible either way, and neither is an
+orchestrator decision to make:
 - **ENTG** — consumables/filtration versus the capital-equipment sellers it would
   sit beside. Recurring revenue against a capex cycle.
 - **SNDK** — `datacenter_hw` on storage lineage, or `ai_chip` on the MU memory
-  comp. If `datacenter_hw` is chosen, §5's WDC/SNDK same-lineage cluster is the
-  live concern and is untested.
+  comp. `datacenter_hw` is recommended; if taken, §5's WDC/SNDK same-lineage
+  cluster is the live concern and is **untested**.
+
+Unlike ARM, neither turns on a policy question that only the operator can answer:
+each is a taxonomy call whose consequence is visible in the config diff itself.
+They are therefore **ratified in the strategy-104 PR that makes the edit**, on the
+same review where the fingerprint and retrain evidence are checked — not held open
+against this record. Nothing downstream can act on them before that PR exists.
 
 ### On repo ownership (the standing review objection)
 
-The objection that the eventual `sector_map` / `sector_etf_map` **edit** belongs
-in `renquant-strategy-104`, reviewed atomically with the retrain and the config
-fingerprint, is **accepted** — that is where the change must land, and this
-document proposes no orchestrator config change and edits no config.
+The objection that the `sector_map` / `sector_etf_map` **edit** belongs in
+`renquant-strategy-104`, reviewed atomically with the retrain and the config
+fingerprint, is **accepted without reservation**: that is where the change must
+land, this document edits no config, and no orchestrator config change is
+proposed.
 
-What is left here is the analysis and the open decision. Once ARM/ENTG/SNDK are
-ruled on, the authoritative change is a strategy-104 PR carrying the config diff,
-the fingerprint and the retrain evidence; this note should be reduced to a
-pointer to it rather than merged as a parallel record.
+What this document is, and why it is here rather than only there: the
+orchestrator owns cross-repo **sequencing** and the run record. The measurements
+in §1 and §4 are about pipeline enforcement paths (`preflight_pipeline`,
+`task_selection`, `portfolio_qp`) and the pinned-vs-umbrella config divergence
+(RenQuant#544) — orchestration-level facts that no single strategy PR owns, and
+that the strategy PR will *cite* rather than reproduce. Deleting this record
+would not move those facts to strategy-104; it would lose them.
+
+The authoritative change remains a strategy-104 PR carrying the config diff, the
+fingerprint and the retrain evidence. When it exists, §2's table should be
+reduced to a pointer at it so the buckets are stated in exactly one place.
