@@ -250,6 +250,7 @@ def test_unreachable_sibling_exits_2_not_0(monkeypatch, tmp_path):
     assert sh.main(["--registry", str(p)]) == 2
 
 
+@needs_umbrella
 def test_the_exact_silent_clean_scenario_codex_described(monkeypatch):
     """One unreachable sibling that has NO registered pair used to report CLEAN.
 
@@ -258,6 +259,22 @@ def test_the_exact_silent_clean_scenario_codex_described(monkeypatch):
     live/known diff was empty and `verify()` returned `[]`. Nothing was wrong with
     the registry — the tool simply never looked at that repo and said so by saying
     nothing. Guarding on `check_siblings()` is what makes it speak up.
+
+    **Machine-local by nature, and marked as such after it broke CI.** Reproducing the
+    OLD behaviour needs a working umbrella AND working siblings with exactly one
+    broken — on a machine with no umbrella, `verify()` returns at the umbrella branch
+    before the sibling logic is ever reached, so the demonstration cannot run. I wrote
+    it as if it were hermetic, which is the same machine-dependence defect this PR is
+    about; it is a demonstration, not the guarantee.
+
+    The CI guarantee for this fix is the hermetic set above —
+    `test_sh_raises_instead_of_returning_empty_on_failure`,
+    `test_missing_sibling_checkout_is_reported`,
+    `test_sibling_without_origin_main_is_reported`,
+    `test_survey_refuses_rather_than_returning_a_partial_answer`,
+    `test_emit_refuses_to_print_a_partial_registry`,
+    `test_verify_reports_unverifiable_when_a_sibling_is_unreachable` and
+    `test_unreachable_sibling_exits_2_not_0` — all of which run everywhere.
     """
     victim = "renquant-pipeline"
     assert not any(v["subrepo"] == victim for v in REG["pairs"].values()), (

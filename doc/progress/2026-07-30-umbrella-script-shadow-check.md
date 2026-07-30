@@ -141,3 +141,25 @@ the umbrella absent (the CI case).
 
 **The lesson worth keeping:** I fixed the instance codex pointed at and did not sweep
 the file for the same shape. `_sh()` was three lines above the function I was editing.
+
+### Round 2 follow-up — my regression test was itself machine-dependent
+
+CI went red on `test_the_exact_silent_clean_scenario_codex_described`. The test
+neutralises `check_siblings` and `_sh` to demonstrate the old fail-open, but on a
+machine with **no umbrella** `verify()` returns at the umbrella branch before the
+sibling logic is reached — so the demonstration cannot run, and asserting the old
+behaviour fails.
+
+I wrote it as if it were hermetic. **That is the same machine-dependence defect this PR
+is about**, committed in the test written to prove the defect was fixed. Reproducing the
+old silent-clean needs a working umbrella *and* working siblings with exactly one
+broken; that is inherently a local demonstration.
+
+Marked `@needs_umbrella` and documented as a demonstration rather than the guarantee.
+The CI guarantee is the hermetic set, which runs everywhere and covers every failure
+mode codex listed: `_sh` raising, missing checkout, missing `origin/main`, `survey()`
+refusing, `--emit` refusing with empty stdout, `verify()` reporting UNVERIFIABLE, and
+exit 2.
+
+`[VERIFIED — this session]` 25 passed locally; 17 passed / 8 skipped / **0 failed** with
+the umbrella absent.
