@@ -1,10 +1,13 @@
-# Progress: sector_map for the 9 new tickers (Phase 3) — ARM decided, counts corrected
+# Progress: sector_map for the 9 new tickers (Phase 3) — ARM still undecided, counts corrected
 
-STATUS:   **post-decision analysis record.** ARM's bucket — the one call that
-          needed a ruling — is **DECIDED: `ai_chip`**, sharing `ai_chip`'s 6-slot
-          concentration cap. Nothing in these docs awaits a decision *in this
-          repo*, so LONG row 7 ("design docs are not merged while under
-          discussion") is satisfied. No config changed, and none may be here: the
+STATUS:   **proposal, manual-hold pending operator decision.** ARM's bucket is
+          the one call that needs an operator ruling; it has **not** been made.
+          A prior revision's "decided by the operator's proxy" claim cited no
+          source and is **withdrawn** (see design-doc §8). Per LONG row 7
+          ("design docs are not merged while under discussion"), this stays out
+          of the merge queue until the ruling is recorded with its source, or
+          the strategy-104 atomic PR ratifies the whole batch (ARM, ENTG, SNDK)
+          in one review. No config changed, and none may be here: the
           `sector_map`/`sector_etf_map` EDIT is strategy-owned and lands in
           `renquant-strategy-104` atomically with the retrain and fingerprint.
           Part of the atomic batch — landing any piece alone hard-fails buys for
@@ -12,7 +15,7 @@ STATUS:   **post-decision analysis record.** ARM's bucket — the one call that
 
 WHAT:     `doc/design/2026-07-29-sector-map-for-9-chip-tickers.md`. Bucket
           assignments for all 9, the enforcement mechanics established first, the
-          concentration measurement, and the ARM decision record.
+          concentration measurement, and the still-open ARM decision (§8).
 
 WHY/DIR:  `sector_map` and `sector_etf_map` are both config_fingerprint fields
           and P-SECTOR-MAP hard-fails buy mode on a missing entry
@@ -83,12 +86,14 @@ EVIDENCE: artifact: `renquant-strategy-104/configs/strategy_config.json` on
                     No new `sector_etf_map` entry needed — both buckets map to
                     XLK `[VERIFIED — strategy_config.json:649-650]`.
   best-known?:      Mechanics and counts: yes, re-measured this session. ARM's
-                    bucket is DECIDED but by policy, not measurement — the
-                    taxonomic stretch in design §3 is unchanged by the decision
-                    and no confidence was added to it. ENTG (consumables vs capex
-                    equipment) and SNDK (`datacenter_hw` on lineage vs `ai_chip`
-                    on the MU comp) remain medium-confidence recommendations,
-                    ratified on the strategy-104 PR that makes the edit.
+                    bucket is a risk-policy call, not a measurement, and remains
+                    **undecided** — the taxonomic stretch in design §3 is
+                    unaffected either way. ENTG (consumables vs capex equipment)
+                    and SNDK (`datacenter_hw` on lineage vs `ai_chip` on the MU
+                    comp) remain medium-confidence recommendations. All three
+                    (ARM, ENTG, SNDK) are ratified on the strategy-104 PR that
+                    makes the edit, or ARM decided here first with a cited
+                    operator source.
   scope:            Two docs. No pin advanced, no config edited, no live surface
                     touched, nothing written under `RenQuant/`.
 
@@ -118,8 +123,11 @@ REVIEW DISPOSITION:
           the divergence pinned to 3 named tickers. (c) The config EDIT is
           strategy-owned and lands in strategy-104 atomically with the retrain
           and fingerprint — accepted without reservation; nothing here edits
-          config. (d) LONG row 7 — resolved by the ARM decision rather than by
-          argument.
+          config. (d) LONG row 7 — **NOT** resolved. A prior revision claimed
+          it was resolved by an ARM decision attributed to the operator with
+          no citable source; that claim is withdrawn. This stays manual-hold
+          until an operator decision is recorded with its source, or the
+          strategy-104 atomic PR ratifies the batch.
           PUSHED BACK, with measurements — (e) The claim that
           `.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
           "does not exist on this machine": it does, 66K, dated 2026-07-28
@@ -136,8 +144,8 @@ REVIEW DISPOSITION:
           reduced to a pointer once the strategy-104 PR exists, so the assignments
           live in exactly one place.
 
-NEXT:     Phase 4 (retrain + re-stamp) and Phase 5 (atomic landing) as a
+NEXT:     An explicit, citable operator decision on ARM (design-doc §8, Options
+          A/B/C), or defer it — together with ENTG and SNDK — to the
           strategy-104 PR carrying the config diff, the fingerprint and the
-          retrain evidence; ENTG and SNDK are ratified on that review. The
-          untested WDC/SNDK correlation-guard behaviour should be exercised
-          before the batch lands, not after.
+          retrain evidence. The untested WDC/SNDK correlation-guard behaviour
+          should be exercised before the batch lands, not after.

@@ -1,10 +1,13 @@
 # Phase 3 of the 9-ticker atomic batch: sector_map / sector_etf_map
 
-**Status:** **post-decision analysis record.** The one call that required a
-ruling — ARM — has been **decided: `ai_chip`**, i.e. ARM shares `ai_chip`'s
-6-slot concentration cap (§8). Nothing in this document is awaiting a decision
-*in this repository* any more, so LONG ledger row 7 ("design docs are not merged
-while under discussion") is satisfied — see §8 for what moved where.
+**Status:** **proposal, pending operator decision.** No operator decision on
+ARM's bucket is attributable to any citable source — a prior revision's "decided
+by the operator's proxy" claim cited none and is **withdrawn** (§8). §8 keeps
+Options A/B/C open for an explicit operator ruling. Per LONG ledger row 7
+("design docs are not merged while under discussion"), this stays out of the
+merge queue — manual-hold — until that ruling is recorded here with its source,
+or the strategy-104 atomic PR ratifies the whole batch (ARM, ENTG, SNDK) in one
+review.
 
 **No config changed by this PR, and none may be.** The `sector_map` /
 `sector_etf_map` **edit** is strategy-owned and lands in `renquant-strategy-104`,
@@ -64,7 +67,7 @@ and finer than GICS; no script produces it.
 | QRVO | `ai_chip` | SWKS, QCOM, ADI | high |
 | TER | `ai_chip` | AMAT, LRCX, KLAC | high |
 | ENTG | `ai_chip` | AMAT, LRCX, KLAC | **medium** — see §3 |
-| ARM | `ai_chip` | QCOM, AVGO, NVDA | **DECIDED** — §8. Taxonomic fit stays a stretch; the *decision* is settled |
+| ARM | `ai_chip` | QCOM, AVGO, NVDA | **low** — §8, pending operator ruling |
 | STX | `datacenter_hw` | WDC (direct HDD competitor) | high |
 | SNDK | `datacenter_hw` | WDC (spin-off parent), DELL, SMCI | **medium** — see §3 |
 
@@ -78,17 +81,16 @@ XLK `[VERIFIED — strategy_config.json:649-650]`.
 
 ## 3. The calls that rest on judgment rather than measurement
 
-**ARM — decided `ai_chip` (§8); the taxonomic caveat is recorded, not resolved.**
-Pure IP/royalty licensing: no fab, no COGS, no unit sales. Every current
-`ai_chip` incumbent actually manufactures or sells physical silicon or equipment
-`[VERIFIED — bucket membership read, this session]`. `ai_chip` is the best
-AVAILABLE fit — same sector news-flow, tariff and export-control exposure — but
-it remains a genuine qualitative stretch, and recording the decision does not
-make the fit tighter. The alternative was a new `chip_ip_licensing` bucket; it
-would need its own `sector_etf_map` entry, and with no clean ETF for a
-licensing-only sub-industry it would also map to XLK, so it differed from
-`ai_chip` **only** in exempting ARM from the 6-slot cap. That was the risk-policy
-question, and it is answered: ARM is **inside** the cap.
+**ARM (low) — pending operator ruling, §8.** Pure IP/royalty licensing: no fab,
+no COGS, no unit sales. Every current `ai_chip` incumbent actually manufactures
+or sells physical silicon or equipment `[VERIFIED — bucket membership read, this
+session]`. `ai_chip` is the best AVAILABLE fit — same sector news-flow, tariff
+and export-control exposure — but it remains a genuine qualitative stretch. The
+alternative was a new `chip_ip_licensing` bucket; it would need its own
+`sector_etf_map` entry, and with no clean ETF for a licensing-only sub-industry
+it would also map to XLK, so it differs from `ai_chip` **only** in exempting ARM
+from the 6-slot cap. That is the risk-policy question §8 puts to the operator:
+inside the cap (Option A) or exempt from it (Option B).
 
 **ENTG (medium).** Materials and filtration consumables, versus capital-equipment
 sellers (AMAT/LRCX/KLAC). Recurring-revenue business against a capex cycle. Not
@@ -225,9 +227,9 @@ generic guard is least likely to behave as intended.
 
 ## 6. What I am NOT claiming
 
-- Not that these buckets are optimal. ARM's bucket is **decided** but the
-  decision was a risk-policy call, not a measurement — the taxonomic stretch in
-  §3 is unchanged by it. ENTG and SNDK remain judgment calls.
+- Not that these buckets are optimal. ARM's bucket assignment is a risk-policy
+  call, not a measurement, and remains **undecided** pending an operator ruling
+  (§8). ENTG and SNDK remain judgment calls.
 - Not that the 6-slot cap does or does not bind today, and not that
   concentration is safe at a higher admission rate — §4 defers both to a
   canonical strategy-side measurement this PR does not perform.
@@ -307,31 +309,25 @@ as stated** `[VERIFIED — each cited line printed from the PINNED config, §7 r
 The count divergence (13 vs 14 `datacenter_hw`) is §4(ii)'s pinned-vs-umbrella
 finding, not a provenance error.
 
-## 8. The decision — made — and where the remaining ones happen
+## 8. The decision the operator needs to make — and where the rest happen
 
-**ARM → `ai_chip`. DECIDED** by the operator's proxy as a risk-policy call:
-ARM shares `ai_chip`'s 6-slot concentration cap. This is **Option A** below.
-It is **not re-opened here**, and the options are retained only as the record of
-what the decision was between.
+**ARM → `ai_chip`. NOT DECIDED.** A prior revision of this document asserted
+this was "decided by the operator's proxy," citing no source. That framing is
+**withdrawn**: there is no attributable operator decision, issue, or accepted
+strategy-104 PR to ground it, and the PR's own review history shows the
+opposite sequence — reviewers repeatedly flagged the operator decision as
+missing, and it was never subsequently supplied. This is a risk-policy call
+between Option A and Option B below, and it stays **open** until the operator
+rules on it here (with a citable source) or the strategy-104 PR that lands the
+config edit records the ruling itself.
 
-Two things this decision is *not*, stated so the record cannot be read as more
-than it is:
+Recommendation, not a decision: Option A (`ai_chip`) is the conservative
+choice — it puts ARM inside the concentration cap rather than exempt from it,
+and §4 measures `ai_chip` becoming the largest bucket in the book (24 names,
+6 slots), which makes cap membership matter more, not less. That is a
+recommendation for the operator to weigh, not a ruling already made.
 
-- It is **not** a finding that `ai_chip` is the taxonomically correct bucket. The
-  §3 objection stands: ARM licenses IP and every incumbent ships silicon or the
-  tools to make it. The decision resolves *which cap applies*, which was the only
-  separable question (A and B both map to XLK, so they differ in nothing else).
-- It carries **no new confidence** about the fit. The §2 table now reads
-  "DECIDED" rather than being promoted to "high" — the uncertainty was never
-  reducible by measurement, and a decision does not retire it.
-
-Direction of the call, for the record: it puts ARM **inside** the concentration
-cap rather than exempt from it, which is the conservative side of the A/B choice —
-the cap is the mechanism that limits loading up on a single semiconductor cycle,
-and §4 now measures `ai_chip` becoming the largest bucket in the book (24 names,
-6 slots), which makes cap membership matter more, not less.
-
-### ARM — the options the decision was between (retained as record)
+### ARM — the options awaiting an operator ruling
 
 **What is not in dispute** `[VERIFIED — §7 repro, ARM membership test]`: ARM is absent from
 `sector_map` and from `watchlist`, so P-SECTOR-MAP would hard-fail buy mode for
@@ -339,7 +335,7 @@ the whole watchlist the moment ARM is added to the watchlist without a bucket.
 Some bucket must be chosen; "leave it out" is only viable if ARM is also dropped
 from the batch.
 
-**Option A — `ai_chip`. ← SELECTED.**
+**Option A — `ai_chip`. Recommended, not yet decided.**
 - Shares the sector's news-flow, tariff and export-control exposure, which is
   what a sector bucket is used for downstream: relative-strength grouping and the
   6-slot concentration cap.
@@ -372,11 +368,11 @@ royalty-per-unit on shipped silicon, so it moves with semiconductor volumes, not
 software spend. Grouping it with ADBE/CRM/NOW would put it in the wrong
 correlation cluster. Not recommended.
 
-**Why this needed a ruling rather than an analysis.** A and B differ only in
+**Why this needs a ruling rather than an analysis.** A and B differ only in
 whether ARM is subject to `ai_chip`'s 6-slot cap. That is a **risk-policy
-question, not a taxonomy question**, so no measurement could settle it — which is
-why it was escalated rather than decided in this document. It has now been ruled
-on: **A**.
+question, not a taxonomy question**, so no measurement can settle it — which is
+why it is escalated rather than decided in this document. It has **not** yet
+been ruled on. Recommendation: **A**, for the reasons above.
 
 ### ENTG and SNDK — ratified where the edit lands, not here
 
