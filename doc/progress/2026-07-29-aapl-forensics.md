@@ -12,6 +12,7 @@ WHY/DIR:  Operator question: AAPL has had a strong run, why did the model never
 
 EVIDENCE: artifact: `RenQuant/data/runs.alpaca.db` (4,774 rows, opened
                     `mode=ro`), `RenQuant/logs/daily_104/2026-07-*.log`,
+                    `RenQuant/logs/daily_104/2026-06-26.log`,
                     `renquant-pipeline/.../job_panel_scoring.py`,
                     `live/runner.py`. All READ-ONLY.
   prod or exp:      PROD observation. No order placed, no config or artifact
@@ -21,7 +22,11 @@ EVIDENCE: artifact: `RenQuant/data/runs.alpaca.db` (4,774 rows, opened
                     `[VERIFIED]`; rank 16/72 at best (07-24) `[VERIFIED]`;
                     above the model's own median on 12 of 13 scored sessions
                     `[VERIFIED]`; `mu = +0.0068` vs required `+0.03`
-                    `[VERIFIED]`, a 4.4x shortfall `[DERIVED]`; only 2 of 78
+                    `[VERIFIED — required mu_floor re-sourced from each
+                    historical run's own `ConvictionGateTask` log line
+                    (mu_floor=0.03 on 11/11 available session logs), NOT
+                    today's strategy_config.json — see research doc §0]`,
+                    a 4.4x shortfall `[DERIVED]`; only 2 of 78
                     candidates cleared `mu>=0.03` on 07-28 and 0 of 72 on 07-24
                     `[VERIFIED — research doc §2 funnel table, 07-24 total =
                     72]`. The adaptive floor was recomputed from the DB

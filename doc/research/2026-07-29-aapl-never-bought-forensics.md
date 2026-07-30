@@ -7,7 +7,8 @@ every session at `VetoWeakBuysTask` (`job_panel_scoring.py:2115`) by an
 adaptive floor that, on these sessions, admitted the top **~18%**
 `[VERIFIED — SS3 table]`. But deleting that floor would not have bought it:
 AAPL's `mu` was `+0.0068` against a required `+0.03`
-`[VERIFIED — SS3, runs.alpaca.db + strategy_config.json]`, a **4.4x
+`[VERIFIED — runs.alpaca.db (mu) + ConvictionGateTask log line, historical
+per-run, not today's config — see §0 note]`, a **4.4x
 shortfall** `[DERIVED — 0.03 / 0.0068]`.
 
 ---
@@ -38,7 +39,7 @@ run `2026-07-28-live-5b859fff`, `role='candidate'` (n=78), read from
 | calibrator ER=0 anchor | raw = -0.2822 | `[VERIFIED — calibrator artifact]` |
 | AAPL margin above break-even | **0.076** | `[DERIVED — -0.2061 - (-0.2822)]` |
 | AAPL mu | +0.0068 | `[VERIFIED — pinned run, 0.006836]` |
-| required mu_floor | +0.03 | `[VERIFIED — strategy_config.json]` |
+| required mu_floor | +0.03 | `[VERIFIED — ConvictionGateTask log line, per historical run — see note below, NOT today's strategy_config.json]` |
 | mu shortfall ratio | 4.4x | `[DERIVED — 0.03 / 0.006836 = 4.39]` |
 | candidates clearing mu >= 0.03 | 2 of 78 | `[VERIFIED — pinned run]` |
 | cross-sectional p90 of mu | +0.0278 | `[VERIFIED — prior work, orchestrator#610]` |
@@ -64,6 +65,37 @@ None of this moves the conclusion — AAPL is still above the model's own
 break-even and still ~4.4x short of `mu_floor` — but mixing two runs of the
 same date is exactly the provenance defect the tagging rule exists to catch,
 and it was only visible once each number was traced to a specific run.
+
+**`mu_floor = 0.03` re-sourced from historical runtime logs, not today's
+config.** An earlier revision tagged the required `mu_floor` to today's
+`strategy_config.json` — the wrong artifact for a historical-policy claim,
+since a config value read today does not prove what was resolved on a run
+weeks ago. Re-sourced from `ConvictionGateTask`'s own runtime log line, which
+prints the gate value it actually used that run:
+
+```
+$ grep -h 'ConvictionGateTask.*mu_floor' logs/daily_104/2026-07-{10,13,20,21,22,23,24,27,28,29}.log logs/daily_104/2026-06-26.log
+2026-07-10 ... ConvictionGateTask: dropped 11 candidate(s) (mu_floor=0.03)
+2026-07-13 ... ConvictionGateTask: dropped 11 candidate(s) (mu_floor=0.03)
+2026-07-20 ... ConvictionGateTask: dropped 12 candidate(s) (mu_floor=0.03)
+2026-07-21 ... ConvictionGateTask: dropped 10 candidate(s) (mu_floor=0.03)
+2026-07-22 ... ConvictionGateTask: dropped 11 candidate(s) (mu_floor=0.03)
+2026-07-23 ... ConvictionGateTask: dropped 12 candidate(s) (mu_floor=0.03)
+2026-07-24 ... ConvictionGateTask: dropped 12 candidate(s) (mu_floor=0.03)
+2026-07-27 ... ConvictionGateTask: dropped 11 candidate(s) (mu_floor=0.03)
+2026-07-28 ... ConvictionGateTask: dropped 18 candidate(s) (mu_floor=0.03)
+2026-07-28 ... ConvictionGateTask: dropped 12 candidate(s) (mu_floor=0.03)
+2026-07-29 ... ConvictionGateTask: dropped 13 candidate(s) (mu_floor=0.03)
+2026-06-26 ... ConvictionGateTask: dropped 13 candidate(s) (mu_floor=0.03
+             demeaned xs_mean=+0.0201)
+```
+
+`[VERIFIED — grepped this session]`: `mu_floor=0.03` on 11/11 available
+session logs, i.e. every session AAPL was scored in that has a retained log.
+This is the resolved runtime value for each specific historical run, not an
+inference from the current file — it directly answers the reviewer's
+objection that a config read today cannot establish what a run weeks ago
+actually used.
 
 ## 1. Where the scores actually live
 
