@@ -188,3 +188,29 @@ Coverage on this branch: **19/41** jobs carry an `evidence_glob`, against **6/41
 on `main` `[VERIFIED — manifest parse of both]`. The 22 without one still fall back
 to `StandardOutPath`, which #627 measured to give false stale readings — that is the
 remaining gap, and it is a count, not a hope.
+
+### Round 2 follow-up 2 — the new exclusivity file had the same shape, twice
+
+`tests/test_evidence_glob_exclusivity.py` turned CI red on
+`test_a_glob_matching_nothing_is_REPORTED_not_silently_passing`: it globs the real
+filesystem, and on a runner **no** evidence directory exists, so every one of the 19
+globs matches nothing and all 19 are reported empty. Its own comment says *"Measured
+2026-07-30 on this machine"* — an inventory of this disk, asserted in CI.
+
+**Sweeping the file rather than fixing only the test that went red** (the lesson from
+#634, where I fixed the pointed-at instance and left `_sh()` three lines above it) found
+a second, worse instance: `test_no_two_globs_match_the_same_FILE_on_this_machine`
+iterates `glob()` results, so where the directories are absent the loop body **never
+executes and it passes vacuously**. That one was never red. **A vacuous pass is worse
+than a red build, because nothing draws anyone to look at it.**
+
+Both are now `skipif` on the evidence directories being present, with reasons naming
+what covers CI instead. The static half
+(`test_no_two_globs_share_a_directory_AND_prefix`) already proves non-overlap from the
+manifest alone and is untouched, and a new hermetic `test_an_empty_glob_is_detected`
+builds a populated and an empty directory in `tmp_path` and asserts the detection logic
+— so the *logic* runs everywhere even though the *inventory* cannot.
+
+`[VERIFIED — this session]` 47 passed locally across both suites; rewriting every glob
+to a nonexistent root (the CI case) gives **4 passed, 2 skipped, 0 failed** — skips that
+are visible in the report rather than green squares over nothing.

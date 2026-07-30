@@ -51,10 +51,32 @@ def test_no_two_globs_share_a_directory_AND_prefix():
         seen[key] = label
 
 
+def _log_roots_present() -> bool:
+    """Do the evidence directories exist here at all?
+
+    The inventory assertion below globs the real filesystem, so it is a statement
+    about THIS machine's disk. On a runner none of the log directories exist, every
+    glob matches nothing, and it reports all 19 jobs as empty -- a red build whose
+    real cause is that there was nothing to look at. Same shape as the umbrella and
+    checkout-freshness checks fixed on #634 and #637.
+    """
+    return any(os.path.isdir(os.path.dirname(g)) for _, g in _globs())
+
+
+@pytest.mark.skipif(
+    not _log_roots_present(),
+    reason="no evidence directories on this machine — every glob would match zero "
+           "files and this assertion would pass VACUOUSLY; the static half "
+           "(test_no_two_globs_share_a_directory_AND_prefix) is what runs in CI")
 def test_no_two_globs_match_the_same_FILE_on_this_machine():
     """The dynamic half. Prefix uniqueness is a proxy; this is the thing itself.
-    Skips nothing -- a glob matching zero files still contributes an empty set, and
-    the emptiness is reported separately below rather than silently passing."""
+
+    **Marked machine-local after sweeping this file rather than only the test that
+    went red.** Where the log directories do not exist, `glob()` returns nothing, the
+    loop body never executes, and this passes while checking *nothing* — which is
+    worse than the red build next door, because a vacuous pass is never investigated.
+    The static half covers CI; this one is only meaningful where the evidence lives.
+    """
     owned: dict[str, str] = {}
     for label, g in _globs():
         for path in globmod.glob(g):
@@ -69,11 +91,39 @@ def test_every_glob_is_absolute():
         assert g.startswith("/"), (label, g)
 
 
+needs_logs = pytest.mark.skipif(
+    not _log_roots_present(),
+    reason="no evidence directories on this machine — the inventory below measures a "
+           "disk, not the code; see test_an_empty_glob_is_detected for the logic")
+
+
+def test_an_empty_glob_is_detected(tmp_path):
+    """The LOGIC of the inventory assertion, hermetically — this runs everywhere.
+
+    Separated out because the inventory test can only run where the logs live, and a
+    machine-local test cannot promise the detection works anywhere else.
+    """
+    populated = tmp_path / "has_files"
+    populated.mkdir()
+    (populated / "2026-07-30.log").write_text("x")
+    empty_dir = tmp_path / "no_files"
+    empty_dir.mkdir()
+
+    pairs = [("job.populated", str(populated / "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log")),
+             ("job.empty", str(empty_dir / "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log"))]
+    empty = [l for l, g in pairs if not globmod.glob(g)]
+    assert empty == ["job.empty"], empty
+
+
+@needs_logs
 def test_a_glob_matching_nothing_is_REPORTED_not_silently_passing():
     """A glob that matches no file cannot make its job look alive -- but it also
     cannot make it look dead correctly, and it is indistinguishable from a typo.
     This test does not fail on it; it fails only if the count grows past what is
-    recorded, so a new empty glob has to be looked at."""
+    recorded, so a new empty glob has to be looked at.
+
+    Machine-local by construction: it is an inventory of what this disk holds.
+    """
     empty = [l for l, g in _globs() if not globmod.glob(g)]
     # Measured 2026-07-30 on this machine. rq104-model-freshness is expected: its
     # plist is not installed yet (#638), so it has never written.
