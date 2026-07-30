@@ -20,7 +20,9 @@ WHY/DIR:  AC5 is "silent-refusal telemetry". My first framing was wrong twice
              `logs/daily_104/` (`daily_104.sh:35`, `LOG_DIR="$REPO_DIR/logs/daily_104"`).
              Wrong object, right method — the eighth instance in 24h.
 
-EVIDENCE: `[VERIFIED-now]` on the real directory, 169 log files:
+EVIDENCE: artifact: `ops/refusal_telemetry.py`, read against the live
+          `logs/daily_104/` directory (169 files), READ-ONLY.
+          `[VERIFIED-now]` on the real directory, 169 log files:
             wash_sale_mass_block         13 firings / 12 files /  8 dates
             single_gate_funnel_kill       6 /  6 /  6
             fail_close_event              6 /  6 /  6
