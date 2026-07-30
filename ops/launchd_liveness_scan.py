@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import glob
 import json
 import os
 import plistlib
@@ -187,8 +188,38 @@ def _launchctl_last_exit(label: str,
     return None
 
 
+def evidence_surface(label: str, plist: dict, manifest_entry: dict | None) -> tuple[str | None, str]:
+    """(path to measure, which surface it is).
+
+    **StandardOutPath is a PROXY, and for some jobs it is the wrong object.** launchd
+    puts whatever the process writes to fd 1 there; a wrapper that redirects into its
+    own dated file leaves that path untouched forever, so its mtime measures the last
+    time the wrapper failed to redirect — not the last time the job ran.
+
+    Measured 2026-07-30: `rq105-session-scheduler` and `rq105-quote-logger` create
+    `logs/rq105/<name>_<date>.log` on **every session day** (newest dated 2026-07-30
+    06:25) while their launchd stdout had not been touched since 2026-07-03/06. Scored
+    on `StandardOutPath` they read as 18–19 missed firings; they had missed none. I
+    filed that wrong reading myself as issue #621.
+
+    So a manifest entry may declare ``evidence_glob`` — the job's real output surface —
+    and it wins. Where it is absent the scan falls back to ``StandardOutPath`` and
+    **says so**, because a proxy measurement labelled as a direct one is how the wrong
+    reading got published in the first place.
+    """
+    glob_pat = (manifest_entry or {}).get("evidence_glob")
+    if glob_pat:
+        matches = glob.glob(os.path.expanduser(glob_pat))
+        if matches:
+            return max(matches, key=lambda p: os.path.getmtime(p)), "evidence_glob"
+        return None, "evidence_glob (no match)"
+    out = plist.get("StandardOutPath")
+    return (out, "StandardOutPath (PROXY)") if out else (None, "none")
+
+
 def scan_job(label: str, *, now: dt.datetime,
              agents_dir: Path = AGENTS_DIR,
+             manifest_entry: dict | None = None,
              launchctl_runner: Callable[[list[str]], str] | None = None) -> dict[str, Any]:
     """Classify one job. Never raises."""
     out: dict[str, Any] = {"label": label}
@@ -209,11 +240,14 @@ def scan_job(label: str, *, now: dt.datetime,
     out["last_exit"] = raw_exit
     out["last_exit_decoded"] = decode_launchd_status(raw_exit)
 
-    log_path = plist.get("StandardOutPath")
+    log_path, surface = evidence_surface(label, plist, manifest_entry)
+    out["evidence_surface"] = surface
+    out["evidence_is_proxy"] = surface.endswith("(PROXY)")
     if not log_path:
         out.update(status=UNJUDGEABLE_NO_LOG_PATH,
-                   detail="plist declares no StandardOutPath — this job can never be "
-                          "judged by log freshness")
+                   detail=f"no evidence surface ({surface}) — this job can never be "
+                          f"judged by log freshness. Declare an evidence_glob in the "
+                          f"manifest naming the file the job actually writes")
         return out
     out["log"] = log_path
 
@@ -251,9 +285,12 @@ def scan_job(label: str, *, now: dt.datetime,
 
 def scan(labels: Iterable[str], *, now: dt.datetime | None = None,
          agents_dir: Path = AGENTS_DIR,
+         manifest_entries: dict[str, dict] | None = None,
          launchctl_runner: Callable[[list[str]], str] | None = None) -> dict[str, Any]:
     now = now or dt.datetime.now()
+    entries = manifest_entries or {}
     results = [scan_job(lbl, now=now, agents_dir=agents_dir,
+                        manifest_entry=entries.get(lbl),
                         launchctl_runner=launchctl_runner) for lbl in labels]
     counts: dict[str, int] = {}
     for r in results:
@@ -262,6 +299,7 @@ def scan(labels: Iterable[str], *, now: dt.datetime | None = None,
         "scanned_at": now.isoformat(timespec="seconds"),
         "missed_firings_tolerance": MISSED_FIRINGS_TOLERANCE,
         "jobs": len(results),
+        "measured_by_proxy": sum(1 for r in results if r.get("evidence_is_proxy")),
         "counts": counts,
         "results": results,
     }
@@ -302,7 +340,15 @@ def main(argv: list[str] | None = None) -> int:
     if not labels:
         print("FATAL: manifest lists no jobs — nothing was checked", file=sys.stderr)
         return 2
-    report = scan(labels)
+    try:
+        raw = json.loads(args.manifest.read_text(encoding="utf-8"))
+        entries = ({k: v for k, v in raw} if isinstance(raw, list)
+                   else raw.get("jobs", raw))
+        if not isinstance(entries, dict):
+            entries = {}
+    except Exception:  # noqa: BLE001
+        entries = {}
+    report = scan(labels, manifest_entries=entries)
     print(json.dumps(report, indent=2) if args.json else _format(report))
     bad = sum(v for k, v in report["counts"].items() if k != EVIDENCE_FRESH)
     return 1 if bad else 0

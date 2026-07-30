@@ -201,21 +201,27 @@
       "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent \u2014 the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
       "keep_alive": {
         "SuccessfulExit": false
-      }
+      },
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/quote_logger_*.log",
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621"
     },
     "com.renquant.rq105-session-scheduler": {
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_session_scheduler.sh"
       ],
-      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42"
+      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/session_scheduler_*.log",
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621"
     },
     "com.renquant.rq105-shadow-serving": {
       "program_args": [
         "/bin/bash",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_shadow_serving.sh"
       ],
-      "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c"
+      "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/shadow_serving_*.log",
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621"
     },
     "com.renquant.run-surface-drift": {
       "program_args": [

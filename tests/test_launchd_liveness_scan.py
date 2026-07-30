@@ -241,3 +241,104 @@ def test_the_scan_does_not_modify_a_log_it_reads(tmp_path):
     _scan_one(tmp_path, StandardOutPath=str(log),
              StartCalendarInterval=WEEKDAYS_1315)
     assert (log.read_bytes(), log.stat().st_mtime) == before
+
+
+# --- StandardOutPath is a PROXY, and for some jobs it is the wrong object ------
+# Measured 2026-07-30: rq105-session-scheduler and rq105-quote-logger create a dated
+# log on EVERY session day while their launchd stdout had not been touched in weeks.
+# Scored on StandardOutPath they read as 18-19 missed firings; they had missed none.
+# I filed that false reading myself as issue #621.
+
+def test_an_evidence_glob_wins_over_StandardOutPath(tmp_path, monkeypatch):
+    import os
+    real = tmp_path / "job_2026-07-30.log"
+    real.write_text("")
+    ts = dt.datetime(2026, 7, 30, 6, 25).timestamp()
+    os.utime(real, (ts, ts))
+    stale = tmp_path / "launchd.out"
+    stale.write_text("")
+    old = dt.datetime(2026, 7, 3, 6, 25).timestamp()
+    os.utime(stale, (old, old))
+
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    _plist(agents, "com.renquant.t", StandardOutPath=str(stale),
+           StartCalendarInterval=[{"Hour": 6, "Minute": 25}])
+    r = lv.scan_job("com.renquant.t", now=dt.datetime(2026, 7, 30, 12, 0),
+                    agents_dir=agents,
+                    manifest_entry={"evidence_glob": str(tmp_path / "job_*.log")},
+                    launchctl_runner=lambda argv: "")
+    assert r["status"] == lv.EVIDENCE_FRESH, "the real surface says it fired today"
+    assert r["evidence_surface"] == "evidence_glob"
+    assert r["evidence_is_proxy"] is False
+
+
+def test_without_a_glob_the_proxy_is_used_AND_LABELLED(tmp_path):
+    """A proxy measurement labelled as a direct one is how the false reading got
+    published. The label is the point."""
+    import os
+    stale = tmp_path / "launchd.out"
+    stale.write_text("")
+    old = dt.datetime(2026, 7, 3, 6, 25).timestamp()
+    os.utime(stale, (old, old))
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    _plist(agents, "com.renquant.t", StandardOutPath=str(stale),
+           StartCalendarInterval=[{"Hour": 6, "Minute": 25}])
+    r = lv.scan_job("com.renquant.t", now=dt.datetime(2026, 7, 30, 12, 0),
+                    agents_dir=agents, launchctl_runner=lambda argv: "")
+    assert r["evidence_is_proxy"] is True
+    assert "PROXY" in r["evidence_surface"]
+    assert r["status"] == lv.NO_EVIDENCE_STALE
+
+
+def test_a_glob_matching_nothing_is_UNJUDGEABLE_not_silently_proxied(tmp_path):
+    """Falling back to the proxy when a declared glob misses would hide a broken
+    declaration behind a measurement of a different file."""
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    _plist(agents, "com.renquant.t", StandardOutPath="/tmp/whatever.out",
+           StartCalendarInterval=[{"Hour": 6, "Minute": 25}])
+    r = lv.scan_job("com.renquant.t", now=dt.datetime(2026, 7, 30),
+                    agents_dir=agents,
+                    manifest_entry={"evidence_glob": str(tmp_path / "nope_*.log")},
+                    launchctl_runner=lambda argv: "")
+    assert r["status"] == lv.UNJUDGEABLE_NO_LOG_PATH
+    assert "no match" in r["evidence_surface"]
+
+
+def test_the_newest_glob_match_is_used(tmp_path):
+    import os
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    for day, hh in (("2026-07-01", 6), ("2026-07-30", 6)):
+        f = tmp_path / f"j_{day}.log"
+        f.write_text("")
+        ts = dt.datetime.fromisoformat(f"{day}T0{hh}:25").timestamp()
+        os.utime(f, (ts, ts))
+    _plist(agents, "com.renquant.t", StandardOutPath="/tmp/x.out",
+           StartCalendarInterval=[{"Hour": 6, "Minute": 25}])
+    r = lv.scan_job("com.renquant.t", now=dt.datetime(2026, 7, 30, 12, 0),
+                    agents_dir=agents,
+                    manifest_entry={"evidence_glob": str(tmp_path / "j_*.log")},
+                    launchctl_runner=lambda argv: "")
+    assert r["last_write"].startswith("2026-07-30")
+
+
+def test_the_report_counts_how_many_jobs_are_measured_by_proxy():
+    """The headline number: a scan measuring a proxy for most of its subjects should
+    say so rather than presenting every reading as equivalent."""
+    rep = lv.scan([], now=dt.datetime(2026, 7, 30))
+    assert "measured_by_proxy" in rep
+
+
+def test_the_committed_manifest_declares_globs_for_the_corrected_jobs():
+    """These three were measured on the wrong surface and produced a false reading in
+    #621. If the declaration is dropped the false reading returns."""
+    raw = json.loads((OPS / "launchd_manifest.json").read_text())
+    jobs = raw.get("jobs", raw)
+    for label in ("com.renquant.rq105-session-scheduler",
+                  "com.renquant.rq105-quote-logger",
+                  "com.renquant.rq105-shadow-serving"):
+        cfg = jobs[label] if isinstance(jobs, dict) else dict(jobs)[label]
+        assert cfg.get("evidence_glob"), f"{label} lost its evidence_glob"
