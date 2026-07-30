@@ -89,3 +89,36 @@ and that no `git -C` in the source targets the umbrella.
 None. The tool is read-only and not wired into any scheduled job. It runs `git fetch`
 **only** in dev checkouts under the GitHub root, never in the umbrella and never in a
 `-run` deployment copy.
+
+## CI fix — three tests measured the operator's disk
+
+CI failed on `test_a_failed_fetch_yields_UNMEASURABLE_not_FRESH`,
+`test_origin_main_missing_after_a_SUCCESSFUL_fetch_is_also_UNMEASURABLE` and
+`test_the_unmocked_path_still_measures`. All three called
+`fr.measure("renquant-orchestrator")`, which resolves under `GITHUB` =
+`/Users/renhao/git/github`. That path is not a checkout on a runner, so every one of
+them got `NOT_A_CHECKOUT` instead of the verdict it was asserting.
+
+The worst of the three is `test_the_unmocked_path_still_measures`, whose entire job is
+**anti-vacuity** — proving the refusals above it come from the mocks rather than from
+`measure()` having become unconditionally UNMEASURABLE. A test that can only measure on
+one machine cannot make that promise anywhere else, so the guarantee it was written to
+provide did not exist in CI.
+
+Fixed with a `github_root` fixture that builds a **real** git world in `tmp_path` — a
+bare upstream with a seeded `main`, cloned into `<root>/renquant-orchestrator` so
+`origin/main` genuinely resolves — and points `fr.GITHUB` at it. Nothing about git is
+mocked; the code paths exercised are exactly the production ones.
+
+`test_the_fixture_really_is_a_measurable_checkout` guards the fixture itself: if it ever
+stops producing a measurable repo, every test using it would silently degrade to
+asserting `NOT_A_CHECKOUT` — passing while checking nothing.
+
+**Scoped deliberately.** Only the three genuinely-broken tests moved onto the fixture.
+My first pass also applied it to `test_a_failed_fetch_makes_the_run_exit_nonzero`, which
+**passes in CI** — the fixture root holds one checkout, so `scan()` finds no results and
+`main()` returns 2 rather than 1. Reverted. Over-applying a fixture to tests that were
+already correct is how a green suite starts testing the fixture instead of the code.
+
+`[VERIFIED — this session]` 19 passed; the three CI-failing tests also pass with
+`RQ_GITHUB_ROOT` pointing at a nonexistent path.

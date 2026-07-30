@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -130,7 +131,7 @@ def _fail_fetch(monkeypatch, rc=128, stderr="fatal: could not read from remote")
     monkeypatch.setattr(fr.subprocess, "run", fake)
 
 
-def test_a_failed_fetch_yields_UNMEASURABLE_not_FRESH(monkeypatch):
+def test_a_failed_fetch_yields_UNMEASURABLE_not_FRESH(monkeypatch, github_root):
     _fail_fetch(monkeypatch)
     r = fr.measure("renquant-orchestrator")
     assert r["status"] == "UNMEASURABLE", r
@@ -138,7 +139,7 @@ def test_a_failed_fetch_yields_UNMEASURABLE_not_FRESH(monkeypatch):
 
 
 @pytest.mark.parametrize("rc", [1, 128, 130])
-def test_no_fetch_failure_code_can_produce_a_verdict(monkeypatch, rc):
+def test_no_fetch_failure_code_can_produce_a_verdict(monkeypatch, rc, github_root):
     """Any non-zero, not just the common one."""
     _fail_fetch(monkeypatch, rc=rc)
     r = fr.measure("renquant-orchestrator")
@@ -151,7 +152,7 @@ def test_a_failed_fetch_makes_the_run_exit_nonzero(monkeypatch):
     assert fr.main([]) == 1
 
 
-def test_origin_main_missing_after_a_SUCCESSFUL_fetch_is_also_UNMEASURABLE(monkeypatch):
+def test_origin_main_missing_after_a_SUCCESSFUL_fetch_is_also_UNMEASURABLE(monkeypatch, github_root):
     """A fetch can succeed against a remote with no main; rev-list would then compare
     against nothing."""
     real = fr.subprocess.run
@@ -169,9 +170,55 @@ def test_origin_main_missing_after_a_SUCCESSFUL_fetch_is_also_UNMEASURABLE(monke
     assert "does not resolve" in r["detail"]
 
 
-def test_the_unmocked_path_still_measures():
+def test_the_unmocked_path_still_measures(github_root):
     """Anti-vacuity: the refusals above come from the mocks, not from measure() having
     become unconditionally UNMEASURABLE."""
     r = fr.measure("renquant-orchestrator")
     assert r["status"] in ("FRESH", "STALE"), r
     assert isinstance(r.get("commits_behind"), int)
+
+
+# --- a REAL git world, so these tests do not depend on the operator's disk ------
+#
+# The first version called `fr.measure("renquant-orchestrator")` directly, which
+# resolves under `GITHUB` = /Users/renhao/git/github. In CI that path is not a
+# checkout, so every assertion below returned NOT_A_CHECKOUT and three tests failed
+# — including the anti-vacuity one, whose whole job is to prove `measure()` can still
+# reach a verdict. A test that only measures on one machine cannot make that promise.
+#
+# `GITHUB` is monkeypatchable, so the fixture builds a genuine clone with a real
+# `origin/main`. No mocking of git itself: the paths under test are exactly the ones
+# that run in production.
+
+
+def _git(*argv, cwd=None):
+    return subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", *argv],
+        cwd=cwd, capture_output=True, text=True, check=True)
+
+
+@pytest.fixture
+def github_root(tmp_path, monkeypatch):
+    """`<root>/renquant-orchestrator` — a real clone whose origin/main resolves."""
+    upstream = tmp_path / "upstream.git"
+    _git("init", "--bare", "-b", "main", str(upstream))
+
+    seed = tmp_path / "seed"
+    _git("clone", str(upstream), str(seed))
+    (seed / "README.md").write_text("seed\n")
+    _git("add", "-A", cwd=seed)
+    _git("commit", "-m", "seed", cwd=seed)
+    _git("push", "origin", "main", cwd=seed)
+
+    root = tmp_path / "gh"
+    root.mkdir()
+    _git("clone", str(upstream), str(root / "renquant-orchestrator"))
+    monkeypatch.setattr(fr, "GITHUB", root)
+    return root
+
+
+def test_the_fixture_really_is_a_measurable_checkout(github_root):
+    """If the fixture stopped producing a measurable repo, every test using it would
+    silently degrade to asserting NOT_A_CHECKOUT."""
+    r = fr.measure("renquant-orchestrator")
+    assert r["status"] in ("FRESH", "STALE"), r
