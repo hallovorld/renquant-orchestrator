@@ -99,3 +99,84 @@ def test_the_cli_exits_nonzero_on_an_unmeasurable_row(tmp_path, capsys):
     lock.write_text(json.dumps({"subrepos": [{"name": "ghost", "commit": "dead"}]}))
     rc = pl.main(["--lock", str(lock), "--github", str(tmp_path), "--max-lag", "9999"])
     assert rc == pl.EXIT_LAG, "an unmeasurable pin must not exit clean"
+
+
+# --- codex on #653: two fail-open cases -------------------------------------------
+# (1) `rev-list pin..origin/main` returns a number for DIVERGENT pins too, so the
+#     count alone hides a non-fast-forward state. Ancestry must be PROVED first.
+# (2) `scan` dropped lock entries missing name/commit, shrinking the denominator
+#     while still reporting success.
+
+def _diverged_repo(tmp_path: Path, name: str) -> tuple[Path, str]:
+    """A pin on a branch that origin/main does not contain."""
+    d = tmp_path / name
+    d.mkdir(parents=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(d), *a], capture_output=True)
+    run("init", "-q", "-b", "main")
+    run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    (d / "f.txt").write_text("base"); run("add", "."); run("commit", "-qm", "base")
+    base = subprocess.run(["git", "-C", str(d), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    # a side commit that main will never contain
+    run("checkout", "-q", "-b", "side")
+    (d / "f.txt").write_text("side"); run("add", "."); run("commit", "-qm", "side")
+    pin = subprocess.run(["git", "-C", str(d), "rev-parse", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    run("checkout", "-q", "main")
+    (d / "g.txt").write_text("main"); run("add", "."); run("commit", "-qm", "main2")
+    run("update-ref", "refs/remotes/origin/main", "refs/heads/main")
+    run("remote", "add", "origin", str(d))
+    return d, pin
+
+
+def test_a_DIVERGED_pin_is_not_reported_as_a_behind_count(tmp_path):
+    """THE DEFECT. `rev-list A..B` is defined for divergent pairs and returns a
+    number; taking it as 'behind' silently hides the non-fast-forward state."""
+    _, pin = _diverged_repo(tmp_path, "sub-div")
+    r = pl.measure("sub-div", pin, tmp_path)
+    assert r["status"] == pl.STATUS_DIVERGED, r
+    assert r["behind"] is None, "a divergent pin has no behind count"
+    assert "NOT an ancestor" in r["detail"]
+
+
+def test_an_ancestor_pin_is_still_MEASURED(tmp_path):
+    """Anti-vacuity for the ancestry proof: if nothing qualified, every real pin
+    would report DIVERGED and the tool would measure nothing."""
+    d, first = _repo(tmp_path, "sub-anc", n_commits=3)
+    assert pl.measure("sub-anc", first, tmp_path)["status"] == pl.STATUS_MEASURED
+
+
+@pytest.mark.parametrize("entry,missing", [
+    ({"commit": "abc123"}, "name"),
+    ({"name": "sub-x"}, "commit"),
+    ({"name": "", "commit": "abc"}, "name"),
+    ({"name": "sub-x", "commit": ""}, "commit"),
+])
+def test_a_malformed_lock_entry_is_a_ROW_not_a_silent_drop(tmp_path, entry, missing):
+    """THE DENOMINATOR. Dropping these shrinks the population being checked while
+    the run still reports success — the same shape the tool exists to expose."""
+    lock = tmp_path / "l.json"
+    lock.write_text(json.dumps({"subrepos": [entry]}))
+    res = pl.scan(lock, tmp_path)
+    assert res["lock_entries"] == 1
+    assert res["malformed"] == 1
+    assert res["rows"][0]["status"] == pl.STATUS_MALFORMED
+    assert missing in res["rows"][0]["detail"]
+
+
+def test_the_denominator_is_the_LOCK_length_not_the_measurable_subset(tmp_path):
+    d, first = _repo(tmp_path, "sub-ok", n_commits=2)
+    lock = tmp_path / "l.json"
+    lock.write_text(json.dumps({"subrepos": [
+        {"name": "sub-ok", "commit": first},
+        {"name": "sub-bad"},
+    ]}))
+    res = pl.scan(lock, tmp_path)
+    assert res["lock_entries"] == 2 and res["measured"] == 1 and res["malformed"] == 1
+
+
+def test_the_cli_exits_nonzero_on_a_malformed_entry_alone(tmp_path):
+    lock = tmp_path / "l.json"
+    lock.write_text(json.dumps({"subrepos": [{"name": "only-name"}]}))
+    assert pl.main(["--lock", str(lock), "--github", str(tmp_path),
+                    "--max-lag", "9999"]) == pl.EXIT_LAG

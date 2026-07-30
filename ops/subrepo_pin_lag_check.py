@@ -55,6 +55,14 @@ EXIT_OK, EXIT_LAG, EXIT_UNUSABLE = 0, 1, 2
 
 STATUS_MEASURED, STATUS_NO_CHECKOUT, STATUS_UNKNOWN_PIN = (
     "measured", "no-dev-checkout", "pin-not-in-repo")
+#: The pin is NOT an ancestor of origin/main. `rev-list pin..origin/main` still
+#: returns a number there, and that number is not a "behind count" — it silently
+#: hides a non-fast-forward state. Codex on #653.
+STATUS_DIVERGED = "diverged"
+#: A lock entry missing `name` or `commit`. The first version DROPPED these, which
+#: shrinks the denominator while still reporting success — a malformed lock could
+#: quietly reduce the population being checked. Never dropped now.
+STATUS_MALFORMED = "malformed-lock-entry"
 
 
 def _git(cwd: Path, *args: str, timeout: int = 180):
@@ -74,12 +82,29 @@ def measure(name: str, pin: str, github: Path = GITHUB) -> dict:
                 "behind": None,
                 "detail": ("fetch failed; refusing to measure against a possibly "
                            f"stale origin/main: {fetched.stderr.strip()[:120]}")}
+    # ANCESTRY FIRST. A behind-count only means "behind" when the pin is on the
+    # first-parent history of origin/main. Ask git directly rather than inferring it
+    # from a count that is defined for divergent pairs too.
+    anc = _git(dev, "merge-base", "--is-ancestor", pin, "origin/main")
+    if anc.returncode not in (0, 1):
+        return {"subrepo": name, "pin": pin, "status": STATUS_UNKNOWN_PIN,
+                "behind": None,
+                "detail": f"pin {pin[:12]} not reachable in {name}: "
+                          f"{(anc.stderr or '').strip()[:120]}"}
+    if anc.returncode == 1:
+        lr = _git(dev, "rev-list", "--left-right", "--count",
+                  f"{pin}...origin/main")
+        pair = lr.stdout.split() if lr.returncode == 0 else ["?", "?"]
+        return {"subrepo": name, "pin": pin, "status": STATUS_DIVERGED,
+                "behind": None,
+                "detail": (f"pin is NOT an ancestor of origin/main "
+                           f"(pin-only {pair[0]}, main-only {pair[1]}) — a behind "
+                           f"count would hide a non-fast-forward state")}
     r = _git(dev, "rev-list", "--count", f"{pin}..origin/main")
     if r.returncode != 0:
         return {"subrepo": name, "pin": pin, "status": STATUS_UNKNOWN_PIN,
                 "behind": None,
-                "detail": f"pin {pin[:12]} not reachable in {name}: "
-                          f"{r.stderr.strip()[:120]}"}
+                "detail": f"count failed for {name}: {r.stderr.strip()[:120]}"}
     return {"subrepo": name, "pin": pin, "status": STATUS_MEASURED,
             "behind": int(r.stdout.strip() or 0), "detail": ""}
 
@@ -88,11 +113,24 @@ def scan(lock: Path = LOCK, github: Path = GITHUB) -> dict:
     entries = json.loads(lock.read_text()).get("subrepos", [])
     if not entries:
         raise ValueError(f"{lock} lists no subrepos — nothing would be checked")
-    rows = [measure(e.get("name", "?"), e.get("commit", ""), github)
-            for e in entries if e.get("name") and e.get("commit")]
+    rows = []
+    for e in entries:
+        n, c = e.get("name"), e.get("commit")
+        if not n or not c:
+            # NEVER dropped: a silently shrunk denominator is the failure mode
+            # this whole tool exists to expose, one level up.
+            rows.append({"subrepo": n or "<no name>", "pin": c or "<no commit>",
+                         "status": STATUS_MALFORMED, "behind": None,
+                         "detail": f"lock entry missing "
+                                   f"{'name' if not n else 'commit'}"})
+            continue
+        rows.append(measure(n, c, github))
     return {
         "subrepos": len(rows),
+        "lock_entries": len(entries),
         "measured": sum(1 for r in rows if r["status"] == STATUS_MEASURED),
+        "diverged": sum(1 for r in rows if r["status"] == STATUS_DIVERGED),
+        "malformed": sum(1 for r in rows if r["status"] == STATUS_MALFORMED),
         # UNMEASURABLE is counted separately and never folded into "0 behind" —
         # a lag nobody could compute is not a lag of zero.
         "unmeasurable": sum(1 for r in rows if r["status"] != STATUS_MEASURED),
@@ -121,7 +159,10 @@ def main(argv=None) -> int:
         print(json.dumps({**res, "max_lag": a.max_lag,
                           "over_threshold": [r["subrepo"] for r in over]}, indent=2))
     else:
-        print(f"subrepo pin lag: {res['measured']}/{res['subrepos']} measured, "
+        print(f"subrepo pin lag: {res['measured']}/{res['lock_entries']} measured "
+              f"(diverged {res['diverged']}, malformed {res['malformed']}, "
+              f"other-unmeasurable "
+              f"{res['unmeasurable'] - res['diverged'] - res['malformed']}), "
               f"{res['total_behind']} commits behind in total "
               f"(threshold {a.max_lag})")
         for r in res["rows"]:
