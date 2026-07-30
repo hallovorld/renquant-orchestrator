@@ -12,7 +12,10 @@ WHY/DIR:  `check_umbrella_branch()` verifies the umbrella live tree is on
           code while every dashboard reports the fix as merged. This is the
           "merged is not deployed" class, and it was live TODAY.
 
-EVIDENCE: measured against the real live tree, READ-ONLY `[VERIFIED-now]`:
+EVIDENCE:
+  artifact:       `ops/run_surface_drift_check.py` (`check_umbrella_deploy_lag()`,
+                  `_resolve_ref()`); `tests/test_umbrella_deploy_lag.py`.
+          measured against the real live tree, READ-ONLY `[VERIFIED-now]`:
             old branch-name check       -> CLEAN (misses it entirely)
             new deploy-lag check        -> FIRES
             refs/heads/main             = 36a8c459
