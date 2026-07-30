@@ -140,3 +140,51 @@ this time produced by a merge inside a test file.
 
 `[VERIFIED — this session]` 41 passed. Load-bearing confirmed by deleting
 `weekly-wf-promote`'s glob: the named-labels test fails and passes again on restore.
+
+## Addendum 2026-07-30 — the review's two demands are not one demand
+
+Codex asked for (a) a **deterministic source-of-truth mapping** for all manifested
+jobs and (b) that each glob **"cannot overlap another manifested writer"**. Only (b)
+is decidable from what exists today, and conflating them would have shipped a
+half-answer as a whole one.
+
+### (a) OWNERSHIP is not derivable by static parsing — measured, negative
+
+I tried the obvious route: parse each wrapper for the expression it assigns its
+dated log to. It resolves **4 of 31** wrappers
+`[VERIFIED — regex over every manifest-named `.sh`, this session]`. The construction
+varies too much — different variable names, `tee`, `exec >` redirection, per-module
+loops that write several dated files per run. **Shipping a 4/31 parser as a "source
+of truth" would be a guard that validates the wrong object for 27 jobs**, which is
+the exact defect class this PR exists to fix.
+
+Three routes that would actually close it, none of them a test, all needing their
+own review:
+
+1. **The wrapper declares its own evidence path at run time** — print
+   `evidence_path=<...>` on start, and the scan reads it. Unfalsifiable, because it
+   comes from the job. Costs a touch to ~31 wrappers and only helps after each next
+   fires.
+2. **The scan attributes by process** — record the writer pid at open time. Needs a
+   change in every writer and does not work retroactively.
+3. **Accept declaration + enforce non-collision** — what is shipped here. Does not
+   prove a glob reads *its own* files; proves it cannot read a *sibling's*.
+
+### (b) NON-OVERLAP is decidable, and is now enforced
+
+`tests/test_evidence_glob_exclusivity.py` — 5 tests, both halves:
+
+- **static**: no two globs share a directory **and** filename prefix
+  (`logs/rq105/` holds six jobs; the prefix is the only separator);
+- **dynamic**: no two globs match the same **file** on this machine — the thing
+  itself, not the proxy;
+- absoluteness (a relative glob resolves against a cwd launchd does not pin);
+- an **anti-vacuity** control, since every assertion is trivially true over an empty
+  list;
+- an empty-glob census pinned to the one expected case
+  (`rq104-model-freshness`, whose plist is not installed yet, #638).
+
+Coverage on this branch: **19/41** jobs carry an `evidence_glob`, against **6/41**
+on `main` `[VERIFIED — manifest parse of both]`. The 22 without one still fall back
+to `StandardOutPath`, which #627 measured to give false stale readings — that is the
+remaining gap, and it is a count, not a hope.
