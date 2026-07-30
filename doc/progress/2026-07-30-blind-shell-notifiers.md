@@ -15,13 +15,26 @@ tokens. That is materially wrong: `curl -s` still hands its exit status to the
 caller, and so does a command with stdout redirected. **Neither alone establishes
 that the result was discarded**, so the count was not tied to the property claimed.
 
-**Corrected predicate:** an explicit status-discarding construct
-(`|| true`, `||true`, `|| :`, `||:`, `; true`, `;true`) is **NECESSARY**. `-s` and
-`>/dev/null` are demoted to **attributes** — they record how much *additional*
-evidence was destroyed, not whether the finding exists.
+**Corrected predicate, round 1:** an explicit status-discarding construct is
+**necessary**.
 
-**Re-measured under the strict predicate: 15 scripts, 12 scheduled — unchanged**,
-because every one of them carries `|| true` `[VERIFIED — re-run, 2026-07-30]`.
+**Round 2 (codex again, and again right):** status discard alone is **not
+sufficient either**. `|| true` throws away the *shell* status, but curl still writes
+its error to stderr and that reaches the job log — **an error visible in the log IS
+delivery evidence**. So the strong category now requires **BOTH** a status discard
+**AND** evidence suppression (`-s` or `>/dev/null`), and the weak case is reported
+separately as `status_ignored_only` rather than folded in.
+
+**The send recogniser was also not established.** A line merely containing `curl`
+and `ntfy.sh` can be an echo, a comment fragment, a variable assignment or a `GET`.
+It must now carry a data/POST flag (`-d`, `--data`, `-X POST`, `-T`,
+`--upload-file`).
+
+**Re-measured under the strict recogniser AND the two-condition predicate:
+15 scripts, 12 scheduled, `status_ignored_only` = 0 — unchanged**
+`[VERIFIED — re-run, 2026-07-30]`. Every real line carries all three constructs, and
+the strict recogniser matches the same 15 as the loose one, so nothing was being
+counted that should not have been.
 **The number survived the tightening; the reasoning behind it did not**, and that
 is the part that needed fixing. A number that happens to be right for a wrong
 reason is still a wrong claim.
@@ -70,7 +83,7 @@ it — is an umbrella change and belongs in its own authorised batch.
 
 ## 4. Suite
 
-18 tests, including three controls that would have caught my own likely errors:
+34 tests, including three controls that would have caught my own likely errors:
 
 - **anti-vacuity** — a send that keeps its status is **not** a finding, or the count
   carries no information and the tool gets ignored;
