@@ -117,9 +117,15 @@ def test_exactly_one_python_command_runs_and_it_is_the_monitor():
     # alone counted three "runs" where the shell executes one.
     runs = [l for l in _invocations(WRAPPER)
             if l.startswith(('"$PYTHON"', "$PYTHON"))]
-    assert len(runs) == 1, runs
-    assert "renquant_orchestrator.model_freshness_monitor" in runs[0]
-    assert "--notify" in runs[0]
+    # TWO invocations by design since the #638 evidence-ordering fix: a read-only
+    # import PROBE that must run before any evidence is committed, then the monitor.
+    # Naming both explicitly keeps this an allowlist -- loosening it to "at least one
+    # is the monitor" would let a third, mutating call slip in unnoticed.
+    assert len(runs) == 2, runs
+    probe, run = runs
+    assert probe.startswith('"$PYTHON" -c "import renquant_orchestrator.model_freshness_monitor"'), probe
+    assert "renquant_orchestrator.model_freshness_monitor" in run
+    assert "--notify" in run
 
 
 def test_the_observe_only_check_is_not_vacuous():
@@ -138,3 +144,121 @@ def test_the_schedule_lands_before_the_dawn_preflight():
     assert {e["Weekday"] for e in entries} == {1, 2, 3, 4, 5}
     for e in entries:
         assert (e["Hour"], e["Minute"]) < (6, 5), e
+
+
+# --- codex BLOCKER on #638: evidence must not exist unless the monitor ran --------
+# The first wrapper created the dated log BEFORE env setup, so a setup failure left a
+# fresh evidence file and no run, and the liveness scan (which scores this job on
+# exactly that glob) would report it alive. These tests build a fake umbrella root and
+# break one prerequisite at a time.
+
+import os
+import stat
+import subprocess
+import textwrap
+
+
+def _fake_root(tmp_path, *, python_body="exit 0", probe_body="exit 0",
+               env_sh=None, log_dir_ok=True):
+    root = tmp_path / "umbrella"
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / "scripts").mkdir(parents=True)
+    if log_dir_ok:
+        (root / "logs" / "rq104").mkdir(parents=True)
+    py = root / ".venv" / "bin" / "python"
+    # The wrapper calls this twice with different argv: `-c "import ..."` (the probe)
+    # and `-m ...` (the run). A stub that ignored argv made the probe consume the
+    # run's exit code, which is how the anti-vacuity test first failed -- the stub
+    # was the wrong object, not the wrapper.
+    py.write_text("#!/bin/sh\n"
+                  'case "$1" in -c) ' + probe_body + ';; esac\n'
+                  + python_body + "\n")
+    py.chmod(py.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    (root / "scripts" / "subrepo_env.sh").write_text(env_sh if env_sh is not None else
+        textwrap.dedent(f"""\
+        renquant_load_subrepo_env() {{ return 0; }}
+        renquant_subrepo_root() {{ echo "{root}"; }}
+        renquant_subrepo_pythonpath() {{ echo "{root}/src"; }}
+        """))
+    return root
+
+
+def _run(root, tmp_path):
+    env = dict(os.environ, RQ_ROOT=str(root))
+    env.pop("PYTHONPATH", None)
+    return subprocess.run(["/bin/bash", str(WRAPPER)], env=env,
+                          capture_output=True, text=True, timeout=120)
+
+
+def _logs(root):
+    d = root / "logs" / "rq104"
+    return sorted(d.glob("model_freshness_*.log")) if d.exists() else []
+
+
+def test_a_missing_umbrella_root_writes_no_evidence(tmp_path):
+    r = _run(tmp_path / "nope", tmp_path)
+    assert r.returncode == 4, r.stderr
+    assert "PREREQ FAILED" in r.stderr
+
+
+def test_a_non_executable_interpreter_writes_no_evidence(tmp_path):
+    root = _fake_root(tmp_path)
+    (root / ".venv" / "bin" / "python").chmod(0o644)
+    r = _run(root, tmp_path)
+    assert r.returncode == 4, r.stderr
+    assert _logs(root) == [], "evidence landed for a run that never happened"
+
+
+def test_an_unreadable_subrepo_env_writes_no_evidence(tmp_path):
+    root = _fake_root(tmp_path)
+    (root / "scripts" / "subrepo_env.sh").unlink()
+    r = _run(root, tmp_path)
+    assert r.returncode == 4, r.stderr
+    assert _logs(root) == []
+
+
+def test_an_empty_subrepo_root_writes_no_evidence(tmp_path):
+    """`renquant_subrepo_root` returning "" used to flow straight into PYTHONPATH."""
+    root = _fake_root(tmp_path, env_sh=textwrap.dedent("""\
+        renquant_load_subrepo_env() { return 0; }
+        renquant_subrepo_root() { echo ""; }
+        renquant_subrepo_pythonpath() { echo ""; }
+        """))
+    r = _run(root, tmp_path)
+    assert r.returncode == 4, r.stderr
+    assert _logs(root) == []
+
+
+def test_an_unimportable_monitor_writes_no_evidence(tmp_path):
+    """THE CASE THAT MATTERS MOST: everything resolves, but PYTHONPATH points at a
+    checkout without the module. Without the import probe this reached the run step
+    and published a log for a ModuleNotFoundError."""
+    root = _fake_root(tmp_path, probe_body="exit 1")   # import probe fails
+    r = _run(root, tmp_path)
+    assert r.returncode == 4, r.stderr
+    assert "not importable" in r.stderr
+    assert _logs(root) == []
+
+
+def test_evidence_appears_only_after_the_monitor_returns(tmp_path):
+    """Anti-vacuity control. If the prerequisites hold, a log MUST be published and
+    MUST carry the terminal marker — otherwise the tests above would pass simply
+    because the wrapper never writes anything at all."""
+    root = _fake_root(tmp_path, python_body='echo "monitor ran"; exit 3')
+    r = _run(root, tmp_path)
+    assert r.returncode == 3, (r.returncode, r.stderr)   # monitor's tier passes through
+    logs = _logs(root)
+    assert len(logs) == 1, logs
+    body = logs[0].read_text()
+    assert "monitor ran" in body
+    assert "monitor exit=3" in body
+    assert "monitor end" in body, "terminal marker missing"
+
+
+def test_no_temp_file_is_left_behind_on_failure(tmp_path):
+    """The temp log lives beside the evidence path, so a leaked one would match the
+    evidence_glob prefix and could be mistaken for evidence by a looser matcher."""
+    root = _fake_root(tmp_path, probe_body="exit 1")
+    _run(root, tmp_path)
+    d = root / "logs" / "rq104"
+    assert list(d.glob("model_freshness_*")) == []

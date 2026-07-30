@@ -162,7 +162,8 @@
       "program_args_sha256": "bd3371cefc5808b7759e02b7615433c5c5e923939f6bc84f680f2168da6ba0c5",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/model_freshness_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "_evidence_glob_comment": "the wrapper writes one dated file per firing under logs/rq104/. Scored on that glob, NOT on StandardOutPath, because #627 measured StandardOutPath to be a stale proxy for every wrapper that redirects. Filename prefix is unique to this job, so the glob cannot pick up a sibling's evidence.",
-      "_pending_install_comment": "REVIEWED SURFACE LANDS FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until the plist is installed the liveness scan will report this label UNJUDGEABLE_NO_PLIST. That reading is CORRECT and is the designed reminder that a reviewed job is not yet running -- do not silence it by removing this entry."
+      "_pending_install_comment": "REVIEWED SURFACE LANDS FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until the plist is installed the liveness scan will report this label UNJUDGEABLE_NO_PLIST. That reading is CORRECT and is the designed reminder that a reviewed job is not yet running -- do not silence it by removing this entry.",
+      "_install_precondition_comment": "BOOTSTRAP PRECONDITION, codex CR on #638. program_args target the RUN checkout (renquant-orchestrator-run), which was measured 110 commits behind origin/main on 2026-07-30 and does NOT contain this wrapper. Installing before that checkout carries the reviewed wrapper commit yields a job that fires daily and fails at exec. Verify `test -x <run-checkout>/ops/renquant104/run_model_freshness_monitor.sh` AND that the checkout contains the merge commit for this PR, BEFORE launchctl bootstrap."
     },
     "com.renquant.rq104-risk-budget": {
       "program_args": [
