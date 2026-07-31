@@ -64,3 +64,33 @@ stripping is skipped; and an empty prefix must behave exactly as before. Plus a
 scoping control that ordinary `no trade` prose is **not** matched by any lane.
 
 With the existing sentinel suite: **32 passed** `[VERIFIED — pytest, this session]`.
+
+## CI fix — the discovery control measured this machine, and my first fix was a tautology
+
+`test_every_lane_actually_DISCOVERS_logs_on_this_machine` reads the real log tree. On a
+runner no watched directory exists, so every lane finds nothing and each is reported
+"blind" — a red build whose real cause is that there was nothing to discover. Same
+shape as #634, #637 and #635.
+
+Split, so the property survives where the logs do not:
+
+* the machine-local control is marked `skipif` on the watched directories existing,
+  with a reason naming what covers CI instead. It still earns its place: it catches a
+  lane pointed at a directory that is empty or gone **here**.
+* `test_every_lane_can_discover_the_log_it_is_supposed_to` runs **everywhere** and
+  checks the more likely failure — a malformed `log_stem_prefix`. A prefix typo is
+  invisible to the machine-local test on a box where logs still exist under the old
+  name.
+
+**My first version of that hermetic test could not fail, and I only found out because
+I tried to break it.** It built the fixture filename *from* `lane.log_stem_prefix`, so
+corrupting the prefix produced a correspondingly corrupted file and the finder matched
+it anyway — a control generated from the value under test, which is precisely the
+defect this suite exists to catch, written into the suite. Replaced with
+`EXPECTED_LOG_NAMES`, a literal per lane read off the real tree, plus an assertion that
+every watched lane has one so a new lane cannot be added without pinning it.
+
+`[VERIFIED — this session]` 15 passed locally; with `RQ_ROOT` pointing nowhere (the CI
+case) **14 passed, 1 skipped, 0 failed**. Load-bearing confirmed by corrupting the
+prefix two ways — a typo and an empty string — each of which now **fails** the hermetic
+control and passes again on restore.

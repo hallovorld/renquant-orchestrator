@@ -104,9 +104,74 @@ def test_ordinary_no_trade_prose_is_NOT_a_refusal(line):
 # It found ZERO logs. A configured-but-blind lane is worse than an absent one --- it
 # reads as coverage. These are the controls that would have caught it.
 
+def _lane_dirs_present() -> bool:
+    """Do any watched log directories exist here?
+
+    The discovery control below reads the real log tree, so it is a statement about
+    THIS machine. On a runner no log directory exists, every lane finds nothing, and
+    it reports each one "blind" — a red build whose real cause is that there was
+    nothing to discover. Same shape as the umbrella, checkout-freshness and
+    evidence-glob checks (#634, #637, #635).
+    """
+    import os
+    return any(os.path.isdir(l.log_dir) for l in srs.WATCHED)
+
+
+#: The log filename each lane must be able to discover, PINNED as a literal.
+#:
+#: These are not derived from `log_stem_prefix` — that is the whole point. My first
+#: version of the test below built the fixture filename FROM the lane's own prefix, so
+#: a typo'd prefix produced a typo'd file and the finder still matched it. It could
+#: not fail: I verified that by corrupting the prefix and watching it pass. A control
+#: whose fixture is generated from the value under test is a tautology, which is the
+#: exact defect this suite exists to catch, written into the suite.
+#:
+#: Read off the real tree 2026-07-30 (the same logs the module's own comment cites).
+EXPECTED_LOG_NAMES = {
+    "weekly-retrain-patchtst": "2026-07-29.log",
+    "rq105-batch-scores-export": "batch_scores_export_2026-07-29.log",
+}
+
+
+def test_every_lane_can_discover_the_log_it_is_supposed_to(tmp_path):
+    """The anti-vacuity property, hermetically — this runs EVERYWHERE.
+
+    A lane whose finder matches nothing passes every pattern test ever written. The
+    most likely way a lane goes blind is a malformed `log_stem_prefix`, not a missing
+    directory — and a prefix typo is invisible to the machine-local test on a box
+    where logs happen to exist under the old name.
+    """
+    as_of = dt.date(2026, 7, 30)
+    assert {l.name for l in srs.WATCHED} == set(EXPECTED_LOG_NAMES), (
+        "a lane was added or renamed without pinning the filename it must discover; "
+        "add it to EXPECTED_LOG_NAMES from the real tree, do not derive it")
+    for lane in srs.WATCHED:
+        d = tmp_path / lane.name
+        d.mkdir()
+        (d / EXPECTED_LOG_NAMES[lane.name]).write_text("x")
+        found = srs._dated_logs(str(d), as_of=as_of,
+                                stem_prefix=lane.log_stem_prefix)
+        assert found, (
+            f"{lane.name} cannot discover {EXPECTED_LOG_NAMES[lane.name]!r}, the log "
+            f"its job actually writes — its log_stem_prefix "
+            f"({lane.log_stem_prefix!r}) does not match reality, so the lane is blind "
+            f"wherever it runs")
+
+
+@pytest.mark.skipif(
+    not _lane_dirs_present(),
+    reason="no watched log directories on this machine — see "
+           "test_every_lane_can_discover_a_log_it_is_configured_for for the property "
+           "that runs in CI")
 def test_every_lane_actually_DISCOVERS_logs_on_this_machine():
     """The control I was missing. A lane whose finder matches nothing passes every
-    pattern test ever written."""
+    pattern test ever written.
+
+    Machine-local by construction: it asserts the lane finds logs on the real tree,
+    which only means anything where that tree exists. The hermetic test above covers
+    the configuration; this one additionally catches a lane pointed at a directory
+    that is empty or gone HERE.
+    """
     as_of = dt.date(2026, 7, 30)
     for lane in srs.WATCHED:
         found = srs._dated_logs(lane.log_dir, as_of=as_of,
