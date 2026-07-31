@@ -52,7 +52,14 @@ def is_session_day(day: dt.date) -> bool:
 def alert(title: str, body: str, *, rq_root: str | None = None) -> bool:
     """Send an ntfy alert via renquant_common.notify (campaign B6 canonical).
 
-    RETURNS WHETHER IT WAS DELIVERED. It used to return ``None``, and
+    RETURNS THE SEND-ATTEMPT OUTCOME — NOT DELIVERY. Codex on #672: a ``True``
+    here proves only that ``notify.send`` built the request and the server accepted
+    it. It does not prove an operator received, saw, or acted on anything. Treating
+    it as delivery evidence would be the same over-reach this function exists to
+    correct, one step further along the chain: "the POST succeeded" and "somebody
+    was told" are different facts, and only the first is observable from here.
+
+    It used to return ``None``, and
     ``renquant_common.notify.send`` is deliberately built never to raise into a
     monitor -- it swallows the failure, increments a counter and returns
     ``False``. So the bool was the only in-process evidence that an alarm
@@ -60,9 +67,10 @@ def alert(title: str, body: str, *, rq_root: str | None = None) -> bool:
     **0 of 12 call sites** could observe delivery, because there was nothing to
     observe.
 
-    That made "raised an alarm" and "raised an alarm nobody received"
+    That made "raised an alarm" and "the send was never even attempted"
     indistinguishable at every caller -- the same shape as a crashed sentinel
-    exiting with the alarm code, one layer up. Callers can now record it.
+    exiting with the alarm code, one layer up. Callers can now record the attempt
+    outcome; nothing here observes receipt.
     """
     rq = rq_root or os.environ.get("RQ_ROOT", RQ_DEFAULT)
     try:

@@ -64,3 +64,21 @@ string `"bool"`), and a property I named from memory as `is_permanent` when the 
 says `looked_permanent`. Both fixed by reading the source.
 
 Suite: **4795 passed / 2 skipped**.
+
+## Round 2 — it is a SEND-ATTEMPT outcome, not delivery, and it is a primitive not a control
+
+Codex on #672, all three points accepted.
+
+1. **`alert() -> True` proves the request was built and accepted, not that anyone was
+   told.** I called this "delivery observability"; that is the same over-reach this
+   function exists to correct, **one step further along the chain**. *"The POST
+   succeeded"* and *"somebody was told"* are different facts and only the first is
+   observable here. The docstring, the test names and this document now say
+   **send-attempt outcome**.
+2. **No caller records the return value.** True. Pinned by a test that scans `ops/` for
+   any assignment or branch on `alert(...)` and asserts there are **none** — it fails the
+   day one appears, which is the day the claim may change.
+3. **The widened scan is unscheduled.** So what this PR adds is an **observability
+   primitive**, not an active delivery-monitoring control. Scheduling the scan is a
+   machine landing and needs authorisation; nothing here should be read as a control
+   that exists.

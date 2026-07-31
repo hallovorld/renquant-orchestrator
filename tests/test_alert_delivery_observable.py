@@ -1,4 +1,10 @@
-"""GOAL-5 — an alarm nobody received must not look like one that was received.
+"""GOAL-5 — an alarm whose send was never attempted must not look like one that was.
+
+NARROWED after codex on #672: `alert()` returns the SEND-ATTEMPT OUTCOME, not
+delivery. A `True` proves `notify.send` built the request and the server accepted
+it; it does not prove an operator received, saw or acted on anything. "The POST
+succeeded" and "somebody was told" are different facts and only the first is
+observable here.
 
 Two measured gaps, 2026-07-31:
 
@@ -38,14 +44,14 @@ SCAN = _load("undeliv_scan", "ops/undelivered_alert_scan.py")
 
 
 # ------------------------------------------------------------ alert() ------
-def test_alert_reports_a_successful_delivery(monkeypatch):
+def test_alert_reports_a_successful_SEND_ATTEMPT(monkeypatch):
     import renquant_common.notify as notify
 
     monkeypatch.setattr(notify, "send", lambda *a, **k: True)
     assert LC.alert("t", "b") is True
 
 
-def test_alert_reports_a_FAILED_delivery(monkeypatch):
+def test_alert_reports_a_FAILED_send_attempt(monkeypatch):
     """THE defect. `send` never raises, so without this the caller cannot tell."""
     import renquant_common.notify as notify
 
@@ -114,3 +120,31 @@ def test_suppression_is_not_classified_as_a_permanent_encoding_defect():
                                "before any send")
     assert u.looked_permanent is False
     assert u.status != "PERMANENT"
+
+
+def test_the_contract_does_not_claim_DELIVERY(monkeypatch):
+    """codex #672: the return must not be presented as delivery evidence. Pinned in
+    the docstring so the narrowing cannot be undone by a later rewording."""
+    import inspect
+
+    doc = inspect.getdoc(LC.alert)
+    assert "SEND-ATTEMPT OUTCOME" in doc
+    assert "NOT DELIVERY" in doc
+    assert "does not prove an operator received" in doc
+
+
+def test_no_caller_records_the_outcome_yet_and_that_is_STATED():
+    """codex #672: 'no caller records the new return value'. True, and the honest
+    position is to say so rather than imply an active control exists. This test
+    fails the day a caller starts recording it — which is when the claim may change.
+    """
+    import pathlib as _p
+    import re as _re
+
+    root = _p.Path(__file__).resolve().parent.parent / "ops"
+    users = []
+    for f in sorted(root.rglob("*.py")):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if _re.search(r"^\s*\w+\s*=\s*alert\(|if\s+alert\(|return\s+alert\(", line):
+                users.append(f"{f.name}: {line.strip()[:60]}")
+    assert users == [], users
