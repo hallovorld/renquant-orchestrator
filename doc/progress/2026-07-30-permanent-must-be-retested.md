@@ -66,3 +66,42 @@ The test module first died at import with
 harness failure that looks exactly like a code failure** — worth the comment it now
 carries, since three other test files in this repo load ops modules the same way and
 only this one has a dataclass.
+
+## CI fix — the tests asserted the API this PR replaced, and would have stayed flaky
+
+Three tests failed with `'Undelivered' object has no attribute 'permanent'`. `permanent`
+became **two** things here, which is the change's whole point:
+
+* `looked_permanent` — what the LOG said, pure text, environment-independent;
+* `status` — re-measured against today's encoder.
+
+Renaming the attribute would have turned a hard failure into an intermittent one.
+`status` calls `encoding_defect_still_present`, which imports `renquant_common.notify`.
+Measured 2026-07-31 `[VERIFIED — both runs this session]`: with the sibling importable
+(the CI condition) the emoji title encodes under RFC 2047 and the finding is
+**RESOLVED**; in an isolated worktree without it, the import fails and the finding is
+**UNTESTABLE**. Any test asserting one status for a real title passes in one
+environment and fails in the other — and `test_permanent_findings_sort_first` was
+already failing that way, on the *sort order*, not on the attribute.
+
+So the re-test is **stubbed wherever a status is asserted**. That is not dodging it:
+`encoding_defect_still_present` has its own tests, and stubbing is what makes all four
+statuses reachable — including **PERMANENT**, which is otherwise unreachable on any
+machine whose encoder already fixes the defect, i.e. every machine from 2026-07-29
+onward.
+
+Now covered:
+* `looked_permanent` on both fixture lines — the backward-looking half, unstubbed;
+* a parametrised `status` test over `True / False / None` →
+  `PERMANENT / RESOLVED / UNTESTABLE`, asserting `looked_permanent` stays `True`
+  throughout so the two halves cannot be conflated again;
+* ordering with the re-test pinned, so it tests the ORDER rather than today's encoder;
+* a new `RESOLVED sorts last and is still reported` — the module states that hiding a
+  resolved finding would make the fix invisible, and nothing pinned that intent.
+
+The `[PERMANENT]` line assertion also carried the **old** tail text
+(`"can never deliver until the code changes"`). It now asserts the new wording —
+`RE-TESTED … still undeliverable` — and that a transient line says no such thing. The
+re-test claim belongs in the text a human reads, not only in a status field.
+
+`[VERIFIED — this session]` **19 passed with the sibling importable AND without it.**
