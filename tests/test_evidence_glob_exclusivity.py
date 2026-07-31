@@ -20,6 +20,7 @@ the second is mechanically decidable from what exists today:
 from __future__ import annotations
 
 import glob as globmod
+import pathlib
 import json
 import os
 from pathlib import Path
@@ -116,15 +117,23 @@ def test_an_empty_glob_is_detected(tmp_path):
 
 
 @needs_logs
-def test_a_glob_matching_nothing_is_REPORTED_not_silently_passing():
-    """A glob that matches no file cannot make its job look alive -- but it also
-    cannot make it look dead correctly, and it is indistinguishable from a typo.
-    This test does not fail on it; it fails only if the count grows past what is
-    recorded, so a new empty glob has to be looked at.
+def test_an_empty_glob_is_allowed_ONLY_when_its_job_is_not_installed():
+    """A glob matching no file cannot make its job look alive — but it also cannot
+    make it look dead correctly, and it is indistinguishable from a typo.
 
-    Machine-local by construction: it is an inventory of what this disk holds.
+    THE PREVIOUS VERSION HARDCODED THE ANSWER: `set(empty) <=
+    {"com.renquant.rq104-model-freshness"}`, an inventory of what one disk held on
+    2026-07-30. It went red the moment two more manifested-but-uninstalled jobs
+    appeared (`ops-audit`, `rq104-silent-refusal`) — the
+    tests-that-measure-the-operator's-disk shape. Extending the literal set would
+    have been the enumerate-and-hope repair.
+
+    The rule is DERIVABLE instead: a manifested job that is NOT installed has never
+    run, so an empty glob is expected. A manifested job that IS installed and still
+    matches nothing is the case worth failing on — and this holds on any machine
+    rather than on this one.
     """
-    empty = [l for l, g in _globs() if not globmod.glob(g)]
-    # Measured 2026-07-30 on this machine. rq104-model-freshness is expected: its
-    # plist is not installed yet (#638), so it has never written.
-    assert set(empty) <= {"com.renquant.rq104-model-freshness"}, empty
+    la = pathlib.Path.home() / "Library" / "LaunchAgents"
+    unexplained = [label for label, g in _globs()
+                   if not globmod.glob(g) and (la / f"{label}.plist").exists()]
+    assert unexplained == [], unexplained
