@@ -290,17 +290,42 @@ class TestOutputLinesCarryTheirDate:
     STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} ")
 
     def _run(self, monkeypatch, capsys, *, problems, infos):
-        monkeypatch.setattr(drift, "check_git_surfaces", lambda: (list(problems), list(infos)))
-        monkeypatch.setattr(drift, "check_umbrella_branch", lambda: [])
-        monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
-        monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
-        monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
-        # main() has SEVEN problem producers, not five. The first version of
-        # these tests stubbed five and passed locally while failing in CI,
-        # because check_sentinel_receipt() returns a problem on a host with no
-        # receipt and none on mine — a test measuring the machine it ran on.
-        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
-        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
+        # STOP ENUMERATING. This block used to list the producers by hand and went
+        # stale on the 5th, the 7th, the 8th and then the 9th -- each time silently,
+        # each time discovered by a red suite rather than by the list. The comment I
+        # left last time said the next producer would break it; it did, one round
+        # later.
+        #
+        # The shape is read from HOW main() USES each call, by AST:
+        #     `p, i = fn()`        -> returns a pair
+        #     `problems += fn()`   -> returns a list
+        # My first attempt derived it from the return ANNOTATION and broke on
+        # check_umbrella_deploy_lag, which has none. An annotation is a decoration;
+        # the call site is the contract.
+        import ast
+        import inspect
+
+        tree = ast.parse(inspect.getsource(drift.main))
+        pair, single = set(), set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                fn = getattr(node.value.func, "id", None)
+                if fn and isinstance(node.targets[0], ast.Tuple):
+                    pair.add(fn)
+            if isinstance(node, ast.AugAssign) and isinstance(node.value, ast.Call):
+                fn = getattr(node.value.func, "id", None)
+                if fn:
+                    single.add(fn)
+        producers = (pair | single) - {"check_git_surfaces"}
+        assert len(producers) >= 6, producers      # anti-vacuity: it must find them
+        for name in sorted(producers):
+            if not hasattr(drift, name):
+                continue
+            monkeypatch.setattr(
+                drift, name,
+                (lambda *a, **k: ([], [])) if name in pair else (lambda *a, **k: []))
+        monkeypatch.setattr(
+            drift, "check_git_surfaces", lambda: (list(problems), list(infos)))
         monkeypatch.setattr(drift, "alert", lambda *a, **k: None)
         rc = drift.main([])
         return rc, [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
