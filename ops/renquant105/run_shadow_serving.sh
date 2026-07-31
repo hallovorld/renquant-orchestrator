@@ -9,6 +9,23 @@ RQ_ROOT="${RQ_ROOT:-/Users/renhao/git/github/RenQuant}"
 RQ105_ORCH_ROOT="${RQ105_ORCH_ROOT:-/Users/renhao/git/github/renquant-orchestrator-run}"
 LOG_DIR="$RQ_ROOT/logs/rq105"
 mkdir -p "$LOG_DIR"
+
+# GOAL-1 #622. Two of the three early exits below returned 1 WITHOUT writing a
+# dated log, while the third wrote one. That asymmetry made "the job did not run"
+# and "the job ran and skipped" indistinguishable from disk: measured 2026-07-31,
+# the newest dated log was 2026-07-13 while the job is scheduled Mon-Fri, and the
+# only surviving signal was a launchctl exit code that launchd retains until the
+# NEXT run. Every exit path now leaves one stamped line.
+skip_log() {
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" \
+    >> "$LOG_DIR/shadow_serving_$TS.log"
+}
+
+# A job that CANNOT succeed today is not a job that FAILED today. Exit 4 says
+# "structurally not wired yet"; exit 1 stays "something that should have worked
+# did not". The ack ledger can disposition them separately (see the
+# acked_exit_codes support added for the sentinel's own row).
+EXIT_NOT_WIRED=4
 TS="$(date +%Y-%m-%d)"
 SCORES="$RQ_ROOT/data/rq105/batch_scores_$TS.json"
 META="$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"
@@ -18,6 +35,7 @@ if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
   rq_notify "rq105 shadow serving SKIPPED ($TS)" \
     "no frozen batch-score export for today (export_batch_scores 06:15 failed?)" || true
+  skip_log "SKIP upstream: no frozen batch-score export ($SCORES / $META missing)"
   exit 1
 fi
 if [ ! -f "$FEATURE_SNAPSHOT" ]; then
@@ -29,7 +47,8 @@ if [ ! -f "$FEATURE_SNAPSHOT" ]; then
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
   rq_notify "rq105 shadow serving SKIPPED ($TS)" \
     "no feature-snapshot producer yet (Stage-3 wiring pending) — see #221" || true
-  exit 1
+  skip_log "SKIP not-wired: no producer exists for $FEATURE_SNAPSHOT (Stage-3, #221)"
+  exit "$EXIT_NOT_WIRED"
 fi
 PY="$RQ_ROOT/.venv/bin/python"
 # Campaign B5: the calendar primitive behind bundle verification now lives in
