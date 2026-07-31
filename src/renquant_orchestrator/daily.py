@@ -292,10 +292,19 @@ class PersistDailyRunBundleTask(Task):
             "decision_trace": str(decisions),
             "submitted_orders": str(orders),
         }
+        # Contract verdict is recorded BEFORE the final write, or the artifact on
+        # disk never carries it.
+        #
+        # Codex on #669: the previous order wrote the bundle and THEN called
+        # _record_bundle_contract(), which only mutates the in-memory dict and
+        # stage_trace. So run_bundle.json lacked `contract_validation` entirely —
+        # including when validation FAILED. The one reader who needs the verdict is
+        # whoever opens the artifact after the run, and they got a file that looked
+        # like the contract had never been checked.
+        _record_bundle_contract(bundle, ctx)
         _write_json(out, bundle)
         ctx.run_bundle = bundle
         ctx.stage_trace.append({"stage": "persist_daily_run_bundle", "ok": True})
-        _record_bundle_contract(bundle, ctx)
         return True
 
 

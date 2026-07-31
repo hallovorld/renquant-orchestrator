@@ -66,3 +66,22 @@ R2 (per-repo PR-template checklist items) is still open and is still only a *pro
 not enforcement.
 
 Tests: 6 new, **4793 passed / 2 skipped** repo-wide.
+
+## Review round 1 — the verdict never reached the file
+
+Codex: `PersistDailyRunBundleTask` called `_write_json(out, bundle)` **before**
+`_record_bundle_contract()`, and the latter only mutates the in-memory dict and
+`stage_trace`. So `run_bundle.json` carried no `contract_validation` at all —
+**including when validation FAILED**.
+
+The one reader who needs the verdict is whoever opens the artifact after the run, and
+they got a file that looked like the contract had never been checked. Recording is now
+done **before** the final write.
+
+**The regression asserts ORDER in the emitted source, deliberately.** An in-memory
+assertion would have passed throughout the bug: `ctx.run_bundle` was always correct and
+the FILE was the only thing wrong, so any test that never opens the artifact — or never
+checks the sequence — cannot see this defect.
+
+`[VERIFIED — this session]` 7 pass. Load-bearing by injection: restoring the old order
+fails the new test, and all 7 pass again on restore.

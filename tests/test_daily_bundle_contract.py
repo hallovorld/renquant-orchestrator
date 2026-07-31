@@ -114,3 +114,26 @@ def test_the_verdict_reaches_both_surfaces():
     b = _bundle()
     _record_bundle_contract(b, ctx)
     assert b["contract_validation"]["ok"] is ctx.stage_trace[-1]["ok"]
+
+
+def test_the_verdict_is_RECORDED_BEFORE_the_bundle_is_written():
+    """codex #669: the verdict was recorded AFTER the final write, so
+    run_bundle.json never carried `contract_validation` — including on failure.
+
+    Asserted on ORDER in the emitted source, because that is what the defect was.
+    An in-memory assertion would have passed throughout the bug: `ctx.run_bundle`
+    was always correct and the FILE was the only thing wrong, so a test that never
+    opens the artifact cannot see it.
+    """
+    import inspect
+
+    from renquant_orchestrator import daily
+
+    src = inspect.getsource(daily.PersistDailyRunBundleTask)
+    record = src.index("_record_bundle_contract(bundle, ctx)")
+    # the LAST write is the one that lands the final artifact
+    final_write = src.rindex("_write_json(out, bundle)")
+    assert record < final_write, (
+        "_record_bundle_contract runs after the final _write_json — the verdict "
+        "would exist only in memory and the artifact on disk would look like the "
+        "contract had never been checked")
