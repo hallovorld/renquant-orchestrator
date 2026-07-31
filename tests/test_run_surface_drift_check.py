@@ -12,7 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops"))
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "ops"))
 
 import run_surface_drift_check as drift  # noqa: E402
 
@@ -143,15 +144,138 @@ class TestManifestGeneration:
         mpath.write_text(json.dumps(m))
         assert drift.check_launchd_surface(str(mpath), str(agents)) == []
 
-    def test_committed_manifest_matches_live_surface(self):
-        """The repo's committed manifest must describe the CURRENT machine —
-        a stale manifest would alarm on every firing. (Skipped off-machine.)"""
+    #: Jobs DECLARED on the reviewed run surface that are not yet installed.
+    #: Declaring before installing is deliberate (the manifest is the reviewed
+    #: surface, the plist on disk is the live one; declaring first gives the
+    #: install something to be checked against). Each entry must be named here,
+    #: so the set cannot grow silently into manifest rot.
+    PENDING_INSTALL = {
+        # aggregator for the six ops detectors — orch#650
+        "com.renquant.ops-audit",
+        # model-freshness monitor — declared before this session
+        "com.renquant.rq104-model-freshness",
+        # AC5 silent-refusal sentinel — arrived from main during this merge, not
+        # from this branch. main's own test says installing the plist is a separate
+        # machine landing and that until then "the drift scan reports the job
+        # missing from disk, and that alarm is the intended, tracked reminder".
+        # Named here rather than silently absorbed: the set growing is exactly what
+        # this list exists to make visible.
+        "com.renquant.rq104-silent-refusal",
+    }
+
+    _PENDING_PATTERN = "manifested job {label} missing from disk"
+
+    @staticmethod
+    def _surface_problems():
         import os
         if not os.path.isdir(os.path.expanduser("~/Library/LaunchAgents")):
             import pytest
             pytest.skip("not on the operator machine")
-        problems = drift.check_launchd_surface()
-        assert problems == [], f"committed manifest is stale: {problems[:3]}"
+        return list(drift.check_launchd_surface())
+
+    def _partition(self):
+        """(pending-missing labels, residual problems).
+
+        EVERY problem lands in exactly one bucket. There is no third,
+        silently-ignored category — which is what the first version of this
+        retarget had, and what codex rejected.
+        """
+        pending, residual = set(), []
+        for prob in self._surface_problems():
+            if "missing from disk" in prob and "manifested job " in prob:
+                pending.add(prob.split("manifested job ")[1].split(" missing")[0])
+            else:
+                residual.append(prob)
+        return pending, residual
+
+    def test_no_unmanifested_job_runs_on_disk(self):
+        """STRICT, no allow-list. A job on disk but absent from the manifest is
+        code nobody approved — the "silent containment / job swap" shape."""
+        assert [p for p in self._surface_problems() if "unmanifested" in p] == []
+
+    def test_NO_residual_problem_of_any_other_kind(self):
+        """The one my first retarget missed (codex BLOCKER on this PR).
+
+        That version kept only "unmanifested" plus the named missing-from-disk
+        set and IGNORED everything else — so an installed job whose
+        ProgramArguments or hash had drifted from the reviewed manifest produced
+        a problem that BOTH new tests passed over. The old exact `== []` caught
+        it; my replacement had re-opened it.
+
+        The pending allow-list may relax installation ABSENCE only. Agreement
+        between an installed job and its reviewed manifest is never relaxed.
+        Asserting the RESIDUAL rather than naming forbidden categories is the
+        point: strings nobody has anticipated fail by default.
+        """
+        _, residual = self._partition()
+        assert residual == [], residual
+
+    def test_declared_but_uninstalled_jobs_are_exactly_the_named_set(self):
+        """RETARGETED 2026-07-31, deliberately, and it was red for months.
+
+        The old assertion was `check_launchd_surface() == []` — the manifest must
+        match the live surface EXACTLY. The system deliberately violates that: a
+        job may be declared on the reviewed surface before its plist is
+        installed, and com.renquant.rq104-model-freshness has been in that state
+        all along. So it failed on the operator's machine on every branch, and a
+        permanently-red test trains its reader to ignore local failures.
+
+        This bounds the ONE relaxation; the residual test above forbids the rest.
+        """
+        pending, _ = self._partition()
+        assert pending == self.PENDING_INSTALL, (
+            f"declared-but-uninstalled set changed: "
+            f"unexpected={sorted(pending - self.PENDING_INSTALL)} "
+            f"resolved={sorted(self.PENDING_INSTALL - pending)}")
+
+
+
+# --- AC5 has a scheduled surface declared (2026-07-31) -----------------------
+def test_ac5_silent_refusal_sentinel_is_manifested():
+    """GOAL-5 AC5's sentinel is merged to main and had NO scheduled surface.
+
+    Measured 2026-07-31: absent from ops/launchd_manifest.json and from
+    `launchctl list`; run by hand for the first time it immediately found
+    weekly-retrain-patchtst dead for four weeks (3 crashes on one corpus-drift
+    error). "AC5 merged" and "AC5 deployed" were four weeks apart.
+
+    This pins the DECLARATION. Installing the plist is a separate machine
+    landing; until then the drift scan reports the job missing from disk, and
+    that alarm is the intended, tracked reminder.
+    """
+    import hashlib
+    manifest = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    label = "com.renquant.rq104-silent-refusal"
+    assert label in manifest, sorted(manifest)
+    spec = manifest[label]
+    assert spec["program_args"][-1].endswith(
+        "ops/renquant104/run_silent_refusal_sentinel.sh"), spec
+    assert spec["program_args_sha256"] == hashlib.sha256(
+        json.dumps(spec["program_args"]).encode()).hexdigest()
+    # DATED evidence, not an append-only .out. The exit code alone cannot separate
+    # "found a silent refusal" from "crashed" (#622), and an undated append-only
+    # stream cannot be attributed to any run at all (#663).
+    assert "silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log" in spec["evidence_glob"]
+
+
+def test_the_committed_plist_matches_the_manifest_entry():
+    """A plist that disagrees with the manifest is the drift this repo exists to
+    catch — it must not ship disagreeing with itself on day one."""
+    import plistlib
+    label = "com.renquant.rq104-silent-refusal"
+    pl = plistlib.loads((REPO / "deploy" / f"{label}.plist").read_bytes())
+    manifest = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    assert pl["Label"] == label
+    assert pl["ProgramArguments"] == manifest[label]["program_args"]
+    # runs AFTER the 15:00 degradation sentinel so a day's refusals are already
+    # classified, and the two alarms never interleave
+    assert pl["StartCalendarInterval"]["Hour"] == 16
+    # launchd sinks are for output from a run that never reached its own dated
+    # evidence; the readable record is the wrapper's silent_refusal_<date>.log.
+    assert pl["StandardOutPath"].endswith("launchd_silent_refusal.out")
+    assert pl["StandardErrorPath"].endswith("launchd_silent_refusal.err")
+    assert pl["EnvironmentVariables"]["RQ_ORCH_ROOT"]
+
 
 
 # --- every emitted line must carry its own date (2026-07-31) ------------------

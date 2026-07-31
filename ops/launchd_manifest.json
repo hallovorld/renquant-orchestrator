@@ -81,6 +81,16 @@
       ],
       "program_args_sha256": "c45724b19681514b51e33fe709e112afb1440ceec5fc680c83942d3af68eab94"
     },
+    "com.renquant.ops-audit": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_ops_audit.sh"
+      ],
+      "program_args_sha256": "21aaa39a81701d926c91925dfb6b90230eacdce0b8598ab74fc0683aa20b50d6",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/ops_audit/ops_audit_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
+      "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). Prefix unique to this job.",
+      "_pending_install_comment": "REVIEWED SURFACE FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until installed the liveness scan reports UNJUDGEABLE_NO_PLIST for this label \u2014 that reading is CORRECT and is the designed reminder; do not silence it by deleting this entry. Bootstrap must first verify the RUN checkout carries this wrapper."
+    },
     "com.renquant.pit-c1-features": {
       "program_args": [
         "/bin/bash",
@@ -185,6 +195,15 @@
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_shadow_scorer_sentinel.py"
       ],
       "program_args_sha256": "57c92a2e445b009a466522419b2997889609ccebee4846f082e4a8d8eeeda549"
+    },
+    "com.renquant.rq104-silent-refusal": {
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_silent_refusal_sentinel.sh"
+      ],
+      "program_args_sha256": "62c4d9b799d059b7461a0dc339f7f335cd9f33691a08258dc72e4cc26e00f9f5",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
+      "_evidence_glob_why": "A dated file per run. The exit code alone cannot separate 'found a silent refusal' from 'crashed' (#622), and an append-only .out cannot be dated at all (#663) \u2014 0 of 18 lines in the drift scan's .out began with a date."
     },
     "com.renquant.rq105-batch-scores-export": {
       "program_args": [
