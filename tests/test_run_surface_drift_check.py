@@ -238,3 +238,31 @@ class TestOutputLinesCarryTheirDate:
         assert drift.main([]) == 1
         assert seen["body"] == "boom"
         assert not self.STAMP.match(seen["body"])
+
+    def test_a_MULTILINE_info_stamps_every_physical_line(self, monkeypatch, capsys):
+        """Codex BLOCKER on this PR: stamping each list ELEMENT leaves embedded
+        newlines as unstamped continuation lines — the exact attribution failure
+        the change exists to remove, rebuilt inside the fix."""
+        rc, lines = self._run(monkeypatch, capsys, problems=[],
+                              infos=["first\nsecond\nthird"])
+        assert rc == 0
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any(ln.endswith("second") for ln in lines), lines
+        assert any(ln.endswith("third") for ln in lines), lines
+
+    def test_a_MULTILINE_problem_stamps_every_physical_line(self, monkeypatch, capsys):
+        rc, lines = self._run(
+            monkeypatch, capsys,
+            problems=["umbrella live tree not on main\n  ref: refs/heads/feat/x\n  restore with git checkout main"],
+            infos=[])
+        assert rc == 1
+        assert len(lines) == 3
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any("restore with git checkout main" in ln for ln in lines), lines
+
+    def test_an_EMPTY_record_still_emits_one_stamped_line(self, monkeypatch, capsys):
+        """A record that was produced must stay countable. Dropping it silently
+        is the same class of loss as leaving it undated."""
+        rc, lines = self._run(monkeypatch, capsys, problems=[""], infos=[])
+        assert rc == 1
+        assert len(lines) == 1 and self.STAMP.match(lines[0]), lines

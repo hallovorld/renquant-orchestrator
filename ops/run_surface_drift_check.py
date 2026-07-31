@@ -147,6 +147,24 @@ def check_git_surfaces() -> tuple[list[str], list[str]]:
 # launchd surface
 # ---------------------------------------------------------------------------
 
+def _emit(stamp: str, record: str) -> None:
+    """Print `record` with `stamp` on EVERY physical line.
+
+    Codex BLOCKER on orch#664: the first version stamped each list ELEMENT.
+    A record containing an embedded newline — and several do, e.g. the umbrella
+    branch problem quotes a multi-line git ref, and any exception text can — was
+    rendered by `print` as one stamped line followed by UNSTAMPED continuation
+    lines, recreating exactly the attribution failure this change exists to
+    remove. The tests only used single-line fixtures, so they missed it.
+
+    An EMPTY record still emits one stamped line (`<stamp> ` with nothing after)
+    rather than nothing: a record that was produced must remain countable, and
+    silently dropping it is the same class of loss.
+    """
+    for physical in (record.splitlines() or [""]):
+        print(f"{stamp} {physical}")
+
+
 def _now_iso(now: "dt.datetime | None" = None) -> str:
     """Local ISO-8601 second-resolution stamp for the START of every output line.
 
@@ -666,7 +684,7 @@ def main(argv: list[str] | None = None) -> int:
     # follow it) instead of guessed at.
     stamp = _now_iso()
     for line in infos:
-        print(f"{stamp} INFO: {line}")
+        _emit(stamp, f"INFO: {line}")
 
     if problems:
         alert(
@@ -677,10 +695,10 @@ def main(argv: list[str] | None = None) -> int:
         # Stamp EVERY problem line, not just the first: `alert` gets the plain
         # text (its transport carries its own time), the log gets dated lines.
         for line in problems:
-            print(f"{stamp} {line}")
+            _emit(stamp, line)
         return 1
 
-    print(f"{stamp} run-surface drift scan OK")
+    _emit(stamp, "run-surface drift scan OK")
     return 0
 
 
