@@ -723,17 +723,54 @@ def _expand(expr: str, repos_root: str) -> str:
     return os.path.join(repos_root, *tail) if len(tail) == 2 else expr
 
 
-def check_wrapper_pythonpath_roots(
-    ops_dir: str | None = None, repos_root: str | None = None
-) -> tuple[list[str], list[str]]:
-    """Which CHECKOUT will a scheduled job import from — decided by review or by `ls`?
+def _scheduled_wrappers(manifest_path: str, ops_dir: str) -> list[tuple[str, str]]:
+    """(job, wrapper path) for every MANIFESTED job, from the manifest — not from
+    a regex over whatever happens to be on disk.
 
-    GOAL-3 #623 rows R2/R3/R5/R6 all share one shape: a defect was filed against a
-    copy that does not run, because nothing said which copy executes. This checks a
-    DIFFERENT object from `check_import_resolution`, which pins the symbols resolved
-    in the SCANNER's own process. A wrapper builds its own PYTHONPATH, so a symbol can
-    resolve as reviewed here and differently inside the job -- validating the
-    scanner's environment instead of the job's is itself the #623 shape.
+    The inventory has to be independent of the defect being looked for. Deriving
+    it from the fallback pattern (the first version of this check) made a
+    *repaired* fleet indistinguishable from a fleet with no wrappers at all: fix
+    every wrapper and the scan finds nothing, which the anti-vacuity guard then
+    reports as a problem. A production drift check that cannot go green after the
+    documented remediation is not a check, it is a ratchet.
+    """
+    with open(manifest_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    jobs = data.get("jobs") or data
+    out: list[tuple[str, str]] = []
+    for job, spec in sorted(jobs.items()):
+        args = (spec or {}).get("program_args") or []
+        for a in args:
+            if not str(a).endswith(".sh"):
+                continue
+            local = os.path.join(ops_dir, *str(a).split("/ops/")[-1].split("/")) \
+                if "/ops/" in str(a) else None
+            if local and os.path.exists(local):
+                out.append((job, local))
+            else:                       # wrapper lives outside this repo's ops/
+                matches = [str(q) for q in pathlib.Path(ops_dir).rglob(os.path.basename(a))]
+                out.append((job, matches[0] if matches else ""))
+    return out
+
+
+def check_wrapper_pythonpath_roots(
+    ops_dir: str | None = None,
+    repos_root: str | None = None,
+    manifest_path: str | None = None,
+) -> tuple[list[str], list[str]]:
+    """Does every scheduled wrapper declare ONE deterministic reviewed root?
+
+    GOAL-3 #623 rows R2/R3/R5/R6 share one shape: a defect filed against a copy
+    that does not run, because nothing said which copy executes. This checks a
+    DIFFERENT object from `check_import_resolution`, which pins the symbols
+    resolved in the SCANNER's own process — a wrapper builds its own PYTHONPATH,
+    so a symbol can resolve as reviewed here and differently inside the job.
+
+    THE RULE: a wrapper that resolves a sibling checkout with a `[ -d ... ] || VAR=`
+    fallback does NOT declare a deterministic root — which copy executes is then
+    decided by filesystem state. That is a problem whether or not the fallback
+    currently fires; a fallback that happens to land on the right checkout today
+    is still unreviewed.
 
     Measured 2026-07-31: six rq105 wrappers carry
 
@@ -741,44 +778,55 @@ def check_wrapper_pythonpath_roots(
         [ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="<repos>/renquant-common/src"
 
     with a comment reading "pinned -run checkout preferred". `renquant-common-run/src`
-    DOES NOT EXIST on this machine, so all six silently import the dev checkout --
-    which was sitting on branch `fix/ntfy-non-ascii-title`, three commits behind
-    origin/main. The stated preference was unsatisfiable, and nothing said so.
+    does not exist on this machine, so all six silently import the dev checkout,
+    which was sitting on branch `fix/ntfy-non-ascii-title`.
 
-    A fallback that fires is not automatically wrong. It is automatically UNREVIEWED:
-    the executing vintage is chosen by filesystem state, and that is the fact this
-    check makes loud.
+    A REMEDIATED WRAPPER PASSES: one explicit root and no fallback yields no
+    problem, and the tests carry a fixture proving it. That is the convergence
+    property the first version of this check lacked.
     """
     here = os.path.dirname(os.path.abspath(__file__))
     ops_dir = ops_dir or here
     repos_root = repos_root or os.path.dirname(os.path.dirname(here))
+    manifest_path = manifest_path or os.path.join(here, "launchd_manifest.json")
     problems: list[str] = []
     infos: list[str] = []
-    seen = 0
-    for path in sorted(pathlib.Path(ops_dir).rglob("*.sh")):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for m in _FALLBACK_RE.finditer(text):
-            seen += 1
-            rel = os.path.relpath(str(path), ops_dir)
+
+    try:
+        inventory = _scheduled_wrappers(manifest_path, ops_dir)
+    except Exception as exc:  # noqa: BLE001
+        return ([f"pythonpath: cannot read the scheduled inventory from "
+                 f"{manifest_path}: {type(exc).__name__}: {exc}"], [])
+    if not inventory:
+        # The ONLY anti-vacuity condition left, and it is about the inventory --
+        # never about whether the defect is still present.
+        return (["pythonpath: the manifest lists no shell wrappers — the scan has "
+                 "no subjects, which is not the same as a clean fleet"], [])
+
+    n_checked = 0
+    for job, path in inventory:
+        if not path or not os.path.exists(path):
+            infos.append(f"pythonpath {job}: wrapper not present in this repo — "
+                         f"not this check's subject")
+            continue
+        text = open(path, encoding="utf-8", errors="replace").read()
+        n_checked += 1
+        hits = list(_FALLBACK_RE.finditer(text))
+        if not hits:
+            if "PYTHONPATH" in text:
+                infos.append(f"pythonpath {job}: declares a deterministic root")
+            continue
+        for m in hits:
             pref = _expand(m.group("pref"), repos_root)
             fall = _expand(m.group("fall"), repos_root)
-            if os.path.isdir(pref):
-                infos.append(f"pythonpath {rel}: preferred {pref} present")
-            elif os.path.isdir(fall):
-                problems.append(
-                    f"pythonpath {rel}: preferred {pref} is ABSENT, so the job silently "
-                    f"imports {fall} instead — the executing vintage is chosen by "
-                    f"filesystem state, not by review")
-            else:
-                problems.append(
-                    f"pythonpath {rel}: NEITHER {pref} nor {fall} exists — the job "
-                    f"cannot import its sibling at all")
-    if seen == 0:
-        # Not a pass. The idiom existing is what this check is about; if the regex
-        # stops matching, the check has gone quiet rather than clean.
-        problems.append(
-            "pythonpath: no checkout-fallback idiom found under ops/ — either it was "
-            "removed (update this check) or the pattern stopped matching")
+            fires = not os.path.isdir(pref)
+            problems.append(
+                f"pythonpath {job}: resolves a sibling checkout by FALLBACK "
+                f"({pref} else {fall}) — which copy executes is decided by "
+                f"filesystem state, not by review"
+                + (f"; the fallback IS firing today ({pref} is absent)" if fires
+                   else "; it does not fire today, which does not make it reviewed"))
+    infos.append(f"pythonpath: {n_checked} manifested wrapper(s) inspected")
     return problems, infos
 
 

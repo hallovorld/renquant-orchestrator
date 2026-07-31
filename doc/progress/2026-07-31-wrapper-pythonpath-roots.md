@@ -60,3 +60,35 @@ is the designed reminder. Clearing it requires either creating
 needing operator authorization.** Not done here.
 
 Tests: 6 new + 2 stub sites updated. Suite green.
+
+## Round 2 — codex was right, and fixing it corrected the count
+
+**The review:** *"the scanner makes that defective implementation a permanent
+requirement… a production drift check must be able to converge cleanly after the
+documented remediation."* Correct. My first version derived its subject list **from the
+fallback regex itself**, so repairing every wrapper would make `seen` zero, the
+anti-vacuity guard fire, and the check go **red on a fixed fleet**. That is a ratchet,
+not a check.
+
+**Now:** the inventory comes from `ops/launchd_manifest.json`, independently of the
+defect. A wrapper with one explicit root and no fallback **passes**, and a fixture proves
+it. The anti-vacuity condition moved to the **inventory** — an empty manifest is a
+problem; a clean fleet is not.
+
+### The count changed, and the reason is the registry's own thesis
+
+| | |
+|---|---:|
+| wrappers under `ops/` carrying the fallback | **6** |
+| of those, **scheduled** by the manifest | **5** |
+
+`ops/renquant105/run_liveness_check.sh` carries the idiom and **nothing runs it**:
+`com.renquant.rq105-liveness` executes `rq105_liveness_check.py`, per **both** the
+manifest and the installed plist `[本次实测]`.
+
+> **My published 6 counted a copy that does not execute** — the exact defect #623
+> catalogues, committed by the check built to find it. Deriving the inventory
+> independently did not only fix convergence; it fixed the number.
+
+Also tightened: a fallback that does **not** fire today is still reported. Unreviewed is
+unreviewed — landing on the right checkout by luck is not review.
