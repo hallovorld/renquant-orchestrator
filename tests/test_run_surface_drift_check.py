@@ -173,9 +173,13 @@ def test_ac5_silent_refusal_sentinel_is_manifested():
     assert label in manifest, sorted(manifest)
     spec = manifest[label]
     assert spec["program_args"][-1].endswith(
-        "ops/renquant104/rq104_silent_refusal_sentinel.py"), spec
+        "ops/renquant104/run_silent_refusal_sentinel.sh"), spec
     assert spec["program_args_sha256"] == hashlib.sha256(
         json.dumps(spec["program_args"]).encode()).hexdigest()
+    # DATED evidence, not an append-only .out. The exit code alone cannot separate
+    # "found a silent refusal" from "crashed" (#622), and an undated append-only
+    # stream cannot be attributed to any run at all (#663).
+    assert "silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log" in spec["evidence_glob"]
 
 
 def test_the_committed_plist_matches_the_manifest_entry():
@@ -190,6 +194,8 @@ def test_the_committed_plist_matches_the_manifest_entry():
     # runs AFTER the 15:00 degradation sentinel so a day's refusals are already
     # classified, and the two alarms never interleave
     assert pl["StartCalendarInterval"]["Hour"] == 16
+    # launchd sinks are for output from a run that never reached its own dated
+    # evidence; the readable record is the wrapper's silent_refusal_<date>.log.
     assert pl["StandardOutPath"].endswith("launchd_silent_refusal.out")
     assert pl["StandardErrorPath"].endswith("launchd_silent_refusal.err")
-    assert pl["EnvironmentVariables"]["PYTHONPATH"]
+    assert pl["EnvironmentVariables"]["RQ_ORCH_ROOT"]

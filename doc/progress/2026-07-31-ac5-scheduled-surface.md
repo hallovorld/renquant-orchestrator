@@ -71,3 +71,38 @@ mechanism; the wrong move would be silencing it by editing the manifest outside 
 
 14 passed, 1 failed — the failure is the pre-existing manifest-vs-live-surface test
 described in §2.
+
+## 5. Correction made before review: the first plist built in the defect
+
+The first version of this PR pointed `StandardOutPath` at
+`logs/rq104/launchd_silent_refusal.out` — an **append-only file with no date in its
+name** — and shipped no wrapper.
+
+That is the exact anti-pattern measured on the drift scan the same night (**orch#663**):
+**0 of 18 lines** in its `.out` began with a date, so no line belonged to any run, and a
+**resolved** containment alarm was indistinguishable from a live one. Shipping a *new*
+job with that shape would have been building the defect in on day one, in the same
+session I filed the issue against it.
+
+Corrected here:
+
+- `ops/renquant104/run_silent_refusal_sentinel.sh` writes
+  `logs/rq104/silent_refusal_<YYYY-MM-DD>.log`;
+- the manifest entry gains an `evidence_glob` over that pattern, joining the 7 of 42
+  jobs whose evidence — not just exit code — is checkable;
+- the launchd `.out`/`.err` remain, but only as sinks for a run that never reached its
+  own evidence.
+
+**Evidence ordering is lifted deliberately from `run_model_freshness_monitor.sh`**, where
+it was a codex BLOCKER on orch#638: prerequisites and an import probe run **before** the
+dated file is created, so the file's **existence** is proof the sentinel ran. Verified
+`[VERIFIED — this session]`:
+
+```
+RQ_ROOT=/nonexistent       -> rc=4, no evidence file created
+RQ_ORCH_ROOT=/nonexistent  -> rc=4, no evidence file created
+evidence files before/after: 0 / 0
+```
+
+`tee` is last in the pipe, so `PIPESTATUS[0]` is the only faithful read of the
+sentinel's own status — the exit code is the payload and must not be swallowed.

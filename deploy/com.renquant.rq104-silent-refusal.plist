@@ -4,8 +4,6 @@
 <dict>
 	<key>EnvironmentVariables</key>
 	<dict>
-		<key>PYTHONPATH</key>
-		<string>/Users/renhao/git/github/renquant-orchestrator-run/src:/Users/renhao/git/github/renquant-orchestrator-run/ops</string>
 		<key>RQ_ORCH_ROOT</key>
 		<string>/Users/renhao/git/github/renquant-orchestrator-run</string>
 		<key>RQ_ROOT</key>
@@ -15,8 +13,8 @@
 	<string>com.renquant.rq104-silent-refusal</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
-		<string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_silent_refusal_sentinel.py</string>
+		<string>/bin/bash</string>
+		<string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_silent_refusal_sentinel.sh</string>
 	</array>
 	<key>StandardErrorPath</key>
 	<string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_silent_refusal.err</string>
