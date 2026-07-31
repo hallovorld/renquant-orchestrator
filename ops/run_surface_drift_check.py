@@ -697,6 +697,216 @@ def report_manifested_not_loaded(
             "only one of them is fine")
     return [], infos
 
+#: The two-line fallback idiom the rq105 wrappers use to pick a checkout:
+#:     VAR="<...>-run/src"
+#:     [ -d "$VAR" ] || VAR="<...>/src"
+#: NOTE the value is NOT `[^"]*`: the wrappers write
+#:     RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
+#: whose value contains NESTED double quotes, so a character class excluding `"`
+#: cannot span it. Matching to end-of-line is what actually reads this shape --
+#: my first version excluded quotes and matched nothing, and only the residual
+#: assertion below stopped that from reading as "clean".
+_FALLBACK_RE = re.compile(
+    r'^(?P<var>[A-Z_]+)="(?P<pref>.*-run/src)"[ \t]*\n'
+    r'[ \t]*\[ -d "\$(?P=var)" \] \|\| (?P=var)="(?P<fall>.*)"',
+    re.M,
+)
+
+
+def _expand(expr: str, repos_root: str) -> str:
+    """Resolve the shell expression to a path, best effort.
+
+    Only the shapes the wrappers actually use are handled; anything else is
+    returned unchanged and reported as unresolvable rather than assumed fine.
+    """
+    tail = expr.split("/")[-2:]                       # e.g. ['renquant-common-run','src']
+    return os.path.join(repos_root, *tail) if len(tail) == 2 else expr
+
+
+def _scheduled_wrappers(manifest_path: str, ops_dir: str) -> list[tuple[str, str]]:
+    """(job, wrapper path) for every MANIFESTED job, from the manifest — not from
+    a regex over whatever happens to be on disk.
+
+    The inventory has to be independent of the defect being looked for. Deriving
+    it from the fallback pattern (the first version of this check) made a
+    *repaired* fleet indistinguishable from a fleet with no wrappers at all: fix
+    every wrapper and the scan finds nothing, which the anti-vacuity guard then
+    reports as a problem. A production drift check that cannot go green after the
+    documented remediation is not a check, it is a ratchet.
+    """
+    with open(manifest_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    jobs = data.get("jobs") or data
+    out: list[tuple[str, str, str]] = []
+    for job, spec in sorted(jobs.items()):
+        args = (spec or {}).get("program_args") or []
+        for a in args:
+            if not str(a).endswith(".sh"):
+                continue
+            local = os.path.join(ops_dir, *str(a).split("/ops/")[-1].split("/")) \
+                if "/ops/" in str(a) else None
+            if local and os.path.exists(local):
+                out.append((job, str(a), local))
+            else:                       # wrapper lives outside this repo's ops/
+                matches = [str(q) for q in pathlib.Path(ops_dir).rglob(os.path.basename(a))]
+                # The DECLARED path is carried alongside the resolved one. Without it
+                # an unresolvable entry is just an empty string, and "missing" cannot
+                # be told apart from "owned by another repo" -- which is what let the
+                # caller treat both as informational.
+                out.append((job, str(a), matches[0] if matches else ""))
+    return out
+
+
+def _wrapper_scope_boundaries(manifest_path: str) -> list[dict]:
+    """Reviewed declarations of wrappers this scanner deliberately does not inspect.
+
+    Each entry is `{root, owner, why}`. A boundary is a CLAIM that some other surface
+    checks that wrapper, so it belongs in the reviewed manifest where changing it
+    requires a PR -- not in this file, and never inferred from what happens to be
+    missing on disk today. An undeclared missing wrapper is a problem; that is the
+    inverted default, and extending this list is the only way to silence one.
+    """
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 - the caller already reports unreadable manifests
+        return []
+    out = []
+    for b in data.get("wrapper_scope_boundaries") or []:
+        if isinstance(b, dict) and b.get("root") and b.get("owner"):
+            out.append(b)
+    return out
+
+
+def _owning_boundary(declared: str, boundaries: list[dict]) -> dict | None:
+    """The declared boundary owning `declared`, or None.
+
+    Prefix match on a normalised path, longest root first, so a nested root wins over
+    the tree containing it -- `RenQuant/.subrepo_runtime/...` must not be absorbed by
+    a boundary declared for `RenQuant/`.
+    """
+    if not declared:
+        return None
+    d = os.path.normpath(declared)
+    for b in sorted(boundaries, key=lambda x: len(str(x["root"])), reverse=True):
+        root = os.path.normpath(str(b["root"]))
+        if d == root or d.startswith(root.rstrip(os.sep) + os.sep):
+            return b
+    return None
+
+
+def check_wrapper_pythonpath_roots(
+    ops_dir: str | None = None,
+    repos_root: str | None = None,
+    manifest_path: str | None = None,
+) -> tuple[list[str], list[str]]:
+    """Does every scheduled wrapper declare ONE deterministic reviewed root?
+
+    GOAL-3 #623 rows R2/R3/R5/R6 share one shape: a defect filed against a copy
+    that does not run, because nothing said which copy executes. This checks a
+    DIFFERENT object from `check_import_resolution`, which pins the symbols
+    resolved in the SCANNER's own process — a wrapper builds its own PYTHONPATH,
+    so a symbol can resolve as reviewed here and differently inside the job.
+
+    THE RULE: a wrapper that resolves a sibling checkout with a `[ -d ... ] || VAR=`
+    fallback does NOT declare a deterministic root — which copy executes is then
+    decided by filesystem state. That is a problem whether or not the fallback
+    currently fires; a fallback that happens to land on the right checkout today
+    is still unreviewed.
+
+    Measured 2026-07-31: six rq105 wrappers carry
+
+        RQ_COMMON_SRC="<repos>/renquant-common-run/src"
+        [ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="<repos>/renquant-common/src"
+
+    with a comment reading "pinned -run checkout preferred". `renquant-common-run/src`
+    does not exist on this machine, so all six silently import the dev checkout,
+    which was sitting on branch `fix/ntfy-non-ascii-title`.
+
+    A REMEDIATED WRAPPER PASSES: one explicit root and no fallback yields no
+    problem, and the tests carry a fixture proving it. That is the convergence
+    property the first version of this check lacked.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    ops_dir = ops_dir or here
+    repos_root = repos_root or os.path.dirname(os.path.dirname(here))
+    manifest_path = manifest_path or os.path.join(here, "launchd_manifest.json")
+    problems: list[str] = []
+    infos: list[str] = []
+
+    try:
+        inventory = _scheduled_wrappers(manifest_path, ops_dir)
+    except Exception as exc:  # noqa: BLE001
+        return ([f"pythonpath: cannot read the scheduled inventory from "
+                 f"{manifest_path}: {type(exc).__name__}: {exc}"], [])
+    if not inventory:
+        # The ONLY anti-vacuity condition left, and it is about the inventory --
+        # never about whether the defect is still present.
+        return (["pythonpath: the manifest lists no shell wrappers — the scan has "
+                 "no subjects, which is not the same as a clean fleet"], [])
+
+    n_checked = 0
+    boundaries = _wrapper_scope_boundaries(manifest_path)
+    unowned = 0
+    out_of_scope = 0
+
+    for job, declared, path in inventory:
+        if not path or not os.path.exists(path):
+            owner = _owning_boundary(declared, boundaries)
+            if owner is None:
+                # INVERTED DEFAULT (codex on #675). Previously this emitted an info
+                # line, so a manifested job whose wrapper vanished from this checkout
+                # became silently uninspected -- and with every wrapper missing the
+                # scan returned CLEAN. That is precisely the unverified-copy failure
+                # this check exists to prevent, reproduced inside the check.
+                unowned += 1
+                problems.append(
+                    f"pythonpath {job}: manifested wrapper {declared or '(none)'} is "
+                    f"not resolvable in this checkout and is not covered by any "
+                    f"declared scope boundary — a scheduled source that no reviewed "
+                    f"scan inspects. Either restore it here or declare its owner in "
+                    f"`wrapper_scope_boundaries`.")
+            else:
+                out_of_scope += 1
+                infos.append(
+                    f"pythonpath {job}: wrapper {declared} is owned by "
+                    f"{owner['owner']} — OUT OF SCOPE for this scanner and "
+                    f"NOT inspected here; {owner['owner']} must check it "
+                    f"({owner.get('why', 'no reason recorded')})")
+            continue
+        text = open(path, encoding="utf-8", errors="replace").read()
+        n_checked += 1
+        hits = list(_FALLBACK_RE.finditer(text))
+        if not hits:
+            if "PYTHONPATH" in text:
+                infos.append(f"pythonpath {job}: declares a deterministic root")
+            continue
+        for m in hits:
+            pref = _expand(m.group("pref"), repos_root)
+            fall = _expand(m.group("fall"), repos_root)
+            fires = not os.path.isdir(pref)
+            problems.append(
+                f"pythonpath {job}: resolves a sibling checkout by FALLBACK "
+                f"({pref} else {fall}) — which copy executes is decided by "
+                f"filesystem state, not by review"
+                + (f"; the fallback IS firing today ({pref} is absent)" if fires
+                   else "; it does not fire today, which does not make it reviewed"))
+    # COVERAGE IS REPORTED AS A FRACTION, NOT AS A COUNT. "13 inspected" reads like
+    # full coverage; "13 of 33" does not. A scan whose reach shrinks silently is the
+    # same defect as a job that dies silently -- see the standing "no silent caps"
+    # rule. The denominator is the manifest, which is reviewed.
+    total = len(inventory)
+    infos.append(
+        f"pythonpath: {n_checked} of {total} manifested wrapper(s) inspected here; "
+        f"{out_of_scope} owned by a declared boundary; {unowned} unowned")
+    if n_checked == 0 and total:
+        # Anti-vacuity on the OBJECT, not just the subject list: a non-empty
+        # inventory with nothing actually read is a clean report about nothing.
+        problems.append(
+            f"pythonpath: {total} wrapper(s) manifested and NONE inspected — "
+            f"a clean result here would be a statement about an empty set")
+    return problems, infos
+
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
@@ -729,6 +939,9 @@ def main(argv: list[str] | None = None) -> int:
     problems += p
     infos += i
     p, i = check_import_resolution()
+    problems += p
+    infos += i
+    p, i = check_wrapper_pythonpath_roots()
     problems += p
     infos += i
     p, i = check_sentinel_receipt()
