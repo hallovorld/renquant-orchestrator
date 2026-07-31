@@ -697,6 +697,90 @@ def report_manifested_not_loaded(
             "only one of them is fine")
     return [], infos
 
+#: The two-line fallback idiom the rq105 wrappers use to pick a checkout:
+#:     VAR="<...>-run/src"
+#:     [ -d "$VAR" ] || VAR="<...>/src"
+#: NOTE the value is NOT `[^"]*`: the wrappers write
+#:     RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
+#: whose value contains NESTED double quotes, so a character class excluding `"`
+#: cannot span it. Matching to end-of-line is what actually reads this shape --
+#: my first version excluded quotes and matched nothing, and only the residual
+#: assertion below stopped that from reading as "clean".
+_FALLBACK_RE = re.compile(
+    r'^(?P<var>[A-Z_]+)="(?P<pref>.*-run/src)"[ \t]*\n'
+    r'[ \t]*\[ -d "\$(?P=var)" \] \|\| (?P=var)="(?P<fall>.*)"',
+    re.M,
+)
+
+
+def _expand(expr: str, repos_root: str) -> str:
+    """Resolve the shell expression to a path, best effort.
+
+    Only the shapes the wrappers actually use are handled; anything else is
+    returned unchanged and reported as unresolvable rather than assumed fine.
+    """
+    tail = expr.split("/")[-2:]                       # e.g. ['renquant-common-run','src']
+    return os.path.join(repos_root, *tail) if len(tail) == 2 else expr
+
+
+def check_wrapper_pythonpath_roots(
+    ops_dir: str | None = None, repos_root: str | None = None
+) -> tuple[list[str], list[str]]:
+    """Which CHECKOUT will a scheduled job import from — decided by review or by `ls`?
+
+    GOAL-3 #623 rows R2/R3/R5/R6 all share one shape: a defect was filed against a
+    copy that does not run, because nothing said which copy executes. This checks a
+    DIFFERENT object from `check_import_resolution`, which pins the symbols resolved
+    in the SCANNER's own process. A wrapper builds its own PYTHONPATH, so a symbol can
+    resolve as reviewed here and differently inside the job -- validating the
+    scanner's environment instead of the job's is itself the #623 shape.
+
+    Measured 2026-07-31: six rq105 wrappers carry
+
+        RQ_COMMON_SRC="<repos>/renquant-common-run/src"
+        [ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="<repos>/renquant-common/src"
+
+    with a comment reading "pinned -run checkout preferred". `renquant-common-run/src`
+    DOES NOT EXIST on this machine, so all six silently import the dev checkout --
+    which was sitting on branch `fix/ntfy-non-ascii-title`, three commits behind
+    origin/main. The stated preference was unsatisfiable, and nothing said so.
+
+    A fallback that fires is not automatically wrong. It is automatically UNREVIEWED:
+    the executing vintage is chosen by filesystem state, and that is the fact this
+    check makes loud.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    ops_dir = ops_dir or here
+    repos_root = repos_root or os.path.dirname(os.path.dirname(here))
+    problems: list[str] = []
+    infos: list[str] = []
+    seen = 0
+    for path in sorted(pathlib.Path(ops_dir).rglob("*.sh")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for m in _FALLBACK_RE.finditer(text):
+            seen += 1
+            rel = os.path.relpath(str(path), ops_dir)
+            pref = _expand(m.group("pref"), repos_root)
+            fall = _expand(m.group("fall"), repos_root)
+            if os.path.isdir(pref):
+                infos.append(f"pythonpath {rel}: preferred {pref} present")
+            elif os.path.isdir(fall):
+                problems.append(
+                    f"pythonpath {rel}: preferred {pref} is ABSENT, so the job silently "
+                    f"imports {fall} instead — the executing vintage is chosen by "
+                    f"filesystem state, not by review")
+            else:
+                problems.append(
+                    f"pythonpath {rel}: NEITHER {pref} nor {fall} exists — the job "
+                    f"cannot import its sibling at all")
+    if seen == 0:
+        # Not a pass. The idiom existing is what this check is about; if the regex
+        # stops matching, the check has gone quiet rather than clean.
+        problems.append(
+            "pythonpath: no checkout-fallback idiom found under ops/ — either it was "
+            "removed (update this check) or the pattern stopped matching")
+    return problems, infos
+
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
@@ -729,6 +813,9 @@ def main(argv: list[str] | None = None) -> int:
     problems += p
     infos += i
     p, i = check_import_resolution()
+    problems += p
+    infos += i
+    p, i = check_wrapper_pythonpath_roots()
     problems += p
     infos += i
     p, i = check_sentinel_receipt()
