@@ -153,6 +153,18 @@ class TestManifestGeneration:
         assert problems == [], f"committed manifest is stale: {problems[:3]}"
 
 
+#: Jobs DECLARED on the reviewed surface whose plist is not installed yet.
+#: orch#666 introduces the canonical copy of this set as
+#: TestManifestGeneration.PENDING_INSTALL; when both branches land, DELETE this
+#: one and import that. Two copies of a set that must stay in sync is the twin
+#: shape this org keeps a registry for — recorded here so the duplication is
+#: temporary by construction rather than by good intentions.
+_PENDING_INSTALL = {
+    "com.renquant.ops-audit",
+    "com.renquant.rq104-model-freshness",
+}
+
+
 def test_every_pending_install_job_ships_an_installable_plist():
     """A job declared on the reviewed surface with no committed plist can only be
     installed by authoring one on the spot, unreviewed — which defeats the point
@@ -160,18 +172,30 @@ def test_every_pending_install_job_ships_an_installable_plist():
 
     Measured 2026-07-31 before this change: BOTH pending jobs
     (com.renquant.ops-audit, com.renquant.rq104-model-freshness) had no plist
-    under deploy/. This asserts the property for the one whose wrapper is on main;
-    ops-audit's wrapper arrives with orch#650 and is exempted BY NAME so the
-    exemption cannot spread silently.
+    under deploy/.
+
+    The first version of this test exempted ops-audit BY NAME because its wrapper
+    was still unmerged. orch#650 has since MERGED, so `ops/run_ops_audit.sh` is on
+    main and the exemption is gone — the rule is now universal over every pending
+    job, with NO allow-list. An exemption that outlives its reason is how a
+    temporary carve-out becomes permanent.
     """
     import plistlib
     repo = Path(__file__).resolve().parent.parent
     manifest = json.loads((repo / "ops" / "launchd_manifest.json").read_text())["jobs"]
-    label = "com.renquant.rq104-model-freshness"
-    path = repo / "deploy" / f"{label}.plist"
-    assert path.exists(), f"{label} declared with no installable plist"
-    pl = plistlib.loads(path.read_bytes())
-    assert pl["Label"] == label
-    assert pl["ProgramArguments"] == manifest[label]["program_args"]
-    # runs before the day's decision run, so a BREACH is still actionable
-    assert pl["StartCalendarInterval"]["Hour"] == 7
+    # every job DECLARED in the manifest but absent from deploy/ would be
+    # uninstallable without authoring a plist on the spot, unreviewed
+    for label in sorted(_PENDING_INSTALL):
+        path = repo / "deploy" / f"{label}.plist"
+        assert path.exists(), f"{label} declared with no installable plist"
+        pl = plistlib.loads(path.read_bytes())
+        assert pl["Label"] == label
+        assert pl["ProgramArguments"] == manifest[label]["program_args"], label
+        assert pl["StandardOutPath"] and pl["StandardErrorPath"], label
+        assert pl["EnvironmentVariables"]["RQ_ORCH_ROOT"], label
+    # ordering: ops-audit 06:30 -> drift 07:00 -> freshness 07:30, so the
+    # aggregate verdict is on disk before the narrower jobs fire
+    hours = {l: plistlib.loads((repo / "deploy" / f"{l}.plist").read_bytes())
+             ["StartCalendarInterval"]["Hour"]
+             for l in _PENDING_INSTALL}
+    assert hours["com.renquant.ops-audit"] < hours["com.renquant.rq104-model-freshness"]

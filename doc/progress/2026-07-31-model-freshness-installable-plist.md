@@ -65,3 +65,39 @@ Mutation check: deleting the plist fails the test.
 
 **13 passed, 1 failed** — the failure is the pre-existing
 `test_committed_manifest_matches_live_surface`, retargeted separately in orch#666.
+
+## 5. Extended after orch#650 merged: the exemption is gone
+
+The first version of this PR exempted `com.renquant.ops-audit` **by name**, because its
+wrapper `ops/run_ops_audit.sh` was still unmerged. **orch#650 has since merged**, so the
+wrapper is on `main` `[VERIFIED — this session]` and the reason for the carve-out is gone.
+
+`deploy/com.renquant.ops-audit.plist` is added and the exemption removed: the rule is now
+**universal over every pending job, with no allow-list**. An exemption that outlives its
+reason is exactly how a temporary carve-out becomes permanent.
+
+**Both pending jobs now ship an installable plist**, and the test asserts, per job, that
+`Label` and `ProgramArguments` match the manifest, that both launchd sinks are set, and
+that `RQ_ORCH_ROOT` is present.
+
+**Firing order is asserted, not assumed**: `ops-audit 06:30 → drift 07:00 → freshness
+07:30`, so the aggregate detector verdict is on disk before the narrower jobs fire and an
+operator reading at 08:00 sees them in sequence.
+
+### Still blocked, and it is the same variable as everything else tonight
+
+`ops/run_ops_audit.sh` is on `main` but **not in the run checkout**
+`[VERIFIED — this session]`, and `program_args` targets the run checkout. Installing now
+would give a job that fires daily and fails at exec — the precondition
+`rq104-model-freshness`'s manifest entry spells out and which that job has since
+satisfied. The run-checkout sync is an authorized machine landing.
+
+### A duplication I created deliberately and flagged
+
+`_PENDING_INSTALL` in this branch's test duplicates `TestManifestGeneration.PENDING_INSTALL`
+introduced in orch#666. Two copies of a set that must stay in sync is the twin shape this
+org keeps a registry for. The constant carries a delete-me note naming #666, so the
+duplication is temporary **by construction** rather than by good intentions — the two
+branches cannot both land without someone reading it.
+
+Mutation check: deleting either pending job's plist fails the test.
