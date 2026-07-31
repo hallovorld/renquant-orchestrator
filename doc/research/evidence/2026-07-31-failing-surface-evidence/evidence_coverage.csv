@@ -1,0 +1,15 @@
+job,last_exit,wrapper,wrapper_writes,std_out_path,std_out_dated,std_out_bytes,std_out_mtime,attributable
+com.renquant.agent-pr-loop,1,agent_pr_loop.sh,undated,launchd_stdout.log,False,365693,2026-07-31,no
+com.renquant.conditional-retrain104,1,conditional_retrain_104.sh,dated,stdout.log,False,0,2026-05-12,yes
+com.renquant.crypto-session,2,crypto_session_runner.py,unresolvable,crypto-session.log,False,1249,2026-07-13,no
+com.renquant.retrain-panel104,1,retrain_panel.sh,dated,launchd_stdout.log,False,0,2026-04-26,yes
+com.renquant.rq104-degradation-sentinel,1,rq104_degradation_sentinel.py,dated,launchd_degradation_sentinel.out,False,17156,2026-07-30,yes
+com.renquant.rq104-scorer-identity,2,run_scorer_identity_monitor.sh,dated,launchd_scorer_identity.out,False,0,2026-07-03,yes
+com.renquant.rq104-shadow-scorer-sentinel,1,rq104_shadow_scorer_sentinel.py,none,rq104_shadow_scorer_sentinel.log,False,2571,2026-07-30,no
+com.renquant.rq105-batch-scores-export,1,run_batch_scores_export.sh,dated,launchd_batch-scores-export.out,False,803,2026-07-29,yes
+com.renquant.rq105-liveness,1,rq105_liveness_check.py,undated,launchd_liveness.out,False,3569,2026-07-30,no
+com.renquant.rq105-shadow-serving,1,run_shadow_serving.sh,dated,launchd_shadow-serving.out,False,0,2026-07-02,yes
+com.renquant.run-surface-drift,1,run_surface_drift_check.py,none,launchd_run_surface_drift.out,False,1788,2026-07-30,no
+com.renquant.shadow-ab-daily,3,shadow_ab_daily.sh,undated,launchd.out.log,False,0,2026-07-10,no
+com.renquant.weekly-apy104,2,weekly_apy_check.py,none,weekly_apy_stdout.log,False,306,2026-07-12,no
+com.renquant.weekly-wf-promote,1,weekly_wf_promote.sh,dated,stdout.log,False,0,2026-05-17,yes
