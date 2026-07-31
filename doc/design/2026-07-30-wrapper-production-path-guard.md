@@ -191,6 +191,51 @@ hole that makes a guard pass forever:
   are part of the implementation PR and must carry a test that a symlinked copy is
   rejected.
 
+## 4c. Re-measured 2026-08-01 — §4.2 and §4.3 are each about a set larger than one
+
+Three corrections, all from re-running the parse against the manifest as it stands today
+`[VERIFIED — 本次实测 2026-08-01, ops/launchd_manifest.json, 43 jobs]`.
+
+### (a) The dev-checkout count is 2, not 1
+
+| root named by the manifest row's script | n |
+|---|---:|
+| `RenQuant/` (incl. `.subrepo_runtime`) | 21 |
+| `renquant-orchestrator-run/` | 20 |
+| **dev `renquant-orchestrator/`** | **2** |
+
+§4.2 records `32 / 18 / 1` from a 2026-07-30 parse. The totals also differ (51 vs 43), so
+the two parses counted different things — I am **not** claiming the earlier number was
+wrong when written. What matters for the design is the number **now**: the singleton
+framing — *"that last one is a scheduled job that legitimately runs from the dev
+checkout"* — does not describe a set of size 2, and a policy written around "the one
+exception" should be re-checked against it.
+
+### (b) `shadow-ab-daily` would be refused by §4.2's own rule
+
+| | |
+|---|---|
+| manifest row | `…/RenQuant/.subrepo_runtime/repos/renquant-orchestrator/scripts/shadow_ab_daily.sh` |
+| **committed plist in `deploy/`** | `…/renquant-orchestrator/scripts/shadow_ab_daily.sh` |
+
+§4.2 decides the reviewed location is *"taken from the manifest row that invokes that
+wrapper"*. Under that rule the reviewed location is the **pinned runtime**, so the
+**committed plist names a location the rule would refuse**. This is not an argument
+against the rule — it is the rule working, on an artifact this repo ships. The design
+should say which of the two is wrong, because today they cannot both be right.
+
+### (c) §4.3's "no manifest row" population is also not a singleton
+
+`com.renquant.stops-liveness` has **no manifest row** and **its plist is committed in
+`deploy/`**. So there are at least two entry points with no reviewed location, and the
+second one is *shipped* — a stronger case than `run_liveness_check.sh`, which is merely
+present in `ops/`.
+
+**Consequence for §4.3:** its decision (*TARGET-only logic, acknowledgement required
+wherever you are*) is still the right shape, but it must be stated as applying to a
+**class** — "any entry point with no manifest row" — rather than to one named script, or
+the next one added inherits nothing.
+
 ## 4b. Rollout
 
 One file first (`run_quote_logger.sh`, highest blast radius) as a shape to review
