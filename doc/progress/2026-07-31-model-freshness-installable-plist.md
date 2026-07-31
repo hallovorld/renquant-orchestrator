@@ -206,3 +206,40 @@ And the **installed** `shadow-ab-daily` names a **third** location —
 The second test is a **tripwire, not an allowance**: it fails if a third dev-checkout
 plist appears **and** if either of these two is repaired — because that repair is a
 run-surface change somebody must look at rather than absorb silently.
+
+## Review round 2 — a guard with no caller, and a tripwire that punished the fix
+
+Two findings, both on my own work from round 1.
+
+**1. The preflight had no caller.** Codex: *"an operator can bootstrap the same bad
+plists without consulting it."* Correct — I built a control and left it as a script,
+which is this repo's own never-deploy-inert-scaffolding rule, self-inflicted.
+
+Wired into `scripts/install_stops_pager.sh`, the supported echo-first installer,
+**before** `launchctl bootstrap`, refusing with exit 4. It runs in dry-run too: knowing
+an install *would* fail is the entire point of echo-first, and deferring the check to
+`--apply` hides it until it is live.
+
+Two tests pin it, and both assert **order**, not presence — calling the preflight
+*after* `bootstrap` would satisfy a presence check while protecting nothing, because
+the bad job would already be loaded.
+
+**2. My drift allow-list treated remediation as failure.** Codex: *"the new
+committed-plist test deliberately permits two dev-checkout targets and fails if either
+is repaired; that freezes known production ambiguity instead of rejecting it … a
+tripwire that treats remediation as failure is not an acceptable steady-state
+invariant."*
+
+Exactly right, and it is worse than a nuisance: **the allow-list would have actively
+defended the ambiguity it was written to record.** Now asymmetric — a NEW disagreement
+fails, a repaired one passes with a note to prune the list.
+
+That asymmetry is a different call from the ack-stamp pin elsewhere in this repo, and
+deliberately so: there, a fresher stamp is an **event** that needs review, so it must
+fail. Here, zero drift is the **desired end state**, so reaching it must pass. The
+question is always *"which direction is the fix?"* — and I had answered it the same way
+twice in one day without noticing the cases differ.
+
+`[VERIFIED — this session]` 14 pass. Load-bearing by injection: repairing the drift
+passes, injecting new drift fails, moving the preflight call after `bootstrap` fails,
+removing it fails two.

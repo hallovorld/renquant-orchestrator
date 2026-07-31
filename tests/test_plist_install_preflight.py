@@ -139,10 +139,24 @@ def test_every_committed_plist_agrees_with_the_manifest():
             continue          # covered by the drift scan's unmanifested check
         if pl["ProgramArguments"] != jobs[p.stem]["program_args"]:
             drifted.append(p.stem)
-    assert set(drifted) == KNOWN_PLIST_MANIFEST_DRIFT, (
-        f"plist/manifest drift set changed: "
-        f"new={sorted(set(drifted) - KNOWN_PLIST_MANIFEST_DRIFT)} "
-        f"fixed={sorted(KNOWN_PLIST_MANIFEST_DRIFT - set(drifted))}")
+    # SHRINKING IS ALLOWED. GROWING IS NOT.
+    #
+    # My first version asserted set equality, so REPAIRING a drifted plist would have
+    # failed this test. Codex: "a tripwire that treats remediation as failure is not
+    # an acceptable steady-state invariant" — and the allow-list would then have
+    # actively defended the ambiguity it was written to record.
+    #
+    # The asymmetry is the whole point and it is not the same call as the ack-stamp
+    # pin elsewhere in this repo: there, a fresher stamp is an EVENT needing review,
+    # so it must fail. Here, zero drift is the DESIRED end state, so reaching it must
+    # pass. What must never happen silently is a NEW disagreement.
+    new = sorted(set(drifted) - KNOWN_PLIST_MANIFEST_DRIFT)
+    assert not new, f"NEW plist/manifest drift: {new}"
+    fixed = sorted(KNOWN_PLIST_MANIFEST_DRIFT - set(drifted))
+    if fixed:
+        # Not a failure — a prompt. The list is stale in the good direction.
+        print(f"NOTE: drift repaired for {fixed}; remove them from "
+              f"KNOWN_PLIST_MANIFEST_DRIFT")
 
 
 def test_main_refuses_with_exit_2_when_a_target_is_missing(tmp_path, monkeypatch):
@@ -207,3 +221,35 @@ def test_the_dev_checkout_plists_are_EXACTLY_the_two_already_known():
            if "/renquant-orchestrator/" in t and "-run/" not in t}
     assert dev == DEV_CHECKOUT_PLISTS, dev
     assert len(_committed_targets()) - len(dev) == 7
+
+
+# --- the preflight must have a CALLER (codex #667) ---------------------------
+
+def test_the_supported_installer_runs_the_preflight_before_bootstrap():
+    """codex: "the PR confirms no bootstrap/installer invokes it, so an operator can
+    bootstrap the same bad plists without consulting it."
+
+    A guard with no caller guards nothing — this repo's own never-deploy-inert-
+    scaffolding rule. Asserted on ORDER, because calling the preflight *after*
+    `launchctl bootstrap` would satisfy a mere presence check while protecting
+    nothing: the bad job would already be loaded.
+    """
+    src = (REPO / "scripts" / "install_stops_pager.sh").read_text()
+    # Anchor on the INVOCATION, not the first textual mention: my first version
+    # matched the explanatory comment above the call, which sits before the
+    # bootstrap line no matter where the real call is.
+    needle = 'python3 "$REPO_ROOT/ops/plist_install_preflight.py"'
+    assert needle in src, "the supported installer does not invoke the preflight"
+    call = src.index(needle)
+    bootstrap = src.index('"$LAUNCHCTL" bootstrap')
+    assert call < bootstrap, (
+        "the preflight runs AFTER launchctl bootstrap — the job would already be "
+        "loaded, so refusing afterwards protects nothing")
+
+
+def test_the_installer_refuses_rather_than_warns():
+    """A preflight whose failure is advisory is a log line, not a control."""
+    src = (REPO / "scripts" / "install_stops_pager.sh").read_text()
+    block = src[src.index('python3 "$REPO_ROOT/ops/plist_install_preflight.py"'):]
+    assert "REFUSING to bootstrap" in block[:400]
+    assert "exit 4" in block[:400], "preflight failure must stop the install"

@@ -289,6 +289,20 @@ case "$CMD" in
         else
             run cp "$PLIST_SRC" "$PLIST_DST"
         fi
+        # INSTALL PREFLIGHT (orch#667). launchctl accepts a plist whose target does
+        # not exist in the run checkout and the job then fails on every firing --
+        # merged-is-not-deployed arriving through launchd instead of through a pin.
+        # Refusing here is what makes ops/plist_install_preflight.py a deployment
+        # CONTROL rather than a script nobody runs; codex's finding was that it had
+        # no caller, and a guard with no caller guards nothing.
+        #
+        # Runs in dry-run too: knowing an install WOULD fail is the whole point of
+        # echo-first, and deferring the check to --apply hides it until it is live.
+        if ! python3 "$REPO_ROOT/ops/plist_install_preflight.py" "$LABEL"; then
+            echo "REFUSING to bootstrap $LABEL — preflight says it is not installable." >&2
+            echo "Sync the run checkout (or fix the target) and re-run." >&2
+            exit 4
+        fi
         # bootout first so re-install converges (ignore "not loaded").
         run "$LAUNCHCTL" bootout "$GUI_DOMAIN/$LABEL" || true
         run "$LAUNCHCTL" bootstrap "$GUI_DOMAIN" "$PLIST_DST"
