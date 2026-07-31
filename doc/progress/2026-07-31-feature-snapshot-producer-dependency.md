@@ -60,3 +60,36 @@ Also added this progress doc, which the `progress-doc` check was failing for.
 
 None. One design document, one progress note, two tests that assert today's absence.
 Nothing is implemented.
+
+## Review round 2 — named is not specified
+
+Codex: the three digest fields were *named* but not *deterministically specified*, so
+**two implementations could produce different valid receipts**. That is the model#122
+defect exactly — a quantity pinned by name while its construction stays open — and it
+is closed the same way: in the text, before anyone writes code.
+
+* **canonical serialisation** for both digests: UTF-8 JSON, sorted keys, no whitespace,
+  `NaN`/`Inf` **rejected** rather than encoded. A snapshot holding a value JSON cannot
+  represent is not a receipt of anything.
+* **`features_digest`** covers the `features` object **and nothing else** — no
+  `run_id`, no timestamps. Include the envelope and two runs with identical vectors
+  disagree, at which point the digest can no longer answer the one question it exists
+  for.
+* **`input_fingerprint`** covers `(relative path, file sha256, size)` for every input
+  the builder read, plus the builder config digest. **Relative**, because an absolute
+  path makes two correct runs on two machines disagree. And if the builder cannot
+  enumerate its reads, that is the blocker to fix first — **a fingerprint over a
+  guessed input set is worse than none, because it certifies an inventory nobody
+  verified.**
+* **`scorer_run_binding`** is exactly two fields: `artifact_sha256` and `config_sha256`,
+  taken from what the run **actually loaded**, not from what the pin file says it should
+  have. The gap between those two is a defect this repo has shipped before.
+
+**Failure behaviour, which the review also asked for and which I had left implicit.**
+Four named refusals — over-cap, unserialisable, write-failed, unfingerprintable — each
+recording a status and logging at ERROR, and in every case the run continues, because a
+receipt is not worth a trading day.
+
+`feature_snapshot_status` is written on **every** run including success. A status field
+that appears only on failure is indistinguishable from a build that never had the
+feature — the same absent-versus-zero shape found in `floor_eligible_count` this week.

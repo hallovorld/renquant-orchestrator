@@ -90,6 +90,57 @@ payload self-verifying. It does not prove the scorer *read* these exact values r
 than recomputing — that needs the scorer to consume the snapshot instead of the builder,
 which is Stage-3's own work and is not claimed here.
 
+### Determinism — the digests, byte for byte
+
+Round 2 review: the three fields are *named* but not *deterministically specified*, so
+"two implementations can produce different valid receipts". That is the same defect this
+programme hit on model#122 — a quantity pinned by name while its construction stays
+open — so it is closed the same way, in the text, before anyone writes code.
+
+**Canonical serialisation, used for BOTH digests.** UTF-8 JSON, `sort_keys=True`,
+`separators=(",", ":")` (no whitespace), floats via `repr()` round-trip, `NaN`/`Inf`
+**rejected** rather than encoded — a snapshot containing a value JSON cannot represent
+is not a receipt of anything. Digest = `sha256` of those bytes, lowercase hex.
+
+**`features_digest` — exact source inventory.** The digest covers **the `features`
+object and nothing else**: `{ticker: {feature_name: value}}`, both levels sorted by key,
+after the run's own admission filtering. It does **not** cover `run_id`, timestamps or
+any other envelope field — otherwise two runs with identical feature vectors would
+disagree, and the digest could no longer answer "are these the same vectors".
+
+**`input_fingerprint` — exact source inventory.** `sha256` over the sorted list of
+`(path relative to a NAMED corpus root, sha256 of file bytes, size)` for **every input
+file the feature builder read**, plus the builder's own config digest. Relative paths,
+because an absolute one makes the fingerprint machine-specific and two correct runs on
+two boxes would disagree. If the builder cannot enumerate its reads, **that is the
+blocker to fix first** — a fingerprint over a guessed input set is worse than none,
+because it certifies an inventory nobody verified.
+
+**`scorer_run_binding` — enumerated, not descriptive.** Exactly two fields:
+`artifact_sha256` (the immutable trained-artifact digest the run loaded) and
+`config_sha256` (the canonical digest of the resolved strategy config). Both taken from
+what the run **actually loaded**, not from what the pin file says it should have — the
+gap between those two is a defect this repo has shipped before.
+
+### Failure behaviour — loud, never silent
+
+Also round 2: what happens when the cap or the atomic write fails. **Never a silent
+drop.** In every failure the run continues — the snapshot is a receipt, and losing a
+receipt must not cost a trading day — and the failure is recorded where a reader
+looking for the snapshot will find it:
+
+| failure | behaviour |
+|---|---|
+| serialised payload **> 5 MB** | do not write. Emit `feature_snapshot_status: REFUSED_OVER_CAP` into the run bundle with the measured byte count, and log at ERROR. The cap exists so an unbudgeted artefact cannot appear unnoticed; silently truncating would defeat it |
+| `NaN`/`Inf` in `features` | do not write. `feature_snapshot_status: REFUSED_UNSERIALISABLE`, naming the first offending `(ticker, feature)` |
+| atomic rename fails (disk full, permissions) | do not leave the `.tmp`. Remove it, set `feature_snapshot_status: WRITE_FAILED` with the OS error, log at ERROR |
+| builder cannot enumerate its inputs | do not write a snapshot with a partial `input_fingerprint`. `feature_snapshot_status: REFUSED_UNFINGERPRINTABLE` |
+
+**`feature_snapshot_status` is written on EVERY run, including success
+(`WRITTEN`).** A status field that appears only on failure is indistinguishable from a
+build that never had the feature — the absent-versus-zero shape this programme found in
+`floor_eligible_count` the same week.
+
 ## The minimal ordered plan
 
 1. **Persist the serving feature vectors** in the daily run — under the schema in
