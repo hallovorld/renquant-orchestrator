@@ -142,12 +142,60 @@ class TestManifestGeneration:
         mpath.write_text(json.dumps(m))
         assert drift.check_launchd_surface(str(mpath), str(agents)) == []
 
-    def test_committed_manifest_matches_live_surface(self):
-        """The repo's committed manifest must describe the CURRENT machine —
-        a stale manifest would alarm on every firing. (Skipped off-machine.)"""
+    #: Jobs DECLARED on the reviewed run surface that are not yet installed.
+    #: Declaring before installing is deliberate (the manifest is the reviewed
+    #: surface, the plist on disk is the live one; declaring first gives the
+    #: install something to be checked against). Each entry must be named here,
+    #: so the set cannot grow silently into manifest rot.
+    PENDING_INSTALL = {
+        # aggregator for the six ops detectors — orch#650
+        "com.renquant.ops-audit",
+        # model-freshness monitor — declared before this session
+        "com.renquant.rq104-model-freshness",
+    }
+
+    def test_no_unmanifested_job_runs_on_disk(self):
+        """STRICT, and the direction that matters.
+
+        A job installed on disk but absent from the reviewed manifest is a job
+        running code nobody approved — the "silent containment / job swap" shape.
+        There is no allow-list for this one.
+        """
         import os
         if not os.path.isdir(os.path.expanduser("~/Library/LaunchAgents")):
             import pytest
             pytest.skip("not on the operator machine")
-        problems = drift.check_launchd_surface()
-        assert problems == [], f"committed manifest is stale: {problems[:3]}"
+        unmanifested = [p for p in drift.check_launchd_surface()
+                        if "unmanifested" in p]
+        assert unmanifested == [], unmanifested
+
+    def test_declared_but_uninstalled_jobs_are_exactly_the_named_set(self):
+        """RETARGETED 2026-07-31, deliberately, and it was red for months.
+
+        The old assertion was `check_launchd_surface() == []` — i.e. the manifest
+        must match the live surface EXACTLY. The system deliberately violates
+        that: a job may be declared on the reviewed surface before its plist is
+        installed, and `com.renquant.rq104-model-freshness` has been in that
+        state all along. So the test failed on the operator's machine on every
+        branch, permanently — and a permanently-red test trains its reader to
+        ignore local failures, which is worse than no test.
+
+        What replaces it keeps BOTH directions: the strict one above (nothing
+        unreviewed may run), and this one (the pending set is bounded and named,
+        so manifest rot cannot accumulate quietly).
+
+        NOTE measured while writing this: neither pending job ships a plist under
+        deploy/, so neither can be installed without authoring one first. That is
+        a gap in those declarations, not in this test.
+        """
+        import os
+        if not os.path.isdir(os.path.expanduser("~/Library/LaunchAgents")):
+            import pytest
+            pytest.skip("not on the operator machine")
+        missing = {p.split("manifested job ")[1].split(" missing")[0]
+                   for p in drift.check_launchd_surface()
+                   if "missing from disk" in p}
+        assert missing == self.PENDING_INSTALL, (
+            f"declared-but-uninstalled set changed: "
+            f"unexpected={sorted(missing - self.PENDING_INSTALL)} "
+            f"resolved={sorted(self.PENDING_INSTALL - missing)}")
