@@ -170,3 +170,39 @@ siblings and is unaffected.
 
 I wrote "green" before running it. Recording the correction rather than amending,
 because the claim was already pushed and the check is what caught it.
+
+## Round 2 — the preflight had no caller, and the plists name three different trees
+
+**The preflight works.** Live: **4 REFUSED / 5 INSTALLABLE**, exit code **2**, including the
+`ops-audit` case the review named `[本次实测 2026-08-01]`. (My first reading said exit 0 —
+that was me taking `$?` after a pipe, i.e. the *tail* exit code. The rule I quote at
+others, broken by me in the same round.)
+
+**But nothing calls it.** `grep` across the repo finds only its own tests and one mention
+in this document. There is no bootstrap script here to wire it into, so as shipped it is
+a gate nobody consults — the deployed-but-dark shape.
+
+### What CAN bind today, at PR time
+
+Two tests, needing no machine landing:
+
+1. **every committed plist targets a script this repo actually has** — otherwise it ships
+   a job that can never work from any tree. All 9 pass.
+2. **which checkout does a committed plist name?** Measured across `deploy/*.plist`:
+
+| tree named | n | |
+|---|---:|---|
+| run checkout (`orchestrator-run/`) | **7** | correct |
+| **dev checkout** (`/renquant-orchestrator/scripts/`) | **2** | `shadow-ab-daily`, `stops-liveness` |
+
+And the **installed** `shadow-ab-daily` names a **third** location —
+`RenQuant/.subrepo_runtime/repos/renquant-orchestrator/scripts/` — the pinned runtime.
+
+> **Three candidate trees for one job, and the committed artifact names a different one
+> than the machine runs.** That is #623/#675's *which copy executes* at the plist level,
+> and it is why the preflight already refuses `shadow-ab-daily` for disagreeing with the
+> reviewed manifest.
+
+The second test is a **tripwire, not an allowance**: it fails if a third dev-checkout
+plist appears **and** if either of these two is repaired — because that repair is a
+run-surface change somebody must look at rather than absorb silently.

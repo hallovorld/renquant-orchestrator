@@ -156,3 +156,54 @@ def test_main_refuses_when_asked_to_check_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(pf, "DEPLOY", tmp_path / "no-plists")
     (tmp_path / "no-plists").mkdir()
     assert pf.main([]) == pf.EXIT_NOT_INSTALLABLE
+
+
+# ============ WHICH CHECKOUT does a COMMITTED plist name? ====================
+# The preflight answers "is the target present". This answers "is it the right
+# tree at all" — the GOAL-3 question (#623, #675) at the plist level. Measured
+# 2026-08-01 across deploy/*.plist: 7 name the run checkout, 2 name the DEV
+# checkout, and the installed `shadow-ab-daily` names a THIRD location, the
+# pinned runtime under RenQuant/.subrepo_runtime. Three candidate trees for one
+# job, and the committed artifact names a different one than the machine runs.
+
+DEV_CHECKOUT_PLISTS = {
+    "com.renquant.shadow-ab-daily.plist",
+    "com.renquant.stops-liveness.plist",
+}
+
+
+def _committed_targets():
+    import plistlib as _pl
+    out = {}
+    for p in sorted((REPO / "deploy").glob("*.plist")):
+        d = _pl.load(open(p, "rb"))
+        t = next((a for a in d.get("ProgramArguments", [])
+                  if a.endswith((".sh", ".py"))), "")
+        out[p.name] = t
+    return out
+
+
+def test_every_committed_plist_targets_a_script_this_repo_actually_has():
+    """A plist for a script the repo does not contain would ship a job that can
+    never work, whichever tree it is installed from."""
+    missing = []
+    for name, t in _committed_targets().items():
+        rel = t.split("/renquant-orchestrator-run/")[-1] if "-run/" in t else \
+              t.split("/renquant-orchestrator/")[-1]
+        if not (REPO / rel).exists():
+            missing.append((name, rel))
+    assert missing == [], missing
+
+
+def test_the_dev_checkout_plists_are_EXACTLY_the_two_already_known():
+    """A TRIPWIRE, not an allowance. A committed plist should name the run
+    checkout; these two name the dev tree, which has no pin and no review gate.
+
+    It fails BOTH ways on purpose: a third dev-checkout plist fails it, and so
+    does repairing either of these — because that repair is a run-surface change
+    somebody must look at rather than absorb silently.
+    """
+    dev = {n for n, t in _committed_targets().items()
+           if "/renquant-orchestrator/" in t and "-run/" not in t}
+    assert dev == DEV_CHECKOUT_PLISTS, dev
+    assert len(_committed_targets()) - len(dev) == 7
