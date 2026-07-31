@@ -46,11 +46,55 @@ built, because **the values it would stamp are discarded by the run that compute
 question about *how it got there* unanswerable, and the cost is paid by someone who
 cannot tell it was ever computed.
 
+## The artefact, specified
+
+**Round 1 review: "ticker plus cutoff and builder identity cannot establish that the
+persisted vectors are the exact values consumed by a scored run."** Correct — that
+triple identifies a *rebuild*, not the run. Two rebuilds with the same cutoff and
+builder can differ if the input data moved underneath them, and the whole point of the
+artefact is to answer "what did THIS scored run see". So the contract is specified
+rather than left to the implementer:
+
+**Owning repository: `renquant-orchestrator`.** The daily run owns its own run bundle
+and already writes `run_bundle.json`, `decision_trace.json` and `submitted_orders.json`
+beside it. A feature snapshot is another receipt of the same run, so it belongs where
+the other receipts are. It is explicitly **not** `renquant-model` (which owns
+scorers, not runs) and **not** `renquant-artifacts` (which owns trained artefacts,
+not per-run evidence).
+
+**Schema** — `feature_snapshot.json`, one object:
+
+| field | why it is required |
+|---|---|
+| `schema_version` | int. Absent = refuse; this repo has been bitten by silently-migrating shapes |
+| `run_id` | **binds the snapshot to the run**, not to a rebuild. Same value as `run_bundle.json`'s |
+| `scorer_run_binding` | the scorer identity + config fingerprint the run actually loaded — so "the values consumed by a scored run" is checkable, not asserted |
+| `feature_cutoff` | T-1 EOD as-of |
+| `feature_builder_version` | builder identity |
+| `input_fingerprint` | sha256 over the **input feature data** the builder read, not over its output. Two rebuilds at one cutoff differ here iff the data moved — which is exactly the case the triple could not distinguish |
+| `features` | `{ticker: {name: value}}` |
+| `features_digest` | sha256 over `features` canonically serialised, so the payload is self-verifying |
+
+**Atomic write.** Same directory as the run bundle, written `feature_snapshot.json.tmp`
+then `os.replace()` onto the final name. A partial snapshot that looks complete is
+worse than an absent one: the guard downstream would pass on it.
+
+**Retention and size.** ~145 tickers × ~158 features × 8 bytes ≈ **200 KB/run**, so a
+year of daily runs is under 60 MB — small enough that retention is a policy choice, not
+a constraint. Registered policy: keep with the run bundle under the same retention as
+`decision_trace.json`, and refuse to write above **5 MB** rather than silently emitting
+an artefact nobody budgeted for.
+
+**What this still does NOT establish.** It binds the snapshot to a run and makes the
+payload self-verifying. It does not prove the scorer *read* these exact values rather
+than recomputing — that needs the scorer to consume the snapshot instead of the builder,
+which is Stage-3's own work and is not claimed here.
+
 ## The minimal ordered plan
 
-1. **Persist the serving feature vectors** in the daily run, keyed by ticker, with the
-   cutoff and builder identity that produced them. This is the actual Stage-3
-   prerequisite and it belongs upstream of any producer.
+1. **Persist the serving feature vectors** in the daily run — under the schema in
+   §"The artefact, specified" below. This is the actual Stage-3 prerequisite and it
+   belongs upstream of any producer.
 2. **Then** the producer is a formatting step: read step 1's artefact, emit the
    three-key payload, let `from_mapping` compute the digest.
 3. Only then does `run_shadow_serving.sh`'s second guard become satisfiable.
