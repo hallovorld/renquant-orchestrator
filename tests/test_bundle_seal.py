@@ -699,3 +699,114 @@ def test_cli_main_uses_create_default_store(tmp_path, monkeypatch, capsys):
     printed = json.loads(capsys.readouterr().out)
     assert printed["sealed"]["generation"] == 1
     assert set(printed["views"]) == {PANEL_MEMBER, CALIBRATOR_MEMBER}
+
+
+# ---------------------------------------------------------------------------
+# The gate stamp's canonical key is metadata.wf_gate_metadata, not the top level.
+# ---------------------------------------------------------------------------
+
+def _gate_key_panel_bytes(block: dict, where: str) -> bytes:
+    # NOT `_panel_bytes` -- that name is already defined earlier in this module, and
+    # a later definition silently replaces it, which broke three unrelated tests that
+    # call it with a `verdict=` kwarg. Appending a helper is a namespace edit.
+    import json as _j
+    panel = {"model_content_fingerprint": "sha256:deadbeef"}
+    if where == "canonical":
+        panel["metadata"] = {"wf_gate_metadata": block}
+    elif where == "legacy":
+        panel["wf_gate_metadata"] = block
+    elif where == "both":
+        panel["metadata"] = {"wf_gate_metadata": block}
+        panel["wf_gate_metadata"] = block
+    return _j.dumps(panel).encode()
+
+
+_BLOCK = {
+    "passed": False,
+    "gate_verdict_before_override": "FAIL",
+    "operator_authorized_override": True,
+    "override_applied_at": "2026-07-20T00:00:00Z",
+    "override_reason": "operator accepted a documented risk",
+    "diagnostic_only": False,
+    "gate_version": "v3",
+}
+
+
+def _bindings(where: str):
+    import json as _j
+    cal = _j.dumps({"model_content_fingerprint": "sha256:cafe"}).encode()
+    return bundle_seal.extract_bindings(_gate_key_panel_bytes(_BLOCK, where), cal)
+
+
+def test_a_CANONICALLY_stamped_panel_seals_its_override_provenance():
+    """The 15 prod panels that carry ONLY `metadata.wf_gate_metadata`.
+
+    Before this fix they sealed as `UNSTAMPED` with every override key dropped -- while
+    this function's docstring claimed it closed the GOAL-5 "override provenance not in
+    the run bundle" gap. A recorder that silently writes UNSTAMPED reports a gap as
+    closed while recording nothing.
+    """
+    b = _bindings("canonical")
+    assert b["wf_gate_verdict"] == "FAIL"
+    assert b["wf_operator_authorized_override"] is True
+    assert b["wf_override_reason"] == "operator accepted a documented risk"
+    assert b["wf_gate_verdict_before_override"] == "FAIL"
+    assert b["wf_gate_version"] == "v3"
+
+
+def test_a_LEGACY_stamped_panel_still_works():
+    """The fallback stays: 14 of 29 prod panels carry only... both, in fact, but an
+    artifact stamped ONLY at the top level must not regress."""
+    b = _bindings("legacy")
+    assert b["wf_gate_verdict"] == "FAIL"
+    assert b["wf_operator_authorized_override"] is True
+
+
+def test_when_BOTH_exist_the_canonical_block_wins_CONFLICTING_VALUES():
+    """codex on #683: the first version of this test put the SAME block in both
+    locations, so it could not detect which one won. A precedence test whose two
+    branches are identical asserts nothing.
+
+    The copies are known to disagree in production -- on 2 of the 14 prod panels
+    carrying both, the legacy block lacks fields the canonical one has -- so this now
+    uses CONFLICTING values and requires the canonical one.
+    """
+    import json as _j
+    legacy = dict(_BLOCK, override_reason="LEGACY-STALE", gate_version="v1",
+                  operator_authorized_override=False)
+    panel = {"model_content_fingerprint": "sha256:deadbeef",
+             "metadata": {"wf_gate_metadata": _BLOCK},
+             "wf_gate_metadata": legacy}
+    cal = _j.dumps({"model_content_fingerprint": "sha256:cafe"}).encode()
+    b = bundle_seal.extract_bindings(_j.dumps(panel).encode(), cal)
+    assert b["wf_override_reason"] == "operator accepted a documented risk"
+    assert b["wf_gate_version"] == "v3"
+    assert b["wf_operator_authorized_override"] is True
+
+
+def test_a_PRESENT_but_EMPTY_canonical_block_does_not_resurrect_the_legacy_one():
+    """codex on #683: presence of the canonical key decides, not truthiness.
+
+    Falling through on an empty canonical block would let a panel whose canonical stamp
+    was wiped seal with stale provenance from the legacy copy -- and look healthy. The
+    honest reading of "canonical stamp present but empty" is UNSTAMPED.
+    """
+    import json as _j
+    panel = {"model_content_fingerprint": "sha256:deadbeef",
+             "metadata": {"wf_gate_metadata": {}},
+             "wf_gate_metadata": _BLOCK}
+    cal = _j.dumps({"model_content_fingerprint": "sha256:cafe"}).encode()
+    b = bundle_seal.extract_bindings(_j.dumps(panel).encode(), cal)
+    assert b["wf_gate_verdict"] == "UNSTAMPED"
+    assert "wf_operator_authorized_override" not in b
+    assert "wf_override_reason" not in b
+
+
+def test_an_UNSTAMPED_panel_is_still_reported_as_UNSTAMPED():
+    """Anti-vacuity: the sentinel must survive, or this fix would make every panel
+    look stamped."""
+    import json as _j
+    cal = _j.dumps({"model_content_fingerprint": "sha256:cafe"}).encode()
+    b = bundle_seal.extract_bindings(_j.dumps({"model_content_fingerprint": "x"}).encode(), cal)
+    assert b["wf_gate_verdict"] == "UNSTAMPED"
+    assert "wf_operator_authorized_override" not in b
