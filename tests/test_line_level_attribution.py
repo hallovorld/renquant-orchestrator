@@ -85,3 +85,67 @@ def test_every_failing_job_is_present_in_the_launchd_layer():
     jobs = [r for r in _rows() if r["layer"] == "launchd_stdout"]
     assert len(jobs) == 14
     assert all(int(r["last_exit"]) != 0 for r in jobs)
+
+
+# ---------------------------------------------------------------------------
+# Codex on #676: the census must be auditable and re-runnable.
+# ---------------------------------------------------------------------------
+
+def _census():
+    return json.loads((DIR / "census.json").read_text(encoding="utf-8"))
+
+
+def test_every_counted_row_carries_its_source_path_and_a_digest():
+    """The ask, made mechanical.
+
+    A basename and a count are not auditable: a reader cannot tell whether the file in
+    front of them is the file that was counted. Path + sha256 + byte count + mtime is
+    the minimum that makes a number re-derivable.
+    """
+    rows = [r for r in _census()["rows"] if r.get("present")]
+    assert rows, "no counted rows — the census has lost its subjects"
+    for r in rows:
+        assert r["std_out_path"].startswith("/"), r["label"]
+        assert len(r["sha256"]) == 64, r["label"]
+        assert r["bytes"] > 0 or r["n_nonblank_lines"] == 0, r["label"]
+        assert r["mtime"], r["label"]
+        # The plist is pinned too: it decides WHICH file the job writes, so a census
+        # that pins the log alone cannot tell a changed log from a redirected one.
+        assert len(r["plist_sha256"]) == 64, r["label"]
+
+
+def test_the_rule_is_stated_and_the_scope_note_refuses_the_wider_claim():
+    s = _census()["summary"]
+    assert re.compile(s["matching_rule_regex"])
+    assert "begins with" in s["matching_rule_prose"]
+    assert "does not establish that per-run attribution is impossible" in s["scope_note"]
+
+
+def test_the_matching_rule_has_a_POSITIVE_CONTROL():
+    """A count of zero is worthless if the regex never matches anything.
+
+    Somewhere in the censused population the rule must fire, or "0 self-timestamped" is
+    indistinguishable from a broken pattern. Measured 2026-07-31: it fires on 39/39
+    lines of one file — 1.00 — so the zeros elsewhere are real zeros.
+    """
+    rows = [r for r in _census()["rows"] if r.get("present")]
+    firing = [r for r in rows if r["n_self_timestamped"] > 0]
+    assert firing, "the rule fires nowhere — a zero elsewhere would prove nothing"
+    assert max(r["frac_self_timestamped"] for r in firing) == 1.0
+
+
+def test_an_UNPARSEABLE_plist_is_not_reported_as_an_absent_file():
+    """`plistlib` is expat-strict and rejects `--` inside an XML comment; two installed
+    plists contain it and are LOADED AND RUNNING.
+
+    Counting them as absent reported a parser limitation as a fact about the run
+    surface. The census falls back to `plutil`, as `run_surface_drift_check._plist_load`
+    already did. This asserts no row is dropped for that reason.
+    """
+    rows = _census()["rows"]
+    bad = [r for r in rows if not r.get("present")
+           and "not well-formed" in str(r.get("why", ""))]
+    assert bad == [], bad
+    for label in ("com.renquant.weekly-retrain-patchtst",
+                  "com.renquant.weekly-tournament-retrain"):
+        assert any(r["label"] == label for r in rows), f"{label} missing from the census"
