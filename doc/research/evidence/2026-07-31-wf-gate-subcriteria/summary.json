@@ -1,0 +1,8 @@
+{
+  "wf_fail_rate": "10/11",
+  "sanity_fail_rate": "11/11",
+  "sanity_regime_ic_fail_rate": "11/11",
+  "trade_monotonicity_fail_rate": "11/11",
+  "trade_contract_fail_rate": "0/11",
+  "n_artifacts": 11
+}

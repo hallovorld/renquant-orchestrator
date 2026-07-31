@@ -1,0 +1,12 @@
+artifact,deployed,wf,sanity,sanity_regime_ic,trade_monotonicity,trade_contract,regime_ic_failed_regimes,monotonicity_failed_regimes
+panel-ltr.alpha158_fund.json,True,PASS,FAIL,FAIL,FAIL,PASS,"BULL_CALM,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260712T170005Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260713T201007Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260718T110005Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260719T170005Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260721T201008Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260725T110003Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260726T170001Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260729T201003Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
+panel-ltr.alpha158_fund.weekly_20260730T201007Z.staging.json,False,FAIL,FAIL,FAIL,FAIL,PASS,"BULL_CALM,BULL_VOLATILE,CHOPPY",BULL_CALM
