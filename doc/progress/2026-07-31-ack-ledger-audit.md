@@ -22,7 +22,7 @@ Nothing here changes a suppression. This lands a read-only audit that measures b
 | direction | what it looks like | consequence |
 |---|---|---|
 | stamp **older** than the real edit | re-disposition rewrites `reason`, leaves `acked_at` | expiry fires **early** — noisy, safe. This is what the live ledger has. |
-| stamp **newer** than the real edit | someone bumps `acked_at` without re-reviewing | expiry fires **late** — **silent**, and unobservable from the file alone |
+| stamp **newer** than its introducing commit | timestamp **chronology corruption** — a future-dated stamp or a backdated commit | expiry fires **late**. **NOT a re-stamp detector** — see the correction below |
 
 Only the first is present today. The audit reports both, because a check that only
 catches the safe direction is not a check on the dangerous one.
@@ -85,3 +85,28 @@ than counting the expired ones. The next re-stamp shows up here as a changed nam
 as an off-by-one.
 
 `[VERIFIED — this session]` 17 tests pass.
+
+## Correction — the silent-direction claim is WITHDRAWN
+
+An earlier version of this audit reported a negative lag as *"an ack re-stamped without a
+re-review suppresses Nd longer than earned"*. Codex raised it as a BLOCKER on #654 and I
+**verified it empirically before accepting** `[本次实测 2026-08-01]`:
+
+| scenario | `acked_at` | `last_edited` | lag | findings |
+|---|---|---|---:|---:|
+| a genuine re-review | 2026-07-20 | 2026-07-20 | **0** | **0** |
+| an unreviewed re-stamp | 2026-07-20 | 2026-07-20 | **0** | **0** |
+
+> **Identical evidence.** Both human actions write today's `acked_at` in today's commit.
+> The audit **cannot** distinguish them, and the claim named an event the mechanism
+> cannot see — the guards-that-validate-the-wrong-object shape, committed *inside the
+> audit built to catch that shape*.
+
+What a negative lag **does** identify is a stamp dated **after** the commit that
+introduced it: chronology corruption. Worth reporting, under its own name, as a
+different event.
+
+The finding is relabelled, and
+`test_a_re_review_and_an_unreviewed_re_stamp_are_INDISTINGUISHABLE` pins the limit so the
+claim cannot be re-added without failing a test. **The noisy stale-stamp measurement is
+untouched and remains valid.**

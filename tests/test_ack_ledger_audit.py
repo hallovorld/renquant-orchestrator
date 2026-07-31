@@ -137,12 +137,13 @@ def test_a_stamp_older_than_its_edit_is_flagged_as_the_noisy_direction(tmp_path)
     assert any("expiry fires early" in f for f in R["findings"])
 
 
-def test_a_stamp_AHEAD_of_its_edit_is_flagged_as_the_silent_direction(tmp_path):
-    """Re-stamping without re-reviewing buys silence. It must not pass quietly."""
+def test_a_stamp_AHEAD_of_its_edit_is_flagged_as_CHRONOLOGY_CORRUPTION(tmp_path):
+    """A stamp dated after its introducing commit. NOT a re-stamp detector — see
+    `test_a_re_review_and_an_unreviewed_re_stamp_are_INDISTINGUISHABLE`."""
     root = _repo(tmp_path, [({"j": _ack("2026-07-20")}, "2026-07-05")])
     R = A.audit(dt.date(2026, 7, 21), str(root / A.LEDGER_REL), str(root))
     assert R["rows"][0]["stamp_lag_days"] == -15
-    assert any("suppresses 15d longer than earned" in f for f in R["findings"])
+    assert any("chronology is corrupt" in f for f in R["findings"])
 
 
 def test_an_unreadable_acked_at_is_a_finding_not_a_pass(tmp_path):
@@ -237,3 +238,31 @@ def test_the_live_ledger_is_measured_not_asserted():
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
     assert lags["com.renquant.rq104-degradation-sentinel"] == 13
+
+
+# ---------------- the limit of this evidence, pinned so it is not re-claimed ----
+def test_a_re_review_and_an_unreviewed_re_stamp_are_INDISTINGUISHABLE(tmp_path):
+    """Codex BLOCKER on #654, verified empirically before accepting.
+
+    An earlier version of this audit reported a negative lag as *"an ack re-stamped
+    without a re-review"*. It cannot be: both human actions write today's `acked_at`
+    in today's commit, so both yield lag 0 and identical findings. The claim named an
+    event the mechanism cannot see — the guards-that-validate-the-wrong-object shape,
+    committed inside the audit built to catch it.
+
+    This test exists so the claim cannot be re-added without failing.
+    """
+    reviewed = _repo(tmp_path / "reviewed", [
+        ({"j": _ack("2026-07-01")}, "2026-07-01"),
+        ({"j": _ack("2026-07-20", reason="re-reviewed properly")}, "2026-07-20"),
+    ])
+    restamped = _repo(tmp_path / "restamped", [
+        ({"j": _ack("2026-07-01")}, "2026-07-01"),
+        ({"j": _ack("2026-07-20")}, "2026-07-20"),
+    ])
+    out = []
+    for root in (reviewed, restamped):
+        R = A.audit(dt.date(2026, 7, 25), str(root / A.LEDGER_REL), str(root))
+        r = R["rows"][0]
+        out.append((r["stamp_lag_days"], len(R["findings"])))
+    assert out[0] == out[1] == (0, 0), out

@@ -22,8 +22,15 @@ So the one clock that forces re-review is stamped with the wrong event.  Measure
 Which direction is dangerous matters, and both are reported:
 
 * stamp **older** than the real edit  -> expiry fires EARLY -> noisy, safe;
-* stamp **newer** than the real edit  -> expiry fires LATE  -> **silent**, and this is
-  the shape that re-stamping an ack without re-reviewing it would produce.
+* stamp **newer** than its introducing commit -> expiry fires LATE. **This is NOT a
+  detector for "re-stamped without re-review", and an earlier version of this file
+  claimed it was.** Measured: a genuine re-review and an unreviewed re-stamp both write
+  today's `acked_at` in today's commit, so both yield lag **0** and identical evidence.
+  What a negative lag actually identifies is a stamp dated AFTER the commit that
+  introduced it -- timestamp chronology corruption (a future-dated stamp, or a
+  backdated commit), which is worth reporting under its own name and is a different
+  event. Distinguishing the two human actions would need review evidence the ledger
+  does not carry.
 
 THE SECOND FINDING: THE EXPIRY CLIFF
 ------------------------------------
@@ -172,7 +179,8 @@ def audit(today: dt.date, ledger_path: str | None = None,
         edited = edits.get(name)
         # stamp_lag > 0: the row was edited AFTER its acked_at claims (clock too old,
         # expiry early, noisy-safe).  < 0: acked_at is ahead of any edit that produced
-        # it, which is what re-stamping without re-reviewing looks like (silent).
+        # it: chronology corruption, NOT evidence of an unreviewed re-stamp. See the
+        # module docstring -- both human actions produce lag 0.
         lag = (edited - acked_at).days if (edited and acked_at) else None
         rows.append({
             "job": name,
@@ -200,8 +208,10 @@ def audit(today: dt.date, ledger_path: str | None = None,
         elif r["stamp_lag_days"] < 0:
             findings.append(
                 f"{r['job']}: acked_at {r['acked_at']} is AHEAD of the commit that "
-                f"produced it ({r['last_edited']}) — an ack re-stamped without a "
-                f"re-review suppresses {abs(r['stamp_lag_days'])}d longer than earned")
+                f"introduced it ({r['last_edited']}) — timestamp chronology is "
+                f"corrupt (a future-dated stamp or a backdated commit), so the expiry "
+                f"clock runs {abs(r['stamp_lag_days'])}d late. This is NOT evidence of "
+                f"an unreviewed re-stamp: that action is indistinguishable here")
 
     cliffs = {d: n for d, n in by_expiry.items() if len(n) > 1}
     for day, names in sorted(cliffs.items()):
