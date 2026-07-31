@@ -174,8 +174,22 @@ def test_drift_exits_1(tmp_path):
 
 
 @needs_umbrella
-def test_clean_exits_0():
-    assert sh.main([]) == 0
+def test_committed_registry_has_no_DRIFT_from_the_live_surface():
+    """Was `test_clean_exits_0`, asserting `main([]) == 0`.
+
+    RETARGETED 2026-07-31, deliberately and not silently. The property this test
+    exists for is *the committed registry still matches the live surface* — no new
+    shadow, none vanished, none changed class. That property is unchanged and is
+    asserted directly here, on `verify()`, which is where it lives.
+
+    What changed is that "no drift" no longer implies exit 0: a registered
+    divergence that a SCHEDULED job executes is now a finding unless the registry
+    justifies it (see the class below). The old assertion conflated the two, so
+    keeping it as written would have quietly required the new rule to never fire.
+    The exit code now has its own test rather than riding on this one.
+    """
+    reg = json.loads(Path(sh.REGISTRY).read_text(encoding="utf-8"))
+    assert sh.verify(reg) == []
 
 
 @needs_umbrella
@@ -291,3 +305,88 @@ def test_the_exact_silent_clean_scenario_codex_described(monkeypatch):
     monkeypatch.setattr(sh, "GITHUB", Path("/definitely/not/a/github/root"))
     problems = sh.verify(REG)
     assert len(problems) == 1 and problems[0].startswith(sh.UNVERIFIABLE)
+
+
+
+# --- a registered divergence on a SCHEDULED surface is not "OK" (2026-07-31) ---
+class TestScheduledSurfaceDivergence:
+    """`verify()` checks DRIFT from the baseline. These check the VERDICT.
+
+    They monkeypatch `verify` to return no problems, because the subject here is
+    what the tool concludes once drift is ruled out — not drift detection, which
+    the tests above already cover against the real surface.
+
+    The two controls are load-bearing:
+      * an UNSCHEDULED divergence must stay silent, or the check alarms on all 26
+        registered divergences and gets switched off wholesale;
+      * a JUSTIFIED scheduled divergence must stay silent, or there is no path back
+        to green, which ends the same way.
+    """
+
+    @staticmethod
+    def _pair(**kw):
+        base = {"class": sh.DIVERGED, "referenced_by_a_scheduled_surface": True,
+                "subrepo": "renquant-model", "subrepo_path": "x.py",
+                "subrepo_bytes": 100, "umbrella_bytes": 200}
+        base.update(kw)
+        return base
+
+    def _run(self, monkeypatch, tmp_path, capsys, pairs):
+        monkeypatch.setattr(sh, "verify", lambda reg: [])
+        p = tmp_path / "reg.json"
+        p.write_text(json.dumps({"schema_version": 1, "pairs": pairs}))
+        rc = sh.main(["--registry", str(p)])
+        return rc, capsys.readouterr().out
+
+    def test_scheduled_divergence_is_a_finding(self, monkeypatch, tmp_path, capsys):
+        rc, out = self._run(monkeypatch, tmp_path, capsys, {"a.py": self._pair()})
+        assert rc == 1
+        assert "SCHEDULED surface" in out
+        assert "a.py" in out and "+100 B" in out
+
+    def test_UNscheduled_divergence_stays_silent(self, monkeypatch, tmp_path, capsys):
+        rc, out = self._run(monkeypatch, tmp_path, capsys, {
+            "a.py": self._pair(referenced_by_a_scheduled_surface=False)})
+        assert rc == 0
+        assert "no drift" in out
+
+    def test_a_JUSTIFIED_scheduled_divergence_stays_silent(self, monkeypatch, tmp_path,
+                                                          capsys):
+        rc, _ = self._run(monkeypatch, tmp_path, capsys, {
+            "a.py": self._pair(accepted_because="umbrella pin lags orch#620")})
+        assert rc == 0
+
+    def test_a_BLANK_justification_does_not_count(self, monkeypatch, tmp_path, capsys):
+        rc, _ = self._run(monkeypatch, tmp_path, capsys, {
+            "a.py": self._pair(accepted_because="   ")})
+        assert rc == 1
+
+    def test_IDENTICAL_on_a_scheduled_surface_is_never_a_finding(self, monkeypatch,
+                                                                 tmp_path, capsys):
+        rc, _ = self._run(monkeypatch, tmp_path, capsys, {
+            "a.py": self._pair(**{"class": "IDENTICAL"})})
+        assert rc == 0
+
+    def test_every_offender_is_NAMED_with_its_byte_delta(self, monkeypatch, tmp_path,
+                                                         capsys):
+        """A count alone cannot be acted on."""
+        rc, out = self._run(monkeypatch, tmp_path, capsys, {
+            "a.py": self._pair(subrepo_bytes=1000, umbrella_bytes=900),
+            "b.py": self._pair(subrepo="renquant-execution", subrepo_bytes=10,
+                               umbrella_bytes=30)})
+        assert rc == 1
+        assert "a.py" in out and "-100 B" in out
+        assert "b.py" in out and "+20 B" in out and "renquant-execution" in out
+
+
+@needs_umbrella
+def test_the_live_registry_has_nine_unjustified_scheduled_divergences():
+    """Pins the measured number so issue #656 and the progress doc cannot rot."""
+    reg = json.loads(Path(sh.REGISTRY).read_text(encoding="utf-8"))
+    hot = [k for k, v in reg["pairs"].items()
+           if v.get("class") == sh.DIVERGED
+           and v.get("referenced_by_a_scheduled_surface")
+           and not str(v.get("accepted_because") or "").strip()]
+    assert len(hot) == 9, sorted(hot)
+    assert "fit_calibrator_alpha158_fund.py" in hot
+    assert sh.main([]) == 1

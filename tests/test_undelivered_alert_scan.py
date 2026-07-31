@@ -50,30 +50,83 @@ def _log(tmp_path: Path, name: str, text: str, *, age_days: int = 0) -> Path:
     return p
 
 
-def test_the_rq105_alarm_is_found_and_marked_permanent(tmp_path):
+# `permanent` became TWO things in this PR, and the tests below are split to match:
+#
+#   looked_permanent  what the LOG said        — pure text, environment-independent
+#   status            re-measured against TODAY — calls the real encoder
+#
+# `status` therefore depends on whether `renquant_common` is importable. Measured
+# 2026-07-31: in CI it is, the emoji title encodes under RFC 2047, and the encoding
+# finding is **RESOLVED**; in an isolated worktree without the sibling it is
+# **UNTESTABLE**. A test asserting one specific status for a real title passes in one
+# environment and fails in the other — which is how these three broke.
+#
+# So the re-test is STUBBED wherever a status is asserted. That is not avoiding the
+# question: `encoding_defect_still_present` has its own tests, and stubbing here is
+# what lets all four statuses be exercised at all, including PERMANENT, which is
+# otherwise unreachable on any machine whose encoder already fixes the defect.
+
+
+def test_the_rq105_alarm_is_found_and_LOOKED_permanent(tmp_path):
+    """The backward-looking half: what the log recorded, whatever is true today."""
     _log(tmp_path, "rq105/launchd_liveness.err", ENCODING_LINE)
     items = U.scan(str(tmp_path), as_of=AS_OF)
     assert len(items) == 1
-    assert items[0].permanent is True
+    assert items[0].looked_permanent is True
     assert "rq105 DOWN" in items[0].title
 
 
-def test_a_timeout_is_found_but_marked_transient(tmp_path):
+def test_a_timeout_never_looked_permanent(tmp_path):
     _log(tmp_path, "drift.err", TIMEOUT_LINE)
     items = U.scan(str(tmp_path), as_of=AS_OF)
     assert len(items) == 1
-    assert items[0].permanent is False
+    assert items[0].looked_permanent is False
+    assert items[0].status == "TRANSIENT"
 
 
-def test_permanent_findings_sort_first_and_say_why(tmp_path):
+@pytest.mark.parametrize("still, expected", [
+    (True, "PERMANENT"),      # today's encoder still cannot send it
+    (False, "RESOLVED"),      # the defect was fixed after the log line was written
+    (None, "UNTESTABLE"),     # cannot import the encoder -> claim nothing
+])
+def test_status_is_REMEASURED_not_recalled(tmp_path, monkeypatch, still, expected):
+    """The whole point of this PR: a PERMANENT claim read out of an append-only log
+    is a statement about the past, and must be re-tested before being repeated."""
+    monkeypatch.setattr(U, "encoding_defect_still_present", lambda title: still)
+    _log(tmp_path, "b.err", ENCODING_LINE)
+    items = U.scan(str(tmp_path), as_of=AS_OF)
+    assert len(items) == 1
+    assert items[0].looked_permanent is True, "the log text is unchanged either way"
+    assert items[0].status == expected
+
+
+def test_permanent_findings_sort_first_and_say_why(tmp_path, monkeypatch):
+    """Ordering is asserted with the re-test pinned, so it tests the ORDER rather
+    than today's encoder."""
+    monkeypatch.setattr(U, "encoding_defect_still_present", lambda title: True)
     _log(tmp_path, "a.err", TIMEOUT_LINE)
     _log(tmp_path, "b.err", ENCODING_LINE)
     lines = U.findings(U.scan(str(tmp_path), as_of=AS_OF))
     assert len(lines) == 2
     assert "[PERMANENT]" in lines[0]
-    assert "can never deliver until the code changes" in lines[0]
-    assert "[transient]" in lines[1]
-    assert "can never deliver" not in lines[1]
+    # The line must say it was RE-TESTED, not merely repeat the log's old claim —
+    # that distinction is this PR's entire contribution, so it is pinned in the text
+    # a human actually reads, not only in the status field.
+    assert "RE-TESTED" in lines[0] and "still undeliverable" in lines[0]
+    assert "[transient]" in lines[1].lower()
+    assert "RE-TESTED" not in lines[1], "a transient finding was never re-tested"
+
+
+def test_a_RESOLVED_finding_sorts_last_and_is_still_reported(tmp_path, monkeypatch):
+    """RESOLVED is reported rather than dropped — the module says hiding it would
+    make the fix invisible. Pinned so that intent cannot regress silently."""
+    monkeypatch.setattr(U, "encoding_defect_still_present", lambda title: False)
+    _log(tmp_path, "a.err", TIMEOUT_LINE)
+    _log(tmp_path, "b.err", ENCODING_LINE)
+    lines = U.findings(U.scan(str(tmp_path), as_of=AS_OF))
+    assert len(lines) == 2
+    assert "RESOLVED" in lines[1].upper()
+    assert "[PERMANENT]" not in " ".join(lines)
 
 
 def test_repeats_of_one_defect_collapse_to_one_line(tmp_path):
