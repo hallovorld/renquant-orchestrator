@@ -132,3 +132,36 @@ than passing quietly; if the ack is legitimately re-stamped, that assertion shou
 updated deliberately.
 
 `[VERIFIED — this session]` 18 pass; the property holds at 13, 14 and 20.
+
+## 2026-08-01 — "expired" and "expired for longer than an ack may live"
+
+The audit computed `days_to_expiry` and printed it, but emitted **no finding** for a
+long-lapsed ack. Those are different facts:
+
+- expired **yesterday** → the reminder just fired, working exactly as designed;
+- expired **longer ago than `ACK_MAX_AGE_DAYS`** → a **full review cycle** has passed
+  since it lapsed and nobody lifted or renewed it, so the alarm has been returning
+  **unheeded** — the state this ledger exists to prevent.
+
+**The threshold is derived, not chosen:** it is the ledger's own review cadence. A
+literal here would be one more constant nobody could re-derive.
+
+### The live ledger, measured 2026-08-01
+
+| | |
+|---|---:|
+| acks | **10** |
+| expired | **9** |
+| expiring on 2026-07-20 | **3** |
+| expiring on 2026-07-31 | **6** ← the cliff |
+| still live (re-stamped 07-31) | 1 |
+
+| audit date | long-expired findings |
+|---|---:|
+| **2026-08-01 (today)** | **0** |
+| 2026-08-04 | **3** |
+| 2026-08-15 | **9** |
+
+So it is a tripwire that fires in **three days**, not one that fires now. Stated as a
+**forecast from a measurement**, and pinned as a test rather than left as a claim.
+`[VERIFIED — 本次实测 2026-08-01]`

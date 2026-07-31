@@ -283,3 +283,46 @@ def test_a_re_review_and_an_unreviewed_re_stamp_are_INDISTINGUISHABLE(tmp_path):
         r = R["rows"][0]
         out.append((r["stamp_lag_days"], len(R["findings"])))
     assert out[0] == out[1] == (0, 0), out
+
+
+# ------------- "expired" vs "expired for longer than an ack may live" --------
+def test_a_LONG_expired_ack_is_its_own_finding(tmp_path):
+    """An ack that lapsed yesterday means the reminder just fired, as designed.
+    One that lapsed longer ago than ACK_MAX_AGE_DAYS means a FULL REVIEW CYCLE
+    passed with nobody lifting or renewing it — the alarm returning unheeded, which
+    is the state the ledger exists to prevent."""
+    sent = A._load_sentinel()
+    root = _repo(tmp_path, [({"j": _ack("2026-07-01")}, "2026-07-01")])
+    expiry = dt.date(2026, 7, 1) + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS)
+    just = A.audit(expiry + dt.timedelta(days=1), str(root / A.LEDGER_REL), str(root))
+    long_ = A.audit(expiry + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS + 1),
+                    str(root / A.LEDGER_REL), str(root))
+    assert not [f for f in just["findings"] if "longer than the" in f]
+    assert [f for f in long_["findings"] if "longer than the" in f]
+
+
+def test_the_threshold_is_the_ledgers_OWN_cadence_not_a_magic_number(tmp_path):
+    """If it were a literal, nobody could re-derive it. It is ACK_MAX_AGE_DAYS."""
+    src = open(MOD_PATH, encoding="utf-8").read()
+    assert "sent.ACK_MAX_AGE_DAYS" in src.split("LONG-EXPIRED")[1][:900]
+    sent = A._load_sentinel()
+    root = _repo(tmp_path, [({"j": _ack("2026-07-01")}, "2026-07-01")])
+    expiry = dt.date(2026, 7, 1) + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS)
+    # exactly at the threshold: NOT yet a finding; one day past: a finding
+    at = A.audit(expiry + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS),
+                 str(root / A.LEDGER_REL), str(root))
+    past = A.audit(expiry + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS + 1),
+                   str(root / A.LEDGER_REL), str(root))
+    assert not [f for f in at["findings"] if "longer than the" in f]
+    assert [f for f in past["findings"] if "longer than the" in f]
+
+
+def test_the_live_ledger_today_and_when_it_will_fire():
+    """Measured 2026-08-01: fires on 0 today; the 2026-07-20 cohort crosses the
+    threshold on 2026-08-04. A forecast FROM a measurement, not a prediction."""
+    def n(day):
+        return len([f for f in A.audit(day)["findings"] if "longer than the" in f])
+
+    assert n(dt.date(2026, 8, 1)) == 0
+    assert n(dt.date(2026, 8, 4)) == 3
+    assert n(dt.date(2026, 8, 15)) == 9

@@ -213,6 +213,25 @@ def audit(today: dt.date, ledger_path: str | None = None,
                 f"clock runs {abs(r['stamp_lag_days'])}d late. This is NOT evidence of "
                 f"an unreviewed re-stamp: that action is indistinguishable here")
 
+    # LONG-EXPIRED: "expired" and "expired for longer than an ack's whole life" are
+    # different facts, and only the first was reported. An ack that lapsed yesterday
+    # means the reminder just fired, working as designed. One that lapsed longer ago
+    # than ACK_MAX_AGE_DAYS means a FULL REVIEW CYCLE has passed since it did, with
+    # nobody lifting or renewing it -- so the reminder has been firing unheeded, which
+    # is the failure this ledger exists to prevent rather than a normal state.
+    #
+    # The threshold is DERIVED, not chosen: it is the ledger's own review cadence.
+    # A magic number here would be one more constant nobody could re-derive.
+    for r in rows:
+        d = r["days_to_expiry"]
+        if d is not None and -d > sent.ACK_MAX_AGE_DAYS:
+            findings.append(
+                f"{r['job']}: expired {-d}d ago, which is longer than the "
+                f"{sent.ACK_MAX_AGE_DAYS}d an ack is allowed to live — a full review "
+                f"cycle has passed since it lapsed and nobody lifted or renewed it. "
+                f"The alarm has been returning unheeded, which is the state this "
+                f"ledger exists to prevent")
+
     cliffs = {d: n for d, n in by_expiry.items() if len(n) > 1}
     for day, names in sorted(cliffs.items()):
         findings.append(
