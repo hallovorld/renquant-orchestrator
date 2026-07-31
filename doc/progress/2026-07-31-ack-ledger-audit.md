@@ -126,12 +126,17 @@ on a schedule nobody controls.
 below.** That is the sweep-the-file lesson arriving inside a single function.
 
 The day count is no longer pinned. What the audit is *for* survives history: this job's
-stamp is stale — edited well after its `acked_at` claims — and it is **the only one**.
+stamp is stale — edited well after its `acked_at` claims — ~~and it is **the only one**.
 That is asserted as a property, plus a `>= 13` floor so a *fresher* stamp fails rather
-than passing quietly; if the ack is legitimately re-stamped, that assertion should be
-updated deliberately.
+than passing quietly~~ **— WITHDRAWN 2026-07-31, see ROUND 4 below.** `orch#641` rewrote
+every row and the count went to **nine**, so "the only one" and the `>= 13` floor were
+both pins on a moving subject, one level up from the day count this paragraph is about.
 
-`[VERIFIED — this session]` 18 pass; the property holds at 13, 14 and 20.
+**I wrote that sentence in the paragraph explaining why not to pin things.** Codex caught
+it, one section above my own correction — the review-surface shape, committed while
+documenting a correction.
+
+`[VERIFIED — this session]` 18 pass; the property held at 13, 14 and 20.
 
 ## 2026-08-01 — "expired" and "expired for longer than an ack may live"
 
