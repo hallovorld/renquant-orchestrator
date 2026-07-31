@@ -655,10 +655,13 @@ def report_manifested_not_loaded(
       * plist absent, target present -> ready to install, never installed.
       * plist absent, target absent -> the run checkout has not been synced.
 
-    Measured 2026-08-01 on 43 manifested jobs: 6 not loaded — 3 of the first kind
-    (daily103, open103, preclose103), 1 of the second (rq104-model-freshness), 2 of
-    the third (ops-audit, rq104-silent-refusal). The last two include the aggregator
-    that DISCOVERED an unrun AC5 sentinel; it does not run either.
+    Measured on the RUN HOST 2026-07-31, 43 manifested jobs: 6 not loaded — 3 of the
+    first kind (daily103, open103, preclose103), 1 of the second
+    (rq104-model-freshness), 2 of the third (ops-audit, rq104-silent-refusal). The
+    last two include the aggregator that DISCOVERED an unrun AC5 sentinel; it does
+    not run either. That census is one host on one day, not a property of this code:
+    the tests classify a synthetic manifest against a mocked launchd, because a host
+    without launchd at all (CI) legitimately reports zero.
     """
     try:
         manifest = json.loads(Path(manifest_path).read_text())["jobs"]
