@@ -1,9 +1,8 @@
-# WF-gate unaided-pass evidence — RELOCATED to renquant-backtesting   (pointer)
+# WF-gate unaided-pass evidence — RELOCATED to renquant-backtesting#91   (pointer)
 
-STATUS:    relocated. This PR carries no evidence and no test of its own.
-WHAT:      The finding, its frozen CSV and its 5 tests now live in
-           **renquant-backtesting#91**
-           (`goal6/wf-gate-zero-unaided-passes`).
+STATUS:    relocated. This file carries no evidence, no number and no test.
+WHAT:      The finding, its frozen census and its tests live in
+           **renquant-backtesting#91** (`goal6/wf-gate-zero-unaided-passes`).
 WHY/DIR:   Codex on orch#670: `renquant-backtesting` owns the WF gate, the
            candidate-versus-recipe admission semantics, and the referenced
            artifacts. The orchestrator should CONSUME a gate verdict or a
@@ -11,8 +10,7 @@ WHY/DIR:   Codex on orch#670: `renquant-backtesting` owns the WF gate, the
            authority for backtesting behaviour. Agreed — a finding about the
            gate belongs to the gate's owner, or the two repos drift into
            disagreeing about what the gate did.
-EVIDENCE:  n/a — this PR makes no claim of its own any more. Every number now
-           sits in renquant-backtesting#91 with its CSV.
+EVIDENCE:  none here, by design. See renquant-backtesting#91.
 NEXT:      Review the finding on renquant-backtesting#91.
 
 ## Why this is merged rather than closed
@@ -23,14 +21,15 @@ follow it straight to the evidence. That is the pattern this programme has used
 three times before (capacity-power-memo → renquant-model#69, factorial-HFR →
 model#67, breadth-precision → model#98).
 
-## The finding itself, for the reader who lands here first
+## Why this file states no numbers — demonstrated, not asserted
 
-Across every `panel-ltr.alpha158_fund` artifact carrying `wf_gate_metadata`:
-**11 artifacts, 2 with `passed=True`, both operator overrides, ZERO unaided
-passes.** The model trading the live book today was **not admitted by the gate** —
-an operator override dated 2026-06-22 admitted it over its own sanity battery's
-`FAIL`.
+An earlier revision kept a short "the finding itself, for the reader who lands here
+first" section restating the headline. Codex asked for it to go, and **the reason
+proved itself within one review cycle**: that section said *"11 artifacts, 2 with
+`passed=True`"*. Reviewing the census provenance on #91 showed the stated inclusion
+query matches **29** artifacts, of which **18** pass — the 11 were a *deployed +
+staging* subset whose choice had never been written down.
 
-Stated here because it is decision-relevant and a pointer nobody reads is not much
-better than a closed PR. The numbers, their provenance and their tests are in
-renquant-backtesting#91; nothing above may be cited from this file.
+> **A pointer that restates a conclusion is a second source of truth, and it began
+> rotting before the PR it points at had even been merged.** The numbers, their
+> provenance and their tests live in one place. Nothing may be cited from this file.
