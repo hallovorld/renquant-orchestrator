@@ -246,15 +246,31 @@ def test_the_live_ledger_is_measured_not_asserted():
     # contents, different answer. Any literal here is a value that moves whenever
     # anyone touches the ledger, on a schedule nobody controls.
     #
-    # What the audit is FOR survives that: this job's stamp is stale — edited well
-    # after its `acked_at` claims — and it is the only one in that state. Pinned as a
-    # property, so the day it stops being true, or another job joins it, this fails
-    # for the right reason.
+    # ...and the SET of stale rows is not pinnable either, which orch#641 proved by
+    # landing. It added `acked_exit_codes` to every row, so every row's VALUE changed
+    # today while every `acked_at` still says 2026-07-17 — and `last_edit_dates` is
+    # value-based per key, so the stale count went from 1 to 9 in one merge.
+    #
+    # The audit is RIGHT about all nine. What it cannot see is that the edit was a
+    # SCHEMA MIGRATION rather than a re-diagnosis — which is this PR's own established
+    # limit (see `test_a_re_review_and_an_unreviewed_re_stamp_are_INDISTINGUISHABLE`),
+    # now demonstrated at ledger scale instead of on one row.
+    #
+    # And restamping the nine to today would be the WRONG repair: adding a field is not
+    # a re-review, so a fresh `acked_at` would assert a review that never happened. The
+    # stale lag is the honest state, so what is pinned here is the PROPERTY.
     stale = {j: v for j, v in lags.items() if v is not None and v > 0}
-    assert list(stale) == ["com.renquant.rq104-degradation-sentinel"], stale
-    assert stale["com.renquant.rq104-degradation-sentinel"] >= 13, (
-        "the stale stamp got FRESHER — if the ack was legitimately re-stamped this "
-        "assertion should be updated deliberately, not relaxed")
+    fresh = {j: v for j, v in lags.items() if v == 0}
+
+    assert stale, "no row is stale — the audit has nothing to detect, so it proves nothing"
+    for job, lag in stale.items():
+        assert any(job in f and "expiry clock" in f for f in R["findings"]), (job, lag)
+
+    # The one row genuinely re-stamped on 2026-07-31 must NOT read as stale, or the
+    # signal is just "the file was touched" and carries no information about a row.
+    assert list(fresh) == ["com.renquant.rq105-batch-scores-export"], fresh
+    assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
+    assert set(stale).isdisjoint(fresh)
 
 
 # ---------------- the limit of this evidence, pinned so it is not re-claimed ----

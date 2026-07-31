@@ -165,3 +165,29 @@ literal here would be one more constant nobody could re-derive.
 So it is a tripwire that fires in **three days**, not one that fires now. Stated as a
 **forecast from a measurement**, and pinned as a test rather than left as a claim.
 `[VERIFIED — 本次实测 2026-08-01]`
+
+
+---
+
+## ROUND 4 2026-07-31 — orch#641 landed and took the stale-stamp count from 1 to 9
+
+`orch#641` added `acked_exit_codes` to **every** row of the ledger. `last_edit_dates` is
+value-based per key, so every row's current value now dates from 2026-07-31 while every
+`acked_at` still says 2026-07-17 — and this audit reports **nine** stale stamps where it
+reported one `[VERIFIED — ack_ledger_audit.audit(2026-07-31)]`.
+
+**The audit is right about all nine.** What it cannot see is that the edit was a **schema
+migration, not a re-diagnosis** — which is this PR's own established limit, now
+demonstrated at ledger scale instead of on a single row.
+
+**Restamping the nine would be the wrong repair.** Adding a field is not a re-review, so
+a fresh `acked_at` would assert a review that never happened — exactly the unreviewed
+re-stamp this PR's evidence says is indistinguishable from a real one. The stale lag is
+the honest state and is left standing.
+
+So the test stops pinning WHICH rows are stale — a set that moves whenever anyone touches
+the ledger for any reason — and pins the properties instead: every stale row is reported
+with its lag; the one row genuinely re-stamped on 07-31
+(`rq105-batch-scores-export`, lag 0) is **not** reported, so the signal still carries
+information about a row rather than merely "the file was touched"; and the stale and
+fresh sets partition the ledger, so no row is silently dropped.
