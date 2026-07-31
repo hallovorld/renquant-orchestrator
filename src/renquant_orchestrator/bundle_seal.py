@@ -175,6 +175,39 @@ def _first_present_str(payload: Mapping[str, Any], keys: tuple[str, ...]) -> str
     return None
 
 
+def _wf_gate_block(panel: dict[str, Any]) -> Any:
+    """The gate block, CANONICAL key first.
+
+    The stamp's canonical location is ``metadata.wf_gate_metadata``. A legacy top-level
+    copy also exists on some artifacts and this function used to read only that one.
+
+    Measured 2026-07-31 over the 29 prod ``panel-ltr.alpha158_fund*.json`` artifacts:
+    **all 29 carry the canonical block; only 14 also carry the legacy top-level copy.**
+    The currently-deployed panel is one of the 14, so the top-level read worked -- by
+    luck. For the other **15** (the ``weekly_rollback_*`` and restamp set) this returned
+    ``None``, which sealed the bundle as ``wf_gate_verdict: "UNSTAMPED"`` and dropped
+    every override-provenance key: ``operator_authorized_override``, ``override_reason``,
+    ``override_applied_at``, ``diagnostic_only``, ``gate_verdict_before_override``,
+    ``gate_version``, ``passed``.
+
+    That matters because this function's own docstring claims it "closes the GOAL-5
+    'override provenance not in the run bundle' gap". A recorder that silently writes
+    UNSTAMPED does not close a provenance gap -- it reports the gap as closed while
+    recording nothing. A fallback that happens to land on the right key today is still
+    unreviewed.
+    """
+    meta = panel.get("metadata")
+    if isinstance(meta, dict) and "wf_gate_metadata" in meta:
+        # PRESENCE of the canonical key decides, not its truthiness. codex on #683:
+        # falling through on an EMPTY or malformed canonical block silently
+        # resurrects a legacy value, so a panel whose canonical stamp was wiped
+        # would seal with stale provenance from the legacy copy and look healthy.
+        # A present-but-empty canonical block must seal as UNSTAMPED -- that is the
+        # honest reading, and the existing contract already handles it.
+        return meta["wf_gate_metadata"]
+    return panel.get("wf_gate_metadata")
+
+
 def extract_bindings(panel_bytes: bytes, calibrator_bytes: bytes) -> dict[str, Any]:
     """Build the bundle ``bindings`` block as a VERBATIM copy of the pair's
     stamped identity/WF-gate metadata (RFC §2.7).
@@ -195,7 +228,7 @@ def extract_bindings(panel_bytes: bytes, calibrator_bytes: bytes) -> dict[str, A
         ),
     }
 
-    wf_meta = panel.get("wf_gate_metadata")
+    wf_meta = _wf_gate_block(panel)
     verdict: Any = None
     if isinstance(wf_meta, dict):
         verdict = wf_meta.get("verdict") or wf_meta.get("wf_gate_verdict")

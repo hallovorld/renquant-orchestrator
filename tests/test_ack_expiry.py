@@ -129,6 +129,11 @@ def test_the_re_dispositioned_ack_names_a_FALSIFIABLE_clearing_condition():
 # --- check_launchd_exits: expired acks go LOUD, valid ones stay INFO ---------
 
 def _wire(monkeypatch, acks, failures):
+    """`failures` are bare labels; the real formatter appends "(last exit N)" and the
+    ack check reads the code back out of it. Passing the bare label made every ack
+    read as covering no code once the exit-code check landed -- so the helper formats
+    them, which is what `parse_launchctl_failures` actually produces."""
+    failures = [f if "last exit" in f else f"{f} (last exit 1)" for f in failures]
     monkeypatch.setattr(sent, "load_acks", lambda: acks)
     monkeypatch.setattr(sent, "parse_launchctl_failures", lambda out: failures)
     monkeypatch.setattr(sent.subprocess, "run",
@@ -137,7 +142,7 @@ def _wire(monkeypatch, acks, failures):
 
 def test_an_expired_ack_stops_suppressing_and_quotes_its_own_text(monkeypatch):
     _wire(monkeypatch,
-          {"com.renquant.j": {"acked_at": "2026-07-01", "reason": "known flake",
+          {"com.renquant.j": {"acked_at": "2026-07-01", "reason": "known flake", "acked_exit_codes": [1],
                               "clears_when": "next run (2026-07-05)"}},
           ["com.renquant.j"])
     alarm, infos = sent.check_launchd_exits(today=D("2026-07-30"))
@@ -151,7 +156,7 @@ def test_a_valid_ack_still_suppresses_and_shows_its_expiry(monkeypatch):
     """Negative case: the alarm above comes from expiry, not from the ack being
     ignored altogether."""
     _wire(monkeypatch,
-          {"com.renquant.j": {"acked_at": "2026-07-29", "reason": "r",
+          {"com.renquant.j": {"acked_at": "2026-07-29", "reason": "r", "acked_exit_codes": [1],
                               "clears_when": "c"}},
           ["com.renquant.j"])
     alarm, infos = sent.check_launchd_exits(today=D("2026-07-30"))
@@ -166,10 +171,24 @@ def test_a_job_with_no_ack_is_loud_as_before(monkeypatch):
 
 
 def test_an_ack_with_no_acked_at_never_suppresses(monkeypatch):
+    """The ack carries a declared code so the EXPIRY branch is what is exercised.
+    Without one it now refuses earlier, as ACK UNUSABLE -- a different refusal for a
+    different reason, and asserting "never valid" against it would be reading the
+    right words out of the wrong branch."""
     _wire(monkeypatch,
-          {"com.renquant.j": {"reason": "no date recorded"}}, ["com.renquant.j"])
+          {"com.renquant.j": {"reason": "no date recorded", "acked_exit_codes": [1]}},
+          ["com.renquant.j"])
     alarm, _ = sent.check_launchd_exits(today=D("2026-07-30"))
     assert alarm and "never valid" in alarm
+
+
+def test_a_missing_CODE_refuses_before_the_missing_DATE_is_reached(monkeypatch):
+    """Pairs with the test above: the two refusals are distinguishable, and the
+    provenance gap is reported as itself rather than as an expiry."""
+    _wire(monkeypatch, {"com.renquant.j": {"reason": "no date recorded"}},
+          ["com.renquant.j"])
+    alarm, _ = sent.check_launchd_exits(today=D("2026-07-30"))
+    assert alarm and "ACK UNUSABLE" in alarm and "never valid" not in alarm
 
 
 def test_no_failures_means_no_alarm_and_no_ack_lookup(monkeypatch):
