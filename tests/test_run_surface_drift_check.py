@@ -171,6 +171,12 @@ class TestOutputLinesCarryTheirDate:
         monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
         monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
         monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
+        # main() has SEVEN problem producers, not five. The first version of
+        # these tests stubbed five and passed locally while failing in CI,
+        # because check_sentinel_receipt() returns a problem on a host with no
+        # receipt and none on mine — a test measuring the machine it ran on.
+        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
         monkeypatch.setattr(drift, "alert", lambda *a, **k: None)
         rc = drift.main([])
         return rc, [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
@@ -225,6 +231,8 @@ class TestOutputLinesCarryTheirDate:
         monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
         monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
         monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
+        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
         monkeypatch.setattr(drift, "alert",
                             lambda title, body, **k: seen.update(title=title, body=body))
         assert drift.main([]) == 1
