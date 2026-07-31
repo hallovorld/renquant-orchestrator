@@ -137,3 +137,70 @@ def test_the_verdict_is_RECORDED_BEFORE_the_bundle_is_written():
         "_record_bundle_contract runs after the final _write_json — the verdict "
         "would exist only in memory and the artifact on disk would look like the "
         "contract had never been checked")
+
+
+# ================ the verdict must reach DISK, not only memory ================
+# codex review of #669: `_record_bundle_contract` ran AFTER the final
+# `_write_json`, so the artifact on disk lacked `contract_validation` entirely --
+# including on failure.
+#
+# MY FIRST VERSION OF THESE TESTS WAS VACUOUS. Its helper called
+# `_record_bundle_contract` and then `_write_json` ITSELF, in the correct order,
+# so it passed with the bug present -- an "integration" test that integrated
+# nothing. Mutation-checking caught it: reverting the source order failed only the
+# source-order assertion. These now DRIVE THE REAL TASK and read what it emitted.
+
+def _drive_task(tmp_path, *, break_contract=False):
+    """Run PersistDailyRunBundleTask for real and return the file it wrote."""
+    import json
+    import types
+
+    from renquant_orchestrator.daily import PersistDailyRunBundleTask
+
+    ns = types.SimpleNamespace
+    ctx = ns(
+        run_id="2026-07-31T00:00:00Z", run_type="daily_full", dry_run=True,
+        strategy_manifest={}, strategy_config={}, data_manifest={},
+        market_snapshot={}, account_snapshot={}, resolved_serving_bundle=None,
+        g4_session_admission=None, backtest_context=None,
+        output_dir=tmp_path, stage_trace=[], run_bundle=None,
+        training_context=ns(artifact_manifest={"a": 1}),
+        inference_context=ns(decision_trace=[{"symbol": "AAPL"}], order_intents=[]),
+        execution_context=ns(submitted_orders=[{"symbol": "AAPL", "qty": 1}],
+                             audit_rows=[{"stage": "submit", "ok": True}]),
+    )
+    if break_contract:
+        # Remove the one key the contract needs, at the source: patch the task's
+        # emitted literal rather than editing the file after the fact, so the
+        # FAILURE path is what actually runs.
+        import renquant_orchestrator.daily as daily
+
+        real = daily._record_bundle_contract
+
+        def strip_then_record(bundle, c):
+            bundle.pop("source", None)
+            return real(bundle, c)
+
+        daily._record_bundle_contract = strip_then_record
+        try:
+            PersistDailyRunBundleTask().run(ctx)
+        finally:
+            daily._record_bundle_contract = real
+    else:
+        PersistDailyRunBundleTask().run(ctx)
+    return json.loads((tmp_path / "run_bundle.json").read_text(encoding="utf-8"))
+
+
+def test_the_verdict_is_on_disk_for_a_PASSING_bundle(tmp_path):
+    written = _drive_task(tmp_path)
+    assert "contract_validation" in written, sorted(written)
+    assert written["contract_validation"]["ok"] is True
+
+
+def test_the_verdict_is_on_disk_for_a_FAILING_bundle(tmp_path):
+    """The case that matters: a failure that never reaches the artifact is worse
+    than no check at all, because the file looks complete."""
+    written = _drive_task(tmp_path, break_contract=True)
+    assert "contract_validation" in written, sorted(written)
+    assert written["contract_validation"]["ok"] is False
+    assert "source" in written["contract_validation"]["error"]
