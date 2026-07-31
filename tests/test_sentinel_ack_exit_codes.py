@@ -50,11 +50,17 @@ def test_an_unreadable_exit_code_is_NOT_covered():
     assert S.ack_covers_exit({"acked_exit_codes": [1]}, "com.renquant.x") is False
 
 
-def test_an_ack_without_the_key_still_covers_everything():
-    """CONTROL. Nine of ten rows have no `acked_exit_codes`; this fix must not
-    silently re-disposition any of them."""
+def test_an_ack_without_the_key_covers_NOTHING():
+    """INVERTED 2026-07-31, and the inversion is the point.
+
+    The old default -- an undeclared ack covers every nonzero code -- was written to
+    avoid re-dispositioning the nine rows that had no key. That is the shape this
+    programme keeps finding: a check that passes because its subject is absent. All ten
+    rows now DECLARE their codes, so nothing is re-dispositioned by the flip itself; it
+    is a floor under the next ack somebody writes without one.
+    """
     for code in (1, 2, 3, 127, -9):
-        assert S.ack_covers_exit({}, f"j (last exit {code})") is True
+        assert S.ack_covers_exit({}, f"j (last exit {code})") is False
 
 
 def test_the_self_row_covers_exit_1_and_NOT_exit_3():

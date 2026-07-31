@@ -440,14 +440,24 @@ def ack_covers_exit(ack: dict, job: str) -> bool:
     crash at exit 3 was still demoted to INFO by the very row that claimed not to
     hide it -- a restriction ASSERTED in prose with nothing enforcing it.
 
-    An ack WITHOUT ``acked_exit_codes`` covers every nonzero code: that is the
-    behaviour all ten existing rows were reviewed under, and this fix does not
-    silently re-disposition any of them. An ack WITH the key covers exactly the
-    codes listed, which is what makes the self-referential row's own sentence true.
+    An ack WITHOUT ``acked_exit_codes`` used to cover every nonzero code -- the
+    behaviour the ten original rows were reviewed under. **That default is now
+    inverted**, because it is the same shape this programme keeps finding: a check
+    that passes because its subject is absent. An ack is a note about ONE diagnosed
+    failure; keyed on the job name alone, a job that starts failing a completely
+    different way stays silenced by a note that cannot be describing it.
+
+    Measured 2026-07-31 `[VERIFIED -- launchctl list]`: ``com.renquant.shadow-ab-daily``
+    is acked for an "epoch-3 frozen manifest vs 07-16/17 pin deployments" diagnosis and
+    now exits **3**. Under the old default that ack silenced the new failure.
+
+    So an ack with no ``acked_exit_codes`` is UNUSABLE and stops suppressing. All ten
+    rows declare theirs, so nothing is re-dispositioned by the flip itself -- the
+    change is a floor under the NEXT ack somebody writes without one.
     """
     codes = ack.get("acked_exit_codes")
     if codes is None:
-        return True
+        return False        # provenance gap: cannot be shown to describe this failure
     got = parse_exit_code(job)
     return got is not None and got in [int(c) for c in codes]
 
@@ -562,11 +572,23 @@ def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[
             # including the EXIT_INTERNAL=3 that was introduced precisely so a
             # crash would stop looking like an alarm. The row's text already
             # claimed "this ack now covers ONLY exit 1"; nothing implemented it.
-            loud.append(
-                f"{job} [ACK DOES NOT COVER THIS EXIT: acked only for "
-                f"{list(ack.get('acked_exit_codes', []))}; original reason: "
-                f"{ack.get('reason', '?')}]"
-            )
+            if ack.get("acked_exit_codes") is None:
+                # A provenance gap is not a pass. An ack that does not say WHICH
+                # failure it acknowledges cannot be checked against the one
+                # happening now, so it stops suppressing rather than covering
+                # everything by default.
+                loud.append(
+                    f"{job} [ACK UNUSABLE: no acked_exit_codes, so it cannot be "
+                    f"shown to describe the current failure; original reason: "
+                    f"{ack.get('reason', '?')}]"
+                )
+            else:
+                loud.append(
+                    f"{job} [ACK DOES NOT COVER THIS EXIT: job exits "
+                    f"{parse_exit_code(job)}, ack is for "
+                    f"{list(ack['acked_exit_codes'])}; the acked diagnosis cannot "
+                    f"be describing this. Original reason: {ack.get('reason', '?')}]"
+                )
             continue
         expiry, why = ack_expiry(ack, name)
         if expiry is None or expiry <= today:
