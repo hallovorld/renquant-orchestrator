@@ -1,10 +1,10 @@
-# The ack check ignored `--as-of`, and the suite time-bombed at UTC midnight   (PR pending)
+# The ack check ignored `--as-of`, and the suite time-bombed at UTC midnight   (PR #655)
 
 STATUS:    fix + 2 regression tests. One-line production change, no behaviour change
            for a run without `--as-of`.
-WHAT:      `rq104_degradation_sentinel._run()` (line 603 — the first draft of this
-           doc said `main()`; corrected) computed `today` from `--as-of` and passed it
-           to `check_traceback_in_daily_log(today)` but called `check_launchd_exits()`
+WHAT:      `rq104_degradation_sentinel._run()` (the first draft of this doc said
+           `main()`; corrected) computed `today` from `--as-of` and passed it to
+           `check_traceback_in_daily_log(today)` but called `check_launchd_exits()`
            with **no argument**, so ack expiry alone fell back to `dt.date.today()`.
 WHY/DIR:   Found while diagnosing red CI on orch#641 and orch#650 — two unrelated
            branches failing the same test, in a file neither touches.
@@ -41,9 +41,10 @@ scope:         "this is ops/renquant104/rq104_degradation_sentinel.py, PROD, a
            EXHAUSTIVENESS — is this the first of many, or the only one? The defect
            shape is statically decidable ("a caller with a clock in scope calls a
            callee that accepts one and passes nothing"), so it was enumerated by AST
-           over all of `ops/`: **1 site**, and it is this line
-           (`rq104_degradation_sentinel.py:603`, in `_run()` — NOT `main()` as the
-           first draft of this doc said). Merging this closes the SHAPE in `ops/`,
+           over all of `ops/`: **1 site**, and it is this call
+           (`rq104_degradation_sentinel.py`, in `_run()` — NOT `main()` as the
+           first draft of this doc said; line number omitted deliberately since it
+           drifts with every edit). Merging this closes the SHAPE in `ops/`,
            not merely the instance.
            [VERIFIED — AST sweep this session]
 
