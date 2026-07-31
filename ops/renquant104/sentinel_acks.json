@@ -21,6 +21,7 @@
  },
  "com.renquant.rq104-degradation-sentinel": {
   "acked_at": "2026-07-17",
+  "acked_exit_codes": [1],
   "clears_when": "any firing with zero alarms. Note this row no longer hides a crash: exit 3 is not acked here, and an absent or stale receipt is LOUD in the run-surface drift scan.",
   "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift \u2014 a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
  },
