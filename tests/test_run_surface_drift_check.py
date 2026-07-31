@@ -153,6 +153,13 @@ class TestManifestGeneration:
         "com.renquant.ops-audit",
         # model-freshness monitor — declared before this session
         "com.renquant.rq104-model-freshness",
+        # AC5 silent-refusal sentinel — arrived from main during this merge, not
+        # from this branch. main's own test says installing the plist is a separate
+        # machine landing and that until then "the drift scan reports the job
+        # missing from disk, and that alarm is the intended, tracked reminder".
+        # Named here rather than silently absorbed: the set growing is exactly what
+        # this list exists to make visible.
+        "com.renquant.rq104-silent-refusal",
     }
 
     _PENDING_PATTERN = "manifested job {label} missing from disk"
