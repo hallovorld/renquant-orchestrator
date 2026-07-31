@@ -186,6 +186,13 @@
       ],
       "program_args_sha256": "57c92a2e445b009a466522419b2997889609ccebee4846f082e4a8d8eeeda549"
     },
+    "com.renquant.rq104-silent-refusal": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/rq104_silent_refusal_sentinel.py"
+      ],
+      "program_args_sha256": "bb90cb1ca6ed56bd11ea39ad29caff20c045cfdbef486dd997d62fb112751b21"
+    },
     "com.renquant.rq105-batch-scores-export": {
       "program_args": [
         "/bin/zsh",

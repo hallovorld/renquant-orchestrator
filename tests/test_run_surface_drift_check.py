@@ -11,7 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops"))
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "ops"))
 
 import run_surface_drift_check as drift  # noqa: E402
 
@@ -151,3 +152,44 @@ class TestManifestGeneration:
             pytest.skip("not on the operator machine")
         problems = drift.check_launchd_surface()
         assert problems == [], f"committed manifest is stale: {problems[:3]}"
+
+
+# --- AC5 has a scheduled surface declared (2026-07-31) -----------------------
+def test_ac5_silent_refusal_sentinel_is_manifested():
+    """GOAL-5 AC5's sentinel is merged to main and had NO scheduled surface.
+
+    Measured 2026-07-31: absent from ops/launchd_manifest.json and from
+    `launchctl list`; run by hand for the first time it immediately found
+    weekly-retrain-patchtst dead for four weeks (3 crashes on one corpus-drift
+    error). "AC5 merged" and "AC5 deployed" were four weeks apart.
+
+    This pins the DECLARATION. Installing the plist is a separate machine
+    landing; until then the drift scan reports the job missing from disk, and
+    that alarm is the intended, tracked reminder.
+    """
+    import hashlib
+    manifest = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    label = "com.renquant.rq104-silent-refusal"
+    assert label in manifest, sorted(manifest)
+    spec = manifest[label]
+    assert spec["program_args"][-1].endswith(
+        "ops/renquant104/rq104_silent_refusal_sentinel.py"), spec
+    assert spec["program_args_sha256"] == hashlib.sha256(
+        json.dumps(spec["program_args"]).encode()).hexdigest()
+
+
+def test_the_committed_plist_matches_the_manifest_entry():
+    """A plist that disagrees with the manifest is the drift this repo exists to
+    catch — it must not ship disagreeing with itself on day one."""
+    import plistlib
+    label = "com.renquant.rq104-silent-refusal"
+    pl = plistlib.loads((REPO / "deploy" / f"{label}.plist").read_bytes())
+    manifest = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    assert pl["Label"] == label
+    assert pl["ProgramArguments"] == manifest[label]["program_args"]
+    # runs AFTER the 15:00 degradation sentinel so a day's refusals are already
+    # classified, and the two alarms never interleave
+    assert pl["StartCalendarInterval"]["Hour"] == 16
+    assert pl["StandardOutPath"].endswith("launchd_silent_refusal.out")
+    assert pl["StandardErrorPath"].endswith("launchd_silent_refusal.err")
+    assert pl["EnvironmentVariables"]["PYTHONPATH"]
