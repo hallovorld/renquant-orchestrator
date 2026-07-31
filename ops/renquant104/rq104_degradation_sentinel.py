@@ -63,6 +63,18 @@ DAILY_LOG_DIR = os.path.join(RQ, "logs/daily_104")
 #: satisfied it) while a single quiet day never pages.
 STREAK_N = 2
 
+# GOAL-1 (issue #622): an uncaught exception exits 1, which is ALSO the sentinel's
+# "alarms present" signal, so a crashed sentinel and an alarming one were the same
+# observable. Internal errors now exit EXIT_INTERNAL, and every firing writes a
+# liveness receipt that ops/run_surface_drift_check.py checks from a separate job.
+from sentinel_receipt import (  # noqa: E402
+    EXIT_ALARMS,
+    EXIT_INTERNAL,
+    EXIT_OK,
+    utcnow_iso,
+    write_receipt,
+)
+
 #: log lines that mean the run hit a swallowed failure even if it exited 0.
 _TRACEBACK_PATTERNS = ("Traceback (most recent call last)", "contract fail")
 
@@ -432,7 +444,67 @@ def load_acks(path: str | None = None) -> dict:
         return {}
 
 
-def check_launchd_exits() -> tuple[str | None, list[str]]:
+#: An ack suppresses an alarm. CLAUDE.md's CONTAINMENT PROTOCOL requires every such
+#: suppression to carry "an explicit expiry or restore condition", and says plainly
+#: that the alarm returning is **the DESIGNED reminder to lift or legitimize it**.
+#: The ledger did not implement that: `if ack:` suppressed unconditionally and
+#: `clears_when` was prose no code read. So an ack was permanent, which is the
+#: guard-that-passes-forever shape.
+#:
+#: 14 days: long enough for a fix to land through review (CODEOWNERS + the other
+#: agent's approval), short enough that a forgotten ack resurfaces inside a normal
+#: review cadence. It is a review window, not an estimate of how long a fix takes.
+ACK_MAX_AGE_DAYS = 14
+
+_ISO_DATE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+
+
+def ack_expiry(ack: dict, name: str = "") -> tuple[dt.date | None, str]:
+    """(expiry, why). The EARLIEST of every expiry signal the ack carries.
+
+    Three sources, and the earliest wins so a parsing mistake can only make an ack
+    expire **sooner** (noisy, safe) and never later (silent, not safe):
+
+    1. an explicit ``expires_at`` field — the machine-readable home the containment
+       protocol's "explicit expiry" deserves;
+    2. the earliest ISO date appearing in ``clears_when``. Several rows already embed
+       one, e.g. *"next NYSE session's 13:55 wrapper run (2026-07-20)"* — a real expiry
+       that was sitting in prose where nothing could act on it;
+    3. ``acked_at + ACK_MAX_AGE_DAYS``.
+
+    A missing or unparseable ``acked_at`` yields expiry ``None``, which the caller
+    treats as **already expired**. Absence must not buy permanent suppression — that is
+    exactly how a guard ends up passing forever.
+    """
+    candidates: list[tuple[dt.date, str]] = []
+
+    explicit = ack.get("expires_at")
+    if explicit:
+        try:
+            candidates.append((dt.date.fromisoformat(str(explicit)), "expires_at"))
+        except ValueError:
+            pass
+
+    for found in _ISO_DATE.findall(str(ack.get("clears_when") or "")):
+        try:
+            candidates.append((dt.date.fromisoformat(found),
+                               f"date in clears_when ({found})"))
+        except ValueError:
+            continue
+
+    acked_at = ack.get("acked_at")
+    try:
+        base = dt.date.fromisoformat(str(acked_at))
+        candidates.append((base + dt.timedelta(days=ACK_MAX_AGE_DAYS),
+                           f"acked_at {base.isoformat()} + {ACK_MAX_AGE_DAYS}d"))
+    except (TypeError, ValueError):
+        return (None, f"acked_at is missing or unparseable ({acked_at!r})")
+
+    expiry, why = min(candidates, key=lambda c: c[0])
+    return (expiry, why)
+
+
+def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[str]]:
     try:
         out = subprocess.run(
             ["launchctl", "list"], capture_output=True, text=True, timeout=30,
@@ -445,16 +517,31 @@ def check_launchd_exits() -> tuple[str | None, list[str]]:
     acks = load_acks()
     infos: list[str] = []
     loud: list[str] = []
+    today = today or dt.date.today()
     for job in sorted(failures):
         name = job.split(" ")[0]
         ack = acks.get(name)
-        if ack:
-            infos.append(
-                f"acked nonzero exit: {job} — {ack.get('reason', '?')} "
-                f"(clears: {ack.get('clears_when', '?')})"
+        if not ack:
+            loud.append(job)
+            continue
+        expiry, why = ack_expiry(ack, name)
+        if expiry is None or expiry <= today:
+            # EXPIRED acks stop suppressing. The alarm coming back is the designed
+            # reminder to lift or legitimize the containment, so the ack's own text
+            # is quoted here: the reader needs it to decide between fixing the job
+            # and re-acking with a fresh date, without opening the ledger.
+            age = f"expired {(today - expiry).days}d ago" if expiry else "never valid"
+            loud.append(
+                f"{job} [ACK EXPIRED: {age}, by {why}; "
+                f"original reason: {ack.get('reason', '?')}; "
+                f"clears_when: {ack.get('clears_when', '?')}]"
             )
         else:
-            loud.append(job)
+            infos.append(
+                f"acked nonzero exit: {job} — {ack.get('reason', '?')} "
+                f"(clears: {ack.get('clears_when', '?')}; "
+                f"ack expires {expiry.isoformat()} by {why})"
+            )
     alarm = ("launchd job(s) with nonzero last exit: " + ", ".join(loud)) if loud else None
     return (alarm, infos)
 
@@ -470,7 +557,7 @@ def _open_db_readonly(path: str) -> sqlite3.Connection | None:
         return None
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None, receipt: dict) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -479,10 +566,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     today = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
+    receipt["as_of"] = today.isoformat()
 
     if not is_session_day(today):
         print(f"rq104 degradation sentinel: {today.isoformat()} is not an NYSE session day — skip")
-        return 0
+        receipt["outcome"] = "not_session_day"
+        receipt["alarm_count"] = 0
+        return EXIT_OK
 
     problems: list[str] = []
 
@@ -510,12 +600,20 @@ def main(argv: list[str] | None = None) -> int:
     if err:
         problems.append(err)
 
-    err, ack_infos = check_launchd_exits()
+    # `today` is the run's pinned as-of date (line above computes it from --as-of).
+    # This call used to omit it and fall back to `dt.date.today()`, so ack EXPIRY was
+    # evaluated against the wall clock while every other check honoured --as-of. Two
+    # consequences: a re-run with --as-of for a past date judged acks by today's date,
+    # and the suite -- pinned to AS_OF 2026-07-16 -- silently aged its own fixtures out
+    # of the 14-day window, going red at UTC midnight on 2026-07-31 on every branch at
+    # once while passing in any timezone still on the 30th.
+    err, ack_infos = check_launchd_exits(today)
     if err:
         problems.append(err)
     for line in ack_infos:
         print(f"INFO: {line}")
 
+    receipt["alarm_count"] = len(problems)
     if problems:
         alert(
             f"rq104 DEGRADED: {len(problems)} issue(s) {today.isoformat()}",
@@ -523,10 +621,49 @@ def main(argv: list[str] | None = None) -> int:
             rq_root=RQ,
         )
         print("\n".join(problems))
-        return 1
+        receipt["outcome"] = "alarms"
+        return EXIT_ALARMS
 
     print(f"rq104 degradation sentinel OK {today.isoformat()}")
-    return 0
+    receipt["outcome"] = "ok"
+    return EXIT_OK
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the checks and record a receipt on EVERY path, including a crash.
+
+    An unexpected exception is the case this wrapper exists for: it used to exit 1,
+    indistinguishable from the by-design alarm exit. SystemExit (argparse --help,
+    explicit exits) and KeyboardInterrupt deliberately propagate untouched.
+    """
+    import traceback
+
+    receipt: dict = {"written_at": utcnow_iso(), "argv": list(argv) if argv else []}
+    try:
+        code = _run(argv, receipt)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        receipt.update(
+            outcome="internal_error",
+            exit_code=EXIT_INTERNAL,
+            error=f"{type(exc).__name__}: {exc}",
+            alarm_count=receipt.get("alarm_count", 0),
+        )
+        warn = write_receipt(receipt)
+        if warn:
+            print(f"WARNING: {warn}", file=sys.stderr)
+        print(
+            "rq104 degradation sentinel FAILED INTERNALLY — exit "
+            f"{EXIT_INTERNAL} (NOT the alarm signal; see the traceback above)",
+            file=sys.stderr,
+        )
+        return EXIT_INTERNAL
+    receipt["exit_code"] = code
+    warn = write_receipt(receipt)
+    if warn:
+        # A receipt that cannot be written must not change the verdict.
+        print(f"WARNING: {warn}", file=sys.stderr)
+    return code
 
 
 if __name__ == "__main__":

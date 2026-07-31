@@ -5,7 +5,7 @@ Daily after the 104 run: join the production candidate scores
 (runs.alpaca.db::candidate_scores) with the shadow classifier's recorded
 comparison table (MLflow artifact), compute the frozen blend
 z(prod)+z(clf) per date, append both arms' top-10 picks to an append-only
-ledger, and back-fill realized fwd_20d spreads from ticker_forward_returns
+ledger, and back-fill realized fwd_60d spreads from ticker_forward_returns
 once rows mature. Alarms (non-zero exit → launchd surfaces) when a live
 run exists but the shadow leg is missing — the GOAL-1 AC3 silent-feed
 guard the #213 design requires.
@@ -29,7 +29,13 @@ import pandas as pd
 
 TOP_N = 10
 SHADOW_NAME = "topdecile_clf_blend_leg"
-MATURITY_TDAYS = 21          # fwd_20d + 1 session settle
+MATURITY_TDAYS = 61          # fwd_60d + 1 session settle (was 21 for
+                             # fwd_20d; changed with the horizon 2026-07-29 —
+                             # leaving it at 21 would have marked rows mature
+                             # 40 sessions before their label can exist).
+                             # ACTIVE GATE: enforced by `_aged_dates()` below,
+                             # not by `fwd_60d IS NOT NULL` alone — see that
+                             # function's docstring (Codex BLOCKER, PR #598).
 MIN_FULL_RUN_CANDIDATES = 80  # matches scripts/kpi_scorecard.py / poc_transfer_coefficient.py
 
 
@@ -85,6 +91,42 @@ def prod_scores(db: sqlite3.Connection, run_id: str) -> pd.Series:
     return df.set_index("ticker")["panel_score"]
 
 
+def log_skip(path: Path, why: str) -> None:
+    """Say WHY a candidate table was refused. The prior code skipped silently,
+    so an operator could not tell 'no shadow ran' from 'we could not tell which
+    shadow ran'."""
+    print(f"  skip {path.parent.name}/{path.name}: {why}")
+
+
+def _resolve_shadow_name(df: pd.DataFrame, path: Path) -> str | None:
+    """Which shadow produced this table? None means UNKNOWABLE, never 'fine'.
+
+    Two sources, in order of authority:
+      1. a ``shadow_name`` column in the payload (present on newer writers);
+      2. the MLflow run tag ``<run_dir>/tags/shadow_name`` — the run directory is
+         found by walking up from the artifact until a ``tags`` directory exists,
+         because comparison.json sits under ``<run>/artifacts/...`` at a depth
+         this function should not hardcode.
+
+    Returning None is the fail-closed signal. A caller must NOT treat an
+    unresolved identity as a match.
+    """
+    if "shadow_name" in df.columns and len(df):
+        value = df["shadow_name"].iloc[0]
+        if pd.notna(value) and str(value).strip():
+            return str(value).strip()
+    for parent in list(path.parents)[:6]:
+        tag = parent / "tags" / "shadow_name"
+        try:
+            if tag.is_file():
+                text = tag.read_text(encoding="utf-8").strip()
+                if text:
+                    return text
+        except OSError:
+            continue
+    return None
+
+
 def shadow_scores_for(run_date: str, mlruns: Path) -> pd.Series | None:
     """Find the shadow comparison table logged for `run_date` and return the
     clf scores. v1 locator: newest comparison.json whose payload row-set
@@ -105,8 +147,33 @@ def shadow_scores_for(run_date: str, mlruns: Path) -> pd.Series | None:
             mdate = date.fromtimestamp(p.stat().st_mtime).isoformat()
             if mdate != run_date:
                 continue
-        if "shadow_name" in df.columns and \
-                df["shadow_name"].iloc[0] != SHADOW_NAME:
+        # Identity must be ESTABLISHED, not merely un-contradicted.
+        #
+        # This read `if "shadow_name" in df.columns and df[...] != SHADOW_NAME:
+        # continue` — so a table with NO shadow_name column fell through and was
+        # accepted as the clf's. Measured 2026-07-30: 0 of the 40 newest
+        # comparison.json files carry a `shadow_name` (or `run_date`) column, so
+        # the only model-identity check in this path NEVER EXECUTED.
+        #
+        # That is not a theoretical exposure. Three shadows write `shadow_score`
+        # tables: on 2026-07-28 the two newest of the day were
+        # `xgb_alpha158_fund_previous_primary`, not the clf; and on 2026-07-29 the
+        # clf and PatchTST tables were logged 25.7 MILLISECONDS apart with
+        # identical 78-row shapes, so the mtime fallback above cannot possibly
+        # discriminate between them. Identity resolution is the only discriminator
+        # there is. And because `append_ledger` is idempotent per run_date, a
+        # mis-attribution is written once and never corrected — permanently and
+        # silently wrong.
+        #
+        # Identity IS available: MLflow records it as the run tag
+        # `<run_dir>/tags/shadow_name`, which this function never read.
+        name = _resolve_shadow_name(df, p)
+        if name is None:
+            log_skip(p, "identity unresolved (no shadow_name column and no "
+                        "MLflow tags/shadow_name) — refusing to attribute")
+            continue
+        if name != SHADOW_NAME:
+            log_skip(p, f"shadow_name={name!r} != {SHADOW_NAME!r}")
             continue
         return df.set_index("ticker")["shadow_score"].astype(float)
     return None
@@ -124,19 +191,64 @@ def append_ledger(ledger: Path, row: dict) -> bool:
     return True
 
 
+def _aged_dates(db: sqlite3.Connection, min_tdays: int) -> set[str]:
+    """Trading dates whose full ``min_tdays``-session forward label has elapsed.
+
+    ``ticker_forward_returns.fwd_60d IS NOT NULL`` on a row does NOT by itself
+    prove the date is aged: the same table can carry a row written before its
+    full horizon elapsed (see ``scripts/research_panel_exit_predictiveness.py``'s
+    "TRADING-SESSION AGING" note — Codex r2 #2 finding — on this exact table).
+    We age against the table's own distinct ``as_of_date`` session calendar
+    instead, same technique as that script's ``_session_calendar``/
+    ``_aged_cutoff``: a date is aged iff at least ``min_tdays`` LATER sessions
+    are already present in the calendar.
+    """
+    sessions = pd.read_sql_query(
+        "SELECT DISTINCT as_of_date FROM ticker_forward_returns "
+        "ORDER BY as_of_date", db,
+    )["as_of_date"].astype(str).str[:10].tolist()
+    if len(sessions) <= min_tdays:
+        return set()
+    return set(sessions[: len(sessions) - min_tdays])
+
+
 def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
-    """Fill realized fwd_20d spreads for rows old enough, in place."""
+    """Fill realized fwd_60d spreads for rows old enough, in place.
+
+    HORIZON: fwd_60d, changed from fwd_20d on 2026-07-29, quoted as an
+    operator decision but not independently checkable from this repo (see
+    doc/progress/2026-07-29-blend-readout-horizon.md's `best-known?` field).
+    The certified effect (+0.0687, CI lower +0.0156) and BOTH scored models are
+    fwd_60d recipes; a 20-day spread measures a different quantity, so the
+    120-session forward ledger would have answered a question the certification
+    never asked. GOAL-6 Stage 0 separately measured that the shorter horizon
+    buys no statistical power either (H2 NOT SUPPORTED: ~3x the independent
+    blocks, proportionately smaller effect, flat ratio) — so there was not even
+    a speed argument for keeping it.
+
+    Cost, stated: a session now matures after 60 trading days instead of 20,
+    so realized rows arrive ~40 trading days later than they would have.
+
+    MATURITY GATE (Codex BLOCKER, PR #598): a row only realizes once its
+    ``run_date`` is in ``_aged_dates(db, MATURITY_TDAYS)`` — i.e. at least
+    ``MATURITY_TDAYS`` later trading sessions already exist in
+    ``ticker_forward_returns``. This is enforced IN ADDITION to (not instead
+    of) the existing all-picks-resolvable check, so a prematurely-written
+    ``fwd_60d`` value cannot realize a session before its label window has
+    actually elapsed.
+    """
     if not ledger.exists():
         return 0
     rows = [json.loads(x) for x in ledger.read_text().splitlines() if x]
     try:
         fwd = pd.read_sql_query(
-            "SELECT ticker, as_of_date, fwd_20d FROM ticker_forward_returns "
-            "WHERE fwd_20d IS NOT NULL", db)
+            "SELECT ticker, as_of_date, fwd_60d FROM ticker_forward_returns "
+            "WHERE fwd_60d IS NOT NULL", db)
     except Exception:
         return 0
     fwd["as_of_date"] = fwd["as_of_date"].astype(str).str[:10]
-    fmap = {(r.ticker, r.as_of_date): r.fwd_20d for r in fwd.itertuples(index=False)}
+    fmap = {(r.ticker, r.as_of_date): r.fwd_60d for r in fwd.itertuples(index=False)}
+    aged = _aged_dates(db, MATURITY_TDAYS)
     filled = 0
     for row in rows:
         if row.get("realized"):
@@ -157,7 +269,8 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
         row["n_resolvable_blend"] = sum(v is not None for v in rb)
         row["n_picks_prod"] = len(rp)
         row["n_picks_blend"] = len(rb)
-        if all(v is not None for v in rp + rb):
+        row["aged"] = d in aged
+        if row["aged"] and all(v is not None for v in rp + rb):
             row["spread_prod"] = float(np.mean(rp))
             row["spread_blend"] = float(np.mean(rb))
             row["realized"] = True

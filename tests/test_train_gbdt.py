@@ -212,6 +212,100 @@ class TestSeq:
 
 
 # ---------------------------------------------------------------------------
+# last_label_complete_date / StampTrainingContractTask
+# ---------------------------------------------------------------------------
+
+def _panel(dates, label_values, label="fwd_60d_excess"):
+    return pd.DataFrame({
+        "date": pd.to_datetime(list(dates)),
+        "ticker": ["T"] * len(list(dates)),
+        label: list(label_values),
+    })
+
+
+class TestLastLabelCompleteDate:
+    def test_ignores_rows_whose_label_is_null(self):
+        train = _panel(["2024-01-02", "2024-01-03", "2024-01-04"], [0.1, 0.2, None])
+        assert mod.last_label_complete_date(train, "fwd_60d_excess") == pd.Timestamp("2024-01-03")
+
+    def test_all_null_label_returns_none(self):
+        train = _panel(["2024-01-02", "2024-01-03"], [None, None])
+        assert mod.last_label_complete_date(train, "fwd_60d_excess") is None
+
+    def test_missing_label_column_returns_none(self):
+        train = _panel(["2024-01-02"], [0.1])
+        assert mod.last_label_complete_date(train, "fwd_20d_excess") is None
+
+    def test_no_frame_returns_none(self):
+        assert mod.last_label_complete_date(None, "fwd_60d_excess") is None
+
+
+class TestStampTrainingContractTask:
+    LABEL = "fwd_60d_excess"
+
+    def _ctx(self, train, **kwargs):
+        return mod.GbdtTrainingContext(
+            label=self.LABEL, train=train, lookahead_days=60,
+            data_dir="/data/dir", **kwargs)
+
+    def test_stamps_derived_cutoff_when_no_train_cutoff(self):
+        ctx = self._ctx(_panel(["2024-01-02", "2024-03-01", "2024-02-01"], [0.1, 0.2, 0.3]))
+        assert mod.StampTrainingContractTask().run(ctx) is True
+
+        fields = ctx.extra_artifact_fields
+        assert fields["effective_train_cutoff_date"] == "2024-03-01"
+        contract = fields["metadata"]["training_contract"]
+        assert contract["effective_train_cutoff_source"] == "derived_last_label_complete_date"
+        assert contract["last_label_complete_date"] == "2024-03-01"
+        assert contract["label_col"] == self.LABEL
+        assert contract["lookahead_days"] == 60
+        assert contract["n_rows"] == 3
+        assert contract["dataset"].endswith("alpha158_291_fundamental_dataset.parquet")
+
+    def test_all_null_label_stamps_nothing_and_does_not_raise(self):
+        ctx = self._ctx(_panel(["2024-01-02", "2024-01-03"], [None, None]))
+        assert mod.StampTrainingContractTask().run(ctx) is True
+        assert ctx.extra_artifact_fields == {}
+
+    def test_missing_label_column_stamps_nothing(self):
+        ctx = mod.GbdtTrainingContext(
+            label="absent_label", train=_panel(["2024-01-02"], [0.1]),
+            lookahead_days=60, data_dir="/data/dir")
+        assert mod.StampTrainingContractTask().run(ctx) is True
+        assert ctx.extra_artifact_fields == {}
+
+    def test_keeps_the_fold_cutoff_and_records_both(self):
+        """A fold's (cutoff - embargo) stamp is authoritative; ours is recorded."""
+        ctx = self._ctx(_panel(["2024-01-02", "2024-01-31"], [0.1, 0.2]),
+                        cutoff_date=pd.Timestamp("2024-04-25"))
+        ctx.extra_artifact_fields["effective_train_cutoff_date"] = "2024-02-01T00:00:00"
+        assert mod.StampTrainingContractTask().run(ctx) is True
+
+        fields = ctx.extra_artifact_fields
+        assert fields["effective_train_cutoff_date"] == "2024-02-01T00:00:00"
+        contract = fields["metadata"]["training_contract"]
+        assert contract["effective_train_cutoff_source"] == "train_cutoff_minus_embargo"
+        assert contract["effective_train_cutoff_date"] == "2024-02-01T00:00:00"
+        assert contract["last_label_complete_date"] == "2024-01-31"
+        assert contract["train_cutoff_date"] == "2024-04-25"
+
+    def test_raises_when_the_data_contradicts_the_declared_cutoff(self):
+        ctx = self._ctx(_panel(["2024-01-02", "2024-03-15"], [0.1, 0.2]),
+                        cutoff_date=pd.Timestamp("2024-04-25"))
+        ctx.extra_artifact_fields["effective_train_cutoff_date"] = "2024-02-01T00:00:00"
+        with pytest.raises(ValueError, match="training-contract disagreement"):
+            mod.StampTrainingContractTask().run(ctx)
+
+    def test_does_not_mutate_the_training_frame(self):
+        train = _panel(["2024-01-02", "2024-01-03"], [0.1, None])
+        before = train.copy()
+        ctx = self._ctx(train)
+        mod.StampTrainingContractTask().run(ctx)
+        pd.testing.assert_frame_equal(train, before)
+        assert ctx.train is train
+
+
+# ---------------------------------------------------------------------------
 # _SENTIMENT_FEATURES constant
 # ---------------------------------------------------------------------------
 
@@ -248,7 +342,7 @@ class TestMainValidation:
         monkeypatch.setattr(mod, "DEFAULT_DATA_DIR", tmp_path)
         out = tmp_path / "walkforward" / "model.json"
 
-        # Patch build_training_pipeline to avoid real training.
+        # Patch the Pipeline seam to avoid real training.
         fake_result = MagicMock()
         fake_result.ok = True
         fake_result.name = "fake"
@@ -257,7 +351,7 @@ class TestMainValidation:
         fake_pipeline = MagicMock()
         fake_pipeline.run.return_value = fake_result
 
-        monkeypatch.setattr(mod, "build_training_pipeline", lambda: fake_pipeline)
+        monkeypatch.setattr(mod, "Pipeline", lambda jobs, **kwargs: fake_pipeline)
         monkeypatch.setattr(mod, "_production_fingerprint", lambda p: (None, None))
         monkeypatch.setattr(mod, "_record_and_refresh", lambda *a, **kw: None)
 
@@ -305,55 +399,59 @@ class TestMainPipelineAssembly:
         result.steps = []
         return result
 
-    def test_skip_sentiment_gate_uses_model_pipeline(self, monkeypatch, _patch_env, tmp_path):
-        captured = {}
+    def _patch_pipeline(self, monkeypatch, captured_ctx=None, captured_jobs=None):
+        """Patch the Pipeline seam main() now uses for BOTH gate variants.
 
-        def fake_build():
+        Both variants are assembled in main() (so the training-contract stamp
+        cannot be missing from one of them), so ``Pipeline`` — not the model
+        repo's ``build_training_pipeline`` — is the single seam.
+        """
+        def fake_pipeline(jobs, **kwargs):
+            if captured_jobs is not None:
+                captured_jobs.append(jobs)
             p = MagicMock()
-            p.run.side_effect = self._fake_pipeline_run
-            captured["pipeline"] = p
+
+            def run_fn(ctx):
+                if captured_ctx is not None:
+                    captured_ctx.append(ctx)
+                return self._fake_pipeline_run(ctx)
+
+            p.run.side_effect = run_fn
             return p
 
-        monkeypatch.setattr(mod, "build_training_pipeline", fake_build)
+        monkeypatch.setattr(mod, "Pipeline", fake_pipeline)
+
+    def test_skip_sentiment_gate_pipeline_structure(self, monkeypatch, _patch_env, tmp_path):
+        """--skip-sentiment-gate: no SentimentGateTask, stamp task still present."""
+        jobs_created = []
+        self._patch_pipeline(monkeypatch, captured_jobs=jobs_created)
 
         rc = mod.main([
             "--skip-sentiment-gate",
             "--strategy-config", "none",
         ])
         assert rc == 0
-        assert "pipeline" in captured
-        captured["pipeline"].run.assert_called_once()
+        assert len(jobs_created) == 1
+        jobs = jobs_created[0]
+        assert [type(t).__name__ for t in jobs[0].tasks] == [
+            "LoadPanelTask", "BuildNormalizationTask", "StampTrainingContractTask"]
+        assert [type(j).__name__ for j in jobs[1:]] == [
+            "ModelTrainingJob", "ArtifactContractJob"]
 
     def test_drop_sentiment_implies_skip_gate(self, monkeypatch, _patch_env, tmp_path):
         captured_ctx = []
-
-        def fake_build():
-            p = MagicMock()
-            def run_fn(ctx):
-                captured_ctx.append(ctx)
-                return self._fake_pipeline_run(ctx)
-            p.run.side_effect = run_fn
-            return p
-
-        monkeypatch.setattr(mod, "build_training_pipeline", fake_build)
+        jobs_created = []
+        self._patch_pipeline(monkeypatch, captured_ctx, jobs_created)
 
         rc = mod.main(["--drop-sentiment", "--strategy-config", "none"])
+        assert "SentimentGateTask" not in [type(t).__name__ for t in jobs_created[0][0].tasks]
         assert rc == 0
         assert len(captured_ctx) == 1
         assert captured_ctx[0].exclude_features == list(mod._SENTIMENT_FEATURES)
 
     def test_exclude_features_combined_with_drop_sentiment(self, monkeypatch, _patch_env, tmp_path):
         captured_ctx = []
-
-        def fake_build():
-            p = MagicMock()
-            def run_fn(ctx):
-                captured_ctx.append(ctx)
-                return self._fake_pipeline_run(ctx)
-            p.run.side_effect = run_fn
-            return p
-
-        monkeypatch.setattr(mod, "build_training_pipeline", fake_build)
+        self._patch_pipeline(monkeypatch, captured_ctx)
 
         rc = mod.main([
             "--drop-sentiment",
@@ -366,16 +464,7 @@ class TestMainPipelineAssembly:
 
     def test_nthread_sets_params(self, monkeypatch, _patch_env, tmp_path):
         captured_ctx = []
-
-        def fake_build():
-            p = MagicMock()
-            def run_fn(ctx):
-                captured_ctx.append(ctx)
-                return self._fake_pipeline_run(ctx)
-            p.run.side_effect = run_fn
-            return p
-
-        monkeypatch.setattr(mod, "build_training_pipeline", fake_build)
+        self._patch_pipeline(monkeypatch, captured_ctx)
 
         rc = mod.main([
             "--nthread", "8",
@@ -387,16 +476,7 @@ class TestMainPipelineAssembly:
 
     def test_strategy_config_none_skips_fingerprint(self, monkeypatch, _patch_env, tmp_path):
         captured_ctx = []
-
-        def fake_build():
-            p = MagicMock()
-            def run_fn(ctx):
-                captured_ctx.append(ctx)
-                return self._fake_pipeline_run(ctx)
-            p.run.side_effect = run_fn
-            return p
-
-        monkeypatch.setattr(mod, "build_training_pipeline", fake_build)
+        self._patch_pipeline(monkeypatch, captured_ctx)
         # Override to verify _production_fingerprint is NOT called.
         fp_called = []
         monkeypatch.setattr(mod, "_production_fingerprint", lambda p: fp_called.append(1) or ("x", {}))
@@ -408,16 +488,7 @@ class TestMainPipelineAssembly:
 
     def test_custom_label_and_rounds(self, monkeypatch, _patch_env, tmp_path):
         captured_ctx = []
-
-        def fake_build():
-            p = MagicMock()
-            def run_fn(ctx):
-                captured_ctx.append(ctx)
-                return self._fake_pipeline_run(ctx)
-            p.run.side_effect = run_fn
-            return p
-
-        monkeypatch.setattr(mod, "build_training_pipeline", fake_build)
+        self._patch_pipeline(monkeypatch, captured_ctx)
 
         rc = mod.main([
             "--label", "fwd_20d",
@@ -431,16 +502,10 @@ class TestMainPipelineAssembly:
 
     def test_sentiment_gate_pipeline_structure(self, monkeypatch, _patch_env, tmp_path):
         """When NOT skipping the sentiment gate, main() builds a Pipeline with
-        _Seq(LoadPanel, SentimentGate, BuildNorm) + ModelTraining + ArtifactContract."""
+        _Seq(LoadPanel, SentimentGate, BuildNorm, StampTrainingContract) +
+        ModelTraining + ArtifactContract."""
         pipelines_created = []
-
-        def capture_pipeline(jobs, **kwargs):
-            p = MagicMock()
-            p.run.side_effect = self._fake_pipeline_run
-            pipelines_created.append(jobs)
-            return p
-
-        monkeypatch.setattr(mod, "Pipeline", capture_pipeline)
+        self._patch_pipeline(monkeypatch, captured_jobs=pipelines_created)
 
         # NOT passing --skip-sentiment-gate, so the sentiment gate pipeline is built.
         rc = mod.main(["--strategy-config", "none"])
@@ -448,10 +513,11 @@ class TestMainPipelineAssembly:
         assert len(pipelines_created) == 1
         jobs = pipelines_created[0]
         assert len(jobs) == 3
-        # First job is _Seq with 3 tasks.
+        # First job is _Seq with 4 tasks.
         assert isinstance(jobs[0], mod._Seq)
         task_types = [type(t).__name__ for t in jobs[0].tasks]
-        assert task_types == ["LoadPanelTask", "SentimentGateTask", "BuildNormalizationTask"]
+        assert task_types == ["LoadPanelTask", "SentimentGateTask",
+                              "BuildNormalizationTask", "StampTrainingContractTask"]
         assert type(jobs[1]).__name__ == "ModelTrainingJob"
         assert type(jobs[2]).__name__ == "ArtifactContractJob"
 
@@ -650,7 +716,7 @@ class TestMainEndToEnd:
 
         fake_pipeline = MagicMock()
         fake_pipeline.run.side_effect = fake_run
-        monkeypatch.setattr(mod, "build_training_pipeline", lambda: fake_pipeline)
+        monkeypatch.setattr(mod, "Pipeline", lambda jobs, **kwargs: fake_pipeline)
 
         rc = mod.main(["--skip-sentiment-gate", "--strategy-config", "none"])
         assert rc == 0
@@ -676,7 +742,7 @@ class TestMainEndToEnd:
 
         fake_pipeline = MagicMock()
         fake_pipeline.run.side_effect = fake_run
-        monkeypatch.setattr(mod, "build_training_pipeline", lambda: fake_pipeline)
+        monkeypatch.setattr(mod, "Pipeline", lambda jobs, **kwargs: fake_pipeline)
 
         rc = mod.main([
             "--data-dir", str(data_dir),
@@ -708,7 +774,7 @@ class TestMainEndToEnd:
 
         fake_pipeline = MagicMock()
         fake_pipeline.run.side_effect = fake_run
-        monkeypatch.setattr(mod, "build_training_pipeline", lambda: fake_pipeline)
+        monkeypatch.setattr(mod, "Pipeline", lambda jobs, **kwargs: fake_pipeline)
 
         rc = mod.main(["--skip-sentiment-gate", "--strategy-config", "none"])
         assert rc == 0
@@ -738,7 +804,7 @@ class TestMainEndToEnd:
 
         fake_pipeline = MagicMock()
         fake_pipeline.run.side_effect = fake_run
-        monkeypatch.setattr(mod, "build_training_pipeline", lambda: fake_pipeline)
+        monkeypatch.setattr(mod, "Pipeline", lambda jobs, **kwargs: fake_pipeline)
 
         rc = mod.main([
             "--exclude-features", "x1, x2",

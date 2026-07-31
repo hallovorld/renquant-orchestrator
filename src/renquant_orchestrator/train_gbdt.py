@@ -13,6 +13,11 @@ content fingerprint rather than the umbrella's strategy-config fingerprint, and 
 umbrella's per-regime sentiment training gate (which needs the HMM regime detector)
 is not applied here — it can be lifted + injected as a Task later.
 
+Every artifact also carries ``effective_train_cutoff_date`` — the last date whose
+label was actually observable in the training slice — because the walk-forward gate
+refuses to evaluate a static artifact without it (``trained_date`` is wall clock and
+cannot prove OOS label separation). See ``StampTrainingContractTask``.
+
 Usage:
     python src/renquant_orchestrator/train_gbdt.py
     python src/renquant_orchestrator/train_gbdt.py --train-cutoff 2024-06-01 --side-label wf
@@ -98,8 +103,9 @@ _bootstrap()
 from renquant_common import Job, Pipeline, Task  # noqa: E402
 from renquant_model_gbdt import (  # noqa: E402
     ArtifactContractJob, BuildNormalizationTask, GbdtTrainingContext,
-    LoadPanelTask, ModelTrainingJob, build_training_pipeline,
+    LoadPanelTask, ModelTrainingJob,
 )
+from renquant_model_gbdt.panel_data import PANEL_FILE  # noqa: E402
 from renquant_model_gbdt.panel_trainer import (  # noqa: E402
     DEFAULT_LABEL, DEFAULT_N_ROUNDS, PANEL_LTR_PARAMS,
 )
@@ -139,6 +145,126 @@ class SentimentGateTask(Task):
             log.info("Sentiment gate: zeroed %d rows in regimes %s",
                      contract.get("sentiment_runtime_gate_zeroed_rows"),
                      contract.get("sentiment_runtime_gate_disabled_regimes"))
+        return True
+
+
+# The one field the walk-forward gate reads to decide whether a static artifact
+# can be evaluated at all (``wf_gate/runner.py::_effective_artifact_cutoff``).
+CUTOFF_FIELD = "effective_train_cutoff_date"
+
+
+def last_label_complete_date(train, label: str | None):
+    """Last date whose label was actually OBSERVABLE in the training slice.
+
+    ``max(date)`` over the rows whose ``label`` column is non-null — a property
+    of the DATA, never of the wall clock. That distinction is the whole point:
+    the WF gate refuses ``trained_date`` because "trained_date is wall-clock
+    metadata and cannot prove OOS label separation".
+
+    Returns ``None`` — never raises — when the slice carries no label-complete
+    row. An unusable panel must leave the field UNSTAMPED (the gate then keeps
+    refusing, which is the correct refusal) rather than crash the trainer or
+    stamp a fabricated date.
+    """
+    if train is None or not label:
+        return None
+    columns = getattr(train, "columns", [])
+    if label not in columns or "date" not in columns:
+        return None
+    dates = train.loc[train[label].notna(), "date"]
+    if len(dates) == 0:
+        return None
+    value = pd.Timestamp(dates.max())
+    return None if pd.isna(value) else value
+
+
+def _dataset_identity(ctx: GbdtTrainingContext) -> str | None:
+    """The panel file the training slice was read from, or None when injected."""
+    return str(Path(ctx.data_dir) / PANEL_FILE) if ctx.data_dir else None
+
+
+class StampTrainingContractTask(Task):
+    """Stamp the data-derived training cutoff the walk-forward gate requires.
+
+    The gate refuses to statically evaluate a candidate whose
+    ``_effective_artifact_cutoff`` returns ``None``
+    (``renquant-backtesting/src/renquant_backtesting/wf_gate/runner.py:1915``,
+    consumed at :1939 / :1975): *"static sanity missing effective training
+    cutoff; trained_date is wall-clock metadata and cannot prove OOS label
+    separation"*. That refusal is CORRECT. The gap is upstream: ``cutoff_date``
+    is non-None only when ``--train-cutoff`` is passed (and that flag requires
+    ``--side-label``), so a walk-forward FOLD run gets a cutoff stamped by
+    ``renquant_model_gbdt.panel_data.LoadPanelTask`` while the full-panel
+    production retrain stamped no cutoff at all — leaving the only scope that
+    could evaluate a universe or data change unreachable.
+
+    Two fields are written, and the choice of WHERE is forced by the
+    fingerprint contract, not by taste:
+
+    * ``effective_train_cutoff_date`` (top level) — the gate reads it off the
+      payload root, and of that function's six aliases it is the ONLY one
+      classified in ``renquant_common.model_fingerprint``
+      (``OPERATIONAL_KEYS``), so stamping it leaves the v1 model-content hash
+      byte-identical. It is the same field name the fold path already stamps.
+    * ``metadata.training_contract`` — the provenance record. A TOP-LEVEL
+      ``training_contract`` key is UNCLASSIFIED in that table (it reaches the
+      gate only via PatchTST sidecars, which never pass through the v1
+      classifier), so stamping it at the root makes the payload unstampable:
+      ``model_content_sha256`` raises ``UnclassifiedKeyError``, which hard-fails
+      this trainer's own content-fingerprint path (``--strategy-config none``).
+      ``metadata`` is already classified OPERATIONAL (and denylisted in the
+      legacy 0.8.1 hash), so nesting the record there is hash-neutral in both
+      implementations. Promoting it to the root is a renquant-common
+      classification change owned by the model repo — deliberately not smuggled
+      in here.
+
+    Behaviour-preserving by construction: it reads ``ctx.train`` and writes only
+    artifact metadata. No params, folds, features or normalization are touched.
+    """
+
+    def run(self, ctx: GbdtTrainingContext) -> bool | None:
+        last = last_label_complete_date(ctx.train, ctx.label)
+        if last is None:
+            log.warning(
+                "Training contract: no label-complete row for label=%r — leaving %s "
+                "unstamped; the WF gate will keep refusing this artifact (correctly)",
+                ctx.label, CUTOFF_FIELD)
+            return True
+        derived = last.date().isoformat()
+        declared = ctx.extra_artifact_fields.get(CUTOFF_FIELD)
+        contract = {
+            "dataset": _dataset_identity(ctx),
+            "label_col": ctx.label,
+            "lookahead_days": int(ctx.lookahead_days),
+            "n_rows": int(ctx.train[ctx.label].notna().sum()),
+            "last_label_complete_date": derived,
+            "derivation": "max(date) over training rows with a non-null label column",
+        }
+        if declared is None:
+            # Full-panel production retrain: no --train-cutoff exists to thread,
+            # so the panel itself is the only honest source of the cutoff.
+            ctx.extra_artifact_fields[CUTOFF_FIELD] = derived
+            contract[CUTOFF_FIELD] = derived
+            contract["effective_train_cutoff_source"] = "derived_last_label_complete_date"
+        else:
+            # Walk-forward fold: LoadPanelTask already stamped (cutoff - embargo).
+            # Keep ITS value (the fold contract the manifest/loader is bound to)
+            # and record both, so the two can never disagree silently.
+            if pd.Timestamp(str(declared)).normalize() < last.normalize():
+                raise ValueError(
+                    f"training-contract disagreement: the panel's last label-complete "
+                    f"date ({derived}) is AFTER the declared {CUTOFF_FIELD} "
+                    f"({declared}) — the slice carries labels past its own cutoff. "
+                    f"Refusing to stamp a cutoff the training data contradicts.")
+            contract[CUTOFF_FIELD] = str(declared)
+            contract["effective_train_cutoff_source"] = "train_cutoff_minus_embargo"
+            contract["train_cutoff_date"] = (
+                pd.Timestamp(ctx.cutoff_date).date().isoformat()
+                if ctx.cutoff_date is not None else None)
+        ctx.extra_artifact_fields.setdefault("metadata", {})["training_contract"] = contract
+        log.info("Training contract: %s=%s (source=%s, %d label-complete rows)",
+                 CUTOFF_FIELD, contract[CUTOFF_FIELD],
+                 contract["effective_train_cutoff_source"], contract["n_rows"])
         return True
 
 
@@ -230,14 +356,20 @@ def main(argv: list[str] | None = None) -> int:
     # Assemble the pipeline: model's data + model + contract Jobs, with the
     # production sentiment gate inserted between panel load and normalization
     # (zeroing must precede normalization, matching the production trainer).
-    if skip_gate:
-        pipeline = build_training_pipeline()
-    else:
-        pipeline = Pipeline([
-            _Seq([LoadPanelTask(), SentimentGateTask(), BuildNormalizationTask()]),
-            ModelTrainingJob(),
-            ArtifactContractJob(),
-        ], name="panel-gbdt-training")
+    #
+    # StampTrainingContractTask closes the data-prep sequence in BOTH variants:
+    # it needs the loaded slice, and stamping LAST keeps the artifact's
+    # extra-field insertion order (cutoff → side_label → sentiment → contract)
+    # byte-identical up to the appended metadata. Both variants are assembled
+    # here rather than via the model repo's ``build_training_pipeline()`` so the
+    # stamp cannot be silently missing from one path.
+    data_prep = [LoadPanelTask(), BuildNormalizationTask()] if skip_gate else [
+        LoadPanelTask(), SentimentGateTask(), BuildNormalizationTask()]
+    pipeline = Pipeline([
+        _Seq([*data_prep, StampTrainingContractTask()]),
+        ModelTrainingJob(),
+        ArtifactContractJob(),
+    ], name="panel-gbdt-training")
     result = pipeline.run(ctx)
     log.info("Pipeline %s ok=%s elapsed=%.1fs steps=%s", result.name, result.ok,
              result.elapsed_sec, [s.job_name for s in result.steps])

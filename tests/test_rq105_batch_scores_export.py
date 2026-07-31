@@ -900,3 +900,30 @@ def test_blend_bundle_verifies_on_replay_side(tmp_path):
         today="2026-07-02",
     )
     assert ok, reason
+
+
+def test_the_scheduled_entry_point_is_the_wrapper_not_the_module():
+    """The 'deployed but dark' bug this pins, measured 2026-07-29.
+
+    `RQ105_SCORE_SOURCE` defaults to blend in `run_batch_scores_export.sh` and
+    to prod in the module. The launchd job invoked the MODULE directly, so the
+    blend switch never reached the only path that matters: the first serving
+    vector after it shipped exported `score_source: prod` with an empty
+    `blend_component_sha256s`, a full day later.
+
+    The default deliberately stays in the wrapper — the module is a library and
+    an explicit caller should get an explicit source. What must not drift is
+    WHICH entry point the scheduler uses.
+    """
+    import json
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    jobs = json.loads((root / "ops/launchd_manifest.json").read_text())["jobs"]
+    args = jobs["com.renquant.rq105-batch-scores-export"]["program_args"]
+    assert any(a.endswith("run_batch_scores_export.sh") for a in args), (
+        f"the scheduled export must go through the wrapper that carries the "
+        f"operational defaults; got {args}"
+    )
+    assert not any(a.endswith("export_batch_scores.py") for a in args), (
+        "invoking the module directly bypasses RQ105_SCORE_SOURCE=blend"
+    )

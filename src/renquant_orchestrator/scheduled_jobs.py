@@ -279,7 +279,7 @@ def _build_jobs() -> tuple[ScheduledJob, ...]:
                 "readonly-alpaca",
                 "--once",
                 "--bridge-bundle-output",
-                "/tmp/renquant-daily-bridge-bundle.json",
+                f"{root}/logs/daily_104/bridge_run_bundle.json",
             ],
             native_replacement_job_id="native_live_run_candidate",
             native_cutover_command=[
@@ -339,7 +339,7 @@ def _build_jobs() -> tuple[ScheduledJob, ...]:
                 "readonly-alpaca",
                 "--once",
                 "--bridge-bundle-output",
-                "/tmp/renquant-live-bridge-bundle.json",
+                f"{root}/logs/live_104/bridge_run_bundle.json",
             ],
             native_replacement_job_id="native_live_run_candidate",
             native_cutover_command=[

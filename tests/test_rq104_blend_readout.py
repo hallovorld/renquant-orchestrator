@@ -64,21 +64,37 @@ def test_latest_live_run_ignores_intraday_partial_run_by_rowid():
     assert run_date == "2026-07-26"
 
 
+def _seed_later_sessions(db, base: str, offsets) -> None:
+    """Insert synthetic later session dates (dummy ticker 'ZZ') at the given
+    day offsets from `base`, via the `ticker`/`as_of_date` columns only (works
+    for any table that has at least those two). Callers pass explicit,
+    non-overlapping offset ranges across repeated calls so the distinct-date
+    count the `_aged_dates` gate reads stays predictable."""
+    import datetime as _dt
+    d = _dt.date.fromisoformat(base)
+    for off in offsets:
+        when = (d + _dt.timedelta(days=off)).isoformat()
+        db.execute("INSERT INTO ticker_forward_returns (ticker, as_of_date) VALUES (?,?)",
+                   ("ZZ", when))
+
+
 def test_mature_fill_only_when_all_returns_present(tmp_path):
     led = tmp_path / "ledger.jsonl"
     row = {"run_date": "2026-06-01", "picks_prod": ["A", "B"],
            "picks_blend": ["B", "C"], "realized": False}
     led.write_text(json.dumps(row) + "\n")
     db = sqlite3.connect(":memory:")
-    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, fwd_20d REAL)")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, fwd_60d REAL)")
     db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
                    [("A", "2026-06-01", 0.10), ("B", "2026-06-01", 0.02)])
+    _seed_later_sessions(db, "2026-06-01", range(1, mod.MATURITY_TDAYS + 1))  # age past the gate
     assert mod.mature_fill(led, db) == 0          # C missing -> not filled
     db.execute("INSERT INTO ticker_forward_returns VALUES ('C','2026-06-01',-0.04)")
     assert mod.mature_fill(led, db) == 1
     out = json.loads(led.read_text().splitlines()[0])
     assert out["realized"] and abs(out["spread_prod"] - 0.06) < 1e-9
     assert abs(out["spread_blend"] - (-0.01)) < 1e-9
+    assert out["aged"] is True
 
 
 def test_partial_coverage_records_why_it_did_not_realize(tmp_path):
@@ -99,7 +115,7 @@ def test_partial_coverage_records_why_it_did_not_realize(tmp_path):
         "realized": False}) + "\n")
     db = sqlite3.connect(":memory:")
     db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
-               "fwd_20d REAL)")
+               "fwd_60d REAL)")
     db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
                    [("A", "2026-06-01", 0.01), ("B", "2026-06-01", 0.02)])
     assert mod.mature_fill(led, db) == 0            # C missing -> not realized
@@ -118,10 +134,87 @@ def test_telemetry_persists_even_when_nothing_realizes(tmp_path):
         "picks_prod": ["A"], "picks_blend": ["Z"], "realized": False}) + "\n")
     db = sqlite3.connect(":memory:")
     db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
-               "fwd_20d REAL)")
+               "fwd_60d REAL)")
     db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?)",
                    [("A", "2026-06-01", 0.01)])
     assert mod.mature_fill(led, db) == 0
     row = json.loads(led.read_text().splitlines()[0])
     # written despite filled == 0, so a stuck session is diagnosable next pass
     assert row["n_resolvable_blend"] == 0
+
+
+def test_horizon_is_60d_and_maturity_matches_it():
+    """The two must move together.
+
+    Changed 2026-07-29 (quoted as an operator decision but not independently
+    checkable from this repo — see doc/progress/2026-07-29-blend-readout-horizon.md's
+    `best-known?` field): the certified effect and both scored models are
+    fwd_60d recipes, so a 20-day ledger measured a different quantity than the
+    one being certified. Leaving MATURITY_TDAYS at 21 would have marked rows
+    mature 40 sessions before their label can exist — the silent half of a
+    horizon change.
+    """
+    import inspect
+    src = inspect.getsource(mod)
+    assert "fwd_60d FROM ticker_forward_returns" in src
+    assert "r.fwd_60d" in src
+    assert mod.MATURITY_TDAYS == 61, (
+        f"maturity {mod.MATURITY_TDAYS} does not match a 60-day label horizon"
+    )
+
+
+def test_backfill_reads_the_60d_column(tmp_path):
+    import json
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(json.dumps({
+        "run_date": "2026-01-05", "run_id": "r1",
+        "picks_prod": ["A"], "picks_blend": ["B"], "realized": False}) + "\n")
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, "
+               "fwd_20d REAL, fwd_60d REAL)")
+    # 20d present but 60d NULL -> must NOT realize
+    db.executemany("INSERT INTO ticker_forward_returns VALUES (?,?,?,?)",
+                   [("A", "2026-01-05", 0.09, None), ("B", "2026-01-05", 0.02, None)])
+    _seed_later_sessions(db, "2026-01-05", range(1, mod.MATURITY_TDAYS + 1))  # age past the gate
+    assert mod.mature_fill(led, db) == 0
+    assert json.loads(led.read_text().splitlines()[0])["realized"] is False
+    # now 60d arrives -> realizes on the 60d values, not the 20d ones
+    db.execute("UPDATE ticker_forward_returns SET fwd_60d = 0.31 WHERE ticker='A'")
+    db.execute("UPDATE ticker_forward_returns SET fwd_60d = 0.11 WHERE ticker='B'")
+    assert mod.mature_fill(led, db) == 1
+    row = json.loads(led.read_text().splitlines()[0])
+    assert row["spread_prod"] == 0.31 and row["spread_blend"] == 0.11
+
+
+def test_premature_fwd_60d_write_does_not_realize_before_maturity_tdays(tmp_path):
+    """Regression guard (Codex BLOCKER, PR #598).
+
+    `ticker_forward_returns.fwd_60d` can be written before its full 60-session
+    horizon has actually elapsed — the same non-nullability trap documented in
+    `scripts/research_panel_exit_predictiveness.py`'s TRADING-SESSION AGING
+    note on this exact table. `mature_fill` must not realize a row on a
+    non-null `fwd_60d` alone; it must also wait for `MATURITY_TDAYS` later
+    trading sessions to appear in the table.
+    """
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(json.dumps({
+        "run_date": "2026-06-01", "run_id": "r1",
+        "picks_prod": ["A"], "picks_blend": ["A"], "realized": False}) + "\n")
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE ticker_forward_returns (ticker TEXT, as_of_date TEXT, fwd_60d REAL)")
+    db.execute("INSERT INTO ticker_forward_returns VALUES ('A','2026-06-01',0.05)")
+    # Every pick is resolvable, but only a handful of later sessions exist —
+    # nowhere near MATURITY_TDAYS (61). Must NOT realize.
+    _seed_later_sessions(db, "2026-06-01", range(1, 6))
+    assert mod.mature_fill(led, db) == 0
+    row = json.loads(led.read_text().splitlines()[0])
+    assert row["realized"] is False
+    assert row["aged"] is False
+    assert row["n_resolvable_prod"] == 1  # value exists...
+    # ...now age it past the gate -> realizes on the same fwd_60d value.
+    _seed_later_sessions(db, "2026-06-01", range(6, mod.MATURITY_TDAYS + 1))
+    assert mod.mature_fill(led, db) == 1
+    row = json.loads(led.read_text().splitlines()[0])
+    assert row["realized"] is True
+    assert row["aged"] is True
+    assert row["spread_prod"] == 0.05
