@@ -258,7 +258,37 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     pairs = reg["pairs"]
     div = sum(1 for v in pairs.values() if v.get("class") == DIVERGED)
-    print(f"umbrella-script-shadows OK — {len(pairs)} pairs registered, {div} DIVERGED")
+    # A registered DIVERGED pair is a FROZEN BASELINE, not a clean bill of health, and
+    # the two are not equally serious. When the diverged copy is the one a SCHEDULED
+    # JOB actually executes, the scheduled surface is running code that was never
+    # reviewed in that form — which is the failure this registry exists to make
+    # visible, and printing "OK" over it trains the reader to skip the line.
+    #
+    # The default is INVERTED rather than enumerated: a scheduled-surface divergence
+    # is a finding UNLESS the registry carries an explicit justification for it. That
+    # way a future divergence nobody anticipated is loud by default, instead of
+    # inheriting a pass because it was not on a list.
+    hot = sorted(
+        k for k, v in pairs.items()
+        if v.get("class") == DIVERGED
+        and bool(v.get("referenced_by_a_scheduled_surface"))
+        and not str(v.get("accepted_because") or "").strip()
+    )
+    if hot:
+        print(f"umbrella-script-shadows: NO DRIFT vs registry, but {len(hot)} "
+              f"registered divergence(s) sit on a SCHEDULED surface with no "
+              f"accepted_because — the job runs a copy that differs from the "
+              f"reviewed subrepo file:")
+        for k in hot:
+            v = pairs[k]
+            delta = int(v.get("umbrella_bytes") or 0) - int(v.get("subrepo_bytes") or 0)
+            print(f"  {k}  [{v.get('subrepo')}]  umbrella {delta:+d} B "
+                  f"({v.get('subrepo_bytes')} -> {v.get('umbrella_bytes')})")
+        print(f"\n{len(pairs)} pairs registered, {div} DIVERGED, "
+              f"{len(hot)} of them on a scheduled surface and unjustified")
+        return 1
+    print(f"umbrella-script-shadows: no drift vs registry — {len(pairs)} pairs, "
+          f"{div} DIVERGED (all either off a scheduled surface or justified)")
     return 0
 
 
