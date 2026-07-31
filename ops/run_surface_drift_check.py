@@ -634,6 +634,67 @@ def check_import_resolution() -> tuple[list[str], list[str]]:
                  f"as reviewed"])
 
 
+def report_manifested_not_loaded(
+    manifest_path: str = MANIFEST, agents_dir: str = LAUNCH_AGENTS,
+) -> tuple[list[str], list[str]]:
+    """INFO ONLY: manifested jobs that are not loaded, and which KIND of not-loaded.
+
+    `check_launchd_loaded` deliberately does not alarm on an unloaded job, and that
+    decision is right: it would fire on every job an operator has deliberately
+    unloaded. But saying nothing at all leaves a real gap. A job in the REVIEWED
+    manifest that is not loaded is either a manifest nobody updated when the job was
+    retired, or a job that silently fell out of launchd -- and **nothing distinguishes
+    those two**, which is the containment shape: a persistent run-surface change with
+    no durable record.
+
+    So this REPORTS without alarming. The three kinds have different remedies and are
+    named separately, because "not loaded" lumps them together and hides that:
+
+      * plist + target present -> loaded once, not now. Retirement or silent unload;
+        only a human knows which, and the manifest does not say.
+      * plist absent, target present -> ready to install, never installed.
+      * plist absent, target absent -> the run checkout has not been synced.
+
+    Measured 2026-08-01 on 43 manifested jobs: 6 not loaded — 3 of the first kind
+    (daily103, open103, preclose103), 1 of the second (rq104-model-freshness), 2 of
+    the third (ops-audit, rq104-silent-refusal). The last two include the aggregator
+    that DISCOVERED an unrun AC5 sentinel; it does not run either.
+    """
+    try:
+        manifest = json.loads(Path(manifest_path).read_text())["jobs"]
+    except Exception as exc:  # noqa: BLE001
+        return ([f"launchd manifest unreadable ({manifest_path}: {exc})"], [])
+    live = scan_launchd_plists(agents_dir)
+    kinds: dict[str, list[str]] = {"retired_or_silently_unloaded": [],
+                                   "never_installed": [], "run_checkout_unsynced": []}
+    for label in sorted(manifest):
+        status, _loaded, _d = read_loaded_program_args(label)
+        if status != LOADED_NOT_LOADED:
+            continue
+        has_plist = label in live
+        args = (manifest.get(label) or {}).get("program_args") or []
+        tgt = next((a for a in args if str(a).endswith((".sh", ".py"))), None)
+        has_target = bool(tgt and os.path.exists(tgt))
+        if has_plist and has_target:
+            kinds["retired_or_silently_unloaded"].append(label)
+        elif has_target:
+            kinds["never_installed"].append(label)
+        else:
+            kinds["run_checkout_unsynced"].append(label)
+    infos: list[str] = []
+    total = sum(len(v) for v in kinds.values())
+    infos.append(f"launchd: {total} of {len(manifest)} manifested job(s) are NOT loaded")
+    for kind, labels in kinds.items():
+        if labels:
+            infos.append(f"launchd not-loaded [{kind}]: {', '.join(sorted(labels))}")
+    if kinds["retired_or_silently_unloaded"]:
+        infos.append(
+            "launchd: the manifest does not record whether those were RETIRED or fell "
+            "out of launchd silently — the two are indistinguishable from here, and "
+            "only one of them is fine")
+    return [], infos
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -661,6 +722,9 @@ def main(argv: list[str] | None = None) -> int:
     infos += i
     problems += check_launchd_surface()
     problems += check_launchd_loaded()
+    p, i = report_manifested_not_loaded()
+    problems += p
+    infos += i
     p, i = check_import_resolution()
     problems += p
     infos += i
