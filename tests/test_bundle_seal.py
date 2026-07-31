@@ -762,11 +762,44 @@ def test_a_LEGACY_stamped_panel_still_works():
     assert b["wf_operator_authorized_override"] is True
 
 
-def test_when_BOTH_exist_the_canonical_block_wins():
-    """The deployed panel carries both. Precedence must be stated, not incidental --
-    the two copies are known to disagree on other artifacts."""
-    b = _bindings("both")
-    assert b["wf_gate_verdict"] == "FAIL"
+def test_when_BOTH_exist_the_canonical_block_wins_CONFLICTING_VALUES():
+    """codex on #683: the first version of this test put the SAME block in both
+    locations, so it could not detect which one won. A precedence test whose two
+    branches are identical asserts nothing.
+
+    The copies are known to disagree in production -- on 2 of the 14 prod panels
+    carrying both, the legacy block lacks fields the canonical one has -- so this now
+    uses CONFLICTING values and requires the canonical one.
+    """
+    import json as _j
+    legacy = dict(_BLOCK, override_reason="LEGACY-STALE", gate_version="v1",
+                  operator_authorized_override=False)
+    panel = {"model_content_fingerprint": "sha256:deadbeef",
+             "metadata": {"wf_gate_metadata": _BLOCK},
+             "wf_gate_metadata": legacy}
+    cal = _j.dumps({"model_content_fingerprint": "sha256:cafe"}).encode()
+    b = bundle_seal.extract_bindings(_j.dumps(panel).encode(), cal)
+    assert b["wf_override_reason"] == "operator accepted a documented risk"
+    assert b["wf_gate_version"] == "v3"
+    assert b["wf_operator_authorized_override"] is True
+
+
+def test_a_PRESENT_but_EMPTY_canonical_block_does_not_resurrect_the_legacy_one():
+    """codex on #683: presence of the canonical key decides, not truthiness.
+
+    Falling through on an empty canonical block would let a panel whose canonical stamp
+    was wiped seal with stale provenance from the legacy copy -- and look healthy. The
+    honest reading of "canonical stamp present but empty" is UNSTAMPED.
+    """
+    import json as _j
+    panel = {"model_content_fingerprint": "sha256:deadbeef",
+             "metadata": {"wf_gate_metadata": {}},
+             "wf_gate_metadata": _BLOCK}
+    cal = _j.dumps({"model_content_fingerprint": "sha256:cafe"}).encode()
+    b = bundle_seal.extract_bindings(_j.dumps(panel).encode(), cal)
+    assert b["wf_gate_verdict"] == "UNSTAMPED"
+    assert "wf_operator_authorized_override" not in b
+    assert "wf_override_reason" not in b
 
 
 def test_an_UNSTAMPED_panel_is_still_reported_as_UNSTAMPED():

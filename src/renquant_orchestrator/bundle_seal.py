@@ -197,10 +197,14 @@ def _wf_gate_block(panel: dict[str, Any]) -> Any:
     unreviewed.
     """
     meta = panel.get("metadata")
-    if isinstance(meta, dict):
-        block = meta.get("wf_gate_metadata")
-        if isinstance(block, dict) and block:
-            return block
+    if isinstance(meta, dict) and "wf_gate_metadata" in meta:
+        # PRESENCE of the canonical key decides, not its truthiness. codex on #683:
+        # falling through on an EMPTY or malformed canonical block silently
+        # resurrects a legacy value, so a panel whose canonical stamp was wiped
+        # would seal with stale provenance from the legacy copy and look healthy.
+        # A present-but-empty canonical block must seal as UNSTAMPED -- that is the
+        # honest reading, and the existing contract already handles it.
+        return meta["wf_gate_metadata"]
     return panel.get("wf_gate_metadata")
 
 
