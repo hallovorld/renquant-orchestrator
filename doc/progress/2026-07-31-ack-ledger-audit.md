@@ -8,7 +8,7 @@ Two measured defects in `ops/renquant104/sentinel_acks.json`, both found by runn
 sentinel's **own** expiry rule against the ledger's **own** git history
 `[VERIFIED — python3 ops/renquant104/ack_ledger_audit.py --today 2026-07-31, at f59d4609]`:
 
-1. **The whole ledger is expired.** 10/10 acks, under the sentinel's own
+1. **Nearly the whole ledger is expired.** 9/10 acks (see the correction at the end), under the sentinel's own
    `expiry <= today`. Four expired on 2026-07-20; the other six expire **today**.
 2. **`acked_at` records when a row was *created*, not when it was last *reviewed*** —
    and `ack_expiry()` reads it as the latter. `com.renquant.rq104-degradation-sentinel`
@@ -67,3 +67,21 @@ Re-acking. Every one of the 10 needs a real disposition — fix the job, or re-a
 fresh stamp and a condition. That is a judgment per job, not a sweep, and doing it in the
 same PR as the instrument that measures it would let the instrument be tuned to the
 answer.
+
+---
+
+## Correction — 9/10, not 10/10, and the difference is the point
+
+This doc was written when every ack in the ledger was expired. `a32f397c`
+(*"the batch-export ack described a failure that is no longer the failure"*) then
+**re-stamped** `com.renquant.rq105-batch-scores-export` on 2026-07-31, so it is live
+until 2026-08-14 and the audit now reports **9 expired of 10**
+`[VERIFIED — A.audit(2026-07-31) on this branch, this session]`.
+
+The count moved because the **ledger** moved, not because the audit changed. Pinning
+`10` would have pinned a ledger that no longer exists — and a re-stamp is precisely the
+event this audit exists to make visible, so the test now **names the live ack** rather
+than counting the expired ones. The next re-stamp shows up here as a changed name, not
+as an off-by-one.
+
+`[VERIFIED — this session]` 17 tests pass.

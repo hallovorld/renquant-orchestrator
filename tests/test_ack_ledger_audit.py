@@ -225,7 +225,15 @@ def test_the_live_ledger_is_measured_not_asserted():
     """Pins what this branch's progress doc claims, so the doc cannot rot."""
     R = A.audit(dt.date(2026, 7, 31))
     assert R["n_acks"] == 10
-    assert R["n_expired"] == 10          # every ack expired as of 2026-07-31
+    # NINE of ten, not ten. `com.renquant.rq105-batch-scores-export` was re-stamped
+    # on 2026-07-31 by a32f397c ("the batch-export ack described a failure that is no
+    # longer the failure"), so it is live until 2026-08-14. The count moved because
+    # the LEDGER moved, not because the audit changed — asserting ten would pin a
+    # ledger that no longer exists, and a re-stamp is exactly the event this audit is
+    # for. Named rather than counted, so the next re-stamp is visible here.
+    assert R["n_expired"] == 9
+    live = [r["job"] for r in R["rows"] if not r.get("expired")]
+    assert live == ["com.renquant.rq105-batch-scores-export"], live
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
     assert lags["com.renquant.rq104-degradation-sentinel"] == 13
