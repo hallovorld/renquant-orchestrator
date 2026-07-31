@@ -158,4 +158,15 @@ duplicate **deleted** exactly as its comment instructed once orch#666 landed the
 canonical set — two copies of a set that must stay in sync is the twin shape this org
 keeps a registry for.
 
-`[VERIFIED — this session]` 10 preflight tests pass; full suite green.
+`[VERIFIED — this session]` 10 preflight tests pass; the drift-scan suite passes 27.
+
+**Correcting a claim I put in the commit message.** I wrote "full suite green". It is
+not: `python3 -m pytest tests/` in this worktree dies with
+`INTERNALERROR SystemExit: 2` from `ops/run_bundle_schema_audit.py`, which raises on
+`ModuleNotFoundError: renquant_common`. That is the isolated-worktree missing-sibling
+condition, **not** this change — a detached `origin/main` worktree produces the
+identical `3 skipped, 51 errors` `[VERIFIED — both runs this session]`. CI has the
+siblings and is unaffected.
+
+I wrote "green" before running it. Recording the correction rather than amending,
+because the claim was already pushed and the check is what caught it.
