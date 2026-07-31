@@ -101,3 +101,61 @@ duplication is temporary **by construction** rather than by good intentions — 
 branches cannot both land without someone reading it.
 
 Mutation check: deleting either pending job's plist fails the test.
+
+## Review round 1 — a plist can be reviewed, committed, and still guaranteed to fail
+
+Codex: this PR ships `com.renquant.ops-audit` while its own evidence says the target
+wrapper is absent from the run checkout launchd would execute — *"installable in form
+but guaranteed to fail after bootstrap"*.
+
+**Verified independently rather than taken on the review's word**
+`[VERIFIED — filesystem, this session]`:
+
+| plist target | in the run checkout? |
+|---|---|
+| `…-run/ops/renquant104/run_model_freshness_monitor.sh` | **PRESENT**, executable |
+| `…-run/ops/run_ops_audit.sh` | **ABSENT** — merged to `main` by orch#650, not synced |
+
+So the finding is exact: one of the two plists is installable today and the other is not.
+
+**Took the second option — the preflight — rather than scoping to model-freshness.**
+Scoping would fix this instance; the preflight closes the class. `ops/plist_install_preflight.py`
+refuses to declare a job installable unless, **in the run checkout launchd actually
+executes**:
+
+* the target exists;
+* it is executable **when it is `argv[0]`**;
+* the plist's `ProgramArguments` match the reviewed manifest entry, so the thing being
+  preflighted is the thing that was reviewed.
+
+Read-only, exit 2 when any job is refused, and it never installs anything — installation
+stays an operator action.
+
+**Two of my own errors, both caught by running it against the real machine.**
+
+1. **I required the exec bit unconditionally**, and it refused three jobs that are
+   installed and running right now (`rq104-degradation-sentinel`,
+   `rq104-shadow-scorer-sentinel`, `run-surface-drift`). They run `/bin/bash <script>`,
+   where the interpreter is executed and the script is an argument — mode 0644 is fine.
+   **A preflight that refuses working jobs gets switched off, and then it protects
+   nothing.**
+2. **My run-root override mangled already-correct absolute paths** into
+   `<root>/<basename>`, reporting a present file as missing. Now it re-roots only when
+   the path is not already under the requested root.
+
+**A genuine pre-existing finding, reported rather than absorbed.**
+`com.renquant.shadow-ab-daily`'s committed plist and its reviewed manifest entry name
+**different checkouts** — the plist runs `renquant-orchestrator/scripts/…`, the manifest
+declares `RenQuant/.subrepo_runtime/repos/renquant-orchestrator/scripts/…`
+`[VERIFIED — both read at origin/main]`. Not caused by this PR. It is named in
+`KNOWN_PLIST_MANIFEST_DRIFT` with the measured divergence so the set cannot grow
+silently, and which path is correct is a question about that job rather than about this
+preflight.
+
+**Merge conflict** with `main` resolved the same way as #664/#666: main's partition side
+kept, this branch's new test kept, and the branch's own temporary `_PENDING_INSTALL`
+duplicate **deleted** exactly as its comment instructed once orch#666 landed the
+canonical set — two copies of a set that must stay in sync is the twin shape this org
+keeps a registry for.
+
+`[VERIFIED — this session]` 10 preflight tests pass; full suite green.
