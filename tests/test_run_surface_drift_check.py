@@ -154,48 +154,69 @@ class TestManifestGeneration:
         "com.renquant.rq104-model-freshness",
     }
 
-    def test_no_unmanifested_job_runs_on_disk(self):
-        """STRICT, and the direction that matters.
+    _PENDING_PATTERN = "manifested job {label} missing from disk"
 
-        A job installed on disk but absent from the reviewed manifest is a job
-        running code nobody approved — the "silent containment / job swap" shape.
-        There is no allow-list for this one.
-        """
+    @staticmethod
+    def _surface_problems():
         import os
         if not os.path.isdir(os.path.expanduser("~/Library/LaunchAgents")):
             import pytest
             pytest.skip("not on the operator machine")
-        unmanifested = [p for p in drift.check_launchd_surface()
-                        if "unmanifested" in p]
-        assert unmanifested == [], unmanifested
+        return list(drift.check_launchd_surface())
+
+    def _partition(self):
+        """(pending-missing labels, residual problems).
+
+        EVERY problem lands in exactly one bucket. There is no third,
+        silently-ignored category — which is what the first version of this
+        retarget had, and what codex rejected.
+        """
+        pending, residual = set(), []
+        for prob in self._surface_problems():
+            if "missing from disk" in prob and "manifested job " in prob:
+                pending.add(prob.split("manifested job ")[1].split(" missing")[0])
+            else:
+                residual.append(prob)
+        return pending, residual
+
+    def test_no_unmanifested_job_runs_on_disk(self):
+        """STRICT, no allow-list. A job on disk but absent from the manifest is
+        code nobody approved — the "silent containment / job swap" shape."""
+        assert [p for p in self._surface_problems() if "unmanifested" in p] == []
+
+    def test_NO_residual_problem_of_any_other_kind(self):
+        """The one my first retarget missed (codex BLOCKER on this PR).
+
+        That version kept only "unmanifested" plus the named missing-from-disk
+        set and IGNORED everything else — so an installed job whose
+        ProgramArguments or hash had drifted from the reviewed manifest produced
+        a problem that BOTH new tests passed over. The old exact `== []` caught
+        it; my replacement had re-opened it.
+
+        The pending allow-list may relax installation ABSENCE only. Agreement
+        between an installed job and its reviewed manifest is never relaxed.
+        Asserting the RESIDUAL rather than naming forbidden categories is the
+        point: strings nobody has anticipated fail by default.
+        """
+        _, residual = self._partition()
+        assert residual == [], residual
 
     def test_declared_but_uninstalled_jobs_are_exactly_the_named_set(self):
         """RETARGETED 2026-07-31, deliberately, and it was red for months.
 
-        The old assertion was `check_launchd_surface() == []` — i.e. the manifest
-        must match the live surface EXACTLY. The system deliberately violates
-        that: a job may be declared on the reviewed surface before its plist is
-        installed, and `com.renquant.rq104-model-freshness` has been in that
-        state all along. So the test failed on the operator's machine on every
-        branch, permanently — and a permanently-red test trains its reader to
-        ignore local failures, which is worse than no test.
+        The old assertion was `check_launchd_surface() == []` — the manifest must
+        match the live surface EXACTLY. The system deliberately violates that: a
+        job may be declared on the reviewed surface before its plist is
+        installed, and com.renquant.rq104-model-freshness has been in that state
+        all along. So it failed on the operator's machine on every branch, and a
+        permanently-red test trains its reader to ignore local failures.
 
-        What replaces it keeps BOTH directions: the strict one above (nothing
-        unreviewed may run), and this one (the pending set is bounded and named,
-        so manifest rot cannot accumulate quietly).
-
-        NOTE measured while writing this: neither pending job ships a plist under
-        deploy/, so neither can be installed without authoring one first. That is
-        a gap in those declarations, not in this test.
+        This bounds the ONE relaxation; the residual test above forbids the rest.
         """
-        import os
-        if not os.path.isdir(os.path.expanduser("~/Library/LaunchAgents")):
-            import pytest
-            pytest.skip("not on the operator machine")
-        missing = {p.split("manifested job ")[1].split(" missing")[0]
-                   for p in drift.check_launchd_surface()
-                   if "missing from disk" in p}
-        assert missing == self.PENDING_INSTALL, (
+        pending, _ = self._partition()
+        assert pending == self.PENDING_INSTALL, (
             f"declared-but-uninstalled set changed: "
-            f"unexpected={sorted(missing - self.PENDING_INSTALL)} "
-            f"resolved={sorted(self.PENDING_INSTALL - missing)}")
+            f"unexpected={sorted(pending - self.PENDING_INSTALL)} "
+            f"resolved={sorted(self.PENDING_INSTALL - pending)}")
+
+
