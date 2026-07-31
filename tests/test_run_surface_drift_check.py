@@ -151,3 +151,27 @@ class TestManifestGeneration:
             pytest.skip("not on the operator machine")
         problems = drift.check_launchd_surface()
         assert problems == [], f"committed manifest is stale: {problems[:3]}"
+
+
+def test_every_pending_install_job_ships_an_installable_plist():
+    """A job declared on the reviewed surface with no committed plist can only be
+    installed by authoring one on the spot, unreviewed — which defeats the point
+    of declaring it first.
+
+    Measured 2026-07-31 before this change: BOTH pending jobs
+    (com.renquant.ops-audit, com.renquant.rq104-model-freshness) had no plist
+    under deploy/. This asserts the property for the one whose wrapper is on main;
+    ops-audit's wrapper arrives with orch#650 and is exempted BY NAME so the
+    exemption cannot spread silently.
+    """
+    import plistlib
+    repo = Path(__file__).resolve().parent.parent
+    manifest = json.loads((repo / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    label = "com.renquant.rq104-model-freshness"
+    path = repo / "deploy" / f"{label}.plist"
+    assert path.exists(), f"{label} declared with no installable plist"
+    pl = plistlib.loads(path.read_bytes())
+    assert pl["Label"] == label
+    assert pl["ProgramArguments"] == manifest[label]["program_args"]
+    # runs before the day's decision run, so a BREACH is still actionable
+    assert pl["StartCalendarInterval"]["Hour"] == 7

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>RQ_ORCH_ROOT</key>
+		<string>/Users/renhao/git/github/renquant-orchestrator-run</string>
+		<key>RQ_ROOT</key>
+		<string>/Users/renhao/git/github/RenQuant</string>
+	</dict>
+	<key>Label</key>
+	<string>com.renquant.rq104-model-freshness</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_model_freshness_monitor.sh</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_model_freshness.err</string>
+	<key>StandardOutPath</key>
+	<string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_model_freshness.out</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>7</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+</dict>
+</plist>
