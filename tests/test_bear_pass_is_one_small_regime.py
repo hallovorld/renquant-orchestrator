@@ -110,3 +110,67 @@ def test_the_conclusion_is_scoped_to_what_the_profile_can_support():
     assert "not excluded" in text
     assert "does not stand" in text
     assert "No claim is made" in text and "why" in text
+
+
+# ---------------------------------------------------------------------------
+# Codex on #680: the causal explanation is a hypothesis, not a finding.
+# ---------------------------------------------------------------------------
+
+def _phi(z):
+    import math
+    return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+
+
+def _profile():
+    import csv
+    p = (pathlib.Path(__file__).resolve().parent.parent
+         / "doc/research/evidence/2026-07-31-regime-statistics/regime_profile.csv")
+    return {r["regime"]: r for r in csv.DictReader(p.open())}
+
+
+def test_the_hit_rate_is_implied_by_mean_over_sigma_not_independent_evidence():
+    """The number I double-counted.
+
+    If per-date ICs were i.i.d. Normal, a regime's hit rate is `Phi(mean/sigma)`. BEAR's
+    54-of-55 is what its own mean/sigma = 2.51 implies, so "hit rate 0.982" carries no
+    information beyond "mean IC is 2.5 sigma above zero". Citing both as separate
+    symptoms of degeneracy counted one quantity twice.
+    """
+    r = _profile()["BEAR"]
+    z = float(r["median_mean_ic"]) / float(r["median_std_ic"])
+    assert abs(z - 2.514) < 0.01
+    implied = _phi(z)
+    observed = float(r["median_hit_rate"])
+    assert abs(observed - implied) < 0.02, (observed, implied)
+
+
+def test_the_placebo_evidence_points_AGAINST_the_leakage_hypothesis():
+    """Reported because it cuts against the story I told.
+
+    If leakage explained BEAR, its shuffled-label placebo would be the one most likely
+    to be elevated. It is the LOWEST of the four. Not decisive -- a placebo tests label
+    leakage, not a beta or volatility tilt, which survives a shuffle -- but omitting it
+    while publishing the rest of the profile would have been selective.
+    """
+    prof = _profile()
+    placebo = {k: float(v["median_placebo_ic"]) for k, v in prof.items()}
+    assert min(placebo, key=placebo.get) == "BEAR", placebo
+    assert placebo["BULL_VOLATILE"] > 4 * placebo["BEAR"]
+
+
+def test_the_discriminating_measurement_is_named_AND_its_blocker_identified():
+    """What this section adds that the withdrawal above does not.
+
+    Deliberately NOT re-asserting the downgrade: two tests already enforce it (the
+    strikethrough span and the scoped conclusion), and a third copy would drift.
+    What is new is naming the measurement that would settle it -- per-date
+    cross-sectional dispersion, plus IC after beta/volatility control -- and recording
+    that it is blocked by the SAME re-scoring path GOAL-6 is already stuck behind.
+    That link is the actionable part: two open questions resolve on one unblock.
+    """
+    d = " ".join(re.sub(r"(?m)^\s*>\s?", "",
+                        DOC.read_text(encoding="utf-8")).split())
+    assert "cross-sectional dispersion" in d
+    assert "703 759 rows" in d
+    assert "same blocked evaluation path" in d
+    assert "cfdd6cb8e950da0f" in d

@@ -131,3 +131,68 @@ a scope statement, never a cause.**
 
 Tests: 6 — including a control that this qualification does **not** overturn the placebo
 finding, and one asserting the document offers no causal explanation as established.
+
+---
+
+# Two diagnostics on the regime profile — added after codex on #680
+
+The causal explanation was already withdrawn above (struck through, with `H1`/`H2`
+named as live hypotheses and the conclusion scoped to insufficient evidence of
+generalisability from 55 dates). **This section adds nothing to that withdrawal** — it
+records two things measurable from the committed profile that bear on it, one of which
+cuts against the hypothesis I favoured.
+
+## Two things I checked before leaving it there
+
+### 1. The hit rate is not independent evidence — it is a restatement of mean/σ
+
+`[本次实测 2026-07-31, from the committed regime_profile.csv]` If per-date ICs were
+i.i.d. Normal, the hit rate implied by a regime's own mean and σ is `Φ(mean/σ)`:
+
+| regime | n dates | mean IC | σ IC | mean/σ | implied hit | observed hit | diff |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| BULL_CALM | 444 | 0.0220 | 0.1620 | 0.136 | 0.554 | 0.508 | −0.046 |
+| **BEAR** | **55** | **0.3346** | **0.1331** | **2.514** | **0.994** | **0.982** | **−0.012** |
+| BULL_VOLATILE | 41 | 0.1116 | 0.1473 | 0.758 | 0.776 | 0.732 | −0.044 |
+| CHOPPY | 41 | 0.0129 | 0.1147 | 0.113 | 0.545 | 0.707 | **+0.162** |
+
+`BEAR`'s 54-of-55 is **exactly what its own mean/σ = 2.51 implies** —
+`P(≥54 of 55 | p = 0.994) = 0.957`, i.e. entirely unsurprising. So *"hit rate 0.982"*
+adds **no information** beyond *"mean IC is 2.5 σ above zero"*, and my earlier framing of
+it as a separate symptom of degeneracy was double-counting one number.
+
+`CHOPPY` is the one regime that departs (**+0.162**), which points at skew or
+non-normality in its per-date ICs. Recorded, not explained.
+
+### 2. The placebo evidence points AWAY from my hypothesis
+
+| regime | placebo IC |
+|---|---:|
+| **BEAR** | **0.0158** — the cleanest of the four |
+| BULL_CALM | 0.0605 |
+| CHOPPY | 0.0798 |
+| BULL_VOLATILE | **0.1468** |
+
+If leakage explained `BEAR`, its shuffled-label placebo would be the one most likely to
+be elevated. It is instead **the lowest**, by a factor of four against
+`BULL_VOLATILE`. That is not decisive — a placebo tests label leakage, not a beta or
+volatility tilt, which would survive a label shuffle — but it is evidence in the
+opposite direction from the story I told, and reporting the profile without it would
+have been selective.
+
+## What would actually settle it, and why it is not run here
+
+The discriminating measurement is **per-date cross-sectional dispersion** of forward
+returns by regime, plus the same IC computed after controlling for beta and realised
+volatility. If the cross-section moves as one in `BEAR`, dispersion collapses and a
+near-constant-sign score scores mechanically.
+
+**The artifacts cannot supply it.** They carry the booster and regime-level summaries
+only — no per-date rows. Producing them means re-scoring the panel (**703 759 rows**)
+with each artifact's own booster, which is **the same blocked evaluation path** that
+GOAL-6 is already stuck behind: the WF gate admits on recipe hash alone, and all four
+artifacts share `cfdd6cb8e950da0f`.
+
+So this is not a diagnostic I declined to run — it is the *same* blocker, reached from a
+second direction. That is worth knowing: it raises the value of unblocking the
+re-scoring path, because two open questions resolve on it rather than one.
