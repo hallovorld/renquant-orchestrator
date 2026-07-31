@@ -600,7 +600,14 @@ def _run(argv: list[str] | None, receipt: dict) -> int:
     if err:
         problems.append(err)
 
-    err, ack_infos = check_launchd_exits()
+    # `today` is the run's pinned as-of date (line above computes it from --as-of).
+    # This call used to omit it and fall back to `dt.date.today()`, so ack EXPIRY was
+    # evaluated against the wall clock while every other check honoured --as-of. Two
+    # consequences: a re-run with --as-of for a past date judged acks by today's date,
+    # and the suite -- pinned to AS_OF 2026-07-16 -- silently aged its own fixtures out
+    # of the 14-day window, going red at UTC midnight on 2026-07-31 on every branch at
+    # once while passing in any timezone still on the 30th.
+    err, ack_infos = check_launchd_exits(today)
     if err:
         problems.append(err)
     for line in ack_infos:
