@@ -7,6 +7,7 @@ manifests for the launchd surface. The drill case: a daily104 swapped to a
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -274,3 +275,118 @@ def test_the_committed_plist_matches_the_manifest_entry():
     assert pl["StandardOutPath"].endswith("launchd_silent_refusal.out")
     assert pl["StandardErrorPath"].endswith("launchd_silent_refusal.err")
     assert pl["EnvironmentVariables"]["RQ_ORCH_ROOT"]
+
+
+
+# --- every emitted line must carry its own date (2026-07-31) ------------------
+class TestOutputLinesCarryTheirDate:
+    """The StandardOutPath is append-only with no date in its filename.
+
+    Measured 2026-07-31: 0 of 18 lines began with a date, and the file held a
+    CONTAINMENT alarm that had already been resolved — indistinguishable from a
+    live one. These pin the leading stamp on every path out of `main`.
+    """
+
+    STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} ")
+
+    def _run(self, monkeypatch, capsys, *, problems, infos):
+        monkeypatch.setattr(drift, "check_git_surfaces", lambda: (list(problems), list(infos)))
+        monkeypatch.setattr(drift, "check_umbrella_branch", lambda: [])
+        monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
+        monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
+        # main() has SEVEN problem producers, not five. The first version of
+        # these tests stubbed five and passed locally while failing in CI,
+        # because check_sentinel_receipt() returns a problem on a host with no
+        # receipt and none on mine — a test measuring the machine it ran on.
+        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
+        monkeypatch.setattr(drift, "alert", lambda *a, **k: None)
+        rc = drift.main([])
+        return rc, [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    def test_the_clean_line_is_dated(self, monkeypatch, capsys):
+        rc, lines = self._run(monkeypatch, capsys, problems=[], infos=[])
+        assert rc == 0
+        # main() has INFO producers beyond the five stubbed here, so assert the
+        # INVARIANT (every line dated) rather than a line count that would pin
+        # an unrelated implementation detail.
+        assert lines and all(self.STAMP.match(ln) for ln in lines), lines
+        assert any("run-surface drift scan OK" in ln for ln in lines), lines
+
+    def test_every_INFO_line_is_dated(self, monkeypatch, capsys):
+        rc, lines = self._run(monkeypatch, capsys, problems=[], infos=["a", "b"])
+        assert rc == 0
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any(ln.endswith("INFO: a") for ln in lines), lines
+        assert any(ln.endswith("INFO: b") for ln in lines), lines
+
+    def test_EVERY_problem_line_is_dated_not_just_the_first(self, monkeypatch, capsys):
+        """The regression that matters: `print("\\n".join(problems))` stamped at
+        most the first line, and the containment alarm was not first."""
+        rc, lines = self._run(
+            monkeypatch, capsys, problems=["p1", "p2 ProgramArguments CHANGED", "p3"],
+            infos=[])
+        assert rc == 1
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        # each problem is its OWN dated line — the pre-fix code joined them and
+        # stamped at most the first, and the containment alarm was not first.
+        for want in ("p1", "p2 ProgramArguments CHANGED", "p3"):
+            assert any(ln.endswith(want) for ln in lines), (want, lines)
+
+    def test_no_line_on_any_path_is_undated(self, monkeypatch, capsys):
+        """Anti-vacuity: covers both exit paths at once, so a future branch that
+        prints without a stamp fails here even if the tests above still pass."""
+        for problems, infos in (([], []), ([], ["i"]), (["p"], ["i"])):
+            _, lines = self._run(monkeypatch, capsys, problems=problems, infos=infos)
+            assert lines, (problems, infos)
+            assert all(self.STAMP.match(ln) for ln in lines), (problems, infos, lines)
+
+    def test_the_stamp_is_injectable_and_second_resolution(self):
+        import datetime as dt
+        assert drift._now_iso(dt.datetime(2026, 7, 31, 6, 5, 4)) == "2026-07-31T06:05:04"
+
+    def test_alert_body_stays_UNSTAMPED(self, monkeypatch, capsys):
+        """The ntfy transport carries its own time; duplicating it in the body
+        would push the real message past the notification's visible length."""
+        seen = {}
+        monkeypatch.setattr(drift, "check_git_surfaces", lambda: (["boom"], []))
+        monkeypatch.setattr(drift, "check_umbrella_branch", lambda: [])
+        monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
+        monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
+        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
+        monkeypatch.setattr(drift, "alert",
+                            lambda title, body, **k: seen.update(title=title, body=body))
+        assert drift.main([]) == 1
+        assert seen["body"] == "boom"
+        assert not self.STAMP.match(seen["body"])
+
+    def test_a_MULTILINE_info_stamps_every_physical_line(self, monkeypatch, capsys):
+        """Codex BLOCKER on this PR: stamping each list ELEMENT leaves embedded
+        newlines as unstamped continuation lines — the exact attribution failure
+        the change exists to remove, rebuilt inside the fix."""
+        rc, lines = self._run(monkeypatch, capsys, problems=[],
+                              infos=["first\nsecond\nthird"])
+        assert rc == 0
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any(ln.endswith("second") for ln in lines), lines
+        assert any(ln.endswith("third") for ln in lines), lines
+
+    def test_a_MULTILINE_problem_stamps_every_physical_line(self, monkeypatch, capsys):
+        rc, lines = self._run(
+            monkeypatch, capsys,
+            problems=["umbrella live tree not on main\n  ref: refs/heads/feat/x\n  restore with git checkout main"],
+            infos=[])
+        assert rc == 1
+        assert len(lines) == 3
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any("restore with git checkout main" in ln for ln in lines), lines
+
+    def test_an_EMPTY_record_still_emits_one_stamped_line(self, monkeypatch, capsys):
+        """A record that was produced must stay countable. Dropping it silently
+        is the same class of loss as leaving it undated."""
+        rc, lines = self._run(monkeypatch, capsys, problems=[""], infos=[])
+        assert rc == 1
+        assert len(lines) == 1 and self.STAMP.match(lines[0]), lines
