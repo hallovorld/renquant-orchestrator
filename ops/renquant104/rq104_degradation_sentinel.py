@@ -420,6 +420,38 @@ ACK_LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "sentinel_acks.json")
 
 
+def parse_exit_code(job: str) -> int | None:
+    """``'<label> (last exit <n>)'`` -> ``n``, else ``None``.
+
+    ``None`` is NOT a pass. An exit code that cannot be read is an exit code
+    nobody dispositioned, and callers treat it as not-covered.
+    """
+    m = re.search(r"last exit (-?\d+)", job)
+    return int(m.group(1)) if m else None
+
+
+def ack_covers_exit(ack: dict, job: str) -> bool:
+    """Does this ack disposition THIS exit code?
+
+    GOAL-1 #622. ``EXIT_INTERNAL = 3`` was added so a crashed sentinel would stop
+    being indistinguishable from an alarming one, and the sentinel's own ack row
+    was rewritten to say *"this ack now covers ONLY exit 1."* **The code never
+    read that sentence.** ``check_launchd_exits`` matched on job name alone, so a
+    crash at exit 3 was still demoted to INFO by the very row that claimed not to
+    hide it -- a restriction ASSERTED in prose with nothing enforcing it.
+
+    An ack WITHOUT ``acked_exit_codes`` covers every nonzero code: that is the
+    behaviour all ten existing rows were reviewed under, and this fix does not
+    silently re-disposition any of them. An ack WITH the key covers exactly the
+    codes listed, which is what makes the self-referential row's own sentence true.
+    """
+    codes = ack.get("acked_exit_codes")
+    if codes is None:
+        return True
+    got = parse_exit_code(job)
+    return got is not None and got in [int(c) for c in codes]
+
+
 def load_acks(path: str | None = None) -> dict:
     """Reviewed acknowledgment ledger for KNOWN nonzero last-exits.
 
@@ -523,6 +555,18 @@ def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[
         ack = acks.get(name)
         if not ack:
             loud.append(job)
+            continue
+        if not ack_covers_exit(ack, job):
+            # The job IS acked -- but not for THIS exit code. Before this check
+            # existed, the sentinel's own row silenced every nonzero code it saw,
+            # including the EXIT_INTERNAL=3 that was introduced precisely so a
+            # crash would stop looking like an alarm. The row's text already
+            # claimed "this ack now covers ONLY exit 1"; nothing implemented it.
+            loud.append(
+                f"{job} [ACK DOES NOT COVER THIS EXIT: acked only for "
+                f"{list(ack.get('acked_exit_codes', []))}; original reason: "
+                f"{ack.get('reason', '?')}]"
+            )
             continue
         expiry, why = ack_expiry(ack, name)
         if expiry is None or expiry <= today:
