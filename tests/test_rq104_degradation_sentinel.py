@@ -7,6 +7,8 @@ never depend on the real calendar in tests.
 from __future__ import annotations
 
 import datetime as dt
+import pathlib
+import re
 import json
 import sqlite3
 import sys
@@ -577,3 +579,62 @@ class TestSmallNGuardSuppressed:
         conn.close()
         assert row == {"run_id": "r1", "run_date": D0.isoformat(),
                        "reason": "acted"}
+
+
+class TestAckExpiryHonoursAsOf:
+    """`--as-of` must reach the ack check, or the suite is a time bomb.
+
+    Found 2026-07-31: `main()` computed `today` from `--as-of` and passed it to
+    `check_traceback_in_daily_log(today)` but called `check_launchd_exits()` with no
+    argument, so ack expiry alone read `dt.date.today()`.
+
+    The fixture in `TestAckLedger` acks at 2026-07-17; `ACK_MAX_AGE_DAYS = 14` puts
+    its expiry at 2026-07-31. At UTC midnight that day every branch went red at once
+    while still passing in any timezone behind UTC — a failure that looks like the
+    branch under test and is neither.
+    """
+
+    def test_the_ack_check_receives_the_pinned_as_of_date(self, tmp_path,
+                                                          monkeypatch):
+        """Pin it at the seam: the ack check must be handed the as-of date, not None.
+
+        Asserted on the argument rather than on an outcome so the test cannot be
+        satisfied by a fixture whose dates happen to sit inside the window today.
+        """
+        seen = {}
+
+        def _spy(today=None):
+            seen["today"] = today
+            return (None, [])
+
+        monkeypatch.setattr(sentinel, "check_launchd_exits", _spy)
+        db = _make_db(tmp_path, HEALTHY_ROWS)
+        log_dir = tmp_path / "daily_104"
+        log_dir.mkdir(exist_ok=True)
+        with (
+            patch.object(sentinel, "is_session_day", return_value=True),
+            patch.object(sentinel, "DAILY_LOG_DIR", str(log_dir)),
+            patch.object(sentinel, "ACK_LEDGER", str(tmp_path / "acks.json")),
+            patch.object(sentinel, "alert", lambda t, b, **kw: None),
+        ):
+            sentinel.main(["--as-of", AS_OF, "--db", db])
+
+        assert seen.get("today") == dt.date.fromisoformat(AS_OF), (
+            f"ack check got {seen.get('today')!r}; it must receive the --as-of date, "
+            f"or ack expiry silently follows the wall clock")
+
+    def test_an_ack_fixture_cannot_age_out_of_the_window(self):
+        """The class of bug, not just the instance.
+
+        Any fixture acked more than ACK_MAX_AGE_DAYS before AS_OF is already expired
+        at the pinned date and will behave differently from the day it was written.
+        """
+        as_of = dt.date.fromisoformat(AS_OF)
+        src = pathlib.Path(__file__).read_text()
+        for m in re.finditer(r'"acked_at":\s*"(\d{4}-\d{2}-\d{2})"', src):
+            acked = dt.date.fromisoformat(m.group(1))
+            age = (as_of - acked).days
+            assert age < sentinel.ACK_MAX_AGE_DAYS, (
+                f"fixture acked_at={m.group(1)} is {age}d before AS_OF={AS_OF}, "
+                f"at or past the {sentinel.ACK_MAX_AGE_DAYS}d window — it will not "
+                f"mean what it meant when written")
