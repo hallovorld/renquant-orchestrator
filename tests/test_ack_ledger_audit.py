@@ -237,7 +237,24 @@ def test_the_live_ledger_is_measured_not_asserted():
     assert live == ["com.renquant.rq105-batch-scores-export"], live
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
-    assert lags["com.renquant.rq104-degradation-sentinel"] == 13
+
+    # The DAY COUNT is not pinned, and my first fix to this test pinned it anyway.
+    #
+    # `stamp_lag_days = last_edited - acked_at`, and `last_edited` comes from GIT
+    # HISTORY. It therefore differs between this branch (13) and CI, which tests the
+    # merge with main and sees a later ledger commit (14) — same code, same ledger
+    # contents, different answer. Any literal here is a value that moves whenever
+    # anyone touches the ledger, on a schedule nobody controls.
+    #
+    # What the audit is FOR survives that: this job's stamp is stale — edited well
+    # after its `acked_at` claims — and it is the only one in that state. Pinned as a
+    # property, so the day it stops being true, or another job joins it, this fails
+    # for the right reason.
+    stale = {j: v for j, v in lags.items() if v is not None and v > 0}
+    assert list(stale) == ["com.renquant.rq104-degradation-sentinel"], stale
+    assert stale["com.renquant.rq104-degradation-sentinel"] >= 13, (
+        "the stale stamp got FRESHER — if the ack was legitimately re-stamped this "
+        "assertion should be updated deliberately, not relaxed")
 
 
 # ---------------- the limit of this evidence, pinned so it is not re-claimed ----

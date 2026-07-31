@@ -13,7 +13,7 @@ sentinel's **own** expiry rule against the ledger's **own** git history
 2. **`acked_at` records when a row was *created*, not when it was last *reviewed*** —
    and `ack_expiry()` reads it as the latter. `com.renquant.rq104-degradation-sentinel`
    was rewritten on **2026-07-30** and still declares `acked_at: 2026-07-17`: a
-   **13-day** stale stamp.
+   stale stamp of **13 days as measured on this branch** — the figure is history-dependent, see the second correction below.
 
 Nothing here changes a suppression. This lands a read-only audit that measures both.
 
@@ -110,3 +110,25 @@ The finding is relabelled, and
 `test_a_re_review_and_an_unreviewed_re_stamp_are_INDISTINGUISHABLE` pins the limit so the
 claim cannot be re-added without failing a test. **The noisy stale-stamp measurement is
 untouched and remains valid.**
+
+## Second correction — and my first fix to this test missed it
+
+CI went red again on the same test, at a different assertion:
+`stamp_lag_days == 13` reported **14**.
+
+`stamp_lag_days = last_edited - acked_at`, and `last_edited` comes from **git
+history**. So it differs between this branch (13) and CI, which tests the merge with
+main and sees a later ledger commit (14) — **same code, same ledger contents, different
+answer.** Any literal there is a value that moves whenever anyone touches the ledger,
+on a schedule nobody controls.
+
+**I fixed one stale pin in this test and left another of the same kind two lines
+below.** That is the sweep-the-file lesson arriving inside a single function.
+
+The day count is no longer pinned. What the audit is *for* survives history: this job's
+stamp is stale — edited well after its `acked_at` claims — and it is **the only one**.
+That is asserted as a property, plus a `>= 13` floor so a *fresher* stamp fails rather
+than passing quietly; if the ack is legitimately re-stamped, that assertion should be
+updated deliberately.
+
+`[VERIFIED — this session]` 18 pass; the property holds at 13, 14 and 20.
