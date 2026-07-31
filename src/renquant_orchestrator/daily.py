@@ -244,6 +244,13 @@ class PersistDailyRunBundleTask(Task):
             raise ValueError("inference and execution contexts are required before bundle persistence")
         bundle = {
             "schema_version": 1,
+            # AC6 R4 step 1. `source` is the ONLY field standing between this
+            # bundle and `renquant_common`'s existing LiveRunBundle contract:
+            # measured 2026-07-31, 0 of 7 real daily bundles validated, and
+            # 7 of 7 validated once this single key was added. Wiring the
+            # validator without it -- which is what AC6 R4 proposed -- would
+            # have fail-closed every daily run.
+            "source": "daily_run_bundle",
             "run_id": ctx.run_id,
             "run_type": ctx.run_type,
             "dry_run": ctx.dry_run,
@@ -285,10 +292,55 @@ class PersistDailyRunBundleTask(Task):
             "decision_trace": str(decisions),
             "submitted_orders": str(orders),
         }
+        # Contract verdict is recorded BEFORE the final write, or the artifact on
+        # disk never carries it.
+        #
+        # Codex on #669: the previous order wrote the bundle and THEN called
+        # _record_bundle_contract(), which only mutates the in-memory dict and
+        # stage_trace. So run_bundle.json lacked `contract_validation` entirely —
+        # including when validation FAILED. The one reader who needs the verdict is
+        # whoever opens the artifact after the run, and they got a file that looked
+        # like the contract had never been checked.
+        _record_bundle_contract(bundle, ctx)
         _write_json(out, bundle)
         ctx.run_bundle = bundle
         ctx.stage_trace.append({"stage": "persist_daily_run_bundle", "ok": True})
         return True
+
+
+def _record_bundle_contract(bundle: dict, ctx: "DailyRunContext") -> None:
+    """Check the daily bundle against the shared LiveRunBundle contract.
+
+    WHY THIS RECORDS AND DOES NOT RAISE. The bundle is written AFTER decisions
+    are made and orders are submitted -- it is the audit record of a run that has
+    already happened. Aborting the run because its *receipt* is malformed inverts
+    the ordering: it would turn a documentation defect into a no-trade day, which
+    is the failure mode this repo has already paid for more than once.
+
+    IT IS NOT A FAIL-OPEN DEFAULT EITHER. The verdict is written into the bundle
+    and into `stage_trace`, so an operator-visible surface carries it; and the
+    test suite asserts a real captured bundle PASSES, so drift is caught in CI
+    rather than at 09:00 in front of the market. The binding check lives where
+    being binding is safe.
+
+    Measured 2026-07-31 before this landed: `validate_live_run_bundle` had ZERO
+    production callers in any repo -- every reference was a test -- so the
+    contract described in AC6 R4 as "already wired" was never wired at all.
+    """
+    verdict: dict[str, object] = {"contract": "renquant_common.LiveRunBundle"}
+    try:
+        from renquant_common import validate_live_run_bundle
+
+        validate_live_run_bundle(bundle)
+        verdict["ok"] = True
+    except ImportError as exc:            # contract unavailable != contract met
+        verdict["ok"] = None
+        verdict["error"] = f"contract unavailable: {exc}"
+    except Exception as exc:  # noqa: BLE001 - any validation failure is a finding
+        verdict["ok"] = False
+        verdict["error"] = str(exc)[:2000]
+    bundle["contract_validation"] = verdict
+    ctx.stage_trace.append({"stage": "validate_daily_run_bundle", **verdict})
 
 
 class DailyRunJob(Job):
