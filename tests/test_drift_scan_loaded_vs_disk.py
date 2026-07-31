@@ -190,6 +190,10 @@ def test_main_aggregates_the_new_check(monkeypatch, capsys):
     monkeypatch.setattr(D, "check_umbrella_branch", lambda: [])
     monkeypatch.setattr(D, "check_launchd_surface", lambda *a, **k: [])
     monkeypatch.setattr(D, "check_launchd_loaded", lambda *a, **k: ["LOADED DRIFT"])
+    # Unstubbed, this one runs the LIVE launchd census inside a test about output
+    # aggregation, so its info lines land in this test's captured stdout and its
+    # content depends on the host.
+    monkeypatch.setattr(D, "report_manifested_not_loaded", lambda *a, **k: ([], []))
     monkeypatch.setattr(D, "alert", lambda *a, **k: None)
     rc = D.main([])
     assert rc != 0

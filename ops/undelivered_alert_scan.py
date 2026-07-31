@@ -58,6 +58,17 @@ FAILURE_RE = re.compile(
 #: Errors that LOOKED permanent when they were logged.
 PERMANENT_RE = re.compile(r"codec can't encode|ordinal not in range", re.I)
 
+#: THE SIBLING FAILURE THIS SCAN WAS BLIND TO. `send` returns False from TWO
+#: places and they log different text: a raised exception logs "ntfy send failed"
+#: at WARNING, while `RENQUANT_NO_NOTIFY` logs "[ntfy suppressed]" at INFO and
+#: returns just as false. Matching only the first meant a fleet muted by one
+#: environment variable would drop EVERY alarm while the tool built to catch
+#: undelivered alarms reported clean -- an enumerated failure list with its
+#: sibling outside it. Measured 2026-07-31: this file had ZERO references to
+#: suppression of any kind, and `alert()` discarded send's bool at all 12 call
+#: sites, so no structured record existed either.
+SUPPRESSED_RE = re.compile(r"\[ntfy suppressed\] (?P<title>[^:]*): (?P<body>.*)")
+
 
 def encoding_defect_still_present(title: str) -> bool | None:
     """Re-test the PERMANENT claim against TODAY's encoder. None = cannot tell.
@@ -125,6 +136,16 @@ def scan_log(path: Path) -> list[Undelivered]:
             log_path=str(path),
             title=m.group("title").strip("'\""),
             error=m.group("error").strip(),
+        ))
+    for m in SUPPRESSED_RE.finditer(text):
+        # Suppression is DELIBERATE, but a deliberately-muted alarm is still an
+        # undelivered one, and a fleet that forgot it was muted looks identical
+        # to a healthy one. Reported as its own class so the reader can tell a
+        # mistake from a policy.
+        out.append(Undelivered(
+            log_path=str(path),
+            title=m.group("title").strip("'\"").strip(),
+            error="RENQUANT_NO_NOTIFY suppressed this alarm before any send",
         ))
     return out
 
