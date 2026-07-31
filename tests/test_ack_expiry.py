@@ -78,18 +78,52 @@ def test_a_non_date_that_looks_like_one_does_not_crash():
 
 # --- the real ledger, on a fixed date ----------------------------------------
 
-def test_the_committed_ledger_has_exactly_four_expired_acks_on_2026_07_30():
-    """Positive control against a hand measurement: issue #622 counted FOUR acks past
-    their date by hand. The mechanism reproduces it independently, and each of the four
-    is killed by a date written in its own clears_when, not by the age window."""
+def test_the_committed_ledger_has_exactly_three_expired_acks_on_2026_07_30():
+    """Positive control against a hand measurement. Issue #622 counted FOUR acks past
+    their date by hand and the mechanism reproduced it independently.
+
+    COUNT CHANGED 4 -> 3 on 2026-07-31, and deliberately, not to make a test pass:
+    `com.renquant.rq105-batch-scores-export` was re-dispositioned with a MEASURED
+    current diagnosis (the export refuses because no contract-clean full-buy run
+    exists — a 104 buy-side block, not a 105 defect) and now carries an explicit
+    `expires_at: 2026-08-14`. So it is no longer among the expired.
+
+    The property this test exists for is unchanged and still asserted below: every
+    remaining expired ack is killed by a date in its OWN clears_when, not by the
+    blanket age window. If a future edit drops that count to 0 by renewing acks
+    rather than fixing jobs, THAT is what this test should be read against."""
     ledger = json.loads((OPS / "renquant104" / "sentinel_acks.json").read_text())
     on = D("2026-07-30")
     expired = {k: sent.ack_expiry(v) for k, v in ledger.items()}
     dead = {k: (e, w) for k, (e, w) in expired.items() if e is None or e <= on}
-    assert len(dead) == 4, sorted(dead)
+    assert len(dead) == 3, sorted(dead)
+    assert "com.renquant.rq105-batch-scores-export" not in dead
     for k, (e, w) in dead.items():
         assert "clears_when" in w, f"{k} expired by {w}, expected its own clears_when"
         assert e == D("2026-07-20"), k
+
+
+def test_the_re_dispositioned_ack_expires_by_its_OWN_explicit_date():
+    """An `expires_at` must win over the 14-day age window — otherwise a considered
+    review date silently inherits a blanket one."""
+    ledger = json.loads((OPS / "renquant104" / "sentinel_acks.json").read_text())
+    row = ledger["com.renquant.rq105-batch-scores-export"]
+    e, w = sent.ack_expiry(row)
+    assert e == D("2026-08-14")
+    assert w == "expires_at", w
+    assert row["acked_at"] == "2026-07-31"
+
+
+def test_the_re_dispositioned_ack_names_a_FALSIFIABLE_clearing_condition():
+    """An ack whose clears_when cannot be observed to happen is permanent in
+    disguise. This one names a merge, a pin, and an observable session outcome —
+    and says what to do if the fix lands and the job still fails."""
+    row = json.loads((OPS / "renquant104" / "sentinel_acks.json").read_text())[
+        "com.renquant.rq105-batch-scores-export"]
+    cw = row["clears_when"]
+    assert "strategy-104#73" in cw
+    assert "full-buy-funnel run" in cw
+    assert "must be removed, not renewed" in cw
 
 
 # --- check_launchd_exits: expired acks go LOUD, valid ones stay INFO ---------
