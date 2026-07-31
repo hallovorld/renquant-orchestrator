@@ -1,5 +1,20 @@
 {
   "_comment": "Reviewed-good launchd surface (GOAL-5 AC2). Every com.renquant.* job's ProgramArguments is pinned here; the drift scan alarms on any divergence. Intentional changes update this file in the same reviewed PR.",
+  "_wrapper_scope_boundaries_comment": "Wrappers this repo's drift scanner deliberately does NOT inspect, with the surface that owns each. Declared here because a scope boundary is a CLAIM that something else checks it -- changing one must take a PR. An unresolvable wrapper NOT covered by an entry below is reported as a PROBLEM, not an info line (codex on orch#675): otherwise a scheduled source can vanish from this checkout and become uninspected in silence.",
+  "wrapper_scope_boundaries": [
+    {
+      "root": "/Users/renhao/git/github/RenQuant/scripts",
+      "owner": "RenQuant (umbrella repo)",
+      "why": "19 of 33 manifested wrappers live here, including daily104, intraday104 and weekly-wf-promote. This repo cannot read them under the standing no-git/no-write rule for the live umbrella tree, so the check is honest about not covering them rather than reporting a clean scan it did not perform.",
+      "measured": "2026-07-31: 19 entries"
+    },
+    {
+      "root": "/Users/renhao/git/github/RenQuant/.subrepo_runtime",
+      "owner": "RenQuant pinned subrepo runtime",
+      "why": "A pinned checkout materialised by the umbrella; its contents are governed by the pin, not by this repo's review.",
+      "measured": "2026-07-31: 1 entry"
+    }
+  ],
   "jobs": {
     "com.renquant.agent-pr-loop": {
       "program_args": [
