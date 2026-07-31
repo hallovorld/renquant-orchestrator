@@ -957,3 +957,123 @@ class TestMlflowFallback:
         # 1 row (the tagged "run_real"), not 3 (the untagged same-mtime-date decoy)
         assert rec.n_scored == 1
         assert rec.n_candidates == 1
+
+
+# --- 2026-07-30: the DB fallback matched the lane differently from the JSONL path --
+# The served lane is `hf_patchtst_pt07_strict_seed44_previous_primary`. The JSONL
+# branch used `_matches_shadow_lane` (prefix); this branch used SQL `=` (exact). So
+# whenever the JSONL sink did not cover a date, the fallback found ZERO rows and the
+# sentinel reported "LOAD FAILURE ... ZERO shadow scores" while the pipeline's own
+# record for the same date said loaded=True, n_scored=77 and 85, stale_622d.
+# Wrong, and MORE alarming than the truth.
+
+import sqlite3 as _sqlite3
+
+
+def _mini_db(path, scorer_name, n=5):
+    c = _sqlite3.connect(path)
+    c.executescript(
+        # Schema transcribed from the real query at _derive_day_record: it selects
+        # run_id + training_cutoff and filters WHERE run_type='live'. My first
+        # fixture omitted run_type and the tests failed on the FIXTURE, not the fix.
+        "CREATE TABLE pipeline_runs (run_id TEXT, run_date TEXT, run_type TEXT,"
+        " training_cutoff TEXT);"
+        "CREATE TABLE candidate_scores (run_id TEXT, ticker TEXT, active_scorer TEXT,"
+        " model_type TEXT);")
+    c.execute("INSERT INTO pipeline_runs VALUES ('r1','2026-07-28','live','2024-11-14')")  # run_type='live'
+
+    for i in range(n):
+        c.execute("INSERT INTO candidate_scores VALUES ('r1',?,?,NULL)",
+                  (f"T{i}", scorer_name))
+    c.commit(); c.close()
+
+
+def test_the_DECORATED_lane_name_is_counted_by_the_db_fallback(tmp_path):
+    """THE DEFECT. The real served name carries a suffix; SQL `=` rejected it."""
+    db = tmp_path / "runs.db"
+    _mini_db(db, "hf_patchtst_pt07_strict_seed44_previous_primary", n=5)
+    conn = sentinel._open_db_readonly(str(db))
+    rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
+    conn.close()
+    assert rec is not None
+    assert rec.n_scored == 5, rec
+    assert rec.loaded is True
+
+
+def test_the_bare_lane_name_still_counts(tmp_path):
+    """Anti-regression: the exact form must keep working, or the fix trades one
+    blind spot for another."""
+    db = tmp_path / "runs.db"
+    _mini_db(db, sentinel.SHADOW_NAME, n=3)
+    conn = sentinel._open_db_readonly(str(db))
+    rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
+    conn.close()
+    assert rec.n_scored == 3 and rec.loaded is True
+
+
+def test_an_UNRELATED_scorer_is_NOT_counted(tmp_path):
+    """The matcher must still discriminate. A prefix rule that accepted everything
+    would make the sentinel report a healthy shadow lane forever."""
+    db = tmp_path / "runs.db"
+    _mini_db(db, "xgb_prod_panel", n=7)
+    conn = sentinel._open_db_readonly(str(db))
+    rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
+    conn.close()
+    assert rec.n_scored == 0 and rec.loaded is False
+
+
+def test_a_lookalike_prefix_is_NOT_counted(tmp_path):
+    """`hf_patchtstXX` shares the prefix but is a different lane; the matcher
+    requires the exact name or an underscore-delimited suffix."""
+    db = tmp_path / "runs.db"
+    _mini_db(db, sentinel.SHADOW_NAME + "XX", n=4)
+    conn = sentinel._open_db_readonly(str(db))
+    rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
+    conn.close()
+    assert rec.n_scored == 0, "prefix matching must not swallow a neighbouring lane"
+
+
+def test_the_two_paths_share_ONE_matcher():
+    """The durable half. If a second matcher is ever expressed in SQL, the copy that
+    runs will not be the copy a reader finds first — the twin-implementation class
+    this programme keeps hitting."""
+    src = (Path(sentinel.__file__)).read_text()
+    assert "active_scorer = ? OR model_type = ?" not in src
+    assert src.count("_matches_shadow_lane") >= 3
+
+
+def test_an_ALL_NULL_scorer_column_yields_loaded_None_not_False(tmp_path):
+    """"The DB does not record it" is not "the shadow scored nothing".
+
+    Measured 2026-07-30: since 2026-07-22 every candidate_scores row in
+    runs.alpaca_shadow.db carries active_scorer = NULL — 88/85/85/95/360/98 rows on
+    six live dates, ZERO identifiable under ANY matcher, while the pipeline's own
+    JSONL for the same dates says loaded=True, n_scored=77/85. Reporting False there
+    asserts a fact the store cannot support."""
+    db = tmp_path / "runs.db"
+    c = _sqlite3.connect(db)
+    c.executescript(
+        "CREATE TABLE pipeline_runs (run_id TEXT, run_date TEXT, run_type TEXT,"
+        " training_cutoff TEXT);"
+        "CREATE TABLE candidate_scores (run_id TEXT, ticker TEXT, active_scorer TEXT,"
+        " model_type TEXT);")
+    c.execute("INSERT INTO pipeline_runs VALUES ('r1','2026-07-28','live','2024-11-14')")
+    for i in range(9):
+        c.execute("INSERT INTO candidate_scores VALUES ('r1',?,NULL,NULL)", (f"T{i}",))
+    c.commit(); c.close()
+    conn = sentinel._open_db_readonly(str(db))
+    rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
+    conn.close()
+    assert rec.loaded is None, rec
+    assert rec.n_scored == 0
+
+
+def test_a_populated_scorer_column_still_yields_a_BOOLEAN(tmp_path):
+    """Anti-vacuity: the None must be reserved for the uninformative case, or every
+    reading becomes 'unknown' and the sentinel says nothing at all."""
+    db = tmp_path / "runs.db"
+    _mini_db(db, "xgb_prod_panel", n=4)
+    conn = sentinel._open_db_readonly(str(db))
+    rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
+    conn.close()
+    assert rec.loaded is False and rec.n_scored == 0
