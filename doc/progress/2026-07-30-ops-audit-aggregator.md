@@ -99,14 +99,57 @@ traceback → `crash`; `0` → `ok`; **in the contract** → `findings`; **anyth
 nonzero** → new status `unusable`, which sits on the harness side of the severity
 ordering, so it outranks findings for the aggregate exit.
 
-The codes were **measured, not assumed**: all six members use `1` for findings, four
-also use `2` for unusable. Declaring the contract per member rather than hardcoding
-`{1}` globally is deliberate — a future detector with a different vocabulary must state
-it, instead of silently inheriting the fail-open.
+**The `else` is the fix, not the list.** This is a default inversion, not an
+enumeration of known-bad codes: an enumerated deny-list always leaves a fail-open
+`else`, which is how the bug arrived. Only "verdict reached" codes are listed;
+**every other nonzero is HARNESS by default**, including codes no member uses today.
+Declaring the contract per member rather than hardcoding `{1}` globally is likewise
+deliberate — a future detector with a different vocabulary must state it instead of
+silently inheriting the fail-open.
 
-`test_every_member_declares_a_finding_contract` fails if a member is added without one.
+**Codes cited, not asserted.** Each member's code is recorded in `MEMBERS` with the
+file and line it was read from at `b44f735c`, because "measured, not assumed" with no
+citation is itself an assertion:
 
-`[VERIFIED — this session]` 16 tests pass, including the regression codex asked for
-(`test_a_non_traceback_exit_2_is_HARNESS_not_findings`). Load-bearing confirmed by
-restoring the old classification in a copy: the same exit-2 stub flips `unusable` →
-`findings`.
+| member | finding exit | read from | unusable codes |
+| --- | --- | --- | --- |
+| silent-refusal | `1` | `rq104_silent_refusal_sentinel.py:236` `return 1 if findings else 0` | none |
+| blind-notifiers | `1` | `blind_notifier_scan.py:95` `EXIT_OK, EXIT_FINDINGS, EXIT_UNUSABLE = 0, 1, 2` | `2` @ :205 |
+| undelivered-alerts | `1` | `undelivered_alert_scan.py:159` | none |
+| import-resolution | `1` | `import_resolution_check.py:203` | `2` @ :191, :197 |
+| umbrella-script-shadow | `1` | `umbrella_script_shadow_check.py:258` | `2` @ :237, :242, :247, :256 |
+| launchd-liveness | `1` | `launchd_liveness_scan.py:354` `return 1 if bad else 0` | `2` @ :339, :342 |
+
+A comment citing a line still rots when the member changes underneath it, so
+`test_declared_contract_matches_each_member_source` **re-derives** this table from each
+member's AST (resolving constants, module-level names like `EXIT_FINDINGS`, and
+`return 1 if bad else 0`) and fails if a declared code is one `main()` cannot return.
+Derived independently: all six yield `{0,1}`, four also `{2}` — matching the hand-read
+citations. `test_the_cited_contract_is_the_one_in_force` pins the table so that
+widening any member to `(1, 2)` — which would reintroduce #650 for that member alone —
+is a failing diff.
+
+`[VERIFIED — this session]` **23 tests pass** in `tests/test_ops_audit.py` (was 16),
+including the regression codex asked for
+(`test_a_non_traceback_exit_2_is_HARNESS_not_findings`) and the anti-vacuity pair
+(`test_an_IN_CONTRACT_exit_without_a_traceback_is_a_FINDING`,
+`test_an_exit_inside_the_contract_is_a_finding`) without which a fix that called
+everything HARNESS would pass.
+
+`[VERIFIED — this session]` **Mutation-tested**, three reverts each caught: widening
+blind-notifiers to `(1,2)` → 1 fail; declaring an unreachable exit `7` → 2 fails;
+restoring `else STATUS_FINDINGS` (the original bug) → 3 fails.
+
+`[VERIFIED — this session]` **Live run** `python3 ops/ops_audit.py` → all 6 members ran:
+`ok=1 findings=5 unusable=0 crash=0 timeout=0 missing=0`, aggregate exit **1**. The five
+findings are real detector output (silent-refusal streak on `weekly-retrain-patchtst`,
+15 ntfy POSTs scanned, a `latin-1` undelivered alarm, an unresolvable
+`renquant_artifacts.hash_jsonable`, launchd liveness); `umbrella-script-shadow` exited
+`0` with 44 pairs registered. No member landed on `unusable`, so the aggregate is
+`findings` and not the harness code — the contract discriminates in production, not
+only in tests.
+
+Full suite: `4699 passed, 1 failed`. The failure is
+`test_run_surface_drift_check.py::test_committed_manifest_matches_live_surface`, which
+fails identically on the untouched base commit (it compares the committed manifest to
+this machine's live launchd surface) and is unrelated to this change.

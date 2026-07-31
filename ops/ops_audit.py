@@ -54,8 +54,34 @@ PY = sys.executable
 #: finding something while it had nothing to look at. argparse also exits 2 without
 #: a traceback, so a typo in `tail` would have read as a finding too.
 #:
-#: Codes MEASURED from each member's `main()` on 2026-07-30, not assumed:
-#: all six use 1 = findings, and four of them use 2 = unusable/unverifiable.
+#: The contract is a DEFAULT INVERSION, not an allow-list of bad codes. We do not
+#: enumerate the unusable codes and hope we got them all — an enumerated deny-list
+#: always leaves a fail-open `else`, which is exactly how this bug arrived. Only the
+#: codes that mean "verdict reached" are listed; **every other nonzero is HARNESS by
+#: default**, including codes no member uses today and codes added by a future edit.
+#:
+#: Codes READ from each member's source at b44f735c on 2026-07-30 — cited, not
+#: asserted, because "measured" with no citation is how the last one got in.
+#: `test_declared_contract_matches_each_member_source` re-derives this table from the
+#: member ASTs, so the citations below are checked rather than trusted.
+#:
+#:   silent-refusal   rq104_silent_refusal_sentinel.py:236 `return 1 if findings else 0`
+#:                    — only 0/1; no unusable code of its own.
+#:   blind-notifiers  blind_notifier_scan.py:95
+#:                    `EXIT_OK, EXIT_FINDINGS, EXIT_UNUSABLE = 0, 1, 2`
+#:                    findings returned :219; EXIT_UNUSABLE returned :205 (the exit
+#:                    codex named — source directory absent).
+#:   undelivered-alerts undelivered_alert_scan.py:159 `return 1`; clean 0 at :154.
+#:   import-resolution  import_resolution_check.py:203 `return 1`; 2 = FATAL at
+#:                    :191 (pin file missing) and :197 (pin file unreadable).
+#:   umbrella-script-shadow umbrella_script_shadow_check.py:258 `return 1`; 2 =
+#:                    UNVERIFIABLE at :237, :242, :247, :256 — the state #634 added
+#:                    so "could not check" could not read as "checked, found nothing".
+#:   launchd-liveness launchd_liveness_scan.py:354 `return 1 if bad else 0`; 2 at
+#:                    :339 (manifest unreadable) and :342 (manifest lists no jobs).
+#:
+#: Result: all six signal findings with 1; four also use 2 for unusable. argparse
+#: also exits 2 with no traceback, so a typo in any `tail` lands on HARNESS too.
 #: Read-only detectors only — see module docstring.
 MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("silent-refusal", "renquant104/rq104_silent_refusal_sentinel.py", [], (1,)),
@@ -108,6 +134,13 @@ def run_member(name: str, rel: str, tail: list[str],
     # The previous version had `else STATUS_FINDINGS`, so exit 2 = "could not check"
     # was reported as "checked and found something" — the crash-vs-alarm confusion
     # #622 exists for, reproduced one layer up in the aggregator built to prevent it.
+    #
+    # NOTE THE DIRECTION OF THE `else`. It is STATUS_UNUSABLE, not STATUS_FINDINGS.
+    # The fix is not "enumerate the known-bad codes"; that is the same fail-open with
+    # a longer list, and it re-breaks the day a member invents a code nobody added.
+    # An unrecognised code is HARNESS by default and must stay that way: the failure
+    # mode we are buying off is a BROKEN detector reading as a HEALTHY one, and that
+    # trade only holds if the unknown case falls on the harness side.
     crashed = any("Traceback (most recent call last)" in l for l in err)
     if crashed:
         status = STATUS_CRASH
