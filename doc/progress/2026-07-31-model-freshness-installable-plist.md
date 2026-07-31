@@ -131,6 +131,33 @@ executes**:
 Read-only, exit 2 when any job is refused, and it never installs anything — installation
 stays an operator action.
 
+### Where the preflight is actually a GATE — corrected after codex on #667
+
+*"Closes the class"* over-stated it. A check only gates what calls it, and the honest
+inventory is small:
+
+| install path | gated? |
+|---|---|
+| `scripts/install_stops_pager.sh` (stops-liveness) | **yes** — refuses on non-zero exit |
+| `com.renquant.rq104-model-freshness` | **no installer script exists** |
+| `com.renquant.ops-audit` | **no installer script exists** |
+
+Both labels this PR ships install by a **separate authorised manual step**. So the
+preflight sat entirely outside their path: available, quotable, and enforcing nothing.
+
+**Wired by naming it in the procedure that exists.** Each label's
+`_pending_install_comment` in the reviewed manifest now carries its required first
+step — `python3 ops/plist_install_preflight.py <label>`, do not bootstrap unless it
+exits 0 — because that comment **is** the supported path: it is what an operator
+follows and what review covers. Two tests hold it: every pending-install job must name
+the preflight **with its own label**, and the preflight must actually accept each of
+those labels (exit 0 or the defined refusal, never a crash).
+
+**Why not a generic installer script.** Nothing would call it. A script written to
+satisfy a review, sitting unused beside a manual procedure people actually follow, is
+inert scaffolding — and the operator would route around a step that only exists in a
+file they never open.
+
 **Two of my own errors, both caught by running it against the real machine.**
 
 1. **I required the exec bit unconditionally**, and it refused three jobs that are

@@ -348,3 +348,44 @@ def test_the_installer_refuses_rather_than_warns():
     block = src[src.index('python3 "$REPO_ROOT/ops/plist_install_preflight.py"'):]
     assert "REFUSING to bootstrap" in block[:400]
     assert "exit 4" in block[:400], "preflight failure must stop the install"
+
+
+# ---------------------------------------------------------------------------
+# Codex on #667: the preflight governed ONE installer, for a different job.
+# ---------------------------------------------------------------------------
+
+def test_every_pending_install_job_names_the_preflight_in_its_own_procedure():
+    """Scope the control to the path that actually exists, and put it IN that path.
+
+    `install_stops_pager.sh` is the only installer script in this repo, and it installs
+    stops-liveness. The two labels this PR ships have **no installer** -- their install
+    is a separate authorised manual step, described by `_pending_install_comment` in the
+    reviewed manifest. That comment IS the supported path: it is what an operator
+    follows and what review covers.
+
+    So the preflight is wired by being named there as a required first step. A control
+    that exists but sits outside the procedure people follow is not a control, and a
+    generic installer nobody invokes would be inert scaffolding -- the failure mode this
+    programme has an explicit standing rule against.
+    """
+    man = json.loads((REPO / "ops" / "launchd_manifest.json").read_text(encoding="utf-8"))
+    pending = {j: s for j, s in man["jobs"].items() if "_pending_install_comment" in s}
+    assert pending, "no pending-install jobs — this test has lost its subject"
+    for job, spec in pending.items():
+        c = spec["_pending_install_comment"]
+        assert "ops/plist_install_preflight.py" in c, job
+        assert job in c, f"{job}: the command must name ITS OWN label, not a generic one"
+        assert "exits 0" in c, job
+
+
+def test_the_preflight_actually_accepts_every_label_it_is_prescribed_for():
+    """The prescribed command must be runnable for each label, not just quotable.
+
+    A documented step that errors on an unknown label would be worse than no step: the
+    operator would hit a traceback and route around it. This asserts the preflight
+    recognises each pending label -- exit 0 or the defined refusal code, never a crash.
+    """
+    man = json.loads((REPO / "ops" / "launchd_manifest.json").read_text(encoding="utf-8"))
+    for job in [j for j, s in man["jobs"].items() if "_pending_install_comment" in s]:
+        rc = pf.main([job])
+        assert rc in (0, pf.EXIT_NOT_INSTALLABLE), f"{job}: unexpected rc={rc}"
