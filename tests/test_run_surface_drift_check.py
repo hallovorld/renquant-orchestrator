@@ -7,11 +7,13 @@ manifests for the launchd surface. The drill case: a daily104 swapped to a
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops"))
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "ops"))
 
 import run_surface_drift_check as drift  # noqa: E402
 
@@ -142,12 +144,249 @@ class TestManifestGeneration:
         mpath.write_text(json.dumps(m))
         assert drift.check_launchd_surface(str(mpath), str(agents)) == []
 
-    def test_committed_manifest_matches_live_surface(self):
-        """The repo's committed manifest must describe the CURRENT machine —
-        a stale manifest would alarm on every firing. (Skipped off-machine.)"""
+    #: Jobs DECLARED on the reviewed run surface that are not yet installed.
+    #: Declaring before installing is deliberate (the manifest is the reviewed
+    #: surface, the plist on disk is the live one; declaring first gives the
+    #: install something to be checked against). Each entry must be named here,
+    #: so the set cannot grow silently into manifest rot.
+    PENDING_INSTALL = {
+        # aggregator for the six ops detectors — orch#650
+        "com.renquant.ops-audit",
+        # model-freshness monitor — declared before this session
+        "com.renquant.rq104-model-freshness",
+        # AC5 silent-refusal sentinel — arrived from main during this merge, not
+        # from this branch. main's own test says installing the plist is a separate
+        # machine landing and that until then "the drift scan reports the job
+        # missing from disk, and that alarm is the intended, tracked reminder".
+        # Named here rather than silently absorbed: the set growing is exactly what
+        # this list exists to make visible.
+        "com.renquant.rq104-silent-refusal",
+    }
+
+    _PENDING_PATTERN = "manifested job {label} missing from disk"
+
+    @staticmethod
+    def _surface_problems():
         import os
         if not os.path.isdir(os.path.expanduser("~/Library/LaunchAgents")):
             import pytest
             pytest.skip("not on the operator machine")
-        problems = drift.check_launchd_surface()
-        assert problems == [], f"committed manifest is stale: {problems[:3]}"
+        return list(drift.check_launchd_surface())
+
+    def _partition(self):
+        """(pending-missing labels, residual problems).
+
+        EVERY problem lands in exactly one bucket. There is no third,
+        silently-ignored category — which is what the first version of this
+        retarget had, and what codex rejected.
+        """
+        pending, residual = set(), []
+        for prob in self._surface_problems():
+            if "missing from disk" in prob and "manifested job " in prob:
+                pending.add(prob.split("manifested job ")[1].split(" missing")[0])
+            else:
+                residual.append(prob)
+        return pending, residual
+
+    def test_no_unmanifested_job_runs_on_disk(self):
+        """STRICT, no allow-list. A job on disk but absent from the manifest is
+        code nobody approved — the "silent containment / job swap" shape."""
+        assert [p for p in self._surface_problems() if "unmanifested" in p] == []
+
+    def test_NO_residual_problem_of_any_other_kind(self):
+        """The one my first retarget missed (codex BLOCKER on this PR).
+
+        That version kept only "unmanifested" plus the named missing-from-disk
+        set and IGNORED everything else — so an installed job whose
+        ProgramArguments or hash had drifted from the reviewed manifest produced
+        a problem that BOTH new tests passed over. The old exact `== []` caught
+        it; my replacement had re-opened it.
+
+        The pending allow-list may relax installation ABSENCE only. Agreement
+        between an installed job and its reviewed manifest is never relaxed.
+        Asserting the RESIDUAL rather than naming forbidden categories is the
+        point: strings nobody has anticipated fail by default.
+        """
+        _, residual = self._partition()
+        assert residual == [], residual
+
+    def test_declared_but_uninstalled_jobs_are_exactly_the_named_set(self):
+        """RETARGETED 2026-07-31, deliberately, and it was red for months.
+
+        The old assertion was `check_launchd_surface() == []` — the manifest must
+        match the live surface EXACTLY. The system deliberately violates that: a
+        job may be declared on the reviewed surface before its plist is
+        installed, and com.renquant.rq104-model-freshness has been in that state
+        all along. So it failed on the operator's machine on every branch, and a
+        permanently-red test trains its reader to ignore local failures.
+
+        This bounds the ONE relaxation; the residual test above forbids the rest.
+        """
+        pending, _ = self._partition()
+        assert pending == self.PENDING_INSTALL, (
+            f"declared-but-uninstalled set changed: "
+            f"unexpected={sorted(pending - self.PENDING_INSTALL)} "
+            f"resolved={sorted(self.PENDING_INSTALL - pending)}")
+
+
+
+# --- AC5 has a scheduled surface declared (2026-07-31) -----------------------
+def test_ac5_silent_refusal_sentinel_is_manifested():
+    """GOAL-5 AC5's sentinel is merged to main and had NO scheduled surface.
+
+    Measured 2026-07-31: absent from ops/launchd_manifest.json and from
+    `launchctl list`; run by hand for the first time it immediately found
+    weekly-retrain-patchtst dead for four weeks (3 crashes on one corpus-drift
+    error). "AC5 merged" and "AC5 deployed" were four weeks apart.
+
+    This pins the DECLARATION. Installing the plist is a separate machine
+    landing; until then the drift scan reports the job missing from disk, and
+    that alarm is the intended, tracked reminder.
+    """
+    import hashlib
+    manifest = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    label = "com.renquant.rq104-silent-refusal"
+    assert label in manifest, sorted(manifest)
+    spec = manifest[label]
+    assert spec["program_args"][-1].endswith(
+        "ops/renquant104/run_silent_refusal_sentinel.sh"), spec
+    assert spec["program_args_sha256"] == hashlib.sha256(
+        json.dumps(spec["program_args"]).encode()).hexdigest()
+    # DATED evidence, not an append-only .out. The exit code alone cannot separate
+    # "found a silent refusal" from "crashed" (#622), and an undated append-only
+    # stream cannot be attributed to any run at all (#663).
+    assert "silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log" in spec["evidence_glob"]
+
+
+def test_the_committed_plist_matches_the_manifest_entry():
+    """A plist that disagrees with the manifest is the drift this repo exists to
+    catch — it must not ship disagreeing with itself on day one."""
+    import plistlib
+    label = "com.renquant.rq104-silent-refusal"
+    pl = plistlib.loads((REPO / "deploy" / f"{label}.plist").read_bytes())
+    manifest = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+    assert pl["Label"] == label
+    assert pl["ProgramArguments"] == manifest[label]["program_args"]
+    # runs AFTER the 15:00 degradation sentinel so a day's refusals are already
+    # classified, and the two alarms never interleave
+    assert pl["StartCalendarInterval"]["Hour"] == 16
+    # launchd sinks are for output from a run that never reached its own dated
+    # evidence; the readable record is the wrapper's silent_refusal_<date>.log.
+    assert pl["StandardOutPath"].endswith("launchd_silent_refusal.out")
+    assert pl["StandardErrorPath"].endswith("launchd_silent_refusal.err")
+    assert pl["EnvironmentVariables"]["RQ_ORCH_ROOT"]
+
+
+
+# --- every emitted line must carry its own date (2026-07-31) ------------------
+class TestOutputLinesCarryTheirDate:
+    """The StandardOutPath is append-only with no date in its filename.
+
+    Measured 2026-07-31: 0 of 18 lines began with a date, and the file held a
+    CONTAINMENT alarm that had already been resolved — indistinguishable from a
+    live one. These pin the leading stamp on every path out of `main`.
+    """
+
+    STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} ")
+
+    def _run(self, monkeypatch, capsys, *, problems, infos):
+        monkeypatch.setattr(drift, "check_git_surfaces", lambda: (list(problems), list(infos)))
+        monkeypatch.setattr(drift, "check_umbrella_branch", lambda: [])
+        monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
+        monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
+        # main() has SEVEN problem producers, not five. The first version of
+        # these tests stubbed five and passed locally while failing in CI,
+        # because check_sentinel_receipt() returns a problem on a host with no
+        # receipt and none on mine — a test measuring the machine it ran on.
+        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
+        monkeypatch.setattr(drift, "alert", lambda *a, **k: None)
+        rc = drift.main([])
+        return rc, [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+    def test_the_clean_line_is_dated(self, monkeypatch, capsys):
+        rc, lines = self._run(monkeypatch, capsys, problems=[], infos=[])
+        assert rc == 0
+        # main() has INFO producers beyond the five stubbed here, so assert the
+        # INVARIANT (every line dated) rather than a line count that would pin
+        # an unrelated implementation detail.
+        assert lines and all(self.STAMP.match(ln) for ln in lines), lines
+        assert any("run-surface drift scan OK" in ln for ln in lines), lines
+
+    def test_every_INFO_line_is_dated(self, monkeypatch, capsys):
+        rc, lines = self._run(monkeypatch, capsys, problems=[], infos=["a", "b"])
+        assert rc == 0
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any(ln.endswith("INFO: a") for ln in lines), lines
+        assert any(ln.endswith("INFO: b") for ln in lines), lines
+
+    def test_EVERY_problem_line_is_dated_not_just_the_first(self, monkeypatch, capsys):
+        """The regression that matters: `print("\\n".join(problems))` stamped at
+        most the first line, and the containment alarm was not first."""
+        rc, lines = self._run(
+            monkeypatch, capsys, problems=["p1", "p2 ProgramArguments CHANGED", "p3"],
+            infos=[])
+        assert rc == 1
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        # each problem is its OWN dated line — the pre-fix code joined them and
+        # stamped at most the first, and the containment alarm was not first.
+        for want in ("p1", "p2 ProgramArguments CHANGED", "p3"):
+            assert any(ln.endswith(want) for ln in lines), (want, lines)
+
+    def test_no_line_on_any_path_is_undated(self, monkeypatch, capsys):
+        """Anti-vacuity: covers both exit paths at once, so a future branch that
+        prints without a stamp fails here even if the tests above still pass."""
+        for problems, infos in (([], []), ([], ["i"]), (["p"], ["i"])):
+            _, lines = self._run(monkeypatch, capsys, problems=problems, infos=infos)
+            assert lines, (problems, infos)
+            assert all(self.STAMP.match(ln) for ln in lines), (problems, infos, lines)
+
+    def test_the_stamp_is_injectable_and_second_resolution(self):
+        import datetime as dt
+        assert drift._now_iso(dt.datetime(2026, 7, 31, 6, 5, 4)) == "2026-07-31T06:05:04"
+
+    def test_alert_body_stays_UNSTAMPED(self, monkeypatch, capsys):
+        """The ntfy transport carries its own time; duplicating it in the body
+        would push the real message past the notification's visible length."""
+        seen = {}
+        monkeypatch.setattr(drift, "check_git_surfaces", lambda: (["boom"], []))
+        monkeypatch.setattr(drift, "check_umbrella_branch", lambda: [])
+        monkeypatch.setattr(drift, "check_umbrella_deploy_lag", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_launchd_surface", lambda: [])
+        monkeypatch.setattr(drift, "check_launchd_loaded", lambda: [])
+        monkeypatch.setattr(drift, "check_import_resolution", lambda: ([], []))
+        monkeypatch.setattr(drift, "check_sentinel_receipt", lambda: ([], []))
+        monkeypatch.setattr(drift, "alert",
+                            lambda title, body, **k: seen.update(title=title, body=body))
+        assert drift.main([]) == 1
+        assert seen["body"] == "boom"
+        assert not self.STAMP.match(seen["body"])
+
+    def test_a_MULTILINE_info_stamps_every_physical_line(self, monkeypatch, capsys):
+        """Codex BLOCKER on this PR: stamping each list ELEMENT leaves embedded
+        newlines as unstamped continuation lines — the exact attribution failure
+        the change exists to remove, rebuilt inside the fix."""
+        rc, lines = self._run(monkeypatch, capsys, problems=[],
+                              infos=["first\nsecond\nthird"])
+        assert rc == 0
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any(ln.endswith("second") for ln in lines), lines
+        assert any(ln.endswith("third") for ln in lines), lines
+
+    def test_a_MULTILINE_problem_stamps_every_physical_line(self, monkeypatch, capsys):
+        rc, lines = self._run(
+            monkeypatch, capsys,
+            problems=["umbrella live tree not on main\n  ref: refs/heads/feat/x\n  restore with git checkout main"],
+            infos=[])
+        assert rc == 1
+        assert len(lines) == 3
+        assert all(self.STAMP.match(ln) for ln in lines), lines
+        assert any("restore with git checkout main" in ln for ln in lines), lines
+
+    def test_an_EMPTY_record_still_emits_one_stamped_line(self, monkeypatch, capsys):
+        """A record that was produced must stay countable. Dropping it silently
+        is the same class of loss as leaving it undated."""
+        rc, lines = self._run(monkeypatch, capsys, problems=[""], infos=[])
+        assert rc == 1
+        assert len(lines) == 1 and self.STAMP.match(lines[0]), lines
