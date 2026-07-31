@@ -78,6 +78,12 @@ class WatchedJob:
     #: 07-11 and 07-18 runs died on `CorpusRefreshError` and the 07-03 run
     #: hit the same error yet still printed `finished rc=0`.
     failure_re: str = r"Traceback \(most recent call last\)|CorpusRefreshError|^\w*Error:"
+    #: Dated logs are normally `<log_dir>/YYYY-MM-DD.log`. Some jobs write
+    #: `<prefix>YYYY-MM-DD.log` into a directory SHARED with other jobs --- rq105/
+    #: holds six jobs' logs. Without this the finder skips them entirely (the whole
+    #: stem is not a date), and a finder that merely stripped any prefix would read
+    #: a SIBLING job's logs. Required for both discovery and attribution.
+    log_stem_prefix: str = ""
 
 
 #: Registry. A job belongs here when "it ran successfully" and "it did its
@@ -89,7 +95,42 @@ WATCHED: tuple[WatchedJob, ...] = (
         refusal_re=r"promote:\s*refused",
         action_re=r"promote:\s*(promoted|advanced|applied)",
     ),
+    # SECOND LANE, added 2026-07-30. Same shape as the first: the job's entire
+    # purpose is to produce an artifact, it can decline, and declining is a normal
+    # exit. Both patterns were read off the REAL dated logs before being written
+    # here, not guessed:
+    #   refusal  logs/rq105/batch_scores_export_2026-07-30.log
+    #            "run <id> fails class-A health evidence: full_buy_run(pipeline_flags)
+    #             — ... refusing to export"
+    #   action   logs/rq105/batch_scores_export_2026-07-29.log
+    #            "exported 85/85 frozen blend scores (coverage 100.0%) from ..."
+    #
+    # NOT added on the strength of a current incident. Measured 2026-07-30 the
+    # refusal streak is ONE (07-30 refused, 07-29 exported 85/85 at 100% coverage),
+    # and this module's own doctrine is that a single refusal is a legitimate gate
+    # doing its job. The lane is added for COVERAGE: today nothing would notice if
+    # that one became twenty.
+    WatchedJob(
+        name="rq105-batch-scores-export",
+        log_dir=os.path.join(RQ, "logs/rq105"),
+        log_stem_prefix="batch_scores_export_",
+        refusal_re=r"refusing to export",
+        action_re=r"exported\s+\d+/\d+\s+frozen blend scores",
+    ),
 )
+
+#: Lanes that have the shape but CANNOT be watched yet, with the measured reason.
+#: Recorded rather than silently omitted --- an unwatched lane that nobody wrote
+#: down is indistinguishable from one that was considered and cleared.
+UNWATCHABLE_LANES = {
+    "weekly-wf-promote": (
+        "has a matching refusal line (\"refusing to spend sim compute on "
+        "non-comparable WF evidence\") but its DATED log surface last wrote "
+        "2026-05-24 --- the job now writes only stdout.log/stderr.log, which this "
+        "sentinel deliberately does not read because an append-only stream cannot "
+        "be attributed to a run. Watching it needs the dated surface restored first."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -98,7 +139,8 @@ class RunOutcome:
     outcome: str  # "refused" | "acted" | "undecided"
 
 
-def _dated_logs(log_dir: str, *, as_of: dt.date) -> list[tuple[dt.date, Path]]:
+def _dated_logs(log_dir: str, *, as_of: dt.date,
+                stem_prefix: str = "") -> list[tuple[dt.date, Path]]:
     """Dated run logs, newest first, within MAX_LOG_AGE_DAYS.
 
     Non-dated files (stdout.log / stderr.log) are IGNORED: they are appended
@@ -108,9 +150,14 @@ def _dated_logs(log_dir: str, *, as_of: dt.date) -> list[tuple[dt.date, Path]]:
     d = Path(log_dir)
     if not d.is_dir():
         return out
-    for p in d.glob("*.log"):
+    for p in d.glob(f"{stem_prefix}*.log"):
+        stem = p.stem
+        if stem_prefix:
+            if not stem.startswith(stem_prefix):
+                continue
+            stem = stem[len(stem_prefix):]
         try:
-            day = dt.date.fromisoformat(p.stem)
+            day = dt.date.fromisoformat(stem)
         except ValueError:
             continue
         if (as_of - day).days > MAX_LOG_AGE_DAYS or day > as_of:
@@ -140,7 +187,8 @@ def classify_run(text: str, job: WatchedJob) -> str:
 
 def read_outcomes(job: WatchedJob, *, as_of: dt.date) -> list[RunOutcome]:
     outcomes: list[RunOutcome] = []
-    for day, path in _dated_logs(job.log_dir, as_of=as_of):
+    for day, path in _dated_logs(job.log_dir, as_of=as_of,
+                                 stem_prefix=job.log_stem_prefix):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
