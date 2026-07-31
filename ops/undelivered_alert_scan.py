@@ -55,8 +55,37 @@ FAILURE_RE = re.compile(
     r"ntfy send failed \([^)]*title=(?P<title>'[^']*'|\"[^\"]*\")\): (?P<error>.*)"
 )
 
-#: Errors that will recur on every future alarm from the same call site.
+#: Errors that LOOKED permanent when they were logged.
 PERMANENT_RE = re.compile(r"codec can't encode|ordinal not in range", re.I)
+
+
+def encoding_defect_still_present(title: str) -> bool | None:
+    """Re-test the PERMANENT claim against TODAY's encoder. None = cannot tell.
+
+    The classification above reads the error text out of a log line and asserts
+    "it will drop every future notification". That assertion has an expiry and no
+    way to notice it: `renquant_common.notify.encode_header` (RFC 2047) landed
+    2026-07-29, after which a non-ASCII title encodes fine.
+
+    Measured 2026-07-30: this scan still reported
+    `[PERMANENT] 'rq104 blend 假想前10 — 2026-07-28'` — a defect fixed the previous
+    day, from a line in an append-only log, and it would have kept reporting it
+    every run forever. It is a claim about the FUTURE derived entirely from the
+    PAST, which is the same shape as reading an append-only log as today's state.
+
+    So: strip the quotes the regex captured, hand the real title to the real
+    encoder, and see. If it encodes, the defect is RESOLVED, not permanent.
+    """
+    bare = title.strip("'\"")
+    try:
+        from renquant_common.notify import encode_header  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None      # cannot test -> must not claim either way
+    try:
+        encode_header(bare).encode("latin-1")
+    except Exception:  # noqa: BLE001
+        return True      # still unencodable: genuinely permanent
+    return False
 
 #: Only look at logs touched within this window, so a long-dead job's ancient
 #: failures do not alarm forever.
@@ -70,8 +99,19 @@ class Undelivered:
     error: str
 
     @property
-    def permanent(self) -> bool:
+    def looked_permanent(self) -> bool:
+        """What the LOG said at the time. Not a claim about now."""
         return bool(PERMANENT_RE.search(self.error))
+
+    @property
+    def status(self) -> str:
+        """PERMANENT / RESOLVED / UNTESTABLE / TRANSIENT — re-measured, not recalled."""
+        if not self.looked_permanent:
+            return "TRANSIENT"
+        still = encoding_defect_still_present(self.title)
+        if still is None:
+            return "UNTESTABLE"
+        return "PERMANENT" if still else "RESOLVED"
 
 
 def scan_log(path: Path) -> list[Undelivered]:
@@ -116,21 +156,30 @@ def findings(items: list[Undelivered]) -> list[str]:
     """
     if not items:
         return []
-    seen: dict[tuple[str, bool], list[Undelivered]] = {}
+    #: RESOLVED is reported, not dropped. A defect that WAS dropping alarms and has
+    #: since been fixed is information — it says the historical gap is closed. Hiding
+    #: it would make the fix invisible; calling it PERMANENT would make the fix a lie.
+    ORDER = {"PERMANENT": 0, "UNTESTABLE": 1, "TRANSIENT": 2, "RESOLVED": 3}
+    seen: dict[tuple[str, str], list[Undelivered]] = {}
     for it in items:
-        seen.setdefault((it.title, it.permanent), []).append(it)
+        seen.setdefault((it.title, it.status), []).append(it)
     lines: list[str] = []
-    for (title, permanent), group in sorted(
-        seen.items(), key=lambda kv: (not kv[0][1], kv[0][0])
+    for (title, status), group in sorted(
+        seen.items(), key=lambda kv: (ORDER.get(kv[0][1], 9), kv[0][0])
     ):
-        kind = "PERMANENT" if permanent else "transient"
         detail = group[0].error[:90]
         where = os.path.basename(group[0].log_path)
+        tail = {
+            "PERMANENT": " — RE-TESTED against today's encoder: still undeliverable",
+            "RESOLVED": " — RE-TESTED against today's encoder: now encodes; the "
+                        "historical failure is CLOSED, no action needed",
+            "UNTESTABLE": " — could not re-test (encoder unimportable); treating the "
+                          "claim as unverified rather than true",
+            "TRANSIENT": "",
+        }[status]
         lines.append(
-            f"undelivered alarm [{kind}] x{len(group)}: {title!r} "
-            f"({detail}) in {where}"
-            + (" — this call site can never deliver until the code changes"
-               if permanent else "")
+            f"undelivered alarm [{status}] x{len(group)}: {title!r} "
+            f"({detail}) in {where}{tail}"
         )
     return lines
 

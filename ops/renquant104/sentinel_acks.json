@@ -30,9 +30,10 @@
   "reason": "stale script-path window during run-checkout realignment; manual run passes (rq104 liveness OK 2026-07-17)"
  },
  "com.renquant.rq105-batch-scores-export": {
-  "acked_at": "2026-07-17",
-  "clears_when": "next session-day 06:25 firing (2026-07-20)",
-  "reason": "Class-A absolute row floor vs light-signal day; replaced by health-evidence contract (#531), manual export succeeded (5/5, rc=0)"
+  "acked_at": "2026-07-31",
+  "expires_at": "2026-08-14",
+  "clears_when": "renquant-strategy-104#73 (wash_sale_min_material_npv = 1.00) is merged AND pinned AND one session afterwards produces a contract-clean full-buy-funnel run, at which point the export has an eligible source vector. If #73 lands and the export STILL refuses, this ack is WRONG and must be removed, not renewed.",
+  "reason": "CORRECTED 2026-07-31. The previous diagnosis (Class-A absolute row floor vs light-signal day; replaced by health-evidence contract #531; manual export succeeded 5/5 rc=0) described a DIFFERENT failure and expired 2026-07-20. Measured cause of the CURRENT exit 1: the job refuses BY DESIGN - 'run 2026-07-29-live-a68df3f8 fails class-A health evidence: full_buy_run(pipeline_flags) - a frozen vector must come from a contract-clean, full-buy-funnel run with training provenance; refusing to export'. That precondition is correct and has been satisfiable ONCE in the last nine sessions (2026-07-20). Four of the other eight were verdict=STRUCTURAL_BLOCK with buys=0, every one firing ['wash_sale_mass_block'] and nothing else (07-23, 07-24, 07-28, 07-29). So this is NOT a 105 defect: the export is starved by the 104 buy-side block, and the downstream intraday_pairing_logger shows the same shape (sessions 0, admitted pairs 0, rows written 0). Evidence read 2026-07-31: logs/daily_104/2026-07-2*.log, logs/rq105/batch_scores_export_2026-07-30.log, logs/rq105/intraday_pairing_logger_2026-07-30.log."
  },
  "com.renquant.shadow-ab-daily": {
   "acked_at": "2026-07-17",

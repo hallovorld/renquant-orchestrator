@@ -147,6 +147,32 @@ def check_git_surfaces() -> tuple[list[str], list[str]]:
 # launchd surface
 # ---------------------------------------------------------------------------
 
+def _emit(stamp: str, record: str) -> None:
+    """Print `record` with `stamp` on EVERY physical line.
+
+    Codex BLOCKER on orch#664: the first version stamped each list ELEMENT.
+    A record containing an embedded newline — and several do, e.g. the umbrella
+    branch problem quotes a multi-line git ref, and any exception text can — was
+    rendered by `print` as one stamped line followed by UNSTAMPED continuation
+    lines, recreating exactly the attribution failure this change exists to
+    remove. The tests only used single-line fixtures, so they missed it.
+
+    An EMPTY record still emits one stamped line (`<stamp> ` with nothing after)
+    rather than nothing: a record that was produced must remain countable, and
+    silently dropping it is the same class of loss.
+    """
+    for physical in (record.splitlines() or [""]):
+        print(f"{stamp} {physical}")
+
+
+def _now_iso(now: "dt.datetime | None" = None) -> str:
+    """Local ISO-8601 second-resolution stamp for the START of every output line.
+
+    Injectable so tests pin the format instead of the wall clock.
+    """
+    return (now or dt.datetime.now()).strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def program_args_digest(program_args: list[str]) -> str:
     return hashlib.sha256(json.dumps(program_args).encode()).hexdigest()
 
@@ -642,8 +668,23 @@ def main(argv: list[str] | None = None) -> int:
     problems += p
     infos += i
 
+    # Every emitted line carries its own date, FIRST characters of the line.
+    #
+    # This job's StandardOutPath is an APPEND-ONLY file whose name has no date
+    # (logs/rq104/launchd_run_surface_drift.out). Measured 2026-07-31: 0 of its
+    # 18 lines began with a date, so no line in it belonged to any run. It had
+    # accumulated a CONTAINMENT alarm — "ProgramArguments CHANGED ... silent
+    # containment / job swap?" for com.renquant.rq105-batch-scores-export —
+    # that was RESOLVED (installed plist and reviewed manifest now agree), and
+    # nothing in the file could distinguish it from one raised that morning.
+    #
+    # A scan whose entire job is noticing WHEN a surface changed must not write
+    # findings that cannot be dated. The leading timestamp is the whole fix:
+    # it lets a record be framed (a stamped line plus the unstamped lines that
+    # follow it) instead of guessed at.
+    stamp = _now_iso()
     for line in infos:
-        print(f"INFO: {line}")
+        _emit(stamp, f"INFO: {line}")
 
     if problems:
         alert(
@@ -651,10 +692,13 @@ def main(argv: list[str] | None = None) -> int:
             "\n".join(problems),
             rq_root=RQ,
         )
-        print("\n".join(problems))
+        # Stamp EVERY problem line, not just the first: `alert` gets the plain
+        # text (its transport carries its own time), the log gets dated lines.
+        for line in problems:
+            _emit(stamp, line)
         return 1
 
-    print("run-surface drift scan OK")
+    _emit(stamp, "run-surface drift scan OK")
     return 0
 
 
