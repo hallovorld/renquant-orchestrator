@@ -50,6 +50,10 @@ EXIT_OK, EXIT_NOT_INSTALLABLE = 0, 2
 #: The installer may proceed past this; it may never proceed past a missing target.
 UNMANIFESTED = "UNMANIFESTED"
 
+#: "Could not check here", distinct from "checked and it will fail". Non-blocking,
+#: because a machine with no run checkout is not a machine that installs anything.
+UNVERIFIABLE = "UNVERIFIABLE"
+
 
 def target_of(args: list[str]) -> str | None:
     """The script a plist would run: the last argument that looks like a path."""
@@ -155,7 +159,18 @@ def check_job(label: str, *, run_root: Path | None = None,
             except ValueError:
                 pass
 
-    if not p.exists():
+    if not run_root.exists():
+        # NOT a refusal. If the run checkout is absent ENTIRELY, this is not the
+        # deploy machine — a CI runner, a fresh clone — and every job would be
+        # reported un-installable, which turned four existing installer tests red.
+        # "There is no run checkout here" and "the target is missing from the run
+        # checkout" are different facts, and only the second predicts a job that
+        # fails on every firing.
+        problems.append(
+            f"{UNVERIFIABLE}: no run checkout at {run_root} — installability of "
+            f"{label} was NOT checked. On the deploy machine this is a refusal; "
+            f"here there is nothing to check against")
+    elif not p.exists():
         problems.append(
             f"{label}: target {p} does NOT exist in the run checkout. It may be "
             f"merged to main and simply not synced there — installing now would "
@@ -184,8 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         probs = check_job(label)
         # UNMANIFESTED is surfaced but does not block: it is a reviewed-surface
         # finding the drift scan owns, not a statement that the target is unrunnable.
-        blocking = [x for x in probs if not x.startswith(UNMANIFESTED)]
-        notes.extend(x for x in probs if x.startswith(UNMANIFESTED))
+        non_blocking = (UNMANIFESTED, UNVERIFIABLE)
+        blocking = [x for x in probs if not x.startswith(non_blocking)]
+        notes.extend(x for x in probs if x.startswith(non_blocking))
         if blocking:
             bad.extend(blocking)
         else:

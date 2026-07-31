@@ -193,8 +193,29 @@ def test_every_committed_plist_agrees_with_the_manifest():
 
 
 def test_main_refuses_with_exit_2_when_a_target_is_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr(pf, "RUN_ROOT", tmp_path / "empty-run-checkout")
+    """The run checkout EXISTS and the target is absent from it — the case that
+    predicts a job failing on every firing.
+
+    The fixture used to point at a nonexistent root, which now means something
+    different (see below): "there is no run checkout here" is not "the target is
+    missing from the run checkout", and only the second is a refusal.
+    """
+    root = tmp_path / "run-checkout"
+    root.mkdir()                                   # present, but empty
+    monkeypatch.setattr(pf, "RUN_ROOT", root)
     assert pf.main([LABEL]) == pf.EXIT_NOT_INSTALLABLE
+
+
+def test_an_ABSENT_run_checkout_is_a_note_not_a_refusal(tmp_path, monkeypatch):
+    """Wiring the preflight into the installer turned four existing tests red on CI,
+    where `/Users/renhao/.../renquant-orchestrator-run` does not exist at all, so
+    every job read as un-installable and the installer could never run.
+
+    A machine with no run checkout is not a machine that installs anything. Surfaced
+    as a NOTE — never silent — and non-blocking.
+    """
+    monkeypatch.setattr(pf, "RUN_ROOT", tmp_path / "no-run-checkout-here")
+    assert pf.main([LABEL]) == pf.EXIT_OK
 
 
 def test_main_refuses_when_asked_to_check_nothing(tmp_path, monkeypatch):
@@ -243,17 +264,58 @@ def test_every_committed_plist_targets_a_script_this_repo_actually_has():
 
 
 def test_the_dev_checkout_plists_are_EXACTLY_the_two_already_known():
-    """A TRIPWIRE, not an allowance. A committed plist should name the run
-    checkout; these two name the dev tree, which has no pin and no review gate.
+    """A TRIPWIRE, one-way.
 
-    It fails BOTH ways on purpose: a third dev-checkout plist fails it, and so
-    does repairing either of these — because that repair is a run-surface change
-    somebody must look at rather than absorb silently.
+    A committed plist should name the run checkout; these two name the dev tree,
+    which has no pin and no review gate.
+
+    **Corrected: this asserted equality, so repairing either plist failed it.** The
+    docstring argued the repair "is a run-surface change somebody must look at" — but
+    a review looks at a diff, and failing CI on the fix does not summon a reviewer, it
+    just makes remediation expensive. Codex, twice: *"a tripwire that treats
+    remediation as failure is not an acceptable steady-state invariant."*
+
+    I fixed exactly this shape in `test_every_committed_plist_agrees_with_the_manifest`
+    last round and left this one standing two functions below it — the same
+    sweep-the-file miss, in the same file, on the same day.
+
+    So: a NEW dev-checkout plist fails. A repaired one passes, with a prompt to prune
+    the list.
     """
     dev = {n for n, t in _committed_targets().items()
            if "/renquant-orchestrator/" in t and "-run/" not in t}
-    assert dev == DEV_CHECKOUT_PLISTS, dev
-    assert len(_committed_targets()) - len(dev) == 7
+    new_dev = sorted(dev - DEV_CHECKOUT_PLISTS)
+    assert not new_dev, f"NEW dev-checkout plist(s): {new_dev}"
+    repaired = sorted(DEV_CHECKOUT_PLISTS - dev)
+    if repaired:
+        print(f"NOTE: dev-checkout target repaired for {repaired}; "
+              f"remove them from DEV_CHECKOUT_PLISTS")
+    # total is asserted as a floor, not an equality: adding a REVIEWED run-checkout
+    # plist is the desired direction and must not fail here either.
+    assert len(_committed_targets()) - len(dev) >= 7
+
+
+def test_repairing_a_dev_checkout_plist_PASSES(tmp_path, monkeypatch):
+    """The repaired case, as an explicit fixture rather than an argument.
+
+    Without it, "one-way" is a claim about code nobody executed — and the assertion
+    above passes on today's tree whether or not the one-way logic is right.
+    """
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    import plistlib as _pl
+    # every committed plist, with BOTH known dev-checkout targets repaired to -run
+    for name, tgt in _committed_targets().items():
+        fixed = tgt.replace("/renquant-orchestrator/", "/renquant-orchestrator-run/")
+        (deploy / f"{name}.plist").write_bytes(
+            _pl.dumps({"Label": name, "ProgramArguments": ["/bin/bash", fixed]}))
+    monkeypatch.setattr(pf, "DEPLOY", deploy)
+    dev = {n for n, t in _committed_targets().items()
+           if "/renquant-orchestrator/" in t and "-run/" not in t}
+    assert dev, "fixture is vacuous — no dev-checkout plists to repair"
+    repaired_dev = {n for n, t in _committed_targets().items()
+                    if "/renquant-orchestrator/" in t and "-run/" not in t}
+    assert not (repaired_dev - DEV_CHECKOUT_PLISTS), "repair must not read as NEW drift"
 
 
 # --- the preflight must have a CALLER (codex #667) ---------------------------

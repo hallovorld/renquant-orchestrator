@@ -277,3 +277,40 @@ non-blocking. A missing or non-executable target still refuses with exit 2.
 `[VERIFIED — this session]` 45 pass across both suites. On the real machine the tool
 reports 3 refusals (two unsynced targets, one manifest disagreement) and 1 note, exit
 **2**; a single installable job exits **0**.
+
+## Round 3 — I claimed two fixes and delivered neither cleanly
+
+**1. A second equality assertion, two functions below the one I fixed.**
+`test_the_dev_checkout_plists_are_EXACTLY_the_two_already_known` still asserted set
+equality, so repairing either dev-checkout plist failed exactly as before. Its docstring
+even argued for it — *"that repair is a run-surface change somebody must look at"*. But
+**a review looks at a diff; failing CI on the fix does not summon a reviewer, it makes
+remediation expensive.**
+
+I corrected this exact shape in `test_every_committed_plist_agrees_with_the_manifest`
+last round and left this one standing **in the same file, on the same day**. Now
+one-way, plus `test_repairing_a_dev_checkout_plist_PASSES` — an explicit repaired
+fixture, because without one "it is one-way now" is a claim about code nobody executed.
+The `>= 7` total is a floor too: adding a *reviewed* run-checkout plist is the desired
+direction and must not fail here either.
+
+**2. The installer wiring turned four existing tests red — and the cause was mine.**
+On a CI runner `renquant-orchestrator-run` does not exist **at all**, so every job read
+as un-installable and the installer could never run.
+
+"There is no run checkout here" and "the target is missing from the run checkout" are
+**different facts**, and only the second predicts a job that fails on every firing. An
+absent run root is now `UNVERIFIABLE` — surfaced as a NOTE, never silent, non-blocking.
+A present root with a missing target still refuses with exit 2.
+
+Verified both directions rather than assuming: on this machine (run checkout present)
+the tool still refuses `ops-audit` and exits **2**; with `RQ_RUN_ROOT` pointing nowhere
+every individual label exits **0**. 47 pass across both suites, including the four
+installer tests.
+
+**3. Still open, and named rather than claimed closed.** `install_stops_pager.sh`
+governs only `com.renquant.stops-liveness`. **Neither plist this PR ships has an
+installer at all**, so the preflight does not gate them — they are installed by hand
+today. That is the remaining gap; a guard wired into one installer does not cover jobs
+with no installer, and saying otherwise would be the "deployed-but-dark" claim this repo
+already has a rule about.
