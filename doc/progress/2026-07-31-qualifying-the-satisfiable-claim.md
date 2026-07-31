@@ -85,17 +85,53 @@ Re-checking that source today:
 `[VERIFIED — json inspection of the 11 named files and an rglob over 17 687 JSON files
 under `backtesting/renquant_104/artifacts`, 2026-07-31]`
 
-**So ten of the eleven rows cannot be re-derived by reading the artifacts they name.**
-They were produced by *running* the sanity battery over those artifacts, and #677
-recorded neither the command nor a digest of what it read. One of the ten has an mtime of
-**2026-07-16** and has not been touched since, so this is not a case of the file changing
-underneath the claim — the numbers were never stamped into it.
+**RETRACTED 2026-07-31 — "ten of the eleven rows cannot be re-derived" was FALSE.**
 
-That makes the table `[VERIFIED — prior work, orch#677]` and **not independently
-re-derivable today**. It is exactly the defect codex named on backtesting#89: *"the
-manifest does not identify an immutable source snapshot."* Same programme, same week,
-found from the other end — and it is why the corrected conclusion below rests on the
-*shape* of the evidence (one small regime) rather than on any individual number.
+That claim, and the "**14 of 29**" beside it, came from reading `wf_gate_metadata` at
+the **top level** of each artifact. The canonical location is
+**`metadata.wf_gate_metadata`**. Same key-path defect retracted the same evening on
+backtesting#89, where it had produced an accusation that fifteen census rows were
+invented.
+
+**Re-measured** `[本次实测 2026-07-31, ops/regime_profile_census.py]`:
+
+| | |
+|---|---:|
+| artifacts named in #677's CSV | **11** |
+| carrying `metadata.wf_gate_metadata.sanity_regime_ic.regimes` | **11 of 11** |
+| *also* carrying a legacy top-level copy | 1 |
+| #677 CSV rows re-derived **exactly** from the artifacts | **44 of 44**, zero mismatches |
+| profile medians reproduced | all four regimes, to the last digit |
+
+So the table **is** re-derivable, and the provenance codex asked for is now attached:
+`doc/research/evidence/2026-07-31-regime-statistics/regime_profile_manifest.json`
+records each source path, its sha256, which key answered, and a root digest over the
+set — `44390cb94abee409…`.
+
+```
+python3 ops/regime_profile_census.py \
+    --artifacts    doc/research/evidence/2026-07-31-regime-statistics/source_artifacts.txt \
+    --search-root  <umbrella>/backtesting/renquant_104/artifacts/prod
+```
+
+### A second defect, found by the tool disagreeing with itself
+
+The first version of the census rglob'd the whole artifact tree and took
+`sorted(hits)[0]`. **`panel-ltr.alpha158_fund.json` exists at 23 paths under that tree
+with 3 distinct digests** — 21 of them inside `diagnostics/modal_sweep_*/bundle/kernel/`
+— so it silently measured a *modal-sweep diagnostic copy* instead of the deployed
+`prod/` one, and shifted `BULL_CALM`'s median from `0.022029` to `0.021927` with no
+error raised. Caught only because two runs of my own disagreed.
+
+The census is now **non-recursive against a declared root**, and a name resolving to more
+than one **distinct digest** is recorded as `AMBIGUOUS` rather than chosen. *"Which copy
+executes"* is the registry entry; this was *"which copy gets **measured**"*, inside the
+tool written to make the measurement auditable.
+
+**What this does and does not establish.** It establishes that the committed table is
+the table the artifacts carry. It is **not** an independent re-measurement of the
+underlying ICs — the gate computed those, and re-running it is the separate, blocked
+re-scoring study.
 
 ## The corrected statement
 

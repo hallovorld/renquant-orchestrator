@@ -174,3 +174,88 @@ def test_the_discriminating_measurement_is_named_AND_its_blocker_identified():
     assert "703 759 rows" in d
     assert "same blocked evaluation path" in d
     assert "cfdd6cb8e950da0f" in d
+
+
+# ---------------------------------------------------------------------------
+# codex on #680 round 2: the table needs provenance, or every conclusion goes.
+# ---------------------------------------------------------------------------
+
+def _manifest():
+    import json
+    return json.loads(
+        (pathlib.Path(__file__).resolve().parent.parent
+         / "doc/research/evidence/2026-07-31-regime-statistics"
+         / "regime_profile_manifest.json").read_text(encoding="utf-8"))
+
+
+def test_every_source_artifact_is_pinned_by_path_and_digest():
+    """The provenance codex asked for, made mechanical.
+
+    A table tagged "prior work" with no source list is un-auditable, and every
+    conclusion drawn from it inherits that. Each of the 11 artifacts must name a path
+    relative to a portable root, a sha256, and WHICH KEY its regime block came from.
+    """
+    m = _manifest()
+    assert m["n_artifacts_named"] == 11
+    assert m["n_artifacts_resolved"] == 11
+    assert m["n_unresolved"] == 0, m["unresolved"]
+    assert not m["search_root"].startswith("/"), m["search_root"]
+    for s in m["sources"]:
+        assert len(s["sha256"]) == 64, s
+        assert not s["path"].startswith("/"), s
+        assert s["scope_source"] == \
+            "metadata.wf_gate_metadata.sanity_regime_ic.regimes", s
+    assert len(m["root_digest_sha256"]) == 64
+
+
+def test_the_manifest_profile_matches_the_committed_regime_profile_csv():
+    """The committed CSV must equal what the artifacts carry, digit for digit.
+
+    This is the assertion that turns the table from "prior work" into evidence: if
+    anyone edits either side, they diverge and this fails.
+    """
+    import csv
+    prof = _manifest()["profile"]
+    path = (pathlib.Path(__file__).resolve().parent.parent
+            / "doc/research/evidence/2026-07-31-regime-statistics/regime_profile.csv")
+    for r in csv.DictReader(path.open()):
+        p = prof[r["regime"]]
+        assert abs(float(r["median_mean_ic"]) - p["median_mean_ic"]) < 1e-12, r["regime"]
+        assert abs(float(r["median_std_ic"]) - p["median_std_ic"]) < 1e-12, r["regime"]
+        assert abs(float(r["median_hit_rate"]) - p["median_hit_rate"]) < 1e-12, r["regime"]
+        assert int(float(r["median_n_dates"])) == int(p["median_n_dates"]), r["regime"]
+
+
+def test_a_name_resolving_to_TWO_DISTINCT_DIGESTS_is_refused_not_chosen(tmp_path):
+    """The defect that shifted a median without raising anything.
+
+    `panel-ltr.alpha158_fund.json` exists at 23 paths under the artifact tree with 3
+    distinct digests. Taking `sorted(hits)[0]` picked a modal-sweep diagnostic copy.
+    Ambiguity must be an error.
+    """
+    import importlib.util
+    import json as _j
+    import sys as _sys
+    mod_path = (pathlib.Path(__file__).resolve().parent.parent
+                / "ops" / "regime_profile_census.py")
+    spec = importlib.util.spec_from_file_location("regime_census", mod_path)
+    m = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = m
+    spec.loader.exec_module(m)
+
+    def _write(d, payload):
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "a.json").write_text(_j.dumps(payload), encoding="utf-8")
+
+    blk = {"metadata": {"wf_gate_metadata": {"sanity_regime_ic": {"regimes": {
+        "BEAR": {"mean_ic": 0.1, "std_ic": 0.2, "hit_rate": 0.5, "n_dates": 10,
+                 "n_rows": 100}}}}}}
+    _write(tmp_path / "x", blk)
+    other = _j.loads(_j.dumps(blk))
+    other["metadata"]["wf_gate_metadata"]["sanity_regime_ic"]["regimes"]["BEAR"][
+        "mean_ic"] = 0.9
+    _write(tmp_path / "y", other)
+
+    res = m.census(["a.json"], str(tmp_path), recursive=True)
+    assert res["rows"] == []
+    assert res["unresolved"] and "AMBIGUOUS" in res["unresolved"][0]["why"]
