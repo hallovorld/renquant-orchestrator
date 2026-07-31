@@ -1,6 +1,6 @@
 # Attribution, measured at the LINE — with the matching rule stated
 
-**Bottom line `[本次实测 2026-08-01]`.** Codex was right that the earlier CSV proved
+**Bottom line `[本次实测 2026-07-31]`.** Codex was right that the earlier CSV proved
 nothing about attribution: it recorded filenames and mtimes and never looked at a line.
 Rather than narrow the claim, this measures the thing.
 
@@ -22,8 +22,15 @@ different runs.
 ## What this establishes, and what it replaces
 
 **Not one line** in the launchd stdout layer carries its own timestamp — across
-**8 079** lines and every failing job. So for that layer, *"an append-only file can
-still contain attributable per-run records"* is measured and **false**.
+**8 079** lines and every failing job.
+
+> ~~*So for that layer, "an append-only file can still contain attributable per-run
+> records" is measured and false.*~~ **WITHDRAWN** — see *"The claim, restated to what
+> was measured"* below. A leading timestamp is not a run identifier, and its absence
+> does not settle attributability: a non-leading timestamp, a start/end marker, or an
+> external index could each attribute a record, and none was searched for. The
+> withdrawal is marked here rather than only stated 40 lines down, because a reader who
+> stops at the top of this document must not come away with the claim it retracts.
 
 The dated-wrapper layer is **partly** attributable and the spread is the point:
 per-file fractions run **0.0000 … 0.9969**, with **6 of 14 at exactly zero**. So a

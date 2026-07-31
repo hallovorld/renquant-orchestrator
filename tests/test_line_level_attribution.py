@@ -12,7 +12,7 @@ THE MATCHING RULE, stated: a line **self-attributes** iff it begins with an ISO 
 an ISO datetime, or `HH:MM:SS`, optionally preceded by `[` or `"`. A timestamp
 elsewhere in the line does not count — it cannot order two lines from different runs.
 
-MEASURED 2026-08-01:
+MEASURED 2026-07-31:
 
     layer                        lines   self-timestamped
     launchd stdout (14 jobs)      8079        0    (0.000)
@@ -149,3 +149,26 @@ def test_an_UNPARSEABLE_plist_is_not_reported_as_an_absent_file():
     for label in ("com.renquant.weekly-retrain-patchtst",
                   "com.renquant.weekly-tournament-retrain"):
         assert any(r["label"] == label for r in rows), f"{label} missing from the census"
+
+
+def test_the_WITHDRAWN_claim_is_marked_where_it_was_MADE():
+    """The review-surface defect, guarded.
+
+    This document withdraws "attribution is impossible on this surface" in a section
+    near the bottom, while the paragraph that made the claim sat 40 lines above it,
+    unmarked. A reader who stops at the top comes away with the retracted claim; that
+    is the same shape as a PR description outliving its correction, which this
+    programme has now hit on four PRs.
+
+    So: any sentence in the document that makes the wider claim must carry a negation
+    or a withdrawal marker. Checked at sentence scope rather than by a lookbehind,
+    because the negation sits several words from the phrase.
+    """
+    doc = (pathlib.Path(__file__).resolve().parent.parent
+           / "doc/progress/2026-07-31-line-level-attribution.md").read_text("utf-8")
+    wider = re.compile(r"attribution is impossible|is measured and \*\*false\*\*"
+                       r"|unattributable", re.I)
+    excused = re.compile(r"\bnot\b|\bnever\b|\bno\b|n't|~~|withdrawn", re.I)
+    for sentence in re.split(r"(?<=[.!?])\s+", doc):
+        if wider.search(sentence):
+            assert excused.search(sentence), f"unmarked wider claim: {sentence!r}"
