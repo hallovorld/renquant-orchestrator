@@ -73,10 +73,43 @@ def test_a_plist_disagreeing_with_the_manifest_is_REFUSED(tmp_path):
     assert probs and "disagree with the reviewed manifest" in probs[0]
 
 
-def test_a_label_absent_from_the_manifest_is_REFUSED(tmp_path):
+def test_a_label_absent_from_the_manifest_is_NOTED_not_refused(tmp_path):
+    """Corrected after wiring this into the installer broke it.
+
+    My first version refused an unmanifested label, and `com.renquant.stops-liveness`
+    has a committed plist and a supported installer but no manifest entry — so gating
+    installation on manifest membership made that job permanently un-installable and
+    failed four existing installer tests.
+
+    They are different questions. "Can this be installed without failing on every
+    firing" is this module's. "Is this job on the reviewed surface" is the drift
+    scan's unmanifested check, which already reports it. Answering the second here
+    does not make the first safer; it refuses a job for a reason the caller cannot act
+    on at install time.
+    """
     root = _world(tmp_path)
     probs = pf.check_job(LABEL, run_root=root, manifest={})
-    assert probs and "not in the reviewed manifest" in probs[0]
+    assert probs and probs[0].startswith(pf.UNMANIFESTED)
+    assert "the drift scan owns that finding" in probs[0]
+
+
+def test_an_UNMANIFESTED_note_does_not_block_installation(tmp_path, monkeypatch):
+    """Surfaced, never silent — but exit 0, so the installer proceeds."""
+    root = _world(tmp_path)
+    monkeypatch.setattr(pf, "RUN_ROOT", root)
+    monkeypatch.setattr(pf, "MANIFEST", tmp_path / "empty-manifest.json")
+    (tmp_path / "empty-manifest.json").write_text('{"jobs": {}}')
+    assert pf.main([LABEL]) == pf.EXIT_OK
+
+
+def test_a_MISSING_TARGET_still_blocks_even_when_unmanifested(tmp_path, monkeypatch):
+    """Anti-vacuity for the split: relaxing the manifest check must not relax the
+    check that actually protects the bootstrap."""
+    root = _world(tmp_path, present=False)
+    monkeypatch.setattr(pf, "RUN_ROOT", root)
+    monkeypatch.setattr(pf, "MANIFEST", tmp_path / "empty-manifest.json")
+    (tmp_path / "empty-manifest.json").write_text('{"jobs": {}}')
+    assert pf.main([LABEL]) == pf.EXIT_NOT_INSTALLABLE
 
 
 # --- the exec bit is required only when the script is argv[0] ----------------

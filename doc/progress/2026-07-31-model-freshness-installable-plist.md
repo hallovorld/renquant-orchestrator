@@ -243,3 +243,37 @@ twice in one day without noticing the cases differ.
 `[VERIFIED — this session]` 14 pass. Load-bearing by injection: repairing the drift
 passes, injecting new drift fails, moving the preflight call after `bootstrap` fails,
 removing it fails two.
+
+## Round 2 follow-up — wiring the guard in broke the installer, and that was informative
+
+CI went red on **four existing** `test_stops_liveness_pager` tests: the preflight
+refused `com.renquant.stops-liveness` because that label **has a committed plist and a
+supported installer but no manifest entry**.
+
+That is a real gap, and it is the drift scan's to report. But my preflight was
+answering **two different questions at once** — *"can this be installed without failing
+on every firing"* and *"is this job on the reviewed surface"* — and gating installation
+on the second made the job **permanently un-installable**. Answering the surface
+question here does not make the installability answer safer; it refuses a job for a
+reason the caller cannot act on at install time.
+
+Split. `UNMANIFESTED` is now a **NOTE** — surfaced on every run, never silent, and
+non-blocking. A missing or non-executable target still refuses with exit 2.
+
+**Two holes I opened while fixing it, both caught by my own tests rather than review:**
+
+1. **The `UNMANIFESTED` branch returned early**, so an unmanifested job with a
+   *missing* target reported installable — reopening the exact
+   bootstrap-into-guaranteed-failure this module exists to stop, as a side effect of
+   fixing something else. The anti-vacuity test caught it. The note is now collected
+   and the target is still checked; only the manifest-agreement comparison is skipped,
+   because there is nothing to compare against.
+2. **My run-root resolution was dead code from `main()`.** It re-rooted only when
+   `run_root != RUN_ROOT`, but `main()` passes no `run_root`, so the two are equal by
+   construction and the branch could never run there. **A resolution rule the
+   production entry point cannot reach is not a rule.** Now existence-based: take the
+   path as written if it is there, else try it under the requested root.
+
+`[VERIFIED — this session]` 45 pass across both suites. On the real machine the tool
+reports 3 refusals (two unsynced targets, one manifest disagreement) and 1 note, exit
+**2**; a single installable job exits **0**.

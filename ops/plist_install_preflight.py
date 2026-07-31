@@ -41,10 +41,14 @@ DEPLOY = REPO / "deploy"
 
 #: The checkout launchd executes from. NOT this repo: a wrapper present here and
 #: absent there is exactly the failure this module exists to catch.
-RUN_ROOT = Path(os.environ.get(
-    "RQ_RUN_ROOT", "/Users/renhao/git/github/renquant-orchestrator-run"))
+DEFAULT_RUN_ROOT = Path("/Users/renhao/git/github/renquant-orchestrator-run")
+RUN_ROOT = Path(os.environ.get("RQ_RUN_ROOT", str(DEFAULT_RUN_ROOT)))
 
 EXIT_OK, EXIT_NOT_INSTALLABLE = 0, 2
+
+#: Prefix marking "not on the reviewed surface" as distinct from "not installable".
+#: The installer may proceed past this; it may never proceed past a missing target.
+UNMANIFESTED = "UNMANIFESTED"
 
 
 def target_of(args: list[str]) -> str | None:
@@ -84,14 +88,37 @@ def check_job(label: str, *, run_root: Path | None = None,
     if not plist.exists():
         return [f"{label}: no committed plist at {plist}"]
     if label not in jobs:
-        return [f"{label}: plist exists but the label is not in the reviewed manifest"]
+        # NOT an installability problem, and conflating the two broke the supported
+        # installer. `com.renquant.stops-liveness` has a committed plist and an
+        # installer but no manifest entry, so gating installation on manifest
+        # membership made that job permanently un-installable.
+        #
+        # These are different questions: "can this be installed without failing on
+        # every firing" (this module) versus "is this job on the reviewed surface"
+        # (the drift scan's unmanifested check, which already reports it). Answering
+        # the second here does not make the first safer; it just refuses a job for a
+        # reason the caller cannot act on at install time.
+        #
+        # Reported, never silent -- with a marker so a caller can tell an
+        # unreviewed-surface finding from an unrunnable target.
+        # NOT an early return. Returning here skipped the target check entirely, so
+        # an unmanifested job with a MISSING target reported installable -- exactly
+        # the bootstrap-into-guaranteed-failure this module exists to stop, reopened
+        # by the fix for a different problem. Caught by the anti-vacuity test below
+        # it. The note is collected and the target is still checked; only the
+        # manifest-agreement comparison is skipped, because there is nothing to
+        # compare against.
+        problems.append(
+            f"{UNMANIFESTED}: {label} has a committed plist but no entry in the "
+            f"reviewed manifest — the drift scan owns that finding; this "
+            f"preflight cannot judge whether its target is the reviewed one")
 
     try:
         pl = plistlib.loads(plist.read_bytes())
     except Exception as exc:  # noqa: BLE001
         return [f"{label}: plist unreadable ({type(exc).__name__}: {exc})"]
 
-    if pl.get("ProgramArguments") != jobs[label].get("program_args"):
+    if label in jobs and pl.get("ProgramArguments") != jobs[label].get("program_args"):
         problems.append(
             f"{label}: plist ProgramArguments disagree with the reviewed manifest — "
             f"preflighting an unreviewed command would certify the wrong thing")
@@ -101,17 +128,32 @@ def check_job(label: str, *, run_root: Path | None = None,
         problems.append(f"{label}: plist names no script to run")
         return problems
 
-    # The plist carries an ABSOLUTE path; honour an overridden run root by re-rooting
-    # it so the check can run against a fixture without editing committed plists.
-    # Re-root ONLY when the path is not already under the requested root -- my first
-    # version re-rooted unconditionally and mangled an already-correct absolute path
-    # into `<root>/<basename>`, reporting a present file as missing.
+    # The plist carries an ABSOLUTE path. Resolve it against `run_root` by EXISTENCE
+    # rather than by comparing roots:
+    #
+    #   * my first version re-rooted unconditionally and mangled an already-correct
+    #     absolute path into `<root>/<basename>`, reporting a present file as missing;
+    #   * my second version re-rooted only when `run_root != RUN_ROOT`, which cannot
+    #     be exercised through `main()` at all — that path passes no run_root, so the
+    #     two are equal by construction and the branch is dead. A resolution rule that
+    #     the production entry point can never reach is not a rule.
+    #
+    # Existence-based: take the path as written if it is there, else try it under the
+    # requested root. Both misses are then a genuinely missing target.
     p = Path(tgt)
-    if run_root != RUN_ROOT and not str(p).startswith(str(run_root)):
-        try:
-            p = run_root / p.relative_to(RUN_ROOT)
-        except ValueError:
-            p = run_root / p.name
+    if not p.exists():
+        for cand in (run_root / Path(tgt).name,
+                     run_root / str(Path(tgt)).lstrip("/")):
+            if cand.exists():
+                p = cand
+                break
+        else:
+            try:
+                rel = Path(tgt).relative_to(DEFAULT_RUN_ROOT)
+                if (run_root / rel).exists():
+                    p = run_root / rel
+            except ValueError:
+                pass
 
     if not p.exists():
         problems.append(
@@ -137,12 +179,19 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_NOT_INSTALLABLE
 
     bad: list[str] = []
+    notes: list[str] = []
     for label in labels:
         probs = check_job(label)
-        if probs:
-            bad.extend(probs)
+        # UNMANIFESTED is surfaced but does not block: it is a reviewed-surface
+        # finding the drift scan owns, not a statement that the target is unrunnable.
+        blocking = [x for x in probs if not x.startswith(UNMANIFESTED)]
+        notes.extend(x for x in probs if x.startswith(UNMANIFESTED))
+        if blocking:
+            bad.extend(blocking)
         else:
             print(f"  INSTALLABLE  {label}")
+    for n in notes:
+        print(f"  NOTE         {n}")
     for b in bad:
         print(f"  REFUSED      {b}")
     if bad:
