@@ -1,0 +1,224 @@
+{
+  "median_union_over_k": 2.5,
+  "n_boosters": 12,
+  "n_dates_scored": 20,
+  "n_dates_skipped_thin": 0,
+  "not_claimed": [
+    "that a consensus rule would PERFORM better \u2014 no label or forward return is read anywhere in this file",
+    "that agreement means correctness: twelve models sharing a recipe can share a blind spot, and nothing here separates the two"
+  ],
+  "pct_slots_majority": 66.9,
+  "pct_slots_unanimous": 25.9,
+  "per_date": [
+    {
+      "date": "2026-04-07",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 9,
+      "n_unanimous": 5,
+      "status": "scored",
+      "union_size": 35
+    },
+    {
+      "date": "2026-04-08",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 10,
+      "n_unanimous": 4,
+      "status": "scored",
+      "union_size": 36
+    },
+    {
+      "date": "2026-04-09",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 6,
+      "n_unanimous": 4,
+      "status": "scored",
+      "union_size": 38
+    },
+    {
+      "date": "2026-04-10",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 11,
+      "n_unanimous": 4,
+      "status": "scored",
+      "union_size": 39
+    },
+    {
+      "date": "2026-04-13",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 7,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 40
+    },
+    {
+      "date": "2026-04-14",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 12,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 40
+    },
+    {
+      "date": "2026-04-15",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 14,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 41
+    },
+    {
+      "date": "2026-04-16",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 16,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 43
+    },
+    {
+      "date": "2026-04-17",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 17,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 44
+    },
+    {
+      "date": "2026-04-20",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 14,
+      "n_unanimous": 5,
+      "status": "scored",
+      "union_size": 43
+    },
+    {
+      "date": "2026-04-21",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 10,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 37
+    },
+    {
+      "date": "2026-04-22",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 9,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 38
+    },
+    {
+      "date": "2026-04-23",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 14,
+      "n_unanimous": 4,
+      "status": "scored",
+      "union_size": 38
+    },
+    {
+      "date": "2026-04-24",
+      "k": 15,
+      "n_names": 153,
+      "n_singleton": 9,
+      "n_unanimous": 5,
+      "status": "scored",
+      "union_size": 35
+    },
+    {
+      "date": "2026-04-27",
+      "k": 14,
+      "n_names": 145,
+      "n_singleton": 12,
+      "n_unanimous": 5,
+      "status": "scored",
+      "union_size": 34
+    },
+    {
+      "date": "2026-04-28",
+      "k": 14,
+      "n_names": 145,
+      "n_singleton": 10,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 30
+    },
+    {
+      "date": "2026-04-29",
+      "k": 14,
+      "n_names": 145,
+      "n_singleton": 10,
+      "n_unanimous": 3,
+      "status": "scored",
+      "union_size": 33
+    },
+    {
+      "date": "2026-04-30",
+      "k": 14,
+      "n_names": 145,
+      "n_singleton": 14,
+      "n_unanimous": 2,
+      "status": "scored",
+      "union_size": 34
+    },
+    {
+      "date": "2026-05-01",
+      "k": 14,
+      "n_names": 145,
+      "n_singleton": 9,
+      "n_unanimous": 6,
+      "status": "scored",
+      "union_size": 31
+    },
+    {
+      "date": "2026-05-04",
+      "k": 14,
+      "n_names": 144,
+      "n_singleton": 7,
+      "n_unanimous": 5,
+      "status": "scored",
+      "union_size": 30
+    }
+  ],
+  "status": "checked",
+  "total_slots": 3528,
+  "vote_hist_by_name": {
+    "1": 220,
+    "10": 29,
+    "11": 32,
+    "12": 76,
+    "2": 105,
+    "3": 67,
+    "4": 45,
+    "5": 33,
+    "6": 32,
+    "7": 33,
+    "8": 28,
+    "9": 39
+  },
+  "vote_hist_by_slot": {
+    "1": 220,
+    "10": 290,
+    "11": 352,
+    "12": 912,
+    "2": 210,
+    "3": 201,
+    "4": 180,
+    "5": 165,
+    "6": 192,
+    "7": 231,
+    "8": 224,
+    "9": 351
+  }
+}

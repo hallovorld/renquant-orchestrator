@@ -1,0 +1,23 @@
+  12 boosters over 20 date(s), 3528 top-decile slots
+
+    votes   names  % names   slots  % slots
+    1/12     220    29.8%     220     6.2%
+    2/12     105    14.2%     210     6.0%
+    3/12      67     9.1%     201     5.7%
+    4/12      45     6.1%     180     5.1%
+    5/12      33     4.5%     165     4.7%
+    6/12      32     4.3%     192     5.4%
+    7/12      33     4.5%     231     6.5%
+    8/12      28     3.8%     224     6.3%
+    9/12      39     5.3%     351     9.9%
+   10/12      29     3.9%     290     8.2%
+   11/12      32     4.3%     352    10.0%
+   12/12      76    10.3%     912    25.9%
+
+  slots held by a MAJORITY (>=7/12): 66.9%
+  slots held by UNANIMOUS names      : 25.9%
+  union of all arms / k              : 2.5x
+  [not claimed] that a consensus rule would PERFORM better — no label or forward return is read anywhere in this file
+  [not claimed] that agreement means correctness: twelve models sharing a recipe can share a blind spot, and nothing here separates the two
+
+wrote doc/research/data/2026-08-01-booster-consensus/consensus.json
