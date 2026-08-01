@@ -233,3 +233,74 @@ def test_action_patterns_are_pinned_to_their_emitter_sources(script, pattern):
     assert pattern in src.read_text(errors="ignore"), (
         f"{script} no longer emits '{pattern}' — the watch for it is now blind; "
         f"update the pattern from the CURRENT emitter, do not delete this test")
+
+
+# ----------------------------------------------- emitter contract (CI-enforced) ----
+#
+# [codex on orch#738]: source-derived patterns proven only by a skip-in-CI local test
+# leave the production classifications resting on a developer-local contract. The
+# contract now lives IN THIS REPO as a versioned fixture; these tests run everywhere.
+
+import json as _json
+import re as _re
+
+_CONTRACT = _json.loads(
+    (Path(__file__).resolve().parent.parent / "ops" / "renquant104" /
+     "emitter_contract.json").read_text())
+
+
+def _render(template: str) -> str:
+    """A plausible rendering of a shell echo template: every substitution collapses
+    to a placeholder. The regexes under contract must match on the INVARIANT text, so
+    the placeholder's content must not matter — that is what these tests prove."""
+    out = _re.sub(r"\$\([^)]*\)", "PLACEHOLDER", template)
+    out = _re.sub(r"\$\{?[A-Za-z_][A-Za-z_0-9]*\}?", "PLACEHOLDER", out)
+    return out
+
+
+def test_every_contract_line_is_matched_by_the_corresponding_pattern():
+    """CI-enforced binding: regex <-> contract. Breaking either side fails here,
+    on every machine, umbrella or not."""
+    kinds = {"action": "action_re", "refusal": "refusal_re", "failure": "failure_re"}
+    for row in _CONTRACT["lines"]:
+        lane = _watched(row["job"])
+        pattern = getattr(lane, kinds[row["kind"]])
+        assert pattern is not None, (row["job"], row["kind"])
+        rendered = _render(row["template"])
+        assert _re.search(pattern, rendered), (
+            f"{row['job']}/{row['kind']}: pattern {pattern!r} no longer matches the "
+            f"contracted emitter line {rendered!r} — fix the pattern or version the "
+            f"contract, never ignore this")
+
+
+def test_every_source_derived_watched_pattern_is_under_contract():
+    """Anti-vacuity for the contract itself: each of the three source-derived lanes
+    must have its action line contracted — a lane added without a contract row would
+    otherwise reintroduce the developer-local dependency reviewed away in #738."""
+    contracted = {(r["job"], r["kind"]) for r in _CONTRACT["lines"]}
+    for name in ("weekly-wf-promote", "conditional-retrain104", "retrain-panel104"):
+        assert (name, "action") in contracted, name
+
+
+def test_contract_lines_marked_observed_cite_a_real_log_shape():
+    for row in _CONTRACT["lines"]:
+        o = row["observed_in_logs"]
+        assert o is False or (isinstance(o, str) and o.startswith("logs/")), row
+
+
+def test_local_wrapper_still_emits_the_contracted_lines():
+    """Drift detector — the LOCAL half. Skips loudly off-machine; on the dev box it
+    catches a cross-repo wording change the day it lands, instead of the day an
+    incident stays open on `undecided` classifications."""
+    root = Path("/Users/renhao/git/github/RenQuant")
+    if not root.exists():
+        pytest.skip("umbrella absent — local drift check not verifiable here; the "
+                    "CI-enforced contract tests above still ran")
+    for row in _CONTRACT["lines"]:
+        script = root / row["source"].rsplit(":", 1)[0]
+        if not script.exists():
+            pytest.skip(f"{script} absent — cannot verify drift here")
+        assert row["template"] in script.read_text(errors="ignore"), (
+            f"{row['source']} no longer emits the contracted line verbatim — the "
+            f"wrapper wording drifted; re-capture the contract AND re-verify the "
+            f"patterns before trusting this lane's classifications")
