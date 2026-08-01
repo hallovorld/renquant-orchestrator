@@ -200,3 +200,91 @@ def test_the_manifest_records_the_EXTRACTION_COMMAND():
     assert man["canonical_key"].startswith("metadata.wf_gate_metadata")
     assert man["n_rows"] == len(_all_rows())
     assert "does not make the store immutable" in man["scope_note"]
+
+
+# ---------------------------------------------------------------------------
+# codex on #677, round 3: the analysis unit, and the "enforced" floor.
+# ---------------------------------------------------------------------------
+import collections as _c
+import json as _j
+import statistics as _st
+
+_UNIT = (pathlib.Path(__file__).resolve().parent.parent
+         / "doc/research/evidence/2026-07-31-regime-sanity-decomposed/analysis_unit.json")
+
+
+def _all_rows():
+    with CSV.open() as fh:
+        return list(csv.DictReader(fh))
+
+
+def test_the_corpus_is_30_NAMES_but_only_12_DISTINCT_byte_contents():
+    """The blocker: aliases and rollbacks of identical bytes are not independent
+    observations. One digest here appears under 13 names, so it was contributing 13 of
+    30 'artifacts' to every median."""
+    rows = _all_rows()
+    names = {r["artifact"] for r in rows}
+    digs = {r["content_sha256"] for r in rows}
+    assert len(names) == 30 and len(digs) == 12, (len(names), len(digs))
+    per = _c.Counter((r["content_sha256"], r["regime"]) for r in rows)
+    assert max(per.values()) >= 13, max(per.values())
+
+
+def test_the_headline_is_computed_over_UNIQUE_DIGESTS_and_moves_when_it_is():
+    """Anti-vacuity for the change: if the unit made no difference the correction would
+    be bookkeeping. CHOPPY moves 2.63 -> 6.61, which is why it is a blocker."""
+    unit = _j.loads(_UNIT.read_text(encoding="utf-8"))
+    assert unit["n_named_artifacts"] == 30 and unit["n_distinct_digests"] == 12
+    ch = unit["by_regime"]["CHOPPY"]
+    assert ch["n_unique_digests"] == 12
+    assert ch["median_placebo_over_real_by_digest"] > 2 * ch["median_placebo_over_real_by_name"]
+    # and the record must actually be derivable from the CSV, not asserted beside it
+    rows = _all_rows()
+    seen = {}
+    for r in rows:
+        if r["regime"] == "CHOPPY":
+            seen.setdefault(r["content_sha256"], r)
+    med = _st.median(float(r["placebo_over_real"]) for r in seen.values())
+    assert abs(med - ch["median_placebo_over_real_by_digest"]) < 5e-4
+
+
+def test_the_QUALITATIVE_finding_survives_the_unit_change():
+    """The reason this is a correction and not a retraction: BEAR clears on every
+    unique artifact and nothing else clears on any."""
+    unit = _j.loads(_UNIT.read_text(encoding="utf-8"))["by_regime"]
+    assert unit["BEAR"]["placebo_leg_passes_by_digest"] == "12/12"
+    for reg in ("BULL_CALM", "BULL_VOLATILE", "CHOPPY"):
+        assert unit[reg]["placebo_leg_passes_by_digest"].startswith("0/")
+
+
+def test_the_0_25_FORMULA_is_not_the_enforced_floor():
+    """The second blocker, measured: `0.25*|aligned_real_ic|` matches the stamped
+    `min_mean_ic` on ZERO of 120 rows. The stamp is an artifact-level constant, equal
+    across all four regimes of a given artifact."""
+    rows = _all_rows()
+    matches = sum(1 for r in rows
+                  if abs(0.25 * abs(float(r["aligned_real_ic"]))
+                         - float(r["stamped_min_mean_ic"])) < 1e-9)
+    assert matches == 0, f"{matches} of {len(rows)} rows match the withdrawn formula"
+    per_digest = _c.defaultdict(set)
+    for r in rows:
+        per_digest[r["content_sha256"]].add(r["stamped_min_mean_ic"])
+    assert all(len(v) == 1 for v in per_digest.values()), \
+        "the stamped floor is not constant per artifact after all"
+
+
+def test_the_placebo_CEILING_half_of_the_conjunct_IS_confirmed():
+    """ANTI-VACUITY pair: withdrawing the floor formula must not quietly withdraw the
+    half that the stamps do confirm. `max_placebo_ratio` takes exactly one value."""
+    rows = _all_rows()
+    ratios = {r["stamped_max_placebo_ratio"] for r in rows}
+    assert ratios == {"0.5"}, ratios
+
+
+def test_the_document_does_not_call_the_formula_ENFORCED():
+    """The review-surface half. The formula may appear only as withdrawn."""
+    doc = (pathlib.Path(__file__).resolve().parent.parent
+           / "doc/progress/2026-07-31-bull-calm-is-a-label-property.md").read_text("utf-8")
+    assert "NOT the enforced floor" in doc
+    assert "0 of 120" in doc or "0 of **120**" in doc
+    assert "artifact-level constant" in doc

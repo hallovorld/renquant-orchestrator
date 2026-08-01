@@ -1,0 +1,62 @@
+{
+  "analysis_unit": "unique content_sha256 (one row per digest per regime)",
+  "by_regime": {
+    "BEAR": {
+      "median_placebo_over_real_by_digest": 0.0441,
+      "median_placebo_over_real_by_name": 0.0463,
+      "n_named": 30,
+      "n_unique_digests": 12,
+      "placebo_leg_passes_by_digest": "12/12"
+    },
+    "BULL_CALM": {
+      "median_placebo_over_real_by_digest": 2.1507,
+      "median_placebo_over_real_by_name": 1.9826,
+      "n_named": 30,
+      "n_unique_digests": 12,
+      "placebo_leg_passes_by_digest": "0/12"
+    },
+    "BULL_VOLATILE": {
+      "median_placebo_over_real_by_digest": 2.4753,
+      "median_placebo_over_real_by_name": 2.0623,
+      "n_named": 30,
+      "n_unique_digests": 12,
+      "placebo_leg_passes_by_digest": "0/12"
+    },
+    "CHOPPY": {
+      "median_placebo_over_real_by_digest": 6.6059,
+      "median_placebo_over_real_by_name": 2.6276,
+      "n_named": 30,
+      "n_unique_digests": 12,
+      "placebo_leg_passes_by_digest": "0/12"
+    }
+  },
+  "enforced_floor": {
+    "constant_per_artifact": true,
+    "distinct_values": 7,
+    "most_common": [
+      [
+        "0.02",
+        52
+      ],
+      [
+        "0.013660206138598533",
+        24
+      ],
+      [
+        "0.014303724087472061",
+        16
+      ]
+    ],
+    "rows_total": 120,
+    "rows_where_0.25xabs_real_ic_matches_the_stamp": 0,
+    "stamped_field": "sanity_regime_ic.min_mean_ic",
+    "stamped_max_placebo_ratio_distinct": [
+      "0.5"
+    ],
+    "verdict": "the stamped floor is an ARTIFACT-LEVEL constant (identical across all four regimes of a given artifact); 0.25*|aligned_real_ic| matches it on 0 of 120 rows and is therefore NOT the enforced formula"
+  },
+  "max_aliases_for_one_digest": 13,
+  "n_distinct_digests": 12,
+  "n_named_artifacts": 30,
+  "why": "the manifest names 30 artifacts that carry only 12 distinct byte contents; one digest appears under 13 names. Aliases and rollbacks of identical bytes are not independent observations and can dominate a median."
+}

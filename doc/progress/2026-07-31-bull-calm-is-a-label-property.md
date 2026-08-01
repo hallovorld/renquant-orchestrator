@@ -138,3 +138,56 @@ from the stamped thresholds in each artifact, never from a remembered constant**
 regenerated values match the original CSV to the last digit where they overlap.
 
 Suite: **4837 passed, 2 skipped**.
+
+---
+
+## ROUND 3 — the analysis unit was wrong, and the "enforced" floor is not the enforced floor
+
+Two blockers `[codex on #677]`, both correct, and the second is the sharper one.
+
+### 1. Thirty names, twelve distinct byte contents
+
+> *"the manifest contains repeated `content_sha256` values under many artifact names, yet
+> the new medians are presented as a 30-artifact corpus… aliases/rollbacks of identical
+> bytes can dominate a median."*
+
+Measured `[VERIFIED — the committed CSV, 2026-08-01]`: **30 named artifacts, 12 distinct
+content digests**, and **one digest appears under 13 names**. So a single set of bytes was
+contributing 13 of 30 "observations".
+
+**The analysis unit is now the unique content digest**, alias counts retained in
+`analysis_unit.json` for audit. It moves the headline materially:
+
+| regime | median `placebo/real` by NAME (n=30) | by DIGEST (n=12) | placebo leg |
+|---|---:|---:|---:|
+| BULL_CALM | 1.9826 | **2.1507** | 0/12 |
+| BEAR | 0.0463 | **0.0441** | **12/12** |
+| BULL_VOLATILE | 2.0623 | **2.4753** | 0/12 |
+| CHOPPY | 2.6276 | **6.6059** | 0/12 |
+
+`CHOPPY` moves by **2.5×**. The qualitative finding survives — `BEAR` clears on every
+unique artifact and nothing else clears on any — but every published ratio was computed
+over a multiset in which one artifact counted thirteen times.
+
+### 2. `min_mean_ic = 0.25·|real_ic|` is NOT the enforced floor
+
+> *"the document still calls `min_mean_ic = 0.25*abs(real_ic)` the enforced floor while
+> the extractor shows the stamped floor is a different artifact-level value."*
+
+**It matches 0 of 120 rows** `[VERIFIED — the committed CSV]`. The stamped
+`sanity_regime_ic.min_mean_ic` is an **artifact-level constant** — identical across all
+four regimes of a given artifact, taking **7 distinct values** across the corpus, most
+commonly a flat **0.02**. For `panel-ltr.alpha158_fund.json` the stamp is `0.02` in every
+regime while the formula would give 0.0867 / 0.0109 / 0.0080.
+
+So the formula is **withdrawn as a statement about what is enforced**. What is verified is
+the stamp itself:
+
+- **enforced floor** = the artifact's stamped `min_mean_ic` (constant per artifact);
+- **enforced placebo ceiling** = `0.5` — `stamped_max_placebo_ratio` takes exactly **one**
+  value across all 120 rows, so that half of the conjunct *is* confirmed.
+
+Where the formula came from is unidentified, and naming its producer is a prerequisite
+before any document calls it enforced again. **This matters beyond bookkeeping: the
+"bar by skill alone" arithmetic in this chain was computed from the unstamped formula, so
+that number is unverified until it is recomputed against the stamped floor.**
