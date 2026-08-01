@@ -244,4 +244,34 @@ def test_the_cited_contract_is_the_one_in_force():
         "silent-refusal": (1,), "blind-notifiers": (1,),
         "undelivered-alerts": (1,), "import-resolution": (1,),
         "umbrella-script-shadow": (1,), "launchd-liveness": (1,),
+        # Added 2026-08-01; each cited to its return line in the MEMBERS comment block.
+        "gate-stamp-parity": (1,), "booster-identity": (1,),
+        "bundle-producer-keys": (1,),
     }
+
+
+def test_the_2026_08_01_members_are_ARGUMENT_FREE_or_carry_only_portable_args():
+    """A member may not take a machine-specific path.
+
+    Baking an absolute path into MEMBERS is the "tests that measure the operator's disk"
+    failure, and it is why two detectors merged on 2026-07-31 are recorded in
+    `UNSCHEDULABLE_YET` instead of being added with a hardcoded root.
+    """
+    added = {"gate-stamp-parity", "booster-identity", "bundle-producer-keys"}
+    for name, _rel, tail, _f in oa.MEMBERS:
+        if name not in added:
+            continue
+        for arg in tail:
+            assert not arg.startswith("/"), (name, arg)
+            assert "renhao" not in arg and "Users" not in arg, (name, arg)
+
+
+def test_the_detectors_that_CANNOT_join_are_recorded_not_silently_omitted():
+    """'The audit covers the detectors' must not be readable off a list that quietly
+    excludes two of them."""
+    assert set(oa.UNSCHEDULABLE_YET) == {
+        "renquant104/wf_corpus_coverage.py",
+        "strategy_config_primary_parity.py",
+    }
+    listed = {rel for _n, rel, _t, _f in oa.MEMBERS}
+    assert not (set(oa.UNSCHEDULABLE_YET) & listed), "a blocker cannot also be a member"

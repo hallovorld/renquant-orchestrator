@@ -90,6 +90,55 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("import-resolution", "import_resolution_check.py", [], (1,)),
     ("umbrella-script-shadow", "umbrella_script_shadow_check.py", [], (1,)),
     ("launchd-liveness", "launchd_liveness_scan.py", [], (1,)),
+    # Added 2026-08-01. Measured before adding: five detectors merged on 2026-07-31 were
+    # invoked by NOTHING -- `git grep` over ops/*.sh, ops/*.json, scripts/, Makefile and
+    # the installed plists returned zero callers for each. Merged and dark is the
+    # "inert scaffolding" failure this repo already has a rule against, committed five
+    # times in one night by the same author.
+    #
+    # Write-call sweep before inclusion, per the membership rule above: 0 matches for
+    # `open(...,'w'/'a')`, `write_text`, `json.dump(`, `mkdir`, `shutil.`, `os.remove`,
+    # `os.rename` in each `[VERIFIED — sweep over origin/main, 2026-08-01]`.
+    #
+    # Finding contracts, cited to the line as the six above are:
+    #   gate-stamp-parity    gate_stamp_parity.py:287 `return 1 if problems else 0`.
+    #                        No 2: an empty scan is turned into a PROBLEM at :129 rather
+    #                        than a usage error, so "no subjects" still exits 1.
+    #   booster-identity     booster_identity_census.py:333 `return 0 if
+    #                        (census_complete and no collapse) else 1`; 2 at :294 (root
+    #                        unreadable) and :299 (no artifact matched) — an empty
+    #                        census must not read as one-identity-per-model.
+    #   bundle-producer-keys bundle_producer_key_audit.py:261 `return 1 if (unread or
+    #                        unreadable or unvalidated) else 0`; 2 at :252 (audit could
+    #                        not run at all).
+    #
+    # So two of the three also use 2 for unusable, matching the pattern above: argparse
+    # exits 2 as well, which means a typo in any `tail` lands on HARNESS, not on
+    # "found nothing".
+    ("gate-stamp-parity", "renquant104/gate_stamp_parity.py",
+     ["--query", "panel-ltr.alpha158_fund*.json"], (1,)),
+    ("booster-identity", "renquant104/booster_identity_census.py",
+     ["--query", "panel-ltr.alpha158_fund*.json"], (1,)),
+    ("bundle-producer-keys", "bundle_producer_key_audit.py", [], (1,)),
+)
+
+#: Detectors that CANNOT join yet, and why — recorded rather than silently omitted, so
+#: "the audit covers the detectors" is not read off a list that quietly excludes two.
+#:
+#:   wf_corpus_coverage.py            requires `--artifacts <path...>`: a per-artifact
+#:                                    census with no defensible repo-wide default. It is
+#:                                    invoked against a named artifact, not swept.
+#:   strategy_config_primary_parity.py requires `--config <path> --config <path>`: the
+#:                                    two surfaces are machine paths (one pinned subrepo,
+#:                                    one umbrella tree). Baking either into this
+#:                                    reviewed tuple is the "tests that measure the
+#:                                    operator's disk" failure.
+#:
+#: Both need a resolved default in the tool itself first — the same fix applied to
+#: gate_stamp_parity and booster_identity_census in this change.
+UNSCHEDULABLE_YET = (
+    "renquant104/wf_corpus_coverage.py",
+    "strategy_config_primary_parity.py",
 )
 
 #: A member may not run forever inside a scheduled job.
