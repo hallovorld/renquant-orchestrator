@@ -83,6 +83,66 @@ item 10 (`[VERIFIED — <file/command>]`, `[VERIFIED — prior work, <issue/PR>]
 
 ---
 
+## R8 — the SAME gate stamp in two locations inside one artifact, and they disagree
+
+**A different species from R1–R7: this twin is in the DATA, not the code.**
+
+| | |
+|---|---|
+| copies | `metadata.wf_gate_metadata` (**canonical**) and a legacy top-level `wf_gate_metadata`, in the same JSON artifact |
+| which copy is authoritative | the canonical one — but nothing in the artifact says so |
+| measured | over 29 prod `panel-ltr.alpha158_fund*.json`: **29 carry the canonical block; 14 also carry the legacy copy; 0 carry only the legacy one.** Where both exist they **agree on 12 and DISAGREE on 2** — the legacy block has no `sanity_eval_scope` while the canonical one records `walkforward_manifest` `[VERIFIED — 本次实测 2026-07-31, direct JSON inspection]` |
+| cost | **three defects in one evening, two of them published claims I had to retract** |
+
+The three:
+
+1. **backtesting#89** — a census read the top-level key, found it on 14 of 29, and
+   concluded *"fifteen rows asserted an observation nobody made."* **A fabrication
+   accusation against real evidence.** Retracted.
+2. **orch#680** — the same read produced *"ten of the eleven artifacts cannot re-derive
+   the table."* All 11 can; 44 of 44 rows re-derive exactly. Retracted.
+3. **orch#683** — `bundle_seal.extract_bindings` read the legacy key only. The deployed
+   panel happens to carry both, so it is correct today **by luck**; on the 15 panels
+   carrying only the canonical block it would seal `wf_gate_verdict: "UNSTAMPED"` and
+   drop all seven override-provenance fields — while its docstring claimed it closed the
+   GOAL-5 *"override provenance not in the run bundle"* gap.
+
+**Why this species is worse than R1–R7.** A code twin misleads whoever reads the source.
+A *data* twin misleads every tool that reads the artifact, independently, and each one
+fails differently — a census under-counts, a seal writes UNSTAMPED, an audit cries
+fabrication. And the failure is **silent and direction-dependent**: reading the wrong key
+returns `None`, which every reader interprets as *"the thing isn't there"* rather than
+*"I looked in the wrong place."*
+
+> **A checker looking in the wrong place does not discover that its subjects are missing
+> — it discovers that it is looking in the wrong place.**
+
+**What the live path does right, and it is worth recording.** A sweep of every
+`wf_gate_metadata` reader across seven repos found the production readers **already**
+correct: `preflight.py`, `job_panel_scoring.py`, `model_acceptance.py`,
+`latest_run_docs.py`, `assemble_track_b_verdict.py`, `model_bundle.py`,
+`model_freshness_enforcer.py` and `check_model_bundle_consistency.py` all read canonical
+first. **Only the new audit tools written that evening had the bug**, plus `bundle_seal`.
+The first pass of that sweep flagged six production files and **five were false
+positives** — a regex cannot tell whether the receiver of `.get("wf_gate_metadata")` is
+the whole payload or the `metadata` sub-dict.
+
+## R9 — one artifact basename, 23 paths, 3 distinct digests
+
+| | |
+|---|---|
+| copies | `panel-ltr.alpha158_fund.json` resolves to **23 paths** under `backtesting/renquant_104/artifacts` with **3 distinct sha256** — 21 of them inside `diagnostics/modal_sweep_*/bundle/kernel/artifacts/prod/`, one in `diagnostics/wf_audit_20260527/`, one in `prod/` `[VERIFIED — 本次实测 2026-07-31]` |
+| which copy is live | `prod/panel-ltr.alpha158_fund.json` — nothing in the tree says so |
+| cost | an `rglob` + `sorted(hits)[0]` in a census silently measured a **modal-sweep diagnostic copy** and shifted `BULL_CALM`'s median from `0.022029` to `0.021927` **with no error raised**. Caught only because two runs of the same tool disagreed |
+
+This is R1–R7's *"which copy executes"* displaced by one step: **which copy gets
+MEASURED**. It appeared inside the tool written to make a measurement auditable.
+
+**Remediation applied here:** resolve against a **declared root, non-recursively**, and
+treat a basename resolving to more than one **distinct digest** as `AMBIGUOUS` — refuse
+rather than choose. That is now enforced by a fixture in
+`tests/test_bear_pass_is_one_small_regime.py`.
+
 ## The pattern, stated once
 
 In R2, R3, R5 and R6 a defect was filed or a fix written against a copy that does
@@ -107,7 +167,13 @@ richer public surface, a legacy script kept for reference). A row is retired whe
 3. **a single source for role assignment** in R5/R6 — today three files assert
    which model is primary and two of them are wrong;
 4. **a reachability assertion** for R7's shape — a branch no caller reaches is
-   dead code wearing a docstring, and a test can say so.
+   dead code wearing a docstring, and a test can say so;
+5. **for R8, a stated canonical key** — every reader resolves through one helper that
+   keys on the canonical location's PRESENCE (not its truthiness, or an emptied stamp
+   resurrects the legacy value), records which key answered, and a parity check reports
+   the artifacts where the two copies disagree instead of silently preferring one;
+6. **for R9, a declared root** — no basename glob over an artifact tree that contains
+   diagnostic bundles; ambiguity is an error, not a choice.
 
 None of that is implemented here. This document is the register; each row's fix
 has a different owner and a different blast radius, and R5's in particular changes
