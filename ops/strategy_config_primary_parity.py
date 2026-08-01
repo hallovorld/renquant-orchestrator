@@ -148,8 +148,27 @@ def read_surface(path: str) -> dict:
     if shadows is not None and not isinstance(shadows, list):
         return {**row, "status": "malformed_shadow_models",
                 "why": f"`shadow_models` is {type(shadows).__name__}, not a list"}
-    names = sorted(s.get("name") for s in (shadows or [])
-                   if isinstance(s, dict) and isinstance(s.get("name"), str))
+    # FAIL CLOSED on a malformed MEMBER, not just a malformed list `[codex on #694]`.
+    # The earlier comprehension filtered non-dict members and non-string names out, so
+    # `[{"name": 7}]` normalised to `[]` and AGREED WITH A GENUINELY EMPTY SHADOW LIST.
+    # Silently turning corruption into a value that can match is the fail-open shape this
+    # whole module exists to catch, committed by the module.
+    bad = [f"entry {i} is {type(m).__name__}, not an object" if not isinstance(m, dict)
+           else f"entry {i} has name={m.get('name')!r} ({type(m.get('name')).__name__}),"
+                f" not a string"
+           for i, m in enumerate(shadows or [])
+           if not isinstance(m, dict) or not isinstance(m.get("name"), str)]
+    if bad:
+        return {**row, "status": "malformed_shadow_models",
+                "why": "; ".join(bad)}
+    # Identity fields are REQUIRED. Missing ones compare as equal `None`, so two
+    # surfaces that each declare no primary at all would "agree" about who decides.
+    missing = [f for f in IDENTITY_FIELDS if ps.get(f) is None]
+    if missing:
+        return {**row, "status": "incomplete_identity",
+                "why": f"missing identity field(s): {', '.join(missing)} — a surface "
+                       f"that does not say who decides cannot agree with one that does"}
+    names = sorted(m["name"] for m in (shadows or []))
     return {**row, "status": "read",
             "identity": {f: ps.get(f) for f in IDENTITY_FIELDS},
             "shadow_models": names,

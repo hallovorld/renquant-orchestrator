@@ -180,7 +180,7 @@ def test_ANTI_VACUITY_one_base_resolving_everything_is_not_flagged(tmp_path):
     """Without this the check would flag every config and prove nothing."""
     _tree(tmp_path, "base/artifacts/prod/p.json", "base/artifacts/shadow/s.json")
     cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
-        "kind": "xgb", "artifact_path": "artifacts/prod/p.json",
+        "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
         "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
     pa = P.audit_paths(P.read_surface(cfg), [str(tmp_path / "base")])
     assert pa["bases_disagree"] is False
@@ -191,7 +191,7 @@ def test_an_UNRESOLVABLE_path_is_distinct_from_a_base_disagreement(tmp_path):
     """Different defects: 'the file is nowhere' vs 'the files are in different places'."""
     _tree(tmp_path, "base/artifacts/prod/p.json")
     cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
-        "kind": "xgb", "artifact_path": "artifacts/prod/p.json",
+        "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
         "shadow_models": [{"name": "s", "artifact_path": "artifacts/gone/x.json"}]}}})
     pa = P.audit_paths(P.read_surface(cfg), [str(tmp_path / "base")])
     assert pa["n_unresolvable"] == 1
@@ -210,7 +210,7 @@ def test_a_base_disagreement_ALONE_makes_main_exit_nonzero(tmp_path, capsys):
     """Identity can agree while the paths do not — the exit code must reflect both."""
     _tree(tmp_path, "sub/artifacts/prod/p.json", "umbrella/artifacts/shadow/s.json")
     cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
-        "kind": "xgb", "artifact_path": "artifacts/prod/p.json",
+        "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
         "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
     rc = P.main(["--config", cfg, "--base", str(tmp_path / "umbrella"),
                  "--base", str(tmp_path / "sub")])
@@ -223,3 +223,93 @@ def test_an_ABSOLUTE_artifact_path_is_handled_without_a_base(tmp_path):
     _tree(tmp_path, "x/a.json")
     assert P.resolve_against(str(tmp_path / "x" / "a.json"), []) == [""]
     assert P.resolve_against(str(tmp_path / "x" / "gone.json"), []) == []
+
+
+# ---------------------------------------------------------------------------
+# ROUND 2 — codex on #694: two fail-open paths, both the same shape — silently
+# normalising corruption into a value that can MATCH.
+# ---------------------------------------------------------------------------
+
+def test_a_MALFORMED_shadow_ENTRY_is_broken_not_an_empty_shadow_list(tmp_path):
+    """Measured pre-fix: `[{"name": 7}]` normalised to `[]` and AGREED with a genuinely
+    empty shadow list. A corrupt deployed surface read as agreeing."""
+    corrupt = _cfg(tmp_path, "a.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "x",
+        "shadow_models": [{"name": 7}]}}})
+    empty = _cfg(tmp_path, "b.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "x",
+        "shadow_models": []}}})
+    r = P.read_surface(corrupt)
+    assert r["status"] == "malformed_shadow_models" and "int" in r["why"]
+    rep = P.compare([P.read_surface(corrupt), P.read_surface(empty)])
+    assert rep["n_broken"] == 1
+    assert P.main(["--config", corrupt, "--config", empty]) == 1
+
+
+def test_a_NON_OBJECT_shadow_entry_is_also_broken(tmp_path):
+    r = P.read_surface(_cfg(tmp_path, "a.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "x",
+        "shadow_models": ["just-a-string"]}}}))
+    assert r["status"] == "malformed_shadow_models" and "not an object" in r["why"]
+
+
+def test_EVERY_malformed_entry_is_reported_not_just_the_first(tmp_path):
+    """One repaired entry must not hide the next."""
+    r = P.read_surface(_cfg(tmp_path, "a.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "x",
+        "shadow_models": [{"name": 7}, "str", {"name": None}]}}}))
+    assert r["why"].count(";") == 2, r["why"]
+
+
+def test_a_MISSING_identity_field_is_INCOMPLETE_not_a_comparable_None(tmp_path):
+    """Measured pre-fix: two surfaces each missing kind/enabled/artifact_path compared
+    as equal `None` values and 'agreed' about who decides."""
+    a = _cfg(tmp_path, "a.json", raw={"ranking": {"panel_scoring": {
+        "shadow_models": []}}})
+    b = _cfg(tmp_path, "b.json", raw={"ranking": {"panel_scoring": {
+        "shadow_models": []}}})
+    assert P.read_surface(a)["status"] == "incomplete_identity"
+    rep = P.compare([P.read_surface(a), P.read_surface(b)])
+    assert rep["n_broken"] == 2 and rep["n_read"] == 0
+    assert P.main(["--config", a, "--config", b]) == 2   # nothing readable to compare
+
+
+def test_EACH_identity_field_is_required_individually(tmp_path):
+    for drop in ("kind", "enabled", "artifact_path"):
+        ps = {"kind": "xgb", "enabled": True, "artifact_path": "x",
+              "shadow_models": []}
+        ps.pop(drop)
+        r = P.read_surface(_cfg(tmp_path, f"{drop}.json",
+                                raw={"ranking": {"panel_scoring": ps}}))
+        assert r["status"] == "incomplete_identity", drop
+        assert drop in r["why"], drop
+
+
+def test_ANTI_VACUITY_a_complete_surface_with_valid_shadows_still_reads(tmp_path):
+    """Without this the new strictness could reject everything and prove nothing."""
+    r = P.read_surface(_cfg(tmp_path, "a.json", shadows=("s1", "s2")))
+    assert r["status"] == "read" and r["shadow_models"] == ["s1", "s2"]
+
+
+def test_an_EMPTY_shadow_list_is_still_VALID_when_identity_is_complete(tmp_path):
+    """A lane-free config is legitimate; only a corrupt one is broken. The distinction
+    has to cut both ways or this is just a stricter alarm."""
+    r = P.read_surface(_cfg(tmp_path, "a.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "x",
+        "shadow_models": []}}}))
+    assert r["status"] == "read" and r["shadow_models"] == []
+
+
+def test_the_REAL_surfaces_still_read_and_still_disagree():
+    """The finding must survive the strictness — if the real configs became 'broken',
+    the disagreement would be hidden behind a validation error."""
+    import os
+    a = "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json"
+    b = ("/Users/renhao/git/github/RenQuant/backtesting/renquant_104/"
+         "strategy_config.json")
+    if not (os.path.exists(a) and os.path.exists(b)):
+        import pytest
+        pytest.skip("live surfaces not present on this machine")
+    rep = P.compare([P.read_surface(a), P.read_surface(b)])
+    assert rep["n_read"] == 2 and rep["n_broken"] == 0
+    assert rep["primary_and_shadow_are_mirrored"] is True

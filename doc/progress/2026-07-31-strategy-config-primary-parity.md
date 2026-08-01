@@ -122,3 +122,45 @@ from a directory layout is the same over-reach this module already refuses for t
 authoritative *surface*.
 
 20 tests (was 13). Suite: **5009 passed, 2 skipped** — run before the push.
+
+---
+
+## ROUND 2 — two fail-open paths, both "silently normalise corruption into a matchable value"
+
+Reviewed `[codex on orch#694]`: *"`read_surface` accepts any list as `shadow_models` and
+silently drops non-object members or members without a string name. For example,
+`[{"name": 7}]` is reduced to `[]`, so it can agree with a genuinely empty shadow list.
+Likewise, missing `kind`, `enabled`, or `artifact_path` values can compare as equal `None`
+values."*
+
+Both confirmed by executing them before changing anything `[本次实测 2026-07-31]`:
+
+```
+corrupt shadow entry vs genuinely empty  -> disagreements: []   n_broken: 0
+both surfaces missing all identity fields -> disagreements: []   n_broken: 0
+```
+
+**They are one shape, twice: a corrupt input normalised into a value that can MATCH.** A
+filtered-out member becomes `[]`, which equals a real `[]`. A missing field becomes
+`None`, which equals another missing field. In both cases the tool built to detect
+disagreement reported agreement between a corrupt surface and a healthy one — the
+fail-open shape this module exists to catch, committed by the module.
+
+**Fixes.** A malformed shadow **member** — non-object, or a non-string `name` — makes the
+surface `malformed_shadow_models`, and **every** bad entry is reported, not just the
+first. The three identity fields are **required**: a surface missing any of them is
+`incomplete_identity`, because *a surface that does not say who decides cannot agree with
+one that does*.
+
+The distinction still cuts both ways: an **empty** shadow list on a complete surface is
+valid — a lane-free config is legitimate — and only a **corrupt** one is broken.
+
+**Three of my own earlier path-audit tests failed on this change**, because their fixtures
+omitted `enabled` and were relying on exactly the fail-open being closed. Completing the
+fixtures was the fix: a path audit only means anything on a readable surface.
+
+**The real finding survives the strictness** — asserted directly, because if the live
+configs had become "broken" the mirror-swap would be hidden behind a validation error
+instead of reported. Both real surfaces still read cleanly and still disagree.
+
+28 tests (was 20). Suite: **5017 passed, 2 skipped** — run before the push.
