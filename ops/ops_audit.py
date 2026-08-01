@@ -90,6 +90,32 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("import-resolution", "import_resolution_check.py", [], (1,)),
     ("umbrella-script-shadow", "umbrella_script_shadow_check.py", [], (1,)),
     ("launchd-liveness", "launchd_liveness_scan.py", [], (1,)),
+    # ack-ledger, added 2026-08-01. MEASURED BEFORE ADDING, and it is the same finding
+    # the five entries below were added for: `ack_ledger_audit.py` was merged, works, and
+    # reports 11 findings against the live ledger today -- while being invoked by NOTHING
+    # except its own test file. The 07-31 dark-detector sweep missed it.
+    #
+    # Why it matters that it runs unconditionally: `ack_expiry` IS consulted elsewhere,
+    # but only from `rq104_degradation_sentinel.expired_or_unacked()`, which reaches it
+    # only for jobs whose LAST EXIT IS NONZERO, inside a sentinel that SKIPS non-session
+    # days. So an expired ack on a currently-passing job is never examined, and on a
+    # weekend the ledger is not read at all. Measured 2026-08-01: 9 of 10 acks expired,
+    # the oldest by 12 days. An expiry nobody reads is not a reminder.
+    #
+    # Exit contract read from source: `EXIT_OK, EXIT_FINDINGS, EXIT_HARNESS = 0, 1, 3`
+    # at ack_ledger_audit.py:68; findings returned :283; 3 returned :260 on an
+    # unexpected exception. 3 is not declared a finding exit, so it lands on HARNESS by
+    # the default rule -- which is the intent.
+    #
+    # WRITE-CALL SWEEP, and what it forced. The membership rule is read-only detectors
+    # only, enforced mechanically by `test_no_member_writes` -- which REJECTED this
+    # member on the first attempt. It had one write, `open(a.json_out, "w")`, reachable
+    # only via a `--json-out` flag that had NO CALLER anywhere in the repo. Documenting
+    # it as an exception would have weakened a guard that was doing its job, so the flag
+    # was deleted instead: `--json` prints the same payload to stdout. That is what made
+    # this tool schedulable. Its `subprocess` calls are `git rev-parse` / `git log` /
+    # `git show` -- read-only, against this repository.
+    ("ack-ledger", "renquant104/ack_ledger_audit.py", [], (1,)),
     # Added 2026-08-01. Measured before adding: five detectors merged on 2026-07-31 were
     # invoked by NOTHING -- `git grep` over ops/*.sh, ops/*.json, scripts/, Makefile and
     # the installed plists returned zero callers for each. Merged and dark is the
