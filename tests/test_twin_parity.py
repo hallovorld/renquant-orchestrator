@@ -114,6 +114,12 @@ def sibling_tree(tmp_path):
     _write(pipeline, "src/renquant_pipeline/kernel/portfolio_qp/tasks.py", _PIPE_QP_TASKS)
     _write(pipeline, "src/renquant_pipeline/kernel/selection.py", _PIPE_SELECTION)
 
+    model = tmp_path / "renquant-model"
+    _write(umbrella, "scripts/fit_calibrator_alpha158_fund.py",
+           "# umbrella calibrator fitter\nX = 1\n")
+    _write(model, "src/renquant_model_gbdt/fit_calibrator_alpha158_fund.py",
+           "# model-kernel calibrator fitter\nX = 2\n")
+
     repos = ctp.resolve_repos(tmp_path)
     assert all(repos.values()), repos
     # kernel shelf + meta_label twins (orch#734/#728): shelf pairs byte-identical,
@@ -167,6 +173,9 @@ def test_manifest_pins_expected_shape(sibling_tree):
     assert set(manifest["diverged_twins"]) == {
         "broker", "alpaca_broker", "paper_broker", "readonly_broker",
     }
+    assert set(manifest["model_diverged_twins"]) == {"fit_calibrator_alpha158_fund"}
+    a6 = manifest["model_diverged_twins"]["fit_calibrator_alpha158_fund"]
+    assert a6["umbrella_sha256"] != a6["model_sha256"], "the pair IS diverged; equal shas would mean the fixture stopped modelling A6"
     assert manifest["constants"]["MIN_FRACTIONAL_NOTIONAL_USD"] == 1.0
     fn = manifest["function_pins"]["compute_parent_intent_id"]
     assert len(fn["pipeline_sha256"]) == 64 and len(fn["execution_sha256"]) == 64
@@ -310,7 +319,8 @@ def test_selection_param_default_change_fails(sibling_tree):
 
 def test_missing_siblings_all_skip(tmp_path):
     repos = ctp.resolve_repos(tmp_path)  # empty dir: no siblings
-    assert repos == {"umbrella": None, "execution": None, "pipeline": None}
+    assert repos == {"umbrella": None, "execution": None, "pipeline": None,
+                     "model": None}
     results = ctp.run_checks(repos, {})
     assert results and all(r.status == "SKIP" for r in results)
     assert all("NOT verified" in r.detail for r in results)
@@ -491,3 +501,20 @@ def test_an_empty_pin_section_is_a_FAIL_not_a_silent_pass(tmp_path):
     rs = ctp.check_kernel_meta_label_twins({"umbrella": u}, {})
     assert rs[0].status == "FAIL"
     assert "no kernel_meta_label_twins pins" in rs[0].detail
+
+
+def test_a6_model_twin_drift_fails_on_either_side(sibling_tree):
+    """A6's tripwire (orch#728): a change on the umbrella OR the model side of the
+    calibrator-fitter twin must FAIL against the pinned divergence."""
+    tmp_path, repos = sibling_tree
+    manifest = ctp.build_manifest(repos)
+    (tmp_path / "RenQuant/scripts/fit_calibrator_alpha158_fund.py").write_text(
+        "# umbrella calibrator fitter\nX = 999\n")
+    fails = _fails(ctp.run_checks(repos, manifest))
+    assert any(r.name == "model_diverged_pin:fit_calibrator_alpha158_fund" for r in fails)
+    # and the model side, independently
+    manifest2 = ctp.build_manifest(repos)
+    (tmp_path / "renquant-model/src/renquant_model_gbdt/fit_calibrator_alpha158_fund.py").write_text(
+        "# model-kernel calibrator fitter\nX = -1\n")
+    fails2 = _fails(ctp.run_checks(repos, manifest2))
+    assert any(r.name == "model_diverged_pin:fit_calibrator_alpha158_fund" for r in fails2)

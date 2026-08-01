@@ -57,6 +57,14 @@
       "umbrella_sha256": "cd14b82769d73c36c1d554b21e39e46d7d1d8ffa981176adaf56956f0a78b823"
     }
   },
+  "model_diverged_twins": {
+    "fit_calibrator_alpha158_fund": {
+      "model_path": "src/renquant_model_gbdt/fit_calibrator_alpha158_fund.py",
+      "model_sha256": "6d25254960b0e1254ceb72e1e96b4fb74e47c4b50b61f698b845c3552bb4b84c",
+      "umbrella_path": "scripts/fit_calibrator_alpha158_fund.py",
+      "umbrella_sha256": "4bf395f88498a95677899dd190b495e0ce86f8e9752df2e9d9c73bff33e069df"
+    }
+  },
   "tax_conventions": {
     "comment": "R6 unifies; this pin makes further silent drift fail. Three divergent tax families coexist in the pipeline kernel (audit B SS4): rotation tax_drag ST/LT cliff 0.50/0.32, QP Brown-Smith bridge 0.30/0.15, selection flat 0.30 \u2014 the same sell is costed differently per leg.",
     "qp_tax_rate_lt": {
