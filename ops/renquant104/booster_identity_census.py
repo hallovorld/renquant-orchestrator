@@ -65,22 +65,77 @@ def booster_digest(payload: dict) -> str | None:
     return hashlib.sha256(blob).hexdigest()
 
 
+#: A provenance container that exists but is not a JSON object. `(x or {}).get(...)` is
+#: NOT a guard: a non-empty string is truthy, so the `or {}` never fires. This is the
+#: third tool in one session to need this constant; it is named, not inlined.
+MALFORMED = "MALFORMED_PROVENANCE"
+
+#: An artifact whose admission identity could not be read at all. NEVER a shared key —
+#: see `_identity_key`.
+UNKNOWN = "UNKNOWN_ADMISSION_IDENTITY"
+
+
 def recipe_fingerprint(payload: dict) -> str | None:
     """The admission key, read from the gate stamp — canonical first, legacy fallback.
 
-    Falls back to the artifact's own `config_fingerprint` only when no gate stamp exists,
-    and the caller can tell which happened from `fingerprint_source`.
+    Returns `MALFORMED` when a provenance container is present but is not an object,
+    `None` when the identity is simply absent, and otherwise `<fp>|<source>` so the
+    caller can tell canonical from legacy from a bare `config_fingerprint`.
+
+    Malformed and absent are different facts `[codex on orch#692]`, and neither is an
+    identity. The earlier `(payload.get("metadata") or {}).get(...)` crashed with
+    AttributeError on an artifact whose `metadata` is a string — measured, not
+    hypothetical.
     """
-    for node, source in (
-            ((payload.get("metadata") or {}).get("wf_gate_metadata"), "canonical"),
-            (payload.get("wf_gate_metadata"), "legacy")):
-        if isinstance(node, dict):
-            fp = (node.get("artifact_usage") or {}).get(
-                "candidate_recipe_fingerprint")
-            if fp:
-                return f"{fp}|{source}"
+    meta = payload.get("metadata")
+    if meta is not None and not isinstance(meta, dict):
+        return MALFORMED
+    # Bound to a plain name before the lookup, deliberately. `(meta or {}).get(KEY)` is
+    # behaviourally identical, but the repo-wide R8 invariant scan
+    # (tests/test_twin_r8_canonical_gate_key.py) decides "did this reader consult the
+    # canonical key" from the RECEIVER node, and a `BoolOp` receiver scores as
+    # legacy-only. Writing it this way keeps a compliant reader legible to the check
+    # that exists on main today, instead of depending on a detector fix that has not
+    # landed yet.
+    meta = meta or {}
+    for node, source in ((meta.get("wf_gate_metadata"), "canonical"),
+                         (payload.get("wf_gate_metadata"), "legacy")):
+        if node is None:
+            continue
+        if not isinstance(node, dict):
+            return MALFORMED
+        usage = node.get("artifact_usage")
+        if usage is not None and not isinstance(usage, dict):
+            return MALFORMED
+        fp = (usage or {}).get("candidate_recipe_fingerprint")
+        if fp is not None and not isinstance(fp, str):
+            return MALFORMED
+        if fp:
+            return f"{fp}|{source}"
     fp = payload.get("config_fingerprint")
+    if fp is not None and not isinstance(fp, str):
+        return MALFORMED
     return f"{fp}|config_fingerprint_no_gate_stamp" if fp else None
+
+
+def _identity_key(row: dict) -> str:
+    """The grouping key. Unknown and malformed identities get a key PER ARTIFACT.
+
+    Reviewed `[codex on orch#692]`: *"multiple artifacts with no usable recipe
+    fingerprint are grouped under None as though they shared one admission identity."*
+
+    That is this census committing the exact collapse it exists to measure — two
+    artifacts with NO identity were reported as "2 artifacts -> 2 distinct boosters",
+    which reads as a 2:1 collapse. Absence of a shared key is not a shared key. So an
+    unknown or malformed identity is made unique to its artifact and can never form a
+    group larger than one.
+    """
+    fp = row["recipe_fingerprint"]
+    if fp == MALFORMED:
+        return f"{MALFORMED}::{row['artifact']}"
+    if fp is None:
+        return f"{UNKNOWN}::{row['artifact']}"
+    return fp
 
 
 def census(root: str, query: str) -> dict:
@@ -109,16 +164,29 @@ def census(root: str, query: str) -> dict:
                 ROLLBACK.search(name)),
         })
 
-    groups = collections.defaultdict(set)
+    # Grouped by IDENTITY KEY, and counted by it too. Counting members with the raw
+    # fingerprint while keying on the identity key gave every unknown group
+    # "0 artifact(s)" -- a silently wrong denominator inside the tool whose subject is
+    # wrong denominators.
+    groups: dict[str, set] = collections.defaultdict(set)
+    members: dict[str, int] = collections.Counter()
     for r in rows:
-        groups[r["recipe_fingerprint"]].add(r["booster_sha256"])
-    collapse = [{"recipe_fingerprint": fp, "n_artifacts":
-                 sum(1 for r in rows if r["recipe_fingerprint"] == fp),
+        k = _identity_key(r)
+        groups[k].add(r["booster_sha256"])
+        members[k] += 1
+    collapse = [{"identity_key": k, "n_artifacts": members[k],
                  "n_distinct_boosters": len(bs)}
-                for fp, bs in sorted(groups.items(), key=lambda kv: str(kv[0]))]
+                for k, bs in sorted(groups.items(), key=lambda kv: str(kv[0]))]
 
+    n_malformed = sum(1 for r in rows if r["recipe_fingerprint"] == MALFORMED)
+    n_unknown = sum(1 for r in rows if r["recipe_fingerprint"] is None)
     return {"root": os.path.basename(os.path.normpath(root)), "query": query,
             "n_artifacts": len(rows), "n_unreadable": len(unreadable),
+            "n_malformed_identity": n_malformed,
+            "n_unknown_identity": n_unknown,
+            # A census missing subjects cannot certify one-identity-per-model, so it says
+            # so in its own payload rather than leaving the caller to notice.
+            "census_complete": not (unreadable or n_malformed or n_unknown),
             "unreadable": unreadable, "artifacts": rows, "collapse_groups": collapse,
             "scope_note": (
                 "A booster digest mismatch means DIFFERENT LEARNED MODELS. It does not "
@@ -190,14 +258,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.json:
         print(json.dumps(rep, indent=2, sort_keys=True))
-        return 1 if any(g["n_distinct_boosters"] > 1
-                        for g in rep["collapse_groups"]) else 0
+        return 0 if (rep["census_complete"] and not any(
+            g["n_distinct_boosters"] > 1 for g in rep["collapse_groups"])) else 1
 
     print(f"{rep['n_artifacts']} artifact(s) under {rep['root']}/{rep['query']}, "
-          f"{rep['n_unreadable']} unreadable")
+          f"{rep['n_unreadable']} unreadable, "
+          f"{rep['n_malformed_identity']} malformed identity, "
+          f"{rep['n_unknown_identity']} unknown identity")
+    if not rep["census_complete"]:
+        print("  INCOMPLETE CENSUS — subjects are missing or unidentifiable, so this "
+              "cannot certify one admission identity per model")
     for g in rep["collapse_groups"]:
         flag = "COLLAPSE" if g["n_distinct_boosters"] > 1 else "one-to-one"
-        print(f"  {flag:11s} recipe {g['recipe_fingerprint']}: "
+        print(f"  {flag:11s} identity {g['identity_key']}: "
               f"{g['n_artifacts']} artifact(s) -> "
               f"{g['n_distinct_boosters']} distinct booster(s)")
     p = rep.get("promotion")
@@ -212,8 +285,8 @@ def main(argv: list[str] | None = None) -> int:
     elif p:
         print(f"\npromotion series: {p['error']}", file=sys.stderr)
     print("\n" + rep["scope_note"])
-    return 1 if any(g["n_distinct_boosters"] > 1
-                    for g in rep["collapse_groups"]) else 0
+    return 0 if (rep["census_complete"] and not any(
+        g["n_distinct_boosters"] > 1 for g in rep["collapse_groups"])) else 1
 
 
 if __name__ == "__main__":

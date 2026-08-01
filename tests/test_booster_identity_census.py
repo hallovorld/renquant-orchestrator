@@ -143,3 +143,95 @@ def test_the_scope_notes_refuse_the_two_over_readings(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "does not follow that their predictions differ" in out
     assert "does NOT establish why" in out
+
+
+# ---------------------------------------------------------------------------
+# ROUND 2 — codex on #692: three fail-open paths. The third is the census
+# committing the collapse it exists to measure.
+# ---------------------------------------------------------------------------
+
+def _raw(d, name, body):
+    (d / name).write_text(json.dumps(body), encoding="utf-8")
+
+
+def test_a_STRING_metadata_container_does_not_CRASH(tmp_path):
+    """Measured pre-fix: AttributeError: 'str' object has no attribute 'get'.
+    Third tool in one session with this shape, hence a named constant."""
+    assert B.recipe_fingerprint({"metadata": "n/a"}) == B.MALFORMED
+
+
+def test_malformed_provenance_at_EVERY_level_is_MALFORMED(tmp_path):
+    for body in ({"metadata": "n/a"},
+                 {"metadata": {"wf_gate_metadata": "x"}},
+                 {"wf_gate_metadata": "x"},
+                 {"metadata": {"wf_gate_metadata": {"artifact_usage": "x"}}},
+                 {"metadata": {"wf_gate_metadata":
+                               {"artifact_usage":
+                                {"candidate_recipe_fingerprint": 7}}}},
+                 {"config_fingerprint": 7}):
+        assert B.recipe_fingerprint(body) == B.MALFORMED, body
+
+
+def test_MULTIPLE_UNKNOWN_identities_are_NEVER_grouped_together(tmp_path):
+    """The sharpest of the three. Pre-fix, two artifacts with NO admission identity were
+    reported as '2 artifacts -> 2 distinct boosters' — which reads as a 2:1 COLLAPSE.
+    Absence of a shared key is not a shared key."""
+    _raw(tmp_path, "u1.json", {"booster_raw_json": "A"})
+    _raw(tmp_path, "u2.json", {"booster_raw_json": "B"})
+    rep = B.census(str(tmp_path), "*.json")
+    assert len(rep["collapse_groups"]) == 2, rep["collapse_groups"]
+    assert all(g["n_artifacts"] == 1 for g in rep["collapse_groups"])
+    assert all(g["n_distinct_boosters"] == 1 for g in rep["collapse_groups"])
+    assert rep["n_unknown_identity"] == 2 and rep["census_complete"] is False
+
+
+def test_MULTIPLE_MALFORMED_identities_are_never_grouped_together(tmp_path):
+    _raw(tmp_path, "m1.json", {"metadata": "n/a", "booster_raw_json": "A"})
+    _raw(tmp_path, "m2.json", {"metadata": "n/a", "booster_raw_json": "B"})
+    rep = B.census(str(tmp_path), "*.json")
+    assert len(rep["collapse_groups"]) == 2
+    assert rep["n_malformed_identity"] == 2
+
+
+def test_the_group_DENOMINATOR_counts_by_identity_key(tmp_path):
+    """A bug I introduced while fixing the grouping: members were still counted with the
+    raw fingerprint while the key had become the identity key, so every unknown group
+    reported '0 artifact(s)' — a silently wrong denominator inside the tool whose whole
+    subject is wrong denominators."""
+    _raw(tmp_path, "u1.json", {"booster_raw_json": "A"})
+    assert B.census(str(tmp_path), "*.json")["collapse_groups"][0]["n_artifacts"] == 1
+
+
+def test_MIXED_valid_plus_malformed_is_an_INCOMPLETE_census_and_exits_nonzero(tmp_path):
+    """codex's mixed case. Pre-fix a partial census exited 0 as long as the valid rows
+    were clean — an unreadable or unidentifiable subject vanished from the verdict."""
+    _art(tmp_path, "good1.json", booster="X", fp="R1")
+    _art(tmp_path, "good2.json", booster="X", fp="R1")
+    _raw(tmp_path, "bad.json", {"metadata": "n/a", "booster_raw_json": "Z"})
+    rep = B.census(str(tmp_path), "*.json")
+    assert rep["census_complete"] is False
+    assert B.main(["--root", str(tmp_path)]) == 1
+
+
+def test_UNREADABLE_artifacts_alone_make_the_census_incomplete(tmp_path, capsys):
+    _art(tmp_path, "good.json", booster="X", fp="R1")
+    (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+    assert B.main(["--root", str(tmp_path)]) == 1
+    assert "INCOMPLETE CENSUS" in capsys.readouterr().out
+
+
+def test_ANTI_VACUITY_a_COMPLETE_clean_census_still_exits_zero(tmp_path):
+    """Without this the incompleteness rule could reject everything and prove nothing."""
+    _art(tmp_path, "a.json", booster="same", fp="R1")
+    _art(tmp_path, "b.json", booster="same", fp="R1")
+    rep = B.census(str(tmp_path), "*.json")
+    assert rep["census_complete"] is True
+    assert B.main(["--root", str(tmp_path)]) == 0
+
+
+def test_the_JSON_mode_exit_code_agrees_with_the_text_mode_one(tmp_path):
+    """Two report surfaces, one verdict — a disagreement between them is the defect
+    already found in gate_stamp_parity."""
+    _raw(tmp_path, "u1.json", {"booster_raw_json": "A"})
+    assert B.main(["--root", str(tmp_path)]) == B.main(
+        ["--root", str(tmp_path), "--json"]) == 1

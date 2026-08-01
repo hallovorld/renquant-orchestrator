@@ -81,3 +81,60 @@ legacy / no-stamp stay distinct; a non-object root is unreadable, not an artifac
 model"; the served artifact must be **named, never guessed**; a genuinely **promoted**
 candidate is detected, or "nothing was promoted" would be unfalsifiable; and both scope
 notes are asserted present, so a byte fact cannot be read as a behavioural one.
+
+---
+
+## ROUND 2 2026-07-31 — three fail-open paths, and the third was this census committing its own subject
+
+Reviewed `[codex on orch#692]`: *"`recipe_fingerprint` uses the same non-dict `metadata`
+`.get` path, unreadable artifacts do not affect `main`'s exit when valid rows exist, and
+multiple artifacts with no usable recipe fingerprint are grouped under `None` as though
+they shared one admission identity."*
+
+All three confirmed by executing them before changing anything
+`[本次实测 2026-07-31]`:
+
+```
+metadata = "n/a"                       -> *** CRASH *** AttributeError: 'str' has no 'get'
+two artifacts with NO identity         -> [{'recipe_fingerprint': None,
+                                            'n_artifacts': 2,
+                                            'n_distinct_boosters': 2}]
+```
+
+**The third is the sharpest.** Two artifacts that share *no* admission identity were
+reported as a single group of 2 with 2 distinct boosters — which reads as a **2 : 1
+collapse**. This tool exists to measure how many distinct models hide behind one identity,
+and it was manufacturing exactly that finding out of artifacts that had no identity at
+all. **Absence of a shared key is not a shared key.**
+
+**Fixes**
+
+1. `MALFORMED` — a named constant, because this is the **third tool in one session** to
+   need it. `(x or {}).get(...)` is not a guard: a non-empty string is truthy. Every level
+   is covered — `metadata`, the gate block in either position, `artifact_usage`, and a
+   non-string fingerprint.
+2. `_identity_key()` — unknown and malformed identities are keyed **per artifact**, so
+   they can never form a group larger than one.
+3. `census_complete` — false when anything is unreadable, malformed or unidentifiable, and
+   `main()` returns non-zero on a partial census in **both** text and `--json` mode. A
+   census missing subjects cannot certify one-identity-per-model.
+
+**A bug I introduced while fixing (2), caught before pushing:** members were still counted
+by the raw fingerprint while the key had become the identity key, so every unknown group
+printed **`0 artifact(s)`** — a silently wrong denominator inside the tool whose whole
+subject is wrong denominators. Counted by identity key now, with a test.
+
+**The real-corpus result is unchanged:** 30 artifacts, 0 unreadable, 0 malformed, 0
+unknown, **one identity → 12 distinct boosters**.
+
+### On the R8 invariant, and not depending on an unlanded fix
+
+The full suite failed here on
+`test_no_reader_takes_the_gate_stamp_from_the_LEGACY_key_alone` — the same false positive
+found on orch#691, whose detector fix is on an **unmerged** branch. Rather than depend on
+that, the reader binds `meta` to a plain name before the lookup. Behaviourally identical;
+legible to the check that exists on `main` **today**.
+
+The suite was run **before** the push this time, and the push was gated on it.
+
+20 tests (was 11). Suite: **4989 passed, 2 skipped**.
