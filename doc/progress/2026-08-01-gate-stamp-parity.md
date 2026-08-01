@@ -72,3 +72,82 @@ The first live run was piped to `head` and I read `$?` after the pipe — which 
 status, not the tool's. That is the "never swallow an exit code in a pipe" rule, broken
 by me, in the same session I wrote it down. The exit-code behaviour is now asserted by a
 test rather than eyeballed.
+
+---
+
+## ROUND 2 2026-07-31 — the eight-field enumeration WAS the fail-open default
+
+Reviewed `[codex on orch#687]`: *"the scanner compares only eight selected fields, so a
+disagreement in any later or currently unlisted gate field passes cleanly; it also treats
+a non-object canonical or legacy stamp as absent, which can turn a malformed dual stamp
+into no-stamp rather than a problem."*
+
+Both correct, and the first is a shape this programme has a registry entry for:
+**an enumerated allow-list leaves a fail-open default.** A gate field added tomorrow sits
+outside `COMPARED_FIELDS` and diverges silently — the check would keep reporting clean on
+exactly the drift it exists to find.
+
+**Three changes:**
+
+1. **The comparison surface is now the union of every key in both blocks**, walked
+   recursively, each divergence reported at its dotted path. `COMPARED_FIELDS` is gone;
+   `SALIENT_FIELDS` survives only to *order* the output.
+2. **Fail closed on a malformed copy.** A stamp that is present but not a JSON object is
+   `MALFORMED`, not absent — including when `metadata` itself is malformed. A JSON
+   `null` is still absent, and there is a test for each direction so the distinction is
+   not merely a stricter alarm.
+3. **Presence, not truthiness.** `if canon and legacy` treated an EMPTY canonical block
+   `{}` as missing and fell through to `elif legacy`, counting a dual-stamped artifact as
+   legacy-only and skipping the comparison. This is the identical defect codex found in
+   orch#683; it is now keyed on `is not None`.
+
+Plus: the scan states its own denominator (every matched artifact lands in exactly one
+bucket, and a fall-through is itself a problem), and one side of a reported difference is
+truncated at 160 chars — presentation only, after a live artifact rendered
+`artifact_usage` as a ~6 KB line.
+
+### The live finding, re-measured — it NARROWS
+
+Same corpus, same 30 artifacts `[本次实测 2026-07-31]`:
+
+```
+30 scanned — 15 carry BOTH copies, 15 canonical-only, 0 legacy-only,
+0 no stamp, 0 malformed, 0 unreadable
+```
+
+Two artifacts disagree — `panel-ltr.alpha158_fund.previous.json` and
+`panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json`, identically. The eight-field
+check reported "they disagree on `passed`". The complete walk reports **57 paths**, and
+decomposing those is what makes the finding precise rather than merely bigger:
+
+| | count |
+|---|---:|
+| present canonically, **absent** from legacy | **53** |
+| present in legacy, **absent** canonically | **3** |
+| present in **both** and holding different values | **1** |
+
+- The **one** genuine value conflict is `passed`: **canonical `False`, legacy `True`**.
+- The **three** legacy-only keys are exactly the override provenance —
+  `gate_verdict_before_override`, `operator_authorized_override`, `override_reason`
+  (the reason names an operator authorization dated 2026-07-05, citing 3/3 positive cuts
+  and an APY lag of −5.7% vs SPY).
+
+**So the legacy copy is not a stale duplicate of the canonical one — it is a different,
+smaller schema.** The canonical block records the gate's own verdict (`passed: False`)
+and carries the richer diagnostics, but **no override provenance at all**. The legacy
+block records the post-override verdict (`passed: True`) together with who authorized it
+and why.
+
+**The precise statement.** Neither copy alone is complete. A canonical-first reader sees
+`passed: False` and cannot see that the failure was knowingly overridden; a legacy reader
+sees `passed: True` and cannot see what the gate objected to. The override itself is
+documented — this is **not** evidence of an undocumented promotion, and this document does
+not claim one.
+
+**What this does not do:** it does not reconcile the two copies, and it does not decide
+which one a consumer should read. It reports. Retiring R8 needs the producer to stop
+writing two schemas; that is a change in the gate, not here.
+
+18 tests pass — including the two fixtures codex asked for (an unlisted-field difference,
+and a malformed copy in each position) and an anti-vacuity case where two identical
+blocks are still clean.
