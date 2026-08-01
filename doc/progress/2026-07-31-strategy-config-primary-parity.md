@@ -164,3 +164,44 @@ configs had become "broken" the mirror-swap would be hidden behind a validation 
 instead of reported. Both real surfaces still read cleanly and still disagree.
 
 28 tests (was 20). Suite: **5017 passed, 2 skipped** — run before the push.
+
+---
+
+## CORRECTION 2026-07-31 — this was already registered as R5, and I did not check
+
+**The mirror-swap is not a new finding.** It is **R5** in
+`doc/arch/twin-implementation-registry.md`, in this repo, merged as orch#623 — and R5 has
+*more* than I re-derived:
+
+| | R5 (already recorded) | what I published as new |
+|---|---|---|
+| the inversion | pinned `xgb` vs umbrella `hf_patchtst`, roles exactly inverted | same |
+| which one runs | **the runner takes the pinned config** — `daily_104.sh`, via `renquant_strategy_config "$SUBREPO_ROOT"` | *"I refuse to say"* |
+| watchlist gap | 145 vs 142, exactly `CRWV` / `RKLB` / `SPCX` | not measured |
+| the consequence | a resolver failure promotes a **623-day-stale** shadow checkpoint to primary; its all-negative scores admit no name, i.e. a **silent sell-only book** | not connected |
+
+I measured the files and wrote it up **without checking the registry first**. The registry
+is GOAL-3's entire product, and its purpose is to stop exactly this. Verified since:
+`daily_104.sh` resolves `PROD_STRATEGY_CONFIG` through
+`renquant_strategy_config "$SUBREPO_ROOT" strategy_config.json`, with a fallback that is
+fail-closed **only** when `RENQUANT_STRICT_SUBREPO_PATHS=1` or `RENQUANT_OPS_FAIL_CLOSED=1`
+`[本次实测 2026-07-31]`.
+
+**My restraint was also wrong in a specific way.** Refusing to name the authoritative
+surface was correct *for what I had measured* — but the repo already knew, and "I cannot
+tell from a directory layout" is not the same as "this is unknown". Presenting the second
+as the first understates the programme's own evidence.
+
+### What this branch does still contribute
+
+1. **R5's retirement condition #3, mechanically.** R5 asks for *"a single source for role
+   assignment — today three files assert it"*. This is its detection half: a check that
+   **fails** when the surfaces disagree, so the divergence stops depending on someone
+   re-reading two files. A registry row records a defect; this makes it *detectable*.
+2. **The `artifact_path` base ambiguity**, which R5 does not cover: within the pinned
+   config, three declared paths resolve under **two different bases** and **no single base
+   resolves all three** `[本次实测 2026-07-31]`. That is a distinct defect from the
+   inversion, and it is the one blocking GOAL-7's path-to-shadow.
+
+The PR is retitled accordingly. The tool's own docstring now opens with the attribution,
+so a reader who never sees this document still learns it from the code.

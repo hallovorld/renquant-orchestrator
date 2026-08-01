@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
-"""Do the strategy-config surfaces agree about WHICH MODEL IS PRIMARY? (GOAL-5)
+"""The mechanical check for twin-registry R5. (GOAL-3 / GOAL-5)
 
-MEASURED 2026-07-31 — they do not, and they disagree in the most consequential way
-available: the two files are **mirror images**.
+THIS IS NOT A NEW FINDING, AND SAYING SO IS THE POINT. The inversion below is already
+registered as **R5** in `doc/arch/twin-implementation-registry.md`, in this repo, with
+more detail than I had when I re-measured it: R5 names the runner's config resolution
+(`daily_104.sh`, via `renquant_strategy_config "$SUBREPO_ROOT"`), the watchlist gap
+(145 vs 142, exactly `CRWV`/`RKLB`/`SPCX`), and the consequence — a resolver failure
+promoting a 623-day-stale shadow checkpoint to primary, whose all-negative scores admit
+no name at all, i.e. a silent sell-only book.
+
+I re-derived it from the files without checking the registry first. The registry exists
+precisely so that does not happen.
+
+WHAT THIS MODULE ACTUALLY ADDS is R5's own retirement condition #3 — *"a single source
+for role assignment in R5/R6 — today three files assert it"* — in its mechanical half:
+a check that **fails** when the surfaces disagree, so the divergence stops depending on
+someone re-reading two files. A registry row records a defect; this makes it detectable.
+
+MEASURED 2026-07-31, unchanged from R5 and re-derivable by running this:
 
     renquant-strategy-104/configs/strategy_config.json   (the reviewed, pinned surface)
         ranking.panel_scoring.kind = "xgb"
@@ -23,12 +38,14 @@ paths — and then passes if **any** of them exists:
 An existence check over interchangeable candidates cannot notice that the candidates
 contradict each other. This tool asks the question that one does not.
 
-WHAT THIS TOOL DOES NOT DECIDE. It does **not** claim which surface the daily run reads,
-and it must not: that resolution lives in the run scripts, and asserting it from a
-directory layout is how "which copy executes" defects get published as facts. It reports
-that two declared surfaces disagree and names the disagreement. Establishing which one is
-authoritative — and repairing the other — is the follow-up, and it needs the run-side
-evidence this tool deliberately does not invent.
+WHAT THIS TOOL DOES NOT DECIDE, AND WHY THAT IS STILL RIGHT. It does not read the run
+scripts, so it does not itself establish which surface executes — asserting that from a
+directory layout is how "which copy executes" defects get published as facts. The answer
+IS known and is not this tool's to assert: R5 records that the runner takes the **pinned**
+config, and `daily_104.sh` resolves it through `renquant_strategy_config "$SUBREPO_ROOT"`
+with a fallback that is fail-closed only when `RENQUANT_STRICT_SUBREPO_PATHS=1` or
+`RENQUANT_OPS_FAIL_CLOSED=1`. A caller that wants that answer should read R5, not infer it
+from this output.
 
 Read-only. Opens config files, writes nothing, never invokes git.
 
