@@ -89,3 +89,40 @@ computed key is **UNKNOWABLE**, never silently dropped; the schema field set is 
 the model, never hardcoded; `main()`'s **exit code** is driven directly, because that is
 what a scheduled job reads; and the report is asserted to state that unread is **not**
 lost, so the finding cannot be read as data loss.
+
+---
+
+## ROUND 2 2026-07-31 — a key census is not a statement about a validated boundary
+
+Reviewed `[codex on orch#690]`: *"it currently proves only that named functions contain
+assignments with particular keys. It does not verify that each function actually passes
+its constructed bundle to `validate_live_run_bundle`, so a refactor that removes or
+bypasses that call can still yield a confident report about a validated producer path."*
+
+Correct — and it is **this audit committing the defect it was written to expose**, one
+level up. The tool's whole claim is *"these keys travel a validated path uncovered"*. If
+the validation call went away, the claim would keep being emitted about a boundary that
+no longer exists.
+
+**`_validates()` now requires both halves:** the validator must be **called**, and its
+first positional argument must be a name that was **assigned a dict literal in the same
+function**. Calling the validator on some other object is not validating the bundle you
+built — that is the bypass a presence-only check misses. A module-qualified call
+(`schemas.validate_live_run_bundle(bundle)`) counts, since rejecting it would be a false
+positive on a legitimate import style.
+
+A producer that no longer validates its own bundle is reported as **`NOT VALIDATED`** —
+ranked ahead of unread keys in the output, because it invalidates the rest of the report —
+and drives the exit code.
+
+**Live measurement `[本次实测 2026-07-31]`: both real producers still validate their own
+bundle.** So the boundary this report describes is currently real, and the check earns its
+place by being able to fail — which the negative fixtures demonstrate.
+
+### Tests — 16 (was 11)
+
+The three new negative cases are the ones that matter: the **builder remains but the
+validation call is removed** (the case named in review), the validator **called on a
+different object**, and an anti-vacuity case where a producer that genuinely validates its
+bundle passes and exits `0`. Plus a module-qualified call, and a live assertion that both
+real producers still validate — so a future refactor that drops the call fails here.

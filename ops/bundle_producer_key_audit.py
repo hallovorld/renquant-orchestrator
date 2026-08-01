@@ -31,11 +31,19 @@ over source text finds strings in comments and docstrings and misses computed ke
 this reports the latter as UNKNOWABLE rather than pretending; and not by import because
 building a real bundle needs a live run context, which an audit must never require.
 
+WHY IT ALSO CHECKS THE VALIDATION CALL `[codex on orch#690]`: a key census over a
+function proves only that the function contains those assignments. If a refactor removed
+or bypassed `validate_live_run_bundle`, this tool would still confidently report a
+"validated producer path" that no longer exists. So each producer must **call the
+validator on a dict it built itself** — calling it on something else is not validating
+the bundle.
+
 Read-only. Parses files, writes nothing, never invokes git.
 
-Exit codes: ``0`` every producer key is declared, ``1`` at least one is not (or a
-producer could not be read), ``2`` usage error — so a broken invocation cannot be
-mistaken for a clean audit.
+Exit codes: ``0`` every producer validates its own bundle and every key is declared,
+``1`` otherwise (unread key, unreadable producer, or a producer that no longer
+validates), ``2`` usage error — so a broken invocation cannot be mistaken for a clean
+audit.
 """
 
 from __future__ import annotations
@@ -97,6 +105,64 @@ def _assigned_keys(fn: ast.FunctionDef) -> tuple[set[str], list[str]]:
     return keys, unknowable
 
 
+VALIDATOR = "validate_live_run_bundle"
+
+
+def _bundle_names(fn: ast.AST) -> set[str]:
+    """Names assigned a dict literal inside `fn` — the candidate bundle variables."""
+    out: set[str] = set()
+    for node in ast.walk(fn):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(
+                getattr(node, "value", None), ast.Dict):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                if isinstance(t, ast.Name):
+                    out.add(t.id)
+    return out
+
+
+def _validates(fn: ast.AST) -> tuple[bool, list[str]]:
+    """Does this function pass its CONSTRUCTED bundle to the shared validator?
+
+    Reviewed `[codex on orch#690]`: *"it does not verify that each function actually
+    passes its constructed bundle to validate_live_run_bundle, so a refactor that removes
+    or bypasses that call can still yield a confident report about a validated producer
+    path."*
+
+    Exactly the defect this audit was written to expose, one level up: it was measuring
+    key names and calling the result a statement about a *validated* boundary. A key
+    census over a function that no longer validates anything describes a boundary that
+    does not exist.
+
+    So both halves are required: the call must be present, AND its first positional
+    argument must be a name that was assigned a dict literal in the same function.
+    Calling the validator on something else is not validating the bundle you built.
+    """
+    names = _bundle_names(fn)
+    called = validated_arg = False
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        target = (f.id if isinstance(f, ast.Name)
+                  else f.attr if isinstance(f, ast.Attribute) else None)
+        if target != VALIDATOR:
+            continue
+        called = True
+        if node.args and isinstance(node.args[0], ast.Name) and \
+                node.args[0].id in names:
+            validated_arg = True
+    why = []
+    if not called:
+        why.append(f"{VALIDATOR} is never called in this function — the 'validated "
+                   f"producer path' this audit reports on does not exist here")
+    elif not validated_arg:
+        why.append(f"{VALIDATOR} is called, but not on a dict built in this function "
+                   f"(built: {sorted(names) or 'none'}) — validating something else is "
+                   f"not validating the bundle")
+    return (called and validated_arg), why
+
+
 def audit_producer(rel: str, func: str) -> dict[str, Any]:
     path = REPO / rel
     if not path.exists():
@@ -115,16 +181,22 @@ def audit_producer(rel: str, func: str) -> dict[str, Any]:
                 "why": f"function {func!r} not found — the audit's target moved"}
     keys, unknowable = _assigned_keys(fn)
     declared = schema_declared()
+    validates, why = _validates(fn)
     return {"producer": rel, "function": func, "readable": True,
             "keys_built": sorted(keys),
             "unread_by_schema": sorted(keys - declared),
+            "validates_its_bundle": validates,
+            "validation_findings": why,
             "unknowable": unknowable}
 
 
 def audit() -> dict[str, Any]:
     rows = [audit_producer(rel, fn) for rel, fn in PRODUCERS]
     unread = sorted({k for r in rows for k in r.get("unread_by_schema", [])})
+    unvalidated = [r["producer"] for r in rows
+                   if r["readable"] and not r["validates_its_bundle"]]
     return {
+        "producers_not_validating_their_bundle": unvalidated,
         "n_producers_declared": len(PRODUCERS),
         "n_producers_read": sum(1 for r in rows if r["readable"]),
         "schema_drops_unknown_keys": schema_drops_unknown_keys(),
@@ -146,8 +218,15 @@ def _format(rep: dict[str, Any]) -> str:
         if not r["readable"]:
             out.append(f"UNREADABLE  {r['producer']}::{r['function']} — {r['why']}")
             continue
-        mark = "UNREAD KEYS" if r["unread_by_schema"] else "all declared"
-        out.append(f"{mark:12s} {r['producer']}::{r['function']}")
+        if not r["validates_its_bundle"]:
+            mark = "NOT VALIDATED"
+        elif r["unread_by_schema"]:
+            mark = "UNREAD KEYS"
+        else:
+            mark = "all declared"
+        out.append(f"{mark:13s} {r['producer']}::{r['function']}")
+        for w in r["validation_findings"]:
+            out.append(f"               {w}")
         out.append(f"               builds {len(r['keys_built'])}: {r['keys_built']}")
         if r["unread_by_schema"]:
             out.append(f"               NOT read by the schema: {r['unread_by_schema']}")
@@ -176,7 +255,10 @@ def main(argv: list[str] | None = None) -> int:
     # producer is the cheapest way to make this audit green.
     unread = rep["unread_keys_across_producers"]
     unreadable = rep["n_producers_declared"] - rep["n_producers_read"]
-    return 1 if (unread or unreadable) else 0
+    # A producer that no longer validates its own bundle is the WORST outcome here, not
+    # the mildest: the whole report is a statement about a validated boundary.
+    unvalidated = rep["producers_not_validating_their_bundle"]
+    return 1 if (unread or unreadable or unvalidated) else 0
 
 
 if __name__ == "__main__":

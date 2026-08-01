@@ -108,3 +108,87 @@ def test_the_report_states_that_unread_is_NOT_lost(capsys):
     keeps correcting."""
     A.main([])
     assert "Unread does not mean lost" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# ROUND 2 — codex on #690: a key census proves only that a function contains
+# those assignments. It must also prove the validated boundary still exists.
+# ---------------------------------------------------------------------------
+
+def _mk(tmp_path, monkeypatch, body: str, name="p.py", func="build"):
+    """Point the audit at a synthetic producer, through its real PRODUCERS table."""
+    (tmp_path / name).write_text(body, encoding="utf-8")
+    monkeypatch.setattr(A, "REPO", tmp_path)
+    monkeypatch.setattr(A, "PRODUCERS", ((name, func),))
+
+
+BUILDS_AND_VALIDATES = '''
+def build(ctx):
+    bundle = {"schema_version": 1, "source": "x", "decision_trace": (),
+              "order_intents": (), "state_mutations": ()}
+    validate_live_run_bundle(bundle)
+    return bundle
+'''
+
+BUILDS_BUT_DOES_NOT_VALIDATE = '''
+def build(ctx):
+    bundle = {"schema_version": 1, "source": "x", "decision_trace": (),
+              "order_intents": (), "state_mutations": ()}
+    return bundle
+'''
+
+VALIDATES_SOMETHING_ELSE = '''
+def build(ctx):
+    bundle = {"schema_version": 1, "source": "x", "decision_trace": (),
+              "order_intents": (), "state_mutations": ()}
+    validate_live_run_bundle(ctx.other_bundle)
+    return bundle
+'''
+
+
+def test_NEGATIVE_FIXTURE_the_builder_remains_but_validation_is_REMOVED(
+        tmp_path, monkeypatch, capsys):
+    """The case codex named. Before this round the audit reported this producer as a
+    clean 'validated producer path' with a confident key census."""
+    _mk(tmp_path, monkeypatch, BUILDS_BUT_DOES_NOT_VALIDATE)
+    rep = A.audit()
+    assert rep["producers_not_validating_their_bundle"] == ["p.py"], rep
+    assert A.main([]) == 1
+    out = capsys.readouterr().out
+    assert "NOT VALIDATED" in out and "never called" in out
+
+
+def test_validating_a_DIFFERENT_object_is_not_validating_the_bundle(
+        tmp_path, monkeypatch, capsys):
+    """Presence of the call is not enough — this is the bypass a name-only check misses."""
+    _mk(tmp_path, monkeypatch, VALIDATES_SOMETHING_ELSE)
+    rep = A.audit()
+    assert rep["producers_not_validating_their_bundle"] == ["p.py"]
+    A.main([])
+    assert "not on a dict built in this function" in capsys.readouterr().out
+
+
+def test_ANTI_VACUITY_a_producer_that_DOES_validate_its_bundle_passes(
+        tmp_path, monkeypatch):
+    """Without this the new check could reject everything and prove nothing."""
+    _mk(tmp_path, monkeypatch, BUILDS_AND_VALIDATES)
+    rep = A.audit()
+    assert rep["producers_not_validating_their_bundle"] == []
+    assert rep["producers"][0]["validates_its_bundle"] is True
+    assert A.main([]) == 0
+
+
+def test_a_MODULE_QUALIFIED_call_still_counts(tmp_path, monkeypatch):
+    """`schemas.validate_live_run_bundle(bundle)` is the same call; rejecting it would
+    be a false positive on a legitimate import style."""
+    _mk(tmp_path, monkeypatch, BUILDS_AND_VALIDATES.replace(
+        "validate_live_run_bundle(bundle)", "schemas.validate_live_run_bundle(bundle)"))
+    assert A.audit()["producers_not_validating_their_bundle"] == []
+
+
+def test_BOTH_REAL_producers_still_validate_their_own_bundle():
+    """The live measurement. If a refactor ever removes the call this fails here, which
+    is the whole point of adding the check."""
+    rep = A.audit()
+    assert rep["producers_not_validating_their_bundle"] == [], rep
+    assert all(r["validates_its_bundle"] for r in rep["producers"]), rep
