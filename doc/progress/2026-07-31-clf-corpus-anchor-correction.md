@@ -79,3 +79,67 @@ anyone quotes it.
 The earlier claim — *"the certified clf recipe does have an OOS corpus (43 folds /
 178,191 rows / 625 OOS dates / 292 tickers)"* — is **withdrawn**. The corpus is real; it
 is the GBDT production recipe's. The clf statement it was used to retire stands.
+
+---
+
+## ROUND 2 2026-07-31 — the tool did not prevent the error it was written about
+
+Reviewed `[codex on orch#691]`: *"its lanes are arbitrary command-line directory names,
+so invoking it for the GBDT directory and labeling the result clf recreates the exact
+substitution this PR corrects."*
+
+Correct, and it is the sharpest possible version of the point: a tool written **because**
+one lane's number was attached to another lane accepted the lane name as a free-text
+argument. It made that mistake faster to commit, not harder.
+
+### The binding now comes from the artifact
+
+```
+artifact → metadata.wf_gate_metadata.artifact_usage.manifest_path
+         → the walk-forward manifest
+         → the fold artifact URIs it names
+         → the corpus directory those folds live in
+```
+
+The caller names an **artifact** — the thing actually served — and every corpus statement
+is derived from that artifact's own stamp. Mislabelling now requires falsifying a stamp,
+not mistyping a path.
+
+Run on three real artifacts `[本次实测 2026-07-31]`:
+
+| artifact | status | folds | corpus |
+|---|---|---:|---|
+| `shadow/panel-clf.top-decile.fwd60.json` | **`NO_GATE_STAMP`** | 0 | — |
+| `prod/panel-ltr.alpha158_fund.json` | **`MANIFEST_MISSING`** | — | stamp names `/tmp/gbdt_manifest_abs.json` |
+| `prod/panel-ltr.alpha158_fund.previous.json` | **`COVERED`** | **43** | `walkforward_gbdt_prod_recipe_v2` |
+
+**The clf finding is now derived rather than asserted** — it falls out of the resolution
+as `no_gate_stamp`, and the 43 folds attach to the artifact that actually binds to them.
+
+### A new finding the binding exposed
+
+Surveying every stamped `prod/` artifact `[本次实测 2026-07-31]`:
+
+| | |
+|---|---:|
+| `prod/` artifacts | 76 |
+| carrying a gate stamp | 30 |
+| whose stamp names a manifest | **30** |
+| whose manifest **resolves on disk** | **17** |
+| whose manifest path is under **`/tmp/`** | **13** |
+
+So the canonical binding contract **exists in the data and is not durable**: 13 of 30
+stamped artifacts point their provenance at an ephemeral path. Stated narrowly — this is
+a fact about the **pointer**, not evidence the folds never existed, and the tool's
+`manifest_missing` note says so in those words.
+
+### Statuses are distinct facts
+
+`no_gate_stamp` / `no_manifest_named` / `manifest_missing` / `unrecognised_manifest_shape`
+/ `artifact_missing` / `artifact_unreadable` are separate, and none of them is "0 folds".
+The last one is not hypothetical: the first implementation guessed a fixed list of row
+keys and silently returned **0 folds** for the real manifest, whose rows live under
+`retrains`. Row-key discovery now scans every list-valued key and **records which one
+answered**, so a manifest shape change appears in the report instead of as a quiet zero.
+
+14 tests.
