@@ -1,0 +1,29 @@
+  12 distinct boosters over 20 scored date(s) (0 skipped thin)
+  date            n   k  spearman  ovlp_med  ovlp_min
+  2026-04-07    153  15    0.8364     0.667     0.467
+  2026-04-08    153  15    0.8439     0.667     0.467
+  2026-04-09    153  15    0.8492     0.600     0.400
+  2026-04-10    153  15    0.8516     0.600     0.400
+  2026-04-13    153  15    0.8532     0.533     0.333
+  2026-04-14    153  15    0.8520     0.567     0.333
+  2026-04-15    153  15    0.8447     0.600     0.400
+  2026-04-16    153  15    0.8546     0.600     0.467
+  2026-04-17    153  15    0.8509     0.600     0.400
+  2026-04-20    153  15    0.8508     0.600     0.467
+  2026-04-21    153  15    0.8519     0.600     0.400
+  2026-04-22    153  15    0.8551     0.667     0.400
+  2026-04-23    153  15    0.8668     0.667     0.533
+  2026-04-24    153  15    0.8583     0.667     0.533
+  2026-04-27    145  14    0.8604     0.714     0.571
+  2026-04-28    145  14    0.8728     0.714     0.429
+  2026-04-29    145  14    0.8797     0.643     0.500
+  2026-04-30    145  14    0.8808     0.643     0.500
+  2026-05-01    145  14    0.8835     0.714     0.571
+  2026-05-04    144  14    0.8927     0.714     0.500
+
+  median top-decile DISAGREEMENT: 35.7%
+  worst pair on any date replaced 67% of the top decile
+  [assumption] source_space='panel' is MY choice: the artifact's `feature_source_contract` is a documentation dict, not a selector. The live path would use 'raw'.
+  [assumption] `transform_feature_frame` is imported from renquant-pipeline, never restated.
+
+wrote doc/research/data/2026-08-01-booster-divergence-real-panel/divergence.json

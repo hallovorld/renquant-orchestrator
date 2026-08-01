@@ -1,0 +1,306 @@
+{
+  "assumptions": [
+    "source_space='panel' is MY choice: the artifact's `feature_source_contract` is a documentation dict, not a selector. The live path would use 'raw'.",
+    "`transform_feature_frame` is imported from renquant-pipeline, never restated."
+  ],
+  "boosters": {
+    "133e78178219": {
+      "artifact": "panel-ltr.alpha158_fund.previous.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.061741568017862854,
+      "n_features": 172,
+      "trained_date": "2026-07-05"
+    },
+    "44ac19456d32": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260725T110003Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.05996274783950741,
+      "n_features": 172,
+      "trained_date": "2026-07-25"
+    },
+    "4871e6689a98": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260712T170005Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.07430444445604022,
+      "n_features": 172,
+      "trained_date": "2026-07-12"
+    },
+    "73dd849797b8": {
+      "artifact": "panel-ltr.alpha158_fund.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.07340152991286487,
+      "n_features": 172,
+      "trained_date": "2026-06-21"
+    },
+    "7a690acf8692": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260730T201007Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.04539381086904744,
+      "n_features": 172,
+      "trained_date": "2026-07-30"
+    },
+    "bde52cf193d0": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260721T201008Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.07006761787517819,
+      "n_features": 172,
+      "trained_date": "2026-07-21"
+    },
+    "c2c2b80c3b41": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260729T201003Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.04679872892488995,
+      "n_features": 172,
+      "trained_date": "2026-07-29"
+    },
+    "ca54a18c2eb8": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260719T170005Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.06399534446668874,
+      "n_features": 172,
+      "trained_date": "2026-07-19"
+    },
+    "ccd2986ae022": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260713T201007Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.06308868141758432,
+      "n_features": 172,
+      "trained_date": "2026-07-13"
+    },
+    "cf96dfa6c5be": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.06190233780720082,
+      "n_features": 172,
+      "trained_date": "2026-07-06"
+    },
+    "e2b81a081450": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260718T110005Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.06547876534847559,
+      "n_features": 172,
+      "trained_date": "2026-07-18"
+    },
+    "eb9e30fae738": {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260726T170001Z.staging.json",
+      "config_fingerprint": "sha256:f8fb2259b2bf1537",
+      "eval_ic": 0.06001811170368274,
+      "n_features": 172,
+      "trained_date": "2026-07-26"
+    }
+  },
+  "median_top_decile_disagreement": 0.3571428571428571,
+  "median_top_decile_overlap": 0.6428571428571429,
+  "n_dates_scored": 20,
+  "n_dates_skipped_thin": 0,
+  "n_distinct_boosters": 12,
+  "not_claimed": [
+    "that any booster is better \u2014 no label or forward return is touched",
+    "that this is a stable long-run figure \u2014 it is consecutive sessions at the panel frontier, not a history",
+    "that blending helps \u2014 disagreement is a precondition, not evidence"
+  ],
+  "per_date": [
+    {
+      "date": "2026-04-07",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6666666666666666,
+      "overlap_min": 0.4666666666666667,
+      "spearman_median": 0.8363735357034886,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-08",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6666666666666666,
+      "overlap_min": 0.4666666666666667,
+      "spearman_median": 0.843943079624194,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-09",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4,
+      "spearman_median": 0.8491566483052551,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-10",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4,
+      "spearman_median": 0.8515556940479541,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-13",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.5333333333333333,
+      "overlap_min": 0.3333333333333333,
+      "spearman_median": 0.8531589669360566,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-14",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.5666666666666667,
+      "overlap_min": 0.3333333333333333,
+      "spearman_median": 0.8519627946872528,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-15",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4,
+      "spearman_median": 0.8447266405179161,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-16",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4666666666666667,
+      "spearman_median": 0.8546064358757856,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-17",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4,
+      "spearman_median": 0.8509140498304584,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-20",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4666666666666667,
+      "spearman_median": 0.8508167567315482,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-21",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6,
+      "overlap_min": 0.4,
+      "spearman_median": 0.8519460415745245,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-22",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6666666666666666,
+      "overlap_min": 0.4,
+      "spearman_median": 0.8550989773899988,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-23",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6666666666666666,
+      "overlap_min": 0.5333333333333333,
+      "spearman_median": 0.8668362081674775,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-24",
+      "k": 15,
+      "n_names": 153,
+      "n_pairs": 66,
+      "overlap_median": 0.6666666666666666,
+      "overlap_min": 0.5333333333333333,
+      "spearman_median": 0.858298821921113,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-27",
+      "k": 14,
+      "n_names": 145,
+      "n_pairs": 66,
+      "overlap_median": 0.7142857142857143,
+      "overlap_min": 0.5714285714285714,
+      "spearman_median": 0.8604078097937331,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-28",
+      "k": 14,
+      "n_names": 145,
+      "n_pairs": 66,
+      "overlap_median": 0.7142857142857143,
+      "overlap_min": 0.42857142857142855,
+      "spearman_median": 0.872817272870414,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-29",
+      "k": 14,
+      "n_names": 145,
+      "n_pairs": 66,
+      "overlap_median": 0.6428571428571429,
+      "overlap_min": 0.5,
+      "spearman_median": 0.8796827662419209,
+      "status": "scored"
+    },
+    {
+      "date": "2026-04-30",
+      "k": 14,
+      "n_names": 145,
+      "n_pairs": 66,
+      "overlap_median": 0.6428571428571429,
+      "overlap_min": 0.5,
+      "spearman_median": 0.8808297905841599,
+      "status": "scored"
+    },
+    {
+      "date": "2026-05-01",
+      "k": 14,
+      "n_names": 145,
+      "n_pairs": 66,
+      "overlap_median": 0.7142857142857143,
+      "overlap_min": 0.5714285714285714,
+      "spearman_median": 0.8834947252401195,
+      "status": "scored"
+    },
+    {
+      "date": "2026-05-04",
+      "k": 14,
+      "n_names": 144,
+      "n_pairs": 66,
+      "overlap_median": 0.7142857142857143,
+      "overlap_min": 0.5,
+      "spearman_median": 0.8927075797765454,
+      "status": "scored"
+    }
+  ],
+  "status": "checked",
+  "worst_pair_overlap": 0.3333333333333333
+}
