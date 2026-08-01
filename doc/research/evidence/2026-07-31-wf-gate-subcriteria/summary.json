@@ -1,8 +1,10 @@
 {
-  "wf_fail_rate": "10/11",
+  "_correction_2026_08_01": "Re-derived from the artifacts with ops/renquant104/subgate_matrix_extract.py --verify. wf_fail_rate moves 10/11 -> 9/11: panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json carries passed=true on disk and was recorded FAIL in the first hand-built matrix. Every other cell re-derived identically.",
+  "_distinct_content_groups": 11,
+  "n_artifacts": 11,
   "sanity_fail_rate": "11/11",
   "sanity_regime_ic_fail_rate": "11/11",
-  "trade_monotonicity_fail_rate": "11/11",
   "trade_contract_fail_rate": "0/11",
-  "n_artifacts": 11
+  "trade_monotonicity_fail_rate": "11/11",
+  "wf_fail_rate": "9/11"
 }

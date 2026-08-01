@@ -72,3 +72,48 @@ is not a zero-count finding.
 
 Tests: 5, including the `trade_contract` anti-vacuity control. Filed against
 `renquant-backtesting#90`.
+
+
+---
+
+## Round N+1 2026-08-01 — bound to the artifacts, and one published rate moves
+
+Reviewed `[codex on orch#673]`, two demands, both taken.
+
+**1. A retracted inference was still live in executable text.**
+`test_BULL_CALM_fails_two_independent_subgates_on_every_artifact` asserted the criteria
+were *independent* and attributed the pattern to the criterion/regime rather than to the
+model population — the exact claim this PR withdrew in prose while leaving it as an
+assertion. Renamed to
+`test_BULL_CALM_CO_FAILS_regime_ic_and_monotonicity_on_every_artifact` and rewritten to
+the measured co-failure only.
+
+**2. The matrix was unbound.** `ops/renquant104/subgate_matrix_extract.py` now emits every
+row with its resolved path, the file's **sha256**, and a `content_group` shared by
+byte-identical files; `--verify` re-derives the whole matrix and fails on drift; the
+sidecar records the extraction command.
+
+### Duplicate-content accounting — and it mattered
+
+Over the full `panel-ltr.alpha158_fund*` glob there are **30 artifacts but only 12 distinct
+content groups**, one holding **13 byte-identical files**. So a matrix over the wider set
+would not have been 30 observations. **Among the eleven this document uses: 11 rows, 11
+distinct digests, zero duplicates** `[本次实测 2026-08-01]` — the rates here are not
+inflated, which is now checked rather than assumed.
+
+### A published rate moves: `wf_fail_rate` 10/11 → **9/11**
+
+Re-derivation disagreed with the hand-built matrix on exactly one cell:
+`weekly_20260706T230931Z.staging.json` carries `passed: true` on disk and was recorded
+`FAIL`. **Every other cell re-derived identically.** The summary is corrected rather than
+the CSV bent to match.
+
+### And the fact the single `wf` column was hiding
+
+The deployed artifact's `wf` is `PASS` — but `gate_verdict_before_override` is **`FAIL`**
+and `operator_authorized_override` is **`True`** (operator directive 2026-06-22). Two new
+columns make that explicit. **No staging artifact was overridden**; the override is unique
+to the served one, and a test pins both halves.
+
+`wf` deliberately keeps its post-override meaning: silently redefining a published column
+would move this document's numbers under its own conclusions.
