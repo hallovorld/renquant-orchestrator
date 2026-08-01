@@ -205,3 +205,40 @@ as the first understates the programme's own evidence.
 
 The PR is retitled accordingly. The tool's own docstring now opens with the attribution,
 so a reader who never sees this document still learns it from the code.
+
+---
+
+## ROUND 3 — "the hit sets differ" is not the failure; an empty intersection is
+
+Reviewed `[codex on orch#694]`: *"`audit_paths` treats differing resolution sets as
+`bases_disagree` even when a common base resolves every declared path. … the loader can
+consistently use A. … reserve the failing no-single-base result for an empty
+intersection."*
+
+Correct, and it is a **precision** error rather than a fail-open one — which makes it the
+kind that quietly destroys a check's credibility. If the primary resolves under bases
+`{A, B}` and a shadow only under `{A}`, the intersection is `{A}`: the loader **can** use
+one base consistently, and that configuration is coherent. Failing it would condemn a
+config with nothing wrong, and a check that cries wolf gets switched off.
+
+**Split into two facts:**
+
+| | meaning | fails? |
+|---|---|---|
+| `no_common_base` | the intersection is **empty** — no single base resolves everything | **yes** |
+| `hit_sets_differ` | a path resolves under more than one base | **no** — reported for visibility |
+
+Duplicate placement stays **visible** because it is how a copy gets edited in the wrong
+place — but "not a failure" must not become "invisible", and a test asserts the note is
+printed while `NO SINGLE BASE` is not.
+
+`n_unresolvable` remains independent: a common base for what *does* resolve says nothing
+about a path that resolves nowhere, and both are asserted separately.
+
+**The real finding survives the narrowing**, asserted directly against the live pinned
+config — if it had not, the narrowing would have *dissolved* the defect rather than
+sharpened the check. Its intersection is still **empty**:
+`artifacts/patchtst_shadow/…` resolves only under the umbrella root, while
+`artifacts/shadow/…` and `artifacts/prod/…` resolve only under `backtesting/renquant_104`.
+
+32 tests (was 28). Suite: **5021 passed, 2 skipped** — run before the push.

@@ -141,7 +141,15 @@ def audit_paths(surface: dict, bases: list[str]) -> dict:
         "status": "read",
         "entries": entries,
         "n_unresolvable": sum(1 for e in entries if e["status"] == "unresolvable"),
-        "bases_disagree": len(base_sets) > 1,
+        # THE FAILURE is an EMPTY intersection, not merely different hit sets
+        # `[codex on orch#694]`. If the primary resolves under {A, B} and a shadow only
+        # under {A}, the intersection is {A} and the loader can consistently use A --
+        # calling that a disagreement flags a configuration that is perfectly coherent.
+        "no_common_base": bool(resolved) and not common,
+        # Diagnostic only, never fails: a path present under more than one base is worth
+        # SEEING (it is how a copy gets edited in the wrong place) but it is not itself
+        # a defect.
+        "hit_sets_differ": len(base_sets) > 1,
         "single_base_that_resolves_everything": sorted(common),
     }
 
@@ -276,17 +284,19 @@ def main(argv: list[str] | None = None) -> int:
             pa = s.get("path_audit")
             if not pa or pa.get("status") != "read":
                 continue
-            if pa["n_unresolvable"] or pa["bases_disagree"]:
+            if pa["n_unresolvable"] or pa["no_common_base"] or pa["hit_sets_differ"]:
                 print(f"\nPATHS  {os.path.basename(s['path'])}")
                 for e in pa["entries"]:
                     print(f"   {e['status']:14s} {e['role']}: {e['artifact_path']}")
                     if e["resolves_under"]:
                         print(f"                  under {e['resolves_under']}")
-                if pa["bases_disagree"]:
-                    print("   BASES DISAGREE — declared paths in ONE config resolve "
-                          "against DIFFERENT bases")
-                if not pa["single_base_that_resolves_everything"]:
-                    print("   NO SINGLE BASE resolves every declared path")
+                if pa["no_common_base"]:
+                    print("   NO SINGLE BASE resolves every declared path — the loader "
+                          "cannot use one base consistently")
+                elif pa["hit_sets_differ"]:
+                    print(f"   note: paths resolve under different SETS of bases, but "
+                          f"{pa['single_base_that_resolves_everything']} resolves all "
+                          f"of them — coherent, reported for visibility only")
         if rep["primary_and_shadow_are_mirrored"]:
             print("\nMIRRORED: each surface's PRIMARY appears in the other's SHADOWS. "
                   "One says A decides and B watches; the other says the reverse.")
@@ -296,9 +306,11 @@ def main(argv: list[str] | None = None) -> int:
             print("\nall readable surfaces agree on the primary scorer identity")
         print("\n" + rep["scope_note"])
 
+    # Only an EMPTY intersection (or an unresolvable path) fails. Differing hit sets are
+    # diagnostic: a common base means the loader can be consistent.
     path_problem = any(
         (s.get("path_audit") or {}).get("n_unresolvable")
-        or (s.get("path_audit") or {}).get("bases_disagree")
+        or (s.get("path_audit") or {}).get("no_common_base")
         for s in surfaces)
     return 1 if (rep["disagreements"] or rep["n_broken"] or path_problem) else 0
 

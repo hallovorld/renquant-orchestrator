@@ -171,7 +171,7 @@ def test_BASES_DISAGREE_when_one_config_names_paths_under_different_bases(tmp_pa
         "artifact_path": "artifacts/prod/p.json",
         "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
     pa = P.audit_paths(P.read_surface(cfg), [str(b1), str(b2)])
-    assert pa["bases_disagree"] is True
+    assert pa["no_common_base"] is True
     assert pa["single_base_that_resolves_everything"] == []
     assert pa["n_unresolvable"] == 0          # both DO resolve — just not together
 
@@ -183,7 +183,7 @@ def test_ANTI_VACUITY_one_base_resolving_everything_is_not_flagged(tmp_path):
         "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
         "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
     pa = P.audit_paths(P.read_surface(cfg), [str(tmp_path / "base")])
-    assert pa["bases_disagree"] is False
+    assert pa["no_common_base"] is False
     assert pa["single_base_that_resolves_everything"] == [str(tmp_path / "base")]
 
 
@@ -206,8 +206,10 @@ def test_path_audit_is_SKIPPED_entirely_when_no_base_is_given(tmp_path, capsys):
     assert "PATHS" not in capsys.readouterr().out
 
 
-def test_a_base_disagreement_ALONE_makes_main_exit_nonzero(tmp_path, capsys):
-    """Identity can agree while the paths do not — the exit code must reflect both."""
+def test_an_EMPTY_INTERSECTION_alone_makes_main_exit_nonzero(tmp_path, capsys):
+    """Identity can agree while no single base resolves every path — the exit code must
+    reflect both. Renamed from "a base disagreement": differing hit SETS are no longer
+    the failure, an empty intersection is `[codex on #694]`."""
     _tree(tmp_path, "sub/artifacts/prod/p.json", "umbrella/artifacts/shadow/s.json")
     cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
         "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
@@ -216,7 +218,7 @@ def test_a_base_disagreement_ALONE_makes_main_exit_nonzero(tmp_path, capsys):
                  "--base", str(tmp_path / "sub")])
     out = capsys.readouterr().out
     assert rc == 1
-    assert "BASES DISAGREE" in out and "NO SINGLE BASE" in out
+    assert "NO SINGLE BASE" in out
 
 
 def test_an_ABSOLUTE_artifact_path_is_handled_without_a_base(tmp_path):
@@ -313,3 +315,67 @@ def test_the_REAL_surfaces_still_read_and_still_disagree():
     rep = P.compare([P.read_surface(a), P.read_surface(b)])
     assert rep["n_read"] == 2 and rep["n_broken"] == 0
     assert rep["primary_and_shadow_are_mirrored"] is True
+
+
+def test_a_COMMON_BASE_with_different_hit_sets_is_NOT_a_failure(tmp_path):
+    """codex on #694: if the primary resolves under {A, B} and a shadow only under {A},
+    the intersection is {A} and the loader can consistently use A. Flagging that would
+    condemn a perfectly coherent configuration.
+
+    The duplicate placement is still REPORTED — a path present under two bases is how a
+    copy gets edited in the wrong place — but it does not fail.
+    """
+    a, b = tmp_path / "A", tmp_path / "B"
+    _tree(tmp_path, "A/artifacts/prod/p.json", "B/artifacts/prod/p.json",
+          "A/artifacts/shadow/s.json")            # shadow exists under A only
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
+    pa = P.audit_paths(P.read_surface(cfg), [str(a), str(b)])
+
+    assert pa["hit_sets_differ"] is True          # visible …
+    assert pa["no_common_base"] is False          # … but NOT a failure
+    assert pa["single_base_that_resolves_everything"] == [str(a)]
+    assert P.main(["--config", cfg, "--base", str(a), "--base", str(b)]) == 0
+
+
+def test_the_common_base_case_is_still_PRINTED_as_a_note(tmp_path, capsys):
+    """'Not a failure' must not mean 'invisible' — duplicate placement is diagnostic."""
+    a, b = tmp_path / "A", tmp_path / "B"
+    _tree(tmp_path, "A/artifacts/prod/p.json", "B/artifacts/prod/p.json",
+          "A/artifacts/shadow/s.json")
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
+    P.main(["--config", cfg, "--base", str(a), "--base", str(b)])
+    out = capsys.readouterr().out
+    assert "reported for visibility only" in out
+    assert "NO SINGLE BASE" not in out
+
+
+def test_an_UNRESOLVABLE_path_still_fails_even_with_a_common_base(tmp_path):
+    """The two conditions are independent: a common base for what DOES resolve says
+    nothing about a path that resolves nowhere."""
+    _tree(tmp_path, "A/artifacts/prod/p.json", "B/artifacts/prod/p.json")
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True, "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/gone/x.json"}]}}})
+    pa = P.audit_paths(P.read_surface(cfg), [str(tmp_path / "A"), str(tmp_path / "B")])
+    assert pa["no_common_base"] is False and pa["n_unresolvable"] == 1
+    assert P.main(["--config", cfg, "--base", str(tmp_path / "A"),
+                   "--base", str(tmp_path / "B")]) == 1
+
+
+def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
+    """The finding must survive the narrowing — if it did not, the narrowing would have
+    dissolved the defect rather than sharpened the check."""
+    import os
+    cfg = "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json"
+    u = "/Users/renhao/git/github/RenQuant"
+    if not os.path.exists(cfg):
+        import pytest
+        pytest.skip("live surface not present on this machine")
+    pa = P.audit_paths(P.read_surface(cfg),
+                       [u, os.path.join(u, "backtesting", "renquant_104")])
+    assert pa["no_common_base"] is True
+    assert pa["single_base_that_resolves_everything"] == []
