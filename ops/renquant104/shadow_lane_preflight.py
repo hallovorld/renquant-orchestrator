@@ -41,8 +41,17 @@ not in the sentinel's default would go invisible with nothing to say so.
 Read-only. Opens configs and artifacts, writes nothing, never invokes git, never installs
 anything.
 
-Exit codes: ``0`` every checked precondition passes, ``1`` at least one fails, ``2``
-usage/IO error -- so a preflight that could not run cannot read as a green light.
+Exit codes `[codex on orch#699, round 3]`:
+
+  ``0``  every precondition was CHECKED and PASSED
+  ``1``  at least one precondition FAILED
+  ``3``  nothing failed, but at least one precondition was SKIPPED -- not established
+  ``2``  usage/IO error
+
+A SKIPPED check used to leave the process green while the report printed "SKIPPED, not
+passed". A caller reads the exit code, so the two surfaces disagreed and the exit code
+won. `3` is distinct from `1` on purpose: "we could not establish this" sends a reader
+somewhere different from "this is broken".
 """
 
 from __future__ import annotations
@@ -155,11 +164,21 @@ def check_sentinel_visible(lane: str, watched: list[str], shadow_name: str) -> d
                    f"indistinguishable from health"}
 
 
-def check_loadable(resolved: str | None) -> dict:
-    """4 — does the artifact actually load?"""
+def check_loadable(resolved: str | None, upstream_ok: bool | None = False) -> dict:
+    """4 — does the artifact actually load?
+
+    A MISSING INPUT IS A SKIP, NOT A FAILURE. When check 2 could not establish which base
+    the loader uses, or found the artifact nowhere, loadability is **unestablished** — it
+    was not falsified. Reporting it as a second FAILURE both double-counts the upstream
+    problem and, worse, let an ambiguity regression pass for the wrong reason: the test
+    written to prove ambiguity is non-passing was green because its fixture happened to
+    fail HERE instead.
+    """
     if not resolved:
-        return {"check": "artifact_loads", "ok": False,
-                "why": "nothing resolved to load"}
+        return {"check": "artifact_loads", "ok": None,
+                "why": ("no artifact was resolved upstream, so loadability is "
+                        "UNESTABLISHED — SKIPPED, not failed; the upstream check "
+                        f"reports the reason (artifact_resolves ok={upstream_ok})")}
     if not resolved.endswith(".json"):
         # A .pt or other non-JSON artifact is out of this checker's scope; saying so is
         # better than reporting a pass it did not establish.
@@ -216,7 +235,7 @@ def preflight(lane: str, runner_config: str, bases: list[str],
                     else os.path.normpath(os.path.join(b, artifact["artifact_path"])))
     checks = [declared, artifact,
               check_sentinel_visible(lane, watched, shadow_name),
-              check_loadable(resolved)]
+              check_loadable(resolved, artifact.get("ok"))]
     failed = [c["check"] for c in checks if c["ok"] is False]
     skipped = [c["check"] for c in checks if c["ok"] is None]
     return {"lane": lane, "runner_config": runner_config, "checks": checks,
@@ -267,7 +286,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{rep['n_skipped']} check(s) SKIPPED (not passed): "
               f"{rep['skipped'] or 'none'}")
         print("\n" + rep["scope_note"])
-    return 1 if rep["n_failed"] else 0
+    if rep["n_failed"]:
+        return 1
+    # A skipped precondition is NOT a pass. Distinct code so the two outcomes stay
+    # distinguishable to a caller, per the module docstring.
+    return 3 if rep["n_skipped"] else 0
 
 
 if __name__ == "__main__":

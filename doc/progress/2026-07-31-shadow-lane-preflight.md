@@ -119,3 +119,53 @@ The clf lane still passes all four checks, now including a **real load**. `rc=0`
 evidence files. Committing with `-A` would have pulled another lane's work into this PR.
 Resolved by removing only the foreign index entry and committing **explicit paths** —
 never `-A` when the working tree has residue whose origin is not certain.
+
+---
+
+## ROUND 3 2026-08-01 — a SKIP still exited 0, and my own regression was green for the wrong reason
+
+Reviewed `[codex on orch#699]`: *"`preflight` returns nonzero only for failed, not
+skipped, so an ambiguous base with a loadable JSON artifact (or an unavailable xgboost
+loader) yields a green process despite the printed statement that the check is not passed.
+The current full-preflight regression is masked because its `'{}'` fixture separately
+fails `artifact_loads`."*
+
+Both halves correct, and the second is the sharper one: **the test I wrote to prove
+ambiguity is non-passing was green because its fixture failed a different check.** The
+vacuous-test shape, inside the fix for it.
+
+### Exit codes now distinguish the two outcomes
+
+| code | meaning |
+|---|---|
+| `0` | every precondition was **checked and passed** |
+| `1` | at least one **failed** |
+| **`3`** | nothing failed, but at least one was **skipped — not established** |
+| `2` | usage / IO error |
+
+`3` is deliberately distinct from `1`: *"we could not establish this"* sends a reader
+somewhere different from *"this is broken"*. Previously the report printed *"SKIPPED, not
+passed"* while the process said `0` — **two surfaces disagreeing, and the exit code is the
+one a scheduled caller reads.**
+
+### A cascade the new test forced me to fix
+
+Making skips non-passing surfaced that `check_loadable(None)` returned **FAIL** whenever
+check 2 had not resolved an artifact. That is wrong for the same reason: with no artifact,
+loadability is **unestablished, not falsified**. It also *caused* the masking — a
+brand-new lane "failed 4 checks" when it had failed 3 and left one unknown.
+
+Now a missing upstream input yields a **skip** naming the upstream. A brand-new lane is
+**3 failed + 1 skipped**, and the ambiguity case is **2 skipped** (`artifact_resolves`
+cascading into `artifact_loads`).
+
+### The regressions codex asked for
+
+- **Ambiguous base with genuinely loadable boosters under both** — the only non-passing
+  signal is the ambiguity itself, so nothing can mask it. Asserts `n_failed == 0`,
+  `n_skipped == 2`, `rc == 3`.
+- **Unavailable loader** — `xgboost` import forced to fail; asserts `rc == 3`.
+- **A genuine failure still exits `1`, not `3`** — the codes must stay distinguishable.
+- **Anti-vacuity**: a fully established lane still exits `0`.
+
+28 tests (was 24). Suite: **5104 passed, 2 skipped**.

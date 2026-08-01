@@ -179,7 +179,12 @@ def test_a_BRAND_NEW_lane_fails_every_check(tmp_path):
     """What GOAL-7's momentum lane looks like today — and the list IS the work."""
     c = _cfg(tmp_path, [])
     rep = P.preflight("momentum_v1", c, [str(tmp_path)], ["hf_patchtst"], "hf_patchtst")
-    assert rep["n_failed"] == 4
+    # 3 FAIL + 1 SKIP, not 4 FAIL: with no artifact resolved, loadability was never
+    # ESTABLISHED — it was not falsified. Counting it as a fourth failure double-counts
+    # the upstream problem, which is what let an ambiguity regression pass for the wrong
+    # reason.
+    assert rep["n_failed"] == 3 and rep["n_skipped"] == 1
+    assert rep["skipped"] == ["artifact_loads"]
 
 
 def test_main_REFUSES_to_run_with_no_watched_lanes(tmp_path, capsys):
@@ -244,7 +249,9 @@ def test_FULL_PREFLIGHT_does_not_exit_zero_on_an_ambiguous_base(tmp_path, capsys
                  "--base", str(tmp_path / "A"), "--base", str(tmp_path / "B"),
                  "--watched-lane", "lane_a"])
     out = capsys.readouterr().out
-    assert rc == 1, out
+    # 3, not 1: nothing is BROKEN here, something is UNESTABLISHED, and the two send a
+    # reader to different places.
+    assert rc == 3, out
     assert "SKIP" in out and "SKIPPED (not passed)" in out
 
 
@@ -283,3 +290,67 @@ def test_STRUCTURAL_PRESENCE_alone_is_not_reported_as_loadability(tmp_path):
            if hasattr(P, "__file__") else MOD.read_text(encoding="utf-8"))
     assert "loadability was\n                       f\"NOT.\"" in src or \
            "loadability was" in src
+
+
+# ---------------------------------------------------------------------------
+# ROUND 3 — codex on #699: skipped checks still exited 0, and my own ambiguity
+# regression was green for the wrong reason.
+# ---------------------------------------------------------------------------
+
+def test_AMBIGUOUS_BASE_with_LOADABLE_artifacts_under_both_cannot_exit_zero(tmp_path):
+    """The regression codex asked for, and the one my earlier test only appeared to
+    cover: with a `{}` fixture the ambiguity case ALSO failed `artifact_loads`, so the
+    non-zero exit came from the wrong check. Both copies are loadable here, so the ONLY
+    non-passing signal is the ambiguity itself."""
+    import pytest
+    pytest.importorskip("xgboost")
+    _artifact(tmp_path, "A/art/m.json", loadable=True)
+    _artifact(tmp_path, "B/art/m.json", loadable=True)
+    cfg = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
+    rep = P.preflight("lane_a", cfg, [str(tmp_path / "A"), str(tmp_path / "B")],
+                      ["lane_a"], "hf_patchtst")
+    assert rep["n_failed"] == 0, "nothing must FAIL — the point is the SKIP"
+    # BOTH: the base is ambiguous, and loadability therefore cascades to a skip rather
+    # than a failure.
+    assert rep["n_skipped"] == 2
+    assert rep["skipped"] == ["artifact_resolves", "artifact_loads"]
+    rc = P.main(["--lane", "lane_a", "--runner-config", cfg,
+                 "--base", str(tmp_path / "A"), "--base", str(tmp_path / "B"),
+                 "--watched-lane", "lane_a"])
+    assert rc == 3, "a skipped precondition must not exit 0"
+
+
+def test_the_UNAVAILABLE_LOADER_path_also_cannot_exit_zero(tmp_path, monkeypatch):
+    """Same defect, different skip: if xgboost cannot be imported, loadability is not
+    established and the process must not report success."""
+    import builtins
+    _artifact(tmp_path, "base/art/m.json", loadable=False)
+    cfg = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
+    real_import = builtins.__import__
+
+    def _no_xgb(name, *a, **k):
+        if name == "xgboost":
+            raise ImportError("simulated: xgboost unavailable")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _no_xgb)
+    rc = P.main(["--lane", "lane_a", "--runner-config", cfg,
+                 "--base", str(tmp_path / "base"), "--watched-lane", "lane_a"])
+    assert rc == 3, "an unestablished loadability must not exit 0"
+
+
+def test_a_GENUINE_FAILURE_still_exits_1_not_3(tmp_path):
+    """The two codes must stay distinguishable: 'broken' and 'not established' send a
+    reader to different places."""
+    cfg = _cfg(tmp_path, [])
+    assert P.main(["--lane", "nope", "--runner-config", cfg,
+                   "--base", str(tmp_path), "--watched-lane", "hf_patchtst"]) == 1
+
+
+def test_ANTI_VACUITY_a_fully_established_lane_still_exits_0(tmp_path):
+    import pytest
+    pytest.importorskip("xgboost")
+    _artifact(tmp_path, "base/art/m.json", loadable=True)
+    cfg = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
+    assert P.main(["--lane", "lane_a", "--runner-config", cfg,
+                   "--base", str(tmp_path / "base"), "--watched-lane", "lane_a"]) == 0
