@@ -154,3 +154,84 @@ def test_the_report_states_that_the_binding_comes_from_the_artifact(tmp_path, ca
     C.main(["--artifacts", _artifact(tmp_path, "a.json", stamped=False)])
     out = capsys.readouterr().out
     assert "ARTIFACT'S OWN gate stamp" in out and "never summed" in out
+
+
+# ---------------------------------------------------------------------------
+# ROUND 3 — codex on #691: `(x or {}).get(...)` is NOT a guard. A non-empty
+# string is truthy, so `or {}` never fires and `.get` raises AttributeError.
+# Measured before the fix: two of these three crashed.
+# ---------------------------------------------------------------------------
+
+def _raw(tmp_path, body, name="a.json"):
+    p = tmp_path / name
+    p.write_text(json.dumps(body), encoding="utf-8")
+    return str(p)
+
+
+def test_a_STRING_metadata_container_FAILS_CLOSED_and_does_not_crash(tmp_path):
+    """Measured pre-fix: AttributeError: 'str' object has no attribute 'get'."""
+    r = C.resolve(_raw(tmp_path, {"metadata": "n/a"}))
+    assert r["status"] == "malformed_gate_stamp"
+    assert "str" in (r.get("gate_stamp_source") or "")
+
+
+def test_a_STRING_gate_BLOCK_fails_closed(tmp_path):
+    r = C.resolve(_raw(tmp_path, {"metadata": {"wf_gate_metadata": "x"}}))
+    assert r["status"] == "malformed_gate_stamp"
+
+
+def test_a_STRING_legacy_gate_block_fails_closed(tmp_path):
+    """The legacy position needs the same guard, or the fix covers one of two doors."""
+    r = C.resolve(_raw(tmp_path, {"wf_gate_metadata": "x"}))
+    assert r["status"] == "malformed_gate_stamp" and "legacy" in r["gate_stamp_source"]
+
+
+def test_a_STRING_artifact_usage_FAILS_CLOSED_and_does_not_crash(tmp_path):
+    """The second crash site, measured pre-fix."""
+    r = C.resolve(_raw(tmp_path, {"metadata": {"wf_gate_metadata":
+                                               {"artifact_usage": "n/a"}}}))
+    assert r["status"] == "malformed_artifact_usage" and "str" in r["note"]
+
+
+def test_a_NON_STRING_manifest_path_is_MALFORMED_not_MISSING(tmp_path):
+    """Measured pre-fix this reported `manifest_missing` — saying the pointer evaporated
+    when in fact it is malformed. Different defect, different owner."""
+    r = C.resolve(_raw(tmp_path, {"metadata": {"wf_gate_metadata":
+                                               {"artifact_usage":
+                                                {"manifest_path": 7}}}}))
+    assert r["status"] == "malformed_manifest_path" and "int" in r["note"]
+
+
+def test_an_EMPTY_manifest_path_string_is_NO_MANIFEST_NAMED(tmp_path):
+    """The distinction has to cut both ways or it is just a stricter alarm."""
+    r = C.resolve(_raw(tmp_path, {"metadata": {"wf_gate_metadata":
+                                               {"artifact_usage":
+                                                {"manifest_path": ""}}}}))
+    assert r["status"] == "no_manifest_named"
+
+
+# --- scheduled behaviour: drive main(), because the exit code is what a job reads ---
+
+def test_main_EXITS_NONZERO_on_each_malformed_shape(tmp_path):
+    shapes = [
+        {"metadata": "n/a"},
+        {"metadata": {"wf_gate_metadata": "x"}},
+        {"metadata": {"wf_gate_metadata": {"artifact_usage": "n/a"}}},
+        {"metadata": {"wf_gate_metadata": {"artifact_usage": {"manifest_path": 7}}}},
+    ]
+    for i, body in enumerate(shapes):
+        a = _raw(tmp_path, body, name=f"m{i}.json")
+        assert C.main(["--artifacts", a]) == 1, body
+
+
+def test_main_does_not_RAISE_on_a_malformed_artifact(tmp_path, capsys):
+    """A scheduled job cannot tell an uncaught exception from an alarm — `sys.exit(main())`
+    turns both into a non-zero status. So the tool must return, never raise."""
+    C.main(["--artifacts", _raw(tmp_path, {"metadata": "n/a"})])
+    assert "MALFORMED_GATE_STAMP" in capsys.readouterr().out
+
+
+def test_main_JSON_mode_also_survives_a_malformed_artifact(tmp_path, capsys):
+    C.main(["--artifacts", _raw(tmp_path, {"metadata": "n/a"}), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts"][0]["status"] == "malformed_gate_stamp"

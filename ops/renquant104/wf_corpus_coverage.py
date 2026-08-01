@@ -53,17 +53,36 @@ CANONICAL = "metadata.wf_gate_metadata"
 LEGACY = "wf_gate_metadata (legacy top-level)"
 
 
-def _gate_block(payload: dict) -> tuple[dict | None, str]:
+#: A container that exists but is not a JSON object. Distinct from absent, and it must
+#: be, because `(x or {}).get(...)` is NOT a guard: a non-empty string is truthy, so the
+#: `or {}` never fires and `.get` raises AttributeError on it.
+MALFORMED = object()
+
+
+def _gate_block(payload: dict) -> tuple[object | None, str]:
     """The gate block and WHICH key answered — canonical first, legacy recorded.
 
     Reading the canonical key silently would repeat the defect that produced two
     retracted claims this week: a checker looking in one place does not discover that
     its subjects are missing, it discovers that it is looking in the wrong place.
+
+    FAIL CLOSED on a malformed container `[codex on orch#691]`. The earlier
+    `(payload.get("metadata") or {}).get(...)` crashed with AttributeError on an artifact
+    whose `metadata` is a string — measured, not hypothetical. This is the same shape
+    already fixed in `gate_stamp_parity.py` and reintroduced here an hour later, which is
+    why it is now a named constant rather than a local guard.
     """
-    md = (payload.get("metadata") or {}).get("wf_gate_metadata")
+    meta = payload.get("metadata")
+    if meta is not None and not isinstance(meta, dict):
+        return MALFORMED, f"{CANONICAL} (container is {type(meta).__name__})"
+    md = (meta or {}).get("wf_gate_metadata")
+    if md is not None and not isinstance(md, dict):
+        return MALFORMED, f"{CANONICAL} (block is {type(md).__name__})"
     if isinstance(md, dict) and md:
         return md, CANONICAL
     md = payload.get("wf_gate_metadata")
+    if md is not None and not isinstance(md, dict):
+        return MALFORMED, f"{LEGACY} (block is {type(md).__name__})"
     if isinstance(md, dict) and md:
         return md, LEGACY
     return None, ""
@@ -115,15 +134,31 @@ def resolve(artifact_path: str) -> dict:
 
     block, source = _gate_block(payload)
     row["gate_stamp_source"] = source or None
+    if block is MALFORMED:
+        return {**row, "status": "malformed_gate_stamp", "n_folds": 0,
+                "note": "a gate-stamp container is present but is not a JSON object, so "
+                        "the binding cannot be read. Unreadable is not absent, and it is "
+                        "not 'no coverage' either"}
     if block is None:
         return {**row, "status": "no_gate_stamp", "n_folds": 0,
                 "note": "no wf_gate_metadata in either location — this artifact has no "
                         "walk-forward binding at all"}
 
-    manifest_path = (block.get("artifact_usage") or {}).get("manifest_path")
+    usage = block.get("artifact_usage")
+    if usage is not None and not isinstance(usage, dict):
+        return {**row, "status": "malformed_artifact_usage", "n_folds": 0,
+                "note": f"artifact_usage is {type(usage).__name__}, not an object — the "
+                        f"binding cannot be read"}
+    manifest_path = (usage or {}).get("manifest_path")
     row["manifest_path"] = manifest_path
-    if not manifest_path:
+    if manifest_path is None or manifest_path == "":
         return {**row, "status": "no_manifest_named", "n_folds": 0}
+    if not isinstance(manifest_path, str):
+        # An int or a list here is NOT a missing manifest. Reporting it as
+        # `manifest_missing` would say the pointer evaporated when in fact it is
+        # malformed -- a different defect with a different owner.
+        return {**row, "status": "malformed_manifest_path", "n_folds": 0,
+                "note": f"manifest_path is {type(manifest_path).__name__}, not a string"}
     if not os.path.exists(manifest_path):
         return {**row, "status": "manifest_missing", "n_folds": 0,
                 "note": "the stamp names a manifest that is not on disk; the binding "

@@ -143,3 +143,49 @@ keys and silently returned **0 folds** for the real manifest, whose rows live un
 answered**, so a manifest shape change appears in the report instead of as a quiet zero.
 
 14 tests.
+
+---
+
+## ROUND 3 2026-07-31 — `(x or {}).get(...)` is not a guard, and I had just fixed this shape elsewhere
+
+Reviewed `[codex on orch#691]`: *"`_gate_block` calls `.get` on `metadata` after only
+`or {}`, and `resolve` does the same for `artifact_usage`. A valid JSON artifact with
+`metadata` or `artifact_usage` as a string raises `AttributeError` instead of returning an
+explicit fail-closed status and controlled exit code."*
+
+Correct, and confirmed by executing it before changing anything
+`[本次实测 2026-07-31]`:
+
+```
+metadata = "n/a"                    -> *** CRASH *** AttributeError: 'str' has no 'get'
+artifact_usage = "n/a"              -> *** CRASH *** AttributeError: 'str' has no 'get'
+manifest_path = 7                   -> status=manifest_missing        <- WRONG STATUS
+```
+
+`or {}` is not a guard: a **non-empty string is truthy**, so the fallback never fires. And
+the third case is worse than a crash because it is silent — it reported the pointer as
+**missing** when it is **malformed**, which is a different defect with a different owner.
+
+**This is the same shape I fixed in `gate_stamp_parity.py` (orch#687) and reintroduced
+here about an hour later.** That is why `MALFORMED` is now a named module constant in this
+file too, rather than a local `isinstance` check I have to remember to write.
+
+Four distinct fail-closed statuses, none of which is "no coverage":
+
+| shape | status |
+|---|---|
+| `metadata` is not an object | `malformed_gate_stamp` |
+| the gate block (canonical **or** legacy) is not an object | `malformed_gate_stamp` |
+| `artifact_usage` is not an object | `malformed_artifact_usage` |
+| `manifest_path` is not a string | `malformed_manifest_path` |
+| `manifest_path` is `""` or absent | `no_manifest_named` — the distinction cuts both ways |
+
+### Scheduled behaviour is now pinned
+
+`main()` is driven directly for every malformed shape, in both text and `--json` mode. The
+reason is the one already on the register: `sys.exit(main())` makes an uncaught exception
+and a deliberate alarm indistinguishable to a scheduled job — both are just non-zero. So
+the tool must **return** a status, never raise, and the tests assert that by calling
+`main()` rather than only `resolve()`.
+
+23 tests (was 14).
