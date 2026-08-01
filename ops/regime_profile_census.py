@@ -38,6 +38,14 @@ CANONICAL_KEY = "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
 FIELDS = ("mean_ic", "std_ic", "hit_rate", "n_dates", "n_rows")
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from declared_root_resolve import (  # noqa: E402
+    AMBIGUOUS,
+    NOT_FOUND,
+    resolve_artifact,
+)
+
+
 def _regimes(payload: dict) -> tuple[dict, str]:
     """The per-regime block and WHICH key answered.
 
@@ -75,28 +83,21 @@ def census(artifact_names: list[str], search_root: str,
     """
     rows, sources, unresolved = [], [], []
     for name in sorted(set(artifact_names)):
+        # The rule now lives in `ops/declared_root_resolve.py` and is IMPORTED, not
+        # restated. R9's subject is "which copy gets used"; a rule against it that every
+        # new caller must re-type is the same hazard one level up. Behaviour is
+        # unchanged -- `test_regime_census_refuses_an_ambiguous_root` pins the live
+        # 23-paths/3-digests case through this call site.
         base = os.path.basename(name)
-        if recursive:
-            hits = sorted(glob.glob(os.path.join(search_root, "**", base),
-                                    recursive=True))
-        else:
-            hits = sorted(glob.glob(os.path.join(search_root, base)))
-        if not hits:
+        res = resolve_artifact(base, search_root, recursive=recursive)
+        if res["status"] == NOT_FOUND:
             unresolved.append({"artifact": base, "why": "not found under search_root"})
             continue
-        by_digest = {}
-        for h in hits:
-            with open(h, "rb") as fh:
-                by_digest.setdefault(hashlib.sha256(fh.read()).hexdigest(), []).append(
-                    os.path.relpath(h, search_root))
-        if len(by_digest) > 1:
-            unresolved.append({
-                "artifact": base,
-                "why": f"AMBIGUOUS: {len(hits)} paths with {len(by_digest)} distinct "
-                       f"digests under this root — refusing to choose",
-                "candidates": {d: p for d, p in by_digest.items()}})
+        if res["status"] == AMBIGUOUS:
+            unresolved.append({"artifact": base, "why": res["why"],
+                               "candidates": res.get("candidates", {})})
             continue
-        path = hits[0]
+        path = res["path"]
         with open(path, "rb") as fh:
             raw = fh.read()
         regimes, source_key = _regimes(json.loads(raw))
