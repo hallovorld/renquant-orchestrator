@@ -151,3 +151,61 @@ def test_the_internal_schedule_field_is_never_published(tmp_path):
     """`_schedule_entries_parsed` is plumbing between two passes, not evidence."""
     rep = L.scan([], now=dt.datetime(2026, 8, 1))
     assert all("_schedule_entries_parsed" not in r for r in rep["results"])
+
+
+# --------------------------------------------------------------------------------
+# An ATTRIBUTED verdict must not be demoted to AMBIGUOUS.
+#
+# Measured 2026-08-01: `com.renquant.rq105-shadow-serving` declares
+# `evidence_glob=.../rq105/shadow_serving_*.log`; the glob resolved its own newest file
+# (shadow_serving_2026-07-13.log, 2048B) and the verdict was computed from THAT. The
+# corroboration pass then overwrote it with STALE_AMBIGUOUS_SHARED_LOG_DIR, because five
+# other rq105 jobs share the directory, and appended advice to "declare an
+# `evidence_glob`" that had been declared all along. 14 scheduled firings with no output
+# is a definite finding; "ambiguous" reads as "we cannot tell" and gets skipped.
+# --------------------------------------------------------------------------------
+
+def _glob_row(tmp_path, label, name, mtime_days=30, entries=None):
+    r = _row(tmp_path, label, name, mtime_days=mtime_days, entries=entries)
+    r["evidence_surface"] = "evidence_glob"
+    return r
+
+
+def test_a_glob_ATTRIBUTED_row_stays_STALE_in_a_shared_directory(tmp_path):
+    """The shared directory is irrelevant once a glob names this job's own files."""
+    attributed = _glob_row(tmp_path, "shadow-serving", "shadow_serving_2026-07-13.log")
+    neighbour = _row(tmp_path, "session-scheduler", "session_scheduler_2026-08-01.log")
+    (tmp_path / "j" / "quote_logger_2026-08-01.log").write_text("x")
+
+    L.corroborate([attributed, neighbour])
+
+    assert attributed["status"] == L.NO_EVIDENCE_STALE
+    assert "shared_log_dir_owners" not in attributed
+    assert "evidence_glob" not in attributed["detail"]
+
+
+def test_the_PROXY_row_in_that_same_directory_is_STILL_ambiguous(tmp_path):
+    """Anti-vacuity. The fix must not disable the AMBIGUOUS state generally — a row
+    judged on StandardOutPath in a shared directory is exactly what it is for."""
+    proxy_a = _row(tmp_path, "a", "a.log")
+    proxy_b = _row(tmp_path, "b", "b.log")
+    attributed = _glob_row(tmp_path, "c", "c_2026-07-13.log")
+    (tmp_path / "j" / "fresh.log").write_text("x")
+
+    L.corroborate([proxy_a, proxy_b, attributed])
+
+    assert proxy_a["status"] == L.STALE_AMBIGUOUS_SHARED_LOG_DIR
+    assert attributed["status"] == L.NO_EVIDENCE_STALE
+
+
+def test_a_glob_row_is_not_rescued_by_a_fresh_sibling_either(tmp_path):
+    """The sibling rescue is also a proxy-only remedy: promoting an attributed row
+    because a NEIGHBOUR's file is newer is the attribution error the AMBIGUOUS state
+    exists to prevent, arriving through the other branch."""
+    attributed = _glob_row(tmp_path, "solo", "solo_2026-07-13.log")
+    (tmp_path / "j" / "someone_else_2026-08-01.log").write_text("ran")
+
+    L.corroborate([attributed])
+
+    assert attributed["status"] == L.NO_EVIDENCE_STALE
+    assert "sibling_evidence" not in attributed
