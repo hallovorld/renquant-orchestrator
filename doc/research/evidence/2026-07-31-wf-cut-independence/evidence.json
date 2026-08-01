@@ -1,5 +1,14 @@
 {
   "artifact": "panel-ltr.alpha158_fund.previous.json",
+  "artifact_provenance": {
+    "basename": "panel-ltr.alpha158_fund.previous.json",
+    "in_git": true,
+    "repo": "RenQuant",
+    "repo_head": "3f4e3d6b857f8d8a4234eb4b9f71d997b84211bb",
+    "repo_relative_path": "backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.previous.json",
+    "repo_remote": "https://github.com/hallovorld/RenQuant.git",
+    "tracked_and_clean": false
+  },
   "artifact_sha256": "7a232110d2cb1e5cbe42c7335f92fd5ab80cf5fdf98412948f533e579cb48bca",
   "calendar_union_days": 816,
   "corpus": {
@@ -14,6 +23,15 @@
     "status": "derived"
   },
   "corpus_days": 882,
+  "corpus_provenance": {
+    "basename": "walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json",
+    "in_git": true,
+    "repo": "RenQuant",
+    "repo_head": "3f4e3d6b857f8d8a4234eb4b9f71d997b84211bb",
+    "repo_relative_path": "backtesting/renquant_104/artifacts/sim/walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json",
+    "repo_remote": "https://github.com/hallovorld/RenQuant.git",
+    "tracked_and_clean": true
+  },
   "cut_lengths_days": [
     364,
     364,
@@ -39,6 +57,16 @@
       "overlap_days": 90
     }
   ],
+  "producer": {
+    "gate_eval_scope": "walkforward_manifest",
+    "gate_run_at": "2026-07-05T22:25:10.206611",
+    "gate_sanity_manifest_path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/sim/walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json",
+    "kind": "panel_ltr_xgboost",
+    "label_col": "fwd_60d_excess",
+    "side_label": null,
+    "train_run_id": "eeee9542",
+    "trained_date": "2026-07-05"
+  },
   "redundancy": 1.3346,
   "scope_note": "Redundancy and overlap are GEOMETRY, derived from the window boundaries with no assumption. They are not an effective sample size: converting geometry into an effective n needs a correlation this tool does not measure, and doing that from an assumed value is a standing correction in this programme.",
   "sum_of_lengths_days": 1089,

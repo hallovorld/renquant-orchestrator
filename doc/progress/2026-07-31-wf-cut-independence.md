@@ -142,3 +142,54 @@ from. Committing with `-A` would have pulled another lane's files into this PR f
 second time today. Cleaned by removing only the foreign index entry and committing
 **explicit paths** — and the pattern itself is the defect: do not `stash`/`pop` in a
 multi-worktree repo.
+
+---
+
+## ROUND 3 — a basename plus a digest lets a reader VERIFY, never FIND
+
+Reviewed `[codex on #696]`: *"evidence.json has only basenames and hashes. It does not
+identify the producing repository/ref, repository-relative source paths, or producer/run/
+artifact identity, so a reader cannot locate or interpret the hashed inputs outside this
+workstation layout."*
+
+That distinction is the whole point. A digest lets someone check a file **they already
+have**; it does nothing to help them get it. Every hashed input now carries where it came
+from, derived from the file's own checkout rather than from any assumption about where
+repos live:
+
+| field | for the artifact |
+|---|---|
+| `repo` / `repo_remote` | `RenQuant` / `https://github.com/hallovorld/RenQuant.git` |
+| `repo_head` | `3f4e3d6b857f8d8a4234eb4b9f71d997b84211bb` |
+| `repo_relative_path` | `backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.previous.json` |
+| `tracked_and_clean` | `false` — the artifact has uncommitted changes, which a reader needs to know before trusting the ref |
+
+and the same block for the corpus manifest (`…/artifacts/sim/…`, clean).
+
+**Producer identity is READ, never reconstructed** — `train_run_id: eeee9542`,
+`trained_date: 2026-07-05`, `kind: panel_ltr_xgboost`, `gate_run_at: 2026-07-05T22:25:10`,
+`gate_eval_scope: walkforward_manifest`. A field the artifact does not carry stays `None`:
+an invented producer id would defeat the purpose more thoroughly than an absent one.
+
+A file **outside any checkout** reports `in_git: false` and stops — a fabricated
+repo-relative path is worse than none.
+
+## The malformed-manifest crash
+
+> *"the current `date.fromisoformat` comprehension raises uncaught `ValueError` for a
+> structurally bad upstream manifest."*
+
+Now a controlled `manifest_unreadable` naming the offender
+(`1 of 2 cutoff_date value(s) are not ISO dates; first offender: 'not-a-date'`) **and
+still carrying the manifest's digest** — a refusal that does not identify what it refused
+is only marginally better than a crash.
+
+## A defect in my own test, found by mutating
+
+My first provenance test read the **committed `evidence.json`**, so deleting
+`repo_relative_path` from `_repo_provenance` left it green: the guard was validating the
+record rather than the producer. Caught by mutating the helper and watching nothing fail.
+`test_the_PRODUCER_still_emits_repo_ref_and_relative_path` binds to the code, and that
+mutation now fails.
+
+Tests 21 → 27.

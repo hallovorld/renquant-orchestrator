@@ -55,6 +55,7 @@ import itertools
 import hashlib
 import json
 import os
+import subprocess
 import sys
 
 
@@ -183,7 +184,26 @@ def corpus_span(manifest_path: str) -> dict:
         return {"status": "no_cutoff_rows",
                 "why": "no list of rows carrying `cutoff_date` was found — this is NOT "
                        "a zero-fold corpus, it is an unparsed manifest"}
-    ds = sorted(dt.date.fromisoformat(d[:10]) for d in best)
+    # A structurally bad upstream manifest must be a CONTROLLED non-passing result,
+    # not an uncaught ValueError three frames from the file that caused it. Reviewed
+    # `[codex on #696]`: the comprehension below used to raise straight out of a
+    # comprehension, so a malformed `cutoff_date` looked like this tool crashing
+    # rather than like the manifest being unreadable -- and a crash and a refusal are
+    # only distinguishable if one of them says which input was wrong.
+    parsed, bad = [], []
+    for d in best:
+        try:
+            parsed.append(dt.date.fromisoformat(d[:10]))
+        except ValueError:
+            bad.append(d)
+    if bad:
+        return {"status": "manifest_unreadable",
+                "manifest_path": os.path.basename(manifest_path),
+                "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+                "rows_key": key,
+                "why": f"{len(bad)} of {len(best)} cutoff_date value(s) are not ISO "
+                       f"dates; first offender: {bad[0]!r}"}
+    ds = sorted(parsed)
     return {
         "status": "derived",
         "manifest_path": os.path.basename(manifest_path),
@@ -195,6 +215,67 @@ def corpus_span(manifest_path: str) -> dict:
         "corpus_days": (ds[-1] - ds[0]).days,
         "derivation": "corpus_days = last_cutoff - first_cutoff over the manifest's "
                       "cutoff_date rows",
+    }
+
+
+def _repo_provenance(path: str) -> dict:
+    """Which repository, at which ref, and where inside it — for a file on this disk.
+
+    Reviewed `[codex on #696]`: *"evidence.json has only basenames and hashes. It does
+    not identify the producing repository/ref, repository-relative source paths, or
+    producer/run/artifact identity, so a reader cannot locate or interpret the hashed
+    inputs outside this workstation layout."* Exactly right: a basename plus a digest
+    lets a reader VERIFY a file they already have and does nothing to help them FIND it.
+
+    Everything here is derived from the file's own checkout — the remote URL, HEAD, and
+    the path relative to the repo root — never from this tool's assumptions about where
+    repos live. A file outside any git checkout gets `in_git: false` rather than a
+    guess, because a fabricated repo-relative path is worse than none.
+    """
+    out = {"basename": os.path.basename(path), "in_git": False}
+    d = os.path.dirname(os.path.abspath(path))
+    try:
+        root = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
+                              capture_output=True, text=True, timeout=10)
+        if root.returncode != 0:
+            return out
+        top = root.stdout.strip()
+        head = subprocess.run(["git", "-C", top, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=10).stdout.strip()
+        url = subprocess.run(["git", "-C", top, "config", "--get", "remote.origin.url"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "-C", top, "status", "--porcelain", "--", path],
+                               capture_output=True, text=True, timeout=10).stdout.strip()
+        out.update({
+            "in_git": True,
+            "repo": os.path.basename(top),
+            "repo_remote": url or None,
+            "repo_head": head or None,
+            "repo_relative_path": os.path.relpath(os.path.abspath(path), top),
+            "tracked_and_clean": dirty == "",
+        })
+    except (OSError, subprocess.SubprocessError):
+        return out
+    return out
+
+
+def _producer_identity(payload: dict, block: dict) -> dict:
+    """Producer / run / artifact identity, taken from the artifact's OWN metadata.
+
+    Read rather than reconstructed: every field here is a key the producer wrote. A
+    field the artifact does not carry is reported as `None`, never inferred — the point
+    is to let a reader interpret the hashed input, and an invented producer id would
+    defeat that more thoroughly than an absent one.
+    """
+    return {
+        "train_run_id": payload.get("train_run_id"),
+        "trained_date": payload.get("trained_date"),
+        "kind": payload.get("kind"),
+        "side_label": payload.get("side_label"),
+        "label_col": payload.get("label_col"),
+        "gate_run_at": block.get("run_at"),
+        "gate_eval_scope": block.get("wf_eval_scope"),
+        "gate_sanity_manifest_path": block.get("sanity_manifest_path"),
     }
 
 
@@ -239,10 +320,13 @@ def main(argv: list[str] | None = None) -> int:
         artifact_sha = hashlib.sha256(fh.read()).hexdigest()
     rep = {"artifact": os.path.basename(a.artifact),
            "artifact_sha256": artifact_sha,
+           "artifact_provenance": _repo_provenance(a.artifact),
+           "producer": _producer_identity(payload, block),
            "gate_stamp_source": source,
            "unreadable_cuts": bad, **analyse(cuts)}
     if a.manifest:
         rep["corpus"] = corpus_span(a.manifest)
+        rep["corpus_provenance"] = _repo_provenance(a.manifest)
         if rep["corpus"].get("status") == "derived" and not a.corpus_days:
             a.corpus_days = rep["corpus"]["corpus_days"]
     if a.corpus_days and cuts:

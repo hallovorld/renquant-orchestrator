@@ -29,6 +29,9 @@ def _load():
 C = _load()
 D = dt.date
 
+import re  # noqa: E402  (used by the round-3 provenance tests below)
+_EVIDENCE = ROOT / "doc/research/evidence/2026-07-31-wf-cut-independence/evidence.json"
+
 
 def _art(tmp_path, cuts, name="a.json", legacy=False, raw=None):
     block = raw if raw is not None else {"cuts": cuts}
@@ -241,3 +244,94 @@ def test_redundancy_can_never_fall_BELOW_one(tmp_path):
                  [(D(2024, 1, 1), D(2025, 1, 1)), (D(2024, 7, 1), D(2025, 7, 1))],
                  [(D(2024, 1, 1), D(2024, 2, 1))]):
         assert C.analyse(cuts)["redundancy"] >= 1.0, cuts
+
+
+# ---------------------------------------------------------------------------
+# codex on #696, round 3: a basename and a digest let a reader VERIFY a file
+# they already have; they do nothing to help a reader FIND it.
+# ---------------------------------------------------------------------------
+
+def test_every_hashed_input_names_its_REPOSITORY_ref_and_repo_relative_path():
+    """The requested cross-repo provenance, asserted on the committed record.
+
+    Reviewed: *"evidence.json has only basenames and hashes… a reader cannot locate or
+    interpret the hashed inputs outside this workstation layout."* So each hashed input
+    carries the repo, its remote, the ref (HEAD) and the path INSIDE that repo — which
+    is what makes the digest checkable somewhere other than this machine.
+    """
+    rec = json.loads(_EVIDENCE.read_text(encoding="utf-8"))
+    for key in ("artifact_provenance", "corpus_provenance"):
+        p = rec[key]
+        assert p["in_git"] is True, key
+        assert p["repo"], key
+        assert p["repo_remote"] and p["repo_remote"].startswith("http"), key
+        assert re.fullmatch(r"[0-9a-f]{40}", p["repo_head"]), key
+        rel = p["repo_relative_path"]
+        assert rel and not rel.startswith("/") and ".." not in rel, key
+        assert rel.endswith(p["basename"]), (key, rel, p["basename"])
+
+
+def test_the_record_carries_PRODUCER_identity_from_the_artifacts_own_metadata():
+    """Who made the thing, and when. Read from the artifact's own keys rather than
+    reconstructed: an invented producer id would defeat the purpose more thoroughly
+    than an absent one, so a field the artifact lacks stays None."""
+    prod = json.loads(_EVIDENCE.read_text(encoding="utf-8"))["producer"]
+    for field in ("train_run_id", "trained_date", "kind", "gate_run_at",
+                  "gate_eval_scope"):
+        assert field in prod, field
+    assert prod["train_run_id"], "the producing run is unidentified"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", prod["trained_date"])
+    assert prod["gate_eval_scope"] in ("walkforward_manifest", "static_artifact")
+
+
+def test_provenance_of_a_file_OUTSIDE_any_checkout_is_absent_not_invented(tmp_path):
+    """ANTI-VACUITY, and the honest branch: a fabricated repo-relative path is worse
+    than none, so a file outside git reports `in_git: false` and stops there."""
+    stray = tmp_path / "loose.json"
+    stray.write_text("{}", encoding="utf-8")
+    p = C._repo_provenance(str(stray))
+    assert p["in_git"] is False
+    assert p["basename"] == "loose.json"
+    assert "repo_relative_path" not in p and "repo_head" not in p
+
+
+def test_a_MALFORMED_cutoff_date_is_a_controlled_result_not_a_ValueError(tmp_path):
+    """Codex: *"the current `date.fromisoformat` comprehension raises uncaught
+    ValueError for a structurally bad upstream manifest."* A crash and a refusal are
+    both non-zero; only one names the input that caused it."""
+    man = tmp_path / "man.json"
+    man.write_text(json.dumps({"rows": [{"cutoff_date": "2024-01-01"},
+                                        {"cutoff_date": "not-a-date"}]}),
+                   encoding="utf-8")
+    got = C.corpus_span(str(man))
+    assert got["status"] == "manifest_unreadable"
+    assert "not-a-date" in got["why"]
+    assert got["manifest_sha256"], "a refusal must still identify what it refused"
+
+
+def test_a_WELL_FORMED_manifest_still_derives(tmp_path):
+    """ANTI-VACUITY for the test above: the guard must not reject valid manifests."""
+    man = tmp_path / "man.json"
+    man.write_text(json.dumps({"rows": [{"cutoff_date": "2024-01-01"},
+                                        {"cutoff_date": "2024-12-31"}]}),
+                   encoding="utf-8")
+    got = C.corpus_span(str(man))
+    assert got["status"] == "derived"
+    assert got["n_folds"] == 2 and got["corpus_days"] == 365
+
+
+def test_the_PRODUCER_still_emits_repo_ref_and_relative_path():
+    """Binds to the code, not to the committed file.
+
+    The record test above reads `evidence.json`, so it stays green even if the tool
+    stops emitting these fields — a guard validating the wrong object, caught by
+    mutating `_repo_provenance` and watching nothing fail. This runs the producer
+    against a file known to be inside this repository.
+    """
+    p = C._repo_provenance(str(_EVIDENCE))
+    assert p["in_git"] is True
+    assert p["repo"] and p["repo_remote"]
+    assert re.fullmatch(r"[0-9a-f]{40}", p["repo_head"])
+    rel = p["repo_relative_path"]
+    assert rel.startswith("doc/research/evidence/") and rel.endswith("evidence.json")
+    assert not rel.startswith("/")
