@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import re as _re
 import importlib.util
 import json
 import os
@@ -161,6 +162,57 @@ def resolve_root(ledger_path: str | None) -> str:
     return root
 
 
+#: `clears_when` machine-checkability buckets. Surveyed 2026-08-01 (orch#733): of the
+#: 10 live acks only 4 carried ANY fragment a checker could bind to, and 6 of the 9
+#: expired rows expired purely via the `acked_at + ACK_MAX_AGE_DAYS` backstop — their
+#: `clears_when` never participated. This LINT makes that visible per row, so a
+#: condition with no machine-bindable fragment is a FINDING instead of an invisible
+#: default. Shape only: nothing is resolved, read, or evaluated.
+#:
+#: Classification only. Nothing here queries GitHub or the filesystem to CHECK a
+#: condition: an audit that needs the network to run is an audit that silently stops
+#: running, and "could not check" is precisely the state this tool must never confuse
+#: with "checked".
+BUCKET_DATE = "date"            # an ISO date ack_expiry already extracts
+BUCKET_REF = "ref"              # a repo-qualified PR/issue reference, e.g. repo#73
+BUCKET_ARTIFACT = "artifact"    # a testable config key=value or path-like token
+BUCKET_BARE_REF = "bare_ref"    # `#75` with NO repo qualifier — unresolvable as written
+
+#: Mirrors the sentinel's own date pattern. A parity test asserts this stays behaviorally
+#: equal to what `ack_expiry` extracts on the live ledger, so the two cannot drift
+#: silently.
+_CW_DATE = _re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+_CW_REF = _re.compile(r"\b[A-Za-z][\w.-]*#\d+\b")
+_CW_BARE_REF = _re.compile(r"(?<![\w.-])#\d+\b")
+_CW_KEYVAL = _re.compile(r"\b[a-z][a-z0-9_]{2,}\s*=\s*\S+")
+_CW_PATH = _re.compile(r"\b[\w.-]+/[\w./-]+\b")
+
+
+def classify_clears_when(text: str) -> dict:
+    """Actionable-reference LINT over a `clears_when` — syntax, not semantics.
+
+    Returns ``{"buckets": [...], "has_machine_bindable_fragment": bool}``. A bucket
+    records that a fragment of the right SHAPE exists (a date, a repo#N, a key=value or
+    path-like token). Nothing here resolves the reference, reads the path, or evaluates
+    the condition — a bindable fragment is a precondition for automation, not a
+    guarantee of it, and its absence means THIS AUDIT cannot automatically evaluate the
+    stated condition.
+    """
+    t = text or ""
+    buckets = []
+    if _CW_DATE.search(t):
+        buckets.append(BUCKET_DATE)
+    if _CW_REF.search(t):
+        buckets.append(BUCKET_REF)
+    if _CW_BARE_REF.search(t):
+        buckets.append(BUCKET_BARE_REF)
+    if _CW_KEYVAL.search(t) or _CW_PATH.search(t):
+        buckets.append(BUCKET_ARTIFACT)
+    return {"buckets": buckets,
+            "has_machine_bindable_fragment": any(
+                b in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT) for b in buckets)}
+
+
 def audit(today: dt.date, ledger_path: str | None = None,
           root: str | None = None) -> dict:
     sent = _load_sentinel()
@@ -191,6 +243,8 @@ def audit(today: dt.date, ledger_path: str | None = None,
             "expired": (expiry is None or expiry <= today),  # sentinel's own rule
             "days_to_expiry": (expiry - today).days if expiry else None,
             "why": why,
+            "clears_when_buckets": classify_clears_when(
+                str(ack.get("clears_when") or ""))["buckets"],
         })
         if expiry:
             by_expiry.setdefault(expiry.isoformat(), []).append(name)
@@ -212,6 +266,27 @@ def audit(today: dt.date, ledger_path: str | None = None,
                 f"corrupt (a future-dated stamp or a backdated commit), so the expiry "
                 f"clock runs {abs(r['stamp_lag_days'])}d late. This is NOT evidence of "
                 f"an unreviewed re-stamp: that action is indistinguishable here")
+
+    cw_texts = {name: str(ack.get("clears_when") or "") for name, ack in acks.items()}
+    for r in rows:
+        b = r["clears_when_buckets"]
+        # An ack with NO clears_when promised nothing — the backstop governs it and
+        # that is already visible. The finding is for a STATED condition no machine
+        # can bind to: a promise that cannot clear or hold the ack it decorates.
+        if not cw_texts.get(r["job"], "").strip():
+            continue
+        if not any(x in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT) for x in b):
+            findings.append(
+                f"{r['job']}: clears_when carries no machine-bindable fragment — no "
+                f"date, no qualified PR/issue reference, no key/path-shaped token. "
+                f"This audit cannot automatically evaluate its stated condition; the "
+                f"only expiry signal it contributes to `ack_expiry` is none, so the "
+                f"acked_at backstop is what governs this row's expiry in practice")
+        if BUCKET_BARE_REF in b and BUCKET_REF not in b:
+            findings.append(
+                f"{r['job']}: clears_when cites a bare #NN with no repo qualifier — "
+                f"unresolvable as written (surveyed 2026-08-01: #75 matches unrelated "
+                f"merged PRs in three repos and nothing in strategy-104)")
 
     # LONG-EXPIRED: "expired" and "expired for longer than an ack's whole life" are
     # different facts, and only the first was reported. An ack that lapsed yesterday
