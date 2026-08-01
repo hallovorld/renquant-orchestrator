@@ -357,7 +357,7 @@ def test_the_live_ledger_today_and_when_it_will_fire():
 
 def test_a_date_is_machine_checkable():
     c = A.classify_clears_when("next NYSE session's 13:55 wrapper run (2026-07-20)")
-    assert A.BUCKET_DATE in c["buckets"] and c["machine_checkable"]
+    assert A.BUCKET_DATE in c["buckets"] and c["has_machine_bindable_fragment"]
 
 
 def test_a_repo_qualified_ref_and_a_keyval_are_machine_checkable():
@@ -372,13 +372,13 @@ def test_a_repo_qualified_ref_and_a_keyval_are_machine_checkable():
 def test_a_bare_ref_is_flagged_and_NOT_counted_as_checkable():
     c = A.classify_clears_when("job redesigned — task #75")
     assert A.BUCKET_BARE_REF in c["buckets"]
-    assert not c["machine_checkable"], \
-        "an unresolvable #NN must not buy machine-checkability"
+    assert not c["has_machine_bindable_fragment"], \
+        "an unresolvable #NN must not count as a bindable fragment"
 
 
 def test_narrative_only_is_empty_and_not_checkable():
     c = A.classify_clears_when("next VIX-anomaly trigger runs the gated chain clean")
-    assert c["buckets"] == [] and not c["machine_checkable"]
+    assert c["buckets"] == [] and not c["has_machine_bindable_fragment"]
 
 
 def test_a_path_token_counts_as_artifact():
@@ -426,5 +426,5 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     assert [j for j, b in by.items()
             if A.BUCKET_BARE_REF in b and A.BUCKET_REF not in b] == \
         ["com.renquant.monthly-meta-label-retrain"]
-    assert sum(1 for f in R["findings"] if "narrative-only" in f) == 6
+    assert sum(1 for f in R["findings"] if "no machine-bindable fragment" in f) == 6
     assert sum(1 for f in R["findings"] if "bare #NN" in f) == 1

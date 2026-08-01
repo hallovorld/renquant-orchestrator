@@ -1,4 +1,9 @@
-# ack ledger: a narrative-only `clears_when` is now a finding (GOAL-1)
+# ack ledger: an actionable-reference LINT over `clears_when` (GOAL-1)
+
+> **Scope, per review:** this is a SYNTAX lint. A bucket records that a fragment of the
+> right shape exists; nothing resolves the ref, reads the path, or evaluates the
+> condition. `has_machine_bindable_fragment` (renamed from `machine_checkable`) is a
+> precondition for automation, not a guarantee of it.
 
 ## What landed
 

@@ -165,8 +165,9 @@ def resolve_root(ledger_path: str | None) -> str:
 #: `clears_when` machine-checkability buckets. Surveyed 2026-08-01 (orch#733): of the
 #: 10 live acks only 4 carried ANY fragment a checker could bind to, and 6 of the 9
 #: expired rows expired purely via the `acked_at + ACK_MAX_AGE_DAYS` backstop — their
-#: `clears_when` never participated. This classifier makes that visible per row, so a
-#: narrative-only clearing condition is a FINDING instead of an invisible default.
+#: `clears_when` never participated. This LINT makes that visible per row, so a
+#: condition with no machine-bindable fragment is a FINDING instead of an invisible
+#: default. Shape only: nothing is resolved, read, or evaluated.
 #:
 #: Classification only. Nothing here queries GitHub or the filesystem to CHECK a
 #: condition: an audit that needs the network to run is an audit that silently stops
@@ -188,11 +189,14 @@ _CW_PATH = _re.compile(r"\b[\w.-]+/[\w./-]+\b")
 
 
 def classify_clears_when(text: str) -> dict:
-    """Which fragments of a `clears_when` could a machine act on TODAY?
+    """Actionable-reference LINT over a `clears_when` — syntax, not semantics.
 
-    Returns ``{"buckets": [...], "machine_checkable": bool}``. A row with an empty
-    bucket list is narrative-only: its expiry can only ever come from the
-    ``acked_at`` backstop, never from its own stated condition.
+    Returns ``{"buckets": [...], "has_machine_bindable_fragment": bool}``. A bucket
+    records that a fragment of the right SHAPE exists (a date, a repo#N, a key=value or
+    path-like token). Nothing here resolves the reference, reads the path, or evaluates
+    the condition — a bindable fragment is a precondition for automation, not a
+    guarantee of it, and its absence means THIS AUDIT cannot automatically evaluate the
+    stated condition.
     """
     t = text or ""
     buckets = []
@@ -205,8 +209,8 @@ def classify_clears_when(text: str) -> dict:
     if _CW_KEYVAL.search(t) or _CW_PATH.search(t):
         buckets.append(BUCKET_ARTIFACT)
     return {"buckets": buckets,
-            "machine_checkable": any(b in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT)
-                                     for b in buckets)}
+            "has_machine_bindable_fragment": any(
+                b in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT) for b in buckets)}
 
 
 def audit(today: dt.date, ledger_path: str | None = None,
@@ -273,9 +277,11 @@ def audit(today: dt.date, ledger_path: str | None = None,
             continue
         if not any(x in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT) for x in b):
             findings.append(
-                f"{r['job']}: clears_when is narrative-only — no date, no qualified "
-                f"PR/issue reference, no testable key/path. Its stated condition can "
-                f"never clear or hold it; expiry comes only from the acked_at backstop")
+                f"{r['job']}: clears_when carries no machine-bindable fragment — no "
+                f"date, no qualified PR/issue reference, no key/path-shaped token. "
+                f"This audit cannot automatically evaluate its stated condition; the "
+                f"only expiry signal it contributes to `ack_expiry` is none, so the "
+                f"acked_at backstop is what governs this row's expiry in practice")
         if BUCKET_BARE_REF in b and BUCKET_REF not in b:
             findings.append(
                 f"{r['job']}: clears_when cites a bare #NN with no repo qualifier — "
