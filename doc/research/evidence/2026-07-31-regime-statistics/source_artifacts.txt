@@ -1,0 +1,11 @@
+panel-ltr.alpha158_fund.json
+panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260712T170005Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260713T201007Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260718T110005Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260719T170005Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260721T201008Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260725T110003Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260726T170001Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260729T201003Z.staging.json
+panel-ltr.alpha158_fund.weekly_20260730T201007Z.staging.json

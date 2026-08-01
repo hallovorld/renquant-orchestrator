@@ -196,6 +196,7 @@
     "transfer_coefficient",
     "weekly_apy_monitor",
     "weekly_promote_monitor",
+    "wf_gate_provenance",
     "wf_promote_triage"
   ]
 }

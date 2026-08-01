@@ -1,5 +1,6 @@
 {
   "_comment": "Reviewed-good launchd surface (GOAL-5 AC2). Every com.renquant.* job's ProgramArguments is pinned here; the drift scan alarms on any divergence. Intentional changes update this file in the same reviewed PR.",
+  "_wrapper_scope_boundaries_comment": "Wrappers this repo's drift scanner deliberately does NOT inspect, with the surface that owns each. Declared here because a scope boundary is a CLAIM that something else checks it -- changing one must take a PR. An unresolvable wrapper NOT covered by an entry below is reported as a PROBLEM, not an info line (codex on orch#675): otherwise a scheduled source can vanish from this checkout and become uninspected in silence.",
   "jobs": {
     "com.renquant.agent-pr-loop": {
       "program_args": [
@@ -53,20 +54,20 @@
       "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     },
     "com.renquant.daily104": {
+      "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/daily_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_104.sh"
       ],
-      "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/daily_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
-      "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence."
+      "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129"
     },
     "com.renquant.intraday104": {
+      "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/intraday_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/intraday_sell_104.sh"
       ],
-      "program_args_sha256": "955f3d81957073893d7bddfc387bea34002bc30243b951ad87d7566e27a3daa9",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/intraday_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
-      "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence."
+      "program_args_sha256": "955f3d81957073893d7bddfc387bea34002bc30243b951ad87d7566e27a3daa9"
     },
     "com.renquant.monthly-calibrator-refresh": {
       "program_args": [
@@ -92,14 +93,14 @@
       "program_args_sha256": "c45724b19681514b51e33fe709e112afb1440ceec5fc680c83942d3af68eab94"
     },
     "com.renquant.ops-audit": {
+      "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). Prefix unique to this job.",
+      "_pending_install_comment": "REVIEWED SURFACE FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until installed the liveness scan reports UNJUDGEABLE_NO_PLIST for this label \u2014 that reading is CORRECT and is the designed reminder; do not silence it by deleting this entry. Bootstrap must first verify the RUN checkout carries this wrapper.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/ops_audit/ops_audit_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/bin/bash",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_ops_audit.sh"
       ],
-      "program_args_sha256": "21aaa39a81701d926c91925dfb6b90230eacdce0b8598ab74fc0683aa20b50d6",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/ops_audit/ops_audit_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
-      "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). Prefix unique to this job.",
-      "_pending_install_comment": "REVIEWED SURFACE FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until installed the liveness scan reports UNJUDGEABLE_NO_PLIST for this label \u2014 that reading is CORRECT and is the designed reminder; do not silence it by deleting this entry. Bootstrap must first verify the RUN checkout carries this wrapper."
+      "program_args_sha256": "21aaa39a81701d926c91925dfb6b90230eacdce0b8598ab74fc0683aa20b50d6"
     },
     "com.renquant.pit-c1-features": {
       "program_args": [
@@ -179,15 +180,15 @@
       "program_args_sha256": "9bdd0570fdde020796b9befaca39001b2a65514cfc0207adbc288af5612f4231"
     },
     "com.renquant.rq104-model-freshness": {
+      "_evidence_glob_comment": "the wrapper writes one dated file per firing under logs/rq104/. Scored on that glob, NOT on StandardOutPath, because #627 measured StandardOutPath to be a stale proxy for every wrapper that redirects. Filename prefix is unique to this job, so the glob cannot pick up a sibling's evidence.",
+      "_install_precondition_comment": "BOOTSTRAP PRECONDITION, codex CR on #638. program_args target the RUN checkout (renquant-orchestrator-run), which was measured 110 commits behind origin/main on 2026-07-30 and does NOT contain this wrapper. Installing before that checkout carries the reviewed wrapper commit yields a job that fires daily and fails at exec. Verify `test -x <run-checkout>/ops/renquant104/run_model_freshness_monitor.sh` AND that the checkout contains the merge commit for this PR, BEFORE launchctl bootstrap.",
+      "_pending_install_comment": "REVIEWED SURFACE LANDS FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until the plist is installed the liveness scan will report this label UNJUDGEABLE_NO_PLIST. That reading is CORRECT and is the designed reminder that a reviewed job is not yet running -- do not silence it by removing this entry.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/model_freshness_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/bin/bash",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_model_freshness_monitor.sh"
       ],
-      "program_args_sha256": "bd3371cefc5808b7759e02b7615433c5c5e923939f6bc84f680f2168da6ba0c5",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/model_freshness_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
-      "_evidence_glob_comment": "the wrapper writes one dated file per firing under logs/rq104/. Scored on that glob, NOT on StandardOutPath, because #627 measured StandardOutPath to be a stale proxy for every wrapper that redirects. Filename prefix is unique to this job, so the glob cannot pick up a sibling's evidence.",
-      "_pending_install_comment": "REVIEWED SURFACE LANDS FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until the plist is installed the liveness scan will report this label UNJUDGEABLE_NO_PLIST. That reading is CORRECT and is the designed reminder that a reviewed job is not yet running -- do not silence it by removing this entry.",
-      "_install_precondition_comment": "BOOTSTRAP PRECONDITION, codex CR on #638. program_args target the RUN checkout (renquant-orchestrator-run), which was measured 110 commits behind origin/main on 2026-07-30 and does NOT contain this wrapper. Installing before that checkout carries the reviewed wrapper commit yields a job that fires daily and fails at exec. Verify `test -x <run-checkout>/ops/renquant104/run_model_freshness_monitor.sh` AND that the checkout contains the merge commit for this PR, BEFORE launchctl bootstrap."
+      "program_args_sha256": "bd3371cefc5808b7759e02b7615433c5c5e923939f6bc84f680f2168da6ba0c5"
     },
     "com.renquant.rq104-risk-budget": {
       "program_args": [
@@ -211,15 +212,17 @@
       "program_args_sha256": "57c92a2e445b009a466522419b2997889609ccebee4846f082e4a8d8eeeda549"
     },
     "com.renquant.rq104-silent-refusal": {
+      "_evidence_glob_why": "A dated file per run. The exit code alone cannot separate 'found a silent refusal' from 'crashed' (#622), and an append-only .out cannot be dated at all (#663) \u2014 0 of 18 lines in the drift scan's .out began with a date.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/bin/bash",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/run_silent_refusal_sentinel.sh"
       ],
-      "program_args_sha256": "62c4d9b799d059b7461a0dc339f7f335cd9f33691a08258dc72e4cc26e00f9f5",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
-      "_evidence_glob_why": "A dated file per run. The exit code alone cannot separate 'found a silent refusal' from 'crashed' (#622), and an append-only .out cannot be dated at all (#663) \u2014 0 of 18 lines in the drift scan's .out began with a date."
+      "program_args_sha256": "62c4d9b799d059b7461a0dc339f7f335cd9f33691a08258dc72e4cc26e00f9f5"
     },
     "com.renquant.rq105-batch-scores-export": {
+      "_evidence_glob_comment": "Derived from the job's own script, not guessed: renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh writes $LOG_DIR/batch_scores_export_$TS.log. Without it this job has no per-job evidence surface, and launchd_liveness_scan falls back to a StandardOutPath shared with five other jobs -- unattributable, which is not the same as healthy.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/batch_scores_export_*.log",
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh"
@@ -234,6 +237,8 @@
       "program_args_sha256": "1e8f5902194d918535c0da30ff193b9d76981845cb42c5c668c0a86b2ab8045c"
     },
     "com.renquant.rq105-postclose": {
+      "_evidence_glob_comment": "Derived from run_postclose_loggers.sh, which loops MOD over [intraday_pairing_logger, entry_timing_shadow] writing $LOG_DIR/${MOD}_$TS.log. ONE module is declared, not both, because Python's glob does NOT expand shell braces -- a `{a,b}_*.log` pattern matched 0 files when measured, and would have reported this job stale forever. entry_timing_shadow is chosen as the LAST module in the loop, so its freshness witnesses the whole job. If it alone fails to write while the job runs, this reports STALE -- erring toward alarming, never toward false health.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/entry_timing_shadow_*.log",
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_postclose_loggers.sh"
@@ -241,35 +246,35 @@
       "program_args_sha256": "115f3b097e7ea697e08ab61bd8a09d0d46ce1f592063131e661b6eb06390aea0"
     },
     "com.renquant.rq105-quote-logger": {
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621",
+      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent \u2014 the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/quote_logger_*.log",
+      "keep_alive": {
+        "SuccessfulExit": false
+      },
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_quote_logger.sh"
       ],
-      "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8",
-      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent \u2014 the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
-      "keep_alive": {
-        "SuccessfulExit": false
-      },
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/quote_logger_*.log",
-      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621"
+      "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8"
     },
     "com.renquant.rq105-session-scheduler": {
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/session_scheduler_*.log",
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_session_scheduler.sh"
       ],
-      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/session_scheduler_*.log",
-      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621"
+      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42"
     },
     "com.renquant.rq105-shadow-serving": {
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/shadow_serving_*.log",
       "program_args": [
         "/bin/bash",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_shadow_serving.sh"
       ],
-      "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/shadow_serving_*.log",
-      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621"
+      "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c"
     },
     "com.renquant.run-surface-drift": {
       "program_args": [
@@ -335,5 +340,19 @@
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/weekly_wf_promote/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.log",
       "_evidence_glob_comment": "sole occupant of its log directory (verified across all manifested plists) and it writes a dated file per firing; its StandardOutPath is a stale proxy. Assigned 2026-07-30 only where the directory is unambiguous."
     }
-  }
+  },
+  "wrapper_scope_boundaries": [
+    {
+      "measured": "2026-07-31: 19 entries",
+      "owner": "RenQuant (umbrella repo)",
+      "root": "/Users/renhao/git/github/RenQuant/scripts",
+      "why": "19 of 33 manifested wrappers live here, including daily104, intraday104 and weekly-wf-promote. This repo cannot read them under the standing no-git/no-write rule for the live umbrella tree, so the check is honest about not covering them rather than reporting a clean scan it did not perform."
+    },
+    {
+      "measured": "2026-07-31: 1 entry",
+      "owner": "RenQuant pinned subrepo runtime",
+      "root": "/Users/renhao/git/github/RenQuant/.subrepo_runtime",
+      "why": "A pinned checkout materialised by the umbrella; its contents are governed by the pin, not by this repo's review."
+    }
+  ]
 }
