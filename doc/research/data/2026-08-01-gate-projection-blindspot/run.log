@@ -1,0 +1,22 @@
+  12 distinct boosters, 40 artifact fields: 23 constant, 17 varying
+
+  the gate's recipe projection:
+    kind                    CONSTANT
+    feature_cols            CONSTANT
+    feature_norm_kind       CONSTANT
+    label_col               CONSTANT
+    lookahead_days          CONSTANT
+    params                  CONSTANT
+
+  per-artifact evidence the projection excludes:
+    oos_mean_ic          12 distinct      0.04246..0.05676  in_projection=False
+    oos_per_fold_ic      12 distinct                     -  in_projection=False
+    oos_std_ic           12 distinct      0.03781..0.04835  in_projection=False
+    eval_ic              12 distinct      0.04539..0.07430  in_projection=False
+
+  decisiveness of that evidence: best-worst 0.01429 = 0.51–0.65 SE at 3 folds
+    The per-artifact evidence exists, is ignored by the projection, AND cannot rank these boosters: the best-worst gap is under one standard error at this fold count. Rewiring the gate to promote on oos_mean_ic would rank on noise.
+
+  [not a finding] The artifact's `config_fingerprint` never equals the stamp's `candidate_recipe_fingerprint`. That is CORRECT: the first hashes the config (its `config_fingerprint_fields` carries the watchlist), the second hashes the model recipe. Two names containing 'fingerprint' are not one object.
+
+wrote doc/research/data/2026-08-01-gate-projection-blindspot/blindspot.json

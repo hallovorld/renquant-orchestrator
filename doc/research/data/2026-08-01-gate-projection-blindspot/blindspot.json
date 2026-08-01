@@ -1,0 +1,142 @@
+{
+  "decisiveness": {
+    "best_minus_worst_oos_mean_ic": 0.014292637636494104,
+    "gap_over_se_max": 0.6546737741628749,
+    "gap_over_se_min": 0.5120304913275484,
+    "n_folds_per_artifact": 3,
+    "note": "The per-artifact evidence exists, is ignored by the projection, AND cannot rank these boosters: the best-worst gap is under one standard error at this fold count. Rewiring the gate to promote on oos_mean_ic would rank on noise.",
+    "oos_std_ic_max": 0.04834785228589576,
+    "oos_std_ic_min": 0.03781360356497197
+  },
+  "derived_projection_fields_not_checked": [
+    "feature_source_contract_keys"
+  ],
+  "evidence_fields": {
+    "eval_ic": {
+      "in_projection": false,
+      "max": 0.07430444445604022,
+      "min": 0.04539381086904744,
+      "n_distinct": 12
+    },
+    "oos_mean_ic": {
+      "in_projection": false,
+      "max": 0.0567563917318597,
+      "min": 0.0424637540953656,
+      "n_distinct": 12
+    },
+    "oos_per_fold_ic": {
+      "in_projection": false,
+      "max": null,
+      "min": null,
+      "n_distinct": 12
+    },
+    "oos_std_ic": {
+      "in_projection": false,
+      "max": 0.04834785228589576,
+      "min": 0.03781360356497197,
+      "n_distinct": 12
+    }
+  },
+  "n_constant": 23,
+  "n_distinct_boosters": 12,
+  "n_fields": 40,
+  "n_varying": 17,
+  "not_a_finding": "The artifact's `config_fingerprint` never equals the stamp's `candidate_recipe_fingerprint`. That is CORRECT: the first hashes the config (its `config_fingerprint_fields` carries the watchlist), the second hashes the model recipe. Two names containing 'fingerprint' are not one object.",
+  "projection_fields": [
+    {
+      "field": "kind",
+      "varies": false
+    },
+    {
+      "field": "feature_cols",
+      "varies": false
+    },
+    {
+      "field": "feature_norm_kind",
+      "varies": false
+    },
+    {
+      "field": "label_col",
+      "varies": false
+    },
+    {
+      "field": "lookahead_days",
+      "varies": false
+    },
+    {
+      "field": "params",
+      "varies": false
+    }
+  ],
+  "projection_fields_all_constant": true,
+  "varying_fields": [
+    {
+      "field": "booster_raw_json",
+      "n_distinct": 12
+    },
+    {
+      "field": "cv_folds",
+      "n_distinct": 12
+    },
+    {
+      "field": "eval_ic",
+      "n_distinct": 12
+    },
+    {
+      "field": "feature_means",
+      "n_distinct": 11
+    },
+    {
+      "field": "feature_raw_clip_high",
+      "n_distinct": 3
+    },
+    {
+      "field": "feature_raw_clip_low",
+      "n_distinct": 2
+    },
+    {
+      "field": "feature_stds",
+      "n_distinct": 11
+    },
+    {
+      "field": "metadata",
+      "n_distinct": 12
+    },
+    {
+      "field": "oos_mean_ic",
+      "n_distinct": 12
+    },
+    {
+      "field": "oos_per_fold_ic",
+      "n_distinct": 12
+    },
+    {
+      "field": "oos_std_ic",
+      "n_distinct": 12
+    },
+    {
+      "field": "panel_shape",
+      "n_distinct": 10
+    },
+    {
+      "field": "sentiment_runtime_gate_zeroed_rows",
+      "n_distinct": 6
+    },
+    {
+      "field": "train_run_id",
+      "n_distinct": 12
+    },
+    {
+      "field": "trained_date",
+      "n_distinct": 12
+    },
+    {
+      "field": "training_train_ic",
+      "n_distinct": 12
+    },
+    {
+      "field": "wf_gate_metadata",
+      "n_distinct": 3
+    }
+  ]
+}
