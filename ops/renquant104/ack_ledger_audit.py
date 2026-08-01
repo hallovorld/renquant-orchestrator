@@ -249,7 +249,14 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--today", default=None, help="YYYY-MM-DD, defaults to today")
     ap.add_argument("--ledger", default=None)
-    ap.add_argument("--json-out", default=None)
+    # `--json-out` REMOVED 2026-08-01. It had no caller anywhere in the repo, and its
+    # single `open(..., "w")` was the only write in this file — which disqualified the
+    # detector from `ops_audit` membership under that module's read-only rule, enforced
+    # by `test_no_member_writes`. An unused write flag that keeps a working detector dark
+    # is a liability, not a feature; `--json` prints the same payload to stdout, which a
+    # caller can redirect. Deleting it is what made this tool schedulable.
+    ap.add_argument("--json", action="store_true",
+                    help="emit the full report as JSON on stdout")
     a = ap.parse_args(argv)
     today = dt.date.fromisoformat(a.today) if a.today else dt.date.today()
 
@@ -277,9 +284,8 @@ def main(argv=None) -> int:
     else:
         print("\nno findings")
 
-    if a.json_out:
-        with open(a.json_out, "w", encoding="utf-8") as fh:
-            json.dump(R, fh, indent=2)
+    if a.json:
+        print(json.dumps(R, indent=2, sort_keys=True, default=str))
     return EXIT_FINDINGS if R["findings"] else EXIT_OK
 
 
