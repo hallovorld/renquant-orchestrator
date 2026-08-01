@@ -1,0 +1,193 @@
+{
+  "canonical_key": "metadata.wf_gate_metadata.sanity_regime_ic.regimes",
+  "collection_root": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod",
+  "command": "python ops/renquant104/regime_sanity_extract.py --emit --root <root> --query 'panel-ltr.alpha158_fund*.json' --deployed 'panel-ltr.alpha158_fund.json' --out <evidence-dir>",
+  "deployed_artifact": "panel-ltr.alpha158_fund.json",
+  "inclusion_query": "panel-ltr.alpha158_fund*.json",
+  "n_artifacts": 30,
+  "n_rows": 120,
+  "schema": "regime_sanity_extract.v1",
+  "scope_note": "an artifact store is not content-addressed; a digest makes a change VISIBLE, it does not make the store immutable",
+  "sources": [
+    {
+      "artifact": "panel-ltr.alpha158_fund.json",
+      "artifact_path": "panel-ltr.alpha158_fund.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.pre-v1-restamp-20260715T212457Z.json",
+      "artifact_path": "panel-ltr.alpha158_fund.pre-v1-restamp-20260715T212457Z.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.previous.json",
+      "artifact_path": "panel-ltr.alpha158_fund.previous.json",
+      "content_sha256": "7a232110d2cb1e5cbe42c7335f92fd5ab80cf5fdf98412948f533e579cb48bca",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json",
+      "content_sha256": "5211f6bebd90ca088c7fe2492cae1845369b80b84e53ed347d3c27d7a864c9cf",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260712T170005Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260712T170005Z.staging.json",
+      "content_sha256": "d80a46dfeb0034e1a278f087901d9d4c0631ff7168b7d556fe557661d919f1ab",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260713T201007Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260713T201007Z.staging.json",
+      "content_sha256": "a1a2f82886000c7f49b47de14688ca1cebf45d478f852c1748c3388515423a61",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260718T110005Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260718T110005Z.staging.json",
+      "content_sha256": "c3614844300d9c4a8937e8e93de8eb944127bcf912651a3fee548c4555fbf8c5",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260719T170005Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260719T170005Z.staging.json",
+      "content_sha256": "0f0fa42d61db11156585a39f941561aefdc270828819fde163950658dd5fc74c",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260721T201008Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260721T201008Z.staging.json",
+      "content_sha256": "e2fd4b96cfee7af24b77405f4f2a8b9bfb1b7524ec5017d02eb2a38f34a66c28",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260725T110003Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260725T110003Z.staging.json",
+      "content_sha256": "a50a3dfea7cf7dc91ed386f38dfa65ea7b3e480f8d445b9d6d330837f1245ab9",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260726T170001Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260726T170001Z.staging.json",
+      "content_sha256": "eaedf1f4ff80f3e3c5677b97fc28ca52672c994a2c43e2d96c2fc518cd027c59",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260729T201003Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260729T201003Z.staging.json",
+      "content_sha256": "ae97e6ad4f8dbf0654c10303f11b8ce682a7a5802375b27a45618cd47cfd6c5b",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_20260730T201007Z.staging.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_20260730T201007Z.staging.json",
+      "content_sha256": "f7b587b30b2ba61f12f71210e85aae8dfa24639966421e755bc7272bd6a62ab5",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json",
+      "content_sha256": "7a232110d2cb1e5cbe42c7335f92fd5ab80cf5fdf98412948f533e579cb48bca",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-09.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-09.json",
+      "content_sha256": "5211f6bebd90ca088c7fe2492cae1845369b80b84e53ed347d3c27d7a864c9cf",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-10.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-10.json",
+      "content_sha256": "5211f6bebd90ca088c7fe2492cae1845369b80b84e53ed347d3c27d7a864c9cf",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-11.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-11.json",
+      "content_sha256": "5211f6bebd90ca088c7fe2492cae1845369b80b84e53ed347d3c27d7a864c9cf",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-12.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-12.json",
+      "content_sha256": "5211f6bebd90ca088c7fe2492cae1845369b80b84e53ed347d3c27d7a864c9cf",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-13.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-13.json",
+      "content_sha256": "5211f6bebd90ca088c7fe2492cae1845369b80b84e53ed347d3c27d7a864c9cf",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-16.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-16.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-17.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-17.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-18.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-18.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-19.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-19.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-21.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-21.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-23.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-23.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-25.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-25.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-26.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-26.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-29.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-29.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-30.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-30.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    },
+    {
+      "artifact": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-31.json",
+      "artifact_path": "panel-ltr.alpha158_fund.weekly_rollback_2026-07-31.json",
+      "content_sha256": "04d7a381cd6df84721dd938ce74a297cbf3eda9d5bc3385515bc155014dd5b08",
+      "scope_source": "metadata.wf_gate_metadata.sanity_regime_ic.regimes"
+    }
+  ]
+}

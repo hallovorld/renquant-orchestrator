@@ -82,3 +82,59 @@ stay indistinguishable.
 docstring, and the satisfiability test is renamed
 `test_the_criterion_IS_satisfiable_SOMEWHERE` so the executable artifact stops asserting
 the width the document retracted. A test named after a conclusion is a claim too.
+
+---
+
+## CORRECTION 2026-08-01 — the evidence became reproducible, and two published numbers moved
+
+Reviewed `[codex on orch#677]`: *"the new evidence CSV is still an unproven snapshot: it
+records only artifact names, with no source paths, immutable fingerprints, producer/run
+identity, or extraction command, and the tests validate the CSV rather than its inputs."*
+
+Correct. `ops/renquant104/regime_sanity_extract.py` now emits the table **from the
+artifacts**, binding every row to its **source path** and **content sha256**, recording
+**which key answered** (canonical vs legacy), and writing a manifest with the **exact
+command**. `--verify` re-reads every path the CSV names and recomputes every digest.
+
+### And that is how two of my own published numbers were caught
+
+The original CSV was a hand-built **11-artifact subset**. The reproducible extraction
+covers **30 artifacts × 4 regimes = 120 rows**, and the medians move
+`[本次实测 2026-08-01]`:
+
+| regime | published | reproducible (n=30) | verdict |
+|---|---|---:|---|
+| BULL_CALM | `> 2.0` | **1.98** | **below its stated bar** |
+| CHOPPY | `> 6.0` | **2.63** | **far below** |
+| BEAR | `< 0.10` | 0.046 | holds |
+
+**The direction survives and is what the section claims** — a shifted label out-ranks the
+aligned one in both failing regimes and does not in BEAR. **The magnitudes were an
+artefact of the subset.** The tests now assert the measured values with a margin; moving a
+threshold to fit would be the inverse of what this work was for.
+
+### The skill floor, tested directly
+
+The prose floor `max(0, 0.25·|real_ic|)` is now asserted per row, not proxied by
+`mean_ic > 0` — a positive IC below the floor would have failed the conjunct while the
+old test passed.
+
+**Testing it surfaced a second thing**: the artifact also stamps its own `min_mean_ic`,
+and **it is not the prose rule** — it varies per **artifact** (0.0136 … 0.02 across this
+corpus), where the prose floor varies per **regime**. Both hold here. Both are now
+asserted. Which rule generates the stamped value is **not** claimed: inferring a formula
+from a value is the mistake this cycle already corrected twice.
+
+### Three guesses of mine, corrected in one review cycle
+
+1. Extractor field names (`aligned_real_ic`, `ceiling`) that **do not exist** in the gate
+   block — the real key is `placebo_60_aligned_real_ic`, and `ceiling` is **derived** as
+   `max_placebo_ratio × aligned`. The first emit wrote empty columns.
+2. `stamped_min_mean_ic` asserted flat at `0.02`, read off the deployed artifact alone.
+3. Row counts pinned at 11, from the subset.
+
+Each was caught by running the thing rather than by reading it. **Derivation now comes
+from the stamped thresholds in each artifact, never from a remembered constant** — and the
+regenerated values match the original CSV to the last digit where they overlap.
+
+Suite: **4837 passed, 2 skipped**.
