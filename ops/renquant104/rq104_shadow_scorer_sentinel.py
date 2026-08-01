@@ -235,6 +235,30 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
     )
 
 
+#: The `shadow_name` a producer writes when the skip is about the TASK, not about any
+#: one lane — renquant-pipeline's `TASK_LEVEL_SHADOW_NAME`. Duplicated as a literal
+#: rather than imported: this sentinel must keep reading records on a host whose
+#: renquant-pipeline predates the constant, and a missing import here would silently
+#: restore the drop this exists to fix. The pipeline-side test pins the same string.
+TASK_LEVEL_SHADOW_NAME = "__task_level__"
+
+
+def _is_task_level(name: str) -> bool:
+    """A record that is about the TASK rather than about a lane.
+
+    Reviewed `[codex on pipeline#240]`: the producer naming its zero-shadow record
+    `__task_level__` does not make it visible here — *"`__task_level__` matches no
+    configured lane, so the record is still dropped before classification"*. That was
+    correct: the producer half alone changed nothing a consumer could see.
+
+    A task-level record says the shadow task did not run for ANY lane, so it is
+    evidence about every watched lane, not about none. It therefore matches whatever
+    lane is being read — which is what makes "the lane produced nothing today"
+    distinguishable from "no record reached us at all".
+    """
+    return name == TASK_LEVEL_SHADOW_NAME
+
+
 def _matches_shadow_lane(name: str) -> bool:
     """True if a health record's shadow_name is this sentinel's lane.
 
@@ -243,8 +267,11 @@ def _matches_shadow_lane(name: str) -> bool:
     If two decorated lanes of the same key ever coexist on one date,
     last-record-wins applies — acceptable while the config carries at most
     one lane per served-model key; a multi-lane sentinel is the follow-up.
+
+    A TASK-LEVEL record matches too: it is about the task, hence about this lane.
     """
-    return name == SHADOW_NAME or name.startswith(SHADOW_NAME + "_")
+    return (name == SHADOW_NAME or name.startswith(SHADOW_NAME + "_")
+            or _is_task_level(name))
 
 #: consecutive session days of a degraded state before alarming. 2 keeps
 #: detection within one session of the incident onset while a single quiet day
@@ -543,11 +570,20 @@ def _read_from_pipeline_sink(days: list[dt.date], lane: 'WatchedLane | None' = N
                 if not is_valid_v1_record(obj):
                     continue  # unknown/invalid -> ignore; DB fallback stays authoritative
                 rec = ShadowHealthRecord.from_dict(obj, source="pipeline_health_record")
-                matches = (lane.matches(rec.shadow_name) if lane is not None
-                           else _matches_shadow_lane(rec.shadow_name))
+                task_level = _is_task_level(rec.shadow_name)
+                matches = task_level or (lane.matches(rec.shadow_name) if lane is not None
+                                         else _matches_shadow_lane(rec.shadow_name))
                 if not matches or rec.run_date not in wanted:
                     continue
-                out[rec.run_date] = rec  # last record for a date wins (latest re-run)
+                # Last record for a date wins (latest re-run) -- EXCEPT that a
+                # lane-specific record always beats a task-level one. A task-level
+                # record explains an ABSENCE; if the lane actually reported for that
+                # date, the lane's own record is the more specific evidence and must
+                # not be clobbered by a later task-level line.
+                prev = out.get(rec.run_date)
+                if prev is not None and task_level and not _is_task_level(prev.shadow_name):
+                    continue
+                out[rec.run_date] = rec
     except OSError:
         return {}
     return out
