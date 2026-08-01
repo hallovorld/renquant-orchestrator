@@ -306,21 +306,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
-    if not a.watched:
-        # Default: the declared lanes ARE the watched set — the sentinel's registry
-        # mirrors the config (orch#727 verified both lanes patrolled). An explicit
-        # --watched-lane still overrides for what-if runs.
-        try:
-            a.watched = declared_lanes(a.runner_config)
-        except (OSError, ValueError) as exc:
-            print(f"shadow-lane preflight: cannot resolve default watched lanes: "
-                  f"{exc}", file=sys.stderr)
-    if not a.watched:
-        print("shadow-lane preflight: --watched-lane is required — with none, check 3 "
-              "would pass or fail on an empty set and mean nothing", file=sys.stderr)
-        return 2
-
-    bases = list(a.bases) or list(DEFAULT_BASES)
     lanes = [a.lane] if a.lane else None
     if lanes is None:
         try:
@@ -333,6 +318,21 @@ def main(argv: list[str] | None = None) -> int:
             print("shadow-lane preflight: the runner config declares no shadow_models "
                   "— nothing to check is a FINDING here, not a pass", file=sys.stderr)
             return 1
+    if not a.watched:
+        # Default: the CONFIG-declared lanes are the watched set — the sentinel's
+        # registry mirrors the config (orch#727 verified both lanes patrolled). NOT
+        # defaulted from --lane: an explicit lane against a config declaring nothing
+        # must still hit the empty-watched refusal below (the pre-existing contract).
+        try:
+            a.watched = declared_lanes(a.runner_config)
+        except (OSError, ValueError):
+            pass
+    if not a.watched:
+        print("shadow-lane preflight: --watched-lane is required — with none, check 3 "
+              "would pass or fail on an empty set and mean nothing", file=sys.stderr)
+        return 2
+
+    bases = list(a.bases) or list(DEFAULT_BASES)
     reports = [preflight(l, a.runner_config, bases, list(a.watched),
                          a.shadow_name, a.loader_base) for l in lanes]
     rep = reports[0] if len(reports) == 1 else {
