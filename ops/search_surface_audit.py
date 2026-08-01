@@ -22,8 +22,31 @@ this machine, the corrected rule separates them cleanly:
 
 Six abandoned agent worktrees, each a near-complete checkout of this repo on a different
 branch, live inside the working tree. `git ls-files` cannot see them — `.git/info/exclude`
-hides them — but `grep -r`, `rglob` and `os.walk` all can, and every ops detector in this
-repo that walks the tree does so without filtering them.
+hides them — but `grep -r`, `rglob` and `os.walk` all can.
+
+WHO IS ACTUALLY EXPOSED — NARROWED AFTER MEASURING `[本次实测 2026-08-01]`. An earlier
+draft of this file said "every ops detector in this repo that walks the tree does so
+without filtering them". That overstated it, and the check is: which committed tool walks
+a root that CONTAINS the nested checkouts?
+
+  * `run_bundle_schema_audit.py`  — walks caller-supplied directories; no in-repo caller.
+  * `undelivered_alert_scan.py`   — walks `RenQuant/logs`, outside any checkout.
+  * `umbrella_script_shadow_check.py` — reads siblings via `git ls-tree origin/main`.
+  * `tests/test_market_calendar_repoint.py` — walks `REPO_ROOT/{src,scripts,ops}`, none
+    of which contains a worktree.
+
+**Zero committed tools are exposed today.** The contamination is real for INTERACTIVE
+search — a `grep -rn wf_gate_metadata` in this repo returned
+`.claude/worktrees/agent-a20d725b9ab099a41/scripts/kpi_scorecard.py` among its first hits
+during this session — and it is a standing hazard for the next tool that walks from the
+repo root. It is not, today, a defect in any shipped detector.
+
+AND THE REPO ALREADY CONTAINS THE ANSWER. `umbrella_script_shadow_check.subrepo_modules()`
+enumerates sibling sources with `git ls-tree -r --name-only origin/main`, and its docstring
+gives the reason in its own words: *"a sibling checkout can sit on a feature branch, and
+comparing against whatever happens to be checked out would make the answer depend on
+someone else's uncommitted state."* That is the pattern anything walking a repo should
+copy, and it is cited here rather than reinvented.
 
 WHY THIS IS A GOAL-3 PROBLEM SPECIFICALLY. The twin-implementation registry exists because
 two copies of one behaviour drift apart and a guard ends up checking the wrong one. These

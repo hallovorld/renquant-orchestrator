@@ -17,11 +17,35 @@
 
 Six abandoned agent worktrees, each a near-complete checkout of this repo on a different
 branch, live inside the working tree. `git ls-files` cannot see them — `.git/info/exclude`
-hides them — but `grep -r`, `rglob` and `os.walk` all can, and **none** of the four
-repo-walking ops tools filters them (`ops/run_bundle_schema_audit.py`,
-`ops/undelivered_alert_scan.py`, `ops/import_resolution_check.py`,
-`ops/umbrella_script_shadow_check.py` — 0 references to `.claude` or `ls-files` between
-them).
+hides them — but `grep -r`, `rglob` and `os.walk` all can.
+
+### Who is actually exposed — narrowed after measuring
+
+A first draft of this document said none of four repo-walking ops tools filtered them.
+**That overstated it**, and the honest check is which committed tool walks a root that
+*contains* the worktrees `[本次实测 2026-08-01]`:
+
+| tool | root it walks | exposed? |
+|---|---|---|
+| `run_bundle_schema_audit.py` | caller-supplied dirs; no in-repo caller | no |
+| `undelivered_alert_scan.py` | `RenQuant/logs` | no |
+| `umbrella_script_shadow_check.py` | siblings via `git ls-tree origin/main` | no |
+| `import_resolution_check.py` | does not walk at all | no |
+| `tests/test_market_calendar_repoint.py` | `REPO_ROOT/{src,scripts,ops}` | no |
+
+**Zero committed tools are exposed today.** The contamination is real for **interactive**
+search — my own `grep -rn wf_gate_metadata` returned a stale
+`.claude/worktrees/agent-a20d725b9ab099a41/scripts/kpi_scorecard.py` among its first hits
+this session — and it is a standing hazard for the next tool that walks from the repo
+root. It is **not** a defect in any shipped detector, and this PR no longer claims it is.
+
+### The repo already contains the answer
+
+`umbrella_script_shadow_check.subrepo_modules()` enumerates sibling sources with
+`git ls-tree -r --name-only origin/main`, and says why in its own docstring: *"a sibling
+checkout can sit on a feature branch, and comparing against whatever happens to be checked
+out would make the answer depend on someone else's uncommitted state."* That is the
+pattern for anything that must walk a repo, cited rather than reinvented.
 
 ## Why this belongs to GOAL-3
 
@@ -66,8 +90,10 @@ That any specific stale file has caused a wrong conclusion — one near-miss is 
 above and that is the whole evidence. That the worktrees should be removed: a worktree may
 be an in-flight branch, `git worktree list` is the authority, and the tool never deletes,
 never invokes `git worktree`, and never writes. **No worktree was removed by this work.**
-Making the four existing walkers filter nested checkouts is a follow-up, not this PR — it
-changes what four merged detectors report, and that deserves its own before/after.
+Making existing walkers filter nested checkouts was named as a follow-up in the first
+draft. **It is now withdrawn as unnecessary**: the before/after was measured and no shipped
+walker is exposed. Changing four detectors to filter a hazard none of them meets would have
+been churn justified by a claim I had not checked.
 
 ## Tests
 
