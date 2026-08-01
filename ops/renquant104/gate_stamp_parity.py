@@ -160,7 +160,17 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
                             f"{type(exc).__name__}: {exc}")
             continue
         if not isinstance(payload, dict):
+            # FAIL CLOSED. Reviewed `[codex on orch#687]`: this branch counted the file
+            # and continued SILENTLY, so a scan containing only a JSON array exited zero
+            # while its own summary admitted an unreadable artifact -- the summary said
+            # one thing and the exit code said another, and the exit code is what a
+            # scheduled job reads. A parse that yields a non-object is exactly as
+            # uninspectable as a parse that raises, and is reported the same way.
             unreadable += 1
+            problems.append(
+                f"gate-stamp parity: {os.path.basename(path)} unreadable: its top-level "
+                f"JSON value is {type(payload).__name__}, not an object — no gate stamp "
+                f"can be located in it, so this artifact was NOT compared")
             continue
         canon, legacy = _blocks(payload)
 

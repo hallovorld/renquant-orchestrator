@@ -220,3 +220,33 @@ def test_a_field_literally_holding_the_absent_marker_is_DISTINGUISHABLE(tmp_path
     seg = line.split("override_reason:", 1)[1]
     assert "canonical='<absent>'" in seg, seg   # a real string value, quoted
     assert "legacy=<absent>" in seg, seg        # the missing-field marker, unquoted
+
+
+def test_a_NON_OBJECT_JSON_ROOT_is_a_problem_not_a_silent_count(tmp_path):
+    """codex on #687, round 3: `unreadable += 1; continue` appended no problem, so a
+    scan whose only artifact was a JSON array exited ZERO while the summary admitted an
+    unreadable file. The summary and the exit code disagreed, and a scheduled job reads
+    the exit code."""
+    (tmp_path / N).write_text(json.dumps([{"passed": True}]), encoding="utf-8")
+    problems, infos = G.scan(str(tmp_path), Q)
+    assert problems, "a non-object root must not pass silently"
+    assert "unreadable" in problems[0] and "list" in problems[0], problems
+    assert "1 unreadable" in infos[0], infos[0]
+
+
+def test_the_EXIT_CODE_agrees_with_the_summary_on_a_non_object_root(tmp_path):
+    """The finding was a contradiction between two surfaces, so the test drives BOTH."""
+    (tmp_path / N).write_text("[]", encoding="utf-8")
+    assert G.main(["--root", str(tmp_path)]) != 0
+
+
+def test_a_SCALAR_json_root_is_also_a_problem(tmp_path):
+    (tmp_path / N).write_text("42", encoding="utf-8")
+    problems, _ = G.scan(str(tmp_path), Q)
+    assert problems and "int" in problems[0], problems
+
+
+def test_ANTI_VACUITY_a_valid_object_root_still_exits_zero(tmp_path):
+    blk = {"passed": True, "n_folds": 43}
+    _art(tmp_path, N, canon=dict(blk), legacy=dict(blk))
+    assert G.main(["--root", str(tmp_path)]) == 0

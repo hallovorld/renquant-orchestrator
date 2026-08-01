@@ -151,3 +151,22 @@ writing two schemas; that is a change in the gate, not here.
 18 tests pass — including the two fixtures codex asked for (an unlisted-field difference,
 and a malformed copy in each position) and an anti-vacuity case where two identical
 blocks are still clean.
+
+## ROUND 3 2026-07-31 — the last fail-open: a non-object JSON root
+
+Reviewed `[codex on orch#687]`: *"a JSON file whose top-level value is not an object …
+`scan` increments `unreadable` and continues without appending a problem, so a scan
+containing only a valid JSON array exits zero while the summary admits one unreadable
+artifact."*
+
+Correct, and the sharp part is **which two surfaces disagreed**: the summary said
+`1 unreadable`, the exit code said `0`, and a scheduled job reads the exit code. A parse
+that yields a non-object is exactly as uninspectable as a parse that raises, and is now
+reported the same way.
+
+Four regressions: a JSON **array** root and a **scalar** root each raise a problem naming
+the actual type; the **exit code** is driven directly (`main(...) != 0`) because the
+finding was a contradiction *between* surfaces, so one surface alone cannot pin it; and an
+anti-vacuity case where a valid object root still exits `0`.
+
+22 tests pass.
