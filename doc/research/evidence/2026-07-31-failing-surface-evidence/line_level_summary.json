@@ -1,0 +1,15 @@
+{
+  "dated_files_on_disk": 908,
+  "dated_wrapper_log_sample": {
+    "files": 14,
+    "self_timestamped": 1018,
+    "total_lines": 3682
+  },
+  "launchd_stdout": {
+    "jobs": 14,
+    "self_timestamped": 0,
+    "total_lines": 8079
+  },
+  "matching_rule_prose": "a line SELF-ATTRIBUTES iff it begins with an ISO date, an ISO datetime, or HH:MM:SS, optionally preceded by '[' or '\"'. Nothing else counts: a timestamp elsewhere in the line cannot order two lines from different runs.",
+  "matching_rule_regex": "^\\s*(?:\\[|\")?(?:\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}|\\d{2}:\\d{2}:\\d{2}|\\d{4}-\\d{2}-\\d{2})"
+}

@@ -62,8 +62,30 @@ AGENTS_DIR = Path(os.path.expanduser("~/Library/LaunchAgents"))
 #: pattern. #621's four dead jobs had missed 17-19, so this bound is not what hid them.
 MISSED_FIRINGS_TOLERANCE = 2
 
+#: Every StartCalendarInterval key this function implements. Anything else REFUSES rather
+#: than being ignored — see `expected_firings`.
+SUPPORTED_SCHEDULE_KEYS = frozenset({"Minute", "Hour", "Day", "Weekday", "Month"})
+
+
+class UnsupportedScheduleKey(ValueError):
+    """A plist constrains firing by a key `expected_firings` does not implement."""
+
+
 EVIDENCE_FRESH = "EVIDENCE_FRESH"
 NO_EVIDENCE_STALE = "NO_EVIDENCE_STALE"
+
+#: Corroboration verdicts, added 2026-08-01. `NO_EVIDENCE_STALE` is judged on the plist's
+#: `StandardOutPath`, and many jobs here never write it -- they write a DATED log beside
+#: it. Measured on this machine: **21 of 21** stale verdicts had newer material in the
+#: job's own log directory, so the bucket was 100% noise and the scan trained its reader
+#: to skip it.
+#:
+#: These are deliberately NOT "EVIDENCE_FRESH". The proxy surface still says nothing; all
+#: that is established is that SOMETHING wrote in that directory. Promoting it to fresh
+#: would be the same error in the other direction -- and for a shared directory it would
+#: be plainly wrong, since the writer may be a different job entirely.
+STALE_BUT_SIBLING_FILE_IS_NEWER = "STALE_BUT_SIBLING_FILE_IS_NEWER"
+STALE_AMBIGUOUS_SHARED_LOG_DIR = "STALE_AMBIGUOUS_SHARED_LOG_DIR"
 UNJUDGEABLE_NO_LOG_PATH = "UNJUDGEABLE_NO_LOG_PATH"
 UNJUDGEABLE_NO_SCHEDULE = "UNJUDGEABLE_NO_SCHEDULE"
 UNJUDGEABLE_NO_PLIST = "UNJUDGEABLE_NO_PLIST"
@@ -141,12 +163,31 @@ def expected_firings(entries: list[dict], since: dt.datetime,
                      until: dt.datetime) -> int:
     """Count scheduled firings in the half-open interval (since, until].
 
-    A missing ``Weekday`` means every day; a missing ``Hour``/``Minute`` means every
-    hour/minute, which would be an enormous count — so those are treated as 0, matching
-    how every plist in this manifest is actually written and keeping the count finite.
-    launchd's Weekday is 0-or-7 for Sunday; Python's weekday() is Monday=0, so the
-    conversion is explicit rather than assumed.
+    A missing ``Weekday``/``Day``/``Month`` means every one of them; a missing
+    ``Hour``/``Minute`` means every hour/minute, which would be an enormous count — so
+    those are treated as 0, matching how every plist in this manifest is actually written
+    and keeping the count finite. launchd's Weekday is 0-or-7 for Sunday; Python's
+    weekday() is Monday=0, so the conversion is explicit rather than assumed.
+
+    ``Day`` WAS NOT IMPLEMENTED, AND MONTHLY JOBS PAID FOR IT `[measured 2026-08-01]`.
+    This honoured ``Weekday`` and silently ignored ``Day``, so a plist reading
+    ``{Day: 1, Hour: 3}`` — fire on the 1st of the month — was counted as firing EVERY
+    DAY. `com.renquant.monthly-calibrator-refresh` was reported **60 firings stale** over
+    an interval containing **2** of its actual firings, and every monthly job went stale
+    two days after each successful run.
+
+    THE DEFAULT IS NOW INVERTED. An unrecognised ``StartCalendarInterval`` key raises
+    `UnsupportedScheduleKey` instead of being skipped. Enumerating the keys you know and
+    ignoring the rest is the shape that produced this: the next key nobody implements
+    (``Month`` was also missing) inflates the count silently, and an inflated count reads
+    as a dead job.
     """
+    unknown = {k for e in entries for k in e} - SUPPORTED_SCHEDULE_KEYS
+    if unknown:
+        raise UnsupportedScheduleKey(
+            f"StartCalendarInterval keys not implemented: {sorted(unknown)}. Refusing to "
+            f"count firings rather than ignoring them — an ignored constraint inflates "
+            f"the count and an inflated count reads as a dead job.")
     if until <= since:
         return 0
     count = 0
@@ -161,6 +202,12 @@ def expected_firings(entries: list[dict], since: dt.datetime,
                 wanted = 0 if int(wd) == 7 else int(wd)
                 if wanted != launchd_wd:
                     continue
+            dom = e.get("Day")
+            if dom is not None and int(dom) != day.day:
+                continue
+            mon = e.get("Month")
+            if mon is not None and int(mon) != day.month:
+                continue
             fire = dt.datetime.combine(
                 day, dt.time(int(e.get("Hour", 0)), int(e.get("Minute", 0))))
             if since < fire <= until:
@@ -258,6 +305,9 @@ def scan_job(label: str, *, now: dt.datetime,
                           "firings is not a meaningful measure for this job")
         return out
     out["schedule_entries"] = len(entries)
+    # Kept for `corroborate()`: re-deriving the cadence there would be a second
+    # implementation of the same parse, and those drift.
+    out["_schedule_entries_parsed"] = entries
 
     p = Path(log_path)
     if not p.exists():
@@ -270,7 +320,11 @@ def scan_job(label: str, *, now: dt.datetime,
     out["size_bytes"] = st.st_size
     last_write = dt.datetime.fromtimestamp(st.st_mtime)
     out["last_write"] = last_write.isoformat(timespec="seconds")
-    missed = expected_firings(entries, last_write, now)
+    try:
+        missed = expected_firings(entries, last_write, now)
+    except UnsupportedScheduleKey as exc:
+        out.update(status=UNJUDGEABLE_NO_SCHEDULE, detail=str(exc))
+        return out
     out["missed_firings"] = missed
 
     if missed >= MISSED_FIRINGS_TOLERANCE:
@@ -283,6 +337,89 @@ def scan_job(label: str, *, now: dt.datetime,
     return out
 
 
+def corroborate(results: list[dict[str, Any]], *, now: dt.datetime | None = None,
+                agents_dir: Path = AGENTS_DIR) -> None:
+    """Re-judge `NO_EVIDENCE_STALE` against the job's own log DIRECTORY, in place.
+
+    WHY. The verdict is computed from the plist's `StandardOutPath`, which many of these
+    jobs never write -- they write `<logdir>/<date>.log` instead, leaving the declared
+    file empty and frozen forever. Measured 2026-08-01: 21 of 21 stale verdicts had newer
+    material in their own directory, i.e. the entire bucket was noise.
+
+    WHY NOT JUST TAKE THE NEWEST FILE. Because several jobs SHARE a log directory, and
+    the newest file there may belong to a neighbour. Attributing it would be the same
+    defect the registry exists for -- a check passing on evidence about a different
+    object. So a shared directory yields AMBIGUOUS, never a liveness claim.
+    """
+    now = now or dt.datetime.now()
+    dir_owners: dict[str, set[str]] = {}
+    for r in results:
+        if r.get("log"):
+            dir_owners.setdefault(os.path.realpath(os.path.dirname(r["log"])),
+                                  set()).add(r["label"])
+
+    for r in results:
+        if r["status"] != NO_EVIDENCE_STALE or not r.get("log"):
+            continue
+        d = Path(r["log"]).parent
+        owners = dir_owners.get(os.path.realpath(d), set())
+        if len(owners) > 1:
+            r["status"] = STALE_AMBIGUOUS_SHARED_LOG_DIR
+            r["shared_log_dir_owners"] = sorted(owners)
+            r["detail"] += (f" | {len(owners)} manifested jobs write to {d}, so no file "
+                            f"there can be attributed to this one. Declare an "
+                            f"`evidence_glob` in the manifest to make this judgeable.")
+            continue
+        newest_t, newest_n = None, None
+        try:
+            for f in d.iterdir():
+                if not f.is_file() or f.name == Path(r["log"]).name:
+                    continue
+                if f.stat().st_size == 0:
+                    continue
+                m = f.stat().st_mtime
+                if newest_t is None or m > newest_t:
+                    newest_t, newest_n = m, f.name
+        except OSError:
+            continue
+        if newest_t is None:
+            continue
+        watched = 0.0
+        try:
+            watched = Path(r["log"]).stat().st_mtime
+        except OSError:
+            pass
+        if newest_t <= watched:
+            continue
+        # THE SIBLING MUST ITSELF BE FRESH `[caught before the PR]`. The first version
+        # moved every job with ANY newer sibling out of the stale bucket -- which
+        # rescued `daily103`, whose newest file is 94 DAYS old. A corroboration that
+        # promotes a dead job because its corpse is newer than its headstone is the
+        # fail-open version of the very defect being fixed.
+        entries_ = r.get("_schedule_entries_parsed")
+        if entries_ is not None:
+            try:
+                missed_sib = expected_firings(
+                    entries_, dt.datetime.fromtimestamp(newest_t), now)
+            except UnsupportedScheduleKey:
+                continue
+            if missed_sib >= MISSED_FIRINGS_TOLERANCE:
+                r["sibling_evidence"] = newest_n
+                r["sibling_missed_firings"] = missed_sib
+                r["detail"] += (
+                    f" | the newest file in that directory ({newest_n}) is ITSELF "
+                    f"{missed_sib} firings stale, so this stays STALE.")
+                continue
+        r["status"] = STALE_BUT_SIBLING_FILE_IS_NEWER
+        r["sibling_evidence"] = newest_n
+        r["sibling_last_write"] = dt.datetime.fromtimestamp(
+            newest_t).isoformat(timespec="seconds")
+        r["detail"] += (f" | but {newest_n} in the same directory was written "
+                        f"{r['sibling_last_write']}. This is NOT a liveness claim: the "
+                        f"declared surface still shows nothing, and only an "
+                        f"`evidence_glob` naming the file this job writes can settle it.")
+
+
 def scan(labels: Iterable[str], *, now: dt.datetime | None = None,
          agents_dir: Path = AGENTS_DIR,
          manifest_entries: dict[str, dict] | None = None,
@@ -292,6 +429,9 @@ def scan(labels: Iterable[str], *, now: dt.datetime | None = None,
     results = [scan_job(lbl, now=now, agents_dir=agents_dir,
                         manifest_entry=entries.get(lbl),
                         launchctl_runner=launchctl_runner) for lbl in labels]
+    corroborate(results, now=now, agents_dir=agents_dir)
+    for r in results:
+        r.pop("_schedule_entries_parsed", None)   # internal, never published
     counts: dict[str, int] = {}
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
