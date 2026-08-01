@@ -138,3 +138,88 @@ def test_the_report_REFUSES_to_say_which_surface_the_run_reads(tmp_path, capsys)
     P.main(["--config", _cfg(tmp_path, "a.json", kind="xgb"),
             "--config", _cfg(tmp_path, "b.json", kind="hf_patchtst")])
     assert "does NOT identify which one the daily run reads" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Path resolution: which base does each declared artifact_path resolve against?
+# Measured on the pinned surface — three paths, two bases, no single base.
+# ---------------------------------------------------------------------------
+
+def _tree(tmp_path, *rels):
+    for rel in rels:
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+
+
+def test_it_reports_EVERY_base_a_path_resolves_under_not_the_first(tmp_path):
+    """Returning the first hit would hide the finding: 'it resolved' conceals WHICH base
+    answered, and the whole point is that different paths answer differently."""
+    (tmp_path / "b1").mkdir(); (tmp_path / "b2").mkdir()
+    _tree(tmp_path, "b1/a.json", "b2/a.json")
+    hits = P.resolve_against("a.json", [str(tmp_path / "b1"), str(tmp_path / "b2")])
+    assert len(hits) == 2
+
+
+def test_BASES_DISAGREE_when_one_config_names_paths_under_different_bases(tmp_path):
+    """The measured shape: the primary resolves under one base, a shadow under another,
+    and no single base resolves both."""
+    b1, b2 = tmp_path / "umbrella", tmp_path / "sub"
+    _tree(tmp_path, "sub/artifacts/prod/p.json", "umbrella/artifacts/shadow/s.json")
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "enabled": True,
+        "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
+    pa = P.audit_paths(P.read_surface(cfg), [str(b1), str(b2)])
+    assert pa["bases_disagree"] is True
+    assert pa["single_base_that_resolves_everything"] == []
+    assert pa["n_unresolvable"] == 0          # both DO resolve — just not together
+
+
+def test_ANTI_VACUITY_one_base_resolving_everything_is_not_flagged(tmp_path):
+    """Without this the check would flag every config and prove nothing."""
+    _tree(tmp_path, "base/artifacts/prod/p.json", "base/artifacts/shadow/s.json")
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
+    pa = P.audit_paths(P.read_surface(cfg), [str(tmp_path / "base")])
+    assert pa["bases_disagree"] is False
+    assert pa["single_base_that_resolves_everything"] == [str(tmp_path / "base")]
+
+
+def test_an_UNRESOLVABLE_path_is_distinct_from_a_base_disagreement(tmp_path):
+    """Different defects: 'the file is nowhere' vs 'the files are in different places'."""
+    _tree(tmp_path, "base/artifacts/prod/p.json")
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/gone/x.json"}]}}})
+    pa = P.audit_paths(P.read_surface(cfg), [str(tmp_path / "base")])
+    assert pa["n_unresolvable"] == 1
+    assert any(e["status"] == "unresolvable" for e in pa["entries"])
+
+
+def test_path_audit_is_SKIPPED_entirely_when_no_base_is_given(tmp_path, capsys):
+    """A resolution check with no bases would report every path unresolvable — an alarm
+    manufactured by the absence of an argument."""
+    cfg = _cfg(tmp_path, "c.json")
+    assert P.main(["--config", cfg]) == 0
+    assert "PATHS" not in capsys.readouterr().out
+
+
+def test_a_base_disagreement_ALONE_makes_main_exit_nonzero(tmp_path, capsys):
+    """Identity can agree while the paths do not — the exit code must reflect both."""
+    _tree(tmp_path, "sub/artifacts/prod/p.json", "umbrella/artifacts/shadow/s.json")
+    cfg = _cfg(tmp_path, "c.json", raw={"ranking": {"panel_scoring": {
+        "kind": "xgb", "artifact_path": "artifacts/prod/p.json",
+        "shadow_models": [{"name": "s", "artifact_path": "artifacts/shadow/s.json"}]}}})
+    rc = P.main(["--config", cfg, "--base", str(tmp_path / "umbrella"),
+                 "--base", str(tmp_path / "sub")])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "BASES DISAGREE" in out and "NO SINGLE BASE" in out
+
+
+def test_an_ABSOLUTE_artifact_path_is_handled_without_a_base(tmp_path):
+    _tree(tmp_path, "x/a.json")
+    assert P.resolve_against(str(tmp_path / "x" / "a.json"), []) == [""]
+    assert P.resolve_against(str(tmp_path / "x" / "gone.json"), []) == []

@@ -71,6 +71,64 @@ def _panel_scoring(cfg: object) -> tuple[dict | None, str]:
     return ps, ""
 
 
+def resolve_against(rel: str, bases: list[str]) -> list[str]:
+    """Every base under which `rel` exists. Plural on purpose.
+
+    Returning the FIRST hit would hide the finding this function was written for: a
+    single config can name paths that resolve under different bases, and "it resolved"
+    then conceals which one answered.
+    """
+    if not isinstance(rel, str) or not rel:
+        return []
+    if os.path.isabs(rel):
+        return [""] if os.path.exists(rel) else []
+    return [b for b in bases if os.path.exists(os.path.normpath(os.path.join(b, rel)))]
+
+
+def audit_paths(surface: dict, bases: list[str]) -> dict:
+    """Which base does each declared artifact_path resolve against?
+
+    MEASURED 2026-07-31 on the pinned surface — three declared paths, two bases, and no
+    single base resolves all three:
+
+        artifacts/patchtst_shadow/.../seed_44/...model.pt  -> umbrella root ONLY
+        artifacts/shadow/panel-clf.top-decile.fwd60.json   -> renquant_104 ONLY
+        artifacts/prod/panel-ltr.alpha158_fund.json        -> renquant_104 ONLY
+
+    So "what does `artifact_path` resolve against?" has no single answer in this config.
+    Either the loader uses a different base per lane, or one of these lanes does not
+    resolve at run time -- and a shadow lane that fails to resolve is skipped, which is
+    the silent-death failure class GOAL-1 exists for.
+
+    This function reports; it does not guess the loader's base. Naming an authoritative
+    base from a directory layout is the same over-reach this module already refuses for
+    the authoritative *surface*.
+    """
+    if surface.get("status") != "read":
+        return {"status": surface.get("status"), "entries": []}
+    entries = []
+    declared = [("primary", surface["identity"].get("artifact_path"))]
+    declared += [(f"shadow:{n}", p)
+                 for n, p in surface.get("shadow_artifact_paths", [])]
+    for role, rel in declared:
+        hits = resolve_against(rel, bases) if rel else []
+        entries.append({"role": role, "artifact_path": rel,
+                        "resolves_under": hits,
+                        "status": ("unresolvable" if rel and not hits
+                                   else "not_declared" if not rel else "resolved")})
+    resolved = [e for e in entries if e["status"] == "resolved"]
+    base_sets = {frozenset(e["resolves_under"]) for e in resolved}
+    common = set.intersection(*(set(e["resolves_under"]) for e in resolved)) \
+        if resolved else set()
+    return {
+        "status": "read",
+        "entries": entries,
+        "n_unresolvable": sum(1 for e in entries if e["status"] == "unresolvable"),
+        "bases_disagree": len(base_sets) > 1,
+        "single_base_that_resolves_everything": sorted(common),
+    }
+
+
 def read_surface(path: str) -> dict:
     row: dict = {"path": path, "exists": os.path.exists(path)}
     if not row["exists"]:
@@ -94,7 +152,11 @@ def read_surface(path: str) -> dict:
                    if isinstance(s, dict) and isinstance(s.get("name"), str))
     return {**row, "status": "read",
             "identity": {f: ps.get(f) for f in IDENTITY_FIELDS},
-            "shadow_models": names}
+            "shadow_models": names,
+            "shadow_artifact_paths": [
+                (s.get("name"), s.get("artifact_path"))
+                for s in (shadows or [])
+                if isinstance(s, dict) and isinstance(s.get("name"), str)]}
 
 
 def compare(surfaces: list[dict]) -> dict:
@@ -148,10 +210,16 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", action="append", required=True, dest="configs",
                     help="a strategy_config.json surface; pass more than once")
+    ap.add_argument("--base", action="append", dest="bases", default=None,
+                    help="a directory artifact_path may be relative to; pass more "
+                         "than once. Omit to skip path resolution entirely.")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
     surfaces = [read_surface(p) for p in a.configs]
+    if a.bases:
+        for s in surfaces:
+            s["path_audit"] = audit_paths(s, list(a.bases))
     rep = compare(surfaces)
     if rep["n_read"] == 0:
         print("strategy-config parity: no surface could be read — the check has no "
@@ -168,6 +236,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"                         shadows={s['shadow_models']}")
             elif s.get("why"):
                 print(f"                         {s['why']}")
+        for s in surfaces:
+            pa = s.get("path_audit")
+            if not pa or pa.get("status") != "read":
+                continue
+            if pa["n_unresolvable"] or pa["bases_disagree"]:
+                print(f"\nPATHS  {os.path.basename(s['path'])}")
+                for e in pa["entries"]:
+                    print(f"   {e['status']:14s} {e['role']}: {e['artifact_path']}")
+                    if e["resolves_under"]:
+                        print(f"                  under {e['resolves_under']}")
+                if pa["bases_disagree"]:
+                    print("   BASES DISAGREE — declared paths in ONE config resolve "
+                          "against DIFFERENT bases")
+                if not pa["single_base_that_resolves_everything"]:
+                    print("   NO SINGLE BASE resolves every declared path")
         if rep["primary_and_shadow_are_mirrored"]:
             print("\nMIRRORED: each surface's PRIMARY appears in the other's SHADOWS. "
                   "One says A decides and B watches; the other says the reverse.")
@@ -177,7 +260,11 @@ def main(argv: list[str] | None = None) -> int:
             print("\nall readable surfaces agree on the primary scorer identity")
         print("\n" + rep["scope_note"])
 
-    return 1 if (rep["disagreements"] or rep["n_broken"]) else 0
+    path_problem = any(
+        (s.get("path_audit") or {}).get("n_unresolvable")
+        or (s.get("path_audit") or {}).get("bases_disagree")
+        for s in surfaces)
+    return 1 if (rep["disagreements"] or rep["n_broken"] or path_problem) else 0
 
 
 if __name__ == "__main__":
