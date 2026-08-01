@@ -87,3 +87,56 @@ Suite: **4939 passed, 2 skipped**.
 Detection only. It does not restore any lane, and it does not decide whether
 `hf_patchtst`'s absence would be deliberate — it makes the state visible so that decision
 gets made by someone.
+
+---
+
+## ROUND 2 2026-07-31 — the likelier removal emitted no signal at all
+
+Reviewed `[codex on orch#689]`: *"a watched lane can be removed while another shadow
+model remains configured. In that case pipeline emits the remaining lane's record, not
+the task-level `no_shadow_models` state; the watched lane still has an empty per-lane
+window and this branch falls through to the liveness skip."*
+
+Correct, and it is the **likelier** removal — dropping one lane from a list of two. The
+total-removal signal never fires, so round 1 did not cover it.
+
+**No producer contract was needed**, because the evidence is already emitted. If a date
+carries health records for other lanes and none matching the watched one, the task
+reported its configured lane set that day and this lane was not in it. That is positive
+evidence of absence, distinguishable from "no records at all".
+
+### The first attempt was wrong, and the existing suite caught it
+
+Implemented that way, **8 tests in `test_rq104_shadow_scorer_sentinel.py` failed**
+`[本次实测 2026-07-31]` — all of the form:
+
+```
+[topdecile_clf_blend_leg] lane 'topdecile_clf_blend_leg' ABSENT FROM CONFIG
+    — the task reported on hf_patchtst but not on this lane, 2 of 2 day(s)
+```
+
+The health sink is written **per task**. A watched lane belonging to a *different* task
+(or an MLflow-backed one) is legitimately absent from this file forever, so "others
+reported and this one did not" is not evidence about it. **I had inferred a per-task
+configured set from a shared sink** — the wrong denominator, which is the same shape as
+the guards this programme keeps finding that validate the wrong object.
+
+**The fix — `lane_ever_reported_here()`.** The partial-removal branch now requires that a
+matching lane has appeared in this sink **at some point**, anywhere in the file, not only
+in the window. That converts the inference from *absence* into a **disappearance**: this
+lane used to write here, others still do, and it has stopped. A lane that never used this
+sink is never judged by it. The prior appearance may lie outside the window — otherwise a
+lane removed longer ago than the window would be unprovable, which is exactly the case
+that goes unnoticed longest.
+
+### Tests
+
+15 in this file (was 8). The new ones: the watched lane removed **while another remains**
+alarms; the alarm **names** the lanes that did report (that "something else reported" is
+not actionable, *which* lanes is); a **decorated** form `hf_patchtst_v2` counts as
+present, so a healthy rename is not a false positive; total removal still reports as
+total removal and not as partial, so the two branches do not shadow each other; a
+task-level record is not counted as an observed lane; a lane that **never** used this
+sink is never judged by it; and a prior appearance outside the window still counts.
+
+Suite: **4948 passed, 2 skipped**.

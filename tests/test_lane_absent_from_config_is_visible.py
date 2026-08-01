@@ -169,3 +169,105 @@ def test_a_MALFORMED_task_level_line_does_not_alarm_and_does_not_crash(tmp_path,
     assert not S.is_valid_v1_record(bad)
     rc, out, alerts = _patrol(monkeypatch, tmp_path, [bad])
     assert rc == 0 and out == [] and alerts == []
+
+
+# ---------------------------------------------------------------------------
+# ROUND 2 — codex on #689: the likelier removal is ONE lane dropped from a list,
+# which emits no task-level signal at all.
+# ---------------------------------------------------------------------------
+
+OTHER = "topdecile_clf_blend_leg"
+
+#: The watched lane reporting on a date BEFORE the window. Required for the
+#: partial-removal branch, and the requirement is the point: without a prior appearance
+#: "others reported and this lane did not" says nothing, because the health sink is
+#: written PER TASK and a lane from another task is legitimately absent from it forever.
+#: With it, the inference is a DISAPPEARANCE -- this lane used to write here and stopped.
+PRIOR = [_record(dt.date(2026, 7, 20), S.SHADOW_NAME, "ok", status=S.STATUS_OK)]
+
+
+def test_the_WATCHED_lane_removed_while_ANOTHER_REMAINS_alarms(tmp_path, monkeypatch):
+    """The case codex named. `no_shadow_models` never fires here: the task still has a
+    shadow lane, just not this one. Before this round the window looked identical to
+    'no runs' and fell through to the liveness skip."""
+    rc, out, alerts = _patrol(monkeypatch, tmp_path, PRIOR + [
+        _record(d, OTHER, "ok", status=S.STATUS_OK) for d in DAYS])
+    assert rc == S.EXIT_ALARM, (rc, out)
+    assert "ABSENT FROM CONFIG" in out[0], out
+    assert OTHER in out[0], out
+    assert "while others remain" in alerts[0][1], alerts[0][1]
+
+
+def test_the_alarm_NAMES_the_lanes_that_did_report(tmp_path, monkeypatch):
+    """'Something else reported' is not actionable; WHICH lanes reported is."""
+    rc, out, _ = _patrol(monkeypatch, tmp_path, PRIOR + [
+        _record(DAYS[0], OTHER, "ok", status=S.STATUS_OK),
+        _record(DAYS[1], "another_leg", "ok", status=S.STATUS_OK)])
+    assert rc == S.EXIT_ALARM
+    assert "another_leg" in out[0] and OTHER in out[0], out[0]
+    assert "2 of 3 day(s)" in out[0], out[0]
+
+
+def test_a_DECORATED_form_of_the_watched_lane_counts_as_PRESENT(tmp_path, monkeypatch):
+    """`hf_patchtst_v2` IS the watched lane. Matching by equality instead of the lane's
+    own `matches()` would alarm on a healthy renamed lane — a false positive on the
+    exact rename this sentinel is supposed to tolerate."""
+    rows = [_record(d, S.SHADOW_NAME + "_v2", "ok", status=S.STATUS_OK) for d in DAYS]
+    rc, out, alerts = _patrol(monkeypatch, tmp_path, rows)
+    assert not any("ABSENT FROM CONFIG" in p for p in out), out
+
+
+def test_TOTAL_removal_still_reports_as_total_removal_not_as_partial(tmp_path,
+                                                                    monkeypatch):
+    """The two branches must not shadow each other: a task-level record present means
+    NO lanes were configured, which is a different message from 'others remain'."""
+    rc, out, alerts = _patrol(monkeypatch, tmp_path, [
+        _record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS) for d in DAYS])
+    assert rc == S.EXIT_ALARM
+    assert "no shadow models" in alerts[0][0].lower(), alerts[0][0]
+    assert "while others remain" not in alerts[0][1]
+
+
+def test_a_task_level_record_is_NOT_counted_as_an_observed_lane(tmp_path, monkeypatch):
+    """Otherwise a totally-unconfigured task looks like it still had a lane."""
+    monkeypatch.setattr(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, [
+        _record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS) for d in DAYS]))
+    assert S.read_observed_lane_names(DAYS) == {}
+
+
+def test_ANTI_VACUITY_a_HEALTHY_watched_lane_beside_others_stays_quiet(tmp_path,
+                                                                      monkeypatch):
+    """The new branch must fire on absence, not on the presence of other lanes."""
+    rows = [_record(d, S.SHADOW_NAME, "ok", status=S.STATUS_OK) for d in DAYS]
+    rows += [_record(d, OTHER, "ok", status=S.STATUS_OK) for d in DAYS]
+    rc, out, alerts = _patrol(monkeypatch, tmp_path, rows)
+    assert not any("ABSENT FROM CONFIG" in p for p in out), out
+
+
+def test_another_lane_reporting_OUTSIDE_the_window_does_not_alarm(tmp_path, monkeypatch):
+    rc, out, alerts = _patrol(monkeypatch, tmp_path, [
+        _record(dt.date(2026, 1, 4), OTHER, "ok", status=S.STATUS_OK)])
+    assert rc == 0 and out == [] and alerts == []
+
+
+def test_a_lane_that_NEVER_used_this_sink_is_NEVER_judged_by_it(tmp_path, monkeypatch):
+    """The guard that fixes 8 false positives found while building this.
+
+    The health sink is written PER TASK. Patrolling a lane that belongs to a different
+    task (or is MLflow-backed) against a sink full of another task's records must not
+    read as "absent from config" — it is absent from a file it never wrote to.
+    """
+    rc, out, alerts = _patrol(monkeypatch, tmp_path,
+                              [_record(d, OTHER, "ok", status=S.STATUS_OK)
+                               for d in DAYS],
+                              lane=S.WatchedLane(name="a_lane_from_another_task",
+                                                 runs_db=None, mlruns_dir=None,
+                                                 purpose=None))
+    assert rc == 0 and out == [] and alerts == [], (rc, out, alerts)
+
+
+def test_the_prior_appearance_may_be_OUTSIDE_the_window(tmp_path, monkeypatch):
+    """Otherwise a lane removed longer ago than the window is unprovable — which is
+    precisely the case that has gone unnoticed the longest."""
+    monkeypatch.setattr(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, PRIOR))
+    assert S.lane_ever_reported_here(S._matches_shadow_lane) is True
