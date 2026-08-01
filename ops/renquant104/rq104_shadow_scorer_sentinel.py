@@ -130,6 +130,19 @@ except Exception:  # noqa: BLE001 — any import failure -> use the asserted-equ
     EXPECTED_SKIP_STATES = _FALLBACK_CONTRACT["EXPECTED_SKIP_STATES"]
     CONTRACT_SOURCE = "local_fallback"
 
+#: Exit code for "this sentinel ALARMED", deliberately NOT 1.
+#:
+#: `sys.exit(main())` means an uncaught exception also exits 1, so while the alarm
+#: returned 1 the two were indistinguishable at the launchd level: `launchctl list`
+#: showed `exit=1` for both "the sentinel did its job and found a problem" and "the
+#: sentinel crashed and found nothing". Measured 2026-07-31: this job's last exit IS 1,
+#: and nothing in the record says which of the two it was.
+#:
+#: That ambiguity is the whole of GOAL-1's #622 — a crashed watchdog and an alarming
+#: watchdog must not look the same. 8 is chosen simply for being neither 1 (crash) nor
+#: 2 (argparse usage error).
+EXIT_ALARM = 8
+
 #: The three canonical statuses; a record must carry one of them. `actionable`
 #: is redundant with status by the producer invariant `actionable == (status !=
 #: "fault")`, kept only as an integrity cross-check.
@@ -968,7 +981,7 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
         )
         print(f"[{lane.name}] " + f"\n[{lane.name}] ".join(problems))
         out.extend(problems)
-        return 1
+        return EXIT_ALARM
 
     src = next((records[d].source for d in reversed(days) if records.get(d)), "n/a")
     print(f"rq104 shadow-scorer sentinel OK {today.isoformat()} "
