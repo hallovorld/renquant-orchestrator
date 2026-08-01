@@ -248,6 +248,9 @@ def test_the_cited_contract_is_the_one_in_force():
         # Added 2026-08-01; each cited to its return line in the MEMBERS comment block.
         "gate-stamp-parity": (1,), "booster-identity": (1,),
         "bundle-producer-keys": (1,),
+        # Added 2026-08-01 (#723): shadow_lane_preflight.py `return 1` on any failed
+        # precondition; 3 = skipped preconditions -> UNUSABLE by design.
+        "shadow-lane-preflight": (1,),
     }
 
 

@@ -95,6 +95,12 @@ ACK_LEDGER = OPS / "ops_audit_acks.json"
 #: Read-only detectors only — see module docstring.
 MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("silent-refusal", "renquant104/rq104_silent_refusal_sentinel.py", [], (1,)),
+    # GOAL-1 layer 1 (#723: merged with no caller — the exact merged-but-inert class
+    # this aggregator exists to end). Argless: lanes and watched set resolve from the
+    # pinned config, bases from the deployment's own split. Exit 3 (skipped
+    # preconditions) lands UNUSABLE = harness, which is correct: a precondition that
+    # could not be checked is not a checked-and-passed one.
+    ("shadow-lane-preflight", "renquant104/shadow_lane_preflight.py", [], (1,)),
     ("blind-notifiers", "blind_notifier_scan.py", [], (1,)),
     ("undelivered-alerts", "undelivered_alert_scan.py", [], (1,)),
     ("import-resolution", "import_resolution_check.py", [], (1,)),
