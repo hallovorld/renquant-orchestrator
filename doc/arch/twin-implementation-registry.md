@@ -69,6 +69,7 @@ item 10 (`[VERIFIED — <file/command>]`, `[VERIFIED — prior work, <issue/PR>]
 |---|---|
 | copies | `strategy_config.json` vs `strategy_config.golden.json`, both under `backtesting/renquant_104/` |
 | the trap | **both** name `hf_patchtst` primary, so the guard reports **clean forever** while both disagree with production `[VERIFIED — prior work, RenQuant#547]` |
+| re-measured 2026-08-01 | there are **FOUR** surfaces, not three, and they split **2–2 into two internally-consistent PAIRS** `[VERIFIED — this session]`:<br>**xgb**: `renquant-strategy-104/configs/strategy_config.json` (the runner's, per R5) and `.../strategy_config.golden.json`<br>**hf_patchtst**: `RenQuant/backtesting/renquant_104/strategy_config.json` and `.../strategy_config.golden.json`<br>So the guard is not comparing a good copy against a bad one — it is comparing **two members of the same pair**. Any check that stays on one side of the pinned/umbrella boundary passes forever *by construction*, which is a stronger statement than "both are wrong": it says **where** a guard has to look. |
 | cost | my first proposed fix was "validate the fallback against golden" — it would have added a check that **passes forever**, which is worse than no check because it reads as protection. Only laying out all three configs revealed golden was itself inverted |
 
 ## R7 — the same twin-ness inside one file: cost-aware branch never reached
@@ -164,8 +165,11 @@ richer public surface, a legacy script kept for reference). A row is retired whe
    carries a header naming the live one at a path a grep will hit;
 2. **a parity test** for copies that are meant to agree (R1's kernel-vs-public,
    R3's trainers) that fails when they drift, so "twin" becomes "mirrored";
-3. **a single source for role assignment** in R5/R6 — today three files assert
-   which model is primary and two of them are wrong;
+3. **a single source for role assignment** in R5/R6 — **four** files assert which
+   model is primary (re-measured 2026-08-01), splitting 2–2 into two
+   internally-consistent pairs across the pinned/umbrella boundary. Detection now
+   exists — `ops/strategy_config_primary_parity.py` (orch#694) compares **across**
+   the boundary and fails on the disagreement — but a single *source* does not;
 4. **a reachability assertion** for R7's shape — a branch no caller reaches is
    dead code wearing a docstring, and a test can say so;
 5. **for R8, a stated canonical key** — every reader resolves through one helper that
