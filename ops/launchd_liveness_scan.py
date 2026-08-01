@@ -361,6 +361,23 @@ def corroborate(results: list[dict[str, Any]], *, now: dt.datetime | None = None
     for r in results:
         if r["status"] != NO_EVIDENCE_STALE or not r.get("log"):
             continue
+        # A job judged on its OWN `evidence_glob` is already attributed, so none of the
+        # corroboration below applies to it. Everything in this function exists to
+        # qualify a verdict computed from a PROXY surface; running it over an attributed
+        # verdict does the opposite of its purpose.
+        #
+        # Measured 2026-08-01: `rq105-shadow-serving` declares
+        # `evidence_glob=.../shadow_serving_*.log`, the glob resolved its own newest file
+        # (shadow_serving_2026-07-13.log, 2048B), and this loop then demoted the finding
+        # to STALE_AMBIGUOUS_SHARED_LOG_DIR — because five neighbours share the directory
+        # — and advised the operator to "declare an `evidence_glob`" that had been
+        # declared all along. The job has written nothing for 14 scheduled firings; that
+        # is a definite finding, and "ambiguous" reads as "we cannot tell".
+        #
+        # The shared directory is irrelevant once a glob names this job's files: the
+        # attribution the AMBIGUOUS state protects against has already been made.
+        if r.get("evidence_surface") == "evidence_glob":
+            continue
         d = Path(r["log"]).parent
         owners = dir_owners.get(os.path.realpath(d), set())
         if len(owners) > 1:
