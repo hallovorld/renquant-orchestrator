@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from renquant_orchestrator.config_schema import validate_strategy_config
 from renquant_orchestrator.g4_admission import g4_session_bundle_block
 from renquant_orchestrator.serving_bundle_provenance import serving_bundle_provenance
+from renquant_orchestrator.wf_gate_provenance import wf_gate_provenance
 
 
 DatasetLoader = Callable[[dict[str, Any]], Any]
@@ -268,6 +269,13 @@ class PersistDailyRunBundleTask(Task):
             # explicit "absent" marker while it is not scheduled (Phase 0
             # BLOCKED). Additive/absent-tolerant, the #547/#549 pattern.
             "g4_session": g4_session_bundle_block(ctx.g4_session_admission),
+            # GOAL-5 AC6 R4 step 2. #669 made this bundle record a CONTRACT
+            # VERDICT; it still recorded nothing about the gate it served under.
+            # Additive and absent-tolerant like the two blocks above, and it never
+            # raises -- a provenance recorder that can abort the daily run is a
+            # worse defect than the gap it closes.
+            "wf_gate_provenance": wf_gate_provenance(
+                ctx.training_context.artifact_manifest),
             "market_snapshot": ctx.market_snapshot,
             "account_snapshot": ctx.account_snapshot,
             "decision_trace": list(ctx.inference_context.decision_trace),
