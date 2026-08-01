@@ -35,11 +35,33 @@ def _cfg(tmp_path, shadows, name="cfg.json"):
     return str(p)
 
 
-def _artifact(tmp_path, rel, with_booster=True):
+def _real_booster_json() -> str:
+    """A booster the CANONICAL loader accepts.
+
+    The fixture used to write `{"booster_raw_json": "{}"}` — structurally present and
+    unloadable. That was fine while `check_loadable` only tested for a non-empty field;
+    once it invokes `xgboost.Booster.load_model`, a fake booster is correctly refused,
+    and a fixture that cannot load must not be called "fully wired".
+    """
+    import xgboost as xgb
+    import numpy as np
+    rng = np.random.default_rng(11)
+    X = rng.standard_normal((40, 3))
+    b = xgb.train({"max_depth": 2, "verbosity": 0},
+                  xgb.DMatrix(X, label=X[:, 0]), num_boost_round=2)
+    return b.save_raw(raw_format="json").decode("utf-8")
+
+
+def _artifact(tmp_path, rel, with_booster=True, loadable=False):
     p = tmp_path / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"booster_raw_json": "{}"} if with_booster else {}),
-                 encoding="utf-8")
+    if not with_booster:
+        body = {}
+    elif loadable:
+        body = {"booster_raw_json": _real_booster_json()}
+    else:
+        body = {"booster_raw_json": "{}"}
+    p.write_text(json.dumps(body), encoding="utf-8")
     return str(p)
 
 
@@ -77,12 +99,15 @@ def test_it_reports_WHICH_base_resolved_not_merely_that_one_did(tmp_path):
 
 
 def test_MULTIPLE_resolving_bases_are_reported_and_NOT_silently_chosen(tmp_path):
+    """Strengthened after `[codex on orch#699]`: reporting the ambiguity was not enough,
+    because `ok=True` let the whole preflight pass on a base it had just said it could
+    not identify. Ambiguity is now non-passing."""
     _artifact(tmp_path, "A/art/m.json")
     _artifact(tmp_path, "B/art/m.json")
     r = P.check_artifact({"artifact_path": "art/m.json"},
                          [str(tmp_path / "A"), str(tmp_path / "B")])
     assert len(r["resolves_under"]) == 2
-    assert "not established here" in r["note"]
+    assert r["ok"] is None, "reporting it is not enough; it must not pass"
 
 
 def test_an_UNRESOLVABLE_artifact_fails(tmp_path):
@@ -142,7 +167,9 @@ def test_a_NON_JSON_artifact_is_SKIPPED_not_PASSED(tmp_path):
 # --- the whole preflight ----------------------------------------------------
 
 def test_a_FULLY_WIRED_lane_passes(tmp_path):
-    _artifact(tmp_path, "base/art/m.json")
+    import pytest
+    pytest.importorskip("xgboost")
+    _artifact(tmp_path, "base/art/m.json", loadable=True)
     c = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
     rep = P.preflight("lane_a", c, [str(tmp_path / "base")], ["lane_a"], "hf_patchtst")
     assert rep["n_failed"] == 0
@@ -164,10 +191,95 @@ def test_main_REFUSES_to_run_with_no_watched_lanes(tmp_path, capsys):
 
 
 def test_the_report_states_what_PASSING_does_not_mean(tmp_path, capsys):
-    _artifact(tmp_path, "base/art/m.json")
+    _artifact(tmp_path, "base/art/m.json", loadable=True)
     c = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
     P.main(["--lane", "lane_a", "--runner-config", c,
             "--base", str(tmp_path / "base"), "--watched-lane", "lane_a"])
     out = capsys.readouterr().out
     assert "says nothing about whether the model is any good" in out
     assert "A skipped check (ok=null) is not a pass" in out
+
+
+# ---------------------------------------------------------------------------
+# ROUND 2 — codex on #699: two green paths were not established.
+# ---------------------------------------------------------------------------
+
+def test_MULTIPLE_resolving_bases_without_a_loader_base_is_SKIPPED_not_PASSED(tmp_path):
+    """The first version returned ok=True and let `preflight` take `resolves_under[0]` —
+    this checker asserting the authority it says it cannot establish."""
+    _artifact(tmp_path, "A/art/m.json")
+    _artifact(tmp_path, "B/art/m.json")
+    r = P.check_artifact({"artifact_path": "art/m.json"},
+                         [str(tmp_path / "A"), str(tmp_path / "B")])
+    assert r["ok"] is None, r
+    assert "SKIPPED, not passed" in r["why"] and "unknown" in r["why"]
+
+
+def test_a_DECLARED_loader_base_resolves_the_ambiguity(tmp_path):
+    _artifact(tmp_path, "A/art/m.json")
+    _artifact(tmp_path, "B/art/m.json")
+    r = P.check_artifact({"artifact_path": "art/m.json"},
+                         [str(tmp_path / "A"), str(tmp_path / "B")],
+                         loader_base=str(tmp_path / "B"))
+    assert r["ok"] is True and r["resolves_under"] == [str(tmp_path / "B")]
+    assert sorted(r["also_resolves_under"]) == sorted(
+        [str(tmp_path / "A"), str(tmp_path / "B")])
+
+
+def test_a_loader_base_that_does_NOT_resolve_it_FAILS_even_if_others_do(tmp_path):
+    """A lane that resolves only somewhere the loader does not look is not served."""
+    _artifact(tmp_path, "A/art/m.json")
+    r = P.check_artifact({"artifact_path": "art/m.json"},
+                         [str(tmp_path / "A"), str(tmp_path / "B")],
+                         loader_base=str(tmp_path / "B"))
+    assert r["ok"] is False and "does NOT resolve it" in r["why"]
+
+
+def test_FULL_PREFLIGHT_does_not_exit_zero_on_an_ambiguous_base(tmp_path, capsys):
+    """The regression codex asked for: the whole preflight, not just the check."""
+    _artifact(tmp_path, "A/art/m.json")
+    _artifact(tmp_path, "B/art/m.json")
+    cfg = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
+    rc = P.main(["--lane", "lane_a", "--runner-config", cfg,
+                 "--base", str(tmp_path / "A"), "--base", str(tmp_path / "B"),
+                 "--watched-lane", "lane_a"])
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "SKIP" in out and "SKIPPED (not passed)" in out
+
+
+def test_a_MALFORMED_booster_is_REFUSED_by_the_canonical_loader(tmp_path):
+    """codex: testing that the FIELD is non-empty establishes structural presence, not
+    loadability. A truncated booster passes that test and fails at serving time."""
+    import pytest
+    pytest.importorskip("xgboost")
+    p = tmp_path / "bad.json"
+    p.write_text(json.dumps({"booster_raw_json": "{not a booster"}), encoding="utf-8")
+    r = P.check_loadable(str(p))
+    assert r["ok"] is False and "canonical loader REFUSED it" in r["why"]
+
+
+def test_a_REAL_booster_loads_and_says_so(tmp_path):
+    """Anti-vacuity: if nothing loaded, the check would reject everything."""
+    import pytest
+    xgb = pytest.importorskip("xgboost")
+    np = pytest.importorskip("numpy")
+    rng = np.random.default_rng(3)
+    X = rng.standard_normal((60, 4))
+    b = xgb.train({"max_depth": 2, "verbosity": 0},
+                  xgb.DMatrix(X, label=X[:, 0]), num_boost_round=3)
+    p = tmp_path / "good.json"
+    p.write_text(json.dumps(
+        {"booster_raw_json": b.save_raw(raw_format="json").decode("utf-8")}),
+        encoding="utf-8")
+    r = P.check_loadable(str(p))
+    assert r["ok"] is True and "not merely present" in r["note"]
+
+
+def test_STRUCTURAL_PRESENCE_alone_is_not_reported_as_loadability(tmp_path):
+    """The label codex asked for when the loader cannot be invoked."""
+    import ast
+    src = (pathlib.Path(P.__file__).read_text(encoding="utf-8")
+           if hasattr(P, "__file__") else MOD.read_text(encoding="utf-8"))
+    assert "loadability was\n                       f\"NOT.\"" in src or \
+           "loadability was" in src

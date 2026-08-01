@@ -71,3 +71,51 @@ since check 3 against an empty set would mean nothing; and the two "what this do
 mean" sentences are asserted present.
 
 Suite: **5080 passed, 2 skipped** — run before the push.
+
+---
+
+## CORRECTION 2026-08-01 — two green paths that were not established
+
+Reviewed `[codex on orch#699]`. Both correct, and both the same shape: **a check reporting
+PASS on evidence it had not established.**
+
+### 1. Ambiguity passed, then silently chose
+
+`check_artifact` recorded multiple resolving bases **and returned `ok=True`**; `preflight`
+then took `resolves_under[0]` and could exit `0`. That directly contradicts this module's
+own sentence — *"which one the loader uses is not established here"*. **A check cannot both
+refuse to name the authoritative base and quietly pick one.**
+
+Now: more than one resolving base and no `--loader-base` → **`ok=None`, SKIPPED, not
+passed**. Supplying `--loader-base` resolves it, and a declared base that does **not**
+resolve the artifact **fails** even when other bases do — a lane that resolves only where
+the loader does not look is not served.
+
+### 2. "Loads" meant "the field is non-empty"
+
+`check_loadable` tested that `booster_raw_json` was present and truthy. That is
+**structural presence**, not loadability: a truncated or wrong-version booster passes it
+and fails at serving time.
+
+It now invokes the **canonical loader** — `xgboost.Booster.load_model` — on the artifact's
+own bytes. If xgboost is unavailable the result is **SKIPPED with the distinction stated
+in the message**: structural presence confirmed, loadability **not**.
+
+**A fixture had to change with it, and that is the point.** `_artifact()` wrote
+`{"booster_raw_json": "{}"}` — present and unloadable. It passed while the check only
+looked at the field; the real loader correctly refuses it. A fixture that cannot load must
+not be called *"fully wired"*, so the helper now trains a real 2-round booster.
+
+### Live result
+
+The clf lane still passes all four checks, now including a **real load**. `rc=0`.
+
+24 tests (was 17). Suite: **5094 passed, 2 skipped**.
+
+### A worktree hazard worth recording
+
+`git stash pop` in this worktree restored a stash belonging to a **different branch**
+(`goal4/ensemble-existence-evidence`), leaving a `DU` conflict and four unrelated G4
+evidence files. Committing with `-A` would have pulled another lane's work into this PR.
+Resolved by removing only the foreign index entry and committing **explicit paths** —
+never `-A` when the working tree has residue whose origin is not certain.

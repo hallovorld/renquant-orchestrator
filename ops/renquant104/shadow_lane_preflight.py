@@ -89,8 +89,20 @@ def check_declared(runner_config: str, lane: str) -> dict:
             "why": "" if entry else f"{lane!r} is not among {names}"}
 
 
-def check_artifact(entry: dict | None, bases: list[str]) -> dict:
-    """2 — does the artifact resolve, and under WHICH base?"""
+def check_artifact(entry: dict | None, bases: list[str],
+                   loader_base: str | None = None) -> dict:
+    """2 — does the artifact resolve, and under WHICH base?
+
+    AMBIGUITY IS NON-PASSING `[codex on orch#699]`. The first version returned `ok=True`
+    when a path resolved under several bases and let `preflight` silently take
+    `resolves_under[0]` — contradicting this module's own statement that the loader's
+    base is not established here. A check cannot both refuse to name the authoritative
+    base and quietly pick one.
+
+    Supply `--loader-base` to resolve it: with a declared base, that base decides and the
+    check can pass. Without one, multiple resolving bases yield `ok=None` — SKIPPED, not
+    passed.
+    """
     if not entry:
         return {"check": "artifact_resolves", "ok": False,
                 "why": "no config entry, so no artifact_path to resolve"}
@@ -104,11 +116,30 @@ def check_artifact(entry: dict | None, bases: list[str]) -> dict:
                 "why": "" if os.path.exists(rel) else "absolute path does not exist"}
     hits = [b for b in bases
             if os.path.exists(os.path.normpath(os.path.join(b, rel)))]
-    return {"check": "artifact_resolves", "ok": bool(hits), "artifact_path": rel,
-            "resolves_under": hits,
-            "why": "" if hits else f"resolves under none of {bases}",
-            "note": ("more than one base resolves it — which one the loader uses is not "
-                     "established here" if len(hits) > 1 else "")}
+    if not hits:
+        return {"check": "artifact_resolves", "ok": False, "artifact_path": rel,
+                "resolves_under": [], "why": f"resolves under none of {bases}"}
+    if len(hits) > 1 and not loader_base:
+        return {"check": "artifact_resolves", "ok": None, "artifact_path": rel,
+                "resolves_under": hits,
+                "why": f"{len(hits)} bases resolve this path and no --loader-base was "
+                       f"declared, so WHICH ONE the loader uses is unknown. SKIPPED, not "
+                       f"passed: choosing the first would be this checker asserting the "
+                       f"authority it says it cannot establish."}
+    if loader_base:
+        chosen = os.path.normpath(os.path.join(loader_base, rel))
+        if not os.path.exists(chosen):
+            return {"check": "artifact_resolves", "ok": False, "artifact_path": rel,
+                    "resolves_under": hits,
+                    "why": f"declared loader base {loader_base} does NOT resolve it "
+                           f"(other bases do: {hits}) — a lane that resolves only "
+                           f"somewhere the loader does not look is not served"}
+        return {"check": "artifact_resolves", "ok": True, "artifact_path": rel,
+                "resolves_under": [loader_base], "also_resolves_under": hits,
+                "note": (f"{len(hits)} bases resolve it; the declared loader base was "
+                         f"used" if len(hits) > 1 else "")}
+    return {"check": "artifact_resolves", "ok": True, "artifact_path": rel,
+            "resolves_under": hits}
 
 
 def check_sentinel_visible(lane: str, watched: list[str], shadow_name: str) -> dict:
@@ -144,16 +175,42 @@ def check_loadable(resolved: str | None) -> dict:
     if not isinstance(payload, dict) or not payload.get("booster_raw_json"):
         return {"check": "artifact_loads", "ok": False,
                 "why": "no `booster_raw_json` in the artifact"}
-    return {"check": "artifact_loads", "ok": True}
+    # ACTUALLY LOAD IT `[codex on orch#699]`. Testing that the FIELD is non-empty
+    # establishes structural presence, not loadability: a truncated or
+    # wrong-version booster passes that test and fails at serving time. The
+    # canonical loader is the only thing that can answer the question this check
+    # claims to answer.
+    try:
+        import xgboost as xgb
+    except ImportError as exc:
+        return {"check": "artifact_loads", "ok": None,
+                "why": f"xgboost unavailable ({exc}) — the canonical loader could not "
+                       f"be invoked, so this is SKIPPED, not passed. Structural "
+                       f"presence of `booster_raw_json` was confirmed; loadability was "
+                       f"NOT."}
+    raw = payload["booster_raw_json"]
+    try:
+        booster = xgb.Booster()
+        booster.load_model(bytearray(raw if isinstance(raw, str)
+                                     else json.dumps(raw), "utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"the canonical loader REFUSED it: "
+                       f"{type(exc).__name__}: {str(exc)[:160]}"}
+    return {"check": "artifact_loads", "ok": True,
+            "note": "loaded by xgboost.Booster.load_model, not merely present"}
 
 
 def preflight(lane: str, runner_config: str, bases: list[str],
-              watched: list[str], shadow_name: str) -> dict:
+              watched: list[str], shadow_name: str,
+              loader_base: str | None = None) -> dict:
     declared = check_declared(runner_config, lane)
     entry = declared.get("entry")
-    artifact = check_artifact(entry, bases)
+    artifact = check_artifact(entry, bases, loader_base)
     resolved = None
     if artifact.get("ok") and artifact.get("resolves_under"):
+        # Exactly one entry here by construction: `check_artifact` returns ok=True only
+        # for a single resolving base or a declared loader base.
         b = artifact["resolves_under"][0]
         resolved = (artifact["artifact_path"] if b == "<absolute>"
                     else os.path.normpath(os.path.join(b, artifact["artifact_path"])))
@@ -161,8 +218,10 @@ def preflight(lane: str, runner_config: str, bases: list[str],
               check_sentinel_visible(lane, watched, shadow_name),
               check_loadable(resolved)]
     failed = [c["check"] for c in checks if c["ok"] is False]
+    skipped = [c["check"] for c in checks if c["ok"] is None]
     return {"lane": lane, "runner_config": runner_config, "checks": checks,
             "n_failed": len(failed), "failed": failed,
+            "n_skipped": len(skipped), "skipped": skipped,
             "scope_note": (
                 "These are MECHANICAL preconditions for a lane to be served and seen. "
                 "Passing them says nothing about whether the model is any good, whether "
@@ -179,6 +238,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="a directory artifact_path may be relative to")
     ap.add_argument("--watched-lane", action="append", dest="watched", default=[],
                     help="a lane name the sentinel watches; pass more than once")
+    ap.add_argument("--loader-base", default=None,
+                    help="the base the LOADER uses; required to pass check 2 when more "
+                         "than one base resolves the artifact")
     ap.add_argument("--shadow-name", default="hf_patchtst",
                     help="the sentinel's SHADOW_NAME, for the '_<suffix>' rule")
     ap.add_argument("--json", action="store_true")
@@ -190,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     rep = preflight(a.lane, a.runner_config, list(a.bases), list(a.watched),
-                    a.shadow_name)
+                    a.shadow_name, a.loader_base)
     if a.json:
         print(json.dumps(rep, indent=2, sort_keys=True))
     else:
@@ -202,6 +264,8 @@ def main(argv: list[str] | None = None) -> int:
                 if c.get(k):
                     print(f"        {k}: {c[k]}")
         print(f"\n{rep['n_failed']} check(s) failed: {rep['failed'] or 'none'}")
+        print(f"{rep['n_skipped']} check(s) SKIPPED (not passed): "
+              f"{rep['skipped'] or 'none'}")
         print("\n" + rep["scope_note"])
     return 1 if rep["n_failed"] else 0
 
