@@ -233,9 +233,54 @@ def promotion_series(rep: dict, served_artifact: str) -> dict:
     }
 
 
+def _default_artifacts_root() -> str:
+    """The 104 prod artifact directory, resolved WITHOUT requiring the package on the path.
+
+    A member of `ops/ops_audit.py` may not take a machine-specific path as an argument:
+    baking an absolute path into the reviewed MEMBERS tuple is how a check ends up
+    measuring one operator's disk.
+
+    The first attempt used `runtime_paths.default_data_root()`, which is the repo's
+    canonical answer — and it returned nothing, because `ops/` scripts are invoked as
+    plain files and `renquant_orchestrator` is not importable without PYTHONPATH. So the
+    chain below tries the package first and then falls back to the same two roots
+    `default_data_root` itself honours, resolved from this file's own location:
+
+      1. `RENQUANT_DATA_ROOT`
+      2. `renquant_orchestrator.runtime_paths.default_data_root()`, when importable
+      3. `<github root>/RenQuant`, derived from this file's path
+
+    An unresolvable root returns "" — and that is deliberate: the caller's own
+    "no subjects" guard then exits NON-ZERO. An empty scan must never read as a clean
+    one, which is exactly what the first version's silent "" already did correctly.
+    """
+    import os
+    env = os.environ.get("RENQUANT_DATA_ROOT")
+    if env:
+        return os.path.join(env, "backtesting", "renquant_104", "artifacts", "prod")
+    try:
+        from renquant_orchestrator.runtime_paths import default_data_root
+        return str(default_data_root() / "backtesting" / "renquant_104" /
+                   "artifacts" / "prod")
+    except Exception:  # noqa: BLE001
+        pass
+    here = os.path.abspath(__file__)
+    # ops/[renquant104/]<file>.py -> repo root -> its parent is the github root
+    repo = here
+    for _ in range(4):
+        repo = os.path.dirname(repo)
+        cand = os.path.join(os.path.dirname(repo), "RenQuant", "backtesting",
+                            "renquant_104", "artifacts", "prod")
+        if os.path.isdir(cand):
+            return cand
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", required=True)
+    ap.add_argument("--root", default=_default_artifacts_root(),
+                    help="artifact directory; defaults to the 104 prod "
+                         "root resolved via runtime_paths")
     ap.add_argument("--query", default="*.json")
     ap.add_argument("--served-artifact",
                     help="basename of the SERVED artifact; enables the promotion series")

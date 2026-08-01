@@ -1069,11 +1069,77 @@ CHECKS = (
 # main
 # ---------------------------------------------------------------------------
 
+def config_declared_lanes(config_path: str) -> tuple[list[str], str]:
+    """Shadow-lane names the strategy config declares, plus a reason if it could not be
+    read. Never raises: a sentinel that dies reading a config alarms as a crash.
+
+    Every container is type-checked rather than `or {}`-ed — a non-empty string is truthy,
+    so the fallback never fires and `.get` raises. Four tools in this repo have needed
+    that sentence.
+    """
+    if not config_path or not os.path.exists(config_path):
+        return [], f"config not found: {config_path or '(none)'}"
+    try:
+        with open(config_path, "rb") as fh:
+            cfg = json.loads(fh.read())
+    except (OSError, ValueError) as exc:
+        return [], f"{type(exc).__name__}: {exc}"
+    if not isinstance(cfg, dict):
+        return [], f"top-level JSON is {type(cfg).__name__}, not an object"
+    ranking = cfg.get("ranking")
+    if not isinstance(ranking, dict):
+        return [], f"`ranking` is {type(ranking).__name__}, not an object"
+    ps = ranking.get("panel_scoring")
+    if not isinstance(ps, dict):
+        return [], f"`ranking.panel_scoring` is {type(ps).__name__}, not an object"
+    shadows = ps.get("shadow_models")
+    if shadows is None:
+        return [], ""          # a config with no shadow lanes is legitimate
+    if not isinstance(shadows, list):
+        return [], f"`shadow_models` is {type(shadows).__name__}, not a list"
+    names, bad = [], []
+    for i, m in enumerate(shadows):
+        if isinstance(m, dict) and isinstance(m.get("name"), str):
+            names.append(m["name"])
+        else:
+            bad.append(f"entry {i}")
+    if bad:
+        # A malformed entry is NOT "one fewer lane": it is a lane whose name cannot be
+        # compared, and silently skipping it is how an unwatched lane stays unwatched.
+        return names, f"unreadable shadow_models entries: {', '.join(bad)}"
+    return names, ""
+
+
+def unwatched_config_lanes(lanes, config_path: str) -> tuple[list[str], str]:
+    """Config lanes that NO declared lane of this sentinel would match.
+
+    WHY THIS IS NOT "derive the watch list from the config". That is the obvious fix and
+    it is wrong: if the watch list came from the config, a lane REMOVED from the config
+    would also leave the watch list, and the sentinel would stop looking for exactly the
+    thing whose disappearance orch#689 was built to detect. The declared set has to stay
+    declared. What must be visible is the DRIFT between the two.
+
+    Measured 2026-08-01: `watched_lanes()` is a hardcoded 2-tuple, so a third lane added
+    to `shadow_models` is invisible to this sentinel — the mirror of the vanishing lane,
+    and the same silence.
+    """
+    declared, why = config_declared_lanes(config_path)
+    if why and not declared:
+        return [], why
+    unwatched = [n for n in declared
+                 if not any(lane.matches(n) for lane in lanes)]
+    return unwatched, why
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--as-of", default=None, help="ISO date (default: today)")
+    parser.add_argument(
+        "--config", default=os.environ.get("RQ104_STRATEGY_CONFIG", ""),
+        help="strategy_config.json whose `shadow_models` are compared against the "
+             "watched lanes; empty disables the check, which is reported, not silent")
     args = parser.parse_args(argv)
 
     today = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
@@ -1087,6 +1153,36 @@ def main(argv: list[str] | None = None) -> int:
     days = last_session_days(today, STREAK_N)
     all_findings: list[str] = []
     rc = 0
+
+    # A lane the CONFIG declares that this sentinel does not watch is as silent as a
+    # lane that vanished — and nothing looked for it until now.
+    # NOT REQUESTED is not the same as COULD NOT CHECK. `--config` is optional, and an
+    # earlier version alarmed whenever it was absent — turning every existing deployment
+    # into a permanent alarm, which the existing suite caught as 16 failures. A check
+    # nobody asked for must be quiet; a check that was asked for and could not run must
+    # not be.
+    if not args.config:
+        print("rq104 shadow-scorer sentinel: config lane check NOT REQUESTED "
+              "(--config / RQ104_STRATEGY_CONFIG unset) — skipped, not passed")
+        unwatched, why = [], ""
+    else:
+        unwatched, why = unwatched_config_lanes(lanes, args.config)
+        if why:
+            all_findings.append(
+                f"config lane check UNAVAILABLE: {why} — 'could not check' is not "
+                f"'checked, found nothing'")
+            rc |= EXIT_ALARM
+    if unwatched:
+        msg = (f"the strategy config declares {len(unwatched)} shadow lane(s) that NO "
+               f"watched lane matches: {', '.join(unwatched)}. They are unmonitored: "
+               f"whatever they do, this sentinel will report nothing about them. Add "
+               f"them to `watched_lanes()` — deliberately, since deriving the watch "
+               f"list from the config would stop a REMOVED lane from being noticed.")
+        print(f"[config] {msg}")
+        all_findings.append(msg)
+        alert(f"rq104 SHADOW LANE DECLARED BUT UNWATCHED: {len(unwatched)} lane(s) "
+              f"{today.isoformat()}", msg, rq_root=RQ)
+        rc |= EXIT_ALARM
     for lane in lanes:
         rc |= _patrol_lane(lane, days, today, all_findings)
     if not all_findings:
