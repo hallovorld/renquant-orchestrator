@@ -59,7 +59,13 @@ FAILCLOSED_FLAGS = ("RENQUANT_STRICT_SUBREPO_PATHS", "RENQUANT_OPS_FAIL_CLOSED")
 #: An assignment, not a read. `${VAR:-0}` and `[ "$VAR" = "1" ]` are reads and must not
 #: count as arming it — that mistake would report every script that merely *mentions* the
 #: flag as having set it, which is the fail-open version of this whole check.
-_ASSIGN = r"(?:^|\n)\s*(?:export\s+)?{name}\s*="
+#:
+#: AND THE VALUE MUST BE 1 `[codex on orch#695]`. The first version counted ANY
+#: assignment, so `export RENQUANT_OPS_FAIL_CLOSED=0` reported ARMED while the job still
+#: took the fallback path — a fail-open false positive that also DISAGREED with the plist
+#: branch, which checks the value. The two halves of one check must not answer
+#: differently.
+_ASSIGN = r"(?:^|\n)\s*(?:export\s+)?{name}\s*=(?P<val>[^\n#]*)"
 
 
 def _plist_load(path: str) -> dict | None:
@@ -81,14 +87,43 @@ def _plist_load(path: str) -> dict | None:
             return None
 
 
-def script_assigns(path: str, name: str) -> bool:
-    """Does this script ASSIGN the flag (as opposed to reading it)?"""
+def script_assigns(path: str, name: str) -> tuple[bool, list[str]]:
+    """(arms_it, findings). ARMS IT only for a literal value of `1`.
+
+    Returns every assignment's rendered value so a caller can see WHY. Three outcomes,
+    and conflating them is the defect this replaced:
+
+      * literal `1` (quoted or not)  -> arms the guard
+      * literal `0` / anything else   -> does NOT arm it; the job takes the fallback
+      * dynamic (`$OTHER`, a command substitution, a conditional) -> INDETERMINATE, and
+        treated as NOT arming. A value this checker cannot evaluate must not be read as
+        the safe one.
+
+    The LAST assignment wins, matching shell semantics: an early `=1` followed by a later
+    `=0` leaves the guard off.
+    """
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
     except OSError:
-        return False
-    return re.search(_ASSIGN.format(name=re.escape(name)), text) is not None
+        return False, [f"unreadable: {path}"]
+    hits = list(re.finditer(_ASSIGN.format(name=re.escape(name)), text))
+    if not hits:
+        return False, []
+    findings, armed = [], False
+    for m in hits:
+        raw = (m.group("val") or "").strip()
+        val = raw.strip('"').strip("'").strip()
+        if any(c in raw for c in "$`("):
+            findings.append(f"{name}={raw!r} is DYNAMIC — cannot be evaluated here, "
+                            f"treated as NOT arming")
+            armed = False
+        elif val == "1":
+            armed = True
+        else:
+            findings.append(f"{name}={raw!r} does NOT arm the guard (only `1` does)")
+            armed = False
+    return armed, findings
 
 
 def audit_job(plist_path: str, extra_scripts: list[str]) -> dict:
@@ -114,13 +149,20 @@ def audit_job(plist_path: str, extra_scripts: list[str]) -> dict:
     scripts = [p for p in (program if isinstance(program, list) else [])
                if isinstance(p, str) and os.path.exists(p)]
     scripts += [p for p in extra_scripts if os.path.exists(p)]
-    from_script = sorted({f for f in FAILCLOSED_FLAGS for s in scripts
-                          if script_assigns(s, f)})
+    from_script, script_findings = set(), []
+    for f in FAILCLOSED_FLAGS:
+        for sc in scripts:
+            arms, why = script_assigns(sc, f)
+            if arms:
+                from_script.add(f)
+            script_findings.extend(f"{os.path.basename(sc)}: {w}" for w in why)
+    from_script = sorted(from_script)
 
     return {**row, "status": "checked",
             "armed": bool(from_env or from_script),
             "armed_by_plist_env": from_env,
             "armed_by_script_assignment": from_script,
+            "script_findings": script_findings,
             "scripts_inspected": scripts,
             "n_scripts_inspected": len(scripts)}
 
@@ -169,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"            script assignment: "
                       f"{r['armed_by_script_assignment'] or 'none'} "
                       f"({r['n_scripts_inspected']} script(s) inspected)")
+                for w in r.get("script_findings", []):
+                    print(f"              {w}")
             elif r.get("why"):
                 print(f"            {r['why']}")
         print(f"\n{rep['n_armed']} of {rep['n_jobs_declared']} declared job(s) arm "

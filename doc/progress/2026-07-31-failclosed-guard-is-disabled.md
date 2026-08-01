@@ -81,3 +81,41 @@ What this PR ships is the **detector**, so the state stops being invisible:
   refuses while launchd loads them fine.
 
 14 tests. Suite: **5045 passed, 2 skipped** — run before the push.
+
+---
+
+## CORRECTION 2026-08-01 — the script path armed on ANY assignment, including `=0`
+
+Reviewed `[codex on orch#695]`: *"The script path treats any assignment as armed,
+regardless of its value. A program or sourced helper that exports
+`RENQUANT_OPS_FAIL_CLOSED=0` therefore reports ARMED while the job still takes the
+fallback path. This is a fail-open false positive and disagrees with the plist branch's
+explicit value check."*
+
+Correct, and the sharpest part is the **disagreement**: the plist branch already required
+`== "1"`. **One check answered two different ways depending on which half saw the flag** —
+so a script setting it to `0` would have flipped this job's verdict to ARMED while the
+plist showing `"0"` was correctly rejected.
+
+**Three outcomes now, where there was one:**
+
+| assignment | verdict |
+|---|---|
+| literal `1`, quoted or not | **arms** |
+| literal `0`, or anything else | does **not** arm |
+| dynamic — `$OTHER`, a command substitution | **INDETERMINATE**, treated as **not** arming |
+
+A value this checker cannot evaluate must not be read as the safe one. **The last
+assignment wins**, matching shell semantics: an early `=1` followed by a later `=0` leaves
+the guard off. Every non-arming assignment is reported with its rendered value, so a
+reader sees *why*, not just *no*.
+
+**The live result is unchanged: 0 of 1 jobs arm the guard.** Neither flag is assigned
+anywhere, so this correction changes no measured conclusion — it removes a way the check
+could have said the opposite.
+
+18 tests (was 14): `=0` in four spellings (bare, exported, double- and single-quoted);
+dynamic assignment; last-assignment-wins in both orders; and an explicit test that the
+**script and plist halves agree** on a zero.
+
+Suite: **5095 passed, 2 skipped**.

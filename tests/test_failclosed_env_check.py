@@ -47,25 +47,72 @@ def _sh(tmp_path, name, text):
 
 # --- reading a flag is NOT arming it ----------------------------------------
 
+def _arms(path, name="RENQUANT_OPS_FAIL_CLOSED"):
+    return F.script_assigns(path, name)[0]
+
+
 def test_a_READ_of_the_flag_does_not_count_as_arming_it(tmp_path):
     """The fail-open version of this check: every script that merely mentions the flag
     would report as having set it. `daily_104.sh` only ever reads it."""
     s = _sh(tmp_path, "r.sh",
             'if [ "${RENQUANT_OPS_FAIL_CLOSED:-0}" = "1" ]; then exit 1; fi\n')
-    assert F.script_assigns(s, "RENQUANT_OPS_FAIL_CLOSED") is False
+    assert _arms(s) is False
 
 
-def test_an_ASSIGNMENT_counts(tmp_path):
+def test_an_ASSIGNMENT_OF_ONE_counts(tmp_path):
     for line in ('RENQUANT_OPS_FAIL_CLOSED=1\n',
                  'export RENQUANT_OPS_FAIL_CLOSED=1\n',
                  '  export  RENQUANT_OPS_FAIL_CLOSED="1"\n'):
-        s = _sh(tmp_path, "a.sh", line)
-        assert F.script_assigns(s, "RENQUANT_OPS_FAIL_CLOSED") is True, line
+        assert _arms(_sh(tmp_path, "a.sh", line)) is True, line
+
+
+def test_an_ASSIGNMENT_OF_ZERO_does_NOT_arm_it(tmp_path):
+    """codex on #695: the first version counted ANY assignment, so
+    `export RENQUANT_OPS_FAIL_CLOSED=0` reported ARMED while the job still took the
+    fallback — a fail-open false positive that also disagreed with the plist branch,
+    which checks the value. The two halves of one check must not answer differently."""
+    for line in ('RENQUANT_OPS_FAIL_CLOSED=0\n',
+                 'export RENQUANT_OPS_FAIL_CLOSED=0\n',
+                 'export RENQUANT_OPS_FAIL_CLOSED="0"\n',
+                 "export RENQUANT_OPS_FAIL_CLOSED='0'\n"):
+        arms, why = F.script_assigns(_sh(tmp_path, "z.sh", line),
+                                     "RENQUANT_OPS_FAIL_CLOSED")
+        assert arms is False, line
+        assert why and "does NOT arm" in why[0], line
+
+
+def test_a_DYNAMIC_assignment_is_INDETERMINATE_and_does_not_arm(tmp_path):
+    """A value this checker cannot evaluate must not be read as the safe one."""
+    for line in ('export RENQUANT_OPS_FAIL_CLOSED="$SOMETHING"\n',
+                 'export RENQUANT_OPS_FAIL_CLOSED=$(cat /tmp/x)\n'):
+        arms, why = F.script_assigns(_sh(tmp_path, "d2.sh", line),
+                                     "RENQUANT_OPS_FAIL_CLOSED")
+        assert arms is False and why and "DYNAMIC" in why[0], line
+
+
+def test_the_LAST_assignment_wins_matching_shell_semantics(tmp_path):
+    """An early `=1` followed by a later `=0` leaves the guard OFF."""
+    s = _sh(tmp_path, "seq.sh",
+            "export RENQUANT_OPS_FAIL_CLOSED=1\nexport RENQUANT_OPS_FAIL_CLOSED=0\n")
+    assert _arms(s) is False
+    s2 = _sh(tmp_path, "seq2.sh",
+             "export RENQUANT_OPS_FAIL_CLOSED=0\nexport RENQUANT_OPS_FAIL_CLOSED=1\n")
+    assert _arms(s2) is True
+
+
+def test_the_SCRIPT_and_PLIST_halves_agree_on_a_zero(tmp_path):
+    """The disagreement codex named: a plist `"0"` was already correctly rejected while
+    a script `=0` was accepted. One check must not answer two ways."""
+    j = _plist(tmp_path, env={"RENQUANT_OPS_FAIL_CLOSED": "0"})
+    assert F.audit_job(j, [])["armed"] is False
+    sc = _sh(tmp_path, "z2.sh", "export RENQUANT_OPS_FAIL_CLOSED=0\n")
+    assert F.audit_job(_plist(tmp_path, "p2.plist", env={"PATH": "/bin"}),
+                       [sc])["armed"] is False
 
 
 def test_a_DEFAULTED_expansion_is_not_an_assignment(tmp_path):
     s = _sh(tmp_path, "d.sh", 'X="${RENQUANT_STRICT_SUBREPO_PATHS:-0}"\n')
-    assert F.script_assigns(s, "RENQUANT_STRICT_SUBREPO_PATHS") is False
+    assert _arms(s, "RENQUANT_STRICT_SUBREPO_PATHS") is False
 
 
 # --- the plist side ---------------------------------------------------------
