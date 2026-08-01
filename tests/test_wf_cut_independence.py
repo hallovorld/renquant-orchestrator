@@ -158,3 +158,38 @@ def test_the_REAL_artifact_reproduces_the_finding():
     assert r["calendar_union_days"] == 816 and r["sum_of_lengths_days"] == 1089
     assert 1.33 <= r["redundancy"] <= 1.34
     assert C.ceiling(882, max(r["cut_lengths_days"])) == 2
+
+
+def test_DISJOINT_cuts_SEPARATED_BY_A_GAP_have_redundancy_exactly_one(tmp_path):
+    """codex on #696: the first version used the OUTER SPAN, so a gap between two
+    disjoint cuts counted as covered and redundancy fell BELOW 1 — making the documented
+    invariant "1.00 means disjoint" false, and overstating coverage."""
+    r = C.analyse([(D(2024, 1, 1), D(2024, 6, 30)),
+                   (D(2025, 1, 1), D(2025, 6, 30))])      # a 6-month GAP between them
+    assert r["disjoint"] is True
+    assert r["redundancy"] == 1.0, r
+    assert r["calendar_union_days"] == 181 + 180, r
+    assert r["outer_span_days"] > r["calendar_union_days"], "the span is not the union"
+    assert r["n_merged_intervals"] == 2
+
+
+def test_the_outer_span_is_RETAINED_separately(tmp_path):
+    """It is what a reader means by 'the cuts run from X to Y'. Conflating the two was
+    the defect; dropping it would lose a real fact."""
+    r = C.analyse([(D(2024, 1, 1), D(2024, 6, 30)),
+                   (D(2025, 1, 1), D(2025, 6, 30))])
+    assert r["outer_span_days"] == (D(2025, 6, 30) - D(2024, 1, 1)).days
+
+
+def test_ADJACENT_cuts_merge_into_one_interval(tmp_path):
+    """Touching, not overlapping: still disjoint, still redundancy 1.0, one interval."""
+    r = C.analyse([(D(2024, 1, 1), D(2024, 7, 1)), (D(2024, 7, 1), D(2025, 1, 1))])
+    assert r["redundancy"] == 1.0 and r["n_merged_intervals"] == 1
+
+
+def test_redundancy_can_never_fall_BELOW_one(tmp_path):
+    """The invariant the outer-span version broke, asserted directly across shapes."""
+    for cuts in ([(D(2024, 1, 1), D(2024, 6, 30)), (D(2025, 1, 1), D(2025, 6, 30))],
+                 [(D(2024, 1, 1), D(2025, 1, 1)), (D(2024, 7, 1), D(2025, 7, 1))],
+                 [(D(2024, 1, 1), D(2024, 2, 1))]):
+        assert C.analyse(cuts)["redundancy"] >= 1.0, cuts

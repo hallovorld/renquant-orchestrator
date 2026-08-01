@@ -105,7 +105,18 @@ def analyse(cuts: list[tuple[dt.date, dt.date]]) -> dict:
         return {"n_cuts": 0}
     lengths = [(e - s).days for s, e in cuts]
     lo, hi = min(s for s, _ in cuts), max(e for _, e in cuts)
-    union = (hi - lo).days
+    outer_span = (hi - lo).days
+    # TRUE UNION, by merging overlapping intervals `[codex on orch#696]`. The first
+    # version used the OUTER SPAN (earliest start to latest end), which counts a GAP
+    # between two disjoint cuts as covered -- so redundancy fell BELOW 1 for genuinely
+    # disjoint windows and the documented invariant "1.00 means disjoint" was false.
+    merged: list[list] = []
+    for s, e in sorted(cuts):
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    union = sum((e - s).days for s, e in merged)
     pairs = []
     for (s1, e1), (s2, e2) in itertools.combinations(cuts, 2):
         ov = (min(e1, e2) - max(s1, s2)).days
@@ -119,8 +130,14 @@ def analyse(cuts: list[tuple[dt.date, dt.date]]) -> dict:
         "cut_lengths_days": lengths,
         "sum_of_lengths_days": sum(lengths),
         "calendar_union_days": union,
+        # The outer span is retained separately: it is what a reader means by "the cuts
+        # run from X to Y", and conflating it with the union is the defect above.
+        "outer_span_days": outer_span,
+        "n_merged_intervals": len(merged),
         "union_start": lo.isoformat(), "union_end": hi.isoformat(),
-        # 1.00 means disjoint. Above 1.00, the same calendar is counted more than once.
+        # Exactly 1.00 iff the cuts are disjoint: sum of lengths over the TRUE union.
+        # Above 1.00, the same calendar is counted more than once. It can never fall
+        # below 1.00 now -- that was the outer-span bug.
         "redundancy": round(sum(lengths) / union, 4) if union else None,
         "overlapping_pairs": pairs,
         "disjoint": not pairs,

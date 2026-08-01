@@ -74,3 +74,31 @@ the docstring's numbers**, so the docstring cannot become an assertion with a ci
 attached.
 
 Suite: **5046 passed, 2 skipped** — run before the push.
+
+---
+
+## CORRECTION 2026-08-01 — `calendar_union_days` was the OUTER SPAN, not the union
+
+Reviewed `[codex on orch#696]`: *"With two disjoint cuts separated by a gap, the report
+counts the gap as covered and `sum_of_lengths / calendar_union_days` falls below 1 even
+though the cuts are disjoint. That makes the documented invariant '1.00 means disjoint'
+false and overstates coverage."*
+
+Correct. I computed the span from earliest start to latest end and called it the union.
+For the cuts actually measured they coincide — all three overlap, so the merged interval
+*is* the outer span, and **the published 816 d / 1.33× are unchanged**. But the metric was
+wrong for any corpus with a gap, and the invariant I documented was false in exactly the
+case a reader would use it to check.
+
+**Fixed by merging intervals.** `redundancy` is now `sum(lengths) / true_union` and is
+**exactly 1.00 iff the cuts are disjoint** — it can no longer fall below 1. The outer span
+is retained separately as `outer_span_days`, because *"the cuts run from X to Y"* is a real
+fact; conflating it with the union was the defect, and dropping it would lose something
+true.
+
+Four regressions: two disjoint cuts **separated by a gap** assert union = sum of lengths
+and redundancy **exactly 1.0**; the outer span is asserted to exceed the union in that
+case; adjacent (touching) cuts merge to one interval and stay at 1.0; and redundancy is
+asserted **≥ 1.0** across shapes — the invariant the outer-span version broke.
+
+19 tests (was 15). Suite: **5095 passed, 2 skipped**.
