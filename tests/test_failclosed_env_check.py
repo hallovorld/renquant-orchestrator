@@ -59,11 +59,23 @@ def test_a_READ_of_the_flag_does_not_count_as_arming_it(tmp_path):
     assert _arms(s) is False
 
 
-def test_an_ASSIGNMENT_OF_ONE_counts(tmp_path):
+def test_a_TOP_LEVEL_ASSIGNMENT_OF_ONE_counts(tmp_path):
     for line in ('RENQUANT_OPS_FAIL_CLOSED=1\n',
                  'export RENQUANT_OPS_FAIL_CLOSED=1\n',
-                 '  export  RENQUANT_OPS_FAIL_CLOSED="1"\n'):
+                 'export  RENQUANT_OPS_FAIL_CLOSED="1"\n',
+                 "export RENQUANT_OPS_FAIL_CLOSED='1'\n"):
         assert _arms(_sh(tmp_path, "a.sh", line)) is True, line
+
+
+def test_an_INDENTED_assignment_of_one_does_NOT_count(tmp_path):
+    """Split out of the test above `[codex on orch#695]`: it used to assert that an
+    indented `export FLAG="1"` arms the guard. Indentation is the only signal a regex has
+    that an assignment may sit inside a conditional or function, so it is now
+    INDETERMINATE — and the old fixture was asserting the fail-open."""
+    arms, why = F.script_assigns(_sh(tmp_path, "ind.sh",
+                                     '  export  RENQUANT_OPS_FAIL_CLOSED="1"\n'),
+                                 "RENQUANT_OPS_FAIL_CLOSED")
+    assert arms is False and "INDENTED" in why[0]
 
 
 def test_an_ASSIGNMENT_OF_ZERO_does_NOT_arm_it(tmp_path):
@@ -90,14 +102,54 @@ def test_a_DYNAMIC_assignment_is_INDETERMINATE_and_does_not_arm(tmp_path):
         assert arms is False and why and "DYNAMIC" in why[0], line
 
 
-def test_the_LAST_assignment_wins_matching_shell_semantics(tmp_path):
-    """An early `=1` followed by a later `=0` leaves the guard OFF."""
-    s = _sh(tmp_path, "seq.sh",
-            "export RENQUANT_OPS_FAIL_CLOSED=1\nexport RENQUANT_OPS_FAIL_CLOSED=0\n")
-    assert _arms(s) is False
-    s2 = _sh(tmp_path, "seq2.sh",
-             "export RENQUANT_OPS_FAIL_CLOSED=0\nexport RENQUANT_OPS_FAIL_CLOSED=1\n")
-    assert _arms(s2) is True
+def test_TWO_assignments_in_one_file_are_INDETERMINATE_either_way(tmp_path):
+    """WITHDRAWN CLAIM `[codex on orch#695]`: an earlier version asserted "last
+    assignment wins, matching shell semantics". It does not — not across files, and not
+    inside conditionals — and a regex cannot establish either. Both orders are now
+    INDETERMINATE, which is the conservative half of the review's own offer."""
+    for body in ("export RENQUANT_OPS_FAIL_CLOSED=1\nexport RENQUANT_OPS_FAIL_CLOSED=0\n",
+                 "export RENQUANT_OPS_FAIL_CLOSED=0\nexport RENQUANT_OPS_FAIL_CLOSED=1\n"):
+        arms, why = F.script_assigns(_sh(tmp_path, "seq.sh", body),
+                                     "RENQUANT_OPS_FAIL_CLOSED")
+        assert arms is False, body
+        assert "INDETERMINATE" in why[0], why
+
+
+def test_a_CONDITIONAL_assignment_is_INDETERMINATE(tmp_path):
+    """`if false; then FLAG=1; fi` is a syntactic assignment and an unreachable one.
+    Counting it as effective is the fail-open the review named."""
+    s = _sh(tmp_path, "cond.sh",
+            "if false; then\n  export RENQUANT_OPS_FAIL_CLOSED=1\nfi\n")
+    arms, why = F.script_assigns(s, "RENQUANT_OPS_FAIL_CLOSED")
+    assert arms is False and "INDENTED" in why[0], why
+
+
+def test_MULTI_SCRIPT_one_then_zero_does_NOT_report_armed(tmp_path):
+    """The regression codex asked for. A ProgramArguments script setting `=1` and a
+    sourced helper setting `=0`: their real order is not knowable from the plist, so the
+    answer must be INDETERMINATE — not ARMED."""
+    prog = _sh(tmp_path, "prog.sh", "export RENQUANT_OPS_FAIL_CLOSED=1\n")
+    helper = _sh(tmp_path, "helper.sh", "export RENQUANT_OPS_FAIL_CLOSED=0\n")
+    j = _plist(tmp_path, env={"PATH": "/bin"}, program=[prog])
+    r = F.audit_job(j, [helper])
+    assert r["armed"] is False, r
+    assert any("INDETERMINATE across files" in w for w in r["script_findings"]), r
+
+
+def test_MULTI_SCRIPT_zero_then_one_is_ALSO_indeterminate(tmp_path):
+    """Order-independent: the checker does not know which runs first, so neither
+    ordering may pass."""
+    prog = _sh(tmp_path, "p2.sh", "export RENQUANT_OPS_FAIL_CLOSED=0\n")
+    helper = _sh(tmp_path, "h2.sh", "export RENQUANT_OPS_FAIL_CLOSED=1\n")
+    assert F.audit_job(_plist(tmp_path, "j2.plist", env={"PATH": "/bin"},
+                              program=[prog]), [helper])["armed"] is False
+
+
+def test_ANTI_VACUITY_a_SINGLE_unambiguous_arming_file_still_arms(tmp_path):
+    """Without this the rule could reject everything and prove nothing."""
+    helper = _sh(tmp_path, "only.sh", "export RENQUANT_OPS_FAIL_CLOSED=1\n")
+    assert F.audit_job(_plist(tmp_path, "j3.plist", env={"PATH": "/bin"}),
+                       [helper])["armed"] is True
 
 
 def test_the_SCRIPT_and_PLIST_halves_agree_on_a_zero(tmp_path):

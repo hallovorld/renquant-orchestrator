@@ -65,7 +65,8 @@ FAILCLOSED_FLAGS = ("RENQUANT_STRICT_SUBREPO_PATHS", "RENQUANT_OPS_FAIL_CLOSED")
 #: took the fallback path — a fail-open false positive that also DISAGREED with the plist
 #: branch, which checks the value. The two halves of one check must not answer
 #: differently.
-_ASSIGN = r"(?:^|\n)\s*(?:export\s+)?{name}\s*=(?P<val>[^\n#]*)"
+_ASSIGN = (r"(?:^|\n)(?P<indent>[ \t]*)(?:export[ \t]+)?"
+           r"{name}[ \t]*=(?P<val>[^\n#]*)")
 
 
 def _plist_load(path: str) -> dict | None:
@@ -88,19 +89,23 @@ def _plist_load(path: str) -> dict | None:
 
 
 def script_assigns(path: str, name: str) -> tuple[bool, list[str]]:
-    """(arms_it, findings). ARMS IT only for a literal value of `1`.
+    """(unambiguously_arms, findings) for ONE file.
 
-    Returns every assignment's rendered value so a caller can see WHY. Three outcomes,
-    and conflating them is the defect this replaced:
+    ARMS only when this file contains **exactly one** assignment of `name`, that
+    assignment is at **top level** (column 0, optionally `export `), and its value is a
+    literal `1`.
 
-      * literal `1` (quoted or not)  -> arms the guard
-      * literal `0` / anything else   -> does NOT arm it; the job takes the fallback
-      * dynamic (`$OTHER`, a command substitution, a conditional) -> INDETERMINATE, and
-        treated as NOT arming. A value this checker cannot evaluate must not be read as
-        the safe one.
+    WHY NOT SHELL SEMANTICS `[codex on orch#695]`. An earlier version claimed
+    "last assignment wins". That is false in two ways this checker cannot see:
 
-    The LAST assignment wins, matching shell semantics: an early `=1` followed by a later
-    `=0` leaves the guard off.
+      * **across files** — `audit_job` inspects a ProgramArguments script AND sourced
+        helpers, and their real execution order is not knowable from the plist;
+      * **inside conditionals** — `if false; then FLAG=1; fi` is a syntactic assignment
+        and an unreachable one, and a regex cannot tell them apart.
+
+    Modelling reachability and source order is a static-analysis project, not an ops
+    check. So the rule is the conservative half of the review's own offer: **anything
+    other than one unambiguous effective assignment is INDETERMINATE and does not arm.**
     """
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -110,20 +115,25 @@ def script_assigns(path: str, name: str) -> tuple[bool, list[str]]:
     hits = list(re.finditer(_ASSIGN.format(name=re.escape(name)), text))
     if not hits:
         return False, []
-    findings, armed = [], False
-    for m in hits:
-        raw = (m.group("val") or "").strip()
-        val = raw.strip('"').strip("'").strip()
-        if any(c in raw for c in "$`("):
-            findings.append(f"{name}={raw!r} is DYNAMIC — cannot be evaluated here, "
-                            f"treated as NOT arming")
-            armed = False
-        elif val == "1":
-            armed = True
-        else:
-            findings.append(f"{name}={raw!r} does NOT arm the guard (only `1` does)")
-            armed = False
-    return armed, findings
+    if len(hits) > 1:
+        return False, [f"{name} assigned {len(hits)} times in this file — INDETERMINATE, "
+                       f"does not arm (execution order is not modelled)"]
+    m = hits[0]
+    # The indentation is captured by the pattern, not re-derived from offsets: an
+    # earlier attempt computed the line with `rfind("\n", 0, m.start())`, but the
+    # pattern itself begins at the preceding newline, so that walked back one line too
+    # far and the indent test never fired.
+    if m.group("indent"):
+        return False, [f"{name} is assigned in an INDENTED line — possibly inside a "
+                       f"conditional or function; INDETERMINATE, does not arm"]
+    raw = (m.group("val") or "").strip()
+    val = raw.strip('"').strip("'").strip()
+    if any(c in raw for c in "$`("):
+        return False, [f"{name}={raw!r} is DYNAMIC — cannot be evaluated here, does not "
+                       f"arm"]
+    if val != "1":
+        return False, [f"{name}={raw!r} does NOT arm the guard (only `1` does)"]
+    return True, []
 
 
 def audit_job(plist_path: str, extra_scripts: list[str]) -> dict:
@@ -149,13 +159,27 @@ def audit_job(plist_path: str, extra_scripts: list[str]) -> dict:
     scripts = [p for p in (program if isinstance(program, list) else [])
                if isinstance(p, str) and os.path.exists(p)]
     scripts += [p for p in extra_scripts if os.path.exists(p)]
+    # ACROSS FILES, TOO `[codex on orch#695]`. A flag armed in one script and disarmed
+    # in another is INDETERMINATE: the plist does not tell us which runs, or in what
+    # order relative to a sourced helper. Only a flag with exactly ONE unambiguously
+    # arming file and NO other assignment anywhere counts.
     from_script, script_findings = set(), []
     for f in FAILCLOSED_FLAGS:
+        arming, touching = [], []
         for sc in scripts:
             arms, why = script_assigns(sc, f)
             if arms:
-                from_script.add(f)
-            script_findings.extend(f"{os.path.basename(sc)}: {w}" for w in why)
+                arming.append(sc)
+            if why:
+                touching.append(sc)
+                script_findings.extend(f"{os.path.basename(sc)}: {w}" for w in why)
+        if len(arming) == 1 and not touching:
+            from_script.add(f)
+        elif arming:
+            script_findings.append(
+                f"{f}: armed in {[os.path.basename(x) for x in arming]} but also "
+                f"assigned/ambiguous in {[os.path.basename(x) for x in touching]} — "
+                f"INDETERMINATE across files, does not arm")
     from_script = sorted(from_script)
 
     return {**row, "status": "checked",

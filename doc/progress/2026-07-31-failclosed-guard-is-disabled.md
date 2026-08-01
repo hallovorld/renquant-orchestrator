@@ -119,3 +119,50 @@ dynamic assignment; last-assignment-wins in both orders; and an explicit test th
 **script and plist halves agree** on a zero.
 
 Suite: **5095 passed, 2 skipped**.
+
+---
+
+## ROUND 3 2026-08-01 — the "shell semantics" guarantee was false, and is withdrawn
+
+Reviewed `[codex on orch#695]`: *"the stated shell-semantics guarantee is still false
+across the scripts the audit accepts. `audit_job` marks a flag armed if any inspected
+script ends armed … Conditional assignments have the same issue: an unreachable
+`if false; then FLAG=1; fi` is counted as an effective assignment."*
+
+Correct on both. My "last assignment wins" claim held **inside one file** and I stated it
+as if it held generally. It does not:
+
+- **across files** — a `ProgramArguments` script setting `=1` and a sourced helper setting
+  `=0` both get inspected, and their real execution order is **not knowable from the
+  plist**;
+- **inside conditionals** — `if false; then FLAG=1; fi` is a syntactic assignment and an
+  unreachable one, and a regex cannot tell them apart.
+
+**Taking the conservative half of the review's own offer.** Modelling source order and
+reachability is a static-analysis project, not an ops check. So:
+
+| situation | verdict |
+|---|---|
+| exactly one **top-level** assignment, literal `1`, in exactly one inspected file, and no other assignment anywhere | **arms** |
+| two assignments in one file, either order | **INDETERMINATE** |
+| an **indented** assignment (possible conditional / function body) | **INDETERMINATE** |
+| armed in one file, assigned or ambiguous in another | **INDETERMINATE across files** |
+| dynamic value, or any value other than `1` | does not arm |
+
+Indeterminate never arms. **The withdrawn sentence is not replaced by a weaker version of
+itself** — the tool now claims only what a regex can establish.
+
+**A bug in my own indent check, found by the test:** I computed the line with
+`rfind("\n", 0, m.start())`, but the pattern *begins* at the preceding newline, so that
+walked back a line too far and the indent test never fired. The indentation is now
+captured by the pattern itself.
+
+**And a fixture that was asserting the fail-open:** `test_an_ASSIGNMENT_OF_ONE_counts`
+included `'  export  FLAG="1"'` — **indented** — and asserted it arms. Split out and
+inverted.
+
+**Live result unchanged: 0 of 1 jobs arm the guard.** Three rounds of corrections to this
+checker have not moved the measured conclusion once; each removed a way it could have said
+the opposite.
+
+23 tests (was 18). Suite: **5099 passed, 2 skipped**.
