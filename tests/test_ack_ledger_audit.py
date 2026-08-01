@@ -61,7 +61,11 @@ def _repo(tmp_path, history):
     return root
 
 
-def _ack(acked_at, clears="some condition", reason="r"):
+def _ack(acked_at, clears="renquant-orchestrator#1 is merged", reason="r"):
+    # The default clears_when carries a QUALIFIED ref so a fixture ledger is clean
+    # under the machine-checkability finding too. A repo#N token feeds no date into
+    # ack_expiry, so fixture expiries are untouched. Narrative-only fixtures must opt
+    # in explicitly — that state is now a finding, not a neutral default.
     return {"acked_at": acked_at, "clears_when": clears, "reason": reason}
 
 
@@ -148,7 +152,7 @@ def test_a_stamp_AHEAD_of_its_edit_is_flagged_as_CHRONOLOGY_CORRUPTION(tmp_path)
 
 def test_an_unreadable_acked_at_is_a_finding_not_a_pass(tmp_path):
     root = _repo(tmp_path, [({"j": {"acked_at": "soon", "reason": "r",
-                                    "clears_when": "c"}}, "2026-07-05")])
+                                    "clears_when": "orch#7 is merged"}}, "2026-07-05")])
     R = A.audit(dt.date(2026, 7, 6), str(root / A.LEDGER_REL), str(root))
     assert any("cannot be checked at all" in f for f in R["findings"])
 
@@ -342,3 +346,85 @@ def test_the_live_ledger_today_and_when_it_will_fire():
     assert n(dt.date(2026, 8, 1)) == 0
     assert n(dt.date(2026, 8, 4)) == 3
     assert n(dt.date(2026, 8, 15)) == 9
+
+
+# ---------------------------------------------------------------- clears_when ----
+#
+# Surveyed 2026-08-01 (orch#733): only 4 of 10 live acks carried ANY fragment a checker
+# could bind to, and 6 of the 9 expired rows expired purely via the acked_at backstop —
+# their clears_when never participated. The classifier makes narrative-only clearing
+# conditions a FINDING instead of an invisible default.
+
+def test_a_date_is_machine_checkable():
+    c = A.classify_clears_when("next NYSE session's 13:55 wrapper run (2026-07-20)")
+    assert A.BUCKET_DATE in c["buckets"] and c["machine_checkable"]
+
+
+def test_a_repo_qualified_ref_and_a_keyval_are_machine_checkable():
+    c = A.classify_clears_when(
+        "renquant-strategy-104#73 (wash_sale_min_material_npv = 1.00) is merged")
+    assert A.BUCKET_REF in c["buckets"]
+    assert A.BUCKET_ARTIFACT in c["buckets"]
+    assert A.BUCKET_BARE_REF not in c["buckets"], \
+        "a QUALIFIED ref must not also count as a bare one"
+
+
+def test_a_bare_ref_is_flagged_and_NOT_counted_as_checkable():
+    c = A.classify_clears_when("job redesigned — task #75")
+    assert A.BUCKET_BARE_REF in c["buckets"]
+    assert not c["machine_checkable"], \
+        "an unresolvable #NN must not buy machine-checkability"
+
+
+def test_narrative_only_is_empty_and_not_checkable():
+    c = A.classify_clears_when("next VIX-anomaly trigger runs the gated chain clean")
+    assert c["buckets"] == [] and not c["machine_checkable"]
+
+
+def test_a_path_token_counts_as_artifact():
+    c = A.classify_clears_when("restore logs/rq105/shadow_serving.log first")
+    assert A.BUCKET_ARTIFACT in c["buckets"]
+
+
+def test_date_detection_stays_in_parity_with_the_sentinels_extractor():
+    """The classifier's DATE bucket and ack_expiry's clears_when date extraction must
+    agree on every live row, or the audit would call a row narrative-only while the
+    sentinel is quietly deriving an expiry from it."""
+    sent = A._load_sentinel()
+    iso = getattr(sent, "_ISO_DATE", None)
+    assert iso is not None, "sentinel no longer exposes _ISO_DATE — re-pin this parity"
+    acks = sent.load_acks()
+    assert acks, "live ledger unreadable — parity test has no subject"
+    for name, ack in acks.items():
+        cw = str(ack.get("clears_when") or "")
+        mine = A.BUCKET_DATE in A.classify_clears_when(cw)["buckets"]
+        theirs = bool(iso.search(cw))
+        assert mine == theirs, (name, cw)
+
+
+def test_the_live_ledgers_checkability_is_measured_not_asserted():
+    """Pins the surveyed state so the doc cannot rot: 6 narrative-only rows (counting
+    the bare-#75 row, whose ref is unresolvable), 1 bare-ref row. A ledger edit that
+    adds a checkable clause SHOULD move these — update the pin with it."""
+    R = A.audit(dt.date(2026, 8, 1))
+    by = {r["job"]: r["clears_when_buckets"] for r in R["rows"]}
+    assert len(by) == 10
+    narrative = {j for j, b in by.items()
+                 if not any(x in (A.BUCKET_DATE, A.BUCKET_REF, A.BUCKET_ARTIFACT)
+                            for x in b)}
+    assert narrative == {
+        "com.renquant.conditional-retrain104",
+        "com.renquant.monthly-meta-label-retrain",
+        "com.renquant.retrain-panel104",
+        "com.renquant.rq104-degradation-sentinel",
+        "com.renquant.rq104-liveness",
+        "com.renquant.weekly-wf-promote",
+    }, narrative
+    # rq105-batch-scores-export legitimately contains BOTH a qualified ref and a later
+    # bare "#73" — the bucket records it, the finding's REF-guard keeps it quiet. The
+    # unresolvable-as-written set is bare WITHOUT any qualified ref:
+    assert [j for j, b in by.items()
+            if A.BUCKET_BARE_REF in b and A.BUCKET_REF not in b] == \
+        ["com.renquant.monthly-meta-label-retrain"]
+    assert sum(1 for f in R["findings"] if "narrative-only" in f) == 6
+    assert sum(1 for f in R["findings"] if "bare #NN" in f) == 1
