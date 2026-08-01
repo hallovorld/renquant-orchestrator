@@ -1,23 +1,42 @@
-# A killed programme's job has fired 883 times, and each one fails in 0.1s
+# A killed programme's job keeps firing, and every run fails in 0.1s
 
 **Bottom line.** `com.renquant.crypto-session` is still loaded and scheduled. Its target
 was deleted when G2 crypto was killed on 2026-07-18, so every firing since has failed
-instantly with `Errno 2`. **883 identical lines**, 161 KB, most recent **today**
-`[VERIFIED — the job's StandardErrorPath, 2026-07-31 19:13]`:
+instantly with `Errno 2`.
+
+**The numbers live in `doc/research/evidence/2026-07-31-crypto-session-dead-job/evidence.json`,
+not in this prose.** Reviewed `[codex on #700]`: *"the asserted live state is not auditable
+from this PR… while 'today' becomes stale immediately."* Correct, and it was already true
+when he wrote it — the first draft of this document said **883 runs**; the capture below,
+taken hours later, reads **900**. A run count is a
+moving quantity, so it belongs in a timestamped record with the command that produced it.
+
+| | captured `2026-08-01T06:40:16Z` |
+|---|---|
+| `runs` | **900** |
+| `last exit code` | **2** |
+| stderr | 168,300 bytes, **900 lines, 1 distinct** |
+| target in dev checkout | **False** |
+| target in run checkout | **False** |
+| still in the reviewed manifest | **True** |
+
+Every one of the 900 lines is byte-identical:
 
 ```
-/…/.venv/bin/python: can't open file
-  '/…/renquant-orchestrator/scripts/crypto_session_runner.py': [Errno 2]
+$HOME/git/github/RenQuant/.venv/bin/python: can't open file '$HOME/git/github/renquant-orchestrator/scripts/cr
 ```
 
-`[VERIFIED — launchctl print gui/<uid>/com.renquant.crypto-session]`: `runs = 883`,
-`last exit code = 2`. The script is absent from **both** checkouts — `main` and the run
-checkout — and the job is still in the reviewed manifest pointing at it.
+The record carries the capture timestamp, the exact commands, the plist's own sha256, the
+stderr file's sha256/mtime/size, both checkout HEADs and the manifest digest — so a later
+operator can tell **the state they observe** from **the state this document narrates**
+before touching a live job. Paths are redacted to `$HOME`.
 
 ## Why this is not just noise
 
-Its permanently-nonzero last exit is one of the **13 jobs currently alarming** on the
-rq104 sentinel, and one of the **8 that carry no ack at all**. So a killed programme is
+Its permanently-nonzero last exit is one of **13** nonzero jobs on the
+sentinel's surface, and one of the **8** carrying no ack at
+all — both counts now in the record (`alarm_surface`) with the ack ledger's own digest, so
+they age visibly instead of silently. So a killed programme is
 consuming a slot in the daily alarm surface, forever, for a failure nobody intends to
 fix. Alarms that can never clear are how a reader learns to skim the list.
 
@@ -26,7 +45,7 @@ fix. Alarms that can never clear are how a reader learns to skim the list.
 `ops/plist_install_preflight.py` (orch#667) refuses to **bootstrap** a plist whose target
 is absent from the run checkout. Nothing refuses to keep **running** a job whose target
 has since vanished. Same predicate, opposite end of the lifecycle — and the uninstall end
-is the one with 883 failures behind it.
+is the one with 900 failures behind it `[record: `launchctl.runs`, captured 2026-08-01T06:40:16Z]`.
 
 ## What this PR deliberately does NOT do
 

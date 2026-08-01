@@ -1,0 +1,87 @@
+{
+  "alarm_surface": {
+    "ack_ledger": {
+      "n_rows": 10,
+      "path": "$HOME/git/github/renquant-orchestrator-run/ops/renquant104/sentinel_acks.json",
+      "sha256": "93162823017f6f3bf1f9813384ea2cb222a3a5fe64d966195a2da8f80a57dd3b"
+    },
+    "n_nonzero_jobs": 13,
+    "n_nonzero_with_an_ack": 5,
+    "n_nonzero_without_an_ack": 8,
+    "nonzero_without_an_ack": [
+      "com.renquant.agent-pr-loop",
+      "com.renquant.crypto-session",
+      "com.renquant.rq104-scorer-identity",
+      "com.renquant.rq104-shadow-scorer-sentinel",
+      "com.renquant.rq105-liveness",
+      "com.renquant.rq105-shadow-serving",
+      "com.renquant.run-surface-drift",
+      "com.renquant.weekly-apy104"
+    ],
+    "source": "launchctl list, filtered to com.renquant.* with a nonzero last exit",
+    "this_job_has_an_ack": false,
+    "this_job_is_nonzero": true
+  },
+  "captured_at_utc": "2026-08-01T06:40:16Z",
+  "checkout_identities": {
+    "dev": {
+      "head": "e447aaa4ac9599d3670479dddcbedb32a40ad784",
+      "path": "$HOME/git/github/renquant-orchestrator"
+    },
+    "run": {
+      "head": "6828b29cdc3cbf5104e0d4fff7aa7b68c7036b2b",
+      "path": "$HOME/git/github/renquant-orchestrator-run"
+    }
+  },
+  "commands": [
+    "launchctl print gui/$(id -u)/com.renquant.crypto-session",
+    "plistlib.load($HOME/Library/LaunchAgents/com.renquant.crypto-session.plist)",
+    "stat + read of the plist's StandardErrorPath",
+    "os.path.exists on the target in both checkouts"
+  ],
+  "label": "com.renquant.crypto-session",
+  "launchctl": {
+    "last_exit_code": "last exit code = 2",
+    "runs": "runs = 900",
+    "state": "state = not running"
+  },
+  "manifest": {
+    "entry": {
+      "program_args": [
+        "$HOME/git/github/RenQuant/.venv/bin/python",
+        "$HOME/git/github/renquant-orchestrator/scripts/crypto_session_runner.py",
+        "--once"
+      ]
+    },
+    "entry_present": true,
+    "n_jobs": 43,
+    "path": "ops/launchd_manifest.json",
+    "sha256": "2011706afbeed98df16b5369293a369fa298fe0ddf45cd67c6c22e8cd99f2372"
+  },
+  "plist": {
+    "path": "$HOME/Library/LaunchAgents/com.renquant.crypto-session.plist",
+    "program_args": [
+      "$HOME/git/github/RenQuant/.venv/bin/python",
+      "$HOME/git/github/renquant-orchestrator/scripts/crypto_session_runner.py",
+      "--once"
+    ],
+    "sha256": "8d8390bcc2eaf1cc996ed2b91c26643cb6c179338bb6c5a4c69d27200567d840"
+  },
+  "schema": "dead_job_evidence.v1",
+  "stderr": {
+    "bytes": 168300,
+    "distinct_lines": [
+      "$HOME/git/github/RenQuant/.venv/bin/python: can't open file '$HOME/git/github/renquant-orchestrator/scripts/crypto_session_runner.py': [Errno 2] No such file or directory"
+    ],
+    "mtime_utc": "2026-08-01T06:28:25Z",
+    "n_distinct_lines": 1,
+    "n_lines": 900,
+    "path": "$HOME/Library/Logs/renquant/crypto-session.err.log",
+    "sha256": "ac8de8cd531206350d068121be5a2dce980adf3f1d9a908a1452d8eda074795b"
+  },
+  "target": {
+    "exists_in_dev_checkout": false,
+    "exists_in_run_checkout": false,
+    "path": "$HOME/git/github/renquant-orchestrator/scripts/crypto_session_runner.py"
+  }
+}
