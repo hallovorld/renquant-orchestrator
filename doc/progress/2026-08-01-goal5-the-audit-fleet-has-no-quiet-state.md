@@ -61,4 +61,4 @@ a machine landing and the operator's call.
 ## Tests
 
 13, including both traps as executable checks and the "never writes the ledger" assertion.
-Suite: **5197 passed, 2 skipped**.
+Suite: **5300 passed, 2 skipped**.
