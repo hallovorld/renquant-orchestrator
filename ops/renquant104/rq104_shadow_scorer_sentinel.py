@@ -245,6 +245,18 @@ TASK_LEVEL_SHADOW_NAME = "__task_level__"
 STATE_NO_SHADOW_MODELS = "no_shadow_models"
 
 
+#: A coverage FRACTION cannot exceed 1. Exactly 1.0 is the healthy case (`hf_patchtst`
+#: reports it every day), so the ceiling is `> 1.0`, not `>= 1.0`. A small tolerance is
+#: deliberately NOT allowed: 1.1039 is not a rounding artefact, and a tolerance would be
+#: a threshold nobody measured hiding a quantity nobody explained.
+COVERAGE_CEILING = 1.0
+
+#: A record whose numbers cannot be what they claim to be. Distinct from DEGRADED (the
+#: lane ran and is untrustworthy) and from LOAD_FAIL (it did not run): here the LANE may
+#: be fine and the RECORD is not describable.
+MALFORMED_RECORD = "malformed_record"
+
+
 def _is_task_level(name: str) -> bool:
     return name == TASK_LEVEL_SHADOW_NAME
 
@@ -393,6 +405,32 @@ def classify(r: ShadowHealthRecord) -> tuple[str, list[str]]:
     # feed dark: a day that had runs but yields no shadow signal from either feed
     if not r.feed_present:
         return FEED_DARK, ["no shadow health record and no collected scores"]
+
+    # RECORD VALIDITY, ahead of the status branch and independent of it.
+    #
+    # `coverage_frac` is `n_scored / n_candidates` -- a FRACTION, so a value above 1
+    # means the lane scored more names than the day offered. The only coverage check was
+    # a FLOOR, and it lives in the DB-fallback branch, which these records never reach:
+    # they carry an explicit `status`, so the producer's verdict is passed through and
+    # the number is never examined.
+    #
+    # MEASURED 2026-08-01 on the live health log: `topdecile_clf_blend_leg` exceeded 1.0
+    # on 6 OF 6 DAYS (85 scored vs 77 candidates on 07-28; peak 1.1039) while
+    # `hf_patchtst` was exactly 1.0000 every day. Six consecutive days of an impossible
+    # fraction, unflagged -- and the lane was already alarming for staleness, so the
+    # impossible number rode along inside a message about something else.
+    #
+    # This does NOT decide which reading holds: the lane may be scoring a legitimately
+    # wider universe than the candidate set, in which case the DENOMINATOR is wrong
+    # rather than the lane. Both need a human. What the sentinel must not do is keep
+    # treating a quantity that cannot be a coverage as one.
+    if r.coverage_frac is not None and r.coverage_frac > COVERAGE_CEILING:
+        return MALFORMED_RECORD, [
+            f"coverage_frac {r.coverage_frac:.4f} > 1.0 (n_scored={r.n_scored} > "
+            f"n_candidates={r.n_candidates}) — not a coverage fraction. Either the lane "
+            f"scored names outside the day's candidate set, or the denominator is not "
+            f"the set it is compared against. The floor check cannot tell those apart "
+            f"and passes on either."]
 
     status = _effective_status(r)
     if status is not None:
