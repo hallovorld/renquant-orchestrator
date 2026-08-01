@@ -142,12 +142,37 @@ def test_main_EXITS_NONZERO_when_boosters_diverge(tmp_path):
                    "--rows", "400"]) == 1
 
 
-def test_the_report_states_the_input_is_SYNTHETIC_and_names_the_bias(tmp_path, capsys):
-    """The number is only interpretable with its caveat, and the caveat has a DIRECTION:
-    correlated real inputs push tree models toward agreeing, so this is a bound."""
+def test_the_report_states_the_input_is_SYNTHETIC_and_REFUSES_a_direction(
+        tmp_path, capsys):
+    """codex on #698: an earlier version claimed correlated real inputs push tree models
+    toward agreeing, making this a BOUND. That direction is not established and is not a
+    general property of tree ensembles — an independent Gaussian can yield more OR less
+    agreement than the served distribution. The report must now refuse the direction, not
+    supply one."""
     _artifact(tmp_path, "a.json", 1)
     _artifact(tmp_path, "b.json", 4)
     P.main(["--root", str(tmp_path), "--served-artifact", "a.json", "--rows", "400"])
     out = capsys.readouterr().out
-    assert "SYNTHETIC" in out
-    assert "plausibly HIGHER" in out and "No correction is applied" in out
+    assert "SYNTHETIC PROBE ONLY" in out
+    assert "MORE or LESS agreement" in out
+    assert "the direction is not established" in out
+
+
+def test_the_report_forbids_the_THREE_inferences_it_once_supported(tmp_path, capsys):
+    """Naming them explicitly, because each was published and each has to be findable as
+    withdrawn: a production cost, a bound, and a claim about real inputs."""
+    _artifact(tmp_path, "a.json", 1)
+    _artifact(tmp_path, "b.json", 4)
+    P.main(["--root", str(tmp_path), "--served-artifact", "a.json", "--rows", "400"])
+    out = capsys.readouterr().out
+    assert "not a cost, not a bound" in out
+    assert "requires a real-panel comparison" in out
+
+
+def test_the_report_STILL_states_what_the_numbers_DO_establish(tmp_path, capsys):
+    """A retraction that leaves nothing standing is its own kind of over-correction: the
+    functions genuinely differ, and that is worth saying."""
+    _artifact(tmp_path, "a.json", 1)
+    _artifact(tmp_path, "b.json", 4)
+    P.main(["--root", str(tmp_path), "--served-artifact", "a.json", "--rows", "400"])
+    assert "not the same FUNCTION" in capsys.readouterr().out

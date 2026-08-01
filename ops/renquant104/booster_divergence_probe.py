@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Do same-recipe boosters RANK differently? (GOAL-4)
+"""How do same-recipe boosters behave UNDER ONE SPECIFIED SYNTHETIC PROBE? (GOAL-4)
 
 orch#692 established that 30 artifacts share one admission fingerprint while holding
 **12 distinct boosters**, and it deliberately stopped there: *"a digest mismatch means
@@ -7,27 +7,37 @@ different learned models. It does NOT follow that their predictions differ mater
 This closes that gap — and it closes it in the direction that makes the gate's blindness
 costly rather than cosmetic.
 
-MEASURED 2026-07-31 — 12 boosters, one common input, N=2000 rows, seed 20260731:
+MEASURED 2026-07-31 — 12 boosters, one common synthetic input, N=2000 rows,
+seed 20260731:
 
     spearman vs the served booster : min 0.4814  median 0.5980  max 0.8313
     top-decile overlap             : min 29.0%   median 40.0%
 
-So two artifacts the gate treats as **the same recipe** disagree on roughly **60% of the
-top decile**. Diversity is not GOAL-4's blocker; attribution is, and the cost of not
-having it is now a number.
+**These are results under this probe, and nothing else.** The input is standard normal in
+the post-normalisation feature space: 158 of 172 features are `global_z` upstream and 5
+are `robust_z`, but **9 are `identity`** and for those a standard normal is simply the
+wrong distribution.
 
-THE INPUT IS SYNTHETIC, AND THAT IS THE MAIN CAVEAT. Rows are standard normal in the
-POST-normalisation feature space. That is a defensible stand-in because the artifacts
-normalise upstream — `feature_norm_kind` is `global_z` on **158** of 172 features and
-`robust_z` on **5** — but **9 features are `identity`**, unnormalised, and for those a
-standard normal is simply the wrong distribution.
+WHAT MAY NOT BE INFERRED FROM THEM `[codex on orch#690/#698]`. An earlier version of this
+docstring called the numbers a **bound** on real-panel disagreement, on the grounds that
+*"correlated inputs generally push tree models toward agreeing"*. **That direction is not
+established here and is not a general property of tree ensembles.** An arbitrary
+independent Gaussian input can yield either MORE or LESS agreement than the served feature
+distribution — especially with identity-scaled features and nonlinear splits. The claim is
+withdrawn, and with it three things it was used to support:
 
-AND THE DIRECTION OF THE REMAINING BIAS IS KNOWABLE. Real cross-sectional feature vectors
-are strongly correlated; these draws are independent. Correlated inputs generally push
-tree models toward AGREEING, so the real-panel overlap is plausibly **higher** than 40%.
-This number is therefore better read as a bound on how far apart these models can get than
-as an estimate of how far apart they are on a trading day. Saying which way the bias runs
-is not the same as correcting for it, and no correction is applied.
+  * that the gate's inability to distinguish these artifacts carries a ~60% cost in
+    production;
+  * that the measured spread is a bound in either direction;
+  * that the staged candidates are "not near-copies" of the incumbent **on real inputs**.
+
+What the numbers do establish is narrower and still worth having: **as functions, these 12
+boosters are not the same function.** Fed identical vectors they rank them differently.
+Whether that separation survives on the served cross-section is unmeasured.
+
+THE REQUIRED EVIDENCE for any production claim is a real served-panel comparison. That
+needs the 172-feature panel rebuilt through the pipeline's feature engineering, which this
+read-only probe does not do.
 
 WHAT WOULD REPLACE THIS. Scoring all 12 on a real served panel. That needs the 172-feature
 panel rebuilt through the pipeline's feature engineering, which this read-only probe does
@@ -131,14 +141,15 @@ def probe(boosters: dict, served: str, n_rows: int, seed: int) -> dict:
         "top_decile_overlap_median": float(np.median(
             [r["top_decile_overlap"] for r in others])) if others else None,
         "scope_note": (
-            "The input is SYNTHETIC: standard normal in the post-normalisation feature "
-            "space. Defensible because 163 of 172 features are z-scored upstream, but 9 "
-            "are `identity` and for those it is the wrong distribution. Real "
-            "cross-sectional vectors are strongly correlated while these draws are "
-            "independent, and correlated inputs generally push tree models toward "
-            "AGREEING -- so the real-panel overlap is plausibly HIGHER. Read this as a "
-            "bound on how far apart these models can get, not an estimate of how far "
-            "apart they are on a trading day. No correction is applied."),
+            "RESULTS UNDER THIS SYNTHETIC PROBE ONLY. The input is standard normal in "
+            "the post-normalisation feature space; 9 of 172 features are `identity` and "
+            "for those it is the wrong distribution. NO production inference follows: "
+            "not a cost, not a bound, and not a claim about real-panel agreement. An "
+            "independent Gaussian can yield MORE or LESS agreement than the served "
+            "distribution -- the direction is not established and is not a general "
+            "property of tree ensembles. What this establishes is that these boosters "
+            "are not the same FUNCTION. Whether that separation survives on the served "
+            "cross-section requires a real-panel comparison, which this does not do."),
     }
 
 
