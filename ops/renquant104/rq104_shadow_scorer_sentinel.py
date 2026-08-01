@@ -1107,6 +1107,42 @@ CHECKS = (
 # main
 # ---------------------------------------------------------------------------
 
+def default_strategy_config() -> str:
+    """The PINNED strategy config, resolved without requiring the package on the path.
+
+    WHY THIS EXISTS. orch#702 added the config-lane drift check behind `--config`, with no
+    default — so nothing supplied it and the check never ran. Measured 2026-08-01:
+    `RQ104_STRATEGY_CONFIG` appears **only** in this file's own default and its own
+    "not requested" message; it is set in no installed plist. A check that is merged and
+    never invoked is worth exactly nothing, and this repo has a rule about that which I
+    had just applied to five other detectors in orch#701.
+
+    Resolution order, and it stops at the PINNED config on purpose: twin-registry R5
+    records that the runner reads the pinned subrepo copy, not the umbrella one.
+
+      1. ``RQ104_STRATEGY_CONFIG``
+      2. ``<github root>/renquant-strategy-104/configs/strategy_config.json``, derived
+         from this file's own location
+
+    An unresolvable default returns "" — which `main` still reports as NOT REQUESTED and
+    keeps quiet, so a machine without the pinned checkout does not acquire a permanent
+    alarm. Quiet-when-absent and quiet-when-clean are different states and both are
+    printed.
+    """
+    env = os.environ.get("RQ104_STRATEGY_CONFIG")
+    if env:
+        return env
+    here = os.path.abspath(__file__)
+    repo = here
+    for _ in range(4):
+        repo = os.path.dirname(repo)
+        cand = os.path.join(os.path.dirname(repo), "renquant-strategy-104",
+                            "configs", "strategy_config.json")
+        if os.path.isfile(cand):
+            return cand
+    return ""
+
+
 def config_declared_lanes(config_path: str) -> tuple[list[str], str]:
     """Shadow-lane names the strategy config declares, plus a reason if it could not be
     read. Never raises: a sentinel that dies reading a config alarms as a crash.
@@ -1175,9 +1211,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--as-of", default=None, help="ISO date (default: today)")
     parser.add_argument(
-        "--config", default=os.environ.get("RQ104_STRATEGY_CONFIG", ""),
+        "--config", default=default_strategy_config(),
         help="strategy_config.json whose `shadow_models` are compared against the "
-             "watched lanes; empty disables the check, which is reported, not silent")
+             "watched lanes. Defaults to the PINNED config (R5: the runner reads that "
+             "one). Empty disables the check, which is reported, not silent")
     args = parser.parse_args(argv)
 
     today = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()

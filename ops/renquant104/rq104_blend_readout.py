@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from datetime import date
@@ -275,10 +276,32 @@ def mature_fill(ledger: Path, db: sqlite3.Connection) -> int:
             row["spread_blend"] = float(np.mean(rb))
             row["realized"] = True
             filled += 1
-    # Write whenever anything changed — including telemetry-only updates, so a
-    # session that is stuck unresolvable shows WHY on the next pass rather than
-    # looking untouched.
-    ledger.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    # WHENEVER ANYTHING CHANGED — now actually. This comment has said "write whenever
+    # anything changed" since the function was written, and the line under it wrote
+    # UNCONDITIONALLY: no comparison, no `if`. Measured 2026-08-01 by running the readout
+    # on a non-session day with `filled == 0` — the live ledger's mtime moved anyway.
+    #
+    # Two consequences, neither cosmetic:
+    #   * READING THE EVIDENCE MUTATED IT. Any diagnostic invocation rewrote an
+    #     append-only ledger. That is how an analysis pass becomes a write to a live data
+    #     surface — the thing the append-only design exists to prevent.
+    #   * A CRASH TRUNCATED IT. `write_text` truncates and then writes; an interrupt
+    #     between those leaves an empty or partial ledger, and no other copy of these
+    #     sessions exists.
+    #
+    # Fixed by comparing rendered bytes against what is on disk — which preserves the
+    # original intent exactly, since a telemetry-only update still differs and still
+    # writes — and by temp file + `os.replace`, atomic on POSIX, so an interrupted run
+    # leaves the previous ledger intact.
+    rendered = "".join(json.dumps(r) + "\n" for r in rows)
+    try:
+        current = ledger.read_text()
+    except OSError:
+        current = None          # unreadable/absent -> write; NOT "assume it matches"
+    if current != rendered:
+        tmp = ledger.with_name(ledger.name + ".tmp")
+        tmp.write_text(rendered)
+        os.replace(tmp, ledger)
     return filled
 
 
