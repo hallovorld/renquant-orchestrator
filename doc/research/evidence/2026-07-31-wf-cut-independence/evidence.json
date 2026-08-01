@@ -60,7 +60,7 @@
   "producer": {
     "gate_eval_scope": "walkforward_manifest",
     "gate_run_at": "2026-07-05T22:25:10.206611",
-    "gate_sanity_manifest_path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/sim/walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json",
+    "gate_sanity_manifest_path": "walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json",
     "kind": "panel_ltr_xgboost",
     "label_col": "fwd_60d_excess",
     "side_label": null,

@@ -193,3 +193,44 @@ record rather than the producer. Caught by mutating the helper and watching noth
 mutation now fails.
 
 Tests 21 → 27.
+
+---
+
+## Round N+1 2026-08-01 — the committed evidence carried my workstation's layout
+
+Reviewed `[codex on orch#696]`: *"the committed producer block preserves
+`gate_sanity_manifest_path` as an absolute `/Users/...` path from artifact metadata. That
+leaks workstation layout and makes the record non-portable, while `corpus_provenance`
+already supplies the canonical repository-relative manifest path."*
+
+Correct, and the duplication makes it plain — **the same file appears twice** in the
+emitted evidence `[本次实测 2026-08-01]`:
+
+```
+corpus_provenance.repo_relative_path : backtesting/renquant_104/artifacts/sim/…json
+producer.gate_sanity_manifest_path   : /Users/renhao/git/github/RenQuant/backtesting/…json
+```
+
+so the absolute string was never the useful part of the field.
+
+**Redacted to the basename, not dropped.** A reader must still be able to tell *which*
+manifest was stamped — the only thing the field was ever for — which is the same
+basename+digest principle the previous round applied: enough to **verify**, never to
+**find**.
+
+**The rule is positive, not a blacklist.** `_portable_path` keeps the last path component
+rather than stripping known prefixes. Absolute is not the only leaky shape — `~/…` and
+`../../…` expose layout just as well — and a blacklist is the fail-open version: the shape
+nobody enumerated passes straight through. A non-string returns `None` rather than being
+stringified into the record as if the producer had written a path.
+
+**The evidence was re-emitted, and every published number is unchanged**: redundancy
+**1.3346**, corpus **882 d**, overlaps **183 d / 50%** and **90 d / 25%**, ceiling **2
+disjoint windows**. The evidence diff is one line.
+
+`grep -c "/Users/\|/home/"` on the committed evidence: **0**.
+
+**Tests: 33 (was 27).** The regression codex asked for asserts against the artefact that
+actually ships, and matches `/Users/`, `/home/`, `C:\Users\`, `$HOME` and `~/` rather than
+a leading `/` alone — which would flag the legitimate repository-relative reference sitting
+beside it. Suite: **5154 passed, 2 skipped**, run before the push.

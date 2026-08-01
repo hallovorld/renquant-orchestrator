@@ -335,3 +335,71 @@ def test_the_PRODUCER_still_emits_repo_ref_and_relative_path():
     rel = p["repo_relative_path"]
     assert rel.startswith("doc/research/evidence/") and rel.endswith("evidence.json")
     assert not rel.startswith("/")
+
+
+# ---------------------------------------------------------------------------
+# Committed evidence must be PORTABLE `[codex on orch#696]`
+# ---------------------------------------------------------------------------
+# The producer block emitted `gate_sanity_manifest_path` verbatim from artifact
+# metadata, which on this machine is
+# `/Users/renhao/git/github/RenQuant/backtesting/.../walkforward_manifest_...json`.
+# That leaks the workstation layout into a committed record and makes it unreadable
+# anywhere else, while `corpus_provenance` already carries the canonical
+# repository-relative reference.
+
+import re as _re  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_EVIDENCE = (_Path(__file__).resolve().parent.parent / "doc" / "research" / "evidence"
+             / "2026-07-31-wf-cut-independence" / "evidence.json")
+
+#: Home-directory shapes on the three platforms this could ever be produced on. Matching
+#: a leading `/` alone would flag legitimate repository-relative POSIX references.
+_HOME_PATH = _re.compile(r"(?:/Users/|/home/|[A-Za-z]:\\\\Users\\\\|\\$HOME|~/)")
+
+
+def test_the_COMMITTED_evidence_contains_no_absolute_home_path():
+    """The regression codex asked for, asserted against the artefact that ships."""
+    assert _EVIDENCE.exists(), _EVIDENCE
+    hits = _HOME_PATH.findall(_EVIDENCE.read_text())
+    assert not hits, f"emitted evidence carries {len(hits)} home path(s): {hits[:3]}"
+
+
+def test_a_machine_local_path_is_reduced_to_its_BASENAME():
+    from ops.renquant104 import wf_cut_independence as W  # noqa: PLC0415
+    got = W._portable_path(
+        "/Users/someone/git/RenQuant/backtesting/renquant_104/artifacts/sim/m.json")
+    assert got == "m.json"
+
+
+def test_TILDE_and_PARENT_relative_shapes_are_reduced_too():
+    """The rule is positive — keep the last component — because a blacklist of prefixes
+    is the fail-open version: the shape nobody enumerated passes straight through."""
+    from ops.renquant104 import wf_cut_independence as W  # noqa: PLC0415
+    assert W._portable_path("~/secret/layout/m.json") == "m.json"
+    assert W._portable_path("../../elsewhere/m.json") == "m.json"
+    assert W._portable_path("C:\\Users\\someone\\m.json") == "m.json"
+
+
+def test_a_NON_STRING_becomes_None_not_a_stringified_object():
+    from ops.renquant104 import wf_cut_independence as W  # noqa: PLC0415
+    for bad in (7, [], {}, None, object()):
+        assert W._portable_path(bad) is None
+
+
+def test_an_EMPTY_value_is_None_not_an_empty_string():
+    from ops.renquant104 import wf_cut_independence as W  # noqa: PLC0415
+    assert W._portable_path("") is None
+    assert W._portable_path("/") is None
+    # A trailing slash keeps the last COMPONENT, and that is correct: a directory name
+    # is no more a layout leak than a file name, and returning None here would discard
+    # the only identifying part of the value.
+    assert W._portable_path("/some/dir/") == "dir"
+
+
+def test_the_producer_block_still_NAMES_the_manifest_it_redacted():
+    """Redacted, not dropped: a reader must still be able to tell WHICH manifest was
+    stamped, which is the only thing the field was ever for."""
+    from ops.renquant104 import wf_cut_independence as W  # noqa: PLC0415
+    out = W._producer_identity({}, {"sanity_manifest_path": "/Users/x/a/b/wf_m.json"})
+    assert out["gate_sanity_manifest_path"] == "wf_m.json"

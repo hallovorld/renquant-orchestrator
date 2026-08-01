@@ -56,6 +56,7 @@ import hashlib
 import json
 import os
 import subprocess
+from pathlib import PurePosixPath
 import sys
 
 
@@ -259,6 +260,24 @@ def _repo_provenance(path: str) -> dict:
     return out
 
 
+def _portable_path(value: object) -> str | None:
+    """A path fit to COMMIT: basename only, never a machine-local prefix.
+
+    Applied to every path lifted out of artifact metadata before it reaches emitted
+    evidence. Absolute is not the only leaky shape — a `~`-relative or a
+    parent-relative (`../../`) string exposes layout just as well — so the rule is
+    positive (keep the last component) rather than a blacklist of prefixes to strip.
+    A blacklist is the fail-open version: the shape nobody enumerated passes through.
+
+    A non-string is returned as `None`. Stringifying it would put whatever it was into
+    the record as if the producer had written a path.
+    """
+    if not isinstance(value, str):
+        return None
+    tail = PurePosixPath(value.replace("\\", "/")).name
+    return tail or None
+
+
 def _producer_identity(payload: dict, block: dict) -> dict:
     """Producer / run / artifact identity, taken from the artifact's OWN metadata.
 
@@ -275,7 +294,17 @@ def _producer_identity(payload: dict, block: dict) -> dict:
         "label_col": payload.get("label_col"),
         "gate_run_at": block.get("run_at"),
         "gate_eval_scope": block.get("wf_eval_scope"),
-        "gate_sanity_manifest_path": block.get("sanity_manifest_path"),
+        # NEVER THE RAW PATH `[codex on orch#696]`. This emitted
+        # `/Users/renhao/git/github/RenQuant/backtesting/...` straight out of artifact
+        # metadata: it leaks the workstation layout into committed evidence and makes the
+        # record unreadable on any other machine. `corpus_provenance` already carries the
+        # canonical repository-relative manifest reference, so the absolute string was
+        # never the useful part of this field.
+        #
+        # Redacted rather than dropped: the BASENAME still tells a reader which manifest
+        # was stamped, which is the only thing this field was for. Same principle as the
+        # basename+digest treatment one commit earlier — enough to VERIFY, never to FIND.
+        "gate_sanity_manifest_path": _portable_path(block.get("sanity_manifest_path")),
     }
 
 
