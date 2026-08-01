@@ -1,13 +1,23 @@
 """GOAL-6 — the question orch#673 left: is the regime criterion satisfiable at all?
 
-It is. `BEAR` clears the placebo leg on **11 of 11** artifacts with a placebo IC at
-**4%** of its real IC. So the criterion is not impossible, and #673's two hypotheses
-("the gate is right and the models are bad" / "the gate is mis-specified") are BOTH
-wrong.
+`BEAR` clears the placebo leg on **11 of 11** artifacts with a placebo IC at **4%** of
+its real IC, so the criterion is not impossible.
 
-What actually happens in `BULL_CALM` and `CHOPPY` is that a **60-day-shifted label
-out-ranks the aligned one** — median placebo/real of **2.15** and **6.61**. That is a
-property of the labels in those regimes, not of the model's skill.
+TWO CLAIMS WITHDRAWN, both by orch#680 (merged) rather than by review:
+
+  * ~~"#673's two hypotheses are BOTH wrong"~~ — the demonstration comes from 55 dates
+    in the panel's smallest regime. That is insufficient evidence of generalisability to
+    the regimes that carry the panel, so it excludes only the strictly weaker claim that
+    the criterion passes NOWHERE. Mis-specification is NOT excluded.
+  * ~~"that is a property of the labels in those regimes"~~ — a mechanism, and nothing
+    here measures it. A persistent cross-section would produce this profile; so would
+    other things.
+
+WHAT SURVIVES, and it is a decomposition fact rather than an inference: in `BULL_CALM`
+and `CHOPPY` a **60-day-shifted label out-ranks the aligned one** (median placebo/real
+**2.15** and **6.61**), so the failing conjunct is the **placebo ceiling** while
+`mean_ic` stays positive — the skill floor is met. Why the shifted label ranks that well
+is not established here.
 """
 
 from __future__ import annotations
@@ -31,9 +41,10 @@ def _median_ratio(rows):
     return statistics.median(v)
 
 
-def test_the_criterion_IS_satisfiable():
-    """THE answer. Without a regime that passes, 'the models are bad' and 'the gate
-    is impossible' would be indistinguishable."""
+def test_the_criterion_IS_satisfiable_SOMEWHERE():
+    """Without a regime that passes, "the models are bad" and "the criterion is
+    impossible" would be indistinguishable. That is ALL this establishes: one regime
+    on 55 dates. It does not exclude mis-specification — see orch#680."""
     bear = _reg("BEAR")
     assert len(bear) == 11
     assert all(r["placebo_leg_ok"] == "True" for r in bear)
