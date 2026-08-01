@@ -158,3 +158,149 @@ def test_registry_watches_the_job_from_the_incident():
 def test_classify_run(text, expected, tmp_path):
     job = _job(tmp_path, {})
     assert S.classify_run(text, job) == expected
+
+
+# ------------------------------------------------- 2026-08-01 registry expansion ----
+#
+# Three promotion-adjacent jobs joined WATCHED after the #724 completeness pass. The
+# patterns below are pinned to the REAL lines they were read from — refusals off dated
+# logs, actions off the wrapper scripts' emitters (no success has ever occurred in any
+# log window, which is precisely why these jobs need watching).
+
+def _watched(name):
+    return next(j for j in S.WATCHED if j.name == name)
+
+
+def test_weekly_wf_promote_patterns_classify_the_real_lines():
+    j = _watched("weekly-wf-promote")
+    import re
+    assert re.search(j.refusal_re,
+                     "WF gate REJECTED staged model — production unchanged.")
+    assert re.search(j.action_re,
+                     "=== weekly_wf_promote PASSED at Sat Aug  1 — gate summary ===")
+    assert re.search(j.failure_re, "Promote FAILED — production may still be on prior")
+
+
+def test_conditional_retrain_has_no_refusal_vocabulary_and_real_failure_lines():
+    j = _watched("conditional-retrain104")
+    import re
+    assert j.refusal_re is None
+    assert re.search(j.failure_re,
+                     "=== Gated WF promote chain FAILED (anomaly_vix_5pct) at Fri ===")
+    assert re.search(j.action_re,
+                     "=== Gated WF promote chain complete (anomaly_vix_5pct) at ===")
+    # the healthy idle line must classify as NEITHER refusal nor action nor failure
+    idle = "anomaly-triggers: No anomaly triggers fired; no retrain needed"
+    assert not re.search(j.action_re, idle)
+    assert not re.search(j.failure_re, idle)
+
+
+def test_retrain_panel_patterns_classify_the_real_lines():
+    j = _watched("retrain-panel104")
+    import re
+    assert j.refusal_re is None
+    assert re.search(j.failure_re,
+                     "=== retrain_panel delegated weekly_wf_promote FAIL at Sun ===")
+    assert re.search(j.action_re,
+                     "=== retrain_panel delegated weekly_wf_promote PASS at Sun ===")
+    assert not re.search(j.failure_re, "weekly_wf_promote already ran today")
+
+
+def test_a_none_refusal_job_never_classifies_a_run_as_refused():
+    """A job with no refusal vocabulary must classify a decision-less run as a SKIP,
+    never as refused — exercised through the REAL classifier."""
+    j = _watched("conditional-retrain104")
+    out = S.classify_run("the job looked around and did nothing today", j)
+    assert out != "refused", out
+
+def test_weekly_wf_promote_left_the_unwatchable_registry():
+    assert "weekly-wf-promote" not in S.UNWATCHABLE_LANES
+    assert any(j.name == "weekly-wf-promote" for j in S.WATCHED)
+
+
+@pytest.mark.parametrize("script,pattern", [
+    ("scripts/weekly_wf_promote.sh", "weekly_wf_promote PASSED"),
+    ("scripts/conditional_retrain_104.sh", "Gated WF promote chain complete"),
+    ("scripts/retrain_panel.sh", "delegated weekly_wf_promote PASS"),
+])
+def test_action_patterns_are_pinned_to_their_emitter_sources(script, pattern):
+    """The doctrine amendment's enforcement: an action pattern read off source instead
+    of history must MATCH that source, so a reworded emitter breaks here rather than
+    silently blinding the watch. Skips LOUDLY where the umbrella is absent (CI)."""
+    src = Path("/Users/renhao/git/github/RenQuant") / script
+    if not src.exists():
+        pytest.skip(f"{src} absent on this machine — emitter pin not verifiable here")
+    assert pattern in src.read_text(errors="ignore"), (
+        f"{script} no longer emits '{pattern}' — the watch for it is now blind; "
+        f"update the pattern from the CURRENT emitter, do not delete this test")
+
+
+# ----------------------------------------------- emitter contract (CI-enforced) ----
+#
+# [codex on orch#738]: source-derived patterns proven only by a skip-in-CI local test
+# leave the production classifications resting on a developer-local contract. The
+# contract now lives IN THIS REPO as a versioned fixture; these tests run everywhere.
+
+import json as _json
+import re as _re
+
+_CONTRACT = _json.loads(
+    (Path(__file__).resolve().parent.parent / "ops" / "renquant104" /
+     "emitter_contract.json").read_text())
+
+
+def _render(template: str) -> str:
+    """A plausible rendering of a shell echo template: every substitution collapses
+    to a placeholder. The regexes under contract must match on the INVARIANT text, so
+    the placeholder's content must not matter — that is what these tests prove."""
+    out = _re.sub(r"\$\([^)]*\)", "PLACEHOLDER", template)
+    out = _re.sub(r"\$\{?[A-Za-z_][A-Za-z_0-9]*\}?", "PLACEHOLDER", out)
+    return out
+
+
+def test_every_contract_line_is_matched_by_the_corresponding_pattern():
+    """CI-enforced binding: regex <-> contract. Breaking either side fails here,
+    on every machine, umbrella or not."""
+    kinds = {"action": "action_re", "refusal": "refusal_re", "failure": "failure_re"}
+    for row in _CONTRACT["lines"]:
+        lane = _watched(row["job"])
+        pattern = getattr(lane, kinds[row["kind"]])
+        assert pattern is not None, (row["job"], row["kind"])
+        rendered = _render(row["template"])
+        assert _re.search(pattern, rendered), (
+            f"{row['job']}/{row['kind']}: pattern {pattern!r} no longer matches the "
+            f"contracted emitter line {rendered!r} — fix the pattern or version the "
+            f"contract, never ignore this")
+
+
+def test_every_source_derived_watched_pattern_is_under_contract():
+    """Anti-vacuity for the contract itself: each of the three source-derived lanes
+    must have its action line contracted — a lane added without a contract row would
+    otherwise reintroduce the developer-local dependency reviewed away in #738."""
+    contracted = {(r["job"], r["kind"]) for r in _CONTRACT["lines"]}
+    for name in ("weekly-wf-promote", "conditional-retrain104", "retrain-panel104"):
+        assert (name, "action") in contracted, name
+
+
+def test_contract_lines_marked_observed_cite_a_real_log_shape():
+    for row in _CONTRACT["lines"]:
+        o = row["observed_in_logs"]
+        assert o is False or (isinstance(o, str) and o.startswith("logs/")), row
+
+
+def test_local_wrapper_still_emits_the_contracted_lines():
+    """Drift detector — the LOCAL half. Skips loudly off-machine; on the dev box it
+    catches a cross-repo wording change the day it lands, instead of the day an
+    incident stays open on `undecided` classifications."""
+    root = Path("/Users/renhao/git/github/RenQuant")
+    if not root.exists():
+        pytest.skip("umbrella absent — local drift check not verifiable here; the "
+                    "CI-enforced contract tests above still ran")
+    for row in _CONTRACT["lines"]:
+        script = root / row["source"].rsplit(":", 1)[0]
+        if not script.exists():
+            pytest.skip(f"{script} absent — cannot verify drift here")
+        assert row["template"] in script.read_text(errors="ignore"), (
+            f"{row['source']} no longer emits the contracted line verbatim — the "
+            f"wrapper wording drifted; re-capture the contract AND re-verify the "
+            f"patterns before trusting this lane's classifications")
