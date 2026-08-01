@@ -189,3 +189,30 @@ the tool must **return** a status, never raise, and the tests assert that by cal
 `main()` rather than only `resolve()`.
 
 23 tests (was 14).
+
+### I pushed a red test in round 3, and the failure was informative
+
+`test_no_reader_takes_the_gate_stamp_from_the_LEGACY_key_alone` — the repo-wide R8
+invariant — flagged `wf_corpus_coverage.py` **after** I had pushed. I ran the suite and
+pushed in the same batch instead of waiting for the result. That is the second time this
+session; the rule is to gate the push on the suite, not to run them concurrently.
+
+**The failure itself was a false positive, and fixing it correctly mattered.** The
+detector accepted a canonical read only when the receiver was a bare `ast.Name`. My
+round-3 refactor writes the defensive form:
+
+```python
+meta = payload.get("metadata")
+... (meta or {}).get("wf_gate_metadata")
+```
+
+whose receiver is a `BoolOp`, not a `Name` — so a **compliant** reader scored as
+legacy-only.
+
+The tempting fix was an `ALLOWED_FALLBACK` entry. That would have silenced the invariant
+for this file **permanently**, including for a future edit that really did read the legacy
+key alone. Instead `_receiver_is_canonical()` now decides over the receiver's whole
+subtree, with a test in **each** direction: the defensive form is accepted, and a genuine
+`payload.get("wf_gate_metadata")` is still caught.
+
+Suite: **4978 passed, 2 skipped**.

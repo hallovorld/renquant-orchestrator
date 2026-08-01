@@ -44,6 +44,27 @@ def _sources():
             yield f
 
 
+CANONICAL_RECEIVER_NAMES = ("metadata", "meta", "md")
+
+
+def _receiver_is_canonical(recv: ast.AST) -> bool:
+    """Does this receiver DERIVE from `metadata`?
+
+    Decided over the receiver's whole subtree, not just its top node. The earlier
+    version accepted a bare `ast.Name`, so the common defensive form
+    `(meta or {}).get("wf_gate_metadata")` — receiver is a `BoolOp`, not a `Name` —
+    was scored as a legacy-only read. That is a FALSE POSITIVE against a compliant
+    reader, and the fix belongs here rather than in an allow-list: an allow-list entry
+    would have silenced this check for that file permanently, including for a future
+    edit that really did read the legacy key alone.
+    """
+    src = ast.dump(recv)
+    if '"metadata"' in src or "'metadata'" in src:
+        return True
+    return any(isinstance(n, ast.Name) and n.id in CANONICAL_RECEIVER_NAMES
+               for n in ast.walk(recv))
+
+
 def _reads(tree: ast.AST) -> tuple[bool, bool]:
     """(reads canonical, reads top-level) — decided by the RECEIVER, not the line."""
     canonical = toplevel = False
@@ -55,12 +76,7 @@ def _reads(tree: ast.AST) -> tuple[bool, bool]:
         args = node.args
         if not args or not (isinstance(args[0], ast.Constant) and args[0].value == KEY):
             continue
-        recv = node.func.value
-        # `<x>.get("metadata")...` or a name literally called `metadata`/`meta`/`md`
-        src = ast.dump(recv)
-        if '"metadata"' in src or "'metadata'" in src:
-            canonical = True
-        elif isinstance(recv, ast.Name) and recv.id in ("metadata", "meta", "md"):
+        if _receiver_is_canonical(node.func.value):
             canonical = True
         else:
             toplevel = True
@@ -68,10 +84,7 @@ def _reads(tree: ast.AST) -> tuple[bool, bool]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) \
                 and node.slice.value == KEY:
-            src = ast.dump(node.value)
-            if '"metadata"' in src or "'metadata'" in src:
-                canonical = True
-            elif isinstance(node.value, ast.Name) and node.value.id in ("metadata", "meta", "md"):
+            if _receiver_is_canonical(node.value):
                 canonical = True
             else:
                 toplevel = True
@@ -115,3 +128,21 @@ def test_the_registry_records_R8_and_R9():
     assert "29 carry the canonical block; 14 also carry the legacy copy" in d
     assert "agree on 12 and DISAGREE on 2" in d
     assert "23 paths" in d and "3 distinct sha256" in d
+
+
+def test_the_detector_accepts_the_DEFENSIVE_receiver_form():
+    """`(meta or {}).get(KEY)` is a canonical read. Scoring it legacy-only was a false
+    positive that would have been "fixed" by an allow-list entry, permanently silencing
+    the check for that file."""
+    tree = ast.parse('def f(payload):\n'
+                     '    meta = payload.get("metadata")\n'
+                     '    return (meta or {}).get("wf_gate_metadata")\n')
+    canonical, toplevel = _reads(tree)
+    assert canonical and not toplevel
+
+
+def test_the_detector_STILL_catches_a_genuine_legacy_only_read():
+    """Anti-vacuity: generalising the receiver must not make the check unfalsifiable."""
+    tree = ast.parse('def f(payload):\n    return payload.get("wf_gate_metadata")\n')
+    canonical, toplevel = _reads(tree)
+    assert toplevel and not canonical
