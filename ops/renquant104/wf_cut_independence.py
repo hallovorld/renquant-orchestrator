@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import itertools
+import hashlib
 import json
 import os
 import sys
@@ -149,11 +150,66 @@ def ceiling(corpus_days: int, window_days: int) -> int:
     return corpus_days // window_days if window_days > 0 else 0
 
 
+def corpus_span(manifest_path: str) -> dict:
+    """The corpus span, DERIVED from the walk-forward manifest rather than asserted.
+
+    The published "882 days" was a number in prose. Reviewed `[codex on orch#696]`: an
+    experiment-facing conclusion needs the source bound to a fingerprint and the
+    derivation recorded, or the reader cannot audit it. So this returns the manifest's
+    digest, its row key, the fold count and the first/last cutoff — and the span is the
+    subtraction, shown.
+    """
+    if not manifest_path or not os.path.exists(manifest_path):
+        return {"status": "manifest_missing", "manifest_path": manifest_path}
+    try:
+        with open(manifest_path, "rb") as fh:
+            raw = fh.read()
+        man = json.loads(raw)
+    except (OSError, ValueError) as exc:
+        return {"status": "manifest_unreadable",
+                "why": f"{type(exc).__name__}: {exc}"}
+    if not isinstance(man, dict):
+        return {"status": "manifest_unreadable",
+                "why": f"top-level JSON is {type(man).__name__}"}
+    best, key = [], ""
+    for k, rows in man.items():
+        if not isinstance(rows, list):
+            continue
+        ds = [r.get("cutoff_date") for r in rows
+              if isinstance(r, dict) and isinstance(r.get("cutoff_date"), str)]
+        if len(ds) > len(best):
+            best, key = ds, k
+    if not best:
+        return {"status": "no_cutoff_rows",
+                "why": "no list of rows carrying `cutoff_date` was found — this is NOT "
+                       "a zero-fold corpus, it is an unparsed manifest"}
+    ds = sorted(dt.date.fromisoformat(d[:10]) for d in best)
+    return {
+        "status": "derived",
+        "manifest_path": os.path.basename(manifest_path),
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "rows_key": key,
+        "n_folds": len(ds),
+        "first_cutoff": ds[0].isoformat(),
+        "last_cutoff": ds[-1].isoformat(),
+        "corpus_days": (ds[-1] - ds[0]).days,
+        "derivation": "corpus_days = last_cutoff - first_cutoff over the manifest's "
+                      "cutoff_date rows",
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--artifact", required=True)
     ap.add_argument("--corpus-days", type=int,
-                    help="span of the available corpus, to report the disjoint ceiling")
+                    help="span of the available corpus, to report the disjoint ceiling. "
+                         "Prefer --manifest, which DERIVES it and records the source")
+    ap.add_argument("--manifest", default=None,
+                    help="walk-forward manifest; the corpus span is derived from its "
+                         "cutoff_date rows and the manifest is fingerprinted")
+    ap.add_argument("--evidence-out", default=None,
+                    help="write the evidence manifest (artifact + manifest digests, "
+                         "cuts, derivation) here")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
@@ -179,8 +235,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     cuts, bad = _cuts(block)
-    rep = {"artifact": os.path.basename(a.artifact), "gate_stamp_source": source,
+    with open(a.artifact, "rb") as fh:
+        artifact_sha = hashlib.sha256(fh.read()).hexdigest()
+    rep = {"artifact": os.path.basename(a.artifact),
+           "artifact_sha256": artifact_sha,
+           "gate_stamp_source": source,
            "unreadable_cuts": bad, **analyse(cuts)}
+    if a.manifest:
+        rep["corpus"] = corpus_span(a.manifest)
+        if rep["corpus"].get("status") == "derived" and not a.corpus_days:
+            a.corpus_days = rep["corpus"]["corpus_days"]
     if a.corpus_days and cuts:
         w = max(rep["cut_lengths_days"])
         rep["corpus_days"] = a.corpus_days
@@ -191,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
         "effective n needs a correlation this tool does not measure, and doing that from "
         "an assumed value is a standing correction in this programme.")
 
+    if a.evidence_out:
+        os.makedirs(os.path.dirname(a.evidence_out) or ".", exist_ok=True)
+        with open(a.evidence_out, "w", encoding="utf-8") as fh:
+            json.dump(rep, fh, indent=2, sort_keys=True)
     if a.json:
         print(json.dumps(rep, indent=2, sort_keys=True))
     else:

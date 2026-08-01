@@ -102,3 +102,43 @@ case; adjacent (touching) cuts merge to one interval and stay at 1.0; and redund
 asserted **≥ 1.0** across shapes — the invariant the outer-span version broke.
 
 19 tests (was 15). Suite: **5095 passed, 2 skipped**.
+
+---
+
+## ROUND 3 2026-08-01 — the published numbers now ship with their evidence
+
+Reviewed `[codex on orch#696]`: *"the only reproduction test hard-codes a local absolute
+backtesting artifact and skips in CI, while neither the document nor a checked-in manifest
+binds that artifact to a content fingerprint, producer run, or corpus-day source."*
+
+Correct. **816 / 1.33× / 882 were numbers in prose**, reproducible only on this machine.
+
+`--manifest` and `--evidence-out` now emit a checked-in evidence manifest carrying:
+
+| | |
+|---|---|
+| artifact | name + **sha256** |
+| walk-forward manifest | name + **sha256** |
+| corpus span | **derived**, not asserted: `rows_key`, `n_folds`, `first_cutoff`, `last_cutoff`, and the subtraction |
+
+Emitted `[本次实测 2026-08-01]`: **43** folds under key `retrains`, **2023-10-02 …
+2026-03-02**, `corpus_days = 882` — the number the document has been quoting, now with the
+arithmetic and both digests beside it.
+
+**Two tests, and the split matters.** One reads the **committed manifest** and checks the
+derivation and the headline numbers — it runs **everywhere, including CI**, because it
+touches no artifact tree. The other recomputes both digests from the named files and
+**skips loudly** when the tree is absent: a verification that cannot run must not read as
+one that passed.
+
+21 tests (was 19). Suite: **5097 passed, 2 skipped**.
+
+### A worktree hazard, second occurrence
+
+`git stash pop` here restored a stash belonging to `goal4/ensemble-existence-evidence`
+again. The cause is now clear: **`git stash` is repo-global, not worktree-local**, so
+`pop` in any worktree takes the repository's most recent entry whatever branch it came
+from. Committing with `-A` would have pulled another lane's files into this PR for the
+second time today. Cleaned by removing only the foreign index entry and committing
+**explicit paths** — and the pattern itself is the defect: do not `stash`/`pop` in a
+multi-worktree repo.

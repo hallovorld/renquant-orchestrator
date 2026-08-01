@@ -142,6 +142,54 @@ def test_the_report_REFUSES_to_call_geometry_an_effective_sample_size(tmp_path, 
     assert "not an effective sample size" in out
 
 
+def test_the_EVIDENCE_MANIFEST_binds_the_published_numbers_to_their_sources():
+    """codex on #696: the published 816 / 1.33x / 882 rested on a test that hard-coded a
+    local absolute path and skipped in CI, with nothing binding the artifact to a
+    fingerprint or recording how 882 was derived.
+
+    The committed manifest now carries both digests and the derivation. This test checks
+    the manifest itself — it runs everywhere, including CI, because it reads a checked-in
+    file rather than the artifact tree.
+    """
+    import json
+    ev = (pathlib.Path(__file__).resolve().parent.parent / "doc" / "research"
+          / "evidence" / "2026-07-31-wf-cut-independence" / "evidence.json")
+    assert ev.exists(), "the published numbers must ship with their evidence"
+    d = json.loads(ev.read_text(encoding="utf-8"))
+    assert len(d["artifact_sha256"]) == 64
+    c = d["corpus"]
+    assert c["status"] == "derived"
+    assert len(c["manifest_sha256"]) == 64
+    # The span is the subtraction, and it is shown rather than asserted.
+    first = dt.date.fromisoformat(c["first_cutoff"])
+    last = dt.date.fromisoformat(c["last_cutoff"])
+    assert (last - first).days == c["corpus_days"] == 882
+    assert c["n_folds"] == 43 and c["rows_key"] == "retrains"
+    # And the headline numbers are the ones the document publishes.
+    assert d["calendar_union_days"] == 816
+    assert 1.33 <= d["redundancy"] <= 1.34
+    assert C.ceiling(c["corpus_days"], max(d["cut_lengths_days"])) == 2
+
+
+def test_the_manifest_VERIFIES_against_the_sources_when_they_are_present():
+    """The half that carries the weight: recompute both digests from the files named.
+    Skips loudly when the artifact tree is not on this machine — a verification that
+    cannot run must not read as one that passed."""
+    import hashlib, json, os
+    import pytest
+    ev = (pathlib.Path(__file__).resolve().parent.parent / "doc" / "research"
+          / "evidence" / "2026-07-31-wf-cut-independence" / "evidence.json")
+    d = json.loads(ev.read_text(encoding="utf-8"))
+    root = "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts"
+    art = os.path.join(root, "prod", d["artifact"])
+    man = os.path.join(root, "sim", d["corpus"]["manifest_path"])
+    if not (os.path.exists(art) and os.path.exists(man)):
+        pytest.skip("artifact tree not present on this machine")
+    assert hashlib.sha256(open(art, "rb").read()).hexdigest() == d["artifact_sha256"]
+    assert (hashlib.sha256(open(man, "rb").read()).hexdigest()
+            == d["corpus"]["manifest_sha256"])
+
+
 def test_the_REAL_artifact_reproduces_the_finding():
     """The numbers in the module docstring must stay derivable, or the docstring becomes
     an assertion with a citation attached."""

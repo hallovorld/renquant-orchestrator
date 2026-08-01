@@ -1,0 +1,48 @@
+{
+  "artifact": "panel-ltr.alpha158_fund.previous.json",
+  "artifact_sha256": "7a232110d2cb1e5cbe42c7335f92fd5ab80cf5fdf98412948f533e579cb48bca",
+  "calendar_union_days": 816,
+  "corpus": {
+    "corpus_days": 882,
+    "derivation": "corpus_days = last_cutoff - first_cutoff over the manifest's cutoff_date rows",
+    "first_cutoff": "2023-10-02",
+    "last_cutoff": "2026-03-02",
+    "manifest_path": "walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json",
+    "manifest_sha256": "d8b170188fe09036fe9e6bd82d9299218affe499f56c37bb49a64c80111f2e75",
+    "n_folds": 43,
+    "rows_key": "retrains",
+    "status": "derived"
+  },
+  "corpus_days": 882,
+  "cut_lengths_days": [
+    364,
+    364,
+    361
+  ],
+  "disjoint": false,
+  "gate_stamp_source": "metadata.wf_gate_metadata",
+  "max_disjoint_windows_at_current_length": 2,
+  "n_cuts": 3,
+  "n_merged_intervals": 1,
+  "outer_span_days": 816,
+  "overlapping_pairs": [
+    {
+      "a": "2024-01-02..2024-12-31",
+      "b": "2024-07-01..2025-06-30",
+      "frac_of_shorter": 0.5027,
+      "overlap_days": 183
+    },
+    {
+      "a": "2024-07-01..2025-06-30",
+      "b": "2025-04-01..2026-03-28",
+      "frac_of_shorter": 0.2493,
+      "overlap_days": 90
+    }
+  ],
+  "redundancy": 1.3346,
+  "scope_note": "Redundancy and overlap are GEOMETRY, derived from the window boundaries with no assumption. They are not an effective sample size: converting geometry into an effective n needs a correlation this tool does not measure, and doing that from an assumed value is a standing correction in this programme.",
+  "sum_of_lengths_days": 1089,
+  "union_end": "2026-03-28",
+  "union_start": "2024-01-02",
+  "unreadable_cuts": []
+}
