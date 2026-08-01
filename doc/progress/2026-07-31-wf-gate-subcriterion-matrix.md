@@ -148,3 +148,50 @@ preferring one — *"BULL_CALM (reason says: CHOPPY)"* if they ever diverge.
 Measured after the fix: `BULL_CALM` on **30 of 30** named artifacts, agreeing with the
 reason string everywhere. Structure alone would have said three regimes; the reason alone
 is prose.
+
+
+---
+
+## ROUND 4 — the recorded glob could not select the files it claimed
+
+> *"the provenance sidecar records a non-executable artifact glob: its value ends in
+> `*.json (deployed + *.staging.json)`, and the recorded extraction command passes that
+> literal to `glob`, which cannot select the stated 11 files. This defeats the purpose of
+> reproducible selection provenance."* `[codex on #673]`
+
+Exact. **Prose was glued into a glob field**, so the command that was supposed to
+regenerate the CSV selected nothing. Provenance that cannot be run is a description of
+provenance.
+
+The selection never needed narration — it is two patterns:
+
+```
+--artifact-glob '…/panel-ltr.alpha158_fund.json'
+--artifact-glob '…/panel-ltr.alpha158_fund*.staging.json'
+```
+
+`--artifact-glob` is repeatable now and their **union** is the population, so the recorded
+command is the command. The sidecar carries both the executable command **and** the
+explicit `selection` list it produced, because a later reader whose store has drifted
+needs to see which files the recorded run actually chose — and `--verify` compares the two
+and **fails on selection drift before comparing any field**, so a matrix can never be
+re-derived over a silently different population while every cell still "matches".
+
+### Running it immediately showed the store had moved
+
+The re-run selected **12** artifacts, not 11: `weekly_20260801T110005Z.staging.json`
+landed today and did not exist when the matrix was first built. **The old prose-glob could
+never have shown that** — it selected nothing at all, so nothing could disagree with it.
+
+Rates over distinct content, 12 groups: `sanity` 12/12,
+`sanity_regime_ic` 12/12,
+`trade_monotonicity` 12/12,
+`wf` 10/12, and the control
+`trade_contract` **0/12**. The conclusion is unchanged and now rests on a
+selection anyone can reproduce.
+
+**Three count-pins removed** while I was in there — row count, distinct-digest count, and
+the BULL_VOLATILE tally were each asserted as literals against a population that grows
+daily. They are properties now (`one row per distinct content`, `bv == len(rows) - 1`).
+Pinning a number against a moving subject is the defect this document already records
+once; it was present three more times in its own tests.

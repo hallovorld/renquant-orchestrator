@@ -1,10 +1,27 @@
 {
-  "artifact_glob": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund*.json (deployed + *.staging.json)",
+  "artifact_globs": [
+    "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+    "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund*.staging.json"
+  ],
   "deployed_basename": "panel-ltr.alpha158_fund.json",
   "duplicate_content_groups": {},
-  "extraction_command": "python3 ops/renquant104/subgate_matrix_extract.py --emit --artifact-glob '/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund*.json (deployed + *.staging.json)' --deployed 'panel-ltr.alpha158_fund.json' --out doc/research/evidence/2026-07-31-wf-gate-subcriteria/subgate_matrix.csv",
-  "n_distinct_content_groups": 11,
-  "n_rows": 11,
+  "extraction_command": "python3 ops/renquant104/subgate_matrix_extract.py --emit --artifact-glob '/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json' --artifact-glob '/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund*.staging.json' --deployed 'panel-ltr.alpha158_fund.json' --out doc/research/evidence/2026-07-31-wf-gate-subcriteria/subgate_matrix.csv",
+  "n_distinct_content_groups": 12,
+  "n_rows": 12,
   "note": "Rows sharing a `content_group` are ONE observation wearing several filenames. Any rate quoted over this matrix must say whether it counts rows or groups \u2014 a `wf_gate_metadata` count in this programme has already been distorted by an artifact with 23 copies at 3 digests.",
-  "selection_note": "The glob returns 30 artifacts; this matrix is the DEPLOYED one plus every *.staging.json, which is the population the document reasons about. Over the full 30 there are only 12 distinct content groups (one holds 13 byte-identical files), so the wider set would NOT be 30 observations."
+  "selection": [
+    "panel-ltr.alpha158_fund.json",
+    "panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260712T170005Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260713T201007Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260718T110005Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260719T170005Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260721T201008Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260725T110003Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260726T170001Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260729T201003Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260730T201007Z.staging.json",
+    "panel-ltr.alpha158_fund.weekly_20260801T110005Z.staging.json"
+  ],
+  "selection_contract": "`selection` is what the recorded command selected when it ran. --verify re-runs the globs and fails if the set differs, so a drifted store is reported rather than silently re-scoped."
 }

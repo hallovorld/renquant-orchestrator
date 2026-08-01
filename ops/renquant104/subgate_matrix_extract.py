@@ -131,10 +131,31 @@ def _failed_regimes(block: dict, key: str) -> str:
     return ",".join(out)
 
 
-def extract(pattern: str, deployed_basename: str) -> list[dict]:
+def _select(patterns) -> list[str]:
+    """Every path matched by ANY pattern, de-duplicated and sorted.
+
+    Reviewed `[codex on #673]`: the sidecar recorded
+    `…panel-ltr.alpha158_fund*.json (deployed + *.staging.json)` — **prose glued into a
+    glob field**. Passed to `glob` that selects nothing, so the "reproducible selection
+    provenance" reproduced nothing.
+
+    The selection was always expressible as executable arguments; it just needed two
+    patterns instead of one. `--artifact-glob` is now repeatable and their union is the
+    population, so the recorded command can be pasted and run.
+    """
+    if isinstance(patterns, str):
+        patterns = [patterns]
+    seen: dict[str, None] = {}
+    for pat in patterns:
+        for hit in glob.glob(pat):
+            seen[hit] = None
+    return sorted(seen)
+
+
+def extract(patterns, deployed_basename: str) -> list[dict]:
     rows: list[dict] = []
     digests: dict[str, int] = {}
-    for p in sorted(glob.glob(pattern)):
+    for p in _select(patterns):
         path = Path(p)
         try:
             raw = path.read_bytes()
@@ -185,17 +206,32 @@ def extract(pattern: str, deployed_basename: str) -> list[dict]:
     return rows
 
 
-def sidecar(rows: list[dict], pattern: str, deployed_basename: str) -> dict:
+def sidecar(rows: list[dict], patterns, deployed_basename: str,
+            out_path: str = "doc/research/evidence/2026-07-31-wf-gate-subcriteria/"
+                            "subgate_matrix.csv") -> dict:
+    """Selection provenance that can be RUN, plus the explicit list it produced.
+
+    Two things, deliberately both: the executable command, and the resulting basenames.
+    The command alone is not enough — a later reader whose store has drifted needs to
+    see which files the recorded run actually selected, and `--verify` compares the two.
+    """
+    if isinstance(patterns, str):
+        patterns = [patterns]
     groups: dict[str, list[str]] = {}
     for r in rows:
         groups.setdefault(r["content_group"], []).append(r["artifact"])
     dupes = {g: v for g, v in groups.items() if len(v) > 1}
+    globs = " ".join(f"--artifact-glob {p!r}" for p in patterns)
     return {
         "extraction_command": (
-            "python3 ops/renquant104/subgate_matrix_extract.py --emit "
-            f"--artifact-glob {pattern!r} --deployed {deployed_basename!r} "
-            "--out doc/research/evidence/2026-07-31-wf-gate-subcriteria/subgate_matrix.csv"),
-        "artifact_glob": pattern,
+            f"python3 ops/renquant104/subgate_matrix_extract.py --emit "
+            f"{globs} --deployed {deployed_basename!r} --out {out_path}"),
+        "artifact_globs": list(patterns),
+        "selection": sorted(r["artifact"] for r in rows),
+        "selection_contract": (
+            "`selection` is what the recorded command selected when it ran. --verify "
+            "re-runs the globs and fails if the set differs, so a drifted store is "
+            "reported rather than silently re-scoped."),
         "deployed_basename": deployed_basename,
         "n_rows": len(rows),
         "n_distinct_content_groups": len(groups),
@@ -209,7 +245,10 @@ def sidecar(rows: list[dict], pattern: str, deployed_basename: str) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--artifact-glob", required=True)
+    ap.add_argument("--artifact-glob", required=True, action="append",
+                    metavar="GLOB",
+                    help="repeatable; the UNION of the patterns is the population. "
+                         "A single pattern with a parenthetical note is not a glob.")
     ap.add_argument("--deployed", required=True,
                     help="basename of the artifact currently served")
     ap.add_argument("--out", type=Path, required=True)
@@ -251,6 +290,32 @@ def main(argv: list[str] | None = None) -> int:
     with a.out.open(newline="") as fh:
         committed = list(csv.DictReader(fh))
     drift = []
+
+    # THE SELECTION ITSELF, before any field comparison. The recorded globs must still
+    # select exactly the basenames the sidecar says they selected -- otherwise the
+    # matrix could be re-derived over a silently different population and every field
+    # would still "match". Reviewed `[codex on #673]`: the recorded glob could not
+    # select the stated files at all, which is this check's reason for existing.
+    if side_path.exists():
+        try:
+            recorded = json.loads(side_path.read_text())
+        except ValueError as exc:
+            drift.append(f"provenance sidecar unreadable: {exc}")
+            recorded = {}
+        want = recorded.get("selection")
+        if isinstance(want, list):
+            got = sorted(r["artifact"] for r in rows)
+            if got != sorted(want):
+                missing = sorted(set(want) - set(got))
+                extra = sorted(set(got) - set(want))
+                drift.append(
+                    f"SELECTION DRIFT: the recorded globs now select {len(got)} file(s), "
+                    f"the sidecar recorded {len(want)}"
+                    + (f"; no longer selected: {missing[:5]}" if missing else "")
+                    + (f"; newly selected: {extra[:5]}" if extra else ""))
+        elif want is not None:
+            drift.append("provenance `selection` is not a list")
+
     if len(committed) != len(rows):
         drift.append(f"row count {len(committed)} != re-derived {len(rows)}")
     for c, r in zip(committed, rows):

@@ -75,7 +75,9 @@ def test_CHOPPY_also_fails_everywhere_and_BULL_VOLATILE_almost():
     rows = _rows()
     assert all("CHOPPY" in r["regime_ic_failed_regimes"] for r in rows)
     bv = sum(1 for r in rows if "BULL_VOLATILE" in r["regime_ic_failed_regimes"])
-    assert bv == 10                                 # every one except the deployed
+    # every one except the deployed artifact; not pinned to a count, since
+    # the selection grows as new staging artifacts land.
+    assert bv == len(rows) - 1, (bv, len(rows))
 
 
 def test_exactly_one_artifact_is_marked_deployed():
@@ -130,11 +132,20 @@ def test_every_row_names_a_path_and_a_digest():
 def test_no_two_rows_are_the_same_FILE():
     """Duplicate-content accounting. A `wf_gate_metadata` count in this programme has
     already been distorted by an artifact with 23 copies at 3 digests; if two of these
-    eleven were byte-identical, every rate here would be inflated. Measured: 11 rows,
-    11 distinct content groups."""
+    were byte-identical, every rate here would be inflated.
+
+    The COUNT is not pinned — the store grows. Re-running the recorded command on
+    2026-08-01 selected a twelfth artifact (`weekly_20260801T110005Z.staging.json`)
+    that did not exist when the matrix was first built. What is pinned is the property:
+    one row per distinct content, and the sidecar's `selection` is the record of which
+    files that was.
+    """
     rows = _rows()
-    assert len({r["content_group"] for r in rows}) == len(rows) == 11
-    assert len({r["artifact_sha256"] for r in rows}) == 11
+    assert len({r["content_group"] for r in rows}) == len(rows)
+    assert len(rows) >= 11, len(rows)
+    # distinct digests == distinct groups, by construction; pinning a NUMBER here is
+    # the same defect as pinning the row count, one column over.
+    assert len({r["artifact_sha256"] for r in rows}) == len(rows)
 
 
 def test_the_deployed_artifacts_wf_PASS_is_an_OPERATOR_OVERRIDE():
@@ -153,12 +164,39 @@ def test_no_STAGING_artifact_was_overridden():
             assert r["operator_authorized_override"] == "False", r["artifact"]
 
 
-def test_the_provenance_sidecar_records_the_extraction_command():
+def test_the_recorded_extraction_command_is_EXECUTABLE():
+    """The finding: the sidecar recorded
+    `…panel-ltr.alpha158_fund*.json (deployed + *.staging.json)` — **prose glued into a
+    glob field**. Passed to `glob` it selects nothing, so "reproducible selection
+    provenance" reproduced nothing `[codex on #673]`.
+
+    Every `--artifact-glob` value must now be a real pattern: no parentheses, no prose,
+    and the flag repeatable so a two-part selection needs no narration.
+    """
+    import json
+    import re as _re
+    side = json.loads((DIR / "subgate_matrix.provenance.json").read_text())
+    cmd = side["extraction_command"]
+    assert "subgate_matrix_extract.py --emit" in cmd
+    globs = side["artifact_globs"]
+    assert isinstance(globs, list) and len(globs) >= 2, globs
+    for g in globs:
+        assert not _re.search(r"[()]| and | plus |deployed \+", g), f"prose in a glob: {g!r}"
+        assert g.endswith(".json"), g
+        assert f"--artifact-glob {g!r}" in cmd, "the command omits a recorded glob"
+
+
+def test_the_sidecar_records_the_EXPLICIT_selection_it_produced():
+    """The command alone is not enough: a later reader whose store has drifted needs to
+    see which files the recorded run actually selected. `--verify` compares the two and
+    fails on drift rather than silently re-scoping."""
     import json
     side = json.loads((DIR / "subgate_matrix.provenance.json").read_text())
-    assert "subgate_matrix_extract.py --emit" in side["extraction_command"]
-    assert side["n_rows"] == 11
-    assert "selection_note" in side
+    sel = side["selection"]
+    assert isinstance(sel, list) and sel == sorted(sel)
+    assert sel == sorted(r["artifact"] for r in _rows())
+    assert side["n_rows"] == len(sel)
+    assert "selection_contract" in side
 
 
 def test_monotonicitys_failing_regimes_are_read_STRUCTURALLY_and_respect_eligibility():
