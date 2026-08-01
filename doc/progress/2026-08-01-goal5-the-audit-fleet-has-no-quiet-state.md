@@ -62,3 +62,38 @@ a machine landing and the operator's call.
 
 13, including both traps as executable checks and the "never writes the ledger" assertion.
 Suite: **5300 passed, 2 skipped**.
+
+## Wiring the layer into the aggregator (codex review, 2026-08-01)
+
+> *"it does not modify `ops/ops_audit.py` … the new ledger is dead code."*
+
+Correct, and it is the failure this repo has a rule against — a disposition layer that
+nothing calls quiets nothing. `ops_audit.audit()` now dispositions at the per-finding
+counting boundary:
+
+* only `STATUS_FINDINGS` rows are eligible; an ACKED-and-unchanged one becomes the new
+  `STATUS_INFO` and stops counting toward `EXIT_FINDINGS`, so a fully acked fleet
+  actually exits **0**;
+* `NEW`, `ACKED_BUT_CHANGED` and `ACK_EXPIRED` all stay findings;
+* **crash / timeout / missing / unusable are never dispositioned at all.** An ack that
+  could reach them would let a broken detector read as an acknowledged one — the
+  crash-vs-alarm confusion this aggregator exists to prevent, re-entered through the
+  quieting layer. A test asserts the ack is ignored for both a traceback and an
+  out-of-contract exit 2.
+
+The ledger (`ops/ops_audit_acks.json`) is **absent on purpose**. With no ledger every
+finding is NEW and the aggregator behaves exactly as before; acking stays a human
+decision and a reviewed diff, and nothing here ever writes it (a test compares the
+file's bytes before and after a run).
+
+Five end-to-end tests through `audit()` itself, not the classifier in isolation:
+the four dispositions in one report, an all-acked fleet exiting 0, the harness
+statuses being unquietable, and a missing-or-malformed ledger leaving everything loud.
+
+One thing the tests taught me: `acked_at` is **mandatory**. `ack_expiry` returns `None`
+— treated as already expired — when it is missing, however distant `expires_at` is. My
+first ledger fixture omitted it and the "quiet" cases came back `ACK_EXPIRED`; the code
+was right and the fixture was wrong. Noted in the test so the next reader does not
+repeat it.
+
+Suite: **5304 passed, 2 skipped** [本次实测].
