@@ -235,6 +235,20 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
     )
 
 
+#: The producer's task-level sentinel name (renquant-pipeline `shadow_health.
+#: TASK_LEVEL_SHADOW_NAME`). A record carrying it is NOT about any one lane -- it is the
+#: task reporting on its own configuration. Mirrored rather than imported: this sentinel
+#: must run on a machine whose pipeline checkout predates that constant.
+TASK_LEVEL_SHADOW_NAME = "__task_level__"
+
+#: The task-level state meaning "the task configured NO shadow models at all".
+STATE_NO_SHADOW_MODELS = "no_shadow_models"
+
+
+def _is_task_level(name: str) -> bool:
+    return name == TASK_LEVEL_SHADOW_NAME
+
+
 def _matches_shadow_lane(name: str) -> bool:
     """True if a health record's shadow_name is this sentinel's lane.
 
@@ -426,6 +440,138 @@ def last_session_days(as_of: dt.date, n: int, *, lookback_days: int = 21) -> lis
 # ---------------------------------------------------------------------------
 # reader: pluggable structured sink -> DB fallback
 # ---------------------------------------------------------------------------
+
+def read_task_level_states(days: list[dt.date]) -> dict[dt.date, str]:
+    """Per-day TASK-LEVEL state, for days the task reported on its own configuration.
+
+    Separate from `read_health_records` on purpose. A task-level record is not evidence
+    about any one lane -- it carries `shadow_name == TASK_LEVEL_SHADOW_NAME` and says
+    what the TASK was configured with. Merging it into the per-lane map would make a
+    lane appear to have reported when it did not exist.
+
+    WHY THIS READER EXISTS `[codex on renquant-pipeline#240]`. Before it, a task-level
+    record was dropped at the lane filter, so a window in which the watched lane had been
+    removed from config was indistinguishable from a window with no runs at all -- and
+    `_patrol_lane` treats the latter as the liveness checker's domain and stays QUIET.
+    A lane silently disappearing from config is the exact failure this sentinel exists to
+    catch, and it was the one shape that reported clean.
+
+    Absence of evidence is not evidence of absence; this reader is what makes the
+    difference legible.
+    """
+    out: dict[dt.date, str] = {}
+    path = SHADOW_HEALTH_JSONL
+    if not path or not os.path.exists(path):
+        return out
+    wanted = {d.isoformat(): d for d in days}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not is_valid_v1_record(obj):
+                    continue
+                if not _is_task_level(obj.get("shadow_name", "")):
+                    continue
+                d = wanted.get(str(obj.get("run_date", ""))[:10])
+                if d is not None:
+                    # last record for a date wins, mirroring the per-lane reader
+                    out[d] = str(obj.get("state") or "")
+    except OSError:
+        return {}
+    return out
+
+
+def lane_ever_reported_here(matches) -> bool:
+    """Has a lane matching `matches` EVER appeared in this sink?
+
+    The guard that makes the partial-removal inference sound. Measured while building
+    it: without this, patrolling `topdecile_clf_blend_leg` against a sink containing
+    only `hf_patchtst` records raised "ABSENT FROM CONFIG" -- 8 false positives in the
+    existing suite.
+
+    The cause is that the health sink is written PER TASK. A watched lane belonging to a
+    different task (or an MLflow-backed one) is legitimately absent from this file
+    forever, so "other lanes reported and this one did not" is not evidence about it.
+    Requiring a prior appearance turns the inference into a DISAPPEARANCE: this lane used
+    to write here, others still do, and it has stopped. A lane that never used this sink
+    is never judged by it.
+    """
+    path = SHADOW_HEALTH_JSONL
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not is_valid_v1_record(obj):
+                    continue
+                name = obj.get("shadow_name", "")
+                if not _is_task_level(name) and matches(name):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def read_observed_lane_names(days: list[dt.date]) -> dict[dt.date, set[str]]:
+    """Per-day set of the shadow lane names the task ACTUALLY reported on.
+
+    Reviewed `[codex on orch#689]`: *"a watched lane can be removed while another shadow
+    model remains configured. In that case pipeline emits the remaining lane's record,
+    not the task-level `no_shadow_models` state; the watched lane still has an empty
+    per-lane window and this branch falls through to the liveness skip."*
+
+    Exactly right, and it is the likelier removal: dropping one lane from a list of two.
+    The total-removal signal never fires, so the earlier fix did not cover it.
+
+    No producer contract is needed to close it, because the evidence is already emitted.
+    If a date carries health records for lanes A and B and none for the watched lane C,
+    the task reported its configured lane set that day and **C was not in it**. That is
+    positive evidence of absence, and it is distinguishable from "no records at all",
+    which is the liveness checker's domain.
+
+    Task-level records are excluded: they name no lane, and counting one as an observed
+    lane would make a totally-unconfigured task look like it still had one.
+    """
+    out: dict[dt.date, set[str]] = {}
+    path = SHADOW_HEALTH_JSONL
+    if not path or not os.path.exists(path):
+        return out
+    wanted = {d.isoformat(): d for d in days}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not is_valid_v1_record(obj):
+                    continue
+                name = obj.get("shadow_name", "")
+                if _is_task_level(name):
+                    continue
+                d = wanted.get(str(obj.get("run_date", ""))[:10])
+                if d is not None:
+                    out.setdefault(d, set()).add(name)
+    except OSError:
+        return {}
+    return out
+
 
 def read_health_records(days: list[dt.date], lane: 'WatchedLane | None' = None
                         ) -> dict[dt.date, ShadowHealthRecord | None]:
@@ -958,7 +1104,75 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
 
     # If NO day in the window had live runs at all, this is a liveness lapse,
     # not a shadow-degradation signal — stay quiet (the liveness checker owns it).
+    #
+    # UNLESS the task itself reported that it configured NO shadow models. Then the
+    # window is not silent: it carries EVIDENCE that this lane is gone from config, and
+    # `records` is empty only because a task-level record belongs to no lane. Before
+    # `read_task_level_states` those two were indistinguishable, so the one shape this
+    # sentinel exists to catch — a shadow lane quietly disappearing — reported clean.
     if all(records.get(d) is None for d in days):
+        # TWO ways a watched lane can be absent, and only the first was covered before
+        # `[codex on orch#689]`:
+        #   (a) the task configured NO shadow models at all -> task-level record;
+        #   (b) the task configured OTHERS but not this one -> other lanes' records
+        #       exist for the date and this lane is not among them.
+        # (b) is the likelier removal -- dropping one lane from a list of two -- and it
+        # emits no task-level signal at all, so (a) alone left it silent.
+        gone = sorted(d for d, st in read_task_level_states(days).items()
+                      if st == STATE_NO_SHADOW_MODELS)
+        observed = read_observed_lane_names(days)
+        matches = (lane.matches if lane is not None else _matches_shadow_lane)
+        others: dict[dt.date, set[str]] = {
+            d: names for d, names in observed.items()
+            if names and not any(matches(n) for n in names)}
+        if others and not gone and lane_ever_reported_here(matches):
+            days_o = sorted(others)
+            seen = sorted({n for names in others.values() for n in names})
+            body = (
+                f"The window {days[0].isoformat()}..{days[-1].isoformat()} carries no "
+                f"health record for lane '{lane.name}' — but on {len(days_o)} of "
+                f"{len(days)} day(s) the task DID report on other shadow lanes: "
+                f"{', '.join(seen)}. So the task ran and emitted its configured lane "
+                f"set, and this lane was not in it. That is not a liveness lapse. The "
+                f"lane is ABSENT FROM CONFIG while others remain.\n"
+                f"\nDays: {', '.join(d.isoformat() for d in days_o)}\n"
+                f"\nThe remedy is to restore '{lane.name}' to the task's "
+                f"`shadow_models`, or to retire this sentinel if its removal was "
+                f"deliberate. A sentinel watching a lane that no longer exists reports "
+                f"clean forever.")
+            if lane.purpose:
+                body += f"\n\nThis lane is {lane.purpose}."
+            alert(f"rq104 SHADOW LANE ABSENT FROM CONFIG [{lane.name}]: "
+                  f"other lanes reported on {len(days_o)} day(s) "
+                  f"{today.isoformat()}", body, rq_root=RQ)
+            msg = (f"lane '{lane.name}' ABSENT FROM CONFIG — the task reported on "
+                   f"{', '.join(seen)} but not on this lane, {len(days_o)} of "
+                   f"{len(days)} day(s)")
+            print(f"[{lane.name}] " + msg)
+            out.append(msg)
+            return EXIT_ALARM
+        if gone:
+            body = (
+                f"The window {days[0].isoformat()}..{days[-1].isoformat()} carries no "
+                f"health record for lane '{lane.name}' — but on "
+                f"{len(gone)} of {len(days)} day(s) the task reported "
+                f"'{STATE_NO_SHADOW_MODELS}': it ran and configured NO shadow models at "
+                f"all. So this is not a liveness lapse. The lane is ABSENT FROM CONFIG.\n"
+                f"\nDays: {', '.join(d.isoformat() for d in gone)}\n"
+                f"\nThis is not a crash and there is nothing to debug in the scorer — "
+                f"the remedy is to restore the lane to the task's `shadow_models`, or to "
+                f"retire this sentinel if its removal was deliberate. A sentinel watching "
+                f"a lane that no longer exists reports clean forever.")
+            if lane.purpose:
+                body += f"\n\nThis lane is {lane.purpose}."
+            alert(f"rq104 SHADOW LANE ABSENT FROM CONFIG [{lane.name}]: "
+                  f"{len(gone)} day(s) reported no shadow models {today.isoformat()}",
+                  body, rq_root=RQ)
+            msg = (f"lane '{lane.name}' ABSENT FROM CONFIG — task reported "
+                   f"'{STATE_NO_SHADOW_MODELS}' on {len(gone)} of {len(days)} day(s)")
+            print(f"[{lane.name}] " + msg)
+            out.append(msg)
+            return EXIT_ALARM
         print(f"rq104 shadow-scorer sentinel [{lane.name}]: no signal in window "
               f"{days[0].isoformat()}..{days[-1].isoformat()} — liveness domain, skip")
         return 0
