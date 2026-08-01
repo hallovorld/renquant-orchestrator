@@ -10,6 +10,7 @@ the deployment.
 from __future__ import annotations
 
 import ast
+import datetime as dt
 import importlib.util
 import json
 import stat
@@ -318,3 +319,144 @@ def test_ack_ledger_harness_code_is_NOT_declared_a_finding():
     into a verdict — the failure ops_audit exists to prevent."""
     finding = next(f for n, _r, _a, f in oa.MEMBERS if n == "ack-ledger")
     assert finding == (1,) and 3 not in finding
+
+
+# --------------------------------------------------------------------------------
+# Dispositioning, end to end through `audit()` itself.
+#
+# `ops/audit_finding_disposition.py` shipped as a standalone tool and nothing called
+# it, so every scheduled run still reported the same raw findings and the ledger was
+# dead code [codex on #722]. These tests exercise the four outcomes in an ACTUAL
+# ops_audit report, not in the classifier in isolation.
+# --------------------------------------------------------------------------------
+
+def _emits(line, rc=1):
+    """A detector that prints one line and exits `rc`."""
+    return f"print({line!r})\nraise SystemExit({rc})\n"
+
+
+def _ledger_for(tmp_path, rows):
+    """Build a ledger keyed by the REAL fingerprints, computed with the shipped
+    function rather than hardcoded digests — a pinned hash would pass while the
+    fingerprint definition drifted underneath it."""
+    import audit_finding_disposition as afd
+    led = {afd.fingerprint(member, text): ack for member, text, ack in rows}
+    p = tmp_path / "acks.json"
+    p.write_text(json.dumps(led, indent=2))
+    return p
+
+
+def test_the_four_dispositions_appear_in_a_real_ops_audit_report(tmp_path):
+    texts = {
+        "alpha": "alpha has 3 stale rows",
+        "bravo": "bravo has 5 stale rows",
+        "charlie": "charlie has 9 stale rows",
+        "delta": "delta has 7 stale rows",
+    }
+    members = [_member(tmp_path, n, _emits(t)) for n, t in texts.items()]
+    ledger = _ledger_for(tmp_path, [
+        # bravo: acked, unexpired, numbers unmoved -> the only quiet one
+        # NOTE `acked_at` is MANDATORY, not decoration: `ack_expiry` returns None —
+        # which classify() treats as already expired — when it is missing, however far
+        # away `expires_at` is. Absence must not buy permanent suppression. My first
+        # draft of this ledger omitted it and the "quiet" cases came back EXPIRED.
+        ("bravo", texts["bravo"],
+         {"reason": "known thin panel", "acked_at": "2026-07-28",
+          "numbers_when_acked": ["5"]}),
+        # charlie: acked, unexpired, but the magnitude moved 4 -> 9
+        ("charlie", texts["charlie"],
+         {"reason": "was 4", "acked_at": "2026-07-28",
+          "numbers_when_acked": ["4"]}),
+        # delta: acked, numbers unmoved, but the ack ran out
+        # acked_at + ACK_MAX_AGE_DAYS is already in the past on the as-of date.
+        ("delta", texts["delta"],
+         {"reason": "temporary", "acked_at": "2026-06-01",
+          "numbers_when_acked": ["7"]}),
+        # alpha: deliberately absent from the ledger -> NEW
+    ])
+    before = ledger.read_bytes()
+
+    res = oa.audit(ops=tmp_path, members=members, ledger_path=ledger,
+                   today=dt.date(2026, 8, 1))
+    by = {r["member"]: r for r in res["results"]}
+
+    assert by["alpha"]["disposition"] == "NEW"
+    assert by["bravo"]["disposition"] == "ACKED"
+    assert by["charlie"]["disposition"] == "ACKED_BUT_CHANGED"
+    assert by["delta"]["disposition"] == "ACK_EXPIRED"
+
+    # Only the acked-and-unchanged one goes quiet.
+    assert by["bravo"]["status"] == oa.STATUS_INFO
+    for n in ("alpha", "charlie", "delta"):
+        assert by[n]["status"] == oa.STATUS_FINDINGS, n
+
+    assert res["counts"][oa.STATUS_INFO] == 1
+    assert res["counts"][oa.STATUS_FINDINGS] == 3
+    # Three undispositioned findings remain, so the job still exits nonzero.
+    assert res["aggregate_exit"] == oa.EXIT_FINDINGS
+    # An INFO row keeps its reason so the run can be read without the ledger open.
+    assert "known thin panel" in by["bravo"]["ack_reason"]
+    # READ-ONLY: dispositioning classifies, it never acks.
+    assert ledger.read_bytes() == before
+
+
+def test_an_all_acked_fleet_is_actually_QUIET(tmp_path):
+    """The point of the change: a fully dispositioned run exits 0.
+
+    Without this, `info` would be cosmetic — the job would keep exiting 1 and the
+    scheduled surface would be exactly as unreadable as before."""
+    t = "solo has 2 stale rows"
+    members = [_member(tmp_path, "solo", _emits(t))]
+    ledger = _ledger_for(tmp_path, [
+        ("solo", t, {"reason": "accepted", "acked_at": "2026-07-28",
+                     "numbers_when_acked": ["2"]})])
+    res = oa.audit(ops=tmp_path, members=members, ledger_path=ledger,
+                   today=dt.date(2026, 8, 1))
+    assert res["counts"][oa.STATUS_FINDINGS] == 0
+    assert res["counts"][oa.STATUS_INFO] == 1
+    assert res["aggregate_exit"] == oa.EXIT_OK
+
+
+def test_an_ack_can_NEVER_quiet_a_crash_or_an_unusable_exit(tmp_path):
+    """The failure this must not introduce.
+
+    A quieting layer that could reach the harness statuses would let a BROKEN detector
+    report as an acknowledged one — the crash-vs-alarm confusion the aggregator exists
+    to prevent, re-entered through the back door. Both rows below are acked by
+    fingerprint and must stay loud anyway.
+    """
+    crash_line = "boom has 1 problem"
+    members = [
+        # dies with a traceback on stderr
+        _member(tmp_path, "boom",
+                f"import sys\nprint({crash_line!r})\nraise ValueError('x')\n"),
+        # exits 2, which is NOT in its declared finding contract -> unusable
+        _member(tmp_path, "murky", _emits("murky has 1 problem", rc=2)),
+    ]
+    ledger = _ledger_for(tmp_path, [
+        ("boom", crash_line, {"reason": "acked", "acked_at": "2026-07-28"}),
+        ("murky", "murky has 1 problem",
+         {"reason": "acked", "acked_at": "2026-07-28"}),
+    ])
+    res = oa.audit(ops=tmp_path, members=members, ledger_path=ledger,
+                   today=dt.date(2026, 8, 1))
+    by = {r["member"]: r for r in res["results"]}
+    assert by["boom"]["status"] == oa.STATUS_CRASH
+    assert by["murky"]["status"] == oa.STATUS_UNUSABLE
+    # Not merely still-loud: never even dispositioned.
+    assert "disposition" not in by["boom"]
+    assert "disposition" not in by["murky"]
+    assert res["aggregate_exit"] == oa.EXIT_HARNESS
+
+
+def test_a_missing_or_malformed_ledger_leaves_every_finding_loud(tmp_path):
+    members = [_member(tmp_path, "solo", _emits("solo has 2 stale rows"))]
+    absent = tmp_path / "nope.json"
+    bad = tmp_path / "bad.json"
+    bad.write_text("[not an object]")
+    for led in (absent, bad):
+        res = oa.audit(ops=tmp_path, members=members, ledger_path=led,
+                       today=dt.date(2026, 8, 1))
+        assert res["counts"][oa.STATUS_FINDINGS] == 1, led.name
+        assert res["counts"][oa.STATUS_INFO] == 0, led.name
+        assert res["aggregate_exit"] == oa.EXIT_FINDINGS, led.name
