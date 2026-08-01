@@ -33,6 +33,7 @@ found something, because those send a reader to different places (the #622 lesso
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import subprocess
 import sys
@@ -41,6 +42,15 @@ from pathlib import Path
 
 OPS = Path(__file__).resolve().parent
 PY = sys.executable
+
+sys.path.insert(0, str(OPS))
+from audit_finding_disposition import ACKED, classify  # noqa: E402
+
+#: Committed ack ledger. Absent by default, and that is the intended starting state:
+#: with no ledger every finding is NEW and this aggregator behaves exactly as it did
+#: before dispositioning existed. Acking is a human decision and a reviewed diff — this
+#: file only ever READS the ledger.
+ACK_LEDGER = OPS / "ops_audit_acks.json"
 
 #: (name, relative path, argv tail, ALLOWED FINDING EXIT CODES).
 #:
@@ -177,6 +187,18 @@ STATUS_OK, STATUS_FINDINGS, STATUS_CRASH, STATUS_TIMEOUT, STATUS_MISSING = (
 #: from `crash` because nothing died, and emphatically distinct from `findings`.
 STATUS_UNUSABLE = "unusable"
 
+#: A finding whose fingerprint is acked, unexpired, and whose numbers have not moved.
+#: Still printed, with its reason — nothing is suppressed silently. It is the ONLY
+#: status dispositioning can produce, and it can only ever come from STATUS_FINDINGS.
+#:
+#: DISPOSITION NEVER TOUCHES THE HARNESS STATUSES. A crash, timeout, missing member or
+#: unusable exit is not a finding and cannot be acked: those say the detector did not
+#: reach a verdict, and an ack that could quiet them would let a BROKEN detector read as
+#: an acknowledged one — the exact crash-vs-alarm confusion this aggregator exists to
+#: prevent, re-introduced through the quieting layer. `_disposition` is applied inside
+#: the `status == STATUS_FINDINGS` branch only, and a test pins that.
+STATUS_INFO = "info"
+
 #: Aggregate exit codes. `findings` is 1 so the job's nonzero exit means "a detector
 #: found something"; a harness problem gets its own code so it is never read as a
 #: finding — the crash-vs-alarm confusion #622 was opened for.
@@ -231,10 +253,43 @@ def run_member(name: str, rel: str, tail: list[str],
                        (out[0] if out else (err[0] if err else "")))[:200]}
 
 
-def audit(ops: Path = OPS, members=MEMBERS) -> dict:
+def load_ledger(path: Path = ACK_LEDGER) -> dict:
+    """The ack ledger, or `{}`.
+
+    A malformed ledger returns `{}` rather than raising: the failure mode to avoid is a
+    bad ack file taking the whole audit down. It cannot hide anything, because an empty
+    ledger acks nothing — every finding stays loud.
+    """
+    try:
+        led = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return led if isinstance(led, dict) else {}
+
+
+def audit(ops: Path = OPS, members=MEMBERS, ledger_path: Path = ACK_LEDGER,
+          today: dt.date | None = None) -> dict:
     results = [run_member(n, r, t, f, ops) for n, r, t, f in members]
+
+    # ---- disposition, at the per-finding counting boundary ----
+    # Only STATUS_FINDINGS rows are eligible; see STATUS_INFO on why the harness
+    # statuses are untouchable. An acked-and-unchanged finding becomes INFO and stops
+    # counting as an alarm; NEW / ACKED_BUT_CHANGED / ACK_EXPIRED all stay findings.
+    ledger = load_ledger(ledger_path)
+    day = today or dt.date.today()
+    for r in results:
+        if r["status"] != STATUS_FINDINGS:
+            continue
+        d = classify(r["member"], r.get("detail", ""), ledger, day)
+        r["disposition"] = d["state"]
+        r["fingerprint"] = d["fingerprint"]
+        if d.get("reason"):
+            r["ack_reason"] = d["reason"]
+        if d["state"] == ACKED:
+            r["status"] = STATUS_INFO
+
     counts = {s: sum(1 for r in results if r["status"] == s)
-              for s in (STATUS_OK, STATUS_FINDINGS, STATUS_CRASH,
+              for s in (STATUS_OK, STATUS_FINDINGS, STATUS_INFO, STATUS_CRASH,
                         STATUS_TIMEOUT, STATUS_MISSING, STATUS_UNUSABLE)}
     # WORST severity wins: a harness problem outranks a finding, because a detector
     # that could not run is not a detector that found nothing. `unusable` sits on the
@@ -243,28 +298,47 @@ def audit(ops: Path = OPS, members=MEMBERS) -> dict:
             or counts[STATUS_UNUSABLE]):
         aggregate = EXIT_HARNESS
     elif counts[STATUS_FINDINGS]:
+        # INFO is deliberately absent here: an acked, unexpired, unchanged finding is
+        # what "quiet" MEANS, and a job that still exits nonzero on it has not become
+        # signalling. EXPIRED and CHANGED never reach INFO, so they still exit 1.
         aggregate = EXIT_FINDINGS
     else:
         aggregate = EXIT_OK
     return {"members": len(results), "counts": counts,
-            "aggregate_exit": aggregate, "results": results}
+            "aggregate_exit": aggregate, "results": results,
+            "ledger": str(ledger_path), "n_acks_in_ledger": len(ledger),
+            "as_of": day.isoformat()}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--ledger", type=Path, default=ACK_LEDGER)
+    ap.add_argument("--as-of", default=None,
+                    help="classify acks as of this date (default: today)")
     a = ap.parse_args(argv)
-    res = audit()
+    try:
+        day = dt.date.fromisoformat(a.as_of) if a.as_of else None
+    except ValueError:
+        print(f"ops-audit: --as-of is not a date: {a.as_of!r}", file=sys.stderr)
+        return EXIT_HARNESS
+    res = audit(ledger_path=a.ledger, today=day)
     if a.json:
         print(json.dumps(res, indent=2))
     else:
         c = res["counts"]
         print(f"ops-audit: {res['members']} detector(s) — ok={c['ok']} "
-              f"findings={c['findings']} unusable={c['unusable']} "
+              f"findings={c['findings']} info={c['info']} unusable={c['unusable']} "
               f"crash={c['crash']} timeout={c['timeout']} missing={c['missing']}")
         for r in res["results"]:
-            print(f"  [{r['status']:8}] {r['member']:24} exit={r['exit_code']} "
+            disp = f" {r['disposition']}" if r.get("disposition") else ""
+            print(f"  [{r['status']:8}] {r['member']:24} exit={r['exit_code']}{disp} "
                   f"{r['detail'][:96]}")
+            if r.get("ack_reason"):
+                print(f"      acked because: {str(r['ack_reason'])[:96]}")
+        print(f"  ledger {res['ledger']} ({res['n_acks_in_ledger']} ack(s)), "
+              f"as of {res['as_of']}. An INFO finding is still printed — nothing is "
+              f"suppressed silently, and the ledger is never written here.")
     return res["aggregate_exit"]
 
 
