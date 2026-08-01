@@ -354,3 +354,48 @@ def test_ANTI_VACUITY_a_fully_established_lane_still_exits_0(tmp_path):
     cfg = _cfg(tmp_path, [{"name": "lane_a", "artifact_path": "art/m.json"}])
     assert P.main(["--lane", "lane_a", "--runner-config", cfg,
                    "--base", str(tmp_path / "base"), "--watched-lane", "lane_a"]) == 0
+
+
+# ---------------------------------------------------- #723: defaults + SKIP fix ----
+
+def test_zero_declared_bases_is_SKIP_not_FAIL():
+    """#723: ok=False asserted 'does not resolve' on the strength of never having been
+    told where to look. Zero bases is the same epistemic state as multi-base ambiguity:
+    UNESTABLISHED."""
+    entry = {"artifact_path": "artifacts/x.json"}
+    out = P.check_artifact(entry, [])
+    assert out["ok"] is None
+    assert "UNESTABLISHED" in out["why"]
+
+
+def test_declared_lanes_reads_the_config_not_a_hardcoded_list(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"ranking": {"panel_scoring": {"shadow_models": [
+        {"name": "lane_a", "artifact_path": "a.json"},
+        {"name": "lane_b", "artifact_path": "b.pt"},
+        {"artifact_path": "nameless-ignored.json"},
+    ]}}}))
+    assert P.declared_lanes(str(cfg)) == ["lane_a", "lane_b"]
+
+
+def test_argless_multi_lane_run_aggregates_and_prefixes_failures(tmp_path, capsys):
+    base = tmp_path / "base"
+    (base / "artifacts").mkdir(parents=True)
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"ranking": {"panel_scoring": {"shadow_models": [
+        {"name": "lane_a", "artifact_path": "artifacts/present.json"},
+        {"name": "lane_b", "artifact_path": "artifacts/missing.json"},
+    ]}}}))
+    (base / "artifacts" / "present.json").write_text("{}")
+    rc = P.main(["--runner-config", str(cfg), "--base", str(base), "--json"])
+    rep = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert rep["lanes"] == ["lane_a", "lane_b"]
+    assert any(f.startswith("lane_b:artifact_resolves") for f in rep["failed"]), rep["failed"]
+
+
+def test_a_config_declaring_no_shadow_models_is_a_FINDING(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"ranking": {"panel_scoring": {"shadow_models": []}}}))
+    rc = P.main(["--runner-config", str(cfg)])
+    assert rc == 1

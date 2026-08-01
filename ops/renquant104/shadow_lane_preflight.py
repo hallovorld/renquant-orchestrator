@@ -123,6 +123,16 @@ def check_artifact(entry: dict | None, bases: list[str],
         return {"check": "artifact_resolves", "ok": os.path.exists(rel),
                 "artifact_path": rel, "resolves_under": ["<absolute>"],
                 "why": "" if os.path.exists(rel) else "absolute path does not exist"}
+    if not bases:
+        # #723: zero DECLARED bases is the same epistemic state as multiple bases with
+        # no --loader-base — whether the path resolves is UNESTABLISHED, because this
+        # checker was never told where to look. ok=False here asserted a fact it had
+        # no evidence for, and a base-less call site would have alarmed on every lane
+        # forever.
+        return {"check": "artifact_resolves", "ok": None, "artifact_path": rel,
+                "resolves_under": [],
+                "why": "no --base was declared, so whether this path resolves is "
+                       "UNESTABLISHED — SKIPPED, not failed"}
     hits = [b for b in bases
             if os.path.exists(os.path.normpath(os.path.join(b, rel)))]
     if not hits:
@@ -248,10 +258,41 @@ def preflight(lane: str, runner_config: str, bases: list[str],
                 "signal. A skipped check (ok=null) is not a pass.")}
 
 
+#: Resolved defaults (#723: the tool had no caller partly because every invocation
+#: had to reconstruct these). The pinned config is the runner's real input (R5), the
+#: umbrella base is where its artifact_paths are relative to, and the default lanes are
+#: WHATEVER shadow_models the pinned config declares — resolved at run time, never a
+#: hardcoded lane list that rots.
+DEFAULT_RUNNER_CONFIG = os.environ.get(
+    "RQ104_RUNNER_CONFIG",
+    "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/"
+    "configs/strategy_config.json")
+#: TWO default bases, because the deployment splits exactly this way (live-deploy
+#: mechanism: config from the pinned subrepo, artifacts from the umbrella tree): the
+#: clf lane's artifact_path resolves under backtesting/renquant_104, the PatchTST
+#: lane's under the umbrella root. Each lane resolves under exactly one, so the
+#: multi-base ambiguity rule stays dormant unless something genuinely duplicates.
+DEFAULT_BASES = [
+    os.environ.get("RQ104_ARTIFACT_BASE",
+                   "/Users/renhao/git/github/RenQuant/backtesting/renquant_104"),
+    os.environ.get("RQ104_UMBRELLA_ROOT", "/Users/renhao/git/github/RenQuant"),
+]
+
+
+def declared_lanes(runner_config: str) -> list[str]:
+    """The shadow_models names the pinned config declares. Read, not assumed."""
+    with open(runner_config) as fh:
+        cfg = json.load(fh)
+    models = (((cfg.get("ranking") or {}).get("panel_scoring") or {})
+              .get("shadow_models") or [])
+    return [m.get("name") for m in models if isinstance(m, dict) and m.get("name")]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--lane", required=True)
-    ap.add_argument("--runner-config", required=True,
+    ap.add_argument("--lane", default=None,
+                    help="default: run EVERY lane the runner config declares")
+    ap.add_argument("--runner-config", default=DEFAULT_RUNNER_CONFIG,
                     help="the config the RUNNER reads — the pinned one (R5)")
     ap.add_argument("--base", action="append", dest="bases", default=[],
                     help="a directory artifact_path may be relative to")
@@ -266,12 +307,43 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     if not a.watched:
+        # Default: the declared lanes ARE the watched set — the sentinel's registry
+        # mirrors the config (orch#727 verified both lanes patrolled). An explicit
+        # --watched-lane still overrides for what-if runs.
+        try:
+            a.watched = declared_lanes(a.runner_config)
+        except (OSError, ValueError) as exc:
+            print(f"shadow-lane preflight: cannot resolve default watched lanes: "
+                  f"{exc}", file=sys.stderr)
+    if not a.watched:
         print("shadow-lane preflight: --watched-lane is required — with none, check 3 "
               "would pass or fail on an empty set and mean nothing", file=sys.stderr)
         return 2
 
-    rep = preflight(a.lane, a.runner_config, list(a.bases), list(a.watched),
-                    a.shadow_name, a.loader_base)
+    bases = list(a.bases) or list(DEFAULT_BASES)
+    lanes = [a.lane] if a.lane else None
+    if lanes is None:
+        try:
+            lanes = declared_lanes(a.runner_config)
+        except (OSError, ValueError) as exc:
+            print(f"shadow-lane preflight: cannot resolve lanes from "
+                  f"{a.runner_config}: {exc}", file=sys.stderr)
+            return 2
+        if not lanes:
+            print("shadow-lane preflight: the runner config declares no shadow_models "
+                  "— nothing to check is a FINDING here, not a pass", file=sys.stderr)
+            return 1
+    reports = [preflight(l, a.runner_config, bases, list(a.watched),
+                         a.shadow_name, a.loader_base) for l in lanes]
+    rep = reports[0] if len(reports) == 1 else {
+        "lanes": [r["lane"] for r in reports],
+        "checks": [c for r in reports for c in
+                   [{**c, "lane": r["lane"]} for c in r["checks"]]],
+        "n_failed": sum(r["n_failed"] for r in reports),
+        "failed": [f"{r['lane']}:{f}" for r in reports for f in r["failed"]],
+        "n_skipped": sum(r["n_skipped"] for r in reports),
+        "skipped": [f"{r['lane']}:{f}" for r in reports for f in r["skipped"]],
+        "scope_note": reports[0]["scope_note"], "lane": ", ".join(l for l in lanes)}
     if a.json:
         print(json.dumps(rep, indent=2, sort_keys=True))
     else:
