@@ -69,8 +69,12 @@ class WatchedJob:
     """A job that can exit 0 while declining to do its work."""
     name: str
     log_dir: str
-    #: matches a run that DECLINED (the job ran, decided, and did nothing)
-    refusal_re: str
+    #: matches a run that DECLINED (the job ran, decided, and did nothing).
+    #: ``None`` means the job has NO refusal vocabulary — its only silent classes are
+    #: skip and failure (e.g. an anomaly-gated chain either completes or fails; there
+    #: is no line meaning "looked and declined"). A never-matching placeholder regex
+    #: here would be a guessed pattern, which this module forbids.
+    refusal_re: str | None
     #: matches a run that ACTED (the job ran, decided, and did something)
     action_re: str
     #: matches a run that FAILED before deciding (crash / hard error). These
@@ -117,13 +121,64 @@ WATCHED: tuple[WatchedJob, ...] = (
         refusal_re=r"refusing to export",
         action_re=r"exported\s+\d+/\d+\s+frozen blend scores",
     ),
+    # THIRD-FIFTH LANES, added 2026-08-01 after the #724 registry-completeness pass.
+    #
+    # DOCTRINE AMENDMENT, stated where it applies: this module requires patterns read
+    # off reality, not guessed. For a job that has NEVER succeeded inside its log
+    # window, no action line exists in any log — and refusing to watch it for that
+    # reason would exclude exactly the jobs a silent-refusal sentinel exists for. For
+    # those jobs the action pattern is read off the EMITTER SOURCE (the literal echo
+    # in the wrapper script), and a test pins the pattern to that source line so a
+    # reworded emitter breaks the test instead of silently blinding the watch.
+    WatchedJob(
+        name="weekly-wf-promote",
+        log_dir=os.path.join(RQ, "logs/weekly_wf_promote"),
+        # refusal read off the REAL 2026-08-01 dated log; REJECTED on 6 of the last 8
+        # dated logs at review time.
+        refusal_re=r"WF gate REJECTED staged model",
+        # action read off the emitter, scripts/weekly_wf_promote.sh:412 — no PASS has
+        # ever appeared in the 54-log window.
+        action_re=r"weekly_wf_promote PASSED",
+        failure_re=(r"Promote FAILED|Smoke test FAILED|Snapshot freshness backstop "
+                    r"FAILED|Traceback \(most recent call last\)"),
+    ),
+    WatchedJob(
+        name="conditional-retrain104",
+        log_dir=os.path.join(RQ, "logs/conditional_retrain_104"),
+        # No refusal vocabulary: a triggered run completes or fails, and a no-trigger
+        # day prints "No anomaly triggers fired" — a healthy idle that must classify
+        # as SKIP, not as a refusal streak. Measured 2026-08-01: 59 dated logs, 22
+        # trigger-fired, 22 chain FAILED, 0 completed.
+        refusal_re=None,
+        # emitter: scripts/conditional_retrain_104.sh:105
+        action_re=r"Gated WF promote chain complete",
+        failure_re=(r"Gated WF promote chain FAILED|Trigger check FAILED|"
+                    r"Traceback \(most recent call last\)"),
+    ),
+    WatchedJob(
+        name="retrain-panel104",
+        log_dir=os.path.join(RQ, "logs/retrain_panel"),
+        # No refusal vocabulary: it delegates to weekly_wf_promote and reports
+        # PASS/FAIL; "already ran today" is a SKIP. Measured 2026-08-01: 19 dated
+        # logs, 7 delegated runs, 7 FAIL, 0 PASS.
+        refusal_re=None,
+        # emitter: scripts/retrain_panel.sh:72
+        action_re=r"delegated weekly_wf_promote PASS",
+        failure_re=(r"delegated weekly_wf_promote FAIL|"
+                    r"Traceback \(most recent call last\)"),
+    ),
 )
 
 #: Lanes that have the shape but CANNOT be watched yet, with the measured reason.
 #: Recorded rather than silently omitted --- an unwatched lane that nobody wrote
 #: down is indistinguishable from one that was considered and cleared.
+#: 2026-08-01: `weekly-wf-promote` was REMOVED from this registry and promoted to
+#: WATCHED. Its recorded reason — "dated log surface last wrote 2026-05-24" — was
+#: re-measured FALSE: 54 dated logs exist through 2026-08-01, with REJECTED decision
+#: lines on 6 of the last 8. A registry of measured reasons must retire entries whose
+#: measurements no longer hold, or it becomes the thing it guards against.
 UNWATCHABLE_LANES = {
-    "weekly-wf-promote": (
+    "_retired_weekly-wf-promote_see_WATCHED": (
         "has a matching refusal line (\"refusing to spend sim compute on "
         "non-comparable WF evidence\") but its DATED log surface last wrote "
         "2026-05-24 --- the job now writes only stdout.log/stderr.log, which this "
@@ -180,7 +235,7 @@ def classify_run(text: str, job: WatchedJob) -> str:
         return "acted"
     if re.search(job.failure_re, text, flags=re.MULTILINE):
         return "failed"
-    if re.search(job.refusal_re, text):
+    if job.refusal_re and re.search(job.refusal_re, text):
         return "refused"
     return "undecided"
 
