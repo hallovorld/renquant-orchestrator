@@ -20,6 +20,16 @@ DIR = (pathlib.Path(__file__).resolve().parent.parent
        / "doc/research/evidence/2026-07-31-wf-gate-subcriteria")
 SUM = json.loads((DIR / "summary.json").read_text(encoding="utf-8"))
 
+import importlib.util as _ilu  # noqa: E402
+import sys as _sys  # noqa: E402
+_spec = _ilu.spec_from_file_location(
+    "_subgate_extract",
+    pathlib.Path(__file__).resolve().parent.parent
+    / "ops" / "renquant104" / "subgate_matrix_extract.py")
+_extract_mod = _ilu.module_from_spec(_spec)
+_sys.modules[_spec.name] = _extract_mod
+_spec.loader.exec_module(_extract_mod)
+
 
 def _rows():
     return list(csv.DictReader((DIR / "subgate_matrix.csv").open()))
@@ -149,3 +159,47 @@ def test_the_provenance_sidecar_records_the_extraction_command():
     assert "subgate_matrix_extract.py --emit" in side["extraction_command"]
     assert side["n_rows"] == 11
     assert "selection_note" in side
+
+
+def test_monotonicitys_failing_regimes_are_read_STRUCTURALLY_and_respect_eligibility():
+    """Both earlier readings of this field were wrong in opposite directions.
+
+    `trade_monotonicity.regimes` is a LIST of per-regime records — an earlier comment
+    here said it "never names a regime" and parsed the failing set out of `reason`
+    instead. It does name one. But reading the list naively OVERSTATES the failure: the
+    producer counts only ELIGIBLE regimes. On `panel-ltr.alpha158_fund.previous.json`,
+    `BULL_VOLATILE` (n=7) and `CHOPPY` (n=9) both carry `passed: false` with
+    `eligible: false`, while the producer's own reason says
+    *"failed in active regime(s): BULL_CALM"*.
+
+    Structure alone over-reports; the reason alone is prose. So the extractor reads the
+    structure, respects `eligible`, and CROSS-CHECKS against the reason — reporting a
+    disagreement rather than silently preferring one.
+    """
+    block = {"trade_monotonicity": {
+        "reason": "score monotonicity failed in active regime(s): BULL_CALM",
+        "regimes": [
+            {"regime": "BULL_CALM", "passed": False, "eligible": True, "n": 114},
+            {"regime": "BULL_VOLATILE", "passed": False, "eligible": False, "n": 7},
+            {"regime": "CHOPPY", "passed": False, "eligible": False, "n": 9},
+        ]}}
+    assert _extract_mod._failed_regimes(block, "trade_monotonicity") == "BULL_CALM"
+
+
+def test_an_INELIGIBLE_regime_alone_falls_back_to_the_reason_rather_than_reporting_none():
+    """Anti-vacuity: filtering on eligibility must not turn a real failure into an empty
+    column. With no eligible failure the reason still speaks."""
+    block = {"trade_monotonicity": {
+        "reason": "score monotonicity failed in active regime(s): CHOPPY",
+        "regimes": [{"regime": "CHOPPY", "passed": False, "eligible": False, "n": 4}]}}
+    assert "CHOPPY" in _extract_mod._failed_regimes(block, "trade_monotonicity")
+
+
+def test_a_DISAGREEMENT_between_structure_and_reason_is_REPORTED():
+    """Never silently resolved: one of the two is describing something the other is not,
+    and a reader needs to know which."""
+    block = {"trade_monotonicity": {
+        "reason": "score monotonicity failed in active regime(s): CHOPPY",
+        "regimes": [{"regime": "BULL_CALM", "passed": False, "eligible": True, "n": 99}]}}
+    got = _extract_mod._failed_regimes(block, "trade_monotonicity")
+    assert "BULL_CALM" in got and "reason says" in got and "CHOPPY" in got

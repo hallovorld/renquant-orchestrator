@@ -98,12 +98,29 @@ def _failed_regimes(block: dict, key: str) -> str:
     # failed" instead of "I looked in the wrong place".
     #
     # AND THE TWO SUB-CRITERIA DO NOT SHARE A SHAPE. `sanity_regime_ic.regimes` is a DICT
-    # keyed by regime; `trade_monotonicity.regimes` is a LIST of per-window records that
-    # never names a regime. For the latter the failing regimes are stated only in
-    # `reason`, so they are parsed from there rather than invented from the list.
+    # keyed by regime; `trade_monotonicity.regimes` is a LIST of per-regime records.
+    #
+    # CORRECTED 2026-08-01: an earlier comment here said the list "never names a regime",
+    # so the failing set was parsed out of `reason`. It does name one -- each entry
+    # carries `regime`. But reading the list naively OVERSTATES the failure, because the
+    # producer only counts ELIGIBLE regimes: on
+    # `panel-ltr.alpha158_fund.previous.json`, BULL_VOLATILE (n=7) and CHOPPY (n=9) both
+    # carry `passed: false` with `eligible: false`, while the producer's own reason says
+    # "failed in active regime(s): BULL_CALM".
+    #
+    # So: read the STRUCTURE (robust) and respect `eligible` (correct), then cross-check
+    # against the reason string. Structure alone over-reports; the reason alone is prose.
     per = node.get("regimes")
     if isinstance(per, list):
-        return _regimes_from_reason(node.get("reason"))
+        structural = sorted({str(g.get("regime")) for g in per
+                             if isinstance(g, dict) and g.get("passed") is False
+                             and g.get("eligible") is not False and g.get("regime")})
+        from_reason = _regimes_from_reason(node.get("reason"))
+        if structural and from_reason and ",".join(structural) != from_reason:
+            # Disagreement is reported, never silently resolved: one of the two is
+            # describing something the other is not, and a reader needs to know which.
+            return f"{','.join(structural)} (reason says: {from_reason})"
+        return ",".join(structural) or from_reason
     if not isinstance(per, dict):
         return ""
     out = []

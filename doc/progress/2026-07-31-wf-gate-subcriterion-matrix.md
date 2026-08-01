@@ -117,3 +117,34 @@ to the served one, and a test pins both halves.
 
 `wf` deliberately keeps its post-override meaning: silently redefining a published column
 would move this document's numbers under its own conclusions.
+
+---
+
+## ROUND 3b — two readings of the same field, wrong in opposite directions
+
+The extractor and the rename landed from the parallel session; its verification found a
+real error the rebind alone could not (`wf_fail_rate` 10/11 → 9/11: one artifact carries
+`passed=true` on disk and had been recorded FAIL). **Verifying published cells catches
+things that recomputing them cannot** — a wholesale re-derivation replaces the numbers
+instead of contradicting them.
+
+One correction on top of it, and it is a disagreement worth recording because **both
+readings were wrong, in opposite directions**:
+
+`trade_monotonicity.regimes` is a **list of per-regime records**.
+
+- the landed comment said it *"never names a regime"* and parsed the failing set out of
+  `reason`. **It does name one** — every entry carries `regime`;
+- reading that list naively **overstates** the failure. On
+  `panel-ltr.alpha158_fund.previous.json`, `BULL_VOLATILE` (n=7) and `CHOPPY` (n=9) both
+  carry `passed: false` with **`eligible: false`**, while the producer's own reason says
+  *"failed in active regime(s): **BULL_CALM**"*. The producer counts only eligible
+  regimes; a regime with n=7 is not a failure the gate asserts.
+
+So the extractor now reads the **structure** (robust), respects **`eligible`** (correct),
+and **cross-checks against the reason**, reporting a disagreement rather than silently
+preferring one — *"BULL_CALM (reason says: CHOPPY)"* if they ever diverge.
+
+Measured after the fix: `BULL_CALM` on **30 of 30** named artifacts, agreeing with the
+reason string everywhere. Structure alone would have said three regimes; the reason alone
+is prose.
