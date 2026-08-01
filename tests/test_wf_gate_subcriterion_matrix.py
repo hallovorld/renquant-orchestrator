@@ -58,3 +58,37 @@ def test_CHOPPY_also_fails_everywhere_and_BULL_VOLATILE_almost():
 
 def test_exactly_one_artifact_is_marked_deployed():
     assert sum(1 for r in _rows() if r["deployed"] == "True") == 1
+
+
+def test_the_document_does_not_claim_the_two_subcriteria_are_INDEPENDENT():
+    """Self-audit before review, and the hole is a real one.
+
+    `sanity_regime_ic` and `trade_monotonicity` are both evaluated on the same regime
+    slice, so one property of that slice's population could fail both. Two failures are
+    not two pieces of evidence until independence is shown, and nothing in this evidence
+    shows it. The first draft called them "two independent sub-criteria".
+
+    Paired with the check below so that withdrawing the word is not achieved by
+    deleting the finding.
+    """
+    import pathlib
+    doc = (pathlib.Path(__file__).resolve().parent.parent
+           / "doc/progress/2026-07-31-wf-gate-subcriterion-matrix.md").read_text("utf-8")
+    import re
+    flat = re.sub(r"\s*\n>?\s*", " ", doc)
+    struck = [m.span() for m in re.finditer(r"~~.+?~~", flat, re.S)]
+    for at in (m.start() for m in re.finditer(r"independent sub-criteria", flat)):
+        assert any(a <= at < b for a, b in struck), \
+            "'independent sub-criteria' is asserted outside a withdrawal"
+    assert "not established" in flat
+
+
+def test_the_document_still_states_the_signature_it_DID_measure():
+    """ANTI-VACUITY for the test above. Narrowing a claim must not delete it: the
+    stable structural signature -- both sub-criteria failing the same regime on every
+    artifact -- is measured and stays."""
+    import pathlib
+    doc = (pathlib.Path(__file__).resolve().parent.parent
+           / "doc/progress/2026-07-31-wf-gate-subcriterion-matrix.md").read_text("utf-8")
+    assert "fails two different sub-criteria on every artifact" in doc
+    assert "not independent draws" in doc

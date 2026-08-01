@@ -28,10 +28,23 @@ evaluated, not merely erroring out, so the three 11/11 rows are verdicts and not
 | `sanity_regime_ic` | `BULL_VOLATILE` | 10/11 |
 | `trade_monotonicity` | `BULL_CALM` | **11/11** |
 
-> **`BULL_CALM` fails two independent sub-criteria on every artifact without
+> **`BULL_CALM` fails two different sub-criteria on every artifact without
 > exception.** Eleven vintages trained across a month, all failing the same regime on
-> two different criteria, is a property of the criterion or of that regime's
-> population — not eleven independently bad models.
+> two criteria, is a stable structural signature rather than a per-vintage accident.
+
+**Two things that sentence must NOT be read as saying**, because its first draft did:
+
+- ~~*"two **independent** sub-criteria"*~~ — **not established.** `sanity_regime_ic` and
+  `trade_monotonicity` are both evaluated on the same regime slice, so a single property
+  of that slice's population could fail both. Two failures are not two pieces of
+  evidence until their independence is shown, and nothing here shows it.
+- ~~*"...is a property of the criterion or of that regime's population — **not eleven
+  independently bad models**"*~~ — **withdrawn as a non-discriminating step.** All 11
+  artifacts are the same recipe on overlapping data (see the population caveat below),
+  so they are **not independent draws**. Their common failure is exactly what every
+  hypothesis on the table predicts, including "the candidates are bad", so it separates
+  none of them. Ruling out "eleven *independent* failures" rules out something the
+  population never offered.
 
 ## What this licenses, and what it does not
 
@@ -46,8 +59,11 @@ measurement establishes is that **the gate cannot tell us which**, and that a mo
 retraining moved none of these rows.
 
 **Population caveat, stated rather than buried:** all 11 artifacts are the **same
-recipe** (`alpha158_fund`). "11/11" is over a narrow population, and nothing here
-generalises to a different recipe.
+recipe** (`alpha158_fund`) on overlapping data. "11/11" is over a narrow population,
+nothing here generalises to a different recipe — **and, as above, the eleven are not
+independent draws, so their agreement carries far less information than eleven
+independent agreements would.** The caveat was already here; what was missing was
+applying it to this document's own headline inference.
 
 **Not reported:** I also tried to extract each artifact's `shuf_ic` against the enforced
 `|shuf_ic| < 0.005` leakage bar. My extraction keyed on the wrong field and returned
