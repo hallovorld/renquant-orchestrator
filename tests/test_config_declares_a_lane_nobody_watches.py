@@ -154,7 +154,10 @@ def test_NOT_REQUESTED_is_quiet_while_COULD_NOT_CHECK_is_not(tmp_path, monkeypat
     monkeypatch.setattr(S, "watched_lanes", lambda: _lanes("hf_patchtst"))
     monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out: 0)
 
-    rc_absent = S.main(["--as-of", "2026-07-31"])
+    # `--config ""` explicitly, because the default now RESOLVES: this test is about the
+    # not-requested PATH, and relying on the default to be empty would make it assert the
+    # absence of the very wiring this file's later tests require.
+    rc_absent = S.main(["--as-of", "2026-07-31", "--config", ""])
     out = capsys.readouterr().out
     assert rc_absent == 0
     assert "NOT REQUESTED" in out and "skipped, not passed" in out
@@ -162,3 +165,40 @@ def test_NOT_REQUESTED_is_quiet_while_COULD_NOT_CHECK_is_not(tmp_path, monkeypat
     rc_broken = S.main(["--as-of", "2026-07-31",
                         "--config", str(tmp_path / "gone.json")])
     assert rc_broken == S.EXIT_ALARM
+
+
+def test_the_config_check_ACTUALLY_RUNS_by_default(tmp_path, monkeypatch):
+    """orch#702 put this check behind `--config` with no default, so nothing supplied it
+    and it never ran — `RQ104_STRATEGY_CONFIG` appears only in this file's own default and
+    its own "not requested" message, and is set in no installed plist.
+
+    Merged and never invoked is worth nothing; that rule had just been applied to five
+    other detectors in orch#701.
+    """
+    monkeypatch.delenv("RQ104_STRATEGY_CONFIG", raising=False)
+    resolved = S.default_strategy_config()
+    import os
+    if not resolved:
+        import pytest
+        pytest.skip("pinned strategy-104 checkout not present on this machine")
+    assert os.path.isfile(resolved)
+    assert resolved.endswith("renquant-strategy-104/configs/strategy_config.json"), (
+        "R5: the runner reads the PINNED config, not the umbrella one")
+
+
+def test_the_ENV_VAR_still_wins_over_the_derived_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("RQ104_STRATEGY_CONFIG", str(tmp_path / "x.json"))
+    assert S.default_strategy_config() == str(tmp_path / "x.json")
+
+
+def test_an_UNRESOLVABLE_default_stays_QUIET_rather_than_alarming(tmp_path, monkeypatch):
+    """A machine without the pinned checkout must not acquire a permanent alarm.
+    Quiet-when-absent and quiet-when-clean are different states, and both are printed."""
+    monkeypatch.delenv("RQ104_STRATEGY_CONFIG", raising=False)
+    monkeypatch.setattr(S, "__file__", str(tmp_path / "deep" / "a" / "b" / "s.py"))
+    monkeypatch.setattr(S, "alert", lambda *a, **k: None)
+    monkeypatch.setattr(S, "is_session_day", lambda d: True)
+    monkeypatch.setattr(S, "watched_lanes", lambda: _lanes("hf_patchtst"))
+    monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out: 0)
+    rc = S.main(["--as-of", "2026-07-31", "--config", ""])
+    assert rc == 0
