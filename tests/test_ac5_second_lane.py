@@ -76,13 +76,14 @@ def test_every_lane_names_a_distinct_log_dir_or_a_distinct_prefix():
 
 def test_an_unwatchable_lane_is_RECORDED_not_silently_omitted():
     """An unwatched lane nobody wrote down is indistinguishable from one that was
-    considered and cleared. weekly-wf-promote has the shape; its dated log surface
-    last wrote 2026-05-24."""
-    assert "weekly-wf-promote" in srs.UNWATCHABLE_LANES
-    reason = srs.UNWATCHABLE_LANES["weekly-wf-promote"]
-    assert "2026-05-24" in reason
-    assert "dated" in reason.lower()
-
+    considered and cleared. UPDATED 2026-08-01: weekly-wf-promote's recorded reason
+    ("dated surface last wrote 2026-05-24") was re-measured FALSE — 54 dated logs
+    through 2026-08-01 — so it moved to WATCHED and the registry keeps a retirement
+    tombstone instead of silently deleting the history."""
+    assert any(j.name == "weekly-wf-promote" for j in srs.WATCHED)
+    assert "weekly-wf-promote" not in srs.UNWATCHABLE_LANES
+    assert any("weekly-wf-promote" in k for k in srs.UNWATCHABLE_LANES), \
+        "the retirement tombstone vanished — history must be retired visibly, not erased"
 
 @pytest.mark.parametrize("line", [
     "no trade (risk_gate_vol_dropped(29))",
@@ -94,6 +95,8 @@ def test_ordinary_no_trade_prose_is_NOT_a_refusal(line):
     words like 'no-op' and 'skipping' -- normal operation, not a job declining to do
     its job. Building a lane on that would alarm every session."""
     for lane in srs.WATCHED:
+        if lane.refusal_re is None:
+            continue              # no refusal vocabulary — the classifier's own guard
         assert not re.search(lane.refusal_re, line), (lane.name, line)
 
 
@@ -130,6 +133,12 @@ def _lane_dirs_present() -> bool:
 EXPECTED_LOG_NAMES = {
     "weekly-retrain-patchtst": "2026-07-29.log",
     "rq105-batch-scores-export": "batch_scores_export_2026-07-29.log",
+    # 2026-08-01 expansion — filenames pinned from the real tree, not derived:
+    # weekly_wf_promote/2026-08-01.log, conditional_retrain_104/2026-07-31.log and
+    # retrain_panel/2026-07-26.log exist; all plain <date>.log, no stem prefix.
+    "weekly-wf-promote": "2026-07-29.log",
+    "conditional-retrain104": "2026-07-29.log",
+    "retrain-panel104": "2026-07-26.log",
 }
 
 
