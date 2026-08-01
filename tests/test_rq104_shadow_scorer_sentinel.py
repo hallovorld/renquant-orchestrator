@@ -185,7 +185,7 @@ class TestLoadFailureStreak:
         score_rows = [(rid, tk, None, "XGBoost")
                       for rid in ("r_d1", "r_d0") for tk in ("AAPL", "MSFT")]
         rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "LOAD FAILURE" in alerts[0][1]
 
     def test_structured_two_days_not_loaded_alarm(self, tmp_path):
@@ -198,7 +198,7 @@ class TestLoadFailureStreak:
                     actionable=False, reasons=["artifact_unresolved"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "LOAD FAILURE" in alerts[0][1]
         assert "artifact_unresolved" in alerts[0][1]
 
@@ -242,7 +242,7 @@ class TestDegradedStreak:
                     reasons=["stale_cutoff_121d"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "NOT ACTIONABLE" in alerts[0][1] or "DEGRADED" in alerts[0][1]
         assert "stale_cutoff_120d" in alerts[0][1]
 
@@ -254,7 +254,7 @@ class TestDegradedStreak:
                     reasons=["coverage_0.30_below_0.80"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "coverage_0.40_below_0.80" in alerts[0][1]
 
     def test_db_derived_stale_alarms(self, tmp_path):
@@ -262,7 +262,7 @@ class TestDegradedStreak:
         # from the DB, so derived).
         run_rows, score_rows = _healthy_db_rows(cutoff="2024-11-13")
         rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "stale train-cutoff" in "\n".join(b for _, b in alerts)
 
     def test_db_derived_thin_coverage_alarms(self, tmp_path):
@@ -275,7 +275,7 @@ class TestDegradedStreak:
             for tk in ("MSFT", "NVDA", "AMZN"):
                 score_rows.append((rid, tk, None, "XGBoost"))
         rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "coverage" in "\n".join(b for _, b in alerts).lower()
 
     def test_mixed_degradation_window_alarms(self, tmp_path):
@@ -288,7 +288,7 @@ class TestDegradedStreak:
                     reasons=["stale_cutoff_90d"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         body = "\n".join(b for _, b in alerts)
         assert "DEGRADED" in body
 
@@ -314,14 +314,14 @@ class TestFeedDarkStreak:
         # runs exist, but no candidate scores AND no JSONL => truly dark.
         run_rows = [("r_d1", D1.isoformat(), None), ("r_d0", D0.isoformat(), None)]
         rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=[])
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "DARK" in alerts[0][1]
 
     def test_feed_alive_but_shadow_dead_is_load_failure_not_dark(self, tmp_path):
         run_rows = [("r_d1", D1.isoformat(), None), ("r_d0", D0.isoformat(), None)]
         score_rows = [("r_d1", "AAPL", None, "XGBoost"), ("r_d0", "AAPL", None, "XGBoost")]
         rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         body = "\n".join(b for _, b in alerts)
         assert "LOAD FAILURE" in body and "DARK" not in body
 
@@ -462,7 +462,7 @@ class TestSchemaValidation:
         score_rows = [(rid, tk, None, "XGBoost")
                       for rid in ("r_d1", "r_d0") for tk in ("AAPL", "MSFT")]
         rc, alerts = _run(tmp_path, run_rows=run_rows, score_rows=score_rows, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "LOAD FAILURE" in alerts[0][1]
         assert "shadow_runs_db_fallback" in alerts[0][1]
 
@@ -507,7 +507,7 @@ class TestExpectedSkipContract:
                     loaded=False, n_scored=0, reasons=["artifact_unresolved"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         assert "LOAD FAILURE" in alerts[0][1]
 
     def test_fault_status_degraded_state_is_degraded(self, tmp_path):
@@ -519,7 +519,7 @@ class TestExpectedSkipContract:
                     reasons=["missing_provenance"]),
         ]
         rc, alerts = _run(tmp_path, jsonl=jsonl)
-        assert rc == 1
+        assert rc == sentinel.EXIT_ALARM
         body = "\n".join(b for _, b in alerts)
         assert "DEGRADED" in body and "missing_provenance" in body
 
@@ -736,7 +736,7 @@ class TestMultiLane:
                             lambda t, b, **kw: sent.append((t, b)))
         out: list = []
         rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
-        assert rc == 1 and out
+        assert rc == sentinel.EXIT_ALARM and out
         assert "topdecile_clf_blend_leg" in sent[0][0]
         assert "the certified line" in sent[0][1]
 
@@ -766,7 +766,7 @@ class TestMultiLane:
                             lambda t, b, **kw: sent.append((t, b)))
         out: list = []
         rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
-        assert rc == 1 and out
+        assert rc == sentinel.EXIT_ALARM and out
         title, body = sent[0]
         assert "LOAD FAILURE" in body
         assert "'topdecile_clf_blend_leg'" in body
@@ -848,7 +848,7 @@ class TestMlflowFallback:
         monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
         out: list = []
         rc = sentinel._patrol_lane(clf, streak_days, D0, out)
-        assert rc == 1 and out
+        assert rc == sentinel.EXIT_ALARM and out
         assert "topdecile_clf_blend_leg" in sent[0][0]
 
     def test_end_to_end_patrol_stays_quiet_when_recorded_daily(self, tmp_path, monkeypatch):
@@ -1077,3 +1077,35 @@ def test_a_populated_scorer_column_still_yields_a_BOOLEAN(tmp_path):
     rec = sentinel._derive_day_record(conn, dt.date(2026, 7, 28))
     conn.close()
     assert rec.loaded is False and rec.n_scored == 0
+
+
+class TestAlarmIsDistinguishableFromCrash:
+    """GOAL-1 #622: a crashed watchdog and an alarming watchdog must not look the same.
+
+    `sys.exit(main())` means an uncaught exception exits **1**. While the alarm also
+    returned 1, `launchctl list` showed `exit=1` for both "did its job, found a problem"
+    and "crashed, found nothing" — and nothing else in the record disambiguated them.
+    Measured 2026-07-31: this job's live last exit IS 1, and it was not possible to say
+    which of the two had happened.
+    """
+
+    def test_the_alarm_code_is_not_the_crash_code(self):
+        """The whole of the change, in one assertion."""
+        assert sentinel.EXIT_ALARM != 1, "an alarm must not collide with an exception exit"
+        assert sentinel.EXIT_ALARM != 0, "an alarm must not look like success"
+        assert sentinel.EXIT_ALARM != 2, "2 is argparse's usage error"
+
+    def test_the_codes_stay_a_partition_under_bitwise_OR(self):
+        """`main()` aggregates lanes with `rc |= _patrol_lane(...)`.
+
+        OR-ing must not manufacture a value that means something else: clean lanes
+        contribute 0, alarming lanes contribute EXIT_ALARM, so any mix is either 0 or
+        EXIT_ALARM and never 1.
+        """
+        for combo in ([0], [0, 0], [sentinel.EXIT_ALARM], [0, sentinel.EXIT_ALARM],
+                      [sentinel.EXIT_ALARM, sentinel.EXIT_ALARM, 0]):
+            rc = 0
+            for c in combo:
+                rc |= c
+            assert rc in (0, sentinel.EXIT_ALARM), (combo, rc)
+            assert rc != 1
