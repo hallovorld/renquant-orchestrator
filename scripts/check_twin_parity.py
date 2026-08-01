@@ -81,6 +81,7 @@ REPO_DIRS = {
     "umbrella": "RenQuant",
     "execution": "renquant-execution",
     "pipeline": "renquant-pipeline",
+    "model": "renquant-model",
 }
 
 # ---------------------------------------------------------------------------
@@ -131,6 +132,18 @@ DIVERGED_TWINS = [
     ("alpaca_broker", "live/alpaca_broker.py", "src/renquant_execution/alpaca_broker.py"),
     ("paper_broker", "live/paper_broker.py", "src/renquant_execution/paper_broker.py"),
     ("readonly_broker", "live/broker_readonly.py", "src/renquant_execution/readonly_broker.py"),
+]
+
+# A6 (registry P1, orch#728): the umbrella-resident training layer's MODEL twin.
+# Named and measured 2026-08-01: across the umbrella's 284 scripts/*.py and the model
+# repo's 188 .py basenames there is exactly ONE same-name pair, and it is DIVERGED —
+# 575 umbrella lines vs 354 model lines, 655 diff lines. It is the calibrator fitter,
+# the component class behind the four fingerprint fail-close incidents, so its drift
+# gets the same tripwire the four broker twins already have.
+MODEL_DIVERGED_TWINS = [
+    ("fit_calibrator_alpha158_fund",
+     "scripts/fit_calibrator_alpha158_fund.py",
+     "src/renquant_model_gbdt/fit_calibrator_alpha158_fund.py"),
 ]
 
 _EXEC_BROKER = "src/renquant_execution/broker.py"
@@ -259,7 +272,8 @@ def build_manifest(repos: dict[str, Path | None]) -> dict:
     if missing:
         raise RuntimeError(f"cannot build manifest — missing sibling repos: {missing}")
     umbrella, execution, pipeline = repos["umbrella"], repos["execution"], repos["pipeline"]
-    assert umbrella and execution and pipeline
+    model = repos["model"]
+    assert umbrella and execution and pipeline and model
     manifest: dict = {
         "comment": (
             "R0 twin-parity pins (#454). Pinned STATE only — the checked "
@@ -289,6 +303,15 @@ def build_manifest(repos: dict[str, Path | None]) -> dict:
                 "execution_sha256": sha256_file(execution / exe_rel),
             }
             for name, umb_rel, exe_rel in DIVERGED_TWINS
+        },
+        "model_diverged_twins": {
+            name: {
+                "umbrella_path": umb_rel,
+                "model_path": model_rel,
+                "umbrella_sha256": sha256_file(umbrella / umb_rel),
+                "model_sha256": sha256_file(model / model_rel),
+            }
+            for name, umb_rel, model_rel in MODEL_DIVERGED_TWINS
         },
         "constants": {
             "MIN_FRACTIONAL_NOTIONAL_USD": module_constant(execution / _EXEC_BROKER, "MIN_FRACTIONAL_NOTIONAL_USD"),
@@ -430,6 +453,47 @@ def check_kernel_meta_label_twins(repos: dict[str, Path | None],
                 f"{name}: {'; '.join(moved)} — the pinned 4-line import-rewrite "
                 f"divergence changed. Either a real edit landed on one side, or a pin "
                 f"advance moved the serving copy; re-review and re-pin via PR."))
+    return results
+
+
+def check_model_diverged_twins(repos: dict[str, Path | None], manifest: dict) -> list[CheckResult]:
+    """A6's tripwire: same contract as check_diverged_twins, sides umbrella/model."""
+    umbrella, model = repos["umbrella"], repos["model"]
+    missing = [k for k in ("umbrella", "model") if repos[k] is None]
+    if missing:
+        return [_skip("model_diverged_twins", missing)]
+    assert umbrella and model
+    pins = manifest.get("model_diverged_twins", {})
+    results = []
+    for name, umb_rel, model_rel in MODEL_DIVERGED_TWINS:
+        cname = f"model_diverged_pin:{name}"
+        pin = pins.get(name)
+        if pin is None:
+            results.append(CheckResult(cname, "FAIL", f"no manifest pin for model twin {name!r} — regenerate the manifest"))
+            continue
+        drifted = []
+        for side, root, rel, key in (
+            ("umbrella", umbrella, umb_rel, "umbrella_sha256"),
+            ("model", model, model_rel, "model_sha256"),
+        ):
+            path = root / rel
+            if not path.is_file():
+                drifted.append(f"{side} file missing: {path}")
+                continue
+            actual = sha256_file(path)
+            if actual != pin[key]:
+                drifted.append(f"{side} side changed: {path} sha256 {actual[:16]}… != pinned {pin[key][:16]}…")
+        if drifted:
+            results.append(CheckResult(
+                cname, "FAIL",
+                "; ".join(drifted) + " — A6 twin drift tripwire (orch#728). If the "
+                "change is deliberate and reviewed on both stacks, re-pin via "
+                "`python scripts/check_twin_parity.py --write-manifest` in the "
+                "same PR.",
+            ))
+        else:
+            results.append(CheckResult(
+                cname, "PASS", f"{umb_rel} / {model_rel} match their pinned divergence"))
     return results
 
 
@@ -590,6 +654,7 @@ def run_checks(repos: dict[str, Path | None], manifest: dict) -> list[CheckResul
     results += check_kernel_shelf_twins(repos)
     results += check_kernel_meta_label_twins(repos, manifest)
     results += check_diverged_twins(repos, manifest)
+    results += check_model_diverged_twins(repos, manifest)
     results += check_min_fractional_notional(repos, manifest)
     results += check_parent_intent_id(repos, manifest)
     results += check_tax_conventions(repos, manifest)
