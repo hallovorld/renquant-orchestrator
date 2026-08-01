@@ -37,6 +37,26 @@
       "pipeline_sha256": "ddafb0302995ad145edbbe945f28fc98e1d6509846afc2da773fafe691ca74fb"
     }
   },
+  "kernel_meta_label_twins": {
+    "job_meta_label_log": {
+      "pinned_backtesting_path": ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/job_meta_label_log.py",
+      "pinned_sha256": "cae8c24b6a2b9e590e53a423a7b2496f8662d78b88ab642957fd6a214be74f3d",
+      "umbrella_path": "backtesting/renquant_104/kernel/meta_label/job_meta_label_log.py",
+      "umbrella_sha256": "150aeccc60b135ee36622a4078af577f8c1e90793ae7954644590b4a5adef3ad"
+    },
+    "task_meta_label_veto": {
+      "pinned_backtesting_path": ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/task_meta_label_veto.py",
+      "pinned_sha256": "c0db13c8848d4d4998faebd63508715af276af572d2b91e389fa90a01568d1f6",
+      "umbrella_path": "backtesting/renquant_104/kernel/meta_label/task_meta_label_veto.py",
+      "umbrella_sha256": "6955b78ffa3d382b98ee9d93619b80e2342310788025cfd3aa017af082f7232f"
+    },
+    "task_snapshot": {
+      "pinned_backtesting_path": ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/task_snapshot.py",
+      "pinned_sha256": "a06dce56905e6a5fd31290a88677a8ea799ca0de91d182b5d44dc6545f701616",
+      "umbrella_path": "backtesting/renquant_104/kernel/meta_label/task_snapshot.py",
+      "umbrella_sha256": "cd14b82769d73c36c1d554b21e39e46d7d1d8ffa981176adaf56956f0a78b823"
+    }
+  },
   "tax_conventions": {
     "comment": "R6 unifies; this pin makes further silent drift fail. Three divergent tax families coexist in the pipeline kernel (audit B SS4): rotation tax_drag ST/LT cliff 0.50/0.32, QP Brown-Smith bridge 0.30/0.15, selection flat 0.30 \u2014 the same sell is costed differently per leg.",
     "qp_tax_rate_lt": {

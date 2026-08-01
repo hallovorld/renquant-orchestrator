@@ -116,6 +116,19 @@ def sibling_tree(tmp_path):
 
     repos = ctp.resolve_repos(tmp_path)
     assert all(repos.values()), repos
+    # kernel shelf + meta_label twins (orch#734/#728): shelf pairs byte-identical,
+    # meta_label pairs carrying exactly the 4-line import-rewrite divergence.
+    for kern_rel, pinned_rel in ctp.KERNEL_SHELF_TWINS:
+        for rel in (kern_rel, pinned_rel):
+            f = umbrella / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(f"# shared shelf module {Path(kern_rel).name}\n")
+    for kern_rel, pinned_rel in ctp.KERNEL_META_LABEL_TWINS:
+        a, b = umbrella / kern_rel, umbrella / pinned_rel
+        a.parent.mkdir(parents=True, exist_ok=True)
+        b.parent.mkdir(parents=True, exist_ok=True)
+        a.write_text("from kernel.pipeline.pipeline import Task\n# body\n")
+        b.write_text("from renquant_common.pipeline import Task\n# body\n")
     return tmp_path, repos
 
 
@@ -391,3 +404,90 @@ def test_live_twin_parity_manifest_current():
     )
     if all(r.status == "SKIP" for r in results):  # pragma: no cover — guarded by skipif
         pytest.skip("all twin-parity groups skipped — no sibling repos found")
+
+
+# ------------------------------ kernel shelf + meta_label pins (orch#734/#728) ----
+
+def _mini_umbrella(tmp_path, shelf_equal=True, pin_shift=None):
+    """A tiny umbrella tree carrying ONE shelf pair and ONE pinned meta_label pair."""
+    u = tmp_path / "umb"
+    a = u / "backtesting/renquant_104/kernel/metrics/hac_se.py"
+    b = u / ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/hac_se.py"
+    for f in (a, b):
+        f.parent.mkdir(parents=True, exist_ok=True)
+    a.write_text("SHELF\n")
+    b.write_text("SHELF\n" if shelf_equal else "SHELF CHANGED\n")
+    ma = u / "backtesting/renquant_104/kernel/meta_label/task_snapshot.py"
+    mb = u / ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/task_snapshot.py"
+    for f in (ma, mb):
+        f.parent.mkdir(parents=True, exist_ok=True)
+    ma.write_text("from kernel.pipeline.pipeline import Task\n")
+    mb.write_text("from renquant_common.pipeline import Task\n")
+    if pin_shift == "umbrella":
+        ma.write_text(ma.read_text() + "# edited\n")
+    if pin_shift == "pinned":
+        mb.write_text(mb.read_text() + "# pin advanced\n")
+    import hashlib as _h
+    pin = {"task_snapshot": {
+        "umbrella_path": "backtesting/renquant_104/kernel/meta_label/task_snapshot.py",
+        "umbrella_sha256": _h.sha256(b"from kernel.pipeline.pipeline import Task\n").hexdigest(),
+        "pinned_backtesting_path": ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/task_snapshot.py",
+        "pinned_sha256": _h.sha256(b"from renquant_common.pipeline import Task\n").hexdigest(),
+    }}
+    return u, {"kernel_meta_label_twins": pin}
+
+
+def _shelf_only(mod, u):
+    orig = mod.KERNEL_SHELF_TWINS
+    mod.KERNEL_SHELF_TWINS = [orig[1][:]] if False else [
+        ("backtesting/renquant_104/kernel/metrics/hac_se.py",
+         ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/hac_se.py")]
+    return orig
+
+
+def test_kernel_shelf_identical_passes(tmp_path):
+    u, man = _mini_umbrella(tmp_path, shelf_equal=True)
+    orig = _shelf_only(ctp, u)
+    try:
+        rs = ctp.check_kernel_shelf_twins({"umbrella": u})
+    finally:
+        ctp.KERNEL_SHELF_TWINS = orig
+    assert [r.status for r in rs] == ["PASS"], rs
+
+
+def test_kernel_shelf_divergence_FAILS_with_the_A6_instruction(tmp_path):
+    u, man = _mini_umbrella(tmp_path, shelf_equal=False)
+    orig = _shelf_only(ctp, u)
+    try:
+        rs = ctp.check_kernel_shelf_twins({"umbrella": u})
+    finally:
+        ctp.KERNEL_SHELF_TWINS = orig
+    assert rs[0].status == "FAIL"
+    assert "DIVERGED" in rs[0].detail and "reviewed PR" in rs[0].detail
+
+
+def test_metalabel_pin_matches_both_sides(tmp_path):
+    u, man = _mini_umbrella(tmp_path)
+    rs = ctp.check_kernel_meta_label_twins({"umbrella": u}, man)
+    assert [r.status for r in rs] == ["PASS"], rs
+
+
+@pytest.mark.parametrize("side", ["umbrella", "pinned"])
+def test_metalabel_pin_fails_when_EITHER_side_moves(tmp_path, side):
+    u, man = _mini_umbrella(tmp_path, pin_shift=side)
+    rs = ctp.check_kernel_meta_label_twins({"umbrella": u}, man)
+    assert rs[0].status == "FAIL"
+    assert "re-pin" in rs[0].detail
+
+
+def test_missing_umbrella_SKIPS_both_new_checks():
+    a = ctp.check_kernel_shelf_twins({"umbrella": None})
+    b = ctp.check_kernel_meta_label_twins({"umbrella": None}, {})
+    assert a[0].status == "SKIP" and b[0].status == "SKIP"
+
+
+def test_an_empty_pin_section_is_a_FAIL_not_a_silent_pass(tmp_path):
+    u, _ = _mini_umbrella(tmp_path)
+    rs = ctp.check_kernel_meta_label_twins({"umbrella": u}, {})
+    assert rs[0].status == "FAIL"
+    assert "no kernel_meta_label_twins pins" in rs[0].detail

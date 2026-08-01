@@ -90,6 +90,35 @@ REPO_DIRS = {
 
 #: (umbrella-relative, execution-relative) pairs asserted byte-identical
 #: (audit C §1.1: identical today "only by luck" — this makes it a contract).
+#: A6-adjacent (orch#734/#728): the umbrella kernel's statistical-evidence shelf vs the
+#: PINNED renquant-common copy — the deployed library, not the (measured-stale) sibling
+#: dev checkout. Both sides live under the umbrella root. Measured byte-identical
+#: 2026-08-01; this guard exists so the day they stop being identical is the day someone
+#: decides retire-or-refresh, instead of the drift running silent (the C3 lesson).
+KERNEL_META_LABEL_TWINS = [
+    ("backtesting/renquant_104/kernel/meta_label/task_meta_label_veto.py",
+     ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/task_meta_label_veto.py"),
+    ("backtesting/renquant_104/kernel/meta_label/task_snapshot.py",
+     ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/task_snapshot.py"),
+    ("backtesting/renquant_104/kernel/meta_label/job_meta_label_log.py",
+     ".subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/meta_label/job_meta_label_log.py"),
+]
+
+KERNEL_SHELF_TWINS = [
+    ("backtesting/renquant_104/kernel/metrics/block_bootstrap.py",
+     ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/block_bootstrap.py"),
+    ("backtesting/renquant_104/kernel/metrics/hac_se.py",
+     ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/hac_se.py"),
+    ("backtesting/renquant_104/kernel/metrics/deflated_sharpe.py",
+     ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/deflated_sharpe.py"),
+    ("backtesting/renquant_104/kernel/metrics/pbo.py",
+     ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/pbo.py"),
+    ("backtesting/renquant_104/kernel/metrics/perf_summary.py",
+     ".subrepo_runtime/repos/renquant-common/src/renquant_common/metrics/perf_summary.py"),
+    ("backtesting/renquant_104/kernel/risk_metrics.py",
+     ".subrepo_runtime/repos/renquant-common/src/renquant_common/risk_metrics.py"),
+]
+
 BYTE_IDENTICAL_TWINS = [
     ("live/alerts.py", "src/renquant_execution/alerts.py"),
     ("live/ibkr_broker.py", "src/renquant_execution/ibkr_broker.py"),
@@ -240,6 +269,18 @@ def build_manifest(repos: dict[str, Path | None]) -> dict:
             "`python scripts/check_twin_parity.py --write-manifest` and "
             "review the diff."
         ),
+        "kernel_meta_label_twins": {
+            Path(kern_rel).stem: {
+                "umbrella_path": kern_rel,
+                "umbrella_sha256": hashlib.sha256(
+                    (umbrella / kern_rel).read_bytes()).hexdigest(),
+                "pinned_backtesting_path": pinned_rel,
+                "pinned_sha256": hashlib.sha256(
+                    (umbrella / pinned_rel).read_bytes()).hexdigest(),
+            }
+            for kern_rel, pinned_rel in KERNEL_META_LABEL_TWINS
+            if (umbrella / kern_rel).is_file() and (umbrella / pinned_rel).is_file()
+        },
         "diverged_twins": {
             name: {
                 "umbrella_path": umb_rel,
@@ -318,6 +359,77 @@ def check_byte_identical_twins(repos: dict[str, Path | None]) -> list[CheckResul
                 "reclassify the pair as diverged in scripts/check_twin_parity.py "
                 "via a reviewed PR.",
             ))
+    return results
+
+
+def check_kernel_shelf_twins(repos: dict[str, Path | None]) -> list[CheckResult]:
+    """Umbrella-kernel metrics shelf vs the PINNED renquant-common copy.
+
+    Umbrella-only: both sides live under the umbrella root, because the honest
+    comparison object is the pinned runtime library that actually deploys, not a
+    sibling dev checkout that was measured 50+ commits stale."""
+    umbrella = repos["umbrella"]
+    if umbrella is None:
+        return [_skip("kernel_shelf_twins", ["umbrella"])]
+    results = []
+    for kern_rel, pinned_rel in KERNEL_SHELF_TWINS:
+        name = f"kernel_shelf:{Path(kern_rel).name}"
+        a, b = umbrella / kern_rel, umbrella / pinned_rel
+        if not a.is_file() or not b.is_file():
+            results.append(CheckResult(name, "FAIL",
+                f"twin file missing: {a if not a.is_file() else b}"))
+        elif a.read_bytes() == b.read_bytes():
+            results.append(CheckResult(name, "PASS",
+                f"kernel copy == pinned renquant-common copy (byte-identical)"))
+        else:
+            results.append(CheckResult(name, "FAIL",
+                f"{kern_rel} has DIVERGED from the pinned renquant-common copy (was "
+                f"byte-identical, orch#734). Evidence computed with the kernel copy no "
+                f"longer matches the shared library: refresh the kernel copy, or retire "
+                f"it per the A6 remediation, via a reviewed PR — do not let this drift "
+                f"run silent."))
+    return results
+
+
+def check_kernel_meta_label_twins(repos: dict[str, Path | None],
+                                  manifest: dict) -> list[CheckResult]:
+    """The three meta_label twins whose divergence is EXACTLY a 4-line import rewrite.
+
+    The live bridge aliases kernel.meta_label to the pinned renquant-backtesting copy,
+    so these pairs are 'gate evidence vs live code' in miniature. Their divergence is
+    PINNED: any change on either side — a real edit, or a pin advance that moves the
+    backtesting copy — fails here and forces a reviewed re-pin."""
+    umbrella = repos["umbrella"]
+    if umbrella is None:
+        return [_skip("kernel_meta_label_twins", ["umbrella"])]
+    pins = manifest.get("kernel_meta_label_twins", {})
+    if not pins:
+        return [CheckResult("kernel_meta_label_twins", "FAIL",
+                            "manifest carries no kernel_meta_label_twins pins")]
+    results = []
+    for name, pin in sorted(pins.items()):
+        label = f"metalabel_pin:{name}"
+        a = umbrella / pin["umbrella_path"]
+        b = umbrella / pin["pinned_backtesting_path"]
+        if not a.is_file() or not b.is_file():
+            results.append(CheckResult(label, "FAIL",
+                f"twin file missing: {a if not a.is_file() else b}"))
+            continue
+        sa = hashlib.sha256(a.read_bytes()).hexdigest()
+        sb = hashlib.sha256(b.read_bytes()).hexdigest()
+        if sa == pin["umbrella_sha256"] and sb == pin["pinned_sha256"]:
+            results.append(CheckResult(label, "PASS",
+                "both sides match their pinned divergence"))
+        else:
+            moved = []
+            if sa != pin["umbrella_sha256"]:
+                moved.append(f"umbrella {sa[:12]} != pinned {pin['umbrella_sha256'][:12]}")
+            if sb != pin["pinned_sha256"]:
+                moved.append(f"backtesting {sb[:12]} != pinned {pin['pinned_sha256'][:12]}")
+            results.append(CheckResult(label, "FAIL",
+                f"{name}: {'; '.join(moved)} — the pinned 4-line import-rewrite "
+                f"divergence changed. Either a real edit landed on one side, or a pin "
+                f"advance moved the serving copy; re-review and re-pin via PR."))
     return results
 
 
@@ -475,6 +587,8 @@ def check_tax_conventions(repos: dict[str, Path | None], manifest: dict) -> list
 def run_checks(repos: dict[str, Path | None], manifest: dict) -> list[CheckResult]:
     results: list[CheckResult] = []
     results += check_byte_identical_twins(repos)
+    results += check_kernel_shelf_twins(repos)
+    results += check_kernel_meta_label_twins(repos, manifest)
     results += check_diverged_twins(repos, manifest)
     results += check_min_fractional_notional(repos, manifest)
     results += check_parent_intent_id(repos, manifest)
