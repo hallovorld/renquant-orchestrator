@@ -259,16 +259,43 @@ def _paper_account(rq_root: Path) -> dict:
     return {"status": "no cash info", "icon": WARN}
 
 
-def _errors(rq_root: Path) -> list[str]:
-    """Scan launchd error logs for recent failures."""
+def _errors(rq_root: Path, today: dt.date | None = None) -> list[str]:
+    """launchd error logs — WITHOUT claiming their last line is recent.
+
+    `launchd_*.err` is append-only: it is a concatenation of every run since the job
+    was installed. The previous version took `lines[-1]` and listed it under a header
+    reading "rq105 status - <today>", i.e. it presented an arbitrarily old line as a
+    CURRENT failure. Measured 2026-07-30:
+
+      * launchd_batch-scores-export.err — file last written 2026-07-27 (3 days
+        before the measurement), and its last line refers to a run from 2026-07-24
+        (6 days before). Those are two different ages and conflating them is its own
+        small version of this defect: the file's mtime bounds when the line was
+        WRITTEN, not what it is ABOUT;
+      * launchd_liveness.err — last line is the 07-28 ntfy failure.
+
+    Neither carries a line-start timestamp, so neither can be attributed to any date
+    (ops/log_attribution.py). Reporting them as today's is the same defect that
+    produced three misreads on 2026-07-30 — here baked into a tool the operator runs
+    to check status.
+
+    Each entry now states WHEN the file was last written and that the line's own date
+    is unknown. A stale error is still worth surfacing; calling it recent is not.
+    """
+    today = today or dt.date.today()
     log_dir = rq_root / "logs" / "rq105"
     errors = []
     for err_file in sorted(log_dir.glob("launchd_*.err")):
-        if err_file.stat().st_size > 0:
-            name = err_file.stem.replace("launchd_", "")
-            lines = err_file.read_text().strip().splitlines()
-            if lines:
-                errors.append(f"{name}: {lines[-1][:120]}")
+        if err_file.stat().st_size <= 0:
+            continue
+        name = err_file.stem.replace("launchd_", "")
+        lines = err_file.read_text().strip().splitlines()
+        if not lines:
+            continue
+        mtime = dt.date.fromtimestamp(err_file.stat().st_mtime)
+        age = (today - mtime).days
+        when = "today" if age == 0 else f"file last written {mtime} ({age}d ago)"
+        errors.append(f"{name} [{when}; line date UNKNOWN]: {lines[-1][:120]}")
     return errors
 
 

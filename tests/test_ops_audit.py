@@ -241,7 +241,80 @@ def test_the_cited_contract_is_the_one_in_force():
     any member would turn its "could not check" back into a finding and reintroduce
     #650 for that member alone, which no other test would catch."""
     assert {n: f for n, _r, _t, f in oa.MEMBERS} == {
-        "silent-refusal": (1,), "blind-notifiers": (1,),
+        "silent-refusal": (1,), "blind-notifiers": (1,), "ack-ledger": (1,),
         "undelivered-alerts": (1,), "import-resolution": (1,),
         "umbrella-script-shadow": (1,), "launchd-liveness": (1,),
+        # Added 2026-08-01; each cited to its return line in the MEMBERS comment block.
+        "gate-stamp-parity": (1,), "booster-identity": (1,),
+        "bundle-producer-keys": (1,),
     }
+
+
+def test_the_2026_08_01_members_are_ARGUMENT_FREE_or_carry_only_portable_args():
+    """A member may not take a machine-specific path.
+
+    Baking an absolute path into MEMBERS is the "tests that measure the operator's disk"
+    failure, and it is why two detectors merged on 2026-07-31 are recorded in
+    `UNSCHEDULABLE_YET` instead of being added with a hardcoded root.
+    """
+    added = {"gate-stamp-parity", "booster-identity", "bundle-producer-keys"}
+    for name, _rel, tail, _f in oa.MEMBERS:
+        if name not in added:
+            continue
+        for arg in tail:
+            assert not arg.startswith("/"), (name, arg)
+            assert "renhao" not in arg and "Users" not in arg, (name, arg)
+
+
+def test_the_detectors_that_CANNOT_join_are_recorded_not_silently_omitted():
+    """'The audit covers the detectors' must not be readable off a list that quietly
+    excludes two of them."""
+    assert set(oa.UNSCHEDULABLE_YET) == {
+        "renquant104/wf_corpus_coverage.py",
+        "strategy_config_primary_parity.py",
+    }
+    listed = {rel for _n, rel, _t, _f in oa.MEMBERS}
+    assert not (set(oa.UNSCHEDULABLE_YET) & listed), "a blocker cannot also be a member"
+
+
+# ---------------------------------------------------------------------------
+# ack-ledger membership, 2026-08-01
+# ---------------------------------------------------------------------------
+def test_ack_ledger_is_a_member_at_all():
+    """It was merged, working, and invoked by nothing but its own test file — the exact
+    dark-detector shape the 2026-07-31 sweep was run for, and which it missed."""
+    assert "ack-ledger" in {n for n, _r, _a, _f in oa.MEMBERS}
+
+
+def test_ack_ledger_has_no_write_path_at_all():
+    """`test_no_member_writes` rejected this member on the first attempt: it carried a
+    `--json-out` flag with no caller whose `open(..., "w")` was its only write.
+    Documenting an exception would have weakened a guard that was working, so the flag
+    was removed instead. This pins that it stays removed.
+
+    Checked on the AST, not on the text. The first version grepped for `"w"` and matched
+    the COMMENT explaining the removal — a check failing on its own documentation.
+    """
+    import ast
+    tree = ast.parse(
+        (REPO / "ops" / "renquant104" / "ack_ledger_audit.py").read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+        assert name not in ("write_text", "write_bytes"), name
+        if name == "open":
+            mode = node.args[1] if len(node.args) > 1 else None
+            mode = mode.value if isinstance(mode, ast.Constant) else ""
+            for kw in node.keywords:
+                if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                    mode = kw.value.value
+            assert "w" not in str(mode) and "a" not in str(mode), f"open mode {mode!r}"
+
+
+def test_ack_ledger_harness_code_is_NOT_declared_a_finding():
+    """It returns 3 on an unexpected exception. Declaring 3 a finding would turn a crash
+    into a verdict — the failure ops_audit exists to prevent."""
+    finding = next(f for n, _r, _a, f in oa.MEMBERS if n == "ack-ledger")
+    assert finding == (1,) and 3 not in finding
