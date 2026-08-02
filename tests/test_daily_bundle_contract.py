@@ -16,10 +16,30 @@ reappearing, in both directions: the key must stay, and the check must stay real
 from __future__ import annotations
 
 import copy
+import inspect
 
 import pytest
 
 from renquant_orchestrator.daily import _record_bundle_contract
+
+# The AC6 R4 binding switch (common#40) may be absent from an installed
+# renquant-common that predates it — the sibling-checkout state orch#747 item 6
+# exists to fix. The binding tests skip LOUDLY on that skew instead of measuring
+# this machine's disk; CI checks out renquant-common main and runs them.
+try:
+    from renquant_common import validate_live_run_bundle as _vlrb
+
+    _HAS_BINDING = (
+        "require_gate_provenance" in inspect.signature(_vlrb).parameters
+    )
+except ImportError:  # pragma: no cover - contract absent entirely
+    _HAS_BINDING = False
+
+needs_binding = pytest.mark.skipif(
+    not _HAS_BINDING,
+    reason="installed renquant-common predates the require_gate_provenance "
+    "switch (common#40) — sync the sibling checkout (orch#747 item 6)",
+)
 
 
 class _Ctx:
@@ -33,6 +53,10 @@ def _bundle():
     Deliberately NOT read from the live tree: that tree is a production surface,
     and a test reaching into it would both couple this suite to one operator's
     disk and re-measure a moving target.
+
+    `wf_gate_provenance` is part of the real key set: `PersistDailyRunBundleTask`
+    writes the tri-state block unconditionally, and the persist-time check now
+    REQUIRES it (the AC6 R4 binding switch).
     """
     return {
         "schema_version": 1,
@@ -45,9 +69,11 @@ def _bundle():
         "submitted_orders": [{"symbol": "AAPL", "qty": 1}],
         "execution_audit": [{"stage": "submit", "ok": True}],
         "stage_trace": [],
+        "wf_gate_provenance": {"status": "no_artifact_manifest"},
     }
 
 
+@needs_binding
 def test_a_real_shaped_daily_bundle_MEETS_the_contract():
     ctx = _Ctx()
     b = _bundle()
@@ -56,6 +82,7 @@ def test_a_real_shaped_daily_bundle_MEETS_the_contract():
     assert ctx.stage_trace[-1]["stage"] == "validate_daily_run_bundle"
 
 
+@needs_binding
 def test_without_source_it_FAILS_which_is_why_the_key_was_added():
     """Anti-vacuity. If this ever passes, the check has stopped checking."""
     ctx = _Ctx()
@@ -76,6 +103,7 @@ def test_the_daily_task_actually_emits_source():
     assert '"source": "daily_run_bundle"' in src
 
 
+@needs_binding
 def test_a_contract_failure_RECORDS_and_does_not_raise():
     """The bundle is the receipt of a run that already happened. Aborting on a
     malformed receipt would turn a documentation defect into a no-trade day."""
@@ -191,12 +219,63 @@ def _drive_task(tmp_path, *, break_contract=False):
     return json.loads((tmp_path / "run_bundle.json").read_text(encoding="utf-8"))
 
 
+# =================== AC6 R4 binding switch (this PR's teeth) ===================
+
+
+@needs_binding
+def test_missing_gate_provenance_now_FAILS_the_binding():
+    """The flip's anti-vacuity: before it, a bundle with no gate block validated
+    clean; now its absence is a recorded contract failure naming the block."""
+    ctx = _Ctx()
+    b = _bundle()
+    del b["wf_gate_provenance"]
+    _record_bundle_contract(b, ctx)
+    assert b["contract_validation"]["ok"] is False
+    assert "wf_gate_provenance" in b["contract_validation"]["error"]
+
+
+def test_the_daily_task_actually_emits_wf_gate_provenance():
+    """The block is in the emitted dict, not only in this test's fixture —
+    the same pattern that guards `source` above."""
+    import inspect
+
+    from renquant_orchestrator import daily
+
+    src = inspect.getsource(daily.PersistDailyRunBundleTask)
+    assert '"wf_gate_provenance": wf_gate_provenance(' in src
+
+
+def test_contract_version_skew_is_TRI_STATED_not_a_violation():
+    """A renquant-common predating the kwarg (common#40) must record ok=None —
+    ok=False has to keep meaning "the bundle violates the contract"."""
+    import renquant_common
+
+    ctx = _Ctx()
+    b = _bundle()
+    real = renquant_common.validate_live_run_bundle
+
+    def old_signature(bundle):  # no keyword — the pre-common#40 surface
+        raise TypeError(
+            "validate_live_run_bundle() got an unexpected keyword argument "
+            "'require_gate_provenance'")
+
+    renquant_common.validate_live_run_bundle = old_signature
+    try:
+        _record_bundle_contract(b, ctx)
+    finally:
+        renquant_common.validate_live_run_bundle = real
+    assert b["contract_validation"]["ok"] is None
+    assert "too old" in b["contract_validation"]["error"]
+
+
+@needs_binding
 def test_the_verdict_is_on_disk_for_a_PASSING_bundle(tmp_path):
     written = _drive_task(tmp_path)
     assert "contract_validation" in written, sorted(written)
     assert written["contract_validation"]["ok"] is True
 
 
+@needs_binding
 def test_the_verdict_is_on_disk_for_a_FAILING_bundle(tmp_path):
     """The case that matters: a failure that never reaches the artifact is worse
     than no check at all, because the file looks complete."""
