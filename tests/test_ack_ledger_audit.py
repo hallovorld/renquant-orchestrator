@@ -229,7 +229,9 @@ def test_cli_reports_a_harness_failure_distinctly(tmp_path):
 def test_the_live_ledger_is_measured_not_asserted():
     """Pins what this branch's progress doc claims, so the doc cannot rot."""
     R = A.audit(dt.date(2026, 7, 31))
-    assert R["n_acks"] == 10
+    # 12 as of 2026-08-01: the two rq105 exit-1 acks (shadow-serving structurally
+    # unrunnable; liveness = the detector honestly firing on it) joined the ledger.
+    assert R["n_acks"] == 12
     # NINE of ten, not ten. `com.renquant.rq105-batch-scores-export` was re-stamped
     # on 2026-07-31 by a32f397c ("the batch-export ack described a failure that is no
     # longer the failure"), so it is live until 2026-08-14. The count moved because
@@ -238,7 +240,9 @@ def test_the_live_ledger_is_measured_not_asserted():
     # for. Named rather than counted, so the next re-stamp is visible here.
     assert R["n_expired"] == 9
     live = [r["job"] for r in R["rows"] if not r.get("expired")]
-    assert live == ["com.renquant.rq105-batch-scores-export"], live
+    assert live == ["com.renquant.rq105-batch-scores-export",
+                    "com.renquant.rq105-liveness",
+                    "com.renquant.rq105-shadow-serving"], live
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
 
@@ -272,7 +276,9 @@ def test_the_live_ledger_is_measured_not_asserted():
 
     # The one row genuinely re-stamped on 2026-07-31 must NOT read as stale, or the
     # signal is just "the file was touched" and carries no information about a row.
-    assert list(fresh) == ["com.renquant.rq105-batch-scores-export"], fresh
+    assert list(fresh) == ["com.renquant.rq105-batch-scores-export",
+                           "com.renquant.rq105-liveness",
+                           "com.renquant.rq105-shadow-serving"], fresh
     assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
     assert set(stale).isdisjoint(fresh)
 
@@ -408,7 +414,7 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     adds a checkable clause SHOULD move these — update the pin with it."""
     R = A.audit(dt.date(2026, 8, 1))
     by = {r["job"]: r["clears_when_buckets"] for r in R["rows"]}
-    assert len(by) == 10
+    assert len(by) == 12
     narrative = {j for j, b in by.items()
                  if not any(x in (A.BUCKET_DATE, A.BUCKET_REF, A.BUCKET_ARTIFACT)
                             for x in b)}

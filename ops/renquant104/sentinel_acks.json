@@ -20,8 +20,8 @@
   "acked_exit_codes": [
    1
   ],
-  "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) — task #75",
-  "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim — its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
+  "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) \u2014 task #75",
+  "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim \u2014 its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
  },
  "com.renquant.retrain-panel104": {
   "acked_at": "2026-07-17",
@@ -29,7 +29,7 @@
    1
   ],
   "clears_when": "a staged model passes the WF gate (same event as weekly-wf-promote)",
-  "reason": "CORRECTED diagnosis: retrain_panel.sh is a compatibility WRAPPER delegating to weekly_wf_promote (legacy tournament path retired per its header); its Sunday exit mirrors the chronic WF-gate model rejection — same root as the weekly-wf-promote ack, not an independent failure"
+  "reason": "CORRECTED diagnosis: retrain_panel.sh is a compatibility WRAPPER delegating to weekly_wf_promote (legacy tournament path retired per its header); its Sunday exit mirrors the chronic WF-gate model rejection \u2014 same root as the weekly-wf-promote ack, not an independent failure"
  },
  "com.renquant.rq104-degradation-sentinel": {
   "acked_at": "2026-07-17",
@@ -37,7 +37,7 @@
    1
   ],
   "clears_when": "any firing with zero alarms. Note this row no longer hides a crash: exit 3 is not acked here, and an absent or stale receipt is LOUD in the run-surface drift scan.",
-  "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift — a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
+  "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift \u2014 a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
  },
  "com.renquant.rq104-liveness": {
   "acked_at": "2026-07-17",
@@ -56,6 +56,24 @@
   "expires_at": "2026-08-14",
   "reason": "CORRECTED 2026-07-31. The previous diagnosis (Class-A absolute row floor vs light-signal day; replaced by health-evidence contract #531; manual export succeeded 5/5 rc=0) described a DIFFERENT failure and expired 2026-07-20. Measured cause of the CURRENT exit 1: the job refuses BY DESIGN - 'run 2026-07-29-live-a68df3f8 fails class-A health evidence: full_buy_run(pipeline_flags) - a frozen vector must come from a contract-clean, full-buy-funnel run with training provenance; refusing to export'. That precondition is correct and has been satisfiable ONCE in the last nine sessions (2026-07-20). Four of the other eight were verdict=STRUCTURAL_BLOCK with buys=0, every one firing ['wash_sale_mass_block'] and nothing else (07-23, 07-24, 07-28, 07-29). So this is NOT a 105 defect: the export is starved by the 104 buy-side block, and the downstream intraday_pairing_logger shows the same shape (sessions 0, admitted pairs 0, rows written 0). Evidence read 2026-07-31: logs/daily_104/2026-07-2*.log, logs/rq105/batch_scores_export_2026-07-30.log, logs/rq105/intraday_pairing_logger_2026-07-30.log."
  },
+ "com.renquant.rq105-liveness": {
+  "acked_at": "2026-08-01",
+  "acked_exit_codes": [
+   1
+  ],
+  "clears_when": "com.renquant.rq105-shadow-serving's ack clears (renquant-orchestrator#736 EXIT_NOT_WIRED=4 deployed, or renquant-orchestrator#221 producer merged AND deployed), i.e. that job's last exit != 1 in `launchctl list`; this scan's 105 finding set then empties and exit returns 0.",
+  "expires_at": "2026-08-15",
+  "reason": "The DETECTOR is working; its subject is down. Exit 1 is the liveness scan's finding contract firing on the dead 105 lane (rq105-shadow-serving, structurally unrunnable per the ack above). Acking the detector's honest finding keeps crash-vs-finding distinguishable in the ledger instead of training readers to ignore a red exit."
+ },
+ "com.renquant.rq105-shadow-serving": {
+  "acked_at": "2026-08-01",
+  "acked_exit_codes": [
+   1
+  ],
+  "clears_when": "renquant-orchestrator#736 sync deploys EXIT_NOT_WIRED=4 and the job's last exit in `launchctl list` becomes 4, OR the Stage-3 feature-snapshot producer (renquant-orchestrator#221 chain) is merged AND deployed and the job's last exit = 0. If either lands and the exit stays 1, this ack is WRONG and must be removed, not renewed.",
+  "expires_at": "2026-08-15",
+  "reason": "STRUCTURALLY UNRUNNABLE, not a crash. The serving CLI refuses at argparse: 'shadow-realtime-serving: error: the following arguments are required: --feature-snapshot-json' (freshest shadow_serving log under logs/rq105/, read 2026-08-01) - the Stage-3 feature-snapshot producer does not exist anywhere, so the job cannot ever have run. Known since orch#621/#736; the bare exit 1 is indistinguishable from a crash until the #736 sync lands EXIT_NOT_WIRED=4, which is exactly why this ack pins the diagnosis."
+ },
  "com.renquant.shadow-ab-daily": {
   "acked_at": "2026-07-17",
   "acked_exit_codes": [
@@ -70,7 +88,7 @@
    1
   ],
   "clears_when": "next weekly cycle (review if still failing 2026-07-20+)",
-  "reason": "downstream of the weekly promote chain state; not independently diagnosed — ack expires at next weekly cycle"
+  "reason": "downstream of the weekly promote chain state; not independently diagnosed \u2014 ack expires at next weekly cycle"
  },
  "com.renquant.weekly-wf-promote": {
   "acked_at": "2026-07-17",
