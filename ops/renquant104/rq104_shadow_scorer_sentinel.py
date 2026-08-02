@@ -1144,7 +1144,8 @@ CHECKS = (
 # main
 # ---------------------------------------------------------------------------
 
-def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
+def lane_declared_since(lane_name: str, config_path: str,
+                        why: "list[str] | None" = None) -> dt.date | None:
     """The date this lane's declaration ENTERED the config, read from git history.
 
     Review round 1 (blocking): the first version anchored the arming window on the
@@ -1177,12 +1178,22 @@ def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
     repo = os.path.dirname(os.path.dirname(cfg))   # <repo>/configs/<file>
     rel = os.path.relpath(cfg, repo)
 
+    def _note(msg: str) -> None:
+        """Record WHY, never raise. `None` is also the legitimate 'never declared'
+        answer, so without this a CI-only git problem and a correctly-absent lane are
+        indistinguishable — the could-not-check / checked-and-found-nothing collapse
+        this module exists to keep apart, happening inside it."""
+        if why is not None:
+            why.append(msg)
+
     def _declares(sha: str) -> "bool | None":
         try:
             show = subprocess.run(
                 ["git", "-C", repo, "show", f"{sha}:{rel}"],
                 capture_output=True, text=True, timeout=20)
             if show.returncode != 0:
+                _note(f"git show {sha[:8]}:{rel} rc={show.returncode} "
+                      f"stderr={show.stderr.strip()[:160]!r}")
                 return None
             config = json.loads(show.stdout)
             models = ((config.get("ranking") or {}).get("panel_scoring") or {}
@@ -1190,16 +1201,23 @@ def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
             return any(isinstance(m, dict) and m.get("name") == lane_name
                        for m in models)
         except (OSError, subprocess.SubprocessError,
-                json.JSONDecodeError, AttributeError):
+                json.JSONDecodeError, AttributeError) as exc:
+            _note(f"git show {sha[:8]}: {type(exc).__name__}: {str(exc)[:160]}")
             return None
 
     try:
         out = subprocess.run(
             ["git", "-C", repo, "log", "-50", "--format=%H %cI", "--", rel],
             capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        _note(f"git log in {repo}: {type(exc).__name__}: {str(exc)[:160]}")
         return None
-    if out.returncode != 0 or not out.stdout.strip():
+    if out.returncode != 0:
+        _note(f"git log rc={out.returncode} repo={repo} rel={rel} "
+              f"stderr={out.stderr.strip()[:160]!r}")
+        return None
+    if not out.stdout.strip():
+        _note(f"git log returned no commits touching {rel!r} in {repo}")
         return None
     arming: "dt.date | None" = None
     for line in out.stdout.strip().splitlines():   # newest → oldest
@@ -1208,6 +1226,9 @@ def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
         if declares is None:
             continue                                # no evidence either way
         if not declares:
+            if arming is None:
+                _note(f"newest commit touching {rel!r} ({sha[:8]}) does not declare "
+                      f"{lane_name!r} — the lane is absent from the current config")
             break                                   # absent→present boundary
         try:
             arming = dt.datetime.fromisoformat(ciso.strip()).date()
@@ -1453,9 +1474,16 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
     if (declared_lanes is not None
             and any(lane.matches(n) for n in declared_lanes)
             and not lane_ever_reported_here(lane.matches)):
-        armed_since = (lane_declared_since(lane.name, config_path)
+        arming_why: list[str] = []
+        armed_since = (lane_declared_since(lane.name, config_path, arming_why)
                        if config_path else None)
         if armed_since is None:
+            # SAY WHY. "could not establish" and "never declared" both land here and
+            # they are different states; printing the reason is what keeps a CI-only
+            # git failure from reading as a lane that simply is not in the config.
+            if arming_why:
+                print(f"rq104 shadow-scorer sentinel [{lane.name}]: arming anchor "
+                      f"unavailable — {'; '.join(arming_why[:3])}")
             # NO GRACE. An unestablished arming date must not buy silence — that is the
             # defect this replaces, not a softer version of it.
             grace_days = list(last_session_days(today, ARMING_DARK_SESSIONS))

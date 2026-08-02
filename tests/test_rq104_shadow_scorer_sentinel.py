@@ -1643,3 +1643,38 @@ class TestArmingAnchorRedeclaration:
         self._commit(repo, cfg, narrative, "mention only", "2026-07-01T10:00:00")
         self._commit(repo, cfg, decl, "declare", "2026-07-10T10:00:00")
         assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date(2026, 7, 10)
+
+
+def test_the_arming_anchor_SAYS_WHY_when_it_cannot_be_established(tmp_path):
+    """`None` is both "could not check" and "checked, this lane is not declared".
+
+    Collapsing them is the failure this module exists to keep apart, and it was
+    happening inside the module: CI went red with `lane_declared_since()` returning a
+    bare `None` and no way to tell a git failure from an absent lane. The `why` channel
+    restores the distinction — record, never raise.
+    """
+    # (a) could NOT check: the path is not a checkout at all
+    why: list[str] = []
+    assert sentinel.lane_declared_since(
+        "any_lane", str(tmp_path / "nope" / "configs" / "c.json"), why) is None
+    assert why and "git log rc=" in why[0], why
+
+    # (b) checked, and the lane is genuinely absent — a DIFFERENT reason, not silence
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "configs").mkdir(parents=True)
+    cfg = repo / "configs" / "strategy_config.json"
+    cfg.write_text(json.dumps({"ranking": {"panel_scoring": {"shadow_models": []}}}),
+                   encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+    for k, v in (("user.email", "t@t"), ("user.name", "t")):
+        subprocess.run(["git", "-C", str(repo), "config", k, v], check=True,
+                       capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "no lanes"], check=True,
+                   capture_output=True)
+
+    why2: list[str] = []
+    assert sentinel.lane_declared_since("absent_lane", str(cfg), why2) is None
+    assert why2 and "does not declare" in why2[0], why2
+    assert why[0] != why2[0], "the two states still produce the same explanation"
