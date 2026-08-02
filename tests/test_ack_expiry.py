@@ -78,26 +78,32 @@ def test_a_non_date_that_looks_like_one_does_not_crash():
 
 # --- the real ledger, on a fixed date ----------------------------------------
 
-def test_the_committed_ledger_has_exactly_three_expired_acks_on_2026_07_30():
+def test_the_committed_ledger_has_zero_expired_acks_after_the_ac4_prune():
     """Positive control against a hand measurement. Issue #622 counted FOUR acks past
-    their date by hand and the mechanism reproduced it independently.
+    their date by hand and the mechanism reproduced it independently; a prior edit
+    (2026-07-31, batch-scores-export re-disposition) took it 4 -> 3.
 
-    COUNT CHANGED 4 -> 3 on 2026-07-31, and deliberately, not to make a test pass:
-    `com.renquant.rq105-batch-scores-export` was re-dispositioned with a MEASURED
-    current diagnosis (the export refuses because no contract-clean full-buy run
-    exists — a 104 buy-side block, not a 105 defect) and now carries an explicit
-    `expires_at: 2026-08-14`. So it is no longer among the expired.
-
-    The property this test exists for is unchanged and still asserted below: every
-    remaining expired ack is killed by a date in its OWN clears_when, not by the
-    blanket age window. If a future edit drops that count to 0 by renewing acks
-    rather than fixing jobs, THAT is what this test should be read against."""
+    COUNT CHANGED 3 -> 0 on 2026-08-01, and NOT by renewing acks — the warning this
+    docstring used to carry. Per-row disposition, each measured:
+      * daily104 and weekly-retrain-patchtst: launchctl last exit is now 0, i.e.
+        their own clears_when condition was met (late) — rows REMOVED (#622 AC4,
+        the ledger shrinks).
+      * shadow-ab-daily: re-stamped with a NEW diagnosis for a NEW failure — exit 3
+        is its fail-closed PRECHECK refusing run-checkout pin drift; clears at the
+        orch#747 item-5 pin sync. A renewal would have kept the old row and pushed
+        the date; the assertions below distinguish exactly that."""
     ledger = json.loads((OPS / "renquant104" / "sentinel_acks.json").read_text())
     on = D("2026-07-30")
     expired = {k: sent.ack_expiry(v) for k, v in ledger.items()}
     dead = {k: (e, w) for k, (e, w) in expired.items() if e is None or e <= on}
-    assert len(dead) == 3, sorted(dead)
-    assert "com.renquant.rq105-batch-scores-export" not in dead
+    assert dead == {}, sorted(dead)
+    # removed-not-renewed: the two cleared jobs are GONE, not re-dated
+    assert "com.renquant.daily104" not in ledger
+    assert "com.renquant.weekly-retrain-patchtst" not in ledger
+    # re-diagnosed-not-renewed: new exit code, checkable ref, no bare date push
+    ab = ledger["com.renquant.shadow-ab-daily"]
+    assert ab["acked_exit_codes"] == [3]
+    assert "orch#747" in ab["clears_when"]
     for k, (e, w) in dead.items():
         assert "clears_when" in w, f"{k} expired by {w}, expected its own clears_when"
         assert e == D("2026-07-20"), k
