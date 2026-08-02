@@ -1695,3 +1695,47 @@ def test_the_arming_anchor_SAYS_WHY_when_it_cannot_be_established(tmp_path):
     assert sentinel.lane_declared_since("absent_lane", str(cfg), why2) is None
     assert why2 and "does not declare" in why2[0], why2
     assert why[0] != why2[0], "the two states still produce the same explanation"
+
+
+def test_a_UTC_repo_whose_git_emits_Z_is_parsed(tmp_path):
+    """THE CI failure, pinned. `git %cI` emits `...Z` on a UTC-configured machine, and
+    Python 3.10's `datetime.fromisoformat` REFUSES the `Z` suffix — it landed in 3.11.
+    This repo runs 3.10 and CI's runner is UTC, while a developer laptop usually is not,
+    so the parse succeeded locally and failed only in CI.
+
+    The second-order effect is why it took three passes to find: the walk `continue`d
+    past the unparsed commit and then blamed the NEXT one for "not declaring the lane" —
+    a confident, precise, wrong message manufactured by a silent parse failure.
+    """
+    import subprocess
+
+    repo = tmp_path / "renquant-strategy-104"
+    (repo / "configs").mkdir(parents=True)
+    cfg = repo / "configs" / "strategy_config.json"
+    lane = "momentum_residual_v0_shadow"
+
+    def run(*args, **kw):
+        subprocess.run(["git", "-C", str(repo), *args], check=True,
+                       capture_output=True, **kw)
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+    run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    for i, lanes in enumerate(([], [{"name": lane}])):
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": lanes}}}), encoding="utf-8")
+        run("add", "-A")
+        stamp = f"2026-08-02T12:0{i}:00+00:00"
+        run("commit", "-qm", f"c{i}",
+            env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "TZ": "UTC",
+                 "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp})
+
+    # the premise: git really does emit a Z here, or this test proves nothing
+    shown = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%cI"],
+                           capture_output=True, text=True, env={"PATH": "/usr/bin:/bin",
+                                                                "TZ": "UTC"})
+    assert shown.stdout.strip().endswith("Z"), shown.stdout
+
+    why: list[str] = []
+    got = sentinel.lane_declared_since(lane, str(cfg), why)
+    assert got == dt.date(2026, 8, 2), why
+    assert not any("unparseable" in w for w in why), why
