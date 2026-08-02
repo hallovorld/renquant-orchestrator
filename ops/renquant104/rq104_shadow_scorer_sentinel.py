@@ -1156,8 +1156,18 @@ def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
 
     mtime is a property of the filesystem OPERATION. The declaration's arrival is a
     property of the CONTENT, and git already records it: re-materialisation replays the
-    same commits, so this date does not move. An unrelated config edit does not move it
-    either, because the search is for the commit that introduced THIS lane's name.
+    same commits, so this date does not move.
+
+    Round 3 (review): the arrival is the most recent ABSENT→PRESENT transition
+    in the PARSED config history, not the first textual `-S` occurrence — a
+    lane declared, removed, and later re-declared must arm at the
+    re-declaration (the first hit would inherit the original date and
+    instantly exhaust the new incarnation's grace), and `-S` can also match
+    unrelated text. Each revision is parsed and the lane counts as declared
+    only when `ranking.panel_scoring.shadow_models[].name` equals it exactly;
+    unparseable revisions carry no evidence and are skipped. The walk is
+    capped at 50 revisions of the file — beyond that the lane has been
+    declared so long that any grace is exhausted regardless.
 
     Returns None when the answer cannot be established — no git, not a checkout, or the
     name never appears. The caller must then grant NO grace: an unknown arming date
@@ -1165,20 +1175,45 @@ def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
     """
     cfg = os.path.abspath(config_path)
     repo = os.path.dirname(os.path.dirname(cfg))   # <repo>/configs/<file>
+    rel = os.path.relpath(cfg, repo)
+
+    def _declares(sha: str) -> "bool | None":
+        try:
+            show = subprocess.run(
+                ["git", "-C", repo, "show", f"{sha}:{rel}"],
+                capture_output=True, text=True, timeout=20)
+            if show.returncode != 0:
+                return None
+            config = json.loads(show.stdout)
+            models = ((config.get("ranking") or {}).get("panel_scoring") or {}
+                      ).get("shadow_models") or []
+            return any(isinstance(m, dict) and m.get("name") == lane_name
+                       for m in models)
+        except (OSError, subprocess.SubprocessError,
+                json.JSONDecodeError, AttributeError):
+            return None
+
     try:
         out = subprocess.run(
-            ["git", "-C", repo, "log", "--format=%cI", "--reverse",
-             "-S", lane_name, "--", os.path.relpath(cfg, repo)],
+            ["git", "-C", repo, "log", "-50", "--format=%H %cI", "--", rel],
             capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0 or not out.stdout.strip():
         return None
-    first = out.stdout.strip().splitlines()[0].strip()
-    try:
-        return dt.datetime.fromisoformat(first).date()
-    except ValueError:
-        return None
+    arming: "dt.date | None" = None
+    for line in out.stdout.strip().splitlines():   # newest → oldest
+        sha, _, ciso = line.strip().partition(" ")
+        declares = _declares(sha)
+        if declares is None:
+            continue                                # no evidence either way
+        if not declares:
+            break                                   # absent→present boundary
+        try:
+            arming = dt.datetime.fromisoformat(ciso.strip()).date()
+        except ValueError:
+            continue
+    return arming
 
 
 def default_strategy_config() -> str:
@@ -1402,16 +1437,19 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
     # landed): the lane IS declared but has never written a record. The
     # patrol's look-back predates its declaration, so a FEED DARK verdict
     # here would be manufactured from sessions the lane could not have
-    # reported on. The arming instant is the date the lane's declaration ENTERED
-    # the config, read from git history (immutable under re-sync) — so
+    # reported on. The arming instant is the date of the CURRENT declaration's
+    # arrival — the latest absent→present transition in parsed git history
+    # (immutable under re-sync) — so
     # only live-run sessions strictly AFTER that date count against the
     # grace. (First measured design counted any 5 historical live-run
     # sessions; on a machine that runs daily that exhausts instantly and
     # re-manufactures the same false alarm.) After ARMING_DARK_SESSIONS
     # post-arming live-run sessions with still no record ever, fall through
     # to the full patrol: a declared lane that never starts reporting is
-    # miswired and must alarm. A re-sync refreshes the mtime and briefly
-    # extends the grace — bounded and honest, unlike an unbounded INFO.
+    # miswired and must alarm. The anchor is the most recent absent→present
+    # transition in the PARSED config history (round 3) — re-syncs replay the
+    # same commits and cannot move it, and a removed-then-re-declared lane
+    # arms at its re-declaration, not its first appearance.
     if (declared_lanes is not None
             and any(lane.matches(n) for n in declared_lanes)
             and not lane_ever_reported_here(lane.matches)):

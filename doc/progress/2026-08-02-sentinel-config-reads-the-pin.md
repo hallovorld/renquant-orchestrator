@@ -76,3 +76,14 @@ buying unbounded silence is the defect being fixed, not a gentler version of it.
 
 The regression uses a real `git init` repo rather than a mock, because the anchor **is**
 git history — mocking git would test the mock.
+
+Round 3 (review): the `-S` first-hit anchor backdated a removed-then-
+re-declared lane to its ORIGINAL arrival (instantly exhausting the new
+incarnation's grace) and could match unrelated text. `lane_declared_since`
+now parses the config at each revision (newest→oldest, capped at 50) and
+returns the most recent absent→present transition of
+`ranking.panel_scoring.shadow_models[].name`; unparseable revisions carry no
+evidence. Two regressions with explicit distinct commit dates: re-declared
+lane arms at the re-declaration (07-01→removed 07-05→re-declared 07-10 ⇒
+07-10); a narrative mention outside shadow_models does not backdate. Stale
+mtime wording in the arming comment replaced.

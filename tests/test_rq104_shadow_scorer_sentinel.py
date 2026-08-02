@@ -1595,3 +1595,51 @@ class TestArmingAnchorIsImmutableUnderResync:
         # ...and a name that never appears in a real repo's history is None too
         _, real = self._repo(tmp_path / "other")
         assert sentinel.lane_declared_since("never_declared_lane", str(real)) is None
+
+
+class TestArmingAnchorRedeclaration:
+    """Round 3 (review): the anchor must be the most recent absent→present
+    transition in PARSED config history — not the first textual `-S` hit,
+    which (a) backdates a removed-then-re-declared lane to its original
+    arrival, instantly exhausting the new incarnation's grace, and (b) can
+    match unrelated text. Real git repos with explicit distinct commit dates."""
+
+    LANE = "momentum_residual_v0_shadow"
+
+    def _init(self, tmp_path):
+        import subprocess
+        repo = tmp_path / "renquant-strategy-104"
+        (repo / "configs").mkdir(parents=True)
+        for args in (["init", "-q", str(repo)],):
+            subprocess.run(["git", *args], check=True, capture_output=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(repo), "config", k, v],
+                           check=True, capture_output=True)
+        return repo, repo / "configs" / "strategy_config.json"
+
+    def _commit(self, repo, cfg, payload, msg, date):
+        import subprocess
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        subprocess.run(["git", "-C", str(repo), "add", "-A"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", msg],
+                       check=True, capture_output=True, env=env)
+
+    def test_a_redeclared_lane_arms_at_the_redeclaration(self, tmp_path):
+        repo, cfg = self._init(tmp_path)
+        decl = {"ranking": {"panel_scoring": {"shadow_models": [{"name": self.LANE}]}}}
+        empty = {"ranking": {"panel_scoring": {"shadow_models": []}}}
+        self._commit(repo, cfg, decl, "declare", "2026-07-01T10:00:00")
+        self._commit(repo, cfg, empty, "remove", "2026-07-05T10:00:00")
+        self._commit(repo, cfg, decl, "re-declare", "2026-07-10T10:00:00")
+        assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date(2026, 7, 10)
+
+    def test_unrelated_text_mentioning_the_name_does_not_backdate(self, tmp_path):
+        repo, cfg = self._init(tmp_path)
+        narrative = {"_note": f"future lane {self.LANE} planned here",
+                     "ranking": {"panel_scoring": {"shadow_models": []}}}
+        decl = {"ranking": {"panel_scoring": {"shadow_models": [{"name": self.LANE}]}}}
+        self._commit(repo, cfg, narrative, "mention only", "2026-07-01T10:00:00")
+        self._commit(repo, cfg, decl, "declare", "2026-07-10T10:00:00")
+        assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date(2026, 7, 10)
