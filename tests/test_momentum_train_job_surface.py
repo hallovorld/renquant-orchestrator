@@ -85,17 +85,19 @@ def test_the_evidence_glob_matches_what_the_wrapper_writes():
     assert stem in WRAPPER.read_text()
 
 
-def test_the_pending_install_state_is_declared_and_bounded_to_this_job():
-    """Merged-but-dark is a NAMED state, not an accident: the manifest entry
-    carries the pending-install declaration (the rq104-model-freshness
-    precedent) and the drift-test PENDING_INSTALL set names exactly this label
-    — the exact-equality test over there keeps the set bounded on the operator
-    machine, so this cannot rot into a silently-uninstalled fleet."""
+def test_the_pending_install_state_is_fully_retired_for_this_job():
+    """Grant C step (c) executed 2026-08-02 (launchctl bootstrap gui/502 +
+    first artifact; doc/progress/2026-08-02-grant-c-execution-record.md): the
+    job is INSTALLED, so the merged-but-dark declaration must be GONE from both
+    reviewed surfaces in the same batch — a lingering pending marker over an
+    installed job would teach the drift scan to trust a stale state. The
+    inverse rot (uninstalled job with no marker) stays caught by the drift
+    test's exact-equality set."""
     e = _entry()
-    assert "_pending_install_comment" in e
-    assert "SEPARATE AUTHORISED STEP" in e["_pending_install_comment"]
+    assert "_pending_install_comment" not in e
+    assert "_install_precondition_comment" not in e
     from test_run_surface_drift_check import TestManifestGeneration as T
-    assert LABEL in T.PENDING_INSTALL
+    assert LABEL not in T.PENDING_INSTALL
     # No pending-install label may dangle: each must BE a manifested job.
     jobs = json.loads(MANIFEST.read_text())["jobs"]
     for pending in T.PENDING_INSTALL:
