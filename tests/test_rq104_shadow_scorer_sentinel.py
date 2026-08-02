@@ -1506,6 +1506,18 @@ def test_default_config_env_override_wins(tmp_path, monkeypatch):
     assert sentinel.default_strategy_config() == "/explicit/path.json"
 
 
+def _anchor(lane: str, cfg) -> "tuple[dt.date | None, str]":
+    """`lane_declared_since` plus the reason it gives, for ASSERTION MESSAGES.
+
+    The first diagnostic pass added a `why` channel to the helper and the failing tests
+    still called it without one, so CI kept printing a bare `assert None == date(...)`
+    and the cause stayed invisible. A channel nobody reads is not diagnostics.
+    """
+    why: list[str] = []
+    got = sentinel.lane_declared_since(lane, str(cfg), why)
+    return got, ("; ".join(why) or "<no reason recorded>")
+
+
 class TestArmingAnchorIsImmutableUnderResync:
     """Review round 1 (blocking): the arming deadline was keyed to the config file's
     MTIME, which every `subrepo_assemble --sync` and every re-materialisation refreshes.
@@ -1547,8 +1559,8 @@ class TestArmingAnchorIsImmutableUnderResync:
 
     def test_the_anchor_is_the_commit_that_DECLARED_the_lane(self, tmp_path):
         _, cfg = self._repo(tmp_path)
-        got = sentinel.lane_declared_since(self.LANE, str(cfg))
-        assert got == dt.date.today()
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date.today(), why
 
     def test_REPEATED_RESYNCS_of_unchanged_content_cannot_extend_it(self, tmp_path):
         """THE regression the review asked for. A re-sync rewrites the file — new mtime,
@@ -1556,14 +1568,16 @@ class TestArmingAnchorIsImmutableUnderResync:
         import os
         import time
         _, cfg = self._repo(tmp_path)
-        first = sentinel.lane_declared_since(self.LANE, str(cfg))
+        first, why0 = _anchor(self.LANE, cfg)
+        assert first is not None, why0
         original = cfg.read_text(encoding="utf-8")
 
         for _ in range(3):
             time.sleep(0.01)
             cfg.write_text(original, encoding="utf-8")     # what a --sync does
             os.utime(cfg, None)                            # ...and its mtime moves
-            assert sentinel.lane_declared_since(self.LANE, str(cfg)) == first
+            got, why = _anchor(self.LANE, cfg)
+            assert got == first, why
 
         # and the mtime really did move, or this test proves nothing
         assert dt.date.fromtimestamp(os.path.getmtime(cfg)) >= first
@@ -1580,7 +1594,8 @@ class TestArmingAnchorIsImmutableUnderResync:
                        capture_output=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-qm", "unrelated edit"],
                        check=True, capture_output=True)
-        assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date.today()
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date.today(), why
 
     def test_an_UNESTABLISHABLE_anchor_returns_None_so_no_grace_is_granted(self, tmp_path):
         """Fail toward alarming. A lane whose arrival cannot be dated must not buy
@@ -1633,7 +1648,8 @@ class TestArmingAnchorRedeclaration:
         self._commit(repo, cfg, decl, "declare", "2026-07-01T10:00:00")
         self._commit(repo, cfg, empty, "remove", "2026-07-05T10:00:00")
         self._commit(repo, cfg, decl, "re-declare", "2026-07-10T10:00:00")
-        assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date(2026, 7, 10)
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date(2026, 7, 10), why
 
     def test_unrelated_text_mentioning_the_name_does_not_backdate(self, tmp_path):
         repo, cfg = self._init(tmp_path)
@@ -1642,7 +1658,8 @@ class TestArmingAnchorRedeclaration:
         decl = {"ranking": {"panel_scoring": {"shadow_models": [{"name": self.LANE}]}}}
         self._commit(repo, cfg, narrative, "mention only", "2026-07-01T10:00:00")
         self._commit(repo, cfg, decl, "declare", "2026-07-10T10:00:00")
-        assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date(2026, 7, 10)
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date(2026, 7, 10), why
 
 
 def test_the_arming_anchor_SAYS_WHY_when_it_cannot_be_established(tmp_path):
