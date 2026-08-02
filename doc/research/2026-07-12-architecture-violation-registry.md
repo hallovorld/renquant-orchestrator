@@ -40,6 +40,10 @@ then reconciled into this single document.
 
 ## Revision history
 
+- **2026-08-02**: V-008 remediation pointer added — filed as renquant-pipeline#249
+  after same-day re-verification on pipeline main@c823184 (claim unchanged: gate is
+  gross-only, cost primitive unconsumed in pipeline). No severity change.
+
 - **2026-07-12 (round 1)**: original 19-violation + 3-resolved registry,
   produced by a 4-agent parallel audit.
 - **Codex CHANGES_REQUESTED (2026-07-12T16:22:41Z)**: stale on facts already
@@ -156,6 +160,13 @@ than a violation: **NOT A VIOLATION**, not forced into a P-tier.
 - **Fact vs. hypothesis**:
   Observed: `renquant_common.cost_model` exists, is already consumed by live execution accounting and a crypto-model diagnostic; the general pipeline WF gate does not import or reference it anywhere.
   Proposed remediation (NOT a decided architecture): add a cost-aware net-return check to the WF gate consuming `renquant_common.cost_model` directly (the primitive the original doc called for now exists, lowering remediation cost to "wire it in" rather than "build it"). Alternative: promote `fee_gate.py`'s pattern (diagnostic-first, `decision_grade` flag, Stage-0-attested costs before it can block) from model-crypto into the general pipeline gate, rather than building a separate equity-specific implementation.
+  **Remediation FILED (2026-08-02): renquant-pipeline#249** — the claim was re-verified
+  on pipeline main@c823184 the same day before filing (0 cost-term hits in
+  `kernel/preflight.py` + `preflight_pipeline/tasks/gate.py`; 0 `renquant_common.cost_model`
+  consumers anywhere in pipeline `src/`; no-pipe greps, both exit 1). The issue carries
+  the staged remediation spec (net-of-cost diagnostic stamp first with
+  `decision_grade: false`, blocking form only after a frozen threshold + an AC6
+  governed override path). `[VERIFIED — greps recorded in pipeline#249]`
 
 ---
 
