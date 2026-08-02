@@ -604,9 +604,46 @@ class TestGating:
 # asserted-equal local fallback so the writer and reader cannot drift.
 # ---------------------------------------------------------------------------
 
+def _pinned_producer():
+    """The producer PRODUCTION serves: shadow_health from the umbrella's
+    pin-materialised pipeline clone, when this machine has one. The dev
+    sibling that pyproject's pythonpath resolves can lag the lock pin
+    (measured 2026-08-02: sibling a14dad11 vs pin 60871e24, missing
+    not_yet_published), and this test's estimand is 'fallback == the PINNED
+    producer', so the pin wins when present. Elsewhere (CI provisions the
+    sibling at the pin; umbrella-less machines) the normal import is the
+    best available producer."""
+    import importlib
+    pinned_src = (Path(__file__).resolve().parents[2]
+                  / "RenQuant" / ".subrepo_runtime" / "repos"
+                  / "renquant-pipeline" / "src")
+    if (pinned_src / "renquant_pipeline" / "kernel" / "panel_pipeline"
+            / "shadow_health.py").is_file():
+        # Import with the pinned src at the FRONT of sys.path and a clean
+        # renquant_pipeline module cache (a lone spec_from_file_location load
+        # breaks the module's package context), then restore both so every
+        # other test keeps its usual resolution.
+        saved_mods = {k: v for k, v in sys.modules.items()
+                      if k.split(".")[0] == "renquant_pipeline"}
+        for k in saved_mods:
+            del sys.modules[k]
+        sys.path.insert(0, str(pinned_src))
+        try:
+            return importlib.import_module(
+                "renquant_pipeline.kernel.panel_pipeline.shadow_health")
+        finally:
+            sys.path.remove(str(pinned_src))
+            for k in [k for k in sys.modules
+                      if k.split(".")[0] == "renquant_pipeline"]:
+                del sys.modules[k]
+            sys.modules.update(saved_mods)
+    return pytest.importorskip(
+        "renquant_pipeline.kernel.panel_pipeline.shadow_health")
+
+
 class TestContractConstants:
     def test_fallback_literals_match_producer(self):
-        sh = pytest.importorskip("renquant_pipeline.kernel.panel_pipeline.shadow_health")
+        sh = _pinned_producer()
         fb = sentinel._FALLBACK_CONTRACT
         assert fb["SHADOW_HEALTH_SCHEMA"] == sh.SHADOW_HEALTH_SCHEMA
         assert fb["STATUS_OK"] == sh.STATUS_OK
