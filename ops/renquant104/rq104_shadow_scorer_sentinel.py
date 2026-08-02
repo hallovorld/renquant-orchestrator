@@ -67,6 +67,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import subprocess
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -301,6 +302,17 @@ def _matches_shadow_lane(name: str) -> bool:
 #: detection within one session of the incident onset while a single quiet day
 #: (a one-off hiccup) never pages.
 STREAK_N = int(os.environ.get("RQ104_SHADOW_STREAK_N", "2"))
+
+#: arming grace for a lane that is DECLARED in config but has NEVER written a
+#: health record (2026-08-02, measured the day the momentum entry's pin
+#: landed): the patrol's look-back predates the declaration — a config carries
+#: no arming timestamp — so a FEED DARK verdict there would be manufactured
+#: from sessions the lane could not have reported on. Bounded, not unbounded:
+#: once this many consecutive live-run sessions pass with still no record
+#: ever, the lane falls through to the full patrol — a declared lane that
+#: never starts reporting is miswired and must alarm (deployed-but-dark is
+#: not done), a few sessions late at worst.
+ARMING_DARK_SESSIONS = int(os.environ.get("RQ104_SHADOW_ARMING_SESSIONS", "5"))
 
 #: shadow artifact staleness ceiling in calendar days — aligned with the
 #: pipeline record's own default (>28d => actionable=false). Used only for the
@@ -1132,6 +1144,127 @@ CHECKS = (
 # main
 # ---------------------------------------------------------------------------
 
+def lane_declared_since(lane_name: str, config_path: str,
+                        why: "list[str] | None" = None) -> dt.date | None:
+    """The date this lane's declaration ENTERED the config, read from git history.
+
+    Review round 1 (blocking): the first version anchored the arming window on the
+    config file's **mtime**, and its own comment called a re-sync's refresh "bounded and
+    honest". It is neither. `subrepo_assemble --sync` and every re-materialisation
+    rewrite the file, so routine syncs reset the grace indefinitely and a declared lane
+    that never reports stays INFO forever — the silent death this sentinel exists to
+    prevent, restored through the door marked "grace".
+
+    mtime is a property of the filesystem OPERATION. The declaration's arrival is a
+    property of the CONTENT, and git already records it: re-materialisation replays the
+    same commits, so this date does not move.
+
+    Round 3 (review): the arrival is the most recent ABSENT→PRESENT transition
+    in the PARSED config history, not the first textual `-S` occurrence — a
+    lane declared, removed, and later re-declared must arm at the
+    re-declaration (the first hit would inherit the original date and
+    instantly exhaust the new incarnation's grace), and `-S` can also match
+    unrelated text. Each revision is parsed and the lane counts as declared
+    only when `ranking.panel_scoring.shadow_models[].name` equals it exactly;
+    unparseable revisions carry no evidence and are skipped. The walk is
+    capped at 50 revisions of the file — beyond that the lane has been
+    declared so long that any grace is exhausted regardless.
+
+    Returns None when the answer cannot be established — no git, not a checkout, or the
+    name never appears. The caller must then grant NO grace: an unknown arming date
+    buying unbounded silence is exactly the defect being fixed.
+    """
+    cfg = os.path.abspath(config_path)
+    repo = os.path.dirname(os.path.dirname(cfg))   # <repo>/configs/<file>
+    rel = os.path.relpath(cfg, repo)
+
+    def _note(msg: str) -> None:
+        """Record WHY, never raise. `None` is also the legitimate 'never declared'
+        answer, so without this a CI-only git problem and a correctly-absent lane are
+        indistinguishable — the could-not-check / checked-and-found-nothing collapse
+        this module exists to keep apart, happening inside it."""
+        if why is not None:
+            why.append(msg)
+
+    def _declares(sha: str) -> "bool | None":
+        try:
+            show = subprocess.run(
+                ["git", "-C", repo, "show", f"{sha}:{rel}"],
+                capture_output=True, text=True, timeout=20)
+            if show.returncode != 0:
+                _note(f"git show {sha[:8]}:{rel} rc={show.returncode} "
+                      f"stderr={show.stderr.strip()[:160]!r}")
+                return None
+            config = json.loads(show.stdout)
+            models = ((config.get("ranking") or {}).get("panel_scoring") or {}
+                      ).get("shadow_models") or []
+            return any(isinstance(m, dict) and m.get("name") == lane_name
+                       for m in models)
+        except (OSError, subprocess.SubprocessError,
+                json.JSONDecodeError, AttributeError) as exc:
+            _note(f"git show {sha[:8]}: {type(exc).__name__}: {str(exc)[:160]}")
+            return None
+
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo, "log", "-50", "--format=%H %cI", "--", rel],
+            capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _note(f"git log in {repo}: {type(exc).__name__}: {str(exc)[:160]}")
+        return None
+    if out.returncode != 0:
+        _note(f"git log rc={out.returncode} repo={repo} rel={rel} "
+              f"stderr={out.stderr.strip()[:160]!r}")
+        return None
+    if not out.stdout.strip():
+        _note(f"git log returned no commits touching {rel!r} in {repo}")
+        return None
+    def _iso(raw: str) -> "dt.datetime | None":
+        """`git %cI` emits `...Z` on a UTC machine, and Python 3.10's
+        `fromisoformat` REFUSES that suffix — it landed in 3.11. This repo runs 3.10
+        and the CI runner is UTC while a developer laptop usually is not, so the parse
+        succeeded locally (`-07:00`) and failed only in CI. That was the whole of the
+        red, and it was invisible because the failure was silent: the walk continued
+        past the unparsed commit and blamed the NEXT one for not declaring the lane.
+        """
+        raw = raw.strip()
+        if raw.endswith(("Z", "z")):
+            raw = raw[:-1] + "+00:00"
+        try:
+            return dt.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    # ORDER IS OURS, NOT GIT'S. The walk needs newest→oldest; relying on `git log`'s
+    # default made the answer depend on the runner's git configuration. Parsing %cI and
+    # sorting here removes the assumption instead of betting on it.
+    walked: list[tuple[dt.datetime, str]] = []
+    for line in out.stdout.strip().splitlines():
+        sha, _, ciso = line.strip().partition(" ")
+        when = _iso(ciso)
+        if when is None:
+            _note(f"unparseable commit date {ciso.strip()!r} for {sha[:8]}")
+            continue
+        walked.append((when, sha))
+    walked.sort(key=lambda t: t[0], reverse=True)
+
+    arming: "dt.date | None" = None
+    trail: list[str] = []
+    for when, sha in walked:
+        declares = _declares(sha)
+        trail.append(f"{sha[:8]}@{when.date()}={declares}")
+        if declares is None:
+            continue                                # no evidence either way
+        if not declares:
+            if arming is None:
+                _note(f"newest commit touching {rel!r} ({sha[:8]}) does not declare "
+                      f"{lane_name!r} — the lane is absent from the current config; "
+                      f"walk={trail}")
+            break                                   # absent→present boundary
+        arming = when.date()
+    return arming
+
+
 def default_strategy_config() -> str:
     """The PINNED strategy config, resolved without requiring the package on the path.
 
@@ -1146,8 +1279,16 @@ def default_strategy_config() -> str:
     records that the runner reads the pinned subrepo copy, not the umbrella one.
 
       1. ``RQ104_STRATEGY_CONFIG``
-      2. ``<github root>/renquant-strategy-104/configs/strategy_config.json``, derived
-         from this file's own location
+      2. ``<github root>/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/
+         strategy_config.json`` — the pin-materialised clone the daily run
+         actually serves (2026-08-02 fix: the old order stopped at the DEV
+         SIBLING below, which is a mutable checkout, not the pin — measured:
+         the sibling sat behind the lock and the patrol reported a retired
+         lane as declared and the momentum lane as undeclared while the
+         PINNED config said the opposite; same wrong-object class as
+         RenQuant#553)
+      3. ``<github root>/renquant-strategy-104/configs/strategy_config.json``,
+         derived from this file's own location — dev-machine fallback only
 
     An unresolvable default returns "" — which `main` still reports as NOT REQUESTED and
     keeps quiet, so a machine without the pinned checkout does not acquire a permanent
@@ -1161,7 +1302,13 @@ def default_strategy_config() -> str:
     repo = here
     for _ in range(4):
         repo = os.path.dirname(repo)
-        cand = os.path.join(os.path.dirname(repo), "renquant-strategy-104",
+        root = os.path.dirname(repo)
+        pinned = os.path.join(root, "RenQuant", ".subrepo_runtime", "repos",
+                              "renquant-strategy-104", "configs",
+                              "strategy_config.json")
+        if os.path.isfile(pinned):
+            return pinned
+        cand = os.path.join(root, "renquant-strategy-104",
                             "configs", "strategy_config.json")
         if os.path.isfile(cand):
             return cand
@@ -1292,7 +1439,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{today.isoformat()}", msg, rq_root=RQ)
         rc |= EXIT_ALARM
     for lane in lanes:
-        rc |= _patrol_lane(lane, days, today, all_findings, declared_lanes=declared)
+        rc |= _patrol_lane(lane, days, today, all_findings,
+                          declared_lanes=declared, config_path=args.config or None)
     if not all_findings:
         print(f"rq104 shadow-scorer sentinel: {len(lanes)} lane(s) patrolled over "
               f"{days[0].isoformat()}..{days[-1].isoformat()} — no finding")
@@ -1300,7 +1448,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
-                 out: list[str], declared_lanes: list[str] | None = None) -> int:
+                 out: list[str], declared_lanes: list[str] | None = None,
+                 config_path: str | None = None) -> int:
     """Patrol ONE lane. Findings are prefixed with the lane so an operator
     reading a page knows which feed degraded, and appended to `out` so main
     can tell 'every lane clean' from 'nothing was checked'.
@@ -1332,6 +1481,61 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
               f"(its config entry has not merged/pinned yet). Skipped, not "
               f"passed; the patrol arms the day the config declares it.")
         return 0
+
+    # ARMING WINDOW (2026-08-02, measured the day the momentum entry's pin
+    # landed): the lane IS declared but has never written a record. The
+    # patrol's look-back predates its declaration, so a FEED DARK verdict
+    # here would be manufactured from sessions the lane could not have
+    # reported on. The arming instant is the date of the CURRENT declaration's
+    # arrival — the latest absent→present transition in parsed git history
+    # (immutable under re-sync) — so
+    # only live-run sessions strictly AFTER that date count against the
+    # grace. (First measured design counted any 5 historical live-run
+    # sessions; on a machine that runs daily that exhausts instantly and
+    # re-manufactures the same false alarm.) After ARMING_DARK_SESSIONS
+    # post-arming live-run sessions with still no record ever, fall through
+    # to the full patrol: a declared lane that never starts reporting is
+    # miswired and must alarm. The anchor is the most recent absent→present
+    # transition in the PARSED config history (round 3) — re-syncs replay the
+    # same commits and cannot move it, and a removed-then-re-declared lane
+    # arms at its re-declaration, not its first appearance.
+    if (declared_lanes is not None
+            and any(lane.matches(n) for n in declared_lanes)
+            and not lane_ever_reported_here(lane.matches)):
+        arming_why: list[str] = []
+        armed_since = (lane_declared_since(lane.name, config_path, arming_why)
+                       if config_path else None)
+        if armed_since is None:
+            # SAY WHY. "could not establish" and "never declared" both land here and
+            # they are different states; printing the reason is what keeps a CI-only
+            # git failure from reading as a lane that simply is not in the config.
+            if arming_why:
+                print(f"rq104 shadow-scorer sentinel [{lane.name}]: arming anchor "
+                      f"unavailable — {'; '.join(arming_why[:3])}")
+            # NO GRACE. An unestablished arming date must not buy silence — that is the
+            # defect this replaces, not a softer version of it.
+            grace_days = list(last_session_days(today, ARMING_DARK_SESSIONS))
+        else:
+            grace_days = [d for d in last_session_days(today, ARMING_DARK_SESSIONS)
+                          if d > armed_since]
+        grace_recs = read_health_records(grace_days, lane) if grace_days else {}
+        lived = [d for d in grace_days if grace_recs.get(d) is not None]
+        if len(lived) < ARMING_DARK_SESSIONS:
+            since = armed_since.isoformat() if armed_since else "unknown"
+            print(f"rq104 shadow-scorer sentinel [{lane.name}]: ARMED — "
+                  f"declared in the strategy config (config arrived "
+                  f"{since}), awaiting its FIRST health record "
+                  f"({len(lived)}/{ARMING_DARK_SESSIONS} post-arming sessions "
+                  f"show live runs, none with a record for this lane). "
+                  f"Reported, not passed; escalates to the full patrol after "
+                  f"{ARMING_DARK_SESSIONS} post-arming live-run sessions with "
+                  f"still no record.")
+            return 0
+        out.append(
+            f"[{lane.name}] declared in the strategy config but NEVER reported "
+            f"once across {ARMING_DARK_SESSIONS} post-arming live-run sessions "
+            f"— arming grace exhausted; a miswired lane must not idle as INFO. "
+            f"Falling through to the full patrol.")
     records = read_health_records(days, lane)
 
     # If NO day in the window had live runs at all, this is a liveness lapse,

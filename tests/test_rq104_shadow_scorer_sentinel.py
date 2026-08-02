@@ -1203,7 +1203,7 @@ def _clf_healthy_jsonl():
 
 
 def _run_production(tmp_path, *, shadows, jsonl=None, prod_live=(),
-                    momentum_mlflow_dates=(), as_of=AS_OF):
+                    momentum_mlflow_dates=(), as_of=AS_OF, cfg_mtime=None):
     """Drive main() over the REAL `watched_lanes()` registry (unpatched),
     against a config declaring `shadows`, a production runs DB with live rows
     on `prod_live`, and an mlruns tree carrying TAGGED momentum comparisons for
@@ -1212,6 +1212,11 @@ def _run_production(tmp_path, *, shadows, jsonl=None, prod_live=(),
     cfg = {"ranking": {"panel_scoring": {"kind": "xgb", "shadow_models": shadows}}}
     cfg_path = tmp_path / "strategy_config.json"
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    if cfg_mtime is not None:
+        # backdate the arming instant (the config file's mtime) for
+        # arming-window tests
+        t = dt.datetime.combine(cfg_mtime, dt.time(12, 0)).timestamp()
+        os.utime(cfg_path, (t, t))
     jsonl_path = tmp_path / "shadow_scorer_health.jsonl"
     if jsonl is not None:
         jsonl_path.write_text("\n".join(json.dumps(r) for r in jsonl) + "\n")
@@ -1249,13 +1254,32 @@ class TestMomentumTransition:
             prod_live=(D1, D0))
         assert rc == 0 and not alerts
 
-    def test_AFTER_the_merge_a_feed_dark_momentum_lane_alarms(self, tmp_path):
-        """The anti-vacuity twin: identical evidence, config now declares the
-        lane -> FEED DARK pages and names the momentum lane. Also the exit code
-        is EXIT_ALARM, the dispositionable non-crash code (ack trail)."""
+    def test_AFTER_the_merge_a_never_reported_lane_arms_then_alarms(self, tmp_path, capsys):
+        """The anti-vacuity twin, revised 2026-08-02 (measured on the machine
+        the day the momentum pin landed): a DECLARED lane with no record EVER
+        is in its ARMING window — the patrol's look-back predates the
+        declaration, so paging FEED DARK off those sessions manufactures an
+        alarm from days the lane could not have reported on. With fewer than
+        ARMING_DARK_SESSIONS live-run sessions it reports ARMED (printed,
+        rc 0, no page). The anti-vacuity BOUND stays: once that many
+        consecutive live-run sessions show still no record ever, the lane
+        falls through and FEED DARK pages naming it — a miswired lane cannot
+        idle as INFO forever."""
+        # (a) two live-run sessions, no momentum record ever: ARMED, no page.
         rc, alerts = _run_production(
             tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=_clf_healthy_jsonl(),
             prod_live=(D1, D0))
+        assert rc == 0 and not alerts
+        assert "ARMED" in capsys.readouterr().out
+        # (b) grace exhausted: ARMING_DARK_SESSIONS live-run sessions and
+        # still no record ever -> the full patrol fires FEED DARK.
+        d2, d3, d4 = (dt.date(2026, 7, 14), dt.date(2026, 7, 13),
+                      dt.date(2026, 7, 12))
+        sub = tmp_path / "grace_exhausted"
+        sub.mkdir()
+        rc, alerts = _run_production(
+            sub, shadows=[CLF_DECL, MOM_DECL], jsonl=_clf_healthy_jsonl(),
+            prod_live=(d4, d3, d2, D1, D0), cfg_mtime=dt.date(2026, 7, 11))
         assert rc == sentinel.EXIT_ALARM
         assert len(alerts) == 1, alerts  # clf stayed quiet; only momentum paged
         title, body = alerts[0]
@@ -1428,3 +1452,290 @@ class TestMomentumAckTrail:
             assert sentinel.EXIT_ALARM not in row.get("acked_exit_codes", []), (
                 "sentinel_acks.json already covers EXIT_ALARM for the shadow "
                 "scorer sentinel — a momentum alarm would be born silenced")
+
+
+# ---------------------------------------------------------------------------
+# default_strategy_config: the pin-materialised clone must outrank the dev
+# sibling (2026-08-02; the wrong-object class of RenQuant#553). Measured on
+# the machine: the sibling sat behind the lock and the patrol reported a
+# retired lane as declared and the momentum lane as undeclared, while the
+# PINNED config said the opposite.
+# ---------------------------------------------------------------------------
+
+def _fake_tree(tmp_path, *, pinned: bool, sibling: bool):
+    """github-root layout with the sentinel file 3 levels deep, mirroring
+    <github>/renquant-orchestrator-run/ops/renquant104/<file>."""
+    gh = tmp_path / "github"
+    sent_dir = gh / "renquant-orchestrator-run" / "ops" / "renquant104"
+    sent_dir.mkdir(parents=True)
+    if pinned:
+        p = (gh / "RenQuant" / ".subrepo_runtime" / "repos"
+             / "renquant-strategy-104" / "configs")
+        p.mkdir(parents=True)
+        (p / "strategy_config.json").write_text("{}")
+    if sibling:
+        s = gh / "renquant-strategy-104" / "configs"
+        s.mkdir(parents=True)
+        (s / "strategy_config.json").write_text("{}")
+    return sent_dir / "rq104_shadow_scorer_sentinel.py"
+
+
+def _resolve_with_file_at(monkeypatch, fake_file):
+    monkeypatch.delenv("RQ104_STRATEGY_CONFIG", raising=False)
+    monkeypatch.setattr(sentinel.os.path, "abspath", lambda _: str(fake_file))
+    return sentinel.default_strategy_config()
+
+
+def test_default_config_prefers_the_pinned_clone(tmp_path, monkeypatch):
+    fake = _fake_tree(tmp_path, pinned=True, sibling=True)
+    got = _resolve_with_file_at(monkeypatch, fake)
+    assert ".subrepo_runtime" in got, got
+
+
+def test_default_config_falls_back_to_the_sibling(tmp_path, monkeypatch):
+    fake = _fake_tree(tmp_path, pinned=False, sibling=True)
+    got = _resolve_with_file_at(monkeypatch, fake)
+    assert got.endswith("renquant-strategy-104/configs/strategy_config.json")
+    assert ".subrepo_runtime" not in got
+
+
+def test_default_config_env_override_wins(tmp_path, monkeypatch):
+    fake = _fake_tree(tmp_path, pinned=True, sibling=True)
+    monkeypatch.setenv("RQ104_STRATEGY_CONFIG", "/explicit/path.json")
+    monkeypatch.setattr(sentinel.os.path, "abspath", lambda _: str(fake))
+    assert sentinel.default_strategy_config() == "/explicit/path.json"
+
+
+def _anchor(lane: str, cfg) -> "tuple[dt.date | None, str]":
+    """`lane_declared_since` plus the reason it gives, for ASSERTION MESSAGES.
+
+    The first diagnostic pass added a `why` channel to the helper and the failing tests
+    still called it without one, so CI kept printing a bare `assert None == date(...)`
+    and the cause stayed invisible. A channel nobody reads is not diagnostics.
+    """
+    why: list[str] = []
+    got = sentinel.lane_declared_since(lane, str(cfg), why)
+    return got, ("; ".join(why) or "<no reason recorded>")
+
+
+class TestArmingAnchorIsImmutableUnderResync:
+    """Review round 1 (blocking): the arming deadline was keyed to the config file's
+    MTIME, which every `subrepo_assemble --sync` and every re-materialisation refreshes.
+    Routine syncs could therefore reset the grace indefinitely and leave a
+    declared-but-never-reporting lane at INFO forever — the silent death this sentinel
+    exists to prevent, restored through the door marked "grace".
+
+    A real `git init` repo, not a mock: the anchor IS git history, and mocking git would
+    test the mock.
+    """
+
+    LANE = "momentum_residual_v0_shadow"
+
+    def _repo(self, tmp_path, *, extra_commits: int = 0):
+        import subprocess
+        repo = tmp_path / "renquant-strategy-104"
+        (repo / "configs").mkdir(parents=True)
+        cfg = repo / "configs" / "strategy_config.json"
+
+        def run(*args):
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True)
+
+        subprocess.run(["git", "init", "-q", str(repo)], check=True,
+                       capture_output=True)
+        run("config", "user.email", "t@t"); run("config", "user.name", "t")
+        # commit 1: no lanes
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": []}}}), encoding="utf-8")
+        run("add", "-A"); run("commit", "-qm", "genesis")
+        # commit 2: the lane ARRIVES — this is the arming instant
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": [{"name": self.LANE}]}}}), encoding="utf-8")
+        run("add", "-A"); run("commit", "-qm", "declare the lane")
+        for i in range(extra_commits):
+            (repo / f"unrelated{i}.txt").write_text("x", encoding="utf-8")
+            run("add", "-A"); run("commit", "-qm", f"unrelated {i}")
+        return repo, cfg
+
+    def test_the_anchor_is_the_commit_that_DECLARED_the_lane(self, tmp_path):
+        _, cfg = self._repo(tmp_path)
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date.today(), why
+
+    def test_REPEATED_RESYNCS_of_unchanged_content_cannot_extend_it(self, tmp_path):
+        """THE regression the review asked for. A re-sync rewrites the file — new mtime,
+        same commits. The old anchor moved; this one must not."""
+        import os
+        import time
+        _, cfg = self._repo(tmp_path)
+        first, why0 = _anchor(self.LANE, cfg)
+        assert first is not None, why0
+        original = cfg.read_text(encoding="utf-8")
+
+        for _ in range(3):
+            time.sleep(0.01)
+            cfg.write_text(original, encoding="utf-8")     # what a --sync does
+            os.utime(cfg, None)                            # ...and its mtime moves
+            got, why = _anchor(self.LANE, cfg)
+            assert got == first, why
+
+        # and the mtime really did move, or this test proves nothing
+        assert dt.date.fromtimestamp(os.path.getmtime(cfg)) >= first
+
+    def test_an_UNRELATED_config_edit_does_not_reset_it(self, tmp_path):
+        """The other half of "immutable": only THIS lane's arrival is the anchor, so
+        editing the config for some other reason must not buy a fresh grace window."""
+        repo, cfg = self._repo(tmp_path)
+        import subprocess
+        doc = json.loads(cfg.read_text(encoding="utf-8"))
+        doc["ranking"]["panel_scoring"]["some_other_key"] = "changed later"
+        cfg.write_text(json.dumps(doc), encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True,
+                       capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "unrelated edit"],
+                       check=True, capture_output=True)
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date.today(), why
+
+    def test_an_UNESTABLISHABLE_anchor_returns_None_so_no_grace_is_granted(self, tmp_path):
+        """Fail toward alarming. A lane whose arrival cannot be dated must not buy
+        silence — an unknown anchor granting unbounded grace is the defect, not a
+        gentler version of it."""
+        plain = tmp_path / "not_a_repo" / "configs"
+        plain.mkdir(parents=True)
+        cfg = plain / "strategy_config.json"
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": [{"name": self.LANE}]}}}), encoding="utf-8")
+        assert sentinel.lane_declared_since(self.LANE, str(cfg)) is None
+        # ...and a name that never appears in a real repo's history is None too
+        _, real = self._repo(tmp_path / "other")
+        assert sentinel.lane_declared_since("never_declared_lane", str(real)) is None
+
+
+class TestArmingAnchorRedeclaration:
+    """Round 3 (review): the anchor must be the most recent absent→present
+    transition in PARSED config history — not the first textual `-S` hit,
+    which (a) backdates a removed-then-re-declared lane to its original
+    arrival, instantly exhausting the new incarnation's grace, and (b) can
+    match unrelated text. Real git repos with explicit distinct commit dates."""
+
+    LANE = "momentum_residual_v0_shadow"
+
+    def _init(self, tmp_path):
+        import subprocess
+        repo = tmp_path / "renquant-strategy-104"
+        (repo / "configs").mkdir(parents=True)
+        for args in (["init", "-q", str(repo)],):
+            subprocess.run(["git", *args], check=True, capture_output=True)
+        for k, v in (("user.email", "t@t"), ("user.name", "t")):
+            subprocess.run(["git", "-C", str(repo), "config", k, v],
+                           check=True, capture_output=True)
+        return repo, repo / "configs" / "strategy_config.json"
+
+    def _commit(self, repo, cfg, payload, msg, date):
+        import subprocess
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        subprocess.run(["git", "-C", str(repo), "add", "-A"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", msg],
+                       check=True, capture_output=True, env=env)
+
+    def test_a_redeclared_lane_arms_at_the_redeclaration(self, tmp_path):
+        repo, cfg = self._init(tmp_path)
+        decl = {"ranking": {"panel_scoring": {"shadow_models": [{"name": self.LANE}]}}}
+        empty = {"ranking": {"panel_scoring": {"shadow_models": []}}}
+        self._commit(repo, cfg, decl, "declare", "2026-07-01T10:00:00")
+        self._commit(repo, cfg, empty, "remove", "2026-07-05T10:00:00")
+        self._commit(repo, cfg, decl, "re-declare", "2026-07-10T10:00:00")
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date(2026, 7, 10), why
+
+    def test_unrelated_text_mentioning_the_name_does_not_backdate(self, tmp_path):
+        repo, cfg = self._init(tmp_path)
+        narrative = {"_note": f"future lane {self.LANE} planned here",
+                     "ranking": {"panel_scoring": {"shadow_models": []}}}
+        decl = {"ranking": {"panel_scoring": {"shadow_models": [{"name": self.LANE}]}}}
+        self._commit(repo, cfg, narrative, "mention only", "2026-07-01T10:00:00")
+        self._commit(repo, cfg, decl, "declare", "2026-07-10T10:00:00")
+        got, why = _anchor(self.LANE, cfg)
+        assert got == dt.date(2026, 7, 10), why
+
+
+def test_the_arming_anchor_SAYS_WHY_when_it_cannot_be_established(tmp_path):
+    """`None` is both "could not check" and "checked, this lane is not declared".
+
+    Collapsing them is the failure this module exists to keep apart, and it was
+    happening inside the module: CI went red with `lane_declared_since()` returning a
+    bare `None` and no way to tell a git failure from an absent lane. The `why` channel
+    restores the distinction — record, never raise.
+    """
+    # (a) could NOT check: the path is not a checkout at all
+    why: list[str] = []
+    assert sentinel.lane_declared_since(
+        "any_lane", str(tmp_path / "nope" / "configs" / "c.json"), why) is None
+    assert why and "git log rc=" in why[0], why
+
+    # (b) checked, and the lane is genuinely absent — a DIFFERENT reason, not silence
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "configs").mkdir(parents=True)
+    cfg = repo / "configs" / "strategy_config.json"
+    cfg.write_text(json.dumps({"ranking": {"panel_scoring": {"shadow_models": []}}}),
+                   encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+    for k, v in (("user.email", "t@t"), ("user.name", "t")):
+        subprocess.run(["git", "-C", str(repo), "config", k, v], check=True,
+                       capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "no lanes"], check=True,
+                   capture_output=True)
+
+    why2: list[str] = []
+    assert sentinel.lane_declared_since("absent_lane", str(cfg), why2) is None
+    assert why2 and "does not declare" in why2[0], why2
+    assert why[0] != why2[0], "the two states still produce the same explanation"
+
+
+def test_a_UTC_repo_whose_git_emits_Z_is_parsed(tmp_path):
+    """THE CI failure, pinned. `git %cI` emits `...Z` on a UTC-configured machine, and
+    Python 3.10's `datetime.fromisoformat` REFUSES the `Z` suffix — it landed in 3.11.
+    This repo runs 3.10 and CI's runner is UTC, while a developer laptop usually is not,
+    so the parse succeeded locally and failed only in CI.
+
+    The second-order effect is why it took three passes to find: the walk `continue`d
+    past the unparsed commit and then blamed the NEXT one for "not declaring the lane" —
+    a confident, precise, wrong message manufactured by a silent parse failure.
+    """
+    import subprocess
+
+    repo = tmp_path / "renquant-strategy-104"
+    (repo / "configs").mkdir(parents=True)
+    cfg = repo / "configs" / "strategy_config.json"
+    lane = "momentum_residual_v0_shadow"
+
+    def run(*args, **kw):
+        subprocess.run(["git", "-C", str(repo), *args], check=True,
+                       capture_output=True, **kw)
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+    run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    for i, lanes in enumerate(([], [{"name": lane}])):
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": lanes}}}), encoding="utf-8")
+        run("add", "-A")
+        stamp = f"2026-08-02T12:0{i}:00+00:00"
+        run("commit", "-qm", f"c{i}",
+            env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "TZ": "UTC",
+                 "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp})
+
+    # the premise: git really does emit a Z here, or this test proves nothing
+    shown = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%cI"],
+                           capture_output=True, text=True, env={"PATH": "/usr/bin:/bin",
+                                                                "TZ": "UTC"})
+    assert shown.stdout.strip().endswith("Z"), shown.stdout
+
+    why: list[str] = []
+    got = sentinel.lane_declared_since(lane, str(cfg), why)
+    assert got == dt.date(2026, 8, 2), why
+    assert not any("unparseable" in w for w in why), why
