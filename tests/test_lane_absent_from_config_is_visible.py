@@ -296,7 +296,7 @@ def test_scoping_a_MATCHING_stamp_still_counts_as_removal_evidence(tmp_path):
             for d in DAYS]
     import unittest.mock as m
     with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
-        states, ambiguous = S.read_task_level_states(DAYS, config_path=cfg)
+        states, ambiguous, unavailable = S.read_task_level_states(DAYS, config_path=cfg)
     assert set(states.values()) == {S.STATE_NO_SHADOW_MODELS}
     assert not ambiguous
 
@@ -309,7 +309,7 @@ def test_scoping_a_MISMATCHED_stamp_is_another_profiles_record(tmp_path):
                      "sha256:" + "ab" * 8) for d in DAYS]
     import unittest.mock as m
     with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
-        states, ambiguous = S.read_task_level_states(DAYS, config_path=cfg)
+        states, ambiguous, unavailable = S.read_task_level_states(DAYS, config_path=cfg)
     assert not states
     assert not ambiguous
 
@@ -319,7 +319,7 @@ def test_scoping_an_UNSTAMPED_record_is_ambiguous_not_evidence(tmp_path):
     rows = [_record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS) for d in DAYS]
     import unittest.mock as m
     with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
-        states, ambiguous = S.read_task_level_states(DAYS, config_path=cfg)
+        states, ambiguous, unavailable = S.read_task_level_states(DAYS, config_path=cfg)
     assert not states
     assert set(ambiguous.values()) == {S.STATE_NO_SHADOW_MODELS}
 
@@ -328,6 +328,22 @@ def test_scoping_INACTIVE_without_a_config_keeps_the_240_contract(tmp_path):
     rows = [_record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS) for d in DAYS]
     import unittest.mock as m
     with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
-        states, ambiguous = S.read_task_level_states(DAYS)
+        states, ambiguous, unavailable = S.read_task_level_states(DAYS)
     assert set(states.values()) == {S.STATE_NO_SHADOW_MODELS}
     assert not ambiguous
+
+
+def test_scoping_an_UNREADABLE_config_excludes_all_evidence(tmp_path):
+    """Round-2 review: an EXPLICIT config whose digest cannot be established
+    must not fall back to the unscoped path — every task-level record is
+    ambiguous, none count as removal evidence, and the flag says so."""
+    rows = [_stamped(_record(d, S.TASK_LEVEL_SHADOW_NAME,
+                             S.STATE_NO_SHADOW_MODELS), "sha256:" + "cd" * 8)
+            for d in DAYS]
+    import unittest.mock as m
+    with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
+        states, ambiguous, unavailable = S.read_task_level_states(
+            DAYS, config_path=str(tmp_path / "does_not_exist.json"))
+    assert unavailable is True
+    assert not states
+    assert set(ambiguous.values()) == {S.STATE_NO_SHADOW_MODELS}

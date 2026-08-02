@@ -34,3 +34,12 @@ EVIDENCE:
   classification, arming window untouched
 
 NEXT: none — Monday's stamped records make the scoping live end-to-end.
+
+Round 2 (review): an EXPLICIT config whose digest cannot be established no
+longer falls back to the unscoped path — that fail-open would re-admit the
+wrong profile's record exactly when the fingerprint is unavailable. Three
+modes now: `config_path is None` → the #240 contract; digest computed →
+scoped; digest UNAVAILABLE → every task-level record ambiguous, none count
+as removal evidence, and the patrol prints the distinct fail-closed message.
++1 regression (unreadable config: `unavailable=True`, no states, all
+ambiguous).

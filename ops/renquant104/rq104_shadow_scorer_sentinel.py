@@ -518,7 +518,7 @@ def last_session_days(as_of: dt.date, n: int, *, lookback_days: int = 21) -> lis
 
 def read_task_level_states(days: list[dt.date],
                            config_path: "str | None" = None,
-                           ) -> "tuple[dict[dt.date, str], dict[dt.date, str]]":
+                           ) -> "tuple[dict[dt.date, str], dict[dt.date, str], bool]":
     """Per-day TASK-LEVEL state, for days the task reported on its own configuration.
 
     Separate from `read_health_records` on purpose. A task-level record is not evidence
@@ -539,9 +539,15 @@ def read_task_level_states(days: list[dt.date],
     out: dict[dt.date, str] = {}
     ambiguous: dict[dt.date, str] = {}
     expected_digest = _pinned_config_digest(config_path) if config_path else None
+    # Round-2 review: an EXPLICIT config whose digest cannot be established
+    # must NOT silently fall back to the unscoped path — that would let the
+    # wrong profile's record become removal evidence exactly when the
+    # fingerprint is unavailable. In that mode EVERY task-level record is
+    # ambiguous and the flag tells the caller to say so.
+    digest_unavailable = bool(config_path) and expected_digest is None
     path = SHADOW_HEALTH_JSONL
     if not path or not os.path.exists(path):
-        return out, ambiguous
+        return out, ambiguous, digest_unavailable
     wanted = {d.isoformat(): d for d in days}
     try:
         with open(path, encoding="utf-8") as fh:
@@ -567,6 +573,11 @@ def read_task_level_states(days: list[dt.date],
                 # counted separately and printed by the caller, never used
                 # silently as removal evidence.
                 stamp = obj.get("task_config_sha256")
+                if digest_unavailable:
+                    d = wanted.get(str(obj.get("run_date", ""))[:10])
+                    if d is not None:
+                        ambiguous[d] = str(obj.get("state") or "")
+                    continue
                 if expected_digest is not None:
                     # scoping ACTIVE: only a matching stamp is evidence about
                     # the pinned config; a mismatch is another profile's
@@ -586,8 +597,8 @@ def read_task_level_states(days: list[dt.date],
                     # last record for a date wins, mirroring the per-lane reader
                     out[d] = str(obj.get("state") or "")
     except OSError:
-        return {}, {}
-    return out, ambiguous
+        return {}, {}, digest_unavailable
+    return out, ambiguous, digest_unavailable
 
 
 def _pinned_config_digest(config_path: str) -> "str | None":
@@ -1608,8 +1619,14 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
         # orch#765: only stamp-matching task-level records count as evidence
         # about the pinned config; unstamped (pre-pipeline#257) ones are
         # printed as ambiguous and never used silently as removal evidence.
-        task_states, ambiguous_states = read_task_level_states(
-            days, config_path=config_path)
+        task_states, ambiguous_states, digest_unavailable = (
+            read_task_level_states(days, config_path=config_path))
+        if digest_unavailable:
+            print(f"rq104 shadow-scorer sentinel [{lane.name}]: the supplied "
+                  f"config's identity digest could NOT be established "
+                  f"({config_path}) — ALL task-level records are ambiguous "
+                  f"this patrol and none count as removal evidence "
+                  f"(fail-closed; fix the config read, not the scoping).")
         gone = sorted(d for d, st in task_states.items()
                       if st == STATE_NO_SHADOW_MODELS)
         amb = sorted(d for d, st in ambiguous_states.items()
