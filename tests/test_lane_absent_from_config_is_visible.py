@@ -347,3 +347,32 @@ def test_scoping_an_UNREADABLE_config_excludes_all_evidence(tmp_path):
     assert unavailable is True
     assert not states
     assert set(ambiguous.values()) == {S.STATE_NO_SHADOW_MODELS}
+
+
+def test_digest_uses_the_PRODUCER_primitive_with_the_PATH(tmp_path, monkeypatch):
+    """Round-3 review: the producer's content_digest takes a PATH (it stats
+    and reads the file itself). This regression makes the imported call
+    observable: a fake producer module records its argument and returns a
+    sentinel — the helper must return the sentinel and must have passed the
+    PATH, not bytes. The local byte-hash may run only when the producer is
+    genuinely unimportable."""
+    import sys, types
+    cfg = tmp_path / "strategy_config.json"
+    cfg.write_text("{}", encoding="utf-8")
+    calls = []
+    fake_sh = types.ModuleType("renquant_pipeline.kernel.panel_pipeline.shadow_health")
+    def fake_digest(path):
+        calls.append(path)
+        return "sha256:feedfeedfeedfeed"
+    fake_sh.content_digest = fake_digest
+    fake_pkgs = {}
+    for name in ("renquant_pipeline", "renquant_pipeline.kernel",
+                 "renquant_pipeline.kernel.panel_pipeline"):
+        fake_pkgs[name] = sys.modules.get(name) or types.ModuleType(name)
+    with_mods = dict(fake_pkgs)
+    with_mods["renquant_pipeline.kernel.panel_pipeline.shadow_health"] = fake_sh
+    import unittest.mock as m
+    with m.patch.dict(sys.modules, with_mods):
+        got = S._pinned_config_digest(str(cfg))
+    assert got == "sha256:feedfeedfeedfeed"
+    assert calls == [str(cfg)], "the producer must receive the PATH itself"

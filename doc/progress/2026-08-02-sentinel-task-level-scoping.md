@@ -43,3 +43,11 @@ scoped; digest UNAVAILABLE → every task-level record ambiguous, none count
 as removal evidence, and the patrol prints the distinct fail-closed message.
 +1 regression (unreadable config: `unavailable=True`, no states, all
 ambiguous).
+
+Round 3 (review): the producer's `content_digest` takes a PATH — it stats and
+reads the file itself; handing it bytes raised inside a broad except and
+silently selected the local recompute whenever the pipeline WAS importable
+(the read-the-contract class, mine this time). The import now receives the
+path; the local byte-hash runs only on genuine ImportError. +1 regression
+with an observable fake producer module: asserts the sentinel return AND that
+the PATH (not bytes) reached the primitive.

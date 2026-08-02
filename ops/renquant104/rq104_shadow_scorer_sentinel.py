@@ -610,18 +610,26 @@ def _pinned_config_digest(config_path: str) -> "str | None":
     recipe is the producer's own ``task_config_identity`` /
     ``content_digest`` (sha256:<16 hex> over file bytes) — imported when the
     producer is available, recomputed with the same recipe otherwise."""
-    try:
-        raw = open(config_path, "rb").read()
-    except OSError:
-        return None
+    # Round-3 review: the producer primitive takes a PATH — it stats and
+    # reads the file itself (shadow_health.content_digest(path)); handing it
+    # bytes raised inside a broad except and silently selected the local
+    # recompute whenever the pipeline WAS importable. The import now gets the
+    # path; the local byte-hash runs ONLY when the producer is genuinely
+    # unimportable.
     try:
         from renquant_pipeline.kernel.panel_pipeline.shadow_health import (  # noqa: PLC0415
             content_digest,
         )
-        return content_digest(raw)
-    except Exception:  # noqa: BLE001 — same recipe, locally
-        import hashlib
-        return "sha256:" + hashlib.sha256(raw).hexdigest()[:16]
+    except ImportError:
+        content_digest = None
+    if content_digest is not None:
+        return content_digest(config_path)
+    try:
+        raw = open(config_path, "rb").read()
+    except OSError:
+        return None
+    import hashlib
+    return "sha256:" + hashlib.sha256(raw).hexdigest()[:16]
 
 
 def lane_ever_reported_here(matches) -> bool:
