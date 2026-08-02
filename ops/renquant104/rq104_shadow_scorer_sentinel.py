@@ -166,6 +166,13 @@ PROD_RUNS_DB = os.environ.get("RQ104_PROD_RUNS_DB", os.path.join(RQ, "data/runs.
 #: 'hf_patchtst_pt07_strict_seed44_previous_primary' after the 2026-07 clf
 #: promotion demoted the lane), so the health-record match accepts the exact
 #: key or any 'SHADOW_NAME_*' decorated form — see _matches_shadow_lane.
+#:
+#: 2026-08-02 (#758): the PatchTST lane is RETIRED (operator decision; config
+#: removal merged as strategy-104#75) and is no longer in `watched_lanes()`.
+#: This key stays as the identity DEFAULT of the generic shadow-runs-DB
+#: fallback machinery (`_matches_shadow_lane`, `_derive_day_record`), which no
+#: current lane uses (`runs_db=None` across the registry) but a future
+#: DB-persisted lane may.
 SHADOW_NAME = os.environ.get("RQ104_SHADOW_NAME", "hf_patchtst")
 
 
@@ -216,14 +223,18 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
 
     Resolved at call time, not import time, so tests and operators can retarget
     paths through the same env vars the single-lane version used.
+
+    2026-08-02 (#758): the retired PatchTST lane is REMOVED (operator retire
+    decision; the served config entry was deleted by strategy-104#75) and the
+    GOAL-7 momentum lane is ADDED — ahead of its config entry, which is
+    strategy-104#77 and merges only inside the slice-5 grant batch. Watching
+    starts before serving ON PURPOSE: the lane's whole point is data
+    collection, so a feed-dark or load-failed momentum lane must page from its
+    first served day. The window in which the lane is watched but not yet
+    declared is kept quiet by the PRE-ACTIVATION GATE in `_patrol_lane`, not by
+    delaying this registry.
     """
     return (
-        WatchedLane(
-            name=SHADOW_NAME,
-            runs_db=SHADOW_DB,
-            purpose="the G4-critical PatchTST feed whose silent death this "
-                    "sentinel was built for",
-        ),
         WatchedLane(
             name=os.environ.get("RQ104_CLF_LANE_NAME", "topdecile_clf_blend_leg"),
             runs_db=None,   # MLflow-logged: a DB fallback would alarm daily
@@ -231,6 +242,17 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
             purpose="the certified top-decile classifier now accruing the "
                     "120-session forward ledger — the one line with a "
                     "confirmed effect, and until now unwatched",
+        ),
+        WatchedLane(
+            name=os.environ.get("RQ104_MOMENTUM_LANE_NAME",
+                                "momentum_residual_v0_shadow"),
+            runs_db=None,   # never writes the retired patchtst shadow-experiment DB
+            mlruns_dir=MLRUNS_DIR,  # ApplyShadowScoringTask logs every config
+                                    # lane's comparison.json under mlruns
+            purpose="the GOAL-7 momentum data-collection lane (config kind "
+                    "'momentum_residual', strategy-104#77): the standalone "
+                    "momentum pipeline's TRADE slice, whose entire value is "
+                    "the evidence trail this sentinel guards",
         ),
     )
 
@@ -1236,12 +1258,20 @@ def main(argv: list[str] | None = None) -> int:
     # into a permanent alarm, which the existing suite caught as 16 failures. A check
     # nobody asked for must be quiet; a check that was asked for and could not run must
     # not be.
+    declared: list[str] | None = None
     if not args.config:
         print("rq104 shadow-scorer sentinel: config lane check NOT REQUESTED "
               "(--config / RQ104_STRATEGY_CONFIG unset) — skipped, not passed")
         unwatched, why = [], ""
     else:
         unwatched, why = unwatched_config_lanes(lanes, args.config)
+        # The per-lane PRE-ACTIVATION GATE (see _patrol_lane) needs the declared
+        # NAME SET itself, not just the drift verdict. Only a CLEANLY read config
+        # drives the gate: 'could not read the config' must never impersonate
+        # 'the config does not declare this lane'.
+        cfg_names, cfg_err = config_declared_lanes(args.config)
+        if not cfg_err:
+            declared = cfg_names
         if why:
             all_findings.append(
                 f"config lane check UNAVAILABLE: {why} — 'could not check' is not "
@@ -1259,7 +1289,7 @@ def main(argv: list[str] | None = None) -> int:
               f"{today.isoformat()}", msg, rq_root=RQ)
         rc |= EXIT_ALARM
     for lane in lanes:
-        rc |= _patrol_lane(lane, days, today, all_findings)
+        rc |= _patrol_lane(lane, days, today, all_findings, declared_lanes=declared)
     if not all_findings:
         print(f"rq104 shadow-scorer sentinel: {len(lanes)} lane(s) patrolled over "
               f"{days[0].isoformat()}..{days[-1].isoformat()} — no finding")
@@ -1267,10 +1297,38 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
-                 out: list[str]) -> int:
+                 out: list[str], declared_lanes: list[str] | None = None) -> int:
     """Patrol ONE lane. Findings are prefixed with the lane so an operator
     reading a page knows which feed degraded, and appended to `out` so main
-    can tell 'every lane clean' from 'nothing was checked'."""
+    can tell 'every lane clean' from 'nothing was checked'.
+
+    `declared_lanes` is the strategy config's `shadow_models` name set, or None
+    when no cleanly-read config is available. It drives EXACTLY ONE thing — the
+    pre-activation gate below — and must never drive the watch list itself:
+    orch#702 pinned why deriving the watched set from the config is wrong (a
+    lane REMOVED from config would leave the watch list with it).
+    """
+    # PRE-ACTIVATION GATE (#758, the strategy-104#77 transition). A lane can be
+    # watched BEFORE its config entry merges — the momentum lane's entry is held
+    # for the slice-5 grant batch. In that window the task cannot emit health
+    # records for it, and the MLflow fallback would fabricate FEED DARK records
+    # out of every live-run day for a lane that cannot have evidence yet: a
+    # permanent false alarm, page-fatigue in exchange for nothing. Skip — loudly,
+    # never silently — ONLY when BOTH hold:
+    #   (a) a cleanly-read config does not declare the lane, AND
+    #   (b) the lane has NEVER reported to this sink.
+    # (b) is what keeps orch#689 intact: a lane REMOVED from config after it has
+    # reported falls through to the full patrol and the ABSENT FROM CONFIG alarm
+    # exactly as before. The mirror direction (config declares a lane nobody
+    # watches) stays with the drift check in main().
+    if (declared_lanes is not None
+            and not any(lane.matches(n) for n in declared_lanes)
+            and not lane_ever_reported_here(lane.matches)):
+        print(f"rq104 shadow-scorer sentinel [{lane.name}]: not declared in the "
+              f"strategy config and never reported here — pre-activation window "
+              f"(its config entry has not merged/pinned yet). Skipped, not "
+              f"passed; the patrol arms the day the config declares it.")
+        return 0
     records = read_health_records(days, lane)
 
     # If NO day in the window had live runs at all, this is a liveness lapse,

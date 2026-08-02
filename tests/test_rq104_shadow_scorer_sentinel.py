@@ -113,13 +113,30 @@ def _write_tagged_comparison_json(mlruns_root: Path, exp_id: str, run_id: str,
 
 
 def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
-         staleness_max=28, coverage_floor=0.80, streak=2, as_of=AS_OF):
-    """Run main() with all seams patched; return (rc, alerts)."""
+         staleness_max=28, coverage_floor=0.80, streak=2, as_of=AS_OF,
+         lanes=None):
+    """Run main() with all seams patched; return (rc, alerts).
+
+    `lanes` is the patrol registry. The default is ONE legacy-shaped mechanics
+    lane (name=SHADOW, runs_db=the fixture DB) — the exact shape this suite's
+    fixtures were written against, kept explicit here since #758 removed the
+    retired PatchTST lane from the PRODUCTION registry. These tests pin the
+    detection MECHANICS (streaks, classify, primary-vs-fallback merge, strict
+    schema); the production registry (clf + momentum) is pinned by its own
+    tests below, so a future registry change cannot silently change what the
+    mechanics tests measure.
+
+    `--config ""` is passed so the config drift check takes its NOT-REQUESTED
+    path: none of these tests may depend on the operator's sibling strategy-104
+    checkout (the tests-measure-the-operator's-disk class).
+    """
     alerts: list[tuple[str, str]] = []
     db_path = _make_shadow_db(tmp_path, run_rows or [], score_rows or [])
     jsonl_path = tmp_path / "shadow_scorer_health.jsonl"
     if jsonl is not None:
         jsonl_path.write_text("\n".join(json.dumps(r) for r in jsonl) + "\n")
+    if lanes is None:
+        lanes = (sentinel.WatchedLane(name=SHADOW, runs_db=db_path),)
 
     with (
         patch.object(sentinel, "is_session_day", return_value=True),
@@ -129,13 +146,14 @@ def _run(tmp_path, *, run_rows=None, score_rows=None, jsonl=None,
         patch.object(sentinel, "COVERAGE_FLOOR", coverage_floor),
         patch.object(sentinel, "STREAK_N", streak),
         patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
-        # A missing dir/db keeps the clf lane's MLflow fallback a no-op here
+        patch.object(sentinel, "watched_lanes", lambda: tuple(lanes)),
+        # A missing dir/db keeps any MLflow-fallback lane a no-op here
         # (`_read_from_mlflow` early-returns {}) so main()-driving tests never
         # touch the real production mlruns tree / runs DB.
         patch.object(sentinel, "MLRUNS_DIR", str(tmp_path / "no_mlruns_here")),
         patch.object(sentinel, "PROD_RUNS_DB", str(tmp_path / "no_prod_db_here")),
     ):
-        rc = sentinel.main(["--as-of", as_of])
+        rc = sentinel.main(["--as-of", as_of, "--config", ""])
     return rc, alerts
 
 
@@ -670,21 +688,30 @@ class TestDecoratedLaneName:
 # ---------------------------------------------------------------------------
 
 class TestMultiLane:
-    def test_registry_watches_both_lanes(self):
+    def test_registry_watches_clf_and_momentum_not_the_retired_patchtst(self):
+        # #758: the retired PatchTST lane is REMOVED and the GOAL-7 momentum
+        # lane (strategy-104#77, config kind 'momentum_residual') is ADDED in
+        # the same change.
         names = {l.name for l in sentinel.watched_lanes()}
-        assert sentinel.SHADOW_NAME in names
-        assert "topdecile_clf_blend_leg" in names
+        assert names == {"topdecile_clf_blend_leg", "momentum_residual_v0_shadow"}
+        assert sentinel.SHADOW_NAME not in names
 
-    def test_clf_lane_has_no_db_fallback(self):
-        # It logs to MLflow, not the shadow runs DB. A DB fallback would derive
-        # "no scores collected" every single day and manufacture a permanent
-        # FEED DARK alarm out of a healthy lane.
-        clf = next(l for l in sentinel.watched_lanes()
-                   if l.name == "topdecile_clf_blend_leg")
-        assert clf.runs_db is None
-        pt = next(l for l in sentinel.watched_lanes()
-                  if l.name == sentinel.SHADOW_NAME)
-        assert pt.runs_db is not None
+    def test_no_registry_lane_uses_the_retired_shadow_experiment_db(self):
+        # Both lanes log to MLflow + the health JSONL, not the patchtst
+        # shadow-experiment runs DB (retired with its lane). A DB fallback here
+        # would derive "no scores collected" every single day and manufacture a
+        # permanent FEED DARK alarm out of a healthy lane.
+        for lane in sentinel.watched_lanes():
+            assert lane.runs_db is None, lane.name
+            assert lane.mlruns_dir, lane.name
+
+    def test_momentum_lane_matching_accepts_decorated_names_only(self):
+        mom = next(l for l in sentinel.watched_lanes()
+                   if l.name == "momentum_residual_v0_shadow")
+        assert mom.matches("momentum_residual_v0_shadow")
+        assert mom.matches("momentum_residual_v0_shadow_retuned")
+        assert not mom.matches("momentum_residual_v0_shadowX")
+        assert not mom.matches("topdecile_clf_blend_leg")
 
     def test_no_db_lane_never_reads_the_db(self, tmp_path, monkeypatch):
         clf = sentinel.WatchedLane(name="topdecile_clf_blend_leg", runs_db=None)
@@ -1109,3 +1136,258 @@ class TestAlarmIsDistinguishableFromCrash:
                 rc |= c
             assert rc in (0, sentinel.EXIT_ALARM), (combo, rc)
             assert rc != 1
+
+
+# ---------------------------------------------------------------------------
+# #758: the momentum lane (`momentum_residual_v0_shadow`, config kind
+# `momentum_residual`) — watched BEFORE its config entry (strategy-104#77)
+# merges. These drive main() over the REAL production registry and pin BOTH
+# sides of the transition the issue names:
+#   before the merge (no momentum entry in the served config) the sentinel must
+#   not false-alarm — without the pre-activation gate, the MLflow fallback
+#   fabricates FEED DARK records out of every live-run day for a lane that
+#   cannot have evidence yet;
+#   after the merge, a feed-dark or load-failed momentum lane must page, and
+#   the designed pre-first-publish state (`not_yet_published`, an expected
+#   skip per pipeline#253) must not.
+# ---------------------------------------------------------------------------
+
+MOMENTUM = "momentum_residual_v0_shadow"
+CLF = "topdecile_clf_blend_leg"
+CLF_DECL = {"name": CLF, "kind": "xgb"}
+MOM_DECL = {"name": MOMENTUM, "kind": "momentum_residual"}
+
+
+def _clf_healthy_jsonl():
+    """Healthy clf records for the window, so every verdict in these tests is
+    about the MOMENTUM lane, never clf noise."""
+    return [_record(D1.isoformat(), shadow_name=CLF),
+            _record(D0.isoformat(), shadow_name=CLF)]
+
+
+def _run_production(tmp_path, *, shadows, jsonl=None, prod_live=(),
+                    momentum_mlflow_dates=(), as_of=AS_OF):
+    """Drive main() over the REAL `watched_lanes()` registry (unpatched),
+    against a config declaring `shadows`, a production runs DB with live rows
+    on `prod_live`, and an mlruns tree carrying TAGGED momentum comparisons for
+    `momentum_mlflow_dates`. Returns (rc, alerts)."""
+    alerts: list[tuple[str, str]] = []
+    cfg = {"ranking": {"panel_scoring": {"kind": "xgb", "shadow_models": shadows}}}
+    cfg_path = tmp_path / "strategy_config.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    jsonl_path = tmp_path / "shadow_scorer_health.jsonl"
+    if jsonl is not None:
+        jsonl_path.write_text("\n".join(json.dumps(r) for r in jsonl) + "\n")
+    prod_db = _make_prod_runs_db(tmp_path, [d.isoformat() for d in prod_live])
+    mlruns = tmp_path / "mlruns"
+    mlruns.mkdir(exist_ok=True)
+    for i, d in enumerate(momentum_mlflow_dates):
+        _write_tagged_comparison_json(
+            mlruns, "exp1", f"mom_run{i}", [["AAPL", 0.1, 0.2, 0.1, 5, 3, 2]],
+            as_of_date=d.isoformat(), shadow_name=MOMENTUM,
+            mtime_date=d.isoformat())
+    with (
+        patch.object(sentinel, "is_session_day", return_value=True),
+        patch.object(sentinel, "SHADOW_DB", str(tmp_path / "no_shadow_db_here")),
+        patch.object(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl_path)),
+        patch.object(sentinel, "STREAK_N", 2),
+        patch.object(sentinel, "MLRUNS_DIR", str(mlruns)),
+        patch.object(sentinel, "PROD_RUNS_DB", prod_db),
+        patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
+    ):
+        rc = sentinel.main(["--as-of", as_of, "--config", str(cfg_path)])
+    return rc, alerts
+
+
+class TestMomentumTransition:
+    def test_BEFORE_the_config_merge_the_undeclared_lane_stays_quiet(self, tmp_path):
+        """The pre-#77 state: live runs happen, the config does not declare the
+        momentum lane, and no momentum evidence exists anywhere. Without the
+        pre-activation gate this pages FEED DARK forever (the MLflow fallback
+        fabricates dark records for every live-run day); the anti-vacuity twin
+        below proves the SAME evidence alarms once the config declares the
+        lane, so this quiet is the gate's doing, not a dead detector's."""
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL], jsonl=_clf_healthy_jsonl(),
+            prod_live=(D1, D0))
+        assert rc == 0 and not alerts
+
+    def test_AFTER_the_merge_a_feed_dark_momentum_lane_alarms(self, tmp_path):
+        """The anti-vacuity twin: identical evidence, config now declares the
+        lane -> FEED DARK pages and names the momentum lane. Also the exit code
+        is EXIT_ALARM, the dispositionable non-crash code (ack trail)."""
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=_clf_healthy_jsonl(),
+            prod_live=(D1, D0))
+        assert rc == sentinel.EXIT_ALARM
+        assert len(alerts) == 1, alerts  # clf stayed quiet; only momentum paged
+        title, body = alerts[0]
+        assert MOMENTUM in title
+        assert "DARK" in body
+
+    def test_AFTER_the_merge_not_yet_published_is_quiet(self, tmp_path):
+        """The designed pre-first-publish window (pipeline#253's
+        `not_yet_published`, an expected skip): the entry is merged but the
+        weekly train job has not published its first artifact. status drives
+        classification, so this must be as quiet as any expected_skip."""
+        jsonl = _clf_healthy_jsonl() + [
+            _record(d.isoformat(), shadow_name=MOMENTUM, kind="momentum_residual",
+                    status="expected_skip", state="not_yet_published",
+                    loaded=False, n_scored=0, coverage_frac=None,
+                    reasons=["ledger_has_no_published_rows"])
+            for d in (D1, D0)]
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=jsonl,
+            prod_live=(D1, D0))
+        assert rc == 0 and not alerts
+
+    def test_AFTER_the_merge_a_load_failed_momentum_lane_alarms(self, tmp_path):
+        jsonl = _clf_healthy_jsonl() + [
+            _record(d.isoformat(), shadow_name=MOMENTUM, kind="momentum_residual",
+                    status="fault", state="load_failed", loaded=False,
+                    n_scored=0, coverage_frac=None,
+                    reasons=["ledger_tail_verification_failed"])
+            for d in (D1, D0)]
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=jsonl,
+            prod_live=(D1, D0))
+        assert rc == sentinel.EXIT_ALARM
+        assert len(alerts) == 1, alerts
+        title, body = alerts[0]
+        assert MOMENTUM in title
+        assert "LOAD FAILURE" in body
+        assert f"'{MOMENTUM}'" in body
+        assert "ledger_tail_verification_failed" in body
+
+    def test_a_single_fault_day_does_not_page(self, tmp_path):
+        """Streak discipline holds for the new lane: one bad day is a hiccup,
+        not a page — including the merge-straddling day itself."""
+        jsonl = _clf_healthy_jsonl() + [
+            _record(D1.isoformat(), shadow_name=MOMENTUM, kind="momentum_residual",
+                    status="expected_skip", state="not_yet_published",
+                    loaded=False, n_scored=0, coverage_frac=None),
+            _record(D0.isoformat(), shadow_name=MOMENTUM, kind="momentum_residual",
+                    status="fault", state="load_failed", loaded=False,
+                    n_scored=0, coverage_frac=None),
+        ]
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=jsonl,
+            prod_live=(D1, D0))
+        assert rc == 0 and not alerts
+
+    def test_a_healthy_momentum_mlflow_feed_covers_a_jsonl_gap(self, tmp_path):
+        """The bootstrap analog the clf lane already has: JSONL carries nothing
+        for the lane but MLflow has its tagged comparisons -> quiet."""
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=_clf_healthy_jsonl(),
+            prod_live=(D1, D0), momentum_mlflow_dates=(D1, D0))
+        assert rc == 0 and not alerts
+
+    def test_a_lane_REMOVED_after_reporting_still_alarms_absent_from_config(
+        self, tmp_path
+    ):
+        """The gate must not be a derivation in disguise (orch#702): a lane the
+        config no longer declares but which HAS reported here falls through to
+        the full patrol, and the orch#689 ABSENT FROM CONFIG alarm still fires."""
+        jsonl = _clf_healthy_jsonl() + [
+            _record("2026-07-10", shadow_name=MOMENTUM, kind="momentum_residual")]
+        rc, alerts = _run_production(
+            tmp_path, shadows=[CLF_DECL], jsonl=jsonl, prod_live=())
+        assert rc == sentinel.EXIT_ALARM
+        assert any(MOMENTUM in t and "ABSENT FROM CONFIG" in t for t, _ in alerts), alerts
+
+    def test_an_unreadable_config_never_arms_the_gate(self, tmp_path):
+        """'Could not read the config' must not impersonate 'not declared': with
+        a broken config the gate stays off and the patrol runs — here the dark
+        momentum lane still pages (plus the UNAVAILABLE config finding)."""
+        alerts: list = []
+        jsonl_path = tmp_path / "health.jsonl"
+        jsonl_path.write_text(
+            "\n".join(json.dumps(r) for r in _clf_healthy_jsonl()) + "\n")
+        prod_db = _make_prod_runs_db(tmp_path, [D1.isoformat(), D0.isoformat()])
+        mlruns = tmp_path / "mlruns"
+        mlruns.mkdir()
+        bad_cfg = tmp_path / "broken.json"
+        bad_cfg.write_text("{not json", encoding="utf-8")
+        with (
+            patch.object(sentinel, "is_session_day", return_value=True),
+            patch.object(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl_path)),
+            patch.object(sentinel, "STREAK_N", 2),
+            patch.object(sentinel, "MLRUNS_DIR", str(mlruns)),
+            patch.object(sentinel, "PROD_RUNS_DB", prod_db),
+            patch.object(sentinel, "alert", lambda t, b, **kw: alerts.append((t, b))),
+        ):
+            rc = sentinel.main(["--as-of", AS_OF, "--config", str(bad_cfg)])
+        assert rc == sentinel.EXIT_ALARM
+        assert any(MOMENTUM in t for t, _ in alerts), alerts
+
+    def test_gate_unit_none_means_ungated(self, tmp_path, monkeypatch):
+        """Direct _patrol_lane callers (and a config-less machine) keep today's
+        behavior: declared_lanes=None never gates."""
+        prod_db = _make_prod_runs_db(tmp_path, [D1.isoformat(), D0.isoformat()])
+        monkeypatch.setattr(sentinel, "PROD_RUNS_DB", prod_db)
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL",
+                            str(tmp_path / "absent.jsonl"))
+        mlruns = tmp_path / "mlruns"
+        mlruns.mkdir()
+        lane = sentinel.WatchedLane(name=MOMENTUM, runs_db=None,
+                                    mlruns_dir=str(mlruns))
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+        out: list = []
+        assert sentinel._patrol_lane(lane, [D1, D0], D0, out) == sentinel.EXIT_ALARM
+        out2: list = []
+        rc = sentinel._patrol_lane(lane, [D1, D0], D0, out2,
+                                   declared_lanes=[CLF])
+        assert rc == 0 and not out2
+
+
+# ---------------------------------------------------------------------------
+# #758 acknowledgement trail: a momentum alarm must be DISPOSITIONABLE in the
+# sentinel ack ledger without also swallowing a crash. The ledger machinery is
+# the degradation sentinel's (job-level, keyed by launchd label + exit code);
+# these bind this sentinel's EXIT_ALARM to it.
+# ---------------------------------------------------------------------------
+
+class TestMomentumAckTrail:
+    JOB = "com.renquant.rq104-shadow-scorer-sentinel"
+
+    @staticmethod
+    def _ack_mod():
+        import importlib.util
+        root = Path(__file__).resolve().parent.parent
+        mod_path = root / "ops" / "renquant104" / "rq104_degradation_sentinel.py"
+        d = str(mod_path.parent)
+        if d not in sys.path:
+            sys.path.insert(0, d)
+        spec = importlib.util.spec_from_file_location("rq104_ack_for_shadow", mod_path)
+        m = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = m
+        spec.loader.exec_module(m)
+        return m
+
+    def test_the_job_label_is_the_real_installed_one(self):
+        """The ack ledger is keyed by launchd label; an ack written under a
+        guessed key covers nothing. Bind the key these tests use to the plist."""
+        plist = (Path(__file__).resolve().parent.parent / "ops" / "renquant104"
+                 / f"{self.JOB}.plist").read_text(encoding="utf-8")
+        assert f"<string>{self.JOB}</string>" in plist
+
+    def test_an_ack_of_EXIT_ALARM_covers_an_alarm_and_never_a_crash(self):
+        A = self._ack_mod()
+        row = {"acked_exit_codes": [sentinel.EXIT_ALARM]}
+        assert A.ack_covers_exit(
+            row, f"{self.JOB} (last exit {sentinel.EXIT_ALARM})") is True
+        assert A.ack_covers_exit(row, f"{self.JOB} (last exit 1)") is False
+        assert A.ack_covers_exit(row, f"{self.JOB} (last exit 3)") is False
+
+    def test_no_standing_ack_pre_dispositions_the_momentum_alarm(self):
+        """The first momentum-lane page must SURFACE: the checked-in ledger must
+        not already silence this job's EXIT_ALARM before any human has seen one."""
+        ledger_path = (Path(__file__).resolve().parent.parent / "ops"
+                       / "renquant104" / "sentinel_acks.json")
+        row = json.loads(ledger_path.read_text(encoding="utf-8")).get(self.JOB)
+        if row is not None:
+            assert sentinel.EXIT_ALARM not in row.get("acked_exit_codes", []), (
+                "sentinel_acks.json already covers EXIT_ALARM for the shadow "
+                "scorer sentinel — a momentum alarm would be born silenced")
