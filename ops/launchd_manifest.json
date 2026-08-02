@@ -296,12 +296,6 @@
       ],
       "program_args_sha256": "2917c2a85f5204c2186a124f73da6ae5000df97b557ec0faf8023feba86f0a87"
     },
-    "com.renquant.weekly-retrain-patchtst": {
-      "program_args": [
-        "/Users/renhao/git/github/RenQuant/scripts/weekly_retrain_patchtst.sh"
-      ],
-      "program_args_sha256": "72bac8ae4a103676600feac0ce50ddf0da4d31fba662b69be526cd49ca444e99"
-    },
     "com.renquant.weekly-tournament-retrain": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/weekly_tournament_retrain.sh"

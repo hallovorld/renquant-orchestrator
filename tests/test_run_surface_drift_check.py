@@ -163,7 +163,25 @@ class TestManifestGeneration:
         "com.renquant.rq104-silent-refusal",
     }
 
+    #: Jobs REMOVED from the reviewed surface whose plist is still installed on
+    #: the operator machine, pending the uninstall item of a tracked grant.
+    #: Mirror of PENDING_INSTALL, equally bounded: each entry must name its
+    #: decision record and its removal path, and the exact-equality test below
+    #: goes red the moment the plist is actually booted out — the entry (and
+    #: this relaxation) must then be deleted, so the set cannot rot. The
+    #: SCHEDULED drift scan (com.renquant.run-surface-drift running
+    #: ops/run_surface_drift_check.py) does NOT read this set and keeps
+    #: alarming "unmanifested job on disk" until the bootout — per the
+    #: containment protocol that alarm is the DESIGNED reminder, not a defect.
+    PENDING_UNINSTALL = {
+        # hf_patchtst lane retired per orch#741 (decision comment 2026-08-02);
+        # plist bootout is a named item of the one-grant deployment batch in
+        # doc/progress/2026-08-02-retire-weekly-retrain-patchtst-manifest.md
+        "com.renquant.weekly-retrain-patchtst",
+    }
+
     _PENDING_PATTERN = "manifested job {label} missing from disk"
+    _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
 
     @staticmethod
     def _surface_problems():
@@ -174,24 +192,35 @@ class TestManifestGeneration:
         return list(drift.check_launchd_surface())
 
     def _partition(self):
-        """(pending-missing labels, residual problems).
+        """(pending-install labels, pending-uninstall labels, residual problems).
 
-        EVERY problem lands in exactly one bucket. There is no third,
-        silently-ignored category — which is what the first version of this
-        retarget had, and what codex rejected.
+        EVERY problem lands in exactly one bucket. There is no silently-ignored
+        category — which is what the first version of the 2026-07-31 retarget
+        had, and what codex rejected. An unmanifested job NOT named in
+        PENDING_UNINSTALL falls through to residual and fails by default.
         """
-        pending, residual = set(), []
+        pending, retiring, residual = set(), set(), []
         for prob in self._surface_problems():
             if "missing from disk" in prob and "manifested job " in prob:
                 pending.add(prob.split("manifested job ")[1].split(" missing")[0])
-            else:
-                residual.append(prob)
-        return pending, residual
+                continue
+            if self._UNMANIFESTED_PATTERN in prob:
+                label = prob.split(self._UNMANIFESTED_PATTERN)[1].split(" ")[0]
+                if label in self.PENDING_UNINSTALL:
+                    retiring.add(label)
+                    continue
+            residual.append(prob)
+        return pending, retiring, residual
 
     def test_no_unmanifested_job_runs_on_disk(self):
-        """STRICT, no allow-list. A job on disk but absent from the manifest is
-        code nobody approved — the "silent containment / job swap" shape."""
-        assert [p for p in self._surface_problems() if "unmanifested" in p] == []
+        """STRICT except the named PENDING_UNINSTALL set. A job on disk but
+        absent from the manifest is code nobody approved — the "silent
+        containment / job swap" shape. The ONE exception is a job whose removal
+        from the manifest IS the reviewed change (orch#741 retirement) with the
+        bootout a named item of a tracked grant; anything unnamed still fails
+        here via the residual bucket."""
+        _, _, residual = self._partition()
+        assert [p for p in residual if "unmanifested" in p] == []
 
     def test_NO_residual_problem_of_any_other_kind(self):
         """The one my first retarget missed (codex BLOCKER on this PR).
@@ -202,12 +231,13 @@ class TestManifestGeneration:
         a problem that BOTH new tests passed over. The old exact `== []` caught
         it; my replacement had re-opened it.
 
-        The pending allow-list may relax installation ABSENCE only. Agreement
-        between an installed job and its reviewed manifest is never relaxed.
-        Asserting the RESIDUAL rather than naming forbidden categories is the
-        point: strings nobody has anticipated fail by default.
+        The two pending allow-lists may relax installation PRESENCE only, in
+        both directions (declared-not-yet-installed, retired-not-yet-removed).
+        Agreement between an installed job and its reviewed manifest entry is
+        never relaxed. Asserting the RESIDUAL rather than naming forbidden
+        categories is the point: strings nobody has anticipated fail by default.
         """
-        _, residual = self._partition()
+        _, _, residual = self._partition()
         assert residual == [], residual
 
     def test_declared_but_uninstalled_jobs_are_exactly_the_named_set(self):
@@ -222,11 +252,22 @@ class TestManifestGeneration:
 
         This bounds the ONE relaxation; the residual test above forbids the rest.
         """
-        pending, _ = self._partition()
+        pending, _, _ = self._partition()
         assert pending == self.PENDING_INSTALL, (
             f"declared-but-uninstalled set changed: "
             f"unexpected={sorted(pending - self.PENDING_INSTALL)} "
             f"resolved={sorted(self.PENDING_INSTALL - pending)}")
+
+    def test_retired_but_still_installed_jobs_are_exactly_the_named_set(self):
+        """Exact-equality mirror of the pending-install bound. Once the operator
+        boots the plist out, `retiring` loses the label and this goes red with
+        resolved=[...]: the PENDING_UNINSTALL entry must then be deleted in a
+        follow-up PR. The relaxation cannot outlive the state it names."""
+        _, retiring, _ = self._partition()
+        assert retiring == self.PENDING_UNINSTALL, (
+            f"retired-but-still-installed set changed: "
+            f"unexpected={sorted(retiring - self.PENDING_UNINSTALL)} "
+            f"resolved={sorted(self.PENDING_UNINSTALL - retiring)}")
 
 
 
