@@ -104,6 +104,11 @@ completes.
     local checkouts).
     Revert: re-sync to the reverted pin.
 
+NEXT: the one-grant deployment batch above (merge -> s104 pin advance ->
+launchctl bootout + rm -> run-checkout sync), then the small follow-up PR that
+deletes the PENDING_UNINSTALL entry and retires the silent-refusal sentinel's
+log lane — detailed as the named follow-ups below.
+
 ## Named follow-ups (tracked, not silently absorbed)
 
 1. After (c), `test_retired_but_still_installed_jobs_are_exactly_the_named_set`
