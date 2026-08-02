@@ -516,7 +516,9 @@ def last_session_days(as_of: dt.date, n: int, *, lookback_days: int = 21) -> lis
 # reader: pluggable structured sink -> DB fallback
 # ---------------------------------------------------------------------------
 
-def read_task_level_states(days: list[dt.date]) -> dict[dt.date, str]:
+def read_task_level_states(days: list[dt.date],
+                           config_path: "str | None" = None,
+                           ) -> "tuple[dict[dt.date, str], dict[dt.date, str]]":
     """Per-day TASK-LEVEL state, for days the task reported on its own configuration.
 
     Separate from `read_health_records` on purpose. A task-level record is not evidence
@@ -535,9 +537,11 @@ def read_task_level_states(days: list[dt.date]) -> dict[dt.date, str]:
     difference legible.
     """
     out: dict[dt.date, str] = {}
+    ambiguous: dict[dt.date, str] = {}
+    expected_digest = _pinned_config_digest(config_path) if config_path else None
     path = SHADOW_HEALTH_JSONL
     if not path or not os.path.exists(path):
-        return out
+        return out, ambiguous
     wanted = {d.isoformat(): d for d in days}
     try:
         with open(path, encoding="utf-8") as fh:
@@ -553,13 +557,60 @@ def read_task_level_states(days: list[dt.date]) -> dict[dt.date, str]:
                     continue
                 if not _is_task_level(obj.get("shadow_name", "")):
                     continue
+                # orch#765: a task-level record is only evidence about THE
+                # PINNED CONFIG when its task_config_sha256 stamp matches it.
+                # The shadow_blend companion writes its own (stamped)
+                # no_shadow_models record into this sink AFTER the main run
+                # every session — last-wins made that the per-day state from
+                # the WRONG profile. Mismatching stamps are excluded;
+                # unstamped (pre-pipeline#257) records are AMBIGUOUS —
+                # counted separately and printed by the caller, never used
+                # silently as removal evidence.
+                stamp = obj.get("task_config_sha256")
+                if expected_digest is not None:
+                    # scoping ACTIVE: only a matching stamp is evidence about
+                    # the pinned config; a mismatch is another profile's
+                    # record (excluded); a missing stamp (pre-pipeline#257)
+                    # is ambiguous — reported separately, never silently
+                    # counted. With NO expected digest (no config supplied)
+                    # the pre-#765 behavior stands unchanged.
+                    if stamp is None:
+                        d = wanted.get(str(obj.get("run_date", ""))[:10])
+                        if d is not None:
+                            ambiguous[d] = str(obj.get("state") or "")
+                        continue
+                    if stamp != expected_digest:
+                        continue
                 d = wanted.get(str(obj.get("run_date", ""))[:10])
                 if d is not None:
                     # last record for a date wins, mirroring the per-lane reader
                     out[d] = str(obj.get("state") or "")
     except OSError:
-        return {}
-    return out
+        return {}, {}
+    return out, ambiguous
+
+
+def _pinned_config_digest(config_path: str) -> "str | None":
+    """Canonical content digest of the config at ``config_path``, or None.
+
+    orch#765: task-level records are stamped with ``task_config_sha256``
+    (pipeline#257) so a second profile sharing the sink (the measured
+    shadow_blend pollution) is mechanically distinguishable. The digest
+    recipe is the producer's own ``task_config_identity`` /
+    ``content_digest`` (sha256:<16 hex> over file bytes) — imported when the
+    producer is available, recomputed with the same recipe otherwise."""
+    try:
+        raw = open(config_path, "rb").read()
+    except OSError:
+        return None
+    try:
+        from renquant_pipeline.kernel.panel_pipeline.shadow_health import (  # noqa: PLC0415
+            content_digest,
+        )
+        return content_digest(raw)
+    except Exception:  # noqa: BLE001 — same recipe, locally
+        import hashlib
+        return "sha256:" + hashlib.sha256(raw).hexdigest()[:16]
 
 
 def lane_ever_reported_here(matches) -> bool:
@@ -1554,8 +1605,23 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
         #       exist for the date and this lane is not among them.
         # (b) is the likelier removal -- dropping one lane from a list of two -- and it
         # emits no task-level signal at all, so (a) alone left it silent.
-        gone = sorted(d for d, st in read_task_level_states(days).items()
+        # orch#765: only stamp-matching task-level records count as evidence
+        # about the pinned config; unstamped (pre-pipeline#257) ones are
+        # printed as ambiguous and never used silently as removal evidence.
+        task_states, ambiguous_states = read_task_level_states(
+            days, config_path=config_path)
+        gone = sorted(d for d, st in task_states.items()
                       if st == STATE_NO_SHADOW_MODELS)
+        amb = sorted(d for d, st in ambiguous_states.items()
+                     if st == STATE_NO_SHADOW_MODELS)
+        if amb:
+            print(f"rq104 shadow-scorer sentinel [{lane.name}]: "
+                  f"{len(amb)} task-level no_shadow_models record(s) carry NO "
+                  f"config stamp (pre-pipeline#257) on "
+                  f"{', '.join(d.isoformat() for d in amb)} — ambiguous "
+                  f"origin (a second profile shares this sink); NOT counted "
+                  f"as removal evidence. Verify the main config by hand if "
+                  f"this lane is also record-less.")
         observed = read_observed_lane_names(days)
         matches = (lane.matches if lane is not None else _matches_shadow_lane)
         others: dict[dt.date, set[str]] = {

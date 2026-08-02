@@ -271,3 +271,63 @@ def test_the_prior_appearance_may_be_OUTSIDE_the_window(tmp_path, monkeypatch):
     precisely the case that has gone unnoticed the longest."""
     monkeypatch.setattr(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, PRIOR))
     assert S.lane_ever_reported_here(S._matches_shadow_lane) is True
+
+
+# --- orch#765: task-level evidence scoped to the pinned config identity ------
+
+def _stamped(rec, digest):
+    rec = dict(rec)
+    rec["task_config_sha256"] = digest
+    rec["task_config_path"] = "/x/strategy_config.json"
+    return rec
+
+
+def _cfg_file(tmp_path):
+    p = tmp_path / "strategy_config.json"
+    p.write_text('{"ranking": {"panel_scoring": {"shadow_models": []}}}',
+                 encoding="utf-8")
+    import hashlib
+    return str(p), "sha256:" + hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+
+
+def test_scoping_a_MATCHING_stamp_still_counts_as_removal_evidence(tmp_path):
+    cfg, digest = _cfg_file(tmp_path)
+    rows = [_stamped(_record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS), digest)
+            for d in DAYS]
+    import unittest.mock as m
+    with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
+        states, ambiguous = S.read_task_level_states(DAYS, config_path=cfg)
+    assert set(states.values()) == {S.STATE_NO_SHADOW_MODELS}
+    assert not ambiguous
+
+
+def test_scoping_a_MISMATCHED_stamp_is_another_profiles_record(tmp_path):
+    """The measured shadow_blend vector: its stamped no_shadow_models must
+    NOT become evidence about the pinned config."""
+    cfg, _digest = _cfg_file(tmp_path)
+    rows = [_stamped(_record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS),
+                     "sha256:" + "ab" * 8) for d in DAYS]
+    import unittest.mock as m
+    with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
+        states, ambiguous = S.read_task_level_states(DAYS, config_path=cfg)
+    assert not states
+    assert not ambiguous
+
+
+def test_scoping_an_UNSTAMPED_record_is_ambiguous_not_evidence(tmp_path):
+    cfg, _digest = _cfg_file(tmp_path)
+    rows = [_record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS) for d in DAYS]
+    import unittest.mock as m
+    with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
+        states, ambiguous = S.read_task_level_states(DAYS, config_path=cfg)
+    assert not states
+    assert set(ambiguous.values()) == {S.STATE_NO_SHADOW_MODELS}
+
+
+def test_scoping_INACTIVE_without_a_config_keeps_the_240_contract(tmp_path):
+    rows = [_record(d, S.TASK_LEVEL_SHADOW_NAME, S.STATE_NO_SHADOW_MODELS) for d in DAYS]
+    import unittest.mock as m
+    with m.patch.object(S, "SHADOW_HEALTH_JSONL", _sink(tmp_path, rows)):
+        states, ambiguous = S.read_task_level_states(DAYS)
+    assert set(states.values()) == {S.STATE_NO_SHADOW_MODELS}
+    assert not ambiguous
