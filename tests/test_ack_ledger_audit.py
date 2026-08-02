@@ -229,20 +229,23 @@ def test_cli_reports_a_harness_failure_distinctly(tmp_path):
 def test_the_live_ledger_is_measured_not_asserted():
     """Pins what this branch's progress doc claims, so the doc cannot rot."""
     R = A.audit(dt.date(2026, 7, 31))
-    # 12 as of 2026-08-01: the two rq105 exit-1 acks (shadow-serving structurally
-    # unrunnable; liveness = the detector honestly firing on it) joined the ledger.
-    assert R["n_acks"] == 12
-    # NINE of ten, not ten. `com.renquant.rq105-batch-scores-export` was re-stamped
+    # 10 as of 2026-08-01 (was 12): the #622 AC4 prune removed the two rows whose
+    # jobs now exit 0 (daily104, weekly-retrain-patchtst — measured via launchctl),
+    # and re-stamped shadow-ab-daily with its DIAGNOSED failure (fail-closed
+    # PRECHECK on run-checkout pin drift; clears at the #747 item-5 pin sync).
+    assert R["n_acks"] == 10
+    # SIX of ten. `com.renquant.rq105-batch-scores-export` was re-stamped
     # on 2026-07-31 by a32f397c ("the batch-export ack described a failure that is no
-    # longer the failure"), so it is live until 2026-08-14. The count moved because
-    # the LEDGER moved, not because the audit changed — asserting ten would pin a
-    # ledger that no longer exists, and a re-stamp is exactly the event this audit is
+    # longer the failure"), so it is live until 2026-08-14; shadow-ab-daily is live
+    # by the 2026-08-01 re-stamp. The count moved because the LEDGER moved, not
+    # because the audit changed — a re-stamp is exactly the event this audit is
     # for. Named rather than counted, so the next re-stamp is visible here.
-    assert R["n_expired"] == 9
+    assert R["n_expired"] == 6
     live = [r["job"] for r in R["rows"] if not r.get("expired")]
     assert live == ["com.renquant.rq105-batch-scores-export",
                     "com.renquant.rq105-liveness",
-                    "com.renquant.rq105-shadow-serving"], live
+                    "com.renquant.rq105-shadow-serving",
+                    "com.renquant.shadow-ab-daily"], live
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
 
@@ -274,11 +277,13 @@ def test_the_live_ledger_is_measured_not_asserted():
     for job, lag in stale.items():
         assert any(job in f and "expiry clock" in f for f in R["findings"]), (job, lag)
 
-    # The one row genuinely re-stamped on 2026-07-31 must NOT read as stale, or the
-    # signal is just "the file was touched" and carries no information about a row.
+    # Rows genuinely re-stamped (07-31 batch-export cohort; 08-01 shadow-ab
+    # re-diagnosis) must NOT read as stale, or the signal is just "the file was
+    # touched" and carries no information about a row.
     assert list(fresh) == ["com.renquant.rq105-batch-scores-export",
                            "com.renquant.rq105-liveness",
-                           "com.renquant.rq105-shadow-serving"], fresh
+                           "com.renquant.rq105-shadow-serving",
+                           "com.renquant.shadow-ab-daily"], fresh
     assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
     assert set(stale).isdisjoint(fresh)
 
@@ -344,14 +349,16 @@ def test_the_threshold_is_the_ledgers_OWN_cadence_not_a_magic_number(tmp_path):
 
 
 def test_the_live_ledger_today_and_when_it_will_fire():
-    """Measured 2026-08-01: fires on 0 today; the 2026-07-20 cohort crosses the
-    threshold on 2026-08-04. A forecast FROM a measurement, not a prediction."""
+    """Measured 2026-08-01 after the #622 AC4 prune: fires on 0 today AND on
+    2026-08-04 — the 2026-07-20 cohort that would have crossed the threshold then
+    is gone (two rows removed as cleared, shadow-ab-daily re-stamped with its
+    diagnosis). A forecast FROM a measurement, not a prediction."""
     def n(day):
         return len([f for f in A.audit(day)["findings"] if "longer than the" in f])
 
     assert n(dt.date(2026, 8, 1)) == 0
-    assert n(dt.date(2026, 8, 4)) == 3
-    assert n(dt.date(2026, 8, 15)) == 9
+    assert n(dt.date(2026, 8, 4)) == 0
+    assert n(dt.date(2026, 8, 15)) == 6
 
 
 # ---------------------------------------------------------------- clears_when ----
@@ -414,7 +421,10 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     adds a checkable clause SHOULD move these — update the pin with it."""
     R = A.audit(dt.date(2026, 8, 1))
     by = {r["job"]: r["clears_when_buckets"] for r in R["rows"]}
-    assert len(by) == 12
+    # 10 after the #622 AC4 prune; shadow-ab-daily's re-stamp is bucket ['ref']
+    # (binds to orch#747 item 5) — one more checkable row than the survey counted.
+    assert len(by) == 10
+    assert by["com.renquant.shadow-ab-daily"] == [A.BUCKET_REF]
     narrative = {j for j, b in by.items()
                  if not any(x in (A.BUCKET_DATE, A.BUCKET_REF, A.BUCKET_ARTIFACT)
                             for x in b)}
