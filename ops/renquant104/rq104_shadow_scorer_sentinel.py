@@ -302,6 +302,17 @@ def _matches_shadow_lane(name: str) -> bool:
 #: (a one-off hiccup) never pages.
 STREAK_N = int(os.environ.get("RQ104_SHADOW_STREAK_N", "2"))
 
+#: arming grace for a lane that is DECLARED in config but has NEVER written a
+#: health record (2026-08-02, measured the day the momentum entry's pin
+#: landed): the patrol's look-back predates the declaration — a config carries
+#: no arming timestamp — so a FEED DARK verdict there would be manufactured
+#: from sessions the lane could not have reported on. Bounded, not unbounded:
+#: once this many consecutive live-run sessions pass with still no record
+#: ever, the lane falls through to the full patrol — a declared lane that
+#: never starts reporting is miswired and must alarm (deployed-but-dark is
+#: not done), a few sessions late at worst.
+ARMING_DARK_SESSIONS = int(os.environ.get("RQ104_SHADOW_ARMING_SESSIONS", "5"))
+
 #: shadow artifact staleness ceiling in calendar days — aligned with the
 #: pipeline record's own default (>28d => actionable=false). Used only for the
 #: DB fallback (the pipeline record's actionable verdict is authoritative when
@@ -1146,8 +1157,16 @@ def default_strategy_config() -> str:
     records that the runner reads the pinned subrepo copy, not the umbrella one.
 
       1. ``RQ104_STRATEGY_CONFIG``
-      2. ``<github root>/renquant-strategy-104/configs/strategy_config.json``, derived
-         from this file's own location
+      2. ``<github root>/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/
+         strategy_config.json`` — the pin-materialised clone the daily run
+         actually serves (2026-08-02 fix: the old order stopped at the DEV
+         SIBLING below, which is a mutable checkout, not the pin — measured:
+         the sibling sat behind the lock and the patrol reported a retired
+         lane as declared and the momentum lane as undeclared while the
+         PINNED config said the opposite; same wrong-object class as
+         RenQuant#553)
+      3. ``<github root>/renquant-strategy-104/configs/strategy_config.json``,
+         derived from this file's own location — dev-machine fallback only
 
     An unresolvable default returns "" — which `main` still reports as NOT REQUESTED and
     keeps quiet, so a machine without the pinned checkout does not acquire a permanent
@@ -1161,7 +1180,13 @@ def default_strategy_config() -> str:
     repo = here
     for _ in range(4):
         repo = os.path.dirname(repo)
-        cand = os.path.join(os.path.dirname(repo), "renquant-strategy-104",
+        root = os.path.dirname(repo)
+        pinned = os.path.join(root, "RenQuant", ".subrepo_runtime", "repos",
+                              "renquant-strategy-104", "configs",
+                              "strategy_config.json")
+        if os.path.isfile(pinned):
+            return pinned
+        cand = os.path.join(root, "renquant-strategy-104",
                             "configs", "strategy_config.json")
         if os.path.isfile(cand):
             return cand
@@ -1292,7 +1317,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{today.isoformat()}", msg, rq_root=RQ)
         rc |= EXIT_ALARM
     for lane in lanes:
-        rc |= _patrol_lane(lane, days, today, all_findings, declared_lanes=declared)
+        rc |= _patrol_lane(lane, days, today, all_findings,
+                          declared_lanes=declared, config_path=args.config or None)
     if not all_findings:
         print(f"rq104 shadow-scorer sentinel: {len(lanes)} lane(s) patrolled over "
               f"{days[0].isoformat()}..{days[-1].isoformat()} — no finding")
@@ -1300,7 +1326,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
-                 out: list[str], declared_lanes: list[str] | None = None) -> int:
+                 out: list[str], declared_lanes: list[str] | None = None,
+                 config_path: str | None = None) -> int:
     """Patrol ONE lane. Findings are prefixed with the lane so an operator
     reading a page knows which feed degraded, and appended to `out` so main
     can tell 'every lane clean' from 'nothing was checked'.
@@ -1332,6 +1359,50 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
               f"(its config entry has not merged/pinned yet). Skipped, not "
               f"passed; the patrol arms the day the config declares it.")
         return 0
+
+    # ARMING WINDOW (2026-08-02, measured the day the momentum entry's pin
+    # landed): the lane IS declared but has never written a record. The
+    # patrol's look-back predates its declaration, so a FEED DARK verdict
+    # here would be manufactured from sessions the lane could not have
+    # reported on. The observable arming instant is the CONFIG FILE's mtime —
+    # the pin-materialised config arrives on this machine at sync time — so
+    # only live-run sessions strictly AFTER that date count against the
+    # grace. (First measured design counted any 5 historical live-run
+    # sessions; on a machine that runs daily that exhausts instantly and
+    # re-manufactures the same false alarm.) After ARMING_DARK_SESSIONS
+    # post-arming live-run sessions with still no record ever, fall through
+    # to the full patrol: a declared lane that never starts reporting is
+    # miswired and must alarm. A re-sync refreshes the mtime and briefly
+    # extends the grace — bounded and honest, unlike an unbounded INFO.
+    if (declared_lanes is not None
+            and any(lane.matches(n) for n in declared_lanes)
+            and not lane_ever_reported_here(lane.matches)):
+        armed_since: dt.date | None = None
+        if config_path:
+            try:
+                armed_since = dt.date.fromtimestamp(os.path.getmtime(config_path))
+            except OSError:
+                armed_since = None
+        grace_days = [d for d in last_session_days(today, ARMING_DARK_SESSIONS)
+                      if armed_since is None or d > armed_since]
+        grace_recs = read_health_records(grace_days, lane) if grace_days else {}
+        lived = [d for d in grace_days if grace_recs.get(d) is not None]
+        if len(lived) < ARMING_DARK_SESSIONS:
+            since = armed_since.isoformat() if armed_since else "unknown"
+            print(f"rq104 shadow-scorer sentinel [{lane.name}]: ARMED — "
+                  f"declared in the strategy config (config arrived "
+                  f"{since}), awaiting its FIRST health record "
+                  f"({len(lived)}/{ARMING_DARK_SESSIONS} post-arming sessions "
+                  f"show live runs, none with a record for this lane). "
+                  f"Reported, not passed; escalates to the full patrol after "
+                  f"{ARMING_DARK_SESSIONS} post-arming live-run sessions with "
+                  f"still no record.")
+            return 0
+        out.append(
+            f"[{lane.name}] declared in the strategy config but NEVER reported "
+            f"once across {ARMING_DARK_SESSIONS} post-arming live-run sessions "
+            f"— arming grace exhausted; a miswired lane must not idle as INFO. "
+            f"Falling through to the full patrol.")
     records = read_health_records(days, lane)
 
     # If NO day in the window had live runs at all, this is a liveness lapse,

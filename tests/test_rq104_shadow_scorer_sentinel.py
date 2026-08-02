@@ -1203,7 +1203,7 @@ def _clf_healthy_jsonl():
 
 
 def _run_production(tmp_path, *, shadows, jsonl=None, prod_live=(),
-                    momentum_mlflow_dates=(), as_of=AS_OF):
+                    momentum_mlflow_dates=(), as_of=AS_OF, cfg_mtime=None):
     """Drive main() over the REAL `watched_lanes()` registry (unpatched),
     against a config declaring `shadows`, a production runs DB with live rows
     on `prod_live`, and an mlruns tree carrying TAGGED momentum comparisons for
@@ -1212,6 +1212,11 @@ def _run_production(tmp_path, *, shadows, jsonl=None, prod_live=(),
     cfg = {"ranking": {"panel_scoring": {"kind": "xgb", "shadow_models": shadows}}}
     cfg_path = tmp_path / "strategy_config.json"
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    if cfg_mtime is not None:
+        # backdate the arming instant (the config file's mtime) for
+        # arming-window tests
+        t = dt.datetime.combine(cfg_mtime, dt.time(12, 0)).timestamp()
+        os.utime(cfg_path, (t, t))
     jsonl_path = tmp_path / "shadow_scorer_health.jsonl"
     if jsonl is not None:
         jsonl_path.write_text("\n".join(json.dumps(r) for r in jsonl) + "\n")
@@ -1249,13 +1254,32 @@ class TestMomentumTransition:
             prod_live=(D1, D0))
         assert rc == 0 and not alerts
 
-    def test_AFTER_the_merge_a_feed_dark_momentum_lane_alarms(self, tmp_path):
-        """The anti-vacuity twin: identical evidence, config now declares the
-        lane -> FEED DARK pages and names the momentum lane. Also the exit code
-        is EXIT_ALARM, the dispositionable non-crash code (ack trail)."""
+    def test_AFTER_the_merge_a_never_reported_lane_arms_then_alarms(self, tmp_path, capsys):
+        """The anti-vacuity twin, revised 2026-08-02 (measured on the machine
+        the day the momentum pin landed): a DECLARED lane with no record EVER
+        is in its ARMING window — the patrol's look-back predates the
+        declaration, so paging FEED DARK off those sessions manufactures an
+        alarm from days the lane could not have reported on. With fewer than
+        ARMING_DARK_SESSIONS live-run sessions it reports ARMED (printed,
+        rc 0, no page). The anti-vacuity BOUND stays: once that many
+        consecutive live-run sessions show still no record ever, the lane
+        falls through and FEED DARK pages naming it — a miswired lane cannot
+        idle as INFO forever."""
+        # (a) two live-run sessions, no momentum record ever: ARMED, no page.
         rc, alerts = _run_production(
             tmp_path, shadows=[CLF_DECL, MOM_DECL], jsonl=_clf_healthy_jsonl(),
             prod_live=(D1, D0))
+        assert rc == 0 and not alerts
+        assert "ARMED" in capsys.readouterr().out
+        # (b) grace exhausted: ARMING_DARK_SESSIONS live-run sessions and
+        # still no record ever -> the full patrol fires FEED DARK.
+        d2, d3, d4 = (dt.date(2026, 7, 14), dt.date(2026, 7, 13),
+                      dt.date(2026, 7, 12))
+        sub = tmp_path / "grace_exhausted"
+        sub.mkdir()
+        rc, alerts = _run_production(
+            sub, shadows=[CLF_DECL, MOM_DECL], jsonl=_clf_healthy_jsonl(),
+            prod_live=(d4, d3, d2, D1, D0), cfg_mtime=dt.date(2026, 7, 11))
         assert rc == sentinel.EXIT_ALARM
         assert len(alerts) == 1, alerts  # clf stayed quiet; only momentum paged
         title, body = alerts[0]
@@ -1428,3 +1452,55 @@ class TestMomentumAckTrail:
             assert sentinel.EXIT_ALARM not in row.get("acked_exit_codes", []), (
                 "sentinel_acks.json already covers EXIT_ALARM for the shadow "
                 "scorer sentinel — a momentum alarm would be born silenced")
+
+
+# ---------------------------------------------------------------------------
+# default_strategy_config: the pin-materialised clone must outrank the dev
+# sibling (2026-08-02; the wrong-object class of RenQuant#553). Measured on
+# the machine: the sibling sat behind the lock and the patrol reported a
+# retired lane as declared and the momentum lane as undeclared, while the
+# PINNED config said the opposite.
+# ---------------------------------------------------------------------------
+
+def _fake_tree(tmp_path, *, pinned: bool, sibling: bool):
+    """github-root layout with the sentinel file 3 levels deep, mirroring
+    <github>/renquant-orchestrator-run/ops/renquant104/<file>."""
+    gh = tmp_path / "github"
+    sent_dir = gh / "renquant-orchestrator-run" / "ops" / "renquant104"
+    sent_dir.mkdir(parents=True)
+    if pinned:
+        p = (gh / "RenQuant" / ".subrepo_runtime" / "repos"
+             / "renquant-strategy-104" / "configs")
+        p.mkdir(parents=True)
+        (p / "strategy_config.json").write_text("{}")
+    if sibling:
+        s = gh / "renquant-strategy-104" / "configs"
+        s.mkdir(parents=True)
+        (s / "strategy_config.json").write_text("{}")
+    return sent_dir / "rq104_shadow_scorer_sentinel.py"
+
+
+def _resolve_with_file_at(monkeypatch, fake_file):
+    monkeypatch.delenv("RQ104_STRATEGY_CONFIG", raising=False)
+    monkeypatch.setattr(sentinel.os.path, "abspath", lambda _: str(fake_file))
+    return sentinel.default_strategy_config()
+
+
+def test_default_config_prefers_the_pinned_clone(tmp_path, monkeypatch):
+    fake = _fake_tree(tmp_path, pinned=True, sibling=True)
+    got = _resolve_with_file_at(monkeypatch, fake)
+    assert ".subrepo_runtime" in got, got
+
+
+def test_default_config_falls_back_to_the_sibling(tmp_path, monkeypatch):
+    fake = _fake_tree(tmp_path, pinned=False, sibling=True)
+    got = _resolve_with_file_at(monkeypatch, fake)
+    assert got.endswith("renquant-strategy-104/configs/strategy_config.json")
+    assert ".subrepo_runtime" not in got
+
+
+def test_default_config_env_override_wins(tmp_path, monkeypatch):
+    fake = _fake_tree(tmp_path, pinned=True, sibling=True)
+    monkeypatch.setenv("RQ104_STRATEGY_CONFIG", "/explicit/path.json")
+    monkeypatch.setattr(sentinel.os.path, "abspath", lambda _: str(fake))
+    assert sentinel.default_strategy_config() == "/explicit/path.json"
