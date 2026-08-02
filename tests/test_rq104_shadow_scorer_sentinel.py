@@ -1109,3 +1109,99 @@ class TestAlarmIsDistinguishableFromCrash:
                 rc |= c
             assert rc in (0, sentinel.EXIT_ALARM), (combo, rc)
             assert rc != 1
+
+
+# --- orch#758: the patrol list is DERIVED from the strategy config -------------------
+
+class TestLanesDerivedFromConfig:
+    """`watched_lanes()` was a hand-maintained pair while the strategy config is the
+    thing that actually changes, so it drifted in BOTH directions at once:
+    `hf_patchtst` stayed patrolled after strategy-104#75 retired it (a daily FEED_DARK
+    on a lane retired on purpose), and `momentum_residual_v0_shadow` arrived in #77
+    unpatrolled (a data-collection lane free to die unnoticed). Deriving the names
+    closes both, and closes the next one nobody has thought of."""
+
+    @staticmethod
+    def _cfg(tmp_path, *names) -> str:
+        p = tmp_path / "strategy_config.json"
+        p.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": [{"name": n} for n in names]}}}), encoding="utf-8")
+        return str(p)
+
+    def test_a_lane_the_config_ADDS_is_patrolled(self, tmp_path):
+        cfg = self._cfg(tmp_path, "topdecile_clf_blend_leg",
+                        "momentum_residual_v0_shadow")
+        names = [l.name for l in sentinel.watched_lanes(cfg)]
+        assert "momentum_residual_v0_shadow" in names
+
+    def test_a_lane_the_config_RETIRES_is_no_longer_patrolled(self, tmp_path):
+        """The retirement half. `hf_patchtst` gone from the config means gone from the
+        patrol — otherwise the sentinel alarms daily about a lane that was removed on
+        purpose, which is an alarm manufactured out of a healthy no-op."""
+        cfg = self._cfg(tmp_path, "topdecile_clf_blend_leg")
+        names = [l.name for l in sentinel.watched_lanes(cfg)]
+        assert names == ["topdecile_clf_blend_leg"]
+        assert sentinel.SHADOW_NAME not in names
+
+    def test_evidence_sources_survive_the_derivation(self, tmp_path):
+        """The config says WHICH lanes exist, never where their evidence lives. The clf
+        lane must keep its MLflow locator and the patchtst lane its runs DB — swapping
+        them is how a healthy lane acquires a permanent FEED DARK."""
+        cfg = self._cfg(tmp_path, sentinel.SHADOW_NAME, "topdecile_clf_blend_leg",
+                        "momentum_residual_v0_shadow")
+        by = {l.name: l for l in sentinel.watched_lanes(cfg)}
+        assert by[sentinel.SHADOW_NAME].runs_db and not by[sentinel.SHADOW_NAME].mlruns_dir
+        assert by["topdecile_clf_blend_leg"].mlruns_dir
+        assert not by["topdecile_clf_blend_leg"].runs_db
+        # the new lane has neither: structured record or nothing, the reading that
+        # cannot invent an alarm
+        m = by["momentum_residual_v0_shadow"]
+        assert m.runs_db is None and m.mlruns_dir is None
+        assert "data collection" in m.purpose
+
+    def test_a_DECORATED_config_name_still_finds_its_evidence(self, tmp_path):
+        """Config lanes decorate the served key — `hf_patchtst_pt07_strict_…`. The
+        evidence table is keyed by the undecorated name, so the prefix must resolve or
+        the served lane silently loses its DB fallback."""
+        decorated = sentinel.SHADOW_NAME + "_pt07_strict_seed44_previous_primary"
+        lanes = sentinel.watched_lanes(self._cfg(tmp_path, decorated))
+        assert lanes[0].name == decorated
+        assert lanes[0].runs_db, "the decorated lane lost its evidence source"
+
+    def test_an_UNKNOWN_lane_is_watched_with_NO_fallback_source(self, tmp_path):
+        """A lane the config introduces and the evidence table has not been taught is
+        still patrolled — with no fallback, because inheriting one would manufacture a
+        FEED DARK on a lane that simply writes somewhere else."""
+        lanes = sentinel.watched_lanes(self._cfg(tmp_path, "brand_new_lane"))
+        assert [l.name for l in lanes] == ["brand_new_lane"]
+        assert lanes[0].runs_db is None and lanes[0].mlruns_dir is None
+
+    def test_an_UNREADABLE_config_keeps_patrolling_and_REPORTS(self, tmp_path):
+        """The fail-closed half, and the whole reason this is not a plain read.
+
+        Watching NOTHING because a file could not be parsed is the silent death this
+        sentinel exists to prevent — and it would look exactly like a healthy quiet run.
+        So an unreadable config keeps the last-known set AND returns a finding.
+        """
+        bad = tmp_path / "broken.json"
+        bad.write_text("{not json", encoding="utf-8")
+        names, finding = sentinel.lane_names_from_config(str(bad))
+        assert names == list(sentinel._FALLBACK_LANES)
+        assert finding and "unreadable" in finding
+        assert [l.name for l in sentinel.watched_lanes(str(bad))] == names
+
+    def test_a_config_that_LOST_its_lanes_is_a_finding_not_an_empty_patrol(self, tmp_path):
+        """The nastier variant: valid JSON, no `shadow_models`. An empty patrol is
+        indistinguishable from a clean run, so it must be loud."""
+        p = tmp_path / "empty.json"
+        p.write_text(json.dumps({"ranking": {"panel_scoring": {}}}), encoding="utf-8")
+        names, finding = sentinel.lane_names_from_config(str(p))
+        assert names == list(sentinel._FALLBACK_LANES)
+        assert finding and "declares no shadow_models" in finding
+
+    def test_a_healthy_config_yields_NO_finding(self, tmp_path):
+        """Anti-vacuity: the findings above must come from the specific defect, not
+        from a reader that complains about everything."""
+        names, finding = sentinel.lane_names_from_config(
+            self._cfg(tmp_path, "topdecile_clf_blend_leg"))
+        assert names == ["topdecile_clf_blend_leg"] and finding is None

@@ -211,28 +211,115 @@ class WatchedLane:
                 else COVERAGE_FLOOR)
 
 
-def watched_lanes() -> tuple[WatchedLane, ...]:
-    """The lanes patrolled on this machine.
+#: Where each lane's health evidence LIVES. The strategy config declares WHICH lanes
+#: exist; it does not say where their evidence is written, so that stays here — keyed by
+#: the undecorated lane name, with a deliberately conservative default for anything the
+#: config introduces that this table has not been taught yet.
+#:
+#: The default is `{}` — "structured record or nothing". Per `WatchedLane`'s own
+#: reasoning, a DB fallback on a lane that does not write the DB manufactures a permanent
+#: FEED DARK out of a healthy lane, so an unknown lane must NOT inherit one.
+def _lane_evidence() -> dict[str, dict[str, str]]:
+    """CALL TIME, not import time.
+
+    My first version made this a module-level dict, which froze `SHADOW_DB` and
+    `MLRUNS_DIR` at import and broke every test that retargets them through the module
+    globals — the same early-binding defect this file's own `watched_lanes` docstring
+    warns about ("resolved at call time, so tests and operators can retarget paths").
+    The tests caught it immediately; a function is what keeps the promise.
+    """
+    return {
+        "hf_patchtst": {"runs_db": SHADOW_DB},
+        "topdecile_clf_blend_leg": {"mlruns_dir": MLRUNS_DIR},
+        "momentum_residual_v0_shadow": {},   # JSONL health record only (pipeline#253)
+    }
+
+#: Purposes, same keying. A lane with no entry still gets watched; it just says less.
+_LANE_PURPOSE: dict[str, str] = {
+    "hf_patchtst": ("the G4-critical PatchTST feed whose silent death this "
+                    "sentinel was built for"),
+    "topdecile_clf_blend_leg": ("the certified top-decile classifier accruing the "
+                                "120-session forward ledger — the one line with a "
+                                "confirmed effect"),
+    "momentum_residual_v0_shadow": ("the standalone momentum lane (GOAL-7 slice 4), "
+                                    "whose entire purpose is data collection — a "
+                                    "silent death costs the whole point of it"),
+}
+
+#: The last-known set, used ONLY when the config cannot be read. Watching NOTHING because
+#: a file was unreadable is the silent death this sentinel exists to prevent, so an
+#: unreadable config falls back to this AND reports a finding — never to an empty patrol.
+_FALLBACK_LANES = ("hf_patchtst", "topdecile_clf_blend_leg")
+
+
+def lane_names_from_config(config_path: str | None = None) -> tuple[list[str], str | None]:
+    """The lane names the STRATEGY CONFIG declares, plus a finding when it cannot be read.
+
+    orch#758. `watched_lanes()` was a hand-maintained pair while the config is the thing
+    that actually changes, so the list drifted in both directions at once: `hf_patchtst`
+    stayed patrolled after strategy-104#75 removed it (a daily FEED_DARK on a lane
+    retired on purpose), and `momentum_residual_v0_shadow` arrived in strategy-104#77
+    unpatrolled (a data-collection lane that could die unnoticed). Deriving the names
+    removes both, and removes the next one nobody has thought of yet.
+
+    Returns ``(names, finding)``. `finding` is non-None exactly when the config could not
+    be read or carries no lanes — the caller keeps patrolling the last-known set and says
+    so loudly, because an empty patrol is indistinguishable from a healthy silence.
+    """
+    path = config_path if config_path is not None else default_strategy_config()
+    if not path:
+        return list(_FALLBACK_LANES), (
+            "no strategy config resolved — patrolling the last-known lane set "
+            f"{list(_FALLBACK_LANES)}; a lane added or retired since is invisible here")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        lanes = (((cfg.get("ranking") or {}).get("panel_scoring") or {})
+                 .get("shadow_models") or [])
+        names = [str(m["name"]) for m in lanes
+                 if isinstance(m, dict) and m.get("name")]
+    except (OSError, ValueError, TypeError) as exc:
+        return list(_FALLBACK_LANES), (
+            f"strategy config {path} unreadable ({type(exc).__name__}: {exc}) — "
+            f"patrolling the last-known lane set {list(_FALLBACK_LANES)}")
+    if not names:
+        return list(_FALLBACK_LANES), (
+            f"strategy config {path} declares no shadow_models — patrolling the "
+            f"last-known lane set {list(_FALLBACK_LANES)}; a config that lost its "
+            "lanes is a finding, not an empty patrol")
+    return names, None
+
+
+def watched_lanes(config_path: str | None = None) -> tuple[WatchedLane, ...]:
+    """The lanes patrolled on this machine, DERIVED from the strategy config.
 
     Resolved at call time, not import time, so tests and operators can retarget
     paths through the same env vars the single-lane version used.
+
+    The config supplies the NAMES; `_LANE_EVIDENCE` supplies where each lane's evidence
+    lives, because the config does not say. A lane the config declares and this table has
+    not been taught is still patrolled — with no fallback source, which is the reading
+    that cannot invent an alarm.
     """
-    return (
-        WatchedLane(
-            name=SHADOW_NAME,
-            runs_db=SHADOW_DB,
-            purpose="the G4-critical PatchTST feed whose silent death this "
-                    "sentinel was built for",
-        ),
-        WatchedLane(
-            name=os.environ.get("RQ104_CLF_LANE_NAME", "topdecile_clf_blend_leg"),
-            runs_db=None,   # MLflow-logged: a DB fallback would alarm daily
-            mlruns_dir=MLRUNS_DIR,  # its actual evidence source instead
-            purpose="the certified top-decile classifier now accruing the "
-                    "120-session forward ledger — the one line with a "
-                    "confirmed effect, and until now unwatched",
-        ),
-    )
+    names, _ = lane_names_from_config(config_path)
+    out = []
+    for name in names:
+        base = name
+        # config lanes DECORATE the served key (e.g. `hf_patchtst_pt07_…`); the evidence
+        # table is keyed by the undecorated name, so match the longest known prefix
+        evidence = _lane_evidence()
+        for known in evidence:
+            if name == known or name.startswith(known + "_"):
+                base = known
+                break
+        ev = evidence.get(base, {})
+        out.append(WatchedLane(
+            name=name,
+            runs_db=ev.get("runs_db"),
+            mlruns_dir=ev.get("mlruns_dir"),
+            purpose=_LANE_PURPOSE.get(base, f"config-declared shadow lane {name!r}"),
+        ))
+    return tuple(out)
 
 
 #: The producer's task-level sentinel name (renquant-pipeline `shadow_health.
