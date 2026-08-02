@@ -67,6 +67,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import subprocess
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -1143,6 +1144,43 @@ CHECKS = (
 # main
 # ---------------------------------------------------------------------------
 
+def lane_declared_since(lane_name: str, config_path: str) -> dt.date | None:
+    """The date this lane's declaration ENTERED the config, read from git history.
+
+    Review round 1 (blocking): the first version anchored the arming window on the
+    config file's **mtime**, and its own comment called a re-sync's refresh "bounded and
+    honest". It is neither. `subrepo_assemble --sync` and every re-materialisation
+    rewrite the file, so routine syncs reset the grace indefinitely and a declared lane
+    that never reports stays INFO forever — the silent death this sentinel exists to
+    prevent, restored through the door marked "grace".
+
+    mtime is a property of the filesystem OPERATION. The declaration's arrival is a
+    property of the CONTENT, and git already records it: re-materialisation replays the
+    same commits, so this date does not move. An unrelated config edit does not move it
+    either, because the search is for the commit that introduced THIS lane's name.
+
+    Returns None when the answer cannot be established — no git, not a checkout, or the
+    name never appears. The caller must then grant NO grace: an unknown arming date
+    buying unbounded silence is exactly the defect being fixed.
+    """
+    cfg = os.path.abspath(config_path)
+    repo = os.path.dirname(os.path.dirname(cfg))   # <repo>/configs/<file>
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo, "log", "--format=%cI", "--reverse",
+             "-S", lane_name, "--", os.path.relpath(cfg, repo)],
+            capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    first = out.stdout.strip().splitlines()[0].strip()
+    try:
+        return dt.datetime.fromisoformat(first).date()
+    except ValueError:
+        return None
+
+
 def default_strategy_config() -> str:
     """The PINNED strategy config, resolved without requiring the package on the path.
 
@@ -1364,8 +1402,8 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
     # landed): the lane IS declared but has never written a record. The
     # patrol's look-back predates its declaration, so a FEED DARK verdict
     # here would be manufactured from sessions the lane could not have
-    # reported on. The observable arming instant is the CONFIG FILE's mtime —
-    # the pin-materialised config arrives on this machine at sync time — so
+    # reported on. The arming instant is the date the lane's declaration ENTERED
+    # the config, read from git history (immutable under re-sync) — so
     # only live-run sessions strictly AFTER that date count against the
     # grace. (First measured design counted any 5 historical live-run
     # sessions; on a machine that runs daily that exhausts instantly and
@@ -1377,14 +1415,15 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
     if (declared_lanes is not None
             and any(lane.matches(n) for n in declared_lanes)
             and not lane_ever_reported_here(lane.matches)):
-        armed_since: dt.date | None = None
-        if config_path:
-            try:
-                armed_since = dt.date.fromtimestamp(os.path.getmtime(config_path))
-            except OSError:
-                armed_since = None
-        grace_days = [d for d in last_session_days(today, ARMING_DARK_SESSIONS)
-                      if armed_since is None or d > armed_since]
+        armed_since = (lane_declared_since(lane.name, config_path)
+                       if config_path else None)
+        if armed_since is None:
+            # NO GRACE. An unestablished arming date must not buy silence — that is the
+            # defect this replaces, not a softer version of it.
+            grace_days = list(last_session_days(today, ARMING_DARK_SESSIONS))
+        else:
+            grace_days = [d for d in last_session_days(today, ARMING_DARK_SESSIONS)
+                          if d > armed_since]
         grace_recs = read_health_records(grace_days, lane) if grace_days else {}
         lived = [d for d in grace_days if grace_recs.get(d) is not None]
         if len(lived) < ARMING_DARK_SESSIONS:

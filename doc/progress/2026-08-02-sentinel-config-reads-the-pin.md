@@ -40,3 +40,39 @@ EVIDENCE:
 NEXT: none for this fix. Monday's daily run writes the momentum lane's first
 health record; the ARMED line disappears on its own. The clf coverage_frac>1
 streak stays tracked in orch#727.
+
+## Review round 1: the arming anchor was mutable
+
+Blocking, and correct. The deadline was keyed to the config file's **mtime**, which
+every `subrepo_assemble --sync` and every re-materialisation refreshes. This PR's own
+comment called that *"bounded and honest"*. It is neither: routine syncs reset the
+grace indefinitely, so a declared-but-never-reporting lane stays INFO forever — the
+silent death this sentinel exists to prevent, restored through the door marked
+"grace".
+
+**mtime is a property of the filesystem OPERATION.** The declaration's arrival is a
+property of the CONTENT, and git already records it. `lane_declared_since()` reads the
+date the lane's name first entered the config from git history:
+
+* re-materialisation replays the same commits, so the date does not move;
+* an unrelated config edit does not move it either — the search is for the commit that
+  introduced *this lane's* name, not the file's last touch.
+
+Measured on the real runtime checkout
+(`RenQuant/.subrepo_runtime/repos/renquant-strategy-104`):
+`topdecile_clf_blend_leg` → **2026-07-26**, `momentum_residual_v0_shadow` →
+**2026-08-02**, an undeclared name → **None**
+`[VERIFIED — direct call, 2026-08-02]`.
+
+**An unestablishable anchor grants NO grace.** If the date cannot be read — no git, not
+a checkout, name absent — the lane falls through to the full patrol. An unknown anchor
+buying unbounded silence is the defect being fixed, not a gentler version of it.
+
+| claim | value | provenance |
+|---|---|---|
+| module tests | 93 passed, 2 skipped (4 new) | [VERIFIED — `pytest -q tests/test_rq104_shadow_scorer_sentinel.py`] |
+| all 4 are load-bearing | all fail against the mtime-anchored version | [VERIFIED — `git show HEAD:…` over the fix, re-run] |
+| repeated re-syncs cannot extend it | 3 rewrites + `os.utime`, anchor unchanged; the test also asserts the mtime really moved, or it would prove nothing | [VERIFIED — in the test] |
+
+The regression uses a real `git init` repo rather than a mock, because the anchor **is**
+git history — mocking git would test the mock.

@@ -1504,3 +1504,94 @@ def test_default_config_env_override_wins(tmp_path, monkeypatch):
     monkeypatch.setenv("RQ104_STRATEGY_CONFIG", "/explicit/path.json")
     monkeypatch.setattr(sentinel.os.path, "abspath", lambda _: str(fake))
     assert sentinel.default_strategy_config() == "/explicit/path.json"
+
+
+class TestArmingAnchorIsImmutableUnderResync:
+    """Review round 1 (blocking): the arming deadline was keyed to the config file's
+    MTIME, which every `subrepo_assemble --sync` and every re-materialisation refreshes.
+    Routine syncs could therefore reset the grace indefinitely and leave a
+    declared-but-never-reporting lane at INFO forever — the silent death this sentinel
+    exists to prevent, restored through the door marked "grace".
+
+    A real `git init` repo, not a mock: the anchor IS git history, and mocking git would
+    test the mock.
+    """
+
+    LANE = "momentum_residual_v0_shadow"
+
+    def _repo(self, tmp_path, *, extra_commits: int = 0):
+        import subprocess
+        repo = tmp_path / "renquant-strategy-104"
+        (repo / "configs").mkdir(parents=True)
+        cfg = repo / "configs" / "strategy_config.json"
+
+        def run(*args):
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True)
+
+        subprocess.run(["git", "init", "-q", str(repo)], check=True,
+                       capture_output=True)
+        run("config", "user.email", "t@t"); run("config", "user.name", "t")
+        # commit 1: no lanes
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": []}}}), encoding="utf-8")
+        run("add", "-A"); run("commit", "-qm", "genesis")
+        # commit 2: the lane ARRIVES — this is the arming instant
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": [{"name": self.LANE}]}}}), encoding="utf-8")
+        run("add", "-A"); run("commit", "-qm", "declare the lane")
+        for i in range(extra_commits):
+            (repo / f"unrelated{i}.txt").write_text("x", encoding="utf-8")
+            run("add", "-A"); run("commit", "-qm", f"unrelated {i}")
+        return repo, cfg
+
+    def test_the_anchor_is_the_commit_that_DECLARED_the_lane(self, tmp_path):
+        _, cfg = self._repo(tmp_path)
+        got = sentinel.lane_declared_since(self.LANE, str(cfg))
+        assert got == dt.date.today()
+
+    def test_REPEATED_RESYNCS_of_unchanged_content_cannot_extend_it(self, tmp_path):
+        """THE regression the review asked for. A re-sync rewrites the file — new mtime,
+        same commits. The old anchor moved; this one must not."""
+        import os
+        import time
+        _, cfg = self._repo(tmp_path)
+        first = sentinel.lane_declared_since(self.LANE, str(cfg))
+        original = cfg.read_text(encoding="utf-8")
+
+        for _ in range(3):
+            time.sleep(0.01)
+            cfg.write_text(original, encoding="utf-8")     # what a --sync does
+            os.utime(cfg, None)                            # ...and its mtime moves
+            assert sentinel.lane_declared_since(self.LANE, str(cfg)) == first
+
+        # and the mtime really did move, or this test proves nothing
+        assert dt.date.fromtimestamp(os.path.getmtime(cfg)) >= first
+
+    def test_an_UNRELATED_config_edit_does_not_reset_it(self, tmp_path):
+        """The other half of "immutable": only THIS lane's arrival is the anchor, so
+        editing the config for some other reason must not buy a fresh grace window."""
+        repo, cfg = self._repo(tmp_path)
+        import subprocess
+        doc = json.loads(cfg.read_text(encoding="utf-8"))
+        doc["ranking"]["panel_scoring"]["some_other_key"] = "changed later"
+        cfg.write_text(json.dumps(doc), encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True,
+                       capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "unrelated edit"],
+                       check=True, capture_output=True)
+        assert sentinel.lane_declared_since(self.LANE, str(cfg)) == dt.date.today()
+
+    def test_an_UNESTABLISHABLE_anchor_returns_None_so_no_grace_is_granted(self, tmp_path):
+        """Fail toward alarming. A lane whose arrival cannot be dated must not buy
+        silence — an unknown anchor granting unbounded grace is the defect, not a
+        gentler version of it."""
+        plain = tmp_path / "not_a_repo" / "configs"
+        plain.mkdir(parents=True)
+        cfg = plain / "strategy_config.json"
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": [{"name": self.LANE}]}}}), encoding="utf-8")
+        assert sentinel.lane_declared_since(self.LANE, str(cfg)) is None
+        # ...and a name that never appears in a real repo's history is None too
+        _, real = self._repo(tmp_path / "other")
+        assert sentinel.lane_declared_since("never_declared_lane", str(real)) is None
