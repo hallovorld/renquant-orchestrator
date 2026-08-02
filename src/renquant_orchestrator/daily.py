@@ -339,11 +339,28 @@ def _record_bundle_contract(bundle: dict, ctx: "DailyRunContext") -> None:
     try:
         from renquant_common import validate_live_run_bundle
 
-        validate_live_run_bundle(bundle)
+        # AC6 R4 binding switch: this producer writes `wf_gate_provenance`
+        # unconditionally in the same code version, so requiring it here can
+        # only fire on a producer regression — and even then it records, never
+        # raises. This is the per-caller flip the contract's default-False
+        # docstring anticipates.
+        validate_live_run_bundle(bundle, require_gate_provenance=True)
         verdict["ok"] = True
     except ImportError as exc:            # contract unavailable != contract met
         verdict["ok"] = None
         verdict["error"] = f"contract unavailable: {exc}"
+    except TypeError as exc:
+        # An installed renquant-common predating the kwarg (common#40) is
+        # version skew, not a bundle defect: ok=False must keep meaning "the
+        # bundle violates the contract", so skew is tri-stated like an import
+        # failure rather than disguised as a violation. Any other TypeError is
+        # a real validation finding.
+        if "require_gate_provenance" in str(exc):
+            verdict["ok"] = None
+            verdict["error"] = f"contract too old to bind gate provenance: {exc}"
+        else:
+            verdict["ok"] = False
+            verdict["error"] = str(exc)[:2000]
     except Exception as exc:  # noqa: BLE001 - any validation failure is a finding
         verdict["ok"] = False
         verdict["error"] = str(exc)[:2000]
