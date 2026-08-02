@@ -130,14 +130,23 @@ def test_the_watch_list_is_NOT_derived_from_the_config():
 
 def test_the_LIVE_config_currently_has_no_unwatched_lane():
     """Anti-vacuity against reality: the check exists for a state that does not hold
-    today, and it must stay quiet until it does."""
+    today, and it must stay quiet until it does.
+
+    BOUNDED transition allowance (#758): the PatchTST retirement is merged on
+    strategy-104 main (s104#75) but the run-checkout this path serves lags until the
+    slice-5 batch's pin advance, so its config may still declare the retired lane
+    that #758 removed from the watch list. That ONE lane may appear here while the
+    batch is in flight — the sentinel's own drift alarm on it is the designed
+    reminder, not a defect. Any OTHER unwatched lane still fails. The follow-up
+    that lands the batch shrinks RETIRED_IN_FLIGHT back to empty."""
     import os
     cfg = "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json"
     if not os.path.exists(cfg):
         import pytest
         pytest.skip("pinned config not present on this machine")
+    RETIRED_IN_FLIGHT = {"hf_patchtst_pt07_strict_seed44_previous_primary"}
     unwatched, why = S.unwatched_config_lanes(S.watched_lanes(), cfg)
-    assert unwatched == [] and why == "", (unwatched, why)
+    assert set(unwatched) <= RETIRED_IN_FLIGHT and why == "", (unwatched, why)
 
 
 def test_NOT_REQUESTED_is_quiet_while_COULD_NOT_CHECK_is_not(tmp_path, monkeypatch,
@@ -152,7 +161,7 @@ def test_NOT_REQUESTED_is_quiet_while_COULD_NOT_CHECK_is_not(tmp_path, monkeypat
     monkeypatch.setattr(S, "alert", lambda *a, **k: None)
     monkeypatch.setattr(S, "is_session_day", lambda d: True)
     monkeypatch.setattr(S, "watched_lanes", lambda: _lanes("hf_patchtst"))
-    monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out: 0)
+    monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out, **kw: 0)
 
     # `--config ""` explicitly, because the default now RESOLVES: this test is about the
     # not-requested PATH, and relying on the default to be empty would make it assert the
@@ -199,6 +208,6 @@ def test_an_UNRESOLVABLE_default_stays_QUIET_rather_than_alarming(tmp_path, monk
     monkeypatch.setattr(S, "alert", lambda *a, **k: None)
     monkeypatch.setattr(S, "is_session_day", lambda d: True)
     monkeypatch.setattr(S, "watched_lanes", lambda: _lanes("hf_patchtst"))
-    monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out: 0)
+    monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out, **kw: 0)
     rc = S.main(["--as-of", "2026-07-31", "--config", ""])
     assert rc == 0
