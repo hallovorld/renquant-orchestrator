@@ -110,7 +110,10 @@ _FALLBACK_CONTRACT = {
     "STATUS_EXPECTED_SKIP": "expected_skip",
     "STATUS_FAULT": "fault",
     "FAULT_STATES": frozenset({"load_failed", "unresolved_artifact", "degraded", "not_scored"}),
-    "EXPECTED_SKIP_STATES": frozenset({"disabled", "no_shadow_models", "no_candidates"}),
+    "EXPECTED_SKIP_STATES": frozenset(
+        # not_yet_published: pipeline#253's serving handler, the declared state
+        # between a shadow_models merge and its first published artifact.
+        {"disabled", "no_shadow_models", "no_candidates", "not_yet_published"}),
 }
 try:
     from renquant_pipeline.kernel.panel_pipeline import shadow_health as _sh  # noqa: E402
