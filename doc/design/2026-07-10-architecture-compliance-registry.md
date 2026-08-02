@@ -104,9 +104,9 @@ target owner, S/M/L size, and risk grade). Headline rows:
 |---|---|---|---|---|
 | T1/A5/F-3 | Dual-home kernel; gate evidence ≠ live code | umbrella → pipeline | L | P0 |
 | A10/A12 | launchd layer on umbrella scripts | umbrella → orchestrator | M | P1 (cheap win) |
-| A6 | 15.4k LOC training umbrella-resident + diverged model twin | umbrella → model | L | P1 |
+| A6 | 15.4k LOC training umbrella-resident + diverged model twin | umbrella → model | L | P1 — twin GUARDED 2026-08-01 (#743: pair named `fit_calibrator_alpha158_fund.py`, 655 diff lines, dual-sha `model_diverged_pin` tripwire); retire-vs-pin residue open (#728) |
 | C3 | live/ broker twins ×6, 4 diverged, no drift guard | umbrella → execution | M | P1 (latent HIGH) |
-| D6 | fail-open fingerprints on bridge/native path | orchestrator | M | P1 |
+| D6 | fail-open fingerprints on bridge/native path | orchestrator | M | **P2-cutover-pending** (re-graded 2026-08-01, #623: deterministic schema dispatch deployed to the pinned runtime, no OR-accept; served artifact still legacy-stamped; cutover rides the next artifact promotion — see the candidate-scoring gate design, renquant-backtesting#94) |
 | C1 | artifacts registry bypassed | umbrella → artifacts | L | P2 |
 | B4 | tax conventions ×3 | pipeline → common | M | P2 |
 | B7 | calendar ×7 + settlement holiday bug | pipeline → common | M | P2 (has real bug) |
@@ -298,3 +298,18 @@ No implementation in this PR. No priority override of GOAL-1/GOAL-2 in-flight
 work. No retirement of protective features without ports (paper_broker,
 agent_breaker, legacy kernel/models.py scorers are LIVE dependencies). The
 QP shadow path is retained per the Governor RFC's disposition.
+
+## Addendum 2026-08-01 — measured state refresh (#623 thread)
+
+* **C3 + A6 are both under the twin tripwire** (24 pass / 0 fail live): C3's four
+  broker twins since #454; A6's calibrator-fitter pair since #743.
+* **D6 re-graded P1 → P2-cutover-pending** on measurement: `fingerprint_dispatch`
+  (deterministic by declared schema, the M6 rule, no OR-accept) is deployed in the
+  PINNED runtime; the served artifact is a legacy stamp (`fingerprint_schema_version`
+  absent), so residual exposure is "legacy stamp via legacy shim, fail-closed" — not
+  the original fail-open. Cutover arrives with the next artifact promotion, which is
+  itself gated on the WF-gate candidate/lineage-scoring design
+  (renquant-backtesting#94).
+* The gate-evidence divergence T1 named (evidence ≠ live identity) now has a designed
+  gate-level treatment: #94's lineage identity model (immutable per-window snapshot
+  lineage + terminal-artifact binding + honest `candidate_lineage_used` stamps).
