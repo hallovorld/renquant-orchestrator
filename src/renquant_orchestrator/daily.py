@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from renquant_orchestrator.config_schema import validate_strategy_config
 from renquant_orchestrator.g4_admission import g4_session_bundle_block
 from renquant_orchestrator.serving_bundle_provenance import serving_bundle_provenance
+from renquant_orchestrator.serving_features_provenance import serving_features_block
 from renquant_orchestrator.wf_gate_provenance import wf_gate_provenance
 
 
@@ -276,6 +277,16 @@ class PersistDailyRunBundleTask(Task):
             # worse defect than the gap it closes.
             "wf_gate_provenance": wf_gate_provenance(
                 ctx.training_context.artifact_manifest),
+            # pipeline#250 design, rollout step 3 (step 2 = pipeline#252):
+            # the AS-SERVED feature matrix record staged by the pipeline's
+            # runtime stages on the inference context. Completes any deferred
+            # parquet write into THIS run's output dir, then forwards the
+            # digest sidecar verbatim. Tri-state and additive like the three
+            # blocks above (explicit `not_staged` / skew markers, never a
+            # missing key), and it never raises — same recorder rule as
+            # `wf_gate_provenance`.
+            "serving_features": serving_features_block(
+                ctx.inference_context, output_dir=ctx.output_dir),
             "market_snapshot": ctx.market_snapshot,
             "account_snapshot": ctx.account_snapshot,
             "decision_trace": list(ctx.inference_context.decision_trace),
