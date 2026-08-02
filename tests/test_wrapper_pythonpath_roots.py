@@ -227,3 +227,70 @@ def test_coverage_is_reported_as_a_fraction_of_the_manifest(tmp_path):
     line = [i for i in infos if "manifested wrapper(s) inspected here" in i]
     assert line, infos
     assert " of " in line[0] and "unowned" in line[0], line
+
+
+# -------- #682 option 2: read-only inspection across a declared boundary --------
+
+
+def _xrepo_fixture(tmp_path, body, inspect="read-only-here"):
+    """A manifested wrapper OUTSIDE ops/, covered by a boundary in inspect mode."""
+    outside = tmp_path / "umbrella" / "scripts"
+    outside.mkdir(parents=True, exist_ok=True)
+    wrapper = outside / "far.sh"
+    if body is not None:
+        wrapper.write_text(body, encoding="utf-8")
+    ops = tmp_path / "ops"
+    ops.mkdir(parents=True, exist_ok=True)
+    man = tmp_path / "manifest.json"
+    boundary = {"root": str(outside), "owner": "umbrella (test)",
+                "why": "test boundary"}
+    if inspect:
+        boundary["inspect"] = inspect
+    man.write_text(json.dumps({
+        "jobs": {"com.renquant.far": {"program_args": ["/bin/bash", str(wrapper)]}},
+        "wrapper_scope_boundaries": [boundary],
+    }), encoding="utf-8")
+    return str(ops), str(tmp_path), str(man)
+
+
+def test_xrepo_fallback_wrapper_is_a_PROBLEM_with_the_boundary_named(tmp_path):
+    ops, root, man = _xrepo_fixture(tmp_path, FALLBACK)
+    problems, _ = D.check_wrapper_pythonpath_roots(ops, root, man)
+    hits = [p for p in problems if "FALLBACK" in p]
+    assert len(hits) == 1
+    assert "read-only across the repo boundary" in hits[0]
+    assert "umbrella (test)" in hits[0]
+
+
+def test_xrepo_clean_wrapper_is_INSPECTED_and_counted(tmp_path):
+    ops, root, man = _xrepo_fixture(tmp_path, REMEDIATED)
+    problems, infos = D.check_wrapper_pythonpath_roots(ops, root, man)
+    assert not [p for p in problems if "FALLBACK" in p]
+    assert any("1 inspected read-only across a declared boundary" in i
+               for i in infos), infos
+    # anti-vacuity: a cross-repo read IS an inspection, so no "NONE inspected"
+    assert not [p for p in problems if "NONE inspected" in p]
+
+
+def test_xrepo_UNREADABLE_subject_is_a_problem_not_a_skip(tmp_path):
+    ops, root, man = _xrepo_fixture(tmp_path, body=None)   # file never written
+    problems, _ = D.check_wrapper_pythonpath_roots(ops, root, man)
+    assert [p for p in problems if "cannot be read" in p and "NO scan" in p]
+
+
+def test_a_boundary_WITHOUT_inspect_mode_stays_out_of_scope(tmp_path):
+    ops, root, man = _xrepo_fixture(tmp_path, FALLBACK, inspect=None)
+    problems, infos = D.check_wrapper_pythonpath_roots(ops, root, man)
+    # the legacy claim shape is preserved: not inspected, said out loud
+    assert not [p for p in problems if "FALLBACK" in p]
+    assert any("OUT OF SCOPE" in i and "NOT inspected" in i for i in infos)
+
+
+def test_the_LIVE_manifest_declares_umbrella_scripts_inspected():
+    """Pin the #682 remediation: the real boundary carries the inspect mode, so a
+    future edit that quietly drops it re-opens the 19-wrapper gap loudly here."""
+    man = json.load(open(os.path.join(ROOT, "ops", "launchd_manifest.json")))
+    scripts = [b for b in man["wrapper_scope_boundaries"]
+               if b["root"].endswith("/RenQuant/scripts")]
+    assert len(scripts) == 1
+    assert scripts[0].get("inspect") == "read-only-here"
