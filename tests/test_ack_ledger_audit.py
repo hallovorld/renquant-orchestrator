@@ -250,9 +250,14 @@ def test_the_live_ledger_is_measured_not_asserted():
     # by the 2026-08-01 re-stamp. The count moved because the LEDGER moved, not
     # because the audit changed — a re-stamp is exactly the event this audit is
     # for. Named rather than counted, so the next re-stamp is visible here.
-    assert R["n_expired"] == 6
+    # 5 after the 2026-08-02 conditional-retrain104 re-stamp: its 07-31 VIX-anomaly
+    # run TESTED the clearing condition (chain FAILED in 5s — same root as the
+    # weekly-wf-promote row), and the re-stamp records that measurement, making the
+    # row live again instead of an expired row with an obsolete May-era reason.
+    assert R["n_expired"] == 5
     live = [r["job"] for r in R["rows"] if not r.get("expired")]
-    assert live == ["com.renquant.rq105-batch-scores-export",
+    assert live == ["com.renquant.conditional-retrain104",
+                    "com.renquant.rq105-batch-scores-export",
                     "com.renquant.rq105-liveness",
                     "com.renquant.rq105-shadow-serving",
                     "com.renquant.shadow-ab-daily"], live
@@ -294,8 +299,10 @@ def test_the_live_ledger_is_measured_not_asserted():
     for job, lag in stale.items():
         assert any(job in f and "expiry clock" in f for f in R["findings"]), (job, lag)
 
-    assert fresh == {}, fresh  # the #733 migration touched every row's value
-    assert set(stale) == set(lags), "a row was silently dropped"
+    # the #733 migration touched every row's value (all stale); the ONE fresh row
+    # is the 2026-08-02 conditional-retrain104 re-stamp, dated the day it was made.
+    assert fresh == {"com.renquant.conditional-retrain104": 0}, fresh
+    assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
 
 
 # ---------------- the limit of this evidence, pinned so it is not re-claimed ----
@@ -368,7 +375,7 @@ def test_the_live_ledger_today_and_when_it_will_fire():
 
     assert n(dt.date(2026, 8, 1)) == 0
     assert n(dt.date(2026, 8, 4)) == 0
-    assert n(dt.date(2026, 8, 15)) == 6
+    assert n(dt.date(2026, 8, 15)) == 5   # conditional-retrain104 re-stamped 08-02
 
 
 # ---------------------------------------------------------------- clears_when ----
