@@ -161,6 +161,11 @@ class TestManifestGeneration:
         # Named here rather than silently absorbed: the set growing is exactly what
         # this list exists to make visible.
         "com.renquant.rq104-silent-refusal",
+        # GOAL-7 slice 5: weekly momentum TRAIN job, merged-but-dark by design
+        # (model#195 build order; model#197 grant ordering). Plist install + the
+        # model/s104 pin set is the one-grant batch in
+        # doc/progress/2026-08-02-momentum-train-launchd-surface.md.
+        "com.renquant.momentum-train-weekly",
     }
 
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
