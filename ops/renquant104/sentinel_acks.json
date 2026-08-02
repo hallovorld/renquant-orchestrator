@@ -4,6 +4,11 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "job": "com.renquant.conditional-retrain104",
+   "kind": "launchctl_exit_zero",
+   "scope": "full"
+  },
   "clears_when": "next VIX-anomaly trigger runs the gated chain clean",
   "reason": "IAC delisted-ticker freshness failure; fixed by RenQuant#495 (--exclude-tickers bridge, deployed)"
  },
@@ -12,6 +17,10 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "kind": "manual",
+   "why": "clears on the #75 job redesign (sim with as-of model vintages, or a redefined window) - a design deliverable with no observable exit code or artifact to bind to yet; the leakage guard's refusal (exit 1) is CORRECT until then, so launchctl exit 0 would mean the guard stopped guarding, not that the ack cleared"
+  },
   "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) \u2014 task #75",
   "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim \u2014 its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
  },
@@ -20,6 +29,10 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "kind": "manual",
+   "why": "wrapper delegates to weekly_wf_promote, so this row clears only when a staged model passes the WF gate - an open-ended research outcome with no machine predicate to date; the gate rejecting every candidate is its documented correct behavior (wf-promote-chronic-reject), so a nonzero exit is not evidence the condition failed"
+  },
   "clears_when": "a staged model passes the WF gate (same event as weekly-wf-promote)",
   "reason": "CORRECTED diagnosis: retrain_panel.sh is a compatibility WRAPPER delegating to weekly_wf_promote (legacy tournament path retired per its header); its Sunday exit mirrors the chronic WF-gate model rejection \u2014 same root as the weekly-wf-promote ack, not an independent failure"
  },
@@ -28,6 +41,10 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "kind": "manual",
+   "why": "self-referential - this job's exit 1 IS the alarm-delivered signal by design, so launchctl exit 0 says 'the last firing found zero alarms', a statement about the fleet's state that day, not that this ack's subject cleared; liveness is attested by com.renquant.run-surface-drift reading the receipt, because a process cannot attest to its own liveness"
+  },
   "clears_when": "any firing with zero alarms. Note this row no longer hides a crash: exit 3 is not acked here, and an absent or stale receipt is LOUD in the run-surface drift scan.",
   "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift \u2014 a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
  },
@@ -36,6 +53,11 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "job": "com.renquant.rq104-liveness",
+   "kind": "launchctl_exit_zero",
+   "scope": "full"
+  },
   "clears_when": "next scheduled liveness firing",
   "reason": "stale script-path window during run-checkout realignment; manual run passes (rq104 liveness OK 2026-07-17)"
  },
@@ -44,6 +66,11 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "job": "com.renquant.rq105-batch-scores-export",
+   "kind": "launchctl_exit_zero",
+   "scope": "clause"
+  },
   "clears_when": "renquant-strategy-104#73 (wash_sale_min_material_npv = 1.00) is merged AND pinned AND one session afterwards produces a contract-clean full-buy-funnel run, at which point the export has an eligible source vector. If #73 lands and the export STILL refuses, this ack is WRONG and must be removed, not renewed.",
   "expires_at": "2026-08-14",
   "reason": "CORRECTED 2026-07-31. The previous diagnosis (Class-A absolute row floor vs light-signal day; replaced by health-evidence contract #531; manual export succeeded 5/5 rc=0) described a DIFFERENT failure and expired 2026-07-20. Measured cause of the CURRENT exit 1: the job refuses BY DESIGN - 'run 2026-07-29-live-a68df3f8 fails class-A health evidence: full_buy_run(pipeline_flags) - a frozen vector must come from a contract-clean, full-buy-funnel run with training provenance; refusing to export'. That precondition is correct and has been satisfiable ONCE in the last nine sessions (2026-07-20). Four of the other eight were verdict=STRUCTURAL_BLOCK with buys=0, every one firing ['wash_sale_mass_block'] and nothing else (07-23, 07-24, 07-28, 07-29). So this is NOT a 105 defect: the export is starved by the 104 buy-side block, and the downstream intraday_pairing_logger shows the same shape (sessions 0, admitted pairs 0, rows written 0). Evidence read 2026-07-31: logs/daily_104/2026-07-2*.log, logs/rq105/batch_scores_export_2026-07-30.log, logs/rq105/intraday_pairing_logger_2026-07-30.log."
@@ -53,6 +80,11 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "job": "com.renquant.rq105-liveness",
+   "kind": "launchctl_exit_zero",
+   "scope": "clause"
+  },
   "clears_when": "com.renquant.rq105-shadow-serving's ack clears (renquant-orchestrator#736 EXIT_NOT_WIRED=4 deployed, or renquant-orchestrator#221 producer merged AND deployed), i.e. that job's last exit != 1 in `launchctl list`; this scan's 105 finding set then empties and exit returns 0.",
   "expires_at": "2026-08-15",
   "reason": "The DETECTOR is working; its subject is down. Exit 1 is the liveness scan's finding contract firing on the dead 105 lane (rq105-shadow-serving, structurally unrunnable per the ack above). Acking the detector's honest finding keeps crash-vs-finding distinguishable in the ledger instead of training readers to ignore a red exit."
@@ -62,6 +94,11 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "job": "com.renquant.rq105-shadow-serving",
+   "kind": "launchctl_exit_zero",
+   "scope": "clause"
+  },
   "clears_when": "renquant-orchestrator#736 sync deploys EXIT_NOT_WIRED=4 and the job's last exit in `launchctl list` becomes 4, OR the Stage-3 feature-snapshot producer (renquant-orchestrator#221 chain) is merged AND deployed and the job's last exit = 0. If either lands and the exit stays 1, this ack is WRONG and must be removed, not renewed.",
   "expires_at": "2026-08-15",
   "reason": "STRUCTURALLY UNRUNNABLE, not a crash. The serving CLI refuses at argparse: 'shadow-realtime-serving: error: the following arguments are required: --feature-snapshot-json' (freshest shadow_serving log under logs/rq105/, read 2026-08-01) - the Stage-3 feature-snapshot producer does not exist anywhere, so the job cannot ever have run. Known since orch#621/#736; the bare exit 1 is indistinguishable from a crash until the #736 sync lands EXIT_NOT_WIRED=4, which is exactly why this ack pins the diagnosis."
@@ -71,6 +108,11 @@
   "acked_exit_codes": [
    3
   ],
+  "clears_check": {
+   "job": "com.renquant.shadow-ab-daily",
+   "kind": "launchctl_exit_zero",
+   "scope": "clause"
+  },
   "clears_when": "run-checkout pins synced to the run manifest (orch#747 item 5) and the 14:35 two-arm run passes PRECHECK",
   "reason": "DIAGNOSED 2026-08-01 from the session log: exit 3 is the job's OWN fail-closed PRECHECK - run-manifest identity verification refuses because the run checkouts drifted from the manifest pins (5 repos HEAD != manifest commit; renquant-model tree DIRTY 'M README.md'). The guard from b48d3ed1 is working as designed; the remedy is the operator-gated pin sync, not a code fix. Supersedes the expired 07-17 epoch-3/4 ack."
  },
@@ -79,6 +121,10 @@
   "acked_exit_codes": [
    1
   ],
+  "clears_check": {
+   "kind": "manual",
+   "why": "clears only when a staged model passes the WF gate - an open-ended research outcome no machine predicate can date; the gate is correct and its chronic rejection is the known state, so the job's Sunday exit code carries no information about whether the condition was reached"
+  },
   "clears_when": "a staged model passes the WF gate (open-ended; gate is correct)",
   "reason": "chronic placebo-subgate model rejection (known, correct gate behavior; wf-promote-chronic-reject); 07-17 instance also hit the IAC freshness failure now fixed"
  }

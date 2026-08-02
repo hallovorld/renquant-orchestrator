@@ -32,6 +32,35 @@ Which direction is dangerous matters, and both are reported:
   event. Distinguishing the two human actions would need review evidence the ledger
   does not carry.
 
+THE THIRD FINDING: EXPIRY WITHOUT A VERDICT (orch#733)
+------------------------------------------------------
+`ack_expiry` reads DATES out of an ack; nothing read its CONDITION.  So "the fix
+landed and the ack aged out afterwards" and "the fix never shipped" both surfaced
+as the same word, "expired" — and "the fix landed early" surfaced as nothing at
+all.  Issue #733 measured the live case: an ack whose 3-clause clearing condition
+was 1-of-3 satisfied, with no mechanism able to say so.
+
+`clears_check` is the repair: a structured, machine-evaluable predicate carried
+next to the prose `clears_when`.  The audit evaluates it READ-ONLY and combines
+the verdict with expiry into distinct states (`MET_UNEXPIRED`,
+`EXPIRED_CONDITION_UNMET`, `EXPIRED_CONDITION_MET`, ...).  The kind set is CLOSED
+and dispatch FAILS CLOSED: an unknown or malformed kind is a FINDING, never a
+silent pass — the repo's standing rule is that an enumerated allow-list leaves a
+fail-open default, so the default branch here IS the finding.  A row may declare
+`kind=manual` with a `why` when its condition is not machine-evaluable BY DESIGN
+(an open-ended research outcome has no exit code); the audit reports MANUAL and
+never mistakes that honest declaration for a missing check.
+
+A MET verdict is additionally SCOPE-qualified (codex on PR #752): the 1-of-3 row
+above is exactly a met clause inside an unmet conjunction, and reporting it "met"
+would be a misleading verdict under a more authoritative name.  `scope="full"`
+declares the predicate IS the whole clears_when and may reach CONDITION_MET;
+`scope="clause"` — the default, failing toward the weaker claim — reaches only
+CLAUSE_MET / EXPIRED_CLAUSE_MET, which say out loud that the full condition was
+NOT evaluated.  UNMET is not scope-qualified: one failed clause falsifies the
+whole conjunction, so EXPIRED_CONDITION_UNMET keeps its problem-grade meaning
+from either scope.
+
 THE SECOND FINDING: THE EXPIRY CLIFF
 ------------------------------------
 Staggered expiry is what makes the reminder usable — one suppression resurfaces, gets
@@ -213,12 +242,236 @@ def classify_clears_when(text: str) -> dict:
                 b in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT) for b in buckets)}
 
 
+# --------------------------------------------------------------------------- #
+# clears_check — the machine-evaluable clause orch#733 makes mandatory
+# --------------------------------------------------------------------------- #
+#: CLOSED kind set. Dispatch in `evaluate_clears_check` fails CLOSED: only these
+#: three kinds can reach a verdict, and anything else — unknown kind, malformed
+#: shape, missing required field — is a FINDING. Never enumerate the bad cases
+#: and default to pass; enumerate the good cases and default to the finding.
+CHECK_LAUNCHCTL = "launchctl_exit_zero"   # met iff launchctl shows last exit 0
+CHECK_PATH = "path_exists"                # met iff the named path exists
+CHECK_MANUAL = "manual"                   # not machine-evaluable BY DESIGN
+KNOWN_CHECK_KINDS = (CHECK_LAUNCHCTL, CHECK_PATH, CHECK_MANUAL)
+
+#: A MET verdict must say WHAT it speaks for (codex on PR #752). A machine check
+#: is one predicate; a `clears_when` is often a CONJUNCTION — the live 1-of-3
+#: batch-export row is the issue's own example — and a single met clause reported
+#: as "met" is a misleading verdict under a more authoritative name. So a check
+#: carries a `scope`: "full" declares the predicate IS the whole clears_when;
+#: "clause" — the DEFAULT, so an omitted scope fails toward the WEAKER claim —
+#: declares it observes ONE clause of it, and a met clause reports CLAUSE_MET,
+#: never CONDITION_MET. UNMET needs no scope qualifier in either direction: a
+#: failed clause already falsifies the conjunction, so that verdict is sound as
+#: stated. The scope set is closed and fail-closed like the kind set.
+SCOPE_CLAUSE = "clause"
+SCOPE_FULL = "full"
+KNOWN_SCOPES = (SCOPE_CLAUSE, SCOPE_FULL)
+
+#: Per-row condition verdicts. UNEVALUABLE is load-bearing: "could not check" is
+#: a distinct state, never collapsed into met or unmet — the same rule the module
+#: docstring states for the classifier, now applied to evaluation. CLAUSE_MET is
+#: the weaker met: ONE clause of the stated condition observed true, the full
+#: condition NOT evaluated.
+CONDITION_MET = "met"
+CONDITION_CLAUSE_MET = "clause_met"
+CONDITION_UNMET = "unmet"
+CONDITION_UNEVALUABLE = "unevaluable"
+CONDITION_MANUAL = "manual"
+CONDITION_UNDECLARED = "undeclared"
+
+#: condition x expiry, one word per cell — so "expired" alone can never again
+#: stand in for both "aged out after the fix" and "the fix never shipped".
+STATE_MET_UNEXPIRED = "MET_UNEXPIRED"
+STATE_EXPIRED_CONDITION_MET = "EXPIRED_CONDITION_MET"
+STATE_CLAUSE_MET = "CLAUSE_MET"
+STATE_EXPIRED_CLAUSE_MET = "EXPIRED_CLAUSE_MET"
+STATE_UNMET_UNEXPIRED = "UNMET_UNEXPIRED"
+STATE_EXPIRED_CONDITION_UNMET = "EXPIRED_CONDITION_UNMET"
+STATE_UNEVALUABLE_UNEXPIRED = "UNEVALUABLE_UNEXPIRED"
+STATE_EXPIRED_CONDITION_UNEVALUABLE = "EXPIRED_CONDITION_UNEVALUABLE"
+STATE_MANUAL_UNEXPIRED = "MANUAL_UNEXPIRED"
+STATE_MANUAL_EXPIRED = "MANUAL_EXPIRED"
+STATE_UNDECLARED_UNEXPIRED = "UNDECLARED_UNEXPIRED"
+STATE_UNDECLARED_EXPIRED = "UNDECLARED_EXPIRED"
+
+
+def combine_state(condition: str, expired: bool) -> str:
+    """The distinct reported states #733 asks for.
+
+    `MET_UNEXPIRED` and `EXPIRED_CONDITION_MET` are info-grade: the row should be
+    removed at the next review touch, and the state says so without an alarm.
+    They are reserved for `scope="full"` predicates — a clause-scoped met yields
+    `CLAUSE_MET` / `EXPIRED_CLAUSE_MET`, info-grade observations that explicitly
+    do NOT claim the full condition was evaluated (codex on PR #752).
+    `EXPIRED_CONDITION_UNMET` is the PROBLEM cell — it means the fix this ack was
+    waiting on never shipped, which previously read as a plain "expired" — and it
+    is reachable from EITHER scope, because one failed clause falsifies the whole
+    conjunction.
+    """
+    if condition == CONDITION_MET:
+        return STATE_EXPIRED_CONDITION_MET if expired else STATE_MET_UNEXPIRED
+    if condition == CONDITION_CLAUSE_MET:
+        return STATE_EXPIRED_CLAUSE_MET if expired else STATE_CLAUSE_MET
+    if condition == CONDITION_UNMET:
+        return STATE_EXPIRED_CONDITION_UNMET if expired else STATE_UNMET_UNEXPIRED
+    if condition == CONDITION_UNEVALUABLE:
+        return (STATE_EXPIRED_CONDITION_UNEVALUABLE if expired
+                else STATE_UNEVALUABLE_UNEXPIRED)
+    if condition == CONDITION_MANUAL:
+        return STATE_MANUAL_EXPIRED if expired else STATE_MANUAL_UNEXPIRED
+    return STATE_UNDECLARED_EXPIRED if expired else STATE_UNDECLARED_UNEXPIRED
+
+
+def launchctl_list_text() -> str | None:
+    """`launchctl list` output, or ``None`` when launchctl is UNAVAILABLE.
+
+    ``None`` is a distinct input, not a verdict: the evaluator maps it to
+    UNEVALUABLE, never to met or unmet. On a linux CI runner launchctl does not
+    exist; reporting every launchctl-kind condition "unmet" there would turn an
+    environment property into ten false problems, and reporting "met" would be
+    the fail-open default this module exists to refuse.
+    """
+    try:
+        out = subprocess.run(["launchctl", "list"], capture_output=True,
+                             text=True, timeout=30)
+    except Exception:  # noqa: BLE001 — absent binary, non-darwin host, timeout
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def _launchctl_status(text: str, job: str) -> str | None:
+    """The status column for `job` in `launchctl list` output, else ``None``.
+
+    Same 3-column shape the sentinel's `parse_launchctl_failures` reads:
+    ``<pid>\t<status>\t<label>``.
+    """
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[2] == job:
+            return parts[1]
+    return None
+
+
+def evaluate_clears_check(check, launchctl_text: str | None = None) -> dict:
+    """Evaluate one row's `clears_check` — read-only, fail-closed.
+
+    Returns ``{"condition": CONDITION_*, "detail": str, "finding": str | None}``.
+    ``finding`` is non-None exactly when the check itself is defective (unknown
+    kind or scope, malformed shape, missing required field); the caller prefixes
+    the job name. A defective check is UNEVALUABLE **and** a finding — a typo can
+    only make the audit louder, never quieter.
+
+    A MET verdict is scope-qualified: `scope="full"` yields CONDITION_MET,
+    `scope="clause"` (the default) yields CONDITION_CLAUSE_MET — one observed
+    clause of a wider condition, never the authoritative "met". UNMET is
+    deliberately NOT scope-qualified: one failed clause already falsifies the
+    conjunction, so that direction is sound as stated.
+    """
+    if check is None:
+        return {"condition": CONDITION_UNDECLARED,
+                "detail": "no clears_check declared", "finding": None}
+    if not isinstance(check, dict):
+        return {"condition": CONDITION_UNEVALUABLE,
+                "detail": f"clears_check is {type(check).__name__}, not an object",
+                "finding": f"clears_check is {type(check).__name__}, not an "
+                           f"object — fail-closed: a malformed check is a "
+                           f"finding, never a silent pass"}
+    kind = check.get("kind")
+    if kind == CHECK_MANUAL:
+        why = str(check.get("why") or "").strip()
+        if not why:
+            return {"condition": CONDITION_UNEVALUABLE,
+                    "detail": "kind=manual with no why",
+                    "finding": "clears_check kind 'manual' carries no `why` — a "
+                               "manual declaration without its justification is "
+                               "an undeclared check in disguise"}
+        return {"condition": CONDITION_MANUAL,
+                "detail": f"not machine-evaluable by design: {why}",
+                "finding": None}
+    # Scope only qualifies the MET direction of the machine kinds below. Same
+    # closed-set fail-closed rule as the kind: an invented scope is a finding.
+    scope = check.get("scope", SCOPE_CLAUSE)
+    if kind in (CHECK_PATH, CHECK_LAUNCHCTL) and scope not in KNOWN_SCOPES:
+        return {"condition": CONDITION_UNEVALUABLE,
+                "detail": f"unknown clears_check scope {scope!r}",
+                "finding": f"unknown clears_check scope {scope!r} — the closed "
+                           f"set is {sorted(KNOWN_SCOPES)}. Dispatch fails "
+                           f"CLOSED, so an unknown scope is this finding, never "
+                           f"a silent pass"}
+    met = CONDITION_MET if scope == SCOPE_FULL else CONDITION_CLAUSE_MET
+    met_suffix = ("" if scope == SCOPE_FULL else
+                  " — ONE clause of the stated clears_when; the full condition "
+                  "was NOT evaluated (scope=clause)")
+    if kind == CHECK_PATH:
+        path = check.get("path")
+        if not path:
+            return {"condition": CONDITION_UNEVALUABLE,
+                    "detail": "kind=path_exists with no path",
+                    "finding": "clears_check kind 'path_exists' names no `path`"}
+        if os.path.exists(str(path)):
+            return {"condition": met,
+                    "detail": f"path exists: {path}{met_suffix}", "finding": None}
+        return {"condition": CONDITION_UNMET,
+                "detail": f"path does not exist: {path}", "finding": None}
+    if kind == CHECK_LAUNCHCTL:
+        job = check.get("job")
+        if not job:
+            return {"condition": CONDITION_UNEVALUABLE,
+                    "detail": "kind=launchctl_exit_zero with no job",
+                    "finding": "clears_check kind 'launchctl_exit_zero' names "
+                               "no `job`"}
+        if launchctl_text is None:
+            return {"condition": CONDITION_UNEVALUABLE,
+                    "detail": f"launchctl unavailable on this host — cannot read "
+                              f"{job}'s last exit; could-not-check is not a "
+                              f"verdict in either direction", "finding": None}
+        status = _launchctl_status(launchctl_text, str(job))
+        if status == "0":
+            return {"condition": met,
+                    "detail": f"launchctl list shows last exit 0 for "
+                              f"{job}{met_suffix}", "finding": None}
+        if status is None:
+            return {"condition": CONDITION_UNMET,
+                    "detail": f"{job} is not in launchctl list — an unloaded job "
+                              f"shows no last exit 0", "finding": None}
+        if status == "-":
+            return {"condition": CONDITION_UNMET,
+                    "detail": f"{job} is loaded but has not run since load — no "
+                              f"exit 0 observed", "finding": None}
+        return {"condition": CONDITION_UNMET,
+                "detail": f"{job} last exit {status}", "finding": None}
+    # FAIL-CLOSED DEFAULT. The enumerated branches above are the allow-list;
+    # everything that falls through — a new kind somebody invents, a typo of a
+    # known one — lands HERE, as a finding. Inverting this (an `else: pass`)
+    # would recreate the exact defect the repo's standing rule names.
+    return {"condition": CONDITION_UNEVALUABLE,
+            "detail": f"unknown clears_check kind {kind!r}",
+            "finding": f"unknown clears_check kind {kind!r} — the closed set is "
+                       f"{sorted(KNOWN_CHECK_KINDS)}. Dispatch fails CLOSED, so "
+                       f"an unknown kind is this finding, never a silent pass"}
+
+
+#: Sentinel default for `audit(launchctl_text=...)`: distinguishes "caller gave
+#: no text, fetch it if any row needs it" from an explicit ``None`` ("launchctl
+#: unavailable"), which tests use to exercise the UNEVALUABLE path.
+_FETCH = object()
+
+
 def audit(today: dt.date, ledger_path: str | None = None,
-          root: str | None = None) -> dict:
+          root: str | None = None, launchctl_text=_FETCH) -> dict:
     sent = _load_sentinel()
     root = root or resolve_root(ledger_path)
     acks = sent.load_acks(ledger_path) if ledger_path else sent.load_acks()
     edits = last_edit_dates(root, LEDGER_REL)
+
+    if launchctl_text is _FETCH:
+        # ONE subprocess for the whole run, and only when some row needs it —
+        # a ledger of manual/path checks never shells out at all.
+        need = any(isinstance(a.get("clears_check"), dict)
+                   and a["clears_check"].get("kind") == CHECK_LAUNCHCTL
+                   for a in acks.values())
+        launchctl_text = launchctl_list_text() if need else None
 
     rows, by_expiry = [], {}
     for name, ack in sorted(acks.items()):
@@ -234,17 +487,31 @@ def audit(today: dt.date, ledger_path: str | None = None,
         # it: chronology corruption, NOT evidence of an unreviewed re-stamp. See the
         # module docstring -- both human actions produce lag 0.
         lag = (edited - acked_at).days if (edited and acked_at) else None
+        check = ack.get("clears_check")
+        verdict = evaluate_clears_check(check, launchctl_text)
+        expired = (expiry is None or expiry <= today)  # sentinel's own rule
         rows.append({
             "job": name,
             "acked_at": acked_at.isoformat() if acked_at else None,
             "last_edited": edited.isoformat() if edited else None,
             "stamp_lag_days": lag,
             "expiry": expiry.isoformat() if expiry else None,
-            "expired": (expiry is None or expiry <= today),  # sentinel's own rule
+            "expired": expired,
             "days_to_expiry": (expiry - today).days if expiry else None,
             "why": why,
             "clears_when_buckets": classify_clears_when(
                 str(ack.get("clears_when") or ""))["buckets"],
+            "check_kind": check.get("kind") if isinstance(check, dict) else None,
+            # The reviewed scope judgment, surfaced so it can be pinned: None
+            # for manual/undeclared rows, where scope has no meaning.
+            "check_scope": (check.get("scope", SCOPE_CLAUSE)
+                            if isinstance(check, dict)
+                            and check.get("kind") in (CHECK_PATH, CHECK_LAUNCHCTL)
+                            else None),
+            "condition": verdict["condition"],
+            "condition_detail": verdict["detail"],
+            "condition_finding": verdict["finding"],
+            "state": combine_state(verdict["condition"], expired),
         })
         if expiry:
             by_expiry.setdefault(expiry.isoformat(), []).append(name)
@@ -270,23 +537,44 @@ def audit(today: dt.date, ledger_path: str | None = None,
     cw_texts = {name: str(ack.get("clears_when") or "") for name, ack in acks.items()}
     for r in rows:
         b = r["clears_when_buckets"]
-        # An ack with NO clears_when promised nothing — the backstop governs it and
-        # that is already visible. The finding is for a STATED condition no machine
-        # can bind to: a promise that cannot clear or hold the ack it decorates.
+        # The bare-ref lint stays a PROSE-quality check, independent of
+        # clears_check: an unresolvable citation misleads the human reader even
+        # when a structured predicate governs the machine's verdict.
         if not cw_texts.get(r["job"], "").strip():
             continue
-        if not any(x in (BUCKET_DATE, BUCKET_REF, BUCKET_ARTIFACT) for x in b):
-            findings.append(
-                f"{r['job']}: clears_when carries no machine-bindable fragment — no "
-                f"date, no qualified PR/issue reference, no key/path-shaped token. "
-                f"This audit cannot automatically evaluate its stated condition; the "
-                f"only expiry signal it contributes to `ack_expiry` is none, so the "
-                f"acked_at backstop is what governs this row's expiry in practice")
         if BUCKET_BARE_REF in b and BUCKET_REF not in b:
             findings.append(
                 f"{r['job']}: clears_when cites a bare #NN with no repo qualifier — "
                 f"unresolvable as written (surveyed 2026-08-01: #75 matches unrelated "
                 f"merged PRs in three repos and nothing in strategy-104)")
+
+    # ----- orch#733: condition x expiry ---------------------------------------
+    # The old finding here ("clears_when carries no machine-bindable fragment")
+    # linted the PROSE. It is UPGRADED, not kept alongside: a structured
+    # `clears_check` is now mandatory, so the finding is about the missing
+    # predicate itself — and a row that declares one (including an honest
+    # kind=manual) is never flagged for the shape of its prose.
+    for r in rows:
+        if r["condition_finding"]:
+            findings.append(f"{r['job']}: {r['condition_finding']}")
+        if r["condition"] == CONDITION_UNDECLARED:
+            findings.append(
+                f"{r['job']}: no clears_check declared — its clearing condition "
+                f"exists only as prose this audit cannot evaluate, so 'condition "
+                f"met early' and 'expired with the fix never shipped' would both "
+                f"surface as the same word. orch#733 makes one machine-evaluable "
+                f"clause mandatory: declare launchctl_exit_zero / path_exists, "
+                f"or kind=manual with a why if the condition is not "
+                f"machine-evaluable by design")
+        if r["state"] == STATE_EXPIRED_CONDITION_UNMET:
+            findings.append(
+                f"{r['job']}: EXPIRED with its clearing condition UNMET "
+                f"({r['condition_detail']}) — the fix this ack was waiting on "
+                f"never shipped. Without this state the expiry reads as 'the ack "
+                f"aged out'; it is actually 'the promised repair did not land "
+                f"before the review window closed' (orch#733). Disposition the "
+                f"underlying failure or re-review; do not let the returning "
+                f"alarm be the only record")
 
     # LONG-EXPIRED: "expired" and "expired for longer than an ack's whole life" are
     # different facts, and only the first was reported. An ack that lapsed yesterday
@@ -344,12 +632,11 @@ def main(argv=None) -> int:
     print(f"ack ledger audit — {R['today']}  ({R['n_acks']} acks, "
           f"ACK_MAX_AGE_DAYS={R['ack_max_age_days']})")
     print(f"{'job':<44}{'acked_at':<12}{'edited':<12}{'lag':>4}"
-          f"{'expiry':>12}{'d':>5}  {'state'}")
+          f"{'expiry':>12}{'d':>5}  {'state (condition x expiry, orch#733)'}")
     for r in R["rows"]:
         print(f"{r['job']:<44}{str(r['acked_at']):<12}{str(r['last_edited']):<12}"
               f"{str(r['stamp_lag_days']):>4}{str(r['expiry']):>12}"
-              f"{str(r['days_to_expiry']):>5}  "
-              f"{'EXPIRED' if r['expired'] else 'active'}")
+              f"{str(r['days_to_expiry']):>5}  {r['state']}")
     print(f"\nexpired under the sentinel's own rule (expiry <= today): "
           f"{R['n_expired']}/{R['n_acks']}")
     if R["findings"]:
