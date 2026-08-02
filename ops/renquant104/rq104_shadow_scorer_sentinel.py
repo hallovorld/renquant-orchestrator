@@ -1219,21 +1219,49 @@ def lane_declared_since(lane_name: str, config_path: str,
     if not out.stdout.strip():
         _note(f"git log returned no commits touching {rel!r} in {repo}")
         return None
-    arming: "dt.date | None" = None
-    for line in out.stdout.strip().splitlines():   # newest → oldest
+    def _iso(raw: str) -> "dt.datetime | None":
+        """`git %cI` emits `...Z` on a UTC machine, and Python 3.10's
+        `fromisoformat` REFUSES that suffix — it landed in 3.11. This repo runs 3.10
+        and the CI runner is UTC while a developer laptop usually is not, so the parse
+        succeeded locally (`-07:00`) and failed only in CI. That was the whole of the
+        red, and it was invisible because the failure was silent: the walk continued
+        past the unparsed commit and blamed the NEXT one for not declaring the lane.
+        """
+        raw = raw.strip()
+        if raw.endswith(("Z", "z")):
+            raw = raw[:-1] + "+00:00"
+        try:
+            return dt.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    # ORDER IS OURS, NOT GIT'S. The walk needs newest→oldest; relying on `git log`'s
+    # default made the answer depend on the runner's git configuration. Parsing %cI and
+    # sorting here removes the assumption instead of betting on it.
+    walked: list[tuple[dt.datetime, str]] = []
+    for line in out.stdout.strip().splitlines():
         sha, _, ciso = line.strip().partition(" ")
+        when = _iso(ciso)
+        if when is None:
+            _note(f"unparseable commit date {ciso.strip()!r} for {sha[:8]}")
+            continue
+        walked.append((when, sha))
+    walked.sort(key=lambda t: t[0], reverse=True)
+
+    arming: "dt.date | None" = None
+    trail: list[str] = []
+    for when, sha in walked:
         declares = _declares(sha)
+        trail.append(f"{sha[:8]}@{when.date()}={declares}")
         if declares is None:
             continue                                # no evidence either way
         if not declares:
             if arming is None:
                 _note(f"newest commit touching {rel!r} ({sha[:8]}) does not declare "
-                      f"{lane_name!r} — the lane is absent from the current config")
+                      f"{lane_name!r} — the lane is absent from the current config; "
+                      f"walk={trail}")
             break                                   # absent→present boundary
-        try:
-            arming = dt.datetime.fromisoformat(ciso.strip()).date()
-        except ValueError:
-            continue
+        arming = when.date()
     return arming
 
 
