@@ -1,6 +1,6 @@
 {
  "com.renquant.conditional-retrain104": {
-  "acked_at": "2026-07-17",
+  "acked_at": "2026-08-02",
   "acked_exit_codes": [
    1
   ],
@@ -10,7 +10,7 @@
    "scope": "full"
   },
   "clears_when": "next VIX-anomaly trigger runs the gated chain clean",
-  "reason": "IAC delisted-ticker freshness failure; fixed by RenQuant#495 (--exclude-tickers bridge, deployed)"
+  "reason": "RE-DIAGNOSED 2026-08-02 from the job's own daily logs (the prior IAC/RenQuant#495 reason described a May-era failure and is OBSOLETE): the job runs daily and logs cleanly; on 2026-07-31 a real VIX anomaly (-7.26% vs the 5% threshold) fired the gated weekly-promote chain and the chain FAILED within 5 seconds - the SAME chronic never-completed WF-promote root the weekly-wf-promote row acks (open-ended, gate-is-correct). So the clearing condition WAS tested on 07-31 and failed honestly; this re-stamp records that measurement. Clears exactly when the shared root clears."
  },
  "com.renquant.monthly-meta-label-retrain": {
   "acked_at": "2026-07-17",
