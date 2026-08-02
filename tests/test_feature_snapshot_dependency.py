@@ -21,10 +21,21 @@ def test_the_snapshot_contract_is_three_keys():
         assert key in src, key
 
 
-def test_the_daily_bundle_does_not_carry_feature_vectors():
-    """The measured reason the producer cannot be built. If this starts failing,
-    step 1 of the plan has landed and the design doc must be revisited."""
+def test_the_daily_bundle_now_carries_the_serving_features_block():
+    """THE PREMISE FLIPPED, as this test was built to detect. Its previous
+    form pinned the measured omission ("the daily bundle does not carry
+    feature vectors -- the reason the producer cannot be built"). The plan it
+    guarded then landed: pipeline#250 (design), pipeline#252 (the run
+    persists the AS-SERVED matrix + digest sidecar), and the orchestrator
+    pickup of that record into the bundle (#250 rollout step 3). This
+    successor pins the NEW premise: the bundle emits the tri-state
+    ``serving_features`` block, so the T-1 producer's missing input now has
+    a standing home -- the remaining work (orch#647) is a formatting step
+    over yesterday's parquet, not an excavation."""
     src = inspect.getsource(daily.PersistDailyRunBundleTask)
-    bundle_keys = [ln for ln in src.splitlines() if ln.strip().startswith('"')]
-    assert not any("feature" in ln.lower() and "manifest" not in ln.lower()
-                   for ln in bundle_keys), bundle_keys
+    assert '"serving_features": serving_features_block(' in src
+    # and the digest-sidecar record comes from the shared provenance module,
+    # imported -- not a re-implementation inside the task
+    module_src = inspect.getsource(daily)
+    assert ("from renquant_orchestrator.serving_features_provenance import "
+            "serving_features_block") in module_src

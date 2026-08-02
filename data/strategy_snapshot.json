@@ -179,6 +179,7 @@
     "scorer_identity_monitor",
     "sec_edgar_harvester",
     "serving_bundle_provenance",
+    "serving_features_provenance",
     "shadow_ab_epoch_telemetry",
     "shadow_ab_runner",
     "shadow_realtime_serving",
