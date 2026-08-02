@@ -320,7 +320,8 @@
       "measured": "2026-07-31: 19 entries",
       "owner": "RenQuant (umbrella repo)",
       "root": "/Users/renhao/git/github/RenQuant/scripts",
-      "why": "19 of 33 manifested wrappers live here, including daily104, intraday104 and weekly-wf-promote. This repo cannot read them under the standing no-git/no-write rule for the live umbrella tree, so the check is honest about not covering them rather than reporting a clean scan it did not perform."
+      "why": "19 of 33 manifested wrappers live here, including daily104, intraday104 and weekly-wf-promote. The standing umbrella rule forbids WRITES and GIT there, not reads (#682) - so this boundary is an INSPECTED_BY claim: the drift scan reads each declared wrapper read-only every firing and runs the same fallback-idiom check as for local wrappers. Ownership of FIXES stays with the umbrella repo.",
+      "inspect": "read-only-here"
     },
     {
       "measured": "2026-07-31: 1 entry",

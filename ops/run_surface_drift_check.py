@@ -795,6 +795,30 @@ def _owning_boundary(declared: str, boundaries: list[dict]) -> dict | None:
     return None
 
 
+def _scan_wrapper_text(job: str, text: str, repos_root: str,
+                       problems: list[str], infos: list[str],
+                       origin: str = "") -> None:
+    """The one fallback-idiom scan, shared by the local path and the #682
+    read-only cross-repo path so the two can never drift apart."""
+    hits = list(_FALLBACK_RE.finditer(text))
+    if not hits:
+        if "PYTHONPATH" in text:
+            infos.append(
+                f"pythonpath {job}: declares a deterministic root{origin}")
+        return
+    for m in hits:
+        pref = _expand(m.group("pref"), repos_root)
+        fall = _expand(m.group("fall"), repos_root)
+        fires = not os.path.isdir(pref)
+        problems.append(
+            f"pythonpath {job}: resolves a sibling checkout by FALLBACK "
+            f"({pref} else {fall}) — which copy executes is decided by "
+            f"filesystem state, not by review"
+            + (f"; the fallback IS firing today ({pref} is absent)" if fires
+               else "; it does not fire today, which does not make it reviewed")
+            + origin)
+
+
 def check_wrapper_pythonpath_roots(
     ops_dir: str | None = None,
     repos_root: str | None = None,
@@ -846,6 +870,7 @@ def check_wrapper_pythonpath_roots(
                  "no subjects, which is not the same as a clean fleet"], [])
 
     n_checked = 0
+    n_xrepo = 0
     boundaries = _wrapper_scope_boundaries(manifest_path)
     unowned = 0
     out_of_scope = 0
@@ -866,6 +891,29 @@ def check_wrapper_pythonpath_roots(
                     f"declared scope boundary — a scheduled source that no reviewed "
                     f"scan inspects. Either restore it here or declare its owner in "
                     f"`wrapper_scope_boundaries`.")
+            elif owner.get("inspect") == "read-only-here":
+                # GOAL-5/#682 option 2: the boundary is an INSPECTED_BY claim, not
+                # an ownership excuse. The declared path is READ (never written,
+                # never git-touched — the standing umbrella rule forbids writes and
+                # git, not reads) and gets the SAME fallback scan as a local
+                # wrapper. An unreadable subject is a finding: silently skipping it
+                # would re-open exactly the uninspected-copy gap #682 measured.
+                try:
+                    text = open(declared, encoding="utf-8",
+                                errors="replace").read()
+                except OSError as exc:
+                    unowned += 1
+                    problems.append(
+                        f"pythonpath {job}: boundary {owner['owner']} declares "
+                        f"read-only inspection here, but {declared} cannot be "
+                        f"read ({exc.__class__.__name__}) — the wrapper is "
+                        f"manifested and NO scan is reading it")
+                    continue
+                n_xrepo += 1
+                _scan_wrapper_text(
+                    job, text, repos_root, problems, infos,
+                    origin=f" [read-only across the repo boundary; "
+                           f"owner {owner['owner']}]")
             else:
                 out_of_scope += 1
                 infos.append(
@@ -876,30 +924,17 @@ def check_wrapper_pythonpath_roots(
             continue
         text = open(path, encoding="utf-8", errors="replace").read()
         n_checked += 1
-        hits = list(_FALLBACK_RE.finditer(text))
-        if not hits:
-            if "PYTHONPATH" in text:
-                infos.append(f"pythonpath {job}: declares a deterministic root")
-            continue
-        for m in hits:
-            pref = _expand(m.group("pref"), repos_root)
-            fall = _expand(m.group("fall"), repos_root)
-            fires = not os.path.isdir(pref)
-            problems.append(
-                f"pythonpath {job}: resolves a sibling checkout by FALLBACK "
-                f"({pref} else {fall}) — which copy executes is decided by "
-                f"filesystem state, not by review"
-                + (f"; the fallback IS firing today ({pref} is absent)" if fires
-                   else "; it does not fire today, which does not make it reviewed"))
+        _scan_wrapper_text(job, text, repos_root, problems, infos)
     # COVERAGE IS REPORTED AS A FRACTION, NOT AS A COUNT. "13 inspected" reads like
     # full coverage; "13 of 33" does not. A scan whose reach shrinks silently is the
     # same defect as a job that dies silently -- see the standing "no silent caps"
     # rule. The denominator is the manifest, which is reviewed.
     total = len(inventory)
     infos.append(
-        f"pythonpath: {n_checked} of {total} manifested wrapper(s) inspected here; "
-        f"{out_of_scope} owned by a declared boundary; {unowned} unowned")
-    if n_checked == 0 and total:
+        f"pythonpath: {n_checked} of {total} manifested wrapper(s) inspected here "
+        f"+ {n_xrepo} inspected read-only across a declared boundary; "
+        f"{out_of_scope} out of scope; {unowned} unowned")
+    if n_checked + n_xrepo == 0 and total:
         # Anti-vacuity on the OBJECT, not just the subject list: a non-empty
         # inventory with nothing actually read is a clean report about nothing.
         problems.append(
