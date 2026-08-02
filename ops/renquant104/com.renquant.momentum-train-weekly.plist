@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.renquant.momentum-train-weekly</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/momentum_train_weekly.sh</string></array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_momentum-train-weekly.out</string>
+  <key>StandardErrorPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_momentum-train-weekly.err</string>
+</dict>
+</plist>
