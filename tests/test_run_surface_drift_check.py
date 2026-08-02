@@ -173,12 +173,12 @@ class TestManifestGeneration:
     #: ops/run_surface_drift_check.py) does NOT read this set and keeps
     #: alarming "unmanifested job on disk" until the bootout — per the
     #: containment protocol that alarm is the DESIGNED reminder, not a defect.
-    PENDING_UNINSTALL = {
-        # hf_patchtst lane retired per orch#741 (decision comment 2026-08-02);
-        # plist bootout is a named item of the one-grant deployment batch in
-        # doc/progress/2026-08-02-retire-weekly-retrain-patchtst-manifest.md
-        "com.renquant.weekly-retrain-patchtst",
-    }
+    #: 2026-08-02 22:48Z: the weekly-retrain-patchtst bootout EXECUTED under
+    #: the operator's verbal grant (orch#755 checklist item c; decision
+    #: orch#741) — the entry left this set in the same change, exactly as the
+    #: exact-equality test below was designed to force. Empty until a future
+    #: retirement declares a pending state by name.
+    PENDING_UNINSTALL: set[str] = set()
 
     _PENDING_PATTERN = "manifested job {label} missing from disk"
     _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
